@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ChatSession } from '../lib/store';
-import type { PersonaItem } from '../lib/api';
+import type { CreativeModeItem, PersonaItem } from '../lib/api';
 import type { ComponentType } from 'react';
 import {
   IconChat, IconSkills, IconOutputs, IconAccounts, IconProfile,
@@ -17,6 +17,9 @@ interface SidebarProps {
   selectedPersona: string;
   onPersonaChange: (persona: string) => void;
   onNewProfile: () => void;
+  creativeModes: CreativeModeItem[];
+  selectedCreativeMode: string;
+  onCreativeModeChange: (mode: string) => void;
   sessions: ChatSession[];
   activeSessionId: string | null;
   activeSessionHasMessages: boolean;
@@ -45,6 +48,9 @@ export default function Sidebar({
   selectedPersona,
   onPersonaChange,
   onNewProfile,
+  creativeModes,
+  selectedCreativeMode,
+  onCreativeModeChange,
   sessions,
   activeSessionId,
   activeSessionHasMessages,
@@ -130,6 +136,20 @@ export default function Sidebar({
             <option key={p.name} value={p.name}>{p.name}</option>
           ))}
           <option value="__new__">+ 新建画像…</option>
+        </select>
+        <label className="creative-mode-label" htmlFor="creative-mode">作品风格</label>
+        <select
+          id="creative-mode"
+          className="persona-select creative-mode-select"
+          value={selectedCreativeMode}
+          onChange={(e) => onCreativeModeChange(e.target.value)}
+          disabled={activeSessionHasMessages}
+          title={activeSessionHasMessages ? '当前对话已绑定作品风格，切换请新建对话' : '选择 Creative Mode'}
+        >
+          <option value="">自由表达</option>
+          {creativeModes.filter((mode) => mode.status === 'active').map((mode) => (
+            <option key={mode.id} value={mode.id}>{mode.name} · v{mode.version}</option>
+          ))}
         </select>
       </div>
 

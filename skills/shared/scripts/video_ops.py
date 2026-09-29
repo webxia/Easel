@@ -461,7 +461,7 @@ def cmd_bgm(a) -> int:
         filt = (
             f"[0:a]volume={a.voice_volume}[a0];"
             f"[1:a]volume={a.music_volume}[a1];"
-            f"[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[a]"
+            f"[a0][a1]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[a]"
         )
         cmd = ["ffmpeg", "-y", "-i", str(src), "-stream_loop", "-1", "-i", str(music),
                "-filter_complex", filt, "-map", "0:v", "-map", "[a]",

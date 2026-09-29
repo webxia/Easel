@@ -14,8 +14,8 @@ import PublishPage from './components/PublishPage';
 import BreakdownPage from './components/BreakdownPage';
 import SubNav from './components/SubNav';
 import OnboardingWizard from './components/OnboardingWizard';
-import { fetchStatus, fetchPersonas, streamChat, fetchLastTurn, stopChat } from './lib/api';
-import type { PersonaItem, UploadedFile, ChatQuestion } from './lib/api';
+import { fetchStatus, fetchPersonas, streamChat, fetchLastTurn, stopChat, savePersonaCreativeMode } from './lib/api';
+import type { CreativeModeItem, PersonaItem, UploadedFile, ChatQuestion } from './lib/api';
 import { questionStatus } from './lib/api';
 import { deleteSession as deleteRemoteSession } from './lib/api';
 import {
@@ -26,7 +26,7 @@ import {
   loadActiveId,
   saveActiveId,
 } from './lib/store';
-import type { ChatSession, ChatMessage, StreamState } from './lib/store';
+import type { ChatSession, ChatMessage, CreationCapability, StreamState } from './lib/store';
 
 const ONBOARDING_SEEN_KEY = 'easel_onboarding_seen';
 
@@ -47,6 +47,8 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [personas, setPersonas] = useState<PersonaItem[]>([]);
   const [selectedPersona, setSelectedPersona] = useState('');
+  const [creativeModes, setCreativeModes] = useState<CreativeModeItem[]>([]);
+  const [selectedCreativeMode, setSelectedCreativeMode] = useState('');
   const [sessions, setSessions] = useState<ChatSession[]>(() => loadSessions());
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [gatewayStatus, setGatewayStatus] = useState('connecting');
@@ -68,7 +70,10 @@ export default function App() {
       setSessions(sess);
       setActiveSessionId(id);
       const s = sess.find((x) => x.id === id);
-      if (s) setSelectedPersona(s.persona || '');
+      if (s) {
+        setSelectedPersona(s.persona || '');
+        setSelectedCreativeMode(s.creativeMode || '');
+      }
       try { sessionStorage.setItem(TAB_SESSION_KEY, id); } catch { /* ignore */ }
       ch?.postMessage({ type: 'claim', sessionId: id });
     };
@@ -141,6 +146,7 @@ export default function App() {
     fetchStatus()
       .then((data) => {
         setPersonas(data.personas || []);
+        setCreativeModes(data.creativeModes || []);
         setGatewayStatus(data.gateway ? 'connected' : 'disconnected');
         // 首次使用：没有任何个性化画像 且 未看过引导 → 推荐配置
         if ((data.personas || []).length === 0 && !onboardingSeen()) {
@@ -216,6 +222,20 @@ export default function App() {
     });
   }, []);
 
+  const rememberCreationState = useCallback((
+    sessionId: string,
+    creationId: string,
+    phase?: 'proposal' | 'proposal_ready' | 'production_confirmed',
+  ) => {
+    setSessions((prev) => {
+      const next = prev.map((s) => s.id === sessionId
+        ? { ...s, activeCreationId: creationId, ...(phase ? { activeCreationPhase: phase } : {}) }
+        : s);
+      saveSessions(next);
+      return next;
+    });
+  }, []);
+
   const clearStream = useCallback((sessionId: string) => {
     // 打字机收尾：剩余队列立刻吐出，避免结束瞬间内容被截断
     flushTyping(sessionId);
@@ -233,7 +253,11 @@ export default function App() {
     sessionId: string,
     text: string,
     persona: string | undefined,
+    creativeMode: string | undefined,
     attachments: UploadedFile[] = [],
+    capability?: CreationCapability | null,
+    creationAction?: 'confirm_production',
+    proposalContext?: Array<{ role: 'user' | 'assistant'; content: string }>,
   ) => {
     const turnId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try { sessionStorage.setItem(`easel_pending_turn:${sessionId}`, turnId); } catch { /* ignore */ }
@@ -247,7 +271,7 @@ export default function App() {
     typingBuf.current[sessionId] = '';
     startTypingPump(sessionId);
     streamCtl.current[sessionId] = streamChat(
-      text, persona, sessionId,
+      text, persona, creativeMode, sessionId,
       (chunk) => {
         const a = streamAcc.current[sessionId]; if (!a) return;
         // 不直接追加 content——进打字机队列，pump 按节奏吐出（切会话不中断，队列归属 sessionId）
@@ -330,8 +354,12 @@ export default function App() {
       },
       // onHeartbeat：防呆心跳（30s 静默）。只设独立的「未卡住」提示，绝不写 activity/thinking → 不顶掉真实状态。
       (note) => setStreams((p) => (p[sessionId] ? { ...p, [sessionId]: { ...p[sessionId], stillWorking: note } } : p)),
+      capability,
+      (creationId, phase) => rememberCreationState(sessionId, creationId, phase),
+      creationAction,
+      proposalContext,
     );
-  }, [appendAssistant, clearStream]);
+  }, [appendAssistant, clearStream, rememberCreationState]);
 
   // 刷新/重开页面后按 eventId=0 重放当前 job，再继续实时 tail；旧任务无事件日志时退回最终快照。
   const resumePendingTurn = useCallback((sessionId: string) => {
@@ -353,7 +381,7 @@ export default function App() {
       return;
     }
     streamCtl.current[sessionId] = streamChat(
-      '', undefined, sessionId,
+      '', undefined, undefined, sessionId,
       (chunk) => {
         const a = streamAcc.current[sessionId]; if (!a) return;
         typingBuf.current[sessionId] = (typingBuf.current[sessionId] || '') + chunk;
@@ -439,8 +467,10 @@ export default function App() {
       },
       // onHeartbeat：同上，独立的「未卡住」提示，不覆盖 activity/thinking。
       (note) => setStreams((p) => (p[sessionId] ? { ...p, [sessionId]: { ...p[sessionId], stillWorking: note } } : p)),
+      undefined,   // capability: 恢复请求只重放事件，不重新提交 POST
+      (creationId, phase) => rememberCreationState(sessionId, creationId, phase),
     );
-  }, [appendAssistant, clearStream]);
+  }, [appendAssistant, clearStream, rememberCreationState]);
 
   // 活跃会话确定后（含挂载首刷）尝试恢复它悬空的一轮
   useEffect(() => {
@@ -454,12 +484,17 @@ export default function App() {
     attachments: UploadedFile[] = [],
     legacyAgentText?: string,
     truncateAt?: number,
+    creationAction?: 'confirm_production',
   ) => {
     const visible = displayText.trim();
     const agentMessage = (legacyAgentText || displayText).trim();
     if ((!agentMessage && attachments.length === 0) || streamCtl.current[sessionId]) return;
     const cur = sessionsRef.current.find((s) => s.id === sessionId);
     const persona = cur?.persona || selectedPersona || undefined;
+    const capability = cur?.capability ?? null;
+    // Empty string is an explicit "自由表达" override. Only an absent value may
+    // fall back to a Profile default on the server.
+    const creativeMode = cur?.creativeMode ?? selectedCreativeMode;
     setSessions((prev) => {
       const next = prev.map((s) => {
         if (s.id !== sessionId) return s;
@@ -479,11 +514,29 @@ export default function App() {
       saveSessions(next);
       return next;
     });
-    startStream(sessionId, agentMessage, persona, attachments);
-  }, [selectedPersona, startStream]);
+    const proposalContext = creationAction === 'confirm_production'
+      ? cur?.messages.slice(-48).map(({ role, content }) => ({ role, content }))
+      : undefined;
+    startStream(sessionId, agentMessage, persona, creativeMode, attachments, capability, creationAction, proposalContext);
+  }, [selectedCreativeMode, selectedPersona, startStream]);
+
+  const handleCapabilityChange = useCallback((sessionId: string, capability: CreationCapability | null) => {
+    setSessions((prev) => {
+      const next = prev.map((s) => s.id === sessionId ? { ...s, capability } : s);
+      saveSessions(next);
+      return next;
+    });
+  }, []);
 
   const handleSendMessage = useCallback((sessionId: string, displayText: string, attachments?: UploadedFile[]) => {
     sendUserAndStream(sessionId, displayText, attachments);
+  }, [sendUserAndStream]);
+
+  const handleConfirmProduction = useCallback((sessionId: string) => {
+    const current = sessionsRef.current.find((s) => s.id === sessionId);
+    if (current?.capability !== 'ai-film' || !current.activeCreationId
+        || current.activeCreationPhase !== 'proposal_ready') return;
+    sendUserAndStream(sessionId, '确认当前创作方案，继续准备内容与素材', [], undefined, undefined, 'confirm_production');
   }, [sendUserAndStream]);
 
   // 重试/编辑重发：从该用户消息处截断（丢弃它及其之后），用 text 重新发起。
@@ -500,12 +553,12 @@ export default function App() {
   // 热点「一键做成内容」：新开会话，把选题作为指令发出去，跳到对话页。
   const handleUseTopic = useCallback((title: string) => {
     const prompt = `围绕当前热点「${title}」：先判断它适不适合我的账号赛道；若合适，给 2-3 个差异化的二创角度，并把你最推荐的那条写成可直接发布的文案初稿。`;
-    const ns = createSession(selectedPersona || undefined);
+    const ns = createSession(selectedPersona || undefined, selectedCreativeMode);
     setSessions((prev) => { const u = [ns, ...prev]; saveSessions(u); return u; });
     setActiveSessionId(ns.id);
     setCurrentPage('chat');
     sendUserAndStream(ns.id, prompt);
-  }, [selectedPersona, sendUserAndStream]);
+  }, [selectedCreativeMode, selectedPersona, sendUserAndStream]);
 
   const handleStopStream = useCallback((sessionId: string) => {
     streamCtl.current[sessionId]?.abort();
@@ -553,16 +606,16 @@ export default function App() {
       if (rest.length) {
         setActiveSessionId(rest[0].id);
       } else {
-        const ns = createSession(selectedPersona || undefined);
+        const ns = createSession(selectedPersona || undefined, selectedCreativeMode);
         setSessions((prev) => { const u = [ns, ...prev]; saveSessions(u); return u; });
         setActiveSessionId(ns.id);
       }
       setCurrentPage('chat');
     }
-  }, [activeSessionId, selectedPersona]);
+  }, [activeSessionId, selectedCreativeMode, selectedPersona]);
 
   const handleNewChat = useCallback(() => {
-    const newSession = createSession(selectedPersona || undefined);
+    const newSession = createSession(selectedPersona || undefined, selectedCreativeMode);
     setSessions((prev) => {
       const updated = [newSession, ...prev];
       saveSessions(updated);
@@ -570,13 +623,14 @@ export default function App() {
     });
     setActiveSessionId(newSession.id);
     setCurrentPage('chat');
-  }, [selectedPersona]);
+  }, [selectedCreativeMode, selectedPersona]);
 
   const handleSessionSelect = useCallback((id: string) => {
     setActiveSessionId(id);
     const target = sessions.find(s => s.id === id);
     if (target) {
       setSelectedPersona(target.persona || '');
+      setSelectedCreativeMode(target.creativeMode || '');
     }
     setCurrentPage('chat');
   }, [sessions]);
@@ -637,7 +691,7 @@ export default function App() {
       setPersonas(list);
       setSelectedPersona(name);
       // 用新画像开一个新会话
-      const newSession = createSession(name);
+      const newSession = createSession(name, selectedCreativeMode);
       setSessions((prev) => {
         const updated = [newSession, ...prev];
         saveSessions(updated);
@@ -646,7 +700,7 @@ export default function App() {
       setActiveSessionId(newSession.id);
       setCurrentPage('profile');
     }).catch(() => {});
-  }, []);
+  }, [selectedCreativeMode]);
 
   // 画像删除完成：刷新列表 + 若删的是当前选中的则清空选择
   const handleProfileDeleted = useCallback((name: string) => {
@@ -675,6 +729,8 @@ export default function App() {
             session={activeSession}
             stream={streams[activeSession.id]}
             onSend={(displayText, attachments) => handleSendMessage(activeSession.id, displayText, attachments)}
+            onCapabilityChange={(capability) => handleCapabilityChange(activeSession.id, capability)}
+            onConfirmProduction={() => handleConfirmProduction(activeSession.id)}
             onStop={() => handleStopStream(activeSession.id)}
             onResend={(userIndex, displayText, attachments, legacyAgentText) => handleResend(
               activeSession.id, userIndex, displayText, attachments, legacyAgentText,
@@ -714,15 +770,26 @@ export default function App() {
         return <OutputsPage />;
       case 'accounts':
         return <AccountsPage />;
-      case 'profile':
-        return <ProfilePage persona={selectedPersona} onNewProfile={() => setShowWizard(true)} onDeleted={handleProfileDeleted} />;
+      case 'profile': {
+        const selected = personas.find((item) => item.name === selectedPersona);
+        return <ProfilePage
+          persona={selectedPersona}
+          onNewProfile={() => setShowWizard(true)}
+          onDeleted={handleProfileDeleted}
+          creativeModes={creativeModes}
+          defaultCreativeMode={selected?.defaultCreativeMode || ''}
+          onDefaultCreativeModeChange={handleProfileDefaultCreativeModeChange}
+        />;
+      }
       default:
         return null;
     }
   };
 
   const handlePersonaChange = useCallback((persona: string) => {
+    const defaultMode = personas.find((item) => item.name === persona)?.defaultCreativeMode || '';
     setSelectedPersona(persona);
+    setSelectedCreativeMode(defaultMode);
     setCurrentPage('chat');
     // 修复：选/切画像不再新建空会话丢上下文。就地把当前会话的画像设为新选的、
     // 保留会话 id 与历史（画像只是每轮的系统前缀，中途换安全）。想开新线程用「New Chat」。
@@ -730,17 +797,58 @@ export default function App() {
     if (cur) {
       setSessions((prev) => {
         const updated = prev.map((s) =>
-          s.id === activeSessionId ? { ...s, persona: persona || undefined } : s);
+          s.id === activeSessionId ? {
+            ...s,
+            persona: persona || undefined,
+            creativeMode: defaultMode,
+          } : s);
         saveSessions(updated);
         return updated;
       });
     } else {
       // 无活跃会话（极少）才新建
-      const ns = createSession(persona || undefined);
+      const ns = createSession(persona || undefined, defaultMode);
       setSessions((prev) => { const u = [ns, ...prev]; saveSessions(u); return u; });
       setActiveSessionId(ns.id);
     }
-  }, [activeSessionId]);
+  }, [activeSessionId, personas]);
+
+  const handleCreativeModeChange = useCallback((creativeMode: string) => {
+    setSelectedCreativeMode(creativeMode);
+    setCurrentPage('chat');
+    const cur = sessionsRef.current.find((s) => s.id === activeSessionId);
+    if (cur) {
+      setSessions((prev) => {
+        const updated = prev.map((s) =>
+          s.id === activeSessionId ? { ...s, creativeMode } : s);
+        saveSessions(updated);
+        return updated;
+      });
+    } else {
+      const ns = createSession(selectedPersona || undefined, creativeMode);
+      setSessions((prev) => { const updated = [ns, ...prev]; saveSessions(updated); return updated; });
+      setActiveSessionId(ns.id);
+    }
+  }, [activeSessionId, selectedPersona]);
+
+  const handleProfileDefaultCreativeModeChange = useCallback(async (creativeMode: string) => {
+    if (!selectedPersona) return;
+    const result = await savePersonaCreativeMode(selectedPersona, creativeMode);
+    setPersonas((prev) => prev.map((item) => item.name === selectedPersona
+      ? { ...item, defaultCreativeMode: result.defaultCreativeMode || undefined }
+      : item));
+    const active = sessionsRef.current.find((item) => item.id === activeSessionId);
+    if (active?.messages.length === 0) {
+      setSelectedCreativeMode(creativeMode);
+      setSessions((prev) => {
+        const updated = prev.map((item) => item.id === activeSessionId
+          ? { ...item, creativeMode }
+          : item);
+        saveSessions(updated);
+        return updated;
+      });
+    }
+  }, [activeSessionId, selectedPersona]);
 
   return (
     <div className="app-layout">
@@ -751,6 +859,9 @@ export default function App() {
         selectedPersona={selectedPersona}
         onPersonaChange={handlePersonaChange}
         onNewProfile={() => setShowWizard(true)}
+        creativeModes={creativeModes}
+        selectedCreativeMode={selectedCreativeMode}
+        onCreativeModeChange={handleCreativeModeChange}
         sessions={sessions}
         activeSessionId={activeSessionId}
         activeSessionHasMessages={activeSession ? activeSession.messages.length > 0 : false}

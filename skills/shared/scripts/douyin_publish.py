@@ -60,7 +60,7 @@ SELECTORS = {
     "avatar": '[class*="avatar"]',
     "tab_video": 'div[class*="tab-item"]:has-text("发布视频")',
     "tab_imagetext": 'div[class*="tab-item"]:has-text("发布图文")',
-    "file_input": 'div[class*="drag-upload"] input[type="file"]',
+    "file_input": 'div[class*="drag-upload"] input[type="file"], div[class*="container-drag"] input[type="file"]',
     "file_input_fallback": 'input[type="file"]',
     "uploading": '[class*="uploading-container"]',
     "cover_title": 'span[class*="recommendTitle"]',
@@ -187,7 +187,12 @@ def _logged_in(page) -> bool:
         try:
             if page.query_selector(SELECTORS["qrcode"]):
                 return False
-            return bool(page.query_selector(SELECTORS["hd_publish"]))
+            if page.query_selector(SELECTORS["hd_publish"]):
+                return True
+            txt = (page.inner_text("body") or "")[:2000]
+            if "创作者登录" in txt or "登录即代表同意" in txt:
+                return False
+            return ("作品发布" in txt and ("内容管理" in txt or "发布图文" in txt or "发布视频" in txt))
         except Exception:
             try:
                 page.wait_for_timeout(500)
@@ -319,13 +324,106 @@ def _switch_tab(page, kind: str):
     page.wait_for_timeout(400)
 
 
-def _upload_files(page, paths: list[str]):
-    """隐藏 file input 塞文件（比拦截 filechooser 稳）。REF _clickAndChooseFile。"""
-    fi = page.query_selector(SELECTORS["file_input"]) or page.query_selector(SELECTORS["file_input_fallback"])
-    if not fi:
-        _die("未找到上传 file input（检查 SELECTORS.file_input）")
-    fi.set_input_files(paths)
-    page.wait_for_timeout(1000)
+def _file_input_accepts(accept: str, kind: str) -> bool:
+    a = (accept or "").lower()
+    if kind == "imagetext":
+        return any(x in a for x in ("image/", ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif"))
+    return any(x in a for x in ("video/", ".mp4", ".mov", ".m4v", ".webm", ".mkv"))
+
+
+def _find_file_input(page, kind: str):
+    """Pick the media input by accept=, not DOM order.
+
+    Douyin's 2026 creator-micro upload page keeps both video and image hidden
+    inputs in the DOM after switching tabs. Querying the first input sends jpgs
+    into the video picker and the page reports "unsupported format".
+    """
+    deadline = time.time() + 12
+    last_seen = []
+    while time.time() < deadline:
+        inputs = page.query_selector_all(SELECTORS["file_input"]) or page.query_selector_all(
+            SELECTORS["file_input_fallback"])
+        last_seen = []
+        for fi in inputs:
+            accept = fi.get_attribute("accept") or ""
+            last_seen.append(accept)
+            if _file_input_accepts(accept, kind):
+                return fi
+        page.wait_for_timeout(500)
+    _dump_publish_fail(page, f"{kind}-no-file-input")
+    _die(f"未找到{('图片' if kind == 'imagetext' else '视频')}上传 file input（accepts={last_seen}）")
+
+
+def _upload_files(page, paths: list[str], kind: str):
+    """隐藏 file input 塞文件（比拦截 filechooser 稳）。REF _clickAndChooseFile。
+
+    抖音图文 tab 的 file input 是 single-file，多图需循环追加上传。
+    视频 tab 也按单文件处理。
+    """
+    fi = _find_file_input(page, kind)
+    if kind == "imagetext":
+        try:
+            fi.set_input_files(paths)
+            page.wait_for_timeout(1000)
+            return
+        except Exception:
+            print("  · 图文批量上传失败，回退为逐张追加", file=sys.stderr)
+    else:
+        fi.set_input_files([paths[0]])
+        page.wait_for_timeout(1000)
+        return
+
+    # 多图轮询时页面可能重建 input，每张上传前重新定位当前 image input。
+    for idx, p in enumerate(paths):
+        fi = _find_file_input(page, kind)
+        try:
+            fi.set_input_files([p])
+        except Exception:
+            fi.set_input_files(paths[idx:])
+            print(f"  · 图文上传回退为批量（剩余 {len(paths)-idx} 张）", file=sys.stderr)
+            break
+        page.wait_for_timeout(800)
+
+
+def _visible_upload_error(page) -> str:
+    try:
+        return page.evaluate(r"""() => {
+            const bad = ["不支持的文件格式", "文件格式不支持", "上传失败", "图片上传失败",
+                         "文件上传失败", "格式错误", "不能上传", "文件大小超过", "超过50MB"];
+            const out = [];
+            document.querySelectorAll('div,span,p').forEach(e => {
+                const t = (e.innerText || e.textContent || '').trim();
+                if (!t || t.length > 200) return;
+                if (t.includes("最多支持上传") || t.includes("推荐jpg")
+                    || t.includes("不支持gif") || t.includes("不超过")) return;
+                if (bad.some(k => t.includes(k))) out.push(t);
+            });
+            return Array.from(new Set(out)).slice(0, 5).join(' | ');
+        }""") or ""
+    except Exception:
+        return ""
+
+
+def _wait_images_uploaded(page, n: int, timeout_s: int = 300):
+    """等 n 张图都上传完成 + 标题输入框可见。
+    抖音图文上传完成后会渲染标题 input；上传中则一直不出现。
+    """
+    deadline = time.time() + timeout_s
+    last_log = 0
+    while time.time() < deadline:
+        ti = page.query_selector(SELECTORS["title_input"])
+        if ti and not page.query_selector(SELECTORS["uploading"]):
+            page.wait_for_timeout(1500)
+            return
+        err = _visible_upload_error(page)
+        if err:
+            _dump_publish_fail(page, "imagetext-upload-error")
+            _die(f"图文上传失败：{err}")
+        if time.time() - last_log > 5:
+            print(f"  · 等待图文上传完成（标题未出现，可能还在处理）…", file=sys.stderr)
+            last_log = time.time()
+        page.wait_for_timeout(1500)
+    _die(f"图文上传超时或编辑器未就绪（{timeout_s}s）")
 
 
 def _wait_video_processed(page, timeout_s: int = 480):
@@ -1175,11 +1273,13 @@ def _publish(a, kind: str) -> int:
             _go_upload(page)
             human_pace.pace("task-switch")               # 进编辑器的自然停顿
             _switch_tab(page, "video" if kind == "video" else "imagetext")
-            _upload_files(page, media)
+            _upload_files(page, media, kind)
             human_pace.pace("field-switch")              # 上传后到填写前
             if kind == "video":
                 _wait_video_processed(page)
                 _select_ai_cover(page)
+            else:
+                _wait_images_uploaded(page, len(media))
             _fill_title_desc(page, a.title, a.content or "", tags)
             _click_publish(page, len(a.title) + len(a.content or ""))
             # 点击后轮询等风控墙浮现（2026-09-12 真机发现：墙的渲染晚于 2.5s，
@@ -1401,7 +1501,11 @@ def cmd_selftest(_a) -> int:
     _src = _ins.getsource(_click_publish)
     assert "_wait_publish_button_ready" in _src and "pause_before_commit" in _src
     assert callable(_wait_publish_button_ready)
-    print("✅ selftest 通过（短信选择器 + 弹窗定位 + 墙判定 + 路径/代理/路由 + plan + 验证码文件协议 + 读回对账 + 发前快照 + 人类节奏 + 单次提交契约）")
+    assert _file_input_accepts("image/png,image/jpeg,image/jpg", "imagetext")
+    assert not _file_input_accepts("video/mp4,video/*,.mov", "imagetext")
+    assert _file_input_accepts("video/mp4,video/*,.mov", "video")
+    assert not _file_input_accepts("image/png,image/jpeg,image/jpg", "video")
+    print("✅ selftest 通过（短信选择器 + 弹窗定位 + 墙判定 + 路径/代理/路由 + plan + 验证码文件协议 + 读回对账 + 发前快照 + 人类节奏 + 单次提交契约 + 上传框识别）")
     return 0
 
 

@@ -21,6 +21,8 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 ANALYTICS_DIR = PROJECT_ROOT / "outputs" / "_analytics"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import bitbrowser_runtime
 # 分层保留：近 KEEP_FULL_DAYS 天全部变化一条不丢；90~DAILY_DAYS 天每天≤1条；更老每周≤1条。
 # 既留住 日/周/月/年 对比所需的老基线，又让总量恒定在几百条(几十KB)、用多年不膨胀。
 KEEP_FULL_DAYS = 90
@@ -346,18 +348,40 @@ def _proxy(platform: str, explicit: str | None, disable: bool | None) -> str | N
     return os.environ.get("https_proxy") or os.environ.get("http_proxy") or os.environ.get("EASEL_PROXY")
 
 
-def _scrape(platform: str, headed: bool, base: str | None, proxy: str | None) -> dict:
+def _xhs_browser_backend(explicit: str | None = None) -> str:
+    return (explicit or os.environ.get("XHS_BROWSER_BACKEND") or "disabled").strip().lower()
+
+
+def _launch_context(p, platform: str, headed: bool, base: str | None, proxy: str | None,
+                    xhs_browser_backend: str | None = None, bitbrowser_account: str | None = None):
+    """Use the same BitBrowser environment as XHS login/publishing when selected."""
+    if platform == "xiaohongshu":
+        backend = _xhs_browser_backend(xhs_browser_backend)
+        if backend == "disabled":
+            _die("小红书运营数据浏览器自动化已停用（不会连接 BitBrowser）。", 4)
+        if backend == "bitbrowser":
+            return bitbrowser_runtime.launch(
+                p, headed=headed, account=bitbrowser_account, proxy=proxy,
+            )
+
+    profile = _profile_dir(platform, base)
+    profile.mkdir(parents=True, exist_ok=True)
+    kwargs = dict(headless=not headed, locale="zh-CN", args=LAUNCH_ARGS)
+    if proxy:
+        kwargs["proxy"] = {"server": proxy}
+    return p.chromium.launch_persistent_context(str(profile), **kwargs)
+
+
+def _scrape(platform: str, headed: bool, base: str | None, proxy: str | None,
+            xhs_browser_backend: str | None = None, bitbrowser_account: str | None = None) -> dict:
     from playwright.sync_api import sync_playwright
     cfg = PLATFORMS[platform]
     r = {"nickname": "", "followers": None, "likes": None, "following": None,
          "posts": None, "metrics": [], "notes": [], "logged_in": True}
     with sync_playwright() as p:
-        profile = _profile_dir(platform, base)
-        profile.mkdir(parents=True, exist_ok=True)
-        kwargs = dict(headless=not headed, locale="zh-CN", args=LAUNCH_ARGS)
-        if proxy:
-            kwargs["proxy"] = {"server": proxy}
-        ctx = p.chromium.launch_persistent_context(str(profile), **kwargs)
+        ctx = _launch_context(
+            p, platform, headed, base, proxy, xhs_browser_backend, bitbrowser_account,
+        )
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         try:
             page.goto(cfg["url"], wait_until="domcontentloaded", timeout=30000)
@@ -725,12 +749,17 @@ def cmd_check(_a) -> int:
 def cmd_fetch(a) -> int:
     if a.platform not in PLATFORMS:
         _die(f"未知平台：{a.platform}（支持：{', '.join(PLATFORMS)}）")
+    if a.platform == "xiaohongshu" and _xhs_browser_backend(a.xhs_browser_backend) == "disabled":
+        _die("小红书运营数据浏览器自动化已停用（XHS_BROWSER_BACKEND=disabled）。", 4)
     try:
         import playwright.sync_api  # noqa: F401
     except Exception as e:
         _die(f"需要 playwright：{e}", 3)
     disable = True if a.no_proxy else (False if a.proxy else None)
-    s = _scrape(a.platform, a.headed, a.profile_base, _proxy(a.platform, a.proxy, disable))
+    s = _scrape(
+        a.platform, a.headed, a.profile_base, _proxy(a.platform, a.proxy, disable),
+        a.xhs_browser_backend, a.bitbrowser_account,
+    )
 
     now = int(time.time())
     snap = {"ts": now, "followers": s["followers"], "likes": s["likes"], "posts": s["posts"]}
@@ -849,6 +878,9 @@ def main() -> int:
     pf.add_argument("--proxy", help="外网代理（默认按平台：xhs 直连、其它走 env）")
     pf.add_argument("--no-proxy", action="store_true", help="强制直连")
     pf.add_argument("--headed", action="store_true", help="有头模式（首次校准）")
+    pf.add_argument("--xhs-browser-backend", choices=("disabled", "bitbrowser", "playwright"),
+                    help="小红书浏览器后端（默认 XHS_BROWSER_BACKEND 或 disabled）")
+    pf.add_argument("--bitbrowser-account", help="小红书 BitBrowser 账号标识（默认 XHS_BITBROWSER_ACCOUNT）")
     pf.set_defaults(func=cmd_fetch)
     sub.add_parser("selftest", help="离线自检").set_defaults(func=cmd_selftest)
     a = ap.parse_args()

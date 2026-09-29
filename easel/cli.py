@@ -162,6 +162,42 @@ def cmd_web(args) -> int:
     return result.returncode
 
 
+def cmd_runtime_readiness(args) -> int:
+    import json
+    from easel.runtime_dependencies import DependencyRegistry
+
+    result = DependencyRegistry().profile(args.profile, probe_local=not args.no_probe)
+    if args.json:
+        print(json.dumps(result.as_dict(), ensure_ascii=False, indent=2))
+    else:
+        print(f"Easel Runtime Readiness [{result.profile.value}]: {result.status}")
+        for row in result.dependencies:
+            print(f"{row.status.value:20} {row.spec.id} — {row.detail}")
+        if result.blockers:
+            print("Blockers:")
+            for row in result.blockers:
+                print(f"  - {row.spec.id}: {row.status.value}")
+        print(f"Legacy dependencies inventoried separately: {len(result.legacy)}")
+    return 0 if result.status == "READY" else 1
+
+
+def cmd_runtime_dependencies(args) -> int:
+    import json
+    from easel.runtime_dependencies import DependencyRegistry
+
+    rows = DependencyRegistry().inventory(probe_local=not args.no_probe)
+    if args.json:
+        payload = {"count": len(rows), "dependencies": [row.as_dict() for row in rows]}
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(f"Easel Dependency Registry: {len(rows)} dependencies")
+        for row in rows:
+            form = "LEGACY / NOT_ON_FORMAL_WEB_PATH" if row.spec.legacy else ("FORMAL_WEB" if row.spec.formal_web_path else "NOT_ON_FORMAL_WEB_PATH")
+            profiles = ",".join(row.spec.required_by_profiles) or "none"
+            print(f"{row.status.value:20} {row.spec.id:34} {form:28} profiles={profiles}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="easel",
@@ -176,6 +212,19 @@ def main(argv: list[str] | None = None) -> int:
     # doctor
     p_doctor = sub.add_parser("doctor", help="检查环境")
     p_doctor.set_defaults(func=cmd_doctor)
+
+    # runtime dependency inventory and profile-based readiness
+    p_runtime = sub.add_parser("runtime", help="Runtime dependency registry and readiness")
+    runtime_sub = p_runtime.add_subparsers(dest="runtime_command", required=True)
+    p_runtime_deps = runtime_sub.add_parser("dependencies", help="列出全部正式与 Legacy 运行依赖")
+    p_runtime_deps.add_argument("--json", action="store_true", help="输出完整无 secret JSON")
+    p_runtime_deps.add_argument("--no-probe", action="store_true", help="跳过本机 health/doctor 检查")
+    p_runtime_deps.set_defaults(func=cmd_runtime_dependencies)
+    p_runtime_ready = runtime_sub.add_parser("readiness", help="检查运行时与外部依赖配置")
+    p_runtime_ready.add_argument("--profile", choices=["core-video", "v1-release", "generation", "provider-full", "audio", "full-system"], default="core-video")
+    p_runtime_ready.add_argument("--json", action="store_true", help="输出无 secret 的 JSON")
+    p_runtime_ready.add_argument("--no-probe", action="store_true", help="跳过本机 health/doctor 检查")
+    p_runtime_ready.set_defaults(func=cmd_runtime_readiness)
 
     # gateway
     p_gw = sub.add_parser("gateway", help="管理 OpenClaw gateway")

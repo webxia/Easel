@@ -9,11 +9,17 @@ export interface ChatMessage {
   activity?: string;   // 工具/执行活动步骤（换行分隔），持久保留
 }
 
+export type CreationCapability = 'ai-film';
+
 export interface ChatSession {
   id: string;
   title: string;
   messages: ChatMessage[];
   persona?: string;
+  creativeMode?: string;
+  capability?: CreationCapability | null;
+  activeCreationId?: string;
+  activeCreationPhase?: 'proposal' | 'proposal_ready' | 'production_confirmed';
   created: number;
   sessionKey?: string;  // OpenClaw 的 session key，用于后端删除
   pendingTurnId?: string; // 进行中的可重连 job；浏览器重开后继续按 eventId 续流
@@ -153,12 +159,13 @@ export function saveSessions(sessions: ChatSession[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(prune(sessions)));
 }
 
-export function createSession(persona?: string): ChatSession {
+export function createSession(persona?: string, creativeMode?: string): ChatSession {
   return {
     id: generateId(),
     title: 'New Chat',
     messages: [],
     persona,
+    creativeMode,
     created: Date.now(),
   };
 }

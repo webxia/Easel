@@ -1,0 +1,19 @@
+{
+  "id": "clear_memo_video",
+  "version": "1.0",
+  "name": "清醒备忘录 · 视频",
+  "summary": "以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。",
+  "status": "active",
+  "defaults": {
+    "duration_seconds": {"preferred": [30, 45], "allowed": [25, 60]},
+    "visual_beats": {"preferred": [6, 9]},
+    "orientation": "9:16",
+    "narration": "reflective-first-person",
+    "bgm": "optional-and-subordinate"
+  },
+  "boundaries": {
+    "content": "Director decides the topic, argument, structure, and whether a video is worthwhile.",
+    "profile": "Profile remains the source of identity, factual boundaries, audience, and public scope.",
+    "runtime": "Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns."
+  }
+}

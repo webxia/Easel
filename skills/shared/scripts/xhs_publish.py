@@ -38,6 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import login_state  # noqa: E402
 import content_guard  # noqa: E402  出站内容安全闸门
+import bitbrowser_runtime  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # 选择器集中维护（小红书改版时单点更新）。REF = xiaohongshu-mcp 对应源。
@@ -144,9 +145,41 @@ def _proxy(explicit: str | None, disable: bool) -> str | None:
 def _human_type(page, locator, text: str) -> None:
     """逐字符输入 + 随机间隔（反检测，REF humanize/input.go Type）。"""
     locator.click()
+    try:
+        locator.press("Control+A")
+        locator.press("Backspace")
+    except Exception:
+        pass
     for ch in text:
         page.keyboard.type(ch)
         page.wait_for_timeout(random.randint(30, 110))
+
+
+def _field_text(element) -> str:
+    """Read an editor value back from the platform DOM after typing."""
+    try:
+        tag = (element.evaluate("el => el.tagName") or "").lower()
+        if tag in {"input", "textarea"}:
+            return element.input_value()
+        return element.inner_text()
+    except Exception:
+        return ""
+
+
+def _require_field_text(element, expected: str, label: str, exact: bool = False) -> None:
+    actual = _field_text(element).replace("\u200b", "").strip()
+    wanted = expected.replace("\u200b", "").strip()
+    valid = actual == wanted if exact else wanted in actual
+    if not valid:
+        _die(f"{label}写入未被平台确认（期望 {len(wanted)} 字，实际 {len(actual)} 字）；停止发布。")
+
+
+def _preview_count(page) -> int:
+    """Count real preview cards, never generic page images or upload placeholders."""
+    try:
+        return len(page.query_selector_all(SELECTORS["img_preview"]))
+    except Exception:
+        return 0
 
 
 def _click_publish_tab(page, tabname: str) -> None:
@@ -183,17 +216,18 @@ def _click_publish_tab(page, tabname: str) -> None:
 
 def _upload_images(page, paths: list[str]) -> None:
     """逐张上传并等预览出现（≤60s/张）。REF uploadImages/waitForUploadComplete。"""
+    baseline = _preview_count(page)
     for i, path in enumerate(paths):
         sel = SELECTORS["upload_input_first"] if i == 0 else SELECTORS["upload_input_more"]
         page.set_input_files(sel, path)
         print(f"  上传图片 {i+1}/{len(paths)}: {path}", file=sys.stderr)
         deadline = time.time() + 60
         while time.time() < deadline:
-            if len(page.query_selector_all(SELECTORS["img_preview"])) >= i + 1:
+            if _preview_count(page) >= baseline + i + 1:
                 break
             page.wait_for_timeout(500)
         else:
-            _die(f"第 {i+1} 张图片上传超时（60s）")
+            _die(f"第 {i+1} 张图片上传未获平台预览确认（60s）；停止发布。")
         page.wait_for_timeout(1000)
 
 
@@ -341,8 +375,7 @@ def _confirm_publish_dialog(page) -> None:
 
 
 def _wait_publish_success(page, timeout_s: int = 40) -> None:
-    """发布成功校验：小红书发布成功后**原地清空表单回到上传页**（不换 URL）。
-    成功信号任一：跳离 /publish/publish、出现「成功」toast、或编辑表单已重置（标题框+图片预览消失）。"""
+    """发布成功必须由跳转或平台明确成功提示证明，表单清空不构成成功。"""
     deadline = time.time() + timeout_s
     while time.time() < deadline:
         if "/publish/publish" not in page.url:
@@ -356,14 +389,6 @@ def _wait_publish_success(page, timeout_s: int = 40) -> None:
                     return
             except Exception:
                 pass
-        # 表单已重置：填过的标题框 + 上传的图片预览都消失 = 已提交回到空上传页
-        try:
-            if (not page.query_selector(SELECTORS["title_input"])
-                    and not page.query_selector(SELECTORS["img_preview"])):
-                print("✅ 发布成功（编辑表单已清空复位）")
-                return
-        except Exception:
-            pass
         page.wait_for_timeout(500)
     _die("发布未确认成功：点击发布后未跳离发布页/未见成功提示。" + _diag_after_publish(page))
 
@@ -378,24 +403,29 @@ def _normalize_content(text: str) -> str:
     return text.strip("\n")
 
 
-def _fill_and_submit(page, title, content, tags):
-    """标题→正文→话题→长度校验→发布→成功校验。"""
+def _fill_and_submit(page, title, content, tags, submit: bool = True):
+    """标题→正文→话题→读回验收→长度校验→可选发布→成功校验。"""
     content = _normalize_content(content)         # 修连续空行导致的发布失败
     title_el = page.query_selector(SELECTORS["title_input"])
     if not title_el:
         _die("未找到标题输入框（检查 SELECTORS.title_input）")
     _human_type(page, title_el, title)
     page.wait_for_timeout(400)
+    _require_field_text(title_el, title, "标题", exact=True)
 
     content_el = _content_element(page)
     if not content_el:
         _die("未找到正文输入框（检查 SELECTORS.content_*）")
     _human_type(page, content_el, content)
     page.wait_for_timeout(500)
+    _require_field_text(content_el, content, "正文")
     title_el.click()  # REF waitAndClickTitleInput：回点标题增强稳定性
     _input_tags(page, content_el, tags)
 
     _check_overflow(page)
+    if not submit:
+        print("✅ 平台已确认图片、标题和正文写入；verify-only 未点击发布。")
+        return
 
     kind, btn = _wait_publish_clickable(page, 15)
     btn.scroll_into_view_if_needed()
@@ -418,7 +448,20 @@ def _fill_and_submit(page, title, content, tags):
 # --------------------------------------------------------------------------- #
 # 命令
 # --------------------------------------------------------------------------- #
-def _launch(p, headed: bool, base: str | None, proxy: str | None):
+def _browser_backend(explicit: str | None = None) -> str:
+    return (explicit or os.environ.get("XHS_BROWSER_BACKEND") or "disabled").strip().lower()
+
+
+def _launch(p, headed: bool, base: str | None, proxy: str | None,
+            backend: str | None = None, account: str | None = None):
+    selected = _browser_backend(backend)
+    if selected == "disabled":
+        _die("小红书浏览器自动化已停用（XHS_BROWSER_BACKEND=disabled），不会连接 BitBrowser 或其他浏览器。", 4)
+    if selected == "bitbrowser":
+        try:
+            return bitbrowser_runtime.launch(p, headed=headed, account=account, proxy=proxy)
+        except bitbrowser_runtime.BitBrowserError as e:
+            _die(f"小红书 BitBrowser 浏览器不可用：{e}", 5)
     profile = _profile_dir(base)
     profile.mkdir(parents=True, exist_ok=True)
     kwargs = dict(headless=not headed,
@@ -429,20 +472,37 @@ def _launch(p, headed: bool, base: str | None, proxy: str | None):
     return p.chromium.launch_persistent_context(str(profile), **kwargs)
 
 
-def cmd_check(_a) -> int:
+def _new_controlled_page(ctx):
+    """Never drive a leftover BitBrowser tab from an earlier task."""
+    return ctx.new_page()
+
+
+def cmd_check(a) -> int:
+    backend = _browser_backend(getattr(a, "browser_backend", None))
+    if backend == "disabled":
+        print("⏸️ 小红书浏览器自动化已停用（不会连接 BitBrowser）。")
+        return 4
     ok = True
     try:
         from playwright.sync_api import sync_playwright
         print("✅ playwright 已安装")
-        with sync_playwright() as p:
-            path = p.chromium.executable_path
-            if path and Path(path).exists():
-                print(f"✅ chromium 内核：{path}")
-            else:
-                print("❌ 未安装浏览器内核（playwright install chromium）"); ok = False
+        if backend == "bitbrowser":
+            ready, detail = bitbrowser_runtime.check()
+            print(("✅ " if ready else "❌ ") + detail)
+            ok &= ready
+        else:
+            with sync_playwright() as p:
+                path = p.chromium.executable_path
+                if path and Path(path).exists():
+                    print(f"✅ chromium 内核：{path}")
+                else:
+                    print("❌ 未安装浏览器内核（playwright install chromium）"); ok = False
     except Exception as e:
         print(f"❌ playwright/内核不可用：{e}"); ok = False
-    print(f"登录态目录：{_profile_dir(None)}")
+    if backend == "bitbrowser":
+        print(f"BitBrowser 账号映射：{bitbrowser_runtime.profile_name()}")
+    else:
+        print(f"登录态目录：{_profile_dir(None)}")
     return 0 if ok else 3
 
 
@@ -491,8 +551,9 @@ def cmd_login(a) -> int:
     login_state.write_status(sf, "starting")
 
     with sync_playwright() as p:
-        ctx = _launch(p, headed=a.headed, base=a.profile_base, proxy=_proxy(a.proxy, a.no_proxy))
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        ctx = _launch(p, headed=a.headed, base=a.profile_base, proxy=_proxy(a.proxy, a.no_proxy),
+                      backend=a.browser_backend, account=a.bitbrowser_account)
+        page = _new_controlled_page(ctx)
         try:
             page.goto(EXPLORE_URL, wait_until="domcontentloaded")
 
@@ -590,8 +651,9 @@ def _plan_lines(kind: str, title: str, content: str, media: list[str], tags: lis
         f"  3. {'逐图上传等预览(≤60s/张)' if kind == 'image' else '上传视频等处理(≤10min)'}",
         "  4. 输标题/正文（逐字符）+ 话题联想点选",
         "  5. 平台 DOM 长度校验",
-        "  6. 等发布按钮可点击（新版<xhs-publish-btn>/旧版.bg-red）→ 点击",
-        "  7. 成功校验：URL 离开 /publish/publish",
+        "  6. 逐项读回验收图片、标题、正文；任一不符立即失败",
+        "  7. 等发布按钮可点击（新版<xhs-publish-btn>/旧版.bg-red）→ 点击",
+        "  8. 成功校验：URL 跳转或平台明确成功提示",
     ]
     return lines
 
@@ -628,7 +690,8 @@ def _publish(a, kind: str) -> int:
                                allow_unsafe=getattr(a, "allow_unsafe", False),
                                label="小红书发布内容")
 
-    if not a.exec:
+    verify_only = bool(getattr(a, "verify_only", False))
+    if not a.exec and not verify_only:
         print("dry-run（加 --exec 真正发布）：\n")
         for ln in _plan_lines(kind, a.title, a.content or "", media, tags):
             print(ln)
@@ -639,8 +702,9 @@ def _publish(a, kind: str) -> int:
     except Exception as e:
         _die(f"需要 playwright：{e}", 3)
     with sync_playwright() as p:
-        ctx = _launch(p, headed=a.headed, base=a.profile_base, proxy=_proxy(a.proxy, a.no_proxy))
-        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        ctx = _launch(p, headed=a.headed, base=a.profile_base, proxy=_proxy(a.proxy, a.no_proxy),
+                      backend=a.browser_backend, account=a.bitbrowser_account)
+        page = _new_controlled_page(ctx)
         page.set_default_timeout(300000)
         try:
             page.goto(PUBLISH_URL, wait_until="domcontentloaded")
@@ -663,12 +727,14 @@ def _publish(a, kind: str) -> int:
                 _click_publish_tab(page, "上传视频")
                 page.wait_for_timeout(1000)
                 _upload_video(page, media[0])
-            _fill_and_submit(page, a.title, a.content or "", tags)
+            _fill_and_submit(page, a.title, a.content or "", tags, submit=not verify_only)
         except PWTimeout as e:
             _die(f"步骤超时（选择器可能已失效，检查 SELECTORS）：{e}")
         finally:
             if not a.keep_open:
                 ctx.close()
+    if verify_only:
+        return 0
     # 发布成功 → 落统一内容日历（对话页自动记录；发布页由 web 设 AUTORECORD=0 跳过防重复）
     try:
         import calendar_ops
@@ -699,8 +765,9 @@ def cmd_whoami(a) -> int:
     result = {"loggedIn": False, "name": "", "avatar": ""}
     try:
         with sync_playwright() as p:
-            ctx = _launch(p, headed=False, base=a.profile_base, proxy=_proxy(a.proxy, a.no_proxy))
-            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+            ctx = _launch(p, headed=False, base=a.profile_base, proxy=_proxy(a.proxy, a.no_proxy),
+                          backend=a.browser_backend, account=a.bitbrowser_account)
+            page = _new_controlled_page(ctx)
             try:
                 page.goto(EXPLORE_URL, wait_until="domcontentloaded")
                 try:  # 等登录态元素出现（已登录会很快命中；未登录则短等后判定）
@@ -784,6 +851,10 @@ def main() -> int:
         p.add_argument("--profile-base", help="登录态根目录（默认 ~/.easel-browser-profiles）")
         p.add_argument("--proxy", help="外网代理（默认取 env，小红书是外网需代理）")
         p.add_argument("--no-proxy", action="store_true", help="禁用代理")
+        p.add_argument("--browser-backend", choices=("disabled", "bitbrowser", "playwright"),
+                       help="小红书浏览器后端（默认 disabled）")
+        p.add_argument("--bitbrowser-account",
+                       help="账号映射名；自动查找/创建环境，不需要 profile ID")
 
     def add_content(p):
         p.add_argument("--title", help="标题（≤20 全角）")
@@ -792,12 +863,16 @@ def main() -> int:
         p.add_argument("--video", help="视频路径（视频发布）")
         p.add_argument("--tags", help="话题，逗号分隔（如 'AI,教程'）")
         p.add_argument("--exec", action="store_true", help="真正发布（默认 dry-run）")
+        p.add_argument("--verify-only", action="store_true",
+                       help="真实上传并填充后读回验收，但绝不点击发布")
         p.add_argument("--allow-unsafe", action="store_true",
                        help="放行内容安全闸门（检出内部设置泄露也照发，谨慎）")
         p.add_argument("--headed", action="store_true", help="有头模式（首次校验选择器用）")
         p.add_argument("--keep-open", action="store_true", help="发布后不关浏览器")
 
-    sub.add_parser("check", help="检查 playwright/内核").set_defaults(func=cmd_check)
+    p = sub.add_parser("check", help="检查小红书浏览器后端")
+    p.add_argument("--browser-backend", choices=("disabled", "bitbrowser", "playwright"))
+    p.set_defaults(func=cmd_check)
 
     p = sub.add_parser("login", help="扫码登录并持久化（headless：抠二维码成图片）")
     add_common(p)

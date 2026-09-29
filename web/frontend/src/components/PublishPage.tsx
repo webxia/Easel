@@ -127,7 +127,7 @@ export default function PublishPage({ persona }: PublishPageProps) {
     let acc = '';
     const base = { ...overrides };
     adaptCtl.current = streamChat(
-      prompt, persona, `adapt-${Date.now()}`,
+      prompt, persona, undefined, `adapt-${Date.now()}`,
       (chunk) => {                       // 逐字：实时解析并流进对应平台卡片
         acc += chunk;
         const map = parseSections(acc);

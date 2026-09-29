@@ -2,7 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import MessageBubble from './MessageBubble';
 import QuestionCards from './QuestionCards';
 import BrushEntry from './BrushEntry';
-import type { ChatSession, ChatMessage, StreamState } from '../lib/store';
+import FilmOperatorPage from './FilmOperatorPage';
+import type { ChatSession, ChatMessage, CreationCapability, StreamState } from '../lib/store';
 import { uploadFiles, adoptOversize } from '../lib/api';
 import type { UploadedFile } from '../lib/api';
 import { IconArrowUp, IconStop, IconPlus, IconFile } from './icons';
@@ -11,6 +12,8 @@ interface ChatPageProps {
   session: ChatSession;
   stream?: StreamState;          // 进行中的流式态（来自 App，切页也不丢）
   onSend: (displayText: string, attachments?: UploadedFile[]) => void;
+  onCapabilityChange: (capability: CreationCapability | null) => void;
+  onConfirmProduction: () => void;
   onStop: () => void;
   onResend: (
     userIndex: number,
@@ -35,7 +38,7 @@ function greeting(): string {
   return `${g}，想创作点什么？`;
 }
 
-export default function ChatPage({ session, stream, onSend, onStop, onResend, onQuestionAnswered }: ChatPageProps) {
+export default function ChatPage({ session, stream, onSend, onCapabilityChange, onConfirmProduction, onStop, onResend, onQuestionAnswered }: ChatPageProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -135,8 +138,31 @@ export default function ChatPage({ session, stream, onSend, onStop, onResend, on
           ))}
         </div>
       )}
+      {session.capability === 'ai-film' && (
+        <div className="composer-context">
+          <span className="composer-capability-chip" title="本会话后续修改将继续关联当前作品">
+            整片视频创作
+            <button type="button" onClick={() => onCapabilityChange(null)} aria-label="取消整片视频创作能力" title="取消能力">×</button>
+          </span>
+          {session.activeCreationId && session.activeCreationPhase === 'proposal_ready' && (
+            <button
+              type="button"
+              className="composer-confirm-btn"
+              onClick={onConfirmProduction}
+              disabled={isStreaming || uploading}
+              title="确认创作方向后，Easel 会准备内容与素材；制作视频前会再次显示费用"
+            >
+              确认方案，准备素材
+            </button>
+          )}
+        </div>
+      )}
       <div className="composer-top">
-        <BrushEntry onPick={(t) => { setInput(t); requestAnimationFrame(() => textareaRef.current?.focus()); }} />
+        <BrushEntry disabled={isStreaming} onPick={(t, capability) => {
+          onCapabilityChange(capability);
+          setInput(t);
+          requestAnimationFrame(() => textareaRef.current?.focus());
+        }} />
         <textarea
           ref={textareaRef}
           className="chat-input"
@@ -250,6 +276,15 @@ export default function ChatPage({ session, stream, onSend, onStop, onResend, on
           <div ref={messagesEndRef} />
         </div>
       </div>
+
+      {session.capability === 'ai-film' && session.activeCreationId
+        && session.activeCreationPhase === 'production_confirmed' && (
+        <section className="chat-production-panel" aria-label="视频创作进度">
+          <div className="chat-production-panel-body">
+            <FilmOperatorPage key={session.activeCreationId} creationId={session.activeCreationId} title={session.title} />
+          </div>
+        </section>
+      )}
 
       <div className="chat-input-area">
         <div className="chat-input-inner">{inputBox(false)}</div>

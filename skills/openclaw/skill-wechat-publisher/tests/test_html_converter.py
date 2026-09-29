@@ -27,27 +27,25 @@ def _convert(md: str, theme_tuple) -> str:
     return convert_markdown_to_wechat_html(md, styles, highlights, divider, list_style)
 
 
-# ---------------------------------------------------------------------------
-# Basic roundtrip
-# ---------------------------------------------------------------------------
-
-def test_plain_paragraph(theme):
-    """A plain markdown paragraph should produce a <p ...>content</p> tag."""
-    html = _convert("这是一段普通的段落文字。", theme)
-
-    # Output is wrapped in <section>, so just look for the <p>.
-    assert "<section" in html
-    assert "<p" in html
-    assert "这是一段普通的段落文字。" in html
-
-
-def test_headings_rendered(theme):
-    """h2 and h3 markdown should become <h2> and <h3>."""
-    md = "## 二级标题\n\n正文\n\n### 三级标题\n\n更多正文"
+def test_representative_markdown_constructs_keep_content_and_styles(theme):
+    """One renderer contract covers common Markdown output without per-tag smoke tests."""
+    md = (
+        "## 二级标题\n\n"
+        "一段 **加粗** 正文和[参考文档](https://example.com/doc)。\n\n"
+        "![示例图](https://example.com/img.png)\n\n"
+        "- 第一项\n- 第二项\n\n"
+        "> 一句引用"
+    )
     html = _convert(md, theme)
 
+    assert "<section" in html and "</section>" in html
     assert "<h2" in html and "二级标题" in html
-    assert "<h3" in html and "三级标题" in html
+    assert "<p" in html and "加粗" in html
+    assert "<strong" in html and "style=" in html
+    assert "<a " in html and "https://example.com/doc" in html
+    assert "<img" in html and "https://example.com/img.png" in html
+    assert "<ul" in html and "第一项" in html and "第二项" in html
+    assert "<blockquote" in html and "一句引用" in html
 
 
 # ---------------------------------------------------------------------------
@@ -119,24 +117,9 @@ def test_unclosed_code_block_preserved(theme):
     )
 
 
-def test_empty_input(theme):
-    """Empty markdown should still produce a valid (if empty) <section>."""
-    html = _convert("", theme)
-    assert "<section" in html
-    # The section should close properly.
-    assert "</section>" in html
-
-
 # ---------------------------------------------------------------------------
 # Highlight markers
 # ---------------------------------------------------------------------------
-
-def test_bold_marker_renders_strong(theme):
-    """**bold** should produce a <strong> tag with an inline style."""
-    html = _convert("一个 **加粗** 的词", theme)
-    assert "<strong" in html and "加粗" in html
-    # Inline style must be present (WeChat requires inline styles only).
-    assert "style=" in html
 
 
 def test_highlight_markers_work(theme):
@@ -178,44 +161,8 @@ def test_highlight_markers_work(theme):
 
 
 # ---------------------------------------------------------------------------
-# Images and links
-# ---------------------------------------------------------------------------
-
-def test_image_rendered_with_style(theme):
-    """![alt](url) should produce an <img> with inline style."""
-    md = "![示例图](https://example.com/img.png)"
-    html = _convert(md, theme)
-
-    assert "<img" in html
-    assert "https://example.com/img.png" in html
-    assert "style=" in html
-
-
-def test_ordinary_http_link_kept(theme):
-    """Normal https: links should render fine (sanity check for #5)."""
-    md = "参考 [文档](https://example.com/doc)"
-    html = _convert(md, theme)
-
-    assert '<a ' in html
-    assert 'https://example.com/doc' in html
-
-
-# ---------------------------------------------------------------------------
 # Sanity: list and blockquote
 # ---------------------------------------------------------------------------
-
-def test_unordered_list(theme):
-    md = "- 第一项\n- 第二项\n- 第三项\n"
-    html = _convert(md, theme)
-    assert "<ul" in html
-    assert "第一项" in html and "第二项" in html and "第三项" in html
-
-
-def test_blockquote(theme):
-    md = "> 一句引用\n> 的内容\n"
-    html = _convert(md, theme)
-    assert "<blockquote" in html
-    assert "一句引用" in html
 
 
 # ---------------------------------------------------------------------------

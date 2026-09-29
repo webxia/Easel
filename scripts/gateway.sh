@@ -121,9 +121,20 @@ case "${1:-status}" in
         # 原始事件流由 gateway 进程按自己的 env 写到单个共享文件（web/app.py 会 tail 它做流式）。
         # 注意：`openclaw agent` 客户端没有 --raw-stream 标志，在客户端 env 上设这俩变量无效，
         # 必须在这里、真正跑模型的 gateway 上开启。setsid -f/nohup 会继承下面 export 的 env。
+        umask 077
         export OPENCLAW_RAW_STREAM=1
-        export OPENCLAW_RAW_STREAM_PATH="${EASEL_RAW_STREAM_PATH:-/tmp/easel-raw-stream.jsonl}"
+        if [ -n "${EASEL_RAW_STREAM_PATH:-}" ]; then
+            export OPENCLAW_RAW_STREAM_PATH="$EASEL_RAW_STREAM_PATH"
+        else
+            mkdir -p "$HOME/.openclaw-easel"
+            chmod 700 "$HOME/.openclaw-easel"
+            export EASEL_RAW_STREAM_PATH="$HOME/.openclaw-easel/easel-raw-stream.jsonl"
+            export OPENCLAW_RAW_STREAM_PATH="$EASEL_RAW_STREAM_PATH"
+        fi
+        mkdir -p "$(dirname "$OPENCLAW_RAW_STREAM_PATH")"
+        [ ! -L "$OPENCLAW_RAW_STREAM_PATH" ] || { echo "[easel] Refusing symlink raw-stream path"; exit 1; }
         : > "$OPENCLAW_RAW_STREAM_PATH"    # 每次起 gateway 清空，避免无限增长/读到上次残留
+        chmod 600 "$OPENCLAW_RAW_STREAM_PATH"
         _detach openclaw --profile "$PROFILE" gateway run --force --allow-unconfigured --bind loopback > "$LOGFILE" 2>&1
         sleep 4
         if gateway_live; then

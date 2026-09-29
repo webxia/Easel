@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CAPABILITY_MENU } from '../lib/capabilityMenu';
 import type { CapabilityItem } from '../lib/capabilityMenu';
+import type { CreationCapability } from '../lib/store';
 
 const DOT: Record<string, string> = { done: 's-done', ready: 's-ready', need: 's-need', incoming: 's-incoming' };
 
-/** 笔入口：点开「能做的都在这」→ 选一项自动填进输入框。纯前端，选中即预填，不自动发送。 */
-export default function BrushEntry({ onPick }: { onPick: (text: string) => void }) {
+/** 笔入口：普通能力填入提示，整片创作同时选择结构化 Capability。 */
+export default function BrushEntry({
+  onPick,
+  disabled = false,
+}: {
+  onPick: (text: string, capability: CreationCapability | null) => void;
+  disabled?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState(0);
   const [q, setQ] = useState('');
@@ -26,20 +33,20 @@ export default function BrushEntry({ onPick }: { onPick: (text: string) => void 
     () => CAPABILITY_MENU.tabs.flatMap((t) => t.groups.flatMap((g) => g.items)),
     [],
   );
-  const pipeline = useMemo(() => all.find((x) => x.status === 'incoming'), [all]);
+  const pipeline = useMemo(() => all.find((x) => x.id === 'ai-film'), [all]);
 
   const ql = q.trim().toLowerCase();
   const hit = (it: CapabilityItem) => !ql || `${it.label}${it.desc || ''}${it.skill || ''}`.toLowerCase().includes(ql);
 
   const pick = (it: CapabilityItem, pipe?: boolean) => {
-    onPick(pipe ? '用「视频产线」做一支整片：' : `帮我做「${it.label}」`);
+    onPick(pipe ? '' : `帮我做「${it.label}」`, pipe ? 'ai-film' : null);
     setOpen(false);
   };
 
   return (
     <div className={`brush-entry${open ? ' open' : ''}`} ref={wrapRef}>
       <button type="button" className="brush-btn" onClick={() => setOpen((v) => !v)}
-        aria-label="看看能做什么" title="看看能做什么">
+        aria-label="看看能做什么" title="看看能做什么" disabled={disabled}>
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <defs>
             <linearGradient id="brushHandleGrad" x1="12" y1="1.6" x2="12" y2="11.6" gradientUnits="userSpaceOnUse">
@@ -65,7 +72,7 @@ export default function BrushEntry({ onPick }: { onPick: (text: string) => void 
           <div className="brush-panel-head">
             <div className="brush-panel-headline">
               <div className="brush-panel-title">能做的都在这</div>
-              <div className="brush-panel-sub">选一个 → 自动填进输入框；「管线」件走整片产线</div>
+              <div className="brush-panel-sub">从创作能力中选择</div>
             </div>
             <input ref={searchRef} className="brush-search" placeholder="搜索…" value={q}
               onChange={(e) => setQ(e.target.value)} />
@@ -80,11 +87,11 @@ export default function BrushEntry({ onPick }: { onPick: (text: string) => void 
           <div className="brush-body">
             {pipeline && hit(pipeline) && (
               <div className="brush-grp">
-                <div className="brush-grp-name">整片级 · 走独立管线</div>
+                <div className="brush-grp-name">完整作品创作</div>
                 <button type="button" className="brush-item brush-item-pipe" onClick={() => pick(pipeline, true)}>
                   <span className={`brush-dot ${DOT[pipeline.status || 'ready'] || 's-ready'}`} />
                   <span className="brush-il">{pipeline.label}</span>
-                  <span className="brush-chip-pipe">管线</span>
+                  <span className="brush-chip-pipe">整片</span>
                   <span className="brush-idesc">{pipeline.desc}</span>
                   <span className="brush-iadd">＋</span>
                 </button>

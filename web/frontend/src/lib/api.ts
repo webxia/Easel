@@ -28,16 +28,34 @@ export interface StatusResponse {
   gateway: boolean;
   skills: SkillItem[];
   personas: PersonaItem[];
+  creativeModes: CreativeModeItem[];
 }
 
 export interface PersonaItem {
   name: string;
   description: string;
+  defaultCreativeMode?: string | null;
 }
 
 export interface PersonaDetail {
   name: string;
   content: string;
+  defaultCreativeMode?: string | null;
+}
+
+export interface CreativeModeItem {
+  id: string;
+  name: string;
+  version: string;
+  summary: string;
+  /** @deprecated Compatibility field; Creative Modes no longer select Routes. */
+  routes: string[];
+  status: string;
+}
+
+export interface CreativeModeDetail extends CreativeModeItem {
+  defaults?: Record<string, unknown>;
+  boundaries?: Record<string, string>;
 }
 
 export interface SkillItem {
@@ -86,6 +104,8 @@ export type FileKind = 'text' | 'image' | 'video' | 'audio' | 'binary';
 export interface OutputMeta {
   title?: string;
   summary?: string;
+  theme?: string;
+  copy?: { on_screen?: string[]; voiceover?: string[] };
   platform?: string;
   kind?: string;             // article|xhs-note|video|cards|poster|audio|other
   status?: string;           // draft|ready|published
@@ -93,6 +113,8 @@ export interface OutputMeta {
   cover?: string;            // outputs 下相对路径（后端已解析存在性）
   deliverables?: string[];   // 成品文件名（项目根相对）
   deliverablePaths?: string[];  // 成品的 outputs 相对路径（后端已解析存在性）
+  creative_mode?: string;
+  creative_mode_version?: string;
 }
 
 /** 产物树节点：文件或目录（目录带 children，可无限嵌套点开）。 */
@@ -147,6 +169,14 @@ export function fetchPersonaDetail(name: string): Promise<PersonaDetail> {
   return request<PersonaDetail>(`/api/persona/${encodeURIComponent(name)}`);
 }
 
+export function fetchCreativeModes(): Promise<CreativeModeItem[]> {
+  return request<CreativeModeItem[]>('/api/creative-modes');
+}
+
+export function fetchCreativeModeDetail(id: string): Promise<CreativeModeDetail> {
+  return request<CreativeModeDetail>(`/api/creative-mode/${encodeURIComponent(id)}`);
+}
+
 export interface PersonaFile {
   filename: string;
   content: string;
@@ -161,6 +191,197 @@ export function savePersonaFile(name: string, filename: string, content: string)
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ filename, content }),
+  });
+}
+
+export function savePersonaCreativeMode(name: string, creativeMode: string): Promise<{ ok: boolean; defaultCreativeMode?: string | null }> {
+  return request(`/api/persona/${encodeURIComponent(name)}/creative-mode`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ creativeMode }),
+  });
+}
+
+export type CreationStatus = 'draft' | 'planning' | 'producing' | 'ready' | 'not_ready' | 'failed' | 'paused';
+export interface CreationStage {
+  status: string;
+  artifacts: string[];
+  summary?: string;
+  error?: string;
+  decision?: 'ready' | 'not_ready';
+}
+export interface Creation {
+  id: string;
+  idea: string;
+  profile?: string | null;
+  creative_mode?: string | null;
+  creative_mode_version?: string | null;
+  route?: string | null;
+  workspace: string;
+  status: CreationStatus;
+  stages: Record<string, CreationStage>;
+}
+
+export function createCreation(input: { idea: string; persona?: string; creativeMode?: string; route?: string }): Promise<Creation> {
+  return request('/api/creations', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+}
+
+export function fetchCreations(): Promise<Creation[]> {
+  return request('/api/creations');
+}
+
+export function fetchCreation(id: string): Promise<Creation> {
+  return request(`/api/creations/${encodeURIComponent(id)}`);
+}
+
+// ---- Hypit operator workflow (same-origin loopback session cookie) ----
+export type OperatorRecord = Record<string, unknown>;
+
+export function createOperatorSession(): Promise<{ authenticated: boolean; expires_in_seconds: number }> {
+  return request('/api/operator/session', { method: 'POST', credentials: 'same-origin' });
+}
+
+function operatorRequest<T>(url: string, options?: RequestInit): Promise<T> {
+  return request<T>(url, { ...options, credentials: 'same-origin' });
+}
+
+function operatorPost<T>(url: string, body?: OperatorRecord): Promise<T> {
+  return operatorRequest<T>(url, {
+    method: 'POST',
+    ...(body ? {
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    } : {}),
+  });
+}
+
+export function listFilmAttempts(creationId: string): Promise<OperatorRecord[]> {
+  return operatorRequest(`/api/creations/${encodeURIComponent(creationId)}/film-attempts`);
+}
+
+export function fetchFilmAttempt(attemptId: string): Promise<OperatorRecord> {
+  return operatorRequest(`/api/film-attempts/${encodeURIComponent(attemptId)}`);
+}
+
+export function fetchScriptTruth(attemptId: string): Promise<OperatorRecord> {
+  return operatorRequest(`/api/film-attempts/${encodeURIComponent(attemptId)}/script-truth`);
+}
+
+export function fetchGeneratedMaterialRightsCandidates(attemptId: string): Promise<OperatorRecord[]> {
+  return operatorRequest(`/api/film-attempts/${encodeURIComponent(attemptId)}/material-rights/candidates`);
+}
+
+export function reviewGeneratedMaterialRights(
+  attemptId: string, review: OperatorRecord,
+): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/material-rights/review`, review);
+}
+
+export function fetchMaterialRightsCandidates(attemptId: string): Promise<OperatorRecord[]> {
+  return operatorRequest(`/api/film-attempts/${encodeURIComponent(attemptId)}/material-rights/review-candidates`);
+}
+
+export function reviewMaterialRights(
+  attemptId: string, review: OperatorRecord,
+): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/material-rights/review-current`, review);
+}
+
+export function startFilmAuthoring(attemptId: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/author`);
+}
+
+export function reviewScriptTruth(
+  attemptId: string, scriptSha256: string, truthPacketSha256: string,
+  reviewer: 'local_operator' | 'codex_delegate' = 'local_operator',
+): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/script-truth/review`, {
+    scriptSha256, truthPacketSha256, confirmAllClaimsReviewed: true, reviewer,
+  });
+}
+
+export function generateMiniMaxMaterialVideo(
+  attemptId: string, needId: string, requestId: string,
+): Promise<OperatorRecord> {
+  return generateMiniMaxMaterial(attemptId, needId, requestId);
+}
+
+export function generateMiniMaxMaterial(
+  attemptId: string, needId: string, requestId: string,
+): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/material-generation/minimax`, {
+    needId, requestId, confirmPaid: true,
+  });
+}
+
+export function resolveFilmRuntime(attemptId: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/runtime/resolve`);
+}
+
+export function validateFilmAttempt(attemptId: string, runPath: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/validate`, { runPath });
+}
+
+export function estimateFilmAttempt(attemptId: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/estimate`);
+}
+
+export function approveFilmCost(attemptId: string, maxBudgetUsd: number): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/approve-cost`, { maxBudgetUsd });
+}
+
+export function submitFilmBuild(attemptId: string, title: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/build`, { title });
+}
+
+export function refreshFilmBuild(attemptId: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/refresh`);
+}
+
+export function inspectFilmBuild(attemptId: string): Promise<OperatorRecord> {
+  return operatorRequest(`/api/film-attempts/${encodeURIComponent(attemptId)}/inspect`);
+}
+
+export function cancelFilmBuild(attemptId: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/cancel`);
+}
+
+export function reconcileFilmBuild(
+  attemptId: string, input: { buildId?: string; outputName?: string } = {},
+): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/reconcile`, input);
+}
+
+export function exportFilmOutput(attemptId: string, outputName: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/export`, { outputName });
+}
+
+export function reviewFilmOutput(
+  attemptId: string, input: OperatorRecord,
+): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/review`, input);
+}
+
+export function selectFilmBuild(
+  creationId: string, attemptId: string, outputName: string,
+): Promise<OperatorRecord> {
+  return operatorPost(`/api/creations/${encodeURIComponent(creationId)}/select-build`,
+    { attemptId, outputName });
+}
+
+export function fetchPromotableMaterials(attemptId: string): Promise<OperatorRecord> {
+  return operatorRequest(`/api/film-attempts/${encodeURIComponent(attemptId)}/promotable-materials`);
+}
+
+export function promoteAttemptMaterial(
+  attemptId: string, assetId: string, sha256: string,
+): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/materials/promote`, {
+    assetId, sha256, confirmPromotion: true,
   });
 }
 
@@ -547,6 +768,7 @@ export function stopChat(sessionId: string): Promise<{ stopped: boolean }> {
 export function streamChat(
   message: string,
   persona: string | undefined,
+  creativeMode: string | undefined,
   sessionId: string,
   onToken: (chunk: string) => void,
   onDone: (sessionKey?: string) => void,
@@ -560,6 +782,10 @@ export function streamChat(
   attachments: UploadedFile[] = [],
   onQuestion?: (q: ChatQuestion) => void,
   onHeartbeat?: (note: string) => void,
+  capability?: 'ai-film' | null,
+  onCreation?: (creationId: string, phase?: 'proposal' | 'proposal_ready' | 'production_confirmed') => void,
+  creationAction?: 'confirm_production',
+  proposalContext?: Array<{ role: 'user' | 'assistant'; content: string }>,
 ): AbortController {
   const controller = new AbortController();
   let lastEventId = 0;
@@ -599,6 +825,13 @@ export function streamChat(
         } else if (currentEvent === 'heartbeat') {
           // 防呆心跳：独立于 activity/thinking，仅作「未卡住」提示，不覆盖真实状态。
           if (onHeartbeat) { try { onHeartbeat(JSON.parse(data) as string); } catch { onHeartbeat(data); } }
+        } else if (currentEvent === 'creation' && onCreation) {
+          try {
+            const payload = JSON.parse(data) as {
+              creationId?: string; phase?: 'proposal' | 'proposal_ready' | 'production_confirmed';
+            };
+            if (payload.creationId) onCreation(payload.creationId, payload.phase);
+          } catch { /* malformed context event is non-fatal */ }
         } else if (currentEvent === 'error') {
           let msg = '执行失败';
           try { msg = JSON.parse(data) as string; } catch { msg = data; }
@@ -647,7 +880,17 @@ export function streamChat(
         const res = first
           ? await fetch(`${BASE}/api/chat/stream`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ message, persona: persona || undefined, sessionId, turnId, attachments }),
+              body: JSON.stringify({
+                message,
+                persona: persona || undefined,
+                creativeMode,
+                ...(capability ? { capability } : {}),
+                ...(creationAction ? { creationAction } : {}),
+                ...(proposalContext ? { proposalContext } : {}),
+                sessionId,
+                turnId,
+                attachments,
+              }),
               signal: controller.signal,
             })
           : await fetch(`${BASE}/api/chat/jobs/${encodeURIComponent(turnId || '')}/stream?after=${lastEventId}`, {

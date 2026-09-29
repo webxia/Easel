@@ -1,5 +1,5 @@
 /* 能力菜单数据（笔入口「能做的都在这」用）
- * 113 个技能的展示名/分组/状态 + 整片管线接入位。
+ * 113 个技能的展示名/分组/状态 + 整片创作能力接入位。
  * 技能集更新时随技能库重新生成。 */
 export interface CapabilityItem { id?: string; label: string; desc?: string; skill?: string | null; status?: string; }
 export interface CapabilityGroup { id?: string; label: string; items: CapabilityItem[]; }
@@ -351,9 +351,9 @@ export const CAPABILITY_MENU: { meta?: unknown; tabs: CapabilityTab[] } = {
       },
       {
        "skill": null,
-       "id": "video-pipeline",
-       "label": "视频产线 · 整片大片",
-       "desc": "原片 → 包装级成片：九步流程 + 七件门 + 两道确认门；独立管线接口接入",
+       "id": "ai-film",
+       "label": "整片视频创作",
+       "desc": "从一个主题开始，创建可追踪的视频作品",
        "status": "incoming"
       }
      ]

@@ -10,6 +10,10 @@
 4. **查现有信息再提问**：先查登录态、画像、历史产物和本地配置；只有关键输入确实无法推断时才问用户。
 5. **付费操作先确认**：生图、生视频、音乐等按量计费操作先给范围、计划和可得的费用预估，等用户确认后再发请求。
 6. **真实产物才算完成**：不以计划、空壳文件、中途文件或仅有提示词冒充成品；交付前必须自检。
+7. **小红书发布只走正式链路**：必须使用项目根 `skills/shared/scripts/xhs_publish.py` 与
+   `skill-xhs-publisher`，禁止在 `outputs/` 或 workspace 临时编写 CDP/Playwright 发布脚本。
+   上传、标题和正文均须由正式脚本读回验收；未得到平台明确成功信号时必须报告失败或未确认，
+   不得把“选择器命中”“表单清空”或脚本日志当作发布成功。
 
 外网代理已配置，不预设网络不可用。遇到登录、风控、付费源、缺素材等真实障碍时，说明原因和可行替代方案。
 
@@ -44,11 +48,22 @@
 
 跨两层以上时用 `manifest.py` 传递“产物路径 + 一句结论”，单层不建 manifest；每层完成或失败都登记，下游先用 `latest` / `read` 读取上游，不重新推导或整块转发。完整载荷写文件，关键决策写 `brief.md`；失败后从断点续跑，结束用 `manifest.py meta` 登记 Web 展示信息。
 
+## Creative Mode
+
+当本轮消息带有 `〔Creative Mode：...〕` 合同时，Mode 是作品表达层，不是新 Agent、固定文案模板或新的媒体流水线。Profile 继续决定“谁在说、事实边界和受众”；你作为 Director 继续决定“讲什么、是否值得讲、如何叙事”；Mode 只约束适用作品的视觉、声音、剪辑和导演审片。
+
+对需要创建媒体成品的 Mode 作品，先建作品状态（不是普通问答必做）：
+`python3 -m easel.creation create --idea "<用户输入>" --profile "<画像>" --creative-mode "<mode>"`。
+如果本轮内部上下文已提供当前作品 ID，说明聊天入口已确定性绑定 Creation；必须复用该 ID，不得再次执行 `create`。同一聊天中的修改意见继续记在同一作品下；只有新聊天才代表新的作品实例。
+先把 Content Core 写进 `outputs/_creations/<作品ID>/content-core.json`，再 `record --stage content_core --status completed --artifact _creations/<作品ID>/content-core.json`。Content Core 完成后，按需读取阶段合同：`context --stage director_plan|storyboard|image|video|tts|audio|assemble|qc`；只能把该合同用于对应生产环节。每一阶段的真实产物必须用 `record` 登记，QC 完成时必须写 `--decision ready|not_ready`。不得为满足风格补造经历、截图、人物或结果。制作项目时在 `.easel.json` 使用 `manifest.py meta --creative-mode <id> --creative-mode-version <version>` 留痕；交付前同时过技术 QC 与 Mode 的导演审片。
+
+**Hypit 视频 Creation Preparation 例外（仅当内部 Creation 上下文标注 `创作链路：hypit_video` 时生效）：**当前任务只由 Easel Director 整理 Content Core、Truth Packet 和最小 Creator Context，并严格按本轮隐藏 Creation Preparation 指令写入指定 draft 目录。不得执行上面的通用 `director_plan` / `storyboard` 阶段，不得生成 Treatment、视频脚本、Scene/Action、镜头清单、固定时长或 Hypit Timeline；这些全部交给 Hypit 外部 Authoring Agent。不要自行调用 Handoff/Attempt API、Hypit CLI、`check`、`plan`、`pricing` 或 `build`，也不要调用媒体 Provider。Preparation 文件由 Web 后端验证并冻结；后续普通对话、重试或修订不得重写已冻结快照或自动创建 Attempt #2。
+
 规划/选题/排期前用 `calendar_ops.py context --days 14` 读日历；发布成功会自动写日历和 publish-log，不重复记录。值得长期跟踪的节日、大促和平台活动通过 `skill-event-calendar` 查询，再用 `calendar_ops.py import-events` 导入。具体命令按对应 SKILL 执行。
 
 ## 媒体模型选择
 
-调用视频、音乐或云 TTS 前，从项目根用 `model_registry.py configured --group ... --env-file .env` 脱敏查询。用户点名且已配置就使用；只有一个可用就显式选择；多个可用就列出并询问，不按默认值擅选；零个则提示配置且不发付费请求。选定后整条任务保持同一 provider/model，具体命令按对应 SKILL 执行。
+调用视频、音乐或云 TTS 前，从项目根用 `model_registry.py configured --group ... --env-file .env` 脱敏查询。用户点名且已配置就使用；只有一个可用就显式选择；多个可用就列出并询问，不按默认值擅选。音乐 provider 为零时，先检查 `assets/media-library/bgm/` 是否有同时具备媒体文件、`source.json` 和许可记录的已授权曲目；可用时把该曲目的来源、许可、署名要求写入本次 manifest，且只以低音量服务旁白。没有合格本地曲目才提示配置，且不发付费请求。选定后整条任务保持同一 provider/model，具体命令按对应 SKILL 执行。
 
 ## 制作与自检
 

@@ -1,6 +1,14 @@
 # 已知问题
 
-本页记录目前已知、且与 Easel 使用相关的问题，以及推荐的规避方式。遇到未列出的问题，欢迎提交 [Issue](https://github.com/ZJU-REAL/Easel/issues)。
+本页保留 OpenClaw 兼容问题及其处理记录；以下条目不是当前已确认可复现的 Easel 缺陷。遇到新问题，欢迎提交 [Issue](https://github.com/ZJU-REAL/Easel/issues)。
+
+## 当前适用性核对（2026-09-21）
+
+- 本机 OpenClaw 为 `2026.9.4`；Easel `doctor` 将 `2026.6.11` 设为已验证最低版本。当前版本高于该下限。
+- 当前 OpenClaw CLI 中包含针对终端会话投影的唯一匹配、终态证据和恢复记录逻辑；本轮未登录模型或执行实时对话，因此不声称完成端到端复现。
+- 下文的 provider schema / `timeoutSeconds` 问题针对低于 Easel 已验证版本下限的旧版 OpenClaw；当前 `setup.sh` 已采用原子写入，并将超时字段写入作为旧版兼容的尽力操作。
+
+因此，本页分类为 **REFERENCE**：用于旧版本排障与兼容性追溯，不代表这些问题在当前本机环境仍然存在。
 
 ---
 

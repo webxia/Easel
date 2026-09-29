@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+.venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -10,6 +11,8 @@ build/
 
 # Environment
 .env
+.env.*
+!.env.example
 .env.local
 .env.xhs
 
@@ -28,6 +31,20 @@ Thumbs.db
 
 # OpenClaw runtime
 .openclaw/
+
+# Easel local runtime state (Creation / Attempt / Hypit workspaces and caches)
+/.easel/
+/.openclaw-easel/
+/.runtime/
+/.cache/
+/runtime/
+/cache/
+*.db
+*.sqlite
+*.sqlite3
+*.db-*
+*.sqlite-*
+.token_cache*.json
 
 # Outputs (keep directory structure via .gitkeep, ignore actual content)
 outputs/**/*
@@ -48,6 +65,7 @@ assets/**/*
 # Logs
 *.log
 logs/
+download.log
 
 # Build artifacts
 *.egg-info/
@@ -64,6 +82,7 @@ profiles/*/
 
 # 临时 / scratch（ad-hoc 运行残留）
 .scratch/
+skills/_scratch/
 .drama_run/
 .drama_tmp/
 .claude/
@@ -85,3 +104,8 @@ skills/openclaw/video-production/vendor/**/node_modules/
 skills/openclaw/video-production/vendor/**/.remotion/
 skills/openclaw/video-production/vendor/**/models/
 skills/openclaw/video-production/vendor/**/*large-v3*
+
+# Local generated assets discovered during the Fork baseline audit
+/qrcode.png
+/赛博江湖/
+/赛博江湖-同路长歌/

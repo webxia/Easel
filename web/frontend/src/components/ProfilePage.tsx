@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { fetchPersonaFiles, savePersonaFile, deletePersona, fetchAccountAnalytics } from '../lib/api';
-import type { PersonaFile, AccountAnalytics } from '../lib/api';
+import type { PersonaFile, AccountAnalytics, CreativeModeItem } from '../lib/api';
 import { renderMarkdown } from '../lib/sanitize';
 
 // 粉丝量级：把粉丝数映射成人话档位（画像里“粉丝量级”一栏要的是量级而非精确值）
@@ -53,6 +53,9 @@ interface ProfilePageProps {
   persona: string;
   onNewProfile: () => void;
   onDeleted: (name: string) => void;
+  creativeModes: CreativeModeItem[];
+  defaultCreativeMode: string;
+  onDefaultCreativeModeChange: (mode: string) => Promise<void>;
 }
 
 const DIM_META: Record<string, { label: string; icon: string }> = {
@@ -64,7 +67,9 @@ const DIM_META: Record<string, { label: string; icon: string }> = {
   'memory.md': { label: '经验沉淀', icon: '🧠' },
 };
 
-export default function ProfilePage({ persona, onNewProfile, onDeleted }: ProfilePageProps) {
+export default function ProfilePage({
+  persona, onNewProfile, onDeleted, creativeModes, defaultCreativeMode, onDefaultCreativeModeChange,
+}: ProfilePageProps) {
   const [files, setFiles] = useState<PersonaFile[]>([]);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState(false);
@@ -145,6 +150,15 @@ export default function ProfilePage({ persona, onNewProfile, onDeleted }: Profil
     }
   };
 
+  const handleDefaultModeChange = async (mode: string) => {
+    try {
+      await onDefaultCreativeModeChange(mode);
+      showToast(mode ? '默认作品风格已保存' : '已恢复为不绑定默认作品风格');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : '保存默认作品风格失败');
+    }
+  };
+
   if (!persona) {
     return (
       <div className="profile-page">
@@ -167,6 +181,15 @@ export default function ProfilePage({ persona, onNewProfile, onDeleted }: Profil
           <p className="page-subtitle">六个维度构成一个完整人设，可随时编辑保存。</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          <label className="profile-mode-control">
+            <span>默认作品风格</span>
+            <select value={defaultCreativeMode} onChange={(e) => void handleDefaultModeChange(e.target.value)}>
+              <option value="">不绑定</option>
+              {creativeModes.filter((mode) => mode.status === 'active').map((mode) => (
+                <option key={mode.id} value={mode.id}>{mode.name} · v{mode.version}</option>
+              ))}
+            </select>
+          </label>
           <button className={`btn ${editing ? 'btn-primary' : ''}`} onClick={() => setEditing((v) => !v)}>
             {editing ? '完成编辑' : '✏️ 编辑资料'}
           </button>

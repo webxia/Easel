@@ -21,6 +21,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from easel.commands import skill as cli_skill  # noqa: E402
 from easel import persona  # noqa: E402
+from easel import creative_mode  # noqa: E402
+from easel import creation  # noqa: E402
 import app as web  # noqa: E402
 import paper_ingest  # noqa: E402
 import render_slides  # noqa: E402
@@ -239,21 +241,6 @@ def test_paper_slide_allows_explicit_visual_first_figure_page(tmp_path):
     assert render_slides.validate_plan(tmp_path / "slide-plan.json", plan) == []
 
 
-# ---- CLI: _find_skill ----
-
-def test_find_skill_produce_resolves():
-    assert cli_skill._find_skill("social-content") == "social-content"
-
-
-def test_find_skill_openclaw_prefix_resolution():
-    # 传裸名应能解析出带 skill- 前缀的技能
-    assert cli_skill._find_skill("quality-gate") == "skill-quality-gate"
-
-
-def test_find_skill_missing():
-    assert cli_skill._find_skill("nonexistent-xyz-000") is None
-
-
 # ---- Web: 文件类型判定 ----
 
 @pytest.mark.parametrize("name,kind", [
@@ -381,6 +368,9 @@ def test_web_find_skill_matches_cli():
     assert web.find_skill("social-content") == "social-content"
     assert web.find_skill("quality-gate") == "skill-quality-gate"
     assert web.find_skill("nope-xyz") is None
+    assert cli_skill._find_skill("social-content") == "social-content"
+    assert cli_skill._find_skill("quality-gate") == "skill-quality-gate"
+    assert cli_skill._find_skill("nonexistent-xyz-000") is None
 
 
 def test_chat_route_is_registered_to_handler_not_request_model():
@@ -425,6 +415,109 @@ def test_persona_prefix_scopes_memory_to_selected_profile(tmp_path, monkeypatch)
     assert "当前使用的画像是「画像A」" in prefix
     assert "profiles/画像A/memory.md" in prefix
     assert "不要使用工作区全局 MEMORY.md" in prefix
+
+
+# ---- Creative Mode: expression contract stays separate from Profile ----
+
+def test_clear_memo_video_mode_is_discoverable_and_versioned():
+    modes = creative_mode.list_creative_modes()
+    mode = next(item for item in modes if item["id"] == "clear_memo_video")
+
+    assert mode["version"] == "1.0"
+    assert mode["routes"] == []
+    assert "清醒备忘录" in mode["name"]
+
+
+def test_creative_mode_prefix_preserves_director_content_autonomy():
+    prefix = creative_mode.creative_mode_prefix("clear_memo_video")
+
+    assert "不是固定脚本模板" in prefix
+    assert "内容主题、观点结构和故事类型保持开放" in prefix
+    assert "Content Core" in prefix
+    assert "导演审片" in prefix
+    assert "douyin-video" not in prefix
+
+
+def test_web_chat_message_injects_selected_creative_mode():
+    message = web._chat_message(web.ChatRequest(
+        message="做一条关于工作时间的短视频",
+        persona="个人经营实践",
+        creativeMode="clear_memo_video",
+    ))
+
+    assert "Creative Mode：清醒备忘录 · 视频 / clear_memo_video v1.0" in message
+    assert "做一条关于工作时间的短视频" in message
+
+
+def test_web_rejects_unknown_creative_mode():
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc:
+        web._chat_message(web.ChatRequest(message="测试", creativeMode="not-a-mode"))
+    assert exc.value.status_code == 400
+
+
+def test_profile_default_mode_is_metadata_not_profile_text(tmp_path, monkeypatch):
+    profile_dir = tmp_path / "画像A"
+    profile_dir.mkdir()
+    (profile_dir / "identity.md").write_text("真实身份", encoding="utf-8")
+    monkeypatch.setattr(persona, "PROFILES_DIR", tmp_path)
+
+    saved = persona.set_profile_default_creative_mode(
+        "画像A", "clear_memo_video", profiles_dir=tmp_path)
+
+    assert saved == "clear_memo_video"
+    assert persona.profile_default_creative_mode("画像A", tmp_path) == "clear_memo_video"
+    assert "clear_memo_video" not in persona.load_profile_text("画像A")
+
+
+def test_creation_lifecycle_requires_real_artifacts_and_staged_mode_context(tmp_path, monkeypatch):
+    outputs = tmp_path / "outputs"
+    monkeypatch.setattr(creation, "OUTPUTS_DIR", outputs)
+    monkeypatch.setattr(creation, "CREATIONS_DIR", outputs / "_creations")
+
+    work = creation.create_creation(
+        "AI 让程序员重新理解价值", profile="个人经营实践",
+        creative_mode="clear_memo_video")
+    creation_id = work["id"]
+
+    assert work["route"] is None
+    assert work["status"] == "draft"
+    with pytest.raises(creation.CreationError, match="content_core"):
+        creation.stage_context(creation_id, "director_plan")
+
+    def artifact(name: str) -> str:
+        relative = f"_creations/{creation_id}/{name}"
+        target = outputs / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("{}", encoding="utf-8")
+        return relative
+
+    core = artifact("content-core.json")
+    creation.record_stage(creation_id, "content_core", "completed", artifacts=[core])
+    assert "Director Treatment" in creation.stage_context(creation_id, "director_plan")
+
+    treatment = artifact("director-treatment.json")
+    creation.record_stage(creation_id, "director_plan", "completed", artifacts=[treatment])
+    board = artifact("storyboard.json")
+    creation.record_stage(creation_id, "storyboard", "completed", artifacts=[board])
+    image_context = creation.stage_context(creation_id, "image")
+    assert "Visual Bible" in image_context
+    assert "Audio Bible" not in image_context
+
+    assets = artifact("assets/shot-01.png")
+    creation.record_stage(creation_id, "assets", "completed", artifacts=[assets])
+    with pytest.raises(creation.CreationError, match="assemble"):
+        creation.record_stage(
+            creation_id, "qc", "completed", artifacts=[artifact("premature-qc.json")], decision="ready")
+
+    final = artifact("final.mp4")
+    creation.record_stage(creation_id, "assemble", "completed", artifacts=[final])
+    qc = artifact("qc.json")
+    done = creation.record_stage(creation_id, "qc", "completed", artifacts=[qc], decision="ready")
+
+    assert done["status"] == "ready"
+    assert done["stages"]["qc"]["decision"] == "ready"
 
 
 def test_persona_gate_low_score_warns_but_never_blocks_publish():

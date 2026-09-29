@@ -179,6 +179,7 @@ export default function OutputsPage() {
           <div className="gcard-name" title={m?.title || d.name}>
             {!m && <IconFolder size={13} />} {m?.title || d.name}
           </div>
+          {m?.theme && <div className="gcard-sub" title={m.theme}>{m.theme}</div>}
           <div className="gcard-sub" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             {m?.platform && <span style={badge}>{m.platform}</span>}
             {m?.status && <span style={statusBadge(m.status)}>{STATUS_LABEL[m.status] || m.status}</span>}
@@ -237,6 +238,15 @@ export default function OutputsPage() {
           {projectMeta.tags.map((t) => <span key={t} style={badge}>#{t}</span>)}
         </div>
       )}
+
+      {atProjectRoot && (projectMeta?.theme || projectMeta?.copy) && <section className="card" style={{ padding: '14px 18px', marginBottom: 12 }}>
+        {projectMeta.theme && <div><strong>主题</strong><p style={{ margin: '5px 0 10px', color: 'var(--text-secondary)' }}>{projectMeta.theme}</p></div>}
+        {(projectMeta.copy?.on_screen?.length || projectMeta.copy?.voiceover?.length) ? <div>
+          <strong>文案</strong>
+          {projectMeta.copy?.on_screen?.map((line, i) => <p key={`screen-${i}`} style={{ margin: '5px 0', color: 'var(--text-secondary)' }}>画面文字：{line}</p>)}
+          {projectMeta.copy?.voiceover?.map((line, i) => <p key={`voice-${i}`} style={{ margin: '5px 0', color: 'var(--text-secondary)' }}>旁白：{line}</p>)}
+        </div> : <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>此作品没有单独登记的文案。</div>}
+      </section>}
 
       {/* 面包屑返回 + 文件过滤（进入任意层后显示） */}
       {stack.length > 0 && (

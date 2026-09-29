@@ -9,6 +9,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
+import os
+import tempfile
+
+from easel.creative_mode import creative_mode_prefix
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROFILES_DIR = PROJECT_ROOT / "profiles"
@@ -18,6 +23,7 @@ _FILE_ORDER = [
     "identity.md", "style.md", "audience.md",
     "platforms.md", "preferences.md", "memory.md",
 ]
+PROFILE_SETTINGS_FILENAME = ".easel-profile.json"
 
 
 def list_personas() -> list[str]:
@@ -33,6 +39,65 @@ def list_personas() -> list[str]:
 def profile_exists(name: str) -> bool:
     """检查画像目录是否存在。"""
     return bool(name) and (PROFILES_DIR / name).is_dir()
+
+
+def _profile_settings_path(name: str, profiles_dir: Path | None = None) -> Path | None:
+    root = profiles_dir or PROFILES_DIR
+    if not name or "/" in name or "\\" in name:
+        return None
+    profile_dir = (root / name).resolve()
+    if not profile_dir.is_dir() or root.resolve() not in profile_dir.parents:
+        return None
+    return profile_dir / PROFILE_SETTINGS_FILENAME
+
+
+def load_profile_settings(name: str, profiles_dir: Path | None = None) -> dict:
+    """Read non-editorial Profile metadata without mixing it into Profile text."""
+    path = _profile_settings_path(name, profiles_dir)
+    if path is None or not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def profile_default_creative_mode(name: str, profiles_dir: Path | None = None) -> str | None:
+    value = load_profile_settings(name, profiles_dir).get("default_creative_mode")
+    return value if isinstance(value, str) and value else None
+
+
+def set_profile_default_creative_mode(name: str, mode_id: str | None,
+                                      profiles_dir: Path | None = None) -> str | None:
+    """Persist only a Mode reference; providers and production settings stay out."""
+    path = _profile_settings_path(name, profiles_dir)
+    if path is None:
+        raise ValueError("画像不存在")
+    data = load_profile_settings(name, profiles_dir)
+    if mode_id:
+        data["default_creative_mode"] = mode_id
+    else:
+        data.pop("default_creative_mode", None)
+    if not data:
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        return None
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        os.replace(tmp_name, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    return profile_default_creative_mode(name, profiles_dir)
 
 
 def load_profile_text(name: str) -> str:
@@ -88,12 +153,14 @@ def turn_reminder() -> str:
     return TURN_REMINDER
 
 
-def chat_turn_message(user_message: str, name: str | None) -> str:
-    """构造发给 OpenClaw 的一轮对话消息：画像前缀（如有）+ 用户原文 + 末尾行为提醒。
+def chat_turn_message(user_message: str, name: str | None,
+                      creative_mode: str | None = None) -> str:
+    """Build one Agent turn from the selected Profile and Creative Mode.
 
-    末尾提醒对抗长对话里「忘记先查 SKILL」的指令衰减（见 TURN_REMINDER）。
-    对用户不可见（前端只显示用户原文），只进 OpenClaw 上下文。
+    The Profile defines the creator. The optional Mode defines the expression
+    contract for applicable work. Both are invisible to the chat transcript.
     """
-    prefix = persona_prefix(name)
-    head = f"{prefix}\n\n" if prefix else ""
+    prefixes = [p for p in (persona_prefix(name), creative_mode_prefix(creative_mode)) if p]
+    head = "\n\n".join(prefixes)
+    head = f"{head}\n\n" if head else ""
     return f"{head}{user_message}\n\n{turn_reminder()}"

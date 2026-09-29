@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
+import hmac
+import ipaddress
 import os
 if os.name == "nt":
     import msvcrt
@@ -9,8 +12,10 @@ else:
     import fcntl
 import hashlib
 import json
+import logging
 import re
 import shutil
+import secrets
 import subprocess
 import sys
 import threading
@@ -21,10 +26,10 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sse_starlette.sse import EventSourceResponse
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -34,8 +39,67 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(PROJECT_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
+from easel.creation import (
+    CreationError,
+    confirm_chat_proposal,
+    create_creation,
+    get_creation,
+    list_creations,
+    mark_chat_proposal_ready,
+    require_chat_proposal_confirmed,
+    record_stage,
+    stage_context,
+)
+from easel.chat_capability import (
+    ChatCapabilityError,
+    bind_chat_creation,
+    creation_context,
+    get_chat_creation,
+    resolve_chat_capability,
+)
+from easel.creation_preparation import (
+    PreparationError,
+    claim_chat_preparation,
+    mark_preparation_failed,
+    prepare_creation_for_hypit,
+    preparation_agent_context,
+)
+from easel.integrations.hypit.errors import HypitIntegrationError
+from easel.integrations.openclaw_authoring import run_attempt_scoped_authoring
+from easel.integrations.hypit.secrets import SecretRedactor
+from easel.materials.domain import MaterialPlan, RightsInfo
+from easel.integrations.hypit.service import (
+    approve_film_cost,
+    authoring_agent_task,
+    begin_film_authoring,
+    cancel_film_build,
+    complete_film_authoring,
+    create_creation_handoff,
+    create_film_attempt,
+    estimate_film_attempt,
+    export_film_output,
+    get_film_attempt,
+    inspect_film_build,
+    list_film_attempts,
+    record_film_review,
+    reconcile_film_submission,
+    refresh_film_build,
+    resolve_film_attempt_runtime,
+    select_film_attempt,
+    submit_film_build,
+    validate_film_attempt,
+)
+from easel.creative_mode import creative_mode_exists, list_creative_modes, load_creative_mode
 from easel.openclaw_cmd import openclaw_base_cmd
-from easel.persona import load_profile_text, persona_prefix, chat_turn_message, profile_exists, _FILE_ORDER
+from easel.persona import (
+    _FILE_ORDER,
+    chat_turn_message,
+    load_profile_text,
+    persona_prefix,
+    profile_default_creative_mode,
+    profile_exists,
+    set_profile_default_creative_mode,
+)
 from easel.timeouts import TIMEOUT_CHAT, TIMEOUT_DIRECT, TIMEOUT_PRODUCE
 try:
     from easel.gateway_questions import (
@@ -73,18 +137,14 @@ OPENCLAW_WORKSPACE = Path.home() / ".openclaw" / f"workspace-{OPENCLAW_PROFILE}"
 # OpenClaw 会话历史（transcript）目录：<profile 配置目录>/agents/main/sessions/<session-id>.jsonl
 OPENCLAW_SESSIONS_DIR = Path.home() / f".openclaw-{OPENCLAW_PROFILE}" / "agents" / "main" / "sessions"
 
-# 思考档位（每轮 --thinking）。前后端已完整支持展示思考：后端把 thinking_delta 转成 SSE
-# `thinking` 事件，前端 MessageBubble 渲染「💭 思考过程」并在流式结束后持久保留。面板里有没有
-# 内容取决于网关——支持 extended-thinking 的网关会按档位回传思考流；不支持的（如内网 codewiz，
-# 实测 transcript 里 assistant 只有 text 块、thinking 恒为 0）面板留空，调高档位也不会有内容。
-# 默认 medium：让支持思考的部署直接显示较完整思考；EASEL_THINKING_LEVEL 可覆盖（low 提速 / high 更详尽）。
-THINKING_LEVEL = (os.environ.get("EASEL_THINKING_LEVEL", "").strip() or "medium")
+# 思考档位（每轮 --thinking）。MiniMax-M3 和部分 OpenAI-compatible 网关只支持 off；
+# 同时部分网关不回传 extended-thinking，调高只增加延迟或导致回放失败。仍可通过环境变量覆盖。
+THINKING_LEVEL = (os.environ.get("EASEL_THINKING_LEVEL", "").strip() or "off")
 
-# gateway 进程把原始事件流（token/thinking/收尾）写到的**单个共享文件**。
-# 关键：`openclaw agent` 只是瘦客户端，没有 --raw-stream 标志——只有常驻 gateway 按它自己
-# 的 OPENCLAW_RAW_STREAM/OPENCLAW_RAW_STREAM_PATH 写这个文件（见 scripts/gateway.sh）。
-# web 侧 tail 它做流式；默认值必须与 gateway.sh 里 EASEL_RAW_STREAM_PATH 的默认一致。
-SHARED_RAW_STREAM = Path(os.environ.get("EASEL_RAW_STREAM_PATH", "/tmp/easel-raw-stream.jsonl"))
+# gateway 进程把原始事件流（token/thinking/收尾）写到的单个共享文件。
+# 该接入来自 v0.2.0；当前模型默认关闭 thinking，仍可通过环境变量显式启用。
+SHARED_RAW_STREAM = Path(os.environ.get(
+    "EASEL_RAW_STREAM_PATH", str(Path.home() / ".openclaw-easel" / "easel-raw-stream.jsonl")))
 
 
 def _heal_openclaw_session(sk: str) -> None:
@@ -334,13 +394,204 @@ AUDIO_EXTS = {".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"}
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
-    """应用生命周期：关机时回收公众号扫码进程（替代已弃用的 on_event）。"""
+    """应用生命周期：安全报告 V1 配置存在性并在关机时清理扫码进程。"""
+    from easel.runtime_config import EaselRuntimeConfig
+    required = EaselRuntimeConfig.load().startup_required_status()
+    missing = [name for name, status in required.items() if status != "READY"]
+    logging.getLogger("easel.runtime").info(
+        "V1 runtime startup config: %s", "READY" if not missing else "NOT_READY (" + ", ".join(missing) + ")",
+    )
     yield
     _stop_mp_login_on_shutdown()
 
 
 app = FastAPI(title="Easel", docs_url=None, redoc_url=None, lifespan=_lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+_OPERATOR_SESSION_COOKIE = "easel_operator_session"
+_OPERATOR_SESSION_TTL_SECONDS = 12 * 60 * 60
+_OPERATOR_SESSION_KEY = secrets.token_bytes(32)
+
+
+def _is_loopback_operator_request(request: Request) -> bool:
+    client = request.client
+    host = request.url.hostname
+    if client is None or host not in {"localhost", "127.0.0.1", "::1"}:
+        return False
+    try:
+        return ipaddress.ip_address(client.host).is_loopback
+    except ValueError:
+        return False
+
+
+def _require_same_origin_local_browser(request: Request) -> None:
+    if not _is_loopback_operator_request(request):
+        raise HTTPException(403, "Operator 会话仅允许本机浏览器访问")
+    origin = request.headers.get("origin", "").rstrip("/")
+    expected_origin = f"{request.url.scheme}://{request.headers.get('host', '')}".rstrip("/")
+    if not origin or not hmac.compare_digest(origin, expected_origin):
+        raise HTTPException(403, "Operator 操作必须来自 Easel 同源页面")
+    fetch_site = request.headers.get("sec-fetch-site")
+    if fetch_site and fetch_site != "same-origin":
+        raise HTTPException(403, "拒绝跨站 Operator 操作")
+
+
+def _new_operator_session() -> str:
+    payload = f"{int(time.time())}.{secrets.token_urlsafe(24)}"
+    signature = hmac.new(_OPERATOR_SESSION_KEY, payload.encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def _valid_operator_session(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        issued_at, nonce, signature = value.split(".", 2)
+        issued = int(issued_at)
+    except (ValueError, TypeError):
+        return False
+    now = int(time.time())
+    if not nonce or issued > now or now - issued > _OPERATOR_SESSION_TTL_SECONDS:
+        return False
+    payload = f"{issued_at}.{nonce}"
+    expected = hmac.new(_OPERATOR_SESSION_KEY, payload.encode("ascii"), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
+
+
+@app.post("/api/operator/session")
+def create_operator_session(request: Request, response: Response):
+    """Establish a short-lived, HttpOnly session from the same-origin loopback UI."""
+    _require_same_origin_local_browser(request)
+    response.set_cookie(
+        _OPERATOR_SESSION_COOKIE,
+        _new_operator_session(),
+        max_age=_OPERATOR_SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=request.url.scheme == "https",
+        samesite="strict",
+        path="/api",
+    )
+    return {"authenticated": True, "expires_in_seconds": _OPERATOR_SESSION_TTL_SECONDS}
+
+
+class CreationRequest(BaseModel):
+    idea: str
+    persona: str | None = None
+    creativeMode: str | None = None
+    route: str | None = None
+
+
+class CreationStageRequest(BaseModel):
+    status: str
+    artifacts: list[str] = Field(default_factory=list)
+    summary: str = ""
+    error: str = ""
+    decision: str | None = None
+
+
+class HypitHandoffRequest(BaseModel):
+    contentCore: dict
+    truthPacket: dict
+    creatorContext: dict
+    references: list[dict] = Field(default_factory=list)
+    productionRequest: dict = Field(default_factory=dict)
+    approvalRequired: bool = True
+    maxBudgetUsd: float | None = None
+
+
+class HypitAttemptRequest(BaseModel):
+    handoffId: str
+    runtimeProfile: str
+
+
+class HypitValidateRequest(BaseModel):
+    runPath: str
+
+
+class HypitBudgetApprovalRequest(BaseModel):
+    maxBudgetUsd: float
+
+
+class HypitBuildRequest(BaseModel):
+    title: str = "Easel Creation"
+
+
+class HypitExportRequest(BaseModel):
+    outputName: str
+
+
+class HypitReviewRequest(BaseModel):
+    outputName: str
+    sha256: str
+    truth: dict
+    style: dict
+    human: dict
+    feedback: list = Field(default_factory=list)
+
+
+class HypitSelectBuildRequest(BaseModel):
+    attemptId: str
+    outputName: str
+
+
+class MaterialPromotionRequest(BaseModel):
+    assetId: str = Field(min_length=1, max_length=128)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirmPromotion: bool
+
+
+class HypitReconcileRequest(BaseModel):
+    buildId: str | None = None
+    outputName: str | None = None
+
+
+class ScriptTruthReviewRequest(BaseModel):
+    scriptSha256: str
+    truthPacketSha256: str
+    confirmAllClaimsReviewed: bool
+    reviewer: str = Field(default="local_operator", pattern="^(local_operator|codex_delegate)$")
+
+
+class MaterialGenerationRequest(BaseModel):
+    requestId: str = Field(min_length=1, max_length=96, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    needId: str = Field(min_length=1, max_length=128)
+    confirmPaid: bool
+
+
+class MaterialRightsReviewRequest(BaseModel):
+    assetId: str = Field(min_length=1, max_length=128)
+    assetSha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    rights: RightsInfo
+    sourceCreator: str | None = Field(default=None, max_length=256)
+    sourcePage: str | None = Field(default=None, max_length=2048)
+    confirmReview: bool
+
+    @field_validator("rights", mode="before")
+    @classmethod
+    def parse_rights_json(cls, value):
+        if isinstance(value, dict):
+            return RightsInfo.model_validate_json(json.dumps(value))
+        return value
+
+
+def require_local_operator(request: Request):
+    """Require a short-lived same-origin session on the loopback Web service."""
+    if not _is_loopback_operator_request(request):
+        raise HTTPException(403, "Operator 操作仅允许本机浏览器访问")
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        _require_same_origin_local_browser(request)
+    if not _valid_operator_session(request.cookies.get(_OPERATOR_SESSION_COOKIE)):
+        raise HTTPException(401, "本机审核会话已失效，请重新加载 Easel 页面")
+
+
+def _effective_creative_mode(persona: str | None, requested_mode: str | None) -> str | None:
+    """Resolve a Profile default only when the caller did not choose a Mode."""
+    if requested_mode is None and persona:
+        requested_mode = profile_default_creative_mode(persona, PROFILES_DIR)
+    mode_id = (requested_mode or "").strip() or None
+    if mode_id and not creative_mode_exists(mode_id):
+        raise HTTPException(400, "Creative Mode 不存在或不可用")
+    return mode_id
 
 
 def list_personas() -> list[dict]:
@@ -358,8 +609,21 @@ def list_personas() -> list[dict]:
                 if line and not line.startswith('#') and not line.startswith('<!--'):
                     desc = line[:80]
                     break
-        result.append({'name': d.name, 'description': desc})
+        result.append({
+            'name': d.name,
+            'description': desc,
+            'defaultCreativeMode': profile_default_creative_mode(d.name, PROFILES_DIR),
+        })
     return result
+
+
+def _creative_mode_detail(mode_id: str) -> dict:
+    """Return a Mode contract for UI inspection without exposing local paths."""
+    mode = load_creative_mode(mode_id)
+    if mode is None:
+        raise HTTPException(404, "Creative Mode 不存在")
+    mode.pop("_directory", None)
+    return mode
 
 
 def find_skill(name: str) -> str | None:
@@ -512,6 +776,18 @@ def _read_env() -> dict[str, str]:
         if key.isidentifier() or key.replace('-', '_').isidentifier():
             result[key] = val.strip()
     return result
+
+
+def _hypit_runtime_profile() -> str | None:
+    """Resolve Hypit's Runtime Profile only from backend environment/config."""
+    from easel.runtime_config import EaselRuntimeConfig
+    value = EaselRuntimeConfig.load().hypit.runtime_profile
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1].strip()
+    return value if _is_set(value) else None
 
 
 def _is_set(val: str | None) -> bool:
@@ -693,7 +969,8 @@ def _read_project_meta(proj: Path) -> dict:
     except Exception:
         return {}
     meta = {k: data.get(k) for k in
-            ("title", "summary", "platform", "kind", "status", "tags", "deliverables")
+            ("title", "summary", "theme", "copy", "platform", "kind", "status", "tags", "deliverables",
+             "creative_mode", "creative_mode_version")
             if data.get(k) not in (None, "", [])}
     if not meta:
         return {}
@@ -790,7 +1067,12 @@ async def static_file(path: str):
 
 @app.get("/api/status")
 async def api_status():
-    return {"gateway": check_gateway(), "skills": get_skills(), "personas": list_personas()}
+    return {
+        "gateway": check_gateway(),
+        "skills": get_skills(),
+        "personas": list_personas(),
+        "creativeModes": list_creative_modes(),
+    }
 
 
 @app.get("/api/personas")
@@ -798,12 +1080,431 @@ async def api_personas():
     return list_personas()
 
 
+@app.get("/api/creative-modes")
+async def api_creative_modes():
+    return list_creative_modes()
+
+
+@app.get("/api/creative-mode/{mode_id}")
+async def api_creative_mode(mode_id: str):
+    return _creative_mode_detail(mode_id)
+
+
+@app.post("/api/creations")
+async def api_creation_create(req: CreationRequest):
+    """Create a work lifecycle record; never starts an Agent or paid media call."""
+    if req.persona and not profile_exists(req.persona):
+        raise HTTPException(404, "画像不存在")
+    mode_id = _effective_creative_mode(req.persona, req.creativeMode)
+    try:
+        return create_creation(req.idea, profile=req.persona, creative_mode=mode_id, route=req.route)
+    except CreationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.get("/api/creations")
+async def api_creations(limit: int = 50):
+    return list_creations(limit)
+
+
+@app.get("/api/creations/{creation_id}")
+async def api_creation(creation_id: str):
+    try:
+        return get_creation(creation_id)
+    except CreationError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+@app.get("/api/creations/{creation_id}/context/{target}")
+async def api_creation_context(creation_id: str, target: str):
+    try:
+        return {"creationId": creation_id, "target": target,
+                "context": stage_context(creation_id, target)}
+    except CreationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.patch("/api/creations/{creation_id}/stage/{stage}")
+async def api_creation_stage(creation_id: str, stage: str, req: CreationStageRequest):
+    try:
+        return record_stage(creation_id, stage, req.status, artifacts=req.artifacts,
+                            summary=req.summary, error=req.error, decision=req.decision)
+    except CreationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+async def _hypit_api_call(function, *args, **kwargs):
+    try:
+        return await asyncio.to_thread(function, *args, **kwargs)
+    except CreationError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except HypitIntegrationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/creations/{creation_id}/handoff")
+async def api_creation_handoff(creation_id: str, req: HypitHandoffRequest,
+                               _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(
+        create_creation_handoff,
+        creation_id,
+        content_core=req.contentCore,
+        truth_packet=req.truthPacket,
+        creator_context=req.creatorContext,
+        references=req.references,
+        production_request=req.productionRequest or None,
+        approval_required=req.approvalRequired,
+        max_budget_usd=req.maxBudgetUsd,
+    )
+
+
+@app.post("/api/creations/{creation_id}/film-attempts")
+async def api_creation_film_attempt(creation_id: str, req: HypitAttemptRequest,
+                                    _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(
+        create_film_attempt, creation_id, req.handoffId, runtime_profile=req.runtimeProfile)
+
+
+@app.get("/api/creations/{creation_id}/film-attempts")
+async def api_creation_film_attempts(creation_id: str,
+                                     _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(list_film_attempts, creation_id)
+
+
+@app.get("/api/film-attempts/{attempt_id}")
+async def api_film_attempt(attempt_id: str,
+                           _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(get_film_attempt, attempt_id)
+
+
+@app.get("/api/film-attempts/{attempt_id}/script-truth")
+async def api_script_truth_status(attempt_id: str,
+                                 _operator: None = Depends(require_local_operator)):
+    from easel.integrations.material_layer import PlanningIntegration
+
+    attempt = await _hypit_api_call(get_film_attempt, attempt_id)
+    planning = await _hypit_api_call(PlanningIntegration().load, attempt)
+    return {**planning["truth_ledger"], "script": planning["script"]}
+
+
+@app.post("/api/film-attempts/{attempt_id}/script-truth/review")
+async def api_script_truth_review(attempt_id: str, req: ScriptTruthReviewRequest,
+                                  _operator: None = Depends(require_local_operator)):
+    from easel.integrations.material_layer import PlanningIntegration
+
+    attempt = await _hypit_api_call(get_film_attempt, attempt_id)
+    reviewed = await _hypit_api_call(
+        PlanningIntegration().review_script,
+        attempt,
+        confirm_all_claims_reviewed=req.confirmAllClaimsReviewed,
+        expected_script_sha256=req.scriptSha256,
+        expected_truth_packet_sha256=req.truthPacketSha256,
+        reviewer=req.reviewer,
+    )
+    preparation = await asyncio.to_thread(
+        prepare_creation_for_hypit, attempt["creation_id"],
+        runtime_profile=_hypit_runtime_profile(), planning_executor=_material_planning_executor,
+    )
+    if preparation.get("status") == "READY_FOR_EXTERNAL_AUTHORING":
+        _start_film_authoring(attempt_id)
+    return {"script_truth": reviewed["ledger"], "preparation": preparation}
+
+
+@app.post("/api/film-attempts/{attempt_id}/material-generation/minimax-video")
+async def api_minimax_material_video_generation(
+    attempt_id: str,
+    req: MaterialGenerationRequest,
+    _operator: None = Depends(require_local_operator),
+):
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+
+    return await asyncio.to_thread(
+        MaterialProductOrchestrator().generate_minimax_asset,
+        attempt_id,
+        need_id=req.needId,
+        request_id=req.requestId,
+        confirmed_paid=req.confirmPaid,
+    )
+
+
+@app.post("/api/film-attempts/{attempt_id}/material-generation/minimax")
+async def api_minimax_material_generation(
+    attempt_id: str,
+    req: MaterialGenerationRequest,
+    _operator: None = Depends(require_local_operator),
+):
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+
+    return await asyncio.to_thread(
+        MaterialProductOrchestrator().generate_minimax_asset,
+        attempt_id,
+        need_id=req.needId,
+        request_id=req.requestId,
+        confirmed_paid=req.confirmPaid,
+    )
+
+
+@app.get("/api/film-attempts/{attempt_id}/material-rights/candidates")
+async def api_material_rights_candidates(
+    attempt_id: str,
+    _operator: None = Depends(require_local_operator),
+):
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+
+    return await _hypit_api_call(
+        MaterialProductOrchestrator().generated_material_rights_candidates, attempt_id,
+    )
+
+
+@app.get("/api/film-attempts/{attempt_id}/material-rights/review-candidates")
+async def api_material_rights_review_candidates(
+    attempt_id: str,
+    _operator: None = Depends(require_local_operator),
+):
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+
+    return await _hypit_api_call(
+        MaterialProductOrchestrator().material_rights_candidates, attempt_id,
+    )
+
+
+@app.post("/api/film-attempts/{attempt_id}/material-rights/review-current")
+async def api_material_rights_review_current(
+    attempt_id: str,
+    req: MaterialRightsReviewRequest,
+    _operator: None = Depends(require_local_operator),
+):
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+
+    return await _hypit_api_call(
+        MaterialProductOrchestrator().review_material_rights,
+        attempt_id,
+        asset_id=req.assetId,
+        expected_sha256=req.assetSha256,
+        rights=req.rights,
+        confirm_review=req.confirmReview,
+        source_creator=req.sourceCreator,
+        source_page=req.sourcePage,
+    )
+
+
+@app.post("/api/film-attempts/{attempt_id}/material-rights/review")
+async def api_material_rights_review(
+    attempt_id: str,
+    req: MaterialRightsReviewRequest,
+    _operator: None = Depends(require_local_operator),
+):
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+
+    return await _hypit_api_call(
+        MaterialProductOrchestrator().review_generated_material_rights,
+        attempt_id,
+        asset_id=req.assetId,
+        expected_sha256=req.assetSha256,
+        rights=req.rights,
+        confirm_review=req.confirmReview,
+        source_creator=req.sourceCreator,
+        source_page=req.sourcePage,
+    )
+
+
+@app.post("/api/film-attempts/{attempt_id}/author")
+async def api_film_attempt_author(
+    attempt_id: str,
+    _operator: None = Depends(require_local_operator),
+):
+    """Start the existing no-media Authoring step after explicit operator action.
+
+    It may call the configured OpenClaw model, but cannot resolve Hypit Runtime,
+    price or submit a Hypit Build, export media, or publish.
+    """
+    try:
+        return _start_film_authoring(attempt_id)
+    except HypitIntegrationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/film-attempts/{attempt_id}/runtime/resolve")
+async def api_film_attempt_runtime_resolve(
+    attempt_id: str,
+    _operator: None = Depends(require_local_operator),
+):
+    runtime_profile = _hypit_runtime_profile()
+    if not runtime_profile:
+        raise HTTPException(409, "Easel 服务端尚未配置 Hypit Runtime Profile")
+    return await _hypit_api_call(resolve_film_attempt_runtime, attempt_id, runtime_profile)
+
+
+@app.post("/api/film-attempts/{attempt_id}/validate")
+async def api_film_attempt_validate(attempt_id: str, req: HypitValidateRequest,
+                                    _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(validate_film_attempt, attempt_id, req.runPath)
+
+
+@app.post("/api/film-attempts/{attempt_id}/estimate")
+async def api_film_attempt_estimate(attempt_id: str,
+                                    _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(estimate_film_attempt, attempt_id)
+
+
+@app.post("/api/film-attempts/{attempt_id}/approve-cost")
+async def api_film_attempt_approve_cost(attempt_id: str, req: HypitBudgetApprovalRequest,
+                                        _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(approve_film_cost, attempt_id, req.maxBudgetUsd)
+
+
+@app.post("/api/film-attempts/{attempt_id}/build")
+async def api_film_attempt_build(attempt_id: str, req: HypitBuildRequest,
+                                 _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(submit_film_build, attempt_id, title=req.title)
+
+
+@app.post("/api/film-attempts/{attempt_id}/refresh")
+async def api_film_attempt_refresh(attempt_id: str,
+                                   _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(refresh_film_build, attempt_id)
+
+
+@app.get("/api/film-attempts/{attempt_id}/inspect")
+async def api_film_attempt_inspect(attempt_id: str,
+                                   _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(inspect_film_build, attempt_id)
+
+
+@app.post("/api/film-attempts/{attempt_id}/cancel")
+async def api_film_attempt_cancel(attempt_id: str,
+                                  _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(cancel_film_build, attempt_id)
+
+
+@app.post("/api/film-attempts/{attempt_id}/export")
+async def api_film_attempt_export(attempt_id: str, req: HypitExportRequest,
+                                  _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(export_film_output, attempt_id, req.outputName)
+
+
+@app.post("/api/film-attempts/{attempt_id}/review")
+async def api_film_attempt_review(attempt_id: str, req: HypitReviewRequest,
+                                  _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(record_film_review, attempt_id, req.model_dump())
+
+
+@app.post("/api/film-attempts/{attempt_id}/reconcile")
+async def api_film_attempt_reconcile_route(attempt_id: str, req: HypitReconcileRequest,
+                                           _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(reconcile_film_submission, attempt_id,
+                                 build_id=req.buildId, output_name=req.outputName)
+
+
+@app.post("/api/creations/{creation_id}/select-build")
+async def api_creation_select_film_build(creation_id: str, req: HypitSelectBuildRequest,
+                                         _operator: None = Depends(require_local_operator)):
+    return await _hypit_api_call(
+        select_film_attempt, creation_id, req.attemptId, req.outputName)
+
+
+@app.get("/api/film-attempts/{attempt_id}/promotable-materials")
+async def api_film_attempt_promotable_materials(
+    attempt_id: str, _operator: None = Depends(require_local_operator),
+):
+    from easel.integrations.material_supply import ProductMaterialSupply
+    from easel.materials.library import MaterialLibraryCatalog, PromotionRejected
+    from easel.materials.store import AttemptMaterialStore
+    from easel.runtime_config import EaselRuntimeConfig
+
+    attempt = get_film_attempt(attempt_id)
+    store = AttemptMaterialStore(attempt["workspace"]["path"])
+    catalog = MaterialLibraryCatalog(EaselRuntimeConfig.load().material.library_root)
+    scope = ProductMaterialSupply.scope_for_attempt(attempt)
+    used_ids = set(attempt.get("production_authoring", {}).get("selected_asset_ids", []))
+    used_ids.update(attempt.get("material_audio_policy", {}).get("selected_audio_asset_ids", []))
+    items = []
+    assets_root = store.materials_root / "assets"
+    for directory in sorted(assets_root.iterdir()):
+        if not directory.is_dir() or directory.is_symlink():
+            continue
+        try:
+            asset = store.read_asset(directory.name)
+            already = catalog.find_by_content(asset.file.sha256, scope=scope, missing_ok=True)
+            try:
+                catalog._validate_eligibility(asset, store)
+                eligible, reason = True, None
+            except PromotionRejected as exc:
+                eligible, reason = False, str(exc)
+            items.append({
+                "asset_id": asset.asset_id, "media_type": asset.media_type.value,
+                "provider": asset.source.provider, "source_kind": asset.source.kind,
+                "rights_status": asset.rights.status.value,
+                "attribution_required": asset.rights.attribution_required,
+                "sha256": asset.file.sha256,
+                "eligible": eligible or already is not None,
+                "ineligible_reason": None if already is not None else reason,
+                "used_in_creation": asset.asset_id in used_ids,
+                "promoted": already is not None,
+                "library_asset_id": already.library_asset_id if already else None,
+            })
+        except Exception:
+            continue
+    return {"creation_id": attempt["creation_id"], "attempt_id": attempt_id, "materials": items}
+
+
+@app.post("/api/film-attempts/{attempt_id}/materials/promote")
+async def api_promote_film_attempt_material(
+    attempt_id: str, req: MaterialPromotionRequest,
+    _operator: None = Depends(require_local_operator),
+):
+    if not req.confirmPromotion:
+        raise HTTPException(400, "需要明确确认保存这项素材")
+    try:
+        from datetime import datetime, timezone
+        from easel.integrations.material_supply import ProductMaterialSupply
+        from easel.materials.library import MaterialLibraryCatalog, PromotionConsent
+        from easel.materials.store import AttemptMaterialStore
+        from easel.runtime_config import EaselRuntimeConfig
+
+        attempt = get_film_attempt(attempt_id)
+        work = get_creation(attempt["creation_id"])
+        if (work.get("selected_attempt_id") != attempt_id
+                or not work.get("selected_output_name")):
+            raise HTTPException(409, "请在成片确认后保存本次使用素材")
+        store = AttemptMaterialStore(attempt["workspace"]["path"])
+        asset = store.read_asset(req.assetId)
+        if asset.file.sha256 != req.sha256:
+            raise HTTPException(409, "素材内容已变化，请刷新后重试")
+        scope = ProductMaterialSupply.scope_for_attempt(attempt)
+        config = EaselRuntimeConfig.load()
+        catalog = MaterialLibraryCatalog(config.material.library_root)
+        consent = PromotionConsent(
+            authorized=True, actor_id="local_operator",
+            purpose="Creator explicitly requested reusable Material Library storage",
+            consented_at=datetime.now(timezone.utc),
+        )
+        record = catalog.promote_attempt_asset(
+            asset, store, scope=scope, source_attempt_id=attempt_id,
+            source_creation_id=attempt["creation_id"], consent=consent,
+        )
+        return {
+            "library_asset_id": record.library_asset_id,
+            "creation_id": attempt["creation_id"], "attempt_id": attempt_id,
+            "asset_id": asset.asset_id, "sha256": asset.file.sha256,
+            "rights_status": asset.rights.status.value,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @app.get("/api/persona/{name}")
 async def api_persona(name: str):
     text = load_profile_text(name)
     if not text:
         raise HTTPException(404, "画像不存在")
-    return {"name": name, "content": text}
+    return {
+        "name": name,
+        "content": text,
+        "defaultCreativeMode": profile_default_creative_mode(name, PROFILES_DIR),
+    }
 
 
 def _valid_persona_name(name: str) -> bool:
@@ -842,6 +1543,10 @@ class PersonaFileRequest(BaseModel):
     content: str
 
 
+class PersonaCreativeModeRequest(BaseModel):
+    creativeMode: str | None = None
+
+
 @app.put("/api/persona/{name}/file")
 async def api_persona_file_save(name: str, req: PersonaFileRequest):
     """保存画像单个维度文件（原子写）。"""
@@ -852,6 +1557,21 @@ async def api_persona_file_save(name: str, req: PersonaFileRequest):
     tmp.write_text(req.content, encoding="utf-8")
     tmp.replace(fp)
     return {"ok": True, "filename": req.filename}
+
+
+@app.put("/api/persona/{name}/creative-mode")
+async def api_persona_creative_mode_save(name: str, req: PersonaCreativeModeRequest):
+    """Store a Profile's default expression contract, never runtime settings."""
+    if not profile_exists(name):
+        raise HTTPException(404, "画像不存在")
+    mode_id = (req.creativeMode or "").strip() or None
+    if mode_id and not creative_mode_exists(mode_id):
+        raise HTTPException(400, "Creative Mode 不存在或不可用")
+    try:
+        saved = set_profile_default_creative_mode(name, mode_id, PROFILES_DIR)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    return {"ok": True, "defaultCreativeMode": saved}
 
 
 @app.delete("/api/persona/{name}")
@@ -916,9 +1636,18 @@ class AttachmentRef(BaseModel):
     path: str
 
 
+class ProposalTurn(BaseModel):
+    role: str = Field(pattern="^(user|assistant)$")
+    content: str = Field(max_length=8000)
+
+
 class ChatRequest(BaseModel):
     message: str
     persona: str | None = None
+    creativeMode: str | None = None
+    capability: str | None = None
+    creationAction: str | None = None
+    proposalContext: list[ProposalTurn] = Field(default_factory=list, max_length=48)
     sessionId: str | None = None
     turnId: str | None = None
     attachments: list[AttachmentRef] = Field(default_factory=list)
@@ -979,7 +1708,264 @@ def _chat_message(req: ChatRequest) -> str:
         message = f"{message}\n\n{context}" if message else context
     if not message:
         raise HTTPException(400, "消息不能为空")
-    return chat_turn_message(message, req.persona)
+    return chat_turn_message(message, req.persona,
+                             _effective_creative_mode(req.persona, req.creativeMode))
+
+
+def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
+    """Resolve ordinary proposal turns or an explicit, structured production action."""
+    try:
+        capability = resolve_chat_capability(req.capability)
+    except ChatCapabilityError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    if req.creationAction is not None:
+        if req.creationAction != "confirm_production":
+            raise HTTPException(400, "不支持的作品操作")
+        if not capability or capability["id"] != "ai-film" or not req.sessionId:
+            raise HTTPException(400, "开始视频制作需要当前 ai-film 聊天会话")
+        try:
+            work = get_chat_creation(req.sessionId)
+            if work is None:
+                raise HTTPException(409, "当前聊天还没有可确认的创作方案")
+            if not req.proposalContext:
+                raise HTTPException(409, "确认制作需要当前聊天中的已确认方案内容")
+            proposal_context = [{"role": item.role, "content": item.content} for item in req.proposalContext]
+            proposal_text = json.dumps(proposal_context, ensure_ascii=False, separators=(",", ":"))
+            if len(proposal_text) > 32_000:
+                raise HTTPException(413, "已确认方案上下文过长，请先在当前对话收敛方案")
+            if SecretRedactor.contains_secret(proposal_text):
+                raise HTTPException(400, "已确认方案上下文含疑似 Secret；请移除后重试")
+            proposal_sha256 = hashlib.sha256(proposal_text.encode("utf-8")).hexdigest()
+            work = confirm_chat_proposal(work["id"], req.turnId, proposal_sha256=proposal_sha256)
+            preparation = claim_chat_preparation(work["id"], req.sessionId, req.turnId)
+        except CreationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except (ChatCapabilityError, PreparationError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+        work = {**get_creation(work["id"]),
+                "_preparation_action": preparation.get("action"),
+                "_client_phase": "production_confirmed"}
+        body = (
+            "用户已通过 Easel 的结构化操作明确确认当前聊天中的创作方案，按最新讨论结果开始制作。\n\n"
+            "以下按时间顺序排列的聊天方案是用户确认的制作约束；制作时必须保留其中最后确认的参数，"
+            "若与助手早期建议冲突，以更晚的用户确认内容为准。把稳定的制作约束写入冻结边界/Production Request；"
+            "不得只保留主题而丢失时长、节拍、音轨、画幅、人物/隐私限制、素材来源或不发布要求。\n"
+            f"CONFIRMED_PROPOSAL_SHA256={proposal_sha256}\n"
+            "CONFIRMED_PROPOSAL_TRANSCRIPT=" + proposal_text + "\n\n"
+            f"{creation_context(work)}"
+            f"{preparation_agent_context(work, preparation)}"
+        )
+        message = chat_turn_message(body, work.get("profile"), work.get("creative_mode"))
+        return message, work
+
+    if capability is None:
+        return _chat_message(req), None
+    if not req.sessionId:
+        raise HTTPException(400, "视频创作需要有效的聊天会话")
+    if not req.message.strip():
+        raise HTTPException(400, "请先输入这条作品的主题")
+    if req.persona and not profile_exists(req.persona):
+        raise HTTPException(400, "创作者画像不存在或不可用")
+
+    # Validate attachments before creating the durable work record.
+    attachments = _attachment_context(req)
+    requested_mode = _effective_creative_mode(req.persona, req.creativeMode)
+    try:
+        work = bind_chat_creation(
+            req.sessionId,
+            req.turnId,
+            req.message,
+            profile=req.persona,
+            creative_mode=requested_mode,
+            capability=capability["id"],
+        )
+    except ChatCapabilityError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except CreationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    work = get_creation(work["id"])
+    confirmed = bool((work.get("chat_workflow") or {}).get("confirmed_at"))
+    confirmed_preparation_context = ""
+    if not confirmed and not work.get("creative_mode"):
+        prep_action = "blocked"
+    elif confirmed:
+        preparation_state = (work.get("preparation") or {}).get("status")
+        if preparation_state not in {"PRODUCTION_PREPARED", "READY_FOR_EXTERNAL_AUTHORING"}:
+            try:
+                preparation = claim_chat_preparation(work["id"], req.sessionId, req.turnId)
+            except PreparationError as exc:
+                raise HTTPException(409, str(exc)) from exc
+            prep_action = preparation.get("action", "ordinary")
+            work = get_creation(work["id"])
+            if prep_action == "generate":
+                confirmed_preparation_context = preparation_agent_context(work, preparation)
+        else:
+            prep_action = "ordinary"
+    else:
+        prep_action = "proposal"
+    work = {**work, "_preparation_action": prep_action,
+            "_client_phase": "production_confirmed" if confirmed else "proposal",
+            "_blocked_status": (
+                "BLOCKED_CREATIVE_MODE_REQUIRED"
+                if prep_action == "blocked" and not work.get("creative_mode") else None
+            )}
+
+    body = req.message.strip()
+    if attachments:
+        body = f"{body}\n\n{attachments}"
+    body = f"{body}\n\n{creation_context(work)}"
+    if not confirmed:
+        body += (
+            "\n\n〔视频创作方案讨论阶段〕\n"
+            "请像 Easel 的导演一样，通过正常聊天给出并讨论创作方案。用户可以继续提出修改意见；"
+            "每次都根据对话调整，不要进入正式制作，不要写 Content Core、Truth Packet、Handoff、"
+            "Hypit workspace、AUTHORING_TASK 或任何视频工程文件。只有用户点击聊天框中的“确认方案，准备素材”"
+            "结构化操作后，服务端才会进入 Preparation；不要根据“可以”“继续”等文字自行推断确认。"
+        )
+    elif confirmed_preparation_context:
+        body += confirmed_preparation_context
+    # Once a work is bound, its original creator/style snapshot remains authoritative
+    # even if the user changes the Sidebar selectors during the same conversation.
+    message = chat_turn_message(body, work.get("profile"), work.get("creative_mode"))
+    if not confirmed:
+        # Keep the Creation proposal phase above the generic turn reminder:
+        # the reminder normally asks the Director to inspect Skills/tools and
+        # produce files, which conflicts with the explicit proposal-only gate.
+        message += (
+            "\n\n〔Easel Creation 提案阶段的最高优先级边界〕\n"
+            "本轮只向用户给出简洁、可讨论的创作方案；不得展开内部思考、工具/命令/会话状态或自我对话，"
+            "不得写入任何文件、创建通用 Creation、调用视频 Skill/Material/Hypit CLI 或 Provider，"
+            "也不得扫描本机素材目录。无需先做环境盘点；正式 Preparation 会在用户通过聊天中的结构化按钮确认后"
+            "由 Easel 后端启动。请直接回应方案，并只在确实影响方向时集中提出少量问题；不要把“继续/可以”"
+            "当成制作授权。"
+        )
+    return message, work
+
+
+def _preparation_reply(
+    status: str,
+    *,
+    runtime_status: str | None = None,
+    error: str | None = None,
+) -> str:
+    if error:
+        return "这次作品准备没有通过完整性检查。请检查创作方向与素材后重试。"
+    if status == "READY_FOR_EXTERNAL_AUTHORING":
+        if runtime_status == "NOT_CONFIGURED":
+            return ("作品方向和内容已准备好，正在编排脚本与画面。视频制作服务尚未配置；"
+                    "编排完成后仍需完成配置，才能预估费用并制作视频。")
+        if runtime_status == "INVALID":
+            return ("作品方向和内容已准备好，正在编排脚本与画面。视频制作服务配置需要修正，"
+                    "修正后才能预估费用并制作视频。")
+        return "作品方向和内容已准备好，正在编排脚本与画面。完成后可继续制作视频。"
+    if status == "BLOCKED_RUNTIME_NOT_CONFIGURED":
+        return "作品内容已准备好，但视频制作服务尚未配置。完成服务配置后可继续制作。"
+    if status == "BLOCKED_RUNTIME_INVALID":
+        return "作品内容已准备好，但视频制作服务配置无效。修正配置后可继续制作。"
+    if status == "MATERIAL_NOT_READY":
+        return "作品内容已准备好，仍有画面素材需要补齐。素材齐全后才能继续制作视频。"
+    if status == "SCRIPT_TRUTH_REVIEW_REQUIRED":
+        return ("脚本中有些内容需要你核对。请在下方的“内容确认”中查看完整脚本和相关声明，"
+                "确认后才能继续准备素材与视频。")
+    if status == "MATERIAL_FAILED":
+        return "素材准备遇到问题。请检查素材后重试。"
+    if status == "BLOCKED_CREATIVE_MODE_REQUIRED":
+        return "整片视频创作需要先选择一个“作品风格”。请新建对话并选择作品风格后再开始。"
+    if status == "in_progress":
+        return "这部作品正在准备中，请稍候查看进度。"
+    return "这部作品已有准备结果，请查看下方进度。"
+
+
+async def _finish_ai_film_turn(
+    work: dict | None,
+    prep_action: str | None,
+    *,
+    succeeded: bool,
+) -> str:
+    """Share post-turn state transitions between stream and non-stream chat APIs."""
+    if not work:
+        return ""
+    if prep_action == "proposal":
+        if succeeded:
+            mark_chat_proposal_ready(work["id"])
+        return ""
+    if prep_action != "generate":
+        return ""
+    if not succeeded:
+        mark_preparation_failed(work["id"], "Easel Agent 本轮未正常完成，Preparation 未提交")
+        return ""
+    try:
+        result = await asyncio.to_thread(
+            prepare_creation_for_hypit,
+            work["id"],
+            runtime_profile=_hypit_runtime_profile(),
+            planning_executor=_material_planning_executor,
+        )
+        note = _preparation_reply(result["status"], runtime_status=result.get("runtime_status"))
+        attempt_id = result.get("attempt_id")
+        if result.get("status") == "READY_FOR_EXTERNAL_AUTHORING" and isinstance(attempt_id, str):
+            _start_film_authoring(attempt_id)
+            note += "\n\nEasel 已开始编排视频；开始制作前仍会确认费用。"
+        return "\n\n---\n" + note
+    except Exception as exc:
+        mark_preparation_failed(work["id"], str(exc))
+        return "\n\n---\n" + _preparation_reply("FAILED", error=str(exc))
+
+
+async def _resume_confirmed_preparation(work: dict) -> str:
+    """Resume an explicitly confirmed Preparation without dispatching Authoring."""
+    try:
+        result = await asyncio.to_thread(
+            prepare_creation_for_hypit,
+            work["id"],
+            runtime_profile=_hypit_runtime_profile(),
+            planning_executor=_material_planning_executor,
+        )
+        note = _preparation_reply(result["status"], runtime_status=result.get("runtime_status"))
+        attempt_id = result.get("attempt_id")
+        if result.get("status") == "READY_FOR_EXTERNAL_AUTHORING" and isinstance(attempt_id, str):
+            _start_film_authoring(attempt_id)
+            note += "\n\nEasel 已开始编排视频；开始制作前仍会确认费用。"
+        return note
+    except Exception as exc:
+        mark_preparation_failed(work["id"], str(exc))
+        return _preparation_reply("FAILED", error=str(exc))
+
+
+async def _quick_chat_preparation_response(req: ChatRequest, work: dict, text: str):
+    """Finish blocked/replayed/resumed preparation without dispatching another Agent turn."""
+    creation_id = work["id"]
+    turn_id = req.turnId or uuid.uuid4().hex
+    session_key = f"web:{req.sessionId or ''}"
+    events = [
+        {"id": 1, "event": "creation", "data": {
+            "creationId": creation_id, "phase": work.get("_client_phase", "proposal")}},
+        {"id": 2, "event": "token", "data": text},
+        {"id": 3, "event": "done", "data": {"sessionKey": session_key}},
+    ]
+    try:
+        path = _job_event_file(turn_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("".join(json.dumps(item, ensure_ascii=False) + "\n" for item in events), encoding="utf-8")
+        _save_turn(session_key, "done", text, {"turn_id": turn_id, "clean_end": True})
+    except OSError:
+        pass
+
+    async def stream_events():
+        for item in events:
+            yield {
+                "id": str(item["id"]),
+                "event": item["event"],
+                "data": json.dumps(item["data"], ensure_ascii=False),
+            }
+
+    return EventSourceResponse(stream_events(), headers={
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+        "Content-Encoding": "identity",
+    })
 
 
 # 每个会话（session-key）一把锁：防止同一会话被两个并发的 openclaw agent 进程同时处理。
@@ -1146,11 +2132,369 @@ def _save_turn(sk: str, status: str, text: str, extra: dict | None = None) -> No
 # 后台 supervisor 任务集合：持有强引用防被 GC；每个对话流的 openclaw run 跑在这里，
 # 与客户端 SSE 连接解耦（断线不杀 run）。
 _BG_TASKS: set = set()
+_AUTHORING_TASKS: dict[str, asyncio.Task] = {}
 
 # 正在跑的对话 openclaw 进程（sk→proc），供用户**显式「停止」**终止；断线**不**经此路径（断线不杀）。
 _RUNNING_CHAT: dict = {}
 # 被用户显式停止的会话 key：supervisor 据此把本轮当作正常「已停止」收尾（不报「被中断」、释放会话锁）。
 _STOPPED_CHAT: set = set()
+
+
+def _authoring_agent_message(attempt_id: str, task: dict[str, str]) -> str:
+    """Bounded instruction for the existing Easel main Agent.
+
+    The task deliberately grants film-authoring authority only.  It never
+    grants Runtime, Provider, Build, or publishing authority.
+    """
+    return (
+        "〔Easel × Hypit AUTO_AUTHORING_V1〕\n"
+        "你仍是 Easel main Agent / Director。现在继续一个已经冻结的作品，完成 Hypit Film Authoring。\n"
+        f"Attempt ID：{attempt_id}\n"
+        f"唯一工作区：{task['workspace']}\n"
+        f"任务书：{task['task_path']}\n\n"
+        "先阅读 AUTHORING_TASK.md、handoff 中冻结的 Content Core、"
+        "Truth Packet、Creator Context 与 Creative Mode，以及 MaterialBundle。"
+        "Hypit AudioTrack/Film 的受支持音频契约已写入 AUTHORING_TASK.md；不要尝试读取隔离 workspace 外的仓库或安装包。\n"
+        "随即写出最小可检查工程；只允许在该工作区写入：\n"
+        "- productions/easel-authoring/TREATMENT.md\n"
+        "- productions/easel-authoring/SCRIPT.md\n"
+        "- productions/easel-authoring/SCENES.md\n"
+        "- productions/easel-authoring/material-selection.json\n"
+        "- productions/easel-authoring/authors/main.svml\n"
+        "- productions/easel-authoring/runs/main.svrun\n\n"
+        "重要：material-selection.json 与 runs/main.svrun 都是 Easel JSON；只有 authors/main.svml 是 Hypit SVML。main.svml 以 <?svml using=\"@hypit/markup@1\"?> 开始，根只能是无属性、无 xmlns 的裸 <svml>；在根内用 import 声明 @hypit/media@1、timeline-author@1、spatial@1、media-track@1、film@1、render-hyperframes@1 和必要的 typography-track@1/text@1。禁止自创 Easel XML schema（film:Scene/Overlay/Tracks/Metadata、media:Libraries、Param 均不是 Hypit 契约）；用真实组件、typed refs 和各包输出。Clock 必须使用 frame-rate 属性，例如 <time:Clock id=\"clock\" frame-rate=\"24\"/>，不能写 fps；Timeline 必须使用 Hypit 引用表达式 clock={clock}，不能写成字符串 clock=\"clock\"。\n"
+        "runs/main.svrun 必须是 JSON，不是 Hypit markup；schema=easel-authoring-svrun@1。逐字复制当前冻结的 creation_id、attempt_id、plan_id/revision、bundle_id/revision、readiness_revision；设置 authoring_source=../authors/main.svml、material_selection=../material-selection.json、status=AUTHORING_READY、publication_allowed=false、build={enabled:false,reason:stops_before_hypit_build}。身份值从 planning/manifest.json、materials/bundle.json、materials/readiness.json 和当前 Attempt 读取，绝不能猜测。Easel 后端会校验身份并转换成 Hypit Run markup，再交给本机 hypit check；不要手工把 Hypit markup 写进这个 JSON。\n"
+        "必须保持 Content Core 的主题和边界；不得把 model_inference 写成用户亲历，"
+        "不得创造未被 Truth Packet 允许的公司、人物、日期、数字或结果。Creative Mode 是电影语言，"
+        "不是固定叙事模板。声音和第一人称是否出现以冻结 SCRIPT/SCENES 为准；"
+        "无声方案不得自行增加旁白、音乐或音效。\n\n"
+        "读取 productions/easel-authoring/MATERIAL_BUNDLE.json 与 planning artifacts 后，必须由 Production Authoring 自己决定最终素材；"
+        "material-selection.json 已由 Easel 写入当前 Attempt/Plan/Bundle/Readiness identity 与 revision；保留这些字段，只修改 assets 和 status。"
+        "为每个所选 Asset 写入 asset_id、media_type、mime、src、sha256，并确保实际 Hypit media:Image/Video/Audio src 使用相同 workspace-relative 路径；按 timeline-author + media-track + film 的真实组件边界组装，不要把自定义属性塞到 svml 根。"
+        "不要自行生成 qualified_need_ids；Easel 会根据当前合格 Match 复核并写入该证据。"
+        "若 MaterialPlan 有 required Voice/BGM Need，必须各自选择匹配的已批准 Audio Asset；Voice 与 BGM 使用独立 Hypit audio:Track，"
+        "每个 Asset 先经 media:Audio + pipeline:Normalize，再作为 audio:Item 放入 AudioTrack，最终以 film:Track source={...audio} 纳入 Film。"
+        "BGM Track 必须显式给出低于旁白的 gain 和基本 fade；Hypit audio-track 不自动 duck，不能声称已有自动闪避。"
+        "没有 required 音频 Need 时才遵循无声方案，不得擅自补旁白或音乐。"
+        "不得把供应排序当作最终选择。先写 selection、SVML、SVRun，"
+        "再做本机静态 check；若 check 报错，只修这些文件。\n"
+        "本轮不能调用 shell 或 Hypit CLI；Easel 会在你写完后独立运行 hypit check。\n"
+        "严禁运行 hypit plan、pricing、build、doctor、runtime、auth，严禁调用任何图片、视频、语音、音乐 Provider，"
+        "严禁创建新的 Easel Creation、Handoff 或 Attempt，严禁公开发布。完成后只报告 Authoring 已写入并通过/未通过静态检查。"
+    )
+
+
+def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+    """Ask the Director to plan from the frozen upstream snapshots before supply."""
+    root = Path(attempt["workspace"]["path"]).resolve()
+    refs = planning_context.get("context_refs")
+    if not isinstance(refs, dict) or set(refs) != {
+        "content_core_sha256", "truth_packet_sha256", "creator_context_sha256",
+        "production_brief_sha256", "creative_mode_sha256",
+    } or any(not isinstance(value, str) or not value for value in refs.values()):
+        raise PreparationError("Creative Planning lacks complete frozen Content/Creator/Director references")
+    planning_dir = root / "planning"
+    if planning_dir.is_symlink():
+        raise PreparationError("Planning directory must not be a symlink")
+    planning_dir.mkdir(parents=True, exist_ok=True)
+    prompt = (
+        "〔Easel Material Creative Planning V1〕\n"
+        f"Attempt ID: {attempt['attempt_id']}\nCreation ID: {attempt['creation_id']}\n"
+        f"Attempt workspace: {root}\n"
+        "这是已冻结 Creation 后的 Creative Planning 阶段，须产出 MaterialPlan 与规划稿；"
+        "不是 Content Core 准备或 Hypit Production Authoring。\n"
+        "先阅读 handoff/handoff.json 中哈希绑定的 production_request.production_brief，"
+        "并确认其 production_brief_sha256 与 context_refs 完全一致；读取 confirmed_proposal_sha256 后再阅读"
+        "handoff/content-core.json、handoff/truth-packet.json、handoff/creator-context.json，"
+        "以及 handoff/creative-mode/ 的 mode.json、director-treatment.md、visual-bible.md、"
+        "audio-bible.md、editing-bible.md。冻结的 Content Core、Truth Packet、Creator Context、"
+        "Creative Mode / Director 是唯一创作依据。不要读取其他项目、历史产物或重复计算 SHA-256。\n"
+        "读取后立即写出以下四个绝对路径的文件，写完再回复；只回复文字不算完成：\n"
+        f"{planning_dir / 'MATERIAL_PLAN.json'}\n"
+        f"{planning_dir / 'TREATMENT.md'}\n"
+        f"{planning_dir / 'SCRIPT.md'}\n"
+        f"{planning_dir / 'SCENES.md'}\n"
+        "MaterialPlan JSON 顶层必须有 plan_id、creation_id、attempt_id、context_refs、needs。"
+        "每个 Need 必须有 need_id、scope:{type,ref}、media_type、role、"
+        "intent:{description}、importance；至少一个 importance=required。"
+        "intent 只能含 description 和可选 function；素材文件路径、SHA、License、Rights 证据"
+        "属于后续 Supply/Asset，不能写入 Need.intent。图像 modality_spec 若填写，"
+        "kind 必须为 image；竖屏写 aspect_ratio=9:16，不能写 orientation。"
+        "ImageNeedSpec 只允许 kind/aspect_ratio/visual_style/reference_asset_ids；也可省略 modality_spec。"
+        "字幕、标题、转场与画面裁切由 Hypit Production Authoring 负责，不能伪装成 MaterialNeed。"
+        "policy 可以省略；若填写，只能是字符串到字符串的映射，不能放布尔值或数组。"
+        "scope.type 仅用 scene、event、global 或 segment；media_type 仅用 image、video、audio。"
+        "voice/BGM/SFX 需要 audio 与相应 modality_spec.kind=voice/bgm/sfx；SFX 用 event scope。"
+        "VoiceNeedSpec 只允许 kind、identity、delivery_description、text_ref、text_sha256；"
+        "identity 必须是 {source,reference}，source 只用 creator_context、director_intent、explicit_user；"
+        "本作品要求预置 AI 音色时可用 explicit_user 与不含 Provider ID 的语音描述。"
+        "BgmNeedSpec 只允许 kind、mood、genre、instruments、vocals_allowed、energy、tempo_bpm；"
+        "其中 instruments 是字符串数组（例如 [\"piano\"]），tempo_bpm 是两个递增整数的数组"
+        "（例如 [60,80]）；不确定时省略，不能写字符串或单个数字。"
+        "配乐如何压低和淡出写入 SCENES/TREATMENT，不写进 BgmNeedSpec。"
+        "BGM Need.intent.description 写可检索的简短英文音乐描述（例如 gentle piano instrumental），"
+        "不要把压低音量、淡出或时间线指令混入搜索词；这些仍写入 SCENES/TREATMENT。"
+        "明确要求 AI 生成的 Image/Voice Need 在 constraints 中写 allow_generation=true；BGM 不得写该许可。"
+        "若用户要求此作品必须真实生成该素材，还须写 constraints.required_source_kind=\"generative\"，"
+        "确保搜索来的本地或图库素材不能替代生成结果；仅允许生成作为候选时不要写此硬约束。"
+        "若用户明确禁止本地样本满足某 Need，写 constraints.forbidden_source_kind=\"local\"；"
+        "它只排除本地原始素材，仍允许正式 Library 或 External 资产。"
+        "Required Voice Need 必须提供 provider-neutral identity；其 text_ref/text_sha256 由 Easel 在 SCRIPT 冻结后绑定，"
+        "不得填写 provider_voice_id。若有 Voice Need，SCRIPT.md 只写需要合成的逐字旁白文本，"
+        "不写标题、说明、表格、引号或时间线；节奏和画面安排写入 SCENES.md/TREATMENT.md。"
+        "不要编造素材存在、Rights 许可或引用素材 ID。\n"
+        f"plan_id: plan-{attempt['attempt_id'][-20:]}\n"
+        f"context_refs: {json.dumps(refs, ensure_ascii=False, sort_keys=True)}\n"
+        "MaterialPlan 必须根据当前叙事、受众、语气和导演语言提出真实 Need；"
+        "禁止套用固定 IMAGE Need、固定场景数或固定媒体类型。"
+        "SCRIPT/SCENES 必须符合 Content Core 与 Truth Packet，不改写事实、隐私边界或 Director 意图。"
+        "第一人称只能表达观点与反思；不得凭空写我曾做过、看过、按过、说过等已发生动作。"
+        "如需创作假设，须在同一句明确写“假设”或“如果”，不得伪装成真实经历。"
+        "不调用 Provider、Hypit、媒体生成、Plan、Pricing 或 Build。后端会严格校验 Domain 合同和冻结身份。"
+    )
+    files = {
+        "plan": planning_dir / "MATERIAL_PLAN.json",
+        "treatment": planning_dir / "TREATMENT.md",
+        "script": planning_dir / "SCRIPT.md",
+        "scenes": planning_dir / "SCENES.md",
+    }
+
+    def validate_artifacts() -> dict:
+        values = {}
+        for key, path in files.items():
+            if (path.is_symlink() or not path.is_file()
+                    or path.stat().st_size > (256 * 1024 if key == "plan" else 128 * 1024)):
+                raise PreparationError(f"Creative Planning artifact {path.name} is missing or invalid")
+            values[key] = path.read_text(encoding="utf-8")
+        try:
+            plan = MaterialPlan.model_validate_json(values["plan"])
+        except ValidationError as exc:
+            issues = ", ".join(
+                f"{'.'.join(str(part) for part in item['loc'])}:{item['type']}"
+                for item in exc.errors()[:20]
+            )
+            raise PreparationError(f"Creative Planning MaterialPlan Domain validation failed: {issues}") from exc
+        if (plan.plan_id != f"plan-{attempt['attempt_id'][-20:]}"
+                or plan.creation_id != attempt["creation_id"] or plan.attempt_id != attempt["attempt_id"]):
+            raise PreparationError("Creative Planning MaterialPlan identity differs from the current Attempt")
+        if plan.context_refs != refs:
+            different = [key for key in refs if plan.context_refs.get(key) != refs[key]]
+            raise PreparationError("Creative Planning frozen context_refs mismatch: " + ", ".join(different))
+        if not plan.needs or not any(need.importance.value == "required" for need in plan.needs):
+            raise PreparationError("Creative Planning MaterialPlan requires at least one required Need")
+        if any(not values[key].strip() for key in ("treatment", "script", "scenes")):
+            raise PreparationError("Creative Planning TREATMENT/SCRIPT/SCENES must all be non-empty")
+        return {"plan": plan, "context_refs": refs, "treatment": values["treatment"],
+                "script": values["script"], "scenes": values["scenes"]}
+
+    session_id = f"material-planning-{attempt['attempt_id']}"
+    if not all(path.is_file() for path in files.values()):
+        run_agent_sync(prompt, TIMEOUT_PRODUCE, session_id)
+    try:
+        return validate_artifacts()
+    except PreparationError as first_error:
+        repair = (
+            "〔Easel Creative Planning 单次合同修正〕\n"
+            f"Attempt workspace: {root}\n"
+            f"校验问题：{str(first_error)[:1200]}\n"
+            f"当前冻结 context_refs（必须逐字复制，不要自己重算）：{json.dumps(refs, ensure_ascii=False, sort_keys=True)}\n"
+            "已冻结的 Content Core、Truth Packet、Creator Context、Creative Mode 和身份不得改动。"
+            "读取现有 planning 文件，只修正缺失或无效的 planning/MATERIAL_PLAN.json、"
+            "TREATMENT.md、SCRIPT.md、SCENES.md；已有效的文件保持原样。"
+            "每个 Need.scope 都必须同时有 type 与非空 ref；global scope 写"
+            "{\"type\":\"global\",\"ref\":\"global\"}。"
+            "Plan.policy 省略或仅含字符串值。VoiceNeedSpec 只允许 kind、identity、delivery_description、"
+            "text_ref、text_sha256；identity 结构为 {source,reference}，source 只用 creator_context、"
+            "director_intent、explicit_user。BgmNeedSpec 只允许 kind、mood、genre、instruments、"
+            "vocals_allowed、energy、tempo_bpm。BGM instruments 是字符串数组（例如 [\"piano\"]），"
+            "tempo_bpm 是两个递增整数的数组（例如 [60,80]）；不确定时省略。"
+            "明确要求 AI 生成的 Image/Voice Need 设置"
+            "constraints.allow_generation=true；若用户要求必须真实生成，还要设置"
+            "constraints.required_source_kind=\"generative\"，阻止本地/外部素材替代。"
+            "若用户禁止本地样本满足 BGM，设置 constraints.forbidden_source_kind=\"local\"。"
+            "BGM 不得设置生成许可。Required Voice Need 必须提供"
+            "provider-neutral identity；text_ref/text_sha256 由 Easel 按冻结 SCRIPT 绑定，"
+            "请同时省略这两个字段，不得只写 text_ref，也不得填写 provider_voice_id。"
+            "若用户要求旁白必须在本作品真实 AI 生成，该 Voice Need 同样设置"
+            "constraints.required_source_kind=\"generative\"。"
+            "若有 Voice Need，SCRIPT.md 只写需要合成的逐字旁白文本，"
+            "不写标题、解释、表格、引号或时间线；其他编排写入 SCENES.md/TREATMENT.md。"
+            "重点：Need.intent 只保留 description/function；移除 source_ref、SHA、License、Rights 等"
+            "供应事实。图像 modality_spec 只保留 kind=image、可选 aspect_ratio=9:16；"
+            "删除 orientation、source_dimensions、treatment 等字段。不需要时可省略 modality_spec。"
+            "删除 subtitle_overlay 等字幕/时间线 Need，字幕属于 Production Authoring。"
+            "Script 的全部文本会进入逐句 Truth/创作声明审阅。不得添加未获 Truth Packet 支持的个人经历；"
+            "创作假设须在句首清楚标记，其他无法逐字映射到来源的陈述会等待人工审阅。"
+            "四个文件都实际写入后再回复。不调用 Provider、Hypit 或付费 Build。"
+        )
+        run_agent_sync(repair, TIMEOUT_PRODUCE, session_id)
+        return validate_artifacts()
+
+
+async def _run_film_authoring(attempt_id: str) -> dict:
+    """Dispatch one durable no-media Authoring job through the existing Agent."""
+    previous = get_film_attempt(attempt_id).get("authoring_status")
+    started = await asyncio.to_thread(begin_film_authoring, attempt_id)
+    status = started.get("authoring_status")
+    if status == "AUTHORING_READY":
+        return started
+    task = started["authoring_task"]
+    message = _authoring_agent_message(attempt_id, task)
+    if previous == "AUTHORING_FAILED":
+        asset_options = ""
+        current = get_film_attempt(attempt_id)
+        prior_error = (current.get("last_error") or {}).get("message")
+        if current.get("material_gate", {}).get("status") == "MATERIAL_READY":
+            from easel.integrations.material_layer import MaterialGateIntegration
+            from easel.materials.store import AttemptMaterialStore
+
+            _, bundle, _ = MaterialGateIntegration().assert_ready(current)
+            material_store = AttemptMaterialStore(current["workspace"]["path"])
+            author_source = "productions/easel-authoring/authors/main.svml"
+            asset_options = json.dumps([
+                {"asset_id": asset.asset_id, "media_type": asset.media_type.value,
+                 "src": material_store.hypit_source_path(asset, author_source),
+                 "mime": asset.file.mime, "sha256": asset.file.sha256}
+                for asset in bundle.assets
+            ], ensure_ascii=False, separators=(",", ":"))
+        message = (
+            "〔Easel Hypit Authoring 恢复：立即落盘〕\n"
+            f"继续同一 Attempt {attempt_id}，工作区 {task['workspace']}。"
+            "前一次已阅读冻结输入、MaterialBundle 与 AUTHORING_TASK 的 Hypit 契约。"
+            f"上次失败反馈：{prior_error or '无结构化错误'}。本轮先按此反馈修正；不要再浏览文档；只用文件工具修正"
+            " productions/easel-authoring/material-selection.json、authors/main.svml、"
+            "runs/main.svrun。Production 自主选择 Bundle 中的素材，selection 的 src/SHA"
+            "必须与 SVML 的 media:Image/Video/Audio 引用和实际文件一致。"
+            "selection 顶层必须是 schema=easel-production-material-selection@1、"
+            "creation_id、attempt_id、plan_id/revision、bundle_id/revision、readiness revisions、authoring_source 与 assets 数组；"
+            "保留 identity/revision 字段，只编辑 assets/status；数组每项必须有 asset_id、media_type、mime、src、sha256，不能用 selections 字段。"
+            "如有 required Voice/BGM Need，按 AUTHORING_TASK 的 Audio Production Contract 分别选材，使用独立 AudioTrack 并将其纳入 Film。"
+            "SVML 必须符合已安装 Hypit 0.2.7 的真实组件契约：根是无属性的 <svml>，不要 xmlns 或自创的 film:Scene/Overlay/Tracks/Metadata、media:Libraries、Param。用已导入 @hypit/media@1 的 media:Image 声明 src；@hypit/timeline-author@1 的 Clock 使用 <time:Clock id=\"clock\" frame-rate=\"24\"/>，Timeline 必须写 clock={clock} 引用（不能写成 clock=\"clock\" 字符串）；Clock 使用 frame-rate 属性（不是 fps）。使用 @hypit/spatial@1 的 Canvas/Extent/Frame；@hypit/media-track@1 的 Track/Item（静态照片用 image+extent+frame 与 at+for，Sampling 子项的 at=start/end、zoom/x/y）；@hypit/film@1 的 Film/Track；并用 render-hyperframes 的 Video 输出。每个 import 放根内。末段文字用 @hypit/typography-track@1 的 Track/Area，不要 Overlay。SVML 的 src 必须是下方从 Bundle 计算的精确相对路径；不要复制素材到 authors/assets。"
+            f"可选的已验收 Bundle Asset 路径清单：{asset_options}\n"
+            "沿用已复制的 SCRIPT/SCENES/TREATMENT；无声方案不得增加音轨。"
+            "写完后停止；Easel 会运行 hypit check 并按验收错误触发单独修复轮次。"
+            "禁止 plan、pricing、build 或调用 Provider；只完成 Authoring。"
+        )
+    def run_scoped_authoring(turn_message: str) -> str:
+        return run_attempt_scoped_authoring(
+            attempt_id=attempt_id,
+            attempt_workspace=task["workspace"],
+            message=turn_message,
+            command_prefix=openclaw_base_cmd(),
+            profile=OPENCLAW_PROFILE,
+            staging_parent=Path.home() / f".openclaw-{OPENCLAW_PROFILE}" / "authoring-staging",
+            timeout=TIMEOUT_PRODUCE,
+            thinking=THINKING_LEVEL,
+            cwd=PROJECT_ROOT,
+            env=_proxy_env(),
+        )
+
+    try:
+        await asyncio.to_thread(run_scoped_authoring, message)
+        try:
+            return await asyncio.to_thread(complete_film_authoring, attempt_id)
+        except HypitIntegrationError as exc:
+            repairable = {
+                "SVRun must identify its authored SVML source",
+                "SVRun author source is missing or outside the Attempt workspace",
+                "Easel Run manifest identity or no-publication boundary is invalid",
+                "Easel Run manifest must stop before Hypit Build",
+            }
+            if str(exc) in repairable:
+                repair_started = await asyncio.to_thread(begin_film_authoring, attempt_id)
+                repair_task = repair_started["authoring_task"]
+                repair_message = (
+                    "〔Easel Authoring 自动修复：SVRun 源文件绑定〕\n"
+                    f"后端结构校验指出：{exc}\n"
+                    f"唯一 Attempt 工作区：{repair_task['workspace']}\n"
+                    "本条格式指令覆盖该工作区旧版 AUTHORING_TASK.md 中与 Hypit Source 语法冲突的内容。"
+                    "只修正 Source 格式，不改创意/镜头/素材选择。authors/main.svml 必须以一行 "
+                    "<?svml using=\"@hypit/markup@1\"?> 开始，随后是 <svml>...</svml> 根。"
+                    "runs/main.svrun 必须是 Easel JSON（不是 Hypit markup），schema=easel-authoring-svrun@1；"
+                    "包含当前准确的 creation_id、attempt_id、plan_id、plan_revision、bundle_id、bundle_revision、readiness_revision；"
+                    "authoring_source=../authors/main.svml，material_selection=../material-selection.json，"
+                    "status=AUTHORING_READY，publication_allowed=false，"
+                    "build={\"enabled\":false,\"reason\":\"stops_before_hypit_build\"}。"
+                    "身份/修订值从当前 Attempt、planning/manifest.json、materials/bundle.json、materials/readiness.json 复制，禁止猜测。"
+                    "Easel 后端会校验并转换成 Hypit Run markup；不要把 SVML 标记写进此 JSON。"
+                    "保留 SVML 中现有 Film 的全部语义及已选素材。"
+                    "不要重写素材选择、Film 语义、SCRIPT、SCENES、TREATMENT，"
+                    "不要添加新素材或音轨。写完后停止，由 Easel 重新验证。"
+                )
+                task["workspace"] = repair_task["workspace"]
+                await asyncio.to_thread(run_scoped_authoring, repair_message)
+                try:
+                    return await asyncio.to_thread(complete_film_authoring, attempt_id)
+                except HypitIntegrationError as repair_exc:
+                    exc = repair_exc
+            if not str(exc).startswith("Hypit check 失败："):
+                raise
+            # Hypit check is deterministic and non-paid. Repair its exact
+            # contract feedback in bounded rounds so users need not supervise
+            # every syntax correction. Runtime/Plan/Pricing/Build stay out of
+            # this loop.
+            for repair_number in range(3):
+                repair_started = await asyncio.to_thread(begin_film_authoring, attempt_id)
+                repair_task = repair_started["authoring_task"]
+                task["workspace"] = repair_task["workspace"]
+                repair_message = (
+                    "〔Easel Authoring 自动修复：Hypit Check〕\n"
+                    f"同一 Attempt {attempt_id}，唯一工作区 {task['workspace']}。\n"
+                    f"Hypit 0.2.7 的精确校验反馈：{str(exc)[:3000]}\n"
+                    "只根据这条错误做最小修复，优先只改 authors/main.svml 中被指出的契约字段；"
+                    "保留冻结的主题、镜头时序、素材选择和已通过的结构。"
+                    "需要重写素材路径时，只能复制 MATERIAL_BUNDLE 中的精确相对路径；"
+                    "不要改 Creation/Attempt/Plan/Bundle/Readiness 身份字段。"
+                    "不调用 Provider，不访问外部，不运行 plan、pricing 或 build，也不发布。"
+                    f"这是本次最多三轮自动修复中的第 {repair_number + 1} 轮。"
+                    "文件修完即停止，由 Easel 再运行本地 Hypit check。"
+                )
+                await asyncio.to_thread(run_scoped_authoring, repair_message)
+                try:
+                    return await asyncio.to_thread(complete_film_authoring, attempt_id)
+                except HypitIntegrationError as next_error:
+                    if not str(next_error).startswith("Hypit check 失败：") or repair_number == 2:
+                        raise
+                    exc = next_error
+    except Exception as exc:
+        try:
+            # complete_film_authoring already records check errors.  A model or
+            # process failure needs the same durable authoring failure state.
+            from easel.integrations.hypit.service import _record_operation_error
+            await asyncio.to_thread(_record_operation_error, attempt_id, "authoring_agent", exc,
+                                    status="AUTHORING_FAILED")
+        except Exception:
+            pass
+        raise
+
+
+def _start_film_authoring(attempt_id: str) -> dict:
+    """Start once; repeated UI clicks return the same durable operation."""
+    attempt = get_film_attempt(attempt_id)
+    if "material_planning" in attempt or "material_gate" in attempt:
+        from easel.integrations.material_layer import MaterialGateIntegration
+
+        MaterialGateIntegration().assert_ready(attempt)
+    try:
+        require_chat_proposal_confirmed(get_creation(attempt["creation_id"]))
+    except CreationError as exc:
+        raise HypitIntegrationError(str(exc)) from exc
+    existing = _AUTHORING_TASKS.get(attempt_id)
+    if existing is not None and not existing.done():
+        return get_film_attempt(attempt_id)
+    task = asyncio.create_task(_run_film_authoring(attempt_id))
+    _AUTHORING_TASKS[attempt_id] = task
+
+    def cleanup(done: asyncio.Task) -> None:
+        if _AUTHORING_TASKS.get(attempt_id) is done:
+            _AUTHORING_TASKS.pop(attempt_id, None)
+        try:
+            done.exception()
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    task.add_done_callback(cleanup)
+    return get_film_attempt(attempt_id)
 
 
 @app.get("/api/chat/last/{session_id}")
@@ -1217,7 +2561,18 @@ async def api_chat_stream(req: ChatRequest):
     token delta 转成 SSE `token`、thinking delta 转成 `thinking`。stdout 仅留作错误/兜底。
     """
     # 每轮末尾追加「先查技能库」提醒，抗长对话指令衰减（对用户不可见）
-    message = _chat_message(req)
+    message, bound_creation = _prepare_chat_request(req)
+    prep_action = bound_creation.get("_preparation_action") if bound_creation else None
+    if bound_creation and prep_action in {"in_progress", "blocked", "already_prepared"}:
+        status = ("in_progress" if prep_action == "in_progress" else
+                  bound_creation.get("_blocked_status") or
+                  bound_creation.get("preparation", {}).get("status", "BLOCKED_CREATIVE_MODE_REQUIRED"))
+        if prep_action == "already_prepared":
+            status = "already_prepared"
+        return await _quick_chat_preparation_response(req, bound_creation, _preparation_reply(status))
+    if bound_creation and prep_action == "resume":
+        reply = await _resume_confirmed_preparation(bound_creation)
+        return await _quick_chat_preparation_response(req, bound_creation, reply)
 
     # supervisor（跑 openclaw run）与 forward（转发 SSE 给浏览器）之间的事件通道。
     # 关键：run 跑在独立后台任务里，客户端断开只结束 forward，不取消 supervisor →
@@ -1257,6 +2612,12 @@ async def api_chat_stream(req: ChatRequest):
                 pass
             client_q.put_nowait({"t": kind, "text": text, "id": event_seq, **extra})
 
+        if bound_creation is not None:
+            to_client("creation", {
+                "creationId": bound_creation["id"],
+                "phase": bound_creation.get("_client_phase", "proposal"),
+            })
+
         _heal_openclaw_session(sk)       # 清洗历史里无签名 thinking 块，防回放失效
         # 原始事件流由常驻 gateway 写到共享文件（见 SHARED_RAW_STREAM / scripts/gateway.sh），
         # 不是 agent 客户端写的。本轮开始时记下文件当前尾偏移：只读此偏移之后追加的行，
@@ -1293,6 +2654,8 @@ async def api_chat_stream(req: ChatRequest):
         got = await loop.run_in_executor(None, xlock.acquire, min(TIMEOUT_CHAT, 300))
         if not got:
             lock.release()
+            if bound_creation and prep_action == "generate":
+                mark_preparation_failed(bound_creation["id"], "同一聊天会话的 Agent 锁等待超时")
             _save_turn(pk, "done", "这个会话正在另一个窗口运行，请稍候再试。", {
                 "turn_id": turn_id, "clean_end": False, "stop_reason": "session_lock_timeout",
             })
@@ -1309,6 +2672,8 @@ async def api_chat_stream(req: ChatRequest):
         except BaseException:
             lock.release()
             xlock.release()
+            if bound_creation and prep_action == "generate":
+                mark_preparation_failed(bound_creation["id"], "Easel Agent 启动失败")
             _save_turn(pk, "done", "❌ 启动失败，请重试", {
                 "turn_id": turn_id, "clean_end": False, "stop_reason": "spawn_failed",
             })
@@ -1607,6 +2972,20 @@ async def api_chat_stream(req: ChatRequest):
                     }, ensure_ascii=False) + "\n")
             except Exception:
                 pass
+            completed_cleanly = (
+                proc.poll() == 0 and run_info.get("last_ev") == "assistant_message_end" and not user_stopped
+            )
+            transition_note = await _finish_ai_film_turn(
+                bound_creation, prep_action, succeeded=completed_cleanly,
+            )
+            if bound_creation and prep_action == "proposal" and completed_cleanly:
+                to_client("creation", {
+                    "creationId": bound_creation["id"],
+                    "phase": "proposal_ready",
+                })
+            if transition_note:
+                full_text.append(transition_note)
+                to_client("token", transition_note)
             # 落盘完整结果：后端跑完整轮不依赖客户端连接，断线后前端用 /api/chat/last 取回
             _save_turn(pk, "done", "".join(full_text), {
                 "turn_id": turn_id,
@@ -1669,6 +3048,8 @@ async def api_chat_stream(req: ChatRequest):
                 yield {"id": str(item["id"]), "event": "activity", "data": json.dumps(item["text"], ensure_ascii=False)}
             elif t == "question":
                 yield {"id": str(item["id"]), "event": "question", "data": item["text"]}
+            elif t == "creation":
+                yield {"id": str(item["id"]), "event": "creation", "data": json.dumps(item["text"], ensure_ascii=False)}
             elif t == "error":
                 yield {"id": str(item["id"]), "event": "error", "data": json.dumps(item["text"], ensure_ascii=False)}
             elif t == "done":
@@ -1766,11 +3147,28 @@ async def api_chat_stop(req: StopRequest):
 async def api_chat(req: ChatRequest):
     """非流式对话（备选）。"""
     # 每轮末尾追加「先查技能库」提醒，抗长对话指令衰减（对用户不可见）
-    message = _chat_message(req)
+    message, bound_creation = _prepare_chat_request(req)
+    prep_action = bound_creation.get("_preparation_action") if bound_creation else None
+    if bound_creation and prep_action in {"in_progress", "blocked", "already_prepared"}:
+        status = ("in_progress" if prep_action == "in_progress" else
+                  bound_creation.get("_blocked_status") or
+                  bound_creation.get("preparation", {}).get("status", "BLOCKED_CREATIVE_MODE_REQUIRED"))
+        if prep_action == "already_prepared":
+            status = "already_prepared"
+        return {"response": _preparation_reply(status), "creationId": bound_creation["id"]}
+    if bound_creation and prep_action == "resume":
+        reply = await _resume_confirmed_preparation(bound_creation)
+        return {"response": reply, "creationId": bound_creation["id"]}
     loop = asyncio.get_event_loop()
     # chat 可能中途触发制作层长任务 → 用 TIMEOUT_CHAT，与流式 /api/chat/stream 一致（勿用 300s）
-    result = await loop.run_in_executor(None, run_agent_sync, message, TIMEOUT_CHAT, req.sessionId)
-    return {"response": result}
+    try:
+        result = await loop.run_in_executor(None, run_agent_sync, message, TIMEOUT_CHAT, req.sessionId)
+    except Exception as exc:
+        if bound_creation and prep_action == "generate":
+            mark_preparation_failed(bound_creation["id"], str(exc))
+        raise
+    result += await _finish_ai_film_turn(bound_creation, prep_action, succeeded=True)
+    return {"response": result, **({"creationId": bound_creation["id"]} if bound_creation else {})}
 
 
 class SkillRequest(BaseModel):
@@ -1795,6 +3193,12 @@ async def api_skill(req: SkillRequest):
 @app.get("/api/outputs")
 async def api_outputs():
     return get_output_tree()
+
+
+@app.post("/api/content-assets/reconcile")
+async def api_reconcile_content_assets(_operator: None = Depends(require_local_operator)):
+    from easel.content_assets import reconcile_selected_outputs
+    return reconcile_selected_outputs()
 
 
 @app.get("/api/output/{path:path}")
@@ -3083,4 +4487,4 @@ if __name__ == "__main__":
     if proxy_url:
         print(f"  {proxy_url}")
     print()
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

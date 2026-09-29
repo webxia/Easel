@@ -22,6 +22,8 @@ Schema:
     "tags":         ["标签1", "标签2"],
     "cover":        "封面文件名（项目根相对；缺省=首张成品媒体）",
     "deliverables": ["最终成品文件名（区别于 assets/ 中间件）"],
+    "creative_mode": "本作品采用的 Creative Mode id（可选）",
+    "creative_mode_version": "Creative Mode 版本（可选）",
 
     "steps": [
       {"layer": "plan", "skill": "video-script", "at": ISO8601, "status": "done",
@@ -68,7 +70,10 @@ STATUSES = ("done", "failed")
 KINDS = ("article", "xhs-note", "video", "cards", "poster", "audio", "other")
 PROJECT_STATUSES = ("draft", "ready", "published")
 # 展示头可 upsert 的标量字段（列表字段 tags/deliverables 单独处理）
-META_SCALAR_FIELDS = ("title", "summary", "platform", "kind", "status", "cover")
+META_SCALAR_FIELDS = (
+    "title", "summary", "platform", "kind", "status", "cover",
+    "creative_mode", "creative_mode_version",
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -198,7 +203,8 @@ def cmd_meta(args) -> None:
     data["updated"] = now
     atomic_write(path, data)
     header = {k: data.get(k) for k in
-              ("title", "summary", "platform", "kind", "status", "tags", "cover", "deliverables")
+              ("title", "summary", "platform", "kind", "status", "tags", "cover", "deliverables",
+               "creative_mode", "creative_mode_version")
               if k in data}
     print(json.dumps({"ok": True, "topic": data.get("topic"), "meta": header,
                       "path": str(path)}, ensure_ascii=False, indent=2))
@@ -304,7 +310,8 @@ def _selftest() -> int:
         c, out = run(["meta", "--data", mp, "--topic", "测试主题",
                       "--title", "标题党", "--platform", "小红书", "--kind", "cards",
                       "--status", "draft", "--tags", "标签A,标签B",
-                      "--cover", "cover.png", "--deliverables", "card_1.png,card_2.png"])
+                      "--cover", "cover.png", "--creative-mode", "clear_memo_video",
+                      "--creative-mode-version", "1.0", "--deliverables", "card_1.png,card_2.png"])
         assert c == 0, "meta 应成功"
         c, out = run(["read", "--data", mp])
         data = json.loads(out)
@@ -312,6 +319,8 @@ def _selftest() -> int:
         assert data["kind"] == "cards" and data["status"] == "draft"
         assert data["tags"] == ["标签A", "标签B"]
         assert data["deliverables"] == ["card_1.png", "card_2.png"]
+        assert data["creative_mode"] == "clear_memo_video"
+        assert data["creative_mode_version"] == "1.0"
         assert len(data["steps"]) == 3, "meta 不应动 steps"
 
         # 9) meta 二次 upsert：只改传入字段，其余保留
@@ -366,6 +375,8 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--status", choices=PROJECT_STATUSES, help="生命周期")
     m.add_argument("--tags", help="标签，逗号分隔（给了即整体替换）")
     m.add_argument("--cover", help="封面文件名（项目根相对）")
+    m.add_argument("--creative-mode", dest="creative_mode", help="Creative Mode id（如 clear_memo_video）")
+    m.add_argument("--creative-mode-version", dest="creative_mode_version", help="Creative Mode version")
     m.add_argument("--deliverables", help="最终成品文件名，逗号分隔（给了即整体替换）")
     m.set_defaults(func=cmd_meta)
 

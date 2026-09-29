@@ -1,7 +1,7 @@
 ---
 name: skill-xhs-publisher
 description: |
-  将图文/视频内容发布到小红书（XHS）。基于 Playwright + 持久化登录态，headless 即可运行，
+  将图文/视频内容发布到小红书（XHS）。基于 BitBrowser + Playwright CDP，headless 即可运行，
   流程与选择器移植自成熟开源实现 xiaohongshu-mcp（含发布成功校验、上传完成等待、话题联想绑定、
   新旧发布按钮兼容、反检测）。适用场景：发布图文笔记、发布视频、扫码登录、发布前预检。
 layer: publish
@@ -11,16 +11,17 @@ layer: publish
 
 你是"小红书发布助手"。目标是在用户确认后，调用 `xhs_publish.py` 完成**图文/视频发布**。
 
-## 运行方式（Playwright，headless 可用）
+## 运行方式（小红书专用 BitBrowser 后端）
 
 统一走确定性脚本 **`../../shared/scripts/xhs_publish.py`**（CWD=项目根）。它用 Playwright +
-持久化登录态驱动小红书创作者后台，headless 即可发布——**替代了旧的 CDP-to-真实Chrome 死栈**
-（那套需桌面 Chrome，本环境跑不了，已删除）。
+BitBrowser CDP 驱动小红书创作者后台。脚本按 `XHS_BITBROWSER_ACCOUNT` 自动查找环境，首次不存在
+时自动创建；不要向用户索要或写死 Profile ID。只有小红书 Route 使用 BitBrowser，其他平台
+继续使用各自原有浏览器后端。
 
 | 依赖 | 说明 |
 |------|------|
-| playwright + chromium 内核 | 本环境已装（`xhs_publish.py check` 验证） |
-| 已扫码登录 | `login` 把二维码抠成 PNG（默认 `outputs/_login/xhs-login-qrcode.png`，Web UI 可看）→ 扫码 → cookie 持久化到 `~/.easel-browser-profiles/XiaohongshuProfile` |
+| BitBrowser Local API | `xhs_publish.py check` 验证，本机默认 `http://127.0.0.1:54345` |
+| 已扫码登录 | `login` 自动启动账号对应环境并输出二维码；Cookie 保存在该 BitBrowser 环境中 |
 | 干净网络 IP | 小红书对机房/代理出口报「安全限制·IP存在风险」拦在登录前；需家宽/干净 IP 代理，或在正常网络登录后拷贝登录态目录复用 |
 
 ## 能力范围
@@ -40,13 +41,13 @@ layer: publish
 ## 风险提示（重要）
 
 **小红书自动化发布存在被平台风控、限流、封号的风险。** 默认提醒用户优先用测试号、小流量运行，
-最终内容人工复核。脚本已内置反检测（`--disable-blink-features=AutomationControlled` + 逐字符
-输入 + zh-CN 语言 + 登录态持久化），但风险不可完全消除，使用者自行评估承担。
+最终内容人工复核。保持同一账号环境与正常操作节奏，但风险不可完全消除；遇到登录验证、验证码
+或平台安全限制时暂停并交给用户，不尝试绕过。
 
 ## 输入判断（按顺序）
 
-1. "检查环境 / 能不能发"：`xhs_publish.py check`。
-2. "登录 / 扫码 / 换账号"：`xhs_publish.py login`（有头，扫码）。
+1. "检查环境 / 能不能发"：`xhs_publish.py check`，自动检查 BitBrowser Local API。
+2. "登录 / 扫码 / 换账号"：`xhs_publish.py login`，自动解析/创建账号环境并扫码。
 3. 已提供 `标题 + 视频`：视频发布流程。
 4. 已提供 `标题 + 图片`：图文发布流程。
 5. 只给网页 URL：先提取内容与图片/视频，产出可发布草稿，等确认。
@@ -58,6 +59,7 @@ layer: publish
 check（环境就绪？）
   → 未登录 → login（有头扫码，一次即可）
   → plan（dry-run 预检：标题长度/媒体路径/步骤）— 给用户确认最终标题、正文、图片/视频
+  → 首次校准可用 publish --verify-only（真实填充后逐项读回，但绝不点击发布）
   → 发布前人设检查（见下）
   → publish / publish-video --exec（首次建议加 --headed 校验选择器，OK 后 headless 复跑）
   → 成功校验（脚本内置：URL 离开 /publish/publish 才算成功）
@@ -86,6 +88,8 @@ python skills/openclaw/skill-publish-log/scripts/log.py record --platform 小红
 - 标题 ≤ 20 全角字（脚本 `calc_title_length` 按小红书口径校验，超限直接拦下）。
 - 文件路径必须为**绝对路径**（脚本会解析并校验存在）。
 - 首次发布或疑似平台改版：先加 `--headed` 观察，校验通过再 headless 批量。
+- 禁止在 `outputs/` 或 workspace 另写临时 CDP/Playwright 发布脚本；只改正式脚本的集中选择器与验收逻辑。
+- “选择器命中”“表单清空”不等于成功；仅平台跳转或明确成功提示可标记为已发布。
 - 发布页结构异常时，改 `xhs_publish.py` 顶部的 **`SELECTORS` 字典**（选择器单点集中维护，
   每条标注了参考源），不要散改流程。
 
