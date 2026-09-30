@@ -229,7 +229,7 @@ export default function App() {
   ) => {
     setSessions((prev) => {
       const next = prev.map((s) => s.id === sessionId
-        ? { ...s, activeCreationId: creationId, ...(phase ? { activeCreationPhase: phase } : {}) }
+        ? { ...s, capability: 'ai-film' as const, activeCreationId: creationId, ...(phase ? { activeCreationPhase: phase } : {}) }
         : s);
       saveSessions(next);
       return next;

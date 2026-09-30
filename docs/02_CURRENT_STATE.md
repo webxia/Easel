@@ -43,6 +43,10 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 用户已明确启动一次普通 UI E2E，范围见 [具名验收记录](acceptance/creator-workspace-e2e-2026-09-30.md)。同一 Creation 完成 Proposal/冻结内容/规划/逐 Need 素材核对，Gate READY 后自动进入 Authoring。过程中暴露并修复了 Planning schema/检索合同、无 Profile 图库隔离、轮询重置确认、阶段误标、制作聊天泄漏和隔离 Authoring 契约缺漏。正式安装版 vocabulary 已接入隔离助手的只读合同输入，从同一失败阶段恢复后完成一个零第三方计费 Build、自动技术检查、一般时间点反馈、最终确认及内容库入库。成片为 12 秒、1080×1920、彻底静音；刷新/返回与选中输出 SHA 绑定验证通过。FUNCTIONAL/CORRECT/RECOVERABLE/CONTENT_LIBRARY=PASS，CREATOR_E2E=PARTIAL、CREATOR_VISIBLE/AUTONOMOUS=FAIL：本次曾泄漏内部制作回复，并依赖产品代码修复及服务重启，不能将修复后的结果当作完全自主验收。未手改真实产物/数据库/状态，未绕过审核或费用门禁。
 
+## 本次 Creator 自主性与音画质量 E2E（2026-09-30，进行中）
+
+用户另行授权一个 36 秒、5 场景、真实旁白与 BGM 的 Creation，详见 [具名验收记录](acceptance/creator-audio-quality-e2e-2026-09-30.md)。普通对话完成方案冻结与规划，当前停在 Material NOT_READY；获授权的一次预置音色 TTS 已完成并保留（31.932 秒），尚待正式使用权复核，账单未核实。未提交 Build，未产生 Selected Output 或内容库条目。修复自然委托路由、Planning 完整 Domain 合同、动态旁白 Need 任务、BGM 简短音色检索，以及生成后保留当前素材 checkpoint 并本地重算 Gate；68 项对话/Compiler/Preparation 与 42 项 Material/MiniMax 合同回归通过。当前视觉候选、BGM 来源约束和冻结规划修订路径仍有缺口，不得以旧 12 秒静音作品或技术检查代替本轮质量验收；本轮已依赖工程介入，AUTONOMOUS 不可判 PASS。
+
 ## Official Product Path
 
 ```text

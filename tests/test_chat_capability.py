@@ -45,6 +45,28 @@ def test_plain_chat_has_no_capability_or_creation(chat_creation_store):
     assert not list(creation.CREATIONS_DIR.glob("cr_*/creation.json"))
 
 
+@pytest.mark.parametrize("text, expected", [
+    ("我想做一支《把注意力放回当下》的完整短视频，成片36秒，5个Scene，有旁白与BGM。", True),
+    ("帮我制作一条视频，介绍整理桌面的三个方法。", True),
+    ("帮我写一条60秒口播短视频脚本", False),
+    ("请分析这个视频", False),
+    ("短视频怎么做？", False),
+    ("帮我剪辑这个视频", False),
+    ("我想做一张卡片，不要视频", False),
+])
+def test_normal_conversation_routes_only_explicit_film_commissions(chat_creation_store, text, expected):
+    message, work = web._prepare_chat_request(request(capability=None, message=text))
+    assert bool(work) is expected
+    assert len(list(creation.CREATIONS_DIR.glob("cr_*/creation.json"))) == int(expected)
+    if expected:
+        assert work["_preparation_action"] == "proposal"
+        assert work["chat_workflow"]["proposal_status"] == "DISCUSSING"
+        assert not work.get("hypit_attempts")
+        assert "不得写入任何文件" in message
+        _, retry = web._prepare_chat_request(request(capability=None, message=text))
+        assert retry["id"] == work["id"]
+
+
 def test_ai_film_creates_a_snapshotted_creation_and_reuses_it(chat_creation_store):
     first_message, first = web._prepare_chat_request(request())
     retry_message, retry = web._prepare_chat_request(request())

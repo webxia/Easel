@@ -4,6 +4,7 @@ import pytest
 
 from easel.materials.application.compiler import NeedCompilationError, NeedCompiler
 from easel.materials.domain import (
+    BgmNeedSpec,
     DurationHint,
     MaterialNeed,
     MediaType,
@@ -88,3 +89,18 @@ def test_compiler_rejects_conflicting_canonical_filters_and_invalid_context() ->
         NeedCompiler().compile(make_need(constraints={"media_type": "image"}))
     with pytest.raises(NeedCompilationError, match="only strings"):
         NeedCompiler().compile(make_need(), creator_context_terms=("okay", 7))  # type: ignore[arg-type]
+
+
+def test_music_discovery_uses_sound_terms_preserving_director_and_gate_constraints() -> None:
+    source = make_need(media_type=MediaType.AUDIO, role="bgm",
+        intent=NeedIntent(description="Gentle piano and soft synth pad instrumental, calm reflective mood, no vocals, suitable underneath narration at low volume for 36 seconds."),
+        duration_hint=DurationHint(target_seconds=36),
+        modality_spec=BgmNeedSpec(kind="bgm", instruments=("piano", "soft synth pad"), vocals_allowed=False),
+        constraints={"required_source_kind": "stock", "allow_generation": False})
+    before = source.to_json()
+    result = NeedCompiler().compile(source)
+    assert result.semantic_queries[:2] == ("piano instrumental", "piano")
+    assert source.intent.description in result.semantic_queries
+    assert result.filters == {"media_type": "audio", "min_duration": 36.0,
+                              "required_source_kind": "stock", "allow_generation": False}
+    assert source.to_json() == before

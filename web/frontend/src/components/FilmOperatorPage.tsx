@@ -260,6 +260,10 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   const materialPlan = record(attemptStatus.material_planning);
   const blockingNeedIds = Array.isArray(materialGate.blocking_needs)
     ? materialGate.blocking_needs.filter((value): value is string => typeof value === 'string') : [];
+  const pendingVoiceNeed = Array.isArray(scriptTruth?.material_needs)
+    ? scriptTruth.material_needs.map(record).find(need => blockingNeedIds.includes(text(need.need_id))
+      && need.media_type === 'audio' && need.modality_kind === 'voice' && need.generation_allowed === true)
+    : undefined;
   const scriptClaims = Array.isArray(scriptTruth?.claims) ? scriptTruth.claims.map(record) : [];
   const scriptReviewCounts = {
     sourceSupported: scriptClaims.filter((claim) => claim.status === 'TRUTH_SUPPORTED').length,
@@ -710,7 +714,8 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
           <button className="btn" onClick={onOpenConversation}>在对话中补充素材</button>
           {rightsCandidates.length === 0 && <button className="btn" disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重试素材准备</button>}
         </div>}
-        {phase === 'material' && blockingNeedIds.includes('voice_narration_global') && <>
+        {phase === 'material' && pendingVoiceNeed && <div className="film-op-review-claim">
+          <h3>任务：准备整片旁白</h3>
           <p>{voiceRightsPending || generationResult !== null
             ? '当前事项：核对刚生成旁白的使用权。其他素材事项仍按各场景分别处理。'
             : '当前缺少整片旁白音频。可以按已确认的脚本生成旁白；生成前会再次确认费用。'}</p>
@@ -758,11 +763,13 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
                     onClick={submitVoiceRightsReview}>{busy === '复核旁白使用权' ? '正在记录…' : '提交这 1 项复核'}</button>
                 </>}
               </div>
-            : <button className="btn btn-primary" disabled={!!busy || !operatorSessionReady}
-                onClick={() => generateForNeed('voice_narration_global')}>
+            : <><p>已有证据：当前脚本已通过内容审阅，将使用预置普通话音色，不克隆声音。尚未确定：生成音频的时长、声音效果和使用权。</p>
+              <p>本次会向现有 MiniMax 账号提交一次语音生成请求，可能计费。当前没有可核实的预估价格，需按平台价格确认；Easel 不提供消费硬上限。生成后仍需核对使用权，不能直接进入成片。</p>
+              <button className="btn btn-primary" disabled={!!busy || !operatorSessionReady}
+                onClick={() => generateForNeed(text(pendingVoiceNeed.need_id))}>
                 {busy === '生成素材' ? '正在生成旁白…' : '生成旁白素材'}
-              </button>}
-        </>}
+              </button></>}
+        </div>}
         {phase === 'material' && visualCandidates.length > 0 && <div className="film-op-review-claim">
           <strong>核对画面是否真的符合场景</strong>
           <p>请查看素材预览，只确认你实际看见的内容。每个场景都单独核对；未确认的画面不会算作已覆盖。</p>

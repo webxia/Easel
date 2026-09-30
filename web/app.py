@@ -1204,7 +1204,9 @@ async def api_script_truth_status(attempt_id: str,
     planning = await _hypit_api_call(PlanningIntegration().load, attempt)
     return {**planning["truth_ledger"], "script": planning["script"],
             "material_needs": [{"need_id": need.need_id, "description": need.intent.description,
-                                "media_type": need.media_type.value}
+                                "media_type": need.media_type.value,
+                                "modality_kind": getattr(need.modality_spec, "kind", None),
+                                "generation_allowed": need.constraints.get("allow_generation") is True}
                                for need in planning["plan"].needs]}
 
 
@@ -1808,7 +1810,12 @@ async def api_proposal_preview(creation_id: str, req: ProposalPreviewRequest):
 def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
     """Resolve ordinary proposal turns or an explicit, structured production action."""
     try:
-        capability = resolve_chat_capability(req.capability)
+        from easel.chat_capability import is_film_creation_request
+        capability = resolve_chat_capability(
+            req.capability if req.capability is not None else (
+                "ai-film" if req.creationAction is None
+                and is_film_creation_request(req.message) else None)
+        )
     except ChatCapabilityError as exc:
         raise HTTPException(400, str(exc)) from exc
 
@@ -2316,6 +2323,16 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
     if planning_dir.is_symlink():
         raise PreparationError("Planning directory must not be a symlink")
     planning_dir.mkdir(parents=True, exist_ok=True)
+    # The current Domain owns every nested field. A prose subset left video
+    # planning to guess duration_seconds and failed both initial and repair turns.
+    planning_contract = (
+        "\n〔MaterialPlan 正式 JSON Schema〕\n"
+        + json.dumps(MaterialPlan.model_json_schema(), ensure_ascii=False, separators=(",", ":"))
+        + "\n〔正式合同结束〕\n"
+        "严格按此当前 Domain 合同填写所有嵌套字段；不得从其他素材或 Provider 格式猜字段。"
+        "视频目标时长属于 Need.duration_hint.target_seconds，不属于 modality_spec.video；"
+        "镜头实际时间线仍写 SCENES，由 Production 使用实际素材安排。\n"
+    )
     prompt = (
         "〔Easel Material Creative Planning V1〕\n"
         f"Attempt ID: {attempt['attempt_id']}\nCreation ID: {attempt['creation_id']}\n"
@@ -2374,6 +2391,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "第一人称只能表达观点与反思；不得凭空写我曾做过、看过、按过、说过等已发生动作。"
         "如需创作假设，须在同一句明确写“假设”或“如果”，不得伪装成真实经历。"
         "不调用 Provider、Hypit、媒体生成、Plan、Pricing 或 Build。后端会严格校验 Domain 合同和冻结身份。"
+        + planning_contract
     )
     files = {
         "plan": planning_dir / "MATERIAL_PLAN.json",
@@ -2426,6 +2444,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             "〔Easel Creative Planning 单次合同修正〕\n"
             f"Attempt workspace: {root}\n"
             f"校验问题：{str(first_error)[:1200]}\n"
+            + planning_contract
+            +
             f"当前冻结 context_refs（必须逐字复制，不要自己重算）：{json.dumps(refs, ensure_ascii=False, sort_keys=True)}\n"
             "已冻结的 Content Core、Truth Packet、Creator Context、Creative Mode 和身份不得改动。"
             "读取现有 planning 文件，只修正缺失或无效的 planning/MATERIAL_PLAN.json、"

@@ -1061,11 +1061,17 @@ class MaterialProductOrchestrator:
         need = next((item for item in plan.needs if item.need_id == need_id), None)
         if need is None or not MaterialSourceRouter._generation_eligible(need):
             raise MaterialIntegrationError("This Need is not eligible for a generation source under Material policy")
+        store = AttemptMaterialStore(_workspace(attempt))
+        checkpoint = store.read_bundle()
+        if (checkpoint.plan_id != plan.plan_id
+                or gate.get("plan_revision") != MaterialReadinessCalculator.plan_revision(plan)
+                or gate.get("bundle_id") != checkpoint.bundle_id
+                or gate.get("bundle_revision") != checkpoint.revision):
+            raise MaterialIntegrationError("生成前素材状态已变化，请先重新检查进度")
         config = EaselRuntimeConfig.load()
         settings = config.minimax
         if not settings.api_key:
             raise MaterialIntegrationError("MiniMax API key is not configured")
-        store = AttemptMaterialStore(_workspace(attempt))
         if need.media_type is MediaType.VIDEO:
             generated = MiniMaxVideoMaterialGeneration(MiniMaxVideoAdapter(
                 settings.api_key, model=settings.video_model, base_url=settings.base_url,
@@ -1092,24 +1098,45 @@ class MaterialProductOrchestrator:
         else:
             raise MaterialIntegrationError("MiniMax supports blocking Image, Video and script-bound Voice Needs only")
 
-        from easel.integrations.material_supply import ProductMaterialSupply
-        local_roots = config.material_roots()
-        supply = ProductMaterialSupply(
-            rights_facts=lambda candidate, asset: self._local_rights_facts(candidate, asset, local_roots),
-        )
+        # Generation adds one Asset to the trusted Bundle. It must not search
+        # Providers again or replace already acquired / reviewed supply facts.
+        from easel.materials.application.assembly import MaterialBundleAssembler
+        from easel.materials.application.dedup import MaterialDeduplicator
+        from easel.materials.application.matching import MaterialMatcher
+
+        attempt = get_film_attempt(attempt_id)
+        current = store.read_bundle()
+        if (current != checkpoint
+                or attempt.get("material_gate", {}).get("bundle_revision") != checkpoint.revision
+                or attempt.get("material_gate", {}).get("plan_revision")
+                != MaterialReadinessCalculator.plan_revision(plan)):
+            raise MaterialIntegrationError("素材已生成并保留，但素材状态已变化；请重新检查进度，不要重复生成")
+        assets_by_id = {asset.asset_id: store.read_asset(asset.asset_id) for asset in checkpoint.assets}
+        if any(assets_by_id[asset.asset_id] != asset for asset in checkpoint.assets):
+            raise MaterialIntegrationError("素材已生成并保留，但已有素材记录已变化；请重新检查进度，不要重复生成")
+        assets_by_id[generated.asset.asset_id] = store.read_asset(generated.asset.asset_id)
+        assets = tuple(assets_by_id.values())
+        matcher = MaterialMatcher()
+        deduplicator = MaterialDeduplicator(store)
+        matches = []
+        for current_need in plan.needs:
+            ranked = matcher.match(current_need, assets)
+            matches.extend(deduplicator.deduplicate_and_diversify(
+                ranked.matches, assets, top_k=3,
+            ).shortlist)
         suffix = hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:16]
-        refreshed = supply.run(
-            plan,
-            attempt,
-            local_roots=local_roots,
-            supply_run_id=f"supply-gen-{suffix}",
-            bundle_id=f"bundle-gen-{suffix}",
-            top_n=3,
-            generated_assets=(generated.asset,),
+        now = datetime.now(timezone.utc)
+        run = SupplyRun(
+            supply_run_id=f"supply-gen-{suffix}", plan_id=plan.plan_id,
+            parent_run_id=checkpoint.supply_run_id,
+            started_at=now, finished_at=now, result_bundle_id=checkpoint.bundle_id,
         )
+        bundle = MaterialBundleAssembler().assemble(
+            plan, run, assets, tuple(matches), bundle_id=checkpoint.bundle_id,
+        )
+        readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
         updated_gate = MaterialGateIntegration().record(
-            attempt, plan, refreshed.bundle, refreshed.supply_run,
-            refreshed.readiness, refreshed.gaps,
+            attempt, plan, bundle, run, readiness, gaps,
         )
         return {
             "generation": {

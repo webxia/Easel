@@ -950,7 +950,7 @@ def test_product_supply_rehydrates_current_completed_generation_after_rights_rev
     assert asset.asset_id not in {item.asset_id for item in stale.bundle.assets}
 
 
-def test_operator_rights_review_recomputes_generated_gate_into_production_preparation(
+def test_generation_preserves_bundle_then_rights_review_opens_production_gate(
     material_integration_env, monkeypatch,
 ):
     from easel.runtime_config import EaselRuntimeConfig
@@ -1017,9 +1017,42 @@ def test_operator_rights_review_recomputes_generated_gate_into_production_prepar
         )
 
     def no_provider_lookup(_roots):
-        raise AssertionError("Rights review must reuse the admitted Bundle without Supply")
+        raise AssertionError("Generation and Rights review must reuse the admitted Bundle without Supply")
 
     monkeypatch.setattr(material_supply_module, "product_provider_registry", no_provider_lookup)
+    from types import SimpleNamespace
+    from easel.integrations import material_layer
+
+    before = store.read_bundle()
+    added = asset.model_copy(update={"asset_id": "asset-second-generation"})
+    added_locator = store.write_asset_bytes(added.asset_id, "original.png", payload)
+    added = added.model_copy(update={"file": added.file.model_copy(update={"path": added_locator})})
+
+    def generate_fixture(_self, *_args, **_kwargs):
+        store.write_asset(added)
+        return SimpleNamespace(
+            asset=added, generation_id="gen-second", record={
+                "modality": "image", "billing": {"status": "UNKNOWN"},
+            },
+        )
+
+    with monkeypatch.context() as generation_patch:
+        generation_patch.setattr(EaselRuntimeConfig, "load", lambda: SimpleNamespace(
+            minimax=SimpleNamespace(api_key="fixture-key", image_model="image-01", base_url="https://api.minimax.cn"),
+        ))
+        generation_patch.setattr(material_layer.MiniMaxImageSpeechGeneration, "generate", generate_fixture)
+        result = orchestrator.generate_minimax_asset(
+            attempt["attempt_id"], need_id=plan.needs[0].need_id,
+            request_id="fixture-second-generation", confirmed_paid=True,
+        )
+    after = store.read_bundle()
+    assert after.bundle_id == before.bundle_id
+    assert {item.asset_id for item in after.assets} == {asset.asset_id, added.asset_id}
+    assert next(item for item in after.assets if item.asset_id == asset.asset_id) == asset
+    assert store.read_supply_run(after.supply_run_id).parent_run_id == before.supply_run_id
+    assert result["material_gate"]["status"] == "MATERIAL_NOT_READY"
+    assert len(orchestrator.material_rights_candidates(attempt["attempt_id"])) == 2
+
     reviewed = orchestrator.review_generated_material_rights(
         attempt["attempt_id"], asset_id=asset.asset_id, expected_sha256=digest,
         rights=RightsInfo(

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import threading
 from contextlib import contextmanager
 from pathlib import Path
@@ -31,6 +32,23 @@ _local_lock = threading.RLock()
 
 class ChatCapabilityError(ValueError):
     """Raised when a chat capability is unsupported or cannot be bound."""
+
+
+def is_film_creation_request(message: str) -> bool:
+    """Route explicit film commissions into Proposal, never into execution.
+
+    Script-only, editing and advice requests remain ordinary chat. Ambiguous
+    requests can still select the existing capability menu explicitly.
+    """
+    text = message.strip()
+    if re.search(r"(?:不要|不需要|不想)(?:做|制作|生成|创作)?(?:完整)?(?:短)?视频", text):
+        return False
+    if re.search(r"视频(?:脚本|怎么做|如何|选型)|(?:剪辑|裁剪|压缩|转码|翻译|提取|分析|总结)(?:.{0,8})视频|口播脚本", text):
+        return False
+    return bool(re.search(
+        r"(?:我想|我要|帮我|请|希望)(?:.{0,12})(?:做|制作|创作|生成)(?:.{0,40})(?:短视频|完整视频|整片视频|一支视频|一条视频|一部视频)",
+        text,
+    ))
 
 
 def resolve_chat_capability(value: str | None) -> dict[str, str] | None:

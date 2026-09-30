@@ -353,7 +353,10 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
     assert "scene、event、global 或 segment" in prompt_seen[0]
     assert "字幕、标题、转场" in prompt_seen[0]
     assert "不能写 orientation" in prompt_seen[0]
-    assert "Planning JSON Schema" not in prompt_seen[0]
+    contract = json.loads(prompt_seen[0].split("〔MaterialPlan 正式 JSON Schema〕\n")[1].split("\n〔正式合同结束〕")[0])
+    assert contract == MaterialPlan.model_json_schema()
+    assert "duration_seconds" not in contract["$defs"]["VideoNeedSpec"]["properties"]
+    assert "target_seconds" in contract["$defs"]["DurationHint"]["properties"]
     assert result["plan"].needs[0].media_type is MediaType.VIDEO
     assert result["plan"].context_refs == refs
 
@@ -385,7 +388,7 @@ def test_failed_planning_and_not_ready_retry_reuse_frozen_attempt(prep_env):
     assert len(saved["hypit_attempts"]) == 1
 
 
-@pytest.mark.parametrize("invalid_kind", ["domain", "retrieval"])
+@pytest.mark.parametrize("invalid_kind", ["domain", "retrieval", "video_duration"])
 def test_planning_resume_repairs_invalid_domain_file_once(prep_env, monkeypatch, invalid_kind):
     prepared = _prepare_creation(prep_env["work"]["id"], runtime_profile=None)
     attempt = service.get_film_attempt(prepared["attempt_id"])
@@ -395,8 +398,10 @@ def test_planning_resume_repairs_invalid_domain_file_once(prep_env, monkeypatch,
     if invalid_kind == "domain":
         invalid["policy"] = {"must_be_a_string": True}
         invalid["schema"] = "easel-material-plan@1"
-    else:
+    elif invalid_kind == "retrieval":
         invalid["needs"][0]["constraints"] = {"allowed_source_kinds": ["external_stock"]}
+    else:
+        invalid["needs"][0].update(media_type="video", modality_spec={"kind": "video", "duration_seconds": 8})
     planning_file = root / "planning" / "MATERIAL_PLAN.json"
     planning_file.write_text(json.dumps(invalid), encoding="utf-8")
     prompts = []
@@ -415,9 +420,14 @@ def test_planning_resume_repairs_invalid_domain_file_once(prep_env, monkeypatch,
         assert "policy.must_be_a_string:string_type" in prompts[0]
         assert "schema:extra_forbidden" in prompts[0]
         assert "必须删除顶层 schema 字段" in prompts[0]
-    else:
+    elif invalid_kind == "retrieval":
         assert "retrieval validation failed" in prompts[0]
         assert "required_source_kind=stock" in prompts[0]
+    else:
+        assert "modality_spec.video.duration_seconds:extra_forbidden" in prompts[0]
+        assert "Need.duration_hint.target_seconds" in prompts[0]
+    contract = json.loads(prompts[0].split("〔MaterialPlan 正式 JSON Schema〕\n")[1].split("\n〔正式合同结束〕")[0])
+    assert contract == MaterialPlan.model_json_schema()
     assert "当前冻结 context_refs" in prompts[0]
     assert result["plan"].plan_id == invalid["plan_id"]
 

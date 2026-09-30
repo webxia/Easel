@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-from easel.materials.domain import MaterialNeed, RetrievalIntent
+from easel.materials.domain import BgmNeedSpec, MaterialNeed, RetrievalIntent
 
 
 class NeedCompilationError(ValueError):
@@ -50,6 +50,12 @@ class NeedCompiler:
 
         role = need.role.replace("_", " ").strip()
         query_candidates = [description, f"{role} {description}".strip()]
+        if isinstance(need.modality_spec, BgmNeedSpec) and need.modality_spec.instruments:
+            # Discovery terms describe the sound to retrieve, not mix/timeline
+            # instructions. The full Need and filters still own qualification.
+            instrument = self._normalize(need.modality_spec.instruments[0])
+            if instrument:
+                query_candidates = [f"{instrument} instrumental", instrument, *query_candidates]
         if creator_terms:
             query_candidates.append(f"{description} {' '.join(creator_terms)}")
         if mode_terms:
