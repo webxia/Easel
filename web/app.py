@@ -1206,7 +1206,9 @@ async def api_script_truth_status(attempt_id: str,
             "material_needs": [{"need_id": need.need_id, "description": need.intent.description,
                                 "media_type": need.media_type.value,
                                 "modality_kind": getattr(need.modality_spec, "kind", None),
-                                "generation_allowed": need.constraints.get("allow_generation") is True}
+                                "generation_allowed": need.constraints.get("allow_generation") is True,
+                                "required_source_kind": need.constraints.get("required_source_kind"),
+                                "forbidden_source_kind": need.constraints.get("forbidden_source_kind")}
                                for need in planning["plan"].needs]}
 
 
@@ -1322,7 +1324,7 @@ async def api_material_asset_preview(
     store = AttemptMaterialStore(Path(attempt["workspace"]["path"]))
     bundle = store.read_bundle()
     asset = next((item for item in bundle.assets if item.asset_id == asset_id
-                  and item.file.sha256 == sha256 and item.media_type.value in {"image", "video"}), None)
+                  and item.file.sha256 == sha256 and item.media_type.value in {"image", "video", "audio"}), None)
     if asset is None or attempt.get("material_gate", {}).get("bundle_revision") != bundle.revision:
         raise HTTPException(404, "当前素材不存在或已变化")
     path = store.resolve_asset_locator(asset.file.path)

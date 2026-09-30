@@ -196,6 +196,47 @@ def test_protected_script_truth_status_includes_full_script_for_human_review(mat
     assert payload["claims"] == planning["truth_ledger"]["claims"]
 
 
+def test_audio_preview_requires_current_bundle_and_unchanged_bytes(material_integration_env):
+    import io
+    import wave
+    from fastapi.testclient import TestClient
+    from web.app import app, require_local_operator
+
+    attempt = material_integration_env
+    _planning(attempt)
+    root = Path(attempt["workspace"]["path"])
+    plan, asset, run, _, _, _ = _contracts(attempt, root)
+    stream = io.BytesIO()
+    with wave.open(stream, "wb") as audio:
+        audio.setparams((1, 2, 8000, 0, "NONE", "not compressed"))
+        audio.writeframes(b"\0\0" * 800)
+    payload = stream.getvalue()
+    store = AttemptMaterialStore(root)
+    locator = store.write_asset_bytes(asset.asset_id, "preview.wav", payload)
+    asset = asset.model_copy(update={
+        "media_type": MediaType.AUDIO,
+        "file": FileInfo(path=locator, sha256=hashlib.sha256(payload).hexdigest(), size=len(payload), mime="audio/wav"),
+    })
+    store.write_asset(asset)
+    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), (), bundle_id=run.result_bundle_id)
+    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
+    MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)
+    url = f"/api/film-attempts/{attempt['attempt_id']}/material-assets/{asset.asset_id}/preview"
+    app.dependency_overrides[require_local_operator] = lambda: None
+    try:
+        with TestClient(app) as client:
+            response = client.get(url, params={"sha256": asset.file.sha256})
+            assert response.status_code == 200
+            assert response.headers["content-type"] == "audio/wav"
+            assert response.headers["cache-control"] == "no-store"
+            assert response.content == store.resolve_asset_locator(asset.file.path).read_bytes()
+            assert client.get(url, params={"sha256": "0" * 64}).status_code == 404
+            store.resolve_asset_locator(asset.file.path).write_bytes(b"changed bytes")
+            assert client.get(url, params={"sha256": asset.file.sha256}).status_code == 409
+    finally:
+        app.dependency_overrides.pop(require_local_operator, None)
+
+
 def _record_authored_selection(
     attempt, asset, root, *, author_relative="productions/easel-authoring/authors/main.svml",
     run_author_ref="../authors/main.svml",

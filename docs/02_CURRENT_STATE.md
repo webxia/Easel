@@ -47,6 +47,8 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 用户另行授权一个 36 秒、5 场景、真实旁白与 BGM 的 Creation，详见 [具名验收记录](acceptance/creator-audio-quality-e2e-2026-09-30.md)。普通对话完成方案冻结与规划，当前停在 Material NOT_READY；获授权的一次预置音色 TTS 已完成并保留（31.932 秒），尚待正式使用权复核，账单未核实。未提交 Build，未产生 Selected Output 或内容库条目。修复自然委托路由、Planning 完整 Domain 合同、动态旁白 Need 任务、BGM 简短音色检索，以及生成后保留当前素材 checkpoint 并本地重算 Gate；68 项对话/Compiler/Preparation 与 42 项 Material/MiniMax 合同回归通过。当前视觉候选、BGM 来源约束和冻结规划修订路径仍有缺口，不得以旧 12 秒静音作品或技术检查代替本轮质量验收；本轮已依赖工程介入，AUTONOMOUS 不可判 PASS。
 
+旁白任务现有受保护的音频试听入口，刷新返回后验证实际音频可读取；Creator 已确认五句完整清晰、语速合适。具体账号的适用许可仍待 Creator 核实，未提交 Rights 通过。来源条件不符的配乐缺口已在普通任务卡展示，明确说明冻结规划不能由对话自动改写；不再因存在其他音频而隐藏该缺口。该增量 Material integration 32 passed、lint/build 通过；仍没有最终视频或混音质量验收。
+
 ## Official Product Path
 
 ```text

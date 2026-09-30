@@ -264,6 +264,14 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
     ? scriptTruth.material_needs.map(record).find(need => blockingNeedIds.includes(text(need.need_id))
       && need.media_type === 'audio' && need.modality_kind === 'voice' && need.generation_allowed === true)
     : undefined;
+  const missingSupplyNeeds = Array.isArray(scriptTruth?.material_needs)
+    ? scriptTruth.material_needs.map(record).filter(need => blockingNeedIds.includes(text(need.need_id))
+      && need.need_id !== pendingVoiceNeed?.need_id
+      && !rightsCandidates.some(asset => asset.media_type === need.media_type
+        && (!need.required_source_kind || asset.source_kind === need.required_source_kind)
+        && (!need.forbidden_source_kind || asset.source_kind !== need.forbidden_source_kind)
+        && Array.isArray(asset.needs) && asset.needs.some(value => record(value).need_id === need.need_id)))
+    : [];
   const scriptClaims = Array.isArray(scriptTruth?.claims) ? scriptTruth.claims.map(record) : [];
   const scriptReviewCounts = {
     sourceSupported: scriptClaims.filter((claim) => claim.status === 'TRUTH_SUPPORTED').length,
@@ -705,13 +713,14 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
         {phase === 'preparation-failed' && <p>{projection.failureReason}。已保留方案和成功阶段；将从当前准备记录恢复。付费操作仍需另行批准。</p>}
         {phase === 'preparation-failed' && <button className="btn btn-primary"
           disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重新准备素材</button>}
-        {phase === 'material' && rightsCandidatesLoaded && blockingNeedIds.some(needId => !rightsCandidates.some(asset => Array.isArray(asset.needs) && asset.needs.some(need => record(need).need_id === needId))) && <div className="film-op-review-claim">
-          <h3>任务：补充场景素材</h3><p>这些场景还没有通过检查的候选素材，暂时不能进入视频制作。</p>
-          {Array.isArray(scriptTruth?.material_needs) && scriptTruth.material_needs.map(record)
-            .filter(need => blockingNeedIds.includes(text(need.need_id)) && !rightsCandidates.some(asset => Array.isArray(asset.needs) && asset.needs.some(value => record(value).need_id === need.need_id)))
-            .map(need => <p key={text(need.need_id)}>场景要求：{text(need.description)}。尚未确定：合适素材、可用性与使用权。</p>)}
-          <p>已保留创作规划；可通过对话提供素材或调整来源。需要生成素材时，必须另行确认费用。</p>
-          <button className="btn" onClick={onOpenConversation}>在对话中补充素材</button>
+        {phase === 'material' && rightsCandidatesLoaded && missingSupplyNeeds.length > 0 && <div className="film-op-review-claim">
+          <h3>任务：补充符合方案的素材</h3><p>这些需求尚无类型与来源都符合方案的候选，暂时不能进入视频制作。使用权复核不会改变素材来源。</p>
+          {missingSupplyNeeds.map(need => <p key={text(need.need_id)}>
+            {need.modality_kind === 'bgm' ? '配乐要求：无歌词器乐，音色与节奏须符合已确认的创作规划。' : `素材要求：${text(need.description)}。`}
+            {need.required_source_kind === 'stock' && '当前方案要求图库素材；本地或开放许可索引素材不能替代。'}
+            尚未确定：合适素材、可用性与使用权。</p>)}
+          <p>已保留规划和已有素材。可在对话中讨论补充素材；当前不支持直接修订已冻结的脚本、素材要求或来源，对话反馈不会自动改写它们。需要生成素材时，必须另行确认费用。</p>
+          <button className="btn" onClick={onOpenConversation}>在对话中讨论素材</button>
           {rightsCandidates.length === 0 && <button className="btn" disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重试素材准备</button>}
         </div>}
         {phase === 'material' && pendingVoiceNeed && <div className="film-op-review-claim">
@@ -724,6 +733,8 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
             : voiceRightsPending || generationResult !== null
             ? pendingVoiceCandidate && <div className="film-op-review-claim film-op-voice-review">
                 <strong>确认这条旁白能否用于当前视频</strong>
+                <audio controls preload="metadata" aria-label="试听当前旁白"
+                  src={materialAssetPreviewUrl(attemptId, text(pendingVoiceCandidate.asset_id), text(pendingVoiceCandidate.asset_sha256))} />
                 <p>请查看你与 MiniMax 适用的服务条款或合同：生成音频能否用于本视频、是否需要署名、有没有用途限制。成片完成后还会让你播放审核。</p>
                 <small>已有证据：生成旁白已完成技术检查；适用许可与用途仍需核对。</small>
                 <label>核对结论
