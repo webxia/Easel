@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from urllib.parse import urlsplit
@@ -19,6 +20,8 @@ class MiniMaxSpeechResult:
     voice_id: str
     audio_bytes: bytes
     audio_format: str
+    timings: tuple[dict, ...] = ()
+    timing_error: str | None = None
 
 
 class MiniMaxSpeechAdapter:
@@ -56,14 +59,24 @@ class MiniMaxSpeechAdapter:
     def voice_id(self) -> str:
         return self._voice_id
 
-    def generate(self, text: str) -> MiniMaxSpeechResult:
+    def generate(self, text: str, *, pace_ratio: float = 1.0, pitch_semitones: int = 0,
+                 tone: str | None = None) -> MiniMaxSpeechResult:
+        from easel.materials.application.voice_delivery import validate_voice_delivery
+
+        validate_voice_delivery({"pace_ratio": pace_ratio, "pitch_semitones": pitch_semitones, "tone": tone})
         if not text.strip() or len(text) > 10_000:
             raise ValueError("Speech text must contain 1–10000 characters")
+        voice_setting = {"voice_id": self._voice_id, "speed": pace_ratio, "vol": 1, "pitch": pitch_semitones}
+        if tone is not None:
+            voice_setting["emotion"] = {"neutral": "calm", "afraid": "fearful"}.get(tone, tone)
         body = {
             "model": self._model,
             "text": text,
-            "stream": False,
-            "voice_setting": {"voice_id": self._voice_id, "speed": 1, "vol": 1, "pitch": 0},
+            "stream": True,
+            "stream_options": {"exclude_aggregated_audio": False},
+            "subtitle_enable": True,
+            "subtitle_type": "sentence",
+            "voice_setting": voice_setting,
             "audio_setting": {"sample_rate": 32000, "bitrate": 128000, "format": "mp3", "channel": 1},
             "output_format": "hex",
         }
@@ -76,22 +89,70 @@ class MiniMaxSpeechAdapter:
             )
         except Exception as exc:
             raise ValueError("MiniMax speech request failed; generation result may be uncertain") from exc
+        if not 200 <= response.status_code < 300:
+            raise ValueError(f"MiniMax speech request rejected (HTTP {response.status_code})")
         try:
-            payload = json.loads(response.body.decode("utf-8"))
+            text_body = response.body.decode("utf-8")
+            if text_body.lstrip().startswith("{"):
+                packets = [json.loads(text_body)]  # JSON error responses are allowed by the API.
+            else:
+                packets = [json.loads(line[5:].strip()) for line in text_body.splitlines()
+                           if line.startswith("data:") and line[5:].strip() not in {"", "[DONE]"}]
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise ValueError("MiniMax returned invalid speech JSON") from exc
-        if not isinstance(payload, dict):
-            raise ValueError("MiniMax returned an invalid speech response")
-        base_resp = payload.get("base_resp")
-        code = base_resp.get("status_code") if isinstance(base_resp, dict) else 0
-        if not 200 <= response.status_code < 300 or code not in (None, 0):
-            raise ValueError(f"MiniMax speech request rejected (code {str(code or response.status_code)[:64]})")
-        data = payload.get("data")
-        audio_hex = data.get("audio") if isinstance(data, dict) else None
+            raise ValueError("MiniMax returned invalid speech stream") from exc
+        final = None
+        subtitles = []
+        for packet in packets:
+            if not isinstance(packet, dict):
+                raise ValueError("MiniMax returned an invalid speech response")
+            base_resp = packet.get("base_resp")
+            code = base_resp.get("status_code") if isinstance(base_resp, dict) else 0
+            if code not in (None, 0):
+                raise ValueError("MiniMax speech stream reported a generation failure")
+            data = packet.get("data")
+            if not isinstance(data, dict):
+                continue
+            if isinstance(data.get("subtitle"), dict):
+                subtitles.append(data["subtitle"])
+            if data.get("status") == 2:
+                if final is not None:
+                    raise ValueError("MiniMax speech stream has multiple terminal audio payloads")
+                final = data
+        if final is None:
+            raise ValueError("MiniMax speech stream ended without a complete result; do not resubmit")
+        # Official exclude_aggregated_audio=False: terminal audio contains the
+        # entire utterance. Appending earlier chunks would duplicate narration.
+        audio_hex = final.get("audio")
         if not isinstance(audio_hex, str) or not audio_hex or len(audio_hex) % 2:
             raise ValueError("MiniMax speech response did not contain valid audio bytes")
         try:
             audio = bytes.fromhex(audio_hex)
         except ValueError as exc:
             raise ValueError("MiniMax speech response contained invalid audio bytes") from exc
-        return MiniMaxSpeechResult(self._model, self._voice_id, audio, "mp3")
+        timings = ()
+        timing_error = None
+        try:
+            timings = self._timings(final.get("subtitles", subtitles))
+        except (TypeError, ValueError, KeyError):
+            # Valid audio must survive missing/bad alignment; this does not
+            # authorize another paid TTS request or fabricate subtitle timing.
+            timing_error = "provider_timing_missing_or_invalid"
+        return MiniMaxSpeechResult(self._model, self._voice_id, audio, "mp3", timings, timing_error)
+
+    @staticmethod
+    def _timings(rows) -> tuple[dict, ...]:
+        if not isinstance(rows, list) or not rows:
+            raise ValueError("missing subtitles")
+        cues = []
+        for row in rows:
+            if not isinstance(row, dict) or not isinstance(row.get("text"), str) or not row["text"].strip():
+                raise ValueError("invalid subtitle")
+            begin, end = row["time_begin"], row["time_end"]
+            start_char, end_char = row["text_begin"], row["text_end"]
+            if (any(type(t) not in (int, float) or not math.isfinite(t) for t in (begin, end))
+                    or not 0 <= begin < end or type(start_char) is not int or type(end_char) is not int
+                    or not 0 <= start_char < end_char):
+                raise ValueError("invalid subtitle position")
+            cues.append({"text": row["text"], "start_seconds": begin / 1000, "end_seconds": end / 1000,
+                         "start_character": start_char, "end_character": end_char})
+        return tuple(cues)

@@ -12,7 +12,7 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 | External Material Product E2E | **REAL_WORLD_VERIFIED** for one standard-chat Creation through Pexels Search/Acquisition, MaterialReadiness `READY`, Production Authoring, Hypit Build, Export, Review and Selected Output. The [named Acceptance](acceptance/external-material-product-e2e-2026-09-29.md) records the initial MaterialReadiness stop; the same Creation was subsequently completed. |
 | Runtime profiles | `generation` is **READY** (configuration only). `v1-release` is **NOT_READY**: model auth/endpoint and `audio.production` require live verification. Hypit 0.2.7 doctor, Runtime Worker and both local Programs are ready. |
 | P3 | **NOT_STARTED**. |
-| Test suite | Last completed full run: **482 passed, 5 skipped** on 2026-09-28. Latest Goal verification covers **171 targeted Material/Preparation/Hypit/Authoring tests** and deterministic frontend projection; frontend lint/build passed. Earlier isolated desktop/mobile browser evidence remains separate; a new full suite or live E2E run is not claimed. |
+| Test suite | Last completed full run: **482 passed, 5 skipped** on 2026-09-28. Latest Goal verification covers **155 targeted Voice/Material/Preparation/Hypit/Authoring tests** and deterministic frontend projection; frontend lint/build passed. Earlier isolated desktop/mobile browser evidence remains separate; a new full suite or live E2E run is not claimed. |
 
 ## Creator 作品工作区（2026-09-30 软件验收）
 
@@ -55,7 +55,7 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 原始产品目标对齐、流程重审与 Director 实际执行链只读核对已完成。已确认两组根因：缺少持续自主交付首版的责任与执行闭环；Mode 在 Planning 中有体现，但 Material 风格参数未接全、Voice 朗读要求未进入实际请求、Production 未完整落实文稿、Quality 仍依赖人审。用户已批准将合并方案写入文档并设 Goal 实施，[同一任务](tasks/creator-autonomous-first-cut-2026-09-30.md) 已替换为唯一实施方案。
 
-当前：Goal 保持 active，①委托与持续交付、②Director 决策传递 **PARTIAL**。已接通视觉素材的风格默认值与检索/排序、Truth 系统审阅及一次有界脚本修正；已接入真实素材预览与按场景观察；声音、可用视频区间、补料、原生编排质量落实和③～⑥的完整闭环尚未完成，不能据此宣称“自主交付可看首版”或风格一致已实现。
+当前：Goal 保持 active，①委托与持续交付、②Director 决策传递 **PARTIAL**。已接通视觉素材的风格默认值与检索/排序、Truth 系统审阅及一次有界脚本修正；已接入真实素材预览与按场景观察；声音质量核验、可用视频区间、补料、原生音画编排落实和③～⑥的完整闭环尚未完成，不能据此宣称“自主交付可看首版”或风格一致已实现。
 
 - 新的结构化确认把方案原文、摘要与授权来源原子保存到同一 Creation；后端生命周期扫描仅接管带新委托记录的作品。旧 Creation 不迁移、不入队，旧确认重放也不会被接管。
 - 后端从现有 Preparation/Attempt 状态推导下一项操作，复用准备、编排、Runtime、Plan、Pricing、提交、对账、状态查询和导出服务。页面对新委托只读轮询，不再用 useEffect 推进上述操作；处理正式 Truth/Material 决定后由后端观察证据继续。
@@ -75,6 +75,11 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 - 每个 Need 最多分析排名前三个候选，派发前原子保存候选批次；来源标题只用于提名，不能替代观察。同一素材的每个 Need 独立保存报告，绑定完整 Need、素材 SHA 和预览输入身份；错配、未知、Need/风格变更或字节变更不能借另一场景的描述放行。报告保留实际风格与偏差，沿用现有软风格评分，不把所有审美差异升级为硬门禁。Provider 事实和 Rights 不被机器观察覆盖，系统结论与 Creator 核对分开。
 - Pending/超时继续观察同一网关身份，不重发；中断后复用已完成报告，不重新请求素材 Provider。现有本地重算负责更新 Match/Readiness，满足时进入原 Authoring；已失败 Build 的 checkpoint 复制保留观察文件和对应身份，不重新分析相同素材。页面在后台观察期间显示具体状态，不把尚在处理的素材计为 Creator 待办；观察失败显示为素材阶段问题。
 - **明确限制：** 这是样本观察接线，不是已验证的真实视觉理解能力。Fixture 固定语义响应，仅验证附件字节、证据合同、状态推进与边界，真实模型是否支持图像、是否判断准确尚待验收。视频采样位置不是精确剪辑点；主体只在部分样本出现记录 partial，当前不直接批准整段匹配。少量样本未发现标志/文字不证明全片不存在，带此类硬约束的视频仍可能未就绪。精确可用区间与实际取片绑定、有界替换/补料、Voice/音频时序、成片 Quality/修复和跨内容回放继续按同一 Task 实施；不得据此宣称正常路径已完全无人介入。
+- **Voice 执行与时序增量（2026-10-01）：** `clear_memo_video` 升至 1.2，以现有 Need.constraints.voice_delivery 承载 provider-neutral 的语速倍率、音高半音和情绪选择。Planning 读取冻结 Mode，具体内容的显式选择覆盖对应默认值；旧快照不回填，不把 Provider 音色 ID 写入 Need。`delivery_description` 仍表达完整意图，Planning 必须把可支持部分转为执行参数；生成入口不再静默接受只有描述而没有执行参数的新请求。复杂口音、耳语或表演不被这些有限参数冒充支持。
+- MiniMax adapter 将执行要求映射到真实 speed/pitch/emotion 参数，音量保持标准输出，由 Production 后续混音处理。请求身份在付费派发前加入运行配置的预置音色与执行参数；同一 request_id 遇到音色/参数变化拒绝认领，已完成同一输入复用原音频，不重复请求。现有付费批准与 Rights 语义保留，本批没有让未知价格/未批准生成自动提交。
+- 按 [MiniMax 官方 T2A 合同](https://platform.minimaxi.com/docs/api-reference/speech-t2a-http.md)（2026-10-01 只读核对）开启句级字幕，使用 stream + exclude_aggregated_audio=false，同时取得完整音频与内联时序，避免额外下载带签名字幕 URL。仅取终态完整音频，不重复拼接前面的分块；没有终态视为结果不确定，不自动重发。Provider 字幕字段在 adapter 内转换成中立的秒/字符区间，未泄漏进 Material Domain。
+- 生成记录保存音频 SHA、冻结脚本 SHA、实际检查时长与句级时间；校验完整文本覆盖、顺序、区间与时长。时序缺失/不合法时，成功音频仍保留，标记 UNAVAILABLE/INVALID，不触发重新购买。只有当前 Need、脚本和准入音频一致的 READY 时序才投影为 `productions/easel-authoring/VOICE_TIMING.json`，随既有隔离输入进入 Authoring。Provider alignment 不等于实际听感、ASR 或声音风格验收；当前只是有证据的编排输入，原生字幕/音轨实际使用及质量约束仍需完成，未把提示文字当成最终落实证据。
+- **本批 Voice 验证：** MiniMax Image/Speech、Material integration、Preparation、隔离 Authoring、Hypit 共 **155 passed**，compileall、115 项技能合同和 diff check 通过；覆盖冻结 Mode 默认与内容特定覆盖、真实请求参数、流式音频去重、句级单位转换、截断/重叠/错误文本拒绝、过期脚本/音频排除、时序缺失保留音频、音色变化拒绝复用及成功请求不重发。测试使用假 HTTP/Provider；没有调用 TTS、真实 Build 或真人 E2E。无前端源改动，未重复执行前端构建；既有前端证据保持独立。
 - **本批素材验证：** Material Intelligence、基础/高级 Matching、Material integration、Preparation、Hypit、隔离 Authoring 共 **171 passed**；包含真实本地图片/两秒确定性视频解码、标题相符但判断不符、共享素材独立 Need、未知 Rights 保留、主体晚出现、漏帧/过期报告拒绝、图片附件请求身份、执行中断恢复和 Build checkpoint 复用。Creator 状态投影、frontend lint/build 通过；保留既有 Hook/体积及两项 Python 依赖提示。未调用付费 AI、真实 Build 或完整 E2E，未修改当前 Creation。
 - **本批 Truth 验证：** `test_script_truth`、Preparation、Hypit、隔离 Authoring、完整 Material integration 共 **158 passed**；覆盖有依据改写、非事实表达、必需信息缺口、私密/错配/缺失来源拒绝、漏项/过期拒绝、修正后无需人工 Truth 确认进入素材阶段、修正中断恢复、有界失败及显式 Retry。Material Fixture 也隔离本机配置和外部 Provider，回放无网络或真实凭证依赖。状态投影、frontend lint/build、compileall、115 项技能合同、diff check 通过；保留既有依赖/Hook/体积提示，未跑全量测试或真实 E2E。
 - **前一风格/恢复批次验证：** Preparation、Hypit、Compiler、基础/高级 Matching、隔离 Authoring，以及定向 Material 冻结风格与失败 Build 恢复共 **133 passed**。验证包含不同来源不可认领、旧/新 Mode 快照隔离、具体镜头偏好保留、正式检索/Library 输入、有界恢复、复制中断继续、重新核价与授权外阻断。Creator 状态投影、lint/build、compileall、115 项技能合同与 diff check 通过；只有既有 Hook/体积和测试依赖提示。未跑全量测试或真人 E2E。

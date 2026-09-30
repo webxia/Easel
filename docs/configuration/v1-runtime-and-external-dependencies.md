@@ -25,3 +25,9 @@ easel runtime readiness --profile generation --json --no-probe
 `generation` Profile 的 `material.ai-generation` 会检查 MiniMax 凭证/model 配置并报告 `CONFIG_READY`；这只代表本机配置存在，不代表认证、真实生成或 Gate 通过。Web 操作台每次提交前会要求确认潜在费用。运行时 readiness 不调用模型、不提交 Build，也不证明逐素材 Rights 或真实成片。Secret 只保存在本机受保护配置中，不写入文档、日志或 Attempt 产物。
 
 MiniMax 配置：优先使用 `EASEL_MINIMAX_API_KEY`，兼容读取已有 `MINIMAX_API_KEY`；共享 API host 仅接受官方 HTTPS 地址。可选 `EASEL_MINIMAX_VIDEO_MODEL`、`EASEL_MINIMAX_IMAGE_MODEL=image-01`、`EASEL_MINIMAX_SPEECH_MODEL=speech-2.8-hd` 和 `EASEL_MINIMAX_SPEECH_VOICE_ID`。TTS 使用冻结且通过 truth review 的脚本与预置音色，不执行声音克隆。真实 Provider 验收按模态分别记录，见 [T09A](../tasks/v1c-t09-minimax-video.md)、[Image-01](https://platform.minimaxi.com/docs/guides/image-generation) 和 [T2A HTTP](https://platform.minimaxi.com/docs/api-reference/speech-t2a-http)。
+
+### Voice 执行要求与时序（2026-10-01）
+
+新的 clear_memo_video 1.2 在冻结 Mode 中提供 voice_delivery 默认值；Planning 可在现有 Need.constraints.voice_delivery 中按内容选择 pace_ratio、pitch_semitones、tone。它们不选择 Provider 或音色，预置音色仍来自上述运行配置。MiniMax adapter 将这些中立要求转为官方 speed/pitch/emotion 参数；不支持的参数在提交前拒绝，不通过自然语言描述假装已执行。
+
+TTS 开启句级字幕，按[官方 HTTP 合同](https://platform.minimaxi.com/docs/api-reference/speech-t2a-http.md)消费流式终态完整音频与字幕。时序按冻结脚本和实际音频身份校验后进入既有编排工作区；缺失时保留音频与明确缺口，不自动重新生成。它不是听感验收或 Rights 证明。软件验证和未完成边界以 Current State 为准，未对真实账号调用新请求。

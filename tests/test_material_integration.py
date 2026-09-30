@@ -1122,6 +1122,19 @@ def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_conten
     assert requests[1].semantic_queries[0] == "station clock high contrast documentary"
     assert preferences[0][1][0].preferred_values == (style,)
     assert preferences[1][1][0].preferred_values == ("high contrast documentary",)
+    assert handoff.load_frozen_creative_mode(old)[0].get("voice_delivery") is None
+    voice = MaterialNeed(need_id="narration", scope=NeedScope(type=NeedScopeType.GLOBAL, ref="program"),
+        media_type=MediaType.AUDIO, role="旁白", intent=NeedIntent(description="平静的事后观察"),
+        modality_spec=VoiceNeedSpec(identity=VoiceIdentityRef(source=VoiceIdentitySource.DIRECTOR_INTENT,
+            reference="已批准的预置声音"), delivery_description="自然平静，稍加快以保持短句的连贯性"),
+        constraints={"voice_delivery": {"pace_ratio": 1.05}}, importance=NeedImportance.REQUIRED)
+    voice_plan = plan.model_copy(update={"needs": (voice,)})
+    persisted_voice = PlanningIntegration().persist(attempt, voice_plan, treatment="自然讲述",
+                                                   script="假设站在夜班公交站。", scenes="站台观察")
+    assert persisted_voice["plan"].needs[0].constraints["voice_delivery"] == {
+        "pace_ratio": 1.05, "pitch_semitones": 0, "tone": "neutral"}
+    assert "preferred_style" not in persisted_voice["plan"].needs[0].constraints
+    assert persisted_voice["plan"].needs[0].modality_spec.text_sha256 == hashlib.sha256("假设站在夜班公交站。".encode()).hexdigest()
 
 
 def test_generation_preserves_bundle_then_rights_review_opens_production_gate(

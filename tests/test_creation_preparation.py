@@ -1027,7 +1027,7 @@ def test_car_proposal_prompt_limits_unconfirmed_details_and_user_facing_language
 
     assert work["_preparation_action"] == "proposal"
     assert "到目前为止是买电车还是油车" in message
-    assert "〔当前作品风格：清醒备忘录 · 视频 / clear_memo_video v1.1〕" in message
+    assert "〔当前作品风格：清醒备忘录 · 视频 / clear_memo_video v1.2〕" in message
     assert '"defaults"' not in message
     assert "本轮动手前先查技能库" not in message
     assert "一个暂定切入角度、2～4 个方向、最多一个关键问题" in message

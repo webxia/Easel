@@ -31,6 +31,7 @@ from easel.materials.domain import (
 )
 from easel.materials.providers import MiniMaxImageAdapter, MiniMaxSpeechAdapter
 from easel.materials.store import AttemptMaterialStore, GenerationRecordNotFound
+from easel.materials.application.voice_delivery import DEFAULT_DELIVERY, validate_voice_delivery, bind_voice_timing
 
 
 class MiniMaxImageSpeechGeneration:
@@ -82,6 +83,7 @@ class MiniMaxImageSpeechGeneration:
                 raise ValueError("Voice Need must match the hash-bound frozen planning Script")
             intent = need.intent.description.strip()
             model = self._speech.model
+            speech_settings = validate_voice_delivery(need.constraints.get("voice_delivery", {}))
         else:
             if self._image is None:
                 raise ValueError("MiniMax image adapter is not configured")
@@ -102,6 +104,7 @@ class MiniMaxImageSpeechGeneration:
             "plan_id": plan.plan_id,
             "plan_revision": plan_revision,
             "need_id": need.need_id,
+            "need_sha256": hashlib.sha256(need.to_json().encode()).hexdigest(),
             "provider": "minimax",
             "model": model,
             "modality": "voice" if is_voice else "image",
@@ -116,6 +119,8 @@ class MiniMaxImageSpeechGeneration:
                 "pricing_reference": "https://platform.minimaxi.com/docs/guides/pricing-paygo",
             },
         }
+        if is_voice:
+            record.update(voice_id=self._speech.voice_id, speech_settings=speech_settings)
         try:
             previous = store.read_generation_record(generation_id)
         except GenerationRecordNotFound:
@@ -124,22 +129,30 @@ class MiniMaxImageSpeechGeneration:
             fields = ("attempt_id", "plan_id", "plan_revision", "need_id", "model", "input_sha256", "modality")
             if any(previous.get(field) != record.get(field) for field in fields):
                 raise GenerationRequestConflict("Generation request id is already bound to different input")
+            if is_voice and (previous.get("voice_id") != record["voice_id"]
+                    or previous.get("speech_settings", DEFAULT_DELIVERY) != speech_settings):
+                raise GenerationRequestConflict("Generation request is bound to another voice or delivery setting")
             if previous.get("status") == "COMPLETE" and isinstance(previous.get("asset_id"), str):
                 asset = store.read_asset(str(previous["asset_id"]))
                 path = store.resolve_asset_locator(asset.file.path)
-                if (path.stat().st_size != asset.file.size
+                if (previous.get("asset_sha256") != asset.file.sha256
+                        or previous.get("asset_path") != asset.file.path
+                        or previous.get("asset_bytes") != asset.file.size
+                        or path.stat().st_size != asset.file.size
                         or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
                     raise GenerationRequestConflict("Persisted generated Asset bytes are stale")
                 return GeneratedMaterialResult(generation_id, generation_id, asset, previous)
             raise GenerationRequestConflict(
                 f"Generation request already has state ({previous.get('status', 'unknown')}); inspect it before another paid request"
             )
+        if is_voice and spec.delivery_description and "voice_delivery" not in need.constraints:
+            raise ValueError("旁白朗读描述尚未转成执行参数，需先补齐规划；未请求 TTS")
         store.write_generation_record(generation_id, record)
 
         try:
             if is_voice:
                 assert self._speech is not None
-                output = self._speech.generate(speech_text or "")
+                output = self._speech.generate(speech_text or "", **speech_settings)
                 asset_id = "asset-" + hashlib.sha256(request_id.encode()).hexdigest()[:32]
                 relative_path = store.write_asset_bytes(asset_id, "original.mp3", output.audio_bytes)
                 digest = hashlib.sha256(output.audio_bytes).hexdigest()
@@ -179,6 +192,10 @@ class MiniMaxImageSpeechGeneration:
                 )
 
             asset = TechnicalInspector(store).inspect_and_persist(asset)
+            if is_voice:
+                record["voice_timing"] = bind_voice_timing(
+                    speech_text or "", asset, output.timings, output.timing_error,
+                )
             record.update({
                 "status": "COMPLETE",
                 "asset_id": asset.asset_id,

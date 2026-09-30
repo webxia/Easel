@@ -386,6 +386,14 @@ identity is the provider-neutral identity recorded in the Need; do not invent a
 provider voice ID. AI narration supply belongs to the Material Layer's later
 generation stage; this Hypit authoring turn only edits admitted audio assets.
 
+Read productions/easel-authoring/VOICE_TIMING.json before setting subtitle and
+shot timing. Each READY entry binds the admitted audio SHA, frozen Script SHA,
+actual inspected audio duration and provider sentence alignment. Use those
+source times for the selected voice; never substitute character-count estimates
+or the preliminary SCENES time grid. Provider alignment is not a listening or
+quality approval. unavailable_need_ids means no verified timing is available;
+do not fabricate a transcript or claim that the narration has been aligned.
+
 For each selected audio Asset, declare its workspace-relative source with
 media:Audio, pass it through pipeline:Normalize with audio="default",
 place the normalized .media in an audio:Item, and include the resulting

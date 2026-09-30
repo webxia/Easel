@@ -71,6 +71,12 @@ def load_frozen_creative_mode(attempt: dict[str, Any]) -> tuple[dict[str, Any], 
     style = mode.get("visual_material_style")
     if style is not None and (not isinstance(style, str) or not style.strip() or len(style) > 200):
         raise HypitIntegrationError("Creative Mode 视觉素材偏好必须为非空短语")
+    if "voice_delivery" in mode:
+        from easel.materials.application.voice_delivery import validate_voice_delivery
+        try:
+            validate_voice_delivery(mode["voice_delivery"])
+        except ValueError as exc:
+            raise HypitIntegrationError(str(exc)) from exc
     return mode, ref["hash"]
 
 

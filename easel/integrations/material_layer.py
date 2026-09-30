@@ -281,7 +281,8 @@ class PlanningIntegration:
         from easel.integrations.hypit.handoff import load_frozen_creative_mode
         mode, mode_hash = load_frozen_creative_mode(attempt)
         style = mode.get("visual_material_style")
-        if style and plan.context_refs.get("creative_mode_sha256") != mode_hash:
+        voice_delivery = mode.get("voice_delivery")
+        if (style or voice_delivery) and plan.context_refs.get("creative_mode_sha256") != mode_hash:
             raise MaterialIntegrationError("Planning 风格来源与冻结 Creative Mode 不一致")
         bound_needs = []
         for need in plan.needs:
@@ -291,6 +292,14 @@ class PlanningIntegration:
                 # narrative, source restriction or readiness rule is invented.
                 need = need.model_copy(update={"constraints": {**need.constraints, "preferred_style": style}})
             spec = need.modality_spec
+            if getattr(spec, "kind", None) == "voice":
+                from easel.materials.application.voice_delivery import validate_voice_delivery
+                controls = need.constraints.get("voice_delivery", {})
+                if not isinstance(controls, dict):
+                    raise MaterialIntegrationError("Voice Need 的 voice_delivery 必须为参数对象")
+                if voice_delivery or controls:
+                    controls = validate_voice_delivery({**(voice_delivery or {}), **controls})
+                    need = need.model_copy(update={"constraints": {**need.constraints, "voice_delivery": controls}})
             if (need.importance is NeedImportance.REQUIRED and need.media_type is MediaType.AUDIO
                     and getattr(spec, "kind", None) == "voice"):
                 if spec.identity is None or spec.text_ref not in {None, "planning/SCRIPT.md"}:
@@ -665,6 +674,10 @@ class ProductionAuthoringIntegration:
         if _has_symlink_components(root, output_dir):
             raise MaterialIntegrationError("Production Authoring directory must not contain symlinks")
         output_dir.mkdir(parents=True, exist_ok=True)
+        from easel.materials.application.voice_delivery import authoring_voice_timings
+        _write_text(root, "productions/easel-authoring/VOICE_TIMING.json", json.dumps(
+            authoring_voice_timings(plan, bundle, store, planning["script"]), ensure_ascii=False,
+        ))
         selection = {
             "schema": "easel-production-material-selection@1",
             "creation_id": attempt["creation_id"],

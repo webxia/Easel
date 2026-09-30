@@ -40,7 +40,7 @@ class FakeTransport:
 
     def post(self, url, *, headers, body, timeout):
         self.calls.append((url, dict(headers), json.loads(body.decode("utf-8")), timeout))
-        return HttpResponse(200, {}, json.dumps(self.payload).encode("utf-8"))
+        return HttpResponse(200, {}, self.payload if isinstance(self.payload, bytes) else json.dumps(self.payload).encode("utf-8"))
 
     def get(self, url, *, headers, timeout):
         raise AssertionError("unexpected GET")
@@ -79,20 +79,26 @@ def test_minimax_image_adapter_rejects_unexpected_image_count():
 
 
 def test_minimax_speech_adapter_returns_preset_voice_mp3_bytes():
-    transport = FakeTransport({
-        "base_resp": {"status_code": 0}, "data": {"audio": b"fixture-mp3".hex()},
-    })
+    subtitle = {"text": "这是冻结脚本中的旁白。", "text_begin": 0, "text_end": 11,
+                "time_begin": 250, "time_end": 2500}
+    packets = [{"data": {"audio": b"partial-must-not-be-appended".hex(), "status": 1, "subtitle": subtitle}},
+               {"base_resp": {"status_code": 0}, "data": {"audio": b"fixture-mp3".hex(), "status": 2,
+                                                        "subtitles": [subtitle]}}]
+    transport = FakeTransport("\n\n".join('data: ' + json.dumps(p) for p in packets).encode())
     adapter = MiniMaxSpeechAdapter("fixture-secret", transport=transport)
 
-    result = adapter.generate("这是冻结脚本中的旁白。")
+    result = adapter.generate("这是冻结脚本中的旁白。", pace_ratio=0.95, pitch_semitones=1, tone="neutral")
 
     assert result.audio_bytes == b"fixture-mp3"
+    assert result.timings[0]['start_seconds'] == .25 and result.timings[0]['end_seconds'] == 2.5
     url, headers, body, _ = transport.calls[0]
     assert url == "https://api.minimax.cn/v1/t2a_v2"
     assert headers["Authorization"] == "Bearer fixture-secret"
     assert body["model"] == "speech-2.8-hd"
     assert body["text"] == "这是冻结脚本中的旁白。"
-    assert body["voice_setting"]["voice_id"] == "male-qn-qingse"
+    assert body["voice_setting"] == {"voice_id": "male-qn-qingse", "speed": .95, "pitch": 1, "vol": 1, "emotion": "calm"}
+    assert body["stream"] is True and body["subtitle_enable"] is True
+    assert body["stream_options"]["exclude_aggregated_audio"] is False
     assert body["audio_setting"]["format"] == "mp3"
     assert body["output_format"] == "hex"
 
@@ -103,7 +109,8 @@ class FakeInspector:
 
     def inspect_and_persist(self, asset):
         checked = asset.model_copy(update={
-            "technical": TechnicalInfo(status=TechnicalStatus.PASSED, mime=asset.file.mime),
+            "technical": TechnicalInfo(status=TechnicalStatus.PASSED, mime=asset.file.mime,
+                                       duration_seconds=3.0 if asset.media_type is MediaType.AUDIO else None),
         })
         self.store.write_asset(checked)
         return checked
@@ -149,7 +156,8 @@ def test_image_generation_requires_explicit_paid_approval_and_is_idempotent(tmp_
     ).hexdigest()
 
 
-def test_voice_generation_is_bound_to_frozen_script_digest(tmp_path, monkeypatch):
+@pytest.mark.parametrize('timing_error', [None, 'provider_timing_missing_or_invalid'])
+def test_voice_generation_is_bound_to_frozen_script_digest(tmp_path, monkeypatch, timing_error):
     script = "这是经 truth review 的冻结旁白内容。"
     spec = VoiceNeedSpec(
         identity=VoiceIdentityRef(source=VoiceIdentitySource.EXPLICIT_USER, reference="普通预置音色"),
@@ -157,18 +165,26 @@ def test_voice_generation_is_bound_to_frozen_script_digest(tmp_path, monkeypatch
     )
     need = _need(MediaType.AUDIO, spec, "need-voice").model_copy(update={
         "scope": NeedScope(type=NeedScopeType.GLOBAL, ref="program"),
+        "constraints": {"allow_generation": True, "voice_delivery": {"pace_ratio": 0.95, "pitch_semitones": 0, "tone": "neutral"}},
     })
     plan = MaterialPlan(plan_id="plan-1", creation_id="creation-1", attempt_id="attempt-1", needs=(need,))
     store = AttemptMaterialStore(tmp_path)
 
     class FakeSpeech:
         model = "speech-2.8-hd"
-        def generate(self, text):
+        voice_id = "male-qn-qingse"
+        calls = 0
+        def generate(self, text, **settings):
+            self.calls += 1
             assert text == script
-            return MiniMaxSpeechResult(self.model, "male-qn-qingse", b"fixture-audio", "mp3")
+            assert settings == need.constraints['voice_delivery']
+            return MiniMaxSpeechResult(self.model, self.voice_id, b"fixture-audio", "mp3", (
+                {"text": script, "start_seconds": .1, "end_seconds": 2.8,
+                 "start_character": 0, "end_character": len(script)},), timing_error)
 
     monkeypatch.setattr(generation_module, "TechnicalInspector", FakeInspector)
-    service = MiniMaxImageSpeechGeneration(speech_adapter=FakeSpeech())
+    speech = FakeSpeech()
+    service = MiniMaxImageSpeechGeneration(speech_adapter=speech)
     with pytest.raises(ValueError, match="hash-bound"):
         service.generate(plan, need, store, request_id="voice-bad", confirmed_paid=True, speech_text="改过的脚本")
     scene_need = need.model_copy(update={"scope": NeedScope(type=NeedScopeType.SCENE, ref="scene-1")})
@@ -183,3 +199,74 @@ def test_voice_generation_is_bound_to_frozen_script_digest(tmp_path, monkeypatch
     assert result.asset.file.mime == "audio/mpeg"
     assert result.asset.rights.status is RightsStatus.UNKNOWN
     assert result.record["input_sha256"] == spec.text_sha256
+    assert result.record['speech_settings'] == need.constraints['voice_delivery']
+    assert result.record['voice_timing']['status'] == ('READY' if timing_error is None else 'UNAVAILABLE')
+    assert result.record['voice_timing']['audio_sha256'] == result.asset.file.sha256
+    assert result.record['voice_timing']['script_sha256'] == spec.text_sha256
+    assert service.generate(plan, need, store, request_id='voice-1', confirmed_paid=True, speech_text=script).asset == result.asset
+    speech.voice_id = 'another-preset'
+    with pytest.raises(ValueError, match='another voice'):
+        service.generate(plan, need, store, request_id='voice-1', confirmed_paid=True, speech_text=script)
+    assert speech.calls == 1
+    speech.voice_id = 'male-qn-qingse'
+    replaced = b'replaced audio and metadata'
+    store.resolve_asset_locator(result.asset.file.path).write_bytes(replaced)
+    store.write_asset(result.asset.model_copy(update={'file': result.asset.file.model_copy(update={
+        'sha256': hashlib.sha256(replaced).hexdigest(), 'size': len(replaced)})}))
+    with pytest.raises(ValueError, match='Persisted generated Asset bytes are stale'):
+        service.generate(plan, need, store, request_id='voice-1', confirmed_paid=True, speech_text=script)
+    assert speech.calls == 1
+
+
+@pytest.mark.parametrize('bad_subtitles', [None, [], [{'text': '一句', 'time_begin': float('nan')} ]])
+def test_missing_provider_timing_preserves_successful_audio(bad_subtitles):
+    transport = FakeTransport(('data: ' + json.dumps({'data': {
+        'status': 2, 'audio': b'already-paid-audio'.hex(), 'subtitles': bad_subtitles}})).encode())
+    result = MiniMaxSpeechAdapter('fixture-secret', transport=transport).generate('一句')
+    assert result.audio_bytes == b'already-paid-audio'
+    assert result.timings == () and result.timing_error == 'provider_timing_missing_or_invalid'
+    assert len(transport.calls) == 1
+
+
+def test_voice_alignment_rejects_truncation_overlap_and_stale_output(tmp_path):
+    from easel.materials.application.voice_delivery import bind_voice_timing, authoring_voice_timings
+    from easel.materials.domain import MaterialAsset, CandidateSource, FileInfo, RightsInfo, MaterialMatch
+    from types import SimpleNamespace
+    script = '第一句。第二句。'
+    data = b'fixture audio'
+    need = _need(MediaType.AUDIO, VoiceNeedSpec(), 'voice')
+    plan = MaterialPlan(plan_id='p', creation_id='c', attempt_id='a', needs=(need,))
+    asset = MaterialAsset(asset_id='voice', media_type=MediaType.AUDIO,
+        file=FileInfo(path='materials/assets/voice/original.mp3', sha256=hashlib.sha256(data).hexdigest(), size=len(data), mime='audio/mpeg'),
+        source=CandidateSource(kind='generative', provider='fixture', provider_asset_id='voice'),
+        rights=RightsInfo(status=RightsStatus.UNKNOWN),
+        technical=TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=3))
+    cues = ({'text': '第一句。', 'start_character': 0, 'end_character': 4, 'start_seconds': 0., 'end_seconds': 1.2},
+            {'text': '第二句。', 'start_character': 4, 'end_character': 8, 'start_seconds': 1.3, 'end_seconds': 2.8})
+    ready = bind_voice_timing(script, asset, cues)
+    assert ready['status'] == 'READY'
+    for bad in (cues[:1], (cues[0], {**cues[1], 'start_seconds': 1.1}),
+                (cues[0], {**cues[1], 'end_seconds': 4.}), (cues[0], {**cues[1], 'text': '另一句。'})):
+        assert bind_voice_timing(script, asset, bad)['status'] == 'INVALID'
+    store = AttemptMaterialStore(tmp_path)
+    store.write_generation_record('gen-voice', {'schema': 'easel-material-generation@1', 'status': 'COMPLETE',
+        'asset_id': asset.asset_id, 'asset_sha256': asset.file.sha256,
+        'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest(), 'voice_timing': ready})
+    bundle = SimpleNamespace(assets=(asset,), matches=(MaterialMatch(need_id='voice', asset_id='voice', rank=1, score=1, qualified=True),))
+    projection = authoring_voice_timings(plan, bundle, store, script)
+    assert len(projection['assets']) == 1 and projection['unavailable_need_ids'] == []
+    assert authoring_voice_timings(plan, bundle, store, '改过的脚本')['unavailable_need_ids'] == ['voice']
+    changed = asset.model_copy(update={'file': asset.file.model_copy(update={'sha256': '0' * 64})})
+    bundle.assets = (changed,)
+    assert authoring_voice_timings(plan, bundle, store, script)['unavailable_need_ids'] == ['voice']
+
+
+def test_speech_stream_uncertain_result_and_unsupported_delivery_never_retries():
+    transport = FakeTransport(b'data: {"data":{"status":1,"audio":"61"}}\n\n')
+    adapter = MiniMaxSpeechAdapter('fixture-secret', transport=transport)
+    with pytest.raises(ValueError, match='不支持'):
+        adapter.generate('旁白', tone='whisper')
+    assert not transport.calls
+    with pytest.raises(ValueError, match='without a complete result'):
+        adapter.generate('旁白')
+    assert len(transport.calls) == 1
