@@ -251,10 +251,15 @@ def _hypit_audio_tracks_for_source(authoring: str, expected_src: str) -> set[str
         ) for normalized_id in normalized_ids):
             continue
         track_id = id_match.group(1)
-        if re.search(
-            rf'<film:Film\b[^>]*>.*?<film:Track\b[^>]*\bsource=\{{{re.escape(track_id)}\.audio\}}',
+        audible_ids = {track_id}
+        if '<import as="easelmix" from="@easel/audio-mix@1"/>' in authoring:
+            audible_ids.update(re.findall(
+                r'<easelmix:Duck\b(?=[^>]*\bid="([A-Za-z_][\w.-]*)")'
+                + r'(?=[^>]*\bsource=\{' + re.escape(track_id) + r'\.audio\})[^>]*/>', authoring))
+        if any(re.search(
+            rf'<film:Film\b[^>]*>.*?<film:Track\b[^>]*\bsource=\{{{re.escape(identity)}\.audio\}}',
             authoring, re.DOTALL,
-        ):
+        ) for identity in audible_ids):
             track_ids.add(track_id)
     return track_ids
 
@@ -717,17 +722,25 @@ class ProductionAuthoringIntegration:
                           author_path: str = "productions/easel-authoring/authors/main.svml") -> str:
         """Compile from the current admitted evidence, never the agent's copy."""
         from easel.integrations.hypit.narration import compile_measured_narration
+        from easel.integrations.hypit.music import compile_music_ducking
+        from easel.integrations.hypit.handoff import load_frozen_creative_mode
         from easel.materials.application.voice_delivery import authoring_voice_timings
 
         plan, bundle, _ = self.gate.assert_ready(attempt)
         store = AttemptMaterialStore(_workspace(attempt))
+        if not any(getattr(need.modality_spec, 'kind', None) == 'voice' for need in plan.needs):
+            return source
         if not any(record.get("voice_timing") for record in store.list_generation_records()):
             return source
         planning = PlanningIntegration().load(attempt)
         timings = authoring_voice_timings(plan, bundle, store, planning["script"])
         sources = {asset.asset_id: store.hypit_source_path(asset, author_path) for asset in bundle.assets}
         try:
-            return compile_measured_narration(source, timings, sources)
+            source = compile_measured_narration(source, timings, sources)
+            mode, _ = load_frozen_creative_mode(attempt)
+            bgm_needs = {n.need_id for n in plan.needs if getattr(n.modality_spec, 'kind', None) == 'bgm'}
+            bgm_ids = {m.asset_id for m in bundle.matches if m.qualified and m.need_id in bgm_needs}
+            return compile_music_ducking(source, timings, sources, bgm_ids, mode.get('music_ducking'))
         except (ValueError, KeyError) as exc:
             raise MaterialIntegrationError(f"旁白原生编排需要修正：{exc}") from exc
 
@@ -759,6 +772,12 @@ class ProductionAuthoringIntegration:
         _assert_production_only_sources(run_text, authored_text)
         if self.compile_narration(attempt, authored_text, str(authored_source.relative_to(root))) != authored_text:
             raise MaterialIntegrationError("原生旁白/字幕与当前可信音频时序不一致，请重新完成编排")
+        if '@easel/audio-mix@1' in authored_text:
+            from easel.integrations.hypit.music import install_music_component
+            try:
+                install_music_component(root)
+            except ValueError as exc:
+                raise MaterialIntegrationError(str(exc)) from exc
 
         selection_path = root / "productions" / "easel-authoring" / "material-selection.json"
         if _has_symlink_components(root, selection_path):

@@ -1116,3 +1116,58 @@ def test_native_narration_refuses_silent_audio_or_caption_loss(old, new, reason)
     source, timings, paths = measured_narration_fixture()
     with pytest.raises(ValueError, match=reason):
         compile_measured_narration(source.replace(old, new), timings, paths)
+
+
+def test_music_envelope_reaches_native_audio_without_restarting_or_duplicating_music(tmp_path):
+    import subprocess
+    import shutil
+    from easel.integrations.hypit.music import compile_music_ducking, install_music_component, music_envelope
+    from easel.integrations.hypit.narration import compile_measured_narration
+    source, timings, paths = measured_narration_fixture()
+    paths['music'] = './music.wav'
+    policy = {'gain_ratio': .25, 'attack_seconds': .12, 'release_seconds': .45}
+    original = compile_measured_narration(source, timings, paths)
+    compiled = compile_music_ducking(original, timings, paths, {'music'}, policy)
+    assert '<film:Track source={music-track.audio}/>' not in compiled
+    assert compiled.count('<film:Track source={easel-duck-music-track.audio}/>') == 1
+    assert compiled.count('<audio:Item source={music-media.media}') == 1
+    assert compile_music_ducking(compiled, timings, paths, {'music'}, policy) == compiled
+    with pytest.raises(ValueError, match='唯一'):
+        compile_music_ducking(original.replace('</film:Film>', '<film:Track source={music-track.audio}/></film:Film>'),
+                             timings, paths, {'music'}, policy)
+    # At time zero speech starts already ducked; a short breathing gap never
+    # rises, while a later long pause reaches the original authored level.
+    cues = [{'start_seconds': 0., 'end_seconds': 1.},
+            {'start_seconds': 1.2, 'end_seconds': 2.},
+            {'start_seconds': 3.5, 'end_seconds': 4.}]
+    points = music_envelope(cues, 0, 5, policy)
+    assert points[0] == {'sample': 0, 'gain': .25}
+    assert not any(p['gain'] > .25 and 0 < p['sample'] < 2 * 48000 for p in points)
+    assert {'sample': 117600, 'gain': 1.} in points
+    install_music_component(tmp_path)
+    install_music_component(tmp_path)
+    runtime = shutil.which('node')
+    if runtime is None:
+        pytest.skip('Native audio contract needs the project Node runtime')
+    component = tmp_path / 'packages/audio-mix/envelope.mjs'
+    # Replay the shipped operation on a looping, trimmed clip. Source position,
+    # occupancy, gain, fades and audibility must survive byte-for-byte.
+    track = {'id': 'music', 'kind': 'audio', 'programSpaceId': 'timeline', 'clips': [{
+        'id': 'loop', 'source': {'startSample': 700, 'endSampleExclusive': 10700, 'loop': True, 'phaseSample': 135},
+        'target': {'startSample': 0, 'endSampleExclusive': 240000}, 'gain': .15,
+        'fadeInSamples': 1000, 'fadeOutSamples': 2000, 'playbackRate': 1,
+        'audibility': [{'startSample': 0, 'endSampleExclusive': 240000}],
+    }]}
+    script = '''import {readFileSync} from 'node:fs';
+const {duckTrack} = await import(process.argv[1]);
+const {track, points} = JSON.parse(readFileSync(0, 'utf8'));
+console.log(JSON.stringify(duckTrack(track, points)));'''
+    output = subprocess.run([runtime, '--input-type=module', '-e', script, component.as_uri()],
+                            input=json.dumps({'track': track, 'points': points}), text=True,
+                            capture_output=True, check=True, timeout=10)
+    ducked = json.loads(output.stdout)
+    assert ducked['clips'][0].pop('gainEnvelope') == points
+    assert ducked['clips'] == track['clips']
+    component.write_text('// changed executable')
+    with pytest.raises(ValueError, match='版本不一致'):
+        install_music_component(tmp_path)

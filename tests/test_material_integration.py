@@ -99,6 +99,7 @@ def material_integration_env(tmp_path, monkeypatch):
     mode_dir.mkdir(parents=True)
     (mode_dir / "mode.json").write_text(json.dumps({
         "id": "clear_memo_video", "name": "清醒备忘录", "version": "1.0",
+        "music_ducking": {"gain_ratio": 0.25, "attack_seconds": 0.12, "release_seconds": 0.45},
         "routes": ["douyin-video"],
     }), encoding="utf-8")
     for filename in ("director-treatment.md", "visual-bible.md", "audio-bible.md",
@@ -638,6 +639,11 @@ def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_inte
     author.write_text(compiled, encoding="utf-8")
     integration.validate_authored_selection(result["attempt"], "productions/easel-authoring/runs/main.svrun")
     assert 'at="5f" for="110f"' in compiled
+    assert '<film:Track source={easel-duck-bgmTrack.audio}/>' in compiled
+    assert (root / 'packages/audio-mix/activation.mjs').is_file()
+    assert _hypit_audio_tracks_for_source(compiled, bgm_src) == {'bgmTrack'}
+    _, _, _, fingerprint_files = service._authoring_file_hash(root, run_path)
+    assert 'packages/audio-mix/envelope.mjs' in {entry['path'] for entry in fingerprint_files}
     # Tampering with the copied projection has no authority over the source.
     (root / "productions/easel-authoring/VOICE_TIMING.json").write_text('{"assets": []}')
     assert integration.compile_narration(result["attempt"], source) == compiled

@@ -410,6 +410,13 @@ enough frames for the inspected audio plus the chosen start; adjust pictures
 to this duration instead of clipping or stretching the voice. Do not duplicate
 narration captions in other tracks or invent word/karaoke timing. Headings and
 other editorial text remain separately authored. BGM is a separate track.
+When the frozen Mode declares music_ducking, Easel wraps admitted BGM AudioTracks
+in its checked-in native envelope component after authoring. Keep the BGM in a
+separate audio:Track and include it once in Film. Choose its base gain, placement,
+trim, looping and fades; the wrapper preserves those choices and only lowers the
+level around measured speech. Do not generate component code, manual envelope
+points, another BGM copy, or repeatedly restart music for each sentence. A fixed
+low gain alone is not ducking; automatic ducking is not an actual loudness check.
 
 For each selected audio Asset, declare its workspace-relative source with
 media:Audio, pass it through pipeline:Normalize with audio="default",

@@ -1,0 +1,7 @@
+{
+  "name": "@easel/audio-mix",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "hypit": {"activation": "./activation.mjs"}
+}

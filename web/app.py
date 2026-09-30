@@ -2918,6 +2918,9 @@ async def _run_film_authoring(attempt_id: str) -> dict:
             authored = staged / "productions/easel-authoring/authors/main.svml"
             authored.write_text(ProductionAuthoringIntegration().compile_narration(
                 current, authored.read_text(encoding="utf-8")), encoding="utf-8")
+            if '@easel/audio-mix@1' in authored.read_text(encoding="utf-8"):
+                from easel.integrations.hypit.music import install_music_component
+                install_music_component(staged)
             from easel.integrations.hypit.service import _assert_local_video_trim_ranges
             _assert_local_video_trim_ranges(current, staged / "productions/easel-authoring/authors/main.svml")
             if current.get("revision_feedback"):
