@@ -51,6 +51,10 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 [素材缺口恢复任务](tasks/creator-material-recovery-2026-09-30.md) 软件与同一 Creation 的阶段恢复已完成：来源修订只扩展明确选择的 BGM 来源，保留脚本/场景/旁白 Need 与冻结 Handoff；正式旧/新 Plan revision、父 SupplyRun、Bundle checkpoint 和请求身份记录，补充缺失素材。中断后对账完成的 Supply，重复请求复用结果。早期恢复保留原 7 个 Asset，集合增至 38 个；后续仅补缺失窗景，再经逐 Need 核对与独立配乐 Rights/署名复核，Material Gate READY，进入上述真实制作与最终入库。配乐试听、缺失署名事实和旁白试听结论都在普通作品区处理，未知许可不被 UI 合并放行。前一组合 127 passed；最终增量 Material/Compiler/Rights/敏感接口 52 passed（28 deselected），lint/build、compileall、技能合同和 diff check 通过。最终成片基本质量已由 Creator 审阅接受，但自主 E2E 因工程介入失败；完整运行与限制见同一份 [Acceptance](acceptance/creator-audio-quality-e2e-2026-09-30.md)。
 
+## 下一项优化（方案阶段）
+
+用户将 V1 目标明确为“前期方案定好后自动运行到可看首版，减少失败与人工介入”。[优化任务](tasks/creator-autonomous-first-cut-2026-09-30.md) 已建立：当前部分推进仍依赖前端 useEffect，Authoring 活任务使用进程内表，常见编排仍由模型直接写底层文件；自动语义证据与首版质量修复尚不足。将按后端持久推进/恢复、授权策略、稳定编排、素材证据、质量修复和观测顺序实施。此处仅记录方案，不宣称能力已实现，不启动真实制作。
+
 ## Official Product Path
 
 ```text
