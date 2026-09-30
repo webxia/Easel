@@ -52,7 +52,7 @@
 
 ## Workstreams 与模板
 
-- 当前优化方案：[`tasks/creator-autonomous-first-cut-2026-09-30.md`](tasks/creator-autonomous-first-cut-2026-09-30.md)，方案确认后后台自动交付可看首版与失败治理；尚未实现，不自动启动真实制作。
+- 当前流程重审：[`tasks/creator-autonomous-first-cut-2026-09-30.md`](tasks/creator-autonomous-first-cut-2026-09-30.md)，以自主交付可看首版为标准审查 Stage/Gate/ADR；先判断流程正确性，再选实现，上一版自动化实施顺序已撤回。
 - 当前素材阶段恢复：[`tasks/creator-material-recovery-2026-09-30.md`](tasks/creator-material-recovery-2026-09-30.md)。
 - 当前 Creator 工作区 Goal：[`tasks/creator-workspace-2026-09-30.md`](tasks/creator-workspace-2026-09-30.md)。
 

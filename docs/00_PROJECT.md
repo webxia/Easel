@@ -12,6 +12,10 @@ The current development focus is video. The first objective is:
 
 Creator identity and directing language should remain recognizable while each work's subject, point of view, and story remain open. This is a product goal, not a claim that the full production loop is already implemented; see [Current State](02_CURRENT_STATE.md).
 
+## V1 体验目标与流程评审依据
+
+Creator 确认创作方案后，Easel 应尽可能自主交付基本可看的首版，Creator 中间尽量不参与，随后决定接受或修改。不同内容仍应保持当前 Creator/Director 的稳定表达风格。现有 Stage、Gate、ADR 和实现是需要对这一目标负责的设计，不是不可重审的产品前提。必要事实/权利/费用风险应由系统尽可能先处理，只有真正需要 Creator 决定的事项才升级。目标流程重审尚未替换下述已实现/已接受主链，不据此伪造现有能力或绕过批准。
+
 ## Official New Video Mainline
 
 `Creation + Hypit` is the only official new video-production mainline:
