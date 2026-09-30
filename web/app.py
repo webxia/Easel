@@ -938,6 +938,9 @@ def run_agent_sync(msg: str, timeout: int = TIMEOUT_DIRECT, session_id: str | No
            '--session-key', f'agent:main:{sk}', '--session-id', _openclaw_session_id(sk),
            '--thinking', THINKING_LEVEL,
            '--timeout', str(timeout), '--message', msg]
+    if active_delivery.get():
+        from easel.integrations.openclaw_delivery import run_delivery_agent
+        return run_delivery_agent(cmd, cwd=str(PROJECT_ROOT), env=_proxy_env()).stdout
     # 跨进程锁：同一会话同时刻只跑一个 openclaw，防并发 takeover 崩溃（rc=1）
     xlock = _CrossProcLock(sk)
     if not xlock.acquire(timeout=min(timeout, 300)):
@@ -2089,6 +2092,11 @@ _DELIVERY_ACK = "委托已确认，Easel 会持续制作，可随时离开并返
 
 async def _execute_creation_delivery(operation: str, work: dict) -> None:
     """Invoke the same production services, independent of chat and page life."""
+    if operation == "observe_agent":
+        from easel.integrations.openclaw_delivery import reconcile_agent_calls
+        await asyncio.to_thread(reconcile_agent_calls, work["id"], command_prefix=openclaw_base_cmd(),
+                                profile=OPENCLAW_PROFILE, cwd=str(PROJECT_ROOT), env=_proxy_env())
+        return
     if operation == "prepare":
         preparation = claim_chat_preparation(
             work["id"], f"delivery:{work['id']}", work["delivery"]["confirmed_by_turn"],
@@ -2123,8 +2131,12 @@ async def _execute_creation_delivery(operation: str, work: dict) -> None:
 
     attempt = work["hypit_attempts"][-1]
     attempt_id = attempt["attempt_id"]
-    if operation == "author":
-        await _run_film_authoring(attempt_id)
+    if operation in {"author", "release_authoring"}:
+        if operation == "author":
+            await _run_film_authoring(attempt_id)
+        from easel.integrations.openclaw_authoring import release_delivery_authoring
+        await asyncio.to_thread(release_delivery_authoring, attempt_id, command_prefix=openclaw_base_cmd(),
+                                profile=OPENCLAW_PROFILE, cwd=PROJECT_ROOT, env=_proxy_env())
     elif operation == "runtime":
         runtime_profile = _hypit_runtime_profile()
         if not runtime_profile:
@@ -2802,6 +2814,11 @@ async def _run_film_authoring(attempt_id: str) -> dict:
                 "例如 Clock=24 fps，原片 5～13 秒是 120～312 帧；"
                 "终点不得超出原片标准化总帧数，不能拿成片总时长当作原片时长。"
             )
+            # Only the first dispatch of this resumed outer operation may
+            # reuse a retained turn. Later selection repairs are new turns.
+            nonlocal resume_instruction
+            if resume_instruction is not None:
+                instruction, resume_instruction = resume_instruction, None
             return run_attempt_scoped_authoring(
                 attempt_id=attempt_id,
                 attempt_workspace=task["workspace"],
@@ -2846,6 +2863,8 @@ async def _run_film_authoring(attempt_id: str) -> dict:
                 )
         return result
 
+    from easel.integrations.openclaw_authoring import retained_authoring_message
+    resume_instruction = retained_authoring_message(attempt_id, profile=OPENCLAW_PROFILE)
     try:
         await asyncio.to_thread(run_scoped_authoring, message)
         try:
@@ -2863,6 +2882,8 @@ async def _run_film_authoring(attempt_id: str) -> dict:
             )
             await asyncio.to_thread(run_scoped_authoring, repair_message)
             return await asyncio.to_thread(complete_film_authoring, attempt_id)
+    except DeliveryExecutionUncertain:
+        raise
     except Exception as exc:
         try:
             # complete_film_authoring already records check errors.  A model or

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import shutil
@@ -36,7 +37,8 @@ CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 def _agent_result(runner: CommandRunner, cmd: Sequence[str], *, phase: str, **kwargs):
     """Retain a safe failure category, never raw model output or credentials."""
     try:
-        result = runner(cmd, **kwargs)
+        from easel.integrations.openclaw_delivery import run_delivery_agent
+        result = run_delivery_agent(cmd, runner=runner, **kwargs)
     except subprocess.TimeoutExpired as exc:
         raise OpenClawAuthoringBoundaryError(f"视频编排{phase}超时；已保留原内容和素材，可阶段重试") from exc
     if result.returncode != 0:
@@ -53,6 +55,102 @@ def _agent_result(runner: CommandRunner, cmd: Sequence[str], *, phase: str, **kw
             f"{reason}（{phase}，退出码 {result.returncode}）；已保留原内容和素材，未提交视频合成"
         )
     return result
+
+
+def _delivery_stage(source: Path, parent: Path, attempt_id: str, message: str, profile: str):
+    from easel import creation
+    from easel.creation_delivery import active_delivery
+    creation_id = active_delivery.get()
+    if not creation_id:
+        return None, None
+    key = hashlib.sha256(f"{attempt_id}\0{message}".encode()).hexdigest()
+    with creation.edit_creation(creation_id) as work:
+        stages = work["delivery"].setdefault("authoring_stages", {})
+        record = stages.get(key)
+        if record is None:
+            agent_id = f"easel-author-{attempt_id[-8:]}-{uuid.uuid4().hex[:12]}"
+            stage_root = Path(tempfile.mkdtemp(prefix=f"{agent_id}-", dir=parent))
+            instruction = stage_root / "instruction.txt"
+            instruction.write_text(message, encoding="utf-8")
+            instruction.chmod(0o600)
+            record = {"attempt_id": attempt_id, "source": str(source), "profile": profile,
+                      "stage_root": str(stage_root), "agent_id": agent_id, "inputs_ready": False}
+            stages[key] = record
+        root = Path(record["stage_root"])
+        if (record["source"] != str(source) or record["profile"] != profile
+                or root.is_symlink() or root.parent != parent or not root.is_dir()
+                or not root.name.startswith(record["agent_id"] + "-")):
+            raise OpenClawAuthoringBoundaryError("隔离编排恢复记录与当前作品不一致")
+    return key, record
+
+
+def retained_authoring_message(attempt_id: str, *, profile: str) -> str | None:
+    """Resume the latest dispatched turn, even if error/status prompts changed."""
+    from easel import creation
+    from easel.creation_delivery import active_delivery
+    creation_id = active_delivery.get()
+    if not creation_id:
+        return None
+    stages = creation.get_creation(creation_id)["delivery"].get("authoring_stages", {})
+    for key, record in reversed(list(stages.items())):
+        if record["attempt_id"] != attempt_id:
+            continue
+        root = Path(record["stage_root"])
+        instruction = root / "instruction.txt"
+        if (record["profile"] != profile or root.is_symlink() or instruction.is_symlink()
+                or not root.name.startswith(record["agent_id"] + "-") or not instruction.is_file()):
+            raise OpenClawAuthoringBoundaryError("隔离编排恢复指令缺失或身份不一致")
+        message = instruction.read_text(encoding="utf-8")
+        if hashlib.sha256(f"{attempt_id}\0{message}".encode()).hexdigest() != key:
+            raise OpenClawAuthoringBoundaryError("隔离编排恢复指令已变化，不能重新认领")
+        return message
+    return None
+
+
+def _remove_stage_record(key: str) -> None:
+    from easel import creation
+    from easel.creation_delivery import active_delivery
+    with creation.edit_creation(active_delivery.get()) as work:
+        work["delivery"].get("authoring_stages", {}).pop(key, None)
+
+
+def _cleanup_stage(stage_root: Path, agent_id: str, configured: bool, *, command_prefix,
+                   profile, cwd, env, runner) -> None:
+    if configured:
+        try:
+            _delete_temporary_agent(command_prefix, profile, agent_id, cwd=cwd, env=env, runner=runner)
+        except Exception as exc:
+            raise OpenClawAuthoringBoundaryError("OpenClaw 临时 Authoring policy 移除失败；受限 Agent 配置保持有效") from exc
+    agent_state_root = stage_root.parent.parent / "agents"
+    if agent_state_root.is_dir() and not agent_state_root.is_symlink():
+        _remove_exact_tree(agent_state_root, agent_id)
+    shutil.rmtree(stage_root)
+
+
+def release_delivery_authoring(attempt_id: str, *, command_prefix, profile, cwd, env,
+                               runner: CommandRunner = subprocess.run) -> None:
+    """Release retained staging only after the outer Authoring checkpoint commits."""
+    from easel import creation
+    from easel.creation_delivery import active_delivery
+    creation_id = active_delivery.get()
+    if not creation_id:
+        return
+    work = creation.get_creation(creation_id)
+    if any(call["status"] in {"pending", "submitting"}
+           for call in work["delivery"].get("agent_calls", {}).values()):
+        raise OpenClawAuthoringBoundaryError("编排仍有待核实执行，不能移除其隔离工作区")
+    for key, record in work["delivery"].get("authoring_stages", {}).items():
+        if record["attempt_id"] != attempt_id:
+            continue
+        if record["profile"] != profile:
+            raise OpenClawAuthoringBoundaryError("编排配置变化，不能移除另一网关的 Agent")
+        root = Path(record["stage_root"])
+        if root.is_symlink() or not root.name.startswith(record["agent_id"] + "-"):
+            raise OpenClawAuthoringBoundaryError("隔离编排清理路径无效")
+        if root.exists():
+            _cleanup_stage(root, record["agent_id"], True, command_prefix=command_prefix,
+                           profile=profile, cwd=cwd, env=env, runner=runner)
+        _remove_stage_record(key)
 
 
 def authoring_agent_policy(workspace: Path, agent_dir: Path) -> dict[str, object]:
@@ -107,17 +205,28 @@ def run_attempt_scoped_authoring(
     parent = Path(staging_parent).expanduser().resolve()
     parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.chmod(parent, 0o700)
-    run_id = uuid.uuid4().hex
-    agent_id = f"easel-author-{attempt_id[-8:]}-{run_id[:12]}"
-    stage_root = Path(tempfile.mkdtemp(prefix=f"{agent_id}-", dir=parent))
+    stage_key, retained = _delivery_stage(source, parent, attempt_id, message, profile)
+    agent_id = retained["agent_id"] if retained else f"easel-author-{attempt_id[-8:]}-{uuid.uuid4().hex[:12]}"
+    stage_root = Path(retained["stage_root"]) if retained else Path(tempfile.mkdtemp(prefix=f"{agent_id}-", dir=parent))
     os.chmod(stage_root, 0o700)
     staged_workspace = stage_root / "workspace"
     agent_dir = stage_root / "agent-state"
     configured = False
+    preserve = False
     try:
-        _stage_authoring_inputs(source, staged_workspace)
-        if prepare_workspace is not None:
-            prepare_workspace(staged_workspace)
+        if not retained or not retained["inputs_ready"]:
+            # No Agent is dispatched before inputs_ready is committed. An
+            # interrupted copy can be replaced without touching live writes.
+            if retained and staged_workspace.exists():
+                shutil.rmtree(staged_workspace)
+            _stage_authoring_inputs(source, staged_workspace)
+            if prepare_workspace is not None:
+                prepare_workspace(staged_workspace)
+            if retained:
+                from easel import creation
+                from easel.creation_delivery import active_delivery
+                with creation.edit_creation(active_delivery.get()) as work:
+                    work["delivery"]["authoring_stages"][stage_key]["inputs_ready"] = True
         policy = authoring_agent_policy(staged_workspace, agent_dir)
         configured = True
         _patch_profile(command_prefix, profile, {
@@ -171,30 +280,24 @@ def run_attempt_scoped_authoring(
                 )
                 validate_artifacts(staged_workspace)
         _promote_authoring_artifacts(staged_workspace, source)
+        preserve = bool(retained)  # outer selection/checkpoint still has to commit
         return result.stdout or ""
+    except Exception as exc:
+        from easel.creation_delivery import DeliveryExecutionUncertain
+        if isinstance(exc, DeliveryExecutionUncertain):
+            preserve = bool(retained)
+        raise
     finally:
-        if configured:
+        if not preserve:
             try:
-                _delete_temporary_agent(
-                    command_prefix, profile, agent_id, cwd=cwd, env=env, runner=runner,
-                )
-            except Exception:
-                # Retain the private workspace if the restrictive entry cannot
-                # be removed; never leave a live agent pointing at a deleted path.
-                raise OpenClawAuthoringBoundaryError(
-                    "OpenClaw 临时 Authoring policy 移除失败；受限 Agent 配置保持有效"
-                )
-            configured = False
-        try:
-            profile_state = parent.parent
-            agent_state_root = profile_state / "agents"
-            if agent_state_root.is_dir() and not agent_state_root.is_symlink():
-                _remove_exact_tree(agent_state_root, agent_id)
-            shutil.rmtree(stage_root)
-        except OSError as exc:
-            raise OpenClawAuthoringBoundaryError(
-                "OpenClaw Agent 已从配置移除，但临时私有文件清理失败"
-            ) from exc
+                _cleanup_stage(stage_root, agent_id, configured, command_prefix=command_prefix,
+                               profile=profile, cwd=cwd, env=env, runner=runner)
+            except OpenClawAuthoringBoundaryError:
+                raise
+            except Exception as exc:
+                raise OpenClawAuthoringBoundaryError("OpenClaw 临时 Authoring policy 或私有文件清理失败；保留恢复记录") from exc
+            if stage_key:
+                _remove_stage_record(stage_key)
 
 
 def _delete_temporary_agent(

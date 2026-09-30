@@ -565,6 +565,73 @@ def test_failed_export_keeps_final_absent_and_removes_staging(integration_env, m
     assert list(target.glob("*.part.mp4")) == []
 
 
+@pytest.mark.parametrize("crash_at", ["before_link", "after_link", "register"])
+def test_export_receipt_recovers_verified_bytes_without_another_get(integration_env, monkeypatch, crash_at):
+    _, attempt = make_attempt(integration_env["work"], integration_env)
+    attempt_id = attempt["attempt_id"]
+    service.update_film_attempt(attempt_id, event="fixture_completed_build",
+                                execution_status="BUILD_COMPLETE", build={"build_id": "bld_fixture"})
+
+    class ExportOnly(FakeHypit):
+        gets = 0
+
+        def get(self, *args):
+            self.gets += 1
+            return super().get(*args)
+
+    cli = ExportOnly()
+    monkeypatch.setattr(service, "_validate_video", lambda *_args, **_kwargs: {
+        "duration_seconds": 30.0, "width": 720, "height": 1280,
+        "audio_present": True, "size_bytes": 22,
+    })
+    original_link, original_save = service.os.link, service._save_attempt
+    saves = 0
+
+    def interrupted_link(source, target):
+        if crash_at == "before_link":
+            raise SystemExit("模拟进程退出")
+        original_link(source, target)
+        if crash_at == "after_link":
+            raise SystemExit("模拟进程退出")
+
+    def interrupted_save(identity, mutate):
+        nonlocal saves
+        saves += 1
+        if crash_at == "register" and saves == 2:
+            raise SystemExit("模拟进程退出")
+        return original_save(identity, mutate)
+
+    monkeypatch.setattr(service.os, "link", interrupted_link)
+    monkeypatch.setattr(service, "_save_attempt", interrupted_save)
+    with pytest.raises(SystemExit, match="模拟进程退出"):
+        service.export_film_output(attempt_id, "final.video", cli=cli)
+    saved = service.get_film_attempt(attempt_id)
+    assert not saved.get("outputs")
+    receipt = saved["pending_output_export"]
+    assert receipt["build_id"] == "bld_fixture"
+    monkeypatch.setattr(service.os, "link", original_link)
+    monkeypatch.setattr(service, "_save_attempt", original_save)
+    if crash_at == "after_link":
+        final = integration_env["outputs"] / receipt["output"]["path"]
+        trusted = final.read_bytes()
+        final.write_bytes(b"unrelated output")
+        with pytest.raises(HypitIntegrationError, match="哈希已变化"):
+            service.export_film_output(attempt_id, "final.video", cli=cli)
+        assert final.read_bytes() == b"unrelated output"
+        final.write_bytes(trusted)
+        with pytest.raises(HypitIntegrationError, match="凭据"):
+            service.export_film_output(attempt_id, "different.output", cli=cli)
+    restored = service.export_film_output(attempt_id, "final.video", cli=cli)
+    assert cli.gets == 1
+    assert "pending_output_export" not in restored
+    output = restored["outputs"]["final.video"]
+    final = integration_env["outputs"] / output["path"]
+    assert output == receipt["output"]
+    assert output["sha256"] == "sha256:" + hashlib.sha256(final.read_bytes()).hexdigest()
+    assert not list(final.parent.glob("*.part.mp4"))
+    assert restored["review"]["human"]["status"] == "pending"
+
+
 def test_uncertain_build_submission_is_persisted_and_cannot_be_blindly_retried(integration_env):
     work = integration_env["work"]
     _, attempt = make_attempt(work, integration_env)

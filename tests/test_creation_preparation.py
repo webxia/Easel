@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
 import sys
 import subprocess
@@ -185,8 +186,169 @@ def test_delivery_bounds_failures_preserves_authorization_and_validates_commissi
         retry_delivery(fresh["id"])
 
 
+def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(prep_env):
+    from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain
+    from easel.integrations.openclaw_delivery import run_delivery_agent, reconcile_agent_calls
+
+    work = _confirmed_delivery()
+    calls = []
+    run_id = None
+    terminal = False
+
+    def gateway(command, **kwargs):
+        nonlocal run_id
+        method = command[command.index("call") + 1]
+        params = json.loads(command[command.index("--params") + 1])
+        calls.append(method)
+        if method == "agent":
+            run_id = params["idempotencyKey"]
+            saved = creation.get_creation(work["id"])["delivery"]["agent_calls"]
+            assert next(iter(saved.values()))["run_id"] == run_id
+            assert params["deliver"] is False
+            raise subprocess.TimeoutExpired(command, 20)
+        assert method == "agent.wait" and params == {"runId": run_id, "timeoutMs": 0}
+        result = {"runId": run_id, "status": "ok" if terminal else "timeout"}
+        if terminal:
+            result["endedAt"] = 1000
+        return subprocess.CompletedProcess(command, 0, json.dumps(result), "")
+
+    command = ["openclaw", "--profile", "fixture", "agent", "--agent", "main",
+               "--session-key", "fixture-session", "--message", "只写隔离准备文件"]
+    token = active_delivery.set(work["id"])
+    try:
+        with pytest.raises(DeliveryExecutionUncertain):
+            run_delivery_agent(command, runner=gateway)
+        with pytest.raises(DeliveryExecutionUncertain, match="另一网关"):
+            reconcile_agent_calls(work["id"], command_prefix=["openclaw"], profile="different", runner=gateway)
+        with pytest.raises(DeliveryExecutionUncertain, match="另一项执行"):
+            reconcile_agent_calls(work["id"], command_prefix=["openclaw"], profile="fixture",
+                runner=lambda command, **_: subprocess.CompletedProcess(command, 0,
+                    json.dumps({"runId": "unrelated", "status": "ok", "endedAt": 1000}), ""))
+        reconcile_agent_calls(work["id"], command_prefix=["openclaw"], profile="fixture", runner=gateway)
+        with pytest.raises(DeliveryExecutionUncertain):
+            run_delivery_agent(command, runner=gateway)
+        terminal = True
+        reconcile_agent_calls(work["id"], command_prefix=["openclaw"], profile="fixture", runner=gateway)
+        assert run_delivery_agent(command, runner=gateway).returncode == 0
+        assert calls == ["agent", "agent.wait", "agent.wait", "agent.wait"]
+        stored = next(iter(creation.get_creation(work["id"])["delivery"]["agent_calls"].values()))
+        assert stored["status"] == "ok" and "message" not in stored
+    finally:
+        active_delivery.reset(token)
+
+
+def test_delivery_authoring_keeps_live_stage_and_recovers_completed_files(prep_env):
+    from easel.creation_delivery import advance_creation
+    from easel.integrations.openclaw_delivery import reconcile_agent_calls
+    from easel.integrations.openclaw_authoring import (
+        run_attempt_scoped_authoring, release_delivery_authoring, retained_authoring_message,
+    )
+    from tests.test_openclaw_authoring_boundary import _seed_attempt, ATTEMPT_ID
+
+    work = _confirmed_delivery()
+    source = _seed_attempt(prep_env["tmp"] / "durable-authoring")
+    parent = prep_env["tmp"] / "isolated" / "authoring-staging"
+    with creation.edit_creation(work["id"]) as current:
+        current["hypit_attempts"] = [{"attempt_id": ATTEMPT_ID,
+            "execution_status": "NOT_SUBMITTED", "authoring_status": "AUTHORING_RUNNING",
+            "material_gate": {"status": "MATERIAL_READY"}}]
+    entry = {}
+    run_id = None
+    terminal = False
+    calls = []
+
+    def runner(command, **kwargs):
+        nonlocal entry, run_id
+        if "patch" in command:
+            entries = json.loads(kwargs["input"])["agents"]["entries"]
+            agent_id, config = next(iter(entries.items()))
+            entry = {"id": agent_id, **config}
+            return subprocess.CompletedProcess(command, 0, "{}", "")
+        if "list" in command:
+            return subprocess.CompletedProcess(command, 0, json.dumps([entry]), "")
+        if "validate" in command or "delete" in command:
+            calls.append("delete" if "delete" in command else "validate")
+            return subprocess.CompletedProcess(command, 0, "{}", "")
+        assert "gateway" in command
+        method = command[command.index("call") + 1]
+        calls.append(method)
+        params = json.loads(command[command.index("--params") + 1])
+        if method == "agent":
+            assert run_id is None, "recovery must not submit another Agent"
+            run_id = params["idempotencyKey"]
+            payload = {"runId": run_id, "status": "accepted"}
+        else:
+            assert params["runId"] == run_id
+            payload = {"runId": run_id, "status": "ok" if terminal else "timeout"}
+            if terminal:
+                payload["endedAt"] = 1000
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+
+    async def execute(operation, current):
+        if operation == "observe_agent":
+            reconcile_agent_calls(current["id"], command_prefix=["openclaw"], profile="fixture", runner=runner)
+            return
+        assert operation == "author"
+        # Rebuilt status/error context is different after a restart; it must
+        # resume the original instruction and run instead of dispatching again.
+        original_message = f"Author only in {source}"
+        rebuilt_message = "状态变化后的阶段恢复提示" if terminal else original_message
+        message = retained_authoring_message(ATTEMPT_ID, profile="fixture") or rebuilt_message
+        assert message == original_message
+        run_attempt_scoped_authoring(attempt_id=ATTEMPT_ID, attempt_workspace=source,
+            message=message, command_prefix=["openclaw"], profile="fixture",
+            staging_parent=parent, timeout=5, thinking="off", cwd=prep_env["tmp"], env={}, runner=runner,
+            validate_artifacts=lambda staged: None)
+        with creation.edit_creation(current["id"]) as value:
+            value["hypit_attempts"][-1]["authoring_status"] = "AUTHORING_READY"
+        release_delivery_authoring(ATTEMPT_ID, command_prefix=["openclaw"], profile="fixture",
+                                   cwd=prep_env["tmp"], env={}, runner=runner)
+
+    asyncio.run(advance_creation(work["id"], execute))
+    staged = Path(entry["workspace"])
+    assert staged.is_dir() and "delete" not in calls
+    asyncio.run(advance_creation(work["id"], execute))
+    assert staged.is_dir() and calls.count("agent") == 1
+    # The independent fake gateway finishes while no Easel task is running.
+    for path, value in {
+        "productions/easel-authoring/material-selection.json": "{}",
+        "productions/easel-authoring/authors/main.svml": "<svml/>",
+        "productions/easel-authoring/runs/main.svrun": "<svrun/>",
+    }.items():
+        target = staged / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(value)
+    terminal = True
+    asyncio.run(advance_creation(work["id"], execute))
+    asyncio.run(advance_creation(work["id"], execute))
+    assert calls.count("agent") == 1 and calls.count("delete") == 1
+    assert (source / "productions/easel-authoring/authors/main.svml").read_text() == "<svml/>"
+    assert not staged.exists()
+    saved = creation.get_creation(work["id"])
+    assert saved["hypit_attempts"][-1]["authoring_status"] == "AUTHORING_READY"
+    assert saved["delivery"]["authoring_stages"] == {}
+
+
 @pytest.fixture
 def prep_env(tmp_path, monkeypatch):
+    from easel.runtime_config import EaselRuntimeConfig
+    from easel.integrations import material_supply
+    from easel.materials.providers import LocalProvider, ProviderRegistry
+
+    load_config = EaselRuntimeConfig.load
+    monkeypatch.setattr(EaselRuntimeConfig, "load", classmethod(lambda cls: load_config(
+        environ={"EASEL_MATERIAL_LIBRARY_ROOT": str(tmp_path / "library"),
+                 "EASEL_MATERIAL_LOCAL_ROOTS": os.environ.get("EASEL_MATERIAL_LOCAL_ROOTS", "")},
+        env_file=tmp_path / "absent.env")))
+    monkeypatch.delenv("EASEL_MATERIAL_LOCAL_ROOTS", raising=False)
+
+    def local_registry(roots):
+        registry = ProviderRegistry()
+        if roots:
+            registry.register(LocalProvider(tuple(roots)))
+        return registry, ()
+
+    monkeypatch.setattr(material_supply, "product_provider_registry", local_registry)
     outputs = tmp_path / "outputs"
     monkeypatch.setattr(creation, "OUTPUTS_DIR", outputs)
     monkeypatch.setattr(creation, "CREATIONS_DIR", outputs / "_creations")

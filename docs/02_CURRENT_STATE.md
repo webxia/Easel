@@ -61,9 +61,13 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 - 后端从现有 Preparation/Attempt 状态推导下一项操作，复用准备、编排、Runtime、Plan、Pricing、提交、对账、状态查询和导出服务。页面对新委托只读轮询，不再用 useEffect 推进上述操作；处理正式 Truth/Material 决定后由后端观察证据继续。
 - 独立 OS 执行锁覆盖同一作品的一次操作；并发调用不派发第二份任务，协程取消要等实际执行结束才释放锁。已知失败最多自动重试三次，持久计数不因重建执行器消失。Build 提交不确定只对账；状态查询失败与制作失败分开，继续保留最后可信结果。
 - 按本机 Hypit 0.2.7 `packages/cli/src/output.ts` 的正式核价合同，全部请求确认为 resolved/local 才记录 0 美元。新委托自动批准仅此类无 Provider 费用的 Build，并保留当前 Plan/Pricing/fingerprint 与委托来源；未知/有费用结果仍需明确批准。删去前端 1 美元占位，未承诺 Provider 消费硬上限。
-- **未闭环：** 网关 Agent 可能在 Easel 进程退出后继续执行。当前对遗留运行中的准备/编排记录及调用超时保守标记结果未核实，禁止重复派发；还需接入实际运行身份与终态对账，不能声称已完成所有重启恢复。导出文件与登记之间的崩溃恢复、失败 Build 的有界自动恢复仍需补齐。导出后只到 `awaiting_quality`，未假装机器质量检查完成。委托内付费素材执行、Director/Truth 默认策略、Material/Voice、Production、Quality 与跨内容回放仍按②～⑥推进。
+- **恢复增量（2026-10-01）：** 新委托的准备、Planning 与隔离 Authoring 调用在派发前保存请求摘要及网关运行身份，使用本机 OpenClaw 的 `gateway call agent` / `agent.wait` 正式接口；提交超时、查询超时和等待执行不触发第二次派发。对账要求同一网关 Profile、同一 runId，以及带结束时间且没有 yield 的终态。Creation 调用记录只保存身份/摘要/状态，不保存原始提示或模型回复。合同来源为本机安装包 `agent-via-gateway`、`gateway-cli`、`principal` 与 `chat-abort-ops` 源码：idempotencyKey 即 runId；不存在的运行也可能返回 timeout，因此 timeout 不能解释为执行不存在。
+- 原隔离 Authoring 在调用退出时无条件删除临时 Agent/工作区，会破坏网关仍在进行的写文件。新委托在待核实时保留受限 Agent 和隔离输入/产物，对账结束后继续校验与提升；外层 Authoring checkpoint 提交后才清理。原派发指令保存在受限隔离区并按摘要校验，恢复优先接回最后一个未清理的编排回合，避免因阶段提示变化重新派发。完成文件可跨执行器重建恢复，无需再请求模型。旧普通调用继续使用原有清理行为。
+- 导出先保存绑定当前 Build、输出名、署名、已通过技术检查的元数据与 SHA 的凭据，再发布和登记文件；Attempt 级导出锁串行化 API/后台请求。发布前、发布后、登记时中断都复用同一已验证字节，不再次执行 Hypit get；不同输出或文件 SHA 改变拒绝认领，最终人工审片保持 pending。
+- **未闭环：** 老的未记录网关身份的调用、网关重启后查不到终态，以及“身份已保存但尚未提交”窗口仍保守停留在待核实，不凭猜测重发；这不等于所有外部故障已自动恢复。失败 Build 的有界自动恢复仍需补齐。导出后只到 `awaiting_quality`，未假装机器质量检查完成。委托内付费素材执行、Director/Truth 默认策略、Material/Voice、Production、Quality 与跨内容回放仍按②～⑥推进。
 - **局部验证：** `test_creation_preparation`、`test_hypit_integration`、`test_chat_capability`、`test_openclaw_authoring_boundary`、`test_material_integration`、`test_runtime_config` 共 168 passed；覆盖浏览器请求结束后由后端恢复、跨进程锁/并发/取消、逐检查点重建执行器、不确定提交先对账、查询断连、重试上限、旧作品排除、零费用核价和批准失效后禁止 Build。状态投影检查及隔离 Chromium 桌面/窄屏检查通过，新增后台核价/导出/查询断连场景中页面没有生产写请求。lint/build、compileall、115 项技能合同与 diff check 通过，保留既有 Hook/体积提示。
-- 本轮没有修改或继续真实 Creation，没有调用付费 AI、真实 Build 或完整 E2E，没有重启生产服务。所有执行回放使用隔离数据和假执行器；未核实真实交付质量。`READY_FOR_HUMAN_E2E=NO`，旧具名运行及其失败结论保持不变。
+- **2026-10-01 增量验证：** Preparation、隔离 Authoring、Hypit 共 **103 passed**，包含一次派发后的超时/对账/身份错配、执行期间保留隔离工作区、完成后复用产物及三个导出中断点与哈希变更拒绝。frontend lint/build、compileall、115 项技能合同与 diff check 通过；只有既有 Hook/体积提示和两项测试依赖弃用提示。本次没有重跑页面 E2E 或全量测试。最初一轮 Preparation 测试暴露了继承本机配置后尝试外部检索的隔离缺口，已中止；Fixture 现固定临时配置、素材库和仅本地 Provider Registry，最终回归不依赖网络或真实凭证。
+- 本轮没有修改或继续真实 Creation，没有调用付费 AI、真实 Build 或完整 E2E，没有重启生产服务。最终执行回放使用隔离数据和假执行器；未核实真实交付质量。`READY_FOR_HUMAN_E2E=NO`，旧具名运行及其失败结论保持不变。
 
 ## Official Product Path
 

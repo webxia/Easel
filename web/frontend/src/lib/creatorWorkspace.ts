@@ -59,6 +59,7 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
       managed && delivery.status === 'execution_uncertain' ? '执行结果待核实' :
       selected ? '最终成片已确认' : failureStage ? `${failureStage}遇到问题` : pending ? '需要你处理' : proposal ? '创作方案' :
       managed && delivery.status === 'reconciling' ? '正在核对制作结果' : managed && delivery.status === 'producing' ? '正在合成视频' :
+      managed && delivery.status === 'observing_execution' ? '正在等待创作任务完成' :
       managed && delivery.status === 'exporting' ? '正在整理成片' : managed && delivery.status === 'authoring' ? '正在编排画面与声音' :
       managed && delivery.status === 'retrying' ? '正在恢复当前步骤' : preparation.active_stage === 'planning' && planning.status !== 'PLANNING_READY' ? '正在创作规划' : '正在准备作品',
   };

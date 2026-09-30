@@ -1754,6 +1754,16 @@ def export_film_output(
     *,
     cli: HypitCLI | None = None,
 ) -> dict[str, Any]:
+    # Serialize export receipts as well as file writes across worker/API calls.
+    workspace = _workspace(get_film_attempt(attempt_id))
+    lock_path = workspace / ".easel" / "export.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        return _export_film_output_locked(attempt_id, output_name, cli=cli)
+
+
+def _export_film_output_locked(attempt_id: str, output_name: str, *, cli) -> dict[str, Any]:
     attempt = get_film_attempt(attempt_id)
     if attempt.get("execution_status") != "BUILD_COMPLETE":
         raise HypitIntegrationError("只有 Hypit Build complete 后才能导出")
@@ -1766,10 +1776,13 @@ def export_film_output(
                               primary=not bool(attempt.get("outputs")))
     output_dir = final_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
+    receipt = attempt.get("pending_output_export")
+    if receipt:
+        return _finish_output_export(attempt_id, output_name, receipt, final_path, attribution)
     if final_path.exists():
         raise HypitIntegrationError("该 Attempt 已有 final.mp4；为保留历史，不覆盖已有产物")
     staged = output_dir / f".final-{uuid.uuid4().hex}.part.mp4"
-    committed = False
+    relative = final_path.relative_to(creation.OUTPUTS_DIR).as_posix()
     try:
         response = _cli(cli).get(_workspace(attempt), build_id, output_name, staged)
         metadata = _validate_video(
@@ -1790,21 +1803,14 @@ def export_film_output(
         if orientation == "9:16" and abs(metadata["width"] / metadata["height"] - 9 / 16) > 0.035:
             raise HypitIntegrationError("导出视频画幅不是要求的 9:16")
         digest = _sha256_file(staged)
-        try:
-            os.link(staged, final_path)
-        except FileExistsError as exc:
-            raise HypitIntegrationError("该 Attempt 已有 final.mp4；为保留历史，不覆盖已有产物") from exc
-        committed = True
-        staged.unlink()
+        with staged.open("rb") as media:
+            os.fsync(media.fileno())
     except BaseException as exc:
         staged.unlink(missing_ok=True)
-        if committed:
-            final_path.unlink(missing_ok=True)
         if isinstance(exc, Exception):
             _record_operation_error(attempt_id, "export", exc)
         raise
 
-    relative = final_path.relative_to(creation.OUTPUTS_DIR).as_posix()
     exported = {
         "result_output": output_name,
         "path": relative,
@@ -1818,22 +1824,57 @@ def export_film_output(
         "status": "pass", "notes": [], "artifact": relative,
         "output_name": output_name, "sha256": exported["sha256"],
     }
-    try:
-        def register(item):
-            if item.get("execution_status") != "BUILD_COMPLETE":
-                raise HypitIntegrationError("Build 状态已变化，不能登记导出产物")
-            if output_name in item.get("outputs", {}):
-                raise HypitIntegrationError("Hypit output 已被并发导出；保留已有记录")
-            item["outputs"] = {**item.get("outputs", {}), output_name: exported}
-            item["export_status"] = "EXPORTED"
-            item["review"] = {**item["review"], "technical": exported["technical_qc"]}
-            _set_summary(item)
-            return _event(item, "output_exported", output=output_name, path=relative)
+    receipt = {"build_id": build_id, "staged_name": staged.name, "output": exported}
 
-        return _save_attempt(attempt_id, register)
-    except Exception:
-        final_path.unlink(missing_ok=True)
-        raise
+    def prepare_export(item):
+        if (item.get("execution_status") != "BUILD_COMPLETE"
+                or item.get("build", {}).get("build_id") != build_id
+                or output_name in item.get("outputs", {})):
+            raise HypitIntegrationError("导出身份已变化，不能登记导出凭据")
+        item["pending_output_export"] = receipt
+        return item
+
+    # Commit identity and verified metadata BEFORE publishing final.mp4. A
+    # failed write may have committed already: preserve staged bytes either way.
+    _save_attempt(attempt_id, prepare_export)
+    return _finish_output_export(attempt_id, output_name, receipt, final_path, attribution)
+
+
+def _finish_output_export(attempt_id, output_name, receipt, final_path, attribution):
+    attempt = get_film_attempt(attempt_id)
+    exported = receipt.get("output", {})
+    relative = final_path.relative_to(creation.OUTPUTS_DIR).as_posix()
+    staged_name = receipt.get("staged_name", "")
+    if (receipt.get("build_id") != attempt.get("build", {}).get("build_id")
+            or exported.get("result_output") != output_name or exported.get("path") != relative
+            or exported.get("attribution") != attribution
+            or not re.fullmatch(r"\.final-[0-9a-f]{32}\.part\.mp4", staged_name)):
+        raise HypitIntegrationError("待恢复导出凭据与当前 Build、输出或署名不一致")
+    staged = final_path.parent / staged_name
+    media = final_path if final_path.exists() else staged
+    if (media.is_symlink() or not media.is_file()
+            or "sha256:" + _sha256_file(media) != exported.get("sha256")):
+        raise HypitIntegrationError("待恢复导出的文件缺失或哈希已变化；不能覆盖或重新认领")
+    if not final_path.exists():
+        os.link(staged, final_path)
+    staged.unlink(missing_ok=True)
+
+    def register(item):
+        if (item.get("execution_status") != "BUILD_COMPLETE"
+                or item.get("build", {}).get("build_id") != receipt["build_id"]
+                or item.get("pending_output_export") != receipt):
+            raise HypitIntegrationError("Build 或导出凭据已变化，不能登记导出产物")
+        if output_name in item.get("outputs", {}):
+            raise HypitIntegrationError("Hypit output 已被并发导出；保留已有记录")
+        item["outputs"] = {**item.get("outputs", {}), output_name: exported}
+        item["export_status"] = "EXPORTED"
+        item["review"] = {**item["review"], "technical": exported["technical_qc"]}
+        item.pop("pending_output_export")
+        return _event(item, "output_exported", output=output_name, path=relative)
+
+    # Keep the verified file + receipt if registration fails. Recovery checks
+    # exactly those bytes instead of downloading or producing a second output.
+    return _save_attempt(attempt_id, register)
 
 
 def record_film_review(attempt_id: str, review: dict[str, Any]) -> dict[str, Any]:

@@ -96,6 +96,9 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         return None, "stopped"
     if work.get("selected_output_name"):
         return None, "accepted"
+    if any(call.get("status") in {"pending", "submitting"}
+           for call in delivery.get("agent_calls", {}).values()):
+        return "observe_agent", "observing_execution"
     attempt = _attempt(work)
     if not attempt:
         return "prepare", "preparing"
@@ -121,6 +124,9 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     authoring = attempt.get("authoring_status")
     if authoring in {"PENDING", "READY_FOR_EXTERNAL_AUTHORING", "AUTHORING_RUNNING", "AUTHORING_FAILED"}:
         return "author", "authoring"
+    if any(stage.get("attempt_id") == attempt.get("attempt_id")
+           for stage in delivery.get("authoring_stages", {}).values()):
+        return "release_authoring", "preparing_production"
     if attempt.get("runtime_status") != "CONFIGURED":
         return "runtime", "preparing_production"
     if (attempt.get("plan") or {}).get("status") != "ready":
@@ -171,12 +177,13 @@ async def advance_creation(
         # checkpoints can still advance to a different operation.
         previous_operation = work["delivery"].get("operation")
         if (operation in {"prepare", "author"} and previous_operation == operation
-                and not work["delivery"].get("last_error")):
+                and not work["delivery"].get("last_error")
+                and not work["delivery"].get("agent_calls")):
             operation, status = None, "execution_uncertain"
         attempt_id = _attempt(work).get("attempt_id", "preparation")
         key = f"{attempt_id}:{operation}"
         failures = work["delivery"].get("failures", {})
-        observation = operation in {"refresh", "reconcile"}
+        observation = operation in {"refresh", "reconcile", "observe_agent"}
         if operation and not observation and failures.get(key, 0) >= MAX_FAILURES:
             operation, status = None, "failed"
         record = work["delivery"]
