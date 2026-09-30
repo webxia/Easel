@@ -1,5 +1,7 @@
 # Creator 自主性与音画质量 E2E（2026-09-30）
 
+当前结论：同一作品已完成 Creator 最终审片、Selected Output 与内容库归档，未发布。基本可看质量经 Creator 确认；自主性与普通路径可见性因工程介入及内部回复泄漏失败，**CREATOR_E2E = FAIL**。下文按时间保留失败与恢复现场，早期“尚未完成”只描述当时状态。
+
 ## 本轮范围
 
 只创建一个作品，从普通 Conversation 开始，目标 36 秒、9:16、1080×1920、5 个 Scene、普通话真实旁白、真实无歌词 BGM，沿用清醒备忘录风格；最终审片并进入 Selected Output / Content Library。不发布。不手改生产产物、状态或数据库，不绕过 Gate。
@@ -98,3 +100,37 @@
 - 恢复编排 18:17 在提升前失败：`Native Hypit Run lacks the bound Easel identity manifest`，新 Build NOT_SUBMITTED。当前正式 `main.svrun` 与 `main.easel.json` 均存在且身份有效；根因在隔离 static validation：复制 native Run 到 `.validation.svrun` 时没有复制同绑定的 `.validation.easel.json`。旧路径通常处理新写 JSON，恢复路径复用 native 后暴露。没有改实际 Run 或降低身份要求。
 - 最小修复在同目录复制受绑定的 native Run + companion；JSON 输入继续由原 `_hypit_run_markup` 转换。缺失/软链/越界校验副本拒绝；原身份、无发布边界和 native markup 一致性仍由同一转换器验证。扩展既有 Production selection integration 证明原生副本合法可验证、错配 Attempt 身份拒绝、缺失伴随记录拒绝。83 项组合回归仍通过，compileall/diff check 通过；没有增添另一生产通路。
 - 确认当前无活动编排/合成后服务重载；18:23 普通作品区重试同一个 `fa_4839c063b5849993dcd0720b965bc41e`。仍未批准或入库最终输出，原旁白和配乐沿用，等待当前局部编排结果。
+
+
+## 最终修订、Creator 审片与入库（收尾证据）
+
+- 同一恢复 Attempt `fa_4839c063b5849993dcd0720b965bc41e` 正常编排通过后，可信恢复状态为 READY。Scene 4 appearance recipe 为 `trim-start:120 / trim-end:312`，Normalize Clock 24 fps，即原片 5～13 秒；声音、字幕与原输出依赖图校验通过。正式费用卡仍显示“本次制作无第三方计费请求”，从普通入口启动本地 Build `bld_20260930T103231067Z_BF556E2071`，最终 BUILD_COMPLETE 并导出 `final.video`。未再次生成旁白或配乐，没有新增 Creation。
+- 最终视频 36.0 秒、1080×1920、H.264 + AAC、有音轨、8,677,590 字节；技术检查为 pass。输出 SHA-256：`2beb5b487123ee5fe2541190eaf3d995b91f6b212ad3731981485f066feb862f`。
+- 只读多点抽帧显示叶片从约 21.2 秒已可辨识，首次输出开头近黑的问题改善；仍有第四场景偏暗、桌面白字幕对比不足、第一场景未呈现前景虚化的限制。抽帧不能证明声音听感或连续节奏。修订与原片解码为 8 kHz 单声道的 PCM 字节相同，差值 RMS 为 0，支持本次画面修改未改变声音。
+- 已向 Creator 展示当前 36 秒修订版，并明确提示第四场景仍偏暗、桌面字幕对比偏低，请其完整播放核对旁白/字幕同步、配乐不盖住旁白、画面与节奏是否可用。Creator 明确回答：**“成片可用，确认并保存内容库”**。此前独立旁白和配乐试听结论不替代此次全片审阅；本次人审依据是该最终修订版的明确回复。
+- 根据上述批准，普通作品区勾选已播放核对声明并点击“确认成片”。页面随后显示“最终成片已确认”“已保存到内容库”；正常内容库入口显示本作品项目、五个场景文案、完整旁白及一个 `final.mp4` 成品。没有通过内部接口强推选择或手工复制正式产物。
+- 正式选择时间为 `2026-09-30T10:36:18+00:00`（北京时间 18:36:18）。只读记录核对：Creation `cr_046bb34c26a7444f9fd335c991ec1cc4` 状态 ready，selected Attempt 为上述恢复 Attempt，selected output 为 `final.video`，review_status 为 APPROVED；technical/truth/style 为 pass、human 为 approved，review binding 与该输出 SHA 一致。正式 style pass 表示 Creator 接受此片，不代表所有风格细节均已实现。
+- 内容库文件：`outputs/creation-cr_046bb34c26a7444f9fd335c991ec1cc4-2beb5b487123/final.mp4`；同目录 `.easel.json` 记录源 Creation / Attempt / Build / 输出身份和媒体信息。只读重新计算归档文件 SHA 与审片绑定完全一致。At Rest 的 Kevin MacLeod、官方来源、CC BY 4.0 credit、`ATTRIBUTION_REQUIRED / export_credits` 均保留在归档来源记录中；这不证明片内可见署名。publication 为 READY_FOR_MANUAL_PUBLISH，`publish_automatically=false`，未发布。
+- 本轮先前修复提交 `c3e2b0a0`、`ffa8e25e`、`eae6983e` 已推送 `origin/easel-studio`。最近组合 83 项 Authoring/Hypit/Material 定向回归通过；前端 lint/build、compileall、diff check 通过。本次收尾只改文档并核对既有正式记录，没有重放制作、调用付费 AI 或启动第二次 E2E；不将既有测试报告描述为本次重新运行。
+
+## 最终判定
+
+| 指标 | 结果与证据边界 |
+|---|---|
+| FUNCTIONAL | PASS：完整制作、局部修改、最终审片和入库已完成。 |
+| AUTONOMOUS | FAIL：过程中修改产品代码并重载服务，依赖工程介入。 |
+| CORRECT | PASS：当前输出/审片/SHA/入库一致，正式门禁保留，未发布。 |
+| CREATOR_VISIBLE | FAIL：早期回复泄漏内部制作信息，不能以修复后页面覆盖历史。 |
+| RECOVERABLE | PASS：真实失败 Build 经可信内容/素材 checkpoint 恢复，不合格编排先阻断再正常修复。 |
+| CONTENT_QUALITY | PASS：主题和五句内容经最终 Creator 审片接受。 |
+| VISUAL_QUALITY | PASS（基本可用）：Creator 接受已披露的暗画面和字幕对比限制。 |
+| AUDIO_QUALITY | PASS：独立试听及最终全片审阅通过，修改保留原声音。 |
+| PACING_QUALITY | PASS：Creator 对当前全片画面和节奏作出可用结论。 |
+| STYLE_CONSISTENCY | PARTIAL：正式人审接受，暗画面、低对比字幕和未实现的前景虚化仍保留。 |
+| BUGS_FOUND / BUGS_FIXED | 路由、Planning 合同、音频任务/复核、素材 checkpoint/恢复、合同索引/安全诊断、局部声音字幕保护、截取范围前置校验及原生校验副本身份问题已作最小修复并定向验证；外部模型网关 502/400 不宣称已修复。 |
+| ENGINEERING_INTERVENTION | YES。 |
+| FINAL_OUTPUT | 上述 36 秒修订版，已批准。 |
+| CONTENT_LIBRARY | PASS：已归档且 SHA、来源与署名证据一致。 |
+| CREATOR_E2E | **FAIL**：基本可看质量通过，但未满足无工程救场条件。 |
+
+本轮运行结束后用户要求暂停；本次仅获授权补齐并提交推送收尾记录。下一次无工程救场验收须用户另行启动，不自动创建作品或继续生产。
