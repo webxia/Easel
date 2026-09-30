@@ -48,3 +48,15 @@
 - BGM 任务隐藏根因：UI 只用相同 media_type 的候选判断缺口，旁白及本地 MP3 因此被算作配乐“已有候选”，未考虑当前 Plan 的来源硬条件。缺口卡现在按正式来源条件展示候选存在性，实际页面显示配乐要求、图库来源与本地/开放索引不相容，以及冻结规划当前不能直接修订。Matching / Rights / Readiness 的准入仍由原后端决定；该提示不宣称素材已语义匹配，也不承诺对话可自动改写冻结输入。
 - 本轮当前四条视频候选只读抽帧证据：候选 1 有操作键盘的手、候选 3 有人物及手、候选 4 有握杯的手；候选 2 为占主体的办公图表。当前集合没有窗框/户外叶子/单叶特写，未提交任何虚假的 Match 确认。抽帧保存在 `/tmp`，没有改原素材或补正式产物。
 - 该补丁后 Material integration 32 passed，前端 lint/build 通过；保留既有 Hook / 包体积提示。后端仅在确认生成 COMPLETE、Build NOT_SUBMITTED、Authoring 未开始后重载，恢复页面未增加生成记录。
+
+
+## 本次授权后的根因修复与素材恢复
+
+- Creator 指示：“你先解决根因，然后本次旁白无需授权直接使用即可，要做到减负，不要太多的确认”。使用普通旁白 Rights 卡记录该声明（仅本次未发布作品），并通过正常音频匹配复核记录 Creator 已给出的“五句完整清晰，语速合适”。不接受新协议，不推定第三方账号合同，不再次调用 MiniMax。
+- 新根因：TTS Asset 没有语义证据，原 Match 复核仅接受视觉 Need；Rights 通过后旁白依然被 Gate 阻断，页面却显示缺少音频并引导再次付费生成。正式复核现在接受脚本/SHA/生成记录绑定的旁白，来源修订后仅对未改变的 Voice Need 复用原记录；旁白身份错配拒绝。配乐试听另保留独立匹配审核，不能替代 Rights 或署名事实。
+- 来源根因：Planning 文案把有授权素材误收窄为 stock；Preparation 来源示例又包含具体 Provider。示例来源改为空；只有用户明确限定图库时才写 stock。当前已冻结文件不手改，通过受保护普通补料动作明确选择 BGM 扩展来源，旧/新 Plan revision 留痕，脚本/场景/Handoff 不变。
+- 补料根因：旧全量 Supply 丢弃集合，中间单来源 Bundle 可覆盖可信 checkpoint。当前只补未覆盖 Need，验证旧 Asset/字节/证据，保留原集合；子来源不写 canonical Bundle。独立 SupplyRun 有父记录，检索期间证据变化拒绝覆盖；请求身份持久化，完整 Supply 已落盘但 Gate 更新中断时先对账，禁止重复请求 Provider。没有调用付费生成或 Build。
+- 实际普通 UI 操作：同一 Creation/Attempt，补料请求 `14a8f458-846b-4fe3-82ee-a4146ef7f97d` COMPLETE。Plan revision 从 `7bf3bf6585f9f89a61cfc15d92a7f7d92876d73632bef285f3e213b8742d0fe0` 到 `27ef6da18cf83659a32eaa76c2e00bcfd9e7e2db81758054aec3928a1c5d828a`；当前 Bundle revision `896c8f3d38c02312c02d7f346272c894ff8cd2ccb434d30a4b4925e309186f1d`。原 7 个 Asset 全部保留，38 个当前 Asset；旁白 SHA 保持 `351894790a4a181e43b58ae63c0f068c913fb4ace23728dde78bcb33b4ea8833`，脚本 SHA 保持原值，生成记录 1 次。该实际补料在最后 SupplyRun 子记录命名/父链追踪小修复前执行；父链最终行为由确定性回归证明，未为补该证据重复真实检索。
+- 正常刷新、返回同一会话和“作品”后，旁白不再要求复核或生成，待处理数量从 7 降为 6。页面具备配乐播放器、试听匹配、场景素材核对、缺失署名来源事实处理入口。剩余 5 个视觉与 1 个配乐 Need，尚未提交不实 Match。配乐本地候选的署名文本存在，但来源创作者/页面与逐字 credit 的可核验条件尚不完整；仍阻断，不清除 CC BY 义务。
+- 验证：此前组合 127 passed（Preparation/Material/MiniMax Image-Speech-Video/Hypit 边界）；最后音频/恢复增量 52 passed，28 deselected。包括脚本错配、未知 Rights、署名缺口可见、音频审核独立性、素材保留、父链、相同请求幂等与 Gate 中断对账。前端 lint/build、compileall、115 个技能与发布执行合同验证及 diff check 通过。保留既有 AccountsPage Hook、包大小和依赖 deprecation 提示。
+- 当前结论：本次根因修复与素材阶段恢复完成；没有最终视频、Selected Output 或新增内容库。完整 Creator E2E、音画混合与全片质量保持未完成，工程介入已发生，AUTONOMOUS 仍不可判 PASS。后续真实制作需从当前任务卡继续，并保留费用和最终审片门禁。

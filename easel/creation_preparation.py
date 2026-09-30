@@ -154,7 +154,7 @@ def preparation_agent_context(
             '"duration_seconds":15,"aspect_ratio":"9:16","audio_mode":"silent",'
             '"beats":[],'
             '"text_overlays":["明确确认的屏幕文字"],"visual_constraints":["明确确认的限制"],'
-            '"material_sources":["pexels","pixabay"],"ai_generation_allowed":false,'
+            '"material_sources":[],"ai_generation_allowed":false,'
             '"publication_allowed":false}\n'
             "上述仅为字段格式示例，15 秒等规格不是用户确认值。beats 未确认时必须为空数组，不得复制占位动作或自行编排。"
             "已确认 beats 的时长合计必须等于总时长（误差最多 0.5 秒）。\n"

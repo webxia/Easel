@@ -104,3 +104,13 @@ def test_music_discovery_uses_sound_terms_preserving_director_and_gate_constrain
     assert result.filters == {"media_type": "audio", "min_duration": 36.0,
                               "required_source_kind": "stock", "allow_generation": False}
     assert source.to_json() == before
+
+
+def test_creator_search_hints_preserve_need_filters_and_full_intent() -> None:
+    source = make_need()
+    hinted = NeedCompiler(search_terms={source.need_id: ("empty desk",)}).compile(source)
+    assert hinted.semantic_queries[0] == "empty desk"
+    assert source.intent.description.strip() in hinted.semantic_queries
+    assert hinted.filters == NeedCompiler().compile(source).filters
+    with pytest.raises(NeedCompilationError):
+        NeedCompiler(search_terms={source.need_id: ("x" * 121,)}).compile(source)

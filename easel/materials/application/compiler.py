@@ -21,6 +21,9 @@ class NeedCompiler:
 
     _FILTER_VALUE_TYPES = (str, int, float, bool)
 
+    def __init__(self, *, search_terms: dict[str, tuple[str, ...]] | None = None):
+        self.search_terms = search_terms or {}
+
     def compile(
         self,
         need: MaterialNeed,
@@ -56,6 +59,11 @@ class NeedCompiler:
             instrument = self._normalize(need.modality_spec.instruments[0])
             if instrument:
                 query_candidates = [f"{instrument} instrumental", instrument, *query_candidates]
+        if need.need_id in self.search_terms:
+            terms = self._normalize_terms(self.search_terms[need.need_id], "search_terms")
+            if not terms or len(terms) > 4 or any(len(term) > 120 for term in terms):
+                raise NeedCompilationError("检索提示须为 1～4 条不超过 120 字符的短语")
+            query_candidates = [*terms, *query_candidates]
         if creator_terms:
             query_candidates.append(f"{description} {' '.join(creator_terms)}")
         if mode_terms:

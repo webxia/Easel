@@ -772,6 +772,10 @@ def test_sensitive_hypit_api_requires_local_browser_session(integration_env):
         ("POST", f"/api/film-attempts/{attempt_id}/material-generation/minimax", {
             "needId": "need-1", "requestId": "req-1", "confirmPaid": True,
         }),
+        ("POST", f"/api/film-attempts/{attempt_id}/materials/recover", {
+            "requestId": "req-1", "expectedPlanRevision": "0" * 64,
+            "expectedBundleRevision": "0" * 64, "allowLicensedBgm": True,
+        }),
         ("GET", f"/api/film-attempts/{attempt_id}/material-rights/candidates", None),
         ("GET", f"/api/film-attempts/{attempt_id}/material-rights/review-candidates", None),
         ("POST", f"/api/film-attempts/{attempt_id}/material-rights/review", {

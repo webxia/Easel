@@ -52,6 +52,7 @@
 
 ## Workstreams 与模板
 
+- 当前素材阶段恢复：[`tasks/creator-material-recovery-2026-09-30.md`](tasks/creator-material-recovery-2026-09-30.md)。
 - 当前 Creator 工作区 Goal：[`tasks/creator-workspace-2026-09-30.md`](tasks/creator-workspace-2026-09-30.md)。
 
 - 当前能力边界：[`workstreams/generated-material.md`](workstreams/generated-material.md)。MiniMax 图片、视频和预置音色语音生成均已接入代码；生成素材的 Creation/Production 闭环仍需单独验收。

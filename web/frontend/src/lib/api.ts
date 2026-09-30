@@ -295,6 +295,10 @@ export function reviewMaterialMatch(attemptId: string, review: OperatorRecord): 
   return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/material-match/review-current`, review);
 }
 
+export function recoverFilmMaterials(attemptId: string, recovery: OperatorRecord): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/materials/recover`, recovery);
+}
+
 export function materialAssetPreviewUrl(attemptId: string, assetId: string, sha256: string): string {
   return `/api/film-attempts/${encodeURIComponent(attemptId)}/material-assets/${encodeURIComponent(assetId)}/preview?sha256=${encodeURIComponent(sha256)}`;
 }

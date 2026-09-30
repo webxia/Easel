@@ -566,6 +566,23 @@ class MaterialGenerationRequest(BaseModel):
     confirmPaid: bool
 
 
+class MaterialRecoveryRequest(BaseModel):
+    requestId: str = Field(min_length=1, max_length=96, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    expectedPlanRevision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expectedBundleRevision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    allowLicensedBgm: bool = False
+    searchTerms: dict[str, list[str]] = Field(default_factory=dict, max_length=12)
+
+    @field_validator("searchTerms")
+    @classmethod
+    def bounded_search_terms(cls, value):
+        if any(not key or not terms or len(terms) > 4
+               or any(not term.strip() or len(term) > 120 for term in terms)
+               for key, terms in value.items()):
+            raise ValueError("每个素材需求只接受 1～4 条不超过 120 字符的检索提示")
+        return value
+
+
 class MaterialRightsReviewRequest(BaseModel):
     assetId: str = Field(min_length=1, max_length=128)
     assetSha256: str = Field(pattern=r"^[0-9a-f]{64}$")
@@ -1332,6 +1349,19 @@ async def api_material_asset_preview(
         raise HTTPException(409, "素材 SHA-256 已变化")
     return FileResponse(path, media_type=asset.file.mime or "application/octet-stream",
                         headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/film-attempts/{attempt_id}/materials/recover")
+async def api_recover_materials(attempt_id: str, req: MaterialRecoveryRequest,
+                                _operator: None = Depends(require_local_operator)):
+    from easel.integrations.material_recovery import recover_materials
+    return await _hypit_api_call(
+        recover_materials, attempt_id, request_id=req.requestId,
+        expected_plan_revision=req.expectedPlanRevision,
+        expected_bundle_revision=req.expectedBundleRevision,
+        allow_licensed_bgm=req.allowLicensedBgm,
+        search_terms={key: tuple(value) for key, value in req.searchTerms.items()},
+    )
 
 
 @app.post("/api/film-attempts/{attempt_id}/material-match/review-current")
@@ -2363,7 +2393,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "字幕、标题、转场与画面裁切由 Hypit Production Authoring 负责，不能伪装成 MaterialNeed。"
         "policy 可以省略；若填写，只能是字符串到字符串的映射，不能放布尔值或数组。"
         "Need.constraints 的检索条件只用字符串、数字或布尔值；不得写 allowed_source_kinds 或 must_not_contain 数组。"
-        "仅公开视频图库写 required_source_kind=stock；禁用生成写 allow_generation=false。"
+        "只有用户明确限定图库来源时才写 required_source_kind=stock；合法授权或真实素材不等于图库限定。未指定来源时不要猜测此约束；禁用生成写 allow_generation=false。"
         "排除人物、地标等画面条件写在 intent.description 中，必须在素材核对中验证；不能删除创作边界。"
         "scope.type 仅用 scene、event、global 或 segment；media_type 仅用 image、video、audio。"
         "voice/BGM/SFX 需要 audio 与相应 modality_spec.kind=voice/bgm/sfx；SFX 用 event scope。"
@@ -2454,7 +2484,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             "TREATMENT.md、SCRIPT.md、SCENES.md；已有效的文件保持原样。"
             "MaterialPlan JSON 顶层只允许 plan_id、creation_id、attempt_id、context_refs、policy、needs；"
             "schema:extra_forbidden 表示必须删除顶层 schema 字段，不是修改它的值。不得添加 version 或包装对象。"
-            "检索 constraints 只能使用字符串、数字或布尔值。仅图库来源改用 required_source_kind=stock，禁用生成用 allow_generation=false；"
+            "检索 constraints 只能使用字符串、数字或布尔值。只有明确用户图库限定才用 required_source_kind=stock；合法授权或真实素材不代表图库限定，未指定来源不要猜测；禁用生成用 allow_generation=false；"
             "不要使用 allowed_source_kinds/must_not_contain 数组。排除人物、地标等画面条件完整转写为 intent.description，保留原创作边界并由素材核对验证。"
             "每个 Need.scope 都必须同时有 type 与非空 ref；global scope 写"
             "{\"type\":\"global\",\"ref\":\"global\"}。"

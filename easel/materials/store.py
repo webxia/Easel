@@ -60,6 +60,25 @@ class AttemptMaterialStore:
     def write_plan(self, plan: MaterialPlan) -> str:
         return self._write_model("materials/plan.json", plan)
 
+    def read_recovery_record(self, request_id: str) -> dict | None:
+        self._validate_id(request_id)
+        path = self._path(f"materials/recoveries/{request_id}.json")
+        self._reject_symlink_components(path)
+        self._verify_material_path(path)
+        if not path.exists():
+            return None
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise AttemptMaterialStoreError("素材恢复记录无效") from exc
+        if not isinstance(record, dict):
+            raise AttemptMaterialStoreError("素材恢复记录必须是对象")
+        return record
+
+    def write_recovery_record(self, request_id: str, record: dict) -> None:
+        self._validate_id(request_id)
+        self._write_json(f"materials/recoveries/{request_id}.json", record)
+
     def read_plan(self) -> MaterialPlan:
         return self._read_model("materials/plan.json", MaterialPlan)
 

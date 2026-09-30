@@ -15,6 +15,7 @@ from easel import creation
 from easel.materials.application.advanced_matching import AdvancedMaterialMatcher
 from easel.materials.application.assembly import MaterialBundleAssembler
 from easel.materials.application.dedup import MaterialDeduplicator
+from easel.materials.application.compiler import NeedCompiler
 from easel.materials.application.library_first import LibraryFirstSupplyService
 from easel.materials.application.library_reuse import LibraryReuseService
 from easel.materials.application.matching import MaterialMatcher
@@ -121,6 +122,8 @@ class ProductMaterialSupply:
         bundle_id: str,
         top_n: int = 3,
         generated_assets: tuple[MaterialAsset, ...] = (),
+        search_terms: dict[str, tuple[str, ...]] | None = None,
+        skip_need_ids: tuple[str, ...] = (),
     ) -> ProductSupplyResult:
         started_at = datetime.now(timezone.utc)
         store = AttemptMaterialStore(attempt["workspace"]["path"])
@@ -138,6 +141,24 @@ class ProductMaterialSupply:
         )
         matcher = MaterialMatcher()
         assets: dict[str, MaterialAsset] = {}
+        try:
+            checkpoint = store.read_bundle()
+        except AttemptMaterialStoreError:
+            checkpoint = None
+        gate = attempt.get("material_gate", {})
+        if checkpoint is not None and gate:
+            if (checkpoint.plan_id != plan.plan_id
+                    or gate.get("plan_revision") != MaterialReadinessCalculator.plan_revision(plan)
+                    or gate.get("bundle_id") != checkpoint.bundle_id
+                    or gate.get("bundle_revision") != checkpoint.revision):
+                raise ValueError("现有素材 checkpoint 已变化，不能覆盖或重新供应")
+            for asset in checkpoint.assets:
+                persisted = store.read_asset(asset.asset_id)
+                path = store.resolve_asset_locator(asset.file.path)
+                if (persisted != asset or path.stat().st_size != asset.file.size
+                        or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
+                    raise ValueError("现有素材 checkpoint 字节或证据已变化")
+                assets[asset.asset_id] = asset
         trace: list[dict] = []
         source_totals: dict[str, dict[str, object]] = defaultdict(
             lambda: {"candidates": 0, "acquired": 0, "failures": []}
@@ -150,19 +171,26 @@ class ProductMaterialSupply:
         assets.update(self._current_generated_assets(store, plan))
 
         for need in plan.needs:
+            if need.need_id in skip_need_ids or matcher.match(need, tuple(assets.values())).matches:
+                trace.append({"need_id": need.need_id, "checkpoint_reused": True,
+                              "attempted_sources": [], "failures": [],
+                              "selection_authority": False})
+                continue
             def source_supply(source_id: str, requested_need=need) -> tuple[MaterialAsset, ...]:
                 source_registry = ProviderRegistry()
                 source_registry.register(registry.get(source_id))
                 subset = plan.model_copy(update={"needs": (requested_need,)})
-                key = hashlib.sha256(f"{source_id}\0{requested_need.need_id}".encode()).hexdigest()[:20]
+                key = hashlib.sha256(f"{supply_run_id}\0{source_id}\0{requested_need.need_id}".encode()).hexdigest()[:20]
                 flow = StandaloneMaterialFlow(
                     source_registry,
                     store,
                     acquirer=MaterialAcquirer(store, local_roots=local_roots),
                     rights_facts=self.rights_facts,
+                    compiler=NeedCompiler(search_terms=search_terms),
                 )
                 result = flow.run(
                     subset, supply_run_id=f"source-{key}", bundle_id=f"source-bundle-{key}", top_n=top_n,
+                    persist_bundle=False,
                 )
                 for item in result.supply_run.provider_results:
                     totals = source_totals[item.source_id]
@@ -227,6 +255,7 @@ class ProductMaterialSupply:
         )
         run = SupplyRun(
             supply_run_id=supply_run_id, plan_id=plan.plan_id,
+            parent_run_id=checkpoint.supply_run_id if checkpoint is not None and gate else None,
             started_at=started_at, finished_at=finished_at,
             provider_results=provider_results,
             failures=tuple(
@@ -236,6 +265,10 @@ class ProductMaterialSupply:
             result_bundle_id=bundle_id,
         )
         bundle = MaterialBundleAssembler().assemble(plan, run, all_assets, tuple(matches), bundle_id=bundle_id)
+        if checkpoint is not None and gate:
+            if store.read_bundle() != checkpoint or any(
+                    store.read_asset(asset.asset_id) != asset for asset in checkpoint.assets):
+                raise ValueError("素材 checkpoint 在检索期间变化，拒绝覆盖，请先刷新核对")
         store.write_supply_run(run)
         store.write_bundle(bundle)
         readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)

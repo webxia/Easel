@@ -1298,18 +1298,54 @@ class MaterialProductOrchestrator:
                                     if key in need.constraints},
                 } for need in compatible_needs],
                 "rights": asset.rights.model_dump(mode="json"),
+                "rights_blocking_need_ids": [need.need_id for need in compatible_needs
+                    if RightsService().evaluate(asset, need,
+                        attribution=RightsService.attribution_condition_for(asset)).status
+                    is RightsAdmissionStatus.BLOCKED],
+                "generation_need_ids": [need.need_id for need in compatible_needs
+                    if getattr(need.modality_spec, "kind", None) == "voice"
+                    and self._bound_voice_generation(attempt, plan, need, asset, store)],
                 "semantic_reviewed_need_ids": [need.need_id for need in compatible_needs
                     if MaterialMatcher._creator_match_review(need, asset)],
                 "reviewed": asset.rights.reviewed_at is not None,
             })
         return candidates
 
+    @staticmethod
+    def _bound_voice_generation(attempt, plan, need, asset, store) -> bool:
+        """Keep narration review bound to its frozen script and unchanged Need."""
+        current_revision = MaterialReadinessCalculator.plan_revision(plan)
+        for record in store.list_generation_records():
+            if (record.get("schema") != "easel-material-generation@1"
+                    or record.get("status") != "COMPLETE"
+                    or record.get("attempt_id") != attempt["attempt_id"]
+                    or record.get("plan_id") != plan.plan_id or record.get("need_id") != need.need_id
+                    or record.get("input_sha256") != need.modality_spec.text_sha256
+                    or record.get("asset_id") != asset.asset_id
+                    or record.get("asset_sha256") != asset.file.sha256
+                    or record.get("asset_path") != asset.file.path
+                    or record.get("asset_bytes") != asset.file.size
+                    or asset.source.kind != "generative"):
+                continue
+            if record.get("plan_revision") == current_revision:
+                return True
+            recovery_ref = attempt.get("material_recovery", {})
+            recovery_id = recovery_ref.get("request_id")
+            recovery = store.read_recovery_record(recovery_id) if recovery_id else None
+            if (recovery and recovery.get("status") == "COMPLETE"
+                    and recovery.get("target_plan_revision") == current_revision):
+                previous = MaterialPlan.model_validate_json(json.dumps(recovery["source_plan"]))
+                if (MaterialReadinessCalculator.plan_revision(previous) == record.get("plan_revision")
+                        and next((n for n in previous.needs if n.need_id == need.need_id), None) == need):
+                    return True
+        return False
+
     def review_material_match(
         self, attempt_id: str, *, asset_id: str, expected_sha256: str,
         need_id: str, observed_content: str, logo_present: bool | None,
         visible_text_present: bool | None, confirm_review: bool,
     ) -> dict[str, Any]:
-        """Bind a Creator's visual observation to one current Need and Asset SHA."""
+        """Bind a Creator observation to one visual or script-bound narration Asset."""
         from easel.integrations.hypit.service import get_film_attempt
         from easel.materials.application.assembly import MaterialBundleAssembler
         from easel.materials.application.dedup import MaterialDeduplicator
@@ -1318,13 +1354,14 @@ class MaterialProductOrchestrator:
         from easel.materials.domain import SemanticAnnotation, SemanticField, SemanticInference
 
         if confirm_review is not True or not isinstance(observed_content, str) or len(observed_content.strip()) < 8:
-            raise MaterialIntegrationError("视觉匹配复核需要具体画面观察和明确确认")
+            raise MaterialIntegrationError("素材匹配复核需要具体观察或试听结论和明确确认")
         attempt = get_film_attempt(attempt_id)
         planning = PlanningIntegration().load(attempt)
         plan: MaterialPlan = planning["plan"]
         need = next((item for item in plan.needs if item.need_id == need_id), None)
-        if need is None or need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
-            raise MaterialIntegrationError("视觉匹配复核仅接受当前 Plan 中的视觉 Need")
+        if need is None or (need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}
+                            and getattr(need.modality_spec, "kind", None) not in {"voice", "bgm"}):
+            raise MaterialIntegrationError("素材匹配复核仅接受当前视觉、旁白或配乐 Need")
         candidates = self.material_rights_candidates(attempt_id)
         candidate = next((item for item in candidates if item["asset_id"] == asset_id
                           and item["asset_sha256"] == expected_sha256), None)
@@ -1341,6 +1378,9 @@ class MaterialProductOrchestrator:
         asset = store.read_asset(asset_id)
         if asset.file.sha256 != expected_sha256:
             raise MaterialIntegrationError("素材 SHA-256 已变化，请刷新后重新核验")
+        if getattr(need.modality_spec, "kind", None) == "voice" and not self._bound_voice_generation(
+                attempt, plan, need, asset, store):
+            raise MaterialIntegrationError("旁白必须绑定当前冻结脚本、生成记录与未改变的素材需求")
         evidence = f"creator-confirmed:{need_id}:{expected_sha256}"
         annotations = [SemanticAnnotation(
             field=SemanticField.CAPTION, value=observed_content.strip(),

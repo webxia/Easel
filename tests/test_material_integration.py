@@ -864,10 +864,13 @@ def test_product_orchestrator_runs_local_supply_before_authoring(material_integr
         [asset.rights.model_dump() for asset in evidenced["supply"].bundle.assets],
         [(item.status, item.failure_summary) for item in evidenced["supply"].supply_run.provider_results],
     )
-    assert all(asset.rights.status is RightsStatus.KNOWN for asset in evidenced["supply"].bundle.assets)
+    assert any(asset.rights.status is RightsStatus.KNOWN for asset in evidenced["supply"].bundle.assets)
+    assert {asset.asset_id for asset in result["supply"].bundle.assets}.issubset(
+        {asset.asset_id for asset in evidenced["supply"].bundle.assets})
     assert "production_authoring" not in evidenced["attempt"]
     assert (Path(attempt["workspace"]["path"]) / "materials/bundle.json").is_file()
-    visual = evidenced["supply"].bundle.assets[0]
+    visual = next(asset for asset in evidenced["supply"].bundle.assets
+                  if asset.rights.status is RightsStatus.KNOWN)
     reviewed = MaterialProductOrchestrator().review_material_match(
         attempt["attempt_id"], asset_id=visual.asset_id,
         expected_sha256=visual.file.sha256, need_id="need-local",
@@ -1511,3 +1514,131 @@ def test_production_selection_carries_verified_attribution_facts(material_integr
         "destination": "export_credits", "rights_status": "ATTRIBUTION_REQUIRED",
         "evidence_references": ["fixture:license"],
     }]
+
+
+@pytest.mark.parametrize("interrupt_after_supply", [False, True])
+def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
+        material_integration_env, monkeypatch, interrupt_after_supply):
+    from easel.integrations import material_recovery as recovery
+    attempt = service.update_film_attempt(material_integration_env["attempt_id"],
+                                          execution_status="NOT_SUBMITTED", event="fixture_runtime_ready")
+    store = AttemptMaterialStore(attempt["workspace"]["path"])
+    plan, visual, _, _, _, _ = _contracts(attempt, Path(attempt["workspace"]["path"]))
+    voice_need = MaterialNeed(
+        need_id="voice", scope=NeedScope(type=NeedScopeType.GLOBAL, ref="film"), media_type=MediaType.AUDIO,
+        role="旁白", intent=NeedIntent(description="普通话旁白"), importance=NeedImportance.REQUIRED,
+        constraints={"required_source_kind": "generative", "allow_generation": True},
+        modality_spec=VoiceNeedSpec(kind="voice", identity=VoiceIdentityRef(
+            source=VoiceIdentitySource.EXPLICIT_USER, reference="预置普通话音色")))
+    bgm_need = MaterialNeed(
+        need_id="bgm", scope=NeedScope(type=NeedScopeType.GLOBAL, ref="film"), media_type=MediaType.AUDIO,
+        role="配乐", intent=NeedIntent(description="gentle piano instrumental"),
+        importance=NeedImportance.REQUIRED, constraints={"required_source_kind": "stock"},
+        modality_spec=BgmNeedSpec(kind="bgm", instruments=("piano",), vocals_allowed=False))
+    planning = PlanningIntegration().persist(attempt, plan.model_copy(update={
+        "needs": plan.needs + (voice_need, bgm_need)}), treatment="原方案", script="原旁白。", scenes="原场景")
+    attempt, plan = planning["attempt"], planning["plan"]
+    voice_bytes = b"completed-generation-fixture"
+    voice_path = store.write_asset_bytes("voice-asset", "original.mp3", voice_bytes)
+    voice = visual.model_copy(update={"asset_id": "voice-asset", "media_type": MediaType.AUDIO,
+        "file": FileInfo(path=voice_path, sha256=hashlib.sha256(voice_bytes).hexdigest(),
+                         size=len(voice_bytes), mime="audio/mpeg"),
+        "source": CandidateSource(kind="generative", provider="fixture", provider_asset_id="voice"),
+        "rights": RightsInfo(status=RightsStatus.UNKNOWN),
+        "technical": TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=10, mime="audio/mpeg")})
+    store.write_asset(voice)
+    music_path = store.write_asset_bytes("music-asset", "original.mp3", b"music-fixture")
+    music = voice.model_copy(update={"asset_id": "music-asset",
+        "file": FileInfo(path=music_path, sha256=hashlib.sha256(b"music-fixture").hexdigest(),
+                         size=len(b"music-fixture"), mime="audio/mpeg"),
+        "source": CandidateSource(kind="local", provider="fixture", provider_asset_id="music"),
+        "rights": RightsInfo(status=RightsStatus.ATTRIBUTION_REQUIRED, attribution_required=True,
+                             attribution_text="fixture credit", evidence=(RightsEvidence(
+                                 kind="asset_license", reference="fixture-license"),))})
+    store.write_asset(music)
+    store.write_generation_record("generation", {"schema": "easel-material-generation@1",
+        "status": "COMPLETE", "attempt_id": attempt["attempt_id"], "plan_id": plan.plan_id,
+        "plan_revision": MaterialReadinessCalculator.plan_revision(plan), "need_id": "voice",
+        "input_sha256": planning["truth_ledger"]["script_sha256"], "asset_id": voice.asset_id,
+        "asset_sha256": voice.file.sha256, "asset_path": voice.file.path, "asset_bytes": voice.file.size})
+    run = SupplyRun(supply_run_id="initial", plan_id=plan.plan_id,
+                    started_at=datetime.now(timezone.utc), finished_at=datetime.now(timezone.utc),
+                    result_bundle_id="recovery-bundle")
+    from easel.materials.application.matching import MaterialMatcher
+    matches = MaterialMatcher().match(plan.needs[0], (visual,)).matches
+    bundle = MaterialBundleAssembler().assemble(plan, run, (visual, voice, music), matches,
+                                                bundle_id="recovery-bundle")
+    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
+    attempt = MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)["attempt"]
+    args = dict(request_id="recovery-test", expected_plan_revision=readiness.plan_revision,
+                expected_bundle_revision=bundle.revision, allow_licensed_bgm=True,
+                search_terms={"bgm": ("piano instrumental",)})
+    monkeypatch.setattr(material_supply_module, "product_provider_registry",
+                        lambda roots: (material_supply_module.ProviderRegistry(), ()))
+    calls = []
+    actual_supply = recovery.ProductMaterialSupply.run
+    def counted_supply(self, *a, **kw):
+        calls.append(kw)
+        return actual_supply(self, *a, **kw)
+    monkeypatch.setattr(recovery.ProductMaterialSupply, "run", counted_supply)
+    real_record = recovery.MaterialGateIntegration.record
+    def interrupted_record(self, a, p, b, *rest):
+        if interrupt_after_supply and b.supply_run_id.startswith("supplement-"):
+            raise RuntimeError("simulated gate update interruption")
+        return real_record(self, a, p, b, *rest)
+    monkeypatch.setattr(recovery.MaterialGateIntegration, "record", interrupted_record)
+    if interrupt_after_supply:
+        with pytest.raises(RuntimeError, match="interruption"):
+            recovery.recover_materials(attempt["attempt_id"], **args)
+        monkeypatch.setattr(recovery.MaterialGateIntegration, "record", real_record)
+    result = recovery.recover_materials(attempt["attempt_id"], **args)
+    assert len(calls) == 1
+    assert calls[0]["skip_need_ids"] == ("voice",)
+    refreshed = PlanningIntegration().load(result["attempt"])
+    assert refreshed["plan"].needs[:2] == plan.needs[:2]
+    assert "required_source_kind" not in refreshed["plan"].needs[2].constraints
+    assert refreshed["plan"].needs[2].constraints["allow_generation"] is False
+    assert refreshed["script"] == "原旁白。"
+    assert refreshed["scenes"] == "原场景"
+    assert refreshed["truth_ledger"]["script_sha256"] == planning["truth_ledger"]["script_sha256"]
+    assert store.read_asset(voice.asset_id) == voice
+    assert {asset.asset_id: asset for asset in store.read_bundle().assets} == {
+        asset.asset_id: asset for asset in (visual, voice, music)}
+    assert store.read_supply_run(store.read_bundle().supply_run_id).parent_run_id == "recover-recovery-test"
+    assert len(store.list_generation_records()) == 1
+    assert result["material_status"] == "MATERIAL_NOT_READY"  # Rights remains a formal gate.
+    trace = json.loads((store.materials_root / "product-supply.json").read_text())["routing"]
+    assert [row["need_id"] for row in trace if row.get("checkpoint_reused")] == ["need-main", "voice"]
+    repeated = recovery.recover_materials(attempt["attempt_id"], **args)
+    assert repeated["recovery"]["reused"] is True and len(calls) == 1
+    with pytest.raises(MaterialIntegrationError, match="改变输入"):
+        recovery.recover_materials(attempt["attempt_id"], **{**args, "search_terms": {"bgm": ("different",)}})
+    with pytest.raises(MaterialIntegrationError, match="状态已变化"):
+        recovery.recover_materials(attempt["attempt_id"], **{**args, "request_id": "stale-new-request"})
+    # The same formal review handles real listening evidence after a source-only revision.
+    generation = store.read_generation_record("generation")
+    store.write_generation_record("generation", {**generation, "input_sha256": "0" * 64})
+    review_args = dict(asset_id=voice.asset_id, expected_sha256=voice.file.sha256, need_id="voice",
+                      observed_content="已试听，句子完整清晰且语速合适", logo_present=None,
+                      visible_text_present=None, confirm_review=True)
+    with pytest.raises(MaterialIntegrationError, match="绑定当前冻结脚本"):
+        MaterialProductOrchestrator().review_material_match(attempt["attempt_id"], **review_args)
+    store.write_generation_record("generation", generation)
+    reviewed = MaterialProductOrchestrator().review_material_match(attempt["attempt_id"], **review_args)
+    assert reviewed["material_status"] == "MATERIAL_NOT_READY"  # A listening review cannot clear UNKNOWN Rights.
+    candidates = MaterialProductOrchestrator().material_rights_candidates(attempt["attempt_id"])
+    narration = next(c for c in candidates if c["asset_id"] == voice.asset_id)
+    assert narration["generation_need_ids"] == ["voice"]
+    assert narration["semantic_reviewed_need_ids"] == ["voice"]
+    music_review = MaterialProductOrchestrator().review_material_match(attempt["attempt_id"],
+        **{**review_args, "asset_id": music.asset_id, "expected_sha256": music.file.sha256,
+           "need_id": "bgm", "observed_content": "试听为舒缓无歌词钢琴器乐，符合配乐要求"})
+    assert music_review["material_status"] == "MATERIAL_NOT_READY"
+    candidates = MaterialProductOrchestrator().material_rights_candidates(attempt["attempt_id"])
+    music_candidate = next(c for c in candidates if c["asset_id"] == music.asset_id)
+    assert "bgm" in music_candidate["rights_blocking_need_ids"]  # Missing credit provenance stays visible.
+    assert "bgm" in music_candidate["semantic_reviewed_need_ids"]
+    service.update_film_attempt(attempt["attempt_id"], execution_status="BUILD_RUNNING", event="fixture_build")
+    assert recovery.recover_materials(attempt["attempt_id"], **args)["recovery"]["reused"] is True
+    with pytest.raises(MaterialIntegrationError, match="视频制作已开始"):
+        recovery.recover_materials(attempt["attempt_id"], **{**args, "request_id": "new-after-build"})

@@ -4,6 +4,8 @@ This document records workstream order, not task-level status. [`02_CURRENT_STAT
 
 ## Next Active Workstream
 
+当前优先修复 [Creator 素材缺口恢复](tasks/creator-material-recovery-2026-09-30.md)：用户授权解决本轮音画 E2E 阻塞，并直接使用已生成旁白；修复后仅重放同一 Creation 的素材阶段，不新增作品或重复付费。
+
 [Creator 作品工作区体验优化](tasks/creator-workspace-2026-09-30.md) 的软件实现与确定性验收已完成，沿用 [Creator E2E 前修复](tasks/creator-e2e-repair-2026-09-30.md) 和 [T19](tasks/v1c-t19-low-friction-creation.md) 基线。用户随后明确启动了 [T15](tasks/v1c-t15-e2e-readiness.md) 的一次普通 UI 真实验收；本次已完成成片与入库，但因工程干预记为 PARTIAL。根因修复与具名运行结果见 Current State 的验收链接；下一次无工程救场验证需用户单独启动，不自动创建第二个作品。Generated Material 的既有边界与待验收项见 [Workstream](workstreams/generated-material.md)。
 
 ## Workstream Order

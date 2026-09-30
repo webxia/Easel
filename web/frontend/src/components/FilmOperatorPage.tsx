@@ -5,7 +5,7 @@ import {
   fetchMaterialRightsCandidates, listFilmAttempts, reconcileFilmBuild, startFilmAuthoring,
   refreshFilmBuild, resolveFilmRuntime, retryFailedFilmBuild, reviewFilmOutput, reviewMaterialRights, reviewScriptTruth, selectFilmBuild, submitFilmBuild,
   fetchPromotableMaterials, promoteAttemptMaterial,
-  materialAssetPreviewUrl, reviewMaterialMatch,
+  materialAssetPreviewUrl, reviewMaterialMatch, recoverFilmMaterials,
   validateFilmAttempt,
 } from '../lib/api';
 import { projectCreatorWorkspace, stageLabels } from '../lib/creatorWorkspace';
@@ -34,6 +34,8 @@ interface FilmOperatorPageProps {
 }
 
 export default function FilmOperatorPage({ creationId, title, onContinuePreparation, continuationBusy, proposalPhase = false, proposalReady = false, proposalMessages = [], onConfirmProduction, progressOpen = false, onProjection, onOpenConversation }: FilmOperatorPageProps) {
+  const [materialSearchTerms, setMaterialSearchTerms] = useState<Record<string, string>>({});
+  const materialRecoveryRequest = useRef<{ id: string; payload: string } | null>(null);
   const [proposalPreview, setProposalPreview] = useState<OperatorRecord | null>(null);
   const [proposalPreviewError, setProposalPreviewError] = useState('');
   const [previewContext, setPreviewContext] = useState('');
@@ -51,6 +53,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   const [creationSnapshot, setCreationSnapshot] = useState<OperatorRecord | null>(null);
   const [attempts, setAttempts] = useState<OperatorRecord[]>([]);
   const [attemptId, setAttemptId] = useState('');
+  useEffect(() => { materialRecoveryRequest.current = null; setMaterialSearchTerms({}); }, [attemptId]);
   const [attempt, setAttempt] = useState<OperatorRecord | null>(null);
   const [scriptTruth, setScriptTruth] = useState<OperatorRecord | null>(null);
   const [scriptTruthConfirmed, setScriptTruthConfirmed] = useState(false);
@@ -286,10 +289,28 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   const outputs = record(attemptStatus.outputs);
   const outputNames = Object.keys(outputs);
   const selectedReviewOutput = record(outputs[reviewOutputName]);
-  const selectedRightsCandidate = rightsCandidates.find((item) => item.asset_id === rightsAssetId);
+  const rightsReviewCandidates = rightsCandidates.filter(item =>
+    ['UNKNOWN', 'RESTRICTED'].includes(text(record(item.rights).status))
+    || (Array.isArray(item.rights_blocking_need_ids) && item.rights_blocking_need_ids.some(id => blockingNeedIds.includes(text(id)))));
+  const selectedRightsCandidate = rightsReviewCandidates.find(item => item.asset_id === rightsAssetId) ?? rightsReviewCandidates[0];
   const pendingVoiceCandidate = rightsCandidates.find((item) => item.media_type === 'audio'
     && item.provider === 'minimax' && record(item.rights).status === 'UNKNOWN');
   const voiceRightsPending = !!pendingVoiceCandidate;
+  const existingVoiceCandidate = rightsCandidates.find(item => item.media_type === 'audio'
+    && Array.isArray(item.generation_need_ids) && item.generation_need_ids.includes(pendingVoiceNeed?.need_id));
+  const [voiceListeningObservation, setVoiceListeningObservation] = useState('');
+  const pendingMusicNeed = Array.isArray(scriptTruth?.material_needs)
+    ? scriptTruth.material_needs.map(record).find(need => need.modality_kind === 'bgm'
+      && blockingNeedIds.includes(text(need.need_id))) : undefined;
+  const musicCandidates = rightsCandidates.filter(asset => asset.media_type === 'audio'
+    && asset.source_kind !== 'generative'
+    && (!pendingMusicNeed?.required_source_kind || asset.source_kind === pendingMusicNeed.required_source_kind)
+    && (!pendingMusicNeed?.forbidden_source_kind || asset.source_kind !== pendingMusicNeed.forbidden_source_kind));
+  const [musicAssetId, setMusicAssetId] = useState('');
+  const [musicObservation, setMusicObservation] = useState('');
+  const selectedMusic = musicCandidates.find(asset => asset.asset_id === musicAssetId) ?? musicCandidates[0];
+  const musicIdentity = `${selectedMusic?.asset_id}:${selectedMusic?.asset_sha256}:${pendingMusicNeed?.need_id}`;
+  useEffect(() => { setMusicObservation(''); }, [musicIdentity]);
   const visualPool = rightsCandidates.filter(item => ['image', 'video'].includes(String(item.media_type)));
   const selectedVisualNeeds = Array.from(new Map(visualPool.flatMap(item => Array.isArray(item.needs) ? item.needs.map(record) : [])
     .filter(need => blockingNeedIds.includes(text(need.need_id)) && !visualPool.some(asset => Array.isArray(asset.semantic_reviewed_need_ids) && asset.semantic_reviewed_need_ids.includes(need.need_id)))
@@ -719,17 +740,72 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
             {need.modality_kind === 'bgm' ? '配乐要求：无歌词器乐，音色与节奏须符合已确认的创作规划。' : `素材要求：${text(need.description)}。`}
             {need.required_source_kind === 'stock' && '当前方案要求图库素材；本地或开放许可索引素材不能替代。'}
             尚未确定：合适素材、可用性与使用权。</p>)}
-          <p>已保留规划和已有素材。可在对话中讨论补充素材；当前不支持直接修订已冻结的脚本、素材要求或来源，对话反馈不会自动改写它们。需要生成素材时，必须另行确认费用。</p>
+          <p>可在下方调整检索提示，并允许配乐使用有明确授权的本地或开放许可素材。脚本、场景、旁白和画面要求保留；使用权与匹配仍须通过检查，不会生成素材或提交付费制作。</p>
           <button className="btn" onClick={onOpenConversation}>在对话中讨论素材</button>
-          {rightsCandidates.length === 0 && <button className="btn" disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重试素材准备</button>}
         </div>}
+        {phase === 'material' && rightsCandidatesLoaded && blockingNeedIds.length > 0 && <details className="film-op-review-claim">
+          <summary>补充检索缺失素材</summary>
+          <p>已保留素材和旁白。仅查找尚未覆盖的需求；配乐可使用有明确授权的本地或开放许可来源，仍核验使用权和匹配。本操作不生成音频、不改变脚本或场景、不提交制作费用。</p>
+          {Array.isArray(scriptTruth?.material_needs) && scriptTruth.material_needs.map(record)
+            .filter(need => blockingNeedIds.includes(text(need.need_id)) && need.modality_kind !== 'voice')
+            .map((need, index) => <label key={text(need.need_id)}>
+              {need.modality_kind === 'bgm' ? '配乐检索关键词' : `镜头素材 ${index + 1} 检索关键词`}
+              <input className="field" value={materialSearchTerms[text(need.need_id)] ?? ''} maxLength={120}
+                placeholder="可选：用简短关键词描述主体，如 window leaves"
+                onChange={event => setMaterialSearchTerms(prev => ({...prev, [text(need.need_id)]: event.target.value}))} />
+            </label>)}
+          <button className="btn btn-primary" disabled={!!busy || continuationBusy || !operatorSessionReady}
+            onClick={() => {
+              const payload = {expectedPlanRevision: text(materialPlan.plan_revision),
+                expectedBundleRevision: text(materialGate.bundle_revision), allowLicensedBgm: true,
+                searchTerms: Object.fromEntries(Object.entries(materialSearchTerms)
+                  .filter(([, value]) => value.trim()).map(([key, value]) => [key, [value.trim()]]))};
+              const pendingKey = `easel-material-recovery-${attemptId}`;
+              const saved = sessionStorage.getItem(pendingKey);
+              if (!materialRecoveryRequest.current && saved) {
+                try { materialRecoveryRequest.current = JSON.parse(saved); }
+                catch { setError('素材恢复请求记录损坏，请先核对制作记录；未重新提交。'); return; }
+              }
+              if (!materialRecoveryRequest.current) {
+                materialRecoveryRequest.current = {id: globalThis.crypto.randomUUID(), payload: JSON.stringify(payload)};
+                sessionStorage.setItem(pendingKey, JSON.stringify(materialRecoveryRequest.current));
+              }
+              const requestId = materialRecoveryRequest.current.id;
+              const boundPayload = JSON.parse(materialRecoveryRequest.current.payload);
+              void run('补充素材', async () => {
+                const result = await recoverFilmMaterials(attemptId, {...boundPayload, requestId});
+                setAttempt(record(result.attempt));
+                materialRecoveryRequest.current = null;
+                sessionStorage.removeItem(pendingKey);
+              });
+            }}>{busy === '补充素材' ? '正在检索并检查缺失素材…' : '保留已有结果并补充素材'}</button>
+        </details>}
         {phase === 'material' && pendingVoiceNeed && <div className="film-op-review-claim">
           <h3>任务：准备整片旁白</h3>
-          <p>{voiceRightsPending || generationResult !== null
+          <p>{existingVoiceCandidate && !voiceRightsPending
+            ? '已有旁白已保留；请记录实际试听结论，完成当前脚本与音频的匹配核对。'
+            : voiceRightsPending || generationResult !== null
             ? '当前事项：核对刚生成旁白的使用权。其他素材事项仍按各场景分别处理。'
             : '当前缺少整片旁白音频。可以按已确认的脚本生成旁白；生成前会再次确认费用。'}</p>
           {!rightsCandidatesLoaded && generationResult === null
             ? <p>正在核对已有素材…</p>
+            : existingVoiceCandidate && !voiceRightsPending
+            ? <div>
+                <audio controls preload="metadata" aria-label="试听当前旁白"
+                  src={materialAssetPreviewUrl(attemptId, text(existingVoiceCandidate.asset_id), text(existingVoiceCandidate.asset_sha256))} />
+                <p>系统已有证据：当前脚本对应的生成记录与音频字节已核对。只需记录句子完整性、清晰度与语速的实际试听结论。</p>
+                <label>旁白试听结论<textarea className="field" value={voiceListeningObservation}
+                  onChange={event => setVoiceListeningObservation(event.target.value)} /></label>
+                <button className="btn btn-primary" disabled={!!busy || voiceListeningObservation.trim().length < 8}
+                  onClick={() => void run('记录旁白试听', async () => {
+                    const result = await reviewMaterialMatch(attemptId, {
+                      assetId: existingVoiceCandidate.asset_id, assetSha256: existingVoiceCandidate.asset_sha256,
+                      needId: pendingVoiceNeed?.need_id, observedContent: voiceListeningObservation,
+                      logoPresent: null, visibleTextPresent: null, confirmReview: true,
+                    });
+                    setAttempt(record(result.attempt));
+                  })}>记录试听结论并使用已有旁白</button>
+              </div>
             : voiceRightsPending || generationResult !== null
             ? pendingVoiceCandidate && <div className="film-op-review-claim film-op-voice-review">
                 <strong>确认这条旁白能否用于当前视频</strong>
@@ -781,6 +857,28 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
                 {busy === '生成素材' ? '正在生成旁白…' : '生成旁白素材'}
               </button></>}
         </div>}
+        {phase === 'material' && pendingMusicNeed && selectedMusic && <div className="film-op-review-claim">
+          <h3>任务：核对配乐</h3>
+          <p>要求：{text(pendingMusicNeed.description)}。只记录实际试听依据；使用权与署名条件另行检查。</p>
+          <label>配乐候选<select className="field" value={text(selectedMusic.asset_id)}
+            onChange={event => setMusicAssetId(event.target.value)}>
+            {musicCandidates.map((asset, index) => <option value={text(asset.asset_id)} key={text(asset.asset_id)}>配乐 {index + 1}</option>)}
+          </select></label>
+          <audio controls preload="metadata" aria-label="试听配乐候选"
+            src={materialAssetPreviewUrl(attemptId, text(selectedMusic.asset_id), text(selectedMusic.asset_sha256))} />
+          <label>配乐试听依据<textarea className="field" value={musicObservation}
+            placeholder="记录是否有歌词、主要乐器和节奏是否符合方案"
+            onChange={event => setMusicObservation(event.target.value)} /></label>
+          <button className="btn btn-primary" disabled={!!busy || !operatorSessionReady || musicObservation.trim().length < 8}
+            onClick={() => void run('记录配乐试听', async () => {
+              const result = await reviewMaterialMatch(attemptId, {
+                assetId: selectedMusic.asset_id, assetSha256: selectedMusic.asset_sha256,
+                needId: pendingMusicNeed.need_id, observedContent: musicObservation,
+                logoPresent: null, visibleTextPresent: null, confirmReview: true,
+              });
+              setAttempt(record(result.attempt));
+            })}>记录这一项配乐核对</button>
+        </div>}
         {phase === 'material' && visualCandidates.length > 0 && <div className="film-op-review-claim">
           <strong>核对画面是否真的符合场景</strong>
           <p>请查看素材预览，只确认你实际看见的内容。每个场景都单独核对；未确认的画面不会算作已覆盖。</p>
@@ -822,16 +920,16 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
           <button className="btn btn-primary" disabled={!visualReviewReady || !!busy} onClick={submitVisualReview}>
             提交这一组画面核对</button>
         </div>}
-        {phase === 'material' && !voiceRightsPending && rightsCandidates.some(item => ['UNKNOWN', 'RESTRICTED'].includes(text(record(item.rights).status))) && <>
+        {phase === 'material' && !voiceRightsPending && rightsReviewCandidates.length > 0 && <>
         <section className="card film-op-card">
           <h3>任务：核对素材使用权</h3>
           {voiceRightsPending && <p>当前待复核：刚生成的 MiniMax 旁白音频。请核对该素材对应的使用条款和证据。</p>}
           <p>这里只记录你提交的素材级来源与权利证据，不由 Easel 根据 Provider 推断许可。请按当前素材对应的实际条款核对；证据不足时保留 UNKNOWN，Gate 会继续阻断。提交后只本地重算当前 Gate，不重新搜索或生成素材。</p>
           {rightsCandidates.length === 0 ? <p>当前 Plan/Bundle 中没有字节校验通过且技术检查通过的可核验素材。</p> : <>
             <label>待核素材
-              <select className="field" value={rightsAssetId} onChange={(event) => setRightsAssetId(event.target.value)}>
-                {rightsCandidates.map((item) => <option key={String(item.asset_id)} value={String(item.asset_id)}>
-                  素材 {rightsCandidates.indexOf(item) + 1} · {text(item.provider, '本地')} · {record(item.rights).status === 'UNKNOWN' ? '使用权待确认' : '查看使用权'}
+              <select className="field" value={text(selectedRightsCandidate?.asset_id, '')} onChange={(event) => setRightsAssetId(event.target.value)}>
+                {rightsReviewCandidates.map((item) => <option key={String(item.asset_id)} value={String(item.asset_id)}>
+                  素材 {rightsReviewCandidates.indexOf(item) + 1} · {text(item.provider, '本地')} · {record(item.rights).status === 'UNKNOWN' ? '使用权待确认' : '查看使用权'}
                 </option>)}
               </select>
             </label>
@@ -866,7 +964,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
               <button className="btn btn-primary" disabled={!operatorSessionReady || !!busy || !rightsConfirmed
                 || !rightsEvidenceKind.trim() || !rightsEvidenceReference.trim() || !rightsEvidenceSummary.trim()} onClick={() => {
                 void run('记录素材权利证据', async () => { const result = await reviewMaterialRights(attemptId, {
-                  assetId: rightsAssetId,
+                  assetId: selectedRightsCandidate.asset_id,
                   assetSha256: selectedRightsCandidate.asset_sha256,
                   rights: {
                     status: rightsStatus,

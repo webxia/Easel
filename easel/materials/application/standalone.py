@@ -96,6 +96,7 @@ class StandaloneMaterialFlow:
         creator_context_terms: Iterable[str] = (),
         creative_mode_terms: Iterable[str] = (),
         continuations: dict[str, ProviderContinuation] | None = None,
+        persist_bundle: bool = True,
     ) -> StandaloneFlowResult:
         started_at = datetime.now(timezone.utc)
         selected_candidates: list[object] = []
@@ -175,7 +176,8 @@ class StandaloneMaterialFlow:
         )
         bundle = self.assembler.assemble(plan, run, assets_tuple, tuple(matches), bundle_id=bundle_id)
         self.store.write_supply_run(run)
-        self.store.write_bundle(bundle)
+        if persist_bundle:
+            self.store.write_bundle(bundle)
         readiness, gaps = self.readiness.calculate(plan, bundle)
         return StandaloneFlowResult(
             plan=plan,
