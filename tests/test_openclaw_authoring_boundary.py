@@ -11,7 +11,7 @@ from easel.integrations.openclaw_authoring import (
     run_attempt_scoped_authoring,
     _agent_result,
 )
-from easel.integrations.hypit.revision import assert_composition_preserves_sound_and_copy
+from easel.integrations.hypit.revision import assert_composition_preserves_sound_and_copy, assert_video_trim_ranges
 
 
 ATTEMPT_ID = "fa_0123456789abcdef0123456789abcdef"
@@ -70,6 +70,28 @@ def test_authoring_process_diagnostics_do_not_expose_model_output_or_credentials
         raise subprocess.TimeoutExpired(cmd, 5, output="private response")
     with pytest.raises(OpenClawAuthoringBoundaryError, match="超时"):
         _agent_result(timed_out, ["openclaw"], phase="执行")
+
+
+@pytest.mark.parametrize("start,end,okay", [(120,312,True), (300,780,False), (-1,312,False), (312,120,False)])
+def test_video_trim_uses_normalized_clock_and_admitted_source_span(tmp_path, start, end, okay):
+    author = tmp_path / "main.svml"
+    author.write_text('''<svml>
+      <import as="v" from="@hypit/media-track@1"/>
+      <import as="p" from="@hypit/media-pipeline@1"/>
+      <import as="m" from="@hypit/media@1"/>
+      <import as="t" from="@hypit/timeline-author@1"/>
+      <import as="recipes" source="./recipes.svs"/>
+      <t:Clock id="clock" frame-rate="24"/>
+      <m:Video id="leaf" src="leaf.mp4"/>
+      <p:Normalize id="normalized" source={leaf} clock={clock}/>
+      <v:Item media={normalized.media} appearance={recipes.media.leaf}/>
+    </svml>''')
+    (tmp_path / "recipes.svs").write_text(f'media.leaf {{ fit: cover; trim-start: {start}; trim-end: {end}; }}')
+    if okay:
+        assert_video_trim_ranges(author, {"leaf.mp4":27.605})
+    else:
+        with pytest.raises(HypitIntegrationError, match="超出原片范围"):
+            assert_video_trim_ranges(author, {"leaf.mp4":27.605})
 
 
 def _seed_attempt(root: Path) -> Path:

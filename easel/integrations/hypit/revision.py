@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import re
+import math
 import xml.etree.ElementTree as ET
+from fractions import Fraction
 from pathlib import Path
 
 from easel.integrations.hypit.errors import HypitIntegrationError
 
 
-def _protected_graph(source: Path) -> tuple:
+def _markup(source: Path):
     text = source.read_text(encoding="utf-8")
     # SVML uses typed, unquoted references and package-qualified element names.
     text = re.sub(r'=\{([^}]+)\}', lambda m: '="{' + m[1] + '}"', text)
@@ -18,6 +20,11 @@ def _protected_graph(source: Path) -> tuple:
         root = ET.fromstring(text)
     except ET.ParseError as exc:
         raise HypitIntegrationError("局部修改产物无法读取；未改变已保留的成片") from exc
+    return root
+
+
+def _protected_graph(source: Path) -> tuple:
+    root = _markup(source)
     packages = {e.get("as"): e.get("from", "").split("@")[1]
                 for e in root.findall("import") if e.get("from", "").startswith("@hypit/")}
     nodes = {e.get("id"): e for e in root.iter() if e.get("id")}
@@ -60,3 +67,63 @@ def assert_composition_preserves_sound_and_copy(base: Path, authored: Path) -> N
             "局部画面修改改变了已确认的声音、字幕或时序；请保留原组件及引用，"
             "只修改反馈涉及的画面取景与转场，不重写其他内容"
         )
+
+
+def assert_video_trim_ranges(authored: Path, assets: dict[str, float]) -> None:
+    """Preflight literal media-track trims against the admitted video duration.
+
+    Hypit 0.2.7 NormalizationPlan rounds video span * target Clock rate; trims
+    index that normalized source, not the original codec rate or the Film end.
+    Hypit still owns static validation and exact execution-time media admission.
+    """
+    root = _markup(authored)
+    aliases = {e.get("as"): e.get("from", "").split("@")[1]
+               for e in root.findall("import") if e.get("from", "").startswith("@hypit/")}
+    nodes = {e.get("id"): e for e in root.iter() if e.get("id")}
+    sheets = {e.get("as"): e.get("source") for e in root.findall("import") if e.get("source")}
+
+    def kind(e):
+        prefix, _, name = e.tag.partition("__")
+        return aliases.get(prefix), name
+
+    def reference(value):
+        match = re.fullmatch(r'\{([\w-]+)(?:\.[\w.-]+)?\}', value or "")
+        return nodes.get(match[1]) if match else None
+
+    for item in root.iter():
+        if kind(item) != ("hypit/media-track", "Item"):
+            continue
+        recipe = re.fullmatch(r'\{([\w-]+)\.([\w.-]+)\}', item.get("appearance", ""))
+        if not recipe or recipe[1] not in sheets:
+            continue
+        sheet = authored.parent / sheets[recipe[1]]
+        if sheet.is_symlink() or sheet.resolve().parent != authored.parent.resolve():
+            raise HypitIntegrationError("画面截取样式必须来自当前已核验的本地编排文件")
+        rules = re.findall(r'([\w.-]+)\s*\{([^}]+)\}', sheet.read_text(encoding="utf-8"))
+        properties = {key.strip(): value.strip() for selector, body in rules if selector == recipe[2]
+                      for key, value in re.findall(r'([\w-]+)\s*:\s*([^;]+);?', body)}
+        if not any(key in properties for key in ("trim-start", "trim-end")):
+            continue
+        try:
+            start, end = (int(properties[key]) for key in ("trim-start", "trim-end"))
+        except (KeyError, ValueError) as exc:
+            raise HypitIntegrationError("画面截取起止必须成对使用整数帧；请按当前 Clock 换算") from exc
+        normalized = reference(item.get("media"))
+        if normalized is None or kind(normalized) != ("hypit/media-pipeline", "Normalize"):
+            raise HypitIntegrationError("画面截取缺少可核验的标准化视频来源")
+        video = reference(normalized.get("source"))
+        clock = reference(normalized.get("clock"))
+        if video is None or clock is None or video.get("src") not in assets:
+            raise HypitIntegrationError("画面截取缺少已检查的原片时长或 Clock")
+        try:
+            rate = float(Fraction(clock.get("frame-rate", "")))
+            duration = assets[video.get("src")]
+            frames = math.floor(duration * rate + 0.5)
+        except (ValueError, ZeroDivisionError, OverflowError) as exc:
+            raise HypitIntegrationError("画面截取的时长或帧率无法核验") from exc
+        if not (math.isfinite(rate) and rate > 0 and 0 <= start < end <= frames):
+            raise HypitIntegrationError(
+                f"画面截取 {start}～{end} 帧超出原片范围（约 {duration:g} 秒，"
+                f"标准化帧率 {rate:g} fps，{frames} 帧）。"
+                "秒转帧必须使用该 Normalize 的 Clock；只修正此镜头截取，保留声音、字幕和素材"
+            )

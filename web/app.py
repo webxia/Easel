@@ -2609,6 +2609,8 @@ async def _run_film_authoring(attempt_id: str) -> dict:
             from easel.materials.store import AttemptMaterialStore
 
             current = get_film_attempt(attempt_id)
+            from easel.integrations.hypit.service import _assert_local_video_trim_ranges
+            _assert_local_video_trim_ranges(current, staged / "productions/easel-authoring/authors/main.svml")
             if current.get("revision_feedback"):
                 from easel.integrations.hypit.service import _assert_composition_revision
                 author_path = "productions/easel-authoring/authors/main.svml"
@@ -2663,6 +2665,10 @@ async def _run_film_authoring(attempt_id: str) -> dict:
                 "读取 hypit-contracts/index.json 获得准确合同文件名。"
                 "现有源码：productions/easel-authoring/authors/main.svml、recipes.svs；"
                 "风格文件：handoff/creative-mode/mode.json、visual-bible.md、editing-bible.md、audio-bible.md。"
+                "\nmedia-track 的 trim-start/trim-end 是 appearance recipe 中成对整数帧，"
+                "不是 Item 属性。帧数按对应 Normalize 的 Clock 换算，不猜 60 fps。"
+                "例如 Clock=24 fps，原片 5～13 秒是 120～312 帧；"
+                "终点不得超出原片标准化总帧数，不能拿成片总时长当作原片时长。"
             )
             return run_attempt_scoped_authoring(
                 attempt_id=attempt_id,

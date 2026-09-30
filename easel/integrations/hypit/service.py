@@ -668,7 +668,7 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
     with lock_path.open("a+") as lock_stream:
         fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX)
         target = get_film_attempt(target["attempt_id"])
-        if target.get("retry_source", {}).get("status") == "READY":
+        if target.get("retry_source", {}).get("status") in {"READY", "AUTHORING_REPAIR_REQUIRED"}:
             return target
         if target.get("execution_status") != "NOT_SUBMITTED":
             raise HypitIntegrationError("Build Retry Attempt 已进入执行，拒绝覆盖 checkpoint")
@@ -783,7 +783,24 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
         }
         run_path.write_text(json.dumps(run_manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
                             encoding="utf-8")
-        target = complete_film_authoring(target["attempt_id"], cli=cli)
+        if source.get("revision_feedback"):
+            target = update_film_attempt(target["attempt_id"], event="revision_feedback_preserved",
+                                         revision_feedback=source["revision_feedback"])
+        try:
+            target = complete_film_authoring(target["attempt_id"], cli=cli)
+        except HypitIntegrationError:
+            failed = get_film_attempt(target["attempt_id"])
+            if (failed.get("authoring_status") != "AUTHORING_FAILED"
+                    or _execution_fingerprint(get_film_attempt(attempt_id))["sha256"] != source_fingerprint["sha256"]):
+                raise
+            # Material/Truth copied successfully; an invalid authored range is
+            # repaired through normal Authoring, never called a ready checkpoint.
+            return update_film_attempt(
+                target["attempt_id"], event="build_retry_authoring_repair_required",
+                preparation_status="PRODUCTION_PREPARED",
+                retry_source={"attempt_id": attempt_id, "build_id": build_id,
+                              "fingerprint": source_fingerprint["sha256"], "status": "AUTHORING_REPAIR_REQUIRED"},
+            )
         if _execution_fingerprint(get_film_attempt(attempt_id))["sha256"] != source_fingerprint["sha256"]:
             raise HypitIntegrationError("复制期间源 Attempt checkpoint 发生变化")
         return update_film_attempt(
@@ -922,6 +939,22 @@ def _assert_composition_revision(attempt: dict[str, Any], authored: Path | None 
     )
 
 
+def _assert_local_video_trim_ranges(attempt: dict[str, Any], authored: Path | None = None) -> None:
+    if "material_gate" not in attempt:
+        return
+    from easel.integrations.material_layer import MaterialGateIntegration
+    from easel.materials.store import AttemptMaterialStore
+    from easel.integrations.hypit.revision import assert_video_trim_ranges
+
+    _, bundle, _ = MaterialGateIntegration().assert_ready(attempt)
+    relative = "productions/easel-authoring/authors/main.svml"
+    store = AttemptMaterialStore(_workspace(attempt))
+    assets = {store.hypit_source_path(asset, relative): asset.technical.duration_seconds
+              for asset in bundle.assets if asset.media_type.value == "video"
+              and asset.technical.duration_seconds is not None}
+    assert_video_trim_ranges(authored or _workspace(attempt) / relative, assets)
+
+
 def complete_film_authoring(
     attempt_id: str,
     *,
@@ -957,6 +990,7 @@ def complete_film_authoring(
     normalized_clock_reference = _normalize_single_timeline_clock_reference(authored_source)
     try:
         _assert_composition_revision(attempt, authored_source)
+        _assert_local_video_trim_ranges(attempt, authored_source)
         check = _cli(cli).check(workspace, source)
         if normalized_clock_reference:
             check = {**check, "easel_normalizations": ["single_timeline_clock_reference"]}
@@ -968,6 +1002,10 @@ def complete_film_authoring(
         _record_operation_error(attempt_id, "authoring_check", error, status="AUTHORING_FAILED")
         raise error
     authoring_hash, run_hash, dependencies_hash, files = _authoring_file_hash(workspace, source)
+    repair = attempt.get("retry_source", {})
+    if repair.get("status") == "AUTHORING_REPAIR_REQUIRED":
+        if _execution_fingerprint(get_film_attempt(repair["attempt_id"]))["sha256"] != repair["fingerprint"]:
+            raise HypitIntegrationError("恢复期间原制作 checkpoint 已变化，拒绝提升")
 
     def finish(item: dict[str, Any]) -> dict[str, Any]:
         if item.get("authoring_status") != "AUTHORING_RUNNING":
@@ -987,6 +1025,8 @@ def complete_film_authoring(
                 "completed_at": _now(),
             },
         }
+        if repair.get("status") == "AUTHORING_REPAIR_REQUIRED":
+            changed["retry_source"] = {**repair, "status": "READY"}
         _set_summary(changed)
         return _event(changed, "authoring_ready", run_path=_AUTHORING_RUN_PATH,
                       authoring_sha256=authoring_hash)
@@ -1057,6 +1097,7 @@ def validate_film_attempt(
     client = _cli(cli)
     try:
         _assert_composition_revision(attempt)
+        _assert_local_video_trim_ranges(attempt)
         check = client.check(workspace, source)
     except HypitIntegrationError as exc:
         _record_operation_error(attempt_id, "check", exc, status="AUTHORING_FAILED")

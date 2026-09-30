@@ -84,3 +84,11 @@
 - 同期隔离草稿未提升：重新编写了其他场景、声音和字幕，BGM gain 从 0.4 到 0.28、淡入淡出改变，违反局部反馈承诺。正式流程没有针对 composition 的声音/字幕不变校验，仅提示保持不变。隔离助手还反复将目录交给 read、猜测含 @1 或不存在的合同文件，因为无目录工具且合同缺少文件索引。
 - 停止该阶段后最小修复：安全失败类别/退出码，不泄漏模型输出/凭证；只读合同 index.json 与正确文件名；局部编辑提示保留组件 ID 与原音轨；提升前、Authoring 完成及 Plan 前校验原 checkpoint fingerprint 和声音/字幕依赖图，拒绝改变来源、增益、淡入淡出、时序或文字。没有手工改实际媒体/生产产物/状态。
 - 验证 79 passed（Authoring 隔离、Hypit、Material integration）；实际修订继承的可信源图与原片一致，校验通过。compileall/diff check 通过。17:36 在确认无运行中编排/合成后重载服务，首次页面动作因连接失效未派发，显示最后可信失败；刷新返回同一会话和作品，17:38 正常“重试视频编排”恢复同一修订 Attempt。
+
+## 截取范围根因与失败 Build 恢复
+
+- 前一补丁 `c3e2b0a0` 已推送。修订重放只改 Scene 4，声音与字幕依赖图保持原值；原 static check 自动修正了把 trim 写在 Item 属性的问题，17:48 通过，正式核价仍无第三方媒体计费请求。17:49 正常费用卡提交 Build `bld_20260930T094944019Z_2541159AB6`；引擎确定失败：`Media layer content.trim is outside its source`，没有新导出。
+- 真实根因：原片约 27.605 秒，Normalize Clock 24 fps，但 appearance recipe 写 `trim-start:300 / trim-end:780`，相当于 12.5～32.5 秒，超出原片标准化范围（663 帧），且不是请求的 5～13 秒。语法和 Plan 没有执行此媒体范围检查，错误直到 Build 才发现。已核对安装版 0.2.7 `media-track/src/author.ts`、`sampling.ts` 和 `media-execution/src/execute.ts`：trim 是 appearance recipe 的成对整数帧，按 Normalize 时钟计算；视频 span 使用正向取整总帧数。
+- 最小修复：对当前准入视频的实际时长、Normalize Clock、局部 recipe 的整数帧范围作合成前检查，提升前/Authoring/Plan 均核验；指令明确秒转帧和 recipe 位置，不猜 60 fps。实际无效源只读检查即被拒绝，未改原 SVML。Creator 页面将该引擎错误译成可理解的截取范围说明，隐藏内部 producer 路径。
+- 已失败 Build 的恢复保留 Truth/Material，复制来的编排若不合格则停为 `AUTHORING_REPAIR_REQUIRED`，不宣称完整 checkpoint READY，不开放 Plan/费用/Build；原源码 fingerprint 未变且 Authoring 全部检查通过后才提升 READY。同恢复请求不覆盖修复中的文件；原 composition 反馈保留。扩展已有恢复 integration 证明此路径不重新 Supply、不再 Build、费用未批准、复制/修复中不能核价提交。
+- 83 项 Authoring/Hypit/Material 定向回归通过；lint/build/compileall/diff check 通过，保留既有 Hook、包体积和测试依赖弃用提示。确认无活动编排/合成后重载。18:15 普通“从视频制作阶段恢复”建立同一 Creation 的 `fa_4839c063b5849993dcd0720b965bc41e`，当前 MATERIAL_READY、AUTHORING_FAILED、AUTHORING_REPAIR_REQUIRED、NOT_SUBMITTED，范围拦截按预期生效；18:16 普通“重试视频编排”从此检查点开始修复。新成片与内容库尚未完成，本轮工程介入继续记 FAIL。

@@ -638,7 +638,7 @@ def test_int03_explicit_selection_precedes_authoring_and_check_evidence(material
 
 
 def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submission(
-    material_integration_env, tmp_path,
+    material_integration_env, tmp_path, monkeypatch,
 ):
     attempt = material_integration_env
     _planning(attempt)
@@ -688,7 +688,23 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     assert failed["execution_status"] == "BUILD_FAILED"
     assert cli.build_calls == 1
 
-    retried = service.retry_failed_film_build(attempt["attempt_id"], cli=cli)
+    trim_check = service._assert_local_video_trim_ranges
+    def reject_copied_invalid_range(item, authored=None):
+        if item["attempt_id"] != attempt["attempt_id"]:
+            raise HypitIntegrationError("画面截取超出原片范围")
+    monkeypatch.setattr(service, "_assert_local_video_trim_ranges", reject_copied_invalid_range)
+    blocked = service.retry_failed_film_build(attempt["attempt_id"], cli=cli)
+    assert blocked["authoring_status"] == "AUTHORING_FAILED"
+    assert blocked["retry_source"]["status"] == "AUTHORING_REPAIR_REQUIRED"
+    assert blocked["execution_status"] == "NOT_SUBMITTED"
+    assert cli.build_calls == 1
+    assert service.retry_failed_film_build(attempt["attempt_id"], cli=cli)["attempt_id"] == blocked["attempt_id"]
+    with pytest.raises(HypitIntegrationError, match="checkpoint 尚未验证完成"):
+        service.validate_film_attempt(blocked["attempt_id"], "productions/easel-authoring/runs/main.svrun", cli=cli)
+    monkeypatch.setattr(service, "_assert_local_video_trim_ranges", trim_check)
+    service.begin_film_authoring(blocked["attempt_id"])
+    retried = service.complete_film_authoring(blocked["attempt_id"], cli=cli)
+    assert retried["retry_source"]["status"] == "READY"
     assert retried["attempt_id"] != attempt["attempt_id"]
     assert retried["authoring_status"] == "AUTHORING_READY"
     assert retried["material_gate"]["status"] == "MATERIAL_READY"
