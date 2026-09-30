@@ -44,6 +44,7 @@ from easel.materials.store import AttemptMaterialStore, AttemptMaterialStoreErro
 from easel.integrations.script_truth import (
     ScriptTruthError,
     apply_operator_script_review,
+    apply_system_script_review,
     create_script_claim_ledger,
     validate_script_claim_ledger,
 )
@@ -269,6 +270,7 @@ class PlanningIntegration:
         treatment: str,
         script: str,
         scenes: str,
+        script_assessment: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if plan.creation_id != attempt.get("creation_id") or plan.attempt_id != attempt.get("attempt_id"):
             raise MaterialIntegrationError("MaterialPlan identity does not match Attempt")
@@ -305,6 +307,8 @@ class PlanningIntegration:
         truth_path = root / "handoff" / "truth-packet.json"
         try:
             review = create_script_claim_ledger(script, truth_path)
+            if script_assessment is not None:
+                review = apply_system_script_review(script, truth_path, review, script_assessment)
         except ScriptTruthError as exc:
             raise MaterialIntegrationError(str(exc)) from exc
         review_path = root / "planning" / "script-claims.json"
@@ -312,7 +316,9 @@ class PlanningIntegration:
             raise MaterialIntegrationError("Script claim ledger path must not contain symlinks")
         if review_path.is_file():
             try:
-                review = validate_script_claim_ledger(script, truth_path, json.loads(review_path.read_text(encoding="utf-8")))
+                existing_review = validate_script_claim_ledger(script, truth_path, json.loads(review_path.read_text(encoding="utf-8")))
+                if existing_review["status"] == "PASSED" or script_assessment is None:
+                    review = existing_review
             except (OSError, ValueError, ScriptTruthError):
                 pass  # Changed script/truth must receive a fresh review ledger.
         review_path.parent.mkdir(parents=True, exist_ok=True)
@@ -450,8 +456,10 @@ class PlanningIntegration:
             "truth_review_status": updated_ledger["status"],
             "truth_ledger_sha256": updated_ledger["ledger_sha256"],
             "truth_claim_count": len(updated_ledger["claims"]),
-            "truth_reviewed_at": updated_ledger["claims"][0]["review"]["reviewed_at"]
-            if updated_ledger["claims"] and updated_ledger["claims"][0].get("review") else None,
+            "truth_reviewed_at": max((row["review"]["reviewed_at"] for row in updated_ledger["claims"]
+                                      if isinstance(row.get("review"), dict)
+                                      and row["review"].get("reviewer") == reviewer
+                                      and isinstance(row["review"].get("reviewed_at"), str)), default=None),
         })
         updated_attempt = _update_attempt(
             attempt, material_planning=material_planning,
@@ -1614,6 +1622,7 @@ class MaterialProductOrchestrator:
                 treatment=planning.get("treatment", ""),
                 script=planning.get("script", ""),
                 scenes=planning.get("scenes", ""),
+                script_assessment=planning.get("script_assessment"),
             )
         attempt = planning["attempt"]
         # Persist binds execution defaults and Voice text identity. Supply must

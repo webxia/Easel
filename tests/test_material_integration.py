@@ -79,6 +79,20 @@ def _observed_semantic(description: str) -> SemanticInfo:
 
 @pytest.fixture
 def material_integration_env(tmp_path, monkeypatch):
+    from easel.runtime_config import EaselRuntimeConfig
+
+    load_config = EaselRuntimeConfig.load
+    monkeypatch.setattr(EaselRuntimeConfig, "load", classmethod(lambda cls: load_config(
+        environ={"EASEL_MATERIAL_LIBRARY_ROOT": str(tmp_path / "material-library")},
+        env_file=tmp_path / "absent.env")))
+
+    def local_registry(roots):
+        registry = material_supply_module.ProviderRegistry()
+        if roots:
+            registry.register(LocalProvider(tuple(roots)))
+        return registry, ()
+
+    monkeypatch.setattr(material_supply_module, "product_provider_registry", local_registry)
     outputs = tmp_path / "outputs"
     modes = tmp_path / "creative_modes"
     mode_dir = modes / "clear_memo_video"

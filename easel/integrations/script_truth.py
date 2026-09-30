@@ -23,6 +23,7 @@ _DIRECTION_SECTION = re.compile(r"^(?:不写的内容|备注|制作约束|镜头
 _MAX_SCRIPT_BYTES = 128 * 1024
 _MAX_TRUTH_BYTES = 256 * 1024
 _MAX_UNITS = 1000
+_SYSTEM_REVIEWER = "easel_script_review"
 
 
 class ScriptTruthError(ValueError):
@@ -145,6 +146,79 @@ def create_script_claim_ledger(script: str, truth_path: Path) -> dict[str, Any]:
     return ledger
 
 
+def system_review_sources(truth_path: Path) -> dict[str, str]:
+    """Available frozen evidence; an external URL or model inference is not a source body."""
+    _, truth = _read_truth(truth_path)
+    sources = {ref: quote for quote, ref in _verbatim_evidence(truth).items()
+               if ".claims[" in ref}
+    for index, fact in enumerate(truth["personal_facts"]):
+        if (isinstance(fact, dict) and fact.get("public_allowed") is True
+                and fact.get("source") in {"profile", "user_statement"}
+                and isinstance(fact.get("fact"), str) and fact["fact"].strip()):
+            sources[f"truth_packet.personal_facts[{index}]"] = fact["fact"]
+    return sources
+
+
+def _validate_system_decision(decision: dict, claim_id: str, sources: dict[str, str]) -> str:
+    if (not isinstance(decision, dict) or set(decision) != {"claim_id", "kind", "reason", "sources"}
+            or decision.get("claim_id") != claim_id
+            or decision.get("kind") not in {"supported_paraphrase", "creative_expression", "rewrite_required", "unresolved"}
+            or not isinstance(decision.get("reason"), str) or not decision["reason"].strip()
+            or len(decision["reason"]) > 2000):
+        raise ScriptTruthError("系统 Script 审阅必须逐项说明判断及依据")
+    references = decision["sources"]
+    if not isinstance(references, list) or len(references) > 20:
+        raise ScriptTruthError("系统 Script 审阅的来源列表无效")
+    for source in references:
+        if (not isinstance(source, dict) or set(source) != {"ref", "quote"}
+                or not isinstance(source.get("ref"), str) or source["ref"] not in sources
+                or source.get("quote") != sources[source["ref"]]):
+            raise ScriptTruthError("系统 Script 审阅引用了不存在、不可公开或不匹配的冻结依据")
+    kind = decision["kind"]
+    if kind == "supported_paraphrase" and not references:
+        raise ScriptTruthError("事实改写必须引用冻结依据，不能以模型判断代替来源")
+    if kind == "creative_expression" and references:
+        raise ScriptTruthError("创作表达与事实改写必须分别归类")
+    return "REVIEW_REQUIRED" if kind in {"unresolved", "rewrite_required"} else "SYSTEM_REVIEWED"
+
+
+def apply_system_script_review(script: str, truth_path: Path, ledger: dict[str, Any],
+                               report: dict[str, Any]) -> dict[str, Any]:
+    """Apply an executed semantic review, distinct from exact evidence and human acceptance.
+
+    This validates provenance and coverage, not semantic entailment. The reviewer
+    must read the full Script/Truth and classify factual assertions honestly.
+    """
+    current = validate_script_claim_ledger(script, truth_path, ledger)
+    if (not isinstance(report, dict)
+            or set(report) != {"schema", "script_sha256", "truth_packet_sha256", "decisions"}
+            or report.get("schema") != "easel-script-assessment@1"
+            or any(report.get(key) != current[key] for key in ("script_sha256", "truth_packet_sha256"))):
+        raise ScriptTruthError("系统 Script 审阅未绑定当前脚本和事实底稿")
+    decisions = report["decisions"]
+    unresolved = {row["claim_id"] for row in current["claims"] if row["status"] == "REVIEW_REQUIRED"}
+    if (not isinstance(decisions, list) or len(decisions) != len(unresolved)
+            or any(not isinstance(item, dict) or not isinstance(item.get("claim_id"), str) for item in decisions)
+            or {item["claim_id"] for item in decisions} != unresolved):
+        raise ScriptTruthError("系统 Script 审阅必须覆盖全部待判断表述，不能遗漏或重复")
+    evidence = system_review_sources(truth_path)
+    by_id = {item["claim_id"]: item for item in decisions}
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+    # Copy after validation; a rejected report must not partially mutate evidence.
+    current = json.loads(json.dumps(current))
+    for row in current["claims"]:
+        if row["claim_id"] not in by_id:
+            continue
+        decision = by_id[row["claim_id"]]
+        row["status"] = _validate_system_decision(decision, row["claim_id"], evidence)
+        row["review"] = {"reviewer": _SYSTEM_REVIEWER, "decision": decision,
+                         "script_sha256": current["script_sha256"],
+                         "truth_packet_sha256": current["truth_packet_sha256"], "reviewed_at": reviewed_at}
+    current["status"] = "REVIEW_REQUIRED" if any(row["status"] == "REVIEW_REQUIRED" for row in current["claims"]) else "PASSED"
+    current["ledger_sha256"] = _canonical_digest(current)
+    return validate_script_claim_ledger(script, truth_path, current)
+
+
 def validate_script_claim_ledger(script: str, truth_path: Path, ledger: dict[str, Any]) -> dict[str, Any]:
     """Validate current bytes, full text coverage, permitted dispositions, and stored digest."""
     expected = create_script_claim_ledger(script, truth_path)
@@ -157,9 +231,12 @@ def validate_script_claim_ledger(script: str, truth_path: Path, ledger: dict[str
     rows = ledger.get("claims")
     if not isinstance(rows, list) or len(rows) != len(expected["claims"]):
         raise ScriptTruthError("Script claim ledger does not cover every review unit")
+    system_sources = system_review_sources(truth_path) if any(
+        isinstance(row, dict) and isinstance(row.get("review"), dict)
+        and row["review"].get("reviewer") == _SYSTEM_REVIEWER for row in rows) else {}
     allowed = {
         "TRUTH_SUPPORTED", "FICTION_MARKED", "AUTO_REVIEWED", "REVIEW_REQUIRED",
-        "HUMAN_REVIEWED", "DELEGATE_REVIEWED",
+        "HUMAN_REVIEWED", "DELEGATE_REVIEWED", "SYSTEM_REVIEWED",
     }
     for actual, base in zip(rows, expected["claims"], strict=True):
         if not isinstance(actual, dict) or any(actual.get(key) != base.get(key) for key in (
@@ -178,10 +255,20 @@ def validate_script_claim_ledger(script: str, truth_path: Path, ledger: dict[str
                     or review.get("rule") != "non-claim-directive-v1"):
                 raise ScriptTruthError("Deterministic Script direction review evidence is invalid")
         if base["status"] == "REVIEW_REQUIRED" and status not in {
-            "REVIEW_REQUIRED", "HUMAN_REVIEWED", "DELEGATE_REVIEWED",
+            "REVIEW_REQUIRED", "HUMAN_REVIEWED", "DELEGATE_REVIEWED", "SYSTEM_REVIEWED",
         }:
             raise ScriptTruthError("Unresolved Script claim cannot be auto-promoted")
-        if base["status"] == "REVIEW_REQUIRED" and status in {"HUMAN_REVIEWED", "DELEGATE_REVIEWED"}:
+        review = actual.get("review")
+        if base["status"] == "REVIEW_REQUIRED" and (status == "SYSTEM_REVIEWED"
+                or isinstance(review, dict) and review.get("reviewer") == _SYSTEM_REVIEWER):
+            if (not isinstance(review, dict) or review.get("reviewer") != _SYSTEM_REVIEWER
+                    or review.get("script_sha256") != expected["script_sha256"]
+                    or review.get("truth_packet_sha256") != expected["truth_packet_sha256"]
+                    or not isinstance(review.get("reviewed_at"), str)
+                    or _validate_system_decision(review.get("decision"), base["claim_id"],
+                                                  system_sources) != status):
+                raise ScriptTruthError("系统 Script 审阅证据无效或已过期")
+        elif base["status"] == "REVIEW_REQUIRED" and status in {"HUMAN_REVIEWED", "DELEGATE_REVIEWED"}:
             review = actual.get("review")
             expected_reviewer = "local_operator" if status == "HUMAN_REVIEWED" else "codex_delegate"
             if (not isinstance(review, dict) or review.get("reviewer") != expected_reviewer
@@ -194,7 +281,7 @@ def validate_script_claim_ledger(script: str, truth_path: Path, ledger: dict[str
         elif status == "REVIEW_REQUIRED" and actual.get("review") is not None:
             raise ScriptTruthError("Unreviewed Script claim contains unexpected review evidence")
     expected_status = "PASSED" if all(row["status"] in {
-        "TRUTH_SUPPORTED", "FICTION_MARKED", "AUTO_REVIEWED", "HUMAN_REVIEWED", "DELEGATE_REVIEWED",
+        "TRUTH_SUPPORTED", "FICTION_MARKED", "AUTO_REVIEWED", "HUMAN_REVIEWED", "DELEGATE_REVIEWED", "SYSTEM_REVIEWED",
     }
                                        for row in rows) else "REVIEW_REQUIRED"
     if ledger.get("status") != expected_status or ledger.get("ledger_sha256") != _canonical_digest(ledger):

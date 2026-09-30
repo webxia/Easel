@@ -5,6 +5,7 @@ import pytest
 from easel.integrations.script_truth import (
     ScriptTruthError,
     apply_operator_script_review,
+    apply_system_script_review,
     create_script_claim_ledger,
     validate_script_claim_ledger,
 )
@@ -169,4 +170,56 @@ def test_duplicate_extra_and_invalid_source_reference_entries_are_rejected(tmp_p
 
 def test_lexical_overlap_alone_does_not_establish_truth_support(tmp_path):
     ledger = create_script_claim_ledger("团队可能在未来做过这个项目。", _truth(tmp_path))
+    assert ledger["claims"][0]["status"] == "REVIEW_REQUIRED"
+
+
+def test_system_review_distinguishes_paraphrase_expression_and_missing_facts(tmp_path):
+    path = _truth(tmp_path)
+    script = "我参与过团队的这个项目。先看清问题，再决定往哪走。该公司在 2012 年成立。"
+    ledger = create_script_claim_ledger(script, path)
+    report = {"schema": "easel-script-assessment@1", "script_sha256": ledger["script_sha256"],
+              "truth_packet_sha256": ledger["truth_packet_sha256"], "decisions": [
+        {"claim_id": "claim-0001", "kind": "supported_paraphrase", "reason": "仅改写已陈述的团队项目经历，未增加结果或身份。",
+         "sources": [{"ref": "truth_packet.claims[0]", "quote": "我在团队做过这个项目。"}]},
+        {"claim_id": "claim-0002", "kind": "creative_expression", "reason": "表达选择与行动的主观取向，不断言现实成效。", "sources": []},
+        {"claim_id": "claim-0003", "kind": "unresolved", "reason": "委托要求介绍该公司，但底稿没有成立年份依据。", "sources": []},
+    ]}
+    reviewed = apply_system_script_review(script, path, ledger, report)
+    assert [row["status"] for row in reviewed["claims"]] == ["SYSTEM_REVIEWED", "SYSTEM_REVIEWED", "REVIEW_REQUIRED"]
+    assert reviewed["status"] == "REVIEW_REQUIRED"
+    assert all(row["review"] is None for row in ledger["claims"])
+    assert validate_script_claim_ledger(script, path, reviewed) == reviewed
+    human = apply_operator_script_review(script, path, reviewed, confirm_all_claims_reviewed=True,
+        expected_script_sha256=ledger["script_sha256"], expected_truth_packet_sha256=ledger["truth_packet_sha256"])
+    assert [row["status"] for row in human["claims"]] == ["SYSTEM_REVIEWED", "SYSTEM_REVIEWED", "HUMAN_REVIEWED"]
+    assert human["status"] == "PASSED"
+    assert validate_script_claim_ledger(script, path, human) == human
+    with pytest.raises(ScriptTruthError, match="stale"):
+        validate_script_claim_ledger(script + "新事实。", path, reviewed)
+
+
+@pytest.mark.parametrize("invalid", ["missing_source", "wrong_quote", "private_fact", "stale", "missing_claim"])
+def test_system_review_cannot_replace_evidence_or_coverage_with_a_pass_flag(tmp_path, invalid):
+    path = _truth(tmp_path)
+    truth = json.loads(path.read_text())
+    truth["personal_facts"] = [{"source": "profile", "fact": "未公开的收入情况。", "public_allowed": False}]
+    path.write_text(json.dumps(truth))
+    script = "我参与过团队的这个项目。"
+    ledger = create_script_claim_ledger(script, path)
+    decision = {"claim_id": "claim-0001", "kind": "supported_paraphrase", "reason": "改写底稿中已给出的经历。",
+                "sources": [{"ref": "truth_packet.claims[0]", "quote": "我在团队做过这个项目。"}]}
+    report = {"schema": "easel-script-assessment@1", "script_sha256": ledger["script_sha256"],
+              "truth_packet_sha256": ledger["truth_packet_sha256"], "decisions": [decision]}
+    if invalid == "missing_source":
+        decision["sources"] = []
+    elif invalid == "wrong_quote":
+        decision["sources"][0]["quote"] = "我领导了这个团队。"
+    elif invalid == "private_fact":
+        decision["sources"] = [{"ref": "truth_packet.personal_facts[0]", "quote": "未公开的收入情况。"}]
+    elif invalid == "stale":
+        report["truth_packet_sha256"] = "0" * 64
+    else:
+        report["decisions"] = []
+    with pytest.raises(ScriptTruthError):
+        apply_system_script_review(script, path, ledger, report)
     assert ledger["claims"][0]["status"] == "REVIEW_REQUIRED"

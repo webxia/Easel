@@ -283,6 +283,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
     sourceSupported: scriptClaims.filter((claim) => claim.status === 'TRUTH_SUPPORTED').length,
     autoReviewed: scriptClaims.filter((claim) => claim.status === 'AUTO_REVIEWED' || claim.status === 'FICTION_MARKED').length,
     delegated: scriptClaims.filter((claim) => claim.status === 'DELEGATE_REVIEWED').length,
+    system: scriptClaims.filter((claim) => claim.status === 'SYSTEM_REVIEWED').length,
     human: scriptClaims.filter((claim) => claim.status === 'HUMAN_REVIEWED').length,
     pending: scriptClaims.filter((claim) => claim.status === 'REVIEW_REQUIRED').length,
   };
@@ -728,6 +729,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
           {scriptClaims.filter((claim) => claim.status === 'REVIEW_REQUIRED').map((claim) =>
             <div className="film-op-review-claim" key={text(claim.claim_id)}>
               <strong>{text(claim.text)}</strong>
+              {typeof record(record(claim.review).decision).reason === 'string' && <small>尚需处理：{text(record(record(claim.review).decision).reason)}</small>}
               {typeof claim.evidence_quote === 'string' && <small>参考依据：{claim.evidence_quote}</small>}
             </div>)}
           {typeof scriptTruth?.script === 'string' && <details><summary>查看完整内容</summary><pre>{scriptTruth.script}</pre></details>}
@@ -1106,13 +1108,14 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
             <div><span>待处理事实</span><strong>{scriptReviewCounts.pending}</strong></div>
             <div><span>已自动分类</span><strong>{scriptReviewCounts.autoReviewed}</strong></div>
             <div><span>来源支持</span><strong>{scriptReviewCounts.sourceSupported}</strong></div>
+            <div><span>系统语义审阅</span><strong>{scriptReviewCounts.system}</strong></div>
             <div><span>Codex 委托复核</span><strong>{scriptReviewCounts.delegated}</strong></div>
             <div><span>人工复核</span><strong>{scriptReviewCounts.human}</strong></div>
           </div>
           {typeof scriptTruth?.script === 'string' && <details><summary>查看完整 SCRIPT（{scriptTruth.script.length.toLocaleString()} 字符）</summary><pre>{scriptTruth.script}</pre></details>}
           {scriptTruth && <details><summary>查看完整逐句审阅记录（{scriptClaims.length} 条）</summary><pre>{json(scriptClaims.map((claim) => ({
             claim_id: claim.claim_id, text: claim.text, classification: claim.classification,
-            status: claim.status, source_ref: claim.source_ref, evidence_quote: claim.evidence_quote,
+            status: claim.status, source_ref: claim.source_ref, evidence_quote: claim.evidence_quote, review: claim.review,
           })))}</pre></details>}
           {scriptTruth?.status === 'REVIEW_REQUIRED' && <>
             <label className="film-op-confirm">

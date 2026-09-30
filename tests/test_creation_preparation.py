@@ -613,7 +613,7 @@ def test_script_truth_operator_api_is_protected_hash_bound_and_resumes(prep_env,
 
     def unclassified_planning(attempt, context):
         result = _test_planning_executor(attempt, context)
-        result["script"] = "这家公司成立于 2012 年。"
+        result["script"] = "画面：桌面上放着笔记本。\n这家公司成立于 2012 年。"
         return result
 
     result = _prepare_creation(
@@ -655,10 +655,102 @@ def test_script_truth_operator_api_is_protected_hash_bound_and_resumes(prep_env,
 
     assert stale.status_code == 400
     assert accepted.status_code == 200
-    assert accepted.json()["script_truth"]["claims"][0]["status"] == "DELEGATE_REVIEWED"
-    assert accepted.json()["script_truth"]["claims"][0]["review"]["reviewer"] == "codex_delegate"
+    assert accepted.json()["script_truth"]["claims"][0]["status"] == "AUTO_REVIEWED"
+    assert accepted.json()["script_truth"]["claims"][1]["status"] == "DELEGATE_REVIEWED"
+    assert accepted.json()["script_truth"]["claims"][1]["review"]["reviewer"] == "codex_delegate"
     assert accepted.json()["preparation"]["status"] == "READY_FOR_EXTERNAL_AUTHORING"
     assert authoring_starts == [result["attempt_id"]]
+
+
+@pytest.mark.parametrize("repair_succeeds", [True, False])
+def test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_review(prep_env, monkeypatch, repair_succeeds):
+    from easel.creation_delivery import DeliveryExecutionUncertain
+    from easel.integrations.material_layer import PlanningIntegration
+    from easel.integrations.material_supply import ProductMaterialSupply
+
+    work = _confirmed_delivery()
+    claimed = prep.claim_chat_preparation(work["id"], f"delivery:{work['id']}", work["delivery"]["confirmed_by_turn"])
+    write_drafts(work, prep.preparation_paths(work["id"], claimed["operation_key"])["draft"])
+    calls = []
+    root = None
+
+    def agent(message, *_args):
+        nonlocal root
+        if message.startswith("〔Easel Material Creative Planning V1〕"):
+            calls.append("plan")
+            root = Path(re.search(r"^Attempt workspace: (.+)$", message, re.MULTILINE)[1])
+            attempt_id = re.search(r"^Attempt ID: (.+)$", message, re.MULTILINE)[1]
+            refs = json.loads(re.search(r"^context_refs: (.+)$", message, re.MULTILINE)[1])
+            planning = _test_planning_executor({"attempt_id": attempt_id, "creation_id": work["id"]},
+                                               {"context_refs": refs})
+            for name, value in {"MATERIAL_PLAN.json": planning["plan"].model_dump_json(),
+                                "TREATMENT.md": planning["treatment"], "SCENES.md": planning["scenes"],
+                                "SCRIPT.md": "我去年在公司推行了这个方法。"}.items():
+                (root / "planning" / name).write_text(value)
+        elif message.startswith("〔Easel Script 系统审阅〕"):
+            calls.append("assess")
+            report_path = Path(re.search(r"只写 (.+\.json)，JSON 结构", message)[1])
+            report = json.loads(message.split("（逐项替换判断，不增加字段）：\n", 1)[1].split("\n写入后停止。", 1)[0])
+            is_rewritten = "我更愿意" in (root / "planning/SCRIPT.md").read_text()
+            for decision in report["decisions"]:
+                decision.update(kind="creative_expression" if is_rewritten else "rewrite_required",
+                                reason="这是主观选择，不声称实际成效。" if is_rewritten else "公司经历没有来源，应删除自行添加的亲历。")
+            report_path.write_text(json.dumps(report))
+        elif message.startswith("〔Easel Planning：修正系统自行引入的事实问题〕"):
+            calls.append("rewrite")
+            (root / "planning/SCRIPT.md").write_text("我更愿意先看清问题，再决定下一步。" if repair_succeeds
+                                                   else "我后来在公司实现了百分之十的增长。")
+            # The adapter's same-run reconciliation is covered separately.
+            # Here the completed rewrite outlives its caller before Planning
+            # can persist a ledger, exercising durable repair accounting.
+            if calls.count("rewrite") == 1:
+                raise DeliveryExecutionUncertain("模拟修正结束但调用方未收到完成响应")
+        else:
+            pytest.fail("unexpected model phase")
+        return ""
+
+    supplied = []
+    native_supply = ProductMaterialSupply.run
+
+    def supply(self, plan, attempt, **kwargs):
+        ledger = PlanningIntegration().load(attempt)["truth_ledger"]
+        assert ledger["status"] == "PASSED"
+        assert [row["status"] for row in ledger["claims"]] == ["SYSTEM_REVIEWED"]
+        supplied.append(plan)
+        return native_supply(self, plan, attempt, **kwargs)
+
+    monkeypatch.setattr(web, "run_agent_sync", agent)
+    monkeypatch.setattr(web, "_hypit_runtime_profile", lambda: None)
+    monkeypatch.setattr(ProductMaterialSupply, "run", supply)
+    with pytest.raises(DeliveryExecutionUncertain):
+        asyncio.run(web._execute_creation_delivery("prepare", creation.get_creation(work["id"])))
+    assert not supplied
+    saved = creation.get_creation(work["id"])
+    assert len(next(iter(saved["delivery"]["script_repairs"].values()))) == 1
+    if repair_succeeds:
+        asyncio.run(web._execute_creation_delivery("prepare", saved))
+    else:
+        with pytest.raises(prep.PreparationError, match="修正次数已用完"):
+            asyncio.run(web._execute_creation_delivery("prepare", saved))
+    saved = creation.get_creation(work["id"])
+    assert saved["preparation"]["status"] == ("MATERIAL_NOT_READY" if repair_succeeds else "MATERIAL_FAILED")
+    assert calls == ["plan", "assess", "rewrite", "assess"]
+    assert len(supplied) == (1 if repair_succeeds else 0)
+    assert len(saved["hypit_attempts"]) == 1
+    if not repair_succeeds:
+        from easel.creation_delivery import retry_delivery, MAX_FAILURES
+        attempt_id = saved["hypit_attempts"][-1]["attempt_id"]
+        failure_key = f"{attempt_id}:prepare"
+        with creation.edit_creation(work["id"]) as current:
+            current["delivery"].update(status="failed", exhausted_operation=failure_key,
+                                        failures={failure_key: MAX_FAILURES})
+        retried = retry_delivery(work["id"])
+        assert retried["delivery"]["script_repair_rounds"][attempt_id] == 1
+        assert attempt_id not in retried["delivery"]["script_repairs"]
+        repair_succeeds = True
+        asyncio.run(web._execute_creation_delivery("prepare", retried))
+        assert calls.count("rewrite") == 2
+        assert len(supplied) == 1
 
 
 def test_configured_local_material_root_runs_product_gate_before_authoring(prep_env, monkeypatch):

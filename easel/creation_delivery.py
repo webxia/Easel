@@ -160,6 +160,11 @@ def retry_delivery(creation_id: str) -> dict[str, Any]:
             raise creation.CreationError("上一次执行结果尚未核实，不能重复派发")
         if failure_key:
             record.setdefault("failures", {}).pop(failure_key, None)
+            attempt_id = _attempt(work).get("attempt_id")
+            if (failure_key == f"{attempt_id}:prepare"
+                    and record.get("script_repairs", {}).pop(attempt_id, None)):
+                rounds = record.setdefault("script_repair_rounds", {})
+                rounds[attempt_id] = rounds.get(attempt_id, 0) + 1
             record.update(status="pending", operation=None, exhausted_operation=None, last_error=None)
     return creation.get_creation(creation_id)
 
