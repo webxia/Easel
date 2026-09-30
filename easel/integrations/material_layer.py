@@ -1285,6 +1285,7 @@ class MaterialProductOrchestrator:
         """List byte-verified assets in the current Plan/Bundle for factual Rights review."""
         from easel.integrations.hypit.service import get_film_attempt
         from easel.materials.application.matching import MaterialMatcher
+        from easel.materials.application.visual_observation import observed_match
 
         attempt = get_film_attempt(attempt_id)
         if attempt.get("material_planning", {}).get("status") != "PLANNING_READY":
@@ -1346,6 +1347,8 @@ class MaterialProductOrchestrator:
                     and self._bound_voice_generation(attempt, plan, need, asset, store)],
                 "semantic_reviewed_need_ids": [need.need_id for need in compatible_needs
                     if MaterialMatcher._creator_match_review(need, asset)],
+                "system_observed_need_ids": [need.need_id for need in compatible_needs
+                    if observed_match(need, asset) is True],
                 "reviewed": asset.rights.reviewed_at is not None,
             })
         return candidates
@@ -1386,10 +1389,7 @@ class MaterialProductOrchestrator:
     ) -> dict[str, Any]:
         """Bind a Creator observation to one visual or script-bound narration Asset."""
         from easel.integrations.hypit.service import get_film_attempt
-        from easel.materials.application.assembly import MaterialBundleAssembler
-        from easel.materials.application.dedup import MaterialDeduplicator
         from easel.materials.application.intelligence import IntelligenceStatus
-        from easel.materials.application.matching import MaterialMatcher
         from easel.materials.domain import SemanticAnnotation, SemanticField, SemanticInference
 
         if confirm_review is not True or not isinstance(observed_content, str) or len(observed_content.strip()) < 8:
@@ -1413,7 +1413,6 @@ class MaterialProductOrchestrator:
 
         store = AttemptMaterialStore(_workspace(attempt))
         bundle = store.read_bundle()
-        old_run = store.read_supply_run(bundle.supply_run_id)
         asset = store.read_asset(asset_id)
         if asset.file.sha256 != expected_sha256:
             raise MaterialIntegrationError("素材 SHA-256 已变化，请刷新后重新核验")
@@ -1440,17 +1439,31 @@ class MaterialProductOrchestrator:
         store.write_asset(asset.model_copy(update={
             "semantic": asset.semantic.model_copy(update={"inferences": retained + (inference,)}),
         }))
+        return self._recalculate_observed_materials(attempt, plan, bundle, store)
+
+    @staticmethod
+    def _recalculate_observed_materials(attempt, plan, bundle, store, *, require_scoped_visual=False) -> dict[str, Any]:
+        """Re-rank existing bytes; observation is never another supply request."""
+        from easel.materials.application.assembly import MaterialBundleAssembler
+        from easel.materials.application.dedup import MaterialDeduplicator
+        from easel.materials.application.matching import MaterialMatcher
+        from easel.materials.application.visual_observation import observed_match
+
+        old_run = store.read_supply_run(bundle.supply_run_id)
         assets = tuple(store.read_asset(item.asset_id) for item in bundle.assets)
         matcher = MaterialMatcher()
         deduplicator = MaterialDeduplicator(store)
         matches = []
         for current_need in plan.needs:
-            ranked = matcher.match(current_need, assets)
+            eligible = assets
+            if require_scoped_visual and current_need.media_type in {MediaType.IMAGE, MediaType.VIDEO}:
+                eligible = tuple(a for a in assets if observed_match(current_need, a) is True
+                                 or matcher._creator_match_review(current_need, a))
+            ranked = matcher.match(current_need, eligible)
             matches.extend(deduplicator.deduplicate_and_diversify(
                 ranked.matches, assets, top_k=3,
             ).shortlist)
-        digest = hashlib.sha256((need_id + "\0" + asset_id + "\0" + expected_sha256
-                                 + "\0" + observed_content.strip()).encode("utf-8")).hexdigest()[:16]
+        digest = hashlib.sha256("\n".join(asset.to_json() for asset in assets).encode()).hexdigest()[:16]
         now = datetime.now(timezone.utc)
         reviewed_run = SupplyRun(
             supply_run_id=f"match-{bundle.supply_run_id[-40:]}-{digest}",
@@ -1469,6 +1482,90 @@ class MaterialProductOrchestrator:
         updated = authoring["attempt"] if authoring else gate["attempt"]
         return {"material_status": gate["status"], "attempt": updated,
                 "readiness": readiness.model_dump(mode="json")}
+
+    def observe_visual_materials(self, attempt_id: str, *, executor) -> dict[str, Any]:
+        """System evidence on current candidates; no Provider or Rights mutation."""
+        from easel.integrations.hypit.service import get_film_attempt
+        from easel.materials.application.matching import MaterialMatcher
+        from easel.materials.application.visual_observation import (
+            apply_observation, prepare_observation, scoped_inference,
+        )
+
+        attempt = get_film_attempt(attempt_id)
+        plan = PlanningIntegration().load(attempt)["plan"]
+        store = AttemptMaterialStore(_workspace(attempt))
+        bundle = store.read_bundle()
+        candidates = self.material_rights_candidates(attempt_id)
+        verified = {c["asset_id"] for c in candidates}
+        matcher = MaterialMatcher()
+        batch_key = hashlib.sha256((MaterialReadinessCalculator.plan_revision(plan) + "\n"
+            + "\n".join(sorted(a.asset_id + ":" + a.file.sha256 for a in bundle.assets))).encode()).hexdigest()
+        batch_relative = f"materials/observations/batch-{batch_key}.json"
+        batch_path = _workspace(attempt) / batch_relative
+        if _has_symlink_components(_workspace(attempt), batch_path):
+            raise MaterialIntegrationError("素材观察路径无效")
+        if batch_path.is_file():
+            pairs = json.loads(batch_path.read_text())
+        else:
+            pairs = {}
+            for need in plan.needs:
+                if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
+                    continue
+                assets = [a for a in bundle.assets if a.asset_id in verified and a.media_type is need.media_type]
+                assets.sort(key=lambda a: (-matcher._soft_scores(need, a)[1], a.asset_id))
+                pairs[need.need_id] = [a.asset_id for a in assets[:3]]
+            # Freeze nominated candidates before the first model dispatch.
+            # New evidence must not reshuffle a resumed batch into more calls.
+            store.write_observation_record(f"batch-{batch_key}", pairs)
+        reports = []
+        for need in plan.needs:
+            if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
+                continue
+            selected = pairs.get(need.need_id, [])
+            if (not isinstance(selected, list) or len(selected) > 3 or len(set(selected)) != len(selected)
+                    or any(a not in verified for a in selected)):
+                raise MaterialIntegrationError("当前素材字节与已保存的观察候选不一致")
+            for asset_id in selected:
+                asset = store.read_asset(asset_id)
+                if matcher._creator_match_review(need, asset):
+                    continue
+                path = store.resolve_asset_locator(asset.file.path)
+                manifest, attachments = prepare_observation(need, asset, path)
+                relative = f"materials/observations/{manifest['input_sha256']}.json"
+                report_path = _workspace(attempt) / relative
+                if _has_symlink_components(_workspace(attempt), report_path):
+                    raise MaterialIntegrationError("素材观察路径无效")
+                if any(scoped_inference(need, asset, i, manifest["input_sha256"])
+                       for i in asset.semantic.inferences) and report_path.is_file():
+                    report = json.loads(report_path.read_text())
+                else:
+                    # Pending gateway calls escape to the durable owner. Never
+                    # turn an uncertain model run into a failed observation.
+                    report = executor(attempt, manifest, attachments)
+                    store.write_observation_record(manifest["input_sha256"], report)
+                current = store.read_asset(asset.asset_id)
+                if current.file != asset.file:
+                    raise MaterialIntegrationError("素材在观察期间发生变化，不能登记旧证据")
+                observed = apply_observation(need, current, manifest, report)
+                # Reusing valid evidence must not manufacture a new timestamp
+                # and bundle revision at every owner restart.
+                if not any(scoped_inference(need, current, i, manifest["input_sha256"])
+                           for i in current.semantic.inferences):
+                    store.write_asset(observed)
+                store.write_observation_record(manifest["input_sha256"] + ".input", manifest)
+                reports.append(relative)
+        current_attempt = get_film_attempt(attempt_id)
+        current_plan = PlanningIntegration().load(current_attempt)["plan"]
+        if current_plan != plan or store.read_bundle() != bundle:
+            raise MaterialIntegrationError("素材观察期间方案或候选发生变化；保留证据并重新核对")
+        result = self._recalculate_observed_materials(current_attempt, plan, bundle, store,
+                                                    require_scoped_visual=True)
+        result["attempt"] = _update_attempt(result["attempt"], material_observation={
+            "status": "COMPLETE", "plan_revision": result["attempt"]["material_gate"]["plan_revision"],
+            "bundle_revision": result["attempt"]["material_gate"]["bundle_revision"],
+            "reports": reports, "updated_at": creation._now(),
+        })
+        return result
 
     def review_material_rights(
         self,

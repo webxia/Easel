@@ -9,6 +9,7 @@ from typing import Any
 
 from easel.materials.application.intelligence import IntelligenceStatus
 from easel.materials.application.rights import RightsAdmissionStatus, RightsService
+from easel.materials.application.visual_observation import PREFIX, observed_match, scoped_inference
 from easel.materials.domain import (
     MaterialAsset,
     MaterialMatch,
@@ -159,13 +160,13 @@ class MaterialMatcher:
                 failures.append("max_duration_not_met")
 
         if constraints.get("logo") is False:
-            logos = self._annotations(asset, SemanticField.LOGO)
+            logos = self._annotations(asset, SemanticField.LOGO, need)
             if not logos:
                 failures.append("logo_presence_unknown")
             elif any(self._is_present(item.value) for item in logos):
                 failures.append("logo_forbidden")
         if constraints.get("text_in_frame") is False:
-            texts = self._annotations(asset, SemanticField.VISIBLE_TEXT)
+            texts = self._annotations(asset, SemanticField.VISIBLE_TEXT, need)
             if not texts:
                 failures.append("visible_text_unknown")
             elif any(self._is_present(item.value) for item in texts):
@@ -197,6 +198,8 @@ class MaterialMatcher:
             elif isinstance(value, (tuple, list)):
                 corpus_by_field[SemanticField(key)].extend(item for item in value if isinstance(item, str))
         for inference in asset.semantic.inferences:
+            if inference.analyzer_id.startswith(PREFIX) and not scoped_inference(need, asset, inference):
+                continue
             if inference.status not in {IntelligenceStatus.COMPLETE, IntelligenceStatus.PARTIAL}:
                 continue
             for annotation in inference.annotations:
@@ -207,7 +210,8 @@ class MaterialMatcher:
         query = self._tokens(need.intent.description)
         semantic_corpus = self._tokens(" ".join(value for values in corpus_by_field.values() for value in values))
         semantic = self._jaccard(query, semantic_corpus) if semantic_corpus else None
-        if self._creator_match_review(need, asset):
+        system_observed = observed_match(need, asset) is True
+        if self._creator_match_review(need, asset) or system_observed:
             semantic = 1.0
 
         preferred_style = need.constraints.get("preferred_style")
@@ -233,7 +237,8 @@ class MaterialMatcher:
         present = [(score, weight) for score, weight in weighted if score is not None]
         total = sum(score * weight for score, weight in present) / sum(weight for _, weight in present) if present else 0.0
         reasons = tuple(
-            [f"semantic_overlap={semantic:.3f}" if semantic is not None else "semantic_evidence=absent"]
+            ["system_visual_match=suitable" if system_observed else
+             f"semantic_overlap={semantic:.3f}" if semantic is not None else "semantic_evidence=absent"]
             + ([f"director_style_overlap={director:.3f}"] if director is not None else [])
             + ([f"continuity_overlap={continuity:.3f}"] if continuity is not None else [])
             + ([f"technical_quality={quality:.3f}"] if quality is not None else [])
@@ -243,6 +248,9 @@ class MaterialMatcher:
     def _observed_semantic_overlap(self, need: MaterialNeed, asset: MaterialAsset) -> bool:
         if self._creator_match_review(need, asset):
             return True
+        observed = observed_match(need, asset)
+        if observed is not None:
+            return observed
         query = self._tokens(need.intent.description)
         if not query:
             return False
@@ -285,9 +293,11 @@ class MaterialMatcher:
         return sum(signals) / len(signals) if signals else None
 
     @staticmethod
-    def _annotations(asset: MaterialAsset, field: SemanticField):
+    def _annotations(asset: MaterialAsset, field: SemanticField, need: MaterialNeed):
         results = []
         for inference in asset.semantic.inferences:
+            if inference.analyzer_id.startswith(PREFIX) and not scoped_inference(need, asset, inference):
+                continue
             if inference.status in {IntelligenceStatus.COMPLETE, IntelligenceStatus.PARTIAL}:
                 results.extend(annotation for annotation in inference.annotations
                                if annotation.field is field and annotation.evidence

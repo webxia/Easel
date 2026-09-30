@@ -120,6 +120,12 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     if execution == "CANCELLED":
         return None, "stopped"
     gate = attempt.get("material_gate") or {}
+    if gate.get("bundle_revision") and gate.get("status") in {"MATERIAL_READY", "MATERIAL_NOT_READY"}:
+        observed = attempt.get("material_observation") or {}
+        if (observed.get("status") != "COMPLETE"
+                or observed.get("bundle_revision") != gate.get("bundle_revision")
+                or observed.get("plan_revision") != gate.get("plan_revision")):
+            return "observe_material", "observing_material"
     if gate.get("status") != "MATERIAL_READY":
         prep_status = (work.get("preparation") or {}).get("status")
         if (prep_status == "SCRIPT_TRUTH_REVIEW_REQUIRED"
@@ -242,7 +248,7 @@ async def advance_creation(
         except Exception as exc:
             with creation.edit_creation(creation_id) as current:
                 record = current["delivery"]
-                if operation in {"prepare", "author"} and isinstance(exc, (DeliveryExecutionUncertain, subprocess.TimeoutExpired)):
+                if operation in {"prepare", "author", "observe_material"} and isinstance(exc, (DeliveryExecutionUncertain, subprocess.TimeoutExpired)):
                     record.update(status="execution_uncertain", last_error=None,
                                   updated_at=creation._now())
                     return False

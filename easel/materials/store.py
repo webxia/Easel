@@ -60,6 +60,13 @@ class AttemptMaterialStore:
     def write_plan(self, plan: MaterialPlan) -> str:
         return self._write_model("materials/plan.json", plan)
 
+    def write_observation_record(self, record_id: str, record: dict) -> str:
+        """Atomically retain a visual input, report or nominated candidate batch."""
+        self._validate_id(record_id)
+        locator = f"materials/observations/{record_id}.json"
+        self._write_json(locator, record)
+        return locator
+
     def read_recovery_record(self, request_id: str) -> dict | None:
         self._validate_id(request_id)
         path = self._path(f"materials/recoveries/{request_id}.json")

@@ -673,6 +673,11 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     root = Path(attempt["workspace"]["path"])
     plan, asset, run, bundle, readiness, gaps = _contracts(attempt, root)
     attempt.update(MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)["attempt"])
+    observation_record = {"schema": "fixture-visual-report", "asset_sha256": asset.file.sha256}
+    observation_path = AttemptMaterialStore(root).write_observation_record("fixture-report", observation_record)
+    attempt.update(service.update_film_attempt(attempt["attempt_id"], event="fixture_observation",
+        material_observation={"status": "COMPLETE", "plan_revision": readiness.plan_revision,
+                              "bundle_revision": bundle.revision, "reports": [observation_path]}))
     attempt.update(ProductionAuthoringIntegration().prepare(attempt)["attempt"])
     service.begin_film_authoring(attempt["attempt_id"])
     _record_authored_selection(attempt, asset, root)
@@ -741,6 +746,9 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     assert retried["plan"]["status"] == "pending"
     assert retried["retry_source"]["build_id"] == "bld_retry_001"
     retried_store = AttemptMaterialStore(Path(retried["workspace"]["path"]))
+    assert json.loads((Path(retried["workspace"]["path"]) / observation_path).read_text()) == observation_record
+    assert retried["material_observation"]["plan_revision"] == retried["material_gate"]["plan_revision"]
+    assert retried["material_observation"]["bundle_revision"] == retried["material_gate"]["bundle_revision"]
     retried_bundle = retried_store.read_bundle()
     retried_supply = retried_store.read_supply_run(retried_bundle.supply_run_id)
     assert retried_supply.parent_run_id == run.supply_run_id
@@ -1764,3 +1772,97 @@ def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
     assert recovery.recover_materials(attempt["attempt_id"], **args)["recovery"]["reused"] is True
     with pytest.raises(MaterialIntegrationError, match="视频制作已开始"):
         recovery.recover_materials(attempt["attempt_id"], **{**args, "request_id": "new-after-build"})
+
+
+@pytest.mark.parametrize(('second_verdict', 'known_rights', 'expected'), [
+    ('unsuitable', True, 'MATERIAL_NOT_READY'),
+    ('suitable', True, 'MATERIAL_READY'),
+    ('suitable', False, 'MATERIAL_NOT_READY'),
+])
+def test_system_visual_observation_is_per_need_and_resumes_without_supply(
+        material_integration_env, monkeypatch, second_verdict, known_rights, expected):
+    import base64
+    import io
+    from easel.creation_delivery import DeliveryExecutionUncertain
+    from easel.materials.application.matching import MaterialMatcher
+    from easel.materials.application.visual_observation import SCHEMA, observed_match, prepare_observation
+    import web.app as webapp
+
+    attempt = material_integration_env
+    root = Path(attempt['workspace']['path'])
+    store = AttemptMaterialStore(root)
+    plan, asset, run, _, _, _ = _contracts(attempt, root)
+    first = plan.needs[0].model_copy(update={'constraints': {'preferred_style': 'quiet red', 'logo': False}})
+    second = first.model_copy(update={'need_id': 'another-scene', 'intent': NeedIntent(description='完全不同的内容')})
+    plan = plan.model_copy(update={'needs': (first, second)})
+    image = io.BytesIO()
+    Image.new('RGB', (32, 24), 'red').save(image, format='PNG')
+    data = image.getvalue()
+    locator = store.write_asset_bytes(asset.asset_id, 'actual.png', data)
+    asset = asset.model_copy(update={
+        'file': FileInfo(path=locator, sha256=hashlib.sha256(data).hexdigest(), size=len(data), mime='image/png'),
+        'semantic': SemanticInfo(caption=first.intent.description + second.intent.description),
+        'rights': asset.rights if known_rights else RightsInfo(status=RightsStatus.UNKNOWN),
+    })
+    store.write_asset(asset)
+    planning = PlanningIntegration().persist(attempt, plan, treatment='T', script='假设脚本内容。', scenes='S')
+    plan = planning['plan']
+    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), (), bundle_id='bundle-int-1')
+    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
+    MaterialGateIntegration().record(planning['attempt'], plan, bundle, run, readiness, gaps)
+    monkeypatch.setattr(material_supply_module.ProductMaterialSupply, 'run',
+                        lambda *a, **k: pytest.fail('observation must not acquire or generate material'))
+    calls = []
+    interrupted = False
+
+    def observe(message, timeout, session_id, *, attachments):
+        nonlocal interrupted
+        manifest = json.loads(message.split("输入：", 1)[1].split("\n", 1)[0])
+        assert '不请求 Provider/Hypit' in message
+        need_id = manifest['need']['need_id']
+        if need_id == second.need_id and not interrupted:
+            interrupted = True
+            raise DeliveryExecutionUncertain('same observation still running')
+        calls.append(need_id)
+        assert manifest['need']['constraints']['preferred_style'] == 'quiet red'
+        assert manifest['asset_sha256'] == asset.file.sha256
+        assert len(attachments) == 1
+        raw = base64.b64decode(attachments[0]['content'])
+        assert hashlib.sha256(raw).hexdigest() == manifest['frames'][0]['sha256']
+        with Image.open(io.BytesIO(raw)) as decoded:
+            assert decoded.getpixel((0, 0))[0] > 240  # actual bytes, not the provider title
+        verdict = 'suitable' if need_id == first.need_id else second_verdict
+        report = {'schema': SCHEMA, 'input_sha256': manifest['input_sha256'], 'verdict': verdict,
+                'caption': 'A red field', 'style': 'quiet red', 'reason': 'Fixed fixture visual assessment',
+                'logo_present': False, 'visible_text_present': False,
+                'frames': [{'index': 0, 'observed': True, 'related': verdict == 'suitable', 'description': 'red field'}]}
+        (root / 'materials/observations' / (manifest['input_sha256'] + '.json')).write_text(json.dumps(report))
+        return ''
+
+    monkeypatch.setattr(webapp, 'run_agent_sync', observe)
+    with pytest.raises(DeliveryExecutionUncertain):
+        MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames)
+    result = MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames)
+    assert calls == [first.need_id, second.need_id]
+    assert result['material_status'] == expected
+    assert result['attempt']['material_observation']['status'] == 'COMPLETE'
+    observed = store.read_asset(asset.asset_id)
+    assert observed.rights == asset.rights and observed.source == asset.source
+    assert observed.semantic.caption == asset.semantic.caption
+    assert len(observed.semantic.inferences) == 2
+    assert observed_match(first, observed) is True
+    assert observed_match(second, observed) is (second_verdict == 'suitable')
+    # Exact-looking metadata cannot override the independent negative judgment.
+    assert bool(MaterialMatcher().match(second, [observed]).matches) is (known_rights and second_verdict == 'suitable')
+    changed = first.model_copy(update={'constraints': {'preferred_style': 'new style'}})
+    assert observed_match(changed, observed) is False
+    assert not MaterialMatcher().match(changed, [observed]).matches
+    if expected == 'MATERIAL_READY':
+        assert result['attempt']['production_authoring']['status'] == 'PENDING_SELECTION'
+    candidates = MaterialProductOrchestrator().material_rights_candidates(attempt['attempt_id'])
+    assert candidates[0]['semantic_reviewed_need_ids'] == []
+    assert first.need_id in candidates[0]['system_observed_need_ids']
+    # A changed source cannot inherit an observation or be silently regenerated.
+    store.resolve_asset_locator(asset.file.path).write_bytes(b'changed')
+    with pytest.raises(ValueError, match='素材字节'):
+        prepare_observation(first, observed, store.resolve_asset_locator(asset.file.path))

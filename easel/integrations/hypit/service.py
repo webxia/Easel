@@ -717,6 +717,10 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
             for record in generation_root.glob("*/result.json"):
                 _copy_retry_checkpoint_file(source_root, target_root,
                                             record.relative_to(source_root))
+        observation_root = source_root / "materials/observations"
+        if observation_root.is_dir():
+            for record in observation_root.glob("*.json"):
+                _copy_retry_checkpoint_file(source_root, target_root, record.relative_to(source_root))
 
         new_bundle_id = f"bundle-{target['attempt_id'][-20:]}"
         new_run = supply_run.model_copy(update={
@@ -736,6 +740,14 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
         target = MaterialGateIntegration().record(
             target, new_plan, new_bundle, new_run, readiness, gaps,
         )["attempt"]
+        observation = source.get("material_observation") or {}
+        if (observation.get("status") == "COMPLETE"
+                and observation.get("plan_revision") == source["material_gate"]["plan_revision"]
+                and observation.get("bundle_revision") == bundle.revision
+                and new_plan.needs == plan.needs):
+            target = update_film_attempt(target["attempt_id"], event="build_retry_observation_reused",
+                material_observation={**observation, "plan_revision": readiness.plan_revision,
+                                      "bundle_revision": readiness.bundle_revision})
 
         selection_path = source_root / "productions/easel-authoring/material-selection.json"
         selection = json.loads(selection_path.read_text(encoding="utf-8"))

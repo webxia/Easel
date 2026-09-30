@@ -317,7 +317,8 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   useEffect(() => { setMusicObservation(''); }, [musicIdentity]);
   const visualPool = rightsCandidates.filter(item => ['image', 'video'].includes(String(item.media_type)));
   const selectedVisualNeeds = Array.from(new Map(visualPool.flatMap(item => Array.isArray(item.needs) ? item.needs.map(record) : [])
-    .filter(need => blockingNeedIds.includes(text(need.need_id)) && !visualPool.some(asset => Array.isArray(asset.semantic_reviewed_need_ids) && asset.semantic_reviewed_need_ids.includes(need.need_id)))
+    .filter(need => blockingNeedIds.includes(text(need.need_id)) && !visualPool.some(asset =>
+      [asset.semantic_reviewed_need_ids, asset.system_observed_need_ids].some(ids => Array.isArray(ids) && ids.includes(need.need_id))))
     .map(need => [text(need.need_id), need])).values());
   const selectedVisualNeed = selectedVisualNeeds.find(item => item.need_id === visualNeedId) ?? selectedVisualNeeds[0];
   const visualCandidates = visualPool.filter(item => Array.isArray(item.needs)
@@ -749,7 +750,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
         {phase === 'preparation-failed' && <p>{projection.failureReason}。已保留方案和成功阶段；将从当前准备记录恢复。付费操作仍需另行批准。</p>}
         {phase === 'preparation-failed' && <button className="btn btn-primary"
           disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重新准备素材</button>}
-        {phase === 'material' && rightsCandidatesLoaded && missingSupplyNeeds.length > 0 && <div className="film-op-review-claim">
+        {phase === 'material' && !projection.materialWorking && rightsCandidatesLoaded && missingSupplyNeeds.length > 0 && <div className="film-op-review-claim">
           <h3>任务：补充符合方案的素材</h3><p>这些需求尚无类型与来源都符合方案的候选，暂时不能进入视频制作。使用权复核不会改变素材来源。</p>
           {missingSupplyNeeds.map(need => <p key={text(need.need_id)}>
             {need.modality_kind === 'bgm' ? '配乐要求：无歌词器乐，音色与节奏须符合已确认的创作规划。' : `素材要求：${text(need.description)}。`}
@@ -795,7 +796,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
               });
             }}>{busy === '补充素材' ? '正在检索并检查缺失素材…' : '保留已有结果并补充素材'}</button>
         </details>}
-        {phase === 'material' && pendingVoiceNeed && <div className="film-op-review-claim">
+        {phase === 'material' && !projection.materialWorking && pendingVoiceNeed && <div className="film-op-review-claim">
           <h3>任务：准备整片旁白</h3>
           <p>{existingVoiceCandidate && !voiceRightsPending
             ? '已有旁白已保留；请记录实际试听结论，完成当前脚本与音频的匹配核对。'
@@ -872,7 +873,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
                 {busy === '生成素材' ? '正在生成旁白…' : '生成旁白素材'}
               </button></>}
         </div>}
-        {phase === 'material' && pendingMusicNeed && selectedMusic && <div className="film-op-review-claim">
+        {phase === 'material' && !projection.materialWorking && pendingMusicNeed && selectedMusic && <div className="film-op-review-claim">
           <h3>任务：核对配乐</h3>
           <p>要求：{text(pendingMusicNeed.description)}。只记录实际试听依据；使用权与署名条件另行检查。</p>
           <label>配乐候选<select className="field" value={text(selectedMusic.asset_id)}
@@ -894,7 +895,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
               setAttempt(record(result.attempt));
             })}>记录这一项配乐核对</button>
         </div>}
-        {phase === 'material' && visualCandidates.length > 0 && <div className="film-op-review-claim">
+        {phase === 'material' && !projection.materialWorking && visualCandidates.length > 0 && <div className="film-op-review-claim">
           <strong>核对画面是否真的符合场景</strong>
           <p>请查看素材预览，只确认你实际看见的内容。每个场景都单独核对；未确认的画面不会算作已覆盖。</p>
           <label>对应场景
@@ -935,7 +936,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
           <button className="btn btn-primary" disabled={!visualReviewReady || !!busy} onClick={submitVisualReview}>
             提交这一组画面核对</button>
         </div>}
-        {phase === 'material' && !voiceRightsPending && rightsReviewCandidates.length > 0 && <>
+        {phase === 'material' && !projection.materialWorking && !voiceRightsPending && rightsReviewCandidates.length > 0 && <>
         <section className="card film-op-card">
           <h3>任务：核对素材使用权</h3>
           {voiceRightsPending && <p>当前待复核：刚生成的 MiniMax 旁白音频。请核对该素材对应的使用条款和证据。</p>}

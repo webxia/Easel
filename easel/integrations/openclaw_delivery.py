@@ -67,10 +67,13 @@ def reconcile_agent_calls(creation_id: str, *, command_prefix: Sequence[str], pr
         _observe_payload(creation_id, key, payload)
 
 
-def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.run, **kwargs):
+def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.run,
+                       attachments: list[dict] | None = None, **kwargs):
     """Replacement for an agent CLI call, retaining the existing file executor."""
     creation_id = active_delivery.get()
     if not creation_id:
+        if attachments:
+            raise ValueError("视觉观察必须属于已确认的持续交付委托")
         return runner(command, **kwargs)
     args = list(command)
     if "--message" not in args or "--agent" not in args:
@@ -85,6 +88,12 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
     request = {"message": flag("--message"), "agentId": flag("--agent"),
                "sessionKey": flag("--session-key"), "thinking": flag("--thinking", "high"),
                "timeout": int(flag("--timeout", "600")), "deliver": False}
+    if attachments:
+        # Installed AgentParamsSchema + normalizeRpcAttachmentsToChatAttachments:
+        # type/mimeType/fileName/content(base64), not paths or remote URLs.
+        request["attachments"] = attachments
+    if attachments and len(json.dumps(request, ensure_ascii=False).encode()) > 110_000:
+        raise ValueError("编排输入超过本地网关传输上限，未提交执行")
     if flag("--session-id"):
         request["sessionId"] = flag("--session-id")
     digest = hashlib.sha256(json.dumps({"profile": profile, **request}, sort_keys=True,

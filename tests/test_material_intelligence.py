@@ -149,3 +149,53 @@ def test_audio_asset_is_explicitly_skipped_by_visual_intelligence(tmp_path: Path
 
     assert result.semantic.intelligence_status is IntelligenceStatus.DISABLED
     assert result.semantic.intelligence_error == "media_type_not_supported"
+
+
+def test_video_observation_retains_actual_sample_times_and_does_not_extrapolate(tmp_path, monkeypatch):
+    import hashlib
+    import subprocess
+    import pytest
+    from easel.materials.application.matching import MaterialMatcher
+    from easel.materials.application.visual_observation import prepare_observation, apply_observation, observed_match, SCHEMA
+    from easel.materials.domain import MaterialNeed, NeedScope, NeedScopeType, NeedIntent, NeedImportance
+
+    store = AttemptMaterialStore(tmp_path)
+    base = _asset(store)
+    video = tmp_path / 'sample.mp4'
+    subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-f', 'lavfi', '-i', 'color=c=red:s=64x64:r=10:d=1',
+                    '-f', 'lavfi', '-i', 'color=c=blue:s=64x64:r=10:d=1',
+                    '-filter_complex', '[0:v][1:v]concat=n=2:v=1:a=0[v]', '-map', '[v]',
+                    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', str(video)], check=True, timeout=30, capture_output=True)
+    data = video.read_bytes()
+    asset = base.model_copy(update={'media_type': MediaType.VIDEO,
+        'file': FileInfo(path='sample.mp4', sha256=hashlib.sha256(data).hexdigest(), size=len(data), mime='video/mp4'),
+        'technical': TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=2, width=64, height=64)})
+    need = MaterialNeed(need_id='late-subject', scope=NeedScope(type=NeedScopeType.SCENE, ref='s1'),
+        media_type=MediaType.VIDEO, role='primary_visual', intent=NeedIntent(description='blue field'),
+        importance=NeedImportance.REQUIRED, constraints={'logo': False})
+    manifest, attachments = prepare_observation(need, asset, video)
+    assert manifest['coverage'] == 'sampled_frames'
+    assert len(attachments) == 5
+    assert [frame['seek_seconds'] for frame in manifest['frames']] == [0, .475, .95, 1.425, 1.9]
+    assert manifest['frames'][0]['sha256'] != manifest['frames'][-1]['sha256']
+    report = {'schema': SCHEMA, 'input_sha256': manifest['input_sha256'], 'verdict': 'partial',
+              'caption': 'blue appears in the second half', 'style': 'quiet color', 'reason': 'late subject',
+              'logo_present': False, 'visible_text_present': False,
+              'frames': [{'index': i, 'observed': True, 'related': i >= 3,
+                          'description': 'blue' if i >= 3 else 'red'} for i in range(5)]}
+    observed = apply_observation(need, asset, manifest, report)
+    assert observed_match(need, observed) is False  # no whole-clip qualification from a late subject
+    assert not MaterialMatcher().match(need, [observed]).matches
+    assert all(a.field not in {SemanticField.LOGO, SemanticField.VISIBLE_TEXT}
+               for a in observed.semantic.inferences[-1].annotations)  # absence not proven
+    with pytest.raises(ValueError, match='部分采样'):
+        apply_observation(need, asset, manifest, {**report, 'verdict': 'suitable'})
+    with pytest.raises(ValueError, match='逐张'):
+        apply_observation(need, asset, manifest, {**report, 'frames': report['frames'][1:]})
+    with pytest.raises(ValueError, match='不一致'):
+        apply_observation(need, asset, manifest, {**report, 'input_sha256': '0' * 64})
+    def timed_out(*a, **k):
+        raise subprocess.TimeoutExpired('local-ffmpeg', 30)
+    monkeypatch.setattr(subprocess, 'run', timed_out)
+    with pytest.raises(ValueError, match='本地素材预览解码超时'):
+        prepare_observation(need, asset, video)

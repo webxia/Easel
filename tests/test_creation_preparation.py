@@ -91,13 +91,15 @@ def test_delivery_excludes_legacy_and_serializes_cancellation_and_restarts(prep_
 
 
 def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(prep_env):
-    from easel.creation_delivery import advance_creation, next_operation
+    from easel.creation_delivery import advance_creation, next_operation, DeliveryExecutionUncertain
 
     work = _confirmed_delivery()
     calls = []
 
     async def execute(operation, current):
         calls.append(operation)
+        if operation == "observe_material" and calls.count("observe_material") == 1:
+            raise DeliveryExecutionUncertain("素材观察已提交，等待同一执行")
         if operation == "author" and calls.count("author") == 1:
             raise RuntimeError("临时编排失败")
         if operation == "refresh" and calls.count("refresh") == 1:
@@ -106,10 +108,12 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
             if operation == "prepare":
                 value["hypit_attempts"] = [{"attempt_id": "fa_" + "b" * 32,
                     "execution_status": "NOT_SUBMITTED", "authoring_status": "READY_FOR_EXTERNAL_AUTHORING",
-                    "material_gate": {"status": "MATERIAL_READY"}}]
+                    "material_gate": {"status": "MATERIAL_READY", "plan_revision": "p1", "bundle_revision": "b1"}}]
                 return
             attempt = value["hypit_attempts"][-1]
-            if operation == "author":
+            if operation == "observe_material":
+                attempt["material_observation"] = {"status": "COMPLETE", "plan_revision": "p1", "bundle_revision": "b1"}
+            elif operation == "author":
                 attempt["authoring_status"] = "AUTHORING_READY"
             elif operation == "runtime":
                 attempt["runtime_status"] = "CONFIGURED"
@@ -146,7 +150,7 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
             assert saved["hypit_attempts"][-1]["execution_status"] == "SUBMITTED"
         if next_operation(creation.get_creation(work["id"])) == (None, "awaiting_quality"):
             break
-    assert calls == ["prepare", "author", "author", "runtime", "validate", "price", "approve_free",
+    assert calls == ["prepare", "observe_material", "observe_material", "author", "author", "runtime", "validate", "price", "approve_free",
                      "submit", "reconcile", "reconcile", "refresh", "refresh", "export"]
     assert creation.get_creation(work["id"])["delivery"]["status"] == "awaiting_quality"
 
@@ -257,6 +261,7 @@ def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(pre
             saved = creation.get_creation(work["id"])["delivery"]["agent_calls"]
             assert next(iter(saved.values()))["run_id"] == run_id
             assert params["deliver"] is False
+            assert params["attachments"] == attachments
             raise subprocess.TimeoutExpired(command, 20)
         assert method == "agent.wait" and params == {"runId": run_id, "timeoutMs": 0}
         result = {"runId": run_id, "status": "ok" if terminal else "timeout"}
@@ -266,10 +271,11 @@ def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(pre
 
     command = ["openclaw", "--profile", "fixture", "agent", "--agent", "main",
                "--session-key", "fixture-session", "--message", "只写隔离准备文件"]
+    attachments = [{"type": "image", "mimeType": "image/jpeg", "fileName": "frame-0.jpg", "content": "ZmFrZQ=="}]
     token = active_delivery.set(work["id"])
     try:
         with pytest.raises(DeliveryExecutionUncertain):
-            run_delivery_agent(command, runner=gateway)
+            run_delivery_agent(command, runner=gateway, attachments=attachments)
         with pytest.raises(DeliveryExecutionUncertain, match="另一网关"):
             reconcile_agent_calls(work["id"], command_prefix=["openclaw"], profile="different", runner=gateway)
         with pytest.raises(DeliveryExecutionUncertain, match="另一项执行"):
@@ -278,13 +284,13 @@ def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(pre
                     json.dumps({"runId": "unrelated", "status": "ok", "endedAt": 1000}), ""))
         reconcile_agent_calls(work["id"], command_prefix=["openclaw"], profile="fixture", runner=gateway)
         with pytest.raises(DeliveryExecutionUncertain):
-            run_delivery_agent(command, runner=gateway)
+            run_delivery_agent(command, runner=gateway, attachments=attachments)
         terminal = True
         reconcile_agent_calls(work["id"], command_prefix=["openclaw"], profile="fixture", runner=gateway)
-        assert run_delivery_agent(command, runner=gateway).returncode == 0
+        assert run_delivery_agent(command, runner=gateway, attachments=attachments).returncode == 0
         assert calls == ["agent", "agent.wait", "agent.wait", "agent.wait"]
         stored = next(iter(creation.get_creation(work["id"])["delivery"]["agent_calls"].values()))
-        assert stored["status"] == "ok" and "message" not in stored
+        assert stored["status"] == "ok" and "message" not in stored and "attachments" not in stored
     finally:
         active_delivery.reset(token)
 

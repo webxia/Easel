@@ -48,3 +48,13 @@ const disconnected = project({ ...confirmed, delivery: { ...delivery, status: 'o
 assert.equal(disconnected.failureStage, null);
 assert.match(disconnected.title, /状态连接中断/);
 console.log('Creator projection: proposal, early failure, selected output, cost, uncertain submission, resumed gates passed');
+
+const observingMaterial = project({ ...confirmed, delivery: { ...delivery, status: 'observing_material' } },
+  { material_planning: { status: 'PLANNING_READY' }, material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['scene-1'] } }, null);
+assert.equal(observingMaterial.pending, 0);
+assert.equal(observingMaterial.materialWorking, true);
+assert.equal(observingMaterial.timeline[3].state, 'running');
+assert.match(observingMaterial.title, /核对候选素材的实际画面/);
+const observationFailure = project({ ...confirmed, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:observe_material' } },
+  { material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['scene-1'] } }, null);
+assert.equal(observationFailure.failureStage, '素材准备');
