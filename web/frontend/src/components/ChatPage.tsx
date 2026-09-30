@@ -39,6 +39,10 @@ function greeting(): string {
 }
 
 export default function ChatPage({ session, stream, onSend, onCapabilityChange, onConfirmProduction, onStop, onResend, onQuestionAnswered }: ChatPageProps) {
+  const [workspaceTab, setWorkspaceTab] = useState<'conversation' | 'work'>('conversation');
+  const [workspaceStatus, setWorkspaceStatus] = useState({ title: '创作方案', pending: 0 });
+  const [progressOpen, setProgressOpen] = useState(false);
+  const hasWork = session.capability === 'ai-film' && !!session.activeCreationId;
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -144,17 +148,7 @@ export default function ChatPage({ session, stream, onSend, onCapabilityChange, 
             整片视频创作
             <button type="button" onClick={() => onCapabilityChange(null)} aria-label="取消整片视频创作能力" title="取消能力">×</button>
           </span>
-          {session.activeCreationId && session.activeCreationPhase === 'proposal_ready' && (
-            <button
-              type="button"
-              className="composer-confirm-btn"
-              onClick={onConfirmProduction}
-              disabled={isStreaming || uploading}
-              title="确认创作方向后，Easel 会准备内容与素材；制作视频前会再次显示费用"
-            >
-              确认方案，准备素材
-            </button>
-          )}
+
         </div>
       )}
       <div className="composer-top">
@@ -193,7 +187,7 @@ export default function ChatPage({ session, stream, onSend, onCapabilityChange, 
   );
 
   // ---- 空态：居中欢迎页 ----
-  if (isEmpty) {
+  if (isEmpty && !hasWork) {
     return (
       <div className="chat-page">
         <div className="chat-hero">
@@ -226,7 +220,16 @@ export default function ChatPage({ session, stream, onSend, onCapabilityChange, 
   if (isStreaming) displayMessages.push({ role: 'assistant', content: stream!.content || '' });
 
   return (
-    <div className="chat-page">
+    <div className={`chat-page ${hasWork ? 'creator-workspace' : ''} is-${workspaceTab}`}>
+      {hasWork && <header className="creator-workspace-header">
+        <div><strong>{session.title}</strong><span>{workspaceStatus.title}</span></div>
+        <button className="btn btn-sm" onClick={() => { setProgressOpen(value => !value); setWorkspaceTab('work'); }}>查看制作进度</button>
+      </header>}
+      {hasWork && <nav className="creator-workspace-tabs" aria-label="作品工作区">
+        <button aria-pressed={workspaceTab === 'conversation'} onClick={() => setWorkspaceTab('conversation')}>对话</button>
+        <button aria-pressed={workspaceTab === 'work'} onClick={() => setWorkspaceTab('work')}>作品{workspaceStatus.pending > 0 ? ` · ${workspaceStatus.pending}` : ''}</button>
+      </nav>}
+      <div className="creator-conversation">
       <div className="chat-messages">
         <div className="chat-thread">
           {displayMessages.map((msg, i) => {
@@ -277,18 +280,18 @@ export default function ChatPage({ session, stream, onSend, onCapabilityChange, 
         </div>
       </div>
 
-      {session.capability === 'ai-film' && session.activeCreationId
-        && session.activeCreationPhase === 'production_confirmed' && (
-        <section className="chat-production-panel" aria-label="视频创作进度">
-          <div className="chat-production-panel-body">
-            <FilmOperatorPage key={session.activeCreationId} creationId={session.activeCreationId} title={session.title} />
-          </div>
-        </section>
-      )}
-
       <div className="chat-input-area">
         <div className="chat-input-inner">{inputBox(false)}</div>
       </div>
+      </div>
+      {hasWork && <aside className="creator-work-canvas" aria-label="作品画布">
+        <FilmOperatorPage key={session.activeCreationId} creationId={session.activeCreationId!} title={session.title}
+          proposalPhase={session.activeCreationPhase !== 'production_confirmed'} proposalReady={session.activeCreationPhase === 'proposal_ready'}
+          proposalMessages={session.messages} onConfirmProduction={onConfirmProduction}
+          progressOpen={progressOpen} onProjection={setWorkspaceStatus}
+          onOpenConversation={() => { setWorkspaceTab('conversation'); requestAnimationFrame(() => textareaRef.current?.focus()); }}
+          onContinuePreparation={() => onSend('继续准备当前作品')} continuationBusy={isStreaming} />
+      </aside>}
     </div>
   );
 }

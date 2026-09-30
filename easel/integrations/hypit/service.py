@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import fcntl
 import json
 import math
 import os
 import re
 import shutil
 import subprocess
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -133,6 +135,12 @@ def _set_summary(attempt: dict[str, Any]) -> None:
     attempt["status"] = _summary_status(attempt)
 
 
+def _assert_retry_checkpoint_ready(attempt: dict[str, Any]) -> None:
+    retry = attempt.get("retry_source")
+    if isinstance(retry, dict) and retry.get("status") != "READY":
+        raise HypitIntegrationError("Build Retry checkpoint 尚未验证完成，禁止进入制作执行")
+
+
 def update_film_attempt(attempt_id: str, *, event: str, **fields: Any) -> dict[str, Any]:
     """Persist integration-owned Attempt fields through the shared projection path."""
     if not isinstance(event, str) or not re.fullmatch(r"[a-z][a-z0-9_]{2,80}", event):
@@ -151,6 +159,16 @@ def _hypit_outcome(build: dict[str, Any]) -> str | None:
     result = build.get("result")
     return ((work.get("outcome") if isinstance(work, dict) else None)
             or (result.get("state") if isinstance(result, dict) else None))
+
+
+def _build_failure_message(build: dict[str, Any]) -> str:
+    failure = build.get("failure")
+    if not isinstance(failure, str) or not failure.strip():
+        attention = build.get("attention")
+        failure = attention.get("message") if isinstance(attention, dict) else None
+    return (SecretRedactor.redact_text(failure.strip()[:2000])
+            if isinstance(failure, str) and failure.strip()
+            else "Hypit 已确认视频合成失败，未提供具体原因")
 
 
 def _advance_execution(current: str, incoming: str) -> str:
@@ -533,6 +551,249 @@ def create_film_attempt(
     return attempt
 
 
+def _copy_retry_checkpoint_file(source_root: Path, target_root: Path, relative: Path) -> None:
+    """Copy one trusted Attempt file atomically without following symlinks."""
+    if relative.is_absolute() or ".." in relative.parts:
+        raise HypitIntegrationError("Build Retry checkpoint path 无效")
+    source, target = source_root / relative, target_root / relative
+    for root, path in ((source_root, source), (target_root, target)):
+        current = root
+        for part in path.relative_to(root).parts:
+            current = current / part
+            if current.is_symlink():
+                raise HypitIntegrationError("Build Retry checkpoint 不允许 symlink")
+    if not source.is_file():
+        raise HypitIntegrationError(f"Build Retry checkpoint 缺少文件：{relative.as_posix()}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".retry-", dir=target.parent)
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as output_stream, source.open("rb") as input_stream:
+            shutil.copyfileobj(input_stream, output_stream, length=1024 * 1024)
+            output_stream.flush()
+            os.fsync(output_stream.fileno())
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def retry_failed_film_build(attempt_id: str, *, cli: HypitCLI | None = None) -> dict[str, Any]:
+    return _fork_film_checkpoint(attempt_id, cli=cli)
+
+
+def revise_film_output(attempt_id: str, *, output_name: str, sha256: str,
+                       cli: HypitCLI | None = None) -> dict[str, Any]:
+    """Reuse reviewed inputs for a composition-only revision; never approve/submit."""
+    source = get_film_attempt(attempt_id)
+    output = source.get("outputs", {}).get(output_name)
+    review = source.get("review", {})
+    if (not isinstance(output, dict) or output.get("sha256") != sha256
+            or review.get("binding") != {"output_name": output_name, "sha256": sha256}
+            or source.get("execution_status") != "BUILD_COMPLETE"
+            or review.get("human", {}).get("status") != "rejected"):
+        raise HypitIntegrationError("修改必须绑定当前已导出并退回审片的成片")
+    if _file_sha256(_output_path(source, output)) != sha256:
+        raise HypitIntegrationError("当前成片内容已变化，请重新审片")
+    feedback = review.get("feedback")
+    if (not isinstance(feedback, list) or not feedback
+            or any(not isinstance(entry, dict) or entry.get("kind") != "composition"
+                   or not isinstance(entry.get("text"), str) or not entry["text"].strip()
+                   for entry in feedback)):
+        raise HypitIntegrationError("当前仅支持构图与转场调整；脚本、素材、规格和声音修改需重新确认方案")
+    return _fork_film_checkpoint(attempt_id, cli=cli,
+                                 revision={"output_name": output_name, "sha256": sha256, "feedback": feedback})
+
+
+def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
+                          revision: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Fork only verified checkpoints after a definitively failed Hypit Build.
+
+    This creates one idempotent sibling Attempt. Planning, Material and
+    Authoring are re-bound and checked locally; pricing and paid Build remain
+    unapproved and unsubmitted in the new Attempt.
+    """
+    from easel.integrations.material_layer import (
+        MaterialGateIntegration, PlanningIntegration, ProductionAuthoringIntegration,
+    )
+    from easel.materials.application.assembly import MaterialBundleAssembler
+    from easel.materials.application.readiness import MaterialReadinessCalculator
+    from easel.materials.domain import ReadinessStatus
+    from easel.materials.store import AttemptMaterialStore
+
+    source = get_film_attempt(attempt_id)
+    build = source.get("build", {})
+    build_id = build.get("build_id")
+    operation = build.get("operation") or {}
+    if ((revision is None and source.get("execution_status") != "BUILD_FAILED")
+            or not isinstance(build_id, str) or not _BUILD_ID_RE.fullmatch(build_id)
+            or not operation.get("operation_id")):
+        raise HypitIntegrationError("只有已关联 Build ID 的确定失败可从视频制作阶段重试；提交不确定时请先对账")
+    if source.get("plan", {}).get("status") != "ready":
+        raise HypitIntegrationError("失败 Attempt 缺少已验证的 Hypit Plan checkpoint")
+    if "material_gate" not in source:
+        raise HypitIntegrationError("Build Retry 需要正式 Material Gate checkpoint")
+    source_run = source.get("plan", {}).get("run_path") or source.get("authoring", {}).get("run_path")
+    source = ProductionAuthoringIntegration().assert_selection_current(source, source_run)
+    planning = PlanningIntegration().load(source)
+    plan, bundle, _ = MaterialGateIntegration().assert_ready(source)
+    source_root = _workspace(source)
+    source_store = AttemptMaterialStore(source_root)
+    supply_run = source_store.read_supply_run(bundle.supply_run_id)
+    source_fingerprint = _execution_fingerprint(source)
+    if source_fingerprint["sha256"] != operation.get("execution_fingerprint", {}).get("sha256"):
+        raise HypitIntegrationError("失败 Attempt 的 Authoring checkpoint 与提交时 fingerprint 不一致")
+
+    if revision is None:
+        status = _cli(cli).status(source_root, build_id,
+                                  runtime_profile=source["runtime_profile"]["path"])
+        observed = status.get("build")
+        if (not isinstance(observed, dict) or observed.get("id") != build_id
+                or _hypit_outcome(observed) != "failed"):
+            raise HypitIntegrationError("Hypit 尚未证明该 Build 确定失败；禁止重复提交，请先核对状态")
+    key_payload = (f"build-retry:{attempt_id}:{build_id}" if revision is None else
+                   f"output-revision:{attempt_id}:" + json.dumps(revision, sort_keys=True, ensure_ascii=False))
+    retry_key = hashlib.sha256(key_payload.encode("utf-8")).hexdigest()
+    target = create_film_attempt(
+        source["creation_id"], source["handoff"]["handoff_id"],
+        runtime_profile=source["runtime_profile"]["path"], preparation_key=retry_key,
+    )
+    target_root = _workspace(target)
+    lock_dir = target_root / ".easel"
+    if lock_dir.is_symlink():
+        raise HypitIntegrationError("Build Retry lock directory 不允许 symlink")
+    lock_dir.mkdir(exist_ok=True)
+    lock_path = lock_dir / "build-retry.lock"
+    if lock_path.is_symlink():
+        raise HypitIntegrationError("Build Retry lock 不允许 symlink")
+    with lock_path.open("a+") as lock_stream:
+        fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX)
+        target = get_film_attempt(target["attempt_id"])
+        if target.get("retry_source", {}).get("status") == "READY":
+            return target
+        if target.get("execution_status") != "NOT_SUBMITTED":
+            raise HypitIntegrationError("Build Retry Attempt 已进入执行，拒绝覆盖 checkpoint")
+        if target.get("cost", {}).get("approved"):
+            raise HypitIntegrationError("Build Retry Attempt 已有费用批准，拒绝覆盖 checkpoint")
+        target = update_film_attempt(
+            target["attempt_id"], event="build_retry_checkpoint_started",
+            retry_source={"attempt_id": attempt_id, "build_id": build_id,
+                          "fingerprint": source_fingerprint["sha256"], "status": "COPYING"},
+        )
+
+        new_plan = plan.model_copy(update={
+            "plan_id": f"plan-{target['attempt_id'][-20:]}",
+            "attempt_id": target["attempt_id"],
+        })
+        persisted = PlanningIntegration().persist(
+            target, new_plan, treatment=planning["treatment"],
+            script=planning["script"], scenes=planning["scenes"],
+        )
+        target = persisted["attempt"]
+        if planning["truth_ledger"]["status"] != "PASSED":
+            raise HypitIntegrationError("Script Truth checkpoint 尚未通过审核")
+        _copy_retry_checkpoint_file(source_root, target_root, Path("planning/script-claims.json"))
+        ledger = planning["truth_ledger"]
+        target_planning = {**target["material_planning"],
+                           "truth_review_status": ledger["status"],
+                           "truth_ledger_sha256": ledger["ledger_sha256"],
+                           "script_sha256": ledger["script_sha256"],
+                           "truth_packet_sha256": ledger["truth_packet_sha256"],
+                           "truth_claim_count": len(ledger["claims"])}
+        target = update_film_attempt(target["attempt_id"], event="build_retry_truth_reused",
+                                     material_planning=target_planning)
+        PlanningIntegration().load(target)
+
+        target_store = AttemptMaterialStore(target_root)
+        for asset in bundle.assets:
+            asset_path = source_store.resolve_asset_locator(asset.file.path)
+            _copy_retry_checkpoint_file(source_root, target_root,
+                                        asset_path.relative_to(source_root))
+            target_store.write_asset(asset)
+            acquisition = source_store.read_acquisition_evidence(asset.asset_id)
+            if acquisition:
+                target_store.write_acquisition_evidence(asset.asset_id, acquisition)
+        generation_root = source_root / "materials/generation-runs"
+        if generation_root.is_dir():
+            for record in generation_root.glob("*/result.json"):
+                _copy_retry_checkpoint_file(source_root, target_root,
+                                            record.relative_to(source_root))
+
+        new_bundle_id = f"bundle-{target['attempt_id'][-20:]}"
+        new_run = supply_run.model_copy(update={
+            "supply_run_id": f"run-{target['attempt_id'][-20:]}",
+            "plan_id": new_plan.plan_id, "result_bundle_id": new_bundle_id,
+            "parent_run_id": supply_run.supply_run_id,
+            "provider_results": (),
+            "started_at": datetime.now(timezone.utc),
+            "finished_at": datetime.now(timezone.utc),
+        })
+        new_bundle = MaterialBundleAssembler().assemble(
+            new_plan, new_run, bundle.assets, bundle.matches, bundle_id=new_bundle_id,
+        )
+        readiness, gaps = MaterialReadinessCalculator(store=target_store).calculate(new_plan, new_bundle)
+        if readiness.status is not ReadinessStatus.READY:
+            raise HypitIntegrationError("复用素材未通过当前 MaterialReadiness，禁止视频制作重试")
+        target = MaterialGateIntegration().record(
+            target, new_plan, new_bundle, new_run, readiness, gaps,
+        )["attempt"]
+
+        selection_path = source_root / "productions/easel-authoring/material-selection.json"
+        selection = json.loads(selection_path.read_text(encoding="utf-8"))
+        selected_ids = tuple(item["asset_id"] for item in selection["assets"])
+        target = ProductionAuthoringIntegration().prepare(
+            target, selected_asset_ids=selected_ids,
+        )["attempt"]
+        if revision is not None:
+            current_source = get_film_attempt(attempt_id)
+            current_review = current_source.get("review", {})
+            if (current_review.get("binding") != {"output_name": revision["output_name"], "sha256": revision["sha256"]}
+                    or current_review.get("feedback") != revision["feedback"]
+                    or current_review.get("human", {}).get("status") != "rejected"
+                    or _execution_fingerprint(current_source)["sha256"] != source_fingerprint["sha256"]):
+                raise HypitIntegrationError("复制期间源成片或修改反馈发生变化，请重新确认")
+            # Previous valid authoring is a reference only; the new Attempt has
+            # no Plan, price, approval, submission, export or final selection.
+            for name in ("main.svml", "recipes.svs"):
+                relative = Path("productions/easel-authoring/authors") / name
+                if (source_root / relative).is_file():
+                    _copy_retry_checkpoint_file(source_root, target_root, relative)
+            return update_film_attempt(
+                target["attempt_id"], event="output_revision_checkpoint_ready",
+                preparation_status="PRODUCTION_PREPARED", revision_feedback=revision,
+                retry_source={"attempt_id": attempt_id, "build_id": build_id,
+                              "fingerprint": source_fingerprint["sha256"], "status": "READY"},
+            )
+        begin_film_authoring(target["attempt_id"])
+        for name in ("main.svml", "recipes.svs"):
+            relative = Path("productions/easel-authoring/authors") / name
+            if (source_root / relative).is_file():
+                _copy_retry_checkpoint_file(source_root, target_root, relative)
+        run_path = target_root / _AUTHORING_RUN_PATH
+        run_path.parent.mkdir(parents=True, exist_ok=True)
+        run_manifest = {
+            "schema": "easel-authoring-svrun@1",
+            "creation_id": target["creation_id"], "attempt_id": target["attempt_id"],
+            "plan_id": new_plan.plan_id, "plan_revision": readiness.plan_revision,
+            "bundle_id": new_bundle.bundle_id, "bundle_revision": new_bundle.revision,
+            "readiness_revision": readiness.bundle_revision,
+            "authoring_source": "../authors/main.svml",
+            "material_selection": "../material-selection.json",
+            "status": "AUTHORING_READY", "publication_allowed": False,
+            "build": {"enabled": False, "reason": "stops_before_hypit_build"},
+        }
+        run_path.write_text(json.dumps(run_manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+                            encoding="utf-8")
+        target = complete_film_authoring(target["attempt_id"], cli=cli)
+        if _execution_fingerprint(get_film_attempt(attempt_id))["sha256"] != source_fingerprint["sha256"]:
+            raise HypitIntegrationError("复制期间源 Attempt checkpoint 发生变化")
+        return update_film_attempt(
+            target["attempt_id"], event="build_retry_checkpoint_ready",
+            preparation_status="PRODUCTION_PREPARED",
+            retry_source={"attempt_id": attempt_id, "build_id": build_id,
+                          "fingerprint": source_fingerprint["sha256"], "status": "READY"},
+        )
+
+
 def authoring_agent_task(attempt_id: str) -> dict[str, str]:
     """Return the fixed, workspace-scoped task for the existing Easel Director.
 
@@ -760,6 +1021,7 @@ def validate_film_attempt(
     cli: HypitCLI | None = None,
 ) -> dict[str, Any]:
     attempt = get_film_attempt(attempt_id)
+    _assert_retry_checkpoint_ready(attempt)
     if "material_planning" in attempt or "material_gate" in attempt:
         from easel.integrations.material_layer import ProductionAuthoringIntegration
 
@@ -824,6 +1086,7 @@ def validate_film_attempt(
 
 def estimate_film_attempt(attempt_id: str, *, cli: HypitCLI | None = None) -> dict[str, Any]:
     attempt = get_film_attempt(attempt_id)
+    _assert_retry_checkpoint_ready(attempt)
     if attempt.get("execution_status") == "BLOCKED":
         raise HypitIntegrationError("Execution 被 Runtime 配置阻塞；先完成 Runtime Resolution")
     if attempt.get("execution_status", "NOT_SUBMITTED") != "NOT_SUBMITTED":
@@ -885,6 +1148,7 @@ def approve_film_cost(attempt_id: str, max_budget_usd: float) -> dict[str, Any]:
     if not math.isfinite(max_budget_usd) or max_budget_usd <= 0:
         raise HypitIntegrationError("必须明确批准一个大于 0 的美元预算")
     attempt = get_film_attempt(attempt_id)
+    _assert_retry_checkpoint_ready(attempt)
     if attempt.get("execution_status") == "BLOCKED":
         raise HypitIntegrationError("Execution 被 Runtime 配置阻塞；先完成 Runtime Resolution")
     if attempt.get("execution_status", "NOT_SUBMITTED") != "NOT_SUBMITTED":
@@ -967,6 +1231,7 @@ def submit_film_build(
     if SecretRedactor.redact_text(title) != title:
         raise HypitIntegrationError("Hypit Build 标题中包含疑似凭证内容")
     attempt = get_film_attempt(attempt_id)
+    _assert_retry_checkpoint_ready(attempt)
     existing_execution = attempt.get("execution_status", "NOT_SUBMITTED")
     if existing_execution == "BLOCKED":
         raise HypitIntegrationError("Execution 被 Runtime 配置阻塞；先完成 Runtime Resolution")
@@ -1108,6 +1373,11 @@ def _complete_build_submission(attempt_id: str, operation_id: str, result: dict[
         item["build"] = {**item["build"], "build_id": build_id,
                           "status": "failed" if execution_status_effective == "BUILD_FAILED" else "complete" if execution_status_effective == "BUILD_COMPLETE" else "open",
                           "submitted": result}
+        if execution_status_effective == "BUILD_FAILED":
+            item["last_error"] = {"operation": "build", "message": _build_failure_message(build_view),
+                                  "at": _now()}
+        elif execution_status_effective == "BUILD_COMPLETE":
+            item["last_error"] = None
         _set_summary(item)
         return _event(item, "build_submitted", build_id=build_id,
                       execution_status=execution_status_effective)
@@ -1234,6 +1504,11 @@ def reconcile_film_submission(
         item["execution_status"] = execution_status
         item["build"] = {**item["build"], "build_id": chosen["build_id"],
                           "status": str(outcome or "open"), "reconciled": chosen}
+        if execution_status == "BUILD_FAILED":
+            item["last_error"] = {"operation": "build", "message": "Hypit 已确认视频合成失败，未提供具体原因",
+                                  "at": _now()}
+        elif execution_status == "BUILD_COMPLETE":
+            item["last_error"] = None
         _set_summary(item)
         return _event(item, "build_reconciled", build_id=chosen["build_id"], evidence=chosen["evidence"])
 
@@ -1276,6 +1551,11 @@ def refresh_film_build(attempt_id: str, *, cli: HypitCLI | None = None) -> dict[
         }.get(effective, build_status)
         item["build"] = {**item["build"], "status": stable_build_status,
                           "last_status": SecretRedactor.redact(status_result)}
+        if effective == "BUILD_FAILED":
+            item["last_error"] = {"operation": "build", "message": _build_failure_message(view),
+                                  "at": _now()}
+        elif effective == "BUILD_COMPLETE":
+            item["last_error"] = None
         _set_summary(item)
         return _event(item, "build_status_refreshed", execution_status=effective,
                       observed_execution_status=status)
@@ -1467,6 +1747,11 @@ def record_film_review(attempt_id: str, review: dict[str, Any]) -> dict[str, Any
         section = review.get(key)
         if not isinstance(section, dict) or section.get("status") not in _REVIEW_STATES:
             raise HypitIntegrationError(f"Review {key}.status 无效")
+        notes = section.get("notes")
+        if section["status"] == "pass" and not (isinstance(notes, list) and any(
+            isinstance(note, str) and note.strip() for note in notes
+        )):
+            raise HypitIntegrationError(f"Review {key} PASS 缺少当前成片的审核依据")
     human = review.get("human")
     if not isinstance(human, dict) or human.get("status") not in {"pending", "approved", "rejected"}:
         raise HypitIntegrationError("Review human.status 无效")
@@ -1485,6 +1770,22 @@ def record_film_review(attempt_id: str, review: dict[str, Any]) -> dict[str, Any
     if (technical.get("status") != "pass" or technical.get("output_name") != output_name
             or technical.get("sha256") != output_hash):
         raise HypitIntegrationError("该 output 缺少与自身名称和 sha256 绑定的 Technical QC")
+    feedback = review.get("feedback", [])
+    if not isinstance(feedback, list) or len(feedback) > 50:
+        raise HypitIntegrationError("修改反馈必须是最多 50 项的列表")
+    for entry in feedback:
+        if (not isinstance(entry, dict) or set(entry) - {"kind", "text", "time_seconds"}
+                or entry.get("kind", "general") not in {"general", "composition"}
+                or not isinstance(entry.get("text"), str) or not entry["text"].strip()
+                or len(entry["text"]) > 2000 or SecretRedactor.contains_secret(entry)):
+            raise HypitIntegrationError("修改反馈格式无效")
+        timestamp = entry.get("time_seconds")
+        if timestamp is not None:
+            duration = output.get("metadata", {}).get("duration_seconds")
+            if (isinstance(timestamp, bool) or not isinstance(timestamp, (int, float))
+                    or not math.isfinite(timestamp) or timestamp < 0
+                    or (isinstance(duration, (int, float)) and timestamp > duration)):
+                raise HypitIntegrationError("反馈时间点必须位于当前视频时长内")
     normalized = {
         "technical": technical,
         "truth": review["truth"],

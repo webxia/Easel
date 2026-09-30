@@ -70,15 +70,20 @@ def _hypit_run_markup(run_source: Path, root: Path, attempt: dict[str, Any],
 
     The model-authored JSON carries Easel identity, not Hypit syntax. Adapt that
     manifest deterministically, then let Hypit's own check validate the source.
-    Already self-described Hypit sources pass through unchanged.
+    Native Run markup is generated only after the Easel identity manifest is
+    validated; accepting model-authored markup here would bypass that binding.
     """
     raw = run_source.read_text(encoding="utf-8")
-    if raw.lstrip().startswith("<?svml using="):
-        return raw
+    identity_source = run_source.with_suffix(".easel.json")
+    native = raw.lstrip().startswith("<?svml using=")
+    if native:
+        if not identity_source.is_file():
+            raise MaterialIntegrationError("Native Hypit Run lacks the bound Easel identity manifest")
+        raw = identity_source.read_text(encoding="utf-8")
     try:
         manifest = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise MaterialIntegrationError("Hypit Run must use its installed self-described markup format") from exc
+        raise MaterialIntegrationError("Easel Run manifest must be JSON with frozen identity") from exc
     expected = {
         "schema": "easel-authoring-svrun@1",
         "creation_id": attempt.get("creation_id"),
@@ -110,7 +115,12 @@ def _hypit_run_markup(run_source: Path, root: Path, attempt: dict[str, Any],
         '  <target output="final.video"/>\n'
         '</svrun>\n'
     )
-    run_source.write_text(markup, encoding="utf-8")
+    if native:
+        if run_source.read_text(encoding="utf-8") != markup:
+            raise MaterialIntegrationError("Hypit Run differs from the validated Easel identity manifest")
+    else:
+        identity_source.write_text(raw, encoding="utf-8")
+        run_source.write_text(markup, encoding="utf-8")
     return markup
 
 
@@ -199,16 +209,23 @@ def _hypit_audio_tracks_for_source(authoring: str, expected_src: str) -> set[str
                 normalized_ids.add(id_match.group(1))
     if not normalized_ids:
         return set()
+    audio_import = re.search(
+        r'<import\b(?=[^>]*\bas="([A-Za-z_][\w.-]*)")'
+        r'(?=[^>]*\bfrom="@hypit/audio-track@1")[^>]*/?>', authoring,
+    )
+    if not audio_import:
+        return set()
+    audio_prefix = re.escape(audio_import.group(1))
     track_ids: set[str] = set()
     for track_match in re.finditer(
-        r'<audio:Track\b([^>]*)>(.*?)</audio:Track\s*>', authoring, re.DOTALL,
+        rf'<{audio_prefix}:Track\b([^>]*)>(.*?)</{audio_prefix}:Track\s*>', authoring, re.DOTALL,
     ):
         attrs, body = track_match.group(1), track_match.group(2)
         id_match = re.search(r'\bid="([A-Za-z_][\w.-]*)"', attrs)
         if not id_match:
             continue
         if not any(re.search(
-            rf'<audio:Item\b[^>]*\bsource=\{{{re.escape(normalized_id)}\.media\}}', body,
+            rf'<{audio_prefix}:Item\b[^>]*\bsource=\{{{re.escape(normalized_id)}\.media\}}', body,
         ) for normalized_id in normalized_ids):
             continue
         track_id = id_match.group(1)
@@ -507,6 +524,53 @@ class ProductionAuthoringIntegration:
     def __init__(self, gate: MaterialGateIntegration | None = None):
         self.gate = gate or MaterialGateIntegration()
 
+    def qualified_authoring_assets(self, attempt: dict[str, Any]) -> list[dict[str, Any]]:
+        """List only assets that can satisfy a current Need in this Attempt."""
+        plan, bundle, _ = self.gate.assert_ready(attempt)
+        store = AttemptMaterialStore(_workspace(attempt))
+        authoring_source = "productions/easel-authoring/authors/main.svml"
+        return [
+            {
+                "asset_id": asset.asset_id,
+                "media_type": asset.media_type.value,
+                "src": store.hypit_source_path(asset, authoring_source),
+                "mime": asset.file.mime,
+                "sha256": asset.file.sha256,
+                "qualified_need_ids": list(need_ids),
+            }
+            for asset in bundle.assets
+            if (need_ids := self._qualified_need_ids(plan, bundle, asset))
+        ]
+
+    def record_selection_from_authored_svml(self, attempt: dict[str, Any]) -> dict[str, Any]:
+        """Record Production's actual media references using Easel-owned identity fields."""
+        _, bundle, _ = self.gate.assert_ready(attempt)
+        root = _workspace(attempt)
+        authoring_source = "productions/easel-authoring/authors/main.svml"
+        source_path = root / authoring_source
+        if _has_symlink_components(root, source_path) or not source_path.is_file():
+            raise MaterialIntegrationError("Production Authoring source is unavailable")
+        authored_text = source_path.read_text(encoding="utf-8")
+        declared_sources = list(dict.fromkeys(re.findall(
+            r'<(?:[A-Za-z_][\w.-]*:)?(?:Image|Video|Audio)\b[^>]*\bsrc="([^"]+)"',
+            authored_text,
+        )))
+        store = AttemptMaterialStore(root)
+        assets_by_source = {
+            store.hypit_source_path(asset, authoring_source): asset.asset_id
+            for asset in bundle.assets
+        }
+        if not declared_sources or any(src not in assets_by_source for src in declared_sources):
+            raise MaterialIntegrationError("SVML references media absent from the current MaterialBundle")
+        selected_ids = tuple(assets_by_source[src] for src in declared_sources)
+        qualified_ids = {item["asset_id"] for item in self.qualified_authoring_assets(attempt)}
+        unqualified = [asset_id for asset_id in selected_ids if asset_id not in qualified_ids]
+        if unqualified:
+            raise MaterialIntegrationError(
+                "SVML references Asset without a qualified Need/Match: " + ", ".join(unqualified)
+            )
+        return self.prepare(attempt, selected_asset_ids=selected_ids, authoring_source=authoring_source)
+
     def prepare(
         self,
         attempt: dict[str, Any],
@@ -518,6 +582,20 @@ class ProductionAuthoringIntegration:
         if planning["truth_ledger"]["status"] != "PASSED":
             raise MaterialIntegrationError("Script claims require local-operator review before Production Authoring")
         plan, bundle, readiness = self.gate.assert_ready(attempt)
+        duration_limit = attempt.get("production_request", {}).get("preferred_duration_seconds", {}).get("max")
+        if isinstance(duration_limit, (int, float)) and duration_limit > 0:
+            voice_need_ids = {need.need_id for need in plan.needs
+                              if need.modality_spec is not None and need.modality_spec.kind == "voice"}
+            selected_voice_ids = {match.asset_id for match in bundle.matches
+                                  if match.qualified and match.need_id in voice_need_ids}
+            voice_durations = [asset.technical.duration_seconds for asset in bundle.assets
+                               if asset.asset_id in selected_voice_ids
+                               and asset.technical.duration_seconds is not None]
+            if voice_durations and min(voice_durations) > duration_limit + 0.25:
+                raise MaterialIntegrationError(
+                    f"旁白时长至少 {min(voice_durations):.3f}s，超过已确认视频上限 "
+                    f"{duration_limit:.3f}s；请调整脚本/旁白或重新确认时长，禁止静默截断"
+                )
         selected = tuple(dict.fromkeys(selected_asset_ids))
         assets = {asset.asset_id: asset for asset in bundle.assets}
         if any(asset_id not in assets for asset_id in selected):
@@ -701,6 +779,30 @@ class ProductionAuthoringIntegration:
                 raise MaterialIntegrationError("Production selection hash does not match admitted Asset")
             if expected_src not in declared_media_sources:
                 raise MaterialIntegrationError(f"SVML does not reference selected MaterialAsset: {asset_id}")
+            if asset.media_type is MediaType.IMAGE:
+                image_ids = re.findall(
+                    r'<media:Image\b(?=[^>]*\bid="([A-Za-z_][\w.-]*)")'
+                    + r'(?=[^>]*\bsrc="' + re.escape(expected_src) + r'")[^>]*/?>',
+                    authored_text,
+                )
+                for image_id in image_ids:
+                    for extent_id in re.findall(
+                        r'<media-track:Item\b(?=[^>]*\bimage=\{' + re.escape(image_id)
+                        + r'\})(?=[^>]*\bextent=\{([A-Za-z_][\w.-]*)\})[^>]*>',
+                        authored_text,
+                    ):
+                        declaration = re.search(
+                            r'<space:Extent\b(?=[^>]*\bid="' + re.escape(extent_id)
+                            + r'")(?=[^>]*\bwidth="([0-9]+)")(?=[^>]*\bheight="([0-9]+)")[^>]*/?>',
+                            authored_text,
+                        )
+                        if (declaration is None or asset.technical.width is None
+                                or asset.technical.height is None
+                                or (int(declaration.group(1)), int(declaration.group(2)))
+                                != (asset.technical.width, asset.technical.height)):
+                            raise MaterialIntegrationError(
+                                f"Image Extent must use inspected source dimensions: {asset_id}"
+                            )
             if item.get("media_type") != asset.media_type.value or item.get("mime") != asset.file.mime:
                 raise MaterialIntegrationError("Production selection media contract does not match admitted Asset")
             qualified_need_ids = self._qualified_need_ids(plan, bundle, asset)
@@ -770,6 +872,25 @@ class ProductionAuthoringIntegration:
         bgm_track_ids = set().union(*(audio_tracks_by_need[need.need_id] for need in bgm_needs)) if bgm_needs else set()
         if voice_track_ids & bgm_track_ids:
             raise MaterialIntegrationError("Required narration and BGM must use separate Hypit AudioTracks")
+        if voice_needs:
+            timeline_ends = [float(value) for value in re.findall(
+                r'<time:Timeline\b[^>]*\bend="([0-9]+(?:\.[0-9]+)?)s"', authored_text,
+            )]
+            if len(timeline_ends) != 1:
+                raise MaterialIntegrationError(
+                    "旁白需要一个可核验的固定 Timeline end 秒数，禁止无法核对的静默截断"
+                )
+            timeline_end = timeline_ends[0]
+            for item in records:
+                asset = assets[item["asset_id"]]
+                if (asset.media_type is MediaType.AUDIO
+                        and any(need_id in {need.need_id for need in voice_needs}
+                                for need_id in self._qualified_need_ids(plan, bundle, asset))
+                        and (asset.technical.duration_seconds is None
+                             or asset.technical.duration_seconds > timeline_end + 0.25)):
+                    raise MaterialIntegrationError(
+                        f"旁白时长与 Timeline {timeline_end:.3f}s 不一致；禁止静默截断"
+                    )
 
         selected_sources = {item["src"] for item in checked}
         unselected_sources = declared_media_sources - selected_sources
@@ -1092,6 +1213,7 @@ class MaterialProductOrchestrator:
     def material_rights_candidates(self, attempt_id: str) -> list[dict[str, Any]]:
         """List byte-verified assets in the current Plan/Bundle for factual Rights review."""
         from easel.integrations.hypit.service import get_film_attempt
+        from easel.materials.application.matching import MaterialMatcher
 
         attempt = get_film_attempt(attempt_id)
         if attempt.get("material_planning", {}).get("status") != "PLANNING_READY":
@@ -1140,11 +1262,102 @@ class MaterialProductOrchestrator:
                 "needs": [{
                     "need_id": need.need_id,
                     "description": need.intent.description,
+                    "constraints": {key: need.constraints[key] for key in ("logo", "text_in_frame")
+                                    if key in need.constraints},
                 } for need in compatible_needs],
                 "rights": asset.rights.model_dump(mode="json"),
+                "semantic_reviewed_need_ids": [need.need_id for need in compatible_needs
+                    if MaterialMatcher._creator_match_review(need, asset)],
                 "reviewed": asset.rights.reviewed_at is not None,
             })
         return candidates
+
+    def review_material_match(
+        self, attempt_id: str, *, asset_id: str, expected_sha256: str,
+        need_id: str, observed_content: str, logo_present: bool | None,
+        visible_text_present: bool | None, confirm_review: bool,
+    ) -> dict[str, Any]:
+        """Bind a Creator's visual observation to one current Need and Asset SHA."""
+        from easel.integrations.hypit.service import get_film_attempt
+        from easel.materials.application.assembly import MaterialBundleAssembler
+        from easel.materials.application.dedup import MaterialDeduplicator
+        from easel.materials.application.intelligence import IntelligenceStatus
+        from easel.materials.application.matching import MaterialMatcher
+        from easel.materials.domain import SemanticAnnotation, SemanticField, SemanticInference
+
+        if confirm_review is not True or not isinstance(observed_content, str) or len(observed_content.strip()) < 8:
+            raise MaterialIntegrationError("视觉匹配复核需要具体画面观察和明确确认")
+        attempt = get_film_attempt(attempt_id)
+        planning = PlanningIntegration().load(attempt)
+        plan: MaterialPlan = planning["plan"]
+        need = next((item for item in plan.needs if item.need_id == need_id), None)
+        if need is None or need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
+            raise MaterialIntegrationError("视觉匹配复核仅接受当前 Plan 中的视觉 Need")
+        candidates = self.material_rights_candidates(attempt_id)
+        candidate = next((item for item in candidates if item["asset_id"] == asset_id
+                          and item["asset_sha256"] == expected_sha256), None)
+        if candidate is None:
+            raise MaterialIntegrationError("视觉匹配复核仅接受当前 Bundle 中字节校验通过的素材")
+        if need.constraints.get("logo") is False and logo_present is None:
+            raise MaterialIntegrationError("no-logo 约束需要明确的画面核对结论")
+        if need.constraints.get("text_in_frame") is False and visible_text_present is None:
+            raise MaterialIntegrationError("画面文字约束需要明确的画面核对结论")
+
+        store = AttemptMaterialStore(_workspace(attempt))
+        bundle = store.read_bundle()
+        old_run = store.read_supply_run(bundle.supply_run_id)
+        asset = store.read_asset(asset_id)
+        if asset.file.sha256 != expected_sha256:
+            raise MaterialIntegrationError("素材 SHA-256 已变化，请刷新后重新核验")
+        evidence = f"creator-confirmed:{need_id}:{expected_sha256}"
+        annotations = [SemanticAnnotation(
+            field=SemanticField.CAPTION, value=observed_content.strip(),
+            evidence=evidence, confidence=1.0,
+        )]
+        if logo_present is not None:
+            annotations.append(SemanticAnnotation(field=SemanticField.LOGO, value=logo_present,
+                                                  evidence=evidence, confidence=1.0))
+        if visible_text_present is not None:
+            annotations.append(SemanticAnnotation(field=SemanticField.VISIBLE_TEXT,
+                                                  value=("visible text" if visible_text_present else ()),
+                                                  evidence=evidence, confidence=1.0))
+        inference = SemanticInference(
+            analyzer_id=f"creator-match:{need_id}", status=IntelligenceStatus.COMPLETE,
+            annotations=tuple(annotations), observed_at=datetime.now(timezone.utc),
+        )
+        retained = tuple(item for item in asset.semantic.inferences if item.analyzer_id != inference.analyzer_id)
+        store.write_asset(asset.model_copy(update={
+            "semantic": asset.semantic.model_copy(update={"inferences": retained + (inference,)}),
+        }))
+        assets = tuple(store.read_asset(item.asset_id) for item in bundle.assets)
+        matcher = MaterialMatcher()
+        deduplicator = MaterialDeduplicator(store)
+        matches = []
+        for current_need in plan.needs:
+            ranked = matcher.match(current_need, assets)
+            matches.extend(deduplicator.deduplicate_and_diversify(
+                ranked.matches, assets, top_k=3,
+            ).shortlist)
+        digest = hashlib.sha256((need_id + "\0" + asset_id + "\0" + expected_sha256
+                                 + "\0" + observed_content.strip()).encode("utf-8")).hexdigest()[:16]
+        now = datetime.now(timezone.utc)
+        reviewed_run = SupplyRun(
+            supply_run_id=f"match-{bundle.supply_run_id[-40:]}-{digest}",
+            plan_id=plan.plan_id, parent_run_id=old_run.supply_run_id,
+            started_at=now, finished_at=now, result_bundle_id=bundle.bundle_id,
+        )
+        revised_bundle = MaterialBundleAssembler().assemble(
+            plan, reviewed_run, assets, tuple(matches), bundle_id=bundle.bundle_id,
+        )
+        readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, revised_bundle)
+        gate = MaterialGateIntegration().record(
+            attempt, plan, revised_bundle, reviewed_run, readiness, gaps,
+        )
+        authoring = (ProductionAuthoringIntegration().prepare(gate["attempt"], selected_asset_ids=())
+                     if readiness.status is ReadinessStatus.READY else None)
+        updated = authoring["attempt"] if authoring else gate["attempt"]
+        return {"material_status": gate["status"], "attempt": updated,
+                "readiness": readiness.model_dump(mode="json")}
 
     def review_material_rights(
         self,
@@ -1252,45 +1465,23 @@ class MaterialProductOrchestrator:
         source_creator: str | None = None,
         source_page: str | None = None,
     ) -> dict[str, Any]:
-        """Record operator-supplied rights facts, then recompute the ordinary Gate."""
-        from easel.integrations.hypit.service import get_film_attempt
-        from easel.runtime_config import EaselRuntimeConfig
+        """Review a current generation record without re-running Material Supply."""
 
         if confirm_review is not True:
             raise MaterialIntegrationError("必须明确确认已核验该素材的权利来源和证据")
         if not rights.evidence:
             raise MaterialIntegrationError("Rights review 必须提供至少一条可追溯证据")
-        attempt = get_film_attempt(attempt_id)
-        planning = PlanningIntegration().load(attempt)
         candidates = self.generated_material_rights_candidates(attempt_id)
         candidate = next((item for item in candidates if item["asset_id"] == asset_id), None)
         if candidate is None:
             raise MaterialIntegrationError("Rights review 仅接受当前 Bundle 中匹配现行 Plan 的 MiniMax 生成素材")
         if candidate["asset_sha256"] != expected_sha256:
             raise MaterialIntegrationError("素材 SHA-256 已变化，请刷新后重新核验")
-        store = AttemptMaterialStore(_workspace(attempt))
-        asset = store.read_asset(asset_id)
-        reviewed_rights = rights.model_copy(update={"reviewed_at": datetime.now(timezone.utc)})
-        try:
-            RightsService(store).record(
-                asset, reviewed_rights, source_creator=source_creator, source_page=source_page,
-            )
-        except (AttemptMaterialStoreError, OSError, ValueError) as exc:
-            raise MaterialIntegrationError(f"Rights evidence could not be safely recorded: {exc}") from exc
-        result = self._run(attempt, EaselRuntimeConfig.load().material_roots(), planning=planning)
-        gate = result.get("gate") or {}
-        return {
-            "asset_id": asset_id,
-            "asset_sha256": expected_sha256,
-            "rights": store.read_asset(asset_id).rights.model_dump(mode="json"),
-            "material_status": result.get("status", "MATERIAL_NOT_READY"),
-            "material_gate": {
-                "status": gate.get("status", result.get("status", "MATERIAL_NOT_READY")),
-                "readiness": gate["readiness"].model_dump(mode="json") if gate.get("readiness") else None,
-                "gaps": [gap.model_dump(mode="json") for gap in gate.get("gaps", ())],
-            },
-            "production_authoring": result.get("attempt", {}).get("production_authoring"),
-        }
+        return self.review_material_rights(
+            attempt_id, asset_id=asset_id, expected_sha256=expected_sha256,
+            rights=rights, confirm_review=confirm_review,
+            source_creator=source_creator, source_page=source_page,
+        )
 
     def _run(
         self,
@@ -1328,6 +1519,19 @@ class MaterialProductOrchestrator:
                 "status": "SCRIPT_TRUTH_REVIEW_REQUIRED",
                 "attempt": attempt,
             }
+        if attempt.get("material_gate", {}).get("status") == "MATERIAL_READY":
+            current_plan, _, current_readiness = MaterialGateIntegration().assert_ready(attempt)
+            if current_plan != plan:
+                raise MaterialIntegrationError("已完成的 Material checkpoint 与当前 Planning 不一致")
+            if attempt.get("production_authoring", {}).get("status") not in {
+                "PENDING_SELECTION", "SELECTION_RECORDED", "READY",
+            }:
+                attempt = ProductionAuthoringIntegration().prepare(
+                    attempt, selected_asset_ids=(),
+                )["attempt"]
+            return {"planning": planning, "status": "MATERIAL_READY",
+                    "gate": {"status": "MATERIAL_READY", "readiness": current_readiness,
+                             "gaps": ()}, "attempt": attempt}
         from easel.integrations.material_supply import ProductMaterialSupply
 
         flow = ProductMaterialSupply(

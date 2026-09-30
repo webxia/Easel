@@ -321,6 +321,7 @@ def confirm_chat_proposal(
     turn_id: str | None,
     *,
     proposal_sha256: str | None = None,
+    production_specs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist a user-issued production confirmation; natural-language text cannot call this implicitly."""
     with edit_creation(creation_id) as data:
@@ -338,6 +339,7 @@ def confirm_chat_proposal(
                 "confirmed_at": _now(),
                 "confirmed_by_turn": turn_id or "explicit-action",
                 **({"proposal_sha256": proposal_sha256} if proposal_sha256 else {}),
+                **({"production_specs": production_specs} if production_specs is not None else {}),
             })
             data["chat_workflow"] = workflow
         elif (proposal_sha256 is not None

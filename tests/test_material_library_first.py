@@ -16,6 +16,7 @@ from easel.materials.domain import (
     CandidateSource, FileInfo, MaterialAsset, MaterialNeed, MediaType,
     NeedImportance, NeedIntent, NeedScope, NeedScopeType, RightsEvidence,
     RightsInfo, RightsStatus, TechnicalInfo, TechnicalStatus,
+    IntelligenceStatus, SemanticAnnotation, SemanticField, SemanticInference, SemanticInfo,
 )
 from easel.materials.providers.models import (
     AccessMode, ProviderCapability, ProviderInfo,
@@ -38,6 +39,11 @@ def _asset(asset_id: str) -> MaterialAsset:
         source=CandidateSource(kind="fixture", provider="fixture", provider_asset_id=asset_id),
         rights=RightsInfo(status=RightsStatus.KNOWN, license_name="Fixture", evidence=(RightsEvidence(kind="asset_license", reference=f"fixture:{asset_id}"),)),
         technical=TechnicalInfo(status=TechnicalStatus.PASSED, width=1080, height=1920, mime="image/jpeg"),
+        semantic=SemanticInfo(inferences=(SemanticInference(
+            analyzer_id="fixture-observation", status=IntelligenceStatus.COMPLETE,
+            annotations=(SemanticAnnotation(field=SemanticField.CAPTION, value="city portrait",
+                                            confidence=0.95, evidence="fixture visual observation"),),
+        ),)),
     )
 
 

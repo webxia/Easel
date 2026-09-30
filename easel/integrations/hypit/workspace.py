@@ -166,10 +166,11 @@ When this Attempt contains `planning/manifest.json` with `PLANNING_READY` and
 `materials/readiness.json` with `READY`, read `materials/plan.json`,
 `materials/bundle.json`, and the copied planning artifacts under
 `productions/easel-authoring/`. Production Authoring owns the final explicit
-asset selection and may record it in
-`productions/easel-authoring/material-selection.json`. Use the workspace
-relative `src` paths for ordinary `media:Image`, `media:Video`, or
-`media:Audio` inputs. Do not add Hypit `Candidate`/`satisfy` bindings for
+asset selection through the assets it actually references in SVML. Easel
+records those references in `productions/easel-authoring/material-selection.json`
+with the frozen Plan/Bundle/Readiness identity; do not edit that JSON file.
+Use the workspace-relative `src` paths for ordinary `media:Image`,
+`media:Video`, or `media:Audio` inputs. Do not add Hypit `Candidate`/`satisfy` bindings for
 ordinary workspace assets, and do not let material supply rewrite Director
 intent.
 
@@ -197,27 +198,67 @@ packages and contracts:
   <import as="copy" from="@hypit/text@1"/>
   <import as="recipes" source="./recipes.svs"/>
   <!-- media:Image src; time:Clock id="clock" frame-rate="24" +
-       time:Timeline id="program" clock={{clock}} end="15s";
-       space:Canvas + exact-ratio space:Extent + space:Frame;
-       media-track:Track Item image/extent/frame at="0s" for="2.5s";
-       Item Sampling children at start/end for bounded pan/zoom;
-       film:Film with film:Track source={{visual-track.visual}};
+       time:Timeline id="program" clock={{clock}} using the frozen duration;
+       space:Canvas id="canvas" width="1080" height="1920" (empty);
+       space:Extent id="source-extent" width/height from the selected image;
+       space:Frame id="canvas-frame" within={{canvas}} left="0px" top="0px"
+         right="1080px" bottom="1920px";
+       media-track:Item image/source extent/frame at/for from the scene plan
+         appearance={{recipes.media.still}};
+       media-track:Sampling is an empty element at start/end;
+       film:Film canvas={{canvas}} appearance={{recipes.film.memo}}
+         with film:Track source={{visual-track.visual}};
        render:Video composition={{film.composition}} timeline={{program.timeline}}. -->
 </svml>
 ```
 
 Use only surfaces documented by the installed package READMEs/Surface
-vocabularies. For six timed stills, make one 15-second authored Timeline and
-six `media-track:Item` windows (`at` + `for`), then include that Track's
+vocabularies. Make one Timeline using the frozen work's duration and
+`media-track:Item` windows (`at` + `for`) for its actual scenes; include that Track's
 `.visual` in `film:Film`. Timeline references use Hypit brace expressions:
 write `clock={{clock}}`, not the quoted string `clock="clock"`. A still
-`Item` uses `image={...}` plus a factual
-`extent={...}` and `frame={...}`; its empty `media-track:Sampling` keyframes
+`Item` uses `image={...}` plus a factual source-dimension
+`extent={...}` and a canvas placement `frame={...}`; its empty `media-track:Sampling` elements
 use `at="start"` / `at="end"`, `zoom`, and pixel `x`/`y` (not verbal motion
-names). Use `typo:Track`/`typo:Area` for text, not a generic overlay. Only
+names). Use `copy:Value` and `typo:Track`/`typo:Area` for text, not
+`copy:Copy`, `typo:Area text`, or a generic overlay. Typography's Film source
+is `.track`, not `.visual`; `film:Track` takes `source`, not `id`. Decide
+`fit: contain` or `fit: cover` using the source aspect ratio and placement.
+Only
 reference admitted asset paths from MaterialBundle. Do not use namespace
 attributes or put Easel identity/hash/rights metadata in SVML; those remain in
 Easel's selection and Material records.
+
+Every `media-track:Item` requires an `appearance` reference to an SVS Recipe;
+`film:Film` also requires `canvas` and an `appearance` Recipe. Author
+`productions/easel-authoring/authors/recipes.svs` alongside `main.svml` and
+import it as `recipes` from `./recipes.svs`. This is the installed SVS shape:
+
+```svs
+<?svml using="@hypit/svs@1"?>
+<sheet version="1">
+  media.still {{ stack-order: 10; fit: cover; }}
+  film.memo {{ background: #101820; }}
+</sheet>
+```
+
+Choose the actual appearance in line with the frozen Creative Mode. Every
+still Item can reference `appearance={{recipes.media.still}}`, and Film can
+reference `appearance={{recipes.film.memo}}`. `stack-order` is required for
+media Item appearance; `background` is required for Film appearance. Do not
+invent an inline `appearance` attribute or omit this dependency.
+
+The `space:Canvas` surface is a required empty element with its own positive
+integer `width` and `height` attributes. It accepts no children. Declare the
+`space:Extent` and `space:Frame` as separate siblings; connect Frame with
+`within={{canvas}}` and explicit edges. For the 9:16 project, use 1080×1920.
+
+```svml
+<space:Canvas id="canvas" width="1080" height="1920"/>
+<space:Extent id="canvas-extent" width="1080" height="1920"/>
+<space:Frame id="canvas-frame" within={{canvas}} left="0px" top="0px"
+  right="1080px" bottom="1920px"/>
+```
 
 ## I. Truth Boundary
 
@@ -280,6 +321,25 @@ For each selected audio Asset, declare its workspace-relative source with
 media:Audio, pass it through pipeline:Normalize with audio="default",
 place the normalized .media in an audio:Item, and include the resulting
 AudioTrack .audio in the enclosing film:Film as a peer film:Track.
+Use the installed v0.2.7 component names and references (replace the source
+path and IDs with this Attempt's values):
+
+```svml
+<import as="pipeline" from="@hypit/media-pipeline@1"/>
+<import as="audio" from="@hypit/audio-track@1"/>
+<media:Audio id="voice-source" src="../../../materials/assets/ASSET/original.mp3"/>
+<pipeline:Normalize id="voice-media" source={{voice-source}}
+  video="none" audio="default" span-authority="audio" clock={{clock}}/>
+<audio:Track id="voice-track" timeline={{program.timeline}}>
+  <audio:Item source={{voice-media.media}} during="program"/>
+</audio:Track>
+<film:Track source={{voice-track.audio}}/>
+```
+
+The film:Track belongs inside film:Film. The `audio` prefix is the declared
+import alias; another declared alias such as `audio-track` is equally valid
+when used consistently. Do not use `media={{voice-source}}` on the audio Item;
+it must consume the normalized `.media` output through `source`.
 Narration and BGM Needs require separate AudioTracks. BGM placement must state
 its gain and fade intent. Hypit v0.2.7 does not infer automatic music ducking;
 keep the authored BGM level below narration and do not claim audible balance

@@ -6,6 +6,7 @@ import hashlib
 from dataclasses import dataclass
 
 from easel.materials.application.assembly import MaterialBundleAssembler
+from easel.materials.application.matching import MaterialMatcher
 from easel.materials.application.rights import RightsAdmissionStatus, RightsService
 from easel.materials.domain import (
     MaterialAsset,
@@ -71,6 +72,12 @@ class MaterialReadinessCalculator:
                     RightsAdmissionStatus.CONDITIONAL,
                 }:
                     reasons.append(f"{asset.asset_id}:rights_{admission.status.value.lower()}:{admission.reason}")
+                    continue
+                # A persisted qualified flag is only a claim. Recheck the
+                # current Need and Asset, including per-Need semantic evidence.
+                verified = MaterialMatcher(self.rights).match(need, [asset])
+                if not verified.matches:
+                    reasons.append(f"{asset.asset_id}:match_evidence_invalid")
                     continue
                 qualified = True
                 break

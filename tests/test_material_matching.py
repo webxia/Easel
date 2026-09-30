@@ -60,11 +60,14 @@ def _asset(
     style: str | None = None,
     source_kind: str = "fixture",
 ) -> MaterialAsset:
-    annotations = [SemanticAnnotation(field=SemanticField.CAPTION, value=caption, confidence=0.9)]
+    annotations = [SemanticAnnotation(field=SemanticField.CAPTION, value=caption, confidence=0.9,
+                                      evidence="fixture visual observation")]
     if logo is not None:
-        annotations.append(SemanticAnnotation(field=SemanticField.LOGO, value=logo, confidence=0.8))
+        annotations.append(SemanticAnnotation(field=SemanticField.LOGO, value=logo, confidence=0.8,
+                                              evidence="fixture visual inspection"))
     if visible_text is not None:
-        annotations.append(SemanticAnnotation(field=SemanticField.VISIBLE_TEXT, value=visible_text, confidence=0.8))
+        annotations.append(SemanticAnnotation(field=SemanticField.VISIBLE_TEXT, value=visible_text, confidence=0.8,
+                                              evidence="fixture visual inspection"))
     if style:
         annotations.append(SemanticAnnotation(field=SemanticField.STYLE, value=style, confidence=0.8))
     evidence = () if rights_status is RightsStatus.UNKNOWN else (
@@ -117,9 +120,8 @@ def test_matching_returns_decomposed_scores_reasons_and_multiple_ranked_alternat
 
     result = MaterialMatcher().match(need, [weak, exact])
 
-    assert [match.asset_id for match in result.matches] == ["asset-a", "asset-b"]
-    assert [match.rank for match in result.matches] == [1, 2]
-    assert result.matches[0].score is not None and result.matches[0].score > result.matches[1].score
+    assert [match.asset_id for match in result.matches] == ["asset-a"]
+    assert result.rejected[0].asset_id == "asset-b"
     assert result.matches[0].scores.semantic is not None
     assert result.matches[0].scores.director is not None
     assert result.matches[0].scores.continuity == 1
@@ -153,9 +155,26 @@ def test_match_many_returns_a_separate_alternative_list_for_each_need() -> None:
     results = MaterialMatcher().match_many([first, second], [_asset("office"), _asset("mountain", caption="A mountain landscape")])
 
     assert [result.need_id for result in results] == ["need-1", "need-2"]
-    assert all(len(result.matches) == 2 for result in results)
+    assert all(len(result.matches) == 1 for result in results)
     assert results[0].matches[0].asset_id == "office"
     assert results[1].matches[0].asset_id == "mountain"
+
+
+def test_reused_visual_asset_needs_independent_observed_match_and_logo_clearance() -> None:
+    office = _need(logo=False)
+    mountain = office.model_copy(update={
+        "need_id": "need-mountain", "intent": NeedIntent(description="mountain landscape"),
+    })
+    asset = _asset("office-image", caption="Person working in an office at night")
+    results = MaterialMatcher().match_many([office, mountain], [asset])
+    assert [match.asset_id for match in results[0].matches] == [asset.asset_id]
+    assert results[1].matches == ()
+    assert results[1].rejected[0].reasons == ("semantic_evidence_missing_or_unrelated",)
+
+    logo_conflict = _asset("logo-image", logo=True)
+    result = MaterialMatcher().match(office, [logo_conflict])
+    assert result.matches == ()
+    assert "logo_forbidden" in result.rejected[0].reasons
 
 
 def test_verified_attribution_asset_remains_matchable() -> None:

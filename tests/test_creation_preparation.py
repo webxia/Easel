@@ -136,6 +136,63 @@ def test_director_context_spells_out_strict_truth_and_creator_schemas(prep_env):
     assert "不要增加 id、statement、notes 等字段" in prompt
     assert "模型归纳或推理绝不能标 user_statement" in prompt
     assert "Profile 不是 claims.source 的合法值" in prompt
+    assert '"beats":[]' in prompt
+    assert '"label":"动作"' not in prompt
+    assert "--validate-draft" in prompt
+
+
+def test_preparation_preflight_rejects_placeholder_without_freezing_and_retry_has_diagnostic(prep_env):
+    work = prep_env["work"]
+    key = prep_env["claim"]["operation_key"]
+    paths = prep.preparation_paths(work["id"], key)
+    brief_path = paths["draft"] / "production-brief.json"
+    brief = json.loads(brief_path.read_text())
+    brief["beats"] = [{"label": "动作", "duration_seconds": 2.5, "description": "可拍摄画面"}]
+    brief_path.write_text(json.dumps(brief))
+    with pytest.raises(prep.PreparationError, match="合计 2.5 秒") as caught:
+        prep.validate_preparation_draft(work["id"], key)
+    assert not paths["snapshot"].exists()
+    prep.mark_preparation_failed(work["id"], str(caught.value))
+    retry = prep.claim_chat_preparation(work["id"], "test-session", "retry")
+    assert retry["action"] == "generate"
+    assert retry["operation_key"] == key
+    assert "合计 2.5 秒" in prep.preparation_agent_context(work, retry)
+    assert "合计 2.5 秒" in web._preparation_reply("FAILED", error=str(caught.value))
+    brief["beats"] = []
+    brief_path.write_text(json.dumps(brief))
+    assert prep.validate_preparation_draft(work["id"], key)["production_brief"]["beats"] == []
+    assert not paths["snapshot"].exists()
+    brief["beats"] = [{"label": "已确认节拍", "duration_seconds": brief["duration_seconds"], "description": "已确认表达"}]
+    brief_path.write_text(json.dumps(brief))
+    assert prep.validate_preparation_draft(work["id"], key)["production_brief"] == brief
+
+
+def test_proposal_card_specs_reject_examples_and_freeze_drift(prep_env):
+    from easel.creator_proposal import proposal_specs
+
+    preview = proposal_specs([
+        {"role": "assistant", "content": "示例：时长：60 秒；画幅：16:9；音轨：voice；语言：英文"},
+        {"role": "user", "content": "15 秒，9:16，静音，简体中文。"},
+    ])
+    assert preview["missing"] == []
+    assert preview["specs"] == {"duration_seconds": 15, "aspect_ratio": "9:16", "audio_mode": "silent", "language": "zh-CN"}
+    reopened = proposal_specs([{ "role": "user", "content": "15 秒" }, {"role": "assistant", "content": "时长：待确认"}])
+    assert reopened["specs"]["duration_seconds"] is None
+    ambiguous = proposal_specs([{"role": "user", "content": "时长上限 45 秒；不要静音；不是 9:16"}])
+    assert all(value is None for value in ambiguous["specs"].values())
+    assert all(value is None for value in proposal_specs([{"role": "assistant", "content": "示例：15 秒、9:16、静音、简体中文"}])["specs"].values())
+    work = prep_env["work"]
+    with creation.edit_creation(work["id"]) as persisted:
+        persisted["chat_workflow"]["production_specs"] = preview["specs"]
+    key = prep_env["claim"]["operation_key"]
+    draft = prep.preparation_paths(work["id"], key)["draft"] / "production-brief.json"
+    brief = json.loads(draft.read_text())
+    assert prep.validate_preparation_draft(work["id"], key)["production_brief"]["duration_seconds"] == 15
+    brief["duration_seconds"] = 16
+    draft.write_text(json.dumps(brief))
+    with pytest.raises(prep.PreparationError, match="确认的方案卡不一致"):
+        prep.validate_preparation_draft(work["id"], key)
+    assert not prep.preparation_paths(work["id"], key)["snapshot"].exists()
 
 
 def test_chat_preparation_freezes_truth_core_mode_and_attempt_without_build(prep_env, monkeypatch):
@@ -409,7 +466,7 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
             "proposalContext": [
                 {"role": "user", "content": "做一个短视频，纯静音。"},
                 {"role": "assistant", "content": "建议 6 个节拍、15 秒。"},
-                {"role": "user", "content": "确认 6 个节拍、15 秒、不露脸。"},
+                {"role": "user", "content": "确认 6 个节拍、15 秒、9:16、静音、简体中文、不露脸。"},
             ],
         })
         response = client.post("/api/chat", json=confirmation.model_dump())
@@ -417,7 +474,7 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
     assert response.status_code == 200
     body = response.json()
     assert body["creationId"] == first_body["creationId"]
-    assert "Material Gate 未覆盖" in body["response"]
+    assert "仍有画面素材需要补齐" in body["response"]
     assert len(agent_calls) == 2
     assert "CURRENT_CREATION_ID=" in agent_calls[1][0]
     work = creation.get_creation(body["creationId"])
@@ -456,6 +513,28 @@ def test_chat_proposal_revision_does_not_claim_preparation(prep_env):
     assert saved.get("hypit_handoffs", []) == []
     assert saved.get("hypit_attempts", []) == []
     assert saved.get("preparation", {}).get("status") == "CREATED"
+
+
+def test_car_proposal_prompt_limits_unconfirmed_details_and_user_facing_language(prep_env):
+    message, work = web._prepare_chat_request(web.ChatRequest(
+        message="到目前为止是买电车还是油车",
+        persona="个人经营实践",
+        creativeMode="clear_memo_video",
+        capability="ai-film",
+        sessionId="car-proposal-session",
+        turnId="car-proposal-turn",
+    ))
+
+    assert work["_preparation_action"] == "proposal"
+    assert "到目前为止是买电车还是油车" in message
+    assert "〔当前作品风格：清醒备忘录 · 视频 / clear_memo_video v1.0〕" in message
+    assert '"defaults"' not in message
+    assert "本轮动手前先查技能库" not in message
+    assert "一个暂定切入角度、2～4 个方向、最多一个关键问题" in message
+    assert "不自行补视频时长、价格区间、平台、画幅或目标受众" in message
+    assert "不要使用“已确认事实”“截面事实”" in message
+    assert "不要向用户提后端、Preparation、Production Brief、Creator Context、Agent、Skill 或文件流程" in message
+    assert creation.get_creation(work["id"])["preparation"]["status"] == "CREATED"
 
 
 @pytest.mark.parametrize("resume", [False, True])
@@ -608,12 +687,59 @@ def test_authoring_repairs_machine_detectable_svrun_source_once(prep_env, monkey
     assert result["authoring_status"] == "AUTHORING_READY"
     assert checks == 2
     assert len(messages) == 2
-    assert "runs/main.svrun" in messages[1]
-    assert "authors/main.svml" in messages[1]
+    assert "SVRun must identify its authored SVML source" in messages[1]
+    assert "AUTHORING_TASK.md" in messages[1]
+
+
+def test_authoring_repairs_missing_audio_normalize_once(prep_env, monkeypatch):
+    from easel.integrations import material_layer
+
+    attempt_id = "fa_0123456789abcdef0123456789abcdef"
+    task = {"workspace": str(prep_env["tmp"] / "workspace"), "task_path": "AUTHORING_TASK.md"}
+    attempt = {"authoring_status": "AUTHORING_FAILED", "material_gate": {"status": "MATERIAL_READY"}}
+    monkeypatch.setattr(web, "get_film_attempt", lambda _id: attempt)
+    monkeypatch.setattr(web, "begin_film_authoring", lambda _id: {
+        **attempt, "authoring_status": "AUTHORING_RUNNING", "authoring_task": task,
+    })
+    monkeypatch.setattr(web, "_authoring_agent_message", lambda *_args: "initial authoring")
+    messages = []
+    monkeypatch.setattr(web, "run_attempt_scoped_authoring", lambda **kwargs: messages.append(kwargs["message"]))
+    monkeypatch.setattr(web, "complete_film_authoring", lambda _id: {"authoring_status": "AUTHORING_READY"})
+
+    class Selection:
+        def qualified_authoring_assets(self, _attempt):
+            return []
+
+        def record_selection_from_authored_svml(self, _attempt):
+            return None
+
+        def validate_authored_selection(self, _attempt, _run_path):
+            if len(messages) == 1:
+                raise material_layer.MaterialIntegrationError(
+                    "SVML selected audio Asset is not normalized, placed on an AudioTrack, "
+                    "and included in Film: voice-asset"
+                )
+            return {"attempt": attempt}
+
+    monkeypatch.setattr(material_layer, "ProductionAuthoringIntegration", Selection)
+    result = asyncio.run(web._run_film_authoring(attempt_id))
+
+    assert result["authoring_status"] == "AUTHORING_READY"
+    assert len(messages) == 2
+    assert "AudioTrack" in messages[1]
+    assert "AUTHORING_TASK.md" in messages[1]
+    assert "Provider 或调用 plan、pricing、build" in messages[1]
 
 
 @pytest.mark.parametrize("prior_error", [None, {"message": "previous Hypit check failed"}])
-def test_authoring_automatically_repairs_bounded_hypit_check_feedback(prep_env, monkeypatch, prior_error):
+@pytest.mark.parametrize("check_error", [
+    "Hypit check 失败：time:Clock requires exactly id and frame-rate.",
+    "Hypit check 失败：space:Canvas requires width, height.",
+    "Hypit check 失败：media-track:Item.appearance must be a reference.",
+])
+def test_authoring_automatically_repairs_bounded_hypit_check_feedback(
+    prep_env, monkeypatch, prior_error, check_error,
+):
     attempt_id = "fa_0123456789abcdef0123456789abcdef"
     task = {"workspace": str(prep_env["tmp"] / "workspace"), "task_path": "AUTHORING_TASK.md"}
     monkeypatch.setattr(web, "get_film_attempt", lambda _id: {
@@ -636,9 +762,7 @@ def test_authoring_automatically_repairs_bounded_hypit_check_feedback(prep_env, 
         nonlocal checks
         checks += 1
         if checks == 1:
-            raise HypitIntegrationError(
-                'Hypit check 失败：time:Clock requires exactly id and frame-rate.'
-            )
+            raise HypitIntegrationError(check_error)
         return {"authoring_status": "AUTHORING_READY"}
 
     monkeypatch.setattr(web, "complete_film_authoring", complete)
@@ -648,9 +772,10 @@ def test_authoring_automatically_repairs_bounded_hypit_check_feedback(prep_env, 
     assert checks == 2
     assert len(begin_calls) == 2  # Initial dispatch + one automatic repair round.
     assert len(messages) == 2
-    assert "time:Clock requires exactly id and frame-rate" in messages[1]
+    assert check_error in messages[1]
+    assert "AUTHORING_TASK.md" in messages[1]
     assert "不调用 Provider" in messages[1]
-    assert "不运行 plan、pricing 或 build" in messages[1]
+    assert "plan、pricing 或 build" in messages[1]
 
 
 def test_authoring_agent_receives_installed_hypit_markup_contract():
@@ -660,6 +785,10 @@ def test_authoring_agent_receives_installed_hypit_markup_contract():
     )
     assert "裸 <svml>" in message
     assert "timeline-author@1" in message
+    assert '<space:Canvas id="canvas" width="1080" height="1920"/>' in message
+    assert "Canvas 不接受子元素" in message
+    assert "authors/recipes.svs" in message
+    assert "appearance={recipes.media.still}" in message
     assert "clock={clock}" in message
     assert '不能写成字符串 clock="clock"' in message
     assert "frame-rate" in message

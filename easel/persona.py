@@ -13,7 +13,7 @@ import json
 import os
 import tempfile
 
-from easel.creative_mode import creative_mode_prefix
+from easel.creative_mode import creative_mode_prefix, load_creative_mode
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 PROFILES_DIR = PROJECT_ROOT / "profiles"
@@ -154,13 +154,19 @@ def turn_reminder() -> str:
 
 
 def chat_turn_message(user_message: str, name: str | None,
-                      creative_mode: str | None = None) -> str:
+                      creative_mode: str | None = None, *, proposal: bool = False) -> str:
     """Build one Agent turn from the selected Profile and Creative Mode.
 
     The Profile defines the creator. The optional Mode defines the expression
     contract for applicable work. Both are invisible to the chat transcript.
     """
-    prefixes = [p for p in (persona_prefix(name), creative_mode_prefix(creative_mode)) if p]
+    if proposal and creative_mode:
+        mode = load_creative_mode(creative_mode)
+        mode_prefix = (f"〔当前作品风格：{mode['name']} / {mode['id']} v{mode['version']}〕"
+                       if mode else "")
+    else:
+        mode_prefix = creative_mode_prefix(creative_mode)
+    prefixes = [p for p in (persona_prefix(name), mode_prefix) if p]
     head = "\n\n".join(prefixes)
     head = f"{head}\n\n" if head else ""
-    return f"{head}{user_message}\n\n{turn_reminder()}"
+    return f"{head}{user_message}" + ("" if proposal else f"\n\n{turn_reminder()}")

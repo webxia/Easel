@@ -324,15 +324,25 @@ textarea.field { resize: vertical; min-height: 90px; }
 .film-op-creator .film-op-heading h2 { min-width: 0; }
 .film-op-work-title { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: 12px; }
 .film-op-creator > .btn { justify-self: start; }
-.film-op-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.film-op-progress span { padding: 8px 4px; border-radius: var(--radius); text-align: center; background: var(--surface-2); color: var(--text-tertiary); font-size: 12px; }
-.film-op-progress .is-current { background: var(--accent-soft); color: var(--accent-start); font-weight: 700; }
-.film-op-progress .is-complete { background: var(--green-soft); color: var(--green); }
+.film-op-progress { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.film-op-progress-step { display: flex; flex-direction: column; gap: 3px; padding: 8px 4px; border-radius: var(--radius); text-align: center; background: var(--surface-2); color: var(--text-tertiary); font-size: 12px; }
+.film-op-progress-step small { font-size: 11px; }
+.film-op-progress-step.is-running { background: var(--accent-soft); color: var(--accent-start); }
+.film-op-progress-step.is-completed { background: var(--green-soft); color: var(--green); }
+.film-op-progress-step.is-action-required { background: var(--accent-soft); color: var(--accent-start); }
+.film-op-progress-step.is-failed { background: var(--red-soft); color: var(--red); }
+.film-op-visual-preview { display: block; max-width: 100%; max-height: 340px; object-fit: contain; margin: 10px auto; border-radius: var(--radius); background: var(--surface-2); }
+@media (max-width: 720px) { .film-op-progress { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .film-op-creator-facts { display: flex; flex-wrap: wrap; gap: 8px; }
 .film-op-creator-facts span { padding: 6px 9px; border-radius: var(--radius); background: var(--surface-2); color: var(--text-secondary); font-size: 12px; }
 .film-op-budget { display: grid; max-width: 320px; gap: 6px; font-size: 13px; }
 .film-op-review-claim { padding: 10px 12px; border-radius: var(--radius); background: var(--surface-2); font-size: 13px; }
 .film-op-review-claim strong { display: block; font-weight: 600; }
+.film-op-voice-review { display: grid; gap: 10px; }
+.film-op-voice-review p { margin: 0; }
+.film-op-voice-review label { display: grid; gap: 5px; }
+.film-op-voice-review .film-op-confirm { display: flex; align-items: flex-start; }
+.film-op-voice-review > .btn { justify-self: start; }
 .film-op-advanced { border-top: 1px solid var(--border); padding-top: 12px; }
 .film-op-advanced > summary { cursor: pointer; color: var(--text-tertiary); font-size: 12px; }
 .film-op-card { padding: 20px; }
@@ -1253,3 +1263,29 @@ textarea.field { resize: vertical; min-height: 90px; }
 /* 技能库中文展示名（中文大字 + 原名小字） */
 .skill-card-rawname { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 11px; color: var(--text-tertiary); margin-top: -3px; letter-spacing: 0; }
 .skill-detail-rawname { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 12px; color: var(--text-tertiary); margin-top: 3px; letter-spacing: 0; }
+
+/* Creator: separate conversation and work, each with one scroll surface. */
+.creator-workspace { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(360px, 1fr); grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+.creator-workspace-header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 20px; border-bottom: 1px solid var(--border); }
+.creator-workspace-header > div { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; min-width: 0; }
+.creator-workspace-header span { font-size: 12px; color: var(--text-secondary); }
+.creator-conversation { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.creator-work-canvas { min-width: 0; min-height: 0; overflow-y: auto; border-left: 1px solid var(--border); background: var(--surface); }
+.creator-work-canvas .film-operator-page { padding: 16px; }
+.creator-workspace .chat-messages { min-height: 0; padding: 20px 16px; }
+.creator-workspace .chat-input-area { flex-shrink: 0; padding: 12px; }
+.creator-workspace-tabs { display: none; }
+.creator-proposal-facts dt { margin-top: 16px; font-weight: 600; }
+.creator-proposal-facts dd { margin: 4px 0 12px; color: var(--text-secondary); line-height: 1.7; }
+.creator-proposal-turn { white-space: pre-wrap; overflow-wrap: anywhere; }
+.creator-work-canvas .film-op-progress { margin: 12px 0; }
+.creator-work-canvas .film-op-review-claim { border-left: 3px solid var(--accent-start); padding: 14px; margin: 14px 0; }
+@media (max-width: 900px) {
+  .creator-workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr); }
+  .creator-workspace-tabs { display: flex; gap: 8px; padding: 8px 16px; }
+  .creator-workspace-tabs button { flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+  .creator-workspace-tabs button[aria-pressed="true"] { background: var(--accent-soft); }
+  .creator-workspace.is-conversation .creator-work-canvas { display: none; }
+  .creator-workspace.is-work .creator-conversation { display: none; }
+  .creator-work-canvas { border-left: 0; }
+}

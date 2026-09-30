@@ -17,6 +17,7 @@ from easel.materials.domain import (
     MaterialNeed, MaterialPlan, MediaType, NeedImportance, NeedIntent,
     NeedScope, NeedScopeType, RightsEvidence, RightsInfo, RightsStatus,
     SupplyRun, SupplySourceResult, TechnicalInfo, TechnicalStatus,
+    IntelligenceStatus, SemanticAnnotation, SemanticField, SemanticInference, SemanticInfo,
 )
 from easel.materials.library import (
     LibraryScope, MaterialLibraryCatalog, PromotionConsent,
@@ -53,7 +54,10 @@ def _asset(asset_id: str, text: str, *, provider: str = "local-fixture") -> Mate
             evidence=(RightsEvidence(kind="asset_license", reference=f"fixture:{asset_id}"),),
         ),
         technical=TechnicalInfo(status=TechnicalStatus.PASSED, width=1080, height=1920, mime="image/jpeg"),
-        semantic={"caption": text, "tags": ("portrait", "city")},
+        semantic=SemanticInfo(caption=text, tags=("portrait", "city"),
+            inferences=(SemanticInference(analyzer_id="fixture-observation", status=IntelligenceStatus.COMPLETE,
+                annotations=(SemanticAnnotation(field=SemanticField.CAPTION, value=text,
+                    confidence=0.95, evidence="fixture visual observation"),)),)),
     )
 
 

@@ -23,6 +23,9 @@ _PROMOTED_ARTIFACTS = (
     "productions/easel-authoring/authors/main.svml",
     "productions/easel-authoring/runs/main.svrun",
 )
+_OPTIONAL_PROMOTED_ARTIFACTS = (
+    "productions/easel-authoring/authors/recipes.svs",
+)
 _INPUT_DIRS = ("handoff", "planning", "references", "productions/easel-authoring")
 _INPUT_FILES = ("AUTHORING_TASK.md", "package.json", "materials/plan.json",
                 "materials/bundle.json", "materials/readiness.json")
@@ -64,12 +67,13 @@ def run_attempt_scoped_authoring(
     cwd: str | Path,
     env: dict[str, str],
     runner: CommandRunner = subprocess.run,
+    validate_artifacts: Callable[[Path], None] | None = None,
 ) -> str:
     """Run OpenClaw against a copy of one Attempt and promote only authoring outputs.
 
     The OpenClaw Agent receives no shell, network, media, plugin, session, or
     publication tools. Its file tools are rooted to the private staged Attempt
-    workspace. Easel copies back only the three reviewed Authoring artifacts.
+    workspace. Easel copies back only the reviewed Authoring artifacts.
     """
     if not _ATTEMPT_ID.fullmatch(attempt_id):
         raise OpenClawAuthoringBoundaryError("非法 Attempt ID")
@@ -125,6 +129,27 @@ def run_attempt_scoped_authoring(
             )
             if result.returncode != 0:
                 raise OpenClawAuthoringBoundaryError("OpenClaw Authoring 自动补齐调用失败")
+        if validate_artifacts is not None:
+            from easel.integrations.hypit.errors import HypitIntegrationError
+
+            try:
+                validate_artifacts(staged_workspace)
+            except HypitIntegrationError as exc:
+                repair_message = (
+                    "〔Easel Authoring 静态契约修复〕\n"
+                    f"当前隔离工作区：{staged_workspace}\n"
+                    f"本机 Hypit 对隔离产物的校验失败：{str(exc)[:3000]}\n"
+                    "重读 AUTHORING_TASK.md，按安装版 Surface 修复当前 SVML、SVS 或 Easel Run JSON；"
+                    "保留冻结内容、已准入素材和身份，不调用 Provider、plan 或 build。"
+                    "无效产物尚未提升；修好后停止，由 Easel 再次校验。"
+                )
+                repaired = runner(
+                    [*agent_command[:-1], repair_message], capture_output=True, text=True,
+                    cwd=str(cwd), timeout=timeout + 30, env=env,
+                )
+                if repaired.returncode != 0:
+                    raise OpenClawAuthoringBoundaryError("OpenClaw Authoring 契约修复失败")
+                validate_artifacts(staged_workspace)
         _promote_authoring_artifacts(staged_workspace, source)
         return result.stdout or ""
     finally:
@@ -278,8 +303,10 @@ def _assert_source_components(root: Path, relative: Path) -> None:
 
 def _promote_authoring_artifacts(staged: Path, destination: Path) -> None:
     pending: list[tuple[Path, Path]] = []
-    for relative in _PROMOTED_ARTIFACTS:
+    for relative in (*_PROMOTED_ARTIFACTS, *_OPTIONAL_PROMOTED_ARTIFACTS):
         source = staged / relative
+        if relative in _OPTIONAL_PROMOTED_ARTIFACTS and not source.exists() and not source.is_symlink():
+            continue
         if source.is_symlink() or not source.is_file():
             raise OpenClawAuthoringBoundaryError("Authoring 未生成全部允许的普通文件")
         if source.stat().st_size > 8 * 1024 * 1024:

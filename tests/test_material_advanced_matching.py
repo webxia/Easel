@@ -29,6 +29,7 @@ from easel.materials.domain import (
     SemanticAnnotation,
     SemanticField,
     SemanticInfo,
+    SemanticInference,
     TechnicalInfo,
     TechnicalStatus,
 )
@@ -72,8 +73,10 @@ class FakeVLM:
             raise RuntimeError("offline fixture failure")
         return SemanticAnalysisOutput(
             annotations=(
-                SemanticAnnotation(field=SemanticField.ENVIRONMENT, value="rainy city street", confidence=0.93),
-                SemanticAnnotation(field=SemanticField.OBJECTS, value=("umbrella", "taxi"), confidence=0.88),
+                SemanticAnnotation(field=SemanticField.ENVIRONMENT, value="rainy city street", confidence=0.93,
+                                   evidence="fixture visual observation"),
+                SemanticAnnotation(field=SemanticField.OBJECTS, value=("umbrella", "taxi"), confidence=0.88,
+                                   evidence="fixture visual observation"),
             )
         )
 
@@ -101,6 +104,7 @@ def _register(
     tags: tuple[str, ...],
     references: tuple[str, ...] = (),
     attributes: dict[str, object] | None = None,
+    observed: bool = True,
 ):
     attempt_root = tmp_path / f"attempt-{asset_id}"
     attempt_root.mkdir()
@@ -117,7 +121,11 @@ def _register(
             evidence=(RightsEvidence(kind="asset_license", reference=f"fixture:{asset_id}"),),
         ),
         "technical": TechnicalInfo(status=TechnicalStatus.PASSED, width=1080, height=1920, mime="image/jpeg"),
-        "semantic": SemanticInfo(caption=caption, tags=tags, attributes=attributes or {}),
+        "semantic": SemanticInfo(caption=caption, tags=tags, attributes=attributes or {},
+            inferences=((SemanticInference(analyzer_id="fixture-observation", status=IntelligenceStatus.COMPLETE,
+                annotations=(SemanticAnnotation(field=SemanticField.CAPTION, value=caption,
+                                                confidence=0.95, evidence="fixture visual observation"),)),)
+                if observed else ())),
         "lineage": {"references": references},
     }
     from easel.materials.domain import MaterialAsset
@@ -143,7 +151,8 @@ def _register(
 def test_vlm_enrichment_is_optional_and_preserves_source_facts(tmp_path: Path) -> None:
     catalog = MaterialLibraryCatalog(tmp_path / "library")
     scope, record = _register(
-        tmp_path, catalog, asset_id="city", body=b"city", caption="provider caption", tags=("source-tag",)
+        tmp_path, catalog, asset_id="city", body=b"city", caption="provider caption", tags=("source-tag",),
+        observed=False,
     )
     disabled_analyzer = FakeVLM()
     disabled = LibraryVLMEnricher(catalog, disabled_analyzer).enrich(record, scope=scope)

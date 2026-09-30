@@ -52,9 +52,12 @@
 
 ## Workstreams 与模板
 
+- 当前 Creator 工作区 Goal：[`tasks/creator-workspace-2026-09-30.md`](tasks/creator-workspace-2026-09-30.md)。
+
 - 当前能力边界：[`workstreams/generated-material.md`](workstreams/generated-material.md)。MiniMax 图片、视频和预置音色语音生成均已接入代码；生成素材的 Creation/Production 闭环仍需单独验收。
 - 当前 E2E Task：[`tasks/v1c-t15-e2e-readiness.md`](tasks/v1c-t15-e2e-readiness.md)。
 - 当前低打扰产品改进：[`tasks/v1c-t19-low-friction-creation.md`](tasks/v1c-t19-low-friction-creation.md)。
+- 当前 Creator E2E 前修复：[`tasks/creator-e2e-repair-2026-09-30.md`](tasks/creator-e2e-repair-2026-09-30.md)。
 - 已完成的 Material 基础能力不再保留单独 Workstream 文档。
 - 新 Workstream 先在 `03_ROADMAP.md` 中登记，确认确有独立上下文后再新增文件。
 

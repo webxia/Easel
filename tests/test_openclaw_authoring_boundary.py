@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from easel.integrations.hypit.errors import HypitIntegrationError
 
 from easel.integrations.openclaw_authoring import (
     OpenClawAuthoringBoundaryError,
@@ -80,6 +81,9 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
                 '{"schema":"test"}', encoding="utf-8")
             (agent_workspace / "productions/easel-authoring/authors/main.svml").write_text(
                 "<svml/>", encoding="utf-8")
+            (agent_workspace / "productions/easel-authoring/authors/recipes.svs").write_text(
+                '<?svml using="@hypit/svs@1"?><sheet version="1">'
+                'media.still { stack-order: 10; fit: cover; }</sheet>', encoding="utf-8")
             (agent_workspace / "productions/easel-authoring/runs/main.svrun").write_text(
                 "<svrun/>", encoding="utf-8")
             (agent_workspace / "outside.txt").write_text("must not promote", encoding="utf-8")
@@ -103,6 +107,7 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
     assert result == "done"
     assert (attempt / "productions/easel-authoring/material-selection.json").is_file()
     assert (attempt / "productions/easel-authoring/authors/main.svml").is_file()
+    assert (attempt / "productions/easel-authoring/authors/recipes.svs").is_file()
     assert (attempt / "productions/easel-authoring/runs/main.svrun").is_file()
     assert not (attempt / "outside.txt").exists()
     assert (attempt / "materials/assets/asset-1/private-media.bin").read_bytes() == b"not staged"
@@ -110,6 +115,19 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
     assert any("config" in call and "patch" in call for call in calls)
     assert any("agents" in call and "delete" in call for call in calls)
     assert list(stage_parent.iterdir()) == []
+
+    trusted = attempt / "productions/easel-authoring/authors/main.svml"
+    trusted.write_text("trusted previous source", encoding="utf-8")
+    def reject_invalid(_staged: Path) -> None:
+        raise HypitIntegrationError("Hypit check 失败：无效结构")
+    with pytest.raises(HypitIntegrationError, match="无效结构"):
+        run_attempt_scoped_authoring(
+            attempt_id=ATTEMPT_ID, attempt_workspace=attempt, message=f"workspace={attempt}; repair",
+            command_prefix=["openclaw"], profile="easel", staging_parent=stage_parent,
+            timeout=5, thinking="off", cwd=tmp_path, env={}, runner=runner,
+            validate_artifacts=reject_invalid,
+        )
+    assert trusted.read_text(encoding="utf-8") == "trusted previous source"
 
 
 def test_attempt_authoring_repairs_only_missing_allowlisted_artifacts_once(tmp_path):

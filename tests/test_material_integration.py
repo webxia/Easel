@@ -30,6 +30,7 @@ from easel.materials.domain import (
     CandidateSource,
     DurationHint,
     FileInfo,
+    IntelligenceStatus,
     MaterialAsset,
     MaterialMatch,
     MaterialNeed,
@@ -42,6 +43,10 @@ from easel.materials.domain import (
     RightsEvidence,
     RightsInfo,
     RightsStatus,
+    SemanticInfo,
+    SemanticAnnotation,
+    SemanticField,
+    SemanticInference,
     SupplyRun,
     SupplySourceResult,
     TechnicalInfo,
@@ -52,6 +57,14 @@ from easel.materials.domain import (
 )
 from easel.materials.store import AttemptMaterialStore
 from easel.materials.providers import LocalProvider
+
+
+def _observed_semantic(description: str) -> SemanticInfo:
+    return SemanticInfo(inferences=(SemanticInference(
+        analyzer_id="fixture-observation", status=IntelligenceStatus.COMPLETE,
+        annotations=(SemanticAnnotation(field=SemanticField.CAPTION, value=description,
+                                        confidence=0.95, evidence="fixture media observation"),),
+    ),))
 
 
 @pytest.fixture
@@ -120,6 +133,7 @@ def _contracts(attempt: dict, root: Path):
         rights=RightsInfo(status=RightsStatus.KNOWN, license_name="Fixture License",
                            evidence=(RightsEvidence(kind="asset_license", reference="fixture://license"),)),
         technical=TechnicalInfo(status=TechnicalStatus.PASSED, width=1, height=1, mime="image/png"),
+        semantic=_observed_semantic("一张测试图片"),
     )
     store.write_asset(asset)
     match = MaterialMatch(need_id="need-main", asset_id="asset-main", rank=1, score=1.0,
@@ -183,10 +197,18 @@ def _record_authored_selection(
     run.parent.mkdir(parents=True, exist_ok=True)
     src = store.hypit_source_path(asset, author.relative_to(root).as_posix())
     author.write_text(f'<media:Image id="selected" src="{src}"/>', encoding="utf-8")
-    run.write_text(
-        f'<?svml using="@hypit/run-markup@1"?>\n<svrun version="1">'
-        f'<author source="{run_author_ref}"/></svrun>', encoding="utf-8",
-    )
+    from easel.materials.domain import MaterialBundle
+    bundle = MaterialBundle.from_json((root / "materials/bundle.json").read_text(encoding="utf-8"))
+    readiness = json.loads((root / "materials/readiness.json").read_text(encoding="utf-8"))
+    run.write_text(json.dumps({
+        "schema": "easel-authoring-svrun@1", "creation_id": attempt["creation_id"],
+        "attempt_id": attempt["attempt_id"], "plan_id": bundle.plan_id,
+        "plan_revision": readiness["plan_revision"], "bundle_id": bundle.bundle_id,
+        "bundle_revision": bundle.revision, "readiness_revision": bundle.revision,
+        "authoring_source": run_author_ref, "material_selection": "../material-selection.json",
+        "status": "AUTHORING_READY", "publication_allowed": False,
+        "build": {"enabled": False, "reason": "stops_before_hypit_build"},
+    }), encoding="utf-8")
     selection_path = root / "productions/easel-authoring/material-selection.json"
     selection = json.loads(selection_path.read_text(encoding="utf-8"))
     selection["assets"] = [{"asset_id": asset.asset_id, "media_type": asset.media_type.value,
@@ -194,6 +216,64 @@ def _record_authored_selection(
     selection["status"] = "SELECTED"
     selection_path.write_text(json.dumps(selection), encoding="utf-8")
     return run
+
+
+def test_authoring_selection_uses_actual_svml_refs_and_frozen_revisions(material_integration_env):
+    attempt = material_integration_env
+    _planning(attempt)
+    root = Path(attempt["workspace"]["path"])
+    plan, asset, run, bundle, readiness, gaps = _contracts(attempt, root)
+    attempt.update(MaterialGateIntegration().record(
+        attempt, plan, bundle, run, readiness, gaps,
+    )["attempt"])
+    attempt.update(ProductionAuthoringIntegration().prepare(attempt)["attempt"])
+    eligible = ProductionAuthoringIntegration().qualified_authoring_assets(attempt)
+    assert [item["asset_id"] for item in eligible] == [asset.asset_id]
+    assert eligible[0]["qualified_need_ids"] == ["need-main"]
+    run_path = _record_authored_selection(attempt, asset, root)
+    selection_path = root / "productions/easel-authoring/material-selection.json"
+    malformed = json.loads(selection_path.read_text(encoding="utf-8"))
+    malformed.pop("readiness_revision")
+    malformed.pop("readiness_plan_revision")
+    malformed.pop("readiness_bundle_revision")
+    malformed["readiness_revisions"] = {
+        "plan": readiness.plan_revision, "bundle": readiness.bundle_revision,
+    }
+    malformed["status"] = "selected"
+    malformed["assets"].append({"asset_id": "asset-not-used"})
+    selection_path.write_text(json.dumps(malformed), encoding="utf-8")
+
+    ProductionAuthoringIntegration().record_selection_from_authored_svml(attempt)
+    selection = json.loads(selection_path.read_text(encoding="utf-8"))
+    assert selection["readiness_revision"] == readiness.bundle_revision
+    assert selection["readiness_plan_revision"] == readiness.plan_revision
+    assert "readiness_revisions" not in selection
+    assert selection["status"] == "SELECTED"
+    assert [item["asset_id"] for item in selection["assets"]] == [asset.asset_id]
+    assert ProductionAuthoringIntegration().validate_authored_selection(
+        attempt, run_path.relative_to(root).as_posix(),
+    )["status"] == "READY"
+
+
+def test_selected_image_extent_uses_inspected_source_dimensions(material_integration_env):
+    attempt = material_integration_env
+    _planning(attempt)
+    root = Path(attempt["workspace"]["path"])
+    plan, asset, run, bundle, readiness, gaps = _contracts(attempt, root)
+    attempt.update(MaterialGateIntegration().record(
+        attempt, plan, bundle, run, readiness, gaps,
+    )["attempt"])
+    attempt.update(ProductionAuthoringIntegration().prepare(attempt)["attempt"])
+    run_path = _record_authored_selection(attempt, asset, root)
+    author = root / "productions/easel-authoring/authors/main.svml"
+    original = author.read_text(encoding="utf-8")
+    author.write_text(original + '<space:Extent id="picture" width="1080" height="1920"/>'
+                      '<media-track:Item image={selected} extent={picture} frame={full}/>',
+                      encoding="utf-8")
+    with pytest.raises(MaterialIntegrationError, match="source dimensions"):
+        ProductionAuthoringIntegration().validate_authored_selection(
+            attempt, run_path.relative_to(root).as_posix(),
+        )
 
 
 def test_int01_planning_persists_ready_manifest_and_rejects_empty(material_integration_env):
@@ -306,6 +386,11 @@ def test_required_voice_need_without_provider_neutral_identity_is_rejected(mater
 def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_integration_env):
     attempt = material_integration_env
     root = Path(attempt["workspace"]["path"])
+    task_text = (root / "AUTHORING_TASK.md").read_text(encoding="utf-8")
+    assert '<space:Canvas id="canvas" width="1080" height="1920"/>' in task_text
+    assert "It accepts no children." in task_text
+    assert "authors/recipes.svs" in task_text
+    assert "appearance={recipes.media.still}" in task_text
     script = "假设只朗读已批准事实。\n"
     voice = MaterialNeed(
         need_id="voiceover", scope=NeedScope(type=NeedScopeType.GLOBAL, ref="program"),
@@ -351,7 +436,8 @@ def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_inte
                                   if asset_id == "bgm-asset" else None),
                 evidence=(RightsEvidence(kind="asset_license", reference=f"fixture://{asset_id}"),),
             ),
-            technical=TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=5, mime="audio/wav"),
+                technical=TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=5, mime="audio/wav"),
+                semantic=_observed_semantic("Narration" if need_id == voice.need_id else "Quiet restrained music"),
         )
         store.write_asset(asset)
         assets.append(asset)
@@ -386,6 +472,7 @@ def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_inte
         '<import as="pipeline" from="@hypit/media-pipeline@1"/>\n'
         '<import as="audio" from="@hypit/audio-track@1"/>\n'
         '<import as="film" from="@hypit/film@1"/>\n'
+        '<time:Timeline id="speech" clock={clock} end="5s"/>\n'
         f'<media:Audio id="voiceSource" src="{voice_src}"/>\n'
         f'<media:Audio id="bgmSource" src="{bgm_src}"/>\n'
         '<pipeline:Normalize id="voiceNormalized" source={voiceSource} video="none" audio="default" span-authority="audio" clock={clock}/>'
@@ -397,10 +484,16 @@ def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_inte
         '</film:Film></svml>', encoding="utf-8",
     )
     run_path.parent.mkdir(parents=True, exist_ok=True)
-    run_path.write_text(
-        '<?svml using="@hypit/run-markup@1"?>\n<svrun version="1">'
-        '<author source="../authors/main.svml"/></svrun>', encoding="utf-8",
-    )
+    run_path.write_text(json.dumps({
+        "schema": "easel-authoring-svrun@1", "creation_id": attempt["creation_id"],
+        "attempt_id": attempt["attempt_id"], "plan_id": plan.plan_id,
+        "plan_revision": readiness.plan_revision, "bundle_id": bundle.bundle_id,
+        "bundle_revision": bundle.revision, "readiness_revision": bundle.revision,
+        "authoring_source": "../authors/main.svml",
+        "material_selection": "../material-selection.json", "status": "AUTHORING_READY",
+        "publication_allowed": False,
+        "build": {"enabled": False, "reason": "stops_before_hypit_build"},
+    }), encoding="utf-8")
     result = ProductionAuthoringIntegration().validate_authored_selection(
         attempt, "productions/easel-authoring/runs/main.svrun",
     )
@@ -410,6 +503,19 @@ def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_inte
     assert result["attempt"]["production_authoring"]["selection_validation"]["attributions"][0]["asset_id"] == "bgm-asset"
     assert result["attempt"]["material_audio_policy"]["requires_audio"] is True
     assert _hypit_audio_tracks_for_source(author.read_text(), voice_src) == {"narrationTrack"}
+
+    original_author = author.read_text(encoding="utf-8")
+    author.write_text(
+        original_author.replace('as="audio" from="@hypit/audio-track@1"',
+                                'as="audio-track" from="@hypit/audio-track@1"')
+        .replace('<audio:', '<audio-track:').replace('</audio:', '</audio-track:'),
+        encoding="utf-8",
+    )
+    assert _hypit_audio_tracks_for_source(author.read_text(), voice_src) == {"narrationTrack"}
+    ProductionAuthoringIntegration().validate_authored_selection(
+        result["attempt"], "productions/easel-authoring/runs/main.svrun",
+    )
+    author.write_text(original_author, encoding="utf-8")
 
     author.write_text(author.read_text().replace(
         '<audio:Track id="bgmTrack" timeline={speech.timeline}><audio:Item source={bgmNormalized.media} during="program" gain="0.25" fade-in="12f" fade-out="18f"/></audio:Track>',
@@ -450,7 +556,7 @@ def test_int02_gate_blocks_not_ready_and_accepts_current_ready(material_integrat
         service.begin_film_authoring(attempt["attempt_id"])
 
 
-def test_int03_explicit_selection_precedes_authoring_and_check_evidence(material_integration_env):
+def test_int03_explicit_selection_precedes_authoring_and_check_evidence(material_integration_env, monkeypatch):
     attempt = material_integration_env
     _planning(attempt)
     root = Path(attempt["workspace"]["path"])
@@ -464,6 +570,152 @@ def test_int03_explicit_selection_precedes_authoring_and_check_evidence(material
     completed = service.complete_film_authoring(attempt["attempt_id"], cli=type("CLI", (), {"check": lambda *_: {"ok": True}})())
     assert completed["authoring_status"] == "AUTHORING_READY"
     assert completed["execution_status"] == "BLOCKED"
+    monkeypatch.setattr(
+        material_supply_module, "product_provider_registry",
+        lambda _roots: (_ for _ in ()).throw(AssertionError("ready checkpoint must not repeat Supply")),
+    )
+    resumed = MaterialProductOrchestrator().run_with_planning(
+        completed, (), PlanningIntegration().load(completed),
+    )
+    assert resumed["status"] == "MATERIAL_READY"
+    assert resumed["attempt"]["authoring_status"] == "AUTHORING_READY"
+
+
+def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submission(
+    material_integration_env, tmp_path,
+):
+    attempt = material_integration_env
+    _planning(attempt)
+    root = Path(attempt["workspace"]["path"])
+    plan, asset, run, bundle, readiness, gaps = _contracts(attempt, root)
+    attempt.update(MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)["attempt"])
+    attempt.update(ProductionAuthoringIntegration().prepare(attempt)["attempt"])
+    service.begin_film_authoring(attempt["attempt_id"])
+    _record_authored_selection(attempt, asset, root)
+
+    class FailedBuildCLI:
+        build_calls = 0
+
+        def check(self, *_args):
+            return {"format": "hypit.cli-check@1", "ok": True}
+
+        def plan(self, *_args, **_kwargs):
+            return {"format": "hypit.cli-plan@1", "ok": True}
+
+        def pricing(self, *_args, **_kwargs):
+            return {"format": "hypit.cli-pricing@1", "requestCount": 1, "groups": []}
+
+        def build(self, *_args, **_kwargs):
+            self.build_calls += 1
+            return {"format": "hypit.cli-build@1", "build": {
+                "id": "bld_retry_001", "work": {"outcome": "failed"},
+            }}
+
+        def status(self, _workspace, build_id, **_kwargs):
+            return {"format": "hypit.cli-status@1", "build": {
+                "id": build_id, "work": {"outcome": "failed"},
+            }}
+
+    cli = FailedBuildCLI()
+    service.complete_film_authoring(attempt["attempt_id"], cli=cli)
+    runtime = tmp_path / "hypit-runtime.json"
+    runtime.write_text(json.dumps({
+        "format": "hypit.runtime-local@1", "dataRoot": ".hypit/runtimes/local",
+        "credentials": {}, "endpoints": {}, "bindings": {},
+    }) + "\n", encoding="utf-8")
+    service.resolve_film_attempt_runtime(attempt["attempt_id"], str(runtime))
+    service.validate_film_attempt(attempt["attempt_id"],
+                                  "productions/easel-authoring/runs/main.svrun", cli=cli)
+    service.estimate_film_attempt(attempt["attempt_id"], cli=cli)
+    service.approve_film_cost(attempt["attempt_id"], 1)
+    failed = service.submit_film_build(attempt["attempt_id"], title="失败作品", cli=cli)
+    assert failed["execution_status"] == "BUILD_FAILED"
+    assert cli.build_calls == 1
+
+    retried = service.retry_failed_film_build(attempt["attempt_id"], cli=cli)
+    assert retried["attempt_id"] != attempt["attempt_id"]
+    assert retried["authoring_status"] == "AUTHORING_READY"
+    assert retried["material_gate"]["status"] == "MATERIAL_READY"
+    assert retried["execution_status"] == "NOT_SUBMITTED"
+    assert retried["cost"]["approved"] is False
+    assert retried["plan"]["status"] == "pending"
+    assert retried["retry_source"]["build_id"] == "bld_retry_001"
+    retried_store = AttemptMaterialStore(Path(retried["workspace"]["path"]))
+    retried_bundle = retried_store.read_bundle()
+    retried_supply = retried_store.read_supply_run(retried_bundle.supply_run_id)
+    assert retried_supply.parent_run_id == run.supply_run_id
+    assert retried_supply.provider_results == ()
+    assert cli.build_calls == 1
+    with pytest.raises(HypitIntegrationError, match="显式成本批准"):
+        service.submit_film_build(retried["attempt_id"], title="尚未批准", cli=cli)
+    assert cli.build_calls == 1
+    assert service.retry_failed_film_build(attempt["attempt_id"], cli=cli)["attempt_id"] == retried["attempt_id"]
+    assert len(service.list_film_attempts(attempt["creation_id"])) == 2
+    assert service.get_film_attempt(attempt["attempt_id"])["execution_status"] == "BUILD_FAILED"
+
+    service.update_film_attempt(retried["attempt_id"], event="test_checkpoint_not_ready",
+                                retry_source={**retried["retry_source"], "status": "COPYING"})
+    with pytest.raises(HypitIntegrationError, match="checkpoint 尚未验证完成"):
+        service.validate_film_attempt(retried["attempt_id"],
+                                      "productions/easel-authoring/runs/main.svrun", cli=cli)
+    with pytest.raises(HypitIntegrationError, match="checkpoint 尚未验证完成"):
+        service.submit_film_build(retried["attempt_id"], title="不应提交", cli=cli)
+    service.update_film_attempt(retried["attempt_id"], event="test_checkpoint_restored",
+                                retry_source=retried["retry_source"])
+    assert cli.build_calls == 1
+
+    def uncertain(_workspace, build_id, **_kwargs):
+        return {"format": "hypit.cli-status@1", "build": {"id": build_id,
+                "work": {"state": "working"}}}
+
+    cli.status = uncertain
+    with pytest.raises(HypitIntegrationError, match="禁止重复提交"):
+        service.retry_failed_film_build(attempt["attempt_id"], cli=cli)
+
+    # The same verified checkpoints support a distinct creative revision,
+    # with output-bound feedback and a fresh, unapproved production operation.
+    output_path = creation.OUTPUTS_DIR / "_creations" / attempt["creation_id"] / "attempts" / attempt["attempt_id"] / "final.mp4"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_bytes(b"deterministic reviewed output")
+    output_hash = service._file_sha256(output_path)
+    output = {"path": output_path.relative_to(creation.OUTPUTS_DIR).as_posix(),
+              "sha256": output_hash, "metadata": {"duration_seconds": 15},
+              "technical_qc": {"status": "pass", "output_name": "final.video", "sha256": output_hash}}
+    service.update_film_attempt(attempt["attempt_id"], event="fixture_completed_output",
+                                execution_status="BUILD_COMPLETE", outputs={"final.video": output})
+    review = {"outputName": "final.video", "sha256": output_hash,
+              "truth": {"status": "modify"}, "style": {"status": "modify"},
+              "human": {"status": "rejected"},
+              "feedback": [{"kind": "composition", "text": "开头构图更紧凑", "time_seconds": 2}]}
+    with pytest.raises(HypitIntegrationError, match="时间点"):
+        service.record_film_review(attempt["attempt_id"],
+                                  {**review, "feedback": [{**review["feedback"][0], "time_seconds": 16}]})
+    service.record_film_review(attempt["attempt_id"], review)
+    with pytest.raises(HypitIntegrationError, match="绑定"):
+        service.revise_film_output(attempt["attempt_id"], output_name="final.video", sha256="0" * 64, cli=cli)
+    revision = service.revise_film_output(attempt["attempt_id"], output_name="final.video", sha256=output_hash, cli=cli)
+    assert revision["attempt_id"] not in {attempt["attempt_id"], retried["attempt_id"]}
+    assert revision["authoring_status"] == "READY_FOR_EXTERNAL_AUTHORING"
+    assert revision["execution_status"] == "NOT_SUBMITTED"
+    assert revision["cost"]["approved"] is False
+    assert revision["plan"]["status"] == "pending"
+    assert revision["outputs"] == {}
+    assert revision["revision_feedback"]["feedback"] == review["feedback"]
+    assert cli.build_calls == 1
+    assert service.revise_film_output(attempt["attempt_id"], output_name="final.video", sha256=output_hash, cli=cli)["attempt_id"] == revision["attempt_id"]
+    service.begin_film_authoring(revision["attempt_id"])
+    revision_root = Path(revision["workspace"]["path"])
+    _record_authored_selection(revision, asset, revision_root)
+    service.complete_film_authoring(revision["attempt_id"], cli=cli)
+    service.resolve_film_attempt_runtime(revision["attempt_id"], str(runtime))
+    service.validate_film_attempt(revision["attempt_id"], "productions/easel-authoring/runs/main.svrun", cli=cli)
+    service.estimate_film_attempt(revision["attempt_id"], cli=cli)
+    with pytest.raises(HypitIntegrationError, match="显式成本批准"):
+        service.submit_film_build(revision["attempt_id"], title="尚未批准修改", cli=cli)
+    assert cli.build_calls == 1
+    service.record_film_review(attempt["attempt_id"], {**review, "feedback": [{"kind": "general", "text": "改写脚本"}]})
+    with pytest.raises(HypitIntegrationError, match="仅支持"):
+        service.revise_film_output(attempt["attempt_id"], output_name="final.video", sha256=output_hash, cli=cli)
 
 
 def test_int04_workspace_asset_uses_ordinary_hypit_media_route(material_integration_env):
@@ -473,18 +725,15 @@ def test_int04_workspace_asset_uses_ordinary_hypit_media_route(material_integrat
     plan, asset, run, bundle, readiness, gaps = _contracts(attempt, root)
     attempt.update(MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)["attempt"])
     attempt.update(ProductionAuthoringIntegration().prepare(
-        attempt, selected_asset_ids=(), authoring_source="productions/easel-authoring/main.svml"
+        attempt, selected_asset_ids=(),
     )["attempt"])
     run_path = root / "productions/easel-authoring/runs/main.svrun"
     run_path.parent.mkdir(parents=True, exist_ok=True)
-    _record_authored_selection(
-        attempt, asset, root, author_relative="productions/easel-authoring/main.svml",
-        run_author_ref="../main.svml",
-    )
+    _record_authored_selection(attempt, asset, root)
     selected = json.loads((root / "productions/easel-authoring/material-selection.json").read_text(encoding="utf-8"))
     src = selected["assets"][0]["src"]
     assert not src.startswith("/") and "Candidate" not in src and "satisfy" not in src
-    (root / "productions/easel-authoring/main.svml").write_text(
+    (root / "productions/easel-authoring/authors/main.svml").write_text(
         '<?svml using="@hypit/markup@1"?>\n<svml>\n'
         '<import as="time" from="@hypit/timeline-author@1"/>\n'
         '<import as="pipeline" from="@hypit/media-pipeline@1"/>\n'
@@ -553,15 +802,24 @@ def test_product_orchestrator_runs_local_supply_before_authoring(material_integr
         candidate, result["supply"].bundle.assets[0], (local_root,),
     ).status is RightsStatus.KNOWN
     evidenced = MaterialProductOrchestrator().run_with_planning(attempt, (local_root,), planning)
-    assert evidenced["status"] == "MATERIAL_READY", (
+    assert evidenced["status"] == "MATERIAL_NOT_READY", (
         evidenced["gate"]["readiness"].blocking_reasons,
         [match.model_dump() for match in evidenced["supply"].bundle.matches],
         [asset.rights.model_dump() for asset in evidenced["supply"].bundle.assets],
         [(item.status, item.failure_summary) for item in evidenced["supply"].supply_run.provider_results],
     )
     assert all(asset.rights.status is RightsStatus.KNOWN for asset in evidenced["supply"].bundle.assets)
-    assert evidenced["attempt"]["production_authoring"]["status"] == "PENDING_SELECTION"
+    assert "production_authoring" not in evidenced["attempt"]
     assert (Path(attempt["workspace"]["path"]) / "materials/bundle.json").is_file()
+    visual = evidenced["supply"].bundle.assets[0]
+    reviewed = MaterialProductOrchestrator().review_material_match(
+        attempt["attempt_id"], asset_id=visual.asset_id,
+        expected_sha256=visual.file.sha256, need_id="need-local",
+        observed_content="画面是一张竖屏人物肖像，主体和场景清楚",
+        logo_present=None, visible_text_present=None, confirm_review=True,
+    )
+    assert reviewed["material_status"] == "MATERIAL_READY"
+    assert reviewed["attempt"]["production_authoring"]["status"] == "PENDING_SELECTION"
 
 
 def test_no_supply_cannot_bypass_gate(material_integration_env, monkeypatch):
@@ -640,6 +898,7 @@ def test_product_supply_rehydrates_current_completed_generation_after_rights_rev
         source=CandidateSource(kind="generative", provider="minimax", provider_asset_id="gen-test"),
         rights=RightsInfo(status=RightsStatus.UNKNOWN),
         technical=TechnicalInfo(status=TechnicalStatus.PASSED, width=100, height=100, mime="image/png"),
+        semantic=_observed_semantic("一张测试图片"),
     )
     store.write_asset(asset)
     store.write_generation_record("gen-test", {
@@ -712,6 +971,7 @@ def test_operator_rights_review_recomputes_generated_gate_into_production_prepar
         source=CandidateSource(kind="generative", provider="minimax", provider_asset_id="gen-rights"),
         rights=RightsInfo(status=RightsStatus.UNKNOWN),
         technical=TechnicalInfo(status=TechnicalStatus.PASSED, width=64, height=64, mime="image/png"),
+        semantic=_observed_semantic("一张生成测试图片"),
     )
     store.write_asset(asset)
     store.write_generation_record("gen-rights", {
@@ -741,6 +1001,10 @@ def test_operator_rights_review_recomputes_generated_gate_into_production_prepar
             confirm_review=True,
         )
 
+    def no_provider_lookup(_roots):
+        raise AssertionError("Rights review must reuse the admitted Bundle without Supply")
+
+    monkeypatch.setattr(material_supply_module, "product_provider_registry", no_provider_lookup)
     reviewed = orchestrator.review_generated_material_rights(
         attempt["attempt_id"], asset_id=asset.asset_id, expected_sha256=digest,
         rights=RightsInfo(
@@ -798,6 +1062,7 @@ def test_current_bundle_rights_review_admits_external_asset_without_repeating_su
         ),
         rights=RightsInfo(status=RightsStatus.UNKNOWN),
         technical=TechnicalInfo(status=TechnicalStatus.PASSED, width=64, height=64, mime="image/jpeg"),
+        semantic=_observed_semantic("一张外部测试图片"),
     )
     store.write_asset(asset)
     run = SupplyRun(

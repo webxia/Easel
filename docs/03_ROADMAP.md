@@ -4,7 +4,7 @@ This document records workstream order, not task-level status. [`02_CURRENT_STAT
 
 ## Next Active Workstream
 
-The active work is [T19 low-friction Creation review](tasks/v1c-t19-low-friction-creation.md), required to preserve confirmed proposal details and avoid unnecessary human interruptions without weakening gates. Then resume the official product E2E in [T15](tasks/v1c-t15-e2e-readiness.md). Generated Material boundaries and outstanding modality evidence are summarized in [`workstreams/generated-material.md`](workstreams/generated-material.md).
+[Creator 作品工作区体验优化](tasks/creator-workspace-2026-09-30.md) 的软件实现与确定性验收已完成，沿用 [Creator E2E 前修复](tasks/creator-e2e-repair-2026-09-30.md) 和 [T19](tasks/v1c-t19-low-friction-creation.md) 基线。下一步由 Creator 手动启动 [T15](tasks/v1c-t15-e2e-readiness.md) 的真实验收；不自动继续当前 Creation 或运行完整 E2E。Generated Material 的既有边界与待验收项见 [Workstream](workstreams/generated-material.md)。
 
 ## Workstream Order
 

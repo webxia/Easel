@@ -18,6 +18,7 @@ else:
     import fcntl
 
 from easel import creation, persona
+from easel.creator_proposal import SPEC_LABELS
 from easel.integrations.hypit import handoff, service
 from easel.integrations.hypit.errors import HypitIntegrationError
 from easel.integrations.hypit.secrets import SecretRedactor
@@ -151,10 +152,12 @@ def preparation_agent_context(
             "Production Brief 严格使用结构：\n"
             '{"schema":"easel-production-brief@1","language":"zh-CN",'
             '"duration_seconds":15,"aspect_ratio":"9:16","audio_mode":"silent",'
-            '"beats":[{"label":"动作","duration_seconds":2.5,"description":"可拍摄画面"}],'
+            '"beats":[],'
             '"text_overlays":["明确确认的屏幕文字"],"visual_constraints":["明确确认的限制"],'
             '"material_sources":["pexels","pixabay"],"ai_generation_allowed":false,'
             '"publication_allowed":false}\n'
+            "上述仅为字段格式示例，15 秒等规格不是用户确认值。beats 未确认时必须为空数组，不得复制占位动作或自行编排。"
+            "已确认 beats 的时长合计必须等于总时长（误差最多 0.5 秒）。\n"
             "audio_mode 只能是 silent、voice、music、mixed；旁白与背景音乐同时存在时使用 mixed，"
             "不要写 narration_bgm、voice_bgm 等描述性值。\n"
             "这些值只整理当前用户明确确认的方案；未指定则用空列表/安全默认值，不自行添加偏好。"
@@ -198,6 +201,10 @@ def preparation_agent_context(
             "不要复制完整 Profile/Memory 或无关家庭、财务、求职隐私。\n"
             "只使用用户明确提供、当前观察、画像中可公开且相关的信息；不补造公司事件、对话、日期、金额、结果或经历。"
             "如事实来源不足，明确标 unknown/低置信，不得伪造来源。\n"
+            "上次后端校验错误：" + SecretRedactor.redact_text(str(preparation.get("last_error") or "无"))[:1000] + "\n"
+            "有上次错误时修正对应草稿，不得原样交付。交付前在项目根目录执行只读合同校验：\n"
+            f".venv/bin/python -m easel.creation_preparation --validate-draft {work['id']} {key}\n"
+            "失败时修正草稿再校验；只有命令成功才可报告合同校验通过。该命令不冻结、不启动制作。\n"
             "本轮不要写 Treatment、视频脚本、分镜、镜头清单、时间线或 SVRun；不要调用 Hypit check/plan/pricing/build，"
             "不要调用任何媒体 Provider。Hypit 外部 Authoring Agent 将负责全部 Film Authoring。"
         )
@@ -287,7 +294,7 @@ def _validate_production_brief(value: dict[str, Any]) -> dict[str, Any]:
             raise PreparationError("Production Brief beat duration 无效")
         beat_total += beat_duration
     if beats and abs(beat_total - duration) > 0.5:
-        raise PreparationError("Production Brief beat 时长与总时长不一致")
+        raise PreparationError(f"制作节拍合计 {beat_total:g} 秒，与总时长 {duration} 秒不一致；未确认节拍时请使用空 beats 数组")
     for key in ("text_overlays", "visual_constraints", "material_sources"):
         items = value.get(key)
         limit = 30 if key != "material_sources" else 12
@@ -436,21 +443,34 @@ def _operation_lock(creation_id: str, operation_key: str):
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
-def _persist_snapshot(work: dict[str, Any], preparation: dict[str, Any]) -> dict[str, Any]:
-    paths = preparation_paths(work["id"], preparation["operation_key"])
-    draft = paths["draft"]
+def validate_preparation_draft(creation_id: str, operation_key: str) -> dict[str, Any]:
+    """Read-only validation shared with snapshot promotion."""
+    work = creation.get_creation(creation_id)
+    if (work.get("preparation") or {}).get("operation_key") != operation_key:
+        raise PreparationError("作品准备标识与当前任务不一致")
+    draft = preparation_paths(creation_id, operation_key)["draft"]
     raw = {
         "content_core": _read_json(draft / "content-core.json", "Content Core"),
         "truth_packet": _read_json(draft / "truth-packet.json", "Truth Packet"),
         "creator_context": _read_json(draft / "creator-context.json", "Creator Context"),
         "production_brief": _read_json(draft / "production-brief.json", "Production Brief"),
     }
-    bundle = {
+    expected_specs = work.get("chat_workflow", {}).get("production_specs")
+    if expected_specs is not None:
+        for field, expected in expected_specs.items():
+            if expected is None or raw["production_brief"].get(field) != expected:
+                raise PreparationError(f"制作规格{SPEC_LABELS.get(field, field)}与 Creator 确认的方案卡不一致；禁止冻结漂移输入")
+    return {
         "content_core": _validate_core(raw["content_core"], work["idea"]),
         "truth_packet": _validate_truth(raw["truth_packet"], work["idea"]),
         "creator_context": _validate_creator_context(raw["creator_context"]),
         "production_brief": _validate_production_brief(raw["production_brief"]),
     }
+
+
+def _persist_snapshot(work: dict[str, Any], preparation: dict[str, Any]) -> dict[str, Any]:
+    paths = preparation_paths(work["id"], preparation["operation_key"])
+    bundle = validate_preparation_draft(work["id"], preparation["operation_key"])
     snapshot = paths["snapshot"]
     if snapshot.exists():
         raise PreparationError("检测到不完整或已存在的 Content Snapshot；为避免覆盖已冻结内容已停止")
@@ -762,3 +782,15 @@ def _prepare_creation_for_hypit_locked(
         "workspace": attempt["workspace"]["path"],
         "task_path": attempt["authoring"]["task_path"],
     }
+
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="只读校验 Preparation 草稿；不冻结、不运行生产")
+    parser.add_argument("--validate-draft", nargs=2, required=True, metavar=("CREATION_ID", "OPERATION_KEY"))
+    args = parser.parse_args()
+    try:
+        validate_preparation_draft(*args.validate_draft)
+    except (ValueError, HypitIntegrationError) as exc:
+        parser.exit(1, SecretRedactor.redact_text(str(exc))[:1000] + "\n")
+    print("Preparation 四个草稿已通过后端合同校验（尚未冻结）")

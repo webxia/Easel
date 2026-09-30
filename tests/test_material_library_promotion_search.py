@@ -15,6 +15,10 @@ from easel.materials.domain import (
     RightsInfo,
     RightsStatus,
     SemanticInfo,
+    IntelligenceStatus,
+    SemanticAnnotation,
+    SemanticField,
+    SemanticInference,
     TechnicalInfo,
     TechnicalStatus,
 )
@@ -43,7 +47,10 @@ def _source(tmp_path: Path, *, asset_id: str = "asset-1", body: bytes = b"fixtur
             evidence=(RightsEvidence(kind="asset_license", reference=f"license:{asset_id}"),),
         ),
         technical=TechnicalInfo(status=TechnicalStatus.PASSED, width=600, height=900, mime="image/jpeg"),
-        semantic=SemanticInfo(caption="City portrait at dusk", tags=("portrait", "city", asset_id)),
+        semantic=SemanticInfo(caption="City portrait at dusk", tags=("portrait", "city", asset_id),
+            inferences=(SemanticInference(analyzer_id="fixture-observation", status=IntelligenceStatus.COMPLETE,
+                annotations=(SemanticAnnotation(field=SemanticField.CAPTION, value="City portrait at dusk",
+                    confidence=0.95, evidence="fixture visual observation"),)),)),
     )
     store.write_asset(asset)
     return store, asset
@@ -83,7 +90,7 @@ def test_restricted_asset_stays_attempt_local_and_promotion_records_consent(tmp_
     scope = LibraryScope(tenant_id="tenant-1", creator_id="creator-1")
     restricted = asset.model_copy(update={"rights": RightsInfo(status=RightsStatus.RESTRICTED)})
     store.write_asset(restricted)
-    with pytest.raises(PromotionRejected, match="Restricted"):
+    with pytest.raises(PromotionRejected, match="RESTRICTED"):
         catalog.promote_attempt_asset(
             restricted, store, scope=scope, source_attempt_id="attempt-1", consent=_consent()
         )

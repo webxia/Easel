@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  approveFilmCost, cancelFilmBuild, createOperatorSession,
+  approveFilmCost, cancelFilmBuild, createOperatorSession, reviseFilmOutput, previewCreatorProposal,
   estimateFilmAttempt, exportFilmOutput, fetchCreation, fetchFilmAttempt, fetchScriptTruth, generateMiniMaxMaterial, inspectFilmBuild, mediaUrl,
   fetchMaterialRightsCandidates, listFilmAttempts, reconcileFilmBuild, startFilmAuthoring,
-  refreshFilmBuild, resolveFilmRuntime, reviewFilmOutput, reviewMaterialRights, reviewScriptTruth, selectFilmBuild, submitFilmBuild,
+  refreshFilmBuild, resolveFilmRuntime, retryFailedFilmBuild, reviewFilmOutput, reviewMaterialRights, reviewScriptTruth, selectFilmBuild, submitFilmBuild,
   fetchPromotableMaterials, promoteAttemptMaterial,
+  materialAssetPreviewUrl, reviewMaterialMatch,
   validateFilmAttempt,
 } from '../lib/api';
+import { projectCreatorWorkspace, stageLabels } from '../lib/creatorWorkspace';
+import type { ChatMessage } from '../lib/store';
 import type { OperatorRecord } from '../lib/api';
 
 type JsonRecord = Record<string, unknown>;
@@ -19,15 +22,39 @@ const operationError = (error: unknown) => error instanceof Error ? error.messag
 interface FilmOperatorPageProps {
   creationId: string;
   title: string;
+  onContinuePreparation: () => void;
+  continuationBusy: boolean;
+  proposalPhase?: boolean;
+  proposalReady?: boolean;
+  proposalMessages?: ChatMessage[];
+  onConfirmProduction?: () => void;
+  progressOpen?: boolean;
+  onProjection?: (value: { title: string; pending: number }) => void;
+  onOpenConversation?: () => void;
 }
 
-export default function FilmOperatorPage({ creationId, title }: FilmOperatorPageProps) {
+export default function FilmOperatorPage({ creationId, title, onContinuePreparation, continuationBusy, proposalPhase = false, proposalReady = false, proposalMessages = [], onConfirmProduction, progressOpen = false, onProjection, onOpenConversation }: FilmOperatorPageProps) {
+  const [proposalPreview, setProposalPreview] = useState<OperatorRecord | null>(null);
+  const [proposalPreviewError, setProposalPreviewError] = useState('');
+  const [previewContext, setPreviewContext] = useState('');
+  const proposalContext = JSON.stringify(proposalMessages.slice(-48).map(({ role, content }) => ({ role, content })));
+  useEffect(() => {
+    if (!proposalPhase) return;
+    let cancelled = false; setProposalPreview(null);
+    previewCreatorProposal(creationId, JSON.parse(proposalContext))
+      .then(value => { if (!cancelled) { setProposalPreview(value); setPreviewContext(proposalContext); setProposalPreviewError(''); } })
+      .catch((reason: unknown) => { if (!cancelled) setProposalPreviewError(operationError(reason)); });
+    return () => { cancelled = true; };
+  }, [creationId, proposalPhase, proposalContext]);
+  const proposalSpecifications = record(proposalPreview?.specs);
+  const proposalMissing = Array.isArray(proposalPreview?.missing) ? proposalPreview.missing : [];
   const [creationSnapshot, setCreationSnapshot] = useState<OperatorRecord | null>(null);
   const [attempts, setAttempts] = useState<OperatorRecord[]>([]);
   const [attemptId, setAttemptId] = useState('');
   const [attempt, setAttempt] = useState<OperatorRecord | null>(null);
   const [scriptTruth, setScriptTruth] = useState<OperatorRecord | null>(null);
   const [scriptTruthConfirmed, setScriptTruthConfirmed] = useState(false);
+  const [finalReviewConfirmed, setFinalReviewConfirmed] = useState(false);
   const [operatorSessionReady, setOperatorSessionReady] = useState(false);
   const [runPath, setRunPath] = useState('productions/easel-authoring/run.sv');
   const [budget, setBudget] = useState('');
@@ -38,12 +65,37 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
   const [reviewOutputName, setReviewOutputName] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const [creationConnectionError, setCreationConnectionError] = useState('');
+  const [attemptConnectionError, setConnectionError] = useState('');
+  const [attemptListError, setAttemptListError] = useState('');
+  const connectionError = creationConnectionError || attemptConnectionError || attemptListError;
+  const [lastSynced, setLastSynced] = useState('');
+  const [feedbackText, setFeedbackText] = useState('');
+  const [feedbackTime, setFeedbackTime] = useState('');
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackKind, setFeedbackKind] = useState('general');
   const [notice, setNotice] = useState('');
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [inspectResult, setInspectResult] = useState<unknown>(null);
   const [generationNeedId, setGenerationNeedId] = useState('');
   const [generationResult, setGenerationResult] = useState<unknown>(null);
   const [rightsCandidates, setRightsCandidates] = useState<OperatorRecord[]>([]);
+  const [rightsCandidatesLoaded, setRightsCandidatesLoaded] = useState(false);
+  const [voiceRightsDecision, setVoiceRightsDecision] = useState('UNKNOWN');
+  const [voiceTermsName, setVoiceTermsName] = useState('');
+  const [voiceEvidenceReference, setVoiceEvidenceReference] = useState('');
+  const [voiceEvidenceSummary, setVoiceEvidenceSummary] = useState('');
+  const [voiceCredit, setVoiceCredit] = useState('');
+  const [voiceCreator, setVoiceCreator] = useState('');
+  const [voiceSourcePage, setVoiceSourcePage] = useState('');
+  const [voiceRestrictions, setVoiceRestrictions] = useState('');
+  const [voiceRightsConfirmed, setVoiceRightsConfirmed] = useState(false);
+  const [visualAssetId, setVisualAssetId] = useState('');
+  const [visualNeedId, setVisualNeedId] = useState('');
+  const [visualObservation, setVisualObservation] = useState('');
+  const [visualLogo, setVisualLogo] = useState('unknown');
+  const [visualText, setVisualText] = useState('unknown');
+  const [visualConfirmed, setVisualConfirmed] = useState(false);
   const [rightsAssetId, setRightsAssetId] = useState('');
   const [rightsStatus, setRightsStatus] = useState('UNKNOWN');
   const [rightsLicenseName, setRightsLicenseName] = useState('');
@@ -61,9 +113,18 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
   const [attemptMaterials, setAttemptMaterials] = useState<OperatorRecord[]>([]);
   const [showAttemptMaterials, setShowAttemptMaterials] = useState(false);
   const preparationRun = useRef('');
+  const preparationInFlight = useRef('');
+  const pageAlive = useRef(true);
+  const activeAttempt = useRef(attemptId);
+  activeAttempt.current = attemptId;
+  useEffect(() => { pageAlive.current = true; return () => { pageAlive.current = false; }; }, []);
   const exportRun = useRef('');
+  const exportInFlight = useRef('');
   const reconciliationRun = useRef('');
   const manualAttemptSelection = useRef(false);
+  const advancedRef = useRef<HTMLDetailsElement>(null);
+
+  useEffect(() => { setFinalReviewConfirmed(false); }, [attemptId, reviewOutputName, attempt?.outputs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -79,8 +140,8 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
     if (!creationId) { setCreationSnapshot(null); return; }
     let cancelled = false;
     fetchCreation(creationId).then((item) => {
-      if (!cancelled) setCreationSnapshot(item as unknown as OperatorRecord);
-    }).catch((reason: unknown) => { if (!cancelled) setError(operationError(reason)); });
+      if (!cancelled) { setCreationSnapshot(item as unknown as OperatorRecord); setCreationConnectionError(''); setLastSynced(new Date().toLocaleString('zh-CN')); }
+    }).catch((reason: unknown) => { if (!cancelled) setCreationConnectionError(operationError(reason)); });
     return () => { cancelled = true; };
   }, [creationId, refreshVersion]);
 
@@ -94,20 +155,20 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
     let cancelled = false;
     listFilmAttempts(creationId).then((items) => {
       if (cancelled) return;
-      setAttempts(items);
+      setAttempts(items); setAttemptListError('');
       setAttemptId((current) => items.some((item) => item.attempt_id === current)
         ? current : text(items[0]?.attempt_id, ''));
     }).catch((reason: unknown) => {
-      if (!cancelled) setError(operationError(reason));
+      if (!cancelled) setAttemptListError(operationError(reason));
     });
     return () => { cancelled = true; };
   }, [operatorSessionReady, creationId, refreshVersion]);
 
   useEffect(() => {
-    if (!operatorSessionReady || !creationId || attemptId) return;
+    if (!operatorSessionReady || !creationId) return;
     const timer = window.setInterval(() => setRefreshVersion((version) => version + 1), 5000);
     return () => window.clearInterval(timer);
-  }, [operatorSessionReady, creationId, attemptId]);
+  }, [operatorSessionReady, creationId]);
 
   useEffect(() => {
     if (!operatorSessionReady || !attemptId) {
@@ -117,29 +178,41 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
     let cancelled = false;
     fetchFilmAttempt(attemptId).then((item) => {
       if (cancelled) return;
-      setAttempt(item);
+      setAttempt(item); setConnectionError(''); setLastSynced(new Date().toLocaleString('zh-CN'));
       const authoring = record(item.authoring);
       const plan = record(item.plan);
       setRunPath(text(authoring.run_path, text(plan.run_path, 'productions/easel-authoring/run.sv')));
       const names = Object.keys(record(item.outputs));
       setReviewOutputName((current) => names.includes(current) ? current : names[0] || '');
-    }).catch((reason: unknown) => { if (!cancelled) setError(operationError(reason)); });
+    }).catch((reason: unknown) => { if (!cancelled) setConnectionError(operationError(reason)); });
     return () => { cancelled = true; };
   }, [operatorSessionReady, attemptId, refreshVersion]);
 
+  const savedProposalStatus = record(creationSnapshot?.chat_workflow).proposal_status;
+  const showingProposal = attemptId ? false : typeof savedProposalStatus === 'string'
+    ? savedProposalStatus !== 'CONFIRMED' : proposalPhase;
+  const currentProposalText = [...proposalMessages].reverse().find(message => message.role === 'assistant')?.content;
+  const rightsGateStatus = record(record(attempt).material_gate).status;
+  const rightsBundleRevision = record(record(attempt).material_gate).bundle_revision;
   useEffect(() => {
-    if (!operatorSessionReady || !attemptId || !advancedOpen) { setRightsCandidates([]); return; }
+    if (!operatorSessionReady || !attemptId || (!advancedOpen && rightsGateStatus !== 'MATERIAL_NOT_READY')) {
+      setRightsCandidates([]);
+      setRightsCandidatesLoaded(false);
+      return;
+    }
     let cancelled = false;
-    setRightsCandidates([]);
     fetchMaterialRightsCandidates(attemptId).then((items) => {
       if (!cancelled) {
         setRightsCandidates(items);
+        setRightsCandidatesLoaded(true);
         setRightsAssetId((current) => items.some((item) => item.asset_id === current)
-          ? current : text(items[0]?.asset_id, ''));
+          ? current : text(items.find((item) => item.media_type === 'audio' && item.provider === 'minimax'
+            && record(item.rights).status === 'UNKNOWN')?.asset_id, text(items[0]?.asset_id, '')));
       }
     }).catch((reason: unknown) => { if (!cancelled) setError(operationError(reason)); });
     return () => { cancelled = true; };
-  }, [operatorSessionReady, attemptId, refreshVersion, advancedOpen]);
+  }, [operatorSessionReady, attemptId, refreshVersion, advancedOpen,
+    rightsGateStatus, rightsBundleRevision]);
 
   useEffect(() => {
     if (!operatorSessionReady || !attemptId) { setScriptTruth(null); return; }
@@ -182,6 +255,7 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
 
   const attemptStatus = record(attempt);
   const materialGate = record(attemptStatus.material_gate);
+  const preparationStatus = text(record(creationSnapshot?.preparation).status, '');
   const materialPlan = record(attemptStatus.material_planning);
   const blockingNeedIds = Array.isArray(materialGate.blocking_needs)
     ? materialGate.blocking_needs.filter((value): value is string => typeof value === 'string') : [];
@@ -200,6 +274,43 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
   const outputNames = Object.keys(outputs);
   const selectedReviewOutput = record(outputs[reviewOutputName]);
   const selectedRightsCandidate = rightsCandidates.find((item) => item.asset_id === rightsAssetId);
+  const pendingVoiceCandidate = rightsCandidates.find((item) => item.media_type === 'audio'
+    && item.provider === 'minimax' && record(item.rights).status === 'UNKNOWN');
+  const voiceRightsPending = !!pendingVoiceCandidate;
+  const visualPool = rightsCandidates.filter(item => ['image', 'video'].includes(String(item.media_type)));
+  const selectedVisualNeeds = Array.from(new Map(visualPool.flatMap(item => Array.isArray(item.needs) ? item.needs.map(record) : [])
+    .filter(need => blockingNeedIds.includes(text(need.need_id)) && !visualPool.some(asset => Array.isArray(asset.semantic_reviewed_need_ids) && asset.semantic_reviewed_need_ids.includes(need.need_id)))
+    .map(need => [text(need.need_id), need])).values());
+  const selectedVisualNeed = selectedVisualNeeds.find(item => item.need_id === visualNeedId) ?? selectedVisualNeeds[0];
+  const visualCandidates = visualPool.filter(item => Array.isArray(item.needs)
+    && item.needs.some(need => record(need).need_id === selectedVisualNeed?.need_id));
+  const selectedVisual = visualCandidates.find(item => item.asset_id === visualAssetId) ?? visualCandidates[0];
+  const selectedVisualConstraints = record(selectedVisualNeed?.constraints);
+  const visualIdentity = `${selectedVisual?.asset_id}:${selectedVisual?.asset_sha256}:${selectedVisualNeed?.need_id}`;
+  useEffect(() => {
+    setVisualObservation(''); setVisualLogo('unknown'); setVisualText('unknown'); setVisualConfirmed(false);
+  }, [visualIdentity]);
+  const rightsSnapshot = JSON.stringify(selectedRightsCandidate ?? {});
+  useEffect(() => {
+    const candidate = record(JSON.parse(rightsSnapshot));
+    const rights = record(candidate.rights);
+    setRightsStatus(text(rights.status, 'UNKNOWN')); setRightsLicenseName(text(rights.license_name, ''));
+    setRightsLicenseUrl(text(rights.license_url, '')); setRightsSourceCreator(text(candidate.creator, ''));
+    setRightsSourcePage(text(candidate.source_page, ''));
+    setRightsAttributionRequired(rights.attribution_required === true); setRightsAttributionText(text(rights.attribution_text, ''));
+    setRightsUsageConstraints(Array.isArray(rights.usage_constraints) ? rights.usage_constraints.join('\n') : '');
+    const evidence = Array.isArray(rights.evidence) ? record(rights.evidence[0]) : {};
+    setRightsEvidenceKind(text(evidence.kind, 'asset_license')); setRightsEvidenceReference(text(evidence.reference, ''));
+    setRightsEvidenceSummary(text(evidence.summary, '')); setRightsConfirmed(false);
+  }, [rightsSnapshot]);
+  const visualReviewReady = !!selectedVisual && !!selectedVisualNeed && visualObservation.trim().length >= 8
+    && visualConfirmed && (selectedVisualConstraints.logo !== false || visualLogo !== 'unknown')
+    && (selectedVisualConstraints.text_in_frame !== false || visualText !== 'unknown');
+  const voiceAttributionRequired = voiceRightsDecision === 'ATTRIBUTION_REQUIRED';
+  const voiceReviewReady = !!pendingVoiceCandidate && voiceRightsConfirmed
+    && voiceRightsDecision !== 'UNKNOWN' && !!voiceEvidenceReference.trim() && !!voiceEvidenceSummary.trim()
+    && (!['KNOWN', 'ATTRIBUTION_REQUIRED'].includes(voiceRightsDecision) || !!voiceTermsName.trim())
+    && (!voiceAttributionRequired || (!!voiceCredit.trim() && !!voiceCreator.trim() && !!voiceSourcePage.trim()));
   const brief = record(record(attemptStatus.production_request).production_brief);
   const selectedOutput = creationSnapshot?.selected_attempt_id === attemptId
     && typeof creationSnapshot?.selected_output_name === 'string';
@@ -212,21 +323,23 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
   const budgetAllowed = requestedBudget > 0 && (declaredBudget === null || requestedBudget <= declaredBudget);
   const currentOutput = reviewOutputName && typeof selectedReviewOutput.path === 'string';
   const execution = text(attemptStatus.execution_status, 'NOT_SUBMITTED');
+  const projection = projectCreatorWorkspace(creationSnapshot, attempt, scriptTruth, rightsCandidates);
   const phase = selectedOutput ? 'done'
     : attemptStatus.review_status === 'APPROVED' ? 'selecting'
+    : projection.failureStage && projection.failureStage !== '内容准备' ? 'failed'
     : currentOutput ? 'review'
     : execution === 'BUILD_COMPLETE' ? 'exporting'
     : ['SUBMITTING', 'SUBMISSION_UNCERTAIN'].includes(execution) ? 'verifying'
     : ['SUBMITTING', 'SUBMISSION_UNCERTAIN', 'SUBMITTED', 'RUNNING', 'CANCEL_REQUESTED'].includes(execution) ? 'building'
-    : execution === 'BUILD_FAILED' || ['AUTHORING_FAILED', 'PLAN_FAILED'].includes(text(attemptStatus.authoring_status)) ? 'failed'
     : scriptTruth?.status === 'REVIEW_REQUIRED' ? 'content-review'
     : materialGate.status === 'MATERIAL_NOT_READY' ? 'material'
+    : projection.failureStage === '内容准备' ? 'preparation-failed'
     : plan.status === 'ready' && cost.status === 'pricing_read' && execution === 'NOT_SUBMITTED' ? 'ready'
     : materialGate.status === 'MATERIAL_READY' ? 'preparing' : 'planning';
   const phaseTitle: Record<string, string> = {
     done: '最终成片已确认', selecting: '成片已通过审核', review: '视频制作完成',
     exporting: '正在整理成片', verifying: '正在确认制作进度', building: '正在制作视频', failed: '视频制作遇到问题',
-    'content-review': '请确认视频内容', material: '素材还需要确认',
+    'content-review': '请确认视频内容', material: '素材还需要确认', 'preparation-failed': '内容准备遇到问题',
     ready: '视频已准备好制作', preparing: '正在编排视频', planning: 'Easel 正在准备作品',
   };
   const phaseDescription: Record<string, string> = {
@@ -240,11 +353,16 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
       ? '本次合成未完成。Easel 已保留作品和素材，请在对话中决定是否重新制作。'
       : 'Easel 已保留当前进度，可以重新整理后继续。',
     'content-review': '内容中有需要你确认的表述，确认后 Easel 会继续准备素材。',
-    material: '当前素材还不能用于制作。你可以在对话中补充素材或调整画面要求；Easel 会继续核对使用条件。',
+    material: '当前素材还不能用于制作。请先处理下方列出的素材缺口。',
+    'preparation-failed': '准备过程暂时中断，作品和已完成的内容已保留。',
     ready: '内容和素材都已准备好。确认后 Easel 会开始制作视频。',
     preparing: '内容和素材已准备，Easel 正在安排画面与节奏。',
     planning: 'Easel 正在理解创作意图，整理内容和素材。',
   };
+  const timelineSteps = projection.timeline;
+  const timelineStateLabel = stageLabels;
+  useEffect(() => { onProjection?.({ title: connectionError ? '连接中断 · 显示最后状态' : projection.title, pending: projection.pending }); },
+    [onProjection, projection.title, projection.pending, connectionError]);
   const isBlocked = attemptStatus.execution_status === 'BLOCKED'
     || materialGate.status === 'MATERIAL_NOT_READY';
   const shouldAutoTrack = operatorSessionReady && !!attemptId && (
@@ -264,12 +382,11 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
         const current = attemptStatus.authoring_status === 'AUTHORING_RUNNING' || !build.build_id
           ? await fetchFilmAttempt(attemptId) : await refreshFilmBuild(attemptId);
         if (!cancelled) {
-          setAttempt(current as unknown as OperatorRecord);
+          setAttempt(current as unknown as OperatorRecord); setConnectionError(''); setLastSynced(new Date().toLocaleString('zh-CN'));
           try { setScriptTruth(await fetchScriptTruth(attemptId)); } catch { /* Planning may not have produced a script yet. */ }
         }
-      } catch {
-        // Keep the last known state; transient polling failures should not
-        // interrupt the user's work or replace a useful error with noise.
+      } catch (reason: unknown) {
+        if (!cancelled) setConnectionError(operationError(reason));
       } finally {
         refreshing = false;
       }
@@ -291,14 +408,14 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
   // Preparation, validation and pricing are deterministic product work. They
   // stay behind their formal APIs, without asking the Creator to operate each step.
   useEffect(() => {
-    if (!operatorSessionReady || !attemptId || !attempt
+    if (showingProposal || !operatorSessionReady || !attemptId || !attempt
         || !['AUTHORING_READY', 'PLANNED'].includes(text(attempt.authoring_status))
         || !['NOT_SUBMITTED', 'BLOCKED'].includes(text(attempt.execution_status))
         || cost.status === 'pricing_read') return;
     const key = `${attemptId}:${text(record(attempt.authoring).authoring_sha256)}:${text(attempt.runtime_status)}:${text(plan.status)}:${text(cost.status)}`;
-    if (preparationRun.current === key) return;
+    if (preparationRun.current === key || preparationInFlight.current === attemptId) return;
+    preparationInFlight.current = attemptId;
     preparationRun.current = key;
-    let cancelled = false;
     const prepare = async () => {
       setBusy('准备制作');
       try {
@@ -310,22 +427,21 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
           current = await validateFilmAttempt(attemptId, source);
         }
         if (record(current.cost).status !== 'pricing_read') current = await estimateFilmAttempt(attemptId);
-        if (!cancelled) { setAttempt(current); setError(''); }
+        if (pageAlive.current && activeAttempt.current === attemptId) { setAttempt(current); setError(''); }
       } catch (reason: unknown) {
-        if (!cancelled) setError(operationError(reason));
+        if (pageAlive.current && activeAttempt.current === attemptId) setError(operationError(reason));
       } finally {
-        if (!cancelled) setBusy('');
+        preparationInFlight.current = '';
+        if (pageAlive.current && activeAttempt.current === attemptId) setBusy('');
       }
     };
     void prepare();
-    return () => { cancelled = true; };
-  }, [operatorSessionReady, attemptId, attempt, cost.status, plan.status]);
+  }, [showingProposal, operatorSessionReady, attemptId, attempt, cost.status, plan.status]);
 
   useEffect(() => {
     if (!operatorSessionReady || !attemptId || execution !== 'BUILD_COMPLETE'
-        || Object.keys(outputs).length > 0 || exportRun.current === attemptId) return;
-    exportRun.current = attemptId;
-    let cancelled = false;
+        || Object.keys(outputs).length > 0 || exportRun.current === attemptId || exportInFlight.current === attemptId) return;
+    exportRun.current = attemptId; exportInFlight.current = attemptId;
     const exportCompletedBuild = async () => {
       setBusy('整理成片');
       try {
@@ -335,15 +451,15 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
           ? candidates.map(record).find((item) => item.target === true && item.mediaType === 'video/mp4') : undefined;
         if (typeof target?.name !== 'string') throw new Error('制作结果中没有可导出的视频');
         const updated = await exportFilmOutput(attemptId, target.name);
-        if (!cancelled) { setAttempt(updated); setReviewOutputName(target.name); setError(''); }
+        if (pageAlive.current && activeAttempt.current === attemptId) { setAttempt(updated); setReviewOutputName(target.name); setError(''); }
       } catch (reason: unknown) {
-        if (!cancelled) setError(operationError(reason));
+        if (pageAlive.current && activeAttempt.current === attemptId) setError(operationError(reason));
       } finally {
-        if (!cancelled) setBusy('');
+        exportInFlight.current = '';
+        if (pageAlive.current && activeAttempt.current === attemptId) setBusy('');
       }
     };
     void exportCompletedBuild();
-    return () => { cancelled = true; };
   }, [operatorSessionReady, attemptId, execution, outputs]);
 
   const run = useCallback(async (label: string, action: () => Promise<unknown>) => {
@@ -359,6 +475,7 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
         '确认最终成片': '已确认最终成片。',
         '重新整理视频': 'Easel 正在重新整理视频。',
         '重新检查视频方案': '视频方案已重新检查。',
+        '恢复视频制作': '已恢复规划、素材和视频编排；新一次制作仍需确认费用。',
       } as Record<string, string>)[label] || `${label}完成`);
       setRefreshVersion((version) => version + 1);
     } catch (reason: unknown) {
@@ -367,6 +484,58 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
       setBusy('');
     }
   }, []);
+
+  const generateForNeed = (needId: string) => {
+    if (!window.confirm('将调用 MiniMax 为当前作品生成所需素材。该 API 按平台价格计费，Easel 不提供消费上限。确认继续？')) return;
+    const requestId = globalThis.crypto.randomUUID();
+    void run('生成素材', async () => {
+      const result = await generateMiniMaxMaterial(attemptId, needId, requestId);
+      setGenerationResult(record(result).generation);
+      setRightsAssetId(text(record(record(result).generation).asset_id, ''));
+      setGenerationNeedId('');
+      return result;
+    });
+  };
+
+  const submitVoiceRightsReview = () => {
+    if (!pendingVoiceCandidate || !voiceReviewReady) return;
+    void run('复核旁白使用权', async () => {
+      const result = await reviewMaterialRights(attemptId, {
+        assetId: pendingVoiceCandidate.asset_id,
+        assetSha256: pendingVoiceCandidate.asset_sha256,
+        rights: {
+          status: voiceRightsDecision,
+          license_name: voiceTermsName.trim() || null,
+          license_url: voiceEvidenceReference.trim().startsWith('https://') ? voiceEvidenceReference.trim() : null,
+          attribution_required: voiceAttributionRequired,
+          attribution_text: voiceAttributionRequired ? voiceCredit.trim() : null,
+          usage_constraints: voiceRestrictions.split('\n').map((value) => value.trim()).filter(Boolean),
+          evidence: [{ kind: 'asset_license', reference: voiceEvidenceReference.trim(), summary: voiceEvidenceSummary.trim() }],
+        },
+        sourceCreator: voiceAttributionRequired ? voiceCreator.trim() : null,
+        sourcePage: voiceAttributionRequired ? voiceSourcePage.trim() : null,
+        confirmReview: true,
+      });
+      if (record(result).material_status === 'MATERIAL_READY') await startFilmAuthoring(attemptId);
+      return result;
+    });
+  };
+
+  const submitVisualReview = () => {
+    if (!selectedVisual || !selectedVisualNeed || !visualReviewReady) return;
+    void run('核对画面匹配', async () => {
+      const result = await reviewMaterialMatch(attemptId, {
+        assetId: selectedVisual.asset_id, assetSha256: selectedVisual.asset_sha256,
+        needId: selectedVisualNeed.need_id, observedContent: visualObservation.trim(),
+        logoPresent: visualLogo === 'unknown' ? null : visualLogo === 'yes',
+        visibleTextPresent: visualText === 'unknown' ? null : visualText === 'yes',
+        confirmReview: true,
+      });
+      setVisualObservation(''); setVisualConfirmed(false);
+      if (record(result).material_status === 'MATERIAL_READY') await startFilmAuthoring(attemptId);
+      return result;
+    });
+  };
 
   const outputsForSelect = outputNames.map((name) => ({ name, item: record(outputs[name]) }));
   const action = (label: string, fn: () => Promise<unknown>, className = 'btn', disabled = false) => (
@@ -377,28 +546,56 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
 
   return (
     <div className="film-operator-page">
-      <h2 className="film-operator-title">视频制作</h2>
+      {connectionError && <div className="film-op-message is-error" role="status">
+        状态更新失败，显示最后一次可信状态。当前是否仍在制作尚未确认。
+        <button className="btn btn-sm" onClick={() => setRefreshVersion(version => version + 1)}>重新连接</button>
+      </div>}
+      {lastSynced && <small>最近状态读取：{lastSynced}</small>}
+      {progressOpen && <div className="film-op-progress" aria-label="创作阶段进度">
+        {timelineSteps.map(step => <div className={`film-op-progress-step is-${step.state}`} key={step.name}>
+          <strong>{step.name}</strong><small>{timelineStateLabel[step.state]}</small>
+        </div>)}
+      </div>}
+      {showingProposal && <section className="card film-op-card film-op-creator">
+        <h2>当前创作方案</h2>
+        <dl className="creator-proposal-facts">
+          <dt>核心表达</dt><dd className="creator-proposal-turn">{currentProposalText || text(creationSnapshot?.idea, title)}</dd>
+          <dt>创作方式</dt><dd>{text(creationSnapshot?.creative_mode, '尚未确认，请在对话中确定创作方式')}</dd>
+          <dt>本次确认的规格</dt><dd>
+            总时长：{proposalSpecifications.duration_seconds == null ? '—' : `${proposalSpecifications.duration_seconds} 秒`}<br />
+            画幅：{text(proposalSpecifications.aspect_ratio)}<br />
+            音轨：{({ silent: '静音', voice: '旁白', music: '音乐', mixed: '旁白与音乐' } as Record<string, string>)[String(proposalSpecifications.audio_mode)] ?? '—'}<br />
+            语言：{({ 'zh-CN': '简体中文', 'zh-TW': '繁体中文', en: '英语' } as Record<string, string>)[String(proposalSpecifications.language)] ?? '—'}
+          </dd>
+          <dt>创作边界</dt><dd>不自动发布；付费素材与视频制作会另行确认费用。</dd>
+          <dt>待确认信息</dt><dd>{proposalPreviewError || (!proposalPreview ? '正在核对方案…' : proposalMissing.length ? proposalMissing.join('、') + '；请在对话中明确这些规格。' : '规格已明确，确认后会冻结相同输入。')}</dd>
+        </dl>
+        <details><summary>查看本次确认的对话依据</summary>
+          {proposalMessages.slice(-48).map((message, index) => <p className="creator-proposal-turn" key={index}><strong>{message.role === 'user' ? '你' : 'Easel'}：</strong>{message.content}</p>)}
+        </details>
+        <p>可在左侧对话中修改方向，确认后进入内容准备。</p>
+        <button className="btn btn-primary" disabled={!proposalReady || continuationBusy || !proposalPreview || proposalMissing.length > 0 || !!proposalPreviewError || previewContext !== proposalContext} onClick={onConfirmProduction}>按这个方案制作</button>
+      </section>}
       {!operatorSessionReady && <p className="page-subtitle">正在连接作品，请稍候…</p>}
       {notice && <div className="film-op-message is-ok" role="status">{notice}</div>}
       {error && <div className="film-op-message is-error" role="alert">
-        这一步暂时无法继续。Easel 已保留当前进度，你可以重试。
+        这一步暂时无法继续。{error}
       </div>}
 
-      {operatorSessionReady && !attemptId && <section className="card film-op-card film-op-creator">
-        <h2>{['FAILED', 'MATERIAL_FAILED'].includes(text(record(creationSnapshot?.preparation).status))
-          ? '内容准备遇到问题' : record(creationSnapshot?.preparation).status === 'MATERIAL_NOT_READY'
-            ? '素材还未准备好' : '正在准备作品'}</h2>
-        <p>{['FAILED', 'MATERIAL_FAILED', 'MATERIAL_NOT_READY'].includes(text(record(creationSnapshot?.preparation).status))
-          ? '作品记录已保留。请在对话中补充素材或告诉 Easel 继续整理当前方案。'
-          : 'Easel 会先整理内容与素材。准备好后，这里会显示下一步。'}</p>
-        {['FAILED', 'MATERIAL_FAILED', 'MATERIAL_NOT_READY'].includes(text(record(creationSnapshot?.preparation).status)) && <button className="btn btn-primary" onClick={() => {
-          document.querySelector<HTMLTextAreaElement>('.chat-input-area textarea')?.focus();
-        }}>在对话中继续</button>}
+      {!showingProposal && operatorSessionReady && !attemptId && <section className="card film-op-card film-op-creator">
+        <h2>{projection.title}</h2>
+        {projection.failureStage ? <>
+          <p>失败阶段：{projection.failureStage}</p><p>{projection.failureReason}</p>
+          <p>作品方案与已有准备结果已保留；重试从当前内容准备记录恢复，尚未提交视频制作。付费步骤仍需另行批准。</p>
+          <button className="btn btn-primary" disabled={continuationBusy} onClick={onContinuePreparation}>重试内容准备</button>
+        </> : projection.blockedPreparation ? <><p>准备阶段需要处理：{projection.failureReason}</p><p>当前作品与已有内容已保留；补齐创作方式、素材或制作环境后，从准备阶段恢复。费用仍需单独批准。</p><button className="btn" disabled={continuationBusy} onClick={onContinuePreparation}>重新检查内容准备</button></> : <p>{connectionError ? '连接恢复后才能确认最新进度。' : '正在整理已确认的内容与创作边界；暂时没有可展示的阶段成果。'}</p>}
       </section>}
 
       {operatorSessionReady && attemptId && attempt && <section className="card film-op-card film-op-creator">
         <div className="film-op-heading"><h2>{phaseTitle[phase]}</h2><span className="film-op-work-title" title={title}>{title}</span></div>
-        <p>{phaseDescription[phase]}</p>
+        <p>{connectionError ? '以下为最后可信制作状态，实时进度尚未确认。' : phaseDescription[phase]}</p>
+        {projection.pending > 0 && <p>当前待处理 {projection.pending} 项；优先处理下方事项。</p>}
+        {projection.updatedAt != null && <small>作品状态更新时间：{String(projection.updatedAt)}</small>}
         {phase === 'done' && <div className="film-op-selected">
           <strong>✓ 已保存到内容库</strong>
           <span>本次使用素材：{attemptMaterials.filter((item) => item.used_in_creation === true).length} 项</span>
@@ -427,12 +624,12 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
             </div>)}
           </div>}
         </div>}
-        <div className="film-op-progress" aria-label="视频创作进度">
-          <span className={phase === 'planning' || phase === 'content-review' ? 'is-current' : 'is-complete'}>内容</span>
-          <span className={['planning', 'content-review', 'material'].includes(phase) ? 'is-current' : 'is-complete'}>素材</span>
-          <span className={['preparing', 'ready', 'building', 'verifying', 'exporting', 'failed'].includes(phase) ? 'is-current' : ['review', 'selecting', 'done'].includes(phase) ? 'is-complete' : ''}>视频制作</span>
-          <span className={['review', 'selecting'].includes(phase) ? 'is-current' : phase === 'done' ? 'is-complete' : ''}>成片</span>
-        </div>
+        {!currentOutput && typeof scriptTruth?.script === 'string' && <details className="film-op-stage-result"><summary>已形成的阶段成果：脚本</summary><p style={{ whiteSpace: 'pre-wrap' }}>{scriptTruth.script}</p></details>}
+        {!currentOutput && ['planning', 'preparing', 'building'].includes(phase) && <small>尚未生成视频预览；当前正在整理内容、编排或合成。</small>}
+        {phase === 'failed' && <div className="film-op-message is-error" role="alert">
+          <strong>失败阶段：{projection.failureStage ?? '视频制作'}</strong><p>{projection.failureReason}</p>
+          <p>已保留：当前方案与已经通过核验的阶段成果。重试只恢复当前失败阶段；视频重新合成需重新核价与批准。</p>
+        </div>}
         {['ready', 'building', 'preparing'].includes(phase) && <div className="film-op-creator-facts">
           <span>内容已准备</span><span>素材已准备</span>
           {typeof brief.duration_seconds === 'number' && <span>预计时长：{brief.duration_seconds} 秒</span>}
@@ -440,7 +637,7 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
           {allLocalNoCharge && <span>本次制作无第三方计费请求</span>}
           {!allLocalNoCharge && estimatedCost !== null && <span>预计费用：${estimatedCost.toFixed(2)}</span>}
         </div>}
-        {phase === 'ready' && <>
+        {phase === 'ready' && <div className="film-op-review-claim"><h3>任务：确认本次制作费用</h3><p>已有证据：当前视频方案已通过校验，费用来自本次核价；批准后才提交制作。</p>
           {!canApproveCost && <p className="film-op-warning">费用尚无法确认，暂不能开始制作。可在高级信息中查看详情。</p>}
           {canApproveCost && !allLocalNoCharge && <label className="film-op-budget">本次同意的预算（美元）
             <input className="field" inputMode="decimal" value={budget} onChange={(event) => setBudget(event.target.value)} />
@@ -452,9 +649,11 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
               if (cost.approved !== true) await approveFilmCost(attemptId, requestedBudget);
               return submitFilmBuild(attemptId, text(creationSnapshot?.idea, 'Easel 视频'));
             });
-          }}>开始制作</button>
-        </>}
+          }}>同意本次费用并制作</button>
+        </div>}
+        {attemptStatus.authoring_status === 'AUTHORING_RUNNING' && <button className="btn btn-sm" disabled={!!busy} onClick={() => void run('恢复当前视频编排', () => startFilmAuthoring(attemptId))}>恢复中断的视频编排</button>}
         {phase === 'building' && <p role="status">正在合成视频，完成后会自动生成预览。你可以离开此页面。</p>}
+        {phase === 'failed' && ['创作规划', '素材准备'].includes(projection.failureStage ?? '') && <button className="btn btn-primary" disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重试{projection.failureStage}</button>}
         {phase === 'failed' && ['AUTHORING_FAILED', 'PLAN_FAILED'].includes(text(attemptStatus.authoring_status)) && <button className="btn btn-primary" disabled={!!busy}
           onClick={() => {
             if (attemptStatus.authoring_status === 'AUTHORING_FAILED') void run('重新整理视频', () => startFilmAuthoring(attemptId));
@@ -465,9 +664,20 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
               await validateFilmAttempt(attemptId, source);
               return estimateFilmAttempt(attemptId);
             });
-          }}>重新尝试</button>}
-        {phase === 'failed' && !['AUTHORING_FAILED', 'PLAN_FAILED'].includes(text(attemptStatus.authoring_status)) && <p>本次制作未能完成。请在对话中告诉 Easel 是否重新制作。</p>}
-        {phase === 'content-review' && <>
+          }}>{attemptStatus.authoring_status === 'AUTHORING_FAILED' ? '重试视频编排' : '重试制作校验'}</button>}
+        {phase === 'failed' && execution === 'BUILD_FAILED' && <>
+          <p>本次合成已确定失败。可以复用已核验的内容、素材和编排；恢复不会调用素材 Provider 或提交新的 Build。之后如需再次合成，你需要重新确认费用。</p>
+          <button className="btn btn-primary" disabled={!!busy} onClick={() => {
+            void run('恢复视频制作', async () => {
+              const next = await retryFailedFilmBuild(attemptId);
+              setAttemptId(text(next.attempt_id));
+              setAttempt(next);
+              return next;
+            });
+          }}>从视频制作阶段恢复</button>
+        </>}
+        {phase === 'failed' && execution !== 'BUILD_FAILED' && !['AUTHORING_FAILED', 'PLAN_FAILED'].includes(text(attemptStatus.authoring_status)) && <p>本次制作未能完成。请查看失败原因后重试当前阶段。</p>}
+        {phase === 'content-review' && <div className="film-op-review-claim"><h3>任务：核对事实表达</h3><p>这些表述尚缺可靠来源或人工判断，确认仅记录你的审阅，不转为来源事实。</p>
           {scriptClaims.filter((claim) => claim.status === 'REVIEW_REQUIRED').map((claim) =>
             <div className="film-op-review-claim" key={text(claim.claim_id)}>
               <strong>{text(claim.text)}</strong>
@@ -480,19 +690,195 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
             || typeof scriptTruth?.truth_packet_sha256 !== 'string'} onClick={() => {
             void run('确认内容', () => reviewScriptTruth(attemptId, String(scriptTruth?.script_sha256), String(scriptTruth?.truth_packet_sha256)));
           }}>确认内容并继续</button>
+        </div>}
+        {phase === 'preparation-failed' && <p>{projection.failureReason}。已保留方案和成功阶段；将从当前准备记录恢复。付费操作仍需另行批准。</p>}
+        {phase === 'preparation-failed' && <button className="btn btn-primary"
+          disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重新准备素材</button>}
+        {phase === 'material' && rightsCandidatesLoaded && blockingNeedIds.some(needId => !rightsCandidates.some(asset => Array.isArray(asset.needs) && asset.needs.some(need => record(need).need_id === needId))) && <div className="film-op-review-claim">
+          <h3>任务：补充场景素材</h3><p>这些场景还没有通过检查的候选素材，暂时不能进入视频制作。</p>
+          {Array.isArray(scriptTruth?.material_needs) && scriptTruth.material_needs.map(record)
+            .filter(need => blockingNeedIds.includes(text(need.need_id)) && !rightsCandidates.some(asset => Array.isArray(asset.needs) && asset.needs.some(value => record(value).need_id === need.need_id)))
+            .map(need => <p key={text(need.need_id)}>场景要求：{text(need.description)}。尚未确定：合适素材、可用性与使用权。</p>)}
+          <p>已保留创作规划；可通过对话提供素材或调整来源。需要生成素材时，必须另行确认费用。</p>
+          <button className="btn" onClick={onOpenConversation}>在对话中补充素材</button>
+        </div>}
+        {phase === 'material' && blockingNeedIds.includes('voice_narration_global') && <>
+          <p>{voiceRightsPending || generationResult !== null
+            ? '当前事项：核对刚生成旁白的使用权。其他素材事项仍按各场景分别处理。'
+            : '当前缺少整片旁白音频。可以按已确认的脚本生成旁白；生成前会再次确认费用。'}</p>
+          {!rightsCandidatesLoaded && generationResult === null
+            ? <p>正在核对已有素材…</p>
+            : voiceRightsPending || generationResult !== null
+            ? pendingVoiceCandidate && <div className="film-op-review-claim film-op-voice-review">
+                <strong>确认这条旁白能否用于当前视频</strong>
+                <p>请查看你与 MiniMax 适用的服务条款或合同：生成音频能否用于本视频、是否需要署名、有没有用途限制。成片完成后还会让你播放审核。</p>
+                <small>已有证据：生成旁白已完成技术检查；适用许可与用途仍需核对。</small>
+                <label>核对结论
+                  <select className="field" value={voiceRightsDecision} onChange={(event) => setVoiceRightsDecision(event.target.value)}>
+                    <option value="UNKNOWN">还不能确认，暂不继续</option>
+                    <option value="KNOWN">允许用于当前视频，无需署名</option>
+                    <option value="ATTRIBUTION_REQUIRED">允许使用，但需要署名</option>
+                    <option value="RESTRICTED">当前用途不被允许</option>
+                  </select>
+                </label>
+                {voiceRightsDecision !== 'UNKNOWN' && <>
+                  {voiceRightsDecision !== 'RESTRICTED' && <label>条款或合同名称
+                    <input className="field" value={voiceTermsName} onChange={(event) => setVoiceTermsName(event.target.value)} />
+                  </label>}
+                  <label>依据链接或合同定位
+                    <input className="field" value={voiceEvidenceReference} onChange={(event) => setVoiceEvidenceReference(event.target.value)}
+                      placeholder="官方条款链接，或可追溯的合同章节" />
+                  </label>
+                  <label>相关条款说明
+                    <textarea className="field" rows={2} value={voiceEvidenceSummary} onChange={(event) => setVoiceEvidenceSummary(event.target.value)}
+                      placeholder="写明你核对到的使用、署名或限制条件" />
+                  </label>
+                  {voiceAttributionRequired && <>
+                    <label>准确署名文字<input className="field" value={voiceCredit} onChange={(event) => setVoiceCredit(event.target.value)} /></label>
+                    <label>应署名的创作者<input className="field" value={voiceCreator} onChange={(event) => setVoiceCreator(event.target.value)} /></label>
+                    <label>署名对应的来源页<input className="field" value={voiceSourcePage} onChange={(event) => setVoiceSourcePage(event.target.value)} placeholder="https://…" /></label>
+                    <small>署名文字需包含创作者名称和来源页；来源页使用公开的 HTTPS 链接。</small>
+                  </>}
+                  <label>其他使用限制（如有，每行一项）
+                    <textarea className="field" rows={2} value={voiceRestrictions} onChange={(event) => setVoiceRestrictions(event.target.value)} />
+                  </label>
+                  <label className="film-op-confirm"><input type="checkbox" checked={voiceRightsConfirmed}
+                    onChange={(event) => setVoiceRightsConfirmed(event.target.checked)} />
+                    我已核对上述依据适用于这条生成旁白和当前视频用途。
+                  </label>
+                  <button className="btn btn-primary" disabled={!operatorSessionReady || !!busy || continuationBusy || !voiceReviewReady}
+                    onClick={submitVoiceRightsReview}>{busy === '复核旁白使用权' ? '正在记录…' : '提交这 1 项复核'}</button>
+                </>}
+              </div>
+            : <button className="btn btn-primary" disabled={!!busy || !operatorSessionReady}
+                onClick={() => generateForNeed('voice_narration_global')}>
+                {busy === '生成素材' ? '正在生成旁白…' : '生成旁白素材'}
+              </button>}
         </>}
-        {phase === 'material' && <button className="btn btn-primary" onClick={() => {
-          document.querySelector<HTMLTextAreaElement>('.chat-input-area textarea')?.focus();
-        }}>在对话中说明素材需求</button>}
+        {phase === 'material' && visualCandidates.length > 0 && <div className="film-op-review-claim">
+          <strong>核对画面是否真的符合场景</strong>
+          <p>请查看原图，只确认你实际看见的内容。每个场景都单独核对；未确认的画面不会算作已覆盖。</p>
+          <label>对应场景
+            <select className="field" value={text(selectedVisualNeed?.need_id, '')}
+              onChange={(event) => { setVisualNeedId(event.target.value); setVisualAssetId(''); setVisualConfirmed(false); }}>
+              {selectedVisualNeeds.map((need) => <option value={text(need.need_id)} key={text(need.need_id)}>
+                {text(need.description)}</option>)}
+            </select>
+          </label>
+          <label>素材
+            <select className="field" value={text(selectedVisual?.asset_id, '')}
+              onChange={(event) => { setVisualAssetId(event.target.value); setVisualConfirmed(false); }}>
+              {visualCandidates.map((item) => <option value={text(item.asset_id)} key={text(item.asset_id)}>
+                候选 {visualCandidates.indexOf(item) + 1} · {text(item.provider, '本地素材')}</option>)}
+            </select>
+          </label>
+          {selectedVisual && (selectedVisual.media_type === 'video'
+            ? <video className="film-op-preview" controls preload="metadata" src={materialAssetPreviewUrl(attemptId, text(selectedVisual.asset_id), text(selectedVisual.asset_sha256))} />
+            : <img className="film-op-visual-preview" alt="待核对素材原图" src={materialAssetPreviewUrl(attemptId, text(selectedVisual.asset_id), text(selectedVisual.asset_sha256))} />)}
+          <p>场景要求：{text(selectedVisualNeed?.description)}</p><p>已有证据：素材已通过技术检查。尚未确定：画面是否符合当前场景、是否满足下列限制。</p>
+          <label>实际看到的画面依据
+            <textarea className="field" rows={2} value={visualObservation}
+              onChange={(event) => setVisualObservation(event.target.value)}
+              placeholder="写出图中主体、动作和环境，以及它如何对应当前场景" />
+          </label>
+          {selectedVisualConstraints.logo === false && <label>画面里有 logo 吗？
+            <select className="field" value={visualLogo} onChange={(event) => setVisualLogo(event.target.value)}>
+              <option value="unknown">尚未确认</option><option value="yes">有，拒绝这张图</option><option value="no">没有</option>
+            </select>
+          </label>}
+          {selectedVisualConstraints.text_in_frame === false && <label>画面里有文字吗？
+            <select className="field" value={visualText} onChange={(event) => setVisualText(event.target.value)}>
+              <option value="unknown">尚未确认</option><option value="yes">有，拒绝这张图</option><option value="no">没有</option>
+            </select>
+          </label>}
+          <label className="film-op-confirm"><input type="checkbox" checked={visualConfirmed}
+            onChange={(event) => setVisualConfirmed(event.target.checked)} />我已核对这张图与所选场景，记录基于原图。</label>
+          <button className="btn btn-primary" disabled={!visualReviewReady || !!busy} onClick={submitVisualReview}>
+            提交这一组画面核对</button>
+        </div>}
+        {phase === 'material' && !voiceRightsPending && rightsCandidates.some(item => ['UNKNOWN', 'RESTRICTED'].includes(text(record(item.rights).status))) && <>
+        <section className="card film-op-card">
+          <h3>任务：核对素材使用权</h3>
+          {voiceRightsPending && <p>当前待复核：刚生成的 MiniMax 旁白音频。请核对该素材对应的使用条款和证据。</p>}
+          <p>这里只记录你提交的素材级来源与权利证据，不由 Easel 根据 Provider 推断许可。请按当前素材对应的实际条款核对；证据不足时保留 UNKNOWN，Gate 会继续阻断。提交后只本地重算当前 Gate，不重新搜索或生成素材。</p>
+          {rightsCandidates.length === 0 ? <p>当前 Plan/Bundle 中没有字节校验通过且技术检查通过的可核验素材。</p> : <>
+            <label>待核素材
+              <select className="field" value={rightsAssetId} onChange={(event) => setRightsAssetId(event.target.value)}>
+                {rightsCandidates.map((item) => <option key={String(item.asset_id)} value={String(item.asset_id)}>
+                  素材 {rightsCandidates.indexOf(item) + 1} · {text(item.provider, '本地')} · {record(item.rights).status === 'UNKNOWN' ? '使用权待确认' : '查看使用权'}
+                </option>)}
+              </select>
+            </label>
+            {selectedRightsCandidate && <>
+              <small>已有证据：来源页 {text(selectedRightsCandidate.source_page)} · 创作者 {text(selectedRightsCandidate.creator)}</small>
+              <p>尚未确定：许可是否适用于当前场景与用途。素材画面匹配仍需独立核对。</p>
+              <label>核验结论
+                <select className="field" value={rightsStatus} onChange={(event) => setRightsStatus(event.target.value)}>
+                  <option value="UNKNOWN">暂无法确认，继续阻断</option>
+                  <option value="KNOWN">已核验许可与用途</option>
+                  <option value="PUBLIC_DOMAIN">已核验公有领域依据</option>
+                  <option value="ATTRIBUTION_REQUIRED">可用但必须署名</option>
+                  <option value="RESTRICTED">限制使用</option>
+                </select>
+              </label>
+              <div className="film-op-grid">
+                <label>许可名称<input className="field" value={rightsLicenseName} onChange={(event) => setRightsLicenseName(event.target.value)} /></label>
+                <label>许可链接<input className="field" value={rightsLicenseUrl} onChange={(event) => setRightsLicenseUrl(event.target.value)} /></label>
+                <label>来源创作者<input className="field" value={rightsSourceCreator} onChange={(event) => setRightsSourceCreator(event.target.value)} /></label>
+                <label>来源页面<input className="field" value={rightsSourcePage} onChange={(event) => setRightsSourcePage(event.target.value)} /></label>
+                <label>证据类型<input className="field" value={rightsEvidenceKind} onChange={(event) => setRightsEvidenceKind(event.target.value)} /></label>
+                <label>证据引用（URL/条款定位）<input className="field" value={rightsEvidenceReference} onChange={(event) => setRightsEvidenceReference(event.target.value)} /></label>
+                <label>证据摘要<input className="field" value={rightsEvidenceSummary} onChange={(event) => setRightsEvidenceSummary(event.target.value)} /></label>
+                <label>用途限制（每行一项）<textarea className="field" rows={2} value={rightsUsageConstraints} onChange={(event) => setRightsUsageConstraints(event.target.value)} /></label>
+                <label className="film-op-confirm"><input type="checkbox" checked={rightsAttributionRequired} onChange={(event) => setRightsAttributionRequired(event.target.checked)} /> 该素材需要署名</label>
+                <label>准确署名文本<input className="field" value={rightsAttributionText} onChange={(event) => setRightsAttributionText(event.target.value)} /></label>
+              </div>
+              <label className="film-op-confirm">
+                <input type="checkbox" checked={rightsConfirmed} onChange={(event) => setRightsConfirmed(event.target.checked)} />
+                我已按当前素材核对证据与使用范围；这是我的事实录入，不是系统自动法律判断。
+              </label>
+              <button className="btn btn-primary" disabled={!operatorSessionReady || !!busy || !rightsConfirmed
+                || !rightsEvidenceKind.trim() || !rightsEvidenceReference.trim() || !rightsEvidenceSummary.trim()} onClick={() => {
+                void run('记录素材权利证据', async () => { const result = await reviewMaterialRights(attemptId, {
+                  assetId: rightsAssetId,
+                  assetSha256: selectedRightsCandidate.asset_sha256,
+                  rights: {
+                    status: rightsStatus,
+                    license_name: rightsLicenseName.trim() || null,
+                    license_url: rightsLicenseUrl.trim() || null,
+                    attribution_required: rightsAttributionRequired || rightsStatus === 'ATTRIBUTION_REQUIRED',
+                    attribution_text: rightsAttributionText.trim() || null,
+                    usage_constraints: rightsUsageConstraints.split('\n').map((value) => value.trim()).filter(Boolean),
+                    evidence: [{ kind: rightsEvidenceKind.trim(), reference: rightsEvidenceReference.trim(), summary: rightsEvidenceSummary.trim() }],
+                  },
+                  sourceCreator: rightsSourceCreator.trim() || null,
+                  sourcePage: rightsSourcePage.trim() || null,
+                  confirmReview: true,
+                }); if (record(result).material_status === 'MATERIAL_READY') await startFilmAuthoring(attemptId); return result; });
+              }}>记录核验事实并继续</button>
+            </>}
+          </>}
+        </section>
+
+        </>}
+        {phase === 'preparing' && preparationStatus !== 'PRODUCTION_PREPARED'
+          && attemptStatus.authoring_status === 'READY_FOR_EXTERNAL_AUTHORING'
+          && <button className="btn btn-primary" disabled={continuationBusy || !!busy}
+            onClick={onContinuePreparation}>继续编排视频</button>}
         {phase === 'review' && <>
           {typeof selectedReviewOutput.path === 'string' && <video className="film-op-preview" controls preload="metadata" src={mediaUrl(selectedReviewOutput.path)}>
             浏览器不支持视频预览。
           </video>}
-          <button className="btn btn-primary" disabled={!!busy || typeof selectedReviewOutput.sha256 !== 'string'} onClick={() => {
+          <label className="film-op-confirm"><input type="checkbox" checked={finalReviewConfirmed}
+            onChange={(event) => setFinalReviewConfirmed(event.target.checked)} />
+            我已播放并核对成片的事实表达、创作风格和声画效果。
+          </label>
+          <button className="btn btn-primary" disabled={!!busy || !finalReviewConfirmed || typeof selectedReviewOutput.sha256 !== 'string'} onClick={() => {
             void run('确认成片', async () => {
               await reviewFilmOutput(attemptId, {
                 outputName: reviewOutputName, sha256: String(selectedReviewOutput.sha256),
-                truth: { status: 'pass', notes: [] }, style: { status: 'pass', notes: [] },
+                truth: { status: 'pass', notes: ['Creator 已播放并核对当前 SHA 对应成片的事实表达。'] },
+                style: { status: 'pass', notes: ['Creator 已播放并核对当前 SHA 对应成片的创作风格。'] },
                 human: { status: 'approved' }, feedback: [],
               });
               return selectFilmBuild(creationId, attemptId, reviewOutputName);
@@ -507,11 +893,46 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
         {(error || (phase === 'exporting' && !!busy)) && <button className="btn" disabled={!!busy} onClick={() => {
           preparationRun.current = ''; exportRun.current = ''; setError(''); setRefreshVersion((version) => version + 1);
         }}>重新检查进度</button>}
-        {phase === 'done' && <p className="film-op-manual">想修改视频？在对话中告诉 Easel 你的想法。</p>}
+        {['review', 'done'].includes(phase) && <>
+          <p>自动检查：{record(selectedReviewOutput.technical_qc).status === 'pass' ? '文件完整性、音视频流与解码检查通过' : '当前输出检查结果尚不可用'}。事实表达与风格由你播放核对。</p>
+          <button className="btn" onClick={() => setFeedbackOpen(value => !value)}>提出修改</button>
+          {feedbackOpen && <div className="film-op-review-claim">
+            <h3>成片修改反馈</h3>
+            <p>反馈绑定当前视频。支持在已有素材、脚本、场景顺序、总时长和声音不变的前提下调整构图与转场；字幕、素材替换、内容与规格修改请在对话中重新确认方案。调整后会重新核价，费用批准后才合成。</p>
+            <label>修改类型<select className="field" value={feedbackKind} onChange={event => setFeedbackKind(event.target.value)}>
+              <option value="general">一般反馈（保存并讨论）</option><option value="composition">构图与转场（可执行）</option>
+            </select></label>
+            <label>希望调整什么<textarea className="field" value={feedbackText} onChange={event => setFeedbackText(event.target.value)} /></label>
+            <label>时间点（可选，秒）<input className="field" type="number" min="0" step="0.1" value={feedbackTime} onChange={event => setFeedbackTime(event.target.value)} /></label>
+            <button className="btn btn-primary" disabled={!!busy || !feedbackText.trim() || (feedbackTime !== '' && (!Number.isFinite(Number(feedbackTime)) || Number(feedbackTime) < 0))}
+              onClick={() => void run('保存修改反馈', async () => {
+                const saved = await reviewFilmOutput(attemptId, { outputName: reviewOutputName, sha256: selectedReviewOutput.sha256,
+                  truth: { status: 'modify' }, style: { status: 'modify' }, human: { status: 'rejected' },
+                  feedback: [...(Array.isArray(record(attemptStatus.review).feedback) ? record(attemptStatus.review).feedback as unknown[] : []), { kind: feedbackKind, text: feedbackText.trim(), ...(feedbackTime === '' ? {} : { time_seconds: Number(feedbackTime) }) }],
+                });
+                setAttempt(saved); setFeedbackText(''); setFeedbackTime(''); setFeedbackOpen(false);
+                return saved;
+              })}>保存反馈，退回审片</button>
+          </div>}
+          {Array.isArray(record(attemptStatus.review).feedback) && (record(attemptStatus.review).feedback as unknown[]).length > 0 && <div className="film-op-review-claim">
+            <strong>已保存的修改意见</strong>
+            {(record(attemptStatus.review).feedback as unknown[]).map((entry, index) => <p key={index}>
+              {typeof record(entry).time_seconds === 'number' ? `${record(entry).time_seconds} 秒：` : ''}{text(record(entry).text)}
+            </p>)}
+            {(record(attemptStatus.review).feedback as unknown[]).every(entry => record(entry).kind === 'composition') && <>
+              <p>影响范围：视频编排与合成；复用已核验内容和素材，不重新请求素材 Provider。新成片仍需重新审片与确认。</p>
+              <button className="btn btn-primary" disabled={!!busy || connectionError !== ''} onClick={() => void run('按反馈调整构图与转场', async () => {
+                const next = await reviseFilmOutput(attemptId, reviewOutputName, String(selectedReviewOutput.sha256));
+                setAttemptId(text(next.attempt_id)); setAttempt(next);
+                return startFilmAuthoring(String(next.attempt_id));
+              })}>按反馈调整构图与转场</button>
+            </>}
+          </div>}
+        </>}
       </section>}
 
-      <details className="film-op-advanced" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
-        <summary>高级信息与操作</summary>
+      <details ref={advancedRef} className="film-op-advanced" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
+        <summary>制作记录 / 高级信息</summary>
         {error && <div className="film-op-message is-error" role="status">{error}</div>}
 
       <section className="card film-op-card">
@@ -620,81 +1041,12 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
           </div>
           <div className="film-op-actions">
             <button className="btn btn-primary" disabled={!operatorSessionReady || !attemptId || !!busy
-              || !generationNeedId || materialGate.status !== 'MATERIAL_NOT_READY'} onClick={() => {
-              if (!window.confirm('将按所选 Material Need 调用 MiniMax 生成图片、视频或脚本语音，并保存到当前 Attempt。该 API 按平台价格计费，Easel 不提供消费上限。确认继续？')) return;
-              const requestId = globalThis.crypto.randomUUID();
-              void run('MiniMax 生成素材', async () => {
-                const result = await generateMiniMaxMaterial(attemptId, generationNeedId, requestId);
-                setGenerationResult(record(result).generation);
-                setGenerationNeedId('');
-                return result;
-              });
-            }}>确认费用并生成素材</button>
+              || !generationNeedId || materialGate.status !== 'MATERIAL_NOT_READY'}
+              onClick={() => generateForNeed(generationNeedId)}>确认费用并生成素材</button>
           </div>
           {generationResult !== null && <details open><summary>最近一次 MiniMax 生成记录</summary><pre>{json(generationResult)}</pre></details>}
         </section>
 
-        <section className="card film-op-card">
-          <h2>素材来源与 Rights 核验</h2>
-          <p>这里只记录你提交的素材级来源与权利证据，不由 Easel 根据 Provider 推断许可。请按素材 SHA 对应的实际条款核对；证据不足时保留 UNKNOWN，Gate 会继续阻断。提交后只本地重算当前 Gate，不重新搜索或生成素材。</p>
-          {rightsCandidates.length === 0 ? <p>当前 Plan/Bundle 中没有字节校验通过且技术检查通过的可核验素材。</p> : <>
-            <label>待核素材
-              <select className="field" value={rightsAssetId} onChange={(event) => setRightsAssetId(event.target.value)}>
-                {rightsCandidates.map((item) => <option key={String(item.asset_id)} value={String(item.asset_id)}>
-                  {String(item.provider ?? item.source_kind)} · {String(item.media_type)} · {String(item.asset_id)} · Rights {text(record(item.rights).status)}
-                </option>)}
-              </select>
-            </label>
-            {selectedRightsCandidate && <>
-              <small>SHA-256：{text(selectedRightsCandidate.asset_sha256)} · Provider：{text(selectedRightsCandidate.provider)} · 来源页：{text(selectedRightsCandidate.source_page)} · 创作者：{text(selectedRightsCandidate.creator)}</small>
-              <small>同类型 Plan Need（仅供核验上下文，实际匹配仍由 Gate 计算）：{json(selectedRightsCandidate.needs)}</small>
-              <label>核验结论
-                <select className="field" value={rightsStatus} onChange={(event) => setRightsStatus(event.target.value)}>
-                  <option value="UNKNOWN">UNKNOWN：暂无法确认，继续阻断</option>
-                  <option value="KNOWN">KNOWN：已核验许可与用途</option>
-                  <option value="PUBLIC_DOMAIN">PUBLIC_DOMAIN：已核验公有领域依据</option>
-                  <option value="ATTRIBUTION_REQUIRED">ATTRIBUTION_REQUIRED：可用但必须署名</option>
-                  <option value="RESTRICTED">RESTRICTED：限制使用</option>
-                </select>
-              </label>
-              <div className="film-op-grid">
-                <label>License 名称<input className="field" value={rightsLicenseName} onChange={(event) => setRightsLicenseName(event.target.value)} /></label>
-                <label>License URL<input className="field" value={rightsLicenseUrl} onChange={(event) => setRightsLicenseUrl(event.target.value)} /></label>
-                <label>来源创作者<input className="field" value={rightsSourceCreator} onChange={(event) => setRightsSourceCreator(event.target.value)} /></label>
-                <label>来源页面<input className="field" value={rightsSourcePage} onChange={(event) => setRightsSourcePage(event.target.value)} /></label>
-                <label>证据类型<input className="field" value={rightsEvidenceKind} onChange={(event) => setRightsEvidenceKind(event.target.value)} /></label>
-                <label>证据引用（URL/条款定位）<input className="field" value={rightsEvidenceReference} onChange={(event) => setRightsEvidenceReference(event.target.value)} /></label>
-                <label>证据摘要<input className="field" value={rightsEvidenceSummary} onChange={(event) => setRightsEvidenceSummary(event.target.value)} /></label>
-                <label>用途限制（每行一项）<textarea className="field" rows={2} value={rightsUsageConstraints} onChange={(event) => setRightsUsageConstraints(event.target.value)} /></label>
-                <label className="film-op-confirm"><input type="checkbox" checked={rightsAttributionRequired} onChange={(event) => setRightsAttributionRequired(event.target.checked)} /> 该素材需要署名</label>
-                <label>准确署名文本<input className="field" value={rightsAttributionText} onChange={(event) => setRightsAttributionText(event.target.value)} /></label>
-              </div>
-              <label className="film-op-confirm">
-                <input type="checkbox" checked={rightsConfirmed} onChange={(event) => setRightsConfirmed(event.target.checked)} />
-                我已按上述素材 SHA 核对证据与使用范围；这是我的事实录入，不是系统自动法律判断。
-              </label>
-              <button className="btn btn-primary" disabled={!operatorSessionReady || !!busy || !rightsConfirmed
-                || !rightsEvidenceKind.trim() || !rightsEvidenceReference.trim() || !rightsEvidenceSummary.trim()} onClick={() => {
-                void run('记录 Rights 并重算 Gate', () => reviewMaterialRights(attemptId, {
-                  assetId: rightsAssetId,
-                  assetSha256: selectedRightsCandidate.asset_sha256,
-                  rights: {
-                    status: rightsStatus,
-                    license_name: rightsLicenseName.trim() || null,
-                    license_url: rightsLicenseUrl.trim() || null,
-                    attribution_required: rightsAttributionRequired || rightsStatus === 'ATTRIBUTION_REQUIRED',
-                    attribution_text: rightsAttributionText.trim() || null,
-                    usage_constraints: rightsUsageConstraints.split('\n').map((value) => value.trim()).filter(Boolean),
-                    evidence: [{ kind: rightsEvidenceKind.trim(), reference: rightsEvidenceReference.trim(), summary: rightsEvidenceSummary.trim() }],
-                  },
-                  sourceCreator: rightsSourceCreator.trim() || null,
-                  sourcePage: rightsSourcePage.trim() || null,
-                  confirmReview: true,
-                }));
-              }}>记录核验事实并重算 Material Gate</button>
-            </>}
-          </>}
-        </section>
 
         <section className="card film-op-card">
           <h2>Hypit Runtime / Plan / Pricing / Build</h2>
@@ -772,29 +1124,8 @@ export default function FilmOperatorPage({ creationId, title }: FilmOperatorPage
               attemptStatus.execution_status !== 'BUILD_COMPLETE' || !exportName.trim() || outputNames.includes(exportName.trim()))}
           </div>
           {reviewOutputName && typeof selectedReviewOutput.sha256 === 'string' && <p className="film-op-hash">Review SHA-256：{selectedReviewOutput.sha256}</p>}
-          {typeof selectedReviewOutput.path === 'string' && (
-            <video className="film-op-preview" controls preload="metadata" src={mediaUrl(selectedReviewOutput.path)}>
-              浏览器不支持视频预览。
-            </video>
-          )}
           {selectedReviewOutput.attribution != null && <details><summary>该输出的 Attribution</summary><pre>{json(selectedReviewOutput.attribution)}</pre></details>}
-          <div className="film-op-actions">
-            <button className="btn btn-primary" disabled={!operatorSessionReady || !!busy || !creationId || !reviewOutputName
-              || typeof selectedReviewOutput.sha256 !== 'string'} onClick={() => {
-              void run('批准并选定成片', async () => {
-                await reviewFilmOutput(attemptId, {
-                  outputName: reviewOutputName,
-                  sha256: String(selectedReviewOutput.sha256),
-                  truth: { status: 'pass', notes: [] },
-                  style: { status: 'pass', notes: [] },
-                  human: { status: 'approved' },
-                  feedback: [],
-                });
-                return selectFilmBuild(creationId, attemptId, reviewOutputName);
-              });
-            }}>我看过并批准，设为最终视频</button>
-          </div>
-          <p className="film-op-manual">一次批准同时记录内容边界、风格和成片审核，并选定当前 SHA；不会自动发布。</p>
+          <p>成片确认与修改反馈请使用上方审片卡；此处仅保留导出与追溯记录。</p>
           <div className="film-op-details">
             {outputsForSelect.map(({ name, item }) => <details key={name}><summary>{name} · {text(item.sha256)}</summary><pre>{json(item)}</pre></details>)}
           </div>

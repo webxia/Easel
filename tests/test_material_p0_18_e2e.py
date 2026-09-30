@@ -48,8 +48,10 @@ class FixtureAnalyzer:
         assert path.is_file()
         return {
             "annotations": [
-                {"field": "caption", "value": "city street", "confidence": 0.99},
-                {"field": "environment", "value": "urban", "confidence": 0.8},
+                {"field": "caption", "value": "city street", "confidence": 0.99,
+                 "evidence": "fixture visual observation"},
+                {"field": "environment", "value": "urban", "confidence": 0.8,
+                 "evidence": "fixture visual observation"},
             ]
         }
 

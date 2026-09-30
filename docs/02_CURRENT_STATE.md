@@ -1,6 +1,6 @@
 # Easel Current State
 
-Last audited: 2026-09-29. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
+Last audited: 2026-09-30. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
 
 ## Snapshot
 
@@ -12,7 +12,32 @@ Last audited: 2026-09-29. This is the single summary of current implementation a
 | External Material Product E2E | **REAL_WORLD_VERIFIED** for one standard-chat Creation through Pexels Search/Acquisition, MaterialReadiness `READY`, Production Authoring, Hypit Build, Export, Review and Selected Output. The [named Acceptance](acceptance/external-material-product-e2e-2026-09-29.md) records the initial MaterialReadiness stop; the same Creation was subsequently completed. |
 | Runtime profiles | `generation` is **READY** (configuration only). `v1-release` is **NOT_READY**: model auth/endpoint and `audio.production` require live verification. Hypit 0.2.7 doctor, Runtime Worker and both local Programs are ready. |
 | P3 | **NOT_STARTED**. |
-| Test suite | Last full run: **482 passed, 5 skipped** on 2026-09-28, before the VPN DNS acquisition fix. The 2026-09-29 external-material change passed 62 targeted tests; a new full suite run has not been claimed. |
+| Test suite | Last completed full run: **482 passed, 5 skipped** on 2026-09-28. Current workspace verification covers **110 targeted Preparation/Material/Hypit/Authoring tests**, deterministic frontend projection and isolated desktop/mobile browser scenarios; frontend lint/build passed; a completed new full suite run is not claimed. |
+
+## Creator 作品工作区（2026-09-30 软件验收）
+
+- Conversation 与 Work Canvas 分栏；窄屏“对话 / 作品”切换、待处理数量、稳定输入框和独立滚动面。作品从 Proposal 出现；作品状态从现有 Creation / Attempt 恢复，不依赖聊天中另发“继续”。七阶段进度由统一只读投影提供，默认收进“查看制作进度”。
+- Proposal 卡与显式确认共用服务端字面规格解析；时长、明确画幅比例、音轨和语言缺失时留空。示例、问题、上限和歧义不补猜；未知规格要求通过对话补足。确认后保存同一组规格与原有对话哈希，Preparation 冻结前校验相同值，规格漂移阻断。旧 Creation 的已冻结输入未被迁移或修改。
+- 无 Attempt 的准备失败直接显示失败原因、已保留结果和阶段 Retry。后续状态优先于旧 Preparation 失败；各类读取分别保留连接错误，失去连接显示最后可信状态。状态读取不会重新派发 Planning / Authoring / Provider。
+- 事实、按场景的素材 Match、素材 Rights 与当前费用各有任务卡，继续使用原有正式门禁。观察按 Need 与 Asset SHA 隔离，切换后清空；已有来源、许可与证据预填。Match / Rights 使 Gate READY 后直接进入正式 Authoring API，不生成额外“继续”聊天回合。
+- 成片播放器、当前技术检查、一次人工审片与 Selected Output / 内容库链保留。一般反馈和时间点反馈绑定当前输出与 SHA，时间点不得越过实际时长；不自动发布。
+- 最小可执行修改为**构图与转场**：复用已验证的 Planning / Truth / Material checkpoint，以输出身份、反馈和 fingerprint 建立幂等新 Attempt，重新 Authoring、Plan / Pricing / 费用批准与最终审片。不重新供应素材，不复制旧费用批准，不自动提交 Build。脚本、规格、声音、字幕和素材替换明确提示需重新确认方案，不提供伪执行按钮。
+- 高级信息默认折叠；移除聊天输入框中的重复制作确认及高级区重复审片播放器/批准入口。
+- 验证：后端定向覆盖 110 项（109 passed / 1 deselected 的组合运行，显式确认 API 单独通过；后续 11 项关联回归通过），前端状态投影场景、隔离 Chromium 桌面/390px 窄屏场景通过。页面检查覆盖 Proposal、无 Attempt 失败、编排失败、素材任务、费用、可播放的确定性测试视频、输出绑定的时间点反馈及修改派发、运行状态与断连；全部接口拦截，未调用真实 Provider / Authoring / Build。lint/build、compileall、skill 合同与 diff check 通过。保留 AccountsPage 既有 Hook 警告及构建体积提示。
+- **验证边界：** 未修改或继续当前 Creation，未执行付费 AI、真实 Build 或完整 E2E。真实 Creator 审片、修改结果与外部制作验收由 Creator 随后操作；软件测试不代表真实视频效果已验证。
+
+## Creator E2E 前修复（上一轮修复基线）
+
+本轮只修改代码、任务书、UI 和确定性验证；未继续当前 Creation，也未启动新的完整 E2E。当前人工 Creation 仍由 Creator 后续操作，Build 尚未提交。
+
+- Material Match 对视觉 Need 要求当前素材的实际画面观察或按 Need 与 SHA 绑定的 Creator 核对。技术、Rights、语义与 hard constraint 每项都要成立；Readiness 重新核验 Match，不能把没有证据的重复素材当作覆盖。未核验素材保持 NOT_READY。
+- 已完成 Material Gate 的 Preparation 恢复直接复用当前 checkpoint；生成素材 Rights 核对与视觉匹配核对只在本地重算，不再次进入 Provider Supply。
+- Hypit 0.2.7 Task Book、Prompt 和 Retry 已按本机 Surface 收敛；Easel Run JSON 身份校验通过后才生成 native Run。隔离 Authoring 产物提升前执行本机 `hypit check`，失败产物不覆盖可信文件。静态图片与音轨各有一份本机 0.2.7 最小工程通过 `hypit check`；这不证明当前 Creation 的 Authoring 已完成。
+- 已确认视频时长上限短于全部可用旁白时在 Authoring 前阻断；Authoring 产物在当前选定 Voice 与固定 Timeline 时长不符时阻断。图片 Item 的 Extent 按实际检查宽高核对，Canvas 仅表示画布。
+- Creator 页面展示七阶段 Timeline、失败阶段与原因。Authoring/Plan 的 Retry 保留已完成的 Planning/Material checkpoint；已确认失败且可从 Hypit 核实的 Build 可新建同 Creation 的恢复 Attempt，重新绑定已验证的 Planning、Material、Script Truth 和 Authoring，新的 Plan/Pricing/费用批准仍是必要步骤。提交不确定时继续先对账，不允许重发 Build。技术 QC 继续自动校验文件、SHA、音视频流与完整解码；事实/风格 PASS 必须有当前成片的人审依据。
+- Preparation 格式示例已移除 2.5 秒占位 beat；Agent 交付前可执行与冻结相同的只读四文件合同校验，重试携带原始脱敏诊断，聊天显示实际失败原因。当前 Creation 草稿未被修改或重试。
+- 提案阶段继续使用现有新版 Proposal，已去除冲突的制作通用提醒；当前阶段不会自动填造 Creator 身份、规格或内部流程说明。
+- **待真实验证：** Build 失败后的 checkpoint 恢复只有确定性软件回归，尚无真实失败 Build 试验；安全 AI 视觉预审没有已配置的分析器，异常视觉匹配目前由 Creator 按 Need 核对。上述能力不能以自动 PASS 或再次 Provider 请求代替。
 
 ## Official Product Path
 
@@ -59,7 +84,7 @@ Required Needs without current inspected, rights-admitted assets stop at `MATERI
 - **T09 / AI Material Generation:** previous Hypit execution task is superseded. MiniMax Image, Video and preset-voice TTS implementation and isolated modality smoke evidence are tracked in [`v1c-t09-minimax-video.md`](tasks/v1c-t09-minimax-video.md); real Creation/Production use and Rights evidence remain separate open work.
 - **Generated Material baseline:** current scope and gates are recorded in [`workstreams/generated-material.md`](workstreams/generated-material.md). Any billable generation requires per-request operator confirmation.
 - **T10 external-acquisition branch:** one named Pexels Creation reached MaterialReadiness `READY` and later completed Production/Export/Review/Selection. **T11–T14 NOT_STARTED:** positive Library-reuse, attribution-bearing-output, Supplemental Supply and Continuity remain separate branches; do not batch these into T15.
-- **T15 E2E IN_PROGRESS:** the first frozen Creation/Handoff predates the new hash-bound `ProductionBrief` contract and cannot be silently rewritten. The fresh standard-chat Creation passed Preparation, Script/Truth review and Material Gate. Initial Hypit `MARKUP_ROOT_ATTRIBUTE` failures drove generated-task refresh; later retries exposed harmless selection serialization differences (derived Need IDs, matching redundant identity aliases, and asset order), now normalized only after frozen identity, asset SHA/source and qualified Match are verified. A server restart had left a durable `AUTHORING_RUNNING` state without an in-process task; the Operator now exposes an idempotent recovery action, and this Attempt has been resumed. The latest local `hypit check` found that `Timeline.clock` needs a typed `{clock}` reference, not a string; both generated task guidance and retry guidance now state this installed-v0.2.7 contract. The corrected retry is running; no current Hypit check result or three-source E2E completion is claimed. Full suite: 482 passed / 5 skipped; compile, skills validation, frontend lint/build, and diff check pass. No paid generation or Build has been run in this task slice. Hypit Runtime is prepared; `v1-release` still awaits model auth/endpoint and real audio Build verification. See [T15](tasks/v1c-t15-e2e-readiness.md) and [T19](tasks/v1c-t19-low-friction-creation.md).
+- **T15 E2E PAUSED FOR REPAIR:** Creator reported the current Creation at `AUTHORING_FAILED`; no Build has been submitted for it. The current Goal repairs Hypit Authoring, Material Match, Progress, Review and Proposal software without resuming that Creation or running another full E2E. Earlier named Local/Pexels runs remain historical evidence for their exact outputs, not evidence that the revised semantic Match gate has been exercised live. Creator will continue the real E2E manually. See [repair task](tasks/creator-e2e-repair-2026-09-30.md), [T15](tasks/v1c-t15-e2e-readiness.md) and [T19](tasks/v1c-t19-low-friction-creation.md).
 - **T16 NOT_STARTED:** multi-Content consistency validation remains separate from T15 and requires an explicit subsequent scope.
 - These statuses describe Closure evidence work, not permission to start all tasks automatically. The next work is [T19](tasks/v1c-t19-low-friction-creation.md), then resume [T15](tasks/v1c-t15-e2e-readiness.md), as ordered in the [Roadmap](03_ROADMAP.md).
 

@@ -7,6 +7,7 @@ from easel.materials.application.readiness import MaterialReadinessCalculator
 from easel.materials.domain import (
     CandidateSource,
     FileInfo,
+    IntelligenceStatus,
     MaterialAsset,
     MaterialMatch,
     MaterialNeed,
@@ -19,6 +20,10 @@ from easel.materials.domain import (
     RightsEvidence,
     RightsInfo,
     RightsStatus,
+    SemanticInfo,
+    SemanticAnnotation,
+    SemanticField,
+    SemanticInference,
     SupplyRun,
     TechnicalInfo,
     TechnicalStatus,
@@ -50,6 +55,12 @@ def asset(asset_id: str, *, rights: RightsStatus = RightsStatus.KNOWN, technical
         source=CandidateSource(kind="fixture", provider="fixture", provider_asset_id=asset_id),
         rights=RightsInfo(status=rights, license_name="Fixture License" if rights is RightsStatus.KNOWN else None, evidence=evidence),
         technical=TechnicalInfo(status=technical, duration_seconds=2, width=1920, height=1080),
+        semantic=SemanticInfo(inferences=(SemanticInference(
+            analyzer_id="fixture-observation", status=IntelligenceStatus.COMPLETE,
+            annotations=(SemanticAnnotation(field=SemanticField.CAPTION,
+                                            value="visual for required", confidence=0.95,
+                                            evidence="fixture video observation"),),
+        ),)),
     )
 
 

@@ -291,6 +291,14 @@ export function reviewMaterialRights(
   return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/material-rights/review-current`, review);
 }
 
+export function reviewMaterialMatch(attemptId: string, review: OperatorRecord): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/material-match/review-current`, review);
+}
+
+export function materialAssetPreviewUrl(attemptId: string, assetId: string, sha256: string): string {
+  return `/api/film-attempts/${encodeURIComponent(attemptId)}/material-assets/${encodeURIComponent(assetId)}/preview?sha256=${encodeURIComponent(sha256)}`;
+}
+
 export function startFilmAuthoring(attemptId: string): Promise<OperatorRecord> {
   return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/author`);
 }
@@ -340,6 +348,10 @@ export function submitFilmBuild(attemptId: string, title: string): Promise<Opera
 
 export function refreshFilmBuild(attemptId: string): Promise<OperatorRecord> {
   return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/refresh`);
+}
+
+export function retryFailedFilmBuild(attemptId: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/retry-failed-build`);
 }
 
 export function inspectFilmBuild(attemptId: string): Promise<OperatorRecord> {
@@ -928,4 +940,13 @@ export function streamChat(
 export function fetchLastTurn(sessionId: string, turnId?: string): Promise<{ status: string; text: string; turn_id?: string }> {
   const query = turnId ? `?turn_id=${encodeURIComponent(turnId)}` : '';
   return request(`/api/chat/last/${encodeURIComponent(sessionId)}${query}`);
+}
+
+export function reviseFilmOutput(attemptId: string, outputName: string, sha256: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/revise`, { outputName, sha256 });
+}
+
+export function previewCreatorProposal(creationId: string, proposalContext: Array<{ role: 'user' | 'assistant'; content: string }>): Promise<OperatorRecord> {
+  return request(`/api/creations/${encodeURIComponent(creationId)}/proposal-preview`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proposalContext }) });
 }

@@ -229,9 +229,9 @@ def test_workspace_is_outside_repository_and_attempts_are_one_to_many(integratio
     assert "despite its extension" in authoring_task
     assert "Hypit Markup authoring contract (installed v0.2.7)" in authoring_task
     assert "`<svml>` root has no attributes and no XML namespace declarations" in authoring_task
-    assert "six `media-track:Item` windows" in authoring_task
+    assert "windows (`at` + `for`) for its actual scenes" in authoring_task
     assert 'time:Clock id="clock" frame-rate="24"' in authoring_task
-    assert 'time:Timeline id="program" clock={clock} end="15s"' in authoring_task
+    assert 'time:Timeline id="program" clock={clock} using the frozen duration' in authoring_task
     assert "not the quoted string `clock=\"clock\"`" in authoring_task
     assert "invented `Scene`, `Overlay`, `Libraries`, `Tracks`" in authoring_task
     assert not (Path(first["workspace"]["path"]) / "hypit.runtime.json").exists()
@@ -333,11 +333,19 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
     with pytest.raises(HypitIntegrationError, match="审片"):
         service.select_film_attempt(work["id"], attempt["attempt_id"], "final.video")
 
+    with pytest.raises(HypitIntegrationError, match="PASS 缺少"):
+        service.record_film_review(attempt["attempt_id"], {
+            "outputName": "final.video", "sha256": exported["outputs"]["final.video"]["sha256"],
+            "truth": {"status": "pass", "notes": []},
+            "style": {"status": "pass", "notes": []},
+            "human": {"status": "approved"},
+        })
+
     reviewed = service.record_film_review(attempt["attempt_id"], {
         "outputName": "final.video",
         "sha256": exported["outputs"]["final.video"]["sha256"],
-        "truth": {"status": "pass", "notes": []},
-        "style": {"status": "pass", "notes": []},
+        "truth": {"status": "pass", "notes": ["Creator reviewed the exported video."]},
+        "style": {"status": "pass", "notes": ["Creator reviewed its style."]},
         "human": {"status": "approved"},
         "feedback": [],
     })
@@ -386,7 +394,7 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
         "outputName": "final.video",
         "sha256": exported["outputs"]["final.video"]["sha256"],
         "truth": {"status": "modify", "notes": ["需要重新核对"]},
-        "style": {"status": "pass", "notes": []},
+        "style": {"status": "pass", "notes": ["Creator reviewed the selected style."]},
         "human": {"status": "pending"},
         "feedback": [],
     })
@@ -632,7 +640,8 @@ def test_nonzero_status_with_valid_failed_json_is_a_build_failure(integration_en
     attempt, workspace, _, fake = _approve_attempt(integration_env)
     service.submit_film_build(attempt["attempt_id"], title="状态失败测试", cli=fake)
     payload = {"format": "hypit.cli-status@1", "build": {
-        "id": "bld_test_001", "work": {"state": "failed", "outcome": "failed"},
+        "id": "bld_test_001", "failure": "render worker failed to decode frame",
+        "work": {"state": "failed", "outcome": "failed"},
     }}
 
     class Completed:
@@ -645,6 +654,7 @@ def test_nonzero_status_with_valid_failed_json_is_a_build_failure(integration_en
     refreshed = service.refresh_film_build(attempt["attempt_id"], cli=client)
     assert refreshed["execution_status"] == "BUILD_FAILED"
     assert refreshed["status"] == "BUILD_FAILED"
+    assert refreshed["last_error"]["message"] == "render worker failed to decode frame"
 
 
 def test_creation_lock_preserves_concurrent_attempts_and_history(integration_env):
@@ -721,8 +731,8 @@ def test_review_for_output_a_cannot_select_output_b(integration_env, monkeypatch
     assert output_a["sha256"] != output_b["sha256"]
     service.record_film_review(attempt["attempt_id"], {
         "outputName": "output-a", "sha256": output_a["sha256"],
-        "truth": {"status": "pass", "notes": []},
-        "style": {"status": "pass", "notes": []},
+        "truth": {"status": "pass", "notes": ["Creator reviewed output-a."]},
+        "style": {"status": "pass", "notes": ["Creator reviewed output-a style."]},
         "human": {"status": "approved"},
     })
     with pytest.raises(HypitIntegrationError, match="sha256 绑定"):
@@ -775,6 +785,11 @@ def test_sensitive_hypit_api_requires_local_browser_session(integration_env):
                        "evidence": [{"kind": "asset_license", "reference": "fixture://terms"}]},
         }),
         ("POST", f"/api/film-attempts/{attempt_id}/author", None),
+        ("GET", f"/api/film-attempts/{attempt_id}/material-assets/asset-1/preview?sha256={'0' * 64}", None),
+        ("POST", f"/api/film-attempts/{attempt_id}/material-match/review-current", {
+            "assetId": "asset-1", "assetSha256": "0" * 64, "needId": "need-1",
+            "observedContent": "An observed visual detail", "confirmReview": True,
+        }),
         ("POST", f"/api/film-attempts/{attempt_id}/export", {"outputName": "final"}),
         ("POST", f"/api/film-attempts/{attempt_id}/review", {
             "outputName": "final", "sha256": "sha256:" + "0" * 64,

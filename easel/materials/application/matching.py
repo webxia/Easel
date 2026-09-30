@@ -13,6 +13,7 @@ from easel.materials.domain import (
     MaterialAsset,
     MaterialMatch,
     MaterialNeed,
+    MediaType,
     SemanticField,
     TechnicalStatus,
 )
@@ -64,6 +65,12 @@ class MaterialMatcher:
                 rejected.append(MatchRejection(need.need_id, asset.asset_id, hard_reasons))
                 continue
             scores, total, soft_reasons = self._soft_scores(need, asset)
+            visual_evidence = (asset.media_type not in {MediaType.IMAGE, MediaType.VIDEO}
+                               or self._observed_semantic_overlap(need, asset))
+            if scores.semantic is None or scores.semantic <= 0 or not visual_evidence:
+                rejected.append(MatchRejection(need.need_id, asset.asset_id,
+                                               ("semantic_evidence_missing_or_unrelated",)))
+                continue
             eligible.append((asset, scores, total, ("hard_filter=passed",) + soft_reasons))
 
         eligible.sort(key=lambda item: (-item[2], item[0].asset_id))
@@ -152,16 +159,16 @@ class MaterialMatcher:
                 failures.append("max_duration_not_met")
 
         if constraints.get("logo") is False:
-            logo = self._annotation(asset, SemanticField.LOGO)
-            if logo is None:
+            logos = self._annotations(asset, SemanticField.LOGO)
+            if not logos:
                 failures.append("logo_presence_unknown")
-            elif self._is_present(logo.value):
+            elif any(self._is_present(item.value) for item in logos):
                 failures.append("logo_forbidden")
         if constraints.get("text_in_frame") is False:
-            text = self._annotation(asset, SemanticField.VISIBLE_TEXT)
-            if text is None:
+            texts = self._annotations(asset, SemanticField.VISIBLE_TEXT)
+            if not texts:
                 failures.append("visible_text_unknown")
-            elif self._is_present(text.value):
+            elif any(self._is_present(item.value) for item in texts):
                 failures.append("visible_text_forbidden")
 
         required_ids = constraints.get("required_identity_refs", ())
@@ -200,6 +207,8 @@ class MaterialMatcher:
         query = self._tokens(need.intent.description)
         semantic_corpus = self._tokens(" ".join(value for values in corpus_by_field.values() for value in values))
         semantic = self._jaccard(query, semantic_corpus) if semantic_corpus else None
+        if self._creator_match_review(need, asset):
+            semantic = 1.0
 
         preferred_style = need.constraints.get("preferred_style")
         if isinstance(preferred_style, str) and preferred_style.strip():
@@ -231,6 +240,37 @@ class MaterialMatcher:
         )
         return scores, round(total, 6), reasons
 
+    def _observed_semantic_overlap(self, need: MaterialNeed, asset: MaterialAsset) -> bool:
+        if self._creator_match_review(need, asset):
+            return True
+        query = self._tokens(need.intent.description)
+        if not query:
+            return False
+        for inference in asset.semantic.inferences:
+            if inference.analyzer_id.startswith("creator-match:"):
+                continue
+            if inference.status not in {IntelligenceStatus.COMPLETE, IntelligenceStatus.PARTIAL}:
+                continue
+            for annotation in inference.annotations:
+                if (annotation.field in self._SOFT_FIELDS and annotation.evidence
+                        and (annotation.confidence is None or annotation.confidence >= 0.5)
+                        and query & self._tokens(" ".join(self._as_text(annotation.value)))):
+                    return True
+        return False
+
+    @staticmethod
+    def _creator_match_review(need: MaterialNeed, asset: MaterialAsset) -> bool:
+        expected = f"creator-confirmed:{need.need_id}:{asset.file.sha256}"
+        return any(
+            inference.analyzer_id == f"creator-match:{need.need_id}"
+            and inference.status is IntelligenceStatus.COMPLETE
+            and any(annotation.field is SemanticField.CAPTION
+                    and isinstance(annotation.value, str) and annotation.value.strip()
+                    and annotation.evidence == expected
+                    for annotation in inference.annotations)
+            for inference in asset.semantic.inferences
+        )
+
     @staticmethod
     def _quality_score(need: MaterialNeed, asset: MaterialAsset) -> float | None:
         technical = asset.technical
@@ -245,13 +285,15 @@ class MaterialMatcher:
         return sum(signals) / len(signals) if signals else None
 
     @staticmethod
-    def _annotation(asset: MaterialAsset, field: SemanticField):
-        for inference in reversed(asset.semantic.inferences):
+    def _annotations(asset: MaterialAsset, field: SemanticField):
+        results = []
+        for inference in asset.semantic.inferences:
             if inference.status in {IntelligenceStatus.COMPLETE, IntelligenceStatus.PARTIAL}:
-                for annotation in inference.annotations:
-                    if annotation.field is field:
-                        return annotation
-        return None
+                results.extend(annotation for annotation in inference.annotations
+                               if annotation.field is field and annotation.evidence
+                               and annotation.confidence is not None
+                               and annotation.confidence >= 0.5)
+        return tuple(results)
 
     @staticmethod
     def _is_present(value: Any) -> bool:
