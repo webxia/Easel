@@ -4,7 +4,7 @@ This document records workstream order, not task-level status. [`02_CURRENT_STAT
 
 ## Next Active Workstream
 
-当前优先项改为 [Creator 自动交付可看首版](tasks/creator-autonomous-first-cut-2026-09-30.md)：先建立后端持续推进/恢复，再处理执行授权、稳定编排、自动素材证据与首版质量修复。方案已建立，尚无本项代码实现；不自动继续旧 Creation 或启动新 E2E。
+当前优先项改为 [Creator 自动交付可看首版](tasks/creator-autonomous-first-cut-2026-09-30.md)：先建立后端持续推进/恢复，再处理执行授权、稳定编排、自动素材证据与首版质量修复。方案已建立并完成设计对齐：付费授权策略变更与自动多轮补料须另行设计决策，先实施既有边界内的改进。尚无本项代码实现；不自动继续旧 Creation 或启动新 E2E。
 
 [Creator 素材缺口恢复](tasks/creator-material-recovery-2026-09-30.md) 及同一音画作品的阶段恢复已完成，最终修订版经 Creator 审片入库，未发布。因工程介入，本轮自主 E2E 为 FAIL；用户已暂停后续工作，本次仅补齐文档并提交推送。下一次无工程救场验收需另行授权，不新增作品或重复付费。
 
