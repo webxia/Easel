@@ -157,7 +157,7 @@ def test_preparation_preflight_rejects_placeholder_without_freezing_and_retry_ha
     assert retry["action"] == "generate"
     assert retry["operation_key"] == key
     assert "合计 2.5 秒" in prep.preparation_agent_context(work, retry)
-    assert "合计 2.5 秒" in web._preparation_reply("FAILED", error=str(caught.value))
+    assert "作品区查看失败原因" in web._preparation_reply("FAILED", error=str(caught.value))
     brief["beats"] = []
     brief_path.write_text(json.dumps(brief))
     assert prep.validate_preparation_draft(work["id"], key)["production_brief"]["beats"] == []
@@ -371,6 +371,7 @@ def test_failed_planning_and_not_ready_retry_reuse_frozen_attempt(prep_env):
         )
     failed = creation.get_creation(creation_id)
     assert failed["preparation"]["status"] == "MATERIAL_FAILED"
+    assert failed["preparation"]["failure_stage"] == "planning"
     attempt_id = failed["hypit_attempts"][0]["attempt_id"]
 
     retry = prep.claim_chat_preparation(creation_id, "session-a", "retry-planning")
@@ -384,13 +385,18 @@ def test_failed_planning_and_not_ready_retry_reuse_frozen_attempt(prep_env):
     assert len(saved["hypit_attempts"]) == 1
 
 
-def test_planning_resume_repairs_invalid_domain_file_once(prep_env, monkeypatch):
+@pytest.mark.parametrize("invalid_kind", ["domain", "retrieval"])
+def test_planning_resume_repairs_invalid_domain_file_once(prep_env, monkeypatch, invalid_kind):
     prepared = _prepare_creation(prep_env["work"]["id"], runtime_profile=None)
     attempt = service.get_film_attempt(prepared["attempt_id"])
     root = Path(attempt["workspace"]["path"])
     valid_json = (root / "materials" / "plan.json").read_text(encoding="utf-8")
     invalid = json.loads(valid_json)
-    invalid["policy"] = {"must_be_a_string": True}
+    if invalid_kind == "domain":
+        invalid["policy"] = {"must_be_a_string": True}
+        invalid["schema"] = "easel-material-plan@1"
+    else:
+        invalid["needs"][0]["constraints"] = {"allowed_source_kinds": ["external_stock"]}
     planning_file = root / "planning" / "MATERIAL_PLAN.json"
     planning_file.write_text(json.dumps(invalid), encoding="utf-8")
     prompts = []
@@ -405,7 +411,13 @@ def test_planning_resume_repairs_invalid_domain_file_once(prep_env, monkeypatch)
         "context_refs": invalid["context_refs"],
     })
     assert len(prompts) == 1
-    assert "policy.must_be_a_string:string_type" in prompts[0]
+    if invalid_kind == "domain":
+        assert "policy.must_be_a_string:string_type" in prompts[0]
+        assert "schema:extra_forbidden" in prompts[0]
+        assert "必须删除顶层 schema 字段" in prompts[0]
+    else:
+        assert "retrieval validation failed" in prompts[0]
+        assert "required_source_kind=stock" in prompts[0]
     assert "当前冻结 context_refs" in prompts[0]
     assert result["plan"].plan_id == invalid["plan_id"]
 
@@ -431,7 +443,7 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
         assert creation_match, "Director must receive the backend-bound Creation ID"
         work = creation.get_creation(creation_match.group(1))
         write_drafts(work, Path(match.group(1)))
-        return "已整理这部作品的内容核心和事实边界。"
+        return "INTERNAL_PREPARATION outputs/content-core.json internal reasoning"
 
     monkeypatch.setattr(web, "run_agent_sync", fake_agent)
     authoring_starts = []
@@ -475,6 +487,8 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
     body = response.json()
     assert body["creationId"] == first_body["creationId"]
     assert "仍有画面素材需要补齐" in body["response"]
+    assert "INTERNAL_PREPARATION" not in body["response"]
+    assert "outputs/content-core.json" not in body["response"]
     assert len(agent_calls) == 2
     assert "CURRENT_CREATION_ID=" in agent_calls[1][0]
     work = creation.get_creation(body["creationId"])

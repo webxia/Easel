@@ -118,6 +118,10 @@ class HypitCLI:
     def check(self, workspace: Path, run_source: Path) -> dict[str, Any]:
         return self._run(["check", str(run_source), *self._workspace_args(workspace)], workspace)
 
+    def vocabulary(self, workspace: Path, packages: tuple[str, ...]) -> dict[str, Any]:
+        """Read installed authoring contracts without Runtime or execution."""
+        return self._run(["vocabulary", *packages], workspace)
+
     def plan(self, workspace: Path, run_source: Path, *,
              runtime_profile: str | None = None) -> dict[str, Any]:
         return self._run(["plan", str(run_source), *self._runtime_args(runtime_profile),

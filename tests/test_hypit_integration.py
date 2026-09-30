@@ -231,7 +231,7 @@ def test_workspace_is_outside_repository_and_attempts_are_one_to_many(integratio
     assert "`<svml>` root has no attributes and no XML namespace declarations" in authoring_task
     assert "windows (`at` + `for`) for its actual scenes" in authoring_task
     assert 'time:Clock id="clock" frame-rate="24"' in authoring_task
-    assert 'time:Timeline id="program" clock={clock} using the frozen duration' in authoring_task
+    assert 'time:Timeline id="program" clock={clock} end="12s"' in authoring_task
     assert "not the quoted string `clock=\"clock\"`" in authoring_task
     assert "invented `Scene`, `Overlay`, `Libraries`, `Tracks`" in authoring_task
     assert not (Path(first["workspace"]["path"]) / "hypit.runtime.json").exists()

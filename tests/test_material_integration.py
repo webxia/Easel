@@ -59,6 +59,16 @@ from easel.materials.store import AttemptMaterialStore
 from easel.materials.providers import LocalProvider
 
 
+def test_general_mode_library_scope_is_isolated_per_creation(material_integration_env):
+    first = creation.create_creation("通用作品一", creative_mode="clear_memo_video")
+    second = creation.create_creation("通用作品二", creative_mode="clear_memo_video")
+    scope = material_supply_module.ProductMaterialSupply.scope_for_attempt
+    a = scope({"creation_id": first["id"]})
+    assert a == scope({"creation_id": first["id"]})
+    assert a != scope({"creation_id": second["id"]})
+    assert a != scope({"creation_id": material_integration_env["creation_id"]})
+
+
 def _observed_semantic(description: str) -> SemanticInfo:
     return SemanticInfo(inferences=(SemanticInference(
         analyzer_id="fixture-observation", status=IntelligenceStatus.COMPLETE,
@@ -333,12 +343,17 @@ def test_script_truth_review_blocks_supply_and_production_until_operator_accepts
     )
     attempt = reviewed["attempt"]
     assert reviewed["ledger"]["claims"][0]["status"] == "HUMAN_REVIEWED"
+    replanned = PlanningIntegration().persist(attempt, pending["plan"], treatment="Treatment", script="This company grew 40 percent last year.", scenes="Scenes")
+    assert replanned["truth_ledger"] == reviewed["ledger"]
+    attempt = replanned["attempt"]
     monkeypatch.setattr(supply_module, "product_provider_registry",
                         lambda _roots: (supply_module.ProviderRegistry(), ()))
     loaded = PlanningIntegration().load(attempt)
     resumed = MaterialProductOrchestrator().run_with_planning(attempt, (), loaded)
     assert resumed["status"] == "MATERIAL_NOT_READY"
     assert resumed["attempt"]["material_gate"]["status"] == "MATERIAL_NOT_READY"
+    changed = PlanningIntegration().persist(attempt, pending["plan"], treatment="Treatment", script="This company grew 50 percent last year.", scenes="Scenes")
+    assert changed["truth_ledger"]["status"] == "REVIEW_REQUIRED"
 
 
 def test_required_voice_need_is_bound_to_frozen_script_and_provider_neutral_identity(material_integration_env):

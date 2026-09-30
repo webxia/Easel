@@ -1963,8 +1963,7 @@ def _preparation_reply(
     error: str | None = None,
 ) -> str:
     if error:
-        return ("内容准备未通过校验：" + SecretRedactor.redact_text(error)[:1000]
-                + "。请重试内容准备，修正草稿后重新校验。")
+        return "当前制作步骤未完成。已保留方案和成功阶段，请在作品区查看失败原因并重试对应阶段。"
     if status == "READY_FOR_EXTERNAL_AUTHORING":
         if runtime_status == "NOT_CONFIGURED":
             return ("作品方向和内容已准备好，正在编排脚本与画面。视频制作服务尚未配置；"
@@ -2267,7 +2266,10 @@ def _authoring_agent_message(attempt_id: str, task: dict[str, str]) -> str:
         f"任务书：{task['task_path']}\n\n"
         "先阅读 AUTHORING_TASK.md、handoff 中冻结的 Content Core、"
         "Truth Packet、Creator Context 与 Creative Mode，以及 MaterialBundle。"
-        "Hypit AudioTrack/Film 的受支持音频契约已写入 AUTHORING_TASK.md；不要尝试读取隔离 workspace 外的仓库或安装包。\n"
+        "AUTHORING_TASK.md 提供示例；hypit-contracts/ 是 Easel 从本机 Hypit vocabulary 导出的正式安装版契约。"
+        "编排前读取所用包的 JSON：attributes、children、recipe、notes 和类型引用必须一致；"
+        "遇到错误先按该组件契约核对，不得从相邻组件猜属性。不得修改 hypit-contracts/，"
+        "不要尝试读取隔离 workspace 外的仓库或安装包。\n"
         "随即写出最小可检查工程；只允许在该工作区写入：\n"
         "- productions/easel-authoring/TREATMENT.md\n"
         "- productions/easel-authoring/SCRIPT.md\n"
@@ -2275,7 +2277,7 @@ def _authoring_agent_message(attempt_id: str, task: dict[str, str]) -> str:
         "- productions/easel-authoring/authors/main.svml\n"
         "- productions/easel-authoring/authors/recipes.svs\n"
         "- productions/easel-authoring/runs/main.svrun\n\n"
-        "重要：material-selection.json 与 runs/main.svrun 都是 Easel JSON；只有 authors/main.svml 是 Hypit SVML。main.svml 以 <?svml using=\"@hypit/markup@1\"?> 开始，根只能是无属性、无 xmlns 的裸 <svml>；在根内用 import 声明 @hypit/media@1、timeline-author@1、spatial@1、media-track@1、film@1、render-hyperframes@1 和必要的 typography-track@1/text@1；有音频时还要导入 @hypit/media-pipeline@1 和 @hypit/audio-track@1。禁止自创 Easel XML schema（film:Scene/Overlay/Tracks/Metadata、media:Libraries、Param 均不是 Hypit 契约）；用真实组件、typed refs 和各包输出。Clock 必须使用 frame-rate 属性，例如 <time:Clock id=\"clock\" frame-rate=\"24\"/>，不能写 fps；Timeline 必须使用 Hypit 引用表达式 clock={clock}，不能写成字符串 clock=\"clock\"。Canvas 必须按安装契约写成空元素 <space:Canvas id=\"canvas\" width=\"1080\" height=\"1920\"/>；Canvas 不接受子元素，Extent 和 Frame 必须是兄弟声明，Frame 使用 within={canvas} 与 left/top/right/bottom。\n"
+        "重要：material-selection.json 与 runs/main.svrun 都是 Easel JSON；只有 authors/main.svml 是 Hypit SVML。main.svml 以 <?svml using=\"@hypit/markup@1\"?> 开始，根只能是无属性、无 xmlns 的裸 <svml>；在根内用 import 声明 @hypit/media@1、timeline-author@1、spatial@1、media-track@1、film@1、render-hyperframes@1 和必要的 typography-track@1/text@1；有音频时还要导入 @hypit/media-pipeline@1 和 @hypit/audio-track@1。禁止自创 Easel XML schema（film:Scene/Overlay/Tracks/Metadata、media:Libraries、Param 均不是 Hypit 契约）；用真实组件、typed refs 和各包输出。Clock 必须使用 frame-rate 属性，例如 <time:Clock id=\"clock\" frame-rate=\"24\"/>，不能写 fps；Timeline 必须使用 Hypit 引用表达式 clock={clock}，不能写成字符串 clock=\"clock\"。Timeline 仅接受 id/clock/end，固定时长用 end=\"12s\"（按冻结时长替换）；不接受 duration 或 for。Canvas 必须按安装契约写成空元素 <space:Canvas id=\"canvas\" width=\"1080\" height=\"1920\"/>；Canvas 不接受子元素，Extent 和 Frame 必须是兄弟声明，Frame 使用 within={canvas} 与 left/top/right/bottom。\n"
         "runs/main.svrun 必须是 JSON，不是 Hypit markup；schema=easel-authoring-svrun@1。逐字复制当前冻结的 creation_id、attempt_id、plan_id/revision、bundle_id/revision、readiness_revision；设置 authoring_source=../authors/main.svml、material_selection=../material-selection.json、status=AUTHORING_READY、publication_allowed=false、build={enabled:false,reason:stops_before_hypit_build}。身份值从 planning/manifest.json、materials/bundle.json、materials/readiness.json 和当前 Attempt 读取，绝不能猜测。Easel 后端会校验身份并转换成 Hypit Run markup，再交给本机 hypit check；不要手工把 Hypit markup 写进这个 JSON。\n"
         "必须保持 Content Core 的主题和边界；不得把 model_inference 写成用户亲历，"
         "不得创造未被 Truth Packet 允许的公司、人物、日期、数字或结果。Creative Mode 是电影语言，"
@@ -2286,7 +2288,7 @@ def _authoring_agent_message(attempt_id: str, task: dict[str, str]) -> str:
         "material-selection.json 的身份、修订及素材记录由 Easel 根据最终 SVML 引用生成；不要编辑该文件。"
         "按 timeline-author + media-track + film 的真实组件边界组装，不要把自定义属性塞到 svml 根。"
         "有 media-track:Item 时，写 authors/recipes.svs（SVS sheet，含 media.still 的 stack-order 与 fit、film.memo 的 background），"
-        "在 main.svml 导入为 recipes；每个 Item 写 appearance={recipes.media.still}，film:Film 写 canvas={canvas} appearance={recipes.film.memo}。"
+        "在 main.svml 导入为 recipes；每个 Item 写 appearance={recipes.media.still}，film:Film 写 id、canvas={canvas} timeline={program.timeline} appearance={recipes.film.memo}。"
         "图片 Item 的 Extent 必须来自所选 Asset 的真实宽高；Frame 才是画布上的位置。按源图宽高比和镜头意图选 contain/cover，不能把 1080×1920 Canvas 当作每张图的 Extent。"
         "文字使用 copy:Value 与 typo:Area 的 content 引用；Typography Track 以 .track 进入 film:Track source，不使用 copy:Copy、Area text 或 film:Track id。"
         "若 MaterialPlan 有 required Voice/BGM Need，必须各自选择匹配的已批准 Audio Asset；Voice 与 BGM 使用独立 Hypit audio:Track，"
@@ -2331,7 +2333,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         f"{planning_dir / 'TREATMENT.md'}\n"
         f"{planning_dir / 'SCRIPT.md'}\n"
         f"{planning_dir / 'SCENES.md'}\n"
-        "MaterialPlan JSON 顶层必须有 plan_id、creation_id、attempt_id、context_refs、needs。"
+        "MaterialPlan JSON 顶层只允许 plan_id、creation_id、attempt_id、context_refs、policy、needs；"
+        "不得添加 schema、version 或其他包装字段。必须有 plan_id、creation_id、attempt_id、context_refs、needs。"
         "每个 Need 必须有 need_id、scope:{type,ref}、media_type、role、"
         "intent:{description}、importance；至少一个 importance=required。"
         "intent 只能含 description 和可选 function；素材文件路径、SHA、License、Rights 证据"
@@ -2340,6 +2343,9 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "ImageNeedSpec 只允许 kind/aspect_ratio/visual_style/reference_asset_ids；也可省略 modality_spec。"
         "字幕、标题、转场与画面裁切由 Hypit Production Authoring 负责，不能伪装成 MaterialNeed。"
         "policy 可以省略；若填写，只能是字符串到字符串的映射，不能放布尔值或数组。"
+        "Need.constraints 的检索条件只用字符串、数字或布尔值；不得写 allowed_source_kinds 或 must_not_contain 数组。"
+        "仅公开视频图库写 required_source_kind=stock；禁用生成写 allow_generation=false。"
+        "排除人物、地标等画面条件写在 intent.description 中，必须在素材核对中验证；不能删除创作边界。"
         "scope.type 仅用 scene、event、global 或 segment；media_type 仅用 image、video、audio。"
         "voice/BGM/SFX 需要 audio 与相应 modality_spec.kind=voice/bgm/sfx；SFX 用 event scope。"
         "VoiceNeedSpec 只允许 kind、identity、delivery_description、text_ref、text_sha256；"
@@ -2399,6 +2405,12 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             raise PreparationError("Creative Planning frozen context_refs mismatch: " + ", ".join(different))
         if not plan.needs or not any(need.importance.value == "required" for need in plan.needs):
             raise PreparationError("Creative Planning MaterialPlan requires at least one required Need")
+        from easel.materials.application.compiler import NeedCompiler, NeedCompilationError
+        try:
+            for need in plan.needs:
+                NeedCompiler().compile(need)
+        except NeedCompilationError as exc:
+            raise PreparationError(f"Creative Planning retrieval validation failed: {exc}") from exc
         if any(not values[key].strip() for key in ("treatment", "script", "scenes")):
             raise PreparationError("Creative Planning TREATMENT/SCRIPT/SCENES must all be non-empty")
         return {"plan": plan, "context_refs": refs, "treatment": values["treatment"],
@@ -2418,6 +2430,10 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             "已冻结的 Content Core、Truth Packet、Creator Context、Creative Mode 和身份不得改动。"
             "读取现有 planning 文件，只修正缺失或无效的 planning/MATERIAL_PLAN.json、"
             "TREATMENT.md、SCRIPT.md、SCENES.md；已有效的文件保持原样。"
+            "MaterialPlan JSON 顶层只允许 plan_id、creation_id、attempt_id、context_refs、policy、needs；"
+            "schema:extra_forbidden 表示必须删除顶层 schema 字段，不是修改它的值。不得添加 version 或包装对象。"
+            "检索 constraints 只能使用字符串、数字或布尔值。仅图库来源改用 required_source_kind=stock，禁用生成用 allow_generation=false；"
+            "不要使用 allowed_source_kinds/must_not_contain 数组。排除人物、地标等画面条件完整转写为 intent.description，保留原创作边界并由素材核对验证。"
             "每个 Need.scope 都必须同时有 type 与非空 ref；global scope 写"
             "{\"type\":\"global\",\"ref\":\"global\"}。"
             "Plan.policy 省略或仅含字符串值。VoiceNeedSpec 只允许 kind、identity、delivery_description、"
@@ -2480,6 +2496,12 @@ async def _run_film_authoring(attempt_id: str) -> dict:
         )
     elif asset_options:
         message += f"\n当前合格的 Need ↔ Asset 素材清单（只能引用这些 src）：{asset_options}"
+    message += (
+        "\n编排前读取 hypit-contracts/ 中所用包的正式安装版 vocabulary JSON。"
+        "attributes、children、recipe、notes、输入输出类型才是组件合同；示例不能授权额外属性。"
+        "Member 是激活时点，窗口到下个 Member 或 Sequence.until，不能添加 Item 的 for。"
+        "不得修改这些只读合同，不得访问隔离区外的安装包。"
+    )
     revision = started.get("revision_feedback")
     if revision:
         message += (
@@ -2491,6 +2513,31 @@ async def _run_film_authoring(attempt_id: str) -> dict:
               "遇到冲突返回具体阻断原因。新 Plan/Pricing/Build 由 Easel 门禁处理，禁止自行调用。"
         )
     def run_scoped_authoring(turn_message: str) -> str:
+        def prepare_staged_contracts(staged: Path) -> None:
+            from easel.integrations.hypit.cli import HypitCLI
+
+            packages = tuple("@hypit/" + name for name in (
+                "media", "timeline-author", "spatial", "media-pipeline", "media-track",
+                "film", "render-hyperframes", "typography-track", "text", "fonts-open", "audio-track",
+            ))
+            payload = HypitCLI().vocabulary(staged, packages)
+            surfaces = payload.get("surfaces")
+            if not isinstance(surfaces, list):
+                raise HypitIntegrationError("无法读取本机 Hypit 编排契约；未启动编排")
+            target = staged / "hypit-contracts"
+            target.mkdir()
+            for package in packages:
+                rows = [{key: value for key, value in row.items() if key != "readme"}
+                        for row in surfaces if row.get("package") == package]
+                if not rows:
+                    raise HypitIntegrationError(f"本机缺少编排契约 {package}；未启动编排")
+                contract = target / (package.split("/")[-1] + ".json")
+                contract.write_text(
+                    json.dumps({"package": package, "surfaces": rows}, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                contract.chmod(0o444)
+
         def validate_staged_artifacts(staged: Path) -> None:
             from easel.integrations.hypit.cli import HypitCLI
             from easel.integrations.material_layer import (
@@ -2542,6 +2589,11 @@ async def _run_film_authoring(attempt_id: str) -> dict:
                 validation_run.with_suffix(".easel.json").unlink(missing_ok=True)
 
         def dispatch(instruction: str) -> str:
+            instruction += (
+                "\n本轮隔离区 hypit-contracts/ 含本机正式 vocabulary。先读取本次涉及组件的合同，"
+                "根据 attributes/children/recipe/notes 和类型引用编排；不从其他组件猜属性。"
+                "合同是只读输入，不是需要改写或提升的作品产物。"
+            )
             return run_attempt_scoped_authoring(
                 attempt_id=attempt_id,
                 attempt_workspace=task["workspace"],
@@ -2554,6 +2606,7 @@ async def _run_film_authoring(attempt_id: str) -> dict:
                 cwd=PROJECT_ROOT,
                 env=_proxy_env(),
                 validate_artifacts=validate_staged_artifacts,
+                prepare_workspace=prepare_staged_contracts,
             )
 
         result = dispatch(turn_message)
@@ -2734,6 +2787,7 @@ async def api_chat_stream(req: ChatRequest):
         event_seq = 0
         full_text: list[str] = []        # 累积完整回答，供断线取回
         timed_out = False                # 只有真·超时才 terminate 进程；断线绝不杀
+        delivering_preparation_result = False
 
         # Claim this turn before waiting for locks, so recovery cannot return the previous turn.
         _save_turn(pk, "running", "", {"turn_id": turn_id})
@@ -2747,6 +2801,11 @@ async def api_chat_stream(req: ChatRequest):
 
         def to_client(kind, text=None, **extra):
             nonlocal event_seq
+            if prep_action == "generate" and not delivering_preparation_result:
+                if kind in {"token", "thinking", "question"}:
+                    return
+                if kind == "activity":
+                    text = "正在准备作品，请在作品区查看进度。"
             event_seq += 1
             data = ({"sessionKey": extra.get("sessionKey")} if kind == "done" else text)
             event = {"id": event_seq, "event": kind, "data": data}
@@ -3124,6 +3183,10 @@ async def api_chat_stream(req: ChatRequest):
             transition_note = await _finish_ai_film_turn(
                 bound_creation, prep_action, succeeded=completed_cleanly,
             )
+            if prep_action == "generate":
+                full_text.clear()
+                delivering_preparation_result = True
+                transition_note = transition_note.removeprefix("\n\n---\n").strip() or "内容准备未完成，请在作品区查看状态并重试当前阶段。"
             if bound_creation and prep_action == "proposal" and completed_cleanly:
                 to_client("creation", {
                     "creationId": bound_creation["id"],
@@ -3313,7 +3376,8 @@ async def api_chat(req: ChatRequest):
         if bound_creation and prep_action == "generate":
             mark_preparation_failed(bound_creation["id"], str(exc))
         raise
-    result += await _finish_ai_film_turn(bound_creation, prep_action, succeeded=True)
+    transition_note = await _finish_ai_film_turn(bound_creation, prep_action, succeeded=True)
+    result = transition_note.removeprefix("\n\n---\n").strip() if prep_action == "generate" else result + transition_note
     return {"response": result, **({"creationId": bound_creation["id"]} if bound_creation else {})}
 
 

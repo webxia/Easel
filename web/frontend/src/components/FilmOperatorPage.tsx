@@ -124,7 +124,9 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   const manualAttemptSelection = useRef(false);
   const advancedRef = useRef<HTMLDetailsElement>(null);
 
-  useEffect(() => { setFinalReviewConfirmed(false); }, [attemptId, reviewOutputName, attempt?.outputs]);
+  const reviewOutputSha = record(record(attempt?.outputs)[reviewOutputName]).sha256;
+  useEffect(() => { setFinalReviewConfirmed(false); }, [attemptId, reviewOutputName, reviewOutputSha]);
+  useEffect(() => { setScriptTruthConfirmed(false); }, [attemptId, scriptTruth?.script_sha256, scriptTruth?.truth_packet_sha256]);
 
   useEffect(() => {
     let cancelled = false;
@@ -220,7 +222,6 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
     fetchScriptTruth(attemptId).then((ledger) => {
       if (!cancelled) {
         setScriptTruth(ledger);
-        setScriptTruthConfirmed(false);
       }
     }).catch(() => { if (!cancelled) setScriptTruth(null); });
     return () => { cancelled = true; };
@@ -338,7 +339,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
     : materialGate.status === 'MATERIAL_READY' ? 'preparing' : 'planning';
   const phaseTitle: Record<string, string> = {
     done: '最终成片已确认', selecting: '成片已通过审核', review: '视频制作完成',
-    exporting: '正在整理成片', verifying: '正在确认制作进度', building: '正在制作视频', failed: '视频制作遇到问题',
+    exporting: '正在整理成片', verifying: '正在确认制作进度', building: '正在制作视频', failed: projection.title,
     'content-review': '请确认视频内容', material: '素材还需要确认', 'preparation-failed': '内容准备遇到问题',
     ready: '视频已准备好制作', preparing: '正在编排视频', planning: 'Easel 正在准备作品',
   };
@@ -651,7 +652,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
             });
           }}>同意本次费用并制作</button>
         </div>}
-        {attemptStatus.authoring_status === 'AUTHORING_RUNNING' && <button className="btn btn-sm" disabled={!!busy} onClick={() => void run('恢复当前视频编排', () => startFilmAuthoring(attemptId))}>恢复中断的视频编排</button>}
+        {attemptStatus.authoring_status === 'AUTHORING_RUNNING' && <button className="btn btn-sm" disabled={!!busy} onClick={() => void run('恢复当前视频编排', () => startFilmAuthoring(attemptId))}>检查并恢复视频编排</button>}
         {phase === 'building' && <p role="status">正在合成视频，完成后会自动生成预览。你可以离开此页面。</p>}
         {phase === 'failed' && ['创作规划', '素材准备'].includes(projection.failureStage ?? '') && <button className="btn btn-primary" disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重试{projection.failureStage}</button>}
         {phase === 'failed' && ['AUTHORING_FAILED', 'PLAN_FAILED'].includes(text(attemptStatus.authoring_status)) && <button className="btn btn-primary" disabled={!!busy}
@@ -690,6 +691,12 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
             || typeof scriptTruth?.truth_packet_sha256 !== 'string'} onClick={() => {
             void run('确认内容', () => reviewScriptTruth(attemptId, String(scriptTruth?.script_sha256), String(scriptTruth?.truth_packet_sha256)));
           }}>确认内容并继续</button>
+          <details><summary>委托助手审阅</summary><p>仅在你已明确委托助手核对时使用，记录为委托复核，不记为本人审阅或来源事实。</p>
+            <button className="btn" disabled={!!busy || !scriptTruthConfirmed || typeof scriptTruth?.script_sha256 !== 'string'
+              || typeof scriptTruth?.truth_packet_sha256 !== 'string'} onClick={() => {
+                void run('记录委托复核', () => reviewScriptTruth(attemptId, String(scriptTruth?.script_sha256), String(scriptTruth?.truth_packet_sha256), 'codex_delegate'));
+              }}>记录委托复核并继续</button>
+          </details>
         </div>}
         {phase === 'preparation-failed' && <p>{projection.failureReason}。已保留方案和成功阶段；将从当前准备记录恢复。付费操作仍需另行批准。</p>}
         {phase === 'preparation-failed' && <button className="btn btn-primary"
@@ -701,6 +708,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
             .map(need => <p key={text(need.need_id)}>场景要求：{text(need.description)}。尚未确定：合适素材、可用性与使用权。</p>)}
           <p>已保留创作规划；可通过对话提供素材或调整来源。需要生成素材时，必须另行确认费用。</p>
           <button className="btn" onClick={onOpenConversation}>在对话中补充素材</button>
+          {rightsCandidates.length === 0 && <button className="btn" disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重试素材准备</button>}
         </div>}
         {phase === 'material' && blockingNeedIds.includes('voice_narration_global') && <>
           <p>{voiceRightsPending || generationResult !== null
@@ -757,7 +765,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
         </>}
         {phase === 'material' && visualCandidates.length > 0 && <div className="film-op-review-claim">
           <strong>核对画面是否真的符合场景</strong>
-          <p>请查看原图，只确认你实际看见的内容。每个场景都单独核对；未确认的画面不会算作已覆盖。</p>
+          <p>请查看素材预览，只确认你实际看见的内容。每个场景都单独核对；未确认的画面不会算作已覆盖。</p>
           <label>对应场景
             <select className="field" value={text(selectedVisualNeed?.need_id, '')}
               onChange={(event) => { setVisualNeedId(event.target.value); setVisualAssetId(''); setVisualConfirmed(false); }}>
@@ -779,20 +787,20 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
           <label>实际看到的画面依据
             <textarea className="field" rows={2} value={visualObservation}
               onChange={(event) => setVisualObservation(event.target.value)}
-              placeholder="写出图中主体、动作和环境，以及它如何对应当前场景" />
+              placeholder="写出画面主体、动作和环境，以及它如何对应当前场景" />
           </label>
           {selectedVisualConstraints.logo === false && <label>画面里有 logo 吗？
             <select className="field" value={visualLogo} onChange={(event) => setVisualLogo(event.target.value)}>
-              <option value="unknown">尚未确认</option><option value="yes">有，拒绝这张图</option><option value="no">没有</option>
+              <option value="unknown">尚未确认</option><option value="yes">有，拒绝这段素材</option><option value="no">没有</option>
             </select>
           </label>}
           {selectedVisualConstraints.text_in_frame === false && <label>画面里有文字吗？
             <select className="field" value={visualText} onChange={(event) => setVisualText(event.target.value)}>
-              <option value="unknown">尚未确认</option><option value="yes">有，拒绝这张图</option><option value="no">没有</option>
+              <option value="unknown">尚未确认</option><option value="yes">有，拒绝这段素材</option><option value="no">没有</option>
             </select>
           </label>}
           <label className="film-op-confirm"><input type="checkbox" checked={visualConfirmed}
-            onChange={(event) => setVisualConfirmed(event.target.checked)} />我已核对这张图与所选场景，记录基于原图。</label>
+            onChange={(event) => setVisualConfirmed(event.target.checked)} />我已核对这段素材与所选场景，记录基于实际预览。</label>
           <button className="btn btn-primary" disabled={!visualReviewReady || !!busy} onClick={submitVisualReview}>
             提交这一组画面核对</button>
         </div>}

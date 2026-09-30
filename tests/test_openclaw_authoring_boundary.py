@@ -72,6 +72,7 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
             return subprocess.CompletedProcess(cmd, 0, '{"removed":[]}', "")
         if "agent" in cmd:
             assert agent_workspace is not None
+            assert (agent_workspace / "hypit-contracts/media-track.json").read_text() == '{"contract":"installed"}'
             message = cmd[cmd.index("--message") + 1]
             assert str(attempt) not in message
             assert str(agent_workspace) in message
@@ -90,6 +91,11 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
             return subprocess.CompletedProcess(cmd, 0, "done", "")
         raise AssertionError(f"unexpected OpenClaw command: {cmd}")
 
+    def prepare_contracts(staged):
+        target = staged / "hypit-contracts"
+        target.mkdir()
+        (target / "media-track.json").write_text('{"contract":"installed"}')
+
     result = run_attempt_scoped_authoring(
         attempt_id=ATTEMPT_ID,
         attempt_workspace=attempt,
@@ -102,6 +108,7 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
         cwd=tmp_path,
         env={},
         runner=runner,
+        prepare_workspace=prepare_contracts,
     )
 
     assert result == "done"
@@ -110,6 +117,7 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
     assert (attempt / "productions/easel-authoring/authors/recipes.svs").is_file()
     assert (attempt / "productions/easel-authoring/runs/main.svrun").is_file()
     assert not (attempt / "outside.txt").exists()
+    assert not (attempt / "hypit-contracts").exists()
     assert (attempt / "materials/assets/asset-1/private-media.bin").read_bytes() == b"not staged"
     assert any("agent" in call and "--agent" in call for call in calls)
     assert any("config" in call and "patch" in call for call in calls)
@@ -126,8 +134,22 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
             command_prefix=["openclaw"], profile="easel", staging_parent=stage_parent,
             timeout=5, thinking="off", cwd=tmp_path, env={}, runner=runner,
             validate_artifacts=reject_invalid,
+            prepare_workspace=prepare_contracts,
         )
     assert trusted.read_text(encoding="utf-8") == "trusted previous source"
+    calls_before = len(calls)
+    def missing_contracts(_staged: Path) -> None:
+        raise HypitIntegrationError("installed vocabulary unavailable")
+    with pytest.raises(HypitIntegrationError, match="vocabulary unavailable"):
+        run_attempt_scoped_authoring(
+            attempt_id=ATTEMPT_ID, attempt_workspace=attempt, message=f"workspace={attempt}",
+            command_prefix=["openclaw"], profile="easel", staging_parent=stage_parent,
+            timeout=5, thinking="off", cwd=tmp_path, env={}, runner=runner,
+            prepare_workspace=missing_contracts,
+        )
+    assert len(calls) == calls_before  # No Agent provision or execution without its contracts.
+    assert trusted.read_text(encoding="utf-8") == "trusted previous source"
+    assert list(stage_parent.iterdir()) == []
 
 
 def test_attempt_authoring_repairs_only_missing_allowlisted_artifacts_once(tmp_path):

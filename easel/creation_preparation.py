@@ -678,10 +678,22 @@ def _prepare_creation_for_hypit_locked(
         PlanningIntegration,
     )
 
+    active_stage = "planning"
+    _update_preparation(creation_id, active_stage=active_stage, failure_stage=None)
     try:
+        planning = None
         if attempt.get("material_planning", {}).get("status") == "PLANNING_READY":
             planning = PlanningIntegration().load(attempt)
-        else:
+            if not attempt.get("production_authoring") and attempt.get("execution_status") == "NOT_SUBMITTED":
+                from easel.materials.application.compiler import NeedCompiler, NeedCompilationError
+                try:
+                    for need in planning["plan"].needs:
+                        NeedCompiler().compile(need)
+                except NeedCompilationError:
+                    # A structurally valid but non-retrievable plan is not a
+                    # trusted supply checkpoint. Repair it via the same Director.
+                    planning = None
+        if planning is None:
             if planning_executor is None:
                 raise MaterialIntegrationError("Production Planning executor is required; Material Gate cannot be bypassed")
             _, handoff_manifest, _ = handoff.resolve_handoff(creation_id, handoff_record["handoff_id"])
@@ -703,6 +715,8 @@ def _prepare_creation_for_hypit_locked(
                 },
             }
             planning = planning_executor(attempt, planning_context)
+        active_stage = "material"
+        _update_preparation(creation_id, active_stage=active_stage)
         material_result = MaterialProductOrchestrator().run_with_planning(
             attempt, material_roots, planning,
         )
@@ -711,6 +725,7 @@ def _prepare_creation_for_hypit_locked(
         _update_preparation(
             creation_id,
             status="MATERIAL_FAILED",
+            failure_stage=active_stage,
             runtime_status=attempt.get("runtime_status"),
             handoff_id=handoff_record["handoff_id"],
             handoff_hash=handoff_record["hash"],

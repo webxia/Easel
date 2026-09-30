@@ -4,7 +4,7 @@ This document records workstream order, not task-level status. [`02_CURRENT_STAT
 
 ## Next Active Workstream
 
-[Creator 作品工作区体验优化](tasks/creator-workspace-2026-09-30.md) 的软件实现与确定性验收已完成，沿用 [Creator E2E 前修复](tasks/creator-e2e-repair-2026-09-30.md) 和 [T19](tasks/v1c-t19-low-friction-creation.md) 基线。下一步由 Creator 手动启动 [T15](tasks/v1c-t15-e2e-readiness.md) 的真实验收；不自动继续当前 Creation 或运行完整 E2E。Generated Material 的既有边界与待验收项见 [Workstream](workstreams/generated-material.md)。
+[Creator 作品工作区体验优化](tasks/creator-workspace-2026-09-30.md) 的软件实现与确定性验收已完成，沿用 [Creator E2E 前修复](tasks/creator-e2e-repair-2026-09-30.md) 和 [T19](tasks/v1c-t19-low-friction-creation.md) 基线。用户随后明确启动了 [T15](tasks/v1c-t15-e2e-readiness.md) 的一次普通 UI 真实验收；本次已完成成片与入库，但因工程干预记为 PARTIAL。根因修复与具名运行结果见 Current State 的验收链接；下一次无工程救场验证需用户单独启动，不自动创建第二个作品。Generated Material 的既有边界与待验收项见 [Workstream](workstreams/generated-material.md)。
 
 ## Workstream Order
 

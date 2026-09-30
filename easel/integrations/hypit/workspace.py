@@ -177,6 +177,12 @@ intent.
 ### Hypit Markup authoring contract (installed v0.2.7)
 
 The author source is Hypit Structured Markup, not a custom Easel XML schema.
+Every isolated authoring turn receives `hypit-contracts/*.json`, exported
+by Easel from the installed `hypit vocabulary` without Runtime or execution.
+Read the relevant package's attributes, child declarations, Recipe properties,
+notes and reference types before writing its components. These formal contracts
+take precedence over illustrative snippets. Never borrow attributes from an
+adjacent component; never edit the contracts or leave the isolated workspace.
 The `<svml>` root has no attributes and no XML namespace declarations. Declare
 each vocabulary with a leading `<import>` inside the root; use component outputs
 and typed references, not invented `Scene`, `Overlay`, `Libraries`, `Tracks`,
@@ -198,7 +204,7 @@ packages and contracts:
   <import as="copy" from="@hypit/text@1"/>
   <import as="recipes" source="./recipes.svs"/>
   <!-- media:Image src; time:Clock id="clock" frame-rate="24" +
-       time:Timeline id="program" clock={{clock}} using the frozen duration;
+       time:Timeline id="program" clock={{clock}} end="12s" (replace 12s with the frozen duration);
        space:Canvas id="canvas" width="1080" height="1920" (empty);
        space:Extent id="source-extent" width/height from the selected image;
        space:Frame id="canvas-frame" within={{canvas}} left="0px" top="0px"
@@ -206,7 +212,7 @@ packages and contracts:
        media-track:Item image/source extent/frame at/for from the scene plan
          appearance={{recipes.media.still}};
        media-track:Sampling is an empty element at start/end;
-       film:Film canvas={{canvas}} appearance={{recipes.film.memo}}
+       film:Film canvas={{canvas}} timeline={{program.timeline}} appearance={{recipes.film.memo}}
          with film:Track source={{visual-track.visual}};
        render:Video composition={{film.composition}} timeline={{program.timeline}}. -->
 </svml>
@@ -216,7 +222,7 @@ Use only surfaces documented by the installed package READMEs/Surface
 vocabularies. Make one Timeline using the frozen work's duration and
 `media-track:Item` windows (`at` + `for`) for its actual scenes; include that Track's
 `.visual` in `film:Film`. Timeline references use Hypit brace expressions:
-write `clock={{clock}}`, not the quoted string `clock="clock"`. A still
+write `clock={{clock}}`, not the quoted string `clock="clock"`. Timeline only accepts `id`, `clock`, and `end`; use `end="12s"` for a frozen 12-second work, never `duration` or `for`. A still
 `Item` uses `image={...}` plus a factual source-dimension
 `extent={...}` and a canvas placement `frame={...}`; its empty `media-track:Sampling` elements
 use `at="start"` / `at="end"`, `zoom`, and pixel `x`/`y` (not verbal motion
@@ -230,7 +236,7 @@ attributes or put Easel identity/hash/rights metadata in SVML; those remain in
 Easel's selection and Material records.
 
 Every `media-track:Item` requires an `appearance` reference to an SVS Recipe;
-`film:Film` also requires `canvas` and an `appearance` Recipe. Author
+`film:Film` requires `id`, `canvas`, `timeline`, and an `appearance` Recipe. Author
 `productions/easel-authoring/authors/recipes.svs` alongside `main.svml` and
 import it as `recipes` from `./recipes.svs`. This is the installed SVS shape:
 
@@ -259,6 +265,69 @@ integer `width` and `height` attributes. It accepts no children. Declare the
 <space:Frame id="canvas-frame" within={{canvas}} left="0px" top="0px"
   right="1080px" bottom="1920px"/>
 ```
+
+### Moving video contract (installed v0.2.7)
+
+A raw `media:Video` cannot be used as an Item's `video` attribute. Normalize
+its direct BlobArtifact record first (`source={{shot}}`, never `source={{shot.video}}`), then reference Normalize's `.media` output on the Item. Declare
+`pipeline` even for a silent video; the import is not limited to audio work.
+For a silent production select `audio="none"`, do not opt into `source-audio`,
+and include only the visual Track output in Film. Example (replace the source
+with the admitted asset and the timing with frozen scene timing):
+
+```svml
+<import as="pipeline" from="@hypit/media-pipeline@1"/>
+<media:Video id="shot" src="../../../materials/assets/ASSET/original.mp4"/>
+<pipeline:Normalize id="shot-media" source={{shot}}
+  video="primary-moving" audio="none" span-authority="video" clock={{clock}}/>
+<media-track:Track id="pictures" canvas={{canvas}} timeline={{program.timeline}}>
+  <media-track:Item media={{shot-media.media}} frame={{canvas-frame}}
+    at="0s" for="4s" appearance={{recipes.media.clip}}/>
+</media-track:Track>
+```
+
+The SVS `media.clip` Recipe requires `stack-order` and may use `fit: cover`.
+Native `playback: once-start` truncates the source to the Item window; an
+exhausted source does not magically extend. `trim-start` and `trim-end`, if
+used, are paired integer source frame boundaries, not second strings.
+A soft cross-dissolve belongs to a Media Sequence with ordered Members and
+an explicit Handoff for each adjacent pair, using a transition Recipe.
+The transition Recipe uses `operator: crossfade`, `duration-frames: 12`
+(for 0.5 seconds at 24 fps), `boundary-ratio: 0.5`, and `audio: cut`.
+Do not invent `duration`, `type`, or `dissolve` on Handoff; the Handoff has
+`id`, `from` (outgoing Member id), and `transition={{recipes.transition.soft}}`.
+Timeline overlaps alone do not create dissolves. Preserve the confirmed
+transition and full duration; never silently substitute cuts.
+
+### Typography and Film type references (installed v0.2.7)
+
+For Simplified Chinese use an installed open font rather than inventing a
+font family on a text Area. A `typo:Style` requires an exact `font` and an SVS
+`recipe`; `typo:Area` requires `placement`, `style`, and content. Example:
+
+```svml
+<import as="fonts" from="@hypit/fonts-open@1"/>
+<fonts:Face id="caption-font" family="noto-sans-sc" weight="400" style="normal"/>
+<typo:Style id="caption-style" recipe={{recipes.text.caption}} font={{caption-font}}/>
+<copy:Value id="caption-copy">Replace with the exact frozen text.</copy:Value>
+<typo:Track id="titles" timeline={{program.timeline}}>
+  <typo:Area id="caption" content={{caption-copy}} placement={{canvas-frame}}
+    style={{caption-style}} at="0s" for="4s"/>
+</typo:Track>
+<film:Film id="movie" canvas={{canvas}} timeline={{program.timeline}}
+  appearance={{recipes.film.memo}}>
+  <film:Track source={{pictures.visual}}/>
+  <film:Track source={{titles.track}}/>
+</film:Film>
+```
+
+Declare `text.caption` in SVS with `stack-order`, `size` (not font-size),
+`fill`, `align`, and `block-align` appropriate to the frozen layout. `pictures`
+is the actual Media Track id, not a new component. All four Film attributes
+are mandatory. A local static check of Video → Normalize → Sequence/Handoff
+→ Typography → Film → Render passed on installed v0.2.7; adapt only admitted
+asset references, scene windows, text and creative appearance, preserving the
+frozen requirements.
 
 ## I. Truth Boundary
 

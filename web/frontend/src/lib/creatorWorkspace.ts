@@ -17,8 +17,10 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   const output = Object.keys(asRecord(item.outputs)).length > 0;
   const proposal = workflow.proposal_status !== 'CONFIRMED' && !attempt && (!preparation.status || preparation.status === 'CREATED');
   const contentFailed = !planning.status && !output && !selected && preparation.status === 'FAILED';
-  const materialFailed = !output && !selected && gate.status !== 'MATERIAL_READY' && preparation.status === 'MATERIAL_FAILED';
-  const planningFailed = ['FAILED', 'PLANNING_FAILED'].includes(String(planning.status));
+  const preparationFailed = !output && !selected && gate.status !== 'MATERIAL_READY' && preparation.status === 'MATERIAL_FAILED';
+  const planningFailed = ['FAILED', 'PLANNING_FAILED'].includes(String(planning.status)) || (preparationFailed && (preparation.failure_stage === 'planning' || (!preparation.failure_stage && !planning.status)));
+  const materialFailed = preparationFailed && !planningFailed;
+  const contentReady = !!preparation.handoff_id || !!preparation.snapshot_hashes;
   const productionFailed = execution === 'BUILD_FAILED' || ['AUTHORING_FAILED', 'PLAN_FAILED'].includes(String(item.authoring_status));
   const claims = Array.isArray(truth?.claims) ? truth.claims.map(asRecord) : [];
   const facts = claims.filter(claim => claim.status === 'REVIEW_REQUIRED').length;
@@ -37,17 +39,18 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   const state: StageState = selected ? 'completed' : failureStage ? 'failed' : pending ? 'action-required' : proposal ? 'waiting' : 'running';
   const timeline: { name: string; state: StageState }[] = [
     { name: '方案', state: proposal ? 'action-required' : 'completed' },
-    { name: '内容准备', state: contentFailed ? 'failed' : facts ? 'action-required' : planning.status || output || selected ? 'completed' : proposal ? 'waiting' : 'running' },
-    { name: '创作规划', state: planningFailed ? 'failed' : planning.status === 'PLANNING_READY' || output || selected ? 'completed' : planning.status ? 'running' : 'waiting' },
+    { name: '内容准备', state: contentFailed ? 'failed' : facts ? 'action-required' : contentReady || planning.status || output || selected ? 'completed' : proposal ? 'waiting' : 'running' },
+    { name: '创作规划', state: planningFailed ? 'failed' : planning.status === 'PLANNING_READY' || output || selected ? 'completed' : planning.status || preparation.active_stage === 'planning' ? 'running' : 'waiting' },
     { name: '素材准备', state: materialFailed ? 'failed' : gate.status === 'MATERIAL_READY' || output || selected ? 'completed' : needs ? 'action-required' : planning.status === 'PLANNING_READY' ? 'running' : 'waiting' },
     { name: '视频制作', state: productionFailed ? 'failed' : output || selected ? 'completed' : fee ? 'action-required' : gate.status === 'MATERIAL_READY' ? 'running' : 'waiting' },
     { name: '审片', state: selected ? 'completed' : output ? 'action-required' : 'waiting' },
     { name: '成片', state: selected ? 'completed' : 'waiting' },
   ];
   const reason = asRecord(item.last_error).message ?? preparation.last_error ?? preparation.error;
+  const rawReason = typeof reason === 'string' ? reason : typeof asRecord(reason).message === 'string' ? String(asRecord(reason).message) : '当前阶段未完成，已保留最后可信结果。';
   return { proposal, selected, pending, state, timeline, failureStage, blockedPreparation,
-    failureReason: typeof reason === 'string' ? reason : typeof asRecord(reason).message === 'string' ? String(asRecord(reason).message) : '当前阶段未完成，已保留最后可信结果。',
+    failureReason: rawReason.startsWith('Creative Planning MaterialPlan Domain validation failed:') ? '创作规划的素材需求格式未通过核验。已保留内容与方案，重试会修正规划格式后重新核验。' : rawReason.startsWith('Hypit check 失败：') ? '视频编排文件未通过格式核验。已保留内容和素材，重试会修正编排并重新核验；通过后仍需核价与批准才能合成。' : rawReason,
     updatedAt: item.updated_at ?? preparation.updated_at ?? work.updated_at,
-    title: selected ? '最终成片已确认' : failureStage ? `${failureStage}遇到问题` : pending ? '需要你处理' : proposal ? '创作方案' : '正在准备作品',
+    title: selected ? '最终成片已确认' : failureStage ? `${failureStage}遇到问题` : pending ? '需要你处理' : proposal ? '创作方案' : preparation.active_stage === 'planning' && planning.status !== 'PLANNING_READY' ? '正在创作规划' : '正在准备作品',
   };
 }

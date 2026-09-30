@@ -279,6 +279,11 @@ class PlanningIntegration:
         review_path = root / "planning" / "script-claims.json"
         if _has_symlink_components(root, review_path):
             raise MaterialIntegrationError("Script claim ledger path must not contain symlinks")
+        if review_path.is_file():
+            try:
+                review = validate_script_claim_ledger(script, truth_path, json.loads(review_path.read_text(encoding="utf-8")))
+            except (OSError, ValueError, ScriptTruthError):
+                pass  # Changed script/truth must receive a fresh review ledger.
         review_path.parent.mkdir(parents=True, exist_ok=True)
         review_path.write_text(json.dumps(review, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         store = AttemptMaterialStore(root)

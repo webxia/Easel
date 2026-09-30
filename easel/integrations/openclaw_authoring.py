@@ -68,6 +68,7 @@ def run_attempt_scoped_authoring(
     env: dict[str, str],
     runner: CommandRunner = subprocess.run,
     validate_artifacts: Callable[[Path], None] | None = None,
+    prepare_workspace: Callable[[Path], None] | None = None,
 ) -> str:
     """Run OpenClaw against a copy of one Attempt and promote only authoring outputs.
 
@@ -93,6 +94,8 @@ def run_attempt_scoped_authoring(
     configured = False
     try:
         _stage_authoring_inputs(source, staged_workspace)
+        if prepare_workspace is not None:
+            prepare_workspace(staged_workspace)
         policy = authoring_agent_policy(staged_workspace, agent_dir)
         configured = True
         _patch_profile(command_prefix, profile, {
@@ -139,7 +142,8 @@ def run_attempt_scoped_authoring(
                     "〔Easel Authoring 静态契约修复〕\n"
                     f"当前隔离工作区：{staged_workspace}\n"
                     f"本机 Hypit 对隔离产物的校验失败：{str(exc)[:3000]}\n"
-                    "重读 AUTHORING_TASK.md，按安装版 Surface 修复当前 SVML、SVS 或 Easel Run JSON；"
+                    "重读 AUTHORING_TASK.md 与 hypit-contracts/ 中相关组件的 attributes/children/recipe/notes，"
+                    "按正式安装版 Surface 修复当前 SVML、SVS 或 Easel Run JSON；不得从相邻组件猜属性。"
                     "保留冻结内容、已准入素材和身份，不调用 Provider、plan 或 build。"
                     "无效产物尚未提升；修好后停止，由 Easel 再次校验。"
                 )

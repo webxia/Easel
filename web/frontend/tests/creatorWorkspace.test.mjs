@@ -22,4 +22,15 @@ assert.equal(resumed.failureStage, null);
 assert.equal(resumed.pending, 3);
 assert.equal(resumed.timeline[1].state, 'action-required');
 assert.equal(resumed.timeline[3].state, 'action-required');
+for (const failure_stage of [undefined, 'planning']) {
+  const failedPlanning = project({ ...confirmed, preparation: { status: 'MATERIAL_FAILED', handoff_id: 'h', failure_stage } }, {}, null);
+  assert.equal(failedPlanning.failureStage, '创作规划');
+  assert.equal(failedPlanning.timeline[1].state, 'completed');
+  assert.equal(failedPlanning.timeline[2].state, 'failed');
+  assert.equal(failedPlanning.timeline[3].state, 'waiting');
+}
+const failedAuthoring = project(confirmed, { authoring_status: 'AUTHORING_FAILED', last_error: { message: 'Hypit check 失败：time:Timeline does not accept duration.' } }, null);
+assert.equal(failedAuthoring.failureStage, '视频制作');
+assert.match(failedAuthoring.failureReason, /编排文件未通过格式核验/);
+assert.ok(!failedAuthoring.failureReason.includes('Timeline'));
 console.log('Creator projection: proposal, early failure, selected output, cost, uncertain submission, resumed gates passed');

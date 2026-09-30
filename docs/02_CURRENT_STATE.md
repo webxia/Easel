@@ -39,6 +39,10 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 - 提案阶段继续使用现有新版 Proposal，已去除冲突的制作通用提醒；当前阶段不会自动填造 Creator 身份、规格或内部流程说明。
 - **待真实验证：** Build 失败后的 checkpoint 恢复只有确定性软件回归，尚无真实失败 Build 试验；安全 AI 视觉预审没有已配置的分析器，异常视觉匹配目前由 Creator 按 Need 核对。上述能力不能以自动 PASS 或再次 Provider 请求代替。
 
+## 本次 Creator 真实 E2E（2026-09-30，PARTIAL）
+
+用户已明确启动一次普通 UI E2E，范围见 [具名验收记录](acceptance/creator-workspace-e2e-2026-09-30.md)。同一 Creation 完成 Proposal/冻结内容/规划/逐 Need 素材核对，Gate READY 后自动进入 Authoring。过程中暴露并修复了 Planning schema/检索合同、无 Profile 图库隔离、轮询重置确认、阶段误标、制作聊天泄漏和隔离 Authoring 契约缺漏。正式安装版 vocabulary 已接入隔离助手的只读合同输入，从同一失败阶段恢复后完成一个零第三方计费 Build、自动技术检查、一般时间点反馈、最终确认及内容库入库。成片为 12 秒、1080×1920、彻底静音；刷新/返回与选中输出 SHA 绑定验证通过。FUNCTIONAL/CORRECT/RECOVERABLE/CONTENT_LIBRARY=PASS，CREATOR_E2E=PARTIAL、CREATOR_VISIBLE/AUTONOMOUS=FAIL：本次曾泄漏内部制作回复，并依赖产品代码修复及服务重启，不能将修复后的结果当作完全自主验收。未手改真实产物/数据库/状态，未绕过审核或费用门禁。
+
 ## Official Product Path
 
 ```text

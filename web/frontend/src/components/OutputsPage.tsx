@@ -302,7 +302,10 @@ export default function OutputsPage() {
             <div className="drawer-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ minWidth: 0 }}>
                 <div className="skill-detail-title" style={{ fontSize: 16 }}>{selected.name}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3, fontFamily: "'SF Mono','Consolas',monospace" }}>{selected.path}</div>
+                <details style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 3 }}>
+                  <summary>高级信息</summary>
+                  <div style={{ fontFamily: "'SF Mono','Consolas',monospace", overflowWrap: 'anywhere' }}>{selected.path}</div>
+                </details>
               </div>
               <button className="icon-btn" onClick={() => setSelected(null)}>×</button>
             </div>

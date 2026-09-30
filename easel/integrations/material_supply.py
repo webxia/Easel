@@ -103,7 +103,9 @@ class ProductMaterialSupply:
         work = creation.get_creation(attempt["creation_id"])
         profile = work.get("profile")
         if not isinstance(profile, str) or not profile.strip():
-            raise ValueError("Product Library scope requires the Creation's frozen Profile")
+            # General mode has no Creator profile. Keep its catalog isolated
+            # to this persisted work rather than sharing another profile's assets.
+            return LibraryScope(tenant_id="local", creator_id="creation-" + work["id"])
         return LibraryScope(
             tenant_id="local",
             creator_id="profile-" + hashlib.sha256(profile.encode("utf-8")).hexdigest()[:24],
