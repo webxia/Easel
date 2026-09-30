@@ -18,6 +18,7 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   const execution = item.execution_status;
   const selected = !!attempt && work.selected_attempt_id === item.attempt_id && !!work.selected_output_name;
   const output = Object.keys(asRecord(item.outputs)).length > 0;
+  const qualityPending = managed && output && !selected && delivery.status !== 'first_cut_ready';
   const proposal = workflow.proposal_status !== 'CONFIRMED' && !attempt && (!preparation.status || preparation.status === 'CREATED');
   const contentFailed = !repairing && !planning.status && !output && !selected && preparation.status === 'FAILED';
   const preparationFailed = !repairing && !output && !selected && gate.status !== 'MATERIAL_READY' && preparation.status === 'MATERIAL_FAILED';
@@ -41,8 +42,8 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   const fee = plan.status === 'ready' && cost.status === 'pricing_read' && cost.approved !== true && execution === 'NOT_SUBMITTED'
     && (!managed || delivery.status === 'needs_cost_approval');
   const blockedPreparation = !attempt && ['MATERIAL_NOT_READY', 'BLOCKED_CREATIVE_MODE_REQUIRED', 'BLOCKED_RUNTIME_INVALID', 'BLOCKED_RUNTIME_NOT_CONFIGURED'].includes(String(preparation.status));
-  const pending = selected ? 0 : proposal || blockedPreparation ? 1 : facts + materialTasks + (fee ? 1 : 0) + (output ? 1 : 0);
-  const failureStage = productionFailed ? '视频制作' : planningFailed ? '创作规划' : materialFailed ? '素材准备' : contentFailed ? '内容准备' : managed && delivery.status === 'failed' ? (String(delivery.exhausted_operation).endsWith(':observe_material') ? '素材准备' : attempt ? '视频制作' : '内容准备') : null;
+  const pending = selected ? 0 : proposal || blockedPreparation ? 1 : facts + materialTasks + (fee ? 1 : 0) + (output && !qualityPending ? 1 : 0);
+  const failureStage = productionFailed ? '视频制作' : planningFailed ? '创作规划' : materialFailed ? '素材准备' : contentFailed ? '内容准备' : managed && delivery.status === 'failed' ? (String(delivery.exhausted_operation).endsWith(':quality') ? '审片' : String(delivery.exhausted_operation).endsWith(':observe_material') ? '素材准备' : attempt ? '视频制作' : '内容准备') : null;
   const state: StageState = selected ? 'completed' : failureStage ? 'failed' : pending ? 'action-required' : proposal ? 'waiting' : 'running';
   const timeline: { name: string; state: StageState }[] = [
     { name: '方案', state: proposal ? 'action-required' : 'completed' },
@@ -50,7 +51,7 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
     { name: '创作规划', state: planningFailed ? 'failed' : planning.status === 'PLANNING_READY' || output || selected ? 'completed' : planning.status || preparation.active_stage === 'planning' ? 'running' : 'waiting' },
     { name: '素材准备', state: materialFailed || failureStage === '素材准备' ? 'failed' : gate.status === 'MATERIAL_READY' || output || selected ? 'completed' : materialWorking ? 'running' : needs ? 'action-required' : planning.status === 'PLANNING_READY' ? 'running' : 'waiting' },
     { name: '视频制作', state: productionFailed ? 'failed' : output || selected ? 'completed' : fee ? 'action-required' : gate.status === 'MATERIAL_READY' ? 'running' : 'waiting' },
-    { name: '审片', state: selected ? 'completed' : output ? 'action-required' : 'waiting' },
+    { name: '审片', state: selected ? 'completed' : failureStage === '审片' ? 'failed' : qualityPending ? delivery.status === 'checking_quality' ? 'running' : 'waiting' : output ? 'action-required' : 'waiting' },
     { name: '成片', state: selected ? 'completed' : 'waiting' },
   ];
   const reason = delivery.last_error ?? asRecord(item.last_error).message ?? preparation.last_error ?? preparation.error;
@@ -61,6 +62,9 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
     title: managed && delivery.status === 'observation_failed' ? '状态连接中断 · 显示最后可信结果' :
       managed && delivery.status === 'execution_uncertain' ? '执行结果待核实' :
       selected ? '最终成片已确认' : failureStage ? `${failureStage}遇到问题` : pending ? '需要你处理' : proposal ? '创作方案' :
+      managed && delivery.status === 'checking_quality' ? '正在检查成片画面与声音' :
+      managed && delivery.status === 'quality_repair_required' ? '系统审片发现待修正问题，成片已保留' :
+      managed && delivery.status === 'quality_incomplete' ? '系统审片证据尚不完整，成片已保留' :
       managed && delivery.status === 'reconciling' ? '正在核对制作结果' : managed && delivery.status === 'producing' ? '正在合成视频' :
       managed && delivery.status === 'observing_execution' ? '正在等待创作任务完成' :
       managed && delivery.status === 'observing_material' ? '正在按场景核对候选素材的实际画面' :

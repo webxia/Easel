@@ -1956,6 +1956,9 @@ def record_film_review(attempt_id: str, review: dict[str, Any]) -> dict[str, Any
             raise HypitIntegrationError("Review 对应产物在审片期间发生变化")
         previous_binding = item.get("review", {}).get("binding")
         binding_changed = previous_binding != normalized["binding"]
+        system_review = item.get("review", {}).get("system")
+        if isinstance(system_review, dict) and system_review.get("binding") == normalized["binding"]:
+            normalized['system'] = system_review
         item["review"] = normalized
         item["review_status"] = "APPROVED" if ready else "PENDING"
         item["status"] = "REVIEW_APPROVED" if ready else "REVIEW_PENDING"

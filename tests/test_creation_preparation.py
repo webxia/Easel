@@ -135,6 +135,9 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
                 attempt["execution_status"] = "BUILD_COMPLETE"
             elif operation == "export":
                 attempt["outputs"] = {"final.video": {"sha256": "fixture-only"}}
+            elif operation == "quality":
+                attempt['review'] = {'system': {'schema': 'easel-output-quality@1', 'status': 'READY',
+                    'binding': {'output_name': 'final.video', 'sha256': 'fixture-only'}}}
             else:
                 pytest.fail(operation)
         if operation == "submit":
@@ -148,11 +151,19 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
             saved = creation.get_creation(work["id"])
             assert saved["delivery"]["status"] == "observation_failed"
             assert saved["hypit_attempts"][-1]["execution_status"] == "SUBMITTED"
-        if next_operation(creation.get_creation(work["id"])) == (None, "awaiting_quality"):
+        if next_operation(creation.get_creation(work["id"])) == (None, "first_cut_ready"):
             break
     assert calls == ["prepare", "observe_material", "observe_material", "author", "author", "runtime", "validate", "price", "approve_free",
-                     "submit", "reconcile", "reconcile", "refresh", "refresh", "export"]
-    assert creation.get_creation(work["id"])["delivery"]["status"] == "awaiting_quality"
+                     "submit", "reconcile", "reconcile", "refresh", "refresh", "export", "quality"]
+    assert creation.get_creation(work["id"])["delivery"]["status"] == "first_cut_ready"
+    snapshot = creation.get_creation(work['id'])
+    system = snapshot['hypit_attempts'][-1]['review']['system']
+    for state, status in [('REPAIR_REQUIRED', 'quality_repair_required'), ('INCOMPLETE', 'quality_incomplete')]:
+        system['status'] = state
+        assert next_operation(snapshot) == (None, status)
+    system['status'] = 'READY'
+    system['binding']['sha256'] = 'wrong-output'
+    assert next_operation(snapshot) == ('quality', 'checking_quality')
 
 
 def test_delivery_bounds_failures_preserves_authorization_and_validates_commission(prep_env):

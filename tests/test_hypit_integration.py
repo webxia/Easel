@@ -342,6 +342,10 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
             "human": {"status": "approved"},
         })
 
+    system_review = {'schema': 'easel-output-quality@1', 'status': 'READY',
+                     'binding': {'output_name': 'final.video', 'sha256': exported['outputs']['final.video']['sha256']}}
+    service.update_film_attempt(attempt['attempt_id'], event='fixture_system_review',
+                               review={**exported['review'], 'system': system_review})
     reviewed = service.record_film_review(attempt["attempt_id"], {
         "outputName": "final.video",
         "sha256": exported["outputs"]["final.video"]["sha256"],
@@ -351,6 +355,7 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
         "feedback": [],
     })
     assert reviewed["status"] == "REVIEW_APPROVED"
+    assert reviewed['review']['system'] == system_review
     selected = service.select_film_attempt(work["id"], attempt["attempt_id"], "final.video")
     assert selected["selected_attempt_id"] == attempt["attempt_id"]
     assert selected["publication"]["status"] == "READY_FOR_MANUAL_PUBLISH"
@@ -1171,3 +1176,98 @@ console.log(JSON.stringify(duckTrack(track, points)));'''
     component.write_text('// changed executable')
     with pytest.raises(ValueError, match='版本不一致'):
         install_music_component(tmp_path)
+
+
+def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames(tmp_path, monkeypatch):
+    import numpy as np
+    import shutil
+    import subprocess
+    import wave
+    from easel.integrations.hypit.quality import audio_measurements, measure_output
+    rng = np.random.default_rng(47)
+    voice = rng.normal(0, .08, 64000).astype(np.float32)
+    times = np.arange(len(voice)) / 16000
+    music = .01 * np.sin(2 * np.pi * 440 * times)
+    cues = [{'start_seconds': .1, 'end_seconds': 1.9}, {'start_seconds': 2.1, 'end_seconds': 3.9}]
+    clean = audio_measurements(.8 * voice + music, voice, cues=cues)
+    with pytest.raises(HypitIntegrationError, match='无效音频采样'):
+        audio_measurements(voice, np.full_like(voice, np.nan), cues=cues)
+    assert clean['defects'] == []
+    assert clean['voice_windows'][-1]['time_seconds'] > 3.5
+    truncated = .8 * voice + music
+    truncated[48000:] = music[48000:]
+    assert any(d['kind'] == 'voice_missing' and d['time_seconds'] >= 3 for d in audio_measurements(truncated, voice, cues=cues)['defects'])
+    masked = audio_measurements(.8 * voice + .15 * np.sin(2 * np.pi * 440 * times), voice, cues=cues)
+    assert any(d['kind'] in {'voice_missing', 'voice_masked'} for d in masked['defects'])
+    assert audio_measurements(np.zeros(64000, dtype=np.float32))['defects'][0]['kind'] == 'silent_audio'
+    assert any(d['kind'] == 'audio_clipping' for d in audio_measurements(np.ones(64000, dtype=np.float32))['defects'])
+    if not shutil.which('ffmpeg'):
+        pytest.skip('Deterministic media fixture requires ffmpeg')
+    source = tmp_path / 'voice.wav'
+    with wave.open(str(source), 'wb') as file:
+        file.setparams((1, 2, 16000, 0, 'NONE', 'not compressed'))
+        file.writeframes((voice * 32767).astype('<i2').tobytes())
+    output = tmp_path / 'fixture.mp4'
+    subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=black:s=160x90:r=10:d=2',
+        '-f', 'lavfi', '-i', 'color=gray:s=160x90:r=10:d=2', '-i', str(source),
+        '-filter_complex', '[0:v][1:v]concat=n=2:v=1:a=0[v]', '-map', '[v]', '-map', '2:a',
+        '-c:v', 'libx264', '-c:a', 'aac', '-t', '4', str(output)], check=True, capture_output=True, timeout=20)
+    result = measure_output(output, {'duration_seconds': 4, 'audio_present': True}, source, 0, cues)
+    assert result['frame_count'] == 8
+    assert any(d['kind'] == 'near_black' and d['time_seconds'] == 0 for d in result['defects'])
+    assert result['audio']['voice_windows']
+    assert not any(d['kind'] == 'voice_missing' for d in result['defects'])
+    # The same real output flows through system review, stays separate from
+    # human approval, and reuses completed evidence after a caller restart.
+    from types import SimpleNamespace
+    from easel.integrations.hypit import quality
+    from easel.integrations.material_layer import PlanningIntegration, MaterialGateIntegration
+    author = tmp_path / 'productions/easel-authoring/authors/main.svml'
+    author.parent.mkdir(parents=True)
+    author.write_text('<svml/>')
+    attempt = {'attempt_id': 'fixture', 'workspace': {'path': str(tmp_path)},
+        'execution_status': 'BUILD_COMPLETE', 'build': {'operation': {'execution_fingerprint': {'sha256': 'fixture-input'}}},
+        'outputs': {'final': {'path': str(output), 'sha256': service._file_sha256(output),
+                            'metadata': {'duration_seconds': 4, 'audio_present': True}}},
+        'review': {'human': {'status': 'pending'}}}
+    monkeypatch.setattr(service, 'get_film_attempt', lambda identity: attempt)
+    monkeypatch.setattr(service, '_execution_fingerprint', lambda a: {'sha256': 'fixture-input'})
+    monkeypatch.setattr(service, '_output_path', lambda a, o: output)
+    monkeypatch.setattr(service, '_save_attempt', lambda identity, update: update(attempt))
+    monkeypatch.setattr(handoff, 'load_frozen_creative_mode', lambda a: ({'id': 'fixture-mode'}, 'mode-sha'))
+    monkeypatch.setattr(PlanningIntegration, 'load', lambda self, a: {'script': '已冻结的测试表达。'})
+    monkeypatch.setattr(MaterialGateIntegration, 'assert_ready', lambda self, a:
+                        (SimpleNamespace(needs=()), SimpleNamespace(assets=(), matches=()), None))
+    calls = []
+    def observe(a, manifest, attachments):
+        calls.append(manifest)
+        assert attachments and all(item['mimeType'] == 'image/jpeg' for item in attachments)
+        assert manifest['binding']['sha256'] == service._file_sha256(output)
+        return {'schema': quality.SCHEMA, 'input_sha256': manifest['input_sha256'],
+                'frames': [{'index': f['index'], 'observed': True, 'description': 'fixture output frame'} for f in manifest['frames']],
+                'checks': {k: {'status': 'pass', 'reason': 'fixture evidence', 'frame_indices': [0]} for k in quality.VISUAL_CHECKS}}
+    quality.inspect_output('fixture', executor=observe)
+    assert attempt['review']['system']['status'] == 'REPAIR_REQUIRED'
+    assert attempt['review']['human']['status'] == 'pending'
+    count = len(calls)
+    quality.inspect_output('fixture', executor=observe)
+    assert len(calls) == count
+    output.write_bytes(b'changed output')
+    with pytest.raises(HypitIntegrationError, match='字节已变化'):
+        quality.inspect_output('fixture', executor=observe)
+
+
+def test_system_quality_cannot_pass_unseen_or_stale_frames():
+    from easel.integrations.hypit.quality import SCHEMA, VISUAL_CHECKS, validate_visual_review
+    manifest = {'input_sha256': 'fixture', 'frames': [{'index': 0}]}
+    report = {'schema': SCHEMA, 'input_sha256': 'fixture',
+              'frames': [{'index': 0, 'observed': True, 'description': 'Actual output frame'}],
+              'checks': {k: {'status': 'pass', 'reason': 'Observed output evidence', 'frame_indices': [0]} for k in VISUAL_CHECKS}}
+    validate_visual_review(manifest, report)
+    report['frames'][0]['observed'] = False
+    with pytest.raises(ValueError, match='未看到'):
+        validate_visual_review(manifest, report)
+    report['frames'][0]['observed'] = True
+    report['input_sha256'] = 'other-output'
+    with pytest.raises(ValueError, match='当前输出'):
+        validate_visual_review(manifest, report)

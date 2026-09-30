@@ -293,6 +293,9 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   const outputs = record(attemptStatus.outputs);
   const outputNames = Object.keys(outputs);
   const selectedReviewOutput = record(outputs[reviewOutputName]);
+  const rawSystemReview = record(record(attempt?.review).system);
+  const systemReview = record(rawSystemReview.binding).sha256 === selectedReviewOutput.sha256
+    && record(rawSystemReview.binding).output_name === reviewOutputName ? rawSystemReview : {};
   const rightsReviewCandidates = rightsCandidates.filter(item =>
     ['UNKNOWN', 'RESTRICTED'].includes(text(record(item.rights).status))
     || (Array.isArray(item.rights_blocking_need_ids) && item.rights_blocking_need_ids.some(id => blockingNeedIds.includes(text(id)))));
@@ -1034,7 +1037,15 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
           preparationRun.current = ''; exportRun.current = ''; setError(''); setRefreshVersion((version) => version + 1);
         }}>重新检查进度</button>}
         {['review', 'done'].includes(phase) && <>
-          <p>自动检查：{record(selectedReviewOutput.technical_qc).status === 'pass' ? '文件完整性、音视频流与解码检查通过' : '当前输出检查结果尚不可用'}。事实表达与风格由你播放核对。</p>
+          <p>自动检查：{systemReview.status === 'READY' ? '画面采样与声音信号检查通过，首版可供审阅；最终取舍仍由你决定。'
+            : systemReview.status === 'REPAIR_REQUIRED' ? '发现待修正问题，当前视频已保留，系统修复尚未完成。'
+              : systemReview.status === 'INCOMPLETE' ? '部分检查证据不足，尚不能确认首版质量。'
+                : backendDelivery ? delivery.status === 'checking_quality' ? 'Easel 正在核对当前成片。' : '系统检查尚未完成，当前是已导出的预览。'
+                  : record(selectedReviewOutput.technical_qc).status === 'pass' ? '文件完整性、音视频流与解码检查通过；请播放核对内容与声画效果。' : '当前输出检查结果尚不可用。'}</p>
+          {Array.isArray(record(systemReview.measurements).defects) && (record(systemReview.measurements).defects as unknown[]).slice(0, 5).map((defect, index) =>
+            <p key={`quality-${index}`}>{text(record(defect).time_seconds)} 秒：{text(record(defect).reason)}</p>)}
+          {Array.isArray(systemReview.visual) && (systemReview.visual as unknown[]).flatMap(batch => Object.values(record(record(batch).checks)))
+            .filter(check => record(check).status !== 'pass').slice(0, 3).map((check, index) => <p key={`visual-quality-${index}`}>{text(record(check).reason)}</p>)}
           <button className="btn" onClick={() => setFeedbackOpen(value => !value)}>提出修改</button>
           {feedbackOpen && <div className="film-op-review-claim">
             <h3>成片修改反馈</h3>

@@ -112,7 +112,20 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     if execution in {"SUBMITTED", "RUNNING", "CANCEL_REQUESTED"}:
         return "refresh", "producing"
     if execution == "BUILD_COMPLETE":
-        return (None, "awaiting_quality") if attempt.get("outputs") else ("export", "exporting")
+        if not attempt.get("outputs"):
+            return "export", "exporting"
+        system = attempt.get("review", {}).get("system", {})
+        binding = system.get("binding", {})
+        output = attempt["outputs"].get(binding.get("output_name"), {})
+        if (system.get("schema") == "easel-output-quality@1" and output
+                and output.get("sha256") == binding.get("sha256")):
+            if system.get("status") == "READY":
+                return None, "first_cut_ready"
+            if system.get("status") == "REPAIR_REQUIRED":
+                return None, "quality_repair_required"
+            if system.get("status") == "INCOMPLETE":
+                return None, "quality_incomplete"
+        return "quality", "checking_quality"
     if execution == "BUILD_FAILED":
         if len(delivery.get("build_recoveries", [])) < MAX_BUILD_RECOVERIES:
             return "retry_build", "recovering_production"

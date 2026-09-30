@@ -31,3 +31,6 @@ easel = "easel.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["easel*"]
+
+[tool.setuptools.package-data]
+"easel.integrations.hypit" = ["native_audio/*.mjs", "native_audio/package.json"]
