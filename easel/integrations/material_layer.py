@@ -713,6 +713,24 @@ class ProductionAuthoringIntegration:
         )
         return {"status": updated["production_authoring"]["status"], "selection": selection, "attempt": updated}
 
+    def compile_narration(self, attempt: dict[str, Any], source: str,
+                          author_path: str = "productions/easel-authoring/authors/main.svml") -> str:
+        """Compile from the current admitted evidence, never the agent's copy."""
+        from easel.integrations.hypit.narration import compile_measured_narration
+        from easel.materials.application.voice_delivery import authoring_voice_timings
+
+        plan, bundle, _ = self.gate.assert_ready(attempt)
+        store = AttemptMaterialStore(_workspace(attempt))
+        if not any(record.get("voice_timing") for record in store.list_generation_records()):
+            return source
+        planning = PlanningIntegration().load(attempt)
+        timings = authoring_voice_timings(plan, bundle, store, planning["script"])
+        sources = {asset.asset_id: store.hypit_source_path(asset, author_path) for asset in bundle.assets}
+        try:
+            return compile_measured_narration(source, timings, sources)
+        except (ValueError, KeyError) as exc:
+            raise MaterialIntegrationError(f"旁白原生编排需要修正：{exc}") from exc
+
     def validate_authored_selection(self, attempt: dict[str, Any], run_path: str) -> dict[str, Any]:
         """Bind Production's explicit selection to real workspace bytes and SVML references."""
         plan, bundle, readiness = self.gate.assert_ready(attempt)
@@ -739,6 +757,8 @@ class ProductionAuthoringIntegration:
             raise MaterialIntegrationError("SVRun author source is missing or outside the Attempt workspace")
         authored_text = _ensure_hypit_svml_header(authored_source)
         _assert_production_only_sources(run_text, authored_text)
+        if self.compile_narration(attempt, authored_text, str(authored_source.relative_to(root))) != authored_text:
+            raise MaterialIntegrationError("原生旁白/字幕与当前可信音频时序不一致，请重新完成编排")
 
         selection_path = root / "productions" / "easel-authoring" / "material-selection.json"
         if _has_symlink_components(root, selection_path):

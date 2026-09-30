@@ -88,6 +88,17 @@ def authoring_voice_timings(plan, bundle, store, script: str) -> dict:
                     continue
                 current = bind_voice_timing(script, asset, tuple(timing["cues"]), timing.get("error"))
                 if current["status"] == "READY":
+                    # Only punctuation/whitespace may lie between validated
+                    # ranges. Keep every source character exactly once, with
+                    # trailing punctuation on the preceding sentence.
+                    current["cues"] = [
+                        {**cue, "display_text": script[
+                            0 if i == 0 else cue["start_character"]:
+                            current["cues"][i + 1]["start_character"]
+                            if i + 1 < len(current["cues"]) else len(script)
+                        ]}
+                        for i, cue in enumerate(current["cues"])
+                    ]
                     rows.append({"need_id": need.need_id, **current})
                     found = True
                     break

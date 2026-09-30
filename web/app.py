@@ -2915,6 +2915,9 @@ async def _run_film_authoring(attempt_id: str) -> dict:
             from easel.materials.store import AttemptMaterialStore
 
             current = get_film_attempt(attempt_id)
+            authored = staged / "productions/easel-authoring/authors/main.svml"
+            authored.write_text(ProductionAuthoringIntegration().compile_narration(
+                current, authored.read_text(encoding="utf-8")), encoding="utf-8")
             from easel.integrations.hypit.service import _assert_local_video_trim_ranges
             _assert_local_video_trim_ranges(current, staged / "productions/easel-authoring/authors/main.svml")
             if current.get("revision_feedback"):

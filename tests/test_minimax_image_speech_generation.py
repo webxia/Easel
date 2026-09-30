@@ -241,8 +241,8 @@ def test_voice_alignment_rejects_truncation_overlap_and_stale_output(tmp_path):
         source=CandidateSource(kind='generative', provider='fixture', provider_asset_id='voice'),
         rights=RightsInfo(status=RightsStatus.UNKNOWN),
         technical=TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=3))
-    cues = ({'text': '第一句。', 'start_character': 0, 'end_character': 4, 'start_seconds': 0., 'end_seconds': 1.2},
-            {'text': '第二句。', 'start_character': 4, 'end_character': 8, 'start_seconds': 1.3, 'end_seconds': 2.8})
+    cues = ({'text': '第一句', 'start_character': 0, 'end_character': 3, 'start_seconds': 0., 'end_seconds': 1.2},
+            {'text': '第二句', 'start_character': 4, 'end_character': 7, 'start_seconds': 1.3, 'end_seconds': 2.8})
     ready = bind_voice_timing(script, asset, cues)
     assert ready['status'] == 'READY'
     for bad in (cues[:1], (cues[0], {**cues[1], 'start_seconds': 1.1}),
@@ -255,6 +255,7 @@ def test_voice_alignment_rejects_truncation_overlap_and_stale_output(tmp_path):
     bundle = SimpleNamespace(assets=(asset,), matches=(MaterialMatch(need_id='voice', asset_id='voice', rank=1, score=1, qualified=True),))
     projection = authoring_voice_timings(plan, bundle, store, script)
     assert len(projection['assets']) == 1 and projection['unavailable_need_ids'] == []
+    assert ''.join(cue['display_text'] for cue in projection['assets'][0]['cues']) == script
     assert authoring_voice_timings(plan, bundle, store, '改过的脚本')['unavailable_need_ids'] == ['voice']
     changed = asset.model_copy(update={'file': asset.file.model_copy(update={'sha256': '0' * 64})})
     bundle.assets = (changed,)

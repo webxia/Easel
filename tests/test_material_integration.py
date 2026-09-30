@@ -610,6 +610,41 @@ def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_inte
             result["attempt"], "productions/easel-authoring/runs/main.svrun",
         )
 
+    # With real bound alignment, direct validation cannot accept an agent's
+    # guessed subtitles; the same compiler used before static check fixes them.
+    from easel.materials.application.voice_delivery import bind_voice_timing
+    frozen_script = PlanningIntegration().load(result["attempt"])["script"]
+    timing = bind_voice_timing(frozen_script, assets[0], ({
+        "text": frozen_script, "start_character": 0, "end_character": len(frozen_script),
+        "start_seconds": 0.2, "end_seconds": 4.8,
+    },))
+    assert timing["status"] == "READY"
+    store.write_generation_record("fixture-alignment", {
+        "schema": "easel-material-generation@1", "status": "COMPLETE",
+        "asset_id": assets[0].asset_id, "asset_sha256": assets[0].file.sha256,
+        "need_sha256": hashlib.sha256(plan.needs[0].to_json().encode()).hexdigest(),
+        "voice_timing": timing,
+    })
+    source = original_author.replace('<time:Timeline', '<time:Clock id="clock" frame-rate="24"/><time:Timeline')
+    source = source.replace('<film:Film',
+        '<space:Frame id="easel-caption-frame"/>'
+        '<typo:Style id="easel-caption-style"/>'
+        '<typo:Track id="easel-captions" timeline={speech.timeline}/><film:Film')
+    author.write_text(source, encoding="utf-8")
+    integration = ProductionAuthoringIntegration()
+    with pytest.raises(MaterialIntegrationError, match="可信音频时序不一致"):
+        integration.validate_authored_selection(result["attempt"], "productions/easel-authoring/runs/main.svrun")
+    compiled = integration.compile_narration(result["attempt"], source)
+    author.write_text(compiled, encoding="utf-8")
+    integration.validate_authored_selection(result["attempt"], "productions/easel-authoring/runs/main.svrun")
+    assert 'at="5f" for="110f"' in compiled
+    # Tampering with the copied projection has no authority over the source.
+    (root / "productions/easel-authoring/VOICE_TIMING.json").write_text('{"assets": []}')
+    assert integration.compile_narration(result["attempt"], source) == compiled
+    author.write_text(compiled.replace('for="120f"', 'for="1f"'), encoding="utf-8")
+    with pytest.raises(MaterialIntegrationError, match="可信音频时序不一致"):
+        integration.validate_authored_selection(result["attempt"], "productions/easel-authoring/runs/main.svrun")
+
 
 def test_int02_gate_blocks_not_ready_and_accepts_current_ready(material_integration_env):
     attempt = material_integration_env

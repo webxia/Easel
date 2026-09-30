@@ -394,6 +394,23 @@ or the preliminary SCENES time grid. Provider alignment is not a listening or
 quality approval. unavailable_need_ids means no verified timing is available;
 do not fabricate a transcript or claim that the narration has been aligned.
 
+For a selected READY voice, Easel compiles sentence captions and full narration
+placement before the installed Hypit check. Use the native aliases `time`,
+`media`, `pipeline`, `audio`, `film`, `copy`, `typo`, `space`. Author one Clock,
+one Timeline and one Film, a separate voice AudioTrack with one untrimmed,
+non-stretched Item, and a frame-aligned narration start (`at`, or `during="program"`).
+Choose the subtitle recipe/font and safe placement according to the frozen
+Director: declare `typo:Style id="easel-caption-style"` and
+`space:Frame id="easel-caption-frame"` before a reserved empty track
+`<typo:Track id="easel-captions" timeline={{program.timeline}}/>`.
+The compiler fills that track with the frozen script and measured sentence
+windows, adds its Film reference, preserves the chosen style/frame and voice
+gain/start, and plays the complete voice once without fades. Give the Timeline
+enough frames for the inspected audio plus the chosen start; adjust pictures
+to this duration instead of clipping or stretching the voice. Do not duplicate
+narration captions in other tracks or invent word/karaoke timing. Headings and
+other editorial text remain separately authored. BGM is a separate track.
+
 For each selected audio Asset, declare its workspace-relative source with
 media:Audio, pass it through pipeline:Normalize with audio="default",
 place the normalized .media in an audio:Item, and include the resulting

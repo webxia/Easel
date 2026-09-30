@@ -1037,3 +1037,82 @@ def test_hypit_cli_uses_json_and_does_not_inherit_provider_secrets(tmp_path, mon
     assert captured["command"][-1] == "--json"
     assert str(workspace.resolve()) in captured["command"]
     assert "MINIMAX_API_KEY" not in captured["kwargs"]["env"]
+
+
+def measured_narration_fixture():
+    # Valid native vocabulary also used by the opt-in local static check.
+    source = '''<?svml using="@hypit/markup@1"?>
+<svml>
+<import as="time" from="@hypit/timeline-author@1"/>
+<import as="media" from="@hypit/media@1"/>
+<import as="pipeline" from="@hypit/media-pipeline@1"/>
+<import as="audio" from="@hypit/audio-track@1"/>
+<import as="space" from="@hypit/spatial@1"/>
+<import as="film" from="@hypit/film@1"/>
+<import as="copy" from="@hypit/text@1"/>
+<import as="typo" from="@hypit/typography-track@1"/>
+<import as="fonts" from="@hypit/fonts-open@1"/>
+<import as="render" from="@hypit/render-hyperframes@1"/>
+<import as="recipes" source="./recipes.svs"/>
+<time:Clock id="clock" frame-rate="24"/>
+<time:Timeline id="program" clock={clock} end="4s"/>
+<space:Canvas id="canvas" width="1080" height="1920"/>
+<space:Frame id="easel-caption-frame" within={canvas} left="90px" top="1420px" right="990px" bottom="1700px"/>
+<fonts:Face id="caption-font" family="noto-sans-sc" weight="400" style="normal"/>
+<typo:Style id="easel-caption-style" recipe={recipes.text.caption} font={caption-font}/>
+<media:Audio id="voice-source" src="./voice.wav"/>
+<pipeline:Normalize id="voice-media" source={voice-source} video="none" audio="default" span-authority="audio" clock={clock}/>
+<audio:Track id="voice-track" timeline={program.timeline}>
+  <audio:Item source={voice-media.media} at="12f" for="1s" gain="0.9"/>
+</audio:Track>
+<media:Audio id="music-source" src="./music.wav"/>
+<pipeline:Normalize id="music-media" source={music-source} video="none" audio="default" span-authority="audio" clock={clock}/>
+<audio:Track id="music-track" timeline={program.timeline}>
+  <audio:Item source={music-media.media} during="program" playback="loop" gain="0.1"/>
+</audio:Track>
+<typo:Track id="easel-captions" timeline={program.timeline}/>
+<film:Film id="movie" canvas={canvas} timeline={program.timeline} appearance={recipes.film.memo}>
+  <film:Track source={voice-track.audio}/>
+  <film:Track source={music-track.audio}/>
+</film:Film>
+<render:Video id="output" composition={movie.composition} timeline={program.timeline}/>
+</svml>
+'''
+    timings = {"assets": [{"status": "READY", "asset_id": "voice", "audio_duration_seconds": 3.01,
+        "cues": [{"start_seconds": 0.1, "end_seconds": 1.2, "display_text": "第一句<&>。"},
+                 {"start_seconds": 1.8, "end_seconds": 3., "display_text": "第二句。"}]}]}
+    return source, timings, {"voice": "./voice.wav"}
+
+
+def test_native_narration_uses_actual_uneven_timing_preserves_director_and_is_idempotent():
+    from easel.integrations.hypit.narration import compile_measured_narration
+    source, timings, paths = measured_narration_fixture()
+    compiled = compile_measured_narration(source, timings, paths)
+    assert 'at="12f" for="73f" playback="once" gain="0.9" fade-in="0f" fade-out="0f"' in compiled
+    assert '第一句&lt;&amp;&gt;。' in compiled
+    assert 'at="14f" for="27f"' in compiled
+    assert 'at="55f" for="29f"' in compiled
+    assert '<film:Track source={easel-captions.track}/>' in compiled
+    for tag in ('space:Frame', 'typo:Style', 'audio:Track id="music-track"'):
+        assert source.split('<' + tag)[1].split('</audio:Track>' if tag.startswith('audio:') else '/>')[0] in compiled
+    assert compile_measured_narration(compiled, timings, paths) == compiled
+    # A changed trusted input regenerates only code-owned windows/text.
+    timings['assets'][0]['cues'][0]['end_seconds'] = 1.4
+    updated = compile_measured_narration(compiled, timings, paths)
+    assert 'at="14f" for="32f"' in updated
+    assert updated.count('id="easel-cue-0"') == 1
+    assert compile_measured_narration(source, {"assets": []}, paths) == source
+
+
+@pytest.mark.parametrize(('old', 'new', 'reason'), [
+    ('end="4s"', 'end="3s"', '不足'),
+    ('at="12f" for="1s"', 'at="12f" for="1s" playback="stretch"', '拉伸'),
+    ('at="12f" for="1s"', 'at="12f" for="1s" trim-start="1s"', '截取'),
+    ('id="easel-caption-frame"', 'id="other-frame"', '安全区'),
+    ('source={voice-track.audio}', 'source={music-track.audio}', '未进入'),
+])
+def test_native_narration_refuses_silent_audio_or_caption_loss(old, new, reason):
+    from easel.integrations.hypit.narration import compile_measured_narration
+    source, timings, paths = measured_narration_fixture()
+    with pytest.raises(ValueError, match=reason):
+        compile_measured_narration(source.replace(old, new), timings, paths)
