@@ -567,7 +567,7 @@ Runtime resolve
 ↓
 validate/check + plan
 ↓
-pricing + operator approval
+pricing + authorization verification
 ↓
 Hypit Build
 ↓
@@ -1271,13 +1271,15 @@ runtime resolution
 validation/check
 plan
 pricing
-operator approval
+authorization verification
 fingerprint protection
 build execution
 result reconciliation
 ```
 
 These should be preserved.
+
+2026-09-30 经用户批准的 [V1 最小改造方案](../tasks/creator-autonomous-first-cut-2026-09-30.md) 调整授权交互：新委托可以覆盖后续经正式核价核实的零 Provider 费用合成。每次执行仍记录当前 Plan/Pricing/fingerprint 绑定的批准与委托来源；未知价格和未获授权的付费请求不得自动提交。批准语义保留，逐次人工点击不再是零费用 Build 的必要条件。实施程度以 Current State 为准。
 
 Material readiness should be inserted before Build rather than redesigning Build.
 

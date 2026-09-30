@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -462,6 +463,48 @@ def test_pricing_keeps_aggregate_unknown_and_persists_contract_fingerprint(
     assert priced["cost"]["plan_sha256"] == priced["plan"]["contract_sha256"]
     assert priced["cost"]["limit_enforced_by_hypit"] is False
     assert priced["cost"]["approved_budget_is_hard_spend_cap"] is False
+    with pytest.raises(HypitIntegrationError, match="零预算"):
+        service.approve_film_cost(attempt["attempt_id"], 0)
+
+
+def test_zero_cost_commission_uses_real_contract_and_revalidates_before_build(integration_env):
+    work = creation.create_creation("零费用委托测试", creative_mode="clear_memo_video", route="hypit_video",
+                                    origin={"type": "chat", "session_hash": "c" * 64})
+    creation.mark_chat_proposal_ready(work["id"])
+    proposal = '[{"role":"user","content":"隔离测试"}]'
+    creation.confirm_chat_proposal(work["id"], "confirm", delivery_proposal=proposal,
+                                   proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest())
+    _, attempt = make_attempt(work, integration_env)
+    attempt_id = attempt["attempt_id"]
+    workspace = Path(attempt["workspace"]["path"])
+    (workspace / "runs" / "final.svrun").write_text("{}", encoding="utf-8")
+
+    class LocalHypit(FakeHypit):
+        def pricing(self, *_args, **_kwargs):
+            return {"format": "hypit.cli-pricing@1", "requestCount": 2,
+                    "noChargeRequestCount": 2, "groups": []}
+
+    cli = LocalHypit()
+    service.validate_film_attempt(attempt_id, "runs/final.svrun", cli=cli)
+    priced = service.estimate_film_attempt(attempt_id, cli=cli)
+    assert priced["cost"]["estimated_usd"] == 0
+    approved = service.approve_film_cost(attempt_id, 0, use_commission=True)
+    assert approved["cost"]["approved_budget_usd"] == 0
+    assert approved["cost"]["approval_kind"] == "confirmed_commission_no_charge"
+    assert approved["cost"]["commission_authorization"]["proposal_sha256"] == hashlib.sha256(proposal.encode()).hexdigest()
+    # The zero-cost path retains exactly the same contract/hash gates.
+    service._save_attempt(attempt_id, lambda item: {
+        **item, "cost": {**item["cost"], "pricing": {**item["cost"]["pricing"], "noChargeRequestCount": 1}},
+    })
+    with pytest.raises(HypitIntegrationError):
+        service.submit_film_build(attempt_id, title="fixture", cli=cli)
+    assert cli.build_count == 0
+    service.validate_film_attempt(attempt_id, "runs/final.svrun", cli=cli)
+    service.estimate_film_attempt(attempt_id, cli=cli)
+    service.approve_film_cost(attempt_id, 0, use_commission=True)
+    service.submit_film_build(attempt_id, title="fixture", cli=cli)
+    service.submit_film_build(attempt_id, title="fixture duplicate", cli=cli)
+    assert cli.build_count == 1
 
 
 def test_pricing_change_after_approval_blocks_build(integration_env):

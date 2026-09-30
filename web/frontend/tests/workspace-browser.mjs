@@ -27,10 +27,14 @@ await page.route('**/api/**', async route => {
     updated_at: '2026-09-30T10:00:00Z', last_error: { message: '镜头时长与已确认时长不一致' } };
   if (scenario === 'material') { attempt.authoring_status = 'PENDING'; attempt.material_gate = { status: 'MATERIAL_NOT_READY', blocking_needs: ['scene-1', 'scene-2'] }; }
   if (scenario === 'cost') { attempt.authoring_status = 'AUTHORING_READY'; attempt.plan = { status: 'ready' }; attempt.cost = { status: 'pricing_read', estimated_usd: 0.8 }; }
+  if (scenario === 'delivery-cost') { attempt.authoring_status = 'AUTHORING_READY'; attempt.plan = { status: 'ready' }; attempt.cost = { status: 'pricing_read', estimated_usd: 0, total: { status: 'known', amount: 0 } }; }
+  if (scenario === 'delivery-export') { attempt.execution_status = 'BUILD_COMPLETE'; attempt.authoring_status = 'PLANNED'; }
+  if (scenario === 'delivery-disconnected') { attempt.execution_status = 'RUNNING'; attempt.build = { build_id: 'fixture-build' }; }
   if (scenario === 'review') { attempt.execution_status = 'BUILD_COMPLETE'; attempt.authoring_status = 'AUTHORING_READY'; attempt.outputs = { final: { path: 'fixture-final.mp4', sha256: outputHash, technical_qc: { status: 'pass' }, metadata: { duration_seconds: 15 } } }; attempt.review = { feedback }; }
   if (path === '/api/operator/session') result = { authenticated: true };
   else if (path === '/api/upload/limits') result = { max_mb: 50 };
   else if (path === '/api/creations/fixture-creation') result = { id: 'fixture-creation', idea: '雨后城市的平静', creative_mode: '观察式短片', chat_workflow: { proposal_status: proposal ? 'READY_FOR_CONFIRMATION' : 'CONFIRMED' },
+    ...(scenario.startsWith('delivery-') ? { delivery: { schema: 'easel-creation-delivery@1', status: ({ 'delivery-cost': 'checking_cost', 'delivery-export': 'exporting', 'delivery-disconnected': 'observation_failed' })[scenario] } } : {}),
     preparation: scenario === 'early-failure' ? { status: 'FAILED', last_error: '内容节拍合计与总时长不一致' } : {} };
   else if (path.endsWith('/proposal-preview')) result = { specs: { duration_seconds: 15, aspect_ratio: '9:16', audio_mode: 'silent', language: 'zh-CN' }, missing: [] };
   else if (path.endsWith('/film-attempts')) result = proposal || scenario === 'early-failure' ? [] : revisionStarted ? [{ ...attempt, attempt_id: 'fixture-revision', outputs: {}, authoring_status: 'AUTHORING_RUNNING', execution_status: 'NOT_SUBMITTED' }, attempt] : [attempt];
@@ -46,7 +50,7 @@ await page.route('**/api/**', async route => {
 });
 const errors = []; page.on('pageerror', error => errors.push(error.message));
 try {
-  for (const state of ['proposal', 'early-failure', 'failed', 'material', 'cost', 'review', 'running']) {
+  for (const state of ['proposal', 'early-failure', 'failed', 'material', 'cost', 'review', 'running', 'delivery-cost', 'delivery-export', 'delivery-disconnected']) {
     scenario = state; revisionStarted = false;
     await page.goto(`${base}?scenario=${state}`);
     const canvas = page.getByRole('complementary', { name: '作品画布' });
@@ -56,6 +60,15 @@ try {
     if (state === 'early-failure') await page.getByRole('button', { name: '重试内容准备' }).waitFor();
     if (state === 'material') await page.getByText('核对画面是否真的符合场景', { exact: true }).waitFor();
     if (state === 'cost') await page.getByRole('button', { name: '同意本次费用并制作' }).waitFor();
+    if (state.startsWith('delivery-')) {
+      await page.waitForTimeout(5500); // include a normal page polling cycle
+      assert.equal(await page.getByRole('button', { name: '同意本次费用并制作' }).count(), 0);
+      if (state === 'delivery-export') await page.getByRole('heading', { name: '正在整理成片' }).waitFor();
+      if (state === 'delivery-disconnected') {
+        await page.getByRole('heading', { name: '状态连接中断 · 显示最后可信结果' }).waitFor();
+        assert.equal(await page.getByText('尚未生成视频预览；当前正在整理内容、编排或合成。').count(), 0);
+      }
+    }
     if (state === 'review') {
       await page.getByRole('button', { name: '提出修改' }).click();
       await page.getByLabel('修改类型').selectOption('composition');

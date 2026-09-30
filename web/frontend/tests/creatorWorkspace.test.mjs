@@ -33,4 +33,14 @@ const failedAuthoring = project(confirmed, { authoring_status: 'AUTHORING_FAILED
 assert.equal(failedAuthoring.failureStage, '视频制作');
 assert.match(failedAuthoring.failureReason, /编排文件未通过格式核验/);
 assert.ok(!failedAuthoring.failureReason.includes('Timeline'));
+const delivery = { schema: 'easel-creation-delivery@1', status: 'checking_cost' };
+const priced = { execution_status: 'NOT_SUBMITTED', plan: { status: 'ready' }, cost: { status: 'pricing_read' }, material_gate: { status: 'MATERIAL_READY' } };
+assert.equal(project({ ...confirmed, delivery }, priced, null).pending, 0);
+assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'needs_cost_approval' } }, priced, null).pending, 1);
+const repairing = project({ ...confirmed, delivery: { ...delivery, status: 'retrying' } }, { authoring_status: 'AUTHORING_FAILED' }, null);
+assert.equal(repairing.failureStage, null);
+assert.equal(repairing.title, '正在恢复当前步骤');
+const disconnected = project({ ...confirmed, delivery: { ...delivery, status: 'observation_failed' } }, { execution_status: 'RUNNING' }, null);
+assert.equal(disconnected.failureStage, null);
+assert.match(disconnected.title, /状态连接中断/);
 console.log('Creator projection: proposal, early failure, selected output, cost, uncertain submission, resumed gates passed');

@@ -1,6 +1,8 @@
 # V1C-T19：低打扰 Creation 审核与制作
 
-状态：**IN PROGRESS**。用户要求视频生成流程减负，当前证据显示多个可自动化步骤被设计为重复人工操作，且确认方案没有随 Creation 冻结。
+状态：**已并入后续唯一实施 Task**。本文件保留历史根因和验证，不再作为并列执行方案；当前范围和完成条件以 [自主首版与 Director 全链执行](creator-autonomous-first-cut-2026-09-30.md) 为准，实际状态见 [Current State](../02_CURRENT_STATE.md)。
+
+2026-09-30 授权策略修订：新委托明确包含无 Provider 费用合成的自动执行。后端在每次 Build 前核验正式 Pricing、Plan 和 fingerprint，并保存 0 美元批准及委托来源；不再要求零费用 Build 单独点击。未知或付费请求没有被该授权覆盖。下文“Build 一次明确操作”为旧基线；正式身份、权益、费用核验和最终审片语义继续保留。
 
 ## 已核实问题
 

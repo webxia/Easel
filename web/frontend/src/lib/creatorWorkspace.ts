@@ -8,6 +8,9 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   const item = attempt ?? {};
   const preparation = asRecord(work.preparation);
   const workflow = asRecord(work.chat_workflow);
+  const delivery = asRecord(work.delivery);
+  const managed = delivery.schema === 'easel-creation-delivery@1';
+  const repairing = managed && delivery.status !== 'failed';
   const planning = asRecord(item.material_planning);
   const gate = asRecord(item.material_gate);
   const plan = asRecord(item.plan);
@@ -16,12 +19,12 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   const selected = !!attempt && work.selected_attempt_id === item.attempt_id && !!work.selected_output_name;
   const output = Object.keys(asRecord(item.outputs)).length > 0;
   const proposal = workflow.proposal_status !== 'CONFIRMED' && !attempt && (!preparation.status || preparation.status === 'CREATED');
-  const contentFailed = !planning.status && !output && !selected && preparation.status === 'FAILED';
-  const preparationFailed = !output && !selected && gate.status !== 'MATERIAL_READY' && preparation.status === 'MATERIAL_FAILED';
+  const contentFailed = !repairing && !planning.status && !output && !selected && preparation.status === 'FAILED';
+  const preparationFailed = !repairing && !output && !selected && gate.status !== 'MATERIAL_READY' && preparation.status === 'MATERIAL_FAILED';
   const planningFailed = ['FAILED', 'PLANNING_FAILED'].includes(String(planning.status)) || (preparationFailed && (preparation.failure_stage === 'planning' || (!preparation.failure_stage && !planning.status)));
   const materialFailed = preparationFailed && !planningFailed;
   const contentReady = !!preparation.handoff_id || !!preparation.snapshot_hashes;
-  const productionFailed = execution === 'BUILD_FAILED' || ['AUTHORING_FAILED', 'PLAN_FAILED'].includes(String(item.authoring_status));
+  const productionFailed = execution === 'BUILD_FAILED' || (!repairing && ['AUTHORING_FAILED', 'PLAN_FAILED'].includes(String(item.authoring_status)));
   const claims = Array.isArray(truth?.claims) ? truth.claims.map(asRecord) : [];
   const facts = claims.filter(claim => claim.status === 'REVIEW_REQUIRED').length;
   const blockingIds = Array.isArray(gate.blocking_needs) ? gate.blocking_needs : [];
@@ -32,10 +35,11 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
     ['image', 'video'].includes(String(asset.media_type)) && Array.isArray(asset.needs)
     && asset.needs.some(need => asRecord(need).need_id === needId)
     && !(Array.isArray(asset.semantic_reviewed_need_ids) && asset.semantic_reviewed_need_ids.includes(needId)))).length);
-  const fee = plan.status === 'ready' && cost.status === 'pricing_read' && execution === 'NOT_SUBMITTED';
+  const fee = plan.status === 'ready' && cost.status === 'pricing_read' && cost.approved !== true && execution === 'NOT_SUBMITTED'
+    && (!managed || delivery.status === 'needs_cost_approval');
   const blockedPreparation = !attempt && ['MATERIAL_NOT_READY', 'BLOCKED_CREATIVE_MODE_REQUIRED', 'BLOCKED_RUNTIME_INVALID', 'BLOCKED_RUNTIME_NOT_CONFIGURED'].includes(String(preparation.status));
   const pending = selected ? 0 : proposal || blockedPreparation ? 1 : facts + materialTasks + (fee ? 1 : 0) + (output ? 1 : 0);
-  const failureStage = productionFailed ? '视频制作' : planningFailed ? '创作规划' : materialFailed ? '素材准备' : contentFailed ? '内容准备' : null;
+  const failureStage = productionFailed ? '视频制作' : planningFailed ? '创作规划' : materialFailed ? '素材准备' : contentFailed ? '内容准备' : managed && delivery.status === 'failed' ? (attempt ? '视频制作' : '内容准备') : null;
   const state: StageState = selected ? 'completed' : failureStage ? 'failed' : pending ? 'action-required' : proposal ? 'waiting' : 'running';
   const timeline: { name: string; state: StageState }[] = [
     { name: '方案', state: proposal ? 'action-required' : 'completed' },
@@ -46,11 +50,16 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
     { name: '审片', state: selected ? 'completed' : output ? 'action-required' : 'waiting' },
     { name: '成片', state: selected ? 'completed' : 'waiting' },
   ];
-  const reason = asRecord(item.last_error).message ?? preparation.last_error ?? preparation.error;
+  const reason = delivery.last_error ?? asRecord(item.last_error).message ?? preparation.last_error ?? preparation.error;
   const rawReason = typeof reason === 'string' ? reason : typeof asRecord(reason).message === 'string' ? String(asRecord(reason).message) : '当前阶段未完成，已保留最后可信结果。';
   return { proposal, selected, pending, state, timeline, failureStage, blockedPreparation,
     failureReason: rawReason.includes('content.trim is outside') ? '镜头截取超出了原素材时长。已保留原成片、内容和素材；恢复会先修正该镜头截取并核验，重新合成仍需核价与批准。' : rawReason.startsWith('Creative Planning MaterialPlan Domain validation failed:') ? '创作规划的素材需求格式未通过核验。已保留内容与方案，重试会修正规划格式后重新核验。' : rawReason.startsWith('Hypit check 失败：') ? '视频编排文件未通过格式核验。已保留内容和素材，重试会修正编排并重新核验；通过后仍需核价与批准才能合成。' : rawReason,
-    updatedAt: item.updated_at ?? preparation.updated_at ?? work.updated_at,
-    title: selected ? '最终成片已确认' : failureStage ? `${failureStage}遇到问题` : pending ? '需要你处理' : proposal ? '创作方案' : preparation.active_stage === 'planning' && planning.status !== 'PLANNING_READY' ? '正在创作规划' : '正在准备作品',
+    updatedAt: delivery.updated_at ?? item.updated_at ?? preparation.updated_at ?? work.updated_at,
+    title: managed && delivery.status === 'observation_failed' ? '状态连接中断 · 显示最后可信结果' :
+      managed && delivery.status === 'execution_uncertain' ? '执行结果待核实' :
+      selected ? '最终成片已确认' : failureStage ? `${failureStage}遇到问题` : pending ? '需要你处理' : proposal ? '创作方案' :
+      managed && delivery.status === 'reconciling' ? '正在核对制作结果' : managed && delivery.status === 'producing' ? '正在合成视频' :
+      managed && delivery.status === 'exporting' ? '正在整理成片' : managed && delivery.status === 'authoring' ? '正在编排画面与声音' :
+      managed && delivery.status === 'retrying' ? '正在恢复当前步骤' : preparation.active_stage === 'planning' && planning.status !== 'PLANNING_READY' ? '正在创作规划' : '正在准备作品',
   };
 }

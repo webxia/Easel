@@ -55,7 +55,15 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 原始产品目标对齐、流程重审与 Director 实际执行链只读核对已完成。已确认两组根因：缺少持续自主交付首版的责任与执行闭环；Mode 在 Planning 中有体现，但 Material 风格参数未接全、Voice 朗读要求未进入实际请求、Production 未完整落实文稿、Quality 仍依赖人审。用户已批准将合并方案写入文档并设 Goal 实施，[同一任务](tasks/creator-autonomous-first-cut-2026-09-30.md) 已替换为唯一实施方案。
 
-当前：方案已落文档，Goal 已设为 active；①委托与持续交付开始实施，②～⑥待依赖完成。尚不宣称新增软件能力或测试通过。本轮不修改/继续旧 Creation、不调用付费 AI、不启动真实 Build 或完整 E2E。旧具名运行与其限制保持不变；局部实现证据随后在本节更新。
+当前：Goal 保持 active，①委托与持续交付 **PARTIAL**，②～⑥尚未实现。当前改动只建立持续执行基础，不能据此宣称“自主交付可看首版”或风格一致已实现。
+
+- 新的结构化确认把方案原文、摘要与授权来源原子保存到同一 Creation；后端生命周期扫描仅接管带新委托记录的作品。旧 Creation 不迁移、不入队，旧确认重放也不会被接管。
+- 后端从现有 Preparation/Attempt 状态推导下一项操作，复用准备、编排、Runtime、Plan、Pricing、提交、对账、状态查询和导出服务。页面对新委托只读轮询，不再用 useEffect 推进上述操作；处理正式 Truth/Material 决定后由后端观察证据继续。
+- 独立 OS 执行锁覆盖同一作品的一次操作；并发调用不派发第二份任务，协程取消要等实际执行结束才释放锁。已知失败最多自动重试三次，持久计数不因重建执行器消失。Build 提交不确定只对账；状态查询失败与制作失败分开，继续保留最后可信结果。
+- 按本机 Hypit 0.2.7 `packages/cli/src/output.ts` 的正式核价合同，全部请求确认为 resolved/local 才记录 0 美元。新委托自动批准仅此类无 Provider 费用的 Build，并保留当前 Plan/Pricing/fingerprint 与委托来源；未知/有费用结果仍需明确批准。删去前端 1 美元占位，未承诺 Provider 消费硬上限。
+- **未闭环：** 网关 Agent 可能在 Easel 进程退出后继续执行。当前对遗留运行中的准备/编排记录及调用超时保守标记结果未核实，禁止重复派发；还需接入实际运行身份与终态对账，不能声称已完成所有重启恢复。导出文件与登记之间的崩溃恢复、失败 Build 的有界自动恢复仍需补齐。导出后只到 `awaiting_quality`，未假装机器质量检查完成。委托内付费素材执行、Director/Truth 默认策略、Material/Voice、Production、Quality 与跨内容回放仍按②～⑥推进。
+- **局部验证：** `test_creation_preparation`、`test_hypit_integration`、`test_chat_capability`、`test_openclaw_authoring_boundary`、`test_material_integration`、`test_runtime_config` 共 168 passed；覆盖浏览器请求结束后由后端恢复、跨进程锁/并发/取消、逐检查点重建执行器、不确定提交先对账、查询断连、重试上限、旧作品排除、零费用核价和批准失效后禁止 Build。状态投影检查及隔离 Chromium 桌面/窄屏检查通过，新增后台核价/导出/查询断连场景中页面没有生产写请求。lint/build、compileall、115 项技能合同与 diff check 通过，保留既有 Hook/体积提示。
+- 本轮没有修改或继续真实 Creation，没有调用付费 AI、真实 Build 或完整 E2E，没有重启生产服务。所有执行回放使用隔离数据和假执行器；未核实真实交付质量。`READY_FOR_HUMAN_E2E=NO`，旧具名运行及其失败结论保持不变。
 
 ## Official Product Path
 

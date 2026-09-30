@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import sys
+import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -23,6 +25,164 @@ from easel.materials.domain import (
     NeedScope, NeedScopeType,
 )
 import app as web  # noqa: E402
+
+
+def _confirmed_delivery():
+    work = creation.create_creation("隔离测试主题", creative_mode="clear_memo_video", route="hypit_video",
+                                    origin={"type": "chat", "session_hash": "c" * 64})
+    creation.mark_chat_proposal_ready(work["id"])
+    proposal = '[{"role":"user","content":"已确认的隔离测试方案"}]'
+    return creation.confirm_chat_proposal(work["id"], "confirm", delivery_proposal=proposal,
+                                          proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest())
+
+
+def test_delivery_excludes_legacy_and_serializes_cancellation_and_restarts(prep_env):
+    from easel.creation_delivery import advance_creation, enrolled_creation_ids
+
+    legacy = prep_env["work"]
+    before = creation._creation_path(legacy["id"]).read_bytes()
+    work = _confirmed_delivery()
+    assert enrolled_creation_ids() == [work["id"]]
+    calls = []
+
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def execute(operation, current):
+            calls.append(operation)
+            entered.set()
+            await release.wait()
+            with creation.edit_creation(current["id"]) as value:
+                value["preparation"] = {"status": "MATERIAL_NOT_READY"}
+                value["hypit_attempts"] = [{"attempt_id": "fa_" + "a" * 32,
+                                            "material_gate": {"status": "MATERIAL_NOT_READY"}}]
+
+        owner = asyncio.create_task(advance_creation(work["id"], execute))
+        await entered.wait()
+        assert await advance_creation(work["id"], execute) is False
+        probe = subprocess.run([sys.executable, "-c",
+            "import fcntl,sys\nf=open(sys.argv[1], 'a+b')\n"
+            "try: fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)\n"
+            "except BlockingIOError: sys.exit(77)\n",
+            str(creation._creation_dir(work["id"]) / "delivery.lock")], check=False)
+        assert probe.returncode == 77
+        owner.cancel()
+        await asyncio.sleep(0)
+        # Cancellation/shutdown cannot release ownership while execution lives.
+        assert not owner.done()
+        assert await advance_creation(work["id"], execute) is False
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await owner
+
+    asyncio.run(scenario())
+
+    async def forbidden(*_):
+        pytest.fail("checkpoint/legacy must not be dispatched")
+
+    assert asyncio.run(advance_creation(work["id"], forbidden)) is False
+    assert asyncio.run(advance_creation(legacy["id"], forbidden)) is False
+    assert creation._creation_path(legacy["id"]).read_bytes() == before
+    assert calls == ["prepare"]
+    # Replayed old confirmations never opt a legacy work into delivery.
+    creation.confirm_chat_proposal(legacy["id"], "retry", delivery_proposal="ignored")
+    assert "delivery" not in creation.get_creation(legacy["id"])
+
+
+def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(prep_env):
+    from easel.creation_delivery import advance_creation, next_operation
+
+    work = _confirmed_delivery()
+    calls = []
+
+    async def execute(operation, current):
+        calls.append(operation)
+        if operation == "author" and calls.count("author") == 1:
+            raise RuntimeError("临时编排失败")
+        if operation == "refresh" and calls.count("refresh") == 1:
+            raise OSError("暂时无法读取状态")
+        with creation.edit_creation(current["id"]) as value:
+            if operation == "prepare":
+                value["hypit_attempts"] = [{"attempt_id": "fa_" + "b" * 32,
+                    "execution_status": "NOT_SUBMITTED", "authoring_status": "READY_FOR_EXTERNAL_AUTHORING",
+                    "material_gate": {"status": "MATERIAL_READY"}}]
+                return
+            attempt = value["hypit_attempts"][-1]
+            if operation == "author":
+                attempt["authoring_status"] = "AUTHORING_READY"
+            elif operation == "runtime":
+                attempt["runtime_status"] = "CONFIGURED"
+            elif operation == "validate":
+                attempt["plan"] = {"status": "ready"}
+            elif operation == "price":
+                attempt["cost"] = {"status": "pricing_read", "pricing": {
+                    "format": "hypit.cli-pricing@1", "requestCount": 2, "noChargeRequestCount": 2, "groups": []}}
+            elif operation == "approve_free":
+                attempt["cost"]["approved"] = True
+            elif operation == "submit":
+                attempt["execution_status"] = "SUBMITTING"
+                attempt["build"] = {"operation": {"operation_id": "persisted-before-call"}}
+            elif operation == "reconcile":
+                if calls.count("reconcile") < 2:
+                    return  # No match yet is not permission to resubmit.
+                attempt.update(execution_status="SUBMITTED", build={"build_id": "fixture-only"})
+            elif operation == "refresh":
+                attempt["execution_status"] = "BUILD_COMPLETE"
+            elif operation == "export":
+                attempt["outputs"] = {"final.video": {"sha256": "fixture-only"}}
+            else:
+                pytest.fail(operation)
+        if operation == "submit":
+            raise TimeoutError("提交响应丢失")
+
+    # New event loop/dispatcher for every operation models a process restart;
+    # no in-memory task registry participates in deciding what runs next.
+    for _ in range(20):
+        asyncio.run(advance_creation(work["id"], execute))
+        if calls[-1:] == ["refresh"] and calls.count("refresh") == 1:
+            saved = creation.get_creation(work["id"])
+            assert saved["delivery"]["status"] == "observation_failed"
+            assert saved["hypit_attempts"][-1]["execution_status"] == "SUBMITTED"
+        if next_operation(creation.get_creation(work["id"])) == (None, "awaiting_quality"):
+            break
+    assert calls == ["prepare", "author", "author", "runtime", "validate", "price", "approve_free",
+                     "submit", "reconcile", "reconcile", "refresh", "refresh", "export"]
+    assert creation.get_creation(work["id"])["delivery"]["status"] == "awaiting_quality"
+
+
+def test_delivery_bounds_failures_preserves_authorization_and_validates_commission(prep_env):
+    from easel.creation_delivery import advance_creation, retry_delivery
+
+    work = _confirmed_delivery()
+    calls = []
+
+    async def failure(*_):
+        calls.append(1)
+        raise RuntimeError("可恢复的格式错误")
+
+    for _ in range(5):
+        asyncio.run(advance_creation(work["id"], failure))
+    saved = creation.get_creation(work["id"])
+    assert len(calls) == 3 and saved["delivery"]["status"] == "failed"
+    retry_delivery(work["id"])
+    asyncio.run(advance_creation(work["id"], failure))
+    assert len(calls) == 4
+    assert creation.get_creation(work["id"])["delivery"]["authorization"] == work["delivery"]["authorization"]
+    with creation.edit_creation(work["id"]) as current:
+        current["delivery"]["proposal"] = "静默篡改委托"
+    asyncio.run(advance_creation(work["id"], failure))
+    assert len(calls) == 4
+    assert creation.get_creation(work["id"])["delivery"]["status"] == "commission_invalid"
+    # A dead caller is insufficient evidence that the independent gateway job
+    # stopped. A restart must not silently dispatch a second model request.
+    fresh = _confirmed_delivery()
+    with creation.edit_creation(fresh["id"]) as current:
+        current["delivery"].update(operation="prepare", status="preparing")
+    asyncio.run(advance_creation(fresh["id"], failure))
+    assert len(calls) == 4
+    assert creation.get_creation(fresh["id"])["delivery"]["status"] == "execution_uncertain"
+    with pytest.raises(creation.CreationError, match="不能重复派发"):
+        retry_delivery(fresh["id"])
 
 
 @pytest.fixture
@@ -496,9 +656,13 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
     assert response.status_code == 200
     body = response.json()
     assert body["creationId"] == first_body["creationId"]
-    assert "仍有画面素材需要补齐" in body["response"]
+    assert "委托已确认" in body["response"]
     assert "INTERNAL_PREPARATION" not in body["response"]
     assert "outputs/content-core.json" not in body["response"]
+    # Closing the page/server before dispatch cannot lose the commission.
+    # Resume from disk in another loop; no client turn owns preparation now.
+    from easel.creation_delivery import advance_creation
+    asyncio.run(advance_creation(body["creationId"], web._execute_creation_delivery))
     assert len(agent_calls) == 2
     assert "CURRENT_CREATION_ID=" in agent_calls[1][0]
     work = creation.get_creation(body["creationId"])

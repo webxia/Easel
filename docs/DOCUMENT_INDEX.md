@@ -37,7 +37,7 @@
 | 创建/视频主链、Preparation、OpenClaw、Hypit | 默认上下文 | [`architecture/easel-video-architecture-v1.md`](architecture/easel-video-architecture-v1.md)、[`decisions/ADR-001-creation-hypit-mainline.md`](decisions/ADR-001-creation-hypit-mainline.md)；触及冻结决策时读对应 ADR。 |
 | Material Layer / Provider / Matching / Library | 默认上下文 | 冻结契约 [`architecture/material-layer-v1.3.md`](architecture/material-layer-v1.3.md) 和 [`decisions/ADR-004-material-layer-v1.3-baseline.md`](decisions/ADR-004-material-layer-v1.3-baseline.md)。具体实现以源码和测试为准。 |
 | AI 素材生成 | 默认上下文 + [`workstreams/generated-material.md`](workstreams/generated-material.md) | MiniMax Image / Video / preset-voice TTS adapters；范围与验收见对应 Task。 |
-| Creation 人工负担/制作闭环 | 默认上下文 + [`workstreams/low-friction-creation.md`](workstreams/low-friction-creation.md) | [`T19`](tasks/v1c-t19-low-friction-creation.md) 与关联源码、测试。 |
+| Creation 人工负担/制作闭环 | 默认上下文 + [`自主首版唯一实施 Task`](tasks/creator-autonomous-first-cut-2026-09-30.md) | 关联源码、测试；[`T19`](tasks/v1c-t19-low-friction-creation.md) 仅作为已并入的历史基线。 |
 | Runtime / 外部依赖 / 凭证 | 默认上下文 | [`configuration/v1-runtime-and-external-dependencies.md`](configuration/v1-runtime-and-external-dependencies.md) 和所选能力的 readiness Acceptance；严禁读取或输出 secret。 |
 | 真实产品/E2E 验证 | 默认上下文 + [T15](tasks/v1c-t15-e2e-readiness.md) | 只读该条具名 Acceptance、实际 Attempt/Build 证据及所需当前契约。 |
 | 文档历史、旧设计或审计追因 | 默认上下文 | 使用下方 Historical 路由；明确说明它是历史证据。 |

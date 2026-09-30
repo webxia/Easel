@@ -92,6 +92,8 @@ def claim_chat_preparation(
     creation_id: str,
     session_id: str,
     turn_id: str | None,
+    *,
+    recover_interrupted: bool = False,
 ) -> dict[str, Any]:
     """Persist a preparation claim before Agent dispatch so turn retries cannot fork work."""
     requested_key = _operation_key(session_id, turn_id)
@@ -105,7 +107,7 @@ def claim_chat_preparation(
             result = {"action": "blocked", **current}
         elif status in _TERMINAL_PREPARATION:
             result = {"action": "already_prepared", **current}
-        elif status == "PREPARING" and _pid_alive(current.get("owner_pid")):
+        elif status == "PREPARING" and _pid_alive(current.get("owner_pid")) and not recover_interrupted:
             result = {"action": "in_progress", **current}
         else:
             existing_key = current.get("operation_key")

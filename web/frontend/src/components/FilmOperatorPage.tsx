@@ -6,7 +6,7 @@ import {
   refreshFilmBuild, resolveFilmRuntime, retryFailedFilmBuild, reviewFilmOutput, reviewMaterialRights, reviewScriptTruth, selectFilmBuild, submitFilmBuild,
   fetchPromotableMaterials, promoteAttemptMaterial,
   materialAssetPreviewUrl, reviewMaterialMatch, recoverFilmMaterials,
-  validateFilmAttempt,
+  validateFilmAttempt, retryCreationDelivery,
 } from '../lib/api';
 import { projectCreatorWorkspace, stageLabels } from '../lib/creatorWorkspace';
 import type { ChatMessage } from '../lib/store';
@@ -194,6 +194,9 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   }, [operatorSessionReady, attemptId, refreshVersion]);
 
   const savedProposalStatus = record(creationSnapshot?.chat_workflow).proposal_status;
+  const delivery = record(creationSnapshot?.delivery);
+  const backendDelivery = delivery.schema === 'easel-creation-delivery@1';
+  const legacyDelivery = creationSnapshot !== null && !backendDelivery;
   const showingProposal = attemptId ? false : typeof savedProposalStatus === 'string'
     ? savedProposalStatus !== 'CONFIRMED' : proposalPhase;
   const currentProposalText = [...proposalMessages].reverse().find(message => message.role === 'assistant')?.content;
@@ -348,13 +351,12 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   const brief = record(record(attemptStatus.production_request).production_brief);
   const selectedOutput = creationSnapshot?.selected_attempt_id === attemptId
     && typeof creationSnapshot?.selected_output_name === 'string';
-  const allLocalNoCharge = Number(record(cost.pricing).requestCount) > 0
-    && record(cost.pricing).requestCount === record(cost.pricing).noChargeRequestCount;
+  const allLocalNoCharge = cost.estimated_usd === 0 && record(cost.total).status === 'known';
   const estimatedCost = typeof cost.estimated_usd === 'number' ? cost.estimated_usd : null;
   const canApproveCost = allLocalNoCharge || estimatedCost !== null;
   const declaredBudget = typeof cost.max_budget_usd === 'number' ? cost.max_budget_usd : null;
-  const requestedBudget = allLocalNoCharge ? Math.min(1, declaredBudget ?? 1) : Number(budget);
-  const budgetAllowed = requestedBudget > 0 && (declaredBudget === null || requestedBudget <= declaredBudget);
+  const requestedBudget = allLocalNoCharge ? 0 : Number(budget);
+  const budgetAllowed = (requestedBudget > 0 || allLocalNoCharge) && (declaredBudget === null || requestedBudget <= declaredBudget);
   const currentOutput = reviewOutputName && typeof selectedReviewOutput.path === 'string';
   const execution = text(attemptStatus.execution_status, 'NOT_SUBMITTED');
   const projection = projectCreatorWorkspace(creationSnapshot, attempt, scriptTruth, rightsCandidates);
@@ -406,7 +408,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   );
 
   useEffect(() => {
-    if (!shouldAutoTrack) return;
+    if (!legacyDelivery || !shouldAutoTrack) return;
     let cancelled = false;
     let refreshing = false;
     const poll = async () => {
@@ -427,22 +429,22 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
     };
     const timer = window.setInterval(() => { void poll(); }, 5000);
     return () => { cancelled = true; window.clearInterval(timer); };
-  }, [attemptId, shouldAutoTrack, attemptStatus.authoring_status, build.build_id]);
+  }, [legacyDelivery, attemptId, shouldAutoTrack, attemptStatus.authoring_status, build.build_id]);
 
   useEffect(() => {
-    if (!operatorSessionReady || !attemptId || execution !== 'SUBMISSION_UNCERTAIN'
+    if (!legacyDelivery || !operatorSessionReady || !attemptId || execution !== 'SUBMISSION_UNCERTAIN'
         || reconciliationRun.current === attemptId) return;
     reconciliationRun.current = attemptId;
     void reconcileFilmBuild(attemptId).then((result) => {
       if (result.status === 'reconciled') setAttempt(record(result.attempt));
       else setError('制作结果仍在核对中；系统不会重复提交。可在高级信息中查看详情。');
     }).catch((reason: unknown) => setError(operationError(reason)));
-  }, [operatorSessionReady, attemptId, execution]);
+  }, [legacyDelivery, operatorSessionReady, attemptId, execution]);
 
   // Preparation, validation and pricing are deterministic product work. They
   // stay behind their formal APIs, without asking the Creator to operate each step.
   useEffect(() => {
-    if (showingProposal || !operatorSessionReady || !attemptId || !attempt
+    if (!legacyDelivery || showingProposal || !operatorSessionReady || !attemptId || !attempt
         || !['AUTHORING_READY', 'PLANNED'].includes(text(attempt.authoring_status))
         || !['NOT_SUBMITTED', 'BLOCKED'].includes(text(attempt.execution_status))
         || cost.status === 'pricing_read') return;
@@ -470,10 +472,10 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
       }
     };
     void prepare();
-  }, [showingProposal, operatorSessionReady, attemptId, attempt, cost.status, plan.status]);
+  }, [legacyDelivery, showingProposal, operatorSessionReady, attemptId, attempt, cost.status, plan.status]);
 
   useEffect(() => {
-    if (!operatorSessionReady || !attemptId || execution !== 'BUILD_COMPLETE'
+    if (!legacyDelivery || !operatorSessionReady || !attemptId || execution !== 'BUILD_COMPLETE'
         || Object.keys(outputs).length > 0 || exportRun.current === attemptId || exportInFlight.current === attemptId) return;
     exportRun.current = attemptId; exportInFlight.current = attemptId;
     const exportCompletedBuild = async () => {
@@ -494,7 +496,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
       }
     };
     void exportCompletedBuild();
-  }, [operatorSessionReady, attemptId, execution, outputs]);
+  }, [legacyDelivery, operatorSessionReady, attemptId, execution, outputs]);
 
   const run = useCallback(async (label: string, action: () => Promise<unknown>) => {
     setBusy(label);
@@ -601,7 +603,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
             音轨：{({ silent: '静音', voice: '旁白', music: '音乐', mixed: '旁白与音乐' } as Record<string, string>)[String(proposalSpecifications.audio_mode)] ?? '—'}<br />
             语言：{({ 'zh-CN': '简体中文', 'zh-TW': '繁体中文', en: '英语' } as Record<string, string>)[String(proposalSpecifications.language)] ?? '—'}
           </dd>
-          <dt>创作边界</dt><dd>不自动发布；付费素材与视频制作会另行确认费用。</dd>
+          <dt>创作边界</dt><dd>确认后由 Easel 持续制作，可离开页面。无服务商费用的合成自动执行；付费或无法核实的费用另行确认。不自动发布。</dd>
           <dt>待确认信息</dt><dd>{proposalPreviewError || (!proposalPreview ? '正在核对方案…' : proposalMissing.length ? proposalMissing.join('、') + '；请在对话中明确这些规格。' : '规格已明确，确认后会冻结相同输入。')}</dd>
         </dl>
         <details><summary>查看本次确认的对话依据</summary>
@@ -612,11 +614,19 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
       </section>}
       {!operatorSessionReady && <p className="page-subtitle">正在连接作品，请稍候…</p>}
       {notice && <div className="film-op-message is-ok" role="status">{notice}</div>}
+      {backendDelivery && delivery.status === 'failed' && <section className="card film-op-card" role="alert">
+        <h3>制作暂时中断</h3><p>{text(delivery.last_error, '当前步骤未完成')}</p>
+        <p>已保留完成的内容和素材。重试只恢复当前步骤；不会重复提交结果未确定的制作，授权外费用会另行确认。</p>
+        <button className="btn btn-primary" disabled={!!busy} onClick={() => void run('恢复制作', () => retryCreationDelivery(creationId))}>重试当前步骤</button>
+      </section>}
       {error && <div className="film-op-message is-error" role="alert">
         这一步暂时无法继续。{error}
       </div>}
 
-      {!showingProposal && operatorSessionReady && !attemptId && <section className="card film-op-card film-op-creator">
+      {backendDelivery && ['execution_uncertain', 'observation_failed'].includes(text(delivery.status)) && <p role="status">
+        {delivery.status === 'execution_uncertain' ? '上一次执行是否结束尚未核实。已保留结果，当前不会重复派发。' : '暂时无法取得制作进度，显示最后可信结果；Easel 会继续查询。'}
+      </p>}
+      {!showingProposal && operatorSessionReady && !attemptId && delivery.status !== 'failed' && <section className="card film-op-card film-op-creator">
         <h2>{projection.title}</h2>
         {projection.failureStage ? <>
           <p>失败阶段：{projection.failureStage}</p><p>{projection.failureReason}</p>
@@ -626,8 +636,8 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
       </section>}
 
       {operatorSessionReady && attemptId && attempt && <section className="card film-op-card film-op-creator">
-        <div className="film-op-heading"><h2>{phaseTitle[phase]}</h2><span className="film-op-work-title" title={title}>{title}</span></div>
-        <p>{connectionError ? '以下为最后可信制作状态，实时进度尚未确认。' : phaseDescription[phase]}</p>
+        <div className="film-op-heading"><h2>{backendDelivery ? projection.title : phaseTitle[phase]}</h2><span className="film-op-work-title" title={title}>{title}</span></div>
+        <p>{connectionError || delivery.status === 'observation_failed' ? '以下为最后可信制作状态，实时进度尚未确认。' : backendDelivery && !['review', 'done'].includes(phase) ? projection.title : phaseDescription[phase]}</p>
         {projection.pending > 0 && <p>当前待处理 {projection.pending} 项；优先处理下方事项。</p>}
         {projection.updatedAt != null && <small>作品状态更新时间：{String(projection.updatedAt)}</small>}
         {phase === 'done' && <div className="film-op-selected">
@@ -659,7 +669,10 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
           </div>}
         </div>}
         {!currentOutput && typeof scriptTruth?.script === 'string' && <details className="film-op-stage-result"><summary>已形成的阶段成果：脚本</summary><p style={{ whiteSpace: 'pre-wrap' }}>{scriptTruth.script}</p></details>}
-        {!currentOutput && ['planning', 'preparing', 'building'].includes(phase) && <small>尚未生成视频预览；当前正在整理内容、编排或合成。</small>}
+        {!currentOutput && ['planning', 'preparing', 'building'].includes(phase) && <small>
+          {connectionError || ['observation_failed', 'execution_uncertain'].includes(text(delivery.status))
+            ? '最后可信结果中还没有视频预览，当前执行状态尚未确认。' : '尚未生成视频预览；当前正在整理内容、编排或合成。'}
+        </small>}
         {phase === 'failed' && <div className="film-op-message is-error" role="alert">
           <strong>失败阶段：{projection.failureStage ?? '视频制作'}</strong><p>{projection.failureReason}</p>
           <p>已保留：当前方案与已经通过核验的阶段成果。重试只恢复当前失败阶段；视频重新合成需重新核价与批准。</p>
@@ -671,7 +684,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
           {allLocalNoCharge && <span>本次制作无第三方计费请求</span>}
           {!allLocalNoCharge && estimatedCost !== null && <span>预计费用：${estimatedCost.toFixed(2)}</span>}
         </div>}
-        {phase === 'ready' && <div className="film-op-review-claim"><h3>任务：确认本次制作费用</h3><p>已有证据：当前视频方案已通过校验，费用来自本次核价；批准后才提交制作。</p>
+        {phase === 'ready' && (!backendDelivery || delivery.status === 'needs_cost_approval') && <div className="film-op-review-claim"><h3>任务：确认本次制作费用</h3><p>已有证据：当前视频方案已通过校验，费用来自本次核价；批准后才提交制作。</p>
           {!canApproveCost && <p className="film-op-warning">费用尚无法确认，暂不能开始制作。可在高级信息中查看详情。</p>}
           {canApproveCost && !allLocalNoCharge && <label className="film-op-budget">本次同意的预算（美元）
             <input className="field" inputMode="decimal" value={budget} onChange={(event) => setBudget(event.target.value)} />
@@ -681,14 +694,14 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
           <button className="btn btn-primary" disabled={!!busy || !canApproveCost || !budgetAllowed} onClick={() => {
             void run('开始制作', async () => {
               if (cost.approved !== true) await approveFilmCost(attemptId, requestedBudget);
-              return submitFilmBuild(attemptId, text(creationSnapshot?.idea, 'Easel 视频'));
+              if (!backendDelivery) return submitFilmBuild(attemptId, text(creationSnapshot?.idea, 'Easel 视频'));
             });
           }}>同意本次费用并制作</button>
         </div>}
-        {attemptStatus.authoring_status === 'AUTHORING_RUNNING' && <button className="btn btn-sm" disabled={!!busy} onClick={() => void run('恢复当前视频编排', () => startFilmAuthoring(attemptId))}>检查并恢复视频编排</button>}
-        {phase === 'building' && <p role="status">正在合成视频，完成后会自动生成预览。你可以离开此页面。</p>}
-        {phase === 'failed' && ['创作规划', '素材准备'].includes(projection.failureStage ?? '') && <button className="btn btn-primary" disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重试{projection.failureStage}</button>}
-        {phase === 'failed' && ['AUTHORING_FAILED', 'PLAN_FAILED'].includes(text(attemptStatus.authoring_status)) && <button className="btn btn-primary" disabled={!!busy}
+        {!backendDelivery && attemptStatus.authoring_status === 'AUTHORING_RUNNING' && <button className="btn btn-sm" disabled={!!busy} onClick={() => void run('恢复当前视频编排', () => startFilmAuthoring(attemptId))}>检查并恢复视频编排</button>}
+        {phase === 'building' && delivery.status !== 'observation_failed' && <p role="status">正在合成视频，完成后会自动生成预览。你可以离开此页面。</p>}
+        {!backendDelivery && phase === 'failed' && ['创作规划', '素材准备'].includes(projection.failureStage ?? '') && <button className="btn btn-primary" disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重试{projection.failureStage}</button>}
+        {!backendDelivery && phase === 'failed' && ['AUTHORING_FAILED', 'PLAN_FAILED'].includes(text(attemptStatus.authoring_status)) && <button className="btn btn-primary" disabled={!!busy}
           onClick={() => {
             if (attemptStatus.authoring_status === 'AUTHORING_FAILED') void run('重新整理视频', () => startFilmAuthoring(attemptId));
             else void run('重新检查视频方案', async () => {

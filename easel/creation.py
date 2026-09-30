@@ -9,6 +9,7 @@ without turning a chat session into the source of truth.
 from __future__ import annotations
 
 import argparse
+import hashlib
 from contextlib import contextmanager
 import json
 import os
@@ -322,6 +323,7 @@ def confirm_chat_proposal(
     *,
     proposal_sha256: str | None = None,
     production_specs: dict[str, Any] | None = None,
+    delivery_proposal: str | None = None,
 ) -> dict[str, Any]:
     """Persist a user-issued production confirmation; natural-language text cannot call this implicitly."""
     with edit_creation(creation_id) as data:
@@ -342,6 +344,25 @@ def confirm_chat_proposal(
                 **({"production_specs": production_specs} if production_specs is not None else {}),
             })
             data["chat_workflow"] = workflow
+            if delivery_proposal is not None:
+                from easel.integrations.hypit.secrets import SecretRedactor
+
+                if (not proposal_sha256 or len(delivery_proposal) > 32_000
+                        or hashlib.sha256(delivery_proposal.encode("utf-8")).hexdigest() != proposal_sha256
+                        or SecretRedactor.contains_secret(delivery_proposal)):
+                    raise CreationError("自主委托与确认方案不一致或含疑似 Secret")
+                # Enrollment and confirmation are one write. Old confirmations
+                # never acquire a delivery record through a replay or restart.
+                data["delivery"] = {
+                    "schema": "easel-creation-delivery@1",
+                    "proposal": delivery_proposal,
+                    "proposal_sha256": proposal_sha256,
+                    "confirmed_at": workflow["confirmed_at"],
+                    "confirmed_by_turn": workflow["confirmed_by_turn"],
+                    "authorization": {"no_provider_charge_build": True,
+                                      "paid_operations": "explicit_approval_required"},
+                    "status": "pending", "failures": {},
+                }
         elif (proposal_sha256 is not None
               and workflow.get("proposal_sha256") != proposal_sha256):
             raise CreationError("本 Creation 已绑定另一份确认方案；不能静默替换冻结输入")

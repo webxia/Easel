@@ -1074,6 +1074,7 @@ def validate_film_attempt(
     run_path: str,
     *,
     cli: HypitCLI | None = None,
+    recover_interrupted: bool = False,
 ) -> dict[str, Any]:
     attempt = get_film_attempt(attempt_id)
     _assert_retry_checkpoint_ready(attempt)
@@ -1086,7 +1087,7 @@ def validate_film_attempt(
     def begin_validation(item):
         if item.get("execution_status", "NOT_SUBMITTED") != "NOT_SUBMITTED":
             raise HypitIntegrationError("已提交的 Attempt 不可重新 validate；请创建新的 Attempt")
-        if item.get("authoring_status") == "VALIDATING":
+        if item.get("authoring_status") == "VALIDATING" and not recover_interrupted:
             raise HypitIntegrationError("该 Attempt 正在 validate")
         changed = {**item, "authoring_status": "VALIDATING", "status": "VALIDATING"}
         return _event(changed, "validation_started")
@@ -1182,17 +1183,21 @@ def estimate_film_attempt(attempt_id: str, *, cli: HypitCLI | None = None) -> di
         _save_attempt(attempt_id, lambda item: _event(
             _invalidate_cost(item, after), "approval_invalidated_pricing_input_changed"))
         raise HypitIntegrationError("Pricing 期间 Run/依赖发生变化；必须重新 validate、pricing 并批准")
-    # Hypit reports provider pricing material but does not calculate a single total.
+    # Hypit 0.2.7 output.ts explicitly counts resolved local requests. Only that
+    # complete contract proves zero Provider charge; empty groups alone do not.
     safe_pricing = SecretRedactor.redact(pricing)
+    no_charge = pricing_has_no_provider_charge(safe_pricing)
     pricing_sha256 = _contract_sha256(safe_pricing)
     return _save_attempt(attempt_id, lambda item: _event(
         {**item,
-         "cost": {**item["cost"], "status": "pricing_read", "estimated_usd": None,
+         "cost": {**item["cost"], "status": "pricing_read", "estimated_usd": 0.0 if no_charge else None,
                   "pricing": safe_pricing, "pricing_sha256": pricing_sha256,
                   "approved_pricing_sha256": None, "approved_plan_sha256": None, "approved": False,
                   "approved_fingerprint": None, "execution_fingerprint": after,
                   "plan_sha256": plan_sha256,
-                  "total": {"status": "unknown", "currency": "USD",
+                  "total": {"status": "known", "currency": "USD", "amount": 0.0,
+                            "reason": "Hypit 确认全部请求无 Provider 费用"} if no_charge else
+                           {"status": "unknown", "currency": "USD",
                             "reason": "Hypit pricing 提供各 Provider 价格材料，不提供可验证的聚合总价"},
                   "approved_budget_is_hard_spend_cap": False,
                   "limit_enforced_by_hypit": False,
@@ -1201,10 +1206,41 @@ def estimate_film_attempt(attempt_id: str, *, cli: HypitCLI | None = None) -> di
         "pricing_read"))
 
 
-def approve_film_cost(attempt_id: str, max_budget_usd: float) -> dict[str, Any]:
-    if not math.isfinite(max_budget_usd) or max_budget_usd <= 0:
-        raise HypitIntegrationError("必须明确批准一个大于 0 的美元预算")
+def pricing_has_no_provider_charge(pricing: Any) -> bool:
+    if not isinstance(pricing, dict) or pricing.get("format") != "hypit.cli-pricing@1":
+        return False
+    count = pricing.get("requestCount")
+    free = pricing.get("noChargeRequestCount")
+    groups = pricing.get("groups")
+    return (type(count) is int and count >= 0 and type(free) is int and free == count
+            and isinstance(groups, list)
+            and all(isinstance(group, dict) and group.get("status") == "resolved"
+                    and isinstance(group.get("pricing"), dict)
+                    and group["pricing"].get("kind") == "local" for group in groups))
+
+
+def approve_film_cost(
+    attempt_id: str, max_budget_usd: float, *, use_commission: bool = False,
+) -> dict[str, Any]:
+    if not math.isfinite(max_budget_usd) or max_budget_usd < 0:
+        raise HypitIntegrationError("批准预算必须是非负美元金额")
     attempt = get_film_attempt(attempt_id)
+    authorization = None
+    if use_commission:
+        work = creation.get_creation(attempt["creation_id"])
+        delivery = work.get("delivery") or {}
+        proposal = delivery.get("proposal")
+        if (delivery.get("schema") != "easel-creation-delivery@1"
+                or delivery.get("authorization", {}).get("no_provider_charge_build") is not True
+                or work.get("chat_workflow", {}).get("proposal_status") != "CONFIRMED"
+                or not isinstance(proposal, str)
+                or hashlib.sha256(proposal.encode()).hexdigest() != work.get("chat_workflow", {}).get("proposal_sha256")
+                or delivery.get("proposal_sha256") != work.get("chat_workflow", {}).get("proposal_sha256")
+                or delivery.get("stopped")
+                or max_budget_usd != 0):
+            raise HypitIntegrationError("当前委托没有授权本次费用")
+        authorization = {"proposal_sha256": delivery["proposal_sha256"],
+                         "confirmed_at": delivery["confirmed_at"]}
     _assert_retry_checkpoint_ready(attempt)
     if attempt.get("execution_status") == "BLOCKED":
         raise HypitIntegrationError("Execution 被 Runtime 配置阻塞；先完成 Runtime Resolution")
@@ -1245,6 +1281,8 @@ def approve_film_cost(attempt_id: str, max_budget_usd: float) -> dict[str, Any]:
         planned = item.get("plan", {}).get("execution_fingerprint", {}).get("sha256")
         current_plan = item.get("plan", {})
         current_cost = item.get("cost", {})
+        if max_budget_usd == 0 and not pricing_has_no_provider_charge(current_cost.get("pricing")):
+            raise HypitIntegrationError("仅 Hypit 核实无 Provider 费用的请求可以使用零预算批准")
         try:
             plan_sha256 = _contract_sha256(current_plan.get("result"))
             pricing_sha256 = _contract_sha256(current_cost.get("pricing"))
@@ -1265,7 +1303,8 @@ def approve_film_cost(attempt_id: str, max_budget_usd: float) -> dict[str, Any]:
                          "approved_plan_sha256": plan_sha256,
                          "approved_pricing_sha256": pricing_sha256,
                          "approved_budget_is_hard_spend_cap": False,
-                         "approval_kind": "explicit_operator_approval",
+                         "approval_kind": "confirmed_commission_no_charge" if use_commission else "explicit_operator_approval",
+                         "commission_authorization": authorization,
                          "limit_enforced_by_hypit": False}
         return _event(item, "cost_approved", approved_budget_usd=float(max_budget_usd))
 

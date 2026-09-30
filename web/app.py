@@ -23,7 +23,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, UploadFile, File, Form
@@ -63,6 +63,10 @@ from easel.creation_preparation import (
     mark_preparation_failed,
     prepare_creation_for_hypit,
     preparation_agent_context,
+    validate_preparation_draft,
+)
+from easel.creation_delivery import (
+    DeliveryExecutionUncertain, active_delivery, execution_lock, is_managed, serve_delivery, retry_delivery,
 )
 from easel.integrations.hypit.errors import HypitIntegrationError
 from easel.integrations.openclaw_authoring import run_attempt_scoped_authoring
@@ -404,8 +408,14 @@ async def _lifespan(_app: FastAPI):
     logging.getLogger("easel.runtime").info(
         "V1 runtime startup config: %s", "READY" if not missing else "NOT_READY (" + ", ".join(missing) + ")",
     )
-    yield
-    _stop_mp_login_on_shutdown()
+    delivery_stop = asyncio.Event()
+    delivery_task = asyncio.create_task(serve_delivery(delivery_stop, _execute_creation_delivery))
+    try:
+        yield
+    finally:
+        delivery_stop.set()
+        await delivery_task
+        _stop_mp_login_on_shutdown()
 
 
 app = FastAPI(title="Easel", docs_url=None, redoc_url=None, lifespan=_lifespan)
@@ -931,11 +941,15 @@ def run_agent_sync(msg: str, timeout: int = TIMEOUT_DIRECT, session_id: str | No
     # 跨进程锁：同一会话同时刻只跑一个 openclaw，防并发 takeover 崩溃（rc=1）
     xlock = _CrossProcLock(sk)
     if not xlock.acquire(timeout=min(timeout, 300)):
+        if active_delivery.get():
+            raise DeliveryExecutionUncertain("上一项准备任务仍在运行，不能重复派发")
         return '⏳ 这个会话正在另一个窗口运行，请稍候再试'
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, cwd=str(PROJECT_ROOT), timeout=timeout + 30, env=_proxy_env())
         return clean_agent_output(r.stdout or '') or '（无输出）'
     except subprocess.TimeoutExpired:
+        if active_delivery.get():
+            raise DeliveryExecutionUncertain("准备任务响应超时，尚未确认网关执行是否结束")
         return '⏱️ 请求超时'
     except Exception as e:
         return f'❌ {e}'
@@ -1159,6 +1173,19 @@ async def api_creation_context(creation_id: str, target: str):
         raise HTTPException(400, str(exc)) from exc
 
 
+@app.post("/api/creations/{creation_id}/delivery/retry")
+async def api_creation_delivery_retry(creation_id: str, _operator: None = Depends(require_local_operator)):
+    try:
+        if not is_managed(get_creation(creation_id)):
+            raise CreationError("该作品未委托后端持续交付")
+        with execution_lock(creation_id) as acquired:
+            if not acquired:
+                raise HTTPException(409, "当前步骤仍在执行，Easel 会继续处理")
+            return retry_delivery(creation_id)
+    except CreationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @app.patch("/api/creations/{creation_id}/stage/{stage}")
 async def api_creation_stage(creation_id: str, stage: str, req: CreationStageRequest):
     try:
@@ -1170,7 +1197,24 @@ async def api_creation_stage(creation_id: str, stage: str, req: CreationStageReq
 
 async def _hypit_api_call(function, *args, **kwargs):
     try:
-        return await asyncio.to_thread(function, *args, **kwargs)
+        owner = None
+        if function in {resolve_film_attempt_runtime, validate_film_attempt, estimate_film_attempt,
+                        approve_film_cost, submit_film_build, refresh_film_build, reconcile_film_submission,
+                        export_film_output, retry_failed_film_build, revise_film_output, cancel_film_build}:
+            attempt = get_film_attempt(args[0])
+            work = get_creation(attempt["creation_id"])
+            owner = work["id"] if is_managed(work) else None
+        with execution_lock(owner) if owner else nullcontext(True) as acquired:
+            if not acquired:
+                raise HTTPException(409, "Easel 正在处理当前步骤，请等待状态更新")
+            task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+            try:
+                return await asyncio.shield(task)
+            except asyncio.CancelledError:
+                try:
+                    await task
+                finally:
+                    raise
     except CreationError as exc:
         raise HTTPException(404, str(exc)) from exc
     except HypitIntegrationError as exc:
@@ -1243,6 +1287,9 @@ async def api_script_truth_review(attempt_id: str, req: ScriptTruthReviewRequest
         expected_truth_packet_sha256=req.truthPacketSha256,
         reviewer=req.reviewer,
     )
+    work = get_creation(attempt["creation_id"])
+    if is_managed(work):
+        return {"script_truth": reviewed["ledger"], "preparation": work.get("preparation", {})}
     preparation = await asyncio.to_thread(
         prepare_creation_for_hypit, attempt["creation_id"],
         runtime_profile=_hypit_runtime_profile(), planning_executor=_material_planning_executor,
@@ -1873,7 +1920,10 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
             if preview["missing"]:
                 raise HTTPException(409, "方案尚未明确：" + "、".join(preview["missing"]) + "；请先通过对话补充，再确认制作")
             work = confirm_chat_proposal(work["id"], req.turnId, proposal_sha256=proposal_sha256,
-                                         production_specs=preview["specs"])
+                                         production_specs=preview["specs"], delivery_proposal=proposal_text)
+            if is_managed(work):
+                return "", {**work, "_preparation_action": "delivery",
+                            "_client_phase": "production_confirmed"}
             preparation = claim_chat_preparation(work["id"], req.sessionId, req.turnId)
         except CreationError as exc:
             raise HTTPException(409, str(exc)) from exc
@@ -1926,6 +1976,8 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
     confirmed_preparation_context = ""
     if not confirmed and not work.get("creative_mode"):
         prep_action = "blocked"
+    elif confirmed and is_managed(work):
+        prep_action = "ordinary"
     elif confirmed:
         preparation_state = (work.get("preparation") or {}).get("status")
         if preparation_state not in {"PRODUCTION_PREPARED", "READY_FOR_EXTERNAL_AUTHORING"}:
@@ -1973,6 +2025,9 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
         )
     elif confirmed_preparation_context:
         body += confirmed_preparation_context
+    elif is_managed(work):
+        body += ("\n作品由后端根据已确认委托持续制作。本轮只回答讨论、解释当前状态或收集修改意见；"
+                 "不得自行写制作文件、恢复阶段或调用 Provider/Hypit，不得要求用户发送继续。")
     # Once a work is bound, its original creator/style snapshot remains authoritative
     # even if the user changes the Sidebar selectors during the same conversation.
     message = chat_turn_message(body, work.get("profile"), work.get("creative_mode"),
@@ -2029,6 +2084,78 @@ def _preparation_reply(
     return "这部作品已有准备结果，请查看下方进度。"
 
 
+_DELIVERY_ACK = "委托已确认，Easel 会持续制作，可随时离开并返回查看进度。需要额外费用或缺少必要事实时会再请你处理。"
+
+
+async def _execute_creation_delivery(operation: str, work: dict) -> None:
+    """Invoke the same production services, independent of chat and page life."""
+    if operation == "prepare":
+        preparation = claim_chat_preparation(
+            work["id"], f"delivery:{work['id']}", work["delivery"]["confirmed_by_turn"],
+            recover_interrupted=True,  # Caller holds the cross-process execution lock.
+        )
+        if preparation.get("action") == "generate":
+            try:
+                validate_preparation_draft(work["id"], preparation["operation_key"])
+            except (PreparationError, OSError, ValueError):
+                body = (
+                    "用户已确认以下创作委托。只整理准备文件，不执行素材生成或视频制作。\n"
+                    f"CONFIRMED_PROPOSAL_SHA256={work['delivery']['proposal_sha256']}\n"
+                    f"CONFIRMED_PROPOSAL_TRANSCRIPT={work['delivery']['proposal']}\n"
+                    + creation_context(work) + preparation_agent_context(work, preparation)
+                )
+                message = chat_turn_message(body, work.get("profile"), work.get("creative_mode"))
+                try:
+                    await asyncio.to_thread(run_agent_sync, message, TIMEOUT_PRODUCE, f"preparation-{work['id']}")
+                    validate_preparation_draft(work["id"], preparation["operation_key"])
+                except DeliveryExecutionUncertain:
+                    raise
+                except Exception as exc:
+                    mark_preparation_failed(work["id"], str(exc))
+                    raise
+        result = await asyncio.to_thread(
+            prepare_creation_for_hypit, work["id"], runtime_profile=_hypit_runtime_profile(),
+            planning_executor=_material_planning_executor,
+        )
+        if result.get("status") in {"FAILED", "MATERIAL_FAILED"}:
+            raise PreparationError(result.get("last_error") or "内容或素材准备未完成")
+        return
+
+    attempt = work["hypit_attempts"][-1]
+    attempt_id = attempt["attempt_id"]
+    if operation == "author":
+        await _run_film_authoring(attempt_id)
+    elif operation == "runtime":
+        runtime_profile = _hypit_runtime_profile()
+        if not runtime_profile:
+            raise HypitIntegrationError("视频制作环境尚未配置，内容和素材已保留")
+        await asyncio.to_thread(resolve_film_attempt_runtime, attempt_id, runtime_profile)
+    elif operation == "validate":
+        await asyncio.to_thread(
+            validate_film_attempt, attempt_id, (attempt.get("authoring") or {}).get("run_path", ""),
+            recover_interrupted=True,
+        )
+    elif operation == "price":
+        await asyncio.to_thread(estimate_film_attempt, attempt_id)
+    elif operation == "approve_free":
+        await asyncio.to_thread(approve_film_cost, attempt_id, 0.0, use_commission=True)
+    elif operation == "submit":
+        await asyncio.to_thread(submit_film_build, attempt_id, title=work.get("idea", "Easel 视频"))
+    elif operation == "reconcile":
+        await asyncio.to_thread(reconcile_film_submission, attempt_id)
+    elif operation == "refresh":
+        await asyncio.to_thread(refresh_film_build, attempt_id)
+    elif operation == "export":
+        inspection = await asyncio.to_thread(inspect_film_build, attempt_id)
+        outputs = inspection.get("build", {}).get("outputs", [])
+        targets = [item for item in outputs if item.get("target") is True and item.get("mediaType") == "video/mp4"]
+        if len(targets) != 1 or not isinstance(targets[0].get("name"), str):
+            raise HypitIntegrationError("制作结果未提供唯一的目标视频，无法确定导出对象")
+        await asyncio.to_thread(export_film_output, attempt_id, targets[0]["name"])
+    else:
+        raise CreationError("未知的作品交付操作")
+
+
 async def _finish_ai_film_turn(
     work: dict | None,
     prep_action: str | None,
@@ -2037,6 +2164,8 @@ async def _finish_ai_film_turn(
 ) -> str:
     """Share post-turn state transitions between stream and non-stream chat APIs."""
     if not work:
+        return ""
+    if is_managed(work):
         return ""
     if prep_action == "proposal":
         if succeeded:
@@ -2067,6 +2196,9 @@ async def _finish_ai_film_turn(
 
 async def _resume_confirmed_preparation(work: dict) -> str:
     """Resume an explicitly confirmed Preparation without dispatching Authoring."""
+    if is_managed(work):
+        retry_delivery(work["id"])
+        return "Easel 会从已保留的结果继续处理，可在作品区查看进度。"
     try:
         result = await asyncio.to_thread(
             prepare_creation_for_hypit,
@@ -2746,6 +2878,10 @@ async def _run_film_authoring(attempt_id: str) -> dict:
 def _start_film_authoring(attempt_id: str) -> dict:
     """Start once; repeated UI clicks return the same durable operation."""
     attempt = get_film_attempt(attempt_id)
+    if is_managed(get_creation(attempt["creation_id"])):
+        # Material/Truth decisions update the existing Gate; the durable owner
+        # observes it. A browser request must not fork another Agent task.
+        return attempt
     if "material_planning" in attempt or "material_gate" in attempt:
         from easel.integrations.material_layer import MaterialGateIntegration
 
@@ -2838,6 +2974,8 @@ async def api_chat_stream(req: ChatRequest):
     # 每轮末尾追加「先查技能库」提醒，抗长对话指令衰减（对用户不可见）
     message, bound_creation = _prepare_chat_request(req)
     prep_action = bound_creation.get("_preparation_action") if bound_creation else None
+    if bound_creation and prep_action == "delivery":
+        return await _quick_chat_preparation_response(req, bound_creation, _DELIVERY_ACK)
     if bound_creation and prep_action in {"in_progress", "blocked", "already_prepared"}:
         status = ("in_progress" if prep_action == "in_progress" else
                   bound_creation.get("_blocked_status") or
@@ -3434,6 +3572,8 @@ async def api_chat(req: ChatRequest):
     # 每轮末尾追加「先查技能库」提醒，抗长对话指令衰减（对用户不可见）
     message, bound_creation = _prepare_chat_request(req)
     prep_action = bound_creation.get("_preparation_action") if bound_creation else None
+    if bound_creation and prep_action == "delivery":
+        return {"response": _DELIVERY_ACK, "creationId": bound_creation["id"]}
     if bound_creation and prep_action in {"in_progress", "blocked", "already_prepared"}:
         status = ("in_progress" if prep_action == "in_progress" else
                   bound_creation.get("_blocked_status") or
