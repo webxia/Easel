@@ -4,7 +4,7 @@ This document records workstream order, not task-level status. [`02_CURRENT_STAT
 
 ## Next Active Workstream
 
-当前优先项为 [自主首版流程重审](tasks/creator-autonomous-first-cut-2026-09-30.md)：先以“方案确认后自主交付基本可看首版、Creator 中间尽量不参与”审查现有 Stage/Gate/ADR/实现，决定保留、合并、替换或删除。此前先做后端自动化的顺序撤回；待目标流程成立，再选择最小实现。当前只做设计评审，不继续旧 Creation 或启动新 E2E。
+当前优先项为 [自主首版与 Director 全链执行唯一实施方案](tasks/creator-autonomous-first-cut-2026-09-30.md)。原始目标对齐、流程重审与代码追踪已完成，用户已批准按合并方案实施。仅改现有主链，先局部验证，不继续旧 Creation，不调用付费 AI，不启动真实 Build 或完整 E2E。
 
 [Creator 素材缺口恢复](tasks/creator-material-recovery-2026-09-30.md) 及同一音画作品的阶段恢复已完成，最终修订版经 Creator 审片入库，未发布。因工程介入，本轮自主 E2E 为 FAIL；用户已暂停后续工作，本次仅补齐文档并提交推送。下一次无工程救场验收需另行授权，不新增作品或重复付费。
 
@@ -12,8 +12,8 @@ This document records workstream order, not task-level status. [`02_CURRENT_STAT
 
 ## Workstream Order
 
-1. **Low-friction Creation review (T19)** — preserve the confirmed Production Brief and consolidate true human decisions.
-2. **E2E preparation / V1 Product E2E (T15)** — align and verify the complete official chain; begin real testing only when the recorded prerequisites are satisfied.
+1. **自主首版与 Director 全链执行** — ①委托与持续交付 → ②Director 决策传递 → ③Material/Voice → ④Production → ⑤Quality/局部修复 → ⑥同 Creator/Mode 的跨内容局部回放；T19 的适用要求并入本轮，不作为并列路线。
+2. **V1 真人验收准备 / T15** — 上述局部证据成立后评估 readiness，真实 E2E 等用户启动，既有作品不自动恢复。
 3. **Product evidence branches** — select the relevant external acquisition, positive Library reuse, attribution, Supplemental Supply, or Continuity capability according to the user goal and prerequisites. These are separate branches, not an automatic batch.
 4. **P3** — consider only after an explicit new request.
 

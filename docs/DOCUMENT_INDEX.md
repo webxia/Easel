@@ -52,7 +52,7 @@
 
 ## Workstreams 与模板
 
-- 当前流程重审：[`tasks/creator-autonomous-first-cut-2026-09-30.md`](tasks/creator-autonomous-first-cut-2026-09-30.md)，以自主交付可看首版为标准审查 Stage/Gate/ADR；先判断流程正确性，再选实现，上一版自动化实施顺序已撤回。
+- 当前唯一实施方案：[`tasks/creator-autonomous-first-cut-2026-09-30.md`](tasks/creator-autonomous-first-cut-2026-09-30.md)。用户已批准实施自主首版与 Director 全链执行；按①委托/持续交付 → ②导演决策传递 → ③Material/Voice → ④Production → ⑤Quality/恢复 → ⑥跨内容局部回放推进，替换此前候选方案。
 - 当前素材阶段恢复：[`tasks/creator-material-recovery-2026-09-30.md`](tasks/creator-material-recovery-2026-09-30.md)。
 - 当前 Creator 工作区 Goal：[`tasks/creator-workspace-2026-09-30.md`](tasks/creator-workspace-2026-09-30.md)。
 

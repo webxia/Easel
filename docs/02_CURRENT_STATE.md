@@ -51,9 +51,11 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 [素材缺口恢复任务](tasks/creator-material-recovery-2026-09-30.md) 软件与同一 Creation 的阶段恢复已完成：来源修订只扩展明确选择的 BGM 来源，保留脚本/场景/旁白 Need 与冻结 Handoff；正式旧/新 Plan revision、父 SupplyRun、Bundle checkpoint 和请求身份记录，补充缺失素材。中断后对账完成的 Supply，重复请求复用结果。早期恢复保留原 7 个 Asset，集合增至 38 个；后续仅补缺失窗景，再经逐 Need 核对与独立配乐 Rights/署名复核，Material Gate READY，进入上述真实制作与最终入库。配乐试听、缺失署名事实和旁白试听结论都在普通作品区处理，未知许可不被 UI 合并放行。前一组合 127 passed；最终增量 Material/Compiler/Rights/敏感接口 52 passed（28 deselected），lint/build、compileall、技能合同和 diff check 通过。最终成片基本质量已由 Creator 审阅接受，但自主 E2E 因工程介入失败；完整运行与限制见同一份 [Acceptance](acceptance/creator-audio-quality-e2e-2026-09-30.md)。
 
-## 下一项优化（目标优先的流程重审）
+## 当前 Goal：自主首版与 Director 全链执行
 
-用户要求先判断现流程是否正确，不默认保留 Stage/Gate/ADR 或实现。[同一优化任务](tasks/creator-autonomous-first-cut-2026-09-30.md) 已转为流程评审：当前链路有依赖/证据价值，但正常制作仍转嫁素材、审核、批准与恢复工作，结构/引擎 READY 不保证首版可看。上一版先实施后台自动化的顺序撤回；逐项审查用户委托、冻结粒度、Truth/Material 阻断、补料、费用授权、编排与质量职责，再形成新流程及明确的设计修订。旧兼容审阅不代表流程正确。尚未改 ADR/生产代码或启动真实制作；原有代码事实与运行判定不变。
+原始产品目标对齐、流程重审与 Director 实际执行链只读核对已完成。已确认两组根因：缺少持续自主交付首版的责任与执行闭环；Mode 在 Planning 中有体现，但 Material 风格参数未接全、Voice 朗读要求未进入实际请求、Production 未完整落实文稿、Quality 仍依赖人审。用户已批准将合并方案写入文档并设 Goal 实施，[同一任务](tasks/creator-autonomous-first-cut-2026-09-30.md) 已替换为唯一实施方案。
+
+当前：方案已落文档，Goal 已设为 active；①委托与持续交付开始实施，②～⑥待依赖完成。尚不宣称新增软件能力或测试通过。本轮不修改/继续旧 Creation、不调用付费 AI、不启动真实 Build 或完整 E2E。旧具名运行与其限制保持不变；局部实现证据随后在本节更新。
 
 ## Official Product Path
 
