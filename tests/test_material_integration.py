@@ -304,6 +304,20 @@ def test_authoring_selection_uses_actual_svml_refs_and_frozen_revisions(material
     assert ProductionAuthoringIntegration().validate_authored_selection(
         attempt, run_path.relative_to(root).as_posix(),
     )["status"] == "READY"
+    from easel.integrations.material_layer import copy_bound_validation_run, _hypit_run_markup
+    validation = run_path.with_name(".validation.svrun")
+    copy_bound_validation_run(run_path, validation)
+    assert _hypit_run_markup(validation, root, attempt, plan, bundle, readiness) == run_path.read_text()
+    identity = validation.with_suffix(".easel.json")
+    bad_identity = json.loads(identity.read_text())
+    bad_identity["attempt_id"] = "different-attempt"
+    identity.write_text(json.dumps(bad_identity))
+    with pytest.raises(MaterialIntegrationError, match="identity"):
+        _hypit_run_markup(validation, root, attempt, plan, bundle, readiness)
+    run_identity = run_path.with_suffix(".easel.json")
+    run_identity.unlink()
+    with pytest.raises(MaterialIntegrationError, match="身份记录"):
+        copy_bound_validation_run(run_path, validation)
 
 
 def test_selected_image_extent_uses_inspected_source_dimensions(material_integration_env):

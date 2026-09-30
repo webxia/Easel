@@ -45,7 +45,7 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 本次 Creator 自主性与音画质量 E2E（2026-09-30，进行中）
 
-用户另行授权一个 36 秒、5 场景、真实旁白与 BGM 的 Creation，详见 [具名验收记录](acceptance/creator-audio-quality-e2e-2026-09-30.md)。一次 TTS 保留（31.932 秒），Creator 已确认旁白与 At Rest 配乐听感；实际 TTS 账单未核实。Material READY 后首次本地 Build 导出 36 秒、1080×1920、有音轨成片，技术 QC pass，CC BY credit 到达导出记录；第四场景开头近黑，未批准入库。局部修订先遇模型网关 502/400，再因错误帧率的截取越界使 Build 确定失败。安全诊断、合同索引、声音/字幕不变校验、基于准入原片/Normalize Clock 的截取范围检查已接入；失败 Build 恢复保留内容/素材，不合格编排停在 AUTHORING_REPAIR_REQUIRED，全检查通过才 READY，费用与审片仍重过。83 项定向回归、lint/build/compileall/diff check 通过；实际普通恢复已在提交前拦住越界并重试编排。同一 Creation 三个阶段/修订 Attempt，最终修改结果、混音人审和内容库待完成；AUTONOMOUS / CREATOR_VISIBLE 不可判 PASS。
+用户另行授权一个 36 秒、5 场景、真实旁白与 BGM 的 Creation，详见 [具名验收记录](acceptance/creator-audio-quality-e2e-2026-09-30.md)。一次 TTS 保留（31.932 秒），Creator 已确认旁白与 At Rest 配乐听感；实际 TTS 账单未核实。Material READY 后首次本地 Build 导出 36 秒、1080×1920、有音轨成片，技术 QC pass，CC BY credit 到达导出记录；第四场景开头近黑，未批准入库。局部修订先遇模型网关 502/400，再因错误帧率的截取越界使 Build 确定失败。安全诊断、合同索引、声音/字幕不变校验、基于准入原片/Normalize Clock 的截取范围检查已接入；失败 Build 恢复保留内容/素材，不合格编排停在 AUTHORING_REPAIR_REQUIRED，全检查通过才 READY，费用与审片仍重过。原生 Run 的隔离校验副本同时复制绑定身份记录，错配/缺失仍拒绝。83 项定向回归、lint/build/compileall/diff check 通过；实际普通恢复已在提交前拦住越界，同一恢复 Attempt 再次编排中。同一 Creation 三个阶段/修订 Attempt，最终修改结果、混音人审和内容库待完成；AUTONOMOUS / CREATOR_VISIBLE 不可判 PASS。
 
 当前旁白具有受保护的试听入口。Creator 已确认五句完整清晰、语速合适，并明确允许本次直接使用；通过普通素材复核保存使用声明及绑定当前脚本/音频的试听结论，Rights 为 KNOWN（限定本次作品），不代表第三方合同保证或公开发布批准。该旁白已不再阻断 Gate，生成记录仍只有一次。
 

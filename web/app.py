@@ -2604,7 +2604,7 @@ async def _run_film_authoring(attempt_id: str) -> dict:
             from easel.integrations.hypit.cli import HypitCLI
             from easel.integrations.material_layer import (
                 MaterialGateIntegration, MaterialIntegrationError,
-                ProductionAuthoringIntegration, _hypit_run_markup,
+                ProductionAuthoringIntegration, _hypit_run_markup, copy_bound_validation_run,
             )
             from easel.materials.store import AttemptMaterialStore
 
@@ -2645,7 +2645,7 @@ async def _run_film_authoring(attempt_id: str) -> dict:
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(source, target)
                     copied_assets.append(target)
-                shutil.copyfile(authored_run, validation_run)
+                copy_bound_validation_run(authored_run, validation_run)
                 _hypit_run_markup(validation_run, staged, current, plan, bundle, readiness)
                 check = HypitCLI().check(staged, validation_run)
                 if check.get("ok") is not True:

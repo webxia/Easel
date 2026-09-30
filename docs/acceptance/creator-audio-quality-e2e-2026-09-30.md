@@ -92,3 +92,9 @@
 - 最小修复：对当前准入视频的实际时长、Normalize Clock、局部 recipe 的整数帧范围作合成前检查，提升前/Authoring/Plan 均核验；指令明确秒转帧和 recipe 位置，不猜 60 fps。实际无效源只读检查即被拒绝，未改原 SVML。Creator 页面将该引擎错误译成可理解的截取范围说明，隐藏内部 producer 路径。
 - 已失败 Build 的恢复保留 Truth/Material，复制来的编排若不合格则停为 `AUTHORING_REPAIR_REQUIRED`，不宣称完整 checkpoint READY，不开放 Plan/费用/Build；原源码 fingerprint 未变且 Authoring 全部检查通过后才提升 READY。同恢复请求不覆盖修复中的文件；原 composition 反馈保留。扩展已有恢复 integration 证明此路径不重新 Supply、不再 Build、费用未批准、复制/修复中不能核价提交。
 - 83 项 Authoring/Hypit/Material 定向回归通过；lint/build/compileall/diff check 通过，保留既有 Hook、包体积和测试依赖弃用提示。确认无活动编排/合成后重载。18:15 普通“从视频制作阶段恢复”建立同一 Creation 的 `fa_4839c063b5849993dcd0720b965bc41e`，当前 MATERIAL_READY、AUTHORING_FAILED、AUTHORING_REPAIR_REQUIRED、NOT_SUBMITTED，范围拦截按预期生效；18:16 普通“重试视频编排”从此检查点开始修复。新成片与内容库尚未完成，本轮工程介入继续记 FAIL。
+
+## 原生运行文件的校验副本修复
+
+- 恢复编排 18:17 在提升前失败：`Native Hypit Run lacks the bound Easel identity manifest`，新 Build NOT_SUBMITTED。当前正式 `main.svrun` 与 `main.easel.json` 均存在且身份有效；根因在隔离 static validation：复制 native Run 到 `.validation.svrun` 时没有复制同绑定的 `.validation.easel.json`。旧路径通常处理新写 JSON，恢复路径复用 native 后暴露。没有改实际 Run 或降低身份要求。
+- 最小修复在同目录复制受绑定的 native Run + companion；JSON 输入继续由原 `_hypit_run_markup` 转换。缺失/软链/越界校验副本拒绝；原身份、无发布边界和 native markup 一致性仍由同一转换器验证。扩展既有 Production selection integration 证明原生副本合法可验证、错配 Attempt 身份拒绝、缺失伴随记录拒绝。83 项组合回归仍通过，compileall/diff check 通过；没有增添另一生产通路。
+- 确认当前无活动编排/合成后服务重载；18:23 普通作品区重试同一个 `fa_4839c063b5849993dcd0720b965bc41e`。仍未批准或入库最终输出，原旁白和配乐沿用，等待当前局部编排结果。

@@ -28,3 +28,5 @@
 不改变素材 Domain，不换 Provider，不改现有声音，不延长超时，不绕过 check/核价/费用/审片门。确定性 Authoring/Hypit/Material 边界组合 79 passed，compileall 与 diff check 通过；真实页面仅重放同一失败修订阶段。服务重载后页面先显示最后可信状态，刷新返回恢复同一作品，未因断连重复派发。局部修改结果与最终审片仍待实际验证。
 
 追加已观测根因：局部 trim 按错误帧率换算，静态校验没有原片范围证据，越界直到 Build 才拒绝。安装版源码确认 recipe/Normalize 时钟/原片标准化帧数语义；前置准入视频截取检查，错误源码由正常 Authoring 修复，不手动裁素材。失败 Build 恢复遇到无效编排停在 AUTHORING_REPAIR_REQUIRED，素材/内容保留，完整 Authoring 通过后才 READY，重新核价/批准不变；相同恢复请求不能覆盖修复中源码。83 项组合回归和前端检查通过，实际恢复已拦截同一越界范围并进入正常编排重试。
+
+恢复路径继续暴露原生 Run 的隔离校验副本漏复制绑定身份 sidecar；成对复制至同目录临时校验名后仍走原身份转换器，错配/缺失均拒绝。扩展既有 selection integration，83 项回归通过，正常 UI 仅重放同一失败恢复 Attempt。

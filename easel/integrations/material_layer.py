@@ -63,6 +63,27 @@ def _assert_production_only_sources(run_text: str, authored_text: str) -> None:
         raise MaterialIntegrationError("正式 Hypit Production 只能剪辑已准入素材，禁止在 SVML/SVRun 中生成媒体")
 
 
+def copy_bound_validation_run(authored: Path, validation: Path) -> None:
+    """Copy a native Run together with its identity, for the normal validator.
+
+    This does not admit either file: _hypit_run_markup still checks all current
+    identities before Hypit is called. JSON manifests need no companion input.
+    """
+    if authored.is_symlink() or not authored.is_file():
+        raise MaterialIntegrationError("编排运行文件必须为当前普通文件")
+    if (validation.parent.resolve() != authored.parent.resolve()
+            or validation.resolve() == authored.resolve()
+            or validation.is_symlink() or validation.with_suffix(".easel.json").is_symlink()):
+        raise MaterialIntegrationError("编排校验副本路径无效")
+    raw = authored.read_bytes()
+    if raw.lstrip().startswith(b'<?svml using='):
+        identity = authored.with_suffix(".easel.json")
+        if identity.is_symlink() or not identity.is_file():
+            raise MaterialIntegrationError("原生编排运行文件缺少当前身份记录")
+        validation.with_suffix(".easel.json").write_bytes(identity.read_bytes())
+    validation.write_bytes(raw)
+
+
 def _hypit_run_markup(run_source: Path, root: Path, attempt: dict[str, Any],
                      plan: MaterialPlan, bundle: MaterialBundle,
                      readiness: MaterialReadiness) -> str:
