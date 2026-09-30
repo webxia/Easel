@@ -59,6 +59,21 @@ def _set_readonly_tree(root: Path) -> None:
     root.chmod(0o555)
 
 
+def load_frozen_creative_mode(attempt: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Read execution preferences from this Attempt's verified snapshot only."""
+    package = Path(attempt["workspace"]["path"]) / "handoff"
+    manifest, _ = verify_handoff_directory(package, attempt["handoff"]["hash"])
+    if (manifest.get("creation_id") != attempt["creation_id"]
+            or manifest.get("handoff_id") != attempt["handoff"]["handoff_id"]):
+        raise HypitIntegrationError("Creative Mode 快照不属于当前作品")
+    ref = manifest["creative_mode"]
+    mode = json.loads((package / ref["path"] / "mode.json").read_text(encoding="utf-8"))
+    style = mode.get("visual_material_style")
+    if style is not None and (not isinstance(style, str) or not style.strip() or len(style) > 200):
+        raise HypitIntegrationError("Creative Mode 视觉素材偏好必须为非空短语")
+    return mode, ref["hash"]
+
+
 def verify_handoff_directory(package: Path, expected_hash: str) -> tuple[dict[str, Any], str]:
     """Verify an Easel handoff directory without trusting manifest paths."""
     package = package.resolve()

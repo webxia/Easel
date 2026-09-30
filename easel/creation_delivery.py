@@ -20,6 +20,7 @@ from easel.integrations.hypit.service import pricing_has_no_provider_charge
 
 SCHEMA = "easel-creation-delivery@1"
 MAX_FAILURES = 3
+MAX_BUILD_RECOVERIES = 2
 active_delivery: ContextVar[str | None] = ContextVar("active_creation_delivery", default=None)
 
 
@@ -99,6 +100,8 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     if any(call.get("status") in {"pending", "submitting"}
            for call in delivery.get("agent_calls", {}).values()):
         return "observe_agent", "observing_execution"
+    if delivery.get("recovering_build_from"):
+        return "retry_build", "recovering_production"
     attempt = _attempt(work)
     if not attempt:
         return "prepare", "preparing"
@@ -110,8 +113,12 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         return "refresh", "producing"
     if execution == "BUILD_COMPLETE":
         return (None, "awaiting_quality") if attempt.get("outputs") else ("export", "exporting")
-    if execution in {"BUILD_FAILED", "CANCELLED"}:
-        return None, "production_failed" if execution == "BUILD_FAILED" else "stopped"
+    if execution == "BUILD_FAILED":
+        if len(delivery.get("build_recoveries", [])) < MAX_BUILD_RECOVERIES:
+            return "retry_build", "recovering_production"
+        return None, "production_failed"
+    if execution == "CANCELLED":
+        return None, "stopped"
     gate = attempt.get("material_gate") or {}
     if gate.get("status") != "MATERIAL_READY":
         prep_status = (work.get("preparation") or {}).get("status")
@@ -180,7 +187,8 @@ async def advance_creation(
                 and not work["delivery"].get("last_error")
                 and not work["delivery"].get("agent_calls")):
             operation, status = None, "execution_uncertain"
-        attempt_id = _attempt(work).get("attempt_id", "preparation")
+        attempt_id = (work["delivery"].get("recovering_build_from") if operation == "retry_build" else None
+                      ) or _attempt(work).get("attempt_id", "preparation")
         key = f"{attempt_id}:{operation}"
         failures = work["delivery"].get("failures", {})
         observation = operation in {"refresh", "reconcile", "observe_agent"}
@@ -198,6 +206,15 @@ async def advance_creation(
                     record["exhausted_operation"] = key
         if not operation:
             return False
+        if operation == "retry_build" and not record.get("recovering_build_from"):
+            # Persist the source BEFORE the existing fork service creates a
+            # sibling. A partial copy must resume from this source, not send
+            # the half-built latest Attempt into ordinary Preparation.
+            with creation.edit_creation(creation_id) as current:
+                record = current["delivery"]
+                record["recovering_build_from"] = attempt_id
+                record.setdefault("build_recoveries", []).append(attempt_id)
+            work = creation.get_creation(creation_id)
 
         # Cancellation must not release the OS lock while a to_thread executor
         # or CLI child still runs. Shutdown drains that call before unlocking.
@@ -233,6 +250,8 @@ async def advance_creation(
             return False
         with creation.edit_creation(creation_id) as current:
             record = current["delivery"]
+            if operation == "retry_build":
+                record.pop("recovering_build_from", None)
             record.setdefault("failures", {}).pop(key, None)
             record.update(status=next_operation(current)[1], operation=None, last_error=None, updated_at=creation._now())
         return True

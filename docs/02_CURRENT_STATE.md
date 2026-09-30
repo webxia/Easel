@@ -55,7 +55,7 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 原始产品目标对齐、流程重审与 Director 实际执行链只读核对已完成。已确认两组根因：缺少持续自主交付首版的责任与执行闭环；Mode 在 Planning 中有体现，但 Material 风格参数未接全、Voice 朗读要求未进入实际请求、Production 未完整落实文稿、Quality 仍依赖人审。用户已批准将合并方案写入文档并设 Goal 实施，[同一任务](tasks/creator-autonomous-first-cut-2026-09-30.md) 已替换为唯一实施方案。
 
-当前：Goal 保持 active，①委托与持续交付 **PARTIAL**，②～⑥尚未实现。当前改动只建立持续执行基础，不能据此宣称“自主交付可看首版”或风格一致已实现。
+当前：Goal 保持 active，①委托与持续交付、②Director 决策传递 **PARTIAL**。已接通视觉素材的风格默认值与检索/排序；Truth 自动审阅、声音、实际素材观察、原生编排质量落实和③～⑥的完整闭环尚未完成，不能据此宣称“自主交付可看首版”或风格一致已实现。
 
 - 新的结构化确认把方案原文、摘要与授权来源原子保存到同一 Creation；后端生命周期扫描仅接管带新委托记录的作品。旧 Creation 不迁移、不入队，旧确认重放也不会被接管。
 - 后端从现有 Preparation/Attempt 状态推导下一项操作，复用准备、编排、Runtime、Plan、Pricing、提交、对账、状态查询和导出服务。页面对新委托只读轮询，不再用 useEffect 推进上述操作；处理正式 Truth/Material 决定后由后端观察证据继续。
@@ -64,9 +64,12 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 - **恢复增量（2026-10-01）：** 新委托的准备、Planning 与隔离 Authoring 调用在派发前保存请求摘要及网关运行身份，使用本机 OpenClaw 的 `gateway call agent` / `agent.wait` 正式接口；提交超时、查询超时和等待执行不触发第二次派发。对账要求同一网关 Profile、同一 runId，以及带结束时间且没有 yield 的终态。Creation 调用记录只保存身份/摘要/状态，不保存原始提示或模型回复。合同来源为本机安装包 `agent-via-gateway`、`gateway-cli`、`principal` 与 `chat-abort-ops` 源码：idempotencyKey 即 runId；不存在的运行也可能返回 timeout，因此 timeout 不能解释为执行不存在。
 - 原隔离 Authoring 在调用退出时无条件删除临时 Agent/工作区，会破坏网关仍在进行的写文件。新委托在待核实时保留受限 Agent 和隔离输入/产物，对账结束后继续校验与提升；外层 Authoring checkpoint 提交后才清理。原派发指令保存在受限隔离区并按摘要校验，恢复优先接回最后一个未清理的编排回合，避免因阶段提示变化重新派发。完成文件可跨执行器重建恢复，无需再请求模型。旧普通调用继续使用原有清理行为。
 - 导出先保存绑定当前 Build、输出名、署名、已通过技术检查的元数据与 SHA 的凭据，再发布和登记文件；Attempt 级导出锁串行化 API/后台请求。发布前、发布后、登记时中断都复用同一已验证字节，不再次执行 Hypit get；不同输出或文件 SHA 改变拒绝认领，最终人工审片保持 pending。
-- **未闭环：** 老的未记录网关身份的调用、网关重启后查不到终态，以及“身份已保存但尚未提交”窗口仍保守停留在待核实，不凭猜测重发；这不等于所有外部故障已自动恢复。失败 Build 的有界自动恢复仍需补齐。导出后只到 `awaiting_quality`，未假装机器质量检查完成。委托内付费素材执行、Director/Truth 默认策略、Material/Voice、Production、Quality 与跨内容回放仍按②～⑥推进。
+- **未闭环：** 老的未记录网关身份的调用、网关重启后查不到终态，以及“身份已保存但尚未提交”窗口仍保守停留在待核实，不凭猜测重发；这不等于所有外部故障已自动恢复。失败 Build 的有界自动恢复已接入下述现有服务；真实失败恢复效果仍待后续验收。导出后只到 `awaiting_quality`，未假装机器质量检查完成。委托内付费素材执行、Director/Truth 默认策略、Material/Voice、Production、Quality 与跨内容回放仍按②～⑥推进。
 - **局部验证：** `test_creation_preparation`、`test_hypit_integration`、`test_chat_capability`、`test_openclaw_authoring_boundary`、`test_material_integration`、`test_runtime_config` 共 168 passed；覆盖浏览器请求结束后由后端恢复、跨进程锁/并发/取消、逐检查点重建执行器、不确定提交先对账、查询断连、重试上限、旧作品排除、零费用核价和批准失效后禁止 Build。状态投影检查及隔离 Chromium 桌面/窄屏检查通过，新增后台核价/导出/查询断连场景中页面没有生产写请求。lint/build、compileall、115 项技能合同与 diff check 通过，保留既有 Hook/体积提示。
-- **2026-10-01 增量验证：** Preparation、隔离 Authoring、Hypit 共 **103 passed**，包含一次派发后的超时/对账/身份错配、执行期间保留隔离工作区、完成后复用产物及三个导出中断点与哈希变更拒绝。frontend lint/build、compileall、115 项技能合同与 diff check 通过；只有既有 Hook/体积提示和两项测试依赖弃用提示。本次没有重跑页面 E2E 或全量测试。最初一轮 Preparation 测试暴露了继承本机配置后尝试外部检索的隔离缺口，已中止；Fixture 现固定临时配置、素材库和仅本地 Provider Registry，最终回归不依赖网络或真实凭证。
+- **有界 Build 恢复（2026-10-01）：** 后端复用 `retry_failed_film_build`，仍核对 Hypit 的确定失败、原提交 fingerprint、Planning/Truth/Material checkpoint；派发前保存来源 Attempt，目标复制中断后接续同一幂等副本，不把半成品交给普通 Preparation。每个委托最多自动恢复两次；已知复制失败沿用三次重试上限。新 Attempt 重过 Plan/Pricing，旧批准不继承；只有正式核价确认零 Provider 费用才可使用已有委托授权。UI 在后台恢复期间不再误报需要 Creator 重试，耗尽后保留明确阶段恢复入口。
+- **Director 执行接线（2026-10-01）：** `clear_memo_video` 升至 1.1，增加一个对应现有软偏好语义的 `visual_material_style`，不设固定题材/故事/场景数。Planning 从当前 Attempt 的已验证 Handoff 读取并绑定到视觉 Need 的 `preferred_style`，具体镜头显式偏好优先；声音 Need 不套视觉规则，旧冻结快照不回填。素材供应改为使用 Planning 已登记的正式 Plan，修复继续消费绑定前模型草稿的问题（该问题也影响 Voice 脚本身份绑定）。同一偏好进入已有 Compiler 首条实际 Provider 查询和 Library AdvancedMatcher，四条检索提示不会再挤掉风格词；匹配仍依赖实际观察，风格偏好本身不提供语义或 Rights 证据。这尚未实现自动视觉观察、Voice/剪辑风格或成片质量检查。
+- **本批验证：** Preparation、Hypit、Compiler、基础/高级 Matching、隔离 Authoring，以及定向 Material 冻结风格与失败 Build 恢复共 **133 passed**。验证包含不同来源不可认领、旧/新 Mode 快照隔离、具体镜头偏好保留、正式检索/Library 输入、有界恢复、复制中断继续、重新核价与授权外阻断。Creator 状态投影、lint/build、compileall、115 项技能合同与 diff check 通过；只有既有 Hook/体积和测试依赖提示。未跑全量测试或真人 E2E。
+- **2026-10-01 前一恢复批次验证：** Preparation、隔离 Authoring、Hypit 共 **103 passed**，包含一次派发后的超时/对账/身份错配、执行期间保留隔离工作区、完成后复用产物及三个导出中断点与哈希变更拒绝。frontend lint/build、compileall、115 项技能合同与 diff check 通过；只有既有 Hook/体积提示和两项测试依赖弃用提示。本次没有重跑页面 E2E 或全量测试。最初一轮 Preparation 测试暴露了继承本机配置后尝试外部检索的隔离缺口，已中止；Fixture 现固定临时配置、素材库和仅本地 Provider Registry，最终回归不依赖网络或真实凭证。
 - 本轮没有修改或继续真实 Creation，没有调用付费 AI、真实 Build 或完整 E2E，没有重启生产服务。最终执行回放使用隔离数据和假执行器；未核实真实交付质量。`READY_FOR_HUMAN_E2E=NO`，旧具名运行及其失败结论保持不变。
 
 ## Official Product Path

@@ -2157,6 +2157,8 @@ async def _execute_creation_delivery(operation: str, work: dict) -> None:
         await asyncio.to_thread(reconcile_film_submission, attempt_id)
     elif operation == "refresh":
         await asyncio.to_thread(refresh_film_build, attempt_id)
+    elif operation == "retry_build":
+        await asyncio.to_thread(retry_failed_film_build, work["delivery"]["recovering_build_from"])
     elif operation == "export":
         inspection = await asyncio.to_thread(inspect_film_build, attempt_id)
         outputs = inspection.get("build", {}).get("outputs", [])
@@ -2521,6 +2523,10 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "以及 handoff/creative-mode/ 的 mode.json、director-treatment.md、visual-bible.md、"
         "audio-bible.md、editing-bible.md。冻结的 Content Core、Truth Packet、Creator Context、"
         "Creative Mode / Director 是唯一创作依据。不要读取其他项目、历史产物或重复计算 SHA-256。\n"
+        "mode.json 的 visual_material_style 是视觉素材软偏好，会进入检索与排序。"
+        "默认由 Easel 绑定到视觉 Need.constraints.preferred_style；"
+        "若具体镜头有不同表达需要，可在该字段明确替换，并在 TREATMENT 说明理由。"
+        "它不限制主题、场景数量，也不能改变事实材料的原貌或作为许可依据。\n"
         "读取后立即写出以下四个绝对路径的文件，写完再回复；只回复文字不算完成：\n"
         f"{planning_dir / 'MATERIAL_PLAN.json'}\n"
         f"{planning_dir / 'TREATMENT.md'}\n"

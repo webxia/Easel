@@ -1024,6 +1024,84 @@ def test_product_supply_rehydrates_current_completed_generation_after_rights_rev
     assert asset.asset_id not in {item.asset_id for item in stale.bundle.assets}
 
 
+def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_content(
+    material_integration_env, tmp_path, monkeypatch,
+):
+    old = material_integration_env
+    actual_mode = json.loads((Path(__file__).resolve().parents[1]
+                              / "creative_modes/clear_memo_video/mode.json").read_text())
+    mode_path = creative_mode.CREATIVE_MODES_DIR / "clear_memo_video/mode.json"
+    mode_path.write_text(json.dumps(actual_mode))
+    work = creation.create_creation("观察夜间公交等待", profile="测试", creative_mode="clear_memo_video")
+    previous = Path(old["workspace"]["path"]) / "handoff"
+    package = service.create_creation_handoff(work["id"],
+        content_core={"schema": "content-core@1", "question": work["idea"]},
+        truth_packet=json.loads((previous / "truth-packet.json").read_text()),
+        creator_context=json.loads((previous / "creator-context.json").read_text()),
+        production_request={"media_type": "video", "orientation": "9:16", "language": "zh-CN"},
+        max_budget_usd=5)
+    attempt = service.create_film_attempt(work["id"], package["handoff_id"],
+                                         preparation_key="c" * 64, runtime_status="NOT_CONFIGURED")
+    mode, mode_hash = handoff.load_frozen_creative_mode(attempt)
+    assert handoff.load_frozen_creative_mode(old)[0].get("visual_material_style") is None
+    style = mode["visual_material_style"]
+    plan = MaterialPlan(plan_id="plan-style", creation_id=work["id"], attempt_id=attempt["attempt_id"],
+        context_refs={"creative_mode_sha256": mode_hash}, needs=(
+            MaterialNeed(need_id="scene-bus", scope=NeedScope(type=NeedScopeType.SCENE, ref="bus"),
+                         media_type=MediaType.IMAGE, role="主视觉", intent=NeedIntent(description="night bus stop"),
+                         importance=NeedImportance.REQUIRED),
+            MaterialNeed(need_id="scene-clock", scope=NeedScope(type=NeedScopeType.SCENE, ref="clock"),
+                         media_type=MediaType.IMAGE, role="局部对照", intent=NeedIntent(description="station clock"),
+                         constraints={"preferred_style": "high contrast documentary"},
+                         importance=NeedImportance.REQUIRED),
+        ))
+    original = plan.model_dump()
+    planning = PlanningIntegration().persist(attempt, plan, treatment="两个具体观察，保留高对比时钟镜头。",
+                                              script="假设站在夜班公交站。", scenes="公交站与时钟。")
+    assert plan.model_dump() == original
+    bound = planning["plan"]
+    assert bound.needs[0].constraints["preferred_style"] == style
+    assert bound.needs[1].constraints["preferred_style"] == "high contrast documentary"
+    assert [need.intent for need in bound.needs] == [need.intent for need in plan.needs]
+    # A later package edit never changes an already frozen production input.
+    mode_path.write_text(json.dumps({**actual_mode, "visual_material_style": "unrelated glossy style"}))
+    assert handoff.load_frozen_creative_mode(attempt)[0]["visual_material_style"] == style
+    with pytest.raises(HypitIntegrationError, match="风格来源"):
+        PlanningIntegration().persist(attempt, plan.model_copy(update={"context_refs": {}}),
+                                      treatment="同一规划", script="假设站在夜班公交站。", scenes="同一场景")
+
+    empty_root = tmp_path / "empty-local"
+    empty_root.mkdir()
+    provider = LocalProvider((empty_root,))
+    search = provider.search
+    requests = []
+
+    def observed_search(intent, continuation=None):
+        requests.append(intent)
+        return search(intent, continuation)
+
+    monkeypatch.setattr(provider, "search", observed_search)
+    registry = material_supply_module.ProviderRegistry()
+    registry.register(provider)
+    preferences = []
+    native_match = material_supply_module.AdvancedMaterialMatcher.match
+
+    def observed_match(self, need, *args, **kwargs):
+        preferences.append((need.need_id, kwargs["director_preferences"]))
+        return native_match(self, need, *args, **kwargs)
+
+    monkeypatch.setattr(material_supply_module.AdvancedMaterialMatcher, "match", observed_match)
+    supply = material_supply_module.ProductMaterialSupply(registry=registry, library_root=tmp_path / "library")
+    result = supply.run(bound, planning["attempt"], local_roots=(empty_root,), supply_run_id="style-supply",
+                        bundle_id="style-bundle", search_terms={"scene-bus": ("bus stop", "bus", "station", "road")})
+    assert result.readiness.status.value == "NOT_READY"  # preferences aren't observation or Rights evidence
+    assert len(requests) == 2, [(row.get("failures"), row.get("skipped")) for row in result.routing_trace]
+    assert requests[0].semantic_queries[0] == "bus stop " + style
+    assert requests[1].semantic_queries[0] == "station clock high contrast documentary"
+    assert preferences[0][1][0].preferred_values == (style,)
+    assert preferences[1][1][0].preferred_values == ("high contrast documentary",)
+
+
 def test_generation_preserves_bundle_then_rights_review_opens_production_gate(
     material_integration_env, monkeypatch,
 ):

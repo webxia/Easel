@@ -67,7 +67,9 @@ class NeedCompiler:
         if creator_terms:
             query_candidates.append(f"{description} {' '.join(creator_terms)}")
         if mode_terms:
-            query_candidates.append(f"{description} {' '.join(mode_terms)}")
+            # Reserve a real query for style. Appending after four explicit
+            # search hints silently dropped Mode at the Provider boundary.
+            query_candidates.insert(0, f"{query_candidates[0]} {' '.join(mode_terms)}")
         if need.intent.function:
             query_candidates.append(f"{description} {need.intent.function}")
         queries: list[str] = []

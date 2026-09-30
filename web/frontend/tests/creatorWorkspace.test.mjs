@@ -40,6 +40,10 @@ assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'needs_cos
 const repairing = project({ ...confirmed, delivery: { ...delivery, status: 'retrying' } }, { authoring_status: 'AUTHORING_FAILED' }, null);
 assert.equal(repairing.failureStage, null);
 assert.equal(repairing.title, '正在恢复当前步骤');
+const retryingBuild = project({ ...confirmed, delivery: { ...delivery, status: 'recovering_production' } }, { execution_status: 'BUILD_FAILED' }, null);
+assert.equal(retryingBuild.failureStage, null);
+assert.match(retryingBuild.title, /复用已完成的内容和素材/);
+assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'production_failed' } }, { execution_status: 'BUILD_FAILED' }, null).failureStage, '视频制作');
 const disconnected = project({ ...confirmed, delivery: { ...delivery, status: 'observation_failed' } }, { execution_status: 'RUNNING' }, null);
 assert.equal(disconnected.failureStage, null);
 assert.match(disconnected.title, /状态连接中断/);

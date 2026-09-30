@@ -276,8 +276,18 @@ class PlanningIntegration:
             if not isinstance(value, str) or not value.strip() or "\x00" in value:
                 raise MaterialIntegrationError(f"Planning artifact {name} 不能为空")
         script_digest = hashlib.sha256(script.encode("utf-8")).hexdigest()
+        from easel.integrations.hypit.handoff import load_frozen_creative_mode
+        mode, mode_hash = load_frozen_creative_mode(attempt)
+        style = mode.get("visual_material_style")
+        if style and plan.context_refs.get("creative_mode_sha256") != mode_hash:
+            raise MaterialIntegrationError("Planning 风格来源与冻结 Creative Mode 不一致")
         bound_needs = []
         for need in plan.needs:
+            if (style and need.media_type in {MediaType.IMAGE, MediaType.VIDEO}
+                    and not need.constraints.get("preferred_style")):
+                # A soft default on existing Need semantics; no subject,
+                # narrative, source restriction or readiness rule is invented.
+                need = need.model_copy(update={"constraints": {**need.constraints, "preferred_style": style}})
             spec = need.modality_spec
             if (need.importance is NeedImportance.REQUIRED and need.media_type is MediaType.AUDIO
                     and getattr(spec, "kind", None) == "voice"):
@@ -1606,6 +1616,9 @@ class MaterialProductOrchestrator:
                 scenes=planning.get("scenes", ""),
             )
         attempt = planning["attempt"]
+        # Persist binds execution defaults and Voice text identity. Supply must
+        # consume that canonical Plan, not the pre-binding model response.
+        plan = planning["plan"]
         if planning["truth_ledger"]["status"] != "PASSED":
             return {
                 "planning": planning,

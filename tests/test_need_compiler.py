@@ -52,7 +52,8 @@ def test_compiler_produces_deterministic_need_scoped_retrieval_intent() -> None:
     assert first == second
     assert first.need_id == source.need_id
     assert 2 <= len(first.semantic_queries) <= 4
-    assert first.semantic_queries[0] == "developer coding alone in a dark office"
+    assert first.semantic_queries[0] == "developer coding alone in a dark office cinematic low-key lighting"
+    assert "developer coding alone in a dark office" in first.semantic_queries
     assert first.filters == {
         "media_type": "video",
         "min_duration": 4.0,
@@ -72,8 +73,8 @@ def test_compiler_includes_curated_creator_and_mode_terms_without_changing_need(
     )
 
     assert len(intent.semantic_queries) == 4
-    assert intent.semantic_queries[2] == "developer coding alone in a dark office science educator"
-    assert intent.semantic_queries[3] == "developer coding alone in a dark office documentary visual"
+    assert "developer coding alone in a dark office science educator" in intent.semantic_queries
+    assert intent.semantic_queries[0] == "developer coding alone in a dark office documentary visual"
     assert intent.query_context["creator_context_terms"] == "science educator"
 
 

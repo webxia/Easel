@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 from easel import creation
-from easel.materials.application.advanced_matching import AdvancedMaterialMatcher
+from easel.materials.application.advanced_matching import AdvancedMaterialMatcher, DirectorPreference
 from easel.materials.application.assembly import MaterialBundleAssembler
 from easel.materials.application.dedup import MaterialDeduplicator
 from easel.materials.application.compiler import NeedCompiler
@@ -24,7 +24,7 @@ from easel.materials.application.standalone import StandaloneMaterialFlow
 from easel.materials.application.acquisition import MaterialAcquirer
 from easel.materials.domain import (
     MaterialAsset, MaterialBundle, MaterialGap, MaterialPlan, MaterialReadiness,
-    RightsInfo, SupplyRun, SupplySourceResult, TechnicalStatus,
+    RightsInfo, SupplyRun, SupplySourceResult, TechnicalStatus, SemanticField,
 )
 from easel.materials.library import LibraryScope, MaterialLibraryCatalog
 from easel.materials.providers import (
@@ -171,6 +171,11 @@ class ProductMaterialSupply:
         assets.update(self._current_generated_assets(store, plan))
 
         for need in plan.needs:
+            style = need.constraints.get("preferred_style")
+            style_terms = (style,) if isinstance(style, str) and style.strip() else ()
+            director_preferences = (DirectorPreference(
+                field=SemanticField.STYLE, preferred_values=style_terms,
+            ),) if style_terms else ()
             if need.need_id in skip_need_ids or matcher.match(need, tuple(assets.values())).matches:
                 trace.append({"need_id": need.need_id, "checkpoint_reused": True,
                               "attempted_sources": [], "failures": [],
@@ -190,7 +195,7 @@ class ProductMaterialSupply:
                 )
                 result = flow.run(
                     subset, supply_run_id=f"source-{key}", bundle_id=f"source-bundle-{key}", top_n=top_n,
-                    persist_bundle=False,
+                    persist_bundle=False, creative_mode_terms=style_terms,
                 )
                 for item in result.supply_run.provider_results:
                     totals = source_totals[item.source_id]
@@ -203,7 +208,7 @@ class ProductMaterialSupply:
             result = library_first.supply_need(
                 need, scope=scope, creation_id=attempt["creation_id"],
                 attempt_id=attempt["attempt_id"], provider_infos=infos,
-                external_supply=source_supply,
+                external_supply=source_supply, director_preferences=director_preferences,
             )
             library_by_id = {item.library_asset_id: item for item in result.reuse_candidates}
             for matched in result.library_matches:

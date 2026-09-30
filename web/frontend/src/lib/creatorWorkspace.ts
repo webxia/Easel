@@ -24,7 +24,8 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   const planningFailed = ['FAILED', 'PLANNING_FAILED'].includes(String(planning.status)) || (preparationFailed && (preparation.failure_stage === 'planning' || (!preparation.failure_stage && !planning.status)));
   const materialFailed = preparationFailed && !planningFailed;
   const contentReady = !!preparation.handoff_id || !!preparation.snapshot_hashes;
-  const productionFailed = execution === 'BUILD_FAILED' || (!repairing && ['AUTHORING_FAILED', 'PLAN_FAILED'].includes(String(item.authoring_status)));
+  const productionFailed = (execution === 'BUILD_FAILED' && (!managed || ['failed', 'production_failed'].includes(String(delivery.status))))
+    || (!repairing && ['AUTHORING_FAILED', 'PLAN_FAILED'].includes(String(item.authoring_status)));
   const claims = Array.isArray(truth?.claims) ? truth.claims.map(asRecord) : [];
   const facts = claims.filter(claim => claim.status === 'REVIEW_REQUIRED').length;
   const blockingIds = Array.isArray(gate.blocking_needs) ? gate.blocking_needs : [];
@@ -60,6 +61,7 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
       selected ? '最终成片已确认' : failureStage ? `${failureStage}遇到问题` : pending ? '需要你处理' : proposal ? '创作方案' :
       managed && delivery.status === 'reconciling' ? '正在核对制作结果' : managed && delivery.status === 'producing' ? '正在合成视频' :
       managed && delivery.status === 'observing_execution' ? '正在等待创作任务完成' :
+      managed && delivery.status === 'recovering_production' ? '正在复用已完成的内容和素材，恢复视频制作' :
       managed && delivery.status === 'exporting' ? '正在整理成片' : managed && delivery.status === 'authoring' ? '正在编排画面与声音' :
       managed && delivery.status === 'retrying' ? '正在恢复当前步骤' : preparation.active_stage === 'planning' && planning.status !== 'PLANNING_READY' ? '正在创作规划' : '正在准备作品',
   };

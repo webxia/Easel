@@ -186,6 +186,58 @@ def test_delivery_bounds_failures_preserves_authorization_and_validates_commissi
         retry_delivery(fresh["id"])
 
 
+def test_delivery_build_recovery_resumes_source_and_rechecks_cost_with_a_bound(prep_env, monkeypatch):
+    from easel.creation_delivery import advance_creation, next_operation, MAX_BUILD_RECOVERIES
+
+    work = _confirmed_delivery()
+    source_id = "fa_" + "1" * 32
+    with creation.edit_creation(work["id"]) as current:
+        current["hypit_attempts"] = [{"attempt_id": source_id, "execution_status": "BUILD_FAILED"}]
+    calls = []
+
+    def fork_failed(source):
+        calls.append(source)
+        with creation.edit_creation(work["id"]) as current:
+            assert current["delivery"]["recovering_build_from"] == source
+            target = next((item for item in current["hypit_attempts"]
+                           if item.get("retry_source", {}).get("attempt_id") == source), None)
+            if target is None:
+                target = {"attempt_id": f"fa_{len(current['hypit_attempts']) + 1:032x}",
+                          "execution_status": "NOT_SUBMITTED",
+                          "retry_source": {"attempt_id": source, "status": "COPYING"}}
+                current["hypit_attempts"].append(target)
+            else:
+                target.update(retry_source={"attempt_id": source, "status": "READY"},
+                              material_gate={"status": "MATERIAL_READY"},
+                              authoring_status="AUTHORING_READY", runtime_status="CONFIGURED",
+                              plan={"status": "pending"}, cost={"approved": False})
+        if calls.count(source) == 1:
+            raise RuntimeError("模拟创建目标后复制中断")
+
+    monkeypatch.setattr(web, "retry_failed_film_build", fork_failed)
+    for _ in range(MAX_BUILD_RECOVERIES):
+        asyncio.run(advance_creation(work["id"], web._execute_creation_delivery))
+        assert next_operation(creation.get_creation(work["id"]))[0] == "retry_build"
+        asyncio.run(advance_creation(work["id"], web._execute_creation_delivery))
+        saved = creation.get_creation(work["id"])
+        assert calls[-2:] == [source_id, source_id]
+        assert "recovering_build_from" not in saved["delivery"]
+        assert next_operation(saved)[0] == "validate"
+        # No previous paid approval is inherited. Even a recovered checkpoint
+        # waits if its new pricing cannot prove there is no provider charge.
+        with creation.edit_creation(work["id"]) as current:
+            attempt = current["hypit_attempts"][-1]
+            attempt.update(plan={"status": "ready"}, cost={"status": "pricing_read", "approved": False,
+                "pricing": {"format": "hypit.cli-pricing@1", "requestCount": 1, "groups": []}})
+        assert next_operation(creation.get_creation(work["id"])) == (None, "needs_cost_approval")
+        with creation.edit_creation(work["id"]) as current:
+            current["hypit_attempts"][-1]["execution_status"] = "BUILD_FAILED"
+            source_id = current["hypit_attempts"][-1]["attempt_id"]
+    assert next_operation(creation.get_creation(work["id"])) == (None, "production_failed")
+    assert asyncio.run(advance_creation(work["id"], web._execute_creation_delivery)) is False
+    assert len(calls) == 2 * MAX_BUILD_RECOVERIES
+
+
 def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(prep_env):
     from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain
     from easel.integrations.openclaw_delivery import run_delivery_agent, reconcile_agent_calls
@@ -877,7 +929,7 @@ def test_car_proposal_prompt_limits_unconfirmed_details_and_user_facing_language
 
     assert work["_preparation_action"] == "proposal"
     assert "到目前为止是买电车还是油车" in message
-    assert "〔当前作品风格：清醒备忘录 · 视频 / clear_memo_video v1.0〕" in message
+    assert "〔当前作品风格：清醒备忘录 · 视频 / clear_memo_video v1.1〕" in message
     assert '"defaults"' not in message
     assert "本轮动手前先查技能库" not in message
     assert "一个暂定切入角度、2～4 个方向、最多一个关键问题" in message
