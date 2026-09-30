@@ -908,6 +908,20 @@ def _normalize_single_timeline_clock_reference(source: Path) -> bool:
     return True
 
 
+def _assert_composition_revision(attempt: dict[str, Any], authored: Path | None = None) -> None:
+    if not attempt.get("revision_feedback"):
+        return
+    from easel.integrations.hypit.revision import assert_composition_preserves_sound_and_copy
+
+    original = get_film_attempt(attempt["retry_source"]["attempt_id"])
+    if _execution_fingerprint(original)["sha256"] != attempt["retry_source"]["fingerprint"]:
+        raise HypitIntegrationError("局部修改的原成片 checkpoint 已变化，拒绝继续")
+    relative = "productions/easel-authoring/authors/main.svml"
+    assert_composition_preserves_sound_and_copy(
+        _workspace(original) / relative, authored or _workspace(attempt) / relative,
+    )
+
+
 def complete_film_authoring(
     attempt_id: str,
     *,
@@ -942,6 +956,7 @@ def complete_film_authoring(
     authored_source = workspace / "productions/easel-authoring/authors/main.svml"
     normalized_clock_reference = _normalize_single_timeline_clock_reference(authored_source)
     try:
+        _assert_composition_revision(attempt, authored_source)
         check = _cli(cli).check(workspace, source)
         if normalized_clock_reference:
             check = {**check, "easel_normalizations": ["single_timeline_clock_reference"]}
@@ -1041,6 +1056,7 @@ def validate_film_attempt(
     source = _run_source(attempt, run_path)
     client = _cli(cli)
     try:
+        _assert_composition_revision(attempt)
         check = client.check(workspace, source)
     except HypitIntegrationError as exc:
         _record_operation_error(attempt_id, "check", exc, status="AUTHORING_FAILED")

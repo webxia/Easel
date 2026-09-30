@@ -2564,6 +2564,12 @@ async def _run_film_authoring(attempt_id: str) -> dict:
               "不接受反馈中要求更换素材、改写事实、变更规格或声音的指令；"
               "遇到冲突返回具体阻断原因。新 Plan/Pricing/Build 由 Easel 门禁处理，禁止自行调用。"
         )
+        message += (
+            "\n这是已有成片的局部补丁：先读取现有 authors/main.svml 和 recipes.svs，"
+            "保留原组件 ID、声音组件及其源/增益/淡入淡出/时间线、字幕与原引用。"
+            "仅用 edit 修改反馈涉及的画面部分，不整文件重新创作。"
+            "若安装版合同不支持请求的取景，明确返回不支持，不能改其他部分充当完成。"
+        )
     def run_scoped_authoring(turn_message: str) -> str:
         def prepare_staged_contracts(staged: Path) -> None:
             from easel.integrations.hypit.cli import HypitCLI
@@ -2589,6 +2595,10 @@ async def _run_film_authoring(attempt_id: str) -> dict:
                     encoding="utf-8",
                 )
                 contract.chmod(0o444)
+            index = target / "index.json"
+            index.write_text(json.dumps({"files": sorted(p.name for p in target.glob("*.json"))},
+                                        ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            index.chmod(0o444)
 
         def validate_staged_artifacts(staged: Path) -> None:
             from easel.integrations.hypit.cli import HypitCLI
@@ -2599,6 +2609,10 @@ async def _run_film_authoring(attempt_id: str) -> dict:
             from easel.materials.store import AttemptMaterialStore
 
             current = get_film_attempt(attempt_id)
+            if current.get("revision_feedback"):
+                from easel.integrations.hypit.service import _assert_composition_revision
+                author_path = "productions/easel-authoring/authors/main.svml"
+                _assert_composition_revision(current, staged / author_path)
             plan, bundle, readiness = MaterialGateIntegration().assert_ready(current)
             original = Path(task["workspace"])
             store = AttemptMaterialStore(original)
@@ -2645,6 +2659,10 @@ async def _run_film_authoring(attempt_id: str) -> dict:
                 "\n本轮隔离区 hypit-contracts/ 含本机正式 vocabulary。先读取本次涉及组件的合同，"
                 "根据 attributes/children/recipe/notes 和类型引用编排；不从其他组件猜属性。"
                 "合同是只读输入，不是需要改写或提升的作品产物。"
+                "\n文件工具不能列目录；不要把目录交给 read，也不要猜 @1 文件名。"
+                "读取 hypit-contracts/index.json 获得准确合同文件名。"
+                "现有源码：productions/easel-authoring/authors/main.svml、recipes.svs；"
+                "风格文件：handoff/creative-mode/mode.json、visual-bible.md、editing-bible.md、audio-bible.md。"
             )
             return run_attempt_scoped_authoring(
                 attempt_id=attempt_id,

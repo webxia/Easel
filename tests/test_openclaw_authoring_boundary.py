@@ -9,10 +9,67 @@ from easel.integrations.openclaw_authoring import (
     OpenClawAuthoringBoundaryError,
     authoring_agent_policy,
     run_attempt_scoped_authoring,
+    _agent_result,
 )
+from easel.integrations.hypit.revision import assert_composition_preserves_sound_and_copy
 
 
 ATTEMPT_ID = "fa_0123456789abcdef0123456789abcdef"
+
+
+@pytest.mark.parametrize("change", ["gain", "source", "fade", "copy", "schedule", "clock", "visual"])
+def test_composition_revision_cannot_change_accepted_sound_or_copy(tmp_path, change):
+    base = tmp_path / "base.svml"
+    source = '''<svml>
+      <import as="a" from="@hypit/audio-track@1"/>
+      <import as="m" from="@hypit/media@1"/>
+      <import as="p" from="@hypit/media-pipeline@1"/>
+      <import as="t" from="@hypit/timeline-author@1"/>
+      <import as="copy" from="@hypit/text@1"/>
+      <import as="typo" from="@hypit/typography-track@1"/>
+      <import as="v" from="@hypit/media-track@1"/>
+      <t:Clock id="clock" frame-rate="24"/>
+      <t:Timeline id="program" clock={clock} end="36s"/>
+      <m:Audio id="music" src="music.mp3"/>
+      <p:Normalize id="normalized" source={music} clock={clock} audio="default"/>
+      <a:Track id="sound" timeline={program.timeline}>
+        <a:Item source={normalized.media} during="program" gain="0.4" fade-in="800ms"/>
+      </a:Track>
+      <copy:Value id="words">看窗外。</copy:Value>
+      <typo:Track id="captions" timeline={program.timeline}>
+        <typo:Area content={words} at="21s" for="8s"/>
+      </typo:Track>
+      <v:Item id="leaf" at="21s" for="8s" frame={leafFrame}/>
+    </svml>'''
+    base.write_text(source)
+    replacements = {
+        "gain": ('gain="0.4"', 'gain="0.28"'),
+        "source": ('src="music.mp3"', 'src="other.mp3"'),
+        "fade": ('fade-in="800ms"', 'fade-in="600ms"'),
+        "copy": ('看窗外。', '换了内容。'),
+        "schedule": ('content={words} at="21s"', 'content={words} at="22s"'),
+        "clock": ('end="36s"', 'end="35s"'),
+        "visual": ('frame={leafFrame}', 'frame={newLeafFrame}'),
+    }
+    authored = tmp_path / "authored.svml"
+    authored.write_text(source.replace(*replacements[change]))
+    if change == "visual":
+        assert_composition_preserves_sound_and_copy(base, authored)
+    else:
+        with pytest.raises(HypitIntegrationError, match="声音、字幕或时序"):
+            assert_composition_preserves_sound_and_copy(base, authored)
+
+
+def test_authoring_process_diagnostics_do_not_expose_model_output_or_credentials():
+    def failed(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, "private model response", "502 HTML error page Authorization=private-credential")
+    with pytest.raises(OpenClawAuthoringBoundaryError, match="异常网关响应") as result:
+        _agent_result(failed, ["openclaw"], phase="执行")
+    assert "private" not in str(result.value)
+    def timed_out(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, 5, output="private response")
+    with pytest.raises(OpenClawAuthoringBoundaryError, match="超时"):
+        _agent_result(timed_out, ["openclaw"], phase="执行")
 
 
 def _seed_attempt(root: Path) -> Path:

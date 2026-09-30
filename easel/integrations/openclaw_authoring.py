@@ -33,6 +33,28 @@ _INPUT_FILES = ("AUTHORING_TASK.md", "package.json", "materials/plan.json",
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
 
 
+def _agent_result(runner: CommandRunner, cmd: Sequence[str], *, phase: str, **kwargs):
+    """Retain a safe failure category, never raw model output or credentials."""
+    try:
+        result = runner(cmd, **kwargs)
+    except subprocess.TimeoutExpired as exc:
+        raise OpenClawAuthoringBoundaryError(f"视频编排{phase}超时；已保留原内容和素材，可阶段重试") from exc
+    if result.returncode != 0:
+        detail = ((result.stderr or "") + (result.stdout or "")).lower()
+        if any(word in detail for word in ("502", "503", "504", "bad gateway", "upstream_html", "html error page")):
+            reason = "编排模型服务返回异常网关响应"
+        elif any(word in detail for word in ("timed out", "timeout")):
+            reason = "编排模型服务响应超时"
+        elif any(word in detail for word in ("401", "unauthorized", "authentication")):
+            reason = "编排模型服务认证失败"
+        else:
+            reason = "编排模型调用失败"
+        raise OpenClawAuthoringBoundaryError(
+            f"{reason}（{phase}，退出码 {result.returncode}）；已保留原内容和素材，未提交视频合成"
+        )
+    return result
+
+
 def authoring_agent_policy(workspace: Path, agent_dir: Path) -> dict[str, object]:
     """Return the exact per-turn OpenClaw config, restricted to workspace text files."""
     return {
@@ -110,12 +132,10 @@ def run_attempt_scoped_authoring(
             "--session-key", f"agent:{agent_id}:attempt-{attempt_id}",
             "--thinking", thinking, "--timeout", str(timeout), "--message", staged_message,
         ]
-        result = runner(
-            agent_command, capture_output=True, text=True, cwd=str(cwd),
+        result = _agent_result(
+            runner, agent_command, phase="执行", capture_output=True, text=True, cwd=str(cwd),
             timeout=timeout + 30, env=env,
         )
-        if result.returncode != 0:
-            raise OpenClawAuthoringBoundaryError("OpenClaw 隔离 Authoring 调用失败")
         missing = _missing_authoring_artifacts(staged_workspace)
         if missing:
             repair_message = (
@@ -126,12 +146,10 @@ def run_attempt_scoped_authoring(
                 "不要写到 workspace/authors、workspace/runs 等根目录，不要重写已有文件，"
                 "不要改动 SCRIPT、SCENES、TREATMENT 或素材选择。写完后停止。"
             )
-            result = runner(
-                [*agent_command[:-1], repair_message], capture_output=True, text=True,
+            result = _agent_result(
+                runner, [*agent_command[:-1], repair_message], phase="补齐", capture_output=True, text=True,
                 cwd=str(cwd), timeout=timeout + 30, env=env,
             )
-            if result.returncode != 0:
-                raise OpenClawAuthoringBoundaryError("OpenClaw Authoring 自动补齐调用失败")
         if validate_artifacts is not None:
             from easel.integrations.hypit.errors import HypitIntegrationError
 
@@ -147,12 +165,10 @@ def run_attempt_scoped_authoring(
                     "保留冻结内容、已准入素材和身份，不调用 Provider、plan 或 build。"
                     "无效产物尚未提升；修好后停止，由 Easel 再次校验。"
                 )
-                repaired = runner(
-                    [*agent_command[:-1], repair_message], capture_output=True, text=True,
+                repaired = _agent_result(
+                    runner, [*agent_command[:-1], repair_message], phase="合同修复", capture_output=True, text=True,
                     cwd=str(cwd), timeout=timeout + 30, env=env,
                 )
-                if repaired.returncode != 0:
-                    raise OpenClawAuthoringBoundaryError("OpenClaw Authoring 契约修复失败")
                 validate_artifacts(staged_workspace)
         _promote_authoring_artifacts(staged_workspace, source)
         return result.stdout or ""

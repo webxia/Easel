@@ -45,7 +45,7 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 本次 Creator 自主性与音画质量 E2E（2026-09-30，进行中）
 
-用户另行授权一个 36 秒、5 场景、真实旁白与 BGM 的 Creation，详见 [具名验收记录](acceptance/creator-audio-quality-e2e-2026-09-30.md)。普通对话完成方案冻结与规划，当前停在 Material NOT_READY；获授权的一次预置音色 TTS 已完成并保留（31.932 秒），尚待正式使用权复核，账单未核实。未提交 Build，未产生 Selected Output 或内容库条目。修复自然委托路由、Planning 完整 Domain 合同、动态旁白 Need 任务、BGM 简短音色检索，以及生成后保留当前素材 checkpoint 并本地重算 Gate；68 项对话/Compiler/Preparation 与 42 项 Material/MiniMax 合同回归通过。当前视觉候选、BGM 来源约束和冻结规划修订路径仍有缺口，不得以旧 12 秒静音作品或技术检查代替本轮质量验收；本轮已依赖工程介入，AUTONOMOUS 不可判 PASS。
+用户另行授权一个 36 秒、5 场景、真实旁白与 BGM 的 Creation，详见 [具名验收记录](acceptance/creator-audio-quality-e2e-2026-09-30.md)。一次 TTS 保留（31.932 秒），Creator 已确认旁白与 At Rest 配乐听感；实际 TTS 账单仍未核实。普通 Rights/Match 与局部补料完成，Material READY 自动开始编排；首次零媒体 Provider 计费 Build 已导出 36 秒、1080×1920、有音轨成片，技术 QC pass，CC BY credit 到达导出记录。只读审片发现第四场景取景开头近黑，未批准入库；正常 composition 反馈进入同一 Creation 的修订 Attempt。首次修订因模型网关 502/400 HTML 失败，没有新 Build；修复安全诊断、合同文件索引和声音/字幕不变校验（79 项定向回归），正常页面已重试同一阶段。外部网关、修订结果、最终混音听感和内容库仍待验收；本轮已工程介入，AUTONOMOUS / CREATOR_VISIBLE 不可判 PASS。
 
 当前旁白具有受保护的试听入口。Creator 已确认五句完整清晰、语速合适，并明确允许本次直接使用；通过普通素材复核保存使用声明及绑定当前脚本/音频的试听结论，Rights 为 KNOWN（限定本次作品），不代表第三方合同保证或公开发布批准。该旁白已不再阻断 Gate，生成记录仍只有一次。
 
