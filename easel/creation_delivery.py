@@ -29,6 +29,14 @@ class DeliveryExecutionUncertain(RuntimeError):
     """Caller lost execution observation; this does not prove remote work ended."""
 
 
+class DeliveryObservationPending(RuntimeError):
+    """Continue observing a known remote operation without consuming retries."""
+
+    def __init__(self, message: str, *, disconnected: bool):
+        super().__init__(message)
+        self.disconnected = disconnected
+
+
 def is_managed(work: dict[str, Any]) -> bool:
     return (work.get("delivery") or {}).get("schema") == SCHEMA
 
@@ -286,7 +294,7 @@ async def advance_creation(
         if operation and not observation and failures.get(key, 0) >= MAX_FAILURES:
             operation, status = None, "failed"
         record = work["delivery"]
-        if observation and record.get("status") == "observation_failed":
+        if (observation or previous_operation == operation) and record.get("status") == "observation_failed":
             status = "observation_failed"
         stored_operation = previous_operation if status == "execution_uncertain" else operation
         if (record.get("status"), record.get("operation")) != (status, stored_operation):
@@ -334,6 +342,11 @@ async def advance_creation(
         except Exception as exc:
             with creation.edit_creation(creation_id) as current:
                 record = current["delivery"]
+                if isinstance(exc, DeliveryObservationPending):
+                    record.update(status="observation_failed" if exc.disconnected else next_operation(current)[1],
+                                  last_error=SecretRedactor.redact_text(str(exc))[:1000] if exc.disconnected else None,
+                                  updated_at=creation._now())
+                    return False
                 if operation in {"prepare", "author", "observe_material", "recover_material", "quality"} and isinstance(exc, (DeliveryExecutionUncertain, subprocess.TimeoutExpired)):
                     record.update(status="execution_uncertain", last_error=None,
                                   updated_at=creation._now())

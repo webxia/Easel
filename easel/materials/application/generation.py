@@ -26,7 +26,7 @@ from easel.materials.domain import (
     RightsStatus,
     SupplyCandidate,
 )
-from easel.materials.providers.minimax_video import MiniMaxVideoAdapter, MiniMaxVideoError
+from easel.materials.providers.minimax_video import MiniMaxVideoAdapter, MiniMaxVideoError, MiniMaxVideoObservationPending
 from easel.materials.store import (
     AttemptMaterialStore,
     GenerationRecordNotFound,
@@ -262,6 +262,14 @@ class MiniMaxVideoMaterialGeneration:
             })
             store.write_generation_record(generation_id, record)
             return GeneratedMaterialResult(generation_id, completed.task_id, asset, record)
+        except MiniMaxVideoObservationPending as exc:
+            record.update(status="RUNNING", task_id=task_id,
+                          error_code="provider_task_pending" if exc.task_status else "provider_observation_unavailable",
+                          updated_at=datetime.now(timezone.utc).isoformat())
+            if exc.task_status:
+                record['last_provider_status'] = exc.task_status
+            store.write_generation_record(generation_id, record)
+            raise
         except Exception as exc:
             record.update({
                 "status": "RESULT_FAILED",

@@ -2163,7 +2163,7 @@ def test_visual_replacement_stops_at_usable_choice_or_bound_and_reuses_saved_rep
     assert not store.read_asset(assets[-1].asset_id).semantic.inferences
 
 
-@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'voice_preflight'])
+@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'video_failed', 'voice_preflight'])
 def test_commission_generation_reserves_before_submit_and_survives_restart(material_integration_env, monkeypatch, outcome):
     import asyncio
     from io import BytesIO
@@ -2176,7 +2176,7 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     from easel.materials import providers
 
     attempt = material_integration_env
-    is_video = outcome == 'video_resume'
+    is_video = outcome in {'video_resume', 'video_failed'}
     is_voice = outcome == 'voice_preflight'
     expected_cost = '1.650000' if is_video else '0.025000'
     plan = MaterialPlan(plan_id='commission-plan', creation_id=attempt['creation_id'], attempt_id=attempt['attempt_id'],
@@ -2254,11 +2254,25 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     monkeypatch.setattr(providers, 'MiniMaxImageAdapter', FakeImage)
     if is_video:
         from easel.materials.application import generation as video_generation
-        class FakeVideo:
+        from easel.materials.providers.minimax_video import MiniMaxVideoAdapter
+        from easel.materials.providers.http_support import HttpResponse
+        class FakeVideo(MiniMaxVideoAdapter):
             model = 'MiniMax-H3-Max'
             waits = []
             def __init__(self, *args, **kwargs):
-                pass
+                clock = [0.]
+                def sleep(seconds):
+                    clock[0] += seconds
+                super().__init__('fixture-key', transport=self, timeout_seconds=1,
+                                 poll_interval_seconds=1, monotonic=lambda: clock[0], sleep=sleep)
+            def get(self, url, **kwargs):
+                if outcome == 'video_failed':
+                    return HttpResponse(200, {}, json.dumps({'task': {'id': 'fixture-paid-video', 'status': 'failed'}}).encode())
+                if len(self.waits) in (2, 4):
+                    raise TimeoutError('fixture query connection interrupted')
+                task = {'id': 'fixture-paid-video', 'status': 'queued' if len(self.waits) == 1 else 'running' if len(self.waits) < 5 else 'succeeded',
+                        'content': {'url': 'https://video-product.cdn.minimax.io/fixture.mp4'}}
+                return HttpResponse(200, {}, json.dumps({'task': task}).encode())
             def submit(self, prompt, **kwargs):
                 record = list(creation.get_creation(work['id'])['delivery']['material_generations'].values())[0]
                 assert record['status'] == 'reserved' and record['quote']['upper_estimate'] == expected_cost
@@ -2266,9 +2280,7 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
                 return SimpleNamespace(task_id='fixture-paid-video')
             def wait(self, task_id):
                 self.waits.append(task_id)
-                if len(self.waits) == 1:
-                    raise TimeoutError('fixture query failed after task identity was saved')
-                return SimpleNamespace(task_id=task_id, video_url='https://fixture.invalid/not-downloaded.mp4')
+                return super().wait(task_id)
         class LocalAcquirer:
             def __init__(self, store):
                 self.store = store
@@ -2304,13 +2316,25 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
                 material_observation={'status': 'COMPLETE', 'plan_revision': latest['plan_revision'], 'bundle_revision': latest['bundle_revision']})
         else:
             pytest.fail(operation)
-    for _ in range(6):
+    for step in range(10):
         asyncio.run(advance_creation(work['id'], execute))
+        if outcome == 'video_resume' and step < 4:
+            progress = creation.get_creation(work['id'])['delivery']
+            assert progress['status'] == ('generating_material' if step % 2 == 0 else 'observation_failed')
+            assert not progress.get('failures') and not progress.get('exhausted_operation')
+            record = AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()[0]
+            assert record['status'] == 'RUNNING' and record['last_provider_status'] == ('queued' if step < 2 else 'running')
+            assert len(calls) == len(quote_reads) == 1
+            assert all(row['status'] == 'reserved' for row in progress['material_generations'].values())
     current = creation.get_creation(work['id'])
     ledger = list(current['delivery']['material_generations'].values())
     assert sum(float(r['quote']['upper_estimate']) for r in ledger if r.get('quote')) == float(expected_cost)
     if outcome in {'scope_changed', 'account_changed'}:
         assert not calls and current['delivery']['status'] == 'failed'
+    elif outcome == 'video_failed':
+        assert len(calls) == 1 and current['delivery']['status'] == 'failed'
+        assert current['delivery']['failures'][attempt['attempt_id'] + ':generate_material'] == 3
+        assert {r['status'] for r in ledger} == {'reserved'}
     else:
         assert len(calls) == 1  # the second Need cannot exceed the remaining budget
         assert 'budget_exceeded' in {r['status'] for r in ledger}
@@ -2324,8 +2348,8 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
         assert len(store.read_bundle().assets) == 1
         assert store.read_bundle().assets[0].rights.status is RightsStatus.UNKNOWN
     if is_video:
-        assert FakeVideo.waits == ['fixture-paid-video', 'fixture-paid-video']
-        assert len(quote_reads) == 2  # first submit + second Need; query retry is not a new purchase
+        assert FakeVideo.waits == ['fixture-paid-video'] * (3 if outcome == 'video_failed' else 5)
+        assert len(quote_reads) == (1 if outcome == 'video_failed' else 2)  # first submit + second Need; query retry is not a new purchase
 
 
 @pytest.mark.parametrize('provider_timing', [False, True])

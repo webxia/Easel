@@ -163,7 +163,7 @@ def generate_for_commission(attempt_id: str) -> None:
             attempt_id, need_id=need.need_id, request_id=request_id, confirmed_paid=True,
             commission_request=request_id,
         )
-    except Exception:
+    except Exception as exc:
         try:
             record = store.read_generation_record('gen-' + request_id)
         except GenerationRecordNotFound:
@@ -172,6 +172,10 @@ def generate_for_commission(attempt_id: str) -> None:
             record.get('received_asset') or record.get('asset_id'))
         if (record.get('modality') == 'video' and record.get('status') in {'RUNNING', 'RESULT_FAILED'}
                 and record.get('task_id')):
+            from easel.materials.providers.minimax_video import MiniMaxVideoObservationPending
+            if isinstance(exc, MiniMaxVideoObservationPending):
+                from easel.creation_delivery import DeliveryObservationPending
+                raise DeliveryObservationPending(str(exc), disconnected=exc.task_status is None) from exc
             raise  # Keep the reservation; next call observes the same Provider task.
         with creation.edit_creation(work['id']) as current:
             current['delivery']['material_generations'][request_id].update(

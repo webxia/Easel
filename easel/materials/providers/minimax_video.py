@@ -19,9 +19,18 @@ MINIMAX_VIDEO_MODELS = frozenset({"MiniMax-H3", "MiniMax-H3-Max"})
 class MiniMaxVideoError(ValueError):
     """A sanitized MiniMax API or task failure; never includes credentials."""
 
-    def __init__(self, message: str, *, submission_uncertain: bool = False):
+    def __init__(self, message: str, *, submission_uncertain: bool = False, observation_retryable: bool = False):
         super().__init__(message)
         self.submission_uncertain = submission_uncertain
+        self.observation_retryable = observation_retryable
+
+
+class MiniMaxVideoObservationPending(MiniMaxVideoError):
+    """A known task has no terminal observation; it must not be resubmitted."""
+
+    def __init__(self, message: str, *, task_status: str | None = None):
+        super().__init__(message)
+        self.task_status = task_status
 
 
 @dataclass(frozen=True)
@@ -114,11 +123,17 @@ class MiniMaxVideoAdapter:
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", task_id):
             raise MiniMaxVideoError("Invalid MiniMax task identifier")
         deadline = self._monotonic() + self._timeout
+        last_status = None
         while self._monotonic() < deadline:
-            payload = self._request("GET", f"/v2/query/video_generation/{quote(task_id, safe='')}")
+            try:
+                payload = self._request("GET", f"/v2/query/video_generation/{quote(task_id, safe='')}")
+            except MiniMaxVideoError as exc:
+                if not exc.observation_retryable:
+                    raise  # Explicit auth/parameter refusal needs repair, not endless polling.
+                raise MiniMaxVideoObservationPending("暂时无法读取视频素材任务状态，已保留任务，将继续查询") from exc
             task = payload.get("task")
             if not isinstance(task, dict) or task.get("id") != task_id:
-                raise MiniMaxVideoError("MiniMax returned an invalid task response")
+                raise MiniMaxVideoObservationPending("视频素材查询返回的任务身份无效，尚未确认当前状态")
             status = task.get("status")
             if status == "succeeded":
                 content = task.get("content")
@@ -143,9 +158,10 @@ class MiniMaxVideoAdapter:
                 safe_code = str(code)[:64] if code is not None else None
                 raise MiniMaxVideoError(f"MiniMax task {status}" + (f" (code {safe_code})" if safe_code else ""))
             if status not in {"queued", "running"}:
-                raise MiniMaxVideoError("MiniMax returned an unknown task status")
+                raise MiniMaxVideoObservationPending("视频素材查询返回未知状态，尚未确认任务结果")
+            last_status = status
             self._sleep(min(self._poll_interval, max(0.0, deadline - self._monotonic())))
-        raise MiniMaxVideoError("MiniMax video task polling timed out; check the persisted task record before retrying")
+        raise MiniMaxVideoObservationPending("视频素材仍在排队或制作，将继续查询同一任务", task_status=last_status)
 
     @staticmethod
     def _official_media_url(value: str) -> bool:
@@ -178,19 +194,23 @@ class MiniMaxVideoAdapter:
             raise MiniMaxVideoError(
                 "MiniMax API request failed; task submission may be uncertain",
                 submission_uncertain=method == "POST",
+                observation_retryable=method == "GET",
             ) from exc
+        if not 200 <= response.status_code < 300:
+            raise MiniMaxVideoError(f"MiniMax API rejected the request (code {response.status_code})",
+                                    observation_retryable=method == "GET" and (response.status_code == 429 or response.status_code >= 500))
         try:
             payload = json.loads(response.body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise MiniMaxVideoError("MiniMax returned invalid JSON") from exc
+            raise MiniMaxVideoError("MiniMax returned invalid JSON", observation_retryable=method == "GET") from exc
         if not isinstance(payload, dict):
-            raise MiniMaxVideoError("MiniMax returned an invalid response")
+            raise MiniMaxVideoError("MiniMax returned an invalid response", observation_retryable=method == "GET")
         base_resp = payload.get("base_resp")
         status_code = base_resp.get("status_code") if isinstance(base_resp, dict) else 0
-        if not 200 <= response.status_code < 300 or status_code not in (None, 0):
+        if status_code not in (None, 0):
             safe_code = str(status_code or response.status_code)[:64]
             raise MiniMaxVideoError(f"MiniMax API rejected the request (code {safe_code})")
         return payload
 
 
-__all__ = ["MiniMaxVideoAdapter", "MiniMaxVideoError", "MiniMaxVideoTask"]
+__all__ = ["MiniMaxVideoAdapter", "MiniMaxVideoError", "MiniMaxVideoObservationPending", "MiniMaxVideoTask"]

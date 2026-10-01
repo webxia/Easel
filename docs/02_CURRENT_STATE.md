@@ -53,6 +53,10 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **异步视频素材观察恢复（2026-10-01）：** 已保存服务商任务 ID 后，旧实现把正常排队超时和临时查询断连都存成 `RESULT_FAILED`，并消耗 Delivery Owner 的三次生成重试额度；连续四次未读到结果的隔离回放先复现后台永久停住。现 Adapter 区分尚无终态的观察与明确失败，Material 保留同一 `RUNNING` 任务及最后可信 queued/running 状态；委托执行器将正常等待/临时断连交给现有 Owner 持续观察，不消耗制作失败重试、不重新提交、不重新核价或占额。断连显示既有 `observation_failed` 状态，恢复读取后自动继续。
+- 核对官方 [Video V2 查询契约](https://platform.minimaxi.com/docs/api-reference/video-generation-v2-query)：queued/running 为非终态，failed/cancelled 为明确终态。网络异常、429/5xx、无效任务身份不能被当作任务已结束；身份不符不认领结果。明确鉴权/参数拒绝、终态失败及本地接收错误仍保留原有有界错误处理，不自动购买替代任务。官方查询仅覆盖最近七天，超过窗口不能凭缺失记录推断未提交；本批未新增历史任务补单能力。
+- **本批验证：** Video Adapter/Material integration/Preparation **116 passed**；原有委托回放扩展为四轮排队/断连后成功，真实 Adapter 查询逻辑、持久 Generation/预算记录和 Delivery Owner 串接，验证执行器重建后同一任务接收、一次提交/占额、无额外授权、未知 Rights 仍阻断。明确终态失败三次后停止；限流/服务错误与鉴权拒绝、取消/错误任务身份有合同覆盖，既有接收检查失败恢复继续通过。前端状态投影、compileall、115 项技能合同、diff check 通过；保留两项既有 Python 依赖提示。全部 Provider 响应为 Fixture，仅只读访问公开契约；未触碰真实作品、付费 AI、真实 Build 或完整 E2E，Goal 仍 active。
+
 - **委托输入使用声明（2026-10-01，Rights 证据链仍 PARTIAL）：** 当前委托只有费用许可，不能作为 Creator 对所提供文字的使用声明；因此生成许可后续判断缺少可复用的输入事实。现有方案预览提供明确声明，在“按这个方案制作”按钮前直接展示，并由同一次结构化确认传回摘要；没有增加弹窗、阶段确认或逐素材重复声明。后端把声明原文、版本、文字使用范围、操作范围、作品/方案身份和原确认来源原子保存在 `delivery.authorization.input_use`，与 `material_generation` 费用权限分开；摘要同时绑定可见文字及版本化范围。
 - 普通聊天不能写入该声明，旧页面摘要不能确认已变化范围，同一确认重放保留原时间/来源，旧作品与未声明的既有委托不能通过重放补写授权。没有声明的 API 调用继续保留未声明状态，不从预算或自然语言推断。该记录只覆盖当前作品所提供文字的授权声明，不能推导素材许可、肖像/声音权利、服务商条款适用或发布许可；生成素材仍保持原 Rights 状态，尚未自动准入，也未代用户接受 Provider 协议。
 - **本批验证：** Preparation/Material integration/Rights/Image-Speech **128 passed**；扩展既有确认 API、旧委托与委托生成回放，覆盖摘要失效、普通聊天拒绝、作品/方案绑定、幂等重放、旧确认不扩权，以及已有文字声明和预算仍不能把生成资产 UNKNOWN 变为 KNOWN。前端状态投影、lint/build、隔离 1280px/390px Proposal 页面检查通过，声明可见且按钮传回同一摘要、费用参数独立、无横向溢出。页面检查拦截全部 API，只运行临时前端 Fixture；未操作真实作品。compileall、115 项技能合同与 diff check 通过；保留既有 Hook、构建体积及两项 Python 依赖提示。

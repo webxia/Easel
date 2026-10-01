@@ -27,7 +27,7 @@ from easel.materials.domain import (
     TechnicalStatus,
 )
 from easel.materials.providers.http_support import HttpResponse
-from easel.materials.providers.minimax_video import MiniMaxVideoAdapter, MiniMaxVideoError
+from easel.materials.providers.minimax_video import MiniMaxVideoAdapter, MiniMaxVideoError, MiniMaxVideoObservationPending
 from easel.materials.store import AttemptMaterialStore
 
 
@@ -65,14 +65,28 @@ def test_minimax_submit_uses_v2_contract_and_never_persists_api_key():
     }
 
 
-def test_minimax_wait_polls_until_success_and_accepts_only_provider_video_urls():
+@pytest.mark.parametrize('outcome', ['success', 'rate_limited', 'server_error', 'auth_error', 'cancelled', 'wrong_task'])
+def test_minimax_wait_polls_until_success_and_accepts_only_provider_video_urls(outcome):
     transport = FakeTransport(get_payloads=[
         {"task": {"id": "task-123", "model": "MiniMax-H3-Max", "status": "running"}},
         {"task": {"id": "task-123", "model": "MiniMax-H3-Max", "status": "succeeded",
                    "content": {"url": "https://video-product.cdn.minimax.io/output.mp4"}, "duration": 5}},
     ])
+    if outcome in {'rate_limited', 'server_error', 'auth_error'}:
+        code = {'rate_limited': 429, 'server_error': 500, 'auth_error': 401}[outcome]
+        transport.get = lambda *args, **kwargs: HttpResponse(code, {}, b'<html>upstream response</html>')
+    elif outcome == 'cancelled':
+        transport.get_payloads = [{'task': {'id': 'task-123', 'status': 'cancelled'}}]
+    elif outcome == 'wrong_task':
+        transport.get_payloads = [{'task': {'id': 'other-task', 'status': 'succeeded'}}]
     adapter = MiniMaxVideoAdapter("test-secret", transport=transport, sleep=lambda _seconds: None)
 
+    if outcome != 'success':
+        with pytest.raises(MiniMaxVideoError) as caught:
+            adapter.wait('task-123')
+        assert isinstance(caught.value, MiniMaxVideoObservationPending) == (outcome in {'rate_limited', 'server_error', 'wrong_task'})
+        assert not transport.post_calls  # Observation can never purchase a replacement.
+        return
     task = adapter.wait("task-123")
 
     assert task.status == "succeeded"
