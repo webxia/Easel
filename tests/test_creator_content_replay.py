@@ -13,6 +13,8 @@ import json
 import os
 import shutil
 import subprocess
+import re
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -21,11 +23,12 @@ from PIL import Image
 from tests.test_material_integration import material_integration_env
 from tests.test_hypit_integration import measured_narration_fixture
 from tests.test_creation_preparation import web
-from easel import creation, creative_mode
+from easel import creation, creative_mode, creation_preparation as prep, persona
 from easel.integrations.hypit import handoff, service, quality
 from easel.integrations.material_layer import MaterialGateIntegration, MaterialProductOrchestrator, PlanningIntegration, ProductionAuthoringIntegration
-from easel.integrations.material_supply import ProductMaterialSupply, ProviderRegistry
-from easel.integrations.script_truth import create_script_claim_ledger
+from easel.integrations import material_supply
+from easel.integrations.material_supply import ProviderRegistry
+from easel.runtime_config import EaselRuntimeConfig
 from easel.materials.application.generation_modalities import MiniMaxImageSpeechGeneration
 from easel.materials.application.matching import MaterialMatcher
 from easel.materials.application import voice_delivery
@@ -48,34 +51,31 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
     previous = Path(material_integration_env['workspace']['path']) / 'handoff'
     creator = json.loads((previous / 'creator-context.json').read_text())
     truth = json.loads((previous / 'truth-packet.json').read_text())
+    profiles = tmp_path / 'profiles'
+    (profiles / '测试').mkdir(parents=True)
+    (profiles / '测试' / 'identity.md').write_text('测试创作者：记录日常观察，不编造亲身经历。')
+    (profiles / '测试' / 'style.md').write_text('克制、平等地提出问题，保留不确定性。')
+    monkeypatch.setattr(persona, 'PROFILES_DIR', profiles)
     cases = [
         ('通勤等待', ('假设站在公交站。', '此刻可以先观察。'), ('bus stop',)),
         ('学习新工具', ('假设尝试新工具。', '也许先记录问题。', '再决定下一步。'), ('notebook', 'keyboard')),
         ('安排工作间歇', ('假设暂停手头工作。', '看看窗外。', '也许不必立刻回答。', '再回到当前任务。'), ('desk', 'window', 'clock')),
     ]
     mode_hashes, creator_hashes, script_hashes, native_sources = set(), set(), set(), []
-    output_hashes, quality_hashes = set(), set()
+    output_hashes, quality_hashes, profile_hashes, content_hashes = set(), set(), set(), set()
     runtime = tmp_path / 'fixture-runtime.json'
     runtime.write_text(json.dumps({'format': 'hypit.runtime-local@1', 'dataRoot': '.fixture-runtime'}))
     prior_voice = None
+    base_settings = EaselRuntimeConfig.load()
     for index, (topic, sentences, subjects) in enumerate(cases):
         script = ''.join(sentences)
         work = creation.create_creation(topic, profile='测试', creative_mode='clear_memo_video',
             route='hypit_video', origin={'type': 'chat', 'session_hash': hashlib.sha256(topic.encode()).hexdigest()})
         creation.mark_chat_proposal_ready(work['id'])
-        creation.confirm_chat_proposal(work['id'], 'fixture-confirm', delivery_proposal=topic,
-            proposal_sha256=hashlib.sha256(topic.encode()).hexdigest())
-        package = service.create_creation_handoff(work['id'],
-            content_core={'schema': 'content-core@1', 'question': topic}, truth_packet=truth,
-            creator_context=creator, production_request={'media_type': 'video', 'orientation': '9:16',
-                'language': 'zh-CN', 'preferred_duration_seconds': {'min': 25, 'max': 35}}, max_budget_usd=0)
-        attempt = service.create_film_attempt(work['id'], package['handoff_id'],
-            preparation_key=hashlib.sha256(topic.encode()).hexdigest(), runtime_status='NOT_CONFIGURED')
-        root = Path(attempt['workspace']['path'])
-        store = AttemptMaterialStore(root)
-        mode, mode_hash = handoff.load_frozen_creative_mode(attempt)
-        mode_hashes.add(mode_hash)
-        creator_hashes.add(hashlib.sha256((root / 'handoff/creator-context.json').read_bytes()).hexdigest())
+        proposal = topic + '；30 秒，9:16，普通话旁白与配乐。'
+        creation.confirm_chat_proposal(work['id'], 'fixture-confirm', delivery_proposal=proposal,
+            proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), production_specs={
+                'duration_seconds': 30, 'aspect_ratio': '9:16', 'language': 'zh-CN', 'audio_mode': 'mixed'})
         voice_need = MaterialNeed(need_id='narration', scope=NeedScope(type=NeedScopeType.GLOBAL, ref='film'),
             media_type=MediaType.AUDIO, role='旁白', importance=NeedImportance.REQUIRED,
             intent=NeedIntent(description='克制的观察旁白'), constraints={'allow_generation': True},
@@ -87,24 +87,6 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         music_need = MaterialNeed(need_id='music', scope=NeedScope(type=NeedScopeType.GLOBAL, ref='film'),
             media_type=MediaType.AUDIO, role='bgm', importance=NeedImportance.REQUIRED,
             intent=NeedIntent(description='calm background music'), modality_spec=BgmNeedSpec(mood='calm'))
-        plan = MaterialPlan(plan_id='content-replay', creation_id=work['id'], attempt_id=attempt['attempt_id'],
-            context_refs={'creative_mode_sha256': mode_hash}, needs=(*visuals, music_need, voice_need))
-        ledger = create_script_claim_ledger(script, root / 'handoff/truth-packet.json')
-        assessment = {'schema': 'easel-script-assessment@1',
-            'script_sha256': ledger['script_sha256'], 'truth_packet_sha256': ledger['truth_packet_sha256'],
-            'decisions': [{'claim_id': row['claim_id'], 'kind': 'creative_expression',
-                'reason': '假设情境、建议与保留疑问，不声称实际经历或效果。', 'sources': []}
-                for row in ledger['claims'] if row['status'] == 'REVIEW_REQUIRED']}
-        planned = PlanningIntegration().persist(attempt, plan, treatment=f'通过{len(subjects)}个观察表达{topic}',
-            script=script, scenes=' → '.join(subjects), script_assessment=assessment)
-        plan, attempt = planned['plan'], planned['attempt']
-        voice_need = plan.needs[-1]
-        script_hashes.add(voice_need.modality_spec.text_sha256)
-        assert voice_need.constraints['voice_delivery'] == mode['voice_delivery']
-        assert all(n.constraints['preferred_style'] == mode['visual_material_style'] for n in plan.needs if n.media_type is MediaType.IMAGE)
-        if prior_voice:
-            assert not MaterialMatcher().match(voice_need, (prior_voice,)).matches
-
         local = tmp_path / f'sources-{index}'
         local.mkdir()
         for n, subject in enumerate(subjects):
@@ -125,19 +107,87 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         monkeypatch.setattr(provider, 'search', observe_search)
         registry = ProviderRegistry()
         registry.register(provider)
-        supply = ProductMaterialSupply(registry=registry, library_root=tmp_path / 'shared-library',
-                                       rights_facts=lambda *_: rights)
-        supplied = supply.run(plan, attempt, local_roots=(local,), supply_run_id='fixture-supply', bundle_id='fixture-bundle')
-        assert supplied.readiness.status.value == 'NOT_READY'
-        assert all(mode['visual_material_style'] in r.semantic_queries[0] for r in requests if r.need_id.startswith('visual-'))
-        assert not any(row['failures'] for row in supplied.routing_trace)
-        attempt = MaterialGateIntegration().record(attempt, plan, supplied.bundle, supplied.supply_run,
-            supplied.readiness, supplied.gaps)['attempt']
+        for path in tuple(local.iterdir()):
+            path.with_name(path.name + '.rights.json').write_text(json.dumps({
+                'schema': 'easel-local-rights@1', 'asset_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                'rights': rights.model_dump(mode='json')}))
+        settings = replace(base_settings, material=replace(base_settings.material,
+            local_roots=(str(local),), library_root=tmp_path / 'shared-library'))
+        monkeypatch.setattr(EaselRuntimeConfig, 'load', lambda: settings)
+        monkeypatch.setattr(material_supply, 'product_provider_registry', lambda roots: (registry, ()))
+        monkeypatch.setattr(web, '_hypit_runtime_profile', lambda: None)
+        preparation_calls = []
+        root = None
+        def agent(message, *args):
+            nonlocal root
+            if message.startswith('〔Easel Material Creative Planning V1〕'):
+                preparation_calls.append('planning')
+                root = Path(re.search(r'^Attempt workspace: (.+)$', message, re.MULTILINE)[1])
+                identity = re.search(r'^Attempt ID: (.+)$', message, re.MULTILINE)[1]
+                refs = json.loads(re.search(r'^context_refs: (.+)$', message, re.MULTILINE)[1])
+                drafted = MaterialPlan(plan_id='plan-' + identity[-20:], creation_id=work['id'], attempt_id=identity,
+                    context_refs=refs, needs=(*visuals, music_need, voice_need))
+                for name, value in {'MATERIAL_PLAN.json': drafted.model_dump_json(), 'SCRIPT.md': script,
+                    'TREATMENT.md': f'通过{len(subjects)}个观察表达{topic}', 'SCENES.md': ' → '.join(subjects)}.items():
+                    (root / 'planning' / name).write_text(value)
+            elif message.startswith('〔Easel Script 系统审阅〕'):
+                preparation_calls.append('truth')
+                path = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
+                assessment = json.loads(message.split('（逐项替换判断，不增加字段）：\n', 1)[1].split('\n写入后停止。', 1)[0])
+                for decision in assessment['decisions']:
+                    decision.update(kind='creative_expression', reason='假设情境与保留疑问，不声称实际经历或效果。', sources=[])
+                path.write_text(json.dumps(assessment))
+            else:
+                preparation_calls.append('prepare')
+                assert len(preparation_calls) == 1 and 'CONFIRMED_PROPOSAL_SHA256' in message
+                current = creation.get_creation(work['id'])
+                draft = prep.preparation_paths(work['id'], current['preparation']['operation_key'])['draft']
+                draft.mkdir(parents=True, exist_ok=True)
+                core = {'schema': 'easel-content-core@1', 'topic': topic, 'core_idea': script,
+                    'tension': '日常节奏与观察之间的选择。', 'why_worth_telling': '给当前日常场景一个观察角度。',
+                    'audience': '测试观众', 'intended_takeaway': '先观察再决定。', 'claim_types': ['hypothesis'],
+                    'boundaries': ['假设场景不写成亲身经历。']}
+                brief = {'schema': 'easel-production-brief@1', 'language': 'zh-CN', 'duration_seconds': 30,
+                    'aspect_ratio': '9:16', 'audio_mode': 'mixed', 'beats': [], 'text_overlays': [],
+                    'visual_constraints': [], 'material_sources': [], 'ai_generation_allowed': True,
+                    'publication_allowed': False}
+                for name, value in {'content-core.json': core, 'truth-packet.json': truth,
+                    'creator-context.json': creator, 'production-brief.json': brief}.items():
+                    (draft / name).write_text(json.dumps(value, ensure_ascii=False))
+            return ''
+        monkeypatch.setattr(web, 'run_agent_sync', agent)
+        from easel.creation_delivery import advance_creation, next_operation
+        assert asyncio.run(advance_creation(work['id'], web._execute_creation_delivery)), creation.get_creation(work['id'])['delivery'].get('last_error')
+        prepared_work = creation.get_creation(work['id'])
+        assert preparation_calls == ['prepare', 'planning', 'truth']
+        assert prepared_work['preparation']['status'] == 'MATERIAL_NOT_READY'
+        assert len(prepared_work['hypit_attempts']) == 1
+        attempt = service.get_film_attempt(prepared_work['hypit_attempts'][0]['attempt_id'])
+        root = Path(attempt['workspace']['path'])
+        store = AttemptMaterialStore(root)
+        planned = PlanningIntegration().load(attempt)
+        plan = planned['plan']
+        assert planned['truth_ledger']['status'] == 'PASSED'
+        mode, mode_hash = handoff.load_frozen_creative_mode(attempt)
+        manifest = json.loads((root / 'handoff/handoff.json').read_text())
+        profile_hashes.add(manifest['creator_context']['profile_source_sha256'])
+        assert manifest['creator_context']['profile_source_sha256'] == prep._profile_source_hash('测试')
+        content_hashes.add(plan.context_refs['content_core_sha256'])
+        mode_hashes.add(mode_hash)
+        creator_hashes.add(hashlib.sha256((root / 'handoff/creator-context.json').read_bytes()).hexdigest())
+        voice_need = plan.needs[-1]
+        script_hashes.add(voice_need.modality_spec.text_sha256)
+        assert voice_need.constraints['voice_delivery'] == mode['voice_delivery']
+        assert all(n.constraints['preferred_style'] == mode['visual_material_style'] for n in plan.needs if n.media_type is MediaType.IMAGE)
+        if prior_voice:
+            assert not MaterialMatcher().match(voice_need, (prior_voice,)).matches
+        assert requests and all(mode['visual_material_style'] in r.semantic_queries[0] for r in requests if r.need_id.startswith('visual-'))
+        supplied_bundle = store.read_bundle()
         # Fixed BGM semantics at the observation boundary. The product still
         # lacks automatic BGM listening; do not simulate a Creator approval.
-        music_asset = next(a for a in supplied.bundle.assets if a.media_type is MediaType.AUDIO)
+        music_asset = next(a for a in supplied_bundle.assets if a.media_type is MediaType.AUDIO)
         store.write_asset(music_asset.model_copy(update={'semantic': SemanticInfo(caption='calm background music')}))
-        MaterialProductOrchestrator._recalculate_observed_materials(attempt, plan, supplied.bundle, store)
+        MaterialProductOrchestrator._recalculate_observed_materials(attempt, plan, supplied_bundle, store)
 
         # Fixture TTS output passes the real receive/inspection/generation path.
         duration = 28 if index == 0 else 2 * len(sentences) + 1
@@ -331,7 +381,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         def review_output(a, manifest, attachments):
             reviews.append(manifest)
             assert manifest['creator_context'] == creator and manifest['mode'] == mode
-            assert manifest['content_core']['question'] == topic and manifest['script'] == script
+            assert manifest['content_core']['topic'] == topic and manifest['script'] == script
             assert manifest['measurements']['audio']['voice_windows']
             assert manifest['measurements']['music']['assets'][0]['sha256'] == music_asset.file.sha256
             assert attachments and all(x['mimeType'] == 'image/jpeg' for x in attachments)
@@ -375,6 +425,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             assert windows and all(w['voice_projected'] and w['correlation'] > .9 for w in windows)
         assert report['human']['status'] != 'accepted'
         assert not saved.get('selected_output_name')
+        assert preparation_calls == ['prepare', 'planning', 'truth']
         output_hashes.add(report['system']['binding']['sha256'])
         quality_hashes.add(report['system']['input_sha256'])
         review_count, renderer_count = len(reviews), len(renderer_calls)
@@ -434,4 +485,5 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 admitted_music.write_bytes(original_bytes)
     assert len(output_hashes) == len(quality_hashes) == 3
     assert len(mode_hashes) == len(creator_hashes) == 1
+    assert len(profile_hashes) == 1 and len(content_hashes) == 3
     assert len(script_hashes) == len(set(native_sources)) == 3
