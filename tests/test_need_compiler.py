@@ -106,7 +106,8 @@ def test_music_discovery_uses_sound_terms_preserving_director_and_gate_constrain
         constraints={"required_source_kind": "stock", "allow_generation": False})
     before = source.to_json()
     result = NeedCompiler().compile(source)
-    assert result.semantic_queries[:2] == ("piano instrumental", "piano")
+    assert result.semantic_queries[:3] == (
+        "piano soft synth pad instrumental background music", "piano instrumental", "piano")
     assert source.intent.description in result.semantic_queries
     assert result.filters == {"media_type": "audio", "min_duration": 36.0,
                               "required_source_kind": "stock", "allow_generation": False}

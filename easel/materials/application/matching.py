@@ -12,6 +12,7 @@ from easel.materials.application.rights import RightsAdmissionStatus, RightsServ
 from easel.materials.application.visual_observation import PREFIX, observed_interval, observed_match, scoped_inference
 from easel.materials.application.voice_delivery import VOICE_CONTENT_PREFIX, voice_content_observed
 from easel.materials.domain import (
+    BgmNeedSpec,
     MaterialAsset,
     MaterialMatch,
     MaterialNeed,
@@ -230,6 +231,10 @@ class MaterialMatcher:
             director = self._jaccard(self._tokens(preferred_style), style_corpus) if style_corpus else 0.0
         else:
             director = None
+        style_overlap = director
+        bgm_preference = self._bgm_preference_score(need, asset, semantic_corpus)
+        if bgm_preference is not None:
+            director = (director + bgm_preference) / 2 if director is not None else bgm_preference
 
         continuity = None
         if need.continuity_refs:
@@ -250,11 +255,38 @@ class MaterialMatcher:
             ["system_visual_match=suitable" if system_observed else
              "system_voice_content=complete" if voice_observed else
              f"semantic_overlap={semantic:.3f}" if semantic is not None else "semantic_evidence=absent"]
-            + ([f"director_style_overlap={director:.3f}"] if director is not None else [])
+            + ([f"director_style_overlap={style_overlap:.3f}"] if style_overlap is not None else [])
+            + ([f"bgm_preference_metadata_overlap={bgm_preference:.3f}"] if bgm_preference is not None else [])
             + ([f"continuity_overlap={continuity:.3f}"] if continuity is not None else [])
             + ([f"technical_quality={quality:.3f}"] if quality is not None else [])
         )
         return scores, round(total, 6), reasons
+
+    def _bgm_preference_score(self, need: MaterialNeed, asset: MaterialAsset,
+                              semantic_corpus: set[str]) -> float | None:
+        """Rank declared sound preferences without claiming acoustic observation.
+
+        Metadata may guide selection; it cannot establish absence of vocals,
+        technical readiness or Rights. Missing preferences remain soft zeros.
+        """
+        spec = need.modality_spec
+        if not isinstance(spec, BgmNeedSpec):
+            return None
+        scores = []
+        for field, requested in (('mood', (spec.mood,)), ('genre', (spec.genre,)),
+                                 ('instruments', spec.instruments), ('energy', (spec.energy,))):
+            terms = [self._tokens(value) for value in requested if value and value.strip()]
+            terms = [tokens for tokens in terms if tokens]
+            if not terms:
+                continue
+            value = asset.semantic.attributes.get(field)
+            corpus = (self._tokens(' '.join(self._as_text(value)))
+                      if value is not None else semantic_corpus)
+            scores.append(sum(len(tokens & corpus) / len(tokens) for tokens in terms) / len(terms))
+        if spec.tempo_bpm is not None:
+            tempo = self._number(asset.semantic.attributes.get('tempo_bpm'))
+            scores.append(float(tempo is not None and spec.tempo_bpm[0] <= tempo <= spec.tempo_bpm[1]))
+        return sum(scores) / len(scores) if scores else None
 
     def _observed_semantic_overlap(self, need: MaterialNeed, asset: MaterialAsset) -> bool:
         if self._creator_match_review(need, asset):

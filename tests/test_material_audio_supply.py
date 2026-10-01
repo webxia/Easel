@@ -4,6 +4,7 @@ import json
 
 from easel.materials.application.audio_supply import BgmMaterialSupply, SfxEventMaterialSupply
 from easel.materials.domain import (
+    BgmNeedSpec,
     CandidateSource,
     FileInfo,
     MaterialAsset,
@@ -139,6 +140,42 @@ def test_bgm_matching_reuses_material_matcher_without_timeline_decisions():
 
     assert result.matches[0].asset_id == "music-local"
     assert result.matches[0].qualified
+
+    # Director decisions live in the typed Need, not necessarily in its short
+    # description. Source metadata is a ranking hint, never a listening result.
+    from easel.materials.application.compiler import NeedCompiler
+    need = need.model_copy(update={'intent': NeedIntent(description='background music'),
+        'modality_spec': BgmNeedSpec(mood='calm', genre='ambient',
+            instruments=('piano', 'pad'), energy='low', tempo_bpm=(60, 80))})
+    compiler = NeedCompiler(search_terms={need.need_id: ('music', 'background', 'soundtrack', 'score')})
+    transport = FixtureTransport(_openverse_result(title='Music', item_id='music-2',
+        license_id='cc0', attribution='', tags=('piano',)))
+    intent = _search(transport, need, BgmMaterialSupply(compiler=compiler)).intent
+    from urllib.parse import parse_qs, urlparse
+    assert parse_qs(urlparse(transport.url).query)['q'] == [intent.semantic_queries[0]]
+    first_query = intent.semantic_queries[0]
+    assert all(term in first_query for term in ('calm', 'ambient', 'piano', 'pad', 'low', '60-80 bpm', 'instrumental'))
+    assert len(intent.semantic_queries) <= 4
+    assert 'vocals' in intent.negative_terms
+    allowed = compiler.compile(need.model_copy(update={'modality_spec': BgmNeedSpec(vocals_allowed=True)}))
+    assert 'instrumental' not in ' '.join(allowed.semantic_queries)
+    assert 'vocals' not in allowed.negative_terms
+
+    def candidate(asset_id, **attributes):
+        return _licensed_asset().model_copy(update={'asset_id': asset_id,
+            'semantic': SemanticInfo(caption='background music', attributes=attributes)})
+    calm = candidate('z-calm', mood='calm', genre='ambient', instruments=['piano', 'pad'], energy='low', tempo_bpm=70)
+    loud = candidate('a-loud', mood='exciting', genre='rock', instruments=['guitar'], energy='high', tempo_bpm=150)
+    unknown = candidate('b-unknown')
+    ranked = BgmMaterialSupply().match(need, [loud, unknown, calm]).matches
+    assert ranked[0].asset_id == calm.asset_id
+    assert ranked[0].scores.director == 1
+    assert any(reason.startswith('bgm_preference_metadata_overlap=') for reason in ranked[0].reasons)
+    assert len(ranked) == 3  # Missing/contrary soft preferences are not new gates.
+    assert not any('observed' in reason or 'vocals=absent' in reason for match in ranked for reason in match.reasons)
+    different = need.model_copy(update={'modality_spec': BgmNeedSpec(mood='exciting', genre='rock',
+        instruments=('guitar',), energy='high', tempo_bpm=(140, 160), vocals_allowed=True)})
+    assert BgmMaterialSupply().match(different, [calm, loud]).matches[0].asset_id == loud.asset_id
 
 
 def test_sfx_discovery_compiles_event_semantics_and_retains_license_facts():

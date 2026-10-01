@@ -64,17 +64,31 @@ class NeedCompiler:
 
         role = need.role.replace("_", " ").strip()
         query_candidates = [description, f"{role} {description}".strip()]
-        if isinstance(need.modality_spec, BgmNeedSpec) and need.modality_spec.instruments:
-            # Discovery terms describe the sound to retrieve, not mix/timeline
-            # instructions. The full Need and filters still own qualification.
-            instrument = self._normalize(need.modality_spec.instruments[0])
-            if instrument:
-                query_candidates = [f"{instrument} instrumental", instrument, *query_candidates]
         if need.need_id in self.search_terms:
             terms = self._normalize_terms(self.search_terms[need.need_id], "search_terms")
             if not terms or len(terms) > 4 or any(len(term) > 120 for term in terms):
                 raise NeedCompilationError("检索提示须为 1～4 条不超过 120 字符的短语")
             query_candidates = [*terms, *query_candidates]
+        if isinstance(need.modality_spec, BgmNeedSpec):
+            spec = need.modality_spec
+            sound = list(self._normalize_terms(
+                (spec.mood or '', spec.genre or '', *spec.instruments, spec.energy or ''), 'bgm preferences'))
+            # Reserve one actual Provider query, including when Planning fills
+            # all four search hints. These are discovery hints, not evidence
+            # that the retrieved audio has been heard or contains no vocals.
+            if not spec.vocals_allowed:
+                sound.append('instrumental')
+            if spec.tempo_bpm:
+                sound.append(f'{spec.tempo_bpm[0]}-{spec.tempo_bpm[1]} bpm')
+            if sound:
+                query_candidates.insert(0, ' '.join((*sound, 'background music')))
+            if spec.instruments and need.need_id not in self.search_terms:
+                instrument = self._normalize(spec.instruments[0])
+                if instrument:
+                    # Keep broad fallbacks: requiring every preferred sound
+                    # in every search would turn soft direction into no supply.
+                    query_candidates[1:1] = [f'{instrument} instrumental' if not spec.vocals_allowed
+                                             else f'{instrument} music', instrument]
         if creator_terms:
             query_candidates.append(f"{description} {' '.join(creator_terms)}")
         if mode_terms:
@@ -105,6 +119,8 @@ class NeedCompiler:
             for key, value in need.constraints.items()
             if value is False and key.strip()
         )
+        if isinstance(need.modality_spec, BgmNeedSpec) and not need.modality_spec.vocals_allowed:
+            negative_terms = tuple(dict.fromkeys((*negative_terms, 'vocals')))
         ranking_hints: dict[str, str | int | float | bool] = {"role": role}
         if need.intent.function:
             ranking_hints["intent_function"] = need.intent.function

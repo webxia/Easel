@@ -53,6 +53,9 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **配乐偏好进入检索与排序（2026-10-01）：** 原 `BgmNeedSpec` 只取第一个乐器组成检索词，Planning 提供四条搜索提示时又会将它挤出；匹配排序完全不读情绪、曲风、乐器、能量与速度要求。现为完整声音偏好保留一条实际 Provider 检索请求，继续保留宽泛后备查询；明确允许人声时不再强加 instrumental。现有匹配器读取这些偏好与素材元数据计算 Director 软排序，缺少或不符的偏好不新增门禁，理由明确标为 metadata overlap。普通 caption、关键词与检索排除词仍不能证明实际无歌词、乐器或听感；本批没有新增音频模型，也未声称完成声音感知。实际声音观察及 `vocals_allowed=False` 的有效核验仍未接通，三内容回放的 BGM 语义 Fixture 保留，整体 Goal 继续 active / NOT_READY。
+- **本批局部验证：** Compiler/Audio Supply/Matching/Readiness/Material integration/三内容回放 **87 passed**，保留两项既有 Python 依赖提示。扩展既有场景先复现偏好被挤掉，再验证实际 Openverse Fixture HTTP 查询、同一候选池随 Director 配乐决定改变排序、软偏好缺失不阻断、原 Rights/技术准入及跨内容主链兼容。compileall、diff check 通过。未修改真实 Creation，未调用付费 AI、真实 Build 或完整 E2E。
+
 - **预置旁白有限用途自动准入（2026-10-01）：** 原正常路径即使已有输入授权、系统音色和声音内容证据，仍停在 Rights UNKNOWN。现复用后台素材观察操作，对当前委托、请求、费用范围、已确认文字声明、冻结脚本、实际资产、预置音色与独立语音识别证据逐项绑定；满足已评估国内协议版本时，记录 KNOWN 的有限用途依据。政策依据为 6.2/6.3/9.5 的输入责任与有条件输出使用，1.7 的传播要求通过仅限内部制作的范围隔离；不宣称所有权、商业发布许可或单靠付费取得权利。不同协议摘要不自动认领旧政策，已有人工核验/限制不被替换。
 - 限定 `internal_production_only` 与 `current_creation_only`：成片可成为待审首版并最终保存，发布入口继续执行上一批范围检查；素材库登记需绑定源 Plan 的作品与 Attempt，复用时不能转给另一作品。旧 Creation、手动生成和证据缺失场景不获得新授权；没有新增 Creator 确认或第二生产路径。
 - 三内容回放已移除生成旁白的手工 Rights 放行，实际 Owner/Web 素材观察自动完成此判断并进入原生制作服务与系统审片。协议审核版本在测试中使用明确的合成 Fixture，模型/ASR/渲染仍是替身；增加缺少输入声明、未评估条款、非委托音色、错误作品、识别内容错配及已有 RESTRICTED 的反例，并核对跨作品素材库复用被拒。BGM 听感仍有 Fixture 证据注入；生成图片/视频、真实声音语义、剩余质量恢复和完整真实自主交付仍未完成，Goal active。
