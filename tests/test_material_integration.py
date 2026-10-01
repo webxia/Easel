@@ -2228,6 +2228,7 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     from easel.materials.providers import minimax_pricing
     from easel.materials.providers.minimax_image import MiniMaxImageResult
     from easel.materials import providers
+    from tests.test_creation_preparation import web
 
     attempt = material_integration_env
     is_video = outcome in {'video_resume', 'video_failed', 'video_intake_resume'}
@@ -2377,12 +2378,12 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset', interrupted)
     async def execute(operation, current):
         if operation == 'generate_material':
-            await asyncio.to_thread(commissioned.generate_for_commission, attempt['attempt_id'])
+            await web._execute_creation_delivery(operation, current)
         elif operation == 'finish_material_generation':
             assert outcome == 'video_intake_resume'
             with monkeypatch.context() as isolated:
                 isolated.setattr(EaselRuntimeConfig, 'load', lambda: pytest.fail('local receipt recovery cannot load Provider credentials'))
-                await asyncio.to_thread(MaterialProductOrchestrator().resume_minimax_intake, attempt['attempt_id'])
+                await web._execute_creation_delivery(operation, current)
         elif operation == 'observe_material':
             latest = service.get_film_attempt(attempt['attempt_id'])['material_gate']
             service.update_film_attempt(attempt['attempt_id'], event='fixture_observation',

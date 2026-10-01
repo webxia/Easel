@@ -20,6 +20,7 @@ from PIL import Image
 
 from tests.test_material_integration import material_integration_env
 from tests.test_hypit_integration import measured_narration_fixture
+from tests.test_creation_preparation import web
 from easel import creation, creative_mode
 from easel.integrations.hypit import handoff, service, quality
 from easel.integrations.material_layer import MaterialGateIntegration, MaterialProductOrchestrator, PlanningIntegration, ProductionAuthoringIntegration
@@ -173,7 +174,6 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 {'text': c['text'], 'start_seconds': c['start_seconds'], 'end_seconds': c['end_seconds'],
                  'probability': .99} for c in cues]}
         monkeypatch.setattr(voice_delivery, 'read_local_voice', recognize)
-        orchestrator.recover_voice_timing(attempt['attempt_id'])
         observations = []
         def observe(a, manifest, attachments):
             observations.append(manifest)
@@ -189,8 +189,19 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 'logo_present': False, 'visible_text_present': False,
                 'frames': [{'index': f['index'], 'observed': True, 'related': related,
                             'description': 'colored fixture panel'} for f in manifest['frames']]}
-        ready = orchestrator.observe_visual_materials(attempt['attempt_id'], executor=observe)
-        assert ready['material_status'] == 'MATERIAL_READY'
+        from easel.creation_delivery import advance_creation, next_operation
+        monkeypatch.setattr(web, '_observe_material_frames', observe)
+        material_operations = []
+        async def execute_material(operation, current):
+            material_operations.append(operation)
+            await web._execute_creation_delivery(operation, current)
+        for _ in range(4):
+            asyncio.run(advance_creation(work['id'], execute_material))
+            if next_operation(creation.get_creation(work['id']))[0] == 'author':
+                break
+        assert material_operations == ['recover_voice_timing', 'observe_material'], creation.get_creation(work['id'])['delivery']
+        ready = {'attempt': service.get_film_attempt(attempt['attempt_id'])}
+        assert ready['attempt']['material_gate']['status'] == 'MATERIAL_READY'
         before_calls = (len(calls), len(recognition_calls), len(observations))
         orchestrator.recover_voice_timing(attempt['attempt_id'])
         ready = orchestrator.observe_visual_materials(attempt['attempt_id'], executor=observe)
@@ -263,8 +274,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         # Substitute only the renderer result, not Gate/Planning/Quality or
         # Delivery state. This MP4 is deterministic test media, not a Hypit
         # render of the SVML above and not a perceptual style-quality proof.
-        output = creation.OUTPUTS_DIR / '_creations' / work['id'] / 'attempts' / attempt['attempt_id'] / 'replay.mp4'
-        output.parent.mkdir(parents=True, exist_ok=True)
+        rendered = tmp_path / f'rendered-{index}.mp4'
         voice_path = store.resolve_asset_locator(prior_voice.file.path)
         phase = (music_duration - 30 % music_duration) % music_duration if playback == 'loop-end' else 0
         music_filter = (f'atrim=start={phase},asetpts=PTS-STARTPTS' if playback != 'once-end'
@@ -272,20 +282,51 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         if index == 0:
             music_filter = 'atrim=start=0.5:end=9.5,asetpts=PTS-STARTPTS,aloop=loop=-1:size=144000:start=0'
         subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i',
-            f'color=c=0x{60 + index * 20:02x}6070:s=160x240:r=12:d=30', '-i', str(voice_path),
+            f'color=c=0x{60 + index * 20:02x}6070:s=144x256:r=12:d=30', '-i', str(voice_path),
             '-stream_loop', '-1', '-i', str(music_file), '-filter_complex',
             f'[1:a]volume=0.9,adelay=500:all=1[v];[2:a]{music_filter},volume=0.01[m];[v][m]amix=inputs=2:normalize=0:duration=longest[a]',
             '-map', '0:v', '-map', '[a]', '-c:v', 'libx264', '-preset', 'ultrafast',
-            '-c:a', 'aac', '-t', '30', str(output)], check=True, capture_output=True, timeout=30)
-        def receive_fixture_output(item):
-            item['runtime_profile'] = {'path': str(runtime)}
-            item['authoring'] = {**item.get('authoring', {}), 'run_path': run.relative_to(root).as_posix()}
-            item['execution_status'] = 'BUILD_COMPLETE'
-            item['build'] = {'operation': {'execution_fingerprint': service._execution_fingerprint(item)}}
-            item['outputs'] = {'final.video': {'path': output.relative_to(creation.OUTPUTS_DIR).as_posix(),
-                'sha256': service._file_sha256(output), 'metadata': {'duration_seconds': 30, 'audio_present': True}}}
-            return item
-        service._save_attempt(attempt['attempt_id'], receive_fixture_output)
+            '-c:a', 'aac', '-t', '30', str(rendered)], check=True, capture_output=True, timeout=30)
+        # Fake only the renderer CLI and model invocation. The backend's real
+        # Authoring/Runtime/Plan/Pricing/approval/Build/export services own state.
+        renderer_calls, author_calls = [], []
+        class RendererFixture:
+            def check(self, *args, **kwargs):
+                renderer_calls.append('check')
+                return {'format': 'hypit.cli-check@1', 'ok': True}
+            def plan(self, workspace, source, **kwargs):
+                renderer_calls.append('plan')
+                return {'format': 'hypit.cli-plan@1', 'ok': True, 'run': str(source)}
+            def pricing(self, *args, **kwargs):
+                renderer_calls.append('pricing')
+                return {'format': 'hypit.cli-pricing@1', 'requestCount': 1,
+                        'noChargeRequestCount': 1, 'groups': []}
+            def build(self, *args, **kwargs):
+                renderer_calls.append('build')
+                return {'format': 'hypit.cli-build@1', 'build': {'id': f'bld_fixture_{index}'}}
+            def status(self, *args, **kwargs):
+                renderer_calls.append('status')
+                if index == 1 and renderer_calls.count('status') == 1:
+                    raise service.HypitIntegrationError('fixture temporary status disconnection')
+                return {'format': 'hypit.cli-status@1', 'build': {'id': f'bld_fixture_{index}',
+                    'work': {'state': 'done', 'outcome': 'complete'}, 'result': {'state': 'complete', 'outputCount': 1}}}
+            def inspect(self, *args, **kwargs):
+                renderer_calls.append('inspect')
+                return {'format': 'hypit.cli-inspect@1', 'build': {'id': f'bld_fixture_{index}',
+                    'outputs': [{'name': 'final.video', 'target': True, 'mediaType': 'video/mp4'}]}}
+            def get(self, workspace, build_id, output_name, destination):
+                renderer_calls.append('get')
+                assert build_id == f'bld_fixture_{index}' and output_name == 'final.video'
+                shutil.copyfile(rendered, destination)
+                return {'format': 'hypit.cli-get@1', 'build': build_id, 'output': output_name}
+        def authored_fixture(**kwargs):
+            author_calls.append(kwargs['attempt_id'])
+            assert kwargs['attempt_workspace'] == str(root)
+            assert (root / author_path).read_text() == compiled
+            return ''  # Fixed native model output was authored above, never a live Agent.
+        monkeypatch.setattr(service, 'HypitCLI', RendererFixture)
+        monkeypatch.setattr(web, '_hypit_runtime_profile', lambda: str(runtime))
+        monkeypatch.setattr(web, 'run_attempt_scoped_authoring', authored_fixture)
         reviews = []
         def review_output(a, manifest, attachments):
             reviews.append(manifest)
@@ -300,16 +341,34 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                               'frame_indices': [0]} for k in quality.VISUAL_CHECKS}}
         from easel.creation_delivery import advance_creation, next_operation
         operations = []
+        monkeypatch.setattr(web, '_review_output_frames', review_output)
         async def execute(operation, current):
             operations.append(operation)
-            assert operation == 'quality'  # No Provider, Build or manual advancement.
-            quality.inspect_output(attempt['attempt_id'], executor=review_output)
-        assert next_operation(creation.get_creation(work['id'])) == ('quality', 'checking_quality')
-        asyncio.run(advance_creation(work['id'], execute))
+            await web._execute_creation_delivery(operation, current)
+        for _ in range(16):
+            asyncio.run(advance_creation(work['id'], execute))
+            current = creation.get_creation(work['id'])
+            if operations[-1:] == ['refresh'] and index == 1 and operations.count('refresh') == 1:
+                assert current['delivery']['status'] == 'observation_failed'
+                assert current['hypit_attempts'][-1]['execution_status'] == 'SUBMITTED'
+            if next_operation(current) == (None, 'first_cut_ready'):
+                break
+        expected_operations = ['author', 'runtime', 'validate', 'price', 'approve_free', 'submit', 'refresh']
+        if index == 1:
+            expected_operations.append('refresh')
+        expected_operations += ['export', 'quality']
+        assert operations == expected_operations, creation.get_creation(work['id'])['delivery']
+        assert author_calls == [attempt['attempt_id']]
+        assert renderer_calls.count('build') == renderer_calls.count('get') == 1
         saved = creation.get_creation(work['id'])
         assert saved['delivery']['status'] == 'first_cut_ready', saved['delivery']
         assert next_operation(saved) == (None, 'first_cut_ready')
-        report = service.get_film_attempt(attempt['attempt_id'])['review']
+        exported = service.get_film_attempt(attempt['attempt_id'])
+        output = creation.OUTPUTS_DIR / exported['outputs']['final.video']['path']
+        assert exported['cost']['approved'] is True and exported['cost']['approved_budget_usd'] == 0
+        assert exported['cost']['approval_kind'] == 'confirmed_commission_no_charge'
+        assert output.read_bytes() == rendered.read_bytes()
+        report = exported['review']
         assert report['system']['status'] == 'READY'
         if index == 0:
             windows = report['system']['measurements']['music']['assets'][0]['windows']
@@ -318,10 +377,11 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         assert not saved.get('selected_output_name')
         output_hashes.add(report['system']['binding']['sha256'])
         quality_hashes.add(report['system']['input_sha256'])
-        review_count = len(reviews)
+        review_count, renderer_count = len(reviews), len(renderer_calls)
         asyncio.run(advance_creation(work['id'], execute))
         quality.inspect_output(attempt['attempt_id'], executor=review_output)
-        assert len(reviews) == review_count and operations == ['quality']
+        assert len(reviews) == review_count and operations == expected_operations
+        assert len(renderer_calls) == renderer_count and author_calls == [attempt['attempt_id']]
         assert before_calls == (len(calls), len(recognition_calls), len(observations))
         # Renderer regressions: BGM or the last spoken sentence is absent
         # from actual MP4 despite valid source/timing/SVML.

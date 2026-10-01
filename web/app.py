@@ -2106,6 +2106,8 @@ _DELIVERY_ACK = "委托已确认，Easel 会持续制作，可随时离开并返
 
 async def _execute_creation_delivery(operation: str, work: dict) -> None:
     """Invoke the same production services, independent of chat and page life."""
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+
     if operation == "observe_agent":
         from easel.integrations.openclaw_delivery import reconcile_agent_calls
         await asyncio.to_thread(reconcile_agent_calls, work["id"], command_prefix=openclaw_base_cmd(),
