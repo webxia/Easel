@@ -2990,10 +2990,15 @@ async def _run_film_authoring(attempt_id: str) -> dict:
               '仅修正 allowed_changes 指定部分：visual 为既有画面构图/取片/明暗/平移缩放；'
               'captions 为字幕字体、颜色、底色与安全区，不改变原文和时间；'
               'audio 为现有音轨增益与淡入淡出，不改变音频、播放位置、截取、循环或时长。'
-              '保持素材身份、脚本、场景顺序、时间线、创作边界及其他无缺陷部分。'
+              'visual_material 仅允许把反馈涉及的画面换成下列同 Need 已准入备选，保留原组件 ID；'
+              '图片 Extent 同步使用新素材实际宽高，视频仍使用其逐 Need 观察区间。'
+              '未列出的素材身份、脚本、场景顺序、时间线、创作边界及其他无缺陷部分保持不变。'
               '不得请求 Provider 或调用 Build；已有旁白不能重购。不能用删除有问题的声音/字幕假装修复。'
               '只编辑相关源文件；新核价和合成由原主链处理。'
         )
+        from easel.integrations.hypit.service import quality_visual_replacements
+        message += '\n可替换视觉来源（空表表示仅可修正原画面）：' + json.dumps(
+            quality_visual_replacements(started), ensure_ascii=False)
     elif revision:
         message += (
             "\n〔Creator 成片修改：仅限构图与转场〕\n"

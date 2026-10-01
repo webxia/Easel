@@ -721,6 +721,22 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     _planning(attempt)
     root = Path(attempt["workspace"]["path"])
     plan, asset, run, bundle, readiness, gaps = _contracts(attempt, root)
+    store = AttemptMaterialStore(root)
+    raw = b'fixture alternate image'
+    alternate = asset.model_copy(update={'asset_id': 'alternate',
+        'file': asset.file.model_copy(update={'path': store.write_asset_bytes('alternate', 'original.png', raw),
+            'sha256': hashlib.sha256(raw).hexdigest(), 'size': len(raw)})})
+    store.write_asset(alternate)
+    unknown_raw = b'fixture image with no semantic evidence'
+    unobserved = asset.model_copy(update={'asset_id': 'unobserved', 'semantic': SemanticInfo(),
+        'file': asset.file.model_copy(update={'path': store.write_asset_bytes('unobserved', 'original.png', unknown_raw),
+            'sha256': hashlib.sha256(unknown_raw).hexdigest(), 'size': len(unknown_raw)})})
+    store.write_asset(unobserved)
+    bundle = MaterialBundleAssembler().assemble(plan, run, (asset, alternate, unobserved),
+        (*bundle.matches, bundle.matches[0].model_copy(update={'asset_id': alternate.asset_id, 'rank': 2}),
+         bundle.matches[0].model_copy(update={'asset_id': unobserved.asset_id, 'rank': 3})),
+        bundle_id=bundle.bundle_id)
+    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
     attempt.update(MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)["attempt"])
     observation_record = {"schema": "fixture-visual-report", "asset_sha256": asset.file.sha256}
     observation_path = AttemptMaterialStore(root).write_observation_record("fixture-report", observation_record)
@@ -730,6 +746,10 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     attempt.update(ProductionAuthoringIntegration().prepare(attempt)["attempt"])
     service.begin_film_authoring(attempt["attempt_id"])
     _record_authored_selection(attempt, asset, root)
+    def wrap_source(workspace):
+        author = workspace / 'productions/easel-authoring/authors/main.svml'
+        author.write_text('<svml><import as="media" from="@hypit/media@1"/>' + author.read_text() + '</svml>')
+    wrap_source(root)
 
     class FailedBuildCLI:
         build_calls = 0
@@ -863,6 +883,7 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     service.begin_film_authoring(revision["attempt_id"])
     revision_root = Path(revision["workspace"]["path"])
     _record_authored_selection(revision, asset, revision_root)
+    wrap_source(revision_root)
     service.complete_film_authoring(revision["attempt_id"], cli=cli)
     service.resolve_film_attempt_runtime(revision["attempt_id"], str(runtime))
     service.validate_film_attempt(revision["attempt_id"], "productions/easel-authoring/runs/main.svrun", cli=cli)
@@ -880,7 +901,9 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     quality = {'schema': 'easel-output-quality@4', 'status': 'REPAIR_REQUIRED',
                'binding': {'output_name': 'final.video', 'sha256': output_hash},
                'measurements': {'defects': [{'kind': 'near_black', 'reason': '开头主体接近全黑', 'time_seconds': 1.}]},
-               'visual': [], 'frames': []}
+               'visual': [{'frame_offset': 0, 'checks': {'visual_match': {'status': 'fail',
+                    'reason': '当前画面不符合内容，应选择同一需求下另一候选', 'frame_indices': [0]}}}],
+               'frames': [{'time_seconds': 1.}]}
     service.update_film_attempt(attempt['attempt_id'], event='fixture_machine_review',
                                review={'system': quality, 'human': {'status': 'pending'}})
     with creation.edit_creation(attempt['creation_id']) as current:
@@ -888,12 +911,26 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
                                'quality_repairs': [attempt['attempt_id']]}
     repaired = service.repair_film_quality(attempt['attempt_id'], cli=cli)
     assert repaired['revision_feedback']['origin'] == 'system_quality'
-    assert repaired['revision_feedback']['allowed_changes'] == ['visual']
+    assert repaired['revision_feedback']['allowed_changes'] == ['visual', 'visual_material']
     assert repaired['cost']['approved'] is False and repaired['plan']['status'] == 'pending'
     assert repaired['outputs'] == {} and repaired['execution_status'] == 'NOT_SUBMITTED'
     assert service.get_film_attempt(attempt['attempt_id'])['review']['human']['status'] == 'pending'
     assert service.repair_film_quality(attempt['attempt_id'], cli=cli)['attempt_id'] == repaired['attempt_id']
     assert cli.build_calls == 1
+    replacements = service.quality_visual_replacements(repaired)
+    old_src = store.hypit_source_path(asset, 'productions/easel-authoring/authors/main.svml')
+    new_src = store.hypit_source_path(alternate, 'productions/easel-authoring/authors/main.svml')
+    assert set(replacements) == {old_src} and set(replacements[old_src]) == {new_src}
+    assert replacements[old_src][new_src]['qualified_need_ids'] == ['need-main']
+    repaired_root = Path(repaired['workspace']['path'])
+    service.begin_film_authoring(repaired['attempt_id'])
+    _record_authored_selection(repaired, alternate, repaired_root)
+    wrap_source(repaired_root)
+    admitted = service.complete_film_authoring(repaired['attempt_id'], cli=cli)
+    assert admitted['authoring_status'] == 'AUTHORING_READY'
+    assert admitted['production_authoring']['selected_asset_ids'] == [alternate.asset_id]
+    assert admitted['cost']['approved'] is False and cli.build_calls == 1
+    assert service.get_film_attempt(attempt['attempt_id'])['production_authoring']['selected_asset_ids'] == [asset.asset_id]
 
 
 def test_int04_workspace_asset_uses_ordinary_hypit_media_route(material_integration_env):

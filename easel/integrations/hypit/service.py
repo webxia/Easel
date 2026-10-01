@@ -973,11 +973,49 @@ def _assert_composition_revision(attempt: dict[str, Any], authored: Path | None 
     if attempt['revision_feedback'].get('origin') == 'system_quality':
         from .revision import assert_quality_revision
         assert_quality_revision(_workspace(original) / relative, authored or _workspace(attempt) / relative,
-                                set(attempt['revision_feedback']['allowed_changes']))
+                                set(attempt['revision_feedback']['allowed_changes']),
+                                replacements=quality_visual_replacements(attempt))
         return
     assert_composition_preserves_sound_and_copy(
         _workspace(original) / relative, authored or _workspace(attempt) / relative,
     )
+
+
+def quality_visual_replacements(attempt: dict[str, Any]) -> dict[str, dict[str, dict]]:
+    """Same-Need, admitted alternatives; no new supply or changed commission."""
+    revision = attempt.get('revision_feedback', {})
+    if revision.get('origin') != 'system_quality' or 'visual_material' not in revision.get('allowed_changes', []):
+        return {}
+    from easel.integrations.material_layer import ProductionAuthoringIntegration, MaterialGateIntegration
+    original = get_film_attempt(attempt['retry_source']['attempt_id'])
+    integration = ProductionAuthoringIntegration()
+    old_plan, _, _ = MaterialGateIntegration().assert_ready(original)
+    plan, bundle, _ = MaterialGateIntegration().assert_ready(attempt)
+    if old_plan.needs != plan.needs or original['creation_id'] != attempt['creation_id']:
+        raise HypitIntegrationError('画面替换不能改变原委托的素材需求')
+    before = integration.qualified_authoring_assets(original)
+    after = integration.qualified_authoring_assets(attempt)
+    assets = {a.asset_id: a for a in bundle.assets}
+    selected = set(original['production_authoring']['selected_asset_ids'])
+    from .revision import quality_protected_sources
+    protected_sources = quality_protected_sources(_workspace(original) / 'productions/easel-authoring/authors/main.svml')
+    result = {}
+    for old in before:
+        if (old['asset_id'] not in selected or old['media_type'] not in {'image', 'video'}
+                or old['src'] in protected_sources):
+            continue
+        alternatives = {}
+        for new in after:
+            if (new['asset_id'] == old['asset_id'] or new['media_type'] != old['media_type']
+                    or not set(old['qualified_need_ids']) <= set(new['qualified_need_ids'])):
+                continue  # One shared asset must retain independent evidence for every Need.
+            technical = assets[new['asset_id']].technical
+            alternatives[new['src']] = {'asset_id': new['asset_id'], 'sha256': new['sha256'],
+                'qualified_need_ids': new['qualified_need_ids'], 'media_type': new['media_type'],
+                'width': technical.width, 'height': technical.height}
+        if alternatives:
+            result[old['src']] = alternatives
+    return result
 
 
 def _assert_local_video_trim_ranges(attempt: dict[str, Any], authored: Path | None = None) -> None:

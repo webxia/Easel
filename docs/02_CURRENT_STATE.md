@@ -53,6 +53,10 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **系统画面错配可使用已准入备选（2026-10-01）：** 原 Quality 将 `visual_match` 失败归为构图修正，但修复合同强制保留全部素材身份，已有备选也无法使用。现仅该类系统缺陷开放 `visual_material`，通过原 fork/Authoring/核价/审片路径，在未改变的 Need 下替换同类型、独立匹配证据齐全的现有视觉素材；共享素材的每个原 Need 均须继续被覆盖。代码和 Prompt 共用当前备选表；保留组件身份、脚本、时序、声音及其他受保护部分，图片尺寸只能改为替代资产的实际检查尺寸。核对本机 Hypit 0.2.7 `media-track` 源码后，明确排除被声音/字幕引用、`source-audio` 或内嵌 Sound 使用的视觉来源，防止换画面时暗中换掉原声。普通 Creator 构图修改范围未扩大；不重新检索、购买素材或复制旧费用批准。
+- **Production 选材根因一并修复：** 回归先证明“整体 Material READY + 某候选持久 qualified=true”仍会将没有实际语义证据的备选列入可用集合。READY 仅证明每个必要 Need 至少存在一个可用选项。现 Production 实际候选/选中入口对每个 Need–Asset 重新调用既有 Matcher，复用原 Rights、技术、语义与逐 Need 观察要求；缺证候选被排除，保留有效候选。没有新增准入语义或人工确认。
+- **本批验证与边界：** Cross-Content/Preparation/Material integration/Hypit/Readiness/Matching **177 passed**，compileall、diff check 通过，保留两项既有依赖提示。沿用既有测试扩展同 Need 备选进入真实 checkpoint fork 与 Authoring 完成、旧选择不变/新费用未批准、无观察候选拒绝，以及图片尺寸、未授权来源、旁白、时序和原声保护。全部渲染/模型仍为 Fixture；未运行真实 Build 或完整 E2E。该修复覆盖池内已有合格备选，尚未接通成片缺陷后的新增观察/补料、Truth/叙事调整和实际声音感知；Goal active / NOT_READY，未修改真实 Creation。
+
 - **系统音频修复回放闭环（2026-10-01）：** 原三内容回放在实际 MP4 检出缺配乐/旁白末句缺失后，只断言 Owner 选择 `repair_quality`，不能证明正常路径修复后可交付。现沿真实 Web 后台执行到 checkpoint 复用、新 Attempt 编排、重新核价、委托内零费用批准、模拟提交/导出及新输出 Quality READY。三个内容均保留原脚本、Creator/Mode、素材、旁白、时序与有限用途 Rights；原失败输出及其审片记录保留，新的审片绑定修复输出，未自动接受/入库。第二个内容在真实素材复制落盘后注入一次中断，恢复仍为同一 Attempt、同一次修复额度，不重做 Planning/素材观察/ASR/TTS，也不继承旧费用批准；每个 Attempt 仅一次模拟提交，完成后再次推进不执行工作。本批未发现需修改的生产逻辑，只补齐原有恢复链的验证缺口。
 - **本批验证与边界：** 跨内容/Preparation/Material integration **108 passed**，compileall、diff check 通过，保留两项既有依赖提示。真实本地解码/音频缺陷检查、持久 Owner/服务/检查点参与回放；模型、ASR/TTS、Hypit CLI 均为替身，渲染器返回确定性合成媒体，不证明真实渲染或感知质量。BGM 语义仍由 Fixture 提供；本次只覆盖使用已准入素材的音轨修复，Truth/叙事变更与素材替换恢复仍未完成。Goal active / NOT_READY；未操作真实 Creation、付费 AI、真实 Build 或完整 E2E。
 

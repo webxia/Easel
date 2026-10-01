@@ -1453,3 +1453,37 @@ def test_system_quality_revision_changes_only_defective_layer(tmp_path):
         target.write_text(original.replace(old, new))
         with pytest.raises(HypitIntegrationError, match='未授权部分'):
             assert_quality_revision(base, target, {'visual', 'captions', 'audio'})
+
+    # A real visual mismatch can use an admitted same-Need alternative. This
+    # permission cannot change narration, schedule or arbitrary other sources.
+    visual = original.replace('<film:Film',
+        '<import as="media-track" from="@hypit/media-track@1"/>'
+        '<media:Image id="picture" src="./old.png"/>'
+        '<space:Extent id="picture-size" width="64" height="96"/>'
+        '<media-track:Track id="pictures" canvas={canvas} timeline={program.timeline}>'
+        '<media-track:Item image={picture} extent={picture-size} at="0s" for="4s"/>'
+        '</media-track:Track><film:Film')
+    base.write_text(visual)
+    revised = visual.replace('./old.png', './new.png').replace('width="64" height="96"', 'width="128" height="192"')
+    target.write_text(revised)
+    alternatives = {'./old.png': {'./new.png': {'media_type': 'image', 'width': 128, 'height': 192}}}
+    with pytest.raises(HypitIntegrationError, match='未授权部分'):
+        assert_quality_revision(base, target, {'visual'})
+    assert_quality_revision(base, target, {'visual', 'visual_material'}, replacements=alternatives)
+    for invalid in (revised.replace('./new.png', './unknown.png'), revised.replace('width="128"', 'width="129"'),
+                    revised.replace('./voice.wav', './another.wav'), revised.replace('for="4s"', 'for="3s"')):
+        target.write_text(invalid)
+        with pytest.raises(HypitIntegrationError, match='未授权部分'):
+            assert_quality_revision(base, target, {'visual', 'visual_material'}, replacements=alternatives)
+    # Native media-track can carry source audio without an audio-track node.
+    # A visual permission must not silently replace that sound with another clip.
+    with_sound = visual.replace('<media:Image id="picture" src="./old.png"/>',
+        '<media:Video id="footage" src="./old.mp4"/>'
+        '<pipeline:Normalize id="picture" source={footage} clock={clock}/>')
+    with_sound = with_sound.replace('image={picture} extent={picture-size}',
+                                   'media={picture.media} source-audio="content"')
+    base.write_text(with_sound)
+    target.write_text(with_sound.replace('./old.mp4', './new.mp4'))
+    with pytest.raises(HypitIntegrationError, match='未授权部分'):
+        assert_quality_revision(base, target, {'visual', 'visual_material'}, replacements={
+            './old.mp4': {'./new.mp4': {'media_type': 'video', 'width': 64, 'height': 96}}})

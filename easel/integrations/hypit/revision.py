@@ -108,10 +108,45 @@ def assert_composition_preserves_sound_and_copy(base: Path, authored: Path) -> N
         )
 
 
-def assert_quality_revision(base: Path, authored: Path, allowed: set[str]) -> None:
-    """Open only the defective presentation layer; protect source and timing."""
-    if not allowed or not allowed <= {'visual', 'captions', 'audio'}:
+def _quality_protected_dependencies(base: Path) -> set[str]:
+    base_root = _markup(base)
+    base_nodes = {e.get('id'): e for e in base_root.iter() if e.get('id')}
+    # A Video can feed sound as well as pictures. Even an admitted visual
+    # alternative may not replace any source on the protected sound/copy graph.
+    sound_copy_ids = set(dict(_protected_graph(base)))
+    packages = {e.get('as'): e.get('from', '').rsplit('@', 1)[0] for e in base_root.findall('import')}
+    def protect_sources(element):
+        for child in element.iter():
+            for value in child.attrib.values():
+                for ref in re.findall(r'\{([\w.-]+)\}', value):
+                    identity = next((key for key in sorted(base_nodes, key=len, reverse=True)
+                                     if ref == key or ref.startswith(key + '.')), None)
+                    if identity is not None and identity not in sound_copy_ids:
+                        sound_copy_ids.add(identity)
+                        protect_sources(base_nodes[identity])
+    for element in base_root.iter():
+        prefix, _, name = element.tag.partition('__')
+        if (packages.get(prefix) == '@hypit/media-track'
+                and (element.get('source-audio') is not None or name == 'Sound')):
+            protect_sources(element)
+    return sound_copy_ids
+
+
+def quality_protected_sources(base: Path) -> set[str]:
+    dependencies = _quality_protected_dependencies(base)
+    return {e.get('src') for e in _markup(base).iter() if e.get('id') in dependencies and e.get('src')}
+
+
+def assert_quality_revision(base: Path, authored: Path, allowed: set[str], *,
+                            replacements: dict[str, dict[str, dict]] | None = None) -> None:
+    """Permit scoped visual alternatives; preserve sound, copy and schedule."""
+    if not allowed or not allowed <= {'visual', 'visual_material', 'captions', 'audio'}:
         raise HypitIntegrationError('系统质量修正范围无效')
+    if 'visual_material' in allowed and 'visual' not in allowed:
+        raise HypitIntegrationError('系统视觉素材修正需要对应画面缺陷')
+    base_root = _markup(base)
+    base_nodes = {e.get('id'): e for e in base_root.iter() if e.get('id')}
+    sound_copy_ids = _quality_protected_dependencies(base) if 'visual_material' in allowed else set()
 
     def graph(path: Path):
         root = _markup(path)
@@ -123,6 +158,32 @@ def assert_quality_revision(base: Path, authored: Path, allowed: set[str]) -> No
         def kind(e):
             prefix, _, name = e.tag.partition('__')
             return packages.get(prefix, prefix), name
+
+        changed, extents = {}, {}
+        if 'visual_material' in allowed:
+            for identity, node in nodes.items():
+                old = base_nodes.get(identity)
+                if (old is None or identity in sound_copy_ids or kind(node) != kind(old)
+                        or kind(node) not in {('@hypit/media', 'Image'), ('@hypit/media', 'Video')}
+                        or old.get('src') == node.get('src')):
+                    continue
+                candidate = (replacements or {}).get(old.get('src'), {}).get(node.get('src'))
+                if candidate and candidate.get('media_type') == kind(node)[1].lower():
+                    changed[identity] = candidate
+            for identity, node in nodes.items():
+                if kind(node) != ('@hypit/spatial', 'Extent') or identity in sound_copy_ids:
+                    continue
+                old = base_nodes.get(identity)
+                users = [e for e in base_root.iter() if e.get('extent') == '{' + identity + '}']
+                image_users = {('@hypit/media-track', name) for name in ('Item', 'Member', 'Layer')}
+                images = {e.get('image', '')[1:-1] for e in users
+                          if kind(e) in image_users}
+                if old is None or not users or len(users) != sum(
+                        kind(e) in image_users for e in users) or not images <= changed.keys():
+                    continue
+                if all(node.get('width') == str(changed[i]['width'])
+                       and node.get('height') == str(changed[i]['height']) for i in images):
+                    extents[identity] = old
 
         def filtered(e):
             package, name = kind(e)
@@ -136,7 +197,13 @@ def assert_quality_revision(base: Path, authored: Path, allowed: set[str]) -> No
             if 'visual' in allowed and (package, name) == ('@hypit/film', 'Film'):
                 omitted = {'appearance'}
             children = [c for c in e if not ('visual' in allowed and kind(c) == ('@hypit/media-track', 'Sampling'))]
-            return {k: v for k, v in e.attrib.items() if k not in omitted}, children
+            attrs = {k: v for k, v in e.attrib.items() if k not in omitted}
+            if e.get('id') in changed:
+                attrs['src'] = base_nodes[e.get('id')].get('src')
+            if e.get('id') in extents:
+                for dimension in ('width', 'height'):
+                    attrs[dimension] = extents[e.get('id')].get(dimension)
+            return attrs, children
 
         def canonical(e):
             attrs, children = filtered(e)

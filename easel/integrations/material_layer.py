@@ -1064,6 +1064,7 @@ class ProductionAuthoringIntegration:
     ) -> tuple[str, ...]:
         if asset.technical.status is not TechnicalStatus.PASSED:
             return ()
+        from easel.materials.application.matching import MaterialMatcher
         rights = RightsService()
         need_by_id = {need.need_id: need for need in plan.needs}
         qualified: set[str] = set()
@@ -1074,9 +1075,10 @@ class ProductionAuthoringIntegration:
             need = need_by_id.get(match.need_id)
             if need is None or need.media_type is not asset.media_type:
                 continue
-            attribution = rights.attribution_condition_for(asset)
-            admission = rights.evaluate(asset, need, attribution=attribution)
-            if admission.status in {RightsAdmissionStatus.ADMITTED, RightsAdmissionStatus.CONDITIONAL}:
+            # READY proves at least one candidate per required Need, not every
+            # persisted match. Recheck the actual selected candidate, including
+            # optional Needs and byte-/Need-scoped observation evidence.
+            if MaterialMatcher(rights).match(need, (asset,)).matches:
                 qualified.add(need.need_id)
         return tuple(sorted(qualified))
 

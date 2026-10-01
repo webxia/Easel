@@ -59,6 +59,8 @@ def repair_request(attempt: dict) -> dict | None:
                 scopes.add('captions')
             elif key in {'visual_match', 'mode'}:
                 scopes.add('visual')
+                if key == 'visual_match':
+                    scopes.add('visual_material')
             else:
                 return None  # Truth/narrative changes need the existing Planning/Material path.
             indices = check.get('frame_indices', [])
