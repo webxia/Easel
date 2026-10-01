@@ -2722,7 +2722,7 @@ def _review_output_frames(attempt: dict, manifest: dict, attachments: list[dict]
         try:
             if report_path.is_symlink() or not report_path.is_file() or report_path.stat().st_size > 128 * 1024:
                 raise ValueError('审片报告缺失或过大')
-            report = json.loads(report_path.read_text())
+            report = json.loads(report_path.read_text(encoding='utf-8'))
             validate_visual_review(manifest, report)
             return report
         except (OSError, ValueError, TypeError, AttributeError) as exc:

@@ -1,6 +1,6 @@
 # Easel Current State
 
-Last audited: 2026-09-30. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
+Last audited: 2026-10-01. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
 
 ## Snapshot
 
@@ -12,7 +12,7 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 | External Material Product E2E | **REAL_WORLD_VERIFIED** for one standard-chat Creation through Pexels Search/Acquisition, MaterialReadiness `READY`, Production Authoring, Hypit Build, Export, Review and Selected Output. The [named Acceptance](acceptance/external-material-product-e2e-2026-09-29.md) records the initial MaterialReadiness stop; the same Creation was subsequently completed. |
 | Runtime profiles | `generation` is **READY** (configuration only). `v1-release` is **NOT_READY**: model auth/endpoint and `audio.production` require live verification. Hypit 0.2.7 doctor, Runtime Worker and both local Programs are ready. |
 | P3 | **NOT_STARTED**. |
-| Test suite | Last completed full run: **482 passed, 5 skipped** on 2026-09-28. Latest targeted run: **154 passed** for Hypit/Cross-Content/Preparation/Material integration (plus one updated Planning executor scenario); the batch evidence below separates fixed classifier responses from one local AST negative smoke. Earlier frontend, installed Hypit static/PCM and desktop/mobile browser evidence remain separate; a new full suite or live E2E run is not claimed. |
+| Test suite | Latest complete deterministic run: **600 passed, 5 skipped** on 2026-10-01. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
 
 ## Creator 作品工作区（2026-09-30 软件验收）
 
@@ -52,6 +52,8 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 [素材缺口恢复任务](tasks/creator-material-recovery-2026-09-30.md) 软件与同一 Creation 的阶段恢复已完成：来源修订只扩展明确选择的 BGM 来源，保留脚本/场景/旁白 Need 与冻结 Handoff；正式旧/新 Plan revision、父 SupplyRun、Bundle checkpoint 和请求身份记录，补充缺失素材。中断后对账完成的 Supply，重复请求复用结果。早期恢复保留原 7 个 Asset，集合增至 38 个；后续仅补缺失窗景，再经逐 Need 核对与独立配乐 Rights/署名复核，Material Gate READY，进入上述真实制作与最终入库。配乐试听、缺失署名事实和旁白试听结论都在普通作品区处理，未知许可不被 UI 合并放行。前一组合 127 passed；最终增量 Material/Compiler/Rights/敏感接口 52 passed（28 deselected），lint/build、compileall、技能合同和 diff check 通过。最终成片基本质量已由 Creator 审阅接受，但自主 E2E 因工程介入失败；完整运行与限制见同一份 [Acceptance](acceptance/creator-audio-quality-e2e-2026-09-30.md)。
 
 ## 当前 Goal：自主首版与 Director 全链执行
+
+- **集中软件回归收尾（2026-10-01）：** 默认 `pytest -q` 首次暴露两套 `tests` 包的收集冲突：内置微信技能的空 `tests/__init__.py` 抢占项目测试包，使跨内容回放无法导入共享夹具；移除该空包标记，保留并执行其全部测试。随后定位并补齐系统审片 JSON 读取的 UTF-8，更新两项已过期的 Mode 1.0 断言为当前正式 1.3。复跑全量 **600 passed / 5 skipped**；前端 lint/build、compileall、115 项技能/发布合同检查及 diff check 通过。两项 Python 依赖提示、AccountsPage 既有 Hook 提示及前端包体积提示保留，未顺手扩项修复。此证据覆盖当前软件组合，不证明真实模型或跨内容成片效果；正式音频模型配置仍未就绪，真人 E2E 仍由用户启动。
 
 - **集中收尾后的必要依赖核实（2026-10-01）：** 只读核对正式配置：ffmpeg/ffprobe 与 faster-whisper/torch/transformers 均存在；`audio.voice-timing-recovery`、`audio.music-observation` 均为 `MISSING_CONFIG`，正式路径下的模型尚未就绪。此前临时 AST 样本推理不等于生产配置就绪。发现语音识别仅列入 full-system，遗漏 v1-release/audio，但正常委托 TTS 实际依赖它；现补齐两个 Profile 的同一依赖，回归先复现漏报，再以 Runtime 定向 **18 passed** 验证；compileall、diff check 通过。未下载模型、改变本机模型路径、启动服务或触碰 Creation。真人验收前的明确准备项是配置这两项本地模型并执行现有 readiness 检查；精细音色情绪评分、扩大音乐校准集和高级场景修订后移，不作为本轮继续扩项理由。
 

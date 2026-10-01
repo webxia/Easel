@@ -423,7 +423,7 @@ def test_clear_memo_video_mode_is_discoverable_and_versioned():
     modes = creative_mode.list_creative_modes()
     mode = next(item for item in modes if item["id"] == "clear_memo_video")
 
-    assert mode["version"] == "1.0"
+    assert mode["version"] == "1.3"
     assert mode["routes"] == []
     assert "清醒备忘录" in mode["name"]
 
@@ -445,7 +445,7 @@ def test_web_chat_message_injects_selected_creative_mode():
         creativeMode="clear_memo_video",
     ))
 
-    assert "Creative Mode：清醒备忘录 · 视频 / clear_memo_video v1.0" in message
+    assert "Creative Mode：清醒备忘录 · 视频 / clear_memo_video v1.3" in message
     assert "做一条关于工作时间的短视频" in message
 
 
