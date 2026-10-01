@@ -53,6 +53,11 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **成片配乐信号漏检修复（2026-10-01）：** 原系统检查只比较准入旁白与实际成片；BGM 即使完全消失，只要旁白正常仍可能得到 READY。现从当前合格 BGM Match、实际源音频和原生编排恢复播放关系，在旁白之外抽取最多三个一秒窗口比较成片与已选配乐的信号，保留 Need/Asset/SHA、时间、相关性和估计增益。源音频过静或比较区间不足记 `music_unverifiable`，不自动通过、不授权重购；检出预期配乐信号缺失记 `music_missing`，由原有有界音频局部修复处理。身份继续复用原执行 fingerprint、输出 SHA 与保存前复核，不增加第二份交付状态。
+- 已核对本机 **Hypit 0.2.7** `audio-track` 的实际 `surface.ts`、`program.ts` 和 manifest：支持单段 once/loop 的起点及末端对齐、源截取和淡入淡出；音频淡变按采样时长处理，合法的 600ms 不要求是整数视频帧。避开整段旁白、两秒压低释放余量及淡变区间，比较允许 ±40ms 编码偏移。多段/拉伸等未覆盖形式保留证据缺口。报告升级为 `easel-output-quality@3`，自主流程不再认领旧 @2 的机器检查；既有 Creator 接受与未入队作品不被自动重跑。
+- **本批验证：** Cross-Content/Hypit/Material/Preparation **150 passed**；最后增加截取回放后单场景再验，并执行三个原生工程的本机静态 check。三种不同扫频音频分别覆盖起点循环、末端循环、末端一次播放和毫秒淡变；实际 MP4 中去掉 BGM 时，旧旁白测量仍无缺陷，新检查检出并派发音频修复。旁白末句丢失、缓存复用、源字节变化拒绝、满片旁白/拉伸不能假通过均覆盖。compileall、115 项技能合同与 diff check 通过，保留两项既有 Python 依赖提示；未调用付费 AI、真实 Build 或完整 E2E，未触碰真实 Creation。
+- **能力边界：** 本批是输出信号核对，不是配乐歌词/乐器/情绪或完整听感识别，也不能证明每一时刻都有正确配乐。当前已安装 OpenClaw `agent` 入口对附件使用 `acceptNonImage: false`，不能直接把音频送入现有图片观察接口冒充听取。正常音频语义观察、生成 Rights 及其余开放项仍需完成，Goal 保持 active；已有跨内容 Fixture 中的配乐语义替身继续明确标注。
+
 - **跨内容串接回放（2026-10-01）：** `test_same_creator_mode_three_contents_reach_reviewable_first_cut` 复用既有隔离环境与原生编排 Fixture。相同冻结 Creator 和完整 clear_memo_video 1.3 包下，通勤等待、学习工具、工作间歇分别使用 2/3/4 句不同脚本、1/2/3 个不同视觉 Need 和不同配乐音频。串接显式委托、正式系统 Truth 审阅、Planning、真实 Local 检索/接收/技术检查、固定 TTS 返回的实际 MP3、逐 Need 画面观察、独立旁白内容观察、原 Gate、Production 选择、实测字幕/配乐压低编译及原生 Run 身份校验。核对 Mode 参数进入检索与 TTS 调用、上一作品旁白不能匹配下一作品、各 Need 选到不同 Fixture 画面、恢复不重复识别/观察/生成；三个工程的字幕、镜头结构和音频字节不同。
 - 在渲染结果边界注入三份确定性 MP4，使用真实 Handoff/编排 fingerprint、输出路径与 SHA 校验，实际解码画面和音频，再由现有 Delivery Owner 调用系统审片并保存 `first_cut_ready`。恢复复用当前报告，不自动接受、入库或发布。另将第三份 MP4 的末句声音移除，实际测量得到 `REPAIR_REQUIRED`，Owner 转入原音频局部修复；旧正面报告不认领新输出，不重复素材/旁白请求。该场景只验证修复派发判断，不执行修复后的真实 Build。
 - **验证与边界：** 跨内容/Material/Hypit/Preparation **150 passed**；本机 **Hypit 0.2.7** 对三份含配乐压低组件的 Run 均返回 `ok=true`、`targets=[final.video]`，显式静态检查回放 **1 passed**。命令：`EASEL_TEST_HYPIT_CHECK=1 .venv/bin/python -m pytest -q tests/test_creator_content_replay.py`；只执行 check，不运行 Plan/Pricing/Build。默认测试不要求安装 Hypit。编译与 diff check 通过，保留两项既有 Python 依赖提示；无产品代码或前端修改。

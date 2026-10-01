@@ -342,7 +342,7 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
             "human": {"status": "approved"},
         })
 
-    system_review = {'schema': 'easel-output-quality@2', 'status': 'READY',
+    system_review = {'schema': 'easel-output-quality@3', 'status': 'READY',
                      'binding': {'output_name': 'final.video', 'sha256': exported['outputs']['final.video']['sha256']}}
     service.update_film_attempt(attempt['attempt_id'], event='fixture_system_review',
                                review={**exported['review'], 'system': system_review})

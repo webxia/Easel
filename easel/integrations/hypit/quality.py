@@ -15,7 +15,7 @@ from PIL import Image
 from .errors import HypitIntegrationError
 from .narration import _attrs, _frames
 
-SCHEMA = 'easel-output-quality@2'
+SCHEMA = 'easel-output-quality@3'
 VISUAL_CHECKS = ('visual_match', 'readability', 'mode', 'creator', 'truth_expression', 'narrative')
 MAX_OBSERVATION_ROUNDS = 3
 
@@ -43,7 +43,7 @@ def repair_request(attempt: dict) -> dict | None:
         kind = defect.get('kind')
         if kind == 'near_black':
             scopes.add('visual')
-        elif kind in {'silent_audio', 'audio_clipping', 'voice_masked', 'voice_missing'}:
+        elif kind in {'silent_audio', 'audio_clipping', 'voice_masked', 'voice_missing', 'music_missing'}:
             scopes.add('audio')
         else:
             return None  # Missing alignment is an evidence gap, not permission to repurchase speech.
@@ -177,6 +177,136 @@ def measure_output(path: Path, metadata: dict, voice_path: Path | None, offset: 
     return {'visual_sampling_hz': 2, 'frame_count': len(frames), 'audio': audio, 'defects': defects}
 
 
+def measure_music(path: Path, duration: float, author: str, plan, bundle, store,
+                  voice_span: tuple[float, float] | None) -> dict:
+    """Probe admitted BGM outside narration, without claiming a listening review.
+
+    Only native once/loop audio placement is reconstructed. An
+    unsupported transform or no uncontaminated probe is an evidence gap, never
+    an automatic pass or authority to buy another soundtrack.
+    """
+    from fractions import Fraction
+    from . import service
+
+    needs = [n for n in plan.needs if getattr(n.modality_spec, 'kind', None) == 'bgm']
+    result = {'scope': 'sampled BGM signal presence outside narration; not music style or vocals',
+              'assets': [], 'defects': []}
+    if not needs:
+        return result
+    audio = [_attrs(m[0]) for m in re.finditer(r'<media:Audio\b[^>]*/>', author)]
+    norms = [_attrs(m[0]) for m in re.finditer(r'<pipeline:Normalize\b[^>]*/>', author)]
+    items = [_attrs(m[0]) for m in re.finditer(r'<audio:Item\b[^>]*/>', author)]
+    timelines = [_attrs(m[0]) for m in re.finditer(r'<time:Timeline\b[^>]*/>', author)]
+    clocks = [_attrs(m[0]) for m in re.finditer(r'<time:Clock\b[^>]*/>', author)]
+    pcm = None
+    for need in needs:
+        matched = {m.asset_id for m in bundle.matches if m.need_id == need.need_id and m.qualified}
+        candidates = [(a, media) for a in bundle.assets if a.asset_id in matched for media in audio
+                      if media.get('src') == store.hypit_source_path(a, 'productions/easel-authoring/authors/main.svml')]
+        if not candidates and need.importance.value != 'required':
+            continue  # Optional, unused music is not required to appear in output.
+        row = {'need_id': need.need_id, 'windows': []}
+        result['assets'].append(row)
+        try:
+            if len(candidates) != 1 or len(timelines) != 1:
+                raise ValueError('没有唯一的已选配乐或播放时间线')
+            asset, media = candidates[0]
+            row.update(asset_id=asset.asset_id, sha256=asset.file.sha256)
+            source = store.resolve_asset_locator(asset.file.path)
+            if service._sha256_file(source) != asset.file.sha256:
+                raise HypitIntegrationError('已选配乐字节已变化，不能核对错误版本')
+            normalized = [n for n in norms if n.get('source') == '{' + media['id'] + '}']
+            if (len(normalized) != 1 or set(normalized[0]) - {'id', 'source', 'video', 'audio', 'span-authority', 'clock'}
+                    or normalized[0].get('audio') != 'default'
+                    or normalized[0].get('clock') != timelines[0].get('clock')):
+                raise ValueError('配乐包含尚不能重建的媒体变换')
+            clips = [i for i in items if i.get('source') == '{' + normalized[0]['id'] + '.media}']
+            clock = [c for c in clocks if '{' + c.get('id', '') + '}' == timelines[0].get('clock')]
+            if len(clips) != 1 or len(clock) != 1:
+                raise ValueError('配乐包含多个片段或时钟不明确')
+            clip = clips[0]
+            if (set(clip) - {'id', 'source', 'at', 'for', 'during', 'playback', 'gain', 'fade-in', 'fade-out', 'trim-start', 'trim-end'}
+                    or clip.get('playback') not in {None, 'once', 'once-start', 'once-end', 'loop', 'loop-start', 'loop-end'}):
+                raise ValueError('配乐播放变换尚无可比较的声音依据')
+            fps = Fraction(clock[0]['frame-rate'])
+            def seconds(value):
+                # Audio trim/fade durations resolve to samples, not whole video
+                # frames (e.g. native 600ms at 24fps is valid).
+                match = re.fullmatch(r'([0-9]+(?:\.[0-9]+)?)(ms|s|f)', value)
+                if not match:
+                    raise ValueError('声音时长表达尚不能换算为实际采样')
+                return float(Fraction(match[1]) / {'ms': 1000, 's': 1, 'f': fps}[match[2]])
+            if clip.get('during') == timelines[0]['id'] and 'at' not in clip and 'for' not in clip:
+                start, stop = 0., duration
+            elif 'during' not in clip and 'at' in clip and 'for' in clip:
+                start = float(_frames(clip['at'], fps) / fps)
+                stop = min(duration, start + float(_frames(clip['for'], fps) / fps))
+            else:
+                raise ValueError('配乐播放范围不明确')
+            reference = np.frombuffer(_decode(source, '-vn', '-ac', '1', '-ar', '16000', '-t', '300', '-f', 'f32le'), dtype='<f4')
+            trim_start = round(seconds(clip.get('trim-start', '0s')) * 16000)
+            trim_end = round(seconds(clip['trim-end']) * 16000) if 'trim-end' in clip else len(reference)
+            if not 0 <= trim_start < trim_end <= len(reference):
+                raise ValueError('配乐截取超出可核对的源声音范围')
+            reference = reference[trim_start:trim_end]
+            if not len(reference) or not np.isfinite(reference).all():
+                raise ValueError('配乐没有有效声音采样')
+            loop = str(clip.get('playback', 'once')).startswith('loop')
+            align_end = str(clip.get('playback', '')).endswith('-end')
+            window_samples = round((stop - start) * 16000)
+            phase = (len(reference) - window_samples % len(reference)) % len(reference) if loop and align_end else 0
+            if not loop:
+                audible = min(window_samples, len(reference))
+                if align_end:
+                    start = stop - audible / 16000
+                    reference = reference[-audible:]
+                else:
+                    stop = start + audible / 16000
+                    reference = reference[:audible]
+            # Avoid authored fades, narration (including untranscribed gaps),
+            # and the frozen Mode's maximum supported ducking release (2s).
+            fade_in = seconds(clip.get('fade-in', '0s'))
+            fade_out = seconds(clip.get('fade-out', '0s'))
+            moments = [float(t) for t in np.arange(start + max(1., fade_in), stop - max(1., fade_out), 1.)
+                       if t + 1 <= stop - max(1., fade_out)
+                       and (voice_span is None or t + 1 <= voice_span[0] - 2 or t >= voice_span[1] + 2)]
+            if len(moments) < 2:
+                raise ValueError('旁白以外没有足够的配乐比较区间')
+            selected = sorted({moments[0], moments[len(moments) // 2], moments[-1]})
+            if pcm is None:
+                pcm = np.frombuffer(_decode(path, '-vn', '-ac', '1', '-ar', '16000', '-t', str(duration), '-f', 'f32le'), dtype='<f4')
+            for t in selected:
+                indices = np.arange(round((t - start) * 16000), round((t - start) * 16000) + 16000)
+                ref = reference[(indices + phase) % len(reference)].astype(float)
+                energy = float(ref @ ref)
+                if energy / len(ref) < 1e-6:
+                    continue  # A silent source passage cannot prove presence.
+                position = round(t * 16000)
+                candidates_pcm = pcm[max(0, position - 640):position + 16640].astype(float)
+                if len(candidates_pcm) < len(ref):
+                    raise ValueError('配乐对应输出采样不完整')
+                dot = np.correlate(candidates_pcm, ref, mode='valid')
+                sums = np.concatenate(([0.], np.cumsum(candidates_pcm ** 2)))
+                energies = sums[len(ref):] - sums[:-len(ref)]
+                correlations = dot / np.sqrt(np.maximum(energies * energy, 1e-20))
+                best = int(np.argmax(correlations))
+                row['windows'].append({'time_seconds': round(t, 4),
+                    'correlation': round(float(correlations[best]), 4),
+                    'estimated_gain': round(float(dot[best] / energy), 6)})
+            if len(row['windows']) < 2:
+                raise ValueError('配乐采样过静，尚不能核实输出中的信号')
+            for window in row['windows']:
+                if window['correlation'] < .65 or window['estimated_gain'] < .0005:
+                    result['defects'].append({'kind': 'music_missing', 'need_id': need.need_id,
+                        'reason': '该段未检出已选配乐的可辨识信号，需要核对混音', **window})
+        except HypitIntegrationError:
+            raise
+        except (ValueError, KeyError, ZeroDivisionError) as exc:
+            result['defects'].append({'kind': 'music_unverifiable', 'need_id': need.need_id,
+                'reason': '配乐信号尚不能核实：' + str(exc), 'time_seconds': 0.})
+    return result
+
+
 def validate_visual_review(manifest: dict, report: dict) -> None:
     from .secrets import SecretRedactor
     if SecretRedactor.contains_secret(report):
@@ -241,7 +371,7 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     store = AttemptMaterialStore(root)
     author = (root / 'productions/easel-authoring/authors/main.svml').read_text()
     timings = authoring_voice_timings(plan, bundle, store, planning['script'])
-    voice_path, offset, cues = None, 0., []
+    voice_path, offset, cues, voice_span = None, 0., [], None
     for row in timings['assets']:
         asset = next(a for a in bundle.assets if a.asset_id == row['asset_id'])
         src = store.hypit_source_path(asset, 'productions/easel-authoring/authors/main.svml')
@@ -257,11 +387,13 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         fps = Fraction(clock['frame-rate'])
         offset = float(_frames(item['at'], fps) / fps)
         voice_path, cues = store.resolve_asset_locator(asset.file.path), row['cues']
+        voice_span = (offset, offset + row['audio_duration_seconds'])
         if service._sha256_file(voice_path) != asset.file.sha256:
             raise HypitIntegrationError('准入旁白已变化，无法核对成片')
         break
     identity = hashlib.sha256(json.dumps({'schema': SCHEMA, 'binding': binding, 'execution': fingerprint, 'mode': mode_hash,
-        'script': planning['script'], 'author': author, 'timings': timings, 'context': context}, sort_keys=True).encode()).hexdigest()
+        'script': planning['script'], 'author': author, 'timings': timings, 'context': context,
+        'music_needs': [n.model_dump(mode='json') for n in plan.needs if getattr(n.modality_spec, 'kind', None) == 'bgm']}, sort_keys=True).encode()).hexdigest()
     previous = attempt.get('review', {}).get('system', {})
     same_input = previous.get('input_sha256') == identity
     if (same_input and previous.get('status') in {'READY', 'REPAIR_REQUIRED', 'INCOMPLETE'}
@@ -271,6 +403,10 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     measurements = measure_output(path, output['metadata'], voice_path, offset, cues)
     if any(getattr(n.modality_spec, 'kind', None) == 'voice' for n in plan.needs) and voice_path is None:
         measurements['defects'].append({'kind': 'voice_unverifiable', 'reason': '当前旁白缺少可绑定的时序，尚不能核对完整性', 'time_seconds': 0.})
+        voice_span = (0., output['metadata']['duration_seconds'])
+    music = measure_music(path, output['metadata']['duration_seconds'], author, plan, bundle, store, voice_span)
+    measurements['music'] = music
+    measurements['defects'].extend(music['defects'])
     # Actual output previews, never source thumbnails or authored screenshots.
     duration = output['metadata']['duration_seconds']
     moments = sorted({min(duration - .05, .5), *[min(duration - .05, offset + (c['start_seconds'] + c['end_seconds']) / 2) for c in cues]})

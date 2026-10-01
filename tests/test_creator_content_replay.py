@@ -109,8 +109,10 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         for n, subject in enumerate(subjects):
             Image.new('RGB', (64, 96), (55 + index * 20, 60 + n * 25, 80)).save(local / f'{subject}.png')
         music_file = local / 'calm background music.wav'
+        music_duration = 11 + index * 7
+        playback = ('loop-start', 'loop-end', 'once-end')[index]
         subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i',
-            f'sine=frequency={170 + index * 40}:sample_rate=16000:duration=30', str(music_file)],
+            f'aevalsrc=0.1*sin(2*PI*({170 + index * 40}*t+0.6*t*t)):s=16000:d={music_duration}', str(music_file)],
             check=True, capture_output=True, timeout=20)
         rights = RightsInfo(status=RightsStatus.KNOWN, license_name='Owned deterministic test fixture',
             evidence=(RightsEvidence(kind='asset_license', reference='fixture://owned-replay-media'),))
@@ -205,6 +207,9 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         music_match = next(m for m in bundle.matches if m.need_id == 'music' and m.qualified)
         music_asset = store.read_asset(music_match.asset_id)
         source = source.replace('./music.wav', store.hypit_source_path(music_asset, author_path))
+        source = source.replace('playback="loop"', f'playback="{playback}" fade-in="600ms" fade-out="800ms"')
+        if index == 0:
+            source = source.replace('playback="loop-start"', 'playback="loop-start" trim-start="500ms" trim-end="9500ms"')
         declarations = ['<space:Frame id="picture-frame" within={canvas} left="0px" top="0px" right="1080px" bottom="1920px"/>']
         items, selected = [], [prior_voice.asset_id, music_asset.asset_id]
         for n, need in enumerate(n for n in plan.needs if n.media_type is MediaType.IMAGE):
@@ -259,10 +264,15 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         output = creation.OUTPUTS_DIR / '_creations' / work['id'] / 'attempts' / attempt['attempt_id'] / 'replay.mp4'
         output.parent.mkdir(parents=True, exist_ok=True)
         voice_path = store.resolve_asset_locator(prior_voice.file.path)
+        phase = (music_duration - 30 % music_duration) % music_duration if playback == 'loop-end' else 0
+        music_filter = (f'atrim=start={phase},asetpts=PTS-STARTPTS' if playback != 'once-end'
+                        else f'atrim=duration={music_duration},asetpts=PTS-STARTPTS,adelay={(30 - music_duration) * 1000}:all=1')
+        if index == 0:
+            music_filter = 'atrim=start=0.5:end=9.5,asetpts=PTS-STARTPTS,aloop=loop=-1:size=144000:start=0'
         subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i',
             f'color=c=0x{60 + index * 20:02x}6070:s=160x240:r=12:d=30', '-i', str(voice_path),
-            '-i', str(music_file), '-filter_complex',
-            '[1:a]volume=0.9,adelay=500:all=1[v];[2:a]volume=0.01[m];[v][m]amix=inputs=2:normalize=0:duration=longest[a]',
+            '-stream_loop', '-1', '-i', str(music_file), '-filter_complex',
+            f'[1:a]volume=0.9,adelay=500:all=1[v];[2:a]{music_filter},volume=0.01[m];[v][m]amix=inputs=2:normalize=0:duration=longest[a]',
             '-map', '0:v', '-map', '[a]', '-c:v', 'libx264', '-preset', 'ultrafast',
             '-c:a', 'aac', '-t', '30', str(output)], check=True, capture_output=True, timeout=30)
         def receive_fixture_output(item):
@@ -280,6 +290,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             assert manifest['creator_context'] == creator and manifest['mode'] == mode
             assert manifest['content_core']['question'] == topic and manifest['script'] == script
             assert manifest['measurements']['audio']['voice_windows']
+            assert manifest['measurements']['music']['assets'][0]['sha256'] == music_asset.file.sha256
             assert attachments and all(x['mimeType'] == 'image/jpeg' for x in attachments)
             return {'schema': quality.SCHEMA, 'input_sha256': manifest['input_sha256'],
                 'frames': [{'index': f['index'], 'observed': True, 'description': 'fixture colored panel'} for f in manifest['frames']],
@@ -307,16 +318,22 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         quality.inspect_output(attempt['attempt_id'], executor=review_output)
         assert len(reviews) == review_count and operations == ['quality']
         assert before_calls == (len(calls), len(recognition_calls), len(observations))
-        if index == 2:
-            # A plausible renderer regression: the last spoken sentence is
-            # absent from the actual MP4, despite valid source/timing/SVML.
+        if index in {1, 2}:
+            # Renderer regressions: BGM or the last spoken sentence is absent
+            # from actual MP4 despite valid source/timing/SVML.
             # The existing owner must route an audio repair, not repurchase
             # narration or trust the previous positive output report.
-            damaged = output.with_name('missing-tail.mp4')
-            begin, end = .5 + cues[-1]['start_seconds'], .5 + cues[-1]['end_seconds']
-            subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-i', str(output),
-                '-af', f"volume=0:enable='between(t,{begin},{end})'", '-c:v', 'copy', '-c:a', 'aac', str(damaged)],
-                check=True, capture_output=True, timeout=20)
+            damaged = output.with_name('missing-music.mp4' if index == 1 else 'missing-tail.mp4')
+            if index == 1:
+                subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-i', str(output), '-i', str(voice_path),
+                    '-map', '0:v', '-map', '1:a', '-af', 'volume=0.9,adelay=500:all=1,apad',
+                    '-c:v', 'copy', '-c:a', 'aac', '-t', '30', str(damaged)],
+                    check=True, capture_output=True, timeout=20)
+            else:
+                begin, end = .5 + cues[-1]['start_seconds'], .5 + cues[-1]['end_seconds']
+                subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-i', str(output),
+                    '-af', f"volume=0:enable='between(t,{begin},{end})'", '-c:v', 'copy', '-c:a', 'aac', str(damaged)],
+                    check=True, capture_output=True, timeout=20)
             def receive_damaged_output(item):
                 item['outputs']['final.video'].update(
                     path=damaged.relative_to(creation.OUTPUTS_DIR).as_posix(), sha256=service._file_sha256(damaged))
@@ -326,10 +343,31 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             asyncio.run(advance_creation(work['id'], execute))
             damaged_attempt = service.get_film_attempt(attempt['attempt_id'])
             assert damaged_attempt['review']['system']['status'] == 'REPAIR_REQUIRED'
+            defects = damaged_attempt['review']['system']['measurements']['defects']
+            assert any(d['kind'] == ('music_missing' if index == 1 else 'voice_missing') for d in defects)
+            if index == 1:
+                assert not damaged_attempt['review']['system']['measurements']['audio']['defects']
+                assert {d['kind'] for d in defects} == {'music_missing'}  # Prior voice-only QC missed this.
             assert quality.repair_request(damaged_attempt)['allowed_changes'] == ['audio']
             assert next_operation(creation.get_creation(work['id'])) == ('repair_quality', 'repairing_quality')
             assert before_calls == (len(calls), len(recognition_calls), len(observations))
             assert not creation.get_creation(work['id']).get('selected_output_name')
+        if index == 0:
+            # A continuous narration leaves no uncontaminated probe: the same
+            # measurement must report a gap, never a missing/approved track.
+            unmeasurable = quality.measure_music(output, 30, compiled, plan, bundle, store, (0., 30.))
+            assert {d['kind'] for d in unmeasurable['defects']} == {'music_unverifiable'}
+            transformed = quality.measure_music(output, 30, compiled.replace('playback="loop-start"',
+                'playback="stretch" min-rate="0.1" max-rate="2"'), plan, bundle, store, None)
+            assert {d['kind'] for d in transformed['defects']} == {'music_unverifiable'}
+            admitted_music = store.resolve_asset_locator(music_asset.file.path)
+            original_bytes = admitted_music.read_bytes()
+            try:
+                admitted_music.write_bytes(b'changed admitted soundtrack')
+                with pytest.raises(service.HypitIntegrationError, match='编排输入'):
+                    quality.inspect_output(attempt['attempt_id'], executor=review_output)
+            finally:
+                admitted_music.write_bytes(original_bytes)
     assert len(output_hashes) == len(quality_hashes) == 3
     assert len(mode_hashes) == len(creator_hashes) == 1
     assert len(script_hashes) == len(set(native_sources)) == 3
