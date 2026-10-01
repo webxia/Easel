@@ -29,6 +29,9 @@ dependencies = [
 [project.scripts]
 easel = "easel.cli:main"
 
+[project.optional-dependencies]
+audio-observation = ["torch>=2.6,<3", "transformers>=4.57,<5"]
+
 [tool.setuptools.packages.find]
 include = ["easel*"]
 

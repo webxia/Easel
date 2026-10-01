@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+
+def acoustic_fixture(audio_sha256, duration, *, vocal_score=0.001, music_score=0.95):
+    """Fixed classifier boundary, never a claimed listening result."""
+    from easel.materials.application import music_observation as music
+    starts = sorted(set(range(0, max(1, int(duration - 10) + 1), 5)) | {max(0, duration - 10)})
+    return {'schema': music.SCHEMA, 'model': music.MODEL_ID, 'model_revision': music.MODEL_REVISION,
+        'model_sha256': music.MODEL_FILES['model.safetensors'], 'audio_sha256': audio_sha256,
+        'duration_seconds': duration, 'windows': [
+            {'start_seconds': start, 'end_seconds': min(duration, start + 10), 'rms': .1,
+             'scores': {**{label: vocal_score for label in music.VOCAL_LABELS},
+                        'Music': music_score, 'Piano': .75, 'Ambient music': .4}} for start in starts]}
+
 import json
 
 from easel.materials.application.audio_supply import BgmMaterialSupply, SfxEventMaterialSupply
@@ -165,17 +177,43 @@ def test_bgm_matching_reuses_material_matcher_without_timeline_decisions():
         return _licensed_asset().model_copy(update={'asset_id': asset_id,
             'semantic': SemanticInfo(caption='background music', attributes=attributes)})
     calm = candidate('z-calm', mood='calm', genre='ambient', instruments=['piano', 'pad'], energy='low', tempo_bpm=70)
-    loud = candidate('a-loud', mood='exciting', genre='rock', instruments=['guitar'], energy='high', tempo_bpm=150)
+    # Misleading Provider metadata claims piano/ambient for actual guitar/rock.
+    loud = candidate('a-loud', mood='calm', genre='ambient', instruments=['piano', 'pad'], energy='low', tempo_bpm=70)
     unknown = candidate('b-unknown')
+    from easel.materials.application.music_observation import apply_music_observation
+    assert not BgmMaterialSupply().match(need, [calm]).matches  # A title cannot prove no vocals.
+    report = acoustic_fixture(calm.file.sha256, 30)
+    from copy import deepcopy
+    rock_report = deepcopy(report)
+    for row in rock_report['windows']:
+        row['scores'].update({'Piano': 0., 'Ambient music': 0., 'Electric guitar': .7, 'Rock music': .8})
+    calm, loud, unknown = (apply_music_observation(need, a, r) for a, r in
+                          ((calm, report), (loud, rock_report), (unknown, report)))
+    assert apply_music_observation(need, calm, report) == calm  # Replay does not create new timestamps.
     ranked = BgmMaterialSupply().match(need, [loud, unknown, calm]).matches
     assert ranked[0].asset_id == calm.asset_id
-    assert ranked[0].scores.director == 1
-    assert any(reason.startswith('bgm_preference_metadata_overlap=') for reason in ranked[0].reasons)
+    assert 0 < ranked[0].scores.director < 1  # No acoustic pad evidence; missing preferences stay soft.
+    assert any(reason.startswith('bgm_preference_acoustic_and_metadata_overlap=') for reason in ranked[0].reasons)
     assert len(ranked) == 3  # Missing/contrary soft preferences are not new gates.
-    assert not any('observed' in reason or 'vocals=absent' in reason for match in ranked for reason in match.reasons)
+    assert all('system_music=acoustically_observed' in match.reasons for match in ranked)
     different = need.model_copy(update={'modality_spec': BgmNeedSpec(mood='exciting', genre='rock',
         instruments=('guitar',), energy='high', tempo_bpm=(140, 160), vocals_allowed=True)})
-    assert BgmMaterialSupply().match(different, [calm, loud]).matches[0].asset_id == loud.asset_id
+    assert not BgmMaterialSupply().match(different, [calm, loud]).matches  # Every Need keeps its own evidence.
+    rebound = [apply_music_observation(different, a, r) for a, r in ((calm, report), (loud, rock_report))]
+    assert BgmMaterialSupply().match(different, rebound).matches[0].asset_id == loud.asset_id
+    for vocal, music in ((.9, .95), (.05, .95), (.001, .1)):
+        unfit = apply_music_observation(need, calm, acoustic_fixture(calm.file.sha256, 30,
+            vocal_score=vocal, music_score=music))
+        assert not BgmMaterialSupply().match(need, [unfit]).matches
+        assert unfit.rights == calm.rights and unfit.file == calm.file
+    import pytest
+    from copy import deepcopy
+    missing_tail = deepcopy(report)
+    missing_tail['windows'].pop()
+    with pytest.raises(ValueError, match='尾部'):
+        apply_music_observation(need, calm, missing_tail)
+    with pytest.raises(ValueError, match='身份'):
+        apply_music_observation(need, calm, {**report, 'audio_sha256': '0' * 64})
 
 
 def test_sfx_discovery_compiles_event_semantics_and_retains_license_facts():

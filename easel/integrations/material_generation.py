@@ -237,6 +237,9 @@ def generate_for_commission(attempt_id: str) -> None:
     # A fresh submit is quoted again even after a restart. A retained task/result
     # uses its original reservation and never buys a second generation.
     if execution is None:
+        if any(getattr(n.modality_spec, 'kind', None) == 'bgm' for n in planning['plan'].needs):
+            from easel.materials.application.music_observation import require_local_music_model
+            require_local_music_model()  # Check known delivery dependencies before any new paid material.
         if modality == 'voice':
             from easel.materials.application.voice_delivery import require_local_voice_model
             require_local_voice_model()  # Do not buy audio we already know cannot be checked.

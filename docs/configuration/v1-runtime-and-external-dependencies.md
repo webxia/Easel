@@ -35,3 +35,13 @@ TTS 开启句级字幕，按[官方 HTTP 合同](https://platform.minimaxi.com/d
 正常旁白内容核对及缺失时序恢复使用现有 `faster-whisper` 依赖。`EASEL_ASR_MODEL` 指向含 `model.bin`、`config.json`、`tokenizer.json` 的本地 CTranslate2 模型目录，未配置时查找 `~/.cache/easel-models/faster-whisper-small`。只使用本地模型，不自动下载、不请求 TTS；CPU/int8 子进程识别有 180 秒执行上限。`audio.voice-timing-recovery` 只检查依赖和文件，不声称识别效果已验证。新委托即使有有效 Provider 时序，也要独立识别实际旁白；缺少本地依赖时在委托 TTS 核价、占额和付费提交前停止，避免先买音频再发现无法检查。
 
 识别不注入目标脚本，逐词文本与实际时间必须覆盖完整冻结原文；按原文标点合并成整句字幕，边界仍取实际识别的首尾词，不均分或猜测时长。成功识别先保存检查点，再登记按 Need/脚本/音频绑定的内容观察并重新计算原 Gate；有效 Provider 时序保持原值，只有缺失或无效时才用识别时序补齐。错字、漏字、低置信或重叠不会改写脚本或重新购买，进入已有有界恢复与阶段 Retry。本地识别是内容/时序证据，不是音色、情绪、配乐适配或版权证明；Unknown Rights 仍然阻断。
+
+### BGM 本地声学观察（2026-10-01）
+
+安装可选依赖 `pip install '.[audio-observation]'`；`EASEL_MUSIC_MODEL` 指向本地 [MIT AST AudioSet 模型](https://huggingface.co/MIT/ast-finetuned-audioset-10-10-0.4593/tree/f826b80d28226b62986cc218e5cec390b1096902)目录，默认 `~/.cache/easel-models/ast-audioset`。固定 revision 为 `f826b80d28226b62986cc218e5cec390b1096902`，需要 `config.json`、`preprocessor_config.json` 和 `model.safetensors`；三个文件的 SHA-256 均由代码校验，不接受任意替换模型或远程代码。生产读取只使用本地文件，不自动下载。`audio.music-observation` readiness 检查依赖和文件摘要，不执行推理。
+
+现有后台素材观察步骤对 1～300 秒配乐候选进行 16 kHz 单声道解码，以重叠 10 秒窗口覆盖尾部，子进程执行上限 240 秒。音乐与人声类使用多标签 sigmoid 分数；低人声分数本身不能证明可用，还要求各窗口都有较强音乐证据，弱证据、静音、噪声与疑似人声保留未知或不适用。当前路由阈值（Music ≥0.8、各人声类 ≤0.01；≥0.2 视为检出人声）是保守的工程策略，不是校准概率或“绝无歌词”的保证；真实歌曲覆盖、弱人声漏检和误拒率仍需独立验证。不能用该分类器证明音色情绪、音质、版权或完整人工听感。
+
+有效报告绑定模型版本、实际音频 SHA 与窗口覆盖，缓存于原 Attempt observations，逐 Need 应用证据并走原 Rights/Match/Readiness；报告落盘后登记中断不重复推理。同一模型的未知报告保留，尝试其他候选，不通过重复观察凑出 PASS。乐器/曲风的实际分类标签优先于 Provider 标题用于软排序，情绪、能量及 tempo 尚可能依赖元数据；风格偏好不增加硬门禁。模型缺失时保留素材并报告运行依赖问题，不伪造试听结论。
+
+需配乐的新委托在提交新的付费素材请求前也预检本地声学依赖；已有 Provider 任务/已接收素材继续按原对账与恢复路径处理，不因依赖预检再次购买。模型配置就绪仍不等于真实听感验证。

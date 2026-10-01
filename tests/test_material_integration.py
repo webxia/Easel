@@ -532,6 +532,10 @@ def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_inte
                 'need_sha256': hashlib.sha256(frozen_need.to_json().encode()).hexdigest(),
                 'words': [{'text': script, 'start_seconds': .2, 'end_seconds': 4.8, 'probability': .99}],
             })
+        else:
+            from tests.test_material_audio_supply import acoustic_fixture
+            from easel.materials.application.music_observation import apply_music_observation
+            asset = apply_music_observation(bgm, asset, acoustic_fixture(asset.file.sha256, 5))
         store.write_asset(asset)
         assets.append(asset)
     now = datetime.now(timezone.utc)

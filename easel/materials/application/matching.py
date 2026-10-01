@@ -11,6 +11,7 @@ from easel.materials.application.intelligence import IntelligenceStatus
 from easel.materials.application.rights import RightsAdmissionStatus, RightsService
 from easel.materials.application.visual_observation import PREFIX, observed_interval, observed_match, scoped_inference
 from easel.materials.application.voice_delivery import VOICE_CONTENT_PREFIX, voice_content_observed
+from easel.materials.application.music_observation import PREFIX as MUSIC_PREFIX, binding as music_binding, music_observed
 from easel.materials.domain import (
     BgmNeedSpec,
     MaterialAsset,
@@ -100,6 +101,9 @@ class MaterialMatcher:
 
     def _hard_filter(self, need: MaterialNeed, asset: MaterialAsset) -> tuple[str, ...]:
         failures: list[str] = []
+        if (getattr(need.modality_spec, 'kind', None) == 'bgm'
+                and not self._creator_match_review(need, asset) and music_observed(need, asset) is not True):
+            failures.append('music_observation_missing_or_unsuitable')
         if (getattr(need.modality_spec, 'kind', None) == 'voice' and need.modality_spec.text_sha256
                 and not self._creator_match_review(need, asset) and not voice_content_observed(need, asset)):
             failures.append('voice_content_observation_missing')
@@ -206,6 +210,9 @@ class MaterialMatcher:
             elif isinstance(value, (tuple, list)):
                 corpus_by_field[SemanticField(key)].extend(item for item in value if isinstance(item, str))
         for inference in asset.semantic.inferences:
+            if inference.analyzer_id.startswith(MUSIC_PREFIX) and not all(
+                    a.evidence and a.evidence.startswith(music_binding(need, asset)) for a in inference.annotations):
+                continue
             if inference.analyzer_id.startswith(VOICE_CONTENT_PREFIX):
                 continue  # Voice evidence is scoped below, never generic tag overlap.
             if inference.analyzer_id.startswith(PREFIX) and not scoped_inference(need, asset, inference):
@@ -222,7 +229,8 @@ class MaterialMatcher:
         semantic = self._jaccard(query, semantic_corpus) if semantic_corpus else None
         system_observed = observed_match(need, asset) is True
         voice_observed = voice_content_observed(need, asset)
-        if self._creator_match_review(need, asset) or system_observed or voice_observed:
+        bgm_observed = music_observed(need, asset) is True
+        if self._creator_match_review(need, asset) or system_observed or voice_observed or bgm_observed:
             semantic = 1.0
 
         preferred_style = need.constraints.get("preferred_style")
@@ -254,9 +262,10 @@ class MaterialMatcher:
         reasons = tuple(
             ["system_visual_match=suitable" if system_observed else
              "system_voice_content=complete" if voice_observed else
+             "system_music=acoustically_observed" if bgm_observed else
              f"semantic_overlap={semantic:.3f}" if semantic is not None else "semantic_evidence=absent"]
             + ([f"director_style_overlap={style_overlap:.3f}"] if style_overlap is not None else [])
-            + ([f"bgm_preference_metadata_overlap={bgm_preference:.3f}"] if bgm_preference is not None else [])
+            + ([f"bgm_preference_{'acoustic_and_metadata' if bgm_observed else 'metadata'}_overlap={bgm_preference:.3f}"] if bgm_preference is not None else [])
             + ([f"continuity_overlap={continuity:.3f}"] if continuity is not None else [])
             + ([f"technical_quality={quality:.3f}"] if quality is not None else [])
         )
@@ -264,7 +273,7 @@ class MaterialMatcher:
 
     def _bgm_preference_score(self, need: MaterialNeed, asset: MaterialAsset,
                               semantic_corpus: set[str]) -> float | None:
-        """Rank declared sound preferences without claiming acoustic observation.
+        """Prefer observed instrument/genre tags; keep other preferences soft.
 
         Metadata may guide selection; it cannot establish absence of vocals,
         technical readiness or Rights. Missing preferences remain soft zeros.
@@ -272,6 +281,10 @@ class MaterialMatcher:
         spec = need.modality_spec
         if not isinstance(spec, BgmNeedSpec):
             return None
+        acoustic = [a for i in asset.semantic.inferences if i.analyzer_id == MUSIC_PREFIX + need.need_id
+                    for a in i.annotations if a.field is SemanticField.TAGS
+                    and a.evidence and a.evidence.startswith(music_binding(need, asset))]
+        acoustic_corpus = self._tokens(' '.join(text for a in acoustic for text in self._as_text(a.value)))
         scores = []
         for field, requested in (('mood', (spec.mood,)), ('genre', (spec.genre,)),
                                  ('instruments', spec.instruments), ('energy', (spec.energy,))):
@@ -282,6 +295,8 @@ class MaterialMatcher:
             value = asset.semantic.attributes.get(field)
             corpus = (self._tokens(' '.join(self._as_text(value)))
                       if value is not None else semantic_corpus)
+            if acoustic and field in {'instruments', 'genre'}:
+                corpus = acoustic_corpus  # Provider titles cannot override actual sound evidence.
             scores.append(sum(len(tokens & corpus) / len(tokens) for tokens in terms) / len(terms))
         if spec.tempo_bpm is not None:
             tempo = self._number(asset.semantic.attributes.get('tempo_bpm'))

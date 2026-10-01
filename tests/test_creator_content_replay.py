@@ -214,12 +214,27 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         if prior_voice:
             assert not MaterialMatcher().match(voice_need, (prior_voice,)).matches
         assert requests and all(mode['visual_material_style'] in r.semantic_queries[0] for r in requests if r.need_id.startswith('visual-'))
-        supplied_bundle = store.read_bundle()
-        # Fixed BGM semantics at the observation boundary. The product still
-        # lacks automatic BGM listening; do not simulate a Creator approval.
-        music_asset = next(a for a in supplied_bundle.assets if a.media_type is MediaType.AUDIO)
-        store.write_asset(music_asset.model_copy(update={'semantic': SemanticInfo(caption='calm background music')}))
-        MaterialProductOrchestrator._recalculate_observed_materials(attempt, plan, supplied_bundle, store)
+        # The actual owner now invokes acoustic observation. Replace only the
+        # local classifier, not Asset semantics or a Creator listening decision.
+        from tests.test_material_audio_supply import acoustic_fixture
+        from easel.materials.application import music_observation
+        acoustic_calls = []
+        def classify(path):
+            acoustic_calls.append(path)
+            assert path.read_bytes() == music_file.read_bytes()
+            return acoustic_fixture(hashlib.sha256(path.read_bytes()).hexdigest(), music_duration)
+        monkeypatch.setattr(music_observation, 'read_local_music', classify)
+        music_preflights = []
+        monkeypatch.setattr(music_observation, 'require_local_music_model', lambda: music_preflights.append(True))
+        write_asset = AttemptMaterialStore.write_asset
+        acoustic_interrupted = []
+        def persist_asset(self, asset):
+            if (index == 2 and not acoustic_interrupted
+                    and any(i.analyzer_id.startswith(music_observation.PREFIX) for i in asset.semantic.inferences)):
+                acoustic_interrupted.append(asset.asset_id)
+                raise OSError('fixture interruption after acoustic report, before Asset registration')
+            return write_asset(self, asset)
+        monkeypatch.setattr(AttemptMaterialStore, 'write_asset', persist_asset)
 
         # Fixture TTS output passes the real receive/inspection/generation path.
         duration = 28 if index == 0 else 2 * len(sentences) + 1
@@ -305,9 +320,13 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 assert not receipts[0]['operator_confirmed_paid']
             if next_operation(creation.get_creation(work['id']))[0] == 'author':
                 break
-        assert material_operations == ['observe_material', 'recover_material', 'generate_material',
+        monkeypatch.setattr(AttemptMaterialStore, 'write_asset', write_asset)
+        assert bool(acoustic_interrupted) is (index == 2)
+        assert material_operations == (['observe_material'] if index == 2 else []) + ['observe_material', 'recover_material', 'generate_material',
                                        'recover_voice_timing', 'observe_material'], creation.get_creation(work['id'])['delivery']
         assert calls == [(script, mode['voice_delivery'])]
+        assert len(acoustic_calls) == 1
+        assert music_preflights == [True]
         assert quote_reads == [minimax_pricing.PRICE_URL, minimax_pricing.VOICE_URL, minimax_pricing.TERMS_URL]
         ledger = creation.get_creation(work['id'])['delivery']['material_generations']
         assert len(ledger) == 1 and next(iter(ledger.values()))['status'] == 'complete'

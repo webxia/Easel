@@ -1793,6 +1793,38 @@ class MaterialProductOrchestrator:
                 admit_generated(asset_id)
                 reports.append(relative)
         current_attempt = get_film_attempt(attempt_id)
+        if active_delivery.get() == attempt['creation_id']:
+            from easel.materials.application.music_observation import (
+                MODEL_REVISION, SCHEMA as MUSIC_SCHEMA, apply_music_observation, read_local_music, file_digest,
+            )
+            for need in plan.needs:
+                if getattr(need.modality_spec, 'kind', None) != 'bgm':
+                    continue
+                candidates = [a for a in bundle.assets if a.asset_id in verified and a.media_type is MediaType.AUDIO
+                              and a.technical.duration_seconds is not None and 1 <= a.technical.duration_seconds <= 300]
+                candidates.sort(key=lambda a: (-matcher._soft_scores(need, a)[1], a.asset_id))
+                for candidate in candidates[:MAX_VISUAL_CANDIDATES]:
+                    available = tuple(store.read_asset(a.asset_id) for a in candidates)
+                    if matcher.match(need, available).matches:
+                        break
+                    asset = store.read_asset(candidate.asset_id)
+                    identity = 'music-' + hashlib.sha256((MUSIC_SCHEMA + MODEL_REVISION + asset.file.sha256).encode()).hexdigest()
+                    report_path = _workspace(attempt) / 'materials/observations' / (identity + '.json')
+                    if _has_symlink_components(_workspace(attempt), report_path):
+                        raise MaterialIntegrationError('配乐观察路径无效')
+                    path = store.resolve_asset_locator(asset.file.path)
+                    if report_path.is_file():
+                        report = json.loads(report_path.read_text())
+                    else:
+                        report = read_local_music(path)
+                        apply_music_observation(need, asset, report)
+                        store.write_observation_record(identity, report)
+                    if store.read_asset(asset.asset_id).file != asset.file or file_digest(path) != asset.file.sha256:
+                        raise MaterialIntegrationError('配乐观察期间素材已变化，未使用旧结论')
+                    observed = apply_music_observation(need, asset, report)
+                    # A saved report survives a crash before Asset/Bundle registration.
+                    if asset.semantic.inferences != observed.semantic.inferences:
+                        store.write_asset(observed)
         current_plan = PlanningIntegration().load(current_attempt)["plan"]
         if current_plan != plan or store.read_bundle() != bundle:
             raise MaterialIntegrationError("素材观察期间方案或候选发生变化；保留证据并重新核对")
