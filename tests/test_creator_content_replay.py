@@ -409,7 +409,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             '-c:a', 'aac', '-t', '30', str(rendered)], check=True, capture_output=True, timeout=30)
         # Fake only the renderer CLI and model invocation. The backend's real
         # Authoring/Runtime/Plan/Pricing/approval/Build/export services own state.
-        renderer_calls, author_calls = [], []
+        renderer_calls, author_calls, builds = [], [], {}
         class RendererFixture:
             def check(self, *args, **kwargs):
                 renderer_calls.append('check')
@@ -421,28 +421,47 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 renderer_calls.append('pricing')
                 return {'format': 'hypit.cli-pricing@1', 'requestCount': 1,
                         'noChargeRequestCount': 1, 'groups': []}
-            def build(self, *args, **kwargs):
+            def build(self, workspace, *args, **kwargs):
                 renderer_calls.append('build')
-                return {'format': 'hypit.cli-build@1', 'build': {'id': f'bld_fixture_{index}'}}
-            def status(self, *args, **kwargs):
+                assert str(workspace) not in builds  # No duplicate submission per Attempt.
+                builds[str(workspace)] = f'bld_fixture_{index}_{len(builds)}'
+                return {'format': 'hypit.cli-build@1', 'build': {'id': builds[str(workspace)]}}
+            def status(self, workspace, build_id, **kwargs):
                 renderer_calls.append('status')
+                assert build_id == builds[str(workspace)]
                 if index == 1 and renderer_calls.count('status') == 1:
                     raise service.HypitIntegrationError('fixture temporary status disconnection')
-                return {'format': 'hypit.cli-status@1', 'build': {'id': f'bld_fixture_{index}',
+                return {'format': 'hypit.cli-status@1', 'build': {'id': build_id,
                     'work': {'state': 'done', 'outcome': 'complete'}, 'result': {'state': 'complete', 'outputCount': 1}}}
-            def inspect(self, *args, **kwargs):
+            def inspect(self, workspace, build_id, **kwargs):
                 renderer_calls.append('inspect')
-                return {'format': 'hypit.cli-inspect@1', 'build': {'id': f'bld_fixture_{index}',
+                assert build_id == builds[str(workspace)]
+                return {'format': 'hypit.cli-inspect@1', 'build': {'id': build_id,
                     'outputs': [{'name': 'final.video', 'target': True, 'mediaType': 'video/mp4'}]}}
             def get(self, workspace, build_id, output_name, destination):
                 renderer_calls.append('get')
-                assert build_id == f'bld_fixture_{index}' and output_name == 'final.video'
+                assert build_id == builds[str(workspace)] and output_name == 'final.video'
                 shutil.copyfile(rendered, destination)
                 return {'format': 'hypit.cli-get@1', 'build': build_id, 'output': output_name}
         def authored_fixture(**kwargs):
             author_calls.append(kwargs['attempt_id'])
-            assert kwargs['attempt_workspace'] == str(root)
-            assert (root / author_path).read_text() == compiled
+            current_root = Path(kwargs['attempt_workspace'])
+            assert (current_root / author_path).read_text() == compiled
+            if current_root != root:
+                current_attempt = service.get_film_attempt(kwargs['attempt_id'])
+                assert current_attempt['revision_feedback']['allowed_changes'] == ['audio']
+                new_plan, new_bundle, new_ready = MaterialGateIntegration().assert_ready(current_attempt)
+                # Fixed model answer only. Forking, checkpoint reuse, authoring
+                # admission and all ensuing state transitions run in product code.
+                new_run = current_root / run.relative_to(root)
+                new_run.parent.mkdir(parents=True, exist_ok=True)
+                new_run.write_text(json.dumps({
+                    'schema': 'easel-authoring-svrun@1', 'creation_id': work['id'],
+                    'attempt_id': current_attempt['attempt_id'], 'plan_id': new_plan.plan_id,
+                    'plan_revision': new_ready.plan_revision, 'bundle_id': new_bundle.bundle_id,
+                    'bundle_revision': new_bundle.revision, 'readiness_revision': new_ready.bundle_revision,
+                    'authoring_source': '../authors/main.svml', 'material_selection': '../material-selection.json',
+                    'status': 'AUTHORING_READY', 'publication_allowed': False, 'build': {'enabled': False}}))
             return ''  # Fixed native model output was authored above, never a live Agent.
         monkeypatch.setattr(service, 'HypitCLI', RendererFixture)
         monkeypatch.setattr(web, '_hypit_runtime_profile', lambda: str(runtime))
@@ -557,6 +576,53 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                     quality.inspect_output(attempt['attempt_id'], executor=review_output)
             finally:
                 admitted_music.write_bytes(original_bytes)
+        # Continue the actual owner past defect routing. A repaired output must
+        # arrive without a second TTS, manual approval or engineering state edit.
+        repair_start = len(operations)
+        copy_file = service._copy_retry_checkpoint_file
+        interrupted = []
+        def copy_checkpoint(source_root, target_root, relative):
+            copy_file(source_root, target_root, relative)
+            if index == 1 and not interrupted and relative.parts[:2] == ('materials', 'assets'):
+                interrupted.append(str(target_root))
+                raise OSError('fixture interrupted after durable asset copy')
+        monkeypatch.setattr(service, '_copy_retry_checkpoint_file', copy_checkpoint)
+        for _ in range(16):
+            asyncio.run(advance_creation(work['id'], execute))
+            current = creation.get_creation(work['id'])
+            if operations[-1] == 'repair_quality':
+                target = current['hypit_attempts'][-1]
+                assert target['cost']['approved'] is False and target['cost']['status'] == 'not_estimated'
+                assert target['outputs'] == {}
+                if current['delivery']['status'] == 'retrying':
+                    assert index == 1 and interrupted == [target['workspace']['path']]
+                    assert current['delivery']['recovering_quality_from'] == attempt['attempt_id']
+                    assert target['retry_source']['status'] == 'COPYING'
+            if next_operation(current) == (None, 'first_cut_ready'):
+                break
+        monkeypatch.setattr(service, '_copy_retry_checkpoint_file', copy_file)
+        assert current['delivery']['status'] == 'first_cut_ready', current['delivery'].get('last_error')
+        repaired = current['hypit_attempts'][-1]
+        assert repaired['attempt_id'] != attempt['attempt_id']
+        assert len(current['hypit_attempts']) == 2
+        repair_operations = ['repair_quality'] * (2 if index == 1 else 1)
+        assert operations[repair_start:] == repair_operations + ['author', 'validate', 'price',
+            'approve_free', 'submit', 'refresh', 'export', 'quality']
+        assert current['delivery']['quality_repairs'] == [attempt['attempt_id']]
+        assert current['delivery']['material_generations'] == ledger
+        assert renderer_calls.count('build') == renderer_calls.count('get') == 2
+        assert renderer_calls.count('pricing') == 2
+        assert before_calls == (len(calls), len(recognition_calls), len(observations))
+        assert preparation_calls == ['prepare', 'planning', 'truth']
+        assert author_calls == [attempt['attempt_id'], repaired['attempt_id']]
+        assert repaired['cost']['approval_kind'] == 'confirmed_commission_no_charge'
+        assert repaired['review']['system']['binding']['sha256'] == service._file_sha256(rendered)
+        assert repaired['outputs']['final.video']['material_usage'] == exported['outputs']['final.video']['material_usage']
+        assert repaired['review']['human']['status'] != 'accepted' and not current.get('selected_output_name')
+        assert service.get_film_attempt(attempt['attempt_id'])['review']['system']['status'] == 'REPAIR_REQUIRED'
+        completed_calls = (len(renderer_calls), len(author_calls), len(reviews))
+        asyncio.run(advance_creation(work['id'], execute))
+        assert completed_calls == (len(renderer_calls), len(author_calls), len(reviews))
     assert len(output_hashes) == len(quality_hashes) == 3
     assert len(mode_hashes) == len(creator_hashes) == 1
     assert len(profile_hashes) == 1 and len(content_hashes) == 3

@@ -53,6 +53,9 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **系统音频修复回放闭环（2026-10-01）：** 原三内容回放在实际 MP4 检出缺配乐/旁白末句缺失后，只断言 Owner 选择 `repair_quality`，不能证明正常路径修复后可交付。现沿真实 Web 后台执行到 checkpoint 复用、新 Attempt 编排、重新核价、委托内零费用批准、模拟提交/导出及新输出 Quality READY。三个内容均保留原脚本、Creator/Mode、素材、旁白、时序与有限用途 Rights；原失败输出及其审片记录保留，新的审片绑定修复输出，未自动接受/入库。第二个内容在真实素材复制落盘后注入一次中断，恢复仍为同一 Attempt、同一次修复额度，不重做 Planning/素材观察/ASR/TTS，也不继承旧费用批准；每个 Attempt 仅一次模拟提交，完成后再次推进不执行工作。本批未发现需修改的生产逻辑，只补齐原有恢复链的验证缺口。
+- **本批验证与边界：** 跨内容/Preparation/Material integration **108 passed**，compileall、diff check 通过，保留两项既有依赖提示。真实本地解码/音频缺陷检查、持久 Owner/服务/检查点参与回放；模型、ASR/TTS、Hypit CLI 均为替身，渲染器返回确定性合成媒体，不证明真实渲染或感知质量。BGM 语义仍由 Fixture 提供；本次只覆盖使用已准入素材的音轨修复，Truth/叙事变更与素材替换恢复仍未完成。Goal active / NOT_READY；未操作真实 Creation、付费 AI、真实 Build 或完整 E2E。
+
 - **配乐偏好进入检索与排序（2026-10-01）：** 原 `BgmNeedSpec` 只取第一个乐器组成检索词，Planning 提供四条搜索提示时又会将它挤出；匹配排序完全不读情绪、曲风、乐器、能量与速度要求。现为完整声音偏好保留一条实际 Provider 检索请求，继续保留宽泛后备查询；明确允许人声时不再强加 instrumental。现有匹配器读取这些偏好与素材元数据计算 Director 软排序，缺少或不符的偏好不新增门禁，理由明确标为 metadata overlap。普通 caption、关键词与检索排除词仍不能证明实际无歌词、乐器或听感；本批没有新增音频模型，也未声称完成声音感知。实际声音观察及 `vocals_allowed=False` 的有效核验仍未接通，三内容回放的 BGM 语义 Fixture 保留，整体 Goal 继续 active / NOT_READY。
 - **本批局部验证：** Compiler/Audio Supply/Matching/Readiness/Material integration/三内容回放 **87 passed**，保留两项既有 Python 依赖提示。扩展既有场景先复现偏好被挤掉，再验证实际 Openverse Fixture HTTP 查询、同一候选池随 Director 配乐决定改变排序、软偏好缺失不阻断、原 Rights/技术准入及跨内容主链兼容。compileall、diff check 通过。未修改真实 Creation，未调用付费 AI、真实 Build 或完整 E2E。
 
