@@ -19,7 +19,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from tests.test_material_integration import material_integration_env
 from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
@@ -100,6 +100,10 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         local.mkdir()
         for n, subject in enumerate(subjects):
             Image.new('RGB', (64, 96), (55 + index * 20, 60 + n * 25, 80)).save(local / f'{subject}.png')
+        if index == 0:
+            alternative = Image.new('RGB', (64, 96), (95, 60, 80))
+            ImageDraw.Draw(alternative).rectangle((20, 20, 50, 80), fill=(110, 80, 120))
+            alternative.save(local / f'{subjects[0]} alternative.png')
         music_file = local / 'calm background music.wav'
         music_duration = 11 + index * 7
         playback = ('loop-start', 'loop-end', 'once-end')[index]
@@ -449,7 +453,16 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             assert (current_root / author_path).read_text() == compiled
             if current_root != root:
                 current_attempt = service.get_film_attempt(kwargs['attempt_id'])
-                assert current_attempt['revision_feedback']['allowed_changes'] == ['audio']
+                expected_scope = ['audio', 'visual', 'visual_material'] if index == 0 else ['audio']
+                assert current_attempt['revision_feedback']['allowed_changes'] == expected_scope
+                if index == 0:
+                    alternatives = service.quality_visual_replacements(current_attempt)
+                    assert alternatives, 'repair must observe an existing alternative before authoring'
+                    replaced = compiled
+                    for old_src, options in alternatives.items():
+                        replaced = replaced.replace(old_src, sorted(options)[0])
+                    assert replaced != compiled
+                    (current_root / author_path).write_text(replaced)
                 new_plan, new_bundle, new_ready = MaterialGateIntegration().assert_ready(current_attempt)
                 # Fixed model answer only. Forking, checkpoint reuse, authoring
                 # admission and all ensuing state transitions run in product code.
@@ -474,10 +487,13 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             assert manifest['measurements']['audio']['voice_windows']
             assert manifest['measurements']['music']['assets'][0]['sha256'] == music_asset.file.sha256
             assert attachments and all(x['mimeType'] == 'image/jpeg' for x in attachments)
-            return {'schema': quality.SCHEMA, 'input_sha256': manifest['input_sha256'],
+            result = {'schema': quality.SCHEMA, 'input_sha256': manifest['input_sha256'],
                 'frames': [{'index': f['index'], 'observed': True, 'description': 'fixture colored panel'} for f in manifest['frames']],
                 'checks': {k: {'status': 'pass', 'reason': 'fixed model fixture, not real aesthetic judgement',
                               'frame_indices': [0]} for k in quality.VISUAL_CHECKS}}
+            if index == 0 and manifest['binding']['sha256'] != service._file_sha256(rendered):
+                result['checks']['visual_match'].update(status='fail', reason='fixed visual mismatch on damaged output')
+            return result
         from easel.creation_delivery import advance_creation, next_operation
         operations = []
         monkeypatch.setattr(web, '_review_output_frames', review_output)
@@ -556,7 +572,8 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         if index < 2:
             assert not damaged_attempt['review']['system']['measurements']['audio']['defects']
             assert {d['kind'] for d in defects} == {'music_missing'}  # Prior voice-only QC missed this.
-        assert quality.repair_request(damaged_attempt)['allowed_changes'] == ['audio']
+        assert quality.repair_request(damaged_attempt)['allowed_changes'] == (
+            ['audio', 'visual', 'visual_material'] if index == 0 else ['audio'])
         assert next_operation(creation.get_creation(work['id'])) == ('repair_quality', 'repairing_quality')
         assert before_calls == (len(calls), len(recognition_calls), len(observations))
         assert not creation.get_creation(work['id']).get('selected_output_name')
@@ -581,6 +598,17 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         repair_start = len(operations)
         copy_file = service._copy_retry_checkpoint_file
         interrupted = []
+        from easel.integrations import material_layer
+        update_attempt = material_layer._update_attempt
+        observation_interrupted = []
+        def update_observation(item, **fields):
+            if index == 0 and fields.get('material_observation', {}).get('quality_report_sha256') and not observation_interrupted:
+                observation_interrupted.append(item['attempt_id'])
+                raise OSError('fixture interrupted after observed material checkpoint')
+            return update_attempt(item, **fields)
+        monkeypatch.setattr(material_layer, '_update_attempt', update_observation)
+        source_bundle_revision = store.read_bundle().revision
+        supply_calls = len(requests)
         def copy_checkpoint(source_root, target_root, relative):
             copy_file(source_root, target_root, relative)
             if index == 1 and not interrupted and relative.parts[:2] == ('materials', 'assets'):
@@ -601,18 +629,30 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             if next_operation(current) == (None, 'first_cut_ready'):
                 break
         monkeypatch.setattr(service, '_copy_retry_checkpoint_file', copy_file)
+        monkeypatch.setattr(material_layer, '_update_attempt', update_attempt)
         assert current['delivery']['status'] == 'first_cut_ready', current['delivery'].get('last_error')
         repaired = current['hypit_attempts'][-1]
         assert repaired['attempt_id'] != attempt['attempt_id']
         assert len(current['hypit_attempts']) == 2
         repair_operations = ['repair_quality'] * (2 if index == 1 else 1)
+        if index == 0:
+            repair_operations.extend(['observe_material', 'observe_material'])
         assert operations[repair_start:] == repair_operations + ['author', 'validate', 'price',
             'approve_free', 'submit', 'refresh', 'export', 'quality']
         assert current['delivery']['quality_repairs'] == [attempt['attempt_id']]
         assert current['delivery']['material_generations'] == ledger
         assert renderer_calls.count('build') == renderer_calls.count('get') == 2
         assert renderer_calls.count('pricing') == 2
-        assert before_calls == (len(calls), len(recognition_calls), len(observations))
+        assert before_calls[:2] == (len(calls), len(recognition_calls))
+        assert len(observations) == before_calls[2] + int(index == 0)
+        assert len(requests) == supply_calls and store.read_bundle().revision == source_bundle_revision
+        if index == 0:
+            old_images = set(exported['production_authoring']['selected_asset_ids']) - {prior_voice.asset_id, music_asset.asset_id}
+            new_images = set(repaired['production_authoring']['selected_asset_ids']) - {prior_voice.asset_id, music_asset.asset_id}
+            assert old_images.isdisjoint(new_images) and len(old_images) == len(new_images) == 1
+            assert observations[-1]['asset_id'] in new_images
+            assert observation_interrupted == [repaired['attempt_id']]
+            assert repaired['material_observation']['quality_report_sha256'] == repaired['revision_feedback']['quality_report_sha256']
         assert preparation_calls == ['prepare', 'planning', 'truth']
         assert author_calls == [attempt['attempt_id'], repaired['attempt_id']]
         assert repaired['cost']['approval_kind'] == 'confirmed_commission_no_charge'

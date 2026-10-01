@@ -53,6 +53,9 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **画面错配后的池内备选观察（2026-10-01）：** 原 fork 复制“素材观察已完成”后直接进入 Authoring，而原观察在找到首个可用素材时已停止，其余已接收候选往往没有观察证据。局部回放先复现：有另一张候选图，但修复编排连续三次找不到可用替代项。现唯一 Delivery Owner 在 `visual_material` 修复前复用 `observe_material`；以该次输出质量报告绑定补查目的，排除原选用及受保护的声音/字幕来源，按未改变的 Need 对已有候选执行原有有界观察。原素材和报告保留，新增证据经普通 Matcher/Readiness 后进入上一批替换路径；没有新 Supply、付费请求或第二工作流。原候选已可用不再被误当成“备选也已查完”。
+- **本批局部验证：** Cross-Content/Preparation/Material integration/Hypit **154 passed**，compileall、diff check 通过，保留两项既有依赖提示。三内容回放的首个场景现在覆盖：系统报告画面错配 → 新修复 Attempt → 补查已有另一素材 → 普通选材/编排 → 重新核价与模拟制作 → 当前输出 Quality READY；只增加一次模型观察，原素材供应、ASR/TTS、生成额度和源 Bundle 不变。额外注入“观察与新素材 checkpoint 已落盘，但完成状态尚未写入”的中断，下一轮复用证据继续，不重复观察。其余内容的音轨修复及复制中断仍通过。实际模型与渲染仍是确定性替身，BGM 语义仍为 Fixture；不证明真实听感/风格效果。成片缺陷后的外部补料、Truth/叙事调整和实际声音感知仍开放，Goal active / NOT_READY；未操作真实 Creation、付费 AI、真实 Build 或完整 E2E。
+
 - **系统画面错配可使用已准入备选（2026-10-01）：** 原 Quality 将 `visual_match` 失败归为构图修正，但修复合同强制保留全部素材身份，已有备选也无法使用。现仅该类系统缺陷开放 `visual_material`，通过原 fork/Authoring/核价/审片路径，在未改变的 Need 下替换同类型、独立匹配证据齐全的现有视觉素材；共享素材的每个原 Need 均须继续被覆盖。代码和 Prompt 共用当前备选表；保留组件身份、脚本、时序、声音及其他受保护部分，图片尺寸只能改为替代资产的实际检查尺寸。核对本机 Hypit 0.2.7 `media-track` 源码后，明确排除被声音/字幕引用、`source-audio` 或内嵌 Sound 使用的视觉来源，防止换画面时暗中换掉原声。普通 Creator 构图修改范围未扩大；不重新检索、购买素材或复制旧费用批准。
 - **Production 选材根因一并修复：** 回归先证明“整体 Material READY + 某候选持久 qualified=true”仍会将没有实际语义证据的备选列入可用集合。READY 仅证明每个必要 Need 至少存在一个可用选项。现 Production 实际候选/选中入口对每个 Need–Asset 重新调用既有 Matcher，复用原 Rights、技术、语义与逐 Need 观察要求；缺证候选被排除，保留有效候选。没有新增准入语义或人工确认。
 - **本批验证与边界：** Cross-Content/Preparation/Material integration/Hypit/Readiness/Matching **177 passed**，compileall、diff check 通过，保留两项既有依赖提示。沿用既有测试扩展同 Need 备选进入真实 checkpoint fork 与 Authoring 完成、旧选择不变/新费用未批准、无观察候选拒绝，以及图片尺寸、未授权来源、旁白、时序和原声保护。全部渲染/模型仍为 Fixture；未运行真实 Build 或完整 E2E。该修复覆盖池内已有合格备选，尚未接通成片缺陷后的新增观察/补料、Truth/叙事调整和实际声音感知；Goal active / NOT_READY，未修改真实 Creation。

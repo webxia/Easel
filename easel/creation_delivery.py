@@ -185,9 +185,13 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         return 'recover_material', 'recovering_material'
     if gate.get("bundle_revision") and gate.get("status") in {"MATERIAL_READY", "MATERIAL_NOT_READY"}:
         observed = attempt.get("material_observation") or {}
+        revision = attempt.get('revision_feedback', {})
+        visual_repair = (revision.get('origin') == 'system_quality'
+                         and 'visual_material' in revision.get('allowed_changes', []))
         if (observed.get("status") != "COMPLETE"
                 or observed.get("bundle_revision") != gate.get("bundle_revision")
-                or observed.get("plan_revision") != gate.get("plan_revision")):
+                or observed.get("plan_revision") != gate.get("plan_revision")
+                or (visual_repair and observed.get('quality_report_sha256') != revision.get('quality_report_sha256'))):
             return "observe_material", "observing_material"
     if gate.get("status") != "MATERIAL_READY":
         prep_status = (work.get("preparation") or {}).get("status")

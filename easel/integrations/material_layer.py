@@ -1673,6 +1673,25 @@ class MaterialProductOrchestrator:
         bundle = store.read_bundle()
         candidates = self.material_rights_candidates(attempt_id)
         verified = {c["asset_id"] for c in candidates}
+        revision = attempt.get('revision_feedback', {})
+        visual_repair = (revision.get('origin') == 'system_quality'
+                         and 'visual_material' in revision.get('allowed_changes', []))
+        excluded = {}
+        if visual_repair:
+            from easel.integrations.hypit.service import _execution_fingerprint
+            from easel.integrations.hypit.revision import quality_protected_sources
+            source = get_film_attempt(attempt['retry_source']['attempt_id'])
+            if (source['creation_id'] != attempt['creation_id']
+                    or PlanningIntegration().load(source)['plan'].needs != plan.needs
+                    or _execution_fingerprint(source)['sha256'] != attempt['retry_source']['fingerprint']):
+                raise MaterialIntegrationError('原成片或素材需求已变化，不能沿用修复观察')
+            protected = quality_protected_sources(_workspace(source) / 'productions/easel-authoring/authors/main.svml')
+            selected_ids = set(source['production_authoring']['selected_asset_ids'])
+            for candidate in ProductionAuthoringIntegration().qualified_authoring_assets(source):
+                if (candidate['asset_id'] in selected_ids and candidate['media_type'] in {'image', 'video'}
+                        and candidate['src'] not in protected):
+                    for need_id in candidate['qualified_need_ids']:
+                        excluded.setdefault(need_id, set()).add(candidate['asset_id'])
         from easel.creation_delivery import active_delivery
         if active_delivery.get() == attempt['creation_id']:
             from easel.integrations.material_generation import commission_voice_rights
@@ -1693,7 +1712,8 @@ class MaterialProductOrchestrator:
                         RightsService(store).record(asset, rights)
         matcher = MaterialMatcher()
         batch_key = hashlib.sha256(("ranked-v2\n" + MaterialReadinessCalculator.plan_revision(plan) + "\n"
-            + "\n".join(sorted(a.asset_id + ":" + a.file.sha256 for a in bundle.assets))).encode()).hexdigest()
+            + "\n".join(sorted(a.asset_id + ":" + a.file.sha256 for a in bundle.assets))
+            + ('\nalternatives:' + revision['quality_report_sha256'] if visual_repair else '')).encode()).hexdigest()
         batch_relative = f"materials/observations/batch-{batch_key}.json"
         batch_path = _workspace(attempt) / batch_relative
         if _has_symlink_components(_workspace(attempt), batch_path):
@@ -1703,9 +1723,11 @@ class MaterialProductOrchestrator:
         else:
             pairs = {}
             for need in plan.needs:
-                if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
+                if (need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}
+                        or (visual_repair and need.need_id not in excluded)):
                     continue
-                assets = [a for a in bundle.assets if a.asset_id in verified and a.media_type is need.media_type]
+                assets = [a for a in bundle.assets if a.asset_id in verified and a.media_type is need.media_type
+                          and a.asset_id not in excluded.get(need.need_id, ())]
                 assets.sort(key=lambda a: (
                     any(scoped_inference(need, a, i) for i in a.semantic.inferences) and observed_match(need, a) is not True,
                     RightsService().evaluate(a, need, attribution=RightsService.attribution_condition_for(a)).status
@@ -1726,7 +1748,8 @@ class MaterialProductOrchestrator:
             for asset_id in selected:
                 # Readiness needs a usable choice, not exhaustive review of the
                 # whole pool. Preserve independent evidence for each Need.
-                usable = tuple(store.read_asset(a.asset_id) for a in bundle.assets if a.asset_id in verified)
+                usable = tuple(store.read_asset(a.asset_id) for a in bundle.assets
+                               if a.asset_id in verified and a.asset_id not in excluded.get(need.need_id, ()))
                 usable = tuple(a for a in usable if observed_match(need, a) is True
                                or matcher._creator_match_review(need, a))
                 if matcher.match(need, usable).matches:
@@ -1769,6 +1792,7 @@ class MaterialProductOrchestrator:
             "status": "COMPLETE", "plan_revision": result["attempt"]["material_gate"]["plan_revision"],
             "bundle_revision": result["attempt"]["material_gate"]["bundle_revision"],
             "reports": reports, "updated_at": creation._now(),
+            **({'quality_report_sha256': revision['quality_report_sha256']} if visual_repair else {}),
         })
         return result
 
