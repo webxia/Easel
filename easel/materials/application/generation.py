@@ -23,6 +23,7 @@ from easel.materials.domain import (
     MaterialPlan,
     MediaType,
     PreviewInfo,
+    RightsEvidence,
     RightsStatus,
     SupplyCandidate,
 )
@@ -31,6 +32,28 @@ from easel.materials.store import (
     AttemptMaterialStore,
     GenerationRecordNotFound,
 )
+
+
+def retain_generation_rights_evidence(asset: MaterialAsset, record: dict) -> MaterialAsset:
+    """Carry request-time facts into the Asset without inventing permission."""
+    terms = (record.get('commission_authorization') or {}).get('quote', {}).get('terms_evidence')
+    if not terms:
+        return asset  # Existing/manual generation has no captured agreement.
+    from easel.materials.providers.minimax_pricing import TERMS_URL
+    document = terms.get('document')
+    if (terms.get('url') != TERMS_URL or not isinstance(document, str)
+            or hashlib.sha256(document.encode()).hexdigest() != terms.get('sha256')):
+        raise GenerationRequestConflict('生成协议证据身份不一致，不能关联到素材')
+    evidence = (
+        RightsEvidence(kind='provider_terms', reference=TERMS_URL + '#sha256=' + terms['sha256'],
+                       observed_at=datetime.fromisoformat(terms['observed_at']),
+                       summary='请求前保存的服务协议；不代表已取得全部输出权利'),
+        RightsEvidence(kind='asset_generation_provenance',
+                       reference=f"generation:{record['generation_id']}:asset:{asset.asset_id}:sha256:{asset.file.sha256}",
+                       summary='当前生成请求与实际接收字节的对应关系；不替代许可核验'),
+    )
+    return asset.model_copy(update={'rights': asset.rights.model_copy(update={
+        'evidence': asset.rights.evidence + tuple(e for e in evidence if e not in asset.rights.evidence)})})
 
 
 def create_material_generation_acquirer(store: AttemptMaterialStore) -> MaterialAcquirer:
@@ -272,6 +295,7 @@ class MiniMaxVideoMaterialGeneration:
                           received_at=datetime.now(timezone.utc).isoformat(),
                           provider_usage=dict(getattr(completed, 'usage', {}) or {}))
             store.write_generation_record(generation_id, record)
+            acquired = retain_generation_rights_evidence(acquired, record)
             asset = TechnicalInspector(store).inspect_and_persist(acquired)
             if asset.technical.status.value != 'PASSED':
                 raise ValueError('已保存视频素材，本地技术检查尚未通过；只重试检查，不重新生成')

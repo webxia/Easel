@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
+from html.parser import HTMLParser
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_CEILING
 from urllib.request import Request, urlopen
 
 PRICE_URL = "https://platform.minimaxi.com/docs/guides/pricing-paygo.md"
 VOICE_URL = "https://platform.minimaxi.com/docs/faq/system-voice-id.md"
+TERMS_URL = "https://platform.minimax.cn/protocol/user-agreement"
 
 
 class GenerationQuoteUnavailable(ValueError):
@@ -20,18 +23,55 @@ class GenerationQuoteReadFailed(GenerationQuoteUnavailable):
 
 
 def read_public_contract(url: str) -> str:
-    if url not in {PRICE_URL, VOICE_URL}:
-        raise GenerationQuoteUnavailable("费用依据地址不受支持")
+    if url not in {PRICE_URL, VOICE_URL, TERMS_URL}:
+        raise GenerationQuoteUnavailable("生成服务公开依据地址不受支持")
     try:
         with urlopen(Request(url, headers={"User-Agent": "Easel/1"}), timeout=15) as response:
             if response.geturl() not in {url, url.replace('platform.minimaxi.com', 'platform.minimax.cn')}:
-                raise GenerationQuoteUnavailable("费用依据地址已变化，不能自动认领报价")
+                raise GenerationQuoteUnavailable("生成服务公开依据地址已变化，不能自动认领")
             data = response.read(1_000_001)
         if len(data) > 1_000_000:
-            raise GenerationQuoteUnavailable("费用依据内容超出可核验范围")
+            raise GenerationQuoteUnavailable("生成服务公开依据内容超出可核验范围")
         return data.decode("utf-8")
     except (OSError, UnicodeError) as exc:
-        raise GenerationQuoteReadFailed("暂时无法核实公开价格；未提交生成") from exc
+        raise GenerationQuoteReadFailed("暂时无法读取生成服务公开依据；未提交生成") from exc
+
+
+class _AgreementPage(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.active = False
+        self.payloads = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == 'script' and dict(attrs).get('id') == '__NEXT_DATA__':
+            self.active = True
+            self.payloads.append('')
+
+    def handle_endtag(self, tag):
+        if tag == 'script':
+            self.active = False
+
+    def handle_data(self, data):
+        if self.active:
+            self.payloads[-1] += data
+
+
+def usage_terms_evidence(read) -> dict:
+    """Retain the served agreement, not an inferred license or acceptance."""
+    page = read(TERMS_URL)
+    try:
+        parser = _AgreementPage()
+        parser.feed(page)
+        document = json.loads(parser.payloads[0])['props']['pageProps']['text'] if len(parser.payloads) == 1 else None
+        if (not isinstance(document, str) or not document.strip() or len(document) > 100_000
+                or 'MiniMax开放平台用户协议' not in document):
+            raise ValueError
+    except (ValueError, KeyError, TypeError) as exc:
+        raise GenerationQuoteReadFailed('暂时无法核实生成服务协议正文；未提交生成') from exc
+    return {'url': TERMS_URL, 'document': document, 'format': 'text/html',
+            'sha256': hashlib.sha256(document.encode()).hexdigest(),
+            'observed_at': datetime.now(timezone.utc).isoformat()}
 
 
 def quote_generation(settings, *, modality: str, text: str = "", seconds: int = 0,
@@ -94,4 +134,5 @@ def quote_generation(settings, *, modality: str, text: str = "", seconds: int = 
     amount = (unit * quantity / divisor).quantize(Decimal("0.000001"), rounding=ROUND_CEILING)
     return {"currency": "CNY", "upper_estimate": str(amount), "unit_price": str(unit),
             "quantity": quantity, "basis": basis, "provider": "minimax", "model": model,
-            "quoted_at": datetime.now(timezone.utc).isoformat(), "evidence": evidence}
+            "quoted_at": datetime.now(timezone.utc).isoformat(), "evidence": evidence,
+            "terms_evidence": usage_terms_evidence(read)}

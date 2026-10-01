@@ -2224,7 +2224,7 @@ def test_visual_replacement_stops_at_usable_choice_or_bound_and_reuses_saved_rep
     assert not store.read_asset(assets[-1].asset_id).semantic.inferences
 
 
-@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'video_failed', 'video_intake_resume', 'voice_preflight'])
+@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'video_failed', 'video_intake_resume', 'voice_preflight', 'terms_resume'])
 def test_commission_generation_reserves_before_submit_and_survives_restart(material_integration_env, monkeypatch, outcome):
     import asyncio
     from io import BytesIO
@@ -2266,6 +2266,11 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     quote_reads = []
     def quote_document(url):
         quote_reads.append(url)
+        if url == minimax_pricing.TERMS_URL:
+            if outcome == 'terms_resume' and quote_reads.count(url) == 1:
+                raise minimax_pricing.GenerationQuoteReadFailed('协议页面暂时不可读')
+            from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
+            return MINIMAX_TERMS_FIXTURE
         return ('## 图像\n单价：元/张\n| image-01 | 图片 | 0.025 |\n'
                 '## 视频\n**视频生成-输出价格**\n| MiniMax-H3-Max | 480P | 按秒计费 | 0.33 元/秒 |\n')
     monkeypatch.setattr(minimax_pricing, 'read_public_contract', quote_document)
@@ -2357,7 +2362,12 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
                 return asset
         monkeypatch.setattr(providers, 'MiniMaxVideoAdapter', FakeVideo)
         monkeypatch.setattr(video_generation, 'create_material_generation_acquirer', LocalAcquirer)
-        monkeypatch.setattr(video_generation, 'TechnicalInspector', lambda store: SimpleNamespace(inspect_and_persist=lambda asset: asset))
+        def inspected_fixture(store):
+            def inspect_and_persist(asset):
+                store.write_asset(asset)
+                return asset
+            return SimpleNamespace(inspect_and_persist=inspect_and_persist)
+        monkeypatch.setattr(video_generation, 'TechnicalInspector', inspected_fixture)
         if outcome == 'video_intake_resume':
             from easel.materials.application import generation_modalities
             class Inspector:
@@ -2399,13 +2409,17 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
             pytest.fail(operation)
     for step in range(10):
         asyncio.run(advance_creation(work['id'], execute))
+        if outcome == 'terms_resume' and step == 0:
+            assert not calls
+            assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+            assert not AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()
         if outcome == 'video_resume' and step < 4:
             progress = creation.get_creation(work['id'])['delivery']
             assert progress['status'] == ('generating_material' if step % 2 == 0 else 'observation_failed')
             assert not progress.get('failures') and not progress.get('exhausted_operation')
             record = AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()[0]
             assert record['status'] == 'RUNNING' and record['last_provider_status'] == ('queued' if step < 2 else 'running')
-            assert len(calls) == len(quote_reads) == 1
+            assert len(calls) == 1 and len(quote_reads) == 2
             assert all(row['status'] == 'reserved' for row in progress['material_generations'].values())
     current = creation.get_creation(work['id'])
     ledger = list(current['delivery']['material_generations'].values())
@@ -2421,8 +2435,10 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
         assert 'budget_exceeded' in {r['status'] for r in ledger}
         assert next_operation(current)[1] == ('material_submission_uncertain' if outcome == 'uncertain' else 'needs_generation_approval')
     store = AttemptMaterialStore(attempt['workspace']['path'])
-    if outcome in {'budget', 'video_resume', 'video_intake_resume'}:
-        if outcome != 'video_intake_resume':
+    if outcome in {'budget', 'video_resume', 'video_intake_resume', 'terms_resume'}:
+        if outcome == 'terms_resume':
+            assert len(dispatches) == 1  # Retrying the public read never dispatches a paid request.
+        elif outcome != 'video_intake_resume':
             assert dispatches[0] == dispatches[1]
         else:
             assert len(dispatches) == 1 and Inspector.calls == 2
@@ -2431,9 +2447,15 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
         assert record['commission_authorization']['source'] == 'commission_budget'
         assert len(store.read_bundle().assets) == 1
         assert store.read_bundle().assets[0].rights.status is RightsStatus.UNKNOWN
+        asset = store.read_bundle().assets[0]
+        terms = record['commission_authorization']['quote']['terms_evidence']
+        assert terms['sha256'] == hashlib.sha256(terms['document'].encode()).hexdigest()
+        assert asset.rights.evidence[0].reference.endswith(terms['sha256'])
+        assert asset.rights.evidence[1].reference.endswith(asset.file.sha256)
+        assert record['commission_authorization']['input_use']['creation_id'] == work['id']
     if is_video:
         assert FakeVideo.waits == ['fixture-paid-video'] * (3 if outcome == 'video_failed' else 1 if outcome == 'video_intake_resume' else 5)
-        assert len(quote_reads) == (1 if outcome == 'video_failed' else 2)  # first submit + second Need; query retry is not a new purchase
+        assert len(quote_reads) == (2 if outcome == 'video_failed' else 4)  # Price/terms per initial Need, never on task observation.
 
 
 @pytest.mark.parametrize('provider_timing', [False, True])

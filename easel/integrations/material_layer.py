@@ -1180,8 +1180,7 @@ class MaterialProductOrchestrator:
             from easel.integrations.material_generation import assert_commission_request
             if request_id != commission_request:
                 raise MaterialIntegrationError('生成请求与委托费用记录不一致')
-            assert_commission_request(attempt, plan, planning['script'], settings, request_id, need_id)
-            approval = {'creation_id': attempt['creation_id'], 'request_id': request_id, 'source': 'commission_budget'}
+            approval = assert_commission_request(attempt, plan, planning['script'], settings, request_id, need_id)
         if need.media_type is MediaType.VIDEO:
             generated = MiniMaxVideoMaterialGeneration(MiniMaxVideoAdapter(
                 settings.api_key, model=settings.video_model, base_url=settings.base_url,

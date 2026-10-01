@@ -53,6 +53,10 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **生成素材请求前的协议证据（2026-10-01）：** 查明当前委托生成只保留费用来源，没有保存适用服务协议；后续 Rights 因而无法核对生成时的依据。现委托内首次核价同时读取国内 MiniMax 官方协议正文，保存原文、URL、时间与 SHA；执行前将报价、已确认的文字使用声明和账号范围摘要一并写入原生成记录。图片/视频/旁白的资产 sidecar 带协议摘要和逐资产生成来源引用，绑定真实接收字节。协议正文是外部证据，不是指令、用户接受声明或系统许可结论；UNKNOWN 不会因此变为 KNOWN。
+- 本次只读核对官方 [用户协议](https://platform.minimax.cn/protocol/user-agreement)：1.7 涉及输出传播标识与原标识保留，6.2 涉及输入权利，6.3 不承诺所有生成输出权利归用户，9.5 要求核对真实性/合规性/适用范围。实际正文解析为 17757 字符，SHA `90d05ccc1dbf8404cbc40cfb096698ceec2bc894440ac507cd048ecb9a896ae0`（2026-10-01）；不把该摘要当作永久许可白名单。缺少适用输出依据与可执行条件的自动准入映射仍未完成，不能据本批宣称已免除 Rights 人工处理。
+- **本批局部证据：** MiniMax Image/Speech/Video、Rights、Cross-Content、Preparation、Material integration、Hypit **190 passed**；compileall、115 项技能合同、diff check 通过，保留两项既有依赖提示。沿用既有三内容与委托生成场景验证协议/输入声明到资产的关联，以及查询重试、本地接收恢复不重新抓取或覆盖请求时证据。新增一个等价参数场景：协议读取首次失败时，没有费用占额、生成记录或 Provider 提交，后台重试后仅生成一次。缺失/错误页面不作为协议正文保存；旧记录与手动生成不回填新协议。仍需实现生成权利条件的自动判断/落实、声音语义与其余恢复；Goal active，未操作真实作品、调用付费 AI、执行真实 Build 或完整 E2E。
+
 - **未配置 Runtime 时的补料根因修复（2026-10-01）：** 实际素材恢复把 `BLOCKED` 一律当作视频制作已开始；尚未配置 Runtime 的准备阶段因此无法执行免费补料。旧恢复场景提前写入 `NOT_SUBMITTED`，掩盖了这个正常路径阻塞。现首次补料和中断恢复均接受未开始制作的 `BLOCKED`，仍保留费用已批准、编排已开始和已有输出等保护，不改制作状态或放宽准入。既有自动补料场景保留真实初始状态，先复现失败，再验证补料完成、状态写入中断后复用已完成供应、原脚本/旁白/Need 不变，以及开始 Build 后新请求仍拒绝。
 - **三内容回放接通委托旁白生成：** 同 Creator/Mode 的三个内容现在由真实 Owner/Web 分派按确认时的 CNY 1 测试预算核价、占额和执行 TTS；仅官方报价文本与语音适配器返回确定性 Fixture。验证 Director 朗读参数进入实际生成调用、每部只读取一次价格/音色依据、生成一次、预算记录完成，并继续后台独立声音内容核对。回放不再直接调用生成服务或手动登记生成结果。
 - **本批验证与边界：** Cross-Content/Preparation/Material integration/Hypit **152 passed**；compileall、115 项技能合同、diff check 通过，保留两项既有依赖提示。生成后 Rights 仍为 UNKNOWN；回放明确补入自有合成音的 Fixture 证据，BGM 语义仍是固定证据，本地 ASR 模型预检以替身代替。因此本批不证明生成权利自动处理、真实声音感知或完整自主交付；模型与 Hypit CLI 仍为替身，未进行真实渲染。生成 Rights、声音语义和剩余恢复继续开放，Goal active；未改真实 Creation、调用付费 AI、启动真实 Build 或完整 E2E。

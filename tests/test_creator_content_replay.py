@@ -21,6 +21,7 @@ import pytest
 from PIL import Image
 
 from tests.test_material_integration import material_integration_env
+from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
 from tests.test_hypit_integration import measured_narration_fixture
 from tests.test_creation_preparation import web
 from easel import creation, creative_mode, creation_preparation as prep, persona
@@ -222,6 +223,8 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         quote_reads = []
         def quoted_contract(url):
             quote_reads.append(url)
+            if url == minimax_pricing.TERMS_URL:
+                return MINIMAX_TERMS_FIXTURE
             if url == minimax_pricing.VOICE_URL:
                 return '| Fixture 普通话 | `fixture-stable-preset` |'
             assert url == minimax_pricing.PRICE_URL
@@ -267,6 +270,10 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 asset = store.read_asset(voice_asset_id)
                 assert asset.rights.status is RightsStatus.UNKNOWN
                 assert receipts[0]['commission_authorization']['source'] == 'commission_budget'
+                terms = receipts[0]['commission_authorization']['quote']['terms_evidence']
+                assert receipts[0]['commission_authorization']['input_use']['creation_id'] == work['id']
+                assert asset.rights.evidence[0].reference.endswith(terms['sha256'])
+                assert asset.rights.evidence[1].reference.endswith(asset.file.sha256)
                 assert not receipts[0]['operator_confirmed_paid']
                 # Explicit owned synthetic-tone fixture evidence. This remains
                 # the missing real generated-Rights boundary, not an auto grant.
@@ -278,7 +285,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         assert material_operations == ['observe_material', 'recover_material', 'generate_material',
                                        'recover_voice_timing', 'observe_material'], creation.get_creation(work['id'])['delivery']
         assert calls == [(script, mode['voice_delivery'])]
-        assert quote_reads == [minimax_pricing.PRICE_URL, minimax_pricing.VOICE_URL]
+        assert quote_reads == [minimax_pricing.PRICE_URL, minimax_pricing.VOICE_URL, minimax_pricing.TERMS_URL]
         ledger = creation.get_creation(work['id'])['delivery']['material_generations']
         assert len(ledger) == 1 and next(iter(ledger.values()))['status'] == 'complete'
         ready = {'attempt': service.get_film_attempt(attempt['attempt_id'])}

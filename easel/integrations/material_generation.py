@@ -202,3 +202,8 @@ def assert_commission_request(attempt, plan, script, settings, request_id, need_
             or _scope_digest(settings, generation_scope(settings)) != grant['scope_sha256']
             or receipt.get('fingerprint') != _digest([plan.to_json(), script, grant['scope']])):
         raise creation.CreationError('当前生成请求不在已核价的委托授权内')
+    # Preserve the evidence available before submission. A later public-page
+    # revision must not replace the agreement attached to an existing result.
+    return {'creation_id': work['id'], 'request_id': request_id, 'source': 'commission_budget',
+            'scope_sha256': grant['scope_sha256'], 'quote': receipt['quote'],
+            'input_use': work['delivery']['authorization'].get('input_use')}

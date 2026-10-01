@@ -261,6 +261,8 @@ class MiniMaxImageSpeechGeneration:
                 if saved.file != asset.file or saved.source.provider_asset_id != provider_identity:
                     raise GenerationRequestConflict('已登记素材与生成回执身份不一致')
                 asset = saved
+            from easel.materials.application.generation import retain_generation_rights_evidence
+            asset = retain_generation_rights_evidence(asset, record)
             if asset.technical.status is TechnicalStatus.PASSED:
                 store.write_asset(asset)
             else:

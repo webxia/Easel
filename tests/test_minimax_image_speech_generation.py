@@ -33,6 +33,12 @@ from easel.materials.providers.minimax_speech import MiniMaxSpeechAdapter, MiniM
 from easel.materials.store import AttemptMaterialStore
 
 
+# Synthetic public-page fixture; it is not a usable Provider license.
+MINIMAX_TERMS_FIXTURE = '<script type="application/json" id="__NEXT_DATA__">' + json.dumps({
+    'props': {'pageProps': {'text': '<p>MiniMax开放平台用户协议</p><p>仅用于测试的协议正文。</p>'}}
+}) + '</script>'
+
+
 class FakeTransport:
     def __init__(self, payload):
         self.payload = payload
@@ -323,7 +329,7 @@ def test_speech_stream_uncertain_result_and_unsupported_delivery_never_retries(t
 @pytest.mark.parametrize('modality,expected', [('voice', '0.001400'), ('image', '0.025000'), ('video', '1.980000')])
 def test_domestic_generation_quote_uses_current_contract_and_system_voice(modality, expected):
     from types import SimpleNamespace
-    from easel.materials.providers.minimax_pricing import quote_generation, PRICE_URL
+    from easel.materials.providers.minimax_pricing import quote_generation, PRICE_URL, TERMS_URL
     settings = SimpleNamespace(base_url='https://api.minimax.cn', speech_model='speech-2.8-hd',
         speech_voice_id='male-qn-qingse', image_model='image-01', video_model='MiniMax-H3-Max')
     contract = """
@@ -339,10 +345,19 @@ def test_domestic_generation_quote_uses_current_contract_and_system_voice(modali
 | image-01<br />image-01-live | 描述 | 0.025 |
 """
     def read(url):
+        if url == TERMS_URL:
+            return MINIMAX_TERMS_FIXTURE
         return contract if url == PRICE_URL else '| 1 | 中文 | `male-qn-qingse` | 青年 |'
     quote = quote_generation(settings, modality=modality, text='中文', seconds=6, resolution='480P', read=read)
     assert quote['currency'] == 'CNY' and quote['upper_estimate'] == expected
     assert all(len(item['sha256']) == 64 for item in quote['evidence'])
+    terms = quote['terms_evidence']
+    assert terms['url'] == TERMS_URL
+    assert terms['document'] == '<p>MiniMax开放平台用户协议</p><p>仅用于测试的协议正文。</p>'
+    assert terms['sha256'] == hashlib.sha256(terms['document'].encode()).hexdigest()
+    with pytest.raises(ValueError, match='协议'):
+        quote_generation(settings, modality=modality, text='中文', seconds=6, resolution='480P',
+                         read=lambda url: '<html>页面暂不可用</html>' if url == TERMS_URL else read(url))
     if modality == 'voice':
         settings.speech_voice_id = 'unverified-custom-voice'
         with pytest.raises(ValueError, match='首次使用费用'):
