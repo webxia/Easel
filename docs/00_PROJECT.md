@@ -21,7 +21,7 @@ Creator 确认创作方案后，Easel 应尽可能自主交付基本可看的首
 `Creation + Hypit` is the only official new video-production mainline:
 
 ```text
-Web Creation / explicit confirmation
+Web Creation / discuss and revise concrete Script + Scenes + sound plan / confirm current version
 -> Preparation / frozen Content + Creator Context + Creative Mode
 -> Creative Planning / MaterialPlan
 -> Material Supply / MaterialReadiness Gate

@@ -304,6 +304,30 @@ def ensure_chat_proposal_state(creation_id: str) -> dict[str, Any]:
     return get_creation(creation_id)
 
 
+def begin_video_proposal(creation_id: str, turn_id: str) -> dict[str, Any]:
+    with edit_creation(creation_id) as data:
+        workflow = data["chat_workflow"]
+        if not workflow.get("confirmed_at"):
+            workflow.update(proposal_status="DISCUSSING", video_plan_required=True,
+                            proposal_turn_id=turn_id)
+    return get_creation(creation_id)
+
+
+def save_video_proposal(creation_id: str, turn_id: str, response: str) -> dict[str, Any]:
+    from easel.creator_proposal import parse_video_plan
+    plan = parse_video_plan(response)
+    with edit_creation(creation_id) as data:
+        workflow = data["chat_workflow"]
+        if workflow.get("confirmed_at") or workflow.get("proposal_turn_id") != turn_id:
+            return data
+        if plan:
+            previous = workflow.get("video_plan") or {}
+            revision = previous.get("revision", 0) + (previous.get("sha256") != plan["sha256"])
+            workflow["video_plan"] = {**plan, "revision": revision, "updated_at": _now()}
+        workflow["proposal_status"] = "READY_FOR_CONFIRMATION" if plan else "DISCUSSING"
+    return get_creation(creation_id)
+
+
 def mark_chat_proposal_ready(creation_id: str) -> dict[str, Any]:
     """Make the explicit confirmation action available after a completed chat turn."""
     with edit_creation(creation_id) as data:
@@ -345,6 +369,7 @@ def confirm_chat_proposal(
     proposal_sha256: str | None = None,
     production_specs: dict[str, Any] | None = None,
     delivery_proposal: str | None = None,
+    video_plan_sha256: str | None = None,
     generation_budget: dict[str, Any] | None = None,
     input_use_statement_sha256: str | None = None,
 ) -> dict[str, Any]:
@@ -362,6 +387,11 @@ def confirm_chat_proposal(
                 raise CreationError("Easel 尚未完成创作方案回复，不能开始制作")
             if proposal_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", proposal_sha256):
                 raise CreationError("确认方案摘要无效")
+            if workflow.get("video_plan_required"):
+                plan = workflow.get("video_plan") or {}
+                if (not video_plan_sha256 or plan.get("sha256") != video_plan_sha256
+                        or production_specs != plan.get("specs")):
+                    raise CreationError("视频方案已更新或尚未完成，请查看当前文案与分镜后确认")
             workflow.update({
                 "phase": "PRODUCTION_CONFIRMED",
                 "proposal_status": "CONFIRMED",
@@ -392,6 +422,7 @@ def confirm_chat_proposal(
                 data["delivery"] = {
                     "schema": "easel-creation-delivery@1",
                     "proposal": delivery_proposal,
+                    **({"video_plan": dict(workflow["video_plan"])} if workflow.get("video_plan_required") else {}),
                     "proposal_sha256": proposal_sha256,
                     "confirmed_at": workflow["confirmed_at"],
                     "confirmed_by_turn": workflow["confirmed_by_turn"],

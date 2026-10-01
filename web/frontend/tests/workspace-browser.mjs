@@ -36,7 +36,7 @@ await page.route('**/api/**', async route => {
   else if (path === '/api/creations/fixture-creation') result = { id: 'fixture-creation', idea: '雨后城市的平静', creative_mode: '观察式短片', chat_workflow: { proposal_status: proposal ? 'READY_FOR_CONFIRMATION' : 'CONFIRMED' },
     ...(scenario.startsWith('delivery-') ? { delivery: { schema: 'easel-creation-delivery@1', status: ({ 'delivery-cost': 'checking_cost', 'delivery-export': 'exporting', 'delivery-disconnected': 'observation_failed' })[scenario] } } : {}),
     preparation: scenario === 'early-failure' ? { status: 'FAILED', last_error: '内容节拍合计与总时长不一致' } : {} };
-  else if (path.endsWith('/proposal-preview')) result = { specs: { duration_seconds: 15, aspect_ratio: '9:16', audio_mode: 'silent', language: 'zh-CN' }, missing: [],
+  else if (path.endsWith('/proposal-preview')) result = { specs: { duration_seconds: 15, aspect_ratio: '9:16', audio_mode: 'silent', language: 'zh-CN' }, missing: [], video_plan: { revision: 2, sha256: 'c'.repeat(64), treatment: '雨后城市的平静', script: '雨停了，城市慢下来。', scenes: '0–15 秒：雨后街道与窗边，缓慢收束。', sound: '静音，屏幕文案表达。' },
     generation_budget: { available: true, scope_sha256: 'fixture-scope', scope: { speech_voice_id: 'male-qn-qingse', speech_model: 'speech-2.8-hd', image_model: 'image-01', video_model: 'MiniMax-H3-Max' } } };
   else if (path.endsWith('/film-attempts')) result = proposal || scenario === 'early-failure' ? [] : revisionStarted ? [{ ...attempt, attempt_id: 'fixture-revision', outputs: {}, authoring_status: 'AUTHORING_RUNNING', execution_status: 'NOT_SUBMITTED' }, attempt] : [attempt];
   else if (path === '/api/film-attempts/fixture-attempt') result = attempt;
@@ -60,10 +60,13 @@ try {
     if (state === 'proposal') {
       const confirm = page.getByRole('button', { name: '按这个方案制作' });
       await confirm.waitFor();
+      await canvas.getByText('雨停了，城市慢下来。', { exact: true }).waitFor();
+      await canvas.getByText('0–15 秒：雨后街道与窗边，缓慢收束。', { exact: true }).waitFor();
       await page.getByLabel('本次自主素材生成总预算（人民币，可留空）').fill('-1');
       assert.equal(await confirm.isDisabled(), true);
       await page.getByLabel('本次自主素材生成总预算（人民币，可留空）').fill('0.50');
       await confirm.click();
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.confirmedPlan), 'c'.repeat(64));
       assert.deepEqual(await page.evaluate(() => JSON.parse(document.documentElement.dataset.confirmedBudget)), { maxCostCny: .5, scopeSha256: 'fixture-scope' });
     }
     if (state === 'early-failure') await page.getByRole('button', { name: '重试内容准备' }).waitFor();

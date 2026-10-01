@@ -27,13 +27,13 @@ interface FilmOperatorPageProps {
   proposalPhase?: boolean;
   proposalReady?: boolean;
   proposalMessages?: ChatMessage[];
-  onConfirmProduction?: (budget?: GenerationBudget, inputUseStatementSha256?: string) => void;
+  onConfirmProduction?: (budget?: GenerationBudget, inputUseStatementSha256?: string, videoPlanSha256?: string) => void;
   progressOpen?: boolean;
   onProjection?: (value: { title: string; pending: number }) => void;
   onOpenConversation?: () => void;
 }
 
-export default function FilmOperatorPage({ creationId, title, onContinuePreparation, continuationBusy, proposalPhase = false, proposalReady = false, proposalMessages = [], onConfirmProduction, progressOpen = false, onProjection, onOpenConversation }: FilmOperatorPageProps) {
+export default function FilmOperatorPage({ creationId, onContinuePreparation, continuationBusy, proposalPhase = false, proposalReady = false, proposalMessages = [], onConfirmProduction, progressOpen = false, onProjection, onOpenConversation }: FilmOperatorPageProps) {
   const [materialSearchTerms, setMaterialSearchTerms] = useState<Record<string, string>>({});
   const materialRecoveryRequest = useRef<{ id: string; payload: string } | null>(null);
   const [proposalPreview, setProposalPreview] = useState<OperatorRecord | null>(null);
@@ -209,7 +209,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   const legacyDelivery = creationSnapshot !== null && !backendDelivery;
   const showingProposal = attemptId ? false : typeof savedProposalStatus === 'string'
     ? savedProposalStatus !== 'CONFIRMED' : proposalPhase;
-  const currentProposalText = [...proposalMessages].reverse().find(message => message.role === 'assistant')?.content;
+  const videoPlan = record(proposalPreview?.video_plan ?? record(creationSnapshot?.chat_workflow).video_plan);
   const rightsGateStatus = record(record(attempt).material_gate).status;
   const rightsBundleRevision = record(record(attempt).material_gate).bundle_revision;
   useEffect(() => {
@@ -611,9 +611,14 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
       {showingProposal && <section className={`card film-op-card film-op-creator creator-status-card is-${projection.state}`}>
         <h2>当前创作方案</h2>
         <dl className="creator-proposal-facts">
-          <dt>方案说明</dt><dd>
-            <p className="creator-proposal-preview">{currentProposalText || text(creationSnapshot?.idea, title)}</p>
-            {currentProposalText && <details><summary>展开完整说明</summary><p className="creator-proposal-turn">{currentProposalText}</p></details>}
+          <dt>视频方案{videoPlan.revision ? ` · 第 ${videoPlan.revision} 版` : ''}</dt><dd>
+            {videoPlan.sha256 ? <div className="creator-video-plan">
+              <h3>创作表达</h3><p>{text(videoPlan.treatment)}</p>
+              <h3>文案</h3><p>{text(videoPlan.script)}</p>
+              <h3>分镜与节奏</h3><p>{text(videoPlan.scenes)}</p>
+              <h3>声音设计</h3><p>{text(videoPlan.sound)}</p>
+              <small>通过左侧对话修改，完成后这里会更新为完整方案。</small>
+            </div> : <p>还没有形成完整视频方案。请在对话中讨论具体文案、分镜与声音设计，方案会显示在这里。</p>}
           </dd>
           <dt>创作方式</dt><dd>{text(creationSnapshot?.creative_mode, '尚未确认，请在对话中确定创作方式')}</dd>
           <dt>本次确认的规格</dt><dd>
@@ -623,7 +628,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
             语言：{({ 'zh-CN': '简体中文', 'zh-TW': '繁体中文', en: '英语' } as Record<string, string>)[String(proposalSpecifications.language)] ?? '—'}
           </dd>
           <dt>创作边界</dt><dd>确认后由 Easel 持续制作，可离开页面。无服务商费用的合成自动执行；如设置下方预算，方案允许的素材生成在核价和额度内自动执行。其他费用、无法核价或超额时再请你处理。不自动发布。</dd>
-          <dt>待确认信息</dt><dd>{proposalPreviewError || (!proposalPreview ? '正在核对方案…' : proposalMissing.length ? proposalMissing.join('、') + '；请在对话中明确这些规格。' : '规格已明确，确认后会冻结相同输入。')}</dd>
+          <dt>待确认信息</dt><dd>{proposalPreviewError || (!proposalPreview ? '正在核对方案…' : proposalMissing.length ? proposalMissing.join('、') + '；请在对话中明确这些规格。' : '确认后将按当前版本的文案、分镜与规格制作。')}</dd>
         </dl>
         {generationOffer.available === true && <div className="film-op-review-claim">
           <label>本次自主素材生成总预算（人民币，可留空）
@@ -638,7 +643,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
         </details>
         {inputUseSha256 && <p className="film-op-input-use">点击制作即确认以下文字使用范围：{String(inputUse.statement)}如有未核实的引用，请先在对话中明确。</p>}
         <p>可在左侧对话中修改方向，确认后进入内容准备。</p>
-        <button className="btn btn-primary" disabled={!proposalReady || continuationBusy || !proposalPreview || proposalMissing.length > 0 || !!proposalPreviewError || previewContext !== proposalContext || invalidGenerationBudget} onClick={() => onConfirmProduction?.(generationCeiling ? { maxCostCny: generationAmount, scopeSha256: String(generationOffer.scope_sha256) } : undefined, inputUseSha256)}>按这个方案制作</button>
+        <button className="btn btn-primary" disabled={!proposalReady || continuationBusy || !proposalPreview || proposalMissing.length > 0 || !!proposalPreviewError || previewContext !== proposalContext || invalidGenerationBudget} onClick={() => onConfirmProduction?.(generationCeiling ? { maxCostCny: generationAmount, scopeSha256: String(generationOffer.scope_sha256) } : undefined, inputUseSha256, typeof videoPlan.sha256 === 'string' ? videoPlan.sha256 : undefined)}>按这个方案制作</button>
       </section>}
       {backendDelivery && Object.values(record(delivery.material_generations)).map(record).filter(item => item.attempt_id === attemptId && ['budget_exceeded', 'quote_unavailable', 'uncertain'].includes(String(item.status))).map(item => <div className="film-op-message is-error" role="status" key={String(item.need_id)}>
         {text(item.reason, '素材生成尚需处理，已保留现有结果。')}
@@ -1109,6 +1114,13 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
         </>}
       </section>}
 
+      {!showingProposal && typeof record(delivery.video_plan).sha256 === 'string' && <details className="creator-execution-record creator-video-plan">
+        <summary>已确认的视频方案</summary>
+        <h3>创作表达</h3><p>{text(record(delivery.video_plan).treatment)}</p>
+        <h3>文案</h3><p>{text(record(delivery.video_plan).script)}</p>
+        <h3>分镜与节奏</h3><p>{text(record(delivery.video_plan).scenes)}</p>
+        <h3>声音设计</h3><p>{text(record(delivery.video_plan).sound)}</p>
+      </details>}
       {backendDelivery && generationGrant.currency === 'CNY' && <p className="creator-budget-summary"><span>素材生成预算</span><strong>已占用 ¥{heldGenerationCost.toFixed(4)} / ¥{String(generationGrant.max_amount)}</strong><small>按核价保留额度，非实际账单</small></p>}
       {backendDelivery && <details className="creator-execution-record">
         <summary>执行记录 · 自动更新</summary>

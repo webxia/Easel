@@ -164,6 +164,15 @@ def chat_turn_message(user_message: str, name: str | None,
         mode = load_creative_mode(creative_mode)
         mode_prefix = (f"〔当前作品风格：{mode['name']} / {mode['id']} v{mode['version']}〕"
                        if mode else "")
+        if mode:
+            # Planning now starts in discussion: provide actual directing
+            # language here, without invoking production or its generic reminder.
+            sections = []
+            for filename in ("director-treatment.md", "visual-bible.md", "audio-bible.md", "editing-bible.md"):
+                path = mode["_directory"] / filename
+                if path.is_file():
+                    sections.append(path.read_text(encoding="utf-8"))
+            mode_prefix += "\n以下表达规则用于本轮文案、分镜与声音方案；不是固定故事模板，不据此猜用户规格或经历。\n" + "\n\n".join(sections)
     else:
         mode_prefix = creative_mode_prefix(creative_mode)
     prefixes = [p for p in (persona_prefix(name), mode_prefix) if p]

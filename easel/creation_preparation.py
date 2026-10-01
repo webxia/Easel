@@ -641,6 +641,8 @@ def _prepare_creation_for_hypit_locked(
                 "language": snapshot["bundle"]["production_brief"]["language"],
                 "production_brief": snapshot["bundle"]["production_brief"],
                 "production_brief_sha256": snapshot["hashes"]["production_brief"],
+                **({"video_plan": work["delivery"]["video_plan"]}
+                   if (work.get("delivery") or {}).get("video_plan") else {}),
                 **({"confirmed_proposal_sha256": (work.get("chat_workflow") or {}).get("proposal_sha256")}
                    if (work.get("chat_workflow") or {}).get("proposal_sha256") else {}),
             },

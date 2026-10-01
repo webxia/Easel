@@ -1852,3 +1852,8 @@ The primary remaining V1 gaps are:
 The correct next step is therefore:
 
 > **Preserve the aligned skeleton, complete Material Layer architecture alignment before implementation, then unify final readiness semantics and complete the real end-to-end product loop.**
+
+
+## 2026-10-01 已确认的视频方案边界
+
+Creator 在对话阶段讨论并修改具体文案、分镜节奏、声音设计及规格。Creation 保存完整方案版本，画布展示同一数据；确认制作绑定当前版本。确认后 Preparation 整理事实与上下文，Planning 复用确认的文案/分镜/声音设计并细化 MaterialPlan；不再把“只有方向”当成完整视频方案，也不重新创作已确认文字。Material、Production 与 Hypit 仍沿用现有职责，不新增主链或 Director 模块。真实事实/权利/费用语义不变，需要实质改写确认方案时不能静默执行。旧的已确认 Creation 保留原冻结输入，不自动迁移。

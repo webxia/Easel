@@ -64,3 +64,43 @@ def proposal_specs(turns: list[dict]) -> dict:
     if values["duration_seconds"] is not None and not 1 <= values["duration_seconds"] <= 900:
         values["duration_seconds"] = None
     return {"specs": values, "missing": [SPEC_LABELS[key] for key, value in values.items() if value is None]}
+
+
+PLAN_SECTIONS = {"创作表达": "treatment", "文案": "script", "分镜与节奏": "scenes", "声音设计": "sound"}
+
+
+def parse_video_plan(response: str) -> dict | None:
+    """Extract the visible, complete discussion draft; never infer missing copy."""
+    import hashlib
+    import json
+    from easel.integrations.hypit.secrets import SecretRedactor
+
+    if not response or len(response) > 32_000 or SecretRedactor.contains_secret(response):
+        return None
+    parts = re.split(r"(?m)^## (创作表达|文案|分镜与节奏|声音设计|制作规格)\s*$", response)
+    sections = {}
+    for index in range(1, len(parts), 2):
+        heading, body = parts[index], parts[index + 1].strip()
+        if heading in PLAN_SECTIONS:
+            key = PLAN_SECTIONS[heading]
+            if key in sections or not body or body in {"待确认", "待补充", "待生成"}:
+                return None
+            sections[key] = body
+    if set(sections) != set(PLAN_SECTIONS.values()):
+        return None
+    payload = {"schema": "easel-video-proposal@1", **sections,
+               "specs": proposal_specs([{"role": "assistant", "content": response}])["specs"]}
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return {**payload, "sha256": hashlib.sha256(encoded.encode()).hexdigest()}
+
+
+def video_proposal_preview(work: dict, turns: list[dict]) -> dict:
+    workflow = work.get("chat_workflow") or {}
+    if not workflow.get("video_plan_required"):
+        return proposal_specs(turns)
+    plan = workflow.get("video_plan") or {}
+    specs = plan.get("specs") or {key: None for key in SPEC_LABELS}
+    missing = [label for key, label in SPEC_LABELS.items() if specs.get(key) is None]
+    if workflow.get("proposal_status") not in {"READY_FOR_CONFIRMATION", "CONFIRMED"} or not plan:
+        missing.append("完整视频方案（文案、分镜与声音设计）")
+    return {"specs": specs, "missing": missing}

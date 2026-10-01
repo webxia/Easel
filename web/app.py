@@ -46,6 +46,8 @@ from easel.creation import (
     get_creation,
     list_creations,
     mark_chat_proposal_ready,
+    begin_video_proposal,
+    save_video_proposal,
     require_chat_proposal_confirmed,
     record_stage,
     stage_context,
@@ -95,7 +97,7 @@ from easel.integrations.hypit.service import (
     submit_film_build,
     validate_film_attempt,
 )
-from easel.creator_proposal import proposal_specs
+from easel.creator_proposal import video_proposal_preview
 from easel.creative_mode import creative_mode_exists, list_creative_modes, load_creative_mode
 from easel.openclaw_cmd import openclaw_base_cmd
 from easel.persona import (
@@ -1812,6 +1814,7 @@ class ChatRequest(BaseModel):
     capability: str | None = None
     creationAction: str | None = None
     generationBudget: dict | None = None
+    videoPlanSha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     inputUseStatementSha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     proposalContext: list[ProposalTurn] = Field(default_factory=list, max_length=48)
     sessionId: str | None = None
@@ -1886,7 +1889,7 @@ class ProposalPreviewRequest(BaseModel):
 async def api_proposal_preview(creation_id: str, req: ProposalPreviewRequest):
     # Pure projection: no claim, dispatch, filesystem write or Provider request.
     try:
-        get_creation(creation_id)
+        work = get_creation(creation_id)
     except CreationError as exc:
         raise HTTPException(404, str(exc)) from exc
     turns = [{"role": turn.role, "content": turn.content} for turn in req.proposalContext]
@@ -1895,7 +1898,9 @@ async def api_proposal_preview(creation_id: str, req: ProposalPreviewRequest):
         raise HTTPException(400, "方案内容过长或含疑似凭证，请先整理对话")
     from easel.integrations.material_generation import generation_budget_preview
     from easel.creation import input_use_preview
-    return {**proposal_specs(turns), "generation_budget": generation_budget_preview(),
+    preview = video_proposal_preview(work, turns)
+    workflow = work.get("chat_workflow") or {}
+    return {**preview, "video_plan": workflow.get("video_plan"), "generation_budget": generation_budget_preview(),
             "input_use": input_use_preview()}
 
 
@@ -1931,11 +1936,12 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
             if SecretRedactor.contains_secret(proposal_text):
                 raise HTTPException(400, "已确认方案上下文含疑似 Secret；请移除后重试")
             proposal_sha256 = hashlib.sha256(proposal_text.encode("utf-8")).hexdigest()
-            preview = proposal_specs(proposal_context)
+            preview = video_proposal_preview(work, proposal_context)
             if preview["missing"]:
                 raise HTTPException(409, "方案尚未明确：" + "、".join(preview["missing"]) + "；请先通过对话补充，再确认制作")
             work = confirm_chat_proposal(work["id"], req.turnId, proposal_sha256=proposal_sha256,
                                          production_specs=preview["specs"], delivery_proposal=proposal_text,
+                                         video_plan_sha256=req.videoPlanSha256,
                                          generation_budget=req.generationBudget,
                                          input_use_statement_sha256=req.inputUseStatementSha256)
             if is_managed(work):
@@ -2010,6 +2016,7 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
             prep_action = "ordinary"
     else:
         prep_action = "proposal"
+        work = begin_video_proposal(work["id"], req.turnId or uuid.uuid4().hex)
     work = {**work, "_preparation_action": prep_action,
             "_client_phase": "production_confirmed" if confirmed else "proposal",
             "_blocked_status": (
@@ -2022,15 +2029,17 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
         body = f"{body}\n\n{attachments}"
     body = f"{body}\n\n{creation_context(work)}"
     if not confirmed:
+        if (work.get("chat_workflow") or {}).get("video_plan"):
+            body += "\n当前已保存的待讨论方案（按本轮意见更新完整版本）：\n" + json.dumps(work["chat_workflow"]["video_plan"], ensure_ascii=False)
         body += (
             "\n\n〔视频创作方案讨论阶段〕\n"
             "请像 Easel 的导演一样，通过正常聊天给出并讨论创作方案。内部先区分用户当前给出的内容、"
             "自己暂时理解的方向、待核查的信息和候选创意；不要把自己的解读或待查方向称为事实，"
-            "也不要把候选场景写成用户亲历。提出一个暂定切入角度及理由，再给出 2～4 个可核查或可展开方向。"
+            "也不要把候选场景写成用户亲历。方向尚未明确时提出切入角度及理由；明确后直接给出完整视频方案。"
             "没有明确来源时，不自行补视频时长、价格区间、平台、画幅或目标受众；"
             "只有用户输入、当前冻结上下文或当前作品风格明确提供的规格才可沿用，不能从风格名称猜默认值。"
-            "作品风格此时只提示表达气质，不从中预设第一人称、固定拍数或音轨。"
-            "最多问一个真正会改变创作方向的关键问题。方向稳定后，作品方案卡只需要明确总时长、"
+            "按当前作品风格的导演、画面、声音与剪辑规则编写方案；不据此预设第一人称经历、固定拍数或用户音轨规格。"
+            "最多问一个真正会改变创作方向的关键问题。方向稳定后必须在聊天中给出完整可修改的视频方案，同时明确总时长、"
             "准确画幅比例、音轨方式和语言；可用一个简短问题补齐缺失项，不询问已经明确的信息。"
             "明确的规格每项单独一行：时长：<用户明确的秒数>、画幅：<明确比例>、"
             "音轨：<静音/纯旁白/纯音乐/旁白与音乐>、语言：<简体中文/繁体中文/英语>。"
@@ -2053,9 +2062,14 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
         # Proposal turns omit the generic Skill/file-production reminder.
         message += (
             "\n\n〔Easel Creation 提案阶段的最高优先级边界〕\n"
-            "本轮对用户只自然表达当前输入、暂定方向、待核查信息和候选创意；"
+            "本轮通过对话与 Creator 讨论可修改的具体视频方案；"
             "不要使用“已确认事实”“截面事实”等容易误导的标题或结论。"
-            "回复保持简洁：一个暂定切入角度、2～4 个方向、最多一个关键问题。"
+            "方向尚不清晰时最多问一个关键问题；方向明确后不要反复只给方向。"
+            "以这些二级标题输出完整当前版本：## 创作表达、## 文案、## 分镜与节奏、## 声音设计、## 制作规格。"
+            "每个标题独占一行。文案部分只放将实际使用的逐字旁白；无旁白时写逐字屏幕文案，纯无字作品明确写无文案。"
+            "分镜与节奏逐段写画面、对应文案和时长（总时长未知则不编造秒数）；声音设计写旁白气质、配乐与留白。"
+            "制作规格用前述独立标签。用户修改时返回整份更新后的方案，不只回复改动片段。"
+            "方案中不伪造事实或经历；缺少关键信息就明确询问，不用待生成占位冒充完成。"
             "内部画像名称只用于读取上下文，不作为用户称呼或作品口吻；"
             "不要向用户提后端、Preparation、Production Brief、Creator Context、Agent、Skill 或文件流程。"
             "不得展开内部思考、工具/命令/会话状态或自我对话，"
@@ -2126,6 +2140,7 @@ async def _execute_creation_delivery(operation: str, work: dict) -> None:
                     "用户已确认以下创作委托。只整理准备文件，不执行素材生成或视频制作。\n"
                     f"CONFIRMED_PROPOSAL_SHA256={work['delivery']['proposal_sha256']}\n"
                     f"CONFIRMED_PROPOSAL_TRANSCRIPT={work['delivery']['proposal']}\n"
+                    f"CONFIRMED_VIDEO_PLAN={json.dumps(work['delivery'].get('video_plan'), ensure_ascii=False)}\n"
                     + creation_context(work) + preparation_agent_context(work, preparation)
                 )
                 message = chat_turn_message(body, work.get("profile"), work.get("creative_mode"))
@@ -2213,6 +2228,7 @@ async def _finish_ai_film_turn(
     prep_action: str | None,
     *,
     succeeded: bool,
+    response: str = "",
 ) -> str:
     """Share post-turn state transitions between stream and non-stream chat APIs."""
     if not work:
@@ -2221,7 +2237,10 @@ async def _finish_ai_film_turn(
         return ""
     if prep_action == "proposal":
         if succeeded:
-            mark_chat_proposal_ready(work["id"])
+            if (work.get("chat_workflow") or {}).get("video_plan_required"):
+                save_video_proposal(work["id"], work["chat_workflow"]["proposal_turn_id"], response)
+            else:
+                mark_chat_proposal_ready(work["id"])
         return ""
     if prep_action != "generate":
         return ""
@@ -2823,6 +2842,21 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "不调用 Provider、Hypit、媒体生成、Plan、Pricing 或 Build。后端会严格校验 Domain 合同和冻结身份。"
         + planning_contract
     )
+    confirmed_plan = (get_creation(attempt["creation_id"]).get("delivery") or {}).get("video_plan")
+    if confirmed_plan:
+        prompt += "\n本作品已有 Creator 确认的文案与分镜。下列三份文件由 Easel 原样提供，只读，不得重写；只细化 MATERIAL_PLAN.json 的素材需求。\n"
+        for name, content in {
+            "SCRIPT.md": confirmed_plan["script"],
+            "SCENES.md": confirmed_plan["scenes"],
+            "TREATMENT.md": confirmed_plan["treatment"] + "\n\n## 声音设计\n" + confirmed_plan["sound"],
+        }.items():
+            path = planning_dir / name
+            if path.is_symlink():
+                raise PreparationError("已确认方案文件不能是符号链接")
+            if not path.exists():
+                path.write_text(content, encoding="utf-8")
+        prompt += json.dumps(confirmed_plan, ensure_ascii=False)
+
     files = {
         "plan": planning_dir / "MATERIAL_PLAN.json",
         "treatment": planning_dir / "TREATMENT.md",
@@ -2837,6 +2871,10 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
                     or path.stat().st_size > (256 * 1024 if key == "plan" else 128 * 1024)):
                 raise PreparationError(f"Creative Planning artifact {path.name} is missing or invalid")
             values[key] = path.read_text(encoding="utf-8")
+        if confirmed_plan and (values["script"].strip() != confirmed_plan["script"].strip()
+                               or values["scenes"].strip() != confirmed_plan["scenes"].strip()
+                               or values["treatment"].strip() != (confirmed_plan["treatment"] + "\n\n## 声音设计\n" + confirmed_plan["sound"]).strip()):
+            raise PreparationError("制作规划改变了已确认文案或分镜；请恢复确认版本，不得静默重写")
         try:
             plan = MaterialPlan.model_validate_json(values["plan"])
         except ValidationError as exc:
@@ -2866,6 +2904,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
 
     session_id = f"material-planning-{attempt['attempt_id']}"
     quality_repair = planning_context.get('quality_repair')
+    if quality_repair and confirmed_plan:
+        raise PreparationError("本次质量问题需要改变已确认视频方案，请回到方案讨论；当前方案与产物已保留")
     if quality_repair:
         prompt += (
             '\n〔修正系统审片发现的内容问题〕\n'
@@ -2926,6 +2966,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             "创作假设须在句首清楚标记；系统将区分事实改写、创作表达和真实信息缺口。"
             "四个文件都实际写入后再回复。不调用 Provider、Hypit 或付费 Build。"
         )
+        if confirmed_plan:
+            repair += "\n已确认的 SCRIPT/SCENES/TREATMENT 不得改写，必须恢复为以下当前确认版本：\n" + json.dumps(confirmed_plan, ensure_ascii=False)
         run_agent_sync(repair, TIMEOUT_PRODUCE, session_id)
         result = validate_artifacts()
 
@@ -2938,6 +2980,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
                        if item["kind"] == "rewrite_required"]
             if not repairs:
                 break
+            if confirmed_plan:
+                raise PreparationError("已确认文案存在待核实事实，请回到方案讨论处理；系统不会擅自改写")
             if revision:
                 raise PreparationError("脚本仍包含系统新增的无依据表述；自动修正未成功，已保留内容，不要求 Creator 为其背书")
             # The gateway may yield across process restarts. Persist this
@@ -3759,7 +3803,7 @@ async def api_chat_stream(req: ChatRequest):
                 proc.poll() == 0 and run_info.get("last_ev") == "assistant_message_end" and not user_stopped
             )
             transition_note = await _finish_ai_film_turn(
-                bound_creation, prep_action, succeeded=completed_cleanly,
+                bound_creation, prep_action, succeeded=completed_cleanly, response="".join(full_text),
             )
             if prep_action == "generate":
                 full_text.clear()
@@ -3768,7 +3812,7 @@ async def api_chat_stream(req: ChatRequest):
             if bound_creation and prep_action == "proposal" and completed_cleanly:
                 to_client("creation", {
                     "creationId": bound_creation["id"],
-                    "phase": "proposal_ready",
+                    "phase": "proposal_ready" if get_creation(bound_creation["id"])["chat_workflow"]["proposal_status"] == "READY_FOR_CONFIRMATION" else "proposal",
                 })
             if transition_note:
                 full_text.append(transition_note)
@@ -3956,7 +4000,7 @@ async def api_chat(req: ChatRequest):
         if bound_creation and prep_action == "generate":
             mark_preparation_failed(bound_creation["id"], str(exc))
         raise
-    transition_note = await _finish_ai_film_turn(bound_creation, prep_action, succeeded=True)
+    transition_note = await _finish_ai_film_turn(bound_creation, prep_action, succeeded=True, response=result)
     result = transition_note.removeprefix("\n\n---\n").strip() if prep_action == "generate" else result + transition_note
     return {"response": result, **({"creationId": bound_creation["id"]} if bound_creation else {})}
 

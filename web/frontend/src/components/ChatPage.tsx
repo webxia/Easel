@@ -13,7 +13,7 @@ interface ChatPageProps {
   stream?: StreamState;          // 进行中的流式态（来自 App，切页也不丢）
   onSend: (displayText: string, attachments?: UploadedFile[]) => void;
   onCapabilityChange: (capability: CreationCapability | null) => void;
-  onConfirmProduction: (budget?: GenerationBudget, inputUseStatementSha256?: string) => void;
+  onConfirmProduction: (budget?: GenerationBudget, inputUseStatementSha256?: string, videoPlanSha256?: string) => void;
   onStop: () => void;
   onResend: (
     userIndex: number,

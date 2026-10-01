@@ -14,6 +14,14 @@ Last audited: 2026-10-01. This is the single summary of current implementation a
 | P3 | **NOT_STARTED**. |
 | Test suite | Latest complete deterministic run: **600 passed, 5 skipped** on 2026-10-01. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
 
+## 对话内视频方案（2026-10-01）
+
+- 用户确认前在聊天中讨论完整创作表达、逐字文案、分镜节奏、声音设计与规格；提案阶段注入真实 Director 表达文件，替换仅给方向和规格的提示。完整回复由服务端解析并保存到 Creation 的 `chat_workflow.video_plan`，同一方案修改递增版本；画布不再使用最后一条助手回复充当方案。
+- 新讨论轮次使旧方案暂不可确认；迟到回复不能覆盖当前轮次。画布展示持久方案，预览规格与确认共用该版本，确认请求绑定方案摘要；确认后的 `delivery.video_plan` 与 Handoff 保留该方案。已有已确认作品不迁移、不重新入队。
+- Planning 原样供应确认的 SCRIPT/SCENES/TREATMENT（含声音设计），只细化 MaterialPlan；合同检查拒绝静默重写。需要改变已确认文案的事实/质量问题保留结果并报告，不能以自动改写绕过用户确认；本轮没有新增确认后在线修改作品的生产入口。
+- 局部验证：Preparation、跨 Content Replay、隔离 Authoring、Hypit **120 passed**；覆盖方向不足、版本修改/持久恢复、过期确认、迟到回复、确认冻结、下游复用与重写拒绝。前端状态场景、lint/build、compileall、115 项技能合同及 diff check 通过，保留既有依赖/Hook/包体积提示。页面 fixture 增补具体文案/分镜与确认摘要断言；本轮未运行浏览器 fixture 或真实模型/E2E。
+- 部署边界：未重启当前服务，未修改或推进正在制作的 Creation；后端新行为需下次服务重启后生效。
+
 ## Creator 作品工作区（2026-09-30 软件验收）
 
 - Conversation 与 Work Canvas 分栏；窄屏“对话 / 作品”切换、待处理数量、稳定输入框和独立滚动面。作品从 Proposal 出现；作品状态从现有 Creation / Attempt 恢复，不依赖聊天中另发“继续”。七阶段进度由统一只读投影提供，默认收进“查看制作进度”。

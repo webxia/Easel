@@ -28,6 +28,22 @@ from easel.materials.domain import (
 import app as web  # noqa: E402
 
 
+VIDEO_PROPOSAL = """## 创作表达
+从日常选择的变化切入，不把结论当成普遍规律。不露脸。
+## 文案
+先看问题，再做决定。
+## 分镜与节奏
+0–15 秒：桌面笔记，呈现屏幕文案「先看问题，再做决定。」。
+## 声音设计
+无旁白，无音乐。
+## 制作规格
+时长：15 秒
+画幅：9:16
+音轨：静音
+语言：简体中文
+"""
+
+
 def _confirmed_delivery():
     work = creation.create_creation("隔离测试主题", creative_mode="clear_memo_video", route="hypit_video",
                                     origin={"type": "chat", "session_hash": "c" * 64})
@@ -937,6 +953,30 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
     assert json.dumps(feedback, ensure_ascii=False) in prompt_seen[-1]
     assert '不得增加或删除 Need' in prompt_seen[-1]
 
+    # A discussed/confirmed plan is supplied by Easel, not re-authored by Planning.
+    from easel.creator_proposal import parse_video_plan
+    confirmed = parse_video_plan(VIDEO_PROPOSAL)
+    with creation.edit_creation(work["id"]) as current:
+        current["delivery"] = {"video_plan": confirmed}
+    for path in planning_dir.iterdir():
+        if path.name in {"SCRIPT.md", "SCENES.md", "TREATMENT.md", "MATERIAL_PLAN.json"}:
+            path.unlink()
+    def material_only(prompt, *_):
+        assert (planning_dir / "SCRIPT.md").read_text() == confirmed["script"]
+        assert (planning_dir / "SCENES.md").read_text() == confirmed["scenes"]
+        (planning_dir / "MATERIAL_PLAN.json").write_text(plan.model_dump_json())
+        return "完成素材需求"
+    monkeypatch.setattr(web, "run_agent_sync", material_only)
+    result = web._material_planning_executor(attempt, {"context_refs": refs})
+    assert result["script"] == confirmed["script"]
+    assert result["scenes"] == confirmed["scenes"]
+    (planning_dir / "SCRIPT.md").write_text("擅自重写")
+    monkeypatch.setattr(web, "run_agent_sync", lambda *_: "不修复")
+    with pytest.raises(prep.PreparationError, match="改变了已确认"):
+        web._material_planning_executor(attempt, {"context_refs": refs})
+    with pytest.raises(prep.PreparationError, match="回到方案讨论"):
+        web._material_planning_executor(attempt, {"context_refs": refs, "quality_repair": feedback})
+
 
 def test_failed_planning_and_not_ready_retry_reuse_frozen_attempt(prep_env):
     creation_id = prep_env["work"]["id"]
@@ -1026,7 +1066,7 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
             assert "不得展开内部思考、工具/命令/会话状态或自我对话" in message
             assert "不得扫描本机素材目录" in message
             assert "只写以下四个 JSON 文件" not in message
-            return "方案方向：从一个程序员日常决策的变化切入，不把结论讲成普遍规律。"
+            return VIDEO_PROPOSAL
         assert "提案阶段的最高优先级边界" not in message
         match = re.search(r"只写以下四个 JSON 文件到目录 (.+)：", message)
         assert match, "Director must receive a bounded preparation output location"
@@ -1066,6 +1106,7 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
             "message": "按当前方案开始制作",
             "turnId": "api-turn-confirm",
             "creationAction": "confirm_production",
+            "videoPlanSha256": first_work["chat_workflow"]["video_plan"]["sha256"],
             "proposalContext": [
                 {"role": "user", "content": "做一个短视频，纯静音。"},
                 {"role": "assistant", "content": "建议 6 个节拍、15 秒。"},
@@ -1183,7 +1224,8 @@ def test_car_proposal_prompt_limits_unconfirmed_details_and_user_facing_language
     assert "〔当前作品风格：清醒备忘录 · 视频 / clear_memo_video v1.3〕" in message
     assert '"defaults"' not in message
     assert "本轮动手前先查技能库" not in message
-    assert "一个暂定切入角度、2～4 个方向、最多一个关键问题" in message
+    assert "用户修改时返回整份更新后的方案" in message
+    assert "## 文案、## 分镜与节奏" in message
     assert "不自行补视频时长、价格区间、平台、画幅或目标受众" in message
     assert "不要使用“已确认事实”“截面事实”" in message
     assert "不要向用户提后端、Preparation、Production Brief、Creator Context、Agent、Skill 或文件流程" in message
@@ -1668,3 +1710,36 @@ def test_blocked_runtime_attempt_cannot_validate(prep_env):
         service.estimate_film_attempt(result["attempt_id"])
     with pytest.raises(HypitIntegrationError, match="Execution 被 Runtime 配置阻塞"):
         service.submit_film_build(result["attempt_id"], title="blocked")
+
+
+def test_video_proposal_revision_recovery_and_stale_confirmation(prep_env):
+    from easel.creator_proposal import parse_video_plan, video_proposal_preview
+    work = creation.create_creation("日常选择", creative_mode="clear_memo_video", route="hypit_video",
+                                    origin={"type": "chat", "session_hash": "d" * 64})
+    cid = work["id"]
+    creation.ensure_chat_proposal_state(cid)
+    creation.begin_video_proposal(cid, "turn-1")
+    creation.save_video_proposal(cid, "turn-1", "只讨论方向")
+    assert creation.get_creation(cid)["chat_workflow"]["proposal_status"] == "DISCUSSING"
+    assert parse_video_plan(VIDEO_PROPOSAL.replace("## 文案", "## 缺少文案")) is None
+    first = creation.save_video_proposal(cid, "turn-1", VIDEO_PROPOSAL)["chat_workflow"]["video_plan"]
+    assert first["revision"] == 1
+    # Disk recovery needs no browser transcript and specs cannot be changed by it.
+    preview = video_proposal_preview(creation.get_creation(cid), [{"role": "user", "content": "改为90秒"}])
+    assert not preview["missing"] and preview["specs"]["duration_seconds"] == 15
+    creation.begin_video_proposal(cid, "turn-2")
+    assert video_proposal_preview(creation.get_creation(cid), [])["missing"]
+    creation.save_video_proposal(cid, "turn-1", VIDEO_PROPOSAL)
+    assert creation.get_creation(cid)["chat_workflow"]["proposal_status"] == "DISCUSSING"
+    second = creation.save_video_proposal(cid, "turn-2", VIDEO_PROPOSAL.replace("先看问题", "看清选择"))["chat_workflow"]["video_plan"]
+    assert second["revision"] == 2 and second["sha256"] != first["sha256"]
+    proposal = json.dumps([{"role": "assistant", "content": VIDEO_PROPOSAL}], ensure_ascii=False)
+    kwargs = dict(delivery_proposal=proposal, proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(),
+                  production_specs=second["specs"])
+    with pytest.raises(creation.CreationError, match="已更新"):
+        creation.confirm_chat_proposal(cid, "confirm", video_plan_sha256=first["sha256"], **kwargs)
+    confirmed = creation.confirm_chat_proposal(cid, "confirm", video_plan_sha256=second["sha256"], **kwargs)
+    assert confirmed["delivery"]["video_plan"] == second
+    creation.begin_video_proposal(cid, "late")
+    creation.save_video_proposal(cid, "turn-2", VIDEO_PROPOSAL)
+    assert creation.get_creation(cid)["delivery"]["video_plan"] == second

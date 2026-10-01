@@ -1320,3 +1320,6 @@ textarea.field { resize: vertical; min-height: 90px; }
   .creator-status-card h2 { font-size: 20px; }
   .creator-workspace-header { padding: 12px 16px; }
 }
+
+.creator-video-plan p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; }
+.creator-video-plan h3 { font-size: 14px; margin: 20px 0 6px; color: var(--text); }
