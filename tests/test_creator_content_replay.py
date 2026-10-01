@@ -29,7 +29,9 @@ from easel.integrations.material_layer import MaterialGateIntegration, MaterialP
 from easel.integrations import material_supply
 from easel.integrations.material_supply import ProviderRegistry
 from easel.runtime_config import EaselRuntimeConfig
-from easel.materials.application.generation_modalities import MiniMaxImageSpeechGeneration
+from easel.integrations.material_generation import generation_budget_preview
+from easel.materials import providers
+from easel.materials.providers import minimax_pricing
 from easel.materials.application.matching import MaterialMatcher
 from easel.materials.application import voice_delivery
 from easel.materials.application.visual_observation import SCHEMA as OBSERVATION_SCHEMA
@@ -67,6 +69,9 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
     runtime.write_text(json.dumps({'format': 'hypit.runtime-local@1', 'dataRoot': '.fixture-runtime'}))
     prior_voice = None
     base_settings = EaselRuntimeConfig.load()
+    base_settings = replace(base_settings, minimax=replace(base_settings.minimax,
+        api_key='fixture-key', speech_voice_id='fixture-stable-preset'))
+    monkeypatch.setattr(EaselRuntimeConfig, 'load', lambda: base_settings)
     for index, (topic, sentences, subjects) in enumerate(cases):
         script = ''.join(sentences)
         work = creation.create_creation(topic, profile='测试', creative_mode='clear_memo_video',
@@ -75,7 +80,9 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         proposal = topic + '；30 秒，9:16，普通话旁白与配乐。'
         creation.confirm_chat_proposal(work['id'], 'fixture-confirm', delivery_proposal=proposal,
             proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), production_specs={
-                'duration_seconds': 30, 'aspect_ratio': '9:16', 'language': 'zh-CN', 'audio_mode': 'mixed'})
+                'duration_seconds': 30, 'aspect_ratio': '9:16', 'language': 'zh-CN', 'audio_mode': 'mixed'},
+            generation_budget={'maxCostCny': 1, 'scopeSha256': generation_budget_preview()['scope_sha256']},
+            input_use_statement_sha256=creation.input_use_preview()['statement_sha256'])
         voice_need = MaterialNeed(need_id='narration', scope=NeedScope(type=NeedScopeType.GLOBAL, ref='film'),
             media_type=MediaType.AUDIO, role='旁白', importance=NeedImportance.REQUIRED,
             intent=NeedIntent(description='克制的观察旁白'), constraints={'allow_generation': True},
@@ -206,17 +213,22 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         class SpeechFixture:
             model = 'speech-2.8-hd'
             voice_id = 'fixture-stable-preset'
+            def __init__(self, *args, **kwargs):
+                assert kwargs['voice_id'] == self.voice_id
             def generate(self, text, **settings):
                 calls.append((text, settings))
                 return MiniMaxSpeechResult(self.model, self.voice_id, mp3.read_bytes(), 'mp3', tuple(cues), None)
-        generated = MiniMaxImageSpeechGeneration(speech_adapter=SpeechFixture()).generate(
-            plan, voice_need, store, request_id=f'voice-{index}', confirmed_paid=True, speech_text=script)
-        assert calls == [(script, mode['voice_delivery'])]
-        # Fixture ownership is explicit test evidence, not inferred Provider rights.
-        RightsService(store).record(generated.asset, rights)
+        monkeypatch.setattr(providers, 'MiniMaxSpeechAdapter', SpeechFixture)
+        quote_reads = []
+        def quoted_contract(url):
+            quote_reads.append(url)
+            if url == minimax_pricing.VOICE_URL:
+                return '| Fixture 普通话 | `fixture-stable-preset` |'
+            assert url == minimax_pricing.PRICE_URL
+            return '## 语音\n单价：元/万字符。1 个汉字算 2 个字符\n| 同步语音合成 | speech-2.8-hd | 3.5 |\n'
+        monkeypatch.setattr(minimax_pricing, 'read_public_contract', quoted_contract)
+        monkeypatch.setattr(voice_delivery, 'require_local_voice_model', lambda: None)  # Fixed offline recognizer below.
         orchestrator = MaterialProductOrchestrator()
-        orchestrator._record_generated_asset(attempt, plan, store, store.read_bundle(), generated,
-                                              f'voice-{index}', 'speech-2.8-hd')
         recognition_calls = []
         def recognize(path, language):
             recognition_calls.append(path)
@@ -245,11 +257,30 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         async def execute_material(operation, current):
             material_operations.append(operation)
             await web._execute_creation_delivery(operation, current)
-        for _ in range(4):
+        voice_asset_id = None
+        for _ in range(10):
             asyncio.run(advance_creation(work['id'], execute_material))
+            if material_operations[-1:] == ['generate_material']:
+                receipts = store.list_generation_records()
+                assert len(receipts) == 1 and receipts[0]['status'] == 'COMPLETE'
+                voice_asset_id = receipts[0]['asset_id']
+                asset = store.read_asset(voice_asset_id)
+                assert asset.rights.status is RightsStatus.UNKNOWN
+                assert receipts[0]['commission_authorization']['source'] == 'commission_budget'
+                assert not receipts[0]['operator_confirmed_paid']
+                # Explicit owned synthetic-tone fixture evidence. This remains
+                # the missing real generated-Rights boundary, not an auto grant.
+                RightsService(store).record(asset, rights)
+                orchestrator._recalculate_observed_materials(service.get_film_attempt(attempt['attempt_id']),
+                    plan, store.read_bundle(), store)
             if next_operation(creation.get_creation(work['id']))[0] == 'author':
                 break
-        assert material_operations == ['recover_voice_timing', 'observe_material'], creation.get_creation(work['id'])['delivery']
+        assert material_operations == ['observe_material', 'recover_material', 'generate_material',
+                                       'recover_voice_timing', 'observe_material'], creation.get_creation(work['id'])['delivery']
+        assert calls == [(script, mode['voice_delivery'])]
+        assert quote_reads == [minimax_pricing.PRICE_URL, minimax_pricing.VOICE_URL]
+        ledger = creation.get_creation(work['id'])['delivery']['material_generations']
+        assert len(ledger) == 1 and next(iter(ledger.values()))['status'] == 'complete'
         ready = {'attempt': service.get_film_attempt(attempt['attempt_id'])}
         assert ready['attempt']['material_gate']['status'] == 'MATERIAL_READY'
         before_calls = (len(calls), len(recognition_calls), len(observations))
@@ -257,7 +288,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         ready = orchestrator.observe_visual_materials(attempt['attempt_id'], executor=observe)
         assert before_calls == (len(calls), len(recognition_calls), len(observations))
         bundle = store.read_bundle()
-        prior_voice = store.read_asset(generated.asset.asset_id)
+        prior_voice = store.read_asset(voice_asset_id)
 
         # Same native authoring fixture, with content-specific pictures and
         # measured captions. No second production representation or real Build.

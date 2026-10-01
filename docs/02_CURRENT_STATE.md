@@ -53,6 +53,10 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **未配置 Runtime 时的补料根因修复（2026-10-01）：** 实际素材恢复把 `BLOCKED` 一律当作视频制作已开始；尚未配置 Runtime 的准备阶段因此无法执行免费补料。旧恢复场景提前写入 `NOT_SUBMITTED`，掩盖了这个正常路径阻塞。现首次补料和中断恢复均接受未开始制作的 `BLOCKED`，仍保留费用已批准、编排已开始和已有输出等保护，不改制作状态或放宽准入。既有自动补料场景保留真实初始状态，先复现失败，再验证补料完成、状态写入中断后复用已完成供应、原脚本/旁白/Need 不变，以及开始 Build 后新请求仍拒绝。
+- **三内容回放接通委托旁白生成：** 同 Creator/Mode 的三个内容现在由真实 Owner/Web 分派按确认时的 CNY 1 测试预算核价、占额和执行 TTS；仅官方报价文本与语音适配器返回确定性 Fixture。验证 Director 朗读参数进入实际生成调用、每部只读取一次价格/音色依据、生成一次、预算记录完成，并继续后台独立声音内容核对。回放不再直接调用生成服务或手动登记生成结果。
+- **本批验证与边界：** Cross-Content/Preparation/Material integration/Hypit **152 passed**；compileall、115 项技能合同、diff check 通过，保留两项既有依赖提示。生成后 Rights 仍为 UNKNOWN；回放明确补入自有合成音的 Fixture 证据，BGM 语义仍是固定证据，本地 ASR 模型预检以替身代替。因此本批不证明生成权利自动处理、真实声音感知或完整自主交付；模型与 Hypit CLI 仍为替身，未进行真实渲染。生成 Rights、声音语义和剩余恢复继续开放，Goal active；未改真实 Creation、调用付费 AI、启动真实 Build 或完整 E2E。
+
 - **跨内容回放从委托进入准备与供应（2026-10-01）：** 原跨内容场景直接建立 Handoff/Attempt、持久化 Planning、调用 Supply/Gate，未证明确认后的后台接线。现从含 30 秒/9:16/普通话/混音规格的结构化委托出发，由真实 `advance_creation → web._execute_creation_delivery` 领取准备、冻结四份文件、建立 Handoff/Attempt、调用正式 Planning Prompt 与系统 Truth 审阅，并执行 Local 检索/接收/普通 Gate；仅在模型调用边界写入确定性回答。三个不同内容不再由测试直接建立这些阶段状态。
 - 回放同时补齐真实隔离 Profile 文件，验证其源摘要与三份 Handoff 一致；此前只有 Profile 名称的 Fixture 无法通过真实准备校验。本地图片和配乐改为逐文件 SHA 绑定的 Rights sidecar，经过原权利读取器，不再由宽泛回调给所有素材赋权。三份 Content 摘要不同、Profile/Creator/Mode 一致，准备/Planning/Truth 每部仅执行一次，后续仍经过上一批真实后台检查和制作服务到系统审片；已有断连恢复与音轨缺失负例保留。
 - **本批验证：** Cross-Content/Preparation/Material integration/Hypit **152 passed**；compileall、115 项技能合同、diff check 通过，保留两项既有依赖提示。仅修改既有回放与本状态记录，未新增产品逻辑或测试文件。仍不能称全阶段自主首版：旁白生成和生成资产的 Fixture 自有权利、BGM 语义证据还在回放中显式补入；模型/ASR/渲染为替身，未验证真实感知与审美。生成 Rights、声音语义和剩余恢复仍开放，Goal active；未改真实 Creation、调用付费 AI、真实 Build 或完整 E2E。

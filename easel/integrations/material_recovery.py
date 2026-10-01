@@ -127,14 +127,15 @@ def _recover_locked(attempt_id, store, request_id, expected_plan_revision,
         if record["status"] == "COMPLETE":
             return {"attempt": attempt, "material_status": attempt["material_gate"]["status"],
                     "recovery": {"status": "COMPLETE", "reused": True}}
-        if (attempt.get("execution_status") != "NOT_SUBMITTED"
+        if (attempt.get("execution_status") not in {"NOT_SUBMITTED", "BLOCKED"}
                 or attempt.get("cost", {}).get("approved")
                 or _production_started(attempt) or attempt.get("outputs")):
             raise MaterialIntegrationError("视频制作已开始，不能覆盖素材规划；请使用当前阶段恢复或成片修改")
         source_plan = MaterialPlan.model_validate_json(json.dumps(record["source_plan"]))
         source_bundle = MaterialBundle.model_validate_json(json.dumps(record["source_bundle"]))
     else:
-        if (attempt.get("execution_status") != "NOT_SUBMITTED"
+        # Missing/invalid Runtime blocks rendering, not material preparation.
+        if (attempt.get("execution_status") not in {"NOT_SUBMITTED", "BLOCKED"}
                 or attempt.get("cost", {}).get("approved")
                 or _production_started(attempt) or attempt.get("outputs")):
             raise MaterialIntegrationError("视频制作已开始，不能覆盖素材规划；请使用当前阶段恢复或成片修改")

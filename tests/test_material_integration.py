@@ -1910,8 +1910,14 @@ def test_production_selection_carries_verified_attribution_facts(material_integr
 def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
         material_integration_env, monkeypatch, interrupt_after_supply, automatic):
     from easel.integrations import material_recovery as recovery
-    attempt = service.update_film_attempt(material_integration_env["attempt_id"],
-                                          execution_status="NOT_SUBMITTED", event="fixture_runtime_ready")
+    attempt = service.get_film_attempt(material_integration_env["attempt_id"])
+    if automatic:
+        # Runtime setup belongs after material preparation. An unavailable
+        # renderer must not prevent supplemental supply or its reconciliation.
+        assert attempt['execution_status'] == 'BLOCKED'
+    else:
+        attempt = service.update_film_attempt(attempt['attempt_id'],
+            execution_status="NOT_SUBMITTED", event="fixture_runtime_ready")
     store = AttemptMaterialStore(attempt["workspace"]["path"])
     plan, visual, _, _, _, _ = _contracts(attempt, Path(attempt["workspace"]["path"]))
     voice_need = MaterialNeed(
@@ -2015,6 +2021,7 @@ def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
         assert refreshed['plan'] == plan  # Supplemental wording cannot enlarge source permissions.
         assert len(query_calls) == 1
         assert result['attempt']['autonomous_material_recovery']['status'] == 'COMPLETE'
+        assert result['attempt']['execution_status'] == 'BLOCKED'
     else:
         assert "required_source_kind" not in refreshed["plan"].needs[2].constraints
         assert refreshed["plan"].needs[2].constraints["allow_generation"] is False
