@@ -388,7 +388,8 @@ class DependencyRegistry:
             from importlib.util import find_spec
             from easel.materials.application.voice_delivery import LOCAL_ASR_FILES, local_voice_model_path
             model = local_voice_model_path(cfg)
-            available = find_spec('faster_whisper') is not None and all((model / name).is_file() for name in LOCAL_ASR_FILES)
+            available = (all(find_spec(name) is not None for name in ('faster_whisper', 'opencc'))
+                         and all((model / name).is_file() for name in LOCAL_ASR_FILES))
             return DependencyResult(spec, ReadinessStatus.CONFIG_READY if available else ReadinessStatus.MISSING_CONFIG,
                                     "本地识别依赖与模型文件存在；未加载模型或验证准确性。" if available else
                                     "本地识别依赖或模型目录未就绪；可配置 EASEL_ASR_MODEL。新委托 TTS 在提交前检查此依赖。")

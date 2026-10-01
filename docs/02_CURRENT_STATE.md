@@ -53,6 +53,8 @@ Last audited: 2026-10-01. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **中文旁白简繁误判修复（2026-10-01）：** 独立中文样本的真实 ASR 报告已复现：识别文本使用繁体，冻结脚本为简体，旧逻辑误拒。现仅在本地识别核对中使用固定 OpenCC `t2s` 标准简繁转换进行等价比较；不做同音容错、地区词汇替换或脚本改写。匹配后字幕文字/字符位置仍取冻结脚本，时间仍取真实识别，原识别报告及其身份保留；Provider alignment 的原严格合同不变。转换库纳入安装依赖及付费 TTS 前运行预检，避免模型文件存在但缺库时先购买旁白。扩展原恢复场景，验证双向简繁、错字/同音错字/多余内容/漏字/低置信/时间重叠、缓存恢复与不重购。关联 Material/Voice/Cross-Content/Runtime **88 passed**；同一真实中文报告重新绑定得到 READY，保留原文与实测两句区间 0～1.5 秒、1.88～3.88 秒。下方“未修复阻断”为发现时记录，本段为当前修复状态；不代表所有中文识别错误均已解决或真实自主 E2E 已验收。
+
 - **真人试跑前本机准备（2026-10-01，用户授权配置模型并重启服务）：** 两项本地模型已安装到代码默认目录 `~/.cache/easel-models/`，无需修改业务代码或凭证。AST 配乐模型复用此前下载文件，重新核对代码固定的三个 SHA；faster-whisper-small 使用 Systran 上游固定 revision `536b0662742c02347bc0e980a01041f333bce120`，四个模型/配置/词表文件按上游 LFS SHA 或 Git blob identity 校验。两项 readiness 均由 MISSING_CONFIG 转为 CONFIG_READY。实际生产读取函数对独立 10 秒公开配乐样本完成本地推理（Music 0.884159）；对本机系统声音生成的独立中文样本完成识别和词级时序输出，不使用当前作品或云端 TTS。
 - **实际中文识别暴露的未修复阻断：** 样本原文“今天阳光很好。我们一起去公园散步。”实际识别为“今天陽光很好,我們一起去公園散步。”；将真实识别报告送入 `timing_from_recognition` 被现有严格原文比对拒绝。当前 `_spoken` 仅消除空白/标点，没有处理简繁形式等价。模型可运行不等于简体旁白准入可用；这是已复现的软件问题，本次配置/重启范围没有修改该逻辑，不能声称中文自主首版已经就绪。
 - **重启与准备边界：** 重启前只读确认没有登记自主 Delivery 的 Creation；现有 `com.easel.web` launchd 守护服务使用项目虚拟环境重新启动，首页与 `/api/status` 返回 HTTP 200，Gateway 可达，Hypit doctor 通过。未新建/推进作品、未调用付费 AI 或启动 Build/E2E。整体 v1-release readiness 仍为 NOT_READY：模型认证/endpoint 与实际音画输出仍为 NOT_VERIFIED，本地 Rights-backed 视觉库存为 CONTENT_EMPTY（不代表外部检索或生成不可用）；真实外部制作留给用户发起。本段取代下方历史记录中的“正式音频模型未配置”状态；精细声音评分等仍后移。

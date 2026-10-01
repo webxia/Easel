@@ -211,7 +211,7 @@ def test_library_storage_and_content_are_reported_separately(tmp_path):
     assert inventory["material.library-content"].status is ReadinessStatus.CONTENT_EMPTY
 
 
-def test_audio_product_capabilities_are_wired_but_not_claimed_live_ready(tmp_path):
+def test_audio_product_capabilities_are_wired_but_not_claimed_live_ready(tmp_path, monkeypatch):
     config = EaselRuntimeConfig.load(environ={
         'EASEL_ASR_MODEL': str(tmp_path / 'missing-asr'),
         'EASEL_MUSIC_MODEL': str(tmp_path / 'missing-music'),
@@ -234,6 +234,21 @@ def test_audio_product_capabilities_are_wired_but_not_claimed_live_ready(tmp_pat
         result = registry.profile(profile, probe_local=False)
         assert {'audio.voice-timing-recovery', 'audio.music-observation'} <= {
             row.spec.id for row in result.blockers if row.status is ReadinessStatus.MISSING_CONFIG}
+
+    # Files alone must not pass paid-TTS preflight without text normalization.
+    import importlib.util
+    import pytest
+    from easel.materials.application.voice_delivery import LOCAL_ASR_FILES, require_local_voice_model
+    model = tmp_path / 'missing-asr'
+    model.mkdir()
+    for name in LOCAL_ASR_FILES:
+        (model / name).write_bytes(b'fixture')
+    find_spec = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, 'find_spec', lambda name: None if name == 'opencc' else find_spec(name))
+    assert registry._evaluate(rows['audio.voice-timing-recovery'].spec,
+                              probe_local=False).status is ReadinessStatus.MISSING_CONFIG
+    with pytest.raises(ValueError, match='本地语音识别模型未就绪'):
+        require_local_voice_model(config)
 
 
 def test_library_readiness_rejects_symlink_roots(tmp_path):

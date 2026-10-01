@@ -18,6 +18,7 @@ dependencies = [
     "Pillow>=10,<13", "opencv-python>=4.8,<5", "numpy>=1.26,<3",
     "pandas>=2,<4", "matplotlib>=3.8,<4", "librosa>=0.10,<1",
     "faster-whisper>=1,<2", "edge-tts>=6,<8", "playwright>=1.45,<2",
+    "opencc-python-reimplemented==0.1.7", # 本地 ASR 简繁等价核对；固定转换词典
     "rembg>=2.0,<3", "biliup>=1,<2", "jieba>=0.42,<1", "snownlp>=0.12,<1",
     "markdown>=3.5,<4",
     # ask_user 问答题桥接（easel/gateway_questions.py）：连本地 gateway WS RPC + Ed25519 设备签名

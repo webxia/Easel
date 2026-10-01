@@ -6,11 +6,19 @@ import hashlib
 import unicodedata
 import json
 import re
+from functools import lru_cache
 from pathlib import Path
 
 
 def _spoken(text: str) -> str:
     return ''.join(c for c in text if not c.isspace() and not unicodedata.category(c).startswith('P'))
+
+
+@lru_cache(maxsize=1)
+def _asr_script_converter():
+    from opencc import OpenCC
+    # Standard character conversion only, without regional vocabulary or phonetics.
+    return OpenCC('t2s')
 
 
 def transcribe_local_voice(path: Path, model_path: Path, language: str | None) -> dict:
@@ -44,7 +52,7 @@ def require_local_voice_model(config=None) -> Path:
     from easel.runtime_config import EaselRuntimeConfig
     model = local_voice_model_path(config or EaselRuntimeConfig.load())
     if (not model.is_dir() or any(not (model / name).is_file() for name in LOCAL_ASR_FILES)
-            or find_spec('faster_whisper') is None):
+            or any(find_spec(name) is None for name in ('faster_whisper', 'opencc'))):
         raise ValueError('本地语音识别模型未就绪；未提交新的 TTS，已有旁白保留。请配置 EASEL_ASR_MODEL 本地模型目录')
     return model
 
@@ -93,7 +101,14 @@ def timing_from_recognition(script: str, asset, report: dict) -> dict:
                 or not .5 <= confidence <= 1 or offset + len(text) > len(positions)):
             raise ValueError('旁白识别有低置信或多余内容；不能猜测字幕时序')
         begin, end = positions[offset], positions[offset + len(text) - 1] + 1
-        cues.append({'text': word['text'], 'start_character': begin, 'end_character': end,
+        expected = _spoken(script[begin:end])
+        if text != expected:
+            convert = _asr_script_converter().convert
+            if convert(text) != convert(expected):
+                raise ValueError('识别内容或时间与完整冻结旁白不一致；原音频已保留，未重购或改写')
+        # Display and character offsets always come from the frozen script. Keep
+        # raw recognition intact below (including its hash), with measured times.
+        cues.append({'text': script[begin:end], 'start_character': begin, 'end_character': end,
                      'start_seconds': word.get('start_seconds'), 'end_seconds': word.get('end_seconds')})
         offset += len(text)
     timing = bind_voice_timing(script, asset, tuple(cues))

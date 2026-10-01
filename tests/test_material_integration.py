@@ -2675,15 +2675,29 @@ def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(materia
     work = creation.confirm_chat_proposal(attempt['creation_id'], 'fixture', delivery_proposal=script,
                                           proposal_sha256=hashlib.sha256(script.encode()).hexdigest())
     report = {'engine': 'fixture-asr', 'words': [
-        {'text': '假设', 'start_seconds': .15, 'end_seconds': .7, 'probability': .95},
+        {'text': '假設', 'start_seconds': .15, 'end_seconds': .7, 'probability': .95},
         {'text': '清晨。', 'start_seconds': .7, 'end_seconds': 1.5, 'probability': .9},
-        {'text': '窗边', 'start_seconds': 2., 'end_seconds': 3., 'probability': .96},
-        {'text': '很安静。', 'start_seconds': 3., 'end_seconds': 4.8, 'probability': .99}]}
+        {'text': '窗邊', 'start_seconds': 2., 'end_seconds': 3., 'probability': .96},
+        {'text': '很安靜。', 'start_seconds': 3., 'end_seconds': 4.8, 'probability': .99}]}
+    original_report = deepcopy(report)
     recognized = voice_delivery.timing_from_recognition(script, asset, report)
     assert [(r['start_seconds'], r['end_seconds']) for r in recognized['cues']] == [(.15, 1.5), (2., 4.8)]
-    for invalid in ('mismatch', 'truncated', 'overlap', 'confidence'):
+    assert report == original_report  # Original ASR evidence must remain unchanged.
+    assert [c['text'] for c in recognized['cues']] == ['假设清晨', '窗边很安静']
+    reverse_report = deepcopy(report)
+    for word, text in zip(reverse_report['words'], ('假设', '清晨。', '窗边', '很安静。')):
+        word['text'] = text
+    reverse = voice_delivery.timing_from_recognition('假設清晨。窗邊很安靜。', asset, reverse_report)
+    assert [c['text'] for c in reverse['cues']] == ['假設清晨', '窗邊很安靜']
+    # Provider alignment keeps its strict text contract; normalization is ASR-only.
+    assert voice_delivery.bind_voice_timing(script, asset, ({'text': '假設清晨。窗邊很安靜。',
+        'start_character': 0, 'end_character': len(script), 'start_seconds': .15,
+        'end_seconds': 4.8},))['status'] == 'INVALID'
+    for invalid in ('mismatch', 'homophone', 'extra', 'truncated', 'overlap', 'confidence'):
         bad = deepcopy(report)
         if invalid == 'mismatch': bad['words'][0]['text'] = '真的'
+        if invalid == 'homophone': bad['words'][0]['text'] = '假攝'
+        if invalid == 'extra': bad['words'][-1]['text'] += '啊'
         if invalid == 'truncated': bad['words'].pop()
         if invalid == 'overlap': bad['words'][1]['start_seconds'] = .2
         if invalid == 'confidence': bad['words'][0]['probability'] = .2
