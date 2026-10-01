@@ -257,7 +257,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         # Replace only the externally reviewed agreement version with the
         # synthetic agreement used by this deterministic execution fixture.
         fixture_terms = minimax_pricing.usage_terms_evidence(lambda _: MINIMAX_TERMS_FIXTURE)
-        monkeypatch.setattr(material_generation, 'MINIMAX_INTERNAL_VOICE_TERMS_SHA256', fixture_terms['sha256'])
+        monkeypatch.setattr(material_generation, 'MINIMAX_INTERNAL_TERMS_SHA256', fixture_terms['sha256'])
         monkeypatch.setattr(voice_delivery, 'require_local_voice_model', lambda: None)  # Fixed offline recognizer below.
         orchestrator = MaterialProductOrchestrator()
         recognition_calls = []
@@ -328,10 +328,15 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 evidence=tuple(e for e in prior_voice.rights.evidence if e.kind != 'asset_commission_use'))})
             committed_work = creation.get_creation(work['id'])
             committed_record = store.list_generation_records()[0]
-            assert material_generation.commission_voice_rights(committed_work, plan, voice_need,
+            assert material_generation.commission_generated_rights(committed_work, plan, voice_need,
                 unassessed, committed_record, script) is not None
+            old_work, old_record = deepcopy(committed_work), deepcopy(committed_record)
+            old_work['delivery']['authorization']['input_use'].update(creation.input_use_preview(version=1))
+            old_record['commission_authorization']['input_use'] = deepcopy(old_work['delivery']['authorization']['input_use'])
+            assert material_generation.commission_generated_rights(old_work, plan, voice_need,
+                unassessed, old_record, script) is not None  # Existing voice permission is not revoked or widened.
             restricted = unassessed.model_copy(update={'rights': unassessed.rights.model_copy(update={'status': RightsStatus.RESTRICTED})})
-            assert material_generation.commission_voice_rights(committed_work, plan, voice_need,
+            assert material_generation.commission_generated_rights(committed_work, plan, voice_need,
                 restricted, committed_record, script) is None
             for fault in ('input_grant', 'terms', 'preset', 'creation', 'recognition'):
                 altered_work, altered_record = deepcopy(committed_work), deepcopy(committed_record)
@@ -349,7 +354,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                     altered_work['id'] = 'another-creation'
                 else:
                     altered_record['voice_recognition']['words'][0]['text'] = '不符合冻结脚本的另一句话。'
-                assert material_generation.commission_voice_rights(altered_work, plan, voice_need,
+                assert material_generation.commission_generated_rights(altered_work, plan, voice_need,
                     unassessed, altered_record, script) is None, fault
 
         # Same native authoring fixture, with content-specific pictures and

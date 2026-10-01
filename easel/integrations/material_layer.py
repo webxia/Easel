@@ -1659,7 +1659,7 @@ class MaterialProductOrchestrator:
                 "readiness": readiness.model_dump(mode="json")}
 
     def observe_visual_materials(self, attempt_id: str, *, executor) -> dict[str, Any]:
-        """Current candidate evidence and supported commissioned Voice usage."""
+        """Observe current candidates and admit evidenced commissioned usage."""
         from easel.integrations.hypit.service import get_film_attempt
         from easel.materials.application.matching import MaterialMatcher
         from easel.materials.application.visual_observation import (
@@ -1693,23 +1693,32 @@ class MaterialProductOrchestrator:
                     for need_id in candidate['qualified_need_ids']:
                         excluded.setdefault(need_id, set()).add(candidate['asset_id'])
         from easel.creation_delivery import active_delivery
+        from easel.integrations.material_generation import commission_generated_rights
+        generated_records = {}
+        work = None
+        needs = {n.need_id: n for n in plan.needs}
         if active_delivery.get() == attempt['creation_id']:
-            from easel.integrations.material_generation import commission_voice_rights
             work = creation.get_creation(attempt['creation_id'])
-            needs = {n.need_id: n for n in plan.needs}
-            for record in store.list_generation_records():
-                if (record.get('modality') != 'voice' or not isinstance(record.get('generation_id'), str)
-                        or record.get('asset_id') not in verified or record.get('need_id') not in needs):
-                    continue
-                with store.generation_lock(record['generation_id']):
-                    if store.read_generation_record(record['generation_id']) != record:
-                        raise MaterialIntegrationError('旁白证据已变化，请重新核对')
-                    asset = store.read_asset(record['asset_id'])
-                    rights = commission_voice_rights(work, plan, needs[record['need_id']], asset, record, planning['script'])
-                    if rights is not None:
-                        if store.read_asset(asset.asset_id) != asset:
-                            raise MaterialIntegrationError('旁白素材证据已变化，未覆盖新记录')
-                        RightsService(store).record(asset, rights)
+            generated_records = {r['asset_id']: r for r in store.list_generation_records()
+                if isinstance(r.get('generation_id'), str)
+                and r.get('asset_id') in verified and r.get('need_id') in needs}
+
+        def admit_generated(asset_id):
+            record = generated_records.get(asset_id)
+            if record is None:
+                return
+            with store.generation_lock(record['generation_id']):
+                if store.read_generation_record(record['generation_id']) != record:
+                    raise MaterialIntegrationError('生成素材证据已变化，请重新核对')
+                asset = store.read_asset(asset_id)
+                rights = commission_generated_rights(work, plan, needs[record['need_id']], asset, record, planning['script'])
+                if rights is not None:
+                    if store.read_asset(asset.asset_id) != asset:
+                        raise MaterialIntegrationError('生成素材证据已变化，未覆盖新记录')
+                    RightsService(store).record(asset, rights)
+
+        for asset_id in generated_records:
+            admit_generated(asset_id)
         matcher = MaterialMatcher()
         batch_key = hashlib.sha256(("ranked-v2\n" + MaterialReadinessCalculator.plan_revision(plan) + "\n"
             + "\n".join(sorted(a.asset_id + ":" + a.file.sha256 for a in bundle.assets))
@@ -1781,6 +1790,7 @@ class MaterialProductOrchestrator:
                            for i in current.semantic.inferences):
                     store.write_asset(observed)
                 store.write_observation_record(manifest["input_sha256"] + ".input", manifest)
+                admit_generated(asset_id)
                 reports.append(relative)
         current_attempt = get_film_attempt(attempt_id)
         current_plan = PlanningIntegration().load(current_attempt)["plan"]

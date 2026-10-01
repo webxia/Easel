@@ -1053,11 +1053,16 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
         offered = preview['generation_budget']
         assert offered['available'] is True and 'fixture-key' not in json.dumps(offered)
         declaration = preview['input_use']
+        assert declaration['schema'] == 'easel-input-use@2'
+        assert 'text_to_visual_generation' in declaration['operations'] and '以文字生成图片或视频素材' in declaration['statement']
         unsigned = {k: v for k, v in declaration.items() if k != 'statement_sha256'}
         assert declaration['statement_sha256'] == hashlib.sha256(json.dumps(
             unsigned, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
         stale = {**confirmation.model_dump(), 'inputUseStatementSha256': '0' * 64}
         assert client.post('/api/chat', json=stale).status_code == 409
+        assert not creation.get_creation(first_work['id'])['chat_workflow'].get('confirmed_at')
+        old_page = {**confirmation.model_dump(), 'inputUseStatementSha256': creation.input_use_preview(version=1)['statement_sha256']}
+        assert client.post('/api/chat', json=old_page).status_code == 409
         assert not creation.get_creation(first_work['id'])['chat_workflow'].get('confirmed_at')
         ordinary = {**confirmation.model_dump(), 'creationAction': None,
                     'inputUseStatementSha256': declaration['statement_sha256']}

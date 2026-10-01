@@ -316,13 +316,21 @@ def mark_chat_proposal_ready(creation_id: str) -> dict[str, Any]:
     return get_creation(creation_id)
 
 
-def input_use_preview() -> dict[str, Any]:
+def input_use_preview(*, version: int = 2) -> dict[str, Any]:
     """The exact declaration shown before confirmation; not an asset license."""
     statement = ('我确认有权将本次提供的文字内容用于这份作品，并授权 Easel 按本方案改写、'
                  '合成预置音色旁白和剪辑。素材自身的许可仍按实际证据核对，不自动发布。')
     declaration = {'schema': 'easel-input-use@1', 'statement': statement,
                    'scope': 'creator_provided_text_for_current_creation',
                    'operations': ['rewrite', 'preset_voice_synthesis', 'editing'], 'publication_allowed': False}
+    if version == 2:
+        declaration.update(schema='easel-input-use@2', statement=(
+            '我确认有权将本次提供的文字内容用于这份作品，并授权 Easel 按本方案改写、'
+            '以文字生成图片或视频素材、合成预置音色旁白和剪辑。'
+            '素材自身的许可仍按实际证据核对，不自动发布。'))
+        declaration['operations'] = ['rewrite', 'text_to_visual_generation', 'preset_voice_synthesis', 'editing']
+    elif version != 1:
+        raise CreationError('不支持的输入使用声明版本')
     # Bind both the visible words and their versioned scope. A later policy
     # expansion must not recognize an older page's confirmation digest.
     digest = hashlib.sha256(json.dumps(declaration, sort_keys=True, ensure_ascii=False,

@@ -2402,6 +2402,13 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
                 self.store = store
             def acquire(self, candidate):
                 body = b'fixture-only-video-intake'
+                if outcome == 'video_resume':
+                    import subprocess
+                    fixture_video = Path(attempt['workspace']['path']) / 'fixture-video.mp4'
+                    subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-y', '-f', 'lavfi',
+                        '-i', 'color=c=teal:s=64x64:r=10:d=5', '-an', '-c:v', 'libx264',
+                        str(fixture_video)], check=True, capture_output=True, timeout=20)
+                    body = fixture_video.read_bytes()
                 path = self.store.write_asset_bytes('fixture-video', 'original.mp4', body)
                 asset = MaterialAsset(asset_id='fixture-video', media_type=MediaType.VIDEO,
                     file=FileInfo(path=path, sha256=hashlib.sha256(body).hexdigest(), size=len(body), mime='video/mp4'),
@@ -2502,6 +2509,54 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
         assert asset.rights.evidence[0].reference.endswith(terms['sha256'])
         assert asset.rights.evidence[1].reference.endswith(asset.file.sha256)
         assert record['commission_authorization']['input_use']['creation_id'] == work['id']
+        if outcome in {'budget', 'video_resume'}:
+            from copy import deepcopy
+            from easel.creation_delivery import active_delivery
+            from easel.materials.application.visual_observation import SCHEMA
+            monkeypatch.setattr(commissioned, 'MINIMAX_INTERNAL_TERMS_SHA256', terms['sha256'])
+            observed = []
+            def observe(current, manifest, attachments):
+                observed.append(manifest['input_sha256'])
+                assert attachments
+                return {'schema': SCHEMA, 'input_sha256': manifest['input_sha256'],
+                    'verdict': 'suitable', 'caption': manifest['need']['intent']['description'],
+                    'style': '均匀青绿色画面', 'reason': '隔离 Fixture 观察结果',
+                    'logo_present': False, 'visible_text_present': False,
+                    'frames': [{'index': f['index'], 'observed': True, 'related': True,
+                                'description': '均匀青绿色画面'} for f in manifest['frames']]}
+            assert commissioned.commission_generated_rights(current, plan, plan.needs[0], asset,
+                record, '假设场景。') is None  # Generation success cannot stand in for observation.
+            MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
+            assert store.read_asset(asset.asset_id).rights.status is RightsStatus.UNKNOWN  # No owner authority.
+            before_observations = len(observed)
+            token = active_delivery.set(work['id'])
+            try:
+                admitted_result = MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
+            finally:
+                active_delivery.reset(token)
+            admitted = store.read_asset(asset.asset_id)
+            assert admitted.rights.status is RightsStatus.KNOWN
+            assert set(admitted.rights.usage_constraints) == {'internal_production_only', 'current_creation_only'}
+            assert len(observed) == before_observations and len(calls) == 1
+            assert admitted_result['material_status'] == 'MATERIAL_READY'
+            assert next_operation(creation.get_creation(work['id']))[0] == 'author'
+            unassessed = admitted.model_copy(update={'rights': asset.rights})
+            assert commissioned.commission_generated_rights(current, plan, plan.needs[0], unassessed,
+                record, '假设场景。') is not None
+            for fault in ('old_declaration', 'prompt', 'model', 'restricted'):
+                changed_work, changed_record, changed_asset = deepcopy(current), deepcopy(record), unassessed
+                if fault == 'old_declaration':
+                    declaration = changed_work['delivery']['authorization']['input_use']
+                    declaration.update(creation.input_use_preview(version=1))
+                    changed_record['commission_authorization']['input_use'] = deepcopy(declaration)
+                elif fault == 'prompt':
+                    changed_record['prompt_sha256' if is_video else 'input_sha256'] = '0' * 64
+                elif fault == 'model':
+                    changed_record['model'] = 'unsupported-model'
+                else:
+                    changed_asset = unassessed.model_copy(update={'rights': RightsInfo(status=RightsStatus.RESTRICTED)})
+                assert commissioned.commission_generated_rights(changed_work, plan, plan.needs[0], changed_asset,
+                    changed_record, '假设场景。') is None, fault
     if is_video:
         assert FakeVideo.waits == ['fixture-paid-video'] * (3 if outcome == 'video_failed' else 1 if outcome == 'video_intake_resume' else 5)
         assert len(quote_reads) == (2 if outcome == 'video_failed' else 4)  # Price/terms per initial Need, never on task observation.
