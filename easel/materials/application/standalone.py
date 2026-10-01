@@ -97,6 +97,7 @@ class StandaloneMaterialFlow:
         creative_mode_terms: Iterable[str] = (),
         continuations: dict[str, ProviderContinuation] | None = None,
         persist_bundle: bool = True,
+        excluded_sources: frozenset[tuple[str, str, str]] = frozenset(),
     ) -> StandaloneFlowResult:
         started_at = datetime.now(timezone.utc)
         selected_candidates: list[object] = []
@@ -104,6 +105,9 @@ class StandaloneMaterialFlow:
         stats: dict[str, dict[str, object]] = defaultdict(
             lambda: {"candidates": 0, "acquired": 0, "failed": []}
         )
+        def candidate_identity(candidate):
+            reference = candidate.source.provider_asset_id or candidate.source.source_page
+            return (candidate.media_type.value, candidate.source.provider or 'unknown', reference) if reference else None
 
         for need in plan.needs:
             intent = self.compiler.compile(
@@ -120,12 +124,19 @@ class StandaloneMaterialFlow:
                     continue
                 assert result.page is not None
                 state["candidates"] = int(state["candidates"]) + len(result.page.candidates)
-                ranked = self.preranker.select(result.page.candidates, intent, top_n=top_n)
+                fresh = tuple(c for c in result.page.candidates if candidate_identity(c) not in excluded_sources)
+                ranked = self.preranker.select(fresh, intent, top_n=top_n)
                 selected_candidates.extend(item.candidate for item in ranked.selected)
 
         assets: list[MaterialAsset] = []
+        seen_sources = set(excluded_sources)
         for candidate in selected_candidates:
             provider = candidate.source.provider or "unknown"
+            source_key = candidate_identity(candidate)
+            if source_key is not None and source_key in seen_sources:
+                continue
+            if source_key is not None:
+                seen_sources.add(source_key)
             try:
                 acquired = self.acquirer.acquire(candidate)
                 inspected = self.inspector.inspect_and_persist(acquired)

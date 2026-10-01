@@ -1017,6 +1017,68 @@ def test_no_supply_cannot_bypass_gate(material_integration_env, monkeypatch):
     assert "production_authoring" not in result["attempt"]
 
 
+def test_supplement_reuses_completed_source_and_does_not_reacquire_known_candidate(
+        material_integration_env, tmp_path, monkeypatch):
+    from dataclasses import replace
+    from easel.materials.application.acquisition import MaterialAcquirer
+    from easel.materials.application.library_first import LibraryFirstSupplyService, ExternalSupplyFailure
+    attempt = material_integration_env
+    plan = _planning(attempt)['plan']
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    local = tmp_path / 'supply'
+    local.mkdir()
+    Image.new('RGB', (32, 32), 'blue').save(local / 'candidate.png')
+    provider = LocalProvider((local,))
+    registry = material_supply_module.ProviderRegistry()
+    registry.register(provider)
+    searches, acquisitions = [], []
+    unavailable = True
+    search, acquire = LocalProvider.search, MaterialAcquirer.acquire
+    def counted_search(self, *a, **kw):
+        from easel.materials.providers.errors import ProviderTemporaryError
+        searches.append(1)
+        if unavailable:
+            raise ProviderTemporaryError('local', 'fixture temporary outage')
+        return search(self, *a, **kw)
+    def counted_acquire(self, candidate):
+        acquisitions.append(candidate.source.provider_asset_id)
+        return acquire(self, candidate)
+    monkeypatch.setattr(LocalProvider, 'search', counted_search)
+    monkeypatch.setattr(MaterialAcquirer, 'acquire', counted_acquire)
+    supply_need = LibraryFirstSupplyService.supply_need
+    def partial_route(self, *a, **kw):
+        result = supply_need(self, *a, **kw)
+        # Another route failing must not suppress new usable candidates or
+        # prevent system observation of the successful route's actual media.
+        return replace(result, failures=result.failures + (ExternalSupplyFailure('other', 'fixture outage'),)) if result.external_assets else result
+    monkeypatch.setattr(LibraryFirstSupplyService, 'supply_need', partial_route)
+    write_bundle = AttemptMaterialStore.write_bundle
+    interrupted = False
+    def interrupt_after_source(self, bundle):
+        nonlocal interrupted
+        if bundle.supply_run_id == 'supplement-fixture' and not interrupted:
+            interrupted = True
+            raise OSError('source complete; bundle not yet committed')
+        return write_bundle(self, bundle)
+    monkeypatch.setattr(AttemptMaterialStore, 'write_bundle', interrupt_after_source)
+    supplier = material_supply_module.ProductMaterialSupply(registry=registry)
+    args = {'local_roots': (local,), 'supply_run_id': 'supplement-fixture', 'bundle_id': 'fixture-bundle'}
+    with pytest.raises(RuntimeError, match='素材来源请求未完成'):
+        supplier.run(plan, attempt, **args)
+    unavailable = False
+    failed_searches = len(searches)
+    assert failed_searches > 0 and not acquisitions
+    with pytest.raises(OSError, match='source complete'):
+        supplier.run(plan, attempt, **args)
+    result = supplier.run(plan, attempt, **args)
+    assert len(searches) == failed_searches + 1 and len(acquisitions) == 1
+    attempt = MaterialGateIntegration().record(attempt, plan, result.bundle, result.supply_run,
+                                               result.readiness, result.gaps)['attempt']
+    repeated_candidate = supplier.run(plan, attempt, **{**args, 'supply_run_id': 'supplement-next'})
+    assert len(searches) == failed_searches + 2 and len(acquisitions) == 1
+    assert repeated_candidate.bundle.assets == result.bundle.assets == store.read_bundle().assets
+
+
 def test_product_supply_records_need_gated_generation_without_hypit_request(
     material_integration_env, monkeypatch,
 ):
@@ -1721,9 +1783,9 @@ def test_production_selection_carries_verified_attribution_facts(material_integr
     }]
 
 
-@pytest.mark.parametrize("interrupt_after_supply", [False, True])
+@pytest.mark.parametrize(('interrupt_after_supply', 'automatic'), [(False, False), (True, False), (True, True)])
 def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
-        material_integration_env, monkeypatch, interrupt_after_supply):
+        material_integration_env, monkeypatch, interrupt_after_supply, automatic):
     from easel.integrations import material_recovery as recovery
     attempt = service.update_film_attempt(material_integration_env["attempt_id"],
                                           execution_status="NOT_SUBMITTED", event="fixture_runtime_ready")
@@ -1741,7 +1803,7 @@ def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
         importance=NeedImportance.REQUIRED, constraints={"required_source_kind": "stock"},
         modality_spec=BgmNeedSpec(kind="bgm", instruments=("piano",), vocals_allowed=False))
     planning = PlanningIntegration().persist(attempt, plan.model_copy(update={
-        "needs": plan.needs + (voice_need, bgm_need)}), treatment="原方案", script="原旁白。", scenes="原场景")
+        "needs": plan.needs + (voice_need, bgm_need)}), treatment="原方案", script="假设原旁白。", scenes="原场景")
     attempt, plan = planning["attempt"], planning["plan"]
     voice_bytes = b"completed-generation-fixture"
     voice_path = store.write_asset_bytes("voice-asset", "original.mp3", voice_bytes)
@@ -1778,6 +1840,31 @@ def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
     args = dict(request_id="recovery-test", expected_plan_revision=readiness.plan_revision,
                 expected_bundle_revision=bundle.revision, allow_licensed_bgm=True,
                 search_terms={"bgm": ("piano instrumental",)})
+    query_calls = []
+    if automatic:
+        from easel.creation_delivery import SCHEMA
+        with creation.edit_creation(attempt['creation_id']) as work:
+            work['delivery'] = {'schema': SCHEMA}
+        # Preparing an empty selection is not execution and must not prevent
+        # correction when subsequent system observation invalidates readiness.
+        service.update_film_attempt(attempt['attempt_id'], event='fixture_empty_authoring',
+            production_authoring={'status': 'PENDING_SELECTION', 'selected_asset_ids': []})
+    def plan_queries(current, record):
+        import web.app as webapp
+        query_calls.append(record['request_id'])
+        assert [n['need_id'] for n in record['needs']] == ['bgm']
+        def answer(message, timeout, session_id):
+            assert '不生成素材或启动 Build' in message and 'required_source_kind' in message
+            store.write_recovery_record(record['request_id'] + '-queries',
+                {'request_id': record['request_id'], 'search_terms': {'bgm': ['piano instrumental']}})
+            return ''
+        monkeypatch.setattr(webapp, 'run_agent_sync', answer)
+        return webapp._plan_material_recovery(current, record)
+    def invoke():
+        if not automatic:
+            return recovery.recover_materials(attempt['attempt_id'], **args)
+        updated = recovery.recover_managed_materials(attempt['attempt_id'], executor=plan_queries)
+        return {'attempt': updated, 'material_status': updated['material_gate']['status']}
     monkeypatch.setattr(material_supply_module, "product_provider_registry",
                         lambda roots: (material_supply_module.ProviderRegistry(), ()))
     calls = []
@@ -1794,30 +1881,37 @@ def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
     monkeypatch.setattr(recovery.MaterialGateIntegration, "record", interrupted_record)
     if interrupt_after_supply:
         with pytest.raises(RuntimeError, match="interruption"):
-            recovery.recover_materials(attempt["attempt_id"], **args)
+            invoke()
         monkeypatch.setattr(recovery.MaterialGateIntegration, "record", real_record)
-    result = recovery.recover_materials(attempt["attempt_id"], **args)
+    result = invoke()
     assert len(calls) == 1
     assert calls[0]["skip_need_ids"] == ("voice",)
     refreshed = PlanningIntegration().load(result["attempt"])
     assert refreshed["plan"].needs[:2] == plan.needs[:2]
-    assert "required_source_kind" not in refreshed["plan"].needs[2].constraints
-    assert refreshed["plan"].needs[2].constraints["allow_generation"] is False
-    assert refreshed["script"] == "原旁白。"
+    if automatic:
+        assert refreshed['plan'] == plan  # Supplemental wording cannot enlarge source permissions.
+        assert len(query_calls) == 1
+        assert result['attempt']['autonomous_material_recovery']['status'] == 'COMPLETE'
+    else:
+        assert "required_source_kind" not in refreshed["plan"].needs[2].constraints
+        assert refreshed["plan"].needs[2].constraints["allow_generation"] is False
+    assert refreshed["script"] == "假设原旁白。"
     assert refreshed["scenes"] == "原场景"
     assert refreshed["truth_ledger"]["script_sha256"] == planning["truth_ledger"]["script_sha256"]
     assert store.read_asset(voice.asset_id) == voice
     assert {asset.asset_id: asset for asset in store.read_bundle().assets} == {
         asset.asset_id: asset for asset in (visual, voice, music)}
-    assert store.read_supply_run(store.read_bundle().supply_run_id).parent_run_id == "recover-recovery-test"
+    assert store.read_supply_run(store.read_bundle().supply_run_id).parent_run_id.startswith('recover-')
     assert len(store.list_generation_records()) == 1
     assert result["material_status"] == "MATERIAL_NOT_READY"  # Rights remains a formal gate.
     trace = json.loads((store.materials_root / "product-supply.json").read_text())["routing"]
     assert [row["need_id"] for row in trace if row.get("checkpoint_reused")] == ["need-main", "voice"]
-    repeated = recovery.recover_materials(attempt["attempt_id"], **args)
-    assert repeated["recovery"]["reused"] is True and len(calls) == 1
-    with pytest.raises(MaterialIntegrationError, match="改变输入"):
-        recovery.recover_materials(attempt["attempt_id"], **{**args, "search_terms": {"bgm": ("different",)}})
+    repeated = invoke()
+    assert len(calls) == 1
+    if not automatic:
+        assert repeated['recovery']['reused'] is True
+        with pytest.raises(MaterialIntegrationError, match="改变输入"):
+            recovery.recover_materials(attempt["attempt_id"], **{**args, "search_terms": {"bgm": ("different",)}})
     with pytest.raises(MaterialIntegrationError, match="状态已变化"):
         recovery.recover_materials(attempt["attempt_id"], **{**args, "request_id": "stale-new-request"})
     # The same formal review handles real listening evidence after a source-only revision.
@@ -1844,7 +1938,7 @@ def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
     assert "bgm" in music_candidate["rights_blocking_need_ids"]  # Missing credit provenance stays visible.
     assert "bgm" in music_candidate["semantic_reviewed_need_ids"]
     service.update_film_attempt(attempt["attempt_id"], execution_status="BUILD_RUNNING", event="fixture_build")
-    assert recovery.recover_materials(attempt["attempt_id"], **args)["recovery"]["reused"] is True
+    assert invoke()['material_status'] == 'MATERIAL_NOT_READY'
     with pytest.raises(MaterialIntegrationError, match="视频制作已开始"):
         recovery.recover_materials(attempt["attempt_id"], **{**args, "request_id": "new-after-build"})
 
@@ -1941,3 +2035,60 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
     store.resolve_asset_locator(asset.file.path).write_bytes(b'changed')
     with pytest.raises(ValueError, match='素材字节'):
         prepare_observation(first, observed, store.resolve_asset_locator(asset.file.path))
+
+
+@pytest.mark.parametrize('usable_index', [3, None])
+def test_visual_replacement_stops_at_usable_choice_or_bound_and_reuses_saved_report(
+        material_integration_env, monkeypatch, usable_index):
+    import io
+    from easel.materials.application.visual_observation import SCHEMA, MAX_VISUAL_CANDIDATES
+    attempt = material_integration_env
+    root = Path(attempt['workspace']['path'])
+    store = AttemptMaterialStore(root)
+    plan, original, run, _, _, _ = _contracts(attempt, root)
+    assets = []
+    for index in range(MAX_VISUAL_CANDIDATES + 1):
+        raw = io.BytesIO()
+        Image.new('RGB', (32, 24), (index * 20, 0, 0)).save(raw, format='PNG')
+        data = raw.getvalue()
+        asset_id = f'candidate-{index:02d}'
+        locator = store.write_asset_bytes(asset_id, 'frame.png', data)
+        asset = original.model_copy(update={'asset_id': asset_id,
+            'file': FileInfo(path=locator, sha256=hashlib.sha256(data).hexdigest(), size=len(data), mime='image/png'),
+            'semantic': SemanticInfo(caption=plan.needs[0].intent.description)})
+        store.write_asset(asset)
+        assets.append(asset)
+    planning = PlanningIntegration().persist(attempt, plan, treatment='T', script='假设脚本内容。', scenes='S')
+    plan = planning['plan']
+    bundle = MaterialBundleAssembler().assemble(plan, run, tuple(assets), (), bundle_id='bundle-int-1')
+    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
+    MaterialGateIntegration().record(planning['attempt'], plan, bundle, run, readiness, gaps)
+    calls = []
+    def observe(current, manifest, attachments):
+        calls.append(manifest['asset_id'])
+        good = manifest['asset_id'] == f'candidate-{usable_index:02d}' if usable_index is not None else False
+        return {'schema': SCHEMA, 'input_sha256': manifest['input_sha256'],
+            'verdict': 'suitable' if good else 'unsuitable', 'caption': 'fixture content',
+            'style': 'fixture style', 'reason': 'fixture observation', 'logo_present': False,
+            'visible_text_present': False,
+            'frames': [{'index': 0, 'observed': True, 'related': good, 'description': 'actual colored frame'}]}
+    write_asset = AttemptMaterialStore.write_asset
+    interrupted = False
+    def interrupt_record(self, asset):
+        nonlocal interrupted
+        if asset.asset_id == 'candidate-02' and asset.semantic.inferences and not interrupted:
+            interrupted = True
+            raise OSError('模拟报告已保存、Asset 尚未更新时中断')
+        return write_asset(self, asset)
+    monkeypatch.setattr(AttemptMaterialStore, 'write_asset', interrupt_record)
+    monkeypatch.setattr(material_supply_module.ProductMaterialSupply, 'run',
+                        lambda *a, **k: pytest.fail('existing candidates must not trigger a Provider'))
+    with pytest.raises(OSError, match='模拟报告'):
+        MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
+    result = MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
+    expected_count = usable_index + 1 if usable_index is not None else MAX_VISUAL_CANDIDATES
+    assert calls == [a.asset_id for a in assets[:expected_count]]
+    assert result['material_status'] == ('MATERIAL_READY' if usable_index is not None else 'MATERIAL_NOT_READY')
+    MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
+    assert len(calls) == expected_count
+    assert not store.read_asset(assets[-1].asset_id).semantic.inferences

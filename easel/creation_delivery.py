@@ -140,6 +140,8 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     if execution == "CANCELLED":
         return None, "stopped"
     gate = attempt.get("material_gate") or {}
+    if attempt.get('autonomous_material_recovery', {}).get('status') in {'PLANNING', 'SUPPLYING'}:
+        return 'recover_material', 'recovering_material'
     if gate.get("bundle_revision") and gate.get("status") in {"MATERIAL_READY", "MATERIAL_NOT_READY"}:
         observed = attempt.get("material_observation") or {}
         if (observed.get("status") != "COMPLETE"
@@ -151,6 +153,10 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         if (prep_status == "SCRIPT_TRUTH_REVIEW_REQUIRED"
                 and attempt.get("material_planning", {}).get("truth_review_status") == "PASSED"):
             return "prepare", "preparing"
+        if (gate.get('status') == 'MATERIAL_NOT_READY' and gate.get('plan_revision') and gate.get('bundle_revision')
+                and attempt.get('material_planning', {}).get('truth_review_status') == 'PASSED'
+                and not attempt.get('autonomous_material_recovery')):
+            return 'recover_material', 'recovering_material'
         if prep_status in {"SCRIPT_TRUTH_REVIEW_REQUIRED", "MATERIAL_NOT_READY"}:
             return None, "needs_evidence"
         return "prepare", "preparing"
@@ -275,7 +281,7 @@ async def advance_creation(
         except Exception as exc:
             with creation.edit_creation(creation_id) as current:
                 record = current["delivery"]
-                if operation in {"prepare", "author", "observe_material", "quality"} and isinstance(exc, (DeliveryExecutionUncertain, subprocess.TimeoutExpired)):
+                if operation in {"prepare", "author", "observe_material", "recover_material", "quality"} and isinstance(exc, (DeliveryExecutionUncertain, subprocess.TimeoutExpired)):
                     record.update(status="execution_uncertain", last_error=None,
                                   updated_at=creation._now())
                     return False

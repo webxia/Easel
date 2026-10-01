@@ -23,6 +23,74 @@ from easel.materials.store import AttemptMaterialStore
 from easel.runtime_config import EaselRuntimeConfig
 
 
+def _production_started(attempt: dict) -> bool:
+    authoring = attempt.get('production_authoring') or {}
+    return bool(authoring and (authoring.get('status') != 'PENDING_SELECTION'
+                               or authoring.get('selected_asset_ids'))
+                or attempt.get('authoring_status') not in {None, 'PENDING', 'READY_FOR_EXTERNAL_AUTHORING'})
+
+
+def recover_managed_materials(attempt_id: str, *, executor) -> dict:
+    """One commissioned supplemental search; preserve Need, Rights and Voice."""
+    from easel import creation
+    from easel.creation_delivery import is_managed
+    attempt = get_film_attempt(attempt_id)
+    if not is_managed(creation.get_creation(attempt['creation_id'])):
+        raise MaterialIntegrationError('自动补料只适用于明确委托持续交付的新作品')
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    planning = PlanningIntegration().load(attempt)
+    record = attempt.get('autonomous_material_recovery')
+    if record and record.get('status') in {'COMPLETE', 'NOT_APPLICABLE'}:
+        return attempt
+    if record is None:
+        gate = attempt.get('material_gate', {})
+        if gate.get('status') != 'MATERIAL_NOT_READY' or planning['truth_ledger']['status'] != 'PASSED':
+            raise MaterialIntegrationError('自动补料需要当前素材缺口和有效的内容依据')
+        needs = [n.model_dump(mode='json') for n in planning['plan'].needs
+                 if n.need_id in gate['blocking_needs'] and getattr(n.modality_spec, 'kind', None) != 'voice']
+        identity = hashlib.sha256((attempt_id + gate['plan_revision'] + gate['bundle_revision']).encode()).hexdigest()
+        record = {'status': 'PLANNING' if needs else 'NOT_APPLICABLE', 'request_id': 'auto-' + identity[:32],
+                  'plan_revision': gate['plan_revision'], 'bundle_revision': gate['bundle_revision'], 'needs': needs}
+        attempt = update_film_attempt(attempt_id, event='automatic_material_recovery_started',
+                                      autonomous_material_recovery=record)
+        if not needs:
+            return attempt  # Voice generation has its own paid and identity contracts.
+    if record['status'] == 'PLANNING':
+        if (attempt['material_gate']['plan_revision'] != record['plan_revision']
+                or attempt['material_gate']['bundle_revision'] != record['bundle_revision']):
+            raise MaterialIntegrationError('补料期间素材依据已变化，原结果已保留')
+        request_id = record['request_id'] + '-queries'
+        cached = store.read_recovery_record(request_id)
+        if cached is None:
+            cached = executor(attempt, record)
+            validate_recovery_queries(record, cached)
+            store.write_recovery_record(request_id, cached)
+        validate_recovery_queries(record, cached)
+        record = {**record, 'status': 'SUPPLYING', 'search_terms': cached['search_terms']}
+        attempt = update_film_attempt(attempt_id, event='automatic_material_recovery_queries_ready',
+                                      autonomous_material_recovery=record)
+    result = recover_materials(attempt_id, request_id=record['request_id'],
+        expected_plan_revision=record['plan_revision'], expected_bundle_revision=record['bundle_revision'],
+        allow_licensed_bgm=False, search_terms={key: tuple(value) for key, value in record['search_terms'].items()})
+    return update_film_attempt(attempt_id, event='automatic_material_recovery_completed',
+        autonomous_material_recovery={**record, 'status': 'COMPLETE',
+                                     'result_bundle_revision': result['attempt']['material_gate']['bundle_revision']})
+
+
+def validate_recovery_queries(record: dict, report: dict) -> None:
+    """Only retrieval wording is delegated; frozen intent and policy stay in code."""
+    from easel.materials.domain import MaterialNeed
+    terms = report.get('search_terms')
+    if (set(report) != {'request_id', 'search_terms'} or report.get('request_id') != record['request_id'] or not isinstance(terms, dict)
+            or set(terms) != {n['need_id'] for n in record['needs']}):
+        raise MaterialIntegrationError('补料检索建议必须覆盖当前缺口并绑定当前请求')
+    for raw in record['needs']:
+        value = terms[raw['need_id']]
+        if not isinstance(value, list) or not value or any(not isinstance(v, str) for v in value):
+            raise MaterialIntegrationError('补料检索建议须为短语列表')
+        NeedCompiler(search_terms={raw['need_id']: tuple(value)}).compile(MaterialNeed.model_validate_json(json.dumps(raw)))
+
+
 def recover_materials(attempt_id: str, *, request_id: str, expected_plan_revision: str,
                       expected_bundle_revision: str, allow_licensed_bgm: bool,
                       search_terms: dict[str, tuple[str, ...]]) -> dict:
@@ -61,16 +129,14 @@ def _recover_locked(attempt_id, store, request_id, expected_plan_revision,
                     "recovery": {"status": "COMPLETE", "reused": True}}
         if (attempt.get("execution_status") != "NOT_SUBMITTED"
                 or attempt.get("cost", {}).get("approved")
-                or attempt.get("production_authoring") or attempt.get("outputs")
-                or attempt.get("authoring_status") in {"AUTHORING_RUNNING", "AUTHORING_READY", "PLAN_READY"}):
+                or _production_started(attempt) or attempt.get("outputs")):
             raise MaterialIntegrationError("视频制作已开始，不能覆盖素材规划；请使用当前阶段恢复或成片修改")
         source_plan = MaterialPlan.model_validate_json(json.dumps(record["source_plan"]))
         source_bundle = MaterialBundle.model_validate_json(json.dumps(record["source_bundle"]))
     else:
         if (attempt.get("execution_status") != "NOT_SUBMITTED"
                 or attempt.get("cost", {}).get("approved")
-                or attempt.get("production_authoring") or attempt.get("outputs")
-                or attempt.get("authoring_status") in {"AUTHORING_RUNNING", "AUTHORING_READY", "PLAN_READY"}):
+                or _production_started(attempt) or attempt.get("outputs")):
             raise MaterialIntegrationError("视频制作已开始，不能覆盖素材规划；请使用当前阶段恢复或成片修改")
         source_plan = planning["plan"]
         source_bundle = store.read_bundle()

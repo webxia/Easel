@@ -24,6 +24,7 @@ from easel.materials.domain import (
 
 SCHEMA = "easel-visual-observation@1"
 PREFIX = "easel-visual-v1:"
+MAX_VISUAL_CANDIDATES = 9
 
 
 def need_identity(need: MaterialNeed) -> str:

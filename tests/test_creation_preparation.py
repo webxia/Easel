@@ -108,11 +108,18 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
             if operation == "prepare":
                 value["hypit_attempts"] = [{"attempt_id": "fa_" + "b" * 32,
                     "execution_status": "NOT_SUBMITTED", "authoring_status": "READY_FOR_EXTERNAL_AUTHORING",
-                    "material_gate": {"status": "MATERIAL_READY", "plan_revision": "p1", "bundle_revision": "b1"}}]
+                    "material_planning": {'truth_review_status': 'PASSED'},
+                    "material_gate": {"status": "MATERIAL_NOT_READY", "plan_revision": "p1", "bundle_revision": "b1"}}]
                 return
             attempt = value["hypit_attempts"][-1]
             if operation == "observe_material":
-                attempt["material_observation"] = {"status": "COMPLETE", "plan_revision": "p1", "bundle_revision": "b1"}
+                attempt["material_observation"] = {"status": "COMPLETE", "plan_revision": "p1",
+                                                   "bundle_revision": attempt['material_gate']['bundle_revision']}
+                if attempt.get('autonomous_material_recovery', {}).get('status') == 'COMPLETE':
+                    attempt['material_gate']['status'] = 'MATERIAL_READY'
+            elif operation == 'recover_material':
+                attempt['autonomous_material_recovery'] = {'status': 'COMPLETE'}
+                attempt['material_gate']['bundle_revision'] = 'b2'
             elif operation == "author":
                 attempt["authoring_status"] = "AUTHORING_READY"
             elif operation == "runtime":
@@ -153,7 +160,7 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
             assert saved["hypit_attempts"][-1]["execution_status"] == "SUBMITTED"
         if next_operation(creation.get_creation(work["id"])) == (None, "first_cut_ready"):
             break
-    assert calls == ["prepare", "observe_material", "observe_material", "author", "author", "runtime", "validate", "price", "approve_free",
+    assert calls == ["prepare", "observe_material", "observe_material", 'recover_material', 'observe_material', "author", "author", "runtime", "validate", "price", "approve_free",
                      "submit", "reconcile", "reconcile", "refresh", "refresh", "export", "quality"]
     assert creation.get_creation(work["id"])["delivery"]["status"] == "first_cut_ready"
     snapshot = creation.get_creation(work['id'])

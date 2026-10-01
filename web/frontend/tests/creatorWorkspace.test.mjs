@@ -55,6 +55,10 @@ assert.equal(observingMaterial.pending, 0);
 assert.equal(observingMaterial.materialWorking, true);
 assert.equal(observingMaterial.timeline[3].state, 'running');
 assert.match(observingMaterial.title, /核对候选素材的实际画面/);
+const supplementingMaterial = project({ ...confirmed, delivery: { ...delivery, status: 'recovering_material' } },
+  { material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['scene-1'] } }, null);
+assert.equal(supplementingMaterial.pending, 0);
+assert.match(supplementingMaterial.title, /补充缺失素材/);
 const observationFailure = project({ ...confirmed, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:observe_material' } },
   { material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['scene-1'] } }, null);
 assert.equal(observationFailure.failureStage, '素材准备');

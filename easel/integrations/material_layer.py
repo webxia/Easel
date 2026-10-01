@@ -1540,7 +1540,7 @@ class MaterialProductOrchestrator:
         from easel.integrations.hypit.service import get_film_attempt
         from easel.materials.application.matching import MaterialMatcher
         from easel.materials.application.visual_observation import (
-            apply_observation, prepare_observation, scoped_inference,
+            MAX_VISUAL_CANDIDATES, apply_observation, observed_match, prepare_observation, scoped_inference,
         )
 
         attempt = get_film_attempt(attempt_id)
@@ -1550,7 +1550,7 @@ class MaterialProductOrchestrator:
         candidates = self.material_rights_candidates(attempt_id)
         verified = {c["asset_id"] for c in candidates}
         matcher = MaterialMatcher()
-        batch_key = hashlib.sha256((MaterialReadinessCalculator.plan_revision(plan) + "\n"
+        batch_key = hashlib.sha256(("ranked-v2\n" + MaterialReadinessCalculator.plan_revision(plan) + "\n"
             + "\n".join(sorted(a.asset_id + ":" + a.file.sha256 for a in bundle.assets))).encode()).hexdigest()
         batch_relative = f"materials/observations/batch-{batch_key}.json"
         batch_path = _workspace(attempt) / batch_relative
@@ -1564,8 +1564,12 @@ class MaterialProductOrchestrator:
                 if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
                     continue
                 assets = [a for a in bundle.assets if a.asset_id in verified and a.media_type is need.media_type]
-                assets.sort(key=lambda a: (-matcher._soft_scores(need, a)[1], a.asset_id))
-                pairs[need.need_id] = [a.asset_id for a in assets[:3]]
+                assets.sort(key=lambda a: (
+                    any(scoped_inference(need, a, i) for i in a.semantic.inferences) and observed_match(need, a) is not True,
+                    RightsService().evaluate(a, need, attribution=RightsService.attribution_condition_for(a)).status
+                    is RightsAdmissionStatus.BLOCKED,
+                    -matcher._soft_scores(need, a)[1], a.asset_id))
+                pairs[need.need_id] = [a.asset_id for a in assets[:MAX_VISUAL_CANDIDATES]]
             # Freeze nominated candidates before the first model dispatch.
             # New evidence must not reshuffle a resumed batch into more calls.
             store.write_observation_record(f"batch-{batch_key}", pairs)
@@ -1574,10 +1578,17 @@ class MaterialProductOrchestrator:
             if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
                 continue
             selected = pairs.get(need.need_id, [])
-            if (not isinstance(selected, list) or len(selected) > 3 or len(set(selected)) != len(selected)
+            if (not isinstance(selected, list) or len(selected) > MAX_VISUAL_CANDIDATES or len(set(selected)) != len(selected)
                     or any(a not in verified for a in selected)):
                 raise MaterialIntegrationError("当前素材字节与已保存的观察候选不一致")
             for asset_id in selected:
+                # Readiness needs a usable choice, not exhaustive review of the
+                # whole pool. Preserve independent evidence for each Need.
+                usable = tuple(store.read_asset(a.asset_id) for a in bundle.assets if a.asset_id in verified)
+                usable = tuple(a for a in usable if observed_match(need, a) is True
+                               or matcher._creator_match_review(need, a))
+                if matcher.match(need, usable).matches:
+                    break
                 asset = store.read_asset(asset_id)
                 if matcher._creator_match_review(need, asset):
                     continue
@@ -1587,9 +1598,9 @@ class MaterialProductOrchestrator:
                 report_path = _workspace(attempt) / relative
                 if _has_symlink_components(_workspace(attempt), report_path):
                     raise MaterialIntegrationError("素材观察路径无效")
-                if any(scoped_inference(need, asset, i, manifest["input_sha256"])
-                       for i in asset.semantic.inferences) and report_path.is_file():
+                if report_path.is_file():
                     report = json.loads(report_path.read_text())
+                    apply_observation(need, asset, manifest, report)
                 else:
                     # Pending gateway calls escape to the durable owner. Never
                     # turn an uncertain model run into a failed observation.

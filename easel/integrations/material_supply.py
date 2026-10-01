@@ -127,6 +127,8 @@ class ProductMaterialSupply:
     ) -> ProductSupplyResult:
         started_at = datetime.now(timezone.utc)
         store = AttemptMaterialStore(attempt["workspace"]["path"])
+        from easel.creation_delivery import is_managed
+        retain_sources = is_managed(creation.get_creation(attempt['creation_id'])) or supply_run_id.startswith('supplement-')
         catalog = MaterialLibraryCatalog(self.library_root)
         scope = self.scope_for_attempt(attempt)
         registry, missing_keys = (
@@ -186,6 +188,23 @@ class ProductMaterialSupply:
                 source_registry.register(registry.get(source_id))
                 subset = plan.model_copy(update={"needs": (requested_need,)})
                 key = hashlib.sha256(f"{supply_run_id}\0{source_id}\0{requested_need.need_id}".encode()).hexdigest()[:20]
+                input_sha256 = hashlib.sha256(json.dumps({
+                    'plan': subset.model_dump(mode='json'), 'style': style_terms,
+                    'search_terms': search_terms, 'top_n': top_n,
+                }, sort_keys=True).encode()).hexdigest()
+                receipt = store.read_recovery_record(f'source-{key}') if retain_sources else None
+                if receipt is not None:
+                    if receipt.get('input_sha256') != input_sha256:
+                        raise ValueError('同一素材供应请求不能改变检索依据')
+                    restored = tuple(MaterialAsset.model_validate_json(json.dumps(item)) for item in receipt['assets'])
+                    for asset in restored:
+                        path = store.resolve_asset_locator(asset.file.path)
+                        if (store.read_asset(asset.asset_id) != asset or path.stat().st_size != asset.file.size
+                                or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
+                            raise ValueError('已完成素材供应的结果已变化，不能重复请求或覆盖')
+                    results = tuple(SupplySourceResult.model_validate_json(json.dumps(item)) for item in receipt['provider_results'])
+                else:
+                    restored = None
                 flow = StandaloneMaterialFlow(
                     source_registry,
                     store,
@@ -193,17 +212,28 @@ class ProductMaterialSupply:
                     rights_facts=self.rights_facts,
                     compiler=NeedCompiler(search_terms=search_terms),
                 )
-                result = flow.run(
-                    subset, supply_run_id=f"source-{key}", bundle_id=f"source-bundle-{key}", top_n=top_n,
-                    persist_bundle=False, creative_mode_terms=style_terms,
-                )
-                for item in result.supply_run.provider_results:
+                if restored is None:
+                    result = flow.run(
+                        subset, supply_run_id=f"source-{key}", bundle_id=f"source-bundle-{key}", top_n=top_n,
+                        persist_bundle=False, creative_mode_terms=style_terms,
+                        excluded_sources=frozenset((a.media_type.value, a.source.provider or 'unknown',
+                                                   a.source.provider_asset_id or a.source.source_page)
+                                                  for a in assets.values()
+                                                  if a.source.provider_asset_id or a.source.source_page) if retain_sources else frozenset(),
+                    )
+                    restored, results = result.assets, result.supply_run.provider_results
+                    if retain_sources and all(r.status != 'FAILED' for r in results):
+                        store.write_recovery_record(f'source-{key}', {
+                            'input_sha256': input_sha256, 'assets': [a.model_dump(mode='json') for a in restored],
+                            'provider_results': [r.model_dump(mode='json') for r in results],
+                        })
+                for item in results:
                     totals = source_totals[item.source_id]
                     totals["candidates"] = int(totals["candidates"]) + item.candidates_found
                     totals["acquired"] = int(totals["acquired"]) + item.acquired_assets
                     if item.failure_summary:
                         totals["failures"].append(item.failure_summary)
-                return result.assets
+                return restored
 
             result = library_first.supply_need(
                 need, scope=scope, creation_id=attempt["creation_id"],
@@ -270,13 +300,18 @@ class ProductMaterialSupply:
             result_bundle_id=bundle_id,
         )
         bundle = MaterialBundleAssembler().assemble(plan, run, all_assets, tuple(matches), bundle_id=bundle_id)
+        readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
+        previous_ids = {a.asset_id for a in checkpoint.assets} if checkpoint is not None and gate else set()
+        if (retain_sources and readiness.status.value == 'NOT_READY'
+                and not any(a.asset_id not in previous_ids for a in all_assets)
+                and (any(r.status == 'FAILED' for r in provider_results) or any(row['failures'] for row in trace))):
+            raise RuntimeError('素材来源请求未完成；已保存的成功来源与素材会复用，重试仅继续未完成来源')
         if checkpoint is not None and gate:
             if store.read_bundle() != checkpoint or any(
                     store.read_asset(asset.asset_id) != asset for asset in checkpoint.assets):
                 raise ValueError("素材 checkpoint 在检索期间变化，拒绝覆盖，请先刷新核对")
         store.write_supply_run(run)
         store.write_bundle(bundle)
-        readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
         generation_preparation: dict[str, object] | None = None
         if readiness.status.value == "NOT_READY":
             blocking_need_ids = {gap.need_id for gap in gaps}

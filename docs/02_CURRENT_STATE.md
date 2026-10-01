@@ -55,7 +55,7 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 原始产品目标对齐、流程重审与 Director 实际执行链只读核对已完成。已确认两组根因：缺少持续自主交付首版的责任与执行闭环；Mode 在 Planning 中有体现，但 Material 风格参数未接全、Voice 朗读要求未进入实际请求、Production 未完整落实文稿、Quality 仍依赖人审。用户已批准将合并方案写入文档并设 Goal 实施，[同一任务](tasks/creator-autonomous-first-cut-2026-09-30.md) 已替换为唯一实施方案。
 
-当前：Goal 保持 active，①～⑤ **PARTIAL**。已接通委托推进、素材风格与观察、Truth 系统审阅、Voice 参数/时序、原生字幕/旁白/配乐压低及导出后的系统审片。已接通有证据的构图/字幕/混音两轮局部修复；可用视频区间、自动替换/补料、委托内付费执行、其余质量缺口恢复及⑥跨内容回放仍未闭环，不能据此宣称“持续自主交付可看首版”或风格一致已实现。
+当前：Goal 保持 active，①～⑤ **PARTIAL**。已接通委托推进、素材风格与观察、Truth 系统审阅、Voice 参数/时序、原生字幕/旁白/配乐压低及导出后的系统审片。已接通有证据的构图/字幕/混音两轮局部修复；已有候选替换与一次原许可范围内补料也已接入；可用视频区间、委托内付费执行、声音内容观察、其余质量缺口恢复及⑥跨内容回放仍未闭环，不能据此宣称“持续自主交付可看首版”或风格一致已实现。
 
 - 新的结构化确认把方案原文、摘要与授权来源原子保存到同一 Creation；后端生命周期扫描仅接管带新委托记录的作品。旧 Creation 不迁移、不入队，旧确认重放也不会被接管。
 - 后端从现有 Preparation/Attempt 状态推导下一项操作，复用准备、编排、Runtime、Plan、Pricing、提交、对账、状态查询和导出服务。页面对新委托只读轮询，不再用 useEffect 推进上述操作；处理正式 Truth/Material 决定后由后端观察证据继续。
@@ -72,9 +72,15 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 - 系统审阅记为 `SYSTEM_REVIEWED`，与 `TRUTH_SUPPORTED`、`DELEGATE_REVIEWED`、`HUMAN_REVIEWED` 分开；现有账本、正式 Truth 状态及 Material Gate 消费该证据。机器语义判断不是确定性事实证明，也不代表 Creator 接受。引用合同验证只证明来源/身份/覆盖，语义是否正确仍取决于真实模型审阅，当前只有固定响应的局部回放，尚未验证真实判断质量。
 - 系统新增的无依据表达先回到同一 Planning 修正，最多一个自动修正轮次；修正输入身份在派发前持久化，调用方中断后复用已写结果，不重新消耗一轮。再次失败记为准备失败，不显示为等待 Creator 给虚构事实背书；显式阶段 Retry 才打开新轮次。真正必需且无依据的表述保留具体缺口说明。UI 显示该说明，高级记录分开统计系统审阅，并保留判定原因/引用。顺带修复人工审核时间错误地取第一条自动分类记录的问题。
 - **素材观察增量（2026-10-01）：** 新委托在编排前，按已登记的 Need/Mode 偏好对已有候选执行视觉观察；不再等待每个候选都由 Creator 核对。复用现有网关、SemanticInference、Matcher、Bundle 和 Material Gate，没有增加生产主链。图片从原字节解码；视频提取最多五张实际预览，保留采样位置与预览 SHA。图片附件正式进入网关请求，合同已核对本机 OpenClaw 2026.9.4 的 AgentParamsSchema、attachment-normalize 和 chat-attachments 源码；未执行真实模型调用。
-- 每个 Need 最多分析排名前三个候选，派发前原子保存候选批次；来源标题只用于提名，不能替代观察。同一素材的每个 Need 独立保存报告，绑定完整 Need、素材 SHA 和预览输入身份；错配、未知、Need/风格变更或字节变更不能借另一场景的描述放行。报告保留实际风格与偏差，沿用现有软风格评分，不把所有审美差异升级为硬门禁。Provider 事实和 Rights 不被机器观察覆盖，系统结论与 Creator 核对分开。
+- 最初每个 Need 固定分析前三个候选；现改为下述有限候选替换，仍在派发前原子保存候选批次；来源标题只用于提名，不能替代观察。同一素材的每个 Need 独立保存报告，绑定完整 Need、素材 SHA 和预览输入身份；错配、未知、Need/风格变更或字节变更不能借另一场景的描述放行。报告保留实际风格与偏差，沿用现有软风格评分，不把所有审美差异升级为硬门禁。Provider 事实和 Rights 不被机器观察覆盖，系统结论与 Creator 核对分开。
 - Pending/超时继续观察同一网关身份，不重发；中断后复用已完成报告，不重新请求素材 Provider。现有本地重算负责更新 Match/Readiness，满足时进入原 Authoring；已失败 Build 的 checkpoint 复制保留观察文件和对应身份，不重新分析相同素材。页面在后台观察期间显示具体状态，不把尚在处理的素材计为 Creator 待办；观察失败显示为素材阶段问题。
 - **明确限制：** 这是样本观察接线，不是已验证的真实视觉理解能力。Fixture 固定语义响应，仅验证附件字节、证据合同、状态推进与边界，真实模型是否支持图像、是否判断准确尚待验收。视频采样位置不是精确剪辑点；主体只在部分样本出现记录 partial，当前不直接批准整段匹配。少量样本未发现标志/文字不证明全片不存在，带此类硬约束的视频仍可能未就绪。精确可用区间与实际取片绑定、有界替换/补料、Voice/音频时序、成片 Quality/修复和跨内容回放继续按同一 Task 实施；不得据此宣称正常路径已完全无人介入。
+- **候选替换与自主补料增量（2026-10-01）：** 固定只看前三个候选会漏掉池中已有可用素材，找到可用素材后还会继续消耗分析。现在每个 Need 从已取得、字节有效的候选中冻结最多九项，优先尚未否定且 Rights 可准入的项；逐项观察，找到正式 Matcher 可用的选择即停止，其他 Need 保持独立证据。报告已保存但 Asset 记录尚未更新时中断可直接复用报告。新候选池不会被已否定项挤满，不因候选替换再次请求 Provider。
+- 观察后仍有缺口时，新的 Delivery Owner 自动调用原 `recover_materials`，每个 Attempt 只发起一次补充检索；已有持久请求未完成则接续。现有网关根据当前缺失 Need、风格与对应观察提出检索短语，报告绑定请求并限定键/数量/长度。系统只改查询用词，不改变 SCRIPT、SCENES、Need、Mode、Rights 或来源限制，`allow_licensed_bgm` 固定 false；Voice 不进入该检索或生成，已有旁白保留。该增量没有授权付费生成或来源扩张。
+- 补料完成后 Bundle 变化触发同一视觉观察与正式 Match/Readiness，具备条件继续 Authoring，无需 Creator 再说“继续”。空的待选择 Authoring 框架不再被误认为已经制作；实际选择、编排开始、费用批准或提交后的素材规划仍不能被覆盖。页面补料期间显示系统正在工作，不把尚在处理的素材算作 Creator 待办。
+- 新委托和明确补料请求按来源保存已完成结果，绑定正式 Plan、检索词、Mode 风格输入及素材身份；总 Bundle 登记前中断可复用成功来源，不重复检索/下载。已有候选的 Provider/来源身份在预排序前排除，避免再次下载同一素材、让新候选有机会进入。临时来源失败不缓存为成功；若已有新候选，先保留并进入观察，不因另一来源失败阻断有效进展；无新增候选且来源失败时走原阶段有界重试，成功来源保持复用。单个来源尚未保存完成凭据前的下载中断可能重新执行该只读来源请求，不声称该窗口已具备逐文件恢复。
+- **本批素材恢复验证：** Material integration、Preparation、隔离 P0 Fixture、Acquisition、Matching、Hypit、隔离 Authoring **203 passed**；最终 Material/Preparation/隔离 P0 回归 **99 passed**，后续实际补料提示路径、部分来源失败和恢复合同 **6 passed**。覆盖前三项不适合但第四项可用、找到后停止、九项上限、逐 Need 证据、报告登记中断、来源失败后恢复、来源完成后 Bundle 写入中断、同一候选不重复取得、自动补料不扩大 stock 限制、不重购 Voice、未知 Rights 保留，以及补料→重新观察→编排的后端回放。前端投影、lint/build、compileall、115 项技能合同与 diff check 通过；保留既有 Hook、包体积和 Python 依赖提示。使用临时图片、本地 Provider 与固定模型响应，未调用外部 Provider、付费 AI、真实 Build 或完整 E2E，未改当前 Creation。
+- **仍有边界：** 检索词符合真实表达、观察效果及来源实际可得性需要真人验收；一次补料无法保证所有素材存在。精确可用视频区间与原生取片绑定、BGM/声音内容的系统观察、委托内付费生成及未知质量证据恢复仍待完成，不将这批通过等同完整自主交付。
 - **Voice 执行与时序增量（2026-10-01）：** `clear_memo_video` 升至 1.2，以现有 Need.constraints.voice_delivery 承载 provider-neutral 的语速倍率、音高半音和情绪选择。Planning 读取冻结 Mode，具体内容的显式选择覆盖对应默认值；旧快照不回填，不把 Provider 音色 ID 写入 Need。`delivery_description` 仍表达完整意图，Planning 必须把可支持部分转为执行参数；生成入口不再静默接受只有描述而没有执行参数的新请求。复杂口音、耳语或表演不被这些有限参数冒充支持。
 - MiniMax adapter 将执行要求映射到真实 speed/pitch/emotion 参数，音量保持标准输出，由 Production 后续混音处理。请求身份在付费派发前加入运行配置的预置音色与执行参数；同一 request_id 遇到音色/参数变化拒绝认领，已完成同一输入复用原音频，不重复请求。现有付费批准与 Rights 语义保留，本批没有让未知价格/未批准生成自动提交。
 - 按 [MiniMax 官方 T2A 合同](https://platform.minimaxi.com/docs/api-reference/speech-t2a-http.md)（2026-10-01 只读核对）开启句级字幕，使用 stream + exclude_aggregated_audio=false，同时取得完整音频与内联时序，避免额外下载带签名字幕 URL。仅取终态完整音频，不重复拼接前面的分块；没有终态视为结果不确定，不自动重发。Provider 字幕字段在 adapter 内转换成中立的秒/字符区间，未泄漏进 Material Domain。
