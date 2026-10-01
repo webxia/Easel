@@ -53,6 +53,8 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **声学观察独立样本证据（2026-10-01）：** 实际本地 AST 对四个公开、来源/许可/字节可追溯的 librosa 示例片段执行分类：vibeace 进入 instrumental_music，fishin 与 libri1 检出人声，短 trumpet 因 Music 分数不足保留 unknown。以相同公开配乐和朗读构造相对 RMS 0 / −12 / −24 dB 的三份混音，均检出人声，未作为无歌词配乐放行。没有为单一样本降低阈值，模型没有接收曲名或期望结论。完整来源、输入 SHA、窗口分数及限制见[具名局部验收](acceptance/local-acoustic-observation-2026-10-01.md)。这补足了真实模型音乐正例与人声混入的有限证据，但不是标注盲测、总体准确率或真实作品听感证明；旁白表达质量、内容缺陷恢复与真实音乐覆盖仍开放，Goal active / NOT_READY。仅文档更新，无生产代码改动；未操作真实 Creation、付费 AI、真实 Build 或完整 E2E。
+
 - **BGM 实际声音观察接入（2026-10-01）：** 原默认分析只支持视觉，配乐匹配可凭标题/语义标签进入制作，三内容回放还需直接补写 BGM caption。现复用后台素材观察、Attempt observations 与普通 Match/Readiness，在本地对配乐候选解码并运行固定版本 AST AudioSet 分类；逐窗口覆盖 1～300 秒资产及尾部，音乐、人声与乐器/曲风标签来自波形，不将 Need 或目标听感喂给模型。报告绑定模型与音频 SHA，按每个 Need 单独应用；无足够音乐证据、弱/不确定人声结论及缺失观察不由标题替代。乐器/曲风排序优先实际分类标签，元数据不能将已观察的摇滚吉他包装成钢琴氛围音乐；其他软偏好仍不升级为硬门禁。原有明确 Creator 核对入口保留，但正常新委托走后台观察。
 - 成功的声学报告先落盘，中断后复用再登记 Asset/Bundle；重跑不制造新时间戳。已有可用配乐时不再观察所有候选；单 Need 最多九个候选，超出模型支持时长的候选不进入推理。运行依赖已登记 `audio.music-observation`；需配乐的新委托在新的付费素材请求前预检该依赖，保留已有结果/已提交任务。安装、模型固定摘要与阈值限制见[运行依赖](configuration/v1-runtime-and-external-dependencies.md)。
 - **本批声音验证：** Cross-Content/Material integration/Matching/Audio supply/Readiness/Hypit/Preparation/Runtime **199 passed**；compileall、diff check、pip check 通过。三内容回放已删除直接写入 BGM 语义，只替换本地分类器响应；每个作品只分类一次，并注入“报告已保存、Asset 登记中断”，恢复不重复分类/生成。沿用已有音频场景覆盖元数据误导、尾部缺失、音频身份错配、逐 Need 隔离、明显人声、弱分数、非音乐及软风格排序。模型/ASR/TTS/渲染回放仍为 Fixture，不作为真实听感验收。
