@@ -259,6 +259,7 @@ export default function App() {
     creationAction?: 'confirm_production',
     proposalContext?: Array<{ role: 'user' | 'assistant'; content: string }>,
     generationBudget?: GenerationBudget,
+    inputUseStatementSha256?: string,
   ) => {
     const turnId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try { sessionStorage.setItem(`easel_pending_turn:${sessionId}`, turnId); } catch { /* ignore */ }
@@ -360,6 +361,7 @@ export default function App() {
       creationAction,
       proposalContext,
       generationBudget,
+      inputUseStatementSha256,
     );
   }, [appendAssistant, clearStream, rememberCreationState]);
 
@@ -488,6 +490,7 @@ export default function App() {
     truncateAt?: number,
     creationAction?: 'confirm_production',
     generationBudget?: GenerationBudget,
+    inputUseStatementSha256?: string,
   ) => {
     const visible = displayText.trim();
     const agentMessage = (legacyAgentText || displayText).trim();
@@ -520,7 +523,7 @@ export default function App() {
     const proposalContext = creationAction === 'confirm_production'
       ? cur?.messages.slice(-48).map(({ role, content }) => ({ role, content }))
       : undefined;
-    startStream(sessionId, agentMessage, persona, creativeMode, attachments, capability, creationAction, proposalContext, generationBudget);
+    startStream(sessionId, agentMessage, persona, creativeMode, attachments, capability, creationAction, proposalContext, generationBudget, inputUseStatementSha256);
   }, [selectedCreativeMode, selectedPersona, startStream]);
 
   const handleCapabilityChange = useCallback((sessionId: string, capability: CreationCapability | null) => {
@@ -535,11 +538,11 @@ export default function App() {
     sendUserAndStream(sessionId, displayText, attachments);
   }, [sendUserAndStream]);
 
-  const handleConfirmProduction = useCallback((sessionId: string, generationBudget?: GenerationBudget) => {
+  const handleConfirmProduction = useCallback((sessionId: string, generationBudget?: GenerationBudget, inputUseStatementSha256?: string) => {
     const current = sessionsRef.current.find((s) => s.id === sessionId);
     if (current?.capability !== 'ai-film' || !current.activeCreationId
         || current.activeCreationPhase !== 'proposal_ready') return;
-    sendUserAndStream(sessionId, '确认当前创作方案，继续准备内容与素材', [], undefined, undefined, 'confirm_production', generationBudget);
+    sendUserAndStream(sessionId, '确认当前创作方案，继续准备内容与素材', [], undefined, undefined, 'confirm_production', generationBudget, inputUseStatementSha256);
   }, [sendUserAndStream]);
 
   // 重试/编辑重发：从该用户消息处截断（丢弃它及其之后），用 text 重新发起。
@@ -733,7 +736,7 @@ export default function App() {
             stream={streams[activeSession.id]}
             onSend={(displayText, attachments) => handleSendMessage(activeSession.id, displayText, attachments)}
             onCapabilityChange={(capability) => handleCapabilityChange(activeSession.id, capability)}
-            onConfirmProduction={(budget) => handleConfirmProduction(activeSession.id, budget)}
+            onConfirmProduction={(budget, inputUseStatementSha256) => handleConfirmProduction(activeSession.id, budget, inputUseStatementSha256)}
             onStop={() => handleStopStream(activeSession.id)}
             onResend={(userIndex, displayText, attachments, legacyAgentText) => handleResend(
               activeSession.id, userIndex, displayText, attachments, legacyAgentText,

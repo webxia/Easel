@@ -2214,7 +2214,8 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     preview = commissioned.generation_budget_preview()
     budget = {'maxCostCny': 2 if is_video else 0.03, 'scopeSha256': preview['scope_sha256']}
     work = creation.confirm_chat_proposal(attempt['creation_id'], 'fixture-confirm',
-        delivery_proposal=proposal, proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), generation_budget=budget)
+        delivery_proposal=proposal, proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), generation_budget=budget,
+        input_use_statement_sha256=creation.input_use_preview()['statement_sha256'])
     # Replayed confirmation cannot increase or retrofit an authorization.
     with pytest.raises(creation.CreationError, match='扩大素材预算'):
         creation.confirm_chat_proposal(work['id'], 'replayed', delivery_proposal=proposal,

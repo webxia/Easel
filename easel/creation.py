@@ -317,6 +317,20 @@ def mark_chat_proposal_ready(creation_id: str) -> dict[str, Any]:
     return get_creation(creation_id)
 
 
+def input_use_preview() -> dict[str, Any]:
+    """The exact declaration shown before confirmation; not an asset license."""
+    statement = ('我确认有权将本次提供的文字内容用于这份作品，并授权 Easel 按本方案改写、'
+                 '合成预置音色旁白和剪辑。素材自身的许可仍按实际证据核对，不自动发布。')
+    declaration = {'schema': 'easel-input-use@1', 'statement': statement,
+                   'scope': 'creator_provided_text_for_current_creation',
+                   'operations': ['rewrite', 'preset_voice_synthesis', 'editing'], 'publication_allowed': False}
+    # Bind both the visible words and their versioned scope. A later policy
+    # expansion must not recognize an older page's confirmation digest.
+    digest = hashlib.sha256(json.dumps(declaration, sort_keys=True, ensure_ascii=False,
+                                     separators=(',', ':')).encode('utf-8')).hexdigest()
+    return {**declaration, 'statement_sha256': digest}
+
+
 def confirm_chat_proposal(
     creation_id: str,
     turn_id: str | None,
@@ -325,10 +339,13 @@ def confirm_chat_proposal(
     production_specs: dict[str, Any] | None = None,
     delivery_proposal: str | None = None,
     generation_budget: dict[str, Any] | None = None,
+    input_use_statement_sha256: str | None = None,
 ) -> dict[str, Any]:
     """Persist a user-issued production confirmation; natural-language text cannot call this implicitly."""
     if generation_budget is not None and delivery_proposal is None:
         raise CreationError('素材预算必须随新的明确委托一起确认')
+    if input_use_statement_sha256 is not None and delivery_proposal is None:
+        raise CreationError('文字使用范围必须随明确方案确认，不能由普通聊天或后台补写')
     with edit_creation(creation_id) as data:
         if data.get("route") != "hypit_video" or data.get("origin", {}).get("type") != "chat":
             raise CreationError("当前作品不是聊天创建的视频作品")
@@ -355,6 +372,14 @@ def confirm_chat_proposal(
                         or hashlib.sha256(delivery_proposal.encode("utf-8")).hexdigest() != proposal_sha256
                         or SecretRedactor.contains_secret(delivery_proposal)):
                     raise CreationError("自主委托与确认方案不一致或含疑似 Secret")
+                input_use = None
+                if input_use_statement_sha256 is not None:
+                    declaration = input_use_preview()
+                    if input_use_statement_sha256 != declaration['statement_sha256']:
+                        raise CreationError('文字使用范围说明已变化，请核对当前方案中的确认内容')
+                    input_use = {**declaration, 'creation_id': creation_id, 'proposal_sha256': proposal_sha256,
+                                 'confirmed_at': workflow['confirmed_at'],
+                                 'confirmed_by_turn': workflow['confirmed_by_turn']}
                 # Enrollment and confirmation are one write. Old confirmations
                 # never acquire a delivery record through a replay or restart.
                 data["delivery"] = {
@@ -365,7 +390,8 @@ def confirm_chat_proposal(
                     "confirmed_by_turn": workflow["confirmed_by_turn"],
                     "authorization": {"no_provider_charge_build": True,
                                       "paid_operations": "explicit_approval_required",
-                                      "material_generation": commission_generation_authorization(generation_budget)},
+                                      "material_generation": commission_generation_authorization(generation_budget),
+                                      "input_use": input_use},
                     "status": "pending", "failures": {},
                 }
         elif (proposal_sha256 is not None
@@ -383,6 +409,12 @@ def confirm_chat_proposal(
                 same = False
             if not same:
                 raise CreationError('本作品已确认，不能通过重放确认静默扩大素材预算或改换服务')
+        if input_use_statement_sha256 is not None:
+            recorded = data.get('delivery', {}).get('authorization', {}).get('input_use') or {}
+            if (recorded.get('statement_sha256') != input_use_statement_sha256
+                    or recorded.get('creation_id') != creation_id
+                    or recorded.get('proposal_sha256') != workflow.get('proposal_sha256')):
+                raise CreationError('本作品未确认这份文字使用声明，不能通过重放确认新增或更换授权')
     return get_creation(creation_id)
 
 

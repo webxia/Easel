@@ -809,6 +809,7 @@ export function streamChat(
   creationAction?: 'confirm_production',
   proposalContext?: Array<{ role: 'user' | 'assistant'; content: string }>,
   generationBudget?: GenerationBudget,
+  inputUseStatementSha256?: string,
 ): AbortController {
   const controller = new AbortController();
   let lastEventId = 0;
@@ -911,6 +912,7 @@ export function streamChat(
                 ...(creationAction ? { creationAction } : {}),
                 ...(proposalContext ? { proposalContext } : {}),
                 ...(generationBudget ? { generationBudget } : {}),
+                ...(inputUseStatementSha256 ? { inputUseStatementSha256 } : {}),
                 sessionId,
                 turnId,
                 attachments,

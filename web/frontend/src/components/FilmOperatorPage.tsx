@@ -27,7 +27,7 @@ interface FilmOperatorPageProps {
   proposalPhase?: boolean;
   proposalReady?: boolean;
   proposalMessages?: ChatMessage[];
-  onConfirmProduction?: (budget?: GenerationBudget) => void;
+  onConfirmProduction?: (budget?: GenerationBudget, inputUseStatementSha256?: string) => void;
   progressOpen?: boolean;
   onProjection?: (value: { title: string; pending: number }) => void;
   onOpenConversation?: () => void;
@@ -52,6 +52,8 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   }, [creationId, proposalPhase, proposalContext]);
   const generationOffer = record(proposalPreview?.generation_budget);
   const generationScope = record(generationOffer.scope);
+  const inputUse = record(proposalPreview?.input_use);
+  const inputUseSha256 = typeof inputUse.statement === 'string' && /^[0-9a-f]{64}$/.test(String(inputUse.statement_sha256)) ? String(inputUse.statement_sha256) : undefined;
   const generationAmount = Number(generationCeiling);
   const invalidGenerationBudget = generationCeiling !== '' && (!Number.isFinite(generationAmount) || generationAmount <= 0 || generationAmount > 1000 || !/^\d+(\.\d{1,2})?$/.test(generationCeiling) || !generationOffer.available);
   const proposalSpecifications = record(proposalPreview?.specs);
@@ -631,8 +633,9 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
         <details><summary>查看本次确认的对话依据</summary>
           {proposalMessages.slice(-48).map((message, index) => <p className="creator-proposal-turn" key={index}><strong>{message.role === 'user' ? '你' : 'Easel'}：</strong>{message.content}</p>)}
         </details>
+        {inputUseSha256 && <p className="film-op-input-use">点击制作即确认以下文字使用范围：{String(inputUse.statement)}如有未核实的引用，请先在对话中明确。</p>}
         <p>可在左侧对话中修改方向，确认后进入内容准备。</p>
-        <button className="btn btn-primary" disabled={!proposalReady || continuationBusy || !proposalPreview || proposalMissing.length > 0 || !!proposalPreviewError || previewContext !== proposalContext || invalidGenerationBudget} onClick={() => onConfirmProduction?.(generationCeiling ? { maxCostCny: generationAmount, scopeSha256: String(generationOffer.scope_sha256) } : undefined)}>按这个方案制作</button>
+        <button className="btn btn-primary" disabled={!proposalReady || continuationBusy || !proposalPreview || proposalMissing.length > 0 || !!proposalPreviewError || previewContext !== proposalContext || invalidGenerationBudget} onClick={() => onConfirmProduction?.(generationCeiling ? { maxCostCny: generationAmount, scopeSha256: String(generationOffer.scope_sha256) } : undefined, inputUseSha256)}>按这个方案制作</button>
       </section>}
       {backendDelivery && Object.values(record(delivery.material_generations)).map(record).filter(item => item.attempt_id === attemptId && ['budget_exceeded', 'quote_unavailable', 'uncertain'].includes(String(item.status))).map(item => <div className="film-op-message is-error" role="status" key={String(item.need_id)}>
         {text(item.reason, '素材生成尚需处理，已保留现有结果。')}

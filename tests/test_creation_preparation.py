@@ -88,6 +88,16 @@ def test_delivery_excludes_legacy_and_serializes_cancellation_and_restarts(prep_
     # Replayed old confirmations never opt a legacy work into delivery.
     creation.confirm_chat_proposal(legacy["id"], "retry", delivery_proposal="ignored")
     assert "delivery" not in creation.get_creation(legacy["id"])
+    # New authorization cannot be retrofitted by replaying either an old
+    # confirmation or a managed commission that omitted the declaration.
+    declaration = creation.input_use_preview()['statement_sha256']
+    for current in (creation.get_creation(legacy['id']), creation.get_creation(work['id'])):
+        original = creation._creation_path(current['id']).read_bytes()
+        with pytest.raises(creation.CreationError, match='不能通过重放'):
+            creation.confirm_chat_proposal(current['id'], 'add-input-rights',
+                delivery_proposal=current.get('delivery', {}).get('proposal', 'ignored'),
+                input_use_statement_sha256=declaration)
+        assert creation._creation_path(current['id']).read_bytes() == original
 
 
 def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(prep_env):
@@ -1042,12 +1052,23 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
             json={'proposalContext': [turn.model_dump() for turn in confirmation.proposalContext]}).json()
         offered = preview['generation_budget']
         assert offered['available'] is True and 'fixture-key' not in json.dumps(offered)
+        declaration = preview['input_use']
+        unsigned = {k: v for k, v in declaration.items() if k != 'statement_sha256'}
+        assert declaration['statement_sha256'] == hashlib.sha256(json.dumps(
+            unsigned, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
+        stale = {**confirmation.model_dump(), 'inputUseStatementSha256': '0' * 64}
+        assert client.post('/api/chat', json=stale).status_code == 409
+        assert not creation.get_creation(first_work['id'])['chat_workflow'].get('confirmed_at')
+        ordinary = {**confirmation.model_dump(), 'creationAction': None,
+                    'inputUseStatementSha256': declaration['statement_sha256']}
+        assert client.post('/api/chat', json=ordinary).status_code == 400
         for invalid in (-1, True, 1001, .001):
             invalid_request = {**confirmation.model_dump(), 'generationBudget': {
                 'maxCostCny': invalid, 'scopeSha256': offered['scope_sha256']}}
             assert client.post('/api/chat', json=invalid_request).status_code == 409
             assert not creation.get_creation(first_work['id'])['chat_workflow'].get('confirmed_at')
         confirmation.generationBudget = {'maxCostCny': .50, 'scopeSha256': offered['scope_sha256']}
+        confirmation.inputUseStatementSha256 = declaration['statement_sha256']
         response = client.post("/api/chat", json=confirmation.model_dump())
 
     assert response.status_code == 200
@@ -1057,6 +1078,21 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
     grant = creation.get_creation(body['creationId'])['delivery']['authorization']['material_generation']
     assert grant['currency'] == 'CNY' and grant['max_amount'] == '0.5'
     assert grant['scope_sha256'] == offered['scope_sha256']
+    authorized = creation.get_creation(body['creationId'])
+    input_use = authorized['delivery']['authorization']['input_use']
+    assert input_use['creation_id'] == authorized['id']
+    assert input_use['scope'] == 'creator_provided_text_for_current_creation'
+    assert input_use['statement'] == declaration['statement'] and input_use['publication_allowed'] is False
+    assert input_use['proposal_sha256'] == authorized['chat_workflow']['proposal_sha256']
+    assert input_use['confirmed_by_turn'] == 'api-turn-confirm'
+    replay = dict(proposal_sha256=input_use['proposal_sha256'],
+                  delivery_proposal=authorized['delivery']['proposal'],
+                  input_use_statement_sha256=input_use['statement_sha256'])
+    creation.confirm_chat_proposal(authorized['id'], 'replay', **replay)
+    assert creation.get_creation(authorized['id'])['delivery']['authorization']['input_use'] == input_use
+    with pytest.raises(creation.CreationError, match='不能通过重放'):
+        creation.confirm_chat_proposal(authorized['id'], 'change-input-rights',
+            **{**replay, 'input_use_statement_sha256': '1' * 64})
     assert "INTERNAL_PREPARATION" not in body["response"]
     assert "outputs/content-core.json" not in body["response"]
     # Closing the page/server before dispatch cannot lose the commission.

@@ -1812,6 +1812,7 @@ class ChatRequest(BaseModel):
     capability: str | None = None
     creationAction: str | None = None
     generationBudget: dict | None = None
+    inputUseStatementSha256: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
     proposalContext: list[ProposalTurn] = Field(default_factory=list, max_length=48)
     sessionId: str | None = None
     turnId: str | None = None
@@ -1893,7 +1894,9 @@ async def api_proposal_preview(creation_id: str, req: ProposalPreviewRequest):
     if len(serialized) > 32_000 or SecretRedactor.contains_secret(serialized):
         raise HTTPException(400, "方案内容过长或含疑似凭证，请先整理对话")
     from easel.integrations.material_generation import generation_budget_preview
-    return {**proposal_specs(turns), "generation_budget": generation_budget_preview()}
+    from easel.creation import input_use_preview
+    return {**proposal_specs(turns), "generation_budget": generation_budget_preview(),
+            "input_use": input_use_preview()}
 
 
 def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
@@ -1908,6 +1911,8 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
     except ChatCapabilityError as exc:
         raise HTTPException(400, str(exc)) from exc
 
+    if req.inputUseStatementSha256 is not None and req.creationAction != 'confirm_production':
+        raise HTTPException(400, '文字使用范围只能通过当前方案的确认操作记录')
     if req.creationAction is not None:
         if req.creationAction != "confirm_production":
             raise HTTPException(400, "不支持的作品操作")
@@ -1931,7 +1936,8 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
                 raise HTTPException(409, "方案尚未明确：" + "、".join(preview["missing"]) + "；请先通过对话补充，再确认制作")
             work = confirm_chat_proposal(work["id"], req.turnId, proposal_sha256=proposal_sha256,
                                          production_specs=preview["specs"], delivery_proposal=proposal_text,
-                                         generation_budget=req.generationBudget)
+                                         generation_budget=req.generationBudget,
+                                         input_use_statement_sha256=req.inputUseStatementSha256)
             if is_managed(work):
                 return "", {**work, "_preparation_action": "delivery",
                             "_client_phase": "production_confirmed"}
