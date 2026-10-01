@@ -193,6 +193,14 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
                 or observed.get("plan_revision") != gate.get("plan_revision")
                 or (visual_repair and observed.get('quality_report_sha256') != revision.get('quality_report_sha256'))):
             return "observe_material", "observing_material"
+        if visual_repair and not attempt.get('autonomous_material_recovery'):
+            from easel.integrations.hypit.service import quality_visual_replacement_gaps
+            try:
+                missing = quality_visual_replacement_gaps(attempt)
+            except (ValueError, OSError):
+                missing = True  # Diagnose under the ordinary bounded operation retry.
+            if missing:
+                return 'recover_material', 'recovering_material'
     if gate.get("status") != "MATERIAL_READY":
         prep_status = (work.get("preparation") or {}).get("status")
         if (prep_status == "SCRIPT_TRUTH_REVIEW_REQUIRED"

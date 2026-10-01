@@ -981,7 +981,7 @@ def _assert_composition_revision(attempt: dict[str, Any], authored: Path | None 
     )
 
 
-def quality_visual_replacements(attempt: dict[str, Any]) -> dict[str, dict[str, dict]]:
+def quality_visual_replacements(attempt: dict[str, Any], *, include_missing: bool = False) -> dict[str, dict[str, dict]]:
     """Same-Need, admitted alternatives; no new supply or changed commission."""
     revision = attempt.get('revision_feedback', {})
     if revision.get('origin') != 'system_quality' or 'visual_material' not in revision.get('allowed_changes', []):
@@ -1013,9 +1013,20 @@ def quality_visual_replacements(attempt: dict[str, Any]) -> dict[str, dict[str, 
             alternatives[new['src']] = {'asset_id': new['asset_id'], 'sha256': new['sha256'],
                 'qualified_need_ids': new['qualified_need_ids'], 'media_type': new['media_type'],
                 'width': technical.width, 'height': technical.height}
-        if alternatives:
+        if alternatives or include_missing:
             result[old['src']] = alternatives
     return result
+
+
+def quality_visual_replacement_gaps(attempt: dict[str, Any]) -> set[str]:
+    """A lack of alternatives is not a change to the original Need or Gate."""
+    missing = {src for src, options in quality_visual_replacements(attempt, include_missing=True).items() if not options}
+    if not missing:
+        return set()
+    from easel.integrations.material_layer import ProductionAuthoringIntegration
+    original = get_film_attempt(attempt['retry_source']['attempt_id'])
+    return {need_id for asset in ProductionAuthoringIntegration().qualified_authoring_assets(original)
+            if asset['src'] in missing for need_id in asset['qualified_need_ids']}
 
 
 def _assert_local_video_trim_ranges(attempt: dict[str, Any], authored: Path | None = None) -> None:

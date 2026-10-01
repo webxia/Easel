@@ -53,6 +53,9 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **画面错配后的有界视觉补料（2026-10-01）：** 原素材仍准入时 Gate 保持 READY，而旧补料入口只接受 NOT_READY、Supply 又因已有匹配跳过 Need，导致池内没有备选时无法改善成片。现复用既有 `recover_material` 与供应恢复记录：唯一 Delivery Owner 先完成池内备选观察，再仅为缺少替代项的视觉 Need 执行一次原来源权限内的补充检索。系统审片报告、原输出执行身份及未改变的 Need 绑定该请求；声音、脚本、原素材和正式 Gate 语义保留。内容库按字节 SHA 排除原素材，避免不同 Library ID 冒充新候选；检索输入身份包含保留素材集合。新候选仍经原观察、Rights、Match/Readiness 与 Authoring 路径，未新增付费生成或工作流。
+- **本批补料验证与限制：** Cross-Content/Library-first/Material integration/Preparation/Hypit **158 passed**；最后输入身份与文案调整后 Cross-Content/Library-first/Material integration **58 passed**，compileall、diff check 通过，保留两项既有依赖提示。既有三内容回放第二个场景覆盖：画面错配 → 池内无备选 → 视觉补料 → 供应结果已保存但 Gate 登记中断 → 对账复用 → 新候选观察/编排 → 重新核价与模拟制作 → 当前输出 Quality READY。查询规划只执行一次，中断恢复没有重复已完成来源检索，原 Bundle、TTS/ASR 与生成额度保持不变；非 Owner 调用在模型执行前拒绝。补料采用隔离本地许可图片，模型、ASR/TTS 与 Hypit 渲染仍为替身，不证明远端素材可得性、真实渲染或感知质量。实际声音语义、生成图片/视频的权利处理、Truth/叙事缺陷恢复及真实跨内容效果仍未闭环；Goal active / NOT_READY。未操作真实 Creation、付费 AI、真实 Build 或完整 E2E。
+
 - **画面错配后的池内备选观察（2026-10-01）：** 原 fork 复制“素材观察已完成”后直接进入 Authoring，而原观察在找到首个可用素材时已停止，其余已接收候选往往没有观察证据。局部回放先复现：有另一张候选图，但修复编排连续三次找不到可用替代项。现唯一 Delivery Owner 在 `visual_material` 修复前复用 `observe_material`；以该次输出质量报告绑定补查目的，排除原选用及受保护的声音/字幕来源，按未改变的 Need 对已有候选执行原有有界观察。原素材和报告保留，新增证据经普通 Matcher/Readiness 后进入上一批替换路径；没有新 Supply、付费请求或第二工作流。原候选已可用不再被误当成“备选也已查完”。
 - **本批局部验证：** Cross-Content/Preparation/Material integration/Hypit **154 passed**，compileall、diff check 通过，保留两项既有依赖提示。三内容回放的首个场景现在覆盖：系统报告画面错配 → 新修复 Attempt → 补查已有另一素材 → 普通选材/编排 → 重新核价与模拟制作 → 当前输出 Quality READY；只增加一次模型观察，原素材供应、ASR/TTS、生成额度和源 Bundle 不变。额外注入“观察与新素材 checkpoint 已落盘，但完成状态尚未写入”的中断，下一轮复用证据继续，不重复观察。其余内容的音轨修复及复制中断仍通过。实际模型与渲染仍是确定性替身，BGM 语义仍为 Fixture；不证明真实听感/风格效果。成片缺陷后的外部补料、Truth/叙事调整和实际声音感知仍开放，Goal active / NOT_READY；未操作真实 Creation、付费 AI、真实 Build 或完整 E2E。
 

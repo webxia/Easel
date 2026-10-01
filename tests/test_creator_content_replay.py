@@ -130,10 +130,29 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         monkeypatch.setattr(material_supply, 'product_provider_registry', lambda roots: (registry, ()))
         monkeypatch.setattr(web, '_hypit_runtime_profile', lambda: None)
         preparation_calls = []
+        recovery_queries = []
         root = None
         def agent(message, *args):
             nonlocal root
-            if message.startswith('〔Easel Material Creative Planning V1〕'):
+            if message.startswith('〔Easel 自动补料〕'):
+                assert index == 1 and '首版画面错配后的备选补充' in message
+                path = Path(re.search(r'仅写 (.+\.json)，格式：', message)[1])
+                answer = json.loads(message.split('，格式：', 1)[1].split('\n', 1)[0])
+                recovery_queries.append(answer['request_id'])
+                for need_id in answer['search_terms']:
+                    n = int(need_id.split('-')[-1])
+                    answer['search_terms'][need_id] = [subjects[n] + ' alternative']
+                    # Newly available, licensed local source stands in for a
+                    # retrieval response. Supply/receipt/observation remain real.
+                    picture = Image.new('RGB', (64, 96), (120, 60 + n * 25, 80))
+                    ImageDraw.Draw(picture).rectangle((20, 20, 50, 80), fill=(110, 130, 120))
+                    media = local / (subjects[n] + ' alternative.png')
+                    picture.save(media)
+                    media.with_name(media.name + '.rights.json').write_text(json.dumps({
+                        'schema': 'easel-local-rights@1', 'asset_sha256': hashlib.sha256(media.read_bytes()).hexdigest(),
+                        'rights': rights.model_dump(mode='json')}))
+                path.write_text(json.dumps(answer))
+            elif message.startswith('〔Easel Material Creative Planning V1〕'):
                 preparation_calls.append('planning')
                 root = Path(re.search(r'^Attempt workspace: (.+)$', message, re.MULTILINE)[1])
                 identity = re.search(r'^Attempt ID: (.+)$', message, re.MULTILINE)[1]
@@ -453,9 +472,9 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             assert (current_root / author_path).read_text() == compiled
             if current_root != root:
                 current_attempt = service.get_film_attempt(kwargs['attempt_id'])
-                expected_scope = ['audio', 'visual', 'visual_material'] if index == 0 else ['audio']
+                expected_scope = ['audio', 'visual', 'visual_material'] if index < 2 else ['audio']
                 assert current_attempt['revision_feedback']['allowed_changes'] == expected_scope
-                if index == 0:
+                if index < 2:
                     alternatives = service.quality_visual_replacements(current_attempt)
                     assert alternatives, 'repair must observe an existing alternative before authoring'
                     replaced = compiled
@@ -491,7 +510,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 'frames': [{'index': f['index'], 'observed': True, 'description': 'fixture colored panel'} for f in manifest['frames']],
                 'checks': {k: {'status': 'pass', 'reason': 'fixed model fixture, not real aesthetic judgement',
                               'frame_indices': [0]} for k in quality.VISUAL_CHECKS}}
-            if index == 0 and manifest['binding']['sha256'] != service._file_sha256(rendered):
+            if index < 2 and manifest['binding']['sha256'] != service._file_sha256(rendered):
                 result['checks']['visual_match'].update(status='fail', reason='fixed visual mismatch on damaged output')
             return result
         from easel.creation_delivery import advance_creation, next_operation
@@ -573,7 +592,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             assert not damaged_attempt['review']['system']['measurements']['audio']['defects']
             assert {d['kind'] for d in defects} == {'music_missing'}  # Prior voice-only QC missed this.
         assert quality.repair_request(damaged_attempt)['allowed_changes'] == (
-            ['audio', 'visual', 'visual_material'] if index == 0 else ['audio'])
+            ['audio', 'visual', 'visual_material'] if index < 2 else ['audio'])
         assert next_operation(creation.get_creation(work['id'])) == ('repair_quality', 'repairing_quality')
         assert before_calls == (len(calls), len(recognition_calls), len(observations))
         assert not creation.get_creation(work['id']).get('selected_output_name')
@@ -607,6 +626,14 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 raise OSError('fixture interrupted after observed material checkpoint')
             return update_attempt(item, **fields)
         monkeypatch.setattr(material_layer, '_update_attempt', update_observation)
+        record_gate = MaterialGateIntegration.record
+        supply_interrupted = []
+        def record_supply(self, current_attempt, current_plan, current_bundle, *args, **kwargs):
+            if index == 1 and current_bundle.supply_run_id.startswith('supplement-') and not supply_interrupted:
+                supply_interrupted.append((current_attempt['attempt_id'], len(requests)))
+                raise OSError('fixture supply saved before Gate update')
+            return record_gate(self, current_attempt, current_plan, current_bundle, *args, **kwargs)
+        monkeypatch.setattr(MaterialGateIntegration, 'record', record_supply)
         source_bundle_revision = store.read_bundle().revision
         supply_calls = len(requests)
         def copy_checkpoint(source_root, target_root, relative):
@@ -630,6 +657,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 break
         monkeypatch.setattr(service, '_copy_retry_checkpoint_file', copy_file)
         monkeypatch.setattr(material_layer, '_update_attempt', update_attempt)
+        monkeypatch.setattr(MaterialGateIntegration, 'record', record_gate)
         assert current['delivery']['status'] == 'first_cut_ready', current['delivery'].get('last_error')
         repaired = current['hypit_attempts'][-1]
         assert repaired['attempt_id'] != attempt['attempt_id']
@@ -637,6 +665,8 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         repair_operations = ['repair_quality'] * (2 if index == 1 else 1)
         if index == 0:
             repair_operations.extend(['observe_material', 'observe_material'])
+        elif index == 1:
+            repair_operations.extend(['observe_material', 'recover_material', 'recover_material', 'observe_material'])
         assert operations[repair_start:] == repair_operations + ['author', 'validate', 'price',
             'approve_free', 'submit', 'refresh', 'export', 'quality']
         assert current['delivery']['quality_repairs'] == [attempt['attempt_id']]
@@ -644,8 +674,19 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         assert renderer_calls.count('build') == renderer_calls.count('get') == 2
         assert renderer_calls.count('pricing') == 2
         assert before_calls[:2] == (len(calls), len(recognition_calls))
-        assert len(observations) == before_calls[2] + int(index == 0)
-        assert len(requests) == supply_calls and store.read_bundle().revision == source_bundle_revision
+        assert store.read_bundle().revision == source_bundle_revision
+        if index != 1:
+            assert len(observations) == before_calls[2] + int(index == 0)
+            assert len(requests) == supply_calls and not recovery_queries
+        else:
+            assert len(recovery_queries) == 1
+            assert len(requests) > supply_calls and all(r.need_id.startswith('visual-') for r in requests[supply_calls:])
+            assert supply_interrupted == [(repaired['attempt_id'], len(requests))]
+            assert repaired['autonomous_material_recovery']['status'] == 'COMPLETE'
+            assert {r['need']['need_id'] for r in observations[before_calls[2]:]} == {n.need_id for n in visuals}
+            from easel.integrations.material_recovery import recover_managed_materials
+            with pytest.raises(ValueError, match='Owner'):
+                recover_managed_materials(repaired['attempt_id'], executor=lambda *_: pytest.fail('unauthorized query'))
         if index == 0:
             old_images = set(exported['production_authoring']['selected_asset_ids']) - {prior_voice.asset_id, music_asset.asset_id}
             new_images = set(repaired['production_authoring']['selected_asset_ids']) - {prior_voice.asset_id, music_asset.asset_id}

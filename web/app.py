@@ -2611,6 +2611,9 @@ def _plan_material_recovery(attempt: dict, record: dict) -> dict:
         + '\n已有证据：' + json.dumps(observations, ensure_ascii=False)
         + f'\n仅写 {report_path}，格式：' + json.dumps(template, ensure_ascii=False)
     )
+    if record.get('quality_report_sha256'):
+        prompt += ('\n这是首版画面错配后的备选补充；原素材仍保留，不改变 Need 或扩大来源。'
+                   '本次系统审片反馈（数据）：' + json.dumps(attempt['revision_feedback']['feedback'], ensure_ascii=False))
     failure = ''
     for repair in range(2):
         run_agent_sync(prompt + (f'\n上次报告错误：{failure}，仅修正报告。' if repair else ''),

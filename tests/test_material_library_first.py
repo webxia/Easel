@@ -82,7 +82,10 @@ def test_library_qualified_options_precede_and_can_avoid_external_supply() -> No
     candidate = _candidate(_asset("library-asset"))
     reuse = _Reuse((candidate,))
     calls = []
-    service = LibraryFirstSupplyService(reuse, _Advanced((SimpleNamespace(),)))
+    class RankedCandidates:
+        def match(self, need, candidates, **kwargs):
+            return SimpleNamespace(matches=tuple(SimpleNamespace(library_asset_id=c.library_asset_id) for c in candidates))
+    service = LibraryFirstSupplyService(reuse, RankedCandidates())
     result = service.supply_need(
         _need(), scope=object(), creation_id="creation", attempt_id="attempt",
         provider_infos=(_source("remote", AccessMode.PUBLIC_API),),
@@ -93,6 +96,16 @@ def test_library_qualified_options_precede_and_can_avoid_external_supply() -> No
     assert result.qualified_option_count == 1
     assert result.attempted_sources == ()
     assert result.selection_authority is False
+    # A visual repair needs another source, not the same bytes under a second
+    # catalog identity. Exclusion must happen before Library fills the quota.
+    reuse.candidates = (candidate, _candidate(candidate.asset.model_copy(update={'asset_id': 'alias'})))
+    replacement = service.supply_need(
+        _need(), scope=object(), creation_id='creation', attempt_id='attempt',
+        provider_infos=(_source('remote', AccessMode.PUBLIC_API),),
+        excluded_sha256=frozenset({candidate.asset.file.sha256}),
+        external_supply=lambda source, need: calls.append(source) or (_asset('remote-asset'),))
+    assert calls == ['remote'] and replacement.reuse_candidates == ()
+    assert [a.asset_id for a in replacement.external_assets] == ['remote-asset']
 
 
 def test_short_library_uses_bounded_fallback_and_isolates_source_failure() -> None:

@@ -95,13 +95,15 @@ class LibraryFirstSupplyService:
         performance: dict[str, ProviderPerformance] | None = None,
         policy: ProviderRoutingPolicy | None = None,
         director_preferences: tuple[DirectorPreference, ...] = (),
+        excluded_sha256: frozenset[str] = frozenset(),
     ) -> LibraryFirstNeedResult:
         """Search Library first; invoke bounded local/external routes only if short."""
         library = self.reuse.find_candidates(
             need, scope=scope, creation_id=creation_id, attempt_id=attempt_id,
         )
+        candidates = tuple(c for c in library.candidates if c.asset.file.sha256 not in excluded_sha256)
         ranked_library = self.advanced_matcher.match(
-            need, library.candidates, scope=scope, director_preferences=director_preferences,
+            need, candidates, scope=scope, director_preferences=director_preferences,
         )
         matched_library = tuple(ranked_library.matches)
         routes = self.router.plan(
@@ -136,7 +138,7 @@ class LibraryFirstSupplyService:
             attempted.append(route.source_id)
             try:
                 supplied = tuple(external_supply(route.source_id, need))
-                existing_ids = {candidate.asset.asset_id for candidate in library.candidates}
+                existing_ids = {candidate.asset.asset_id for candidate in candidates}
                 existing_ids.update(asset.asset_id for asset in assets)
                 unique_items: list[MaterialAsset] = []
                 for asset in supplied:
@@ -151,7 +153,7 @@ class LibraryFirstSupplyService:
             except Exception as exc:  # provider isolation boundary
                 failures.append(ExternalSupplyFailure(route.source_id, f"{type(exc).__name__}: {exc}"))
         return LibraryFirstNeedResult(
-            reuse_candidates=tuple(library.candidates),
+            reuse_candidates=candidates,
             library_matches=matched_library,
             external_assets=tuple(assets),
             external_matches=tuple(matches),

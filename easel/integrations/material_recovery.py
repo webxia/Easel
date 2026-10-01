@@ -33,24 +33,39 @@ def _production_started(attempt: dict) -> bool:
 def recover_managed_materials(attempt_id: str, *, executor) -> dict:
     """One commissioned supplemental search; preserve Need, Rights and Voice."""
     from easel import creation
-    from easel.creation_delivery import is_managed
+    from easel.creation_delivery import active_delivery, is_managed
     attempt = get_film_attempt(attempt_id)
     if not is_managed(creation.get_creation(attempt['creation_id'])):
         raise MaterialIntegrationError('自动补料只适用于明确委托持续交付的新作品')
     store = AttemptMaterialStore(attempt['workspace']['path'])
     planning = PlanningIntegration().load(attempt)
     record = attempt.get('autonomous_material_recovery')
+    revision = attempt.get('revision_feedback', {})
+    if ((record or {}).get('quality_report_sha256')
+            or (revision.get('origin') == 'system_quality' and 'visual_material' in revision.get('allowed_changes', []))):
+        if active_delivery.get() != attempt['creation_id']:
+            raise MaterialIntegrationError('额外视觉补料只能由当前委托 Owner 执行')
     if record and record.get('status') in {'COMPLETE', 'NOT_APPLICABLE'}:
         return attempt
     if record is None:
         gate = attempt.get('material_gate', {})
-        if gate.get('status') != 'MATERIAL_NOT_READY' or planning['truth_ledger']['status'] != 'PASSED':
+        revision = attempt.get('revision_feedback', {})
+        quality = (revision.get('origin') == 'system_quality'
+                   and 'visual_material' in revision.get('allowed_changes', []))
+        if (gate.get('status') != ('MATERIAL_READY' if quality else 'MATERIAL_NOT_READY')
+                or planning['truth_ledger']['status'] != 'PASSED'):
             raise MaterialIntegrationError('自动补料需要当前素材缺口和有效的内容依据')
+        if quality:
+            from easel.integrations.hypit.service import quality_visual_replacement_gaps
+            need_ids = quality_visual_replacement_gaps(attempt)
+        else:
+            need_ids = gate['blocking_needs']
         needs = [n.model_dump(mode='json') for n in planning['plan'].needs
-                 if n.need_id in gate['blocking_needs'] and getattr(n.modality_spec, 'kind', None) != 'voice']
+                 if n.need_id in need_ids and getattr(n.modality_spec, 'kind', None) != 'voice']
         identity = hashlib.sha256((attempt_id + gate['plan_revision'] + gate['bundle_revision']).encode()).hexdigest()
         record = {'status': 'PLANNING' if needs else 'NOT_APPLICABLE', 'request_id': 'auto-' + identity[:32],
-                  'plan_revision': gate['plan_revision'], 'bundle_revision': gate['bundle_revision'], 'needs': needs}
+                  'plan_revision': gate['plan_revision'], 'bundle_revision': gate['bundle_revision'], 'needs': needs,
+                  **({'quality_report_sha256': revision['quality_report_sha256']} if quality else {})}
         attempt = update_film_attempt(attempt_id, event='automatic_material_recovery_started',
                                       autonomous_material_recovery=record)
         if not needs:
@@ -71,7 +86,8 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
                                       autonomous_material_recovery=record)
     result = recover_materials(attempt_id, request_id=record['request_id'],
         expected_plan_revision=record['plan_revision'], expected_bundle_revision=record['bundle_revision'],
-        allow_licensed_bgm=False, search_terms={key: tuple(value) for key, value in record['search_terms'].items()})
+        allow_licensed_bgm=False, search_terms={key: tuple(value) for key, value in record['search_terms'].items()},
+        quality_report_sha256=record.get('quality_report_sha256'))
     return update_film_attempt(attempt_id, event='automatic_material_recovery_completed',
         autonomous_material_recovery={**record, 'status': 'COMPLETE',
                                      'result_bundle_revision': result['attempt']['material_gate']['bundle_revision']})
@@ -93,7 +109,7 @@ def validate_recovery_queries(record: dict, report: dict) -> None:
 
 def recover_materials(attempt_id: str, *, request_id: str, expected_plan_revision: str,
                       expected_bundle_revision: str, allow_licensed_bgm: bool,
-                      search_terms: dict[str, tuple[str, ...]]) -> dict:
+                      search_terms: dict[str, tuple[str, ...]], quality_report_sha256: str | None = None) -> dict:
     """Preserve content and acquired facts; never generate or submit production."""
     attempt = get_film_attempt(attempt_id)
     store = AttemptMaterialStore(attempt["workspace"]["path"])
@@ -105,16 +121,31 @@ def recover_materials(attempt_id: str, *, request_id: str, expected_plan_revisio
     with lock_path.open("a+") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         return _recover_locked(attempt_id, store, request_id, expected_plan_revision,
-                               expected_bundle_revision, allow_licensed_bgm, search_terms)
+                               expected_bundle_revision, allow_licensed_bgm, search_terms, quality_report_sha256)
 
 
 def _recover_locked(attempt_id, store, request_id, expected_plan_revision,
-                    expected_bundle_revision, allow_licensed_bgm, search_terms):
+                    expected_bundle_revision, allow_licensed_bgm, search_terms, quality_report_sha256=None):
     attempt = get_film_attempt(attempt_id)
+    if quality_report_sha256 is not None:
+        from easel import creation
+        from easel.creation_delivery import active_delivery, is_managed
+        from easel.integrations.hypit.service import _execution_fingerprint
+        revision = attempt.get('revision_feedback', {})
+        if (active_delivery.get() != attempt['creation_id'] or not is_managed(creation.get_creation(attempt['creation_id']))
+                or revision.get('origin') != 'system_quality' or 'visual_material' not in revision.get('allowed_changes', [])
+                or revision.get('quality_report_sha256') != quality_report_sha256 or allow_licensed_bgm):
+            raise MaterialIntegrationError('额外视觉补料必须由当前委托 Owner 绑定系统审片执行')
+        original = get_film_attempt(attempt['retry_source']['attempt_id'])
+        if (original['creation_id'] != attempt['creation_id']
+                or _execution_fingerprint(original)['sha256'] != attempt['retry_source']['fingerprint']
+                or PlanningIntegration().load(original)['plan'].needs != PlanningIntegration().load(attempt)['plan'].needs):
+            raise MaterialIntegrationError('原成片依据已变化，不能继续该次视觉补料')
     fingerprint = hashlib.sha256(json.dumps({
         "attempt_id": attempt_id, "plan_revision": expected_plan_revision,
         "bundle_revision": expected_bundle_revision, "allow_licensed_bgm": allow_licensed_bgm,
         "search_terms": search_terms,
+        **({'quality_report_sha256': quality_report_sha256} if quality_report_sha256 is not None else {}),
     }, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
     record = store.read_recovery_record(request_id)
     planning = PlanningIntegration().load(attempt)
@@ -142,7 +173,7 @@ def _recover_locked(attempt_id, store, request_id, expected_plan_revision,
         source_plan = planning["plan"]
         source_bundle = store.read_bundle()
         gate = attempt.get("material_gate", {})
-        if (gate.get("status") != "MATERIAL_NOT_READY"
+        if (gate.get("status") != ("MATERIAL_READY" if quality_report_sha256 else "MATERIAL_NOT_READY")
                 or MaterialReadinessCalculator.plan_revision(source_plan) != expected_plan_revision
                 or source_bundle.revision != expected_bundle_revision
                 or gate.get("plan_revision") != expected_plan_revision
@@ -150,8 +181,16 @@ def _recover_locked(attempt_id, store, request_id, expected_plan_revision,
                 or gate.get("bundle_id") != source_bundle.bundle_id):
             raise MaterialIntegrationError("素材状态已变化，请刷新；不会重新检索或改写旧状态")
         allowed = set(gate.get("blocking_needs", []))
+        if quality_report_sha256:
+            from easel.integrations.hypit.service import quality_visual_replacement_gaps
+            observed = attempt.get('material_observation', {})
+            if (observed.get('quality_report_sha256') != quality_report_sha256
+                    or observed.get('status') != 'COMPLETE' or observed.get('bundle_revision') != expected_bundle_revision
+                    or observed.get('plan_revision') != expected_plan_revision):
+                raise MaterialIntegrationError('补料前应先观察当前已有视觉候选')
+            allowed = quality_visual_replacement_gaps(attempt)
         if set(search_terms) - allowed:
-            raise MaterialIntegrationError("只能为当前未覆盖的素材需求补充检索提示")
+            raise MaterialIntegrationError("只能为当前缺口或已核实的视觉备选需求补充检索提示")
         record = {"schema": "easel-material-recovery@1", "status": "PREPARED",
                   "fingerprint": fingerprint, "attempt_id": attempt_id,
                   "created_at": datetime.now(timezone.utc).isoformat(),
@@ -205,7 +244,7 @@ def _recover_locked(attempt_id, store, request_id, expected_plan_revision,
         store.write_recovery_record(request_id, record)
     # A valid old generation is retained only for an exactly unchanged Need.
     retained = {asset.asset_id: asset for asset in source_bundle.assets}
-    skip_voice = tuple(need.need_id for need in source_plan.needs
+    skip_need_ids = tuple(need.need_id for need in source_plan.needs
         if getattr(need.modality_spec, "kind", None) == "voice"
         and any(item.get("status") == "COMPLETE" and item.get("asset_id") in retained
                 and item.get("schema") == "easel-material-generation@1"
@@ -218,6 +257,8 @@ def _recover_locked(attempt_id, store, request_id, expected_plan_revision,
                 and item.get("plan_revision") == expected_plan_revision
                 and item.get("input_sha256") == getattr(need.modality_spec, "text_sha256", None)
                 for item in store.list_generation_records()))
+    if quality_report_sha256:
+        skip_need_ids = tuple(n.need_id for n in source_plan.needs if n.need_id not in search_terms)
     # Reconcile a completed Supply checkpoint before contacting Providers again.
     final_bundle = store.read_bundle()
     final_run_id = f"supplement-{request_id}"
@@ -237,7 +278,8 @@ def _recover_locked(attempt_id, store, request_id, expected_plan_revision,
         supplied = ProductMaterialSupply(rights_facts=lambda candidate, asset:
             MaterialProductOrchestrator._local_rights_facts(candidate, asset, roots)).run(
                 target_plan, attempt, local_roots=roots, supply_run_id=final_run_id,
-                bundle_id=source_bundle.bundle_id, search_terms=search_terms, skip_need_ids=skip_voice)
+                bundle_id=source_bundle.bundle_id, search_terms=search_terms, skip_need_ids=skip_need_ids,
+                additional_visual_need_ids=tuple(search_terms) if quality_report_sha256 else ())
         final_bundle, final_run, readiness, gaps = (
             supplied.bundle, supplied.supply_run, supplied.readiness, supplied.gaps)
     gate = MaterialGateIntegration().record(attempt, target_plan, final_bundle, final_run, readiness, gaps)

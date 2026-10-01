@@ -23,7 +23,7 @@ from easel.materials.application.readiness import MaterialReadinessCalculator
 from easel.materials.application.standalone import StandaloneMaterialFlow
 from easel.materials.application.acquisition import MaterialAcquirer
 from easel.materials.domain import (
-    MaterialAsset, MaterialBundle, MaterialGap, MaterialPlan, MaterialReadiness,
+    MaterialAsset, MaterialBundle, MaterialGap, MaterialPlan, MaterialReadiness, MediaType,
     RightsInfo, SupplyRun, SupplySourceResult, TechnicalStatus, SemanticField,
 )
 from easel.materials.library import LibraryScope, MaterialLibraryCatalog
@@ -124,8 +124,11 @@ class ProductMaterialSupply:
         generated_assets: tuple[MaterialAsset, ...] = (),
         search_terms: dict[str, tuple[str, ...]] | None = None,
         skip_need_ids: tuple[str, ...] = (),
+        additional_visual_need_ids: tuple[str, ...] = (),
     ) -> ProductSupplyResult:
         started_at = datetime.now(timezone.utc)
+        if set(additional_visual_need_ids) - {n.need_id for n in plan.needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}:
+            raise ValueError('额外视觉补料只能使用现有图像或视频 Need')
         store = AttemptMaterialStore(attempt["workspace"]["path"])
         from easel.creation_delivery import is_managed
         retain_sources = is_managed(creation.get_creation(attempt['creation_id'])) or supply_run_id.startswith('supplement-')
@@ -171,6 +174,8 @@ class ProductMaterialSupply:
                 raise ValueError("Generation Asset differs from its Attempt record")
             assets[generated.asset_id] = generated
         assets.update(self._current_generated_assets(store, plan))
+        retained_ids = set(assets)
+        retained_hashes = frozenset(a.file.sha256 for a in assets.values())
 
         for need in plan.needs:
             style = need.constraints.get("preferred_style")
@@ -178,7 +183,9 @@ class ProductMaterialSupply:
             director_preferences = (DirectorPreference(
                 field=SemanticField.STYLE, preferred_values=style_terms,
             ),) if style_terms else ()
-            if need.need_id in skip_need_ids or matcher.match(need, tuple(assets.values())).matches:
+            additional = need.need_id in additional_visual_need_ids
+            reusable = tuple(a for a in assets.values() if not additional or a.asset_id not in retained_ids)
+            if need.need_id in skip_need_ids or matcher.match(need, reusable).matches:
                 trace.append({"need_id": need.need_id, "checkpoint_reused": True,
                               "attempted_sources": [], "failures": [],
                               "selection_authority": False})
@@ -191,6 +198,7 @@ class ProductMaterialSupply:
                 input_sha256 = hashlib.sha256(json.dumps({
                     'plan': subset.model_dump(mode='json'), 'style': style_terms,
                     'search_terms': search_terms, 'top_n': top_n,
+                    **({'additional_visual': True, 'retained_sha256': sorted(retained_hashes)} if additional else {}),
                 }, sort_keys=True).encode()).hexdigest()
                 receipt = store.read_recovery_record(f'source-{key}') if retain_sources else None
                 if receipt is not None:
@@ -239,6 +247,7 @@ class ProductMaterialSupply:
                 need, scope=scope, creation_id=attempt["creation_id"],
                 attempt_id=attempt["attempt_id"], provider_infos=infos,
                 external_supply=source_supply, director_preferences=director_preferences,
+                excluded_sha256=retained_hashes if additional else frozenset(),
             )
             library_by_id = {item.library_asset_id: item for item in result.reuse_candidates}
             for matched in result.library_matches:
@@ -302,7 +311,7 @@ class ProductMaterialSupply:
         bundle = MaterialBundleAssembler().assemble(plan, run, all_assets, tuple(matches), bundle_id=bundle_id)
         readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
         previous_ids = {a.asset_id for a in checkpoint.assets} if checkpoint is not None and gate else set()
-        if (retain_sources and readiness.status.value == 'NOT_READY'
+        if (retain_sources and (readiness.status.value == 'NOT_READY' or additional_visual_need_ids)
                 and not any(a.asset_id not in previous_ids for a in all_assets)
                 and (any(r.status == 'FAILED' for r in provider_results) or any(row['failures'] for row in trace))):
             raise RuntimeError('素材来源请求未完成；已保存的成功来源与素材会复用，重试仅继续未完成来源')
