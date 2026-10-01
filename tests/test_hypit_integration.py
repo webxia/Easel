@@ -1358,10 +1358,14 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     planning['scenes'] += '局部证据不足回放。'
     review_calls = []
     interrupted = False
+    initial_interrupted = False
     resolve_round = 99
     def uncertain_observe(a, manifest, attachments):
-        nonlocal interrupted
+        nonlocal interrupted, initial_interrupted
         review_calls.append((manifest['frame_offset'], manifest['observation_round'], manifest['input_sha256']))
+        if manifest['frame_offset'] == 2 and manifest['observation_round'] == 1 and not initial_interrupted:
+            initial_interrupted = True
+            raise HypitIntegrationError('fixture interruption after two validated batches')
         if manifest['observation_round'] == 2 and not interrupted:
             interrupted = True
             raise HypitIntegrationError('fixture interruption before report persistence')
@@ -1371,7 +1375,19 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
         if manifest['observation_round'] > 1:
             assert manifest['review_focus'] == {'readability': '字幕边界仍不确定'}
         return report
+    previous_system = attempt['review']['system']
+    with pytest.raises(HypitIntegrationError, match='after two validated batches'):
+        quality.inspect_output('fixture', executor=uncertain_observe)
+    assert attempt['review']['system'] == previous_system
+    pending = attempt['review']['system_pending']
+    assert pending['observation_round'] == 1 and len(pending['visual']) == 2
+    # Even an unknown report is a completed observation in this round. Resume
+    # at the interrupted batch; its request identity and review budget persist.
+    interrupted_request = review_calls[-1]
     quality.inspect_output('fixture', executor=uncertain_observe)
+    assert review_calls[3] == interrupted_request
+    assert [c[0] for c in review_calls[:4]] == [0, 1, 2, 2]
+    assert 'system_pending' not in attempt['review']
     first = attempt['review']['system']
     assert len(first['visual']) > 1 and first['observation_round'] == 1
     assert quality.needs_reobservation(first)
@@ -1387,7 +1403,7 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     assert exhausted['observation_round'] == quality.MAX_OBSERVATION_ROUNDS
     assert not quality.needs_reobservation(exhausted)
     assert quality.repair_request(attempt) is None  # Unknown never becomes permission to rebuild.
-    assert [call[0] for call in review_calls[len(first['visual']):]] == [1, 1, 1]
+    assert [call[0] for call in review_calls[len(first['visual']) + 1:]] == [1, 1, 1]
     count = len(review_calls)
     quality.inspect_output('fixture', executor=uncertain_observe)
     assert len(review_calls) == count
@@ -1395,8 +1411,13 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     # A fresh input has its own bound review budget; a valid later observation
     # can resolve unknown while retaining the observed technical defect.
     planning['scenes'] += '复查可取得结论的独立场景。'
+    attempt['review']['system_pending'] = pending  # A stale checkpoint is not transferable.
     resolve_round = 2
+    count = len(review_calls)
     quality.inspect_output('fixture', executor=uncertain_observe)
+    assert review_calls[count][:2] == (0, 1)
+    assert review_calls[count][2] != pending['visual'][0]['input_sha256']
+    assert 'system_pending' not in attempt['review']
     quality.inspect_output('fixture', executor=uncertain_observe)
     assert attempt['review']['system']['observation_round'] == 2
     assert not quality.needs_reobservation(attempt['review']['system'])

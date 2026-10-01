@@ -53,6 +53,9 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **系统审片分批恢复（2026-10-01）：** 旧审片只在全部画面批次完成后保存报告，后续批次失败会丢失本轮已验证批次的恢复依据。既有确定性审片回放先复现中断后没有检查点。现沿用 Attempt 的 Review 存储，每个已通过合同校验的批次独立保存 `system_pending`，绑定当前完整输入身份、输出 SHA、批次与观察轮次；重试复用本轮已完成批次，包括其尚为 unknown 的结论，从中断批次继续。完成整轮才更新正式系统报告、清理检查点并计入复查轮次。部分结果不冒充审片通过，不覆盖最后可信报告或人工审片；输入变化不复用旧检查点，落盘仍核验输出字节及编排身份。
+- **本批审片恢复验证：** Hypit/Cross-Content/Preparation **101 passed**，compileall、diff check 通过，保留两项既有依赖提示。沿用原音画缺陷测试扩展“前两批已完成、第三批中断”、原请求身份续跑、unknown 有界复查、旧输入检查点失效和人工审片保留；没有新增平行审片流程或测试文件。音视频为本地确定性合成素材、视觉判断为 Fixture，未调用真实模型或 Build。整体仍 PARTIAL / NOT_READY：真实声音语义、生成图片/视频权利、Truth/叙事缺陷恢复及真实跨内容效果未闭环，Goal active，未操作真实 Creation。
+
 - **画面错配后的有界视觉补料（2026-10-01）：** 原素材仍准入时 Gate 保持 READY，而旧补料入口只接受 NOT_READY、Supply 又因已有匹配跳过 Need，导致池内没有备选时无法改善成片。现复用既有 `recover_material` 与供应恢复记录：唯一 Delivery Owner 先完成池内备选观察，再仅为缺少替代项的视觉 Need 执行一次原来源权限内的补充检索。系统审片报告、原输出执行身份及未改变的 Need 绑定该请求；声音、脚本、原素材和正式 Gate 语义保留。内容库按字节 SHA 排除原素材，避免不同 Library ID 冒充新候选；检索输入身份包含保留素材集合。新候选仍经原观察、Rights、Match/Readiness 与 Authoring 路径，未新增付费生成或工作流。
 - **本批补料验证与限制：** Cross-Content/Library-first/Material integration/Preparation/Hypit **158 passed**；最后输入身份与文案调整后 Cross-Content/Library-first/Material integration **58 passed**，compileall、diff check 通过，保留两项既有依赖提示。既有三内容回放第二个场景覆盖：画面错配 → 池内无备选 → 视觉补料 → 供应结果已保存但 Gate 登记中断 → 对账复用 → 新候选观察/编排 → 重新核价与模拟制作 → 当前输出 Quality READY。查询规划只执行一次，中断恢复没有重复已完成来源检索，原 Bundle、TTS/ASR 与生成额度保持不变；非 Owner 调用在模型执行前拒绝。补料采用隔离本地许可图片，模型、ASR/TTS 与 Hypit 渲染仍为替身，不证明远端素材可得性、真实渲染或感知质量。实际声音语义、生成图片/视频的权利处理、Truth/叙事缺陷恢复及真实跨内容效果仍未闭环；Goal active / NOT_READY。未操作真实 Creation、付费 AI、真实 Build 或完整 E2E。
 

@@ -458,6 +458,32 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
             and not needs_reobservation(previous)):
         return attempt
     observation_round = previous.get('observation_round', 1) + 1 if same_input else 1
+    pending = attempt.get('review', {}).get('system_pending', {})
+    if (pending.get('input_sha256') != identity
+            or pending.get('observation_round') != observation_round):
+        pending = {}
+
+    def save_review(report, *, complete):
+        # Keep the last completed review separate from in-progress evidence.
+        # Neither a partial batch nor a transient failure constitutes PASS.
+        if service._file_sha256(path) != binding['sha256']:
+            raise HypitIntegrationError('检查期间成片发生变化，未保存审片结论')
+        if service._execution_fingerprint(service.get_film_attempt(attempt_id))['sha256'] != fingerprint:
+            raise HypitIntegrationError('检查期间编排输入发生变化，未保存审片结论')
+        def save(item):
+            if item.get('outputs', {}).get(name, {}).get('sha256') != binding['sha256']:
+                raise HypitIntegrationError('检查期间输出身份变化')
+            review = {**item.get('review', {})}
+            if complete:
+                review['system'] = report
+                review.pop('system_pending', None)
+            else:
+                review['system_pending'] = report
+            item['review'] = review
+            return service._event(item, 'system_quality_recorded' if complete else 'system_quality_checkpoint',
+                                  status=report['status'])
+        return service._save_attempt(attempt_id, save)
+
     measurements = measure_output(path, output['metadata'], voice_path, offset, cues)
     if any(getattr(n.modality_spec, 'kind', None) == 'voice' for n in plan.needs) and voice_path is None:
         measurements['defects'].append({'kind': 'voice_unverifiable', 'reason': '当前旁白缺少可绑定的时序，尚不能核对完整性', 'time_seconds': 0.})
@@ -504,16 +530,23 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         batch_identity = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
         cached = next((v for v in previous.get('visual', [])
                        if same_input and v.get('batch_sha256') == batch_identity), None)
-        complete = cached is not None and all(c['status'] != 'unknown' for c in cached['checks'].values())
-        batch['observation_round'] = cached['observation_round'] if complete else observation_round
-        batch['review_focus'] = (cached['review_focus'] if complete else {
+        checkpoint = next((v for v in pending.get('visual', [])
+                           if v.get('batch_sha256') == batch_identity), None)
+        reusable = checkpoint or (cached if cached is not None
+            and all(c['status'] != 'unknown' for c in cached['checks'].values()) else None)
+        batch['observation_round'] = reusable['observation_round'] if reusable is not None else observation_round
+        batch['review_focus'] = (reusable['review_focus'] if reusable is not None else {
             key: check['reason'][:500] for key, check in (cached or {}).get('checks', {}).items()
             if check['status'] == 'unknown'})
         batch['input_sha256'] = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
-        report = cached if complete else executor(attempt, batch, attachments[start:end])
+        report = reusable if reusable is not None else executor(attempt, batch, attachments[start:end])
         validate_visual_review(batch, report)
         visual.append({**report, 'frame_offset': start, 'batch_sha256': batch_identity,
                        'observation_round': batch['observation_round'], 'review_focus': batch['review_focus']})
+        if reusable is None:
+            save_review({'schema': SCHEMA, 'status': 'CHECKING', 'input_sha256': identity,
+                         'binding': binding, 'observation_round': observation_round,
+                         'visual': list(visual)}, complete=False)
         start = end
     failed = any(c['status'] == 'fail' for v in visual for c in v['checks'].values())
     unknown = any(c['status'] == 'unknown' for v in visual for c in v['checks'].values())
@@ -522,13 +555,4 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
               'status': 'REPAIR_REQUIRED' if failed or measurements['defects'] else 'INCOMPLETE' if unknown else 'READY',
               'measurements': measurements, 'visual': visual, 'frames': frames,
               'scope': manifest['scope'], 'checked_at': service._now()}
-    if service._file_sha256(path) != binding['sha256']:
-        raise HypitIntegrationError('检查期间成片发生变化，未保存审片结论')
-    if service._execution_fingerprint(service.get_film_attempt(attempt_id))['sha256'] != fingerprint:
-        raise HypitIntegrationError('检查期间编排输入发生变化，未保存审片结论')
-    def save(item):
-        if item.get('outputs', {}).get(name, {}).get('sha256') != binding['sha256']:
-            raise HypitIntegrationError('检查期间输出身份变化')
-        item['review'] = {**item.get('review', {}), 'system': report}
-        return service._event(item, 'system_quality_recorded', status=report['status'])
-    return service._save_attempt(attempt_id, save)
+    return save_review(report, complete=True)
