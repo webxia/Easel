@@ -1252,6 +1252,19 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     count = len(calls)
     quality.inspect_output('fixture', executor=observe)
     assert len(calls) == count
+    request = quality.repair_request(attempt)
+    assert request['allowed_changes'] == ['visual']
+    assert request['sha256'] == attempt['outputs']['final']['sha256']
+    system = attempt['review']['system']
+    system['visual'][0]['checks']['readability'] = {'status': 'fail', 'reason': '字幕与背景对比不足', 'frame_indices': [1]}
+    request = quality.repair_request(attempt)
+    assert request['allowed_changes'] == ['captions', 'visual']
+    assert request['feedback'][-1]['time_seconds'] == system['frames'][1]['time_seconds']
+    system['visual'][0]['checks']['narrative']['status'] = 'fail'
+    assert quality.repair_request(attempt) is None  # Not permission to rewrite the script.
+    system['visual'][0]['checks']['narrative']['status'] = 'pass'
+    system['binding']['sha256'] = 'stale-output'
+    assert quality.repair_request(attempt) is None
     output.write_bytes(b'changed output')
     with pytest.raises(HypitIntegrationError, match='字节已变化'):
         quality.inspect_output('fixture', executor=observe)
@@ -1271,3 +1284,31 @@ def test_system_quality_cannot_pass_unseen_or_stale_frames():
     report['input_sha256'] = 'other-output'
     with pytest.raises(ValueError, match='当前输出'):
         validate_visual_review(manifest, report)
+
+
+def test_system_quality_revision_changes_only_defective_layer(tmp_path):
+    from easel.integrations.hypit.narration import compile_measured_narration
+    from easel.integrations.hypit.revision import assert_quality_revision
+    source, timings, paths = measured_narration_fixture()
+    original = compile_measured_narration(source, timings, paths)
+    base, target = tmp_path / 'base/main.svml', tmp_path / 'target/main.svml'
+    recipe = 'film.memo { background: #101820; }\ntext.caption { size: 48; fill: #FFFFFF; }'
+    for path in (base, target):
+        path.parent.mkdir()
+        path.write_text(original)
+        path.with_name('recipes.svs').write_text(recipe)
+    target.write_text(original.replace('gain="0.1"', 'gain="0.04"'))
+    assert_quality_revision(base, target, {'audio'})
+    with pytest.raises(HypitIntegrationError, match='未授权部分'):
+        assert_quality_revision(base, target, {'visual'})
+    target.write_text(original.replace('top="1420px"', 'top="1360px"'))
+    target.with_name('recipes.svs').write_text(recipe.replace('size: 48', 'size: 56'))
+    assert_quality_revision(base, target, {'captions'})
+    with pytest.raises(HypitIntegrationError, match='未授权部分'):
+        assert_quality_revision(base, target, {'audio'})
+    target.with_name('recipes.svs').write_text(recipe)
+    for old, new in [('src="./voice.wav"', 'src="./other.wav"'), ('at="12f"', 'at="24f"'),
+                     ('第一句', '新事实'), ('<film:Track source={voice-track.audio}/>', '')]:
+        target.write_text(original.replace(old, new))
+        with pytest.raises(HypitIntegrationError, match='未授权部分'):
+            assert_quality_revision(base, target, {'visual', 'captions', 'audio'})

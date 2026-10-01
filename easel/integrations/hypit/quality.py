@@ -19,6 +19,53 @@ SCHEMA = 'easel-output-quality@1'
 VISUAL_CHECKS = ('visual_match', 'readability', 'mode', 'truth_expression', 'narrative')
 
 
+def repair_request(attempt: dict) -> dict | None:
+    """Translate evidenced local defects; never fabricate a human rejection."""
+    report = attempt.get('review', {}).get('system', {})
+    binding = report.get('binding', {})
+    output = attempt.get('outputs', {}).get(binding.get('output_name'), {})
+    if (report.get('schema') != SCHEMA or report.get('status') != 'REPAIR_REQUIRED'
+            or not output or binding.get('sha256') != output.get('sha256')):
+        return None
+    scopes, feedback = set(), []
+    for defect in report.get('measurements', {}).get('defects', []):
+        kind = defect.get('kind')
+        if kind == 'near_black':
+            scopes.add('visual')
+        elif kind in {'silent_audio', 'audio_clipping', 'voice_masked', 'voice_missing'}:
+            scopes.add('audio')
+        else:
+            return None  # Missing alignment is an evidence gap, not permission to repurchase speech.
+        feedback.append({'kind': 'quality', 'text': defect['reason'], 'time_seconds': defect['time_seconds']})
+    offset = 0
+    for batch in report.get('visual', []):
+        for key, check in batch.get('checks', {}).items():
+            if check.get('status') == 'unknown':
+                return None
+            if check.get('status') != 'fail':
+                continue
+            if key == 'readability':
+                scopes.add('captions')
+            elif key in {'visual_match', 'mode'}:
+                scopes.add('visual')
+            else:
+                return None  # Truth/narrative changes need the existing Planning/Material path.
+            indices = check.get('frame_indices', [])
+            if not indices:
+                return None
+            for index in indices:
+                absolute = batch.get('frame_offset', offset) + index
+                if not 0 <= absolute < len(report.get('frames', [])):
+                    return None
+                feedback.append({'kind': 'quality', 'text': check['reason'],
+                                 'time_seconds': report['frames'][absolute]['time_seconds']})
+        offset += len(batch.get('frames', []))
+    if not feedback:
+        return None
+    return {**binding, 'origin': 'system_quality', 'allowed_changes': sorted(scopes), 'feedback': feedback,
+            'quality_report_sha256': hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()}
+
+
 def _decode(path: Path, *options: str) -> bytes:
     try:
         result = subprocess.run(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'error',
@@ -240,7 +287,7 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         batch['input_sha256'] = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
         report = executor(attempt, batch, attachments[start:end])
         validate_visual_review(batch, report)
-        visual.append(report)
+        visual.append({**report, 'frame_offset': start})
         start = end
     failed = any(c['status'] == 'fail' for v in visual for c in v['checks'].values())
     unknown = any(c['status'] == 'unknown' for v in visual for c in v['checks'].values())

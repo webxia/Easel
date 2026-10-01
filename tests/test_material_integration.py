@@ -866,6 +866,27 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     with pytest.raises(HypitIntegrationError, match="仅支持"):
         service.revise_film_output(attempt["attempt_id"], output_name="final.video", sha256=output_hash, cli=cli)
 
+    # The system owns a separate reason for the same checkpoint fork. It must
+    # not forge Creator rejection, reuse a paid approval or mutate the source.
+    from easel.creation_delivery import SCHEMA
+    quality = {'schema': 'easel-output-quality@1', 'status': 'REPAIR_REQUIRED',
+               'binding': {'output_name': 'final.video', 'sha256': output_hash},
+               'measurements': {'defects': [{'kind': 'near_black', 'reason': '开头主体接近全黑', 'time_seconds': 1.}]},
+               'visual': [], 'frames': []}
+    service.update_film_attempt(attempt['attempt_id'], event='fixture_machine_review',
+                               review={'system': quality, 'human': {'status': 'pending'}})
+    with creation.edit_creation(attempt['creation_id']) as current:
+        current['delivery'] = {'schema': SCHEMA, 'recovering_quality_from': attempt['attempt_id'],
+                               'quality_repairs': [attempt['attempt_id']]}
+    repaired = service.repair_film_quality(attempt['attempt_id'], cli=cli)
+    assert repaired['revision_feedback']['origin'] == 'system_quality'
+    assert repaired['revision_feedback']['allowed_changes'] == ['visual']
+    assert repaired['cost']['approved'] is False and repaired['plan']['status'] == 'pending'
+    assert repaired['outputs'] == {} and repaired['execution_status'] == 'NOT_SUBMITTED'
+    assert service.get_film_attempt(attempt['attempt_id'])['review']['human']['status'] == 'pending'
+    assert service.repair_film_quality(attempt['attempt_id'], cli=cli)['attempt_id'] == repaired['attempt_id']
+    assert cli.build_calls == 1
+
 
 def test_int04_workspace_asset_uses_ordinary_hypit_media_route(material_integration_env):
     attempt = material_integration_env

@@ -604,9 +604,29 @@ def revise_film_output(attempt_id: str, *, output_name: str, sha256: str,
                                  revision={"output_name": output_name, "sha256": sha256, "feedback": feedback})
 
 
+def repair_film_quality(attempt_id: str, *, cli: HypitCLI | None = None) -> dict[str, Any]:
+    from easel.creation_delivery import is_managed, MAX_QUALITY_REPAIRS
+    from .quality import repair_request
+    source = get_film_attempt(attempt_id)
+    work = creation.get_creation(source['creation_id'])
+    delivery = work.get('delivery', {})
+    if (not is_managed(work) or delivery.get('recovering_quality_from') != attempt_id
+            or attempt_id not in delivery.get('quality_repairs', [])
+            or len(delivery['quality_repairs']) > MAX_QUALITY_REPAIRS
+            or work.get('selected_output_name')):
+        raise HypitIntegrationError('系统质量修正需要当前委托内的持久执行记录')
+    request = repair_request(source)
+    if request is None or source.get('execution_status') != 'BUILD_COMPLETE':
+        raise HypitIntegrationError('当前系统审片没有可执行的局部质量修正')
+    output = source['outputs'][request['output_name']]
+    if _file_sha256(_output_path(source, output)) != request['sha256']:
+        raise HypitIntegrationError('待修正成片字节已变化')
+    return _fork_film_checkpoint(attempt_id, cli=cli, revision=request)
+
+
 def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
                           revision: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Fork only verified checkpoints after a definitively failed Hypit Build.
+    """Fork verified checkpoints for a failed Build or evidenced output revision.
 
     This creates one idempotent sibling Attempt. Planning, Material and
     Authoring are re-bound and checked locally; pricing and paid Build remain
@@ -758,10 +778,14 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
         if revision is not None:
             current_source = get_film_attempt(attempt_id)
             current_review = current_source.get("review", {})
-            if (current_review.get("binding") != {"output_name": revision["output_name"], "sha256": revision["sha256"]}
-                    or current_review.get("feedback") != revision["feedback"]
-                    or current_review.get("human", {}).get("status") != "rejected"
-                    or _execution_fingerprint(current_source)["sha256"] != source_fingerprint["sha256"]):
+            if revision.get('origin') == 'system_quality':
+                from .quality import repair_request
+                same_review = repair_request(current_source) == revision
+            else:
+                same_review = (current_review.get("binding") == {"output_name": revision["output_name"], "sha256": revision["sha256"]}
+                    and current_review.get("feedback") == revision["feedback"]
+                    and current_review.get("human", {}).get("status") == "rejected")
+            if (not same_review or _execution_fingerprint(current_source)["sha256"] != source_fingerprint["sha256"]):
                 raise HypitIntegrationError("复制期间源成片或修改反馈发生变化，请重新确认")
             # Previous valid authoring is a reference only; the new Attempt has
             # no Plan, price, approval, submission, export or final selection.
@@ -946,6 +970,11 @@ def _assert_composition_revision(attempt: dict[str, Any], authored: Path | None 
     if _execution_fingerprint(original)["sha256"] != attempt["retry_source"]["fingerprint"]:
         raise HypitIntegrationError("局部修改的原成片 checkpoint 已变化，拒绝继续")
     relative = "productions/easel-authoring/authors/main.svml"
+    if attempt['revision_feedback'].get('origin') == 'system_quality':
+        from .revision import assert_quality_revision
+        assert_quality_revision(_workspace(original) / relative, authored or _workspace(attempt) / relative,
+                                set(attempt['revision_feedback']['allowed_changes']))
+        return
     assert_composition_preserves_sound_and_copy(
         _workspace(original) / relative, authored or _workspace(attempt) / relative,
     )

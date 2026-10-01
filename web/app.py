@@ -2175,6 +2175,9 @@ async def _execute_creation_delivery(operation: str, work: dict) -> None:
     elif operation == "quality":
         from easel.integrations.hypit.quality import inspect_output
         await asyncio.to_thread(inspect_output, attempt_id, executor=_review_output_frames)
+    elif operation == 'repair_quality':
+        from easel.integrations.hypit.service import repair_film_quality
+        await asyncio.to_thread(repair_film_quality, work['delivery']['recovering_quality_from'])
     else:
         raise CreationError("未知的作品交付操作")
 
@@ -2900,7 +2903,18 @@ async def _run_film_authoring(attempt_id: str) -> dict:
         "不得修改这些只读合同，不得访问隔离区外的安装包。"
     )
     revision = started.get("revision_feedback")
-    if revision:
+    if revision and revision.get('origin') == 'system_quality':
+        message += (
+            '\n〔Easel 系统审片局部修正〕\n' + json.dumps(revision, ensure_ascii=False)
+            + '\n这是系统发现的输出缺陷，不是 Creator 新委托。先读现有 main.svml 与 recipes.svs，'
+              '仅修正 allowed_changes 指定部分：visual 为既有画面构图/取片/明暗/平移缩放；'
+              'captions 为字幕字体、颜色、底色与安全区，不改变原文和时间；'
+              'audio 为现有音轨增益与淡入淡出，不改变音频、播放位置、截取、循环或时长。'
+              '保持素材身份、脚本、场景顺序、时间线、创作边界及其他无缺陷部分。'
+              '不得请求 Provider 或调用 Build；已有旁白不能重购。不能用删除有问题的声音/字幕假装修复。'
+              '只编辑相关源文件；新核价和合成由原主链处理。'
+        )
+    elif revision:
         message += (
             "\n〔Creator 成片修改：仅限构图与转场〕\n"
             + json.dumps(revision, ensure_ascii=False, separators=(",", ":"))

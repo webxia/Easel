@@ -65,3 +65,8 @@ assert.equal(checkingQuality.timeline[5].state, 'running');
 assert.match(checkingQuality.title, /检查成片画面与声音/);
 assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'first_cut_ready' } }, exported, null).pending, 1);
 assert.match(project({ ...confirmed, delivery: { ...delivery, status: 'quality_incomplete' } }, exported, null).title, /证据尚不完整/);
+const repairingQuality = project({ ...confirmed, delivery: { ...delivery, status: 'repairing_quality' } }, exported, null);
+assert.equal(repairingQuality.pending, 0);
+assert.equal(repairingQuality.timeline[5].state, 'running');
+assert.match(repairingQuality.title, /正在修正系统审片/);
+assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:repair_quality' } }, exported, null).failureStage, '审片');

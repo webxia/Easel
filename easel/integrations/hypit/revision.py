@@ -69,6 +69,82 @@ def assert_composition_preserves_sound_and_copy(base: Path, authored: Path) -> N
         )
 
 
+def assert_quality_revision(base: Path, authored: Path, allowed: set[str]) -> None:
+    """Open only the defective presentation layer; protect source and timing."""
+    if not allowed or not allowed <= {'visual', 'captions', 'audio'}:
+        raise HypitIntegrationError('系统质量修正范围无效')
+
+    def graph(path: Path):
+        root = _markup(path)
+        packages = {e.get('as'): e.get('from', '').rsplit('@', 1)[0] for e in root.findall('import')}
+        sheets = {e.get('as'): e.get('source') for e in root.findall('import') if e.get('source')}
+        nodes = {e.get('id'): e for e in root.iter() if e.get('id')}
+        protected = {'imports': tuple(sorted(tuple(sorted(e.attrib.items())) for e in root.findall('import')))}
+
+        def kind(e):
+            prefix, _, name = e.tag.partition('__')
+            return packages.get(prefix, prefix), name
+
+        def filtered(e):
+            package, name = kind(e)
+            omitted = set()
+            if 'audio' in allowed and (package, name) == ('@hypit/audio-track', 'Item'):
+                omitted = {'gain', 'fade-in', 'fade-out'}
+            if 'captions' in allowed and (package, name) == ('@hypit/typography-track', 'Area'):
+                omitted = {'placement', 'style'}
+            if 'visual' in allowed and package == '@hypit/media-track':
+                omitted = {'frame', 'appearance', 'transition'}
+            if 'visual' in allowed and (package, name) == ('@hypit/film', 'Film'):
+                omitted = {'appearance'}
+            children = [c for c in e if not ('visual' in allowed and kind(c) == ('@hypit/media-track', 'Sampling'))]
+            return {k: v for k, v in e.attrib.items() if k not in omitted}, children
+
+        def canonical(e):
+            attrs, children = filtered(e)
+            return kind(e), tuple(sorted(attrs.items())), (e.text or '').strip(), tuple(canonical(c) for c in children)
+
+        def visit(e):
+            key = e.get('id') or repr(kind(e))
+            if key in protected:
+                return
+            protected[key] = canonical(e)
+
+            def references(item):
+                attrs, children = filtered(item)
+                for value in attrs.values():
+                    for ref in re.findall(r'\{([\w.-]+)\}', value):
+                        identity = next((key for key in sorted(nodes, key=len, reverse=True)
+                                         if ref == key or ref.startswith(key + '.')), None)
+                        node = nodes.get(identity)
+                        if node is not None:
+                            visit(node)
+                            continue
+                        alias, _, selector = ref.partition('.')
+                        if alias in sheets:
+                            sheet = path.parent / sheets[alias]
+                            if sheet.is_symlink() or sheet.resolve().parent != path.parent.resolve():
+                                raise HypitIntegrationError('局部修正样式引用越界')
+                            body = re.search(r'(?<![\w.-])' + re.escape(selector) + r'\s*\{([^{}]*)\}', sheet.read_text())
+                            if body is None:
+                                raise HypitIntegrationError('受保护样式无法核对；保留原样式声明')
+                            protected['recipe:' + ref] = re.sub(r'\s+', ' ', body[1]).strip()
+                for child in children:
+                    references(child)
+
+            references(e)
+
+        roots = {'@hypit/media', '@hypit/media-pipeline', '@hypit/timeline-author', '@hypit/text',
+                 '@hypit/audio-track', '@hypit/media-track', '@hypit/film', '@hypit/render-hyperframes', '@easel/audio-mix'}
+        for element in root:
+            package, name = kind(element)
+            if package in roots or (package, name) in {('@hypit/spatial', 'Canvas'), ('@hypit/typography-track', 'Track')}:
+                visit(element)
+        return protected
+
+    if graph(base) != graph(authored):
+        raise HypitIntegrationError('系统局部修正改变了脚本、素材身份、播放时序或未授权部分；只修正审片指出的表现层缺陷')
+
+
 def assert_video_trim_ranges(authored: Path, assets: dict[str, float]) -> None:
     """Preflight literal media-track trims against the admitted video duration.
 

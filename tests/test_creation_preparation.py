@@ -253,6 +253,51 @@ def test_delivery_build_recovery_resumes_source_and_rechecks_cost_with_a_bound(p
     assert len(calls) == 2 * MAX_BUILD_RECOVERIES
 
 
+def test_delivery_quality_repair_resumes_one_checkpoint_and_stops_at_budget(prep_env, monkeypatch):
+    from easel.creation_delivery import advance_creation, next_operation, MAX_QUALITY_REPAIRS
+    from easel.integrations.hypit import service
+    work = _confirmed_delivery()
+    def failed_output(identity):
+        return {'attempt_id': identity, 'execution_status': 'BUILD_COMPLETE',
+            'outputs': {'final': {'sha256': 'output-sha'}}, 'review': {'human': {'status': 'pending'}, 'system': {
+                'schema': 'easel-output-quality@1', 'status': 'REPAIR_REQUIRED',
+                'binding': {'output_name': 'final', 'sha256': 'output-sha'},
+                'measurements': {'defects': [{'kind': 'voice_masked', 'reason': '配乐遮盖旁白', 'time_seconds': 2}]}}}}
+    source = 'fa_' + '4' * 32
+    with creation.edit_creation(work['id']) as current:
+        current['hypit_attempts'] = [failed_output(source)]
+    calls = []
+    def repair(identity):
+        calls.append(identity)
+        with creation.edit_creation(work['id']) as current:
+            assert current['delivery']['recovering_quality_from'] == identity
+            target = next((a for a in current['hypit_attempts'] if a.get('retry_source', {}).get('attempt_id') == identity), None)
+            if target is None:
+                current['hypit_attempts'].append({'attempt_id': f"fa_{len(calls):032x}",
+                    'execution_status': 'NOT_SUBMITTED', 'retry_source': {'attempt_id': identity, 'status': 'COPYING'}})
+            else:
+                target.update(authoring_status='READY_FOR_EXTERNAL_AUTHORING',
+                    material_gate={'status': 'MATERIAL_READY', 'plan_revision': 'p', 'bundle_revision': 'b'},
+                    material_observation={'status': 'COMPLETE', 'plan_revision': 'p', 'bundle_revision': 'b'},
+                    cost={'approved': False}, retry_source={'attempt_id': identity, 'status': 'READY'})
+        if calls.count(identity) == 1:
+            raise RuntimeError('模拟复制中断')
+    monkeypatch.setattr(service, 'repair_film_quality', repair)
+    for _ in range(MAX_QUALITY_REPAIRS):
+        asyncio.run(advance_creation(work['id'], web._execute_creation_delivery))
+        assert next_operation(creation.get_creation(work['id']))[0] == 'repair_quality'
+        asyncio.run(advance_creation(work['id'], web._execute_creation_delivery))
+        current = creation.get_creation(work['id'])
+        assert calls[-2:] == [source, source]
+        assert next_operation(current)[0] == 'author'
+        assert current['hypit_attempts'][-1]['cost']['approved'] is False
+        source = current['hypit_attempts'][-1]['attempt_id']
+        with creation.edit_creation(work['id']) as current:
+            current['hypit_attempts'][-1] = failed_output(source)
+    assert next_operation(creation.get_creation(work['id'])) == (None, 'quality_repair_required')
+    assert len(calls) == 2 * MAX_QUALITY_REPAIRS
+
+
 def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(prep_env):
     from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain
     from easel.integrations.openclaw_delivery import run_delivery_agent, reconcile_agent_calls

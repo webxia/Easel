@@ -21,6 +21,7 @@ from easel.integrations.hypit.service import pricing_has_no_provider_charge
 SCHEMA = "easel-creation-delivery@1"
 MAX_FAILURES = 3
 MAX_BUILD_RECOVERIES = 2
+MAX_QUALITY_REPAIRS = 2
 active_delivery: ContextVar[str | None] = ContextVar("active_creation_delivery", default=None)
 
 
@@ -102,6 +103,8 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         return "observe_agent", "observing_execution"
     if delivery.get("recovering_build_from"):
         return "retry_build", "recovering_production"
+    if delivery.get("recovering_quality_from"):
+        return "repair_quality", "repairing_quality"
     attempt = _attempt(work)
     if not attempt:
         return "prepare", "preparing"
@@ -122,6 +125,10 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
             if system.get("status") == "READY":
                 return None, "first_cut_ready"
             if system.get("status") == "REPAIR_REQUIRED":
+                from easel.integrations.hypit.quality import repair_request
+                if (len(delivery.get('quality_repairs', [])) < MAX_QUALITY_REPAIRS
+                        and repair_request(attempt) is not None):
+                    return 'repair_quality', 'repairing_quality'
                 return None, "quality_repair_required"
             if system.get("status") == "INCOMPLETE":
                 return None, "quality_incomplete"
@@ -212,6 +219,7 @@ async def advance_creation(
                 and not work["delivery"].get("agent_calls")):
             operation, status = None, "execution_uncertain"
         attempt_id = (work["delivery"].get("recovering_build_from") if operation == "retry_build" else None
+                      ) or (work['delivery'].get('recovering_quality_from') if operation == 'repair_quality' else None
                       ) or _attempt(work).get("attempt_id", "preparation")
         key = f"{attempt_id}:{operation}"
         failures = work["delivery"].get("failures", {})
@@ -239,6 +247,12 @@ async def advance_creation(
                 record["recovering_build_from"] = attempt_id
                 record.setdefault("build_recoveries", []).append(attempt_id)
             work = creation.get_creation(creation_id)
+        if operation == 'repair_quality' and not record.get('recovering_quality_from'):
+            with creation.edit_creation(creation_id) as current:
+                record = current['delivery']
+                record['recovering_quality_from'] = attempt_id
+                record.setdefault('quality_repairs', []).append(attempt_id)
+            work = creation.get_creation(creation_id)
 
         # Cancellation must not release the OS lock while a to_thread executor
         # or CLI child still runs. Shutdown drains that call before unlocking.
@@ -261,7 +275,7 @@ async def advance_creation(
         except Exception as exc:
             with creation.edit_creation(creation_id) as current:
                 record = current["delivery"]
-                if operation in {"prepare", "author", "observe_material"} and isinstance(exc, (DeliveryExecutionUncertain, subprocess.TimeoutExpired)):
+                if operation in {"prepare", "author", "observe_material", "quality"} and isinstance(exc, (DeliveryExecutionUncertain, subprocess.TimeoutExpired)):
                     record.update(status="execution_uncertain", last_error=None,
                                   updated_at=creation._now())
                     return False
@@ -276,6 +290,8 @@ async def advance_creation(
             record = current["delivery"]
             if operation == "retry_build":
                 record.pop("recovering_build_from", None)
+            if operation == 'repair_quality':
+                record.pop('recovering_quality_from', None)
             record.setdefault("failures", {}).pop(key, None)
             record.update(status=next_operation(current)[1], operation=None, last_error=None, updated_at=creation._now())
         return True
