@@ -2163,7 +2163,7 @@ def test_visual_replacement_stops_at_usable_choice_or_bound_and_reuses_saved_rep
     assert not store.read_asset(assets[-1].asset_id).semantic.inferences
 
 
-@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'video_failed', 'voice_preflight'])
+@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'video_failed', 'video_intake_resume', 'voice_preflight'])
 def test_commission_generation_reserves_before_submit_and_survives_restart(material_integration_env, monkeypatch, outcome):
     import asyncio
     from io import BytesIO
@@ -2176,7 +2176,7 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     from easel.materials import providers
 
     attempt = material_integration_env
-    is_video = outcome in {'video_resume', 'video_failed'}
+    is_video = outcome in {'video_resume', 'video_failed', 'video_intake_resume'}
     is_voice = outcome == 'voice_preflight'
     expected_cost = '1.650000' if is_video else '0.025000'
     plan = MaterialPlan(plan_id='commission-plan', creation_id=attempt['creation_id'], attempt_id=attempt['attempt_id'],
@@ -2268,9 +2268,9 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
             def get(self, url, **kwargs):
                 if outcome == 'video_failed':
                     return HttpResponse(200, {}, json.dumps({'task': {'id': 'fixture-paid-video', 'status': 'failed'}}).encode())
-                if len(self.waits) in (2, 4):
+                if outcome != 'video_intake_resume' and len(self.waits) in (2, 4):
                     raise TimeoutError('fixture query connection interrupted')
-                task = {'id': 'fixture-paid-video', 'status': 'queued' if len(self.waits) == 1 else 'running' if len(self.waits) < 5 else 'succeeded',
+                task = {'id': 'fixture-paid-video', 'status': 'succeeded' if outcome == 'video_intake_resume' else 'queued' if len(self.waits) == 1 else 'running' if len(self.waits) < 5 else 'succeeded',
                         'content': {'url': 'https://video-product.cdn.minimax.io/fixture.mp4'}}
                 return HttpResponse(200, {}, json.dumps({'task': task}).encode())
             def submit(self, prompt, **kwargs):
@@ -2290,12 +2290,26 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
                 asset = MaterialAsset(asset_id='fixture-video', media_type=MediaType.VIDEO,
                     file=FileInfo(path=path, sha256=hashlib.sha256(body).hexdigest(), size=len(body), mime='video/mp4'),
                     source=candidate.source, rights=RightsInfo(status=RightsStatus.UNKNOWN),
-                    technical=TechnicalInfo(status=TechnicalStatus.PASSED, mime='video/mp4', duration_seconds=5))
+                    technical=TechnicalInfo(status=TechnicalStatus.PENDING if outcome == 'video_intake_resume' else TechnicalStatus.PASSED, mime='video/mp4', duration_seconds=5))
                 self.store.write_asset(asset)
                 return asset
         monkeypatch.setattr(providers, 'MiniMaxVideoAdapter', FakeVideo)
         monkeypatch.setattr(video_generation, 'create_material_generation_acquirer', LocalAcquirer)
         monkeypatch.setattr(video_generation, 'TechnicalInspector', lambda store: SimpleNamespace(inspect_and_persist=lambda asset: asset))
+        if outcome == 'video_intake_resume':
+            from easel.materials.application import generation_modalities
+            class Inspector:
+                calls = 0
+                def __init__(self, store): self.store = store
+                def inspect_and_persist(self, asset):
+                    type(self).calls += 1
+                    if self.calls == 1:
+                        raise OSError('fixture local inspector interrupted after video receipt')
+                    checked = asset.model_copy(update={'technical': asset.technical.model_copy(update={'status': TechnicalStatus.PASSED})})
+                    self.store.write_asset(checked)
+                    return checked
+            monkeypatch.setattr(video_generation, 'TechnicalInspector', Inspector)
+            monkeypatch.setattr(generation_modalities, 'TechnicalInspector', Inspector)
     original = MaterialProductOrchestrator.generate_minimax_asset
     def interrupted(self, *args, **kwargs):
         dispatches.append(kwargs['request_id'])
@@ -2310,6 +2324,11 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     async def execute(operation, current):
         if operation == 'generate_material':
             await asyncio.to_thread(commissioned.generate_for_commission, attempt['attempt_id'])
+        elif operation == 'finish_material_generation':
+            assert outcome == 'video_intake_resume'
+            with monkeypatch.context() as isolated:
+                isolated.setattr(EaselRuntimeConfig, 'load', lambda: pytest.fail('local receipt recovery cannot load Provider credentials'))
+                await asyncio.to_thread(MaterialProductOrchestrator().resume_minimax_intake, attempt['attempt_id'])
         elif operation == 'observe_material':
             latest = service.get_film_attempt(attempt['attempt_id'])['material_gate']
             service.update_film_attempt(attempt['attempt_id'], event='fixture_observation',
@@ -2340,15 +2359,18 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
         assert 'budget_exceeded' in {r['status'] for r in ledger}
         assert next_operation(current)[1] == ('material_submission_uncertain' if outcome == 'uncertain' else 'needs_generation_approval')
     store = AttemptMaterialStore(attempt['workspace']['path'])
-    if outcome in {'budget', 'video_resume'}:
-        assert dispatches[0] == dispatches[1]
+    if outcome in {'budget', 'video_resume', 'video_intake_resume'}:
+        if outcome != 'video_intake_resume':
+            assert dispatches[0] == dispatches[1]
+        else:
+            assert len(dispatches) == 1 and Inspector.calls == 2
         record = store.list_generation_records()[0]
         assert record['operator_confirmed_paid'] is False
         assert record['commission_authorization']['source'] == 'commission_budget'
         assert len(store.read_bundle().assets) == 1
         assert store.read_bundle().assets[0].rights.status is RightsStatus.UNKNOWN
     if is_video:
-        assert FakeVideo.waits == ['fixture-paid-video'] * (3 if outcome == 'video_failed' else 5)
+        assert FakeVideo.waits == ['fixture-paid-video'] * (3 if outcome == 'video_failed' else 1 if outcome == 'video_intake_resume' else 5)
         assert len(quote_reads) == (1 if outcome == 'video_failed' else 2)  # first submit + second Need; query retry is not a new purchase
 
 

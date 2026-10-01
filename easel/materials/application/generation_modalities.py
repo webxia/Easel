@@ -246,21 +246,22 @@ class MiniMaxImageSpeechGeneration:
                 f"Generation request already has state ({record.get('status', 'unknown')}); inspect it before another paid request"
             )
         path = store.resolve_asset_locator(asset.file.path)
+        provider_identity = record.get('task_id') if record.get('modality') == 'video' else generation_id
         expected_asset = 'asset-' + hashlib.sha256(generation_id.removeprefix('gen-').encode()).hexdigest()[:32]
         if ((record.get('modality') != 'video' and asset.asset_id != expected_asset)
-                or asset.source.provider_asset_id != (record.get('task_id') if record.get('modality') == 'video' else generation_id)
+                or asset.source.provider_asset_id != provider_identity
                 or (asset.file.path, asset.file.sha256, asset.file.size) != expected
                 or path.stat().st_size != asset.file.size
                 or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
             raise GenerationRequestConflict("Persisted generated Asset bytes are stale")
         if record.get("status") == "COMPLETE":
-            return GeneratedMaterialResult(generation_id, generation_id, asset, record)
+            return GeneratedMaterialResult(generation_id, str(provider_identity), asset, record)
         try:
             # Asset metadata may have committed before a sidecar/receipt write
             # failed. Keep its accepted evidence instead of restoring PENDING.
             if path.with_name('asset.json').exists():
                 saved = store.read_asset(asset.asset_id)
-                if saved.file != asset.file or saved.source.provider_asset_id != generation_id:
+                if saved.file != asset.file or saved.source.provider_asset_id != provider_identity:
                     raise GenerationRequestConflict('已登记素材与生成回执身份不一致')
                 asset = saved
             if asset.technical.status is TechnicalStatus.PASSED:
@@ -282,7 +283,7 @@ class MiniMaxImageSpeechGeneration:
             })
             record.pop("failed_at", None)
             store.write_generation_record(generation_id, record)
-            return GeneratedMaterialResult(generation_id, generation_id, asset, record)
+            return GeneratedMaterialResult(generation_id, str(provider_identity), asset, record)
         except Exception:
             record.update(status="RESULT_INTAKE_FAILED", failed_at=datetime.now(timezone.utc).isoformat())
             store.write_generation_record(generation_id, record)

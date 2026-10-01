@@ -26,7 +26,7 @@ from easel.materials.domain import (
     RightsStatus,
     SupplyCandidate,
 )
-from easel.materials.providers.minimax_video import MiniMaxVideoAdapter, MiniMaxVideoError, MiniMaxVideoObservationPending
+from easel.materials.providers.minimax_video import MiniMaxVideoAdapter, MiniMaxVideoError, MiniMaxVideoObservationPending, is_minimax_media_host
 from easel.materials.store import (
     AttemptMaterialStore,
     GenerationRecordNotFound,
@@ -50,14 +50,10 @@ def _resolve_generation_host(host: str, port: int) -> tuple[str, ...]:
     if local and all(ipaddress.ip_address(item).is_global for item in local):
         return local
 
-    normalized_host = host.lower().rstrip(".")
-    provider_domains = ("minimax.io", "minimaxi.com", "minimaxi.cn", "minimax.cn")
-    if not (normalized_host == "algeng-video-infer.oss-cn-shanghai.aliyuncs.com"
-            or any(normalized_host == domain or normalized_host.endswith("." + domain)
-                   for domain in provider_domains)):
+    if not is_minimax_media_host(host):
         raise OSError("No public address for non-provider output host")
 
-    query = urlencode({"name": normalized_host, "type": "A"})
+    query = urlencode({"name": host.lower().rstrip('.'), "type": "A"})
     try:
         with urlopen("https://dns.google/resolve?" + query, timeout=8) as response:
             payload = json.loads(response.read().decode("utf-8"))
@@ -180,6 +176,11 @@ class MiniMaxVideoMaterialGeneration:
             )
             if any(previous.get(field) != record.get(field) for field in fingerprint_fields):
                 raise GenerationRequestConflict("Generation request id is already bound to different input")
+            if previous.get('status') in {'RESULT_RECEIVED', 'RESULT_INTAKE_FAILED'}:
+                from easel.materials.application.generation_modalities import MiniMaxImageSpeechGeneration
+                # The generation lock is already held. Reuse the existing local
+                # receipt verifier; no query, download or credentials required.
+                return MiniMaxImageSpeechGeneration()._resume_received(store, previous)
             if previous.get("status") == "COMPLETE" and isinstance(previous.get("asset_id"), str):
                 asset = store.read_asset(str(previous["asset_id"]))
                 path = store.resolve_asset_locator(asset.file.path)
@@ -245,7 +246,13 @@ class MiniMaxVideoMaterialGeneration:
                 ),
             )
             acquired = self._acquirer_factory(store).acquire(candidate)
+            record.update(status='RESULT_RECEIVED', received_asset=acquired.model_dump(mode='json'),
+                          received_at=datetime.now(timezone.utc).isoformat(),
+                          provider_usage=dict(getattr(completed, 'usage', {}) or {}))
+            store.write_generation_record(generation_id, record)
             asset = TechnicalInspector(store).inspect_and_persist(acquired)
+            if asset.technical.status.value != 'PASSED':
+                raise ValueError('已保存视频素材，本地技术检查尚未通过；只重试检查，不重新生成')
             record.update({
                 "status": "COMPLETE",
                 "task_id": completed.task_id,
@@ -272,7 +279,7 @@ class MiniMaxVideoMaterialGeneration:
             raise
         except Exception as exc:
             record.update({
-                "status": "RESULT_FAILED",
+                "status": "RESULT_INTAKE_FAILED" if record.get('received_asset') else "RESULT_FAILED",
                 "error_code": type(exc).__name__ if isinstance(exc, (MiniMaxVideoError, ValueError)) else "material_intake_failed",
                 "task_id": task_id,
                 "updated_at": datetime.now(timezone.utc).isoformat(),

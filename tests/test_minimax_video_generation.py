@@ -9,6 +9,8 @@ import pytest
 
 from easel.materials.application import GenerationApprovalRequired, GenerationRequestConflict
 from easel.materials.application import generation as generation_module
+from easel.materials.application import generation_modalities
+from easel.materials.application.acquisition import RemoteURLPolicy, AcquisitionError
 from easel.materials.application.generation import MiniMaxVideoMaterialGeneration
 from easel.materials.domain import (
     CandidateSource,
@@ -70,7 +72,7 @@ def test_minimax_wait_polls_until_success_and_accepts_only_provider_video_urls(o
     transport = FakeTransport(get_payloads=[
         {"task": {"id": "task-123", "model": "MiniMax-H3-Max", "status": "running"}},
         {"task": {"id": "task-123", "model": "MiniMax-H3-Max", "status": "succeeded",
-                   "content": {"url": "https://video-product.cdn.minimax.io/output.mp4"}, "duration": 5}},
+                   "content": {"url": "https://cdn.hailuoai.com/output.mp4"}, "duration": 5}},
     ])
     if outcome in {'rate_limited', 'server_error', 'auth_error'}:
         code = {'rate_limited': 429, 'server_error': 500, 'auth_error': 401}[outcome]
@@ -103,9 +105,18 @@ def test_minimax_rejects_bad_model_parameters_and_untrusted_media_hosts():
     assert not adapter._official_media_url("https://attacker.example/video.mp4")
     assert not adapter._official_media_url("http://video-product.cdn.minimax.io/video.mp4")
     assert adapter._official_media_url("https://algeng-video-infer.oss-cn-shanghai.aliyuncs.com/video.mp4")
+    policy = RemoteURLPolicy(resolver=lambda *_: ('93.184.216.34',))
+    assert policy.validate('https://cdn.hailuoai.com/video.mp4', 'minimax') == ('93.184.216.34',)
+    for host in ('hailuoai.com', 'other.hailuoai.com', 'cdn.hailuoai.com.attacker.example',
+                 'child.cdn.hailuoai.com', 'other.oss-cn-shanghai.aliyuncs.com'):
+        url = f'https://{host}/video.mp4'
+        assert not adapter._official_media_url(url)
+        with pytest.raises(AcquisitionError):
+            policy.validate(url, 'minimax')
 
 
-def test_generation_download_resolver_uses_doh_only_for_allowlisted_provider_host(monkeypatch):
+@pytest.mark.parametrize('host', ['algeng-video-infer.oss-cn-shanghai.aliyuncs.com', 'cdn.hailuoai.com'])
+def test_generation_download_resolver_uses_doh_only_for_allowlisted_provider_host(monkeypatch, host):
     monkeypatch.setattr(
         generation_module.RemoteURLPolicy,
         "_resolve",
@@ -118,7 +129,7 @@ def test_generation_download_resolver_uses_doh_only_for_allowlisted_provider_hos
     monkeypatch.setattr(generation_module, "urlopen", doh)
 
     addresses = generation_module._resolve_generation_host(
-        "algeng-video-infer.oss-cn-shanghai.aliyuncs.com", 443,
+        host, 443,
     )
 
     assert addresses == ("47.102.9.67",)
@@ -251,12 +262,21 @@ def test_generation_resumes_material_intake_from_existing_task_without_resubmitt
 
     monkeypatch.setattr(generation_module, "MaterialAcquirer", FakeAcquirer)
     monkeypatch.setattr(generation_module, "TechnicalInspector", FailOnceInspector)
+    monkeypatch.setattr(generation_modalities, "TechnicalInspector", FailOnceInspector)
     service = MiniMaxVideoMaterialGeneration(adapter, acquirer_factory=FakeAcquirer)
     with pytest.raises(ValueError, match="transient"):
         service.generate(plan, need, store, request_id="req-resume", confirmed_paid=True)
+    retained = store.read_generation_record('gen-req-resume')
+    assert retained['status'] == 'RESULT_INTAKE_FAILED' and retained['received_asset']
 
     result = service.generate(plan, need, store, request_id="req-resume", confirmed_paid=True)
 
     assert result.record["status"] == "COMPLETE"
     assert adapter.submit_calls == 1
-    assert adapter.wait_calls == 2
+    assert adapter.wait_calls == 1 and FakeAcquirer.calls == 1
+    assert result.task_id == 'task-123'
+    assert result.asset.asset_id == retained['received_asset']['asset_id']
+    store.resolve_asset_locator(result.asset.file.path).write_bytes(b'changed bytes')
+    with pytest.raises(GenerationRequestConflict, match='stale'):
+        generation_modalities.MiniMaxImageSpeechGeneration().resume_received(store, 'gen-req-resume')
+    assert adapter.submit_calls == adapter.wait_calls == FakeAcquirer.calls == 1

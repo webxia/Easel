@@ -112,15 +112,17 @@ def test_known_provider_license_is_carried_with_asset_specific_evidence(tmp_path
     assert any(item.reference == "https://www.pexels.com/license/" for item in asset.rights.evidence)
 
 
-def test_redirect_is_revalidated_before_following_and_records_final_url(tmp_path) -> None:
+@pytest.mark.parametrize('provider,origin,target', [('pixabay', 'pixabay.com', 'cdn.pixabay.com'),
+    ('minimax', 'video-product.cdn.minimax.io', 'cdn.hailuoai.com')])
+def test_redirect_is_revalidated_before_following_and_records_final_url(tmp_path, provider, origin, target) -> None:
     transport = FakeTransport(
-        DownloadResponse(302, {"Location": "https://cdn.pixabay.com/get/asset.mp4?token=private"}),
+        DownloadResponse(302, {"Location": f"https://{target}/get/asset.mp4?token=private"}),
         DownloadResponse(200, {"Content-Type": "video/mp4"}, b"video"),
     )
     candidate_value = candidate(
-        "https://pixabay.com/get/asset.mp4?key=api-secret",
-        provider="pixabay",
-        source_page="https://pixabay.com/videos/4/",
+        f"https://{origin}/get/asset.mp4?key=api-secret",
+        provider=provider,
+        source_page=f"https://{origin}/videos/4/",
     )
     resolver_calls = []
 
@@ -132,11 +134,11 @@ def test_redirect_is_revalidated_before_following_and_records_final_url(tmp_path
         AttemptMaterialStore(tmp_path), transport=transport, url_policy=RemoteURLPolicy(resolve)
     ).acquire(candidate_value)
 
-    assert resolver_calls == ["pixabay.com", "cdn.pixabay.com"]
+    assert resolver_calls == [origin, target]
     assert len(transport.calls) == 2
     evidence = json.loads((tmp_path / "materials" / "assets" / asset.asset_id / "acquisition.json").read_text())
     assert evidence["redirect_count"] == 1
-    assert evidence["final_url"] == "https://cdn.pixabay.com/get/asset.mp4?[REDACTED]"
+    assert evidence["final_url"] == f"https://{target}/get/asset.mp4?[REDACTED]"
     assert "api-secret" not in json.dumps(evidence)
     assert "private" not in json.dumps(evidence)
 

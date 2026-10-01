@@ -16,6 +16,18 @@ DEFAULT_MINIMAX_VIDEO_BASE_URL = "https://api.minimax.cn"
 MINIMAX_VIDEO_MODELS = frozenset({"MiniMax-H3", "MiniMax-H3-Max"})
 
 
+def is_minimax_media_host(host: str) -> bool:
+    """Shared by task response validation, acquisition and DNS fallback.
+
+    Exact CDN hosts come from the official Video V2 query examples; this does
+    not admit arbitrary hailuoai.com or cloud-storage buckets.
+    """
+    host = host.lower().rstrip('.')
+    return (host in {'cdn.hailuoai.com', 'algeng-video-infer.oss-cn-shanghai.aliyuncs.com'}
+            or any(host == domain or host.endswith('.' + domain)
+                   for domain in ('minimax.io', 'minimaxi.com', 'minimaxi.cn', 'minimax.cn')))
+
+
 class MiniMaxVideoError(ValueError):
     """A sanitized MiniMax API or task failure; never includes credentials."""
 
@@ -170,11 +182,9 @@ class MiniMaxVideoAdapter:
         except ValueError:
             return False
         host = (parsed.hostname or "").lower().rstrip(".")
-        allowed = ("minimax.io", "minimaxi.com", "minimaxi.cn", "minimax.cn")
         return (parsed.scheme == "https" and not parsed.username and not parsed.password
                 and parsed.port in (None, 443) and not parsed.fragment
-                and (host == "algeng-video-infer.oss-cn-shanghai.aliyuncs.com"
-                     or any(host == domain or host.endswith("." + domain) for domain in allowed)))
+                and is_minimax_media_host(host))
 
     def _request(self, method: str, path: str, *, body: dict[str, object] | None = None) -> dict:
         headers = {

@@ -32,6 +32,7 @@ from easel.materials.domain import (
 )
 from easel.materials.domain.models import FileInfo, RightsEvidence
 from easel.materials.store import AttemptMaterialStore
+from easel.materials.providers.minimax_video import is_minimax_media_host
 
 
 MAX_ACQUIRED_BYTES = 128 * 1024 * 1024
@@ -40,10 +41,7 @@ _PROVIDER_DOMAINS = {
     "pexels": ("pexels.com",),
     "pixabay": ("pixabay.com",),
     "openverse_audio": ("cdn.freesound.org", "upload.wikimedia.org"),
-    "minimax": (
-        "minimax.io", "minimaxi.com", "minimaxi.cn", "minimax.cn",
-        "algeng-video-infer.oss-cn-shanghai.aliyuncs.com",
-    ),
+    "minimax": (),  # Exact/suffix host policy is shared with its task adapter.
 }
 _MIME_EXTENSIONS = {
     "image/avif": ".avif",
@@ -126,7 +124,9 @@ class RemoteURLPolicy:
         if host in {"localhost", "localhost.localdomain"} or host.endswith((".localhost", ".local", ".internal")):
             raise AcquisitionError("Remote URL host is not public")
         allowed_domains = _PROVIDER_DOMAINS.get(provider)
-        if not allowed_domains or not any(host == domain or host.endswith("." + domain) for domain in allowed_domains):
+        allowed = (is_minimax_media_host(host) if provider == 'minimax' else
+                   bool(allowed_domains) and any(host == domain or host.endswith("." + domain) for domain in allowed_domains))
+        if not allowed:
             raise AcquisitionError("Remote URL host does not match the candidate Provider")
         try:
             literal = ipaddress.ip_address(host)

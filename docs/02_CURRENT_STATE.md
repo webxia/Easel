@@ -53,6 +53,10 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **视频素材成功后的接收与恢复（2026-10-01）：** 官方 Video V2 查询示例已返回 `cdn.hailuoai.com`，原 Adapter、下载策略、DNS fallback 三份独立域名规则都未覆盖。现三处复用同一 Provider 主机判断，只补入该精确 CDN 主机；不放开整个 hailuoai.com 或任意云存储桶。现有 HTTPS、公网 IP 固定、逐次跳转校验、下载上限和签名脱敏继续执行。契约来源为同一官方 [Video V2 查询文档](https://platform.minimaxi.com/docs/api-reference/video-generation-v2-query)，未下载其中任何真实媒体。
+- 原视频下载后直接检查，检查中断仍存 `RESULT_FAILED`，接续会再次查询/下载。现先将接收回执绑定素材字节与任务身份，再执行本地检查；失败进入已有 `RESULT_INTAKE_FAILED`，Owner 复用现有 `finish_material_generation`，无需再请求 Provider 或读取凭证。共用恢复代码同时修正视频的 Provider task ID 与本地 generation ID 混用，保留已登记素材及其证据；当前字节与回执不符时拒绝认领，Rights UNKNOWN 不自动变为 KNOWN。
+- **本批验证：** Video/Image-Speech/Acquisition/Material integration/Preparation **157 passed**；现有场景扩展覆盖官方 CDN 返回及跳转、精确主机与仿冒主机拒绝、DNS fallback、本地检查中断后一次提交/一次查询/一次下载、无凭证接续、同一资产/预算保留、字节变更拒绝及图片/旁白共用恢复回归。compileall、115 项技能合同、diff check 通过，保留两项既有 Python 依赖提示。Provider/下载/检查故障均为隔离 Fixture；不代表真实成片质量或生成 Rights 已验证。未修改真实 Creation，未调用付费 AI、真实 Build 或完整 E2E，Goal 仍 active。
+
 - **异步视频素材观察恢复（2026-10-01）：** 已保存服务商任务 ID 后，旧实现把正常排队超时和临时查询断连都存成 `RESULT_FAILED`，并消耗 Delivery Owner 的三次生成重试额度；连续四次未读到结果的隔离回放先复现后台永久停住。现 Adapter 区分尚无终态的观察与明确失败，Material 保留同一 `RUNNING` 任务及最后可信 queued/running 状态；委托执行器将正常等待/临时断连交给现有 Owner 持续观察，不消耗制作失败重试、不重新提交、不重新核价或占额。断连显示既有 `observation_failed` 状态，恢复读取后自动继续。
 - 核对官方 [Video V2 查询契约](https://platform.minimaxi.com/docs/api-reference/video-generation-v2-query)：queued/running 为非终态，failed/cancelled 为明确终态。网络异常、429/5xx、无效任务身份不能被当作任务已结束；身份不符不认领结果。明确鉴权/参数拒绝、终态失败及本地接收错误仍保留原有有界错误处理，不自动购买替代任务。官方查询仅覆盖最近七天，超过窗口不能凭缺失记录推断未提交；本批未新增历史任务补单能力。
 - **本批验证：** Video Adapter/Material integration/Preparation **116 passed**；原有委托回放扩展为四轮排队/断连后成功，真实 Adapter 查询逻辑、持久 Generation/预算记录和 Delivery Owner 串接，验证执行器重建后同一任务接收、一次提交/占额、无额外授权、未知 Rights 仍阻断。明确终态失败三次后停止；限流/服务错误与鉴权拒绝、取消/错误任务身份有合同覆盖，既有接收检查失败恢复继续通过。前端状态投影、compileall、115 项技能合同、diff check 通过；保留两项既有 Python 依赖提示。全部 Provider 响应为 Fixture，仅只读访问公开契约；未触碰真实作品、付费 AI、真实 Build 或完整 E2E，Goal 仍 active。
