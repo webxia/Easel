@@ -6,6 +6,7 @@ isolation, not whether synthetic tones or colored panels are watchable films.
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import base64
 import io
 import json
@@ -20,7 +21,7 @@ from PIL import Image
 from tests.test_material_integration import material_integration_env
 from tests.test_hypit_integration import measured_narration_fixture
 from easel import creation, creative_mode
-from easel.integrations.hypit import handoff, service
+from easel.integrations.hypit import handoff, service, quality
 from easel.integrations.material_layer import MaterialGateIntegration, MaterialProductOrchestrator, PlanningIntegration, ProductionAuthoringIntegration
 from easel.integrations.material_supply import ProductMaterialSupply, ProviderRegistry
 from easel.integrations.script_truth import create_script_claim_ledger
@@ -33,9 +34,10 @@ from easel.materials.domain import MaterialPlan, MaterialNeed, NeedScope, NeedSc
 from easel.materials.providers import LocalProvider
 from easel.materials.providers.minimax_speech import MiniMaxSpeechResult
 from easel.materials.store import AttemptMaterialStore
+from easel.materials.domain import BgmNeedSpec, SemanticInfo
 
 
-def test_same_creator_mode_three_contents_reach_native_authoring(material_integration_env, tmp_path, monkeypatch):
+def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_integration_env, tmp_path, monkeypatch):
     if not shutil.which('ffmpeg'):
         pytest.skip('Local deterministic audio fixture requires ffmpeg')
     source_mode = Path(__file__).resolve().parents[1] / 'creative_modes/clear_memo_video'
@@ -51,10 +53,17 @@ def test_same_creator_mode_three_contents_reach_native_authoring(material_integr
         ('安排工作间歇', ('假设暂停手头工作。', '看看窗外。', '也许不必立刻回答。', '再回到当前任务。'), ('desk', 'window', 'clock')),
     ]
     mode_hashes, creator_hashes, script_hashes, native_sources = set(), set(), set(), []
+    output_hashes, quality_hashes = set(), set()
+    runtime = tmp_path / 'fixture-runtime.json'
+    runtime.write_text(json.dumps({'format': 'hypit.runtime-local@1', 'dataRoot': '.fixture-runtime'}))
     prior_voice = None
     for index, (topic, sentences, subjects) in enumerate(cases):
         script = ''.join(sentences)
-        work = creation.create_creation(topic, profile='测试', creative_mode='clear_memo_video')
+        work = creation.create_creation(topic, profile='测试', creative_mode='clear_memo_video',
+            route='hypit_video', origin={'type': 'chat', 'session_hash': hashlib.sha256(topic.encode()).hexdigest()})
+        creation.mark_chat_proposal_ready(work['id'])
+        creation.confirm_chat_proposal(work['id'], 'fixture-confirm', delivery_proposal=topic,
+            proposal_sha256=hashlib.sha256(topic.encode()).hexdigest())
         package = service.create_creation_handoff(work['id'],
             content_core={'schema': 'content-core@1', 'question': topic}, truth_packet=truth,
             creator_context=creator, production_request={'media_type': 'video', 'orientation': '9:16',
@@ -74,8 +83,11 @@ def test_same_creator_mode_three_contents_reach_native_authoring(material_integr
         visuals = tuple(MaterialNeed(need_id=f'visual-{n}', scope=NeedScope(type=NeedScopeType.SCENE, ref=f'scene-{n}'),
             media_type=MediaType.IMAGE, role='主视觉', intent=NeedIntent(description=subject),
             importance=NeedImportance.REQUIRED) for n, subject in enumerate(subjects))
+        music_need = MaterialNeed(need_id='music', scope=NeedScope(type=NeedScopeType.GLOBAL, ref='film'),
+            media_type=MediaType.AUDIO, role='bgm', importance=NeedImportance.REQUIRED,
+            intent=NeedIntent(description='calm background music'), modality_spec=BgmNeedSpec(mood='calm'))
         plan = MaterialPlan(plan_id='content-replay', creation_id=work['id'], attempt_id=attempt['attempt_id'],
-            context_refs={'creative_mode_sha256': mode_hash}, needs=(*visuals, voice_need))
+            context_refs={'creative_mode_sha256': mode_hash}, needs=(*visuals, music_need, voice_need))
         ledger = create_script_claim_ledger(script, root / 'handoff/truth-packet.json')
         assessment = {'schema': 'easel-script-assessment@1',
             'script_sha256': ledger['script_sha256'], 'truth_packet_sha256': ledger['truth_packet_sha256'],
@@ -88,7 +100,7 @@ def test_same_creator_mode_three_contents_reach_native_authoring(material_integr
         voice_need = plan.needs[-1]
         script_hashes.add(voice_need.modality_spec.text_sha256)
         assert voice_need.constraints['voice_delivery'] == mode['voice_delivery']
-        assert all(n.constraints['preferred_style'] == mode['visual_material_style'] for n in plan.needs[:-1])
+        assert all(n.constraints['preferred_style'] == mode['visual_material_style'] for n in plan.needs if n.media_type is MediaType.IMAGE)
         if prior_voice:
             assert not MaterialMatcher().match(voice_need, (prior_voice,)).matches
 
@@ -96,6 +108,10 @@ def test_same_creator_mode_three_contents_reach_native_authoring(material_integr
         local.mkdir()
         for n, subject in enumerate(subjects):
             Image.new('RGB', (64, 96), (55 + index * 20, 60 + n * 25, 80)).save(local / f'{subject}.png')
+        music_file = local / 'calm background music.wav'
+        subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i',
+            f'sine=frequency={170 + index * 40}:sample_rate=16000:duration=30', str(music_file)],
+            check=True, capture_output=True, timeout=20)
         rights = RightsInfo(status=RightsStatus.KNOWN, license_name='Owned deterministic test fixture',
             evidence=(RightsEvidence(kind='asset_license', reference='fixture://owned-replay-media'),))
         provider = LocalProvider((local,))
@@ -110,10 +126,15 @@ def test_same_creator_mode_three_contents_reach_native_authoring(material_integr
                                        rights_facts=lambda *_: rights)
         supplied = supply.run(plan, attempt, local_roots=(local,), supply_run_id='fixture-supply', bundle_id='fixture-bundle')
         assert supplied.readiness.status.value == 'NOT_READY'
-        assert all(mode['visual_material_style'] in r.semantic_queries[0] for r in requests if r.need_id != 'narration')
+        assert all(mode['visual_material_style'] in r.semantic_queries[0] for r in requests if r.need_id.startswith('visual-'))
         assert not any(row['failures'] for row in supplied.routing_trace)
         attempt = MaterialGateIntegration().record(attempt, plan, supplied.bundle, supplied.supply_run,
             supplied.readiness, supplied.gaps)['attempt']
+        # Fixed BGM semantics at the observation boundary. The product still
+        # lacks automatic BGM listening; do not simulate a Creator approval.
+        music_asset = next(a for a in supplied.bundle.assets if a.media_type is MediaType.AUDIO)
+        store.write_asset(music_asset.model_copy(update={'semantic': SemanticInfo(caption='calm background music')}))
+        MaterialProductOrchestrator._recalculate_observed_materials(attempt, plan, supplied.bundle, store)
 
         # Fixture TTS output passes the real receive/inspection/generation path.
         duration = 2 * len(sentences) + 1
@@ -139,7 +160,7 @@ def test_same_creator_mode_three_contents_reach_native_authoring(material_integr
         # Fixture ownership is explicit test evidence, not inferred Provider rights.
         RightsService(store).record(generated.asset, rights)
         orchestrator = MaterialProductOrchestrator()
-        orchestrator._record_generated_asset(attempt, plan, store, supplied.bundle, generated,
+        orchestrator._record_generated_asset(attempt, plan, store, store.read_bundle(), generated,
                                               f'voice-{index}', 'speech-2.8-hd')
         recognition_calls = []
         def recognize(path, language):
@@ -179,13 +200,14 @@ def test_same_creator_mode_three_contents_reach_native_authoring(material_integr
         source = source.replace('end="4s"', 'end="30s"')
         source = source.replace('<render:Video id="output"', '<render:Video id="final"')
         source = source.replace('<import as="media"', '<import as="media-track" from="@hypit/media-track@1"/><import as="media"')
-        source = source[:source.index('<media:Audio id="music-source"')] + source[source.index('<typo:Track id="easel-captions"'):]
-        source = source.replace('  <film:Track source={music-track.audio}/>\n', '')
         author_path = 'productions/easel-authoring/authors/main.svml'
         source = source.replace('./voice.wav', store.hypit_source_path(prior_voice, author_path))
+        music_match = next(m for m in bundle.matches if m.need_id == 'music' and m.qualified)
+        music_asset = store.read_asset(music_match.asset_id)
+        source = source.replace('./music.wav', store.hypit_source_path(music_asset, author_path))
         declarations = ['<space:Frame id="picture-frame" within={canvas} left="0px" top="0px" right="1080px" bottom="1920px"/>']
-        items, selected = [], [prior_voice.asset_id]
-        for n, need in enumerate(plan.needs[:-1]):
+        items, selected = [], [prior_voice.asset_id, music_asset.asset_id]
+        for n, need in enumerate(n for n in plan.needs if n.media_type is MediaType.IMAGE):
             match = next(m for m in bundle.matches if m.need_id == need.need_id and m.qualified)
             asset = store.read_asset(match.asset_id)
             declarations.append(f'<media:Image id="image-{n}" src="{store.hypit_source_path(asset, author_path)}"/>'
@@ -204,6 +226,8 @@ def test_same_creator_mode_three_contents_reach_native_authoring(material_integr
         assert all(sentence in compiled for sentence in sentences)
         assert compiled.count('<media-track:Item ') == len(subjects)
         assert 'font={caption-font}' in compiled and 'gain="0.9"' in compiled
+        assert compiled.count('<film:Track source={easel-duck-music-track.audio}/>') == 1
+        assert '<film:Track source={music-track.audio}/>' not in compiled
         native_sources.append(compiled)
         assert json.loads((root / 'productions/easel-authoring/VOICE_TIMING.json').read_text())['assets'][0]['script_sha256'] == voice_need.modality_spec.text_sha256
         author = root / author_path
@@ -229,5 +253,83 @@ def test_same_creator_mode_three_contents_reach_native_authoring(material_integr
             assert checked.returncode == 0, checked.stdout + checked.stderr
             result = json.loads(checked.stdout)
             assert result['ok'] is True and result['targets'] == ['final.video']
+        # Substitute only the renderer result, not Gate/Planning/Quality or
+        # Delivery state. This MP4 is deterministic test media, not a Hypit
+        # render of the SVML above and not a perceptual style-quality proof.
+        output = creation.OUTPUTS_DIR / '_creations' / work['id'] / 'attempts' / attempt['attempt_id'] / 'replay.mp4'
+        output.parent.mkdir(parents=True, exist_ok=True)
+        voice_path = store.resolve_asset_locator(prior_voice.file.path)
+        subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i',
+            f'color=c=0x{60 + index * 20:02x}6070:s=160x240:r=12:d=30', '-i', str(voice_path),
+            '-i', str(music_file), '-filter_complex',
+            '[1:a]volume=0.9,adelay=500:all=1[v];[2:a]volume=0.01[m];[v][m]amix=inputs=2:normalize=0:duration=longest[a]',
+            '-map', '0:v', '-map', '[a]', '-c:v', 'libx264', '-preset', 'ultrafast',
+            '-c:a', 'aac', '-t', '30', str(output)], check=True, capture_output=True, timeout=30)
+        def receive_fixture_output(item):
+            item['runtime_profile'] = {'path': str(runtime)}
+            item['authoring'] = {**item.get('authoring', {}), 'run_path': run.relative_to(root).as_posix()}
+            item['execution_status'] = 'BUILD_COMPLETE'
+            item['build'] = {'operation': {'execution_fingerprint': service._execution_fingerprint(item)}}
+            item['outputs'] = {'final.video': {'path': output.relative_to(creation.OUTPUTS_DIR).as_posix(),
+                'sha256': service._file_sha256(output), 'metadata': {'duration_seconds': 30, 'audio_present': True}}}
+            return item
+        service._save_attempt(attempt['attempt_id'], receive_fixture_output)
+        reviews = []
+        def review_output(a, manifest, attachments):
+            reviews.append(manifest)
+            assert manifest['creator_context'] == creator and manifest['mode'] == mode
+            assert manifest['content_core']['question'] == topic and manifest['script'] == script
+            assert manifest['measurements']['audio']['voice_windows']
+            assert attachments and all(x['mimeType'] == 'image/jpeg' for x in attachments)
+            return {'schema': quality.SCHEMA, 'input_sha256': manifest['input_sha256'],
+                'frames': [{'index': f['index'], 'observed': True, 'description': 'fixture colored panel'} for f in manifest['frames']],
+                'checks': {k: {'status': 'pass', 'reason': 'fixed model fixture, not real aesthetic judgement',
+                              'frame_indices': [0]} for k in quality.VISUAL_CHECKS}}
+        from easel.creation_delivery import advance_creation, next_operation
+        operations = []
+        async def execute(operation, current):
+            operations.append(operation)
+            assert operation == 'quality'  # No Provider, Build or manual advancement.
+            quality.inspect_output(attempt['attempt_id'], executor=review_output)
+        assert next_operation(creation.get_creation(work['id'])) == ('quality', 'checking_quality')
+        asyncio.run(advance_creation(work['id'], execute))
+        saved = creation.get_creation(work['id'])
+        assert saved['delivery']['status'] == 'first_cut_ready', saved['delivery']
+        assert next_operation(saved) == (None, 'first_cut_ready')
+        report = service.get_film_attempt(attempt['attempt_id'])['review']
+        assert report['system']['status'] == 'READY'
+        assert report['human']['status'] != 'accepted'
+        assert not saved.get('selected_output_name')
+        output_hashes.add(report['system']['binding']['sha256'])
+        quality_hashes.add(report['system']['input_sha256'])
+        review_count = len(reviews)
+        asyncio.run(advance_creation(work['id'], execute))
+        quality.inspect_output(attempt['attempt_id'], executor=review_output)
+        assert len(reviews) == review_count and operations == ['quality']
+        assert before_calls == (len(calls), len(recognition_calls), len(observations))
+        if index == 2:
+            # A plausible renderer regression: the last spoken sentence is
+            # absent from the actual MP4, despite valid source/timing/SVML.
+            # The existing owner must route an audio repair, not repurchase
+            # narration or trust the previous positive output report.
+            damaged = output.with_name('missing-tail.mp4')
+            begin, end = .5 + cues[-1]['start_seconds'], .5 + cues[-1]['end_seconds']
+            subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-i', str(output),
+                '-af', f"volume=0:enable='between(t,{begin},{end})'", '-c:v', 'copy', '-c:a', 'aac', str(damaged)],
+                check=True, capture_output=True, timeout=20)
+            def receive_damaged_output(item):
+                item['outputs']['final.video'].update(
+                    path=damaged.relative_to(creation.OUTPUTS_DIR).as_posix(), sha256=service._file_sha256(damaged))
+                return item
+            service._save_attempt(attempt['attempt_id'], receive_damaged_output)
+            assert next_operation(creation.get_creation(work['id'])) == ('quality', 'checking_quality')
+            asyncio.run(advance_creation(work['id'], execute))
+            damaged_attempt = service.get_film_attempt(attempt['attempt_id'])
+            assert damaged_attempt['review']['system']['status'] == 'REPAIR_REQUIRED'
+            assert quality.repair_request(damaged_attempt)['allowed_changes'] == ['audio']
+            assert next_operation(creation.get_creation(work['id'])) == ('repair_quality', 'repairing_quality')
+            assert before_calls == (len(calls), len(recognition_calls), len(observations))
+            assert not creation.get_creation(work['id']).get('selected_output_name')
+    assert len(output_hashes) == len(quality_hashes) == 3
     assert len(mode_hashes) == len(creator_hashes) == 1
     assert len(script_hashes) == len(set(native_sources)) == 3
