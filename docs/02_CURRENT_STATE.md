@@ -53,6 +53,10 @@ Last audited: 2026-10-01. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **真人试跑前本机准备（2026-10-01，用户授权配置模型并重启服务）：** 两项本地模型已安装到代码默认目录 `~/.cache/easel-models/`，无需修改业务代码或凭证。AST 配乐模型复用此前下载文件，重新核对代码固定的三个 SHA；faster-whisper-small 使用 Systran 上游固定 revision `536b0662742c02347bc0e980a01041f333bce120`，四个模型/配置/词表文件按上游 LFS SHA 或 Git blob identity 校验。两项 readiness 均由 MISSING_CONFIG 转为 CONFIG_READY。实际生产读取函数对独立 10 秒公开配乐样本完成本地推理（Music 0.884159）；对本机系统声音生成的独立中文样本完成识别和词级时序输出，不使用当前作品或云端 TTS。
+- **实际中文识别暴露的未修复阻断：** 样本原文“今天阳光很好。我们一起去公园散步。”实际识别为“今天陽光很好,我們一起去公園散步。”；将真实识别报告送入 `timing_from_recognition` 被现有严格原文比对拒绝。当前 `_spoken` 仅消除空白/标点，没有处理简繁形式等价。模型可运行不等于简体旁白准入可用；这是已复现的软件问题，本次配置/重启范围没有修改该逻辑，不能声称中文自主首版已经就绪。
+- **重启与准备边界：** 重启前只读确认没有登记自主 Delivery 的 Creation；现有 `com.easel.web` launchd 守护服务使用项目虚拟环境重新启动，首页与 `/api/status` 返回 HTTP 200，Gateway 可达，Hypit doctor 通过。未新建/推进作品、未调用付费 AI 或启动 Build/E2E。整体 v1-release readiness 仍为 NOT_READY：模型认证/endpoint 与实际音画输出仍为 NOT_VERIFIED，本地 Rights-backed 视觉库存为 CONTENT_EMPTY（不代表外部检索或生成不可用）；真实外部制作留给用户发起。本段取代下方历史记录中的“正式音频模型未配置”状态；精细声音评分等仍后移。
+
 - **集中软件回归收尾（2026-10-01）：** 默认 `pytest -q` 首次暴露两套 `tests` 包的收集冲突：内置微信技能的空 `tests/__init__.py` 抢占项目测试包，使跨内容回放无法导入共享夹具；移除该空包标记，保留并执行其全部测试。随后定位并补齐系统审片 JSON 读取的 UTF-8，更新两项已过期的 Mode 1.0 断言为当前正式 1.3。复跑全量 **600 passed / 5 skipped**；前端 lint/build、compileall、115 项技能/发布合同检查及 diff check 通过。两项 Python 依赖提示、AccountsPage 既有 Hook 提示及前端包体积提示保留，未顺手扩项修复。此证据覆盖当前软件组合，不证明真实模型或跨内容成片效果；正式音频模型配置仍未就绪，真人 E2E 仍由用户启动。
 
 - **集中收尾后的必要依赖核实（2026-10-01）：** 只读核对正式配置：ffmpeg/ffprobe 与 faster-whisper/torch/transformers 均存在；`audio.voice-timing-recovery`、`audio.music-observation` 均为 `MISSING_CONFIG`，正式路径下的模型尚未就绪。此前临时 AST 样本推理不等于生产配置就绪。发现语音识别仅列入 full-system，遗漏 v1-release/audio，但正常委托 TTS 实际依赖它；现补齐两个 Profile 的同一依赖，回归先复现漏报，再以 Runtime 定向 **18 passed** 验证；compileall、diff check 通过。未下载模型、改变本机模型路径、启动服务或触碰 Creation。真人验收前的明确准备项是配置这两项本地模型并执行现有 readiness 检查；精细音色情绪评分、扩大音乐校准集和高级场景修订后移，不作为本轮继续扩项理由。
