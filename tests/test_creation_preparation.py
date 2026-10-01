@@ -642,6 +642,20 @@ def test_proposal_card_specs_reject_examples_and_freeze_drift(prep_env):
     ambiguous = proposal_specs([{"role": "user", "content": "时长上限 45 秒；不要静音；不是 9:16"}])
     assert all(value is None for value in ambiguous["specs"].values())
     assert all(value is None for value in proposal_specs([{"role": "assistant", "content": "示例：15 秒、9:16、静音、简体中文"}])["specs"].values())
+    # Actual conversation: select an offered orientation, natural audio wording,
+    # then a malformed assistant recap must not erase the user's selections.
+    natural = proposal_specs([
+        {"role": "assistant", "content": "时长：30 秒\n画幅：待确认\n音轨：待确认\n语言：简体中文"},
+        {"role": "user", "content": "旁白 + 一小段低饱和背景乐"},
+        {"role": "assistant", "content": "9:16（竖屏）→ 抖音\n1:1（方屏）→ 微博\n16:9（横屏）→ B站\n音轨：旁白 + 一小段低饱和背景乐"},
+        {"role": "user", "content": "竖屏"},
+        {"role": "assistant", "content": "时长：30 秒\n9:16（竖屏）\n音- 画幅：轨：旁白 + 一小段低饱和背景乐\n语言：简体中文"},
+    ])
+    assert natural == {'specs': {'duration_seconds': 30, 'aspect_ratio': '9:16',
+                                'audio_mode': 'mixed', 'language': 'zh-CN'}, 'missing': []}
+    assert proposal_specs([{'role': 'user', 'content': '竖屏'}])['specs']['aspect_ratio'] is None
+    for content in ('旁白 + 不要背景音乐', '旁白 + 背景音乐？', '例如旁白 + 背景音乐'):
+        assert proposal_specs([{'role': 'user', 'content': content}])['specs']['audio_mode'] is None
     work = prep_env["work"]
     with creation.edit_creation(work["id"]) as persisted:
         persisted["chat_workflow"]["production_specs"] = preview["specs"]
