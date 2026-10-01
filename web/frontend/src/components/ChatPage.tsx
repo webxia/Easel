@@ -223,7 +223,7 @@ export default function ChatPage({ session, stream, onSend, onCapabilityChange, 
     <div className={`chat-page ${hasWork ? 'creator-workspace' : ''} is-${workspaceTab}`}>
       {hasWork && <header className="creator-workspace-header">
         <div><strong>{session.title}</strong><span>{workspaceStatus.title}</span></div>
-        <button className="btn btn-sm" onClick={() => { setProgressOpen(value => !value); setWorkspaceTab('work'); }}>查看制作进度</button>
+        <button className="btn btn-sm" aria-expanded={progressOpen} onClick={() => { setProgressOpen(value => !value); setWorkspaceTab('work'); }}>{progressOpen ? '收起制作进度' : '查看制作进度'}</button>
       </header>}
       {hasWork && <nav className="creator-workspace-tabs" aria-label="作品工作区">
         <button aria-pressed={workspaceTab === 'conversation'} onClick={() => setWorkspaceTab('conversation')}>对话</button>

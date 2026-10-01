@@ -602,32 +602,19 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
         状态更新失败，显示最后一次可信状态。当前是否仍在制作尚未确认。
         <button className="btn btn-sm" onClick={() => setRefreshVersion(version => version + 1)}>重新连接</button>
       </div>}
-      {lastSynced && <small>最近状态读取：{lastSynced}</small>}
-      {backendDelivery && <details className="card film-op-card">
-        <summary>执行记录 · 自动更新</summary>
-        <p>当前：{projection.title}</p>
-        {executionRecord.pending.map(item => <p key={item.label}>
-          {item.label}尚未返回执行终态{item.elapsed ? `，已等待 ${item.elapsed}` : ''}。
-          {Number.isFinite(item.checkedAt) && <>最近核对：{new Date(item.checkedAt).toLocaleString('zh-CN')}。</>}
-        </p>)}
-        <small>每 5 秒读取已保存的状态；核对时间更新不代表产生新成果。断连时保留最后记录。这里不显示模型思考、原始提示词或凭证。</small>
-        <ol aria-label="制作执行记录">
-          {executionRecord.entries.map((entry, index) => <li key={`${entry.at}-${index}`}>
-            <time dateTime={new Date(entry.at).toISOString()}>{new Date(entry.at).toLocaleTimeString('zh-CN')}</time> · {entry.message}
-          </li>)}
-        </ol>
-        {!executionRecord.entries.length && <p>尚无可核实的执行记录。</p>}
-      </details>}
-      {backendDelivery && generationGrant.currency === 'CNY' && <p>自主素材生成额度：已占用 ¥{heldGenerationCost.toFixed(4)} / ¥{String(generationGrant.max_amount)}（按核价保留额度，非实际账单）。</p>}
+      <div className="creator-canvas-label"><span>作品画布</span>{lastSynced && <small title={`最近状态读取：${lastSynced}`}>{connectionError ? '连接中断' : '自动更新'} · {lastSynced.split(' ').at(-1)}</small>}</div>
       {progressOpen && <div className="film-op-progress" aria-label="创作阶段进度">
         {timelineSteps.map(step => <div className={`film-op-progress-step is-${step.state}`} key={step.name}>
           <strong>{step.name}</strong><small>{timelineStateLabel[step.state]}</small>
         </div>)}
       </div>}
-      {showingProposal && <section className="card film-op-card film-op-creator">
+      {showingProposal && <section className={`card film-op-card film-op-creator creator-status-card is-${projection.state}`}>
         <h2>当前创作方案</h2>
         <dl className="creator-proposal-facts">
-          <dt>核心表达</dt><dd className="creator-proposal-turn">{currentProposalText || text(creationSnapshot?.idea, title)}</dd>
+          <dt>方案说明</dt><dd>
+            <p className="creator-proposal-preview">{currentProposalText || text(creationSnapshot?.idea, title)}</p>
+            {currentProposalText && <details><summary>展开完整说明</summary><p className="creator-proposal-turn">{currentProposalText}</p></details>}
+          </dd>
           <dt>创作方式</dt><dd>{text(creationSnapshot?.creative_mode, '尚未确认，请在对话中确定创作方式')}</dd>
           <dt>本次确认的规格</dt><dd>
             总时长：{proposalSpecifications.duration_seconds == null ? '—' : `${proposalSpecifications.duration_seconds} 秒`}<br />
@@ -670,7 +657,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
       {backendDelivery && ['execution_uncertain', 'observation_failed'].includes(text(delivery.status)) && <p role="status">
         {delivery.status === 'execution_uncertain' ? '上一次执行是否结束尚未核实。已保留结果，当前不会重复派发。' : '暂时无法取得制作进度，显示最后可信结果；Easel 会继续查询。'}
       </p>}
-      {!showingProposal && operatorSessionReady && !attemptId && delivery.status !== 'failed' && <section className="card film-op-card film-op-creator">
+      {!showingProposal && operatorSessionReady && !attemptId && delivery.status !== 'failed' && <section className={`card film-op-card film-op-creator creator-status-card is-${projection.state}`}>
         <h2>{projection.title}</h2>
         {projection.failureStage ? <>
           <p>失败阶段：{projection.failureStage}</p><p>{projection.failureReason}</p>
@@ -679,11 +666,12 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
         </> : projection.blockedPreparation ? <><p>准备阶段需要处理：{projection.failureReason}</p><p>当前作品与已有内容已保留；补齐创作方式、素材或制作环境后，从准备阶段恢复。费用仍需单独批准。</p><button className="btn" disabled={continuationBusy} onClick={onContinuePreparation}>重新检查内容准备</button></> : <p>{connectionError ? '连接恢复后才能确认最新进度。' : '正在整理已确认的内容与创作边界；暂时没有可展示的阶段成果。'}</p>}
       </section>}
 
-      {operatorSessionReady && attemptId && attempt && <section className="card film-op-card film-op-creator">
-        <div className="film-op-heading"><h2>{backendDelivery ? projection.title : phaseTitle[phase]}</h2><span className="film-op-work-title" title={title}>{title}</span></div>
-        <p>{connectionError || delivery.status === 'observation_failed' ? '以下为最后可信制作状态，实时进度尚未确认。' : backendDelivery && !['review', 'done'].includes(phase) ? projection.title : phaseDescription[phase]}</p>
+      {operatorSessionReady && attemptId && attempt && <section className={`card film-op-card film-op-creator creator-status-card is-${projection.state}`}>
+        <div className="creator-status-eyebrow"><span className={`creator-state-badge is-${connectionError ? 'waiting' : projection.state}`}>{connectionError ? '待核实' : timelineStateLabel[projection.state]}</span><span>当前作品</span></div>
+        <div className="film-op-heading"><h2>{backendDelivery ? projection.title.split(' · ')[0] : phaseTitle[phase]}</h2></div>
+        <p>{connectionError || delivery.status === 'observation_failed' ? '以下为最后可信制作状态，实时进度尚未确认。' : backendDelivery && !['review', 'done'].includes(phase) ? (projection.pending > 0 ? '处理下方事项后，Easel 会在具备条件时继续。' : projection.failureStage ? '已有结果已保留，可从当前阶段恢复。' : '阶段成果会自动显示在这里，你可以继续对话或稍后返回。') : phaseDescription[phase]}</p>
         {projection.pending > 0 && <p>当前待处理 {projection.pending} 项；优先处理下方事项。</p>}
-        {projection.updatedAt != null && <small>作品状态更新时间：{String(projection.updatedAt)}</small>}
+
         {phase === 'done' && <div className="film-op-selected">
           <strong>✓ 已保存到内容库</strong>
           <span>本次使用素材：{attemptMaterials.filter((item) => item.used_in_creation === true).length} 项</span>
@@ -722,7 +710,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
           <p>已保留：当前方案与已经通过核验的阶段成果。重试只恢复当前失败阶段；视频重新合成需重新核价与批准。</p>
         </div>}
         {['ready', 'building', 'preparing'].includes(phase) && <div className="film-op-creator-facts">
-          <span>内容已准备</span><span>素材已准备</span>
+          {timelineSteps.filter(step => ['内容准备', '素材准备'].includes(step.name) && step.state === 'completed').map(step => <span key={step.name}>✓ {step.name}已完成</span>)}
           {typeof brief.duration_seconds === 'number' && <span>预计时长：{brief.duration_seconds} 秒</span>}
           {typeof brief.aspect_ratio === 'string' && <span>画幅：{brief.aspect_ratio}</span>}
           {allLocalNoCharge && <span>本次制作无第三方计费请求</span>}
@@ -1120,6 +1108,23 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
           </div>}
         </>}
       </section>}
+
+      {backendDelivery && generationGrant.currency === 'CNY' && <p className="creator-budget-summary"><span>素材生成预算</span><strong>已占用 ¥{heldGenerationCost.toFixed(4)} / ¥{String(generationGrant.max_amount)}</strong><small>按核价保留额度，非实际账单</small></p>}
+      {backendDelivery && <details className="creator-execution-record">
+        <summary>执行记录 · 自动更新</summary>
+
+        {executionRecord.pending.map(item => <p className="creator-execution-pending" key={item.label}>
+          {item.label}尚未返回执行终态{item.elapsed ? `，已等待 ${item.elapsed}` : ''}。
+          {Number.isFinite(item.checkedAt) && <>最近核对：{new Date(item.checkedAt).toLocaleString('zh-CN')}。</>}
+        </p>)}
+        <small>每 5 秒核对状态。核对时间更新不代表产生新成果；断连时保留最后记录。</small>
+        <ol aria-label="制作执行记录">
+          {executionRecord.entries.map((entry, index) => <li key={`${entry.at}-${index}`}>
+            <time dateTime={new Date(entry.at).toISOString()}>{new Date(entry.at).toLocaleTimeString('zh-CN')}</time><span>{entry.message}</span>
+          </li>)}
+        </ol>
+        {!executionRecord.entries.length && <p>尚无可核实的执行记录。</p>}
+      </details>}
 
       <details ref={advancedRef} className="film-op-advanced" open={advancedOpen} onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}>
         <summary>制作记录 / 高级信息</summary>
