@@ -53,6 +53,8 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **集中收尾后的必要依赖核实（2026-10-01）：** 只读核对正式配置：ffmpeg/ffprobe 与 faster-whisper/torch/transformers 均存在；`audio.voice-timing-recovery`、`audio.music-observation` 均为 `MISSING_CONFIG`，正式路径下的模型尚未就绪。此前临时 AST 样本推理不等于生产配置就绪。发现语音识别仅列入 full-system，遗漏 v1-release/audio，但正常委托 TTS 实际依赖它；现补齐两个 Profile 的同一依赖，回归先复现漏报，再以 Runtime 定向 **18 passed** 验证；compileall、diff check 通过。未下载模型、改变本机模型路径、启动服务或触碰 Creation。真人验收前的明确准备项是配置这两项本地模型并执行现有 readiness 检查；精细音色情绪评分、扩大音乐校准集和高级场景修订后移，不作为本轮继续扩项理由。
+
 - **本轮集中收尾：内容缺陷返回 Planning（2026-10-01）：** 根因是质量修复只有保护原脚本的剪辑补丁，`repair_target=planning` 没有执行责任。现在复用同一后台 Owner、输出绑定反馈和恢复 Attempt，调用既有 Planning/Truth，再用保留素材重新执行 Match/Readiness。有效改写先存恢复记录；Planning 保存后、Gate 写入前中断会续接同一结果，不再次派发改写或采购。原成片、素材与历史费用保留，新制作不继承原选材、时间线或费用批准；脚本改变会重绑 Voice 文本身份，旧旁白不能凭旧内容证据继续通过，缺料/新旁白回到原有补料、核价、预算和生成路径。素材缺口耗尽后停在实际缺口，不退回首个 Preparation 重跑。
 - **明确最小范围：** 自动修正脚本表达、现有场景的叙事顺序和视觉 Need.intent；冻结委托、Creator/Mode、事实与规格不变，Need 集合/类型/用途/scope/重要性/时长/来源约束、声音身份及参数不变。新增或删除 Need、改变上述约束不在本次自动修正范围。沿用每作品最多两轮质量恢复；未知责任不获得改写权限，真实事实缺口仍保留正式 Truth 状态。内容核验完成前不能开始编排；完成后回归原 Authoring/核价/Build/审片，没有第二条主链。
 - **本轮验证与限制：** Hypit/Cross-Content/Preparation/Material integration **154 passed**；新增断言复用原高价值场景，覆盖 Planning 路由、禁止直接编排、禁止策略扩权、中断恢复只执行一次、素材字节保留及旧输出/批准不继承。Planning executor 增量场景另 **1 passed**；compileall、diff check 通过。原旁白合同仍覆盖脚本身份改变导致旧语音证据失效。三内容回放继续通过，但本次内容修正只验证到重新规划、素材重核与恢复后续派发；没有声称真实模型改写效果、变更后付费 TTS 或真实再合成已验收。按用户要求本轮集中收尾，不扩展旁白表达或审美增强。剩余旁白表达评估、本地语音依赖及最终集中验收准备仍为 PARTIAL / NOT_READY；未操作现有 Creation、付费 AI、真实 Build 或完整 E2E。

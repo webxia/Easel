@@ -212,7 +212,10 @@ def test_library_storage_and_content_are_reported_separately(tmp_path):
 
 
 def test_audio_product_capabilities_are_wired_but_not_claimed_live_ready(tmp_path):
-    config = EaselRuntimeConfig.load(environ={}, env_file=tmp_path / "none.env")
+    config = EaselRuntimeConfig.load(environ={
+        'EASEL_ASR_MODEL': str(tmp_path / 'missing-asr'),
+        'EASEL_MUSIC_MODEL': str(tmp_path / 'missing-music'),
+    }, env_file=tmp_path / "none.env")
     registry = DependencyRegistry(config)
     rows = {row.spec.id: row for row in registry.inventory(probe_local=False)}
 
@@ -227,6 +230,10 @@ def test_audio_product_capabilities_are_wired_but_not_claimed_live_ready(tmp_pat
     release = registry.profile(ReadinessProfile.V1_RELEASE, probe_local=False)
     blockers = {row.spec.id for row in release.blockers}
     assert {"audio.narration", "audio.production"} <= blockers
+    for profile in (ReadinessProfile.V1_RELEASE, ReadinessProfile.AUDIO):
+        result = registry.profile(profile, probe_local=False)
+        assert {'audio.voice-timing-recovery', 'audio.music-observation'} <= {
+            row.spec.id for row in result.blockers if row.status is ReadinessStatus.MISSING_CONFIG}
 
 
 def test_library_readiness_rejects_symlink_roots(tmp_path):
