@@ -53,6 +53,9 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **跨内容串接回放第一段（2026-10-01）：** 新增 `test_same_creator_mode_three_contents_reach_native_authoring`，复用既有隔离环境与原生编排 Fixture。相同冻结 Creator 和完整 clear_memo_video 1.3 包下，通勤等待、学习工具、工作间歇分别使用 2/3/4 句不同脚本与 1/2/3 个不同视觉 Need。串接正式系统 Truth 审阅、Planning、真实 Local 检索/接收/技术检查、固定 TTS 返回的实际 MP3、逐 Need 画面观察、独立旁白内容观察、原 Gate、Production 选择、实测字幕编译及原生 Run 身份校验。核对 Mode 参数进入检索与 TTS 调用、上一作品旁白不能匹配下一作品、各 Need 选到不同 Fixture 画面、恢复不重复识别/观察/生成；三个工程的字幕与镜头结构不同。
+- 本机 **Hypit 0.2.7** 对上述三份 Run 均返回 `ok=true`、`targets=[final.video]`。可用 `EASEL_TEST_HYPIT_CHECK=1 .venv/bin/python -m pytest -q tests/test_creator_content_replay.py` 重跑；默认测试不要求安装 Hypit，显式选项只做静态 check，不执行 Plan/Pricing/Build。引擎/识别结果为固定替身，彩色图片和音调是合成测试媒体，Rights 是明确的测试素材自有证据；没有借 Fixture 证明真实感知质量、生成素材许可或首版可看。⑥仍 **PARTIAL**：BGM、Quality 和 Delivery Owner 的完整跨内容串接及原有其余开放项未完成，Goal 保持 active。
+- 此批跨内容/Material/Hypit 组合 **96 passed**，显式启用三份本机 Hypit 静态检查的回放 **1 passed**；编译与 diff check 通过，保留两项既有 Python 依赖提示。仅新增回放及当前状态记录，无产品代码或前端修改；未继续真实 Creation、调用付费 AI 或执行完整 E2E。
 - **正常旁白内容检查（2026-10-01）：** 原本仅缺少 Provider 时序才识别，时间戳齐全的音频没有独立内容核对，普通文字标签仍可能让 Voice Match 成立。新委托复用同一离线识别执行器，正常生成旁白也核对完整冻结脚本；正式 Match 接受按 Need/脚本/音频绑定的系统内容证据或真实 Creator 核对，标题与生成成功不能代替实际内容。有效 Provider 时序保留，缺失时才补 ASR 时序；识别检查点先保存，重新计算原 Bundle/Gate，不重新生成、不改 Rights。未知许可仍阻断，音色/情绪与配乐听感尚未被该检查证明。
 - 本轮另核对多模态、高级匹配、音频供应与图库复用 **18 passed**。本机 `faster_whisper` 依赖已安装，但默认模型目录缺少完整文件；未下载模型或修改生产配置。因此目前只有离线识别接口与确定性合同证据，真实识别准确性、误拒率和正常声音效果仍待验证，不能据此宣称无人工首版已经可用。
 - 新委托 TTS 在核价、预算占额和真实提交前检查本地识别依赖，避免已知无法核对仍购买音频；已有音频保留。扩展既有 Fixture 覆盖有效/缺失 Provider 时序、实际识别文本不符、跨 Need/脚本/音频证据失效、识别后中断接续及未知 Rights 继续阻断；Provider 时序正常时也要观察，且不覆盖原时间值。相关 Voice/Material/Readiness/Preparation/Hypit/Runtime **205 passed**；前端投影、lint/build、compileall、115 项技能合同与 diff check 通过，保留既有 Hook、体积及两项 Python 依赖提示。测试识别器为确定性替身，未证明真实 ASR 准确性或听感；未调用付费 AI/真实 Build/完整 E2E，未修改旧 Creation。
