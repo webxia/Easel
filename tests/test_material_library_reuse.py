@@ -4,12 +4,14 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import pytest
 
 from easel.materials.application.library_reuse import LibraryReuseService
 from easel.materials.domain import (
     CandidateSource,
     FileInfo,
     MaterialNeed,
+    MaterialPlan,
     MaterialAsset,
     MediaType,
     NeedImportance,
@@ -22,7 +24,7 @@ from easel.materials.domain import (
     TechnicalInfo,
     TechnicalStatus,
 )
-from easel.materials.library import LibraryScope, MaterialLibraryCatalog, PromotionConsent
+from easel.materials.library import LibraryScope, MaterialLibraryCatalog, PromotionConsent, PromotionRejected
 from easel.materials.store import AttemptMaterialStore
 
 
@@ -61,6 +63,7 @@ def _promote(
     technical_status: TechnicalStatus = TechnicalStatus.PASSED,
     media_type: MediaType = MediaType.IMAGE,
     body: bytes | None = None,
+    creation_only: bool = False,
 ):
     body = body or asset_id.encode("utf-8")
     attempt_root = tmp_path / f"workspace-{source_attempt_id}-{asset_id}"
@@ -77,12 +80,15 @@ def _promote(
         rights=RightsInfo(
             status=rights_status,
             license_name="fixture license" if rights_status is RightsStatus.KNOWN else None,
+            usage_constraints=('current_creation_only',) if creation_only else (),
             evidence=(RightsEvidence(kind="asset_license", reference=f"license:{asset_id}"),)
             if rights_status is not RightsStatus.UNKNOWN else (),
         ),
         technical=TechnicalInfo(status=technical_status, width=720, height=1280, mime=mime),
     )
     store.write_asset(asset)
+    if creation_only:
+        store.write_plan(MaterialPlan(plan_id='scoped-plan', creation_id='creation-1', attempt_id=source_attempt_id))
     record = None
     if technical_status is TechnicalStatus.PASSED and rights_status is not RightsStatus.RESTRICTED:
         record = catalog.promote_attempt_asset(
@@ -90,9 +96,25 @@ def _promote(
             store,
             scope=_scope(),
             source_attempt_id=source_attempt_id,
+            source_creation_id='creation-1' if creation_only else None,
             consent=_consent(),
         )
     return store, asset, record
+
+
+def test_creation_limited_rights_survive_library_promotion_and_reuse(tmp_path):
+    catalog = MaterialLibraryCatalog(tmp_path / 'library')
+    store, asset, record = _promote(tmp_path, catalog, asset_id='scoped-voice',
+                                   source_attempt_id='attempt-1', creation_only=True)
+    assert record.source_creation_id == 'creation-1'
+    for source_creation in (None, 'another-creation'):
+        with pytest.raises(PromotionRejected, match='作品限定素材'):
+            catalog.promote_attempt_asset(asset, store, scope=_scope(), source_attempt_id='attempt-1',
+                source_creation_id=source_creation, consent=_consent())
+    reuse = LibraryReuseService(catalog)
+    assert len(reuse.find_candidates(_need(), scope=_scope(), creation_id='creation-1', attempt_id='attempt-2').candidates) == 1
+    denied = reuse.find_candidates(_need(), scope=_scope(), creation_id='creation-2', attempt_id='attempt-2')
+    assert not denied.candidates and denied.rejected[0].reason == 'rights_current_creation_only'
 
 
 def test_usage_history_is_scoped_to_asset_creation_and_attempt_and_idempotent(tmp_path: Path) -> None:

@@ -45,7 +45,10 @@ def retain_generation_rights_evidence(asset: MaterialAsset, record: dict) -> Mat
             or hashlib.sha256(document.encode()).hexdigest() != terms.get('sha256')):
         raise GenerationRequestConflict('生成协议证据身份不一致，不能关联到素材')
     evidence = (
-        RightsEvidence(kind='provider_terms', reference=TERMS_URL + '#sha256=' + terms['sha256'],
+        # URL fragments are removed by the ordinary Rights secret sanitizer.
+        # Keep the public document digest outside the URL so recording the
+        # admission decision cannot erase its version identity.
+        RightsEvidence(kind='provider_terms', reference=TERMS_URL + ' sha256:' + terms['sha256'],
                        observed_at=datetime.fromisoformat(terms['observed_at']),
                        summary='请求前保存的服务协议；不代表已取得全部输出权利'),
         RightsEvidence(kind='asset_generation_provenance',

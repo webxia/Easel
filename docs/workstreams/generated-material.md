@@ -18,6 +18,7 @@ Material Layer 决定是否生成并拥有 Provider Adapter、生成记录和素
 
 - 三种模态的软件 Adapter 和独立真实输出 intake 已验收；生成记录绑定 Attempt、Plan revision、Need，结果通过普通 Gate。
 - 供给重算会恢复与当前 Attempt、Plan revision、Need 匹配且技术检查通过的已完成生成资产。操作员可在制作操作台对 SHA 匹配的生成素材提交 Rights 事实并重算同一 Gate；系统不推断许可，UNKNOWN 仍阻断 required Need。
+- 新委托的预置旁白已接入有限用途自动判断：同时核对已确认文字授权、当前请求/账号范围/系统音色、已评估的协议版本、冻结脚本及独立声音内容证据后，按 KNOWN + 本作品内部制作使用；不是依据 Provider 名称或付费成功放行。使用范围随成片保存并限制发布，素材库不允许跨作品复用。协议或证据不满足条件、图片/视频输出仍保留未知状态；真实感知效果与整体自主交付尚未验收。
 - 尚未证明生成素材在真实 Creation 中经 Rights 审核、Production 选材并完成 Hypit Build。该闭环和整个 V1 的新鲜 E2E 进入 [T15](../tasks/v1c-t15-e2e-readiness.md)。
 - 不支持的参考图、场景级 TTS 与声音克隆能力必须显式拒绝；不创建第二条视频主链。
 

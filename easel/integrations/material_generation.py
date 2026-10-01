@@ -15,6 +15,91 @@ from easel.materials.providers.minimax_video import MINIMAX_VIDEO_MODELS
 from easel.materials.store import AttemptMaterialStore, GenerationRecordNotFound
 
 
+# Reviewed 2026-10-01: clauses 6.2/6.3/9.5 allow conditional use of output,
+# not ownership or unrestricted publication. Clause 1.7 governs distribution.
+# Another agreement version requires a fresh policy review, never fuzzy text matching.
+MINIMAX_INTERNAL_VOICE_TERMS_SHA256 = '90d05ccc1dbf8404cbc40cfb096698ceec2bc894440ac507cd048ecb9a896ae0'
+
+
+def commission_voice_rights(work, plan, need, asset, record, script):
+    """Known, limited internal use from combined facts; no blanket AI license."""
+    from easel.creation_delivery import is_managed
+    from easel.materials.domain import RightsEvidence, RightsStatus, TechnicalStatus
+    from easel.materials.application.voice_delivery import voice_content_observed, timing_from_recognition
+    from easel.materials.providers.minimax_pricing import TERMS_URL, VOICE_URL
+    if (not is_managed(work) or work['id'] != plan.creation_id or need not in plan.needs
+            or asset.rights.status is not RightsStatus.UNKNOWN
+            or asset.rights.reviewed_at is not None or asset.rights.usage_constraints
+            or getattr(need.modality_spec, 'kind', None) != 'voice'
+            or asset.technical.status is not TechnicalStatus.PASSED
+            or asset.source.kind != 'generative' or asset.source.provider != 'minimax'
+            or hashlib.sha256(script.encode()).hexdigest() != need.modality_spec.text_sha256
+            or not voice_content_observed(need, asset)):
+        return None
+    authorization = work['delivery'].get('authorization', {})
+    declaration = authorization.get('input_use') or {}
+    expected = creation.input_use_preview()
+    if (any(declaration.get(key) != value for key, value in expected.items())
+            or declaration.get('creation_id') != work['id']
+            or declaration.get('proposal_sha256') != work['delivery'].get('proposal_sha256')
+            or declaration.get('confirmed_at') != work['delivery'].get('confirmed_at')
+            or declaration.get('confirmed_by_turn') != work['delivery'].get('confirmed_by_turn')):
+        return None
+    approval = record.get('commission_authorization') or {}
+    grant = authorization.get('material_generation') or {}
+    scope = grant.get('scope', {})
+    receipt = work['delivery'].get('material_generations', {}).get(approval.get('request_id'), {})
+    quote = approval.get('quote') or {}
+    terms = quote.get('terms_evidence') or {}
+    document = terms.get('document')
+    if (approval.get('source') != 'commission_budget' or approval.get('creation_id') != work['id']
+            or approval.get('input_use') != declaration
+            or not grant.get('scope_sha256') or approval.get('scope_sha256') != grant['scope_sha256']
+            or receipt.get('status') != 'complete' or receipt.get('quote') != quote
+            or receipt.get('asset_id') != asset.asset_id or receipt.get('attempt_id') != plan.attempt_id
+            or receipt.get('need_id') != need.need_id
+            or terms.get('url') != TERMS_URL or not isinstance(document, str)
+            or terms.get('sha256') != MINIMAX_INTERNAL_VOICE_TERMS_SHA256
+            or hashlib.sha256(document.encode()).hexdigest() != terms.get('sha256')
+            or scope.get('api_origin') not in {'https://api.minimax.cn', 'https://api.minimaxi.com'}
+            or scope.get('provider') != 'minimax' or quote.get('provider') != 'minimax'
+            or record.get('model') not in MINIMAX_SPEECH_MODELS
+            or record.get('model') != scope.get('speech_model') or quote.get('model') != record.get('model')
+            or not record.get('voice_id') or record['voice_id'] != scope.get('speech_voice_id')
+            or not any(e.get('url') == VOICE_URL and len(e.get('sha256', '')) == 64 for e in quote.get('evidence', []))):
+        return None
+    if (record.get('status') != 'COMPLETE' or record.get('modality') != 'voice'
+            or record.get('generation_id') != 'gen-' + str(approval.get('request_id'))
+            or asset.source.provider_asset_id != record.get('generation_id')
+            or record.get('attempt_id') != plan.attempt_id or record.get('plan_id') != plan.plan_id
+            or record.get('plan_revision') != hashlib.sha256(plan.to_json().encode()).hexdigest()
+            or record.get('need_id') != need.need_id
+            or record.get('need_sha256') != hashlib.sha256(need.to_json().encode()).hexdigest()
+            or record.get('input_sha256') != need.modality_spec.text_sha256
+            or (record.get('asset_id'), record.get('asset_sha256'), record.get('asset_path'), record.get('asset_bytes'))
+               != (asset.asset_id, asset.file.sha256, asset.file.path, asset.file.size)):
+        return None
+    report = record.get('voice_recognition') or {}
+    # The persisted recognition must be the same evidence applied to this Need.
+    if (report.get('audio_sha256') != asset.file.sha256
+            or report.get('script_sha256') != need.modality_spec.text_sha256
+            or report.get('need_sha256') != record['need_sha256']):
+        return None
+    try:
+        timing_from_recognition(script, asset, report)
+    except ValueError:
+        return None
+    return asset.rights.model_copy(update={
+        'status': RightsStatus.KNOWN,
+        'license_name': '输入授权与预置语音服务条款（限本作品内部制作）', 'license_url': TERMS_URL,
+        'usage_constraints': ('internal_production_only', 'current_creation_only'),
+        'evidence': asset.rights.evidence + (RightsEvidence(kind='asset_commission_use',
+            reference=(f"creation:{work['id']}:generation:{record['generation_id']}:sha256:{asset.file.sha256}"
+                       f" terms-sha256:{terms['sha256']}"),
+            summary='已确认的文字改写/预置语音授权、请求时协议与独立声音内容核对；不授予公开发布或跨作品复用'),),
+    })
+
+
 def _digest(value) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 

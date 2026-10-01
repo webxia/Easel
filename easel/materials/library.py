@@ -276,6 +276,14 @@ class MaterialLibraryCatalog:
         if not consent.authorized:
             raise PromotionRejected("Explicit Library promotion consent is required")
         self._validate_eligibility(asset, source_store)
+        if 'current_creation_only' in asset.rights.usage_constraints:
+            try:
+                source_plan = source_store.read_plan()
+            except (ValueError, OSError) as exc:
+                raise PromotionRejected('作品限定素材缺少当前作品来源证据') from exc
+            if (not source_creation_id or source_creation_id != source_plan.creation_id
+                    or source_attempt_id != source_plan.attempt_id):
+                raise PromotionRejected('作品限定素材不能改变或省略来源作品')
         try:
             persisted = source_store.read_asset(asset.asset_id)
             source_path = source_store.resolve_asset_locator(asset.file.path)

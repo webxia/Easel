@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import re
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 
@@ -31,12 +32,12 @@ from easel.integrations import material_supply
 from easel.integrations.material_supply import ProviderRegistry
 from easel.runtime_config import EaselRuntimeConfig
 from easel.integrations.material_generation import generation_budget_preview
+from easel.integrations import material_generation
 from easel.materials import providers
 from easel.materials.providers import minimax_pricing
 from easel.materials.application.matching import MaterialMatcher
 from easel.materials.application import voice_delivery
 from easel.materials.application.visual_observation import SCHEMA as OBSERVATION_SCHEMA
-from easel.materials.application.rights import RightsService
 from easel.materials.domain import MaterialPlan, MaterialNeed, NeedScope, NeedScopeType, MediaType, NeedIntent, NeedImportance, VoiceNeedSpec, VoiceIdentityRef, VoiceIdentitySource, RightsInfo, RightsEvidence, RightsStatus
 from easel.materials.providers import LocalProvider
 from easel.materials.providers.minimax_speech import MiniMaxSpeechResult
@@ -230,6 +231,10 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             assert url == minimax_pricing.PRICE_URL
             return '## 语音\n单价：元/万字符。1 个汉字算 2 个字符\n| 同步语音合成 | speech-2.8-hd | 3.5 |\n'
         monkeypatch.setattr(minimax_pricing, 'read_public_contract', quoted_contract)
+        # Replace only the externally reviewed agreement version with the
+        # synthetic agreement used by this deterministic execution fixture.
+        fixture_terms = minimax_pricing.usage_terms_evidence(lambda _: MINIMAX_TERMS_FIXTURE)
+        monkeypatch.setattr(material_generation, 'MINIMAX_INTERNAL_VOICE_TERMS_SHA256', fixture_terms['sha256'])
         monkeypatch.setattr(voice_delivery, 'require_local_voice_model', lambda: None)  # Fixed offline recognizer below.
         orchestrator = MaterialProductOrchestrator()
         recognition_calls = []
@@ -275,11 +280,6 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 assert asset.rights.evidence[0].reference.endswith(terms['sha256'])
                 assert asset.rights.evidence[1].reference.endswith(asset.file.sha256)
                 assert not receipts[0]['operator_confirmed_paid']
-                # Explicit owned synthetic-tone fixture evidence. This remains
-                # the missing real generated-Rights boundary, not an auto grant.
-                RightsService(store).record(asset, rights)
-                orchestrator._recalculate_observed_materials(service.get_film_attempt(attempt['attempt_id']),
-                    plan, store.read_bundle(), store)
             if next_operation(creation.get_creation(work['id']))[0] == 'author':
                 break
         assert material_operations == ['observe_material', 'recover_material', 'generate_material',
@@ -296,6 +296,38 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         assert before_calls == (len(calls), len(recognition_calls), len(observations))
         bundle = store.read_bundle()
         prior_voice = store.read_asset(voice_asset_id)
+        assert prior_voice.rights.status is RightsStatus.KNOWN
+        assert set(prior_voice.rights.usage_constraints) == {'internal_production_only', 'current_creation_only'}
+        assert any(e.kind == 'asset_commission_use' for e in prior_voice.rights.evidence)
+        assert any(e.kind == 'provider_terms' and fixture_terms['sha256'] in e.reference for e in prior_voice.rights.evidence)
+        if index == 0:
+            unassessed = prior_voice.model_copy(update={'rights': RightsInfo(status=RightsStatus.UNKNOWN,
+                evidence=tuple(e for e in prior_voice.rights.evidence if e.kind != 'asset_commission_use'))})
+            committed_work = creation.get_creation(work['id'])
+            committed_record = store.list_generation_records()[0]
+            assert material_generation.commission_voice_rights(committed_work, plan, voice_need,
+                unassessed, committed_record, script) is not None
+            restricted = unassessed.model_copy(update={'rights': unassessed.rights.model_copy(update={'status': RightsStatus.RESTRICTED})})
+            assert material_generation.commission_voice_rights(committed_work, plan, voice_need,
+                restricted, committed_record, script) is None
+            for fault in ('input_grant', 'terms', 'preset', 'creation', 'recognition'):
+                altered_work, altered_record = deepcopy(committed_work), deepcopy(committed_record)
+                if fault == 'input_grant':
+                    altered_work['delivery']['authorization']['input_use'] = None
+                elif fault == 'terms':
+                    proof = altered_record['commission_authorization']['quote']['terms_evidence']
+                    proof['document'] += '<p>未评估的新条款</p>'
+                    proof['sha256'] = hashlib.sha256(proof['document'].encode()).hexdigest()
+                    request = altered_record['commission_authorization']['request_id']
+                    altered_work['delivery']['material_generations'][request]['quote'] = deepcopy(altered_record['commission_authorization']['quote'])
+                elif fault == 'preset':
+                    altered_record['voice_id'] = 'unverified-voice'
+                elif fault == 'creation':
+                    altered_work['id'] = 'another-creation'
+                else:
+                    altered_record['voice_recognition']['words'][0]['text'] = '不符合冻结脚本的另一句话。'
+                assert material_generation.commission_voice_rights(altered_work, plan, voice_need,
+                    unassessed, altered_record, script) is None, fault
 
         # Same native authoring fixture, with content-specific pictures and
         # measured captions. No second production representation or real Build.
@@ -452,6 +484,10 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         assert saved['delivery']['status'] == 'first_cut_ready', saved['delivery']
         assert next_operation(saved) == (None, 'first_cut_ready')
         exported = service.get_film_attempt(attempt['attempt_id'])
+        assert exported['outputs']['final.video']['material_usage'] == [{
+            'asset_id': prior_voice.asset_id, 'sha256': prior_voice.file.sha256,
+            'constraints': ['internal_production_only', 'current_creation_only'],
+        }]
         output = creation.OUTPUTS_DIR / exported['outputs']['final.video']['path']
         assert exported['cost']['approved'] is True and exported['cost']['approved_budget_usd'] == 0
         assert exported['cost']['approval_kind'] == 'confirmed_commission_no_charge'

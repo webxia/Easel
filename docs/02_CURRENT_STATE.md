@@ -7,7 +7,7 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 | Area | Current status |
 |---|---|
 | Product | Official `ai-film` Web path is connected through Material Gate, Hypit authoring/execution, and Easel output review. Overall V1 remains **PARTIAL / NOT_READY**. |
-| Material Layer | P0/INT/P1 supply contracts are software accepted. MiniMax Image/Video/preset-voice TTS and ordinary Gate are software connected; isolated Image, Video and Voice outputs passed technical inspection. Generated Rights remains unknown and Readiness is NOT_READY; full Creation/Production use is unverified. |
+| Material Layer | P0/INT/P1 supply contracts are software accepted. MiniMax Image/Video/preset-voice TTS and ordinary Gate are software connected; isolated outputs passed technical inspection. 新委托预置旁白有证据齐全时可按本作品内部用途自动准入；图片/视频及证据不足的生成资产仍为 UNKNOWN。完整真实 Creation/Production 使用未验收。 |
 | Local visual Product E2E | **REAL_WORLD_VERIFIED** for one named Creation through human-approved Selected Output; it does not establish full V1 or multi-Content consistency. |
 | External Material Product E2E | **REAL_WORLD_VERIFIED** for one standard-chat Creation through Pexels Search/Acquisition, MaterialReadiness `READY`, Production Authoring, Hypit Build, Export, Review and Selected Output. The [named Acceptance](acceptance/external-material-product-e2e-2026-09-29.md) records the initial MaterialReadiness stop; the same Creation was subsequently completed. |
 | Runtime profiles | `generation` is **READY** (configuration only). `v1-release` is **NOT_READY**: model auth/endpoint and `audio.production` require live verification. Hypit 0.2.7 doctor, Runtime Worker and both local Programs are ready. |
@@ -52,6 +52,11 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 [素材缺口恢复任务](tasks/creator-material-recovery-2026-09-30.md) 软件与同一 Creation 的阶段恢复已完成：来源修订只扩展明确选择的 BGM 来源，保留脚本/场景/旁白 Need 与冻结 Handoff；正式旧/新 Plan revision、父 SupplyRun、Bundle checkpoint 和请求身份记录，补充缺失素材。中断后对账完成的 Supply，重复请求复用结果。早期恢复保留原 7 个 Asset，集合增至 38 个；后续仅补缺失窗景，再经逐 Need 核对与独立配乐 Rights/署名复核，Material Gate READY，进入上述真实制作与最终入库。配乐试听、缺失署名事实和旁白试听结论都在普通作品区处理，未知许可不被 UI 合并放行。前一组合 127 passed；最终增量 Material/Compiler/Rights/敏感接口 52 passed（28 deselected），lint/build、compileall、技能合同和 diff check 通过。最终成片基本质量已由 Creator 审阅接受，但自主 E2E 因工程介入失败；完整运行与限制见同一份 [Acceptance](acceptance/creator-audio-quality-e2e-2026-09-30.md)。
 
 ## 当前 Goal：自主首版与 Director 全链执行
+
+- **预置旁白有限用途自动准入（2026-10-01）：** 原正常路径即使已有输入授权、系统音色和声音内容证据，仍停在 Rights UNKNOWN。现复用后台素材观察操作，对当前委托、请求、费用范围、已确认文字声明、冻结脚本、实际资产、预置音色与独立语音识别证据逐项绑定；满足已评估国内协议版本时，记录 KNOWN 的有限用途依据。政策依据为 6.2/6.3/9.5 的输入责任与有条件输出使用，1.7 的传播要求通过仅限内部制作的范围隔离；不宣称所有权、商业发布许可或单靠付费取得权利。不同协议摘要不自动认领旧政策，已有人工核验/限制不被替换。
+- 限定 `internal_production_only` 与 `current_creation_only`：成片可成为待审首版并最终保存，发布入口继续执行上一批范围检查；素材库登记需绑定源 Plan 的作品与 Attempt，复用时不能转给另一作品。旧 Creation、手动生成和证据缺失场景不获得新授权；没有新增 Creator 确认或第二生产路径。
+- 三内容回放已移除生成旁白的手工 Rights 放行，实际 Owner/Web 素材观察自动完成此判断并进入原生制作服务与系统审片。协议审核版本在测试中使用明确的合成 Fixture，模型/ASR/渲染仍是替身；增加缺少输入声明、未评估条款、非委托音色、错误作品、识别内容错配及已有 RESTRICTED 的反例，并核对跨作品素材库复用被拒。BGM 听感仍有 Fixture 证据注入；生成图片/视频、真实声音语义、剩余质量恢复和完整真实自主交付仍未完成，Goal active。
+- **本批验证：** Cross-Content/Material/Library/Rights/MiniMax/Preparation/Hypit **209 passed**；compileall、115 项技能合同、diff check 通过，保留两项既有依赖提示。还复现 Rights 脱敏删除 URL 片段中的协议摘要，现改为 URL 外独立摘要并在资产使用依据中保留，三内容回放验证判断后与导出后证据仍在。没有改真实作品、调用付费 AI、启动真实 Build、完整 E2E 或发布。
 
 - **成片入库与发布权限解耦（2026-10-01）：** 发现 Creation ready 投影和内容库登记都要求 `READY_FOR_MANUAL_PUBLISH`，而导出仅携带署名，其他素材使用范围丢失。现 Production selection 记录实际所选素材的使用限制，导出前核对当前 Asset 身份/范围，并随输出、最终 Review、Selected Output 和内容库清单保存。审片后改变使用范围不能复用原批准；导出接续同样保留范围绑定。成片已被接受即可显示完成和入库，发布权限不再是这两个动作的前提。
 - 已有明确 `internal_production_only` 条件的作品可确认并入库，其发布状态保留 Rights 待核对；Web 发布入口同时核对原导出文件/内容库副本的 SHA、原记录、最终审片及此条件，清单中删掉限制不能放行。没有新增制作确认，也没有给所有生成素材自动附加该限制；本批建立的是可执行的范围保留，不是生成许可自动判断。未调用任何发布程序或外部发布服务。

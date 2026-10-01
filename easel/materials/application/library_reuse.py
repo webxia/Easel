@@ -69,6 +69,10 @@ class LibraryReuseService:
         candidates: list[LibraryReuseCandidate] = []
         rejected: list[LibraryReuseRejection] = []
         for record in records:
+            if ('current_creation_only' in record.asset.rights.usage_constraints
+                    and record.source_creation_id != creation_id):
+                rejected.append(LibraryReuseRejection(record.library_asset_id, 'rights_current_creation_only'))
+                continue
             if record.source_attempt_id == attempt_id:
                 rejected.append(LibraryReuseRejection(record.library_asset_id, "same_attempt_source"))
                 continue
