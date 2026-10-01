@@ -19,6 +19,10 @@ class DeliveryAgentPending(DeliveryExecutionUncertain):
     """The same gateway run still needs observation, not another model call."""
 
 
+class DeliveryAgentRejected(RuntimeError):
+    """Gateway explicitly rejected the request before accepting execution."""
+
+
 def _rpc(prefix: Sequence[str], profile: str, method: str, params: dict,
          runner: Callable, kwargs: dict) -> dict:
     command = [*prefix, "--profile", profile, "gateway", "call", method,
@@ -26,14 +30,32 @@ def _rpc(prefix: Sequence[str], profile: str, method: str, params: dict,
                "--timeout", "15000", "--json"]
     try:
         result = runner(command, **{**kwargs, "timeout": 20, "capture_output": True, "text": True})
+        payload = json.loads(result.stdout)
+        error = payload.get("error", {}) if isinstance(payload, dict) else {}
+        if (isinstance(payload, dict) and payload.get("ok") is False and isinstance(error, dict)
+                and error.get("type") == "gateway_request_error"
+                and error.get("code") == "INVALID_REQUEST"):
+            detail = str(error.get("message", ""))
+            reason = ("当前模型不接受图片输入" if "active model does not accept image inputs" in detail
+                      else "当前网关不允许单次切换模型" if "provider/model overrides are not authorized" in detail
+                      else "请求不符合网关合同")
+            raise DeliveryAgentRejected(f"编排网关明确拒绝请求，任务未启动：{reason}；请修正后重试")
         if result.returncode:
             raise DeliveryExecutionUncertain("暂时无法核实编排网关的执行结果")
-        payload = json.loads(result.stdout)
     except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
         raise DeliveryExecutionUncertain("编排网关状态连接中断；保留同一运行身份") from exc
     if not isinstance(payload, dict):
         raise DeliveryExecutionUncertain("编排网关返回的执行记录无效")
     return payload
+
+
+def _visual_model(prefix, profile, agent_id, runner, kwargs):
+    catalog = _rpc(prefix, profile, "models.list", {"agentId": agent_id, "includeDetails": True}, runner, kwargs)
+    defaults = [m for m in catalog.get("models", []) if "default" in m.get("tags", [])]
+    if len(defaults) != 1 or "image" not in defaults[0].get("input", []) or defaults[0].get("available") is not True:
+        raise DeliveryAgentRejected("当前创作模型未具备可用的图片输入能力，素材核对尚未启动；请修正模型配置后重试")
+    model = defaults[0]
+    return {"provider": model["provider"], "model": model["id"]}
 
 
 def _observe_payload(creation_id: str, key: str, payload: dict) -> None:
@@ -99,6 +121,10 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
     digest = hashlib.sha256(json.dumps({"profile": profile, **request}, sort_keys=True,
                                       ensure_ascii=False).encode()).hexdigest()
     submit = False
+    existing = creation.get_creation(creation_id)["delivery"].get("agent_calls", {}).get(digest)
+    visual_model = None
+    if attachments and (existing is None or (existing.get("status") == "error" and existing.get("failure_observed"))):
+        visual_model = _visual_model(prefix, profile, request["agentId"], runner, kwargs)
     with creation.edit_creation(creation_id) as work:
         calls = work["delivery"].setdefault("agent_calls", {})
         call = calls.get(digest)
@@ -106,6 +132,8 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
             call = {"run_id": "easel-" + uuid.uuid4().hex, "request_sha256": digest,
                     "profile": profile, "status": "submitting", "created_at": creation._now()}
             calls[digest] = call
+            if visual_model:
+                call["visual_model"] = visual_model
             submit = True
         elif call["status"] == "error":
             call["failure_observed"] = True
@@ -113,7 +141,17 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
     if submit:
         # Save run identity BEFORE calling the gateway. If the caller dies here,
         # recovery observes this run; it never guesses that submission failed.
-        payload = _rpc(prefix, profile, "agent", {**request, "idempotencyKey": call["run_id"]}, runner, kwargs)
+        try:
+            # Keep the configured session route. CLI operators cannot override
+            # provider/model per run; the gateway checks the effective model too.
+            payload = _rpc(prefix, profile, "agent", {**request,
+                           "idempotencyKey": call["run_id"]}, runner, kwargs)
+        except DeliveryAgentRejected:
+            with creation.edit_creation(creation_id) as work:
+                work["delivery"]["agent_calls"][digest].update(
+                    status="error", failure_observed=True, rejected_before_start=True,
+                    observed_at=creation._now())
+            raise
         _observe_payload(creation_id, digest, payload)
     else:
         if call["status"] == "ok":

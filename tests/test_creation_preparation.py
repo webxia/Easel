@@ -353,7 +353,12 @@ def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(pre
         method = command[command.index("call") + 1]
         params = json.loads(command[command.index("--params") + 1])
         calls.append(method)
+        if method == "models.list":
+            return subprocess.CompletedProcess(command, 0, json.dumps({"models": [
+                {"id": "vision", "provider": "fixture", "tags": ["default"], "input": ["text", "image"], "available": True}
+            ]}), "")
         if method == "agent":
+            assert 'provider' not in params and 'model' not in params
             run_id = params["idempotencyKey"]
             saved = creation.get_creation(work["id"])["delivery"]["agent_calls"]
             assert next(iter(saved.values()))["run_id"] == run_id
@@ -385,9 +390,48 @@ def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(pre
         terminal = True
         reconcile_agent_calls(work["id"], command_prefix=["openclaw"], profile="fixture", runner=gateway)
         assert run_delivery_agent(command, runner=gateway, attachments=attachments).returncode == 0
-        assert calls == ["agent", "agent.wait", "agent.wait", "agent.wait"]
+        assert calls == ["models.list", "agent", "agent.wait", "agent.wait", "agent.wait"]
         stored = next(iter(creation.get_creation(work["id"])["delivery"]["agent_calls"].values()))
         assert stored["status"] == "ok" and "message" not in stored and "attachments" not in stored
+    finally:
+        active_delivery.reset(token)
+
+
+@pytest.mark.parametrize('failure', ['text_only', 'rejected', 'transport'])
+def test_visual_gateway_rejection_does_not_become_phantom_pending(prep_env, failure):
+    from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain, next_operation
+    from easel.integrations.openclaw_delivery import run_delivery_agent, DeliveryAgentRejected
+    work = _confirmed_delivery()
+    methods = []
+    def gateway(command, **kwargs):
+        method = command[command.index('call') + 1]
+        methods.append(method)
+        if method == 'models.list':
+            return subprocess.CompletedProcess(command, 0, json.dumps({'models': [{
+                'id': 'vision', 'provider': 'fixture', 'tags': ['default'], 'available': True,
+                'input': ['text'] if failure == 'text_only' else ['text', 'image'],
+            }]}), '')
+        if failure == 'transport':
+            return subprocess.CompletedProcess(command, 1, '', 'connection closed')
+        return subprocess.CompletedProcess(command, 1, json.dumps({'ok': False, 'error': {
+            'type': 'gateway_request_error', 'code': 'INVALID_REQUEST',
+            'message': 'UnsupportedAttachmentError: active model does not accept image inputs',
+        }}), '')
+    token = active_delivery.set(work['id'])
+    try:
+        with pytest.raises(DeliveryExecutionUncertain if failure == 'transport' else DeliveryAgentRejected):
+            run_delivery_agent(['openclaw', '--profile', 'fixture', 'agent', '--agent', 'main',
+                                '--message', 'observe'], runner=gateway,
+                               attachments=[{'type': 'image', 'content': 'ZmFrZQ=='}])
+        current = creation.get_creation(work['id'])
+        calls = current['delivery'].get('agent_calls', {})
+        if failure == 'text_only':
+            assert methods == ['models.list'] and not calls
+        elif failure == 'rejected':
+            assert next(iter(calls.values()))['rejected_before_start'] is True
+            assert next_operation(current)[0] != 'observe_agent'
+        else:
+            assert next_operation(current)[0] == 'observe_agent'
     finally:
         active_delivery.reset(token)
 

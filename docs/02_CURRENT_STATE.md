@@ -14,6 +14,14 @@ Last audited: 2026-10-01. This is the single summary of current implementation a
 | P3 | **NOT_STARTED**. |
 | Test suite | Latest complete deterministic run: **600 passed, 5 skipped** on 2026-10-01. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
 
+## 素材观察模型能力与提交拒绝恢复（2026-10-01）
+
+- 当前真实作品在 21:34 完成 Planning 和素材搜索；首项图片观察于 21:34:49 被网关以 `INVALID_REQUEST / active model does not accept image inputs` 拒绝。旧适配器把明确拒绝归为提交不确定，再把查询 timeout 持续记为 pending，形成没有实际观察进展的长期等待。
+- 已核对 [MiniMax 官方 OpenAI 兼容合同](https://platform.minimaxi.com/docs/api-reference/text-openai-api.md)：MiniMax-M3 支持图片输入。本机模型条目误配为仅 text，已通过配置命令修正为 text/image，网关模型目录确认生效；保留原模型与账号。该本机配置不纳入 Git。
+- 新视觉提交先通过网关 `models.list(includeDetails=true)` 核对当前 Agent 默认模型的图片能力与可用性，并记录模型身份；沿用原会话路由，由网关继续校验实际有效模型，不使用当前 CLI 调用者无权使用的 provider/model override。已登记/已完成调用先复用原身份，不因能力查询重新提交。明确的结构化请求拒绝记 error/rejected_before_start；真实传输中断仍保持同一 run 对账，不能仅凭 timeout 认定失败并重提。
+- 局部验证：Preparation、Material integration、跨内容 Replay、隔离 Authoring **131 passed**；覆盖纯文本配置提交前阻止、明确拒绝可恢复、传输中断仍等待原 run，以及图片附件与完成结果复用。后续取消单次模型 override 后，相关 4 项再次通过。compileall/diff check 通过；无新完整 E2E。
+- 用户明确要求恢复本次制作：依据原拒绝日志核对原 run 的提交时间，持有原 Delivery 锁修正等待记录，保存日志条目摘要与恢复历史；没有把报告伪造为通过。重载服务后使用正式 Retry，22:26:45 已真实发出图片观察模型请求，22:26:48 收到 HTTP 200；仍为原 Creation/Attempt，复用现有素材。22:27 已生成首份真实图片观察报告，识别夜间停车场与通勤场景不符并记 unsuitable，后续继续核对候选；证明图片输入和观察文件写入已恢复，尚不证明首版交付完成。
+
 ## 创作规划失败恢复（2026-10-01）
 
 - 真实失败根因：脚本共 14 项，其中 1 项已确定性标记为假设表达，模型额外审阅该项使原先“恰好等于待审集合”的校验拒绝整份报告。现允许当前脚本内、与已有判断一致的额外审阅，不覆盖既有证据；真正遗漏、重复、未知编号、过期身份、来源错误及相互冲突仍拒绝，错误明确指出差异。
