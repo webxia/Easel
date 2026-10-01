@@ -1298,6 +1298,63 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     system['visual'][0]['checks']['narrative']['status'] = 'pass'
     system['binding']['sha256'] = 'stale-output'
     assert quality.repair_request(attempt) is None
+
+    # Recheck only incomplete batches of this exact output. Detailed fixture
+    # previews force multiple batches; signal measurements still decode MP4.
+    import io
+    from PIL import Image
+    preview = io.BytesIO()
+    Image.fromarray(rng.integers(0, 256, (180, 320, 3), dtype=np.uint8)).save(preview, format='PNG')
+    decode = quality._decode
+    monkeypatch.setattr(quality, '_decode', lambda path, *options:
+        preview.getvalue() if '-vcodec' in options else decode(path, *options))
+    planning['scenes'] += '局部证据不足回放。'
+    review_calls = []
+    interrupted = False
+    resolve_round = 99
+    def uncertain_observe(a, manifest, attachments):
+        nonlocal interrupted
+        review_calls.append((manifest['frame_offset'], manifest['observation_round'], manifest['input_sha256']))
+        if manifest['observation_round'] == 2 and not interrupted:
+            interrupted = True
+            raise HypitIntegrationError('fixture interruption before report persistence')
+        report = observe(a, manifest, attachments)
+        if manifest['frame_offset'] == 1 and manifest['observation_round'] < resolve_round:
+            report['checks']['readability'] = {'status': 'unknown', 'reason': '字幕边界仍不确定', 'frame_indices': []}
+        if manifest['observation_round'] > 1:
+            assert manifest['review_focus'] == {'readability': '字幕边界仍不确定'}
+        return report
+    quality.inspect_output('fixture', executor=uncertain_observe)
+    first = attempt['review']['system']
+    assert len(first['visual']) > 1 and first['observation_round'] == 1
+    assert quality.needs_reobservation(first)
+    with pytest.raises(HypitIntegrationError, match='fixture interruption'):
+        quality.inspect_output('fixture', executor=uncertain_observe)
+    assert attempt['review']['system'] == first  # The incomplete round isn't consumed.
+    interrupted_request = review_calls[-1]
+    quality.inspect_output('fixture', executor=uncertain_observe)
+    assert review_calls[-1] == interrupted_request  # Durable executor sees the same request identity.
+    assert attempt['review']['system']['observation_round'] == 2
+    quality.inspect_output('fixture', executor=uncertain_observe)
+    exhausted = attempt['review']['system']
+    assert exhausted['observation_round'] == quality.MAX_OBSERVATION_ROUNDS
+    assert not quality.needs_reobservation(exhausted)
+    assert quality.repair_request(attempt) is None  # Unknown never becomes permission to rebuild.
+    assert [call[0] for call in review_calls[len(first['visual']):]] == [1, 1, 1]
+    count = len(review_calls)
+    quality.inspect_output('fixture', executor=uncertain_observe)
+    assert len(review_calls) == count
+
+    # A fresh input has its own bound review budget; a valid later observation
+    # can resolve unknown while retaining the observed technical defect.
+    planning['scenes'] += '复查可取得结论的独立场景。'
+    resolve_round = 2
+    quality.inspect_output('fixture', executor=uncertain_observe)
+    quality.inspect_output('fixture', executor=uncertain_observe)
+    assert attempt['review']['system']['observation_round'] == 2
+    assert not quality.needs_reobservation(attempt['review']['system'])
+    assert quality.repair_request(attempt)['allowed_changes'] == ['visual']
+    assert attempt['review']['human']['status'] == 'pending'
     output.write_bytes(b'changed output')
     with pytest.raises(HypitIntegrationError, match='字节已变化'):
         quality.inspect_output('fixture', executor=observe)

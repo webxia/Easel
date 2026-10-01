@@ -168,6 +168,11 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
     system['schema'] = 'easel-output-quality@1'
     assert next_operation(snapshot) == ('quality', 'checking_quality')
     system['schema'] = 'easel-output-quality@2'
+    system['visual'] = [{'checks': {'readability': {'status': 'unknown'}}}]
+    for state in ('INCOMPLETE', 'REPAIR_REQUIRED'):
+        system['status'] = state
+        assert next_operation(snapshot) == ('quality', 'checking_quality')
+    system['observation_round'] = 3
     for state, status in [('REPAIR_REQUIRED', 'quality_repair_required'), ('INCOMPLETE', 'quality_incomplete')]:
         system['status'] = state
         assert next_operation(snapshot) == (None, status)

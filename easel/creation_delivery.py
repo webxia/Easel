@@ -115,7 +115,7 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     if execution in {"SUBMITTED", "RUNNING", "CANCEL_REQUESTED"}:
         return "refresh", "producing"
     if execution == "BUILD_COMPLETE":
-        from easel.integrations.hypit.quality import SCHEMA as QUALITY_SCHEMA
+        from easel.integrations.hypit.quality import SCHEMA as QUALITY_SCHEMA, needs_reobservation
         if not attempt.get("outputs"):
             return "export", "exporting"
         system = attempt.get("review", {}).get("system", {})
@@ -125,6 +125,8 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
                 and output.get("sha256") == binding.get("sha256")):
             if system.get("status") == "READY":
                 return None, "first_cut_ready"
+            if needs_reobservation(system):
+                return 'quality', 'checking_quality'
             if system.get("status") == "REPAIR_REQUIRED":
                 from easel.integrations.hypit.quality import repair_request
                 if (len(delivery.get('quality_repairs', [])) < MAX_QUALITY_REPAIRS

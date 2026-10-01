@@ -2688,6 +2688,8 @@ def _review_output_frames(attempt: dict, manifest: dict, attachments: list[dict]
         '结合完整脚本、创作者、内容和 Mode，但不能用文稿代替实际画面。'
         '每项状态只能 pass/fail/unknown；看不清/证据不足填 unknown，实际缺陷填 fail 并指出时间及局部影响。'
         '软偏好差异记录原因，不机械否决；禁止仅因文件可播放或存在 Mode 文件判通过。'
+        'review_focus 若非空，表示本组仍缺少的判断及上次原因；请针对这些问题重新核对附件。'
+        '复查次数不增加证据强度，仍无法确定就保留 unknown，不得为继续制作而改成 pass。'
         'frame_offset/frame_total 表示当前只是同一视频的一组预览，不推断未给出的画面。\n'
         + json.dumps(manifest, ensure_ascii=False) + '\n只写 ' + str(report_path) + '\n' + json.dumps(template, ensure_ascii=False))
     failure = ''

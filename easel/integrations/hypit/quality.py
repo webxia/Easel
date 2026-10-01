@@ -17,6 +17,17 @@ from .narration import _attrs, _frames
 
 SCHEMA = 'easel-output-quality@2'
 VISUAL_CHECKS = ('visual_match', 'readability', 'mode', 'creator', 'truth_expression', 'narrative')
+MAX_OBSERVATION_ROUNDS = 3
+
+
+def needs_reobservation(report: dict) -> bool:
+    """Incomplete observations get bounded review, never permission to rebuild."""
+    round_number = report.get('observation_round', 1)
+    unknown = report.get('status') == 'INCOMPLETE' or any(
+        check.get('status') == 'unknown'
+        for batch in report.get('visual', []) for check in batch.get('checks', {}).values())
+    return (report.get('status') in {'INCOMPLETE', 'REPAIR_REQUIRED'} and unknown
+            and type(round_number) is int and 1 <= round_number < MAX_OBSERVATION_ROUNDS)
 
 
 def repair_request(attempt: dict) -> dict | None:
@@ -252,8 +263,11 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     identity = hashlib.sha256(json.dumps({'schema': SCHEMA, 'binding': binding, 'execution': fingerprint, 'mode': mode_hash,
         'script': planning['script'], 'author': author, 'timings': timings, 'context': context}, sort_keys=True).encode()).hexdigest()
     previous = attempt.get('review', {}).get('system', {})
-    if previous.get('input_sha256') == identity and previous.get('status') in {'READY', 'REPAIR_REQUIRED', 'INCOMPLETE'}:
+    same_input = previous.get('input_sha256') == identity
+    if (same_input and previous.get('status') in {'READY', 'REPAIR_REQUIRED', 'INCOMPLETE'}
+            and not needs_reobservation(previous)):
         return attempt
+    observation_round = previous.get('observation_round', 1) + 1 if same_input else 1
     measurements = measure_output(path, output['metadata'], voice_path, offset, cues)
     if any(getattr(n.modality_spec, 'kind', None) == 'voice' for n in plan.needs) and voice_path is None:
         measurements['defects'].append({'kind': 'voice_unverifiable', 'reason': '当前旁白缺少可绑定的时序，尚不能核对完整性', 'time_seconds': 0.})
@@ -293,14 +307,24 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
             raise HypitIntegrationError('单张成片预览超过审片容量')
         batch = {**manifest, 'frames': [{**f, 'index': i} for i, f in enumerate(frames[start:end])],
                  'frame_offset': start, 'frame_total': len(frames)}
+        batch_identity = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
+        cached = next((v for v in previous.get('visual', [])
+                       if same_input and v.get('batch_sha256') == batch_identity), None)
+        complete = cached is not None and all(c['status'] != 'unknown' for c in cached['checks'].values())
+        batch['observation_round'] = cached['observation_round'] if complete else observation_round
+        batch['review_focus'] = (cached['review_focus'] if complete else {
+            key: check['reason'][:500] for key, check in (cached or {}).get('checks', {}).items()
+            if check['status'] == 'unknown'})
         batch['input_sha256'] = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
-        report = executor(attempt, batch, attachments[start:end])
+        report = cached if complete else executor(attempt, batch, attachments[start:end])
         validate_visual_review(batch, report)
-        visual.append({**report, 'frame_offset': start})
+        visual.append({**report, 'frame_offset': start, 'batch_sha256': batch_identity,
+                       'observation_round': batch['observation_round'], 'review_focus': batch['review_focus']})
         start = end
     failed = any(c['status'] == 'fail' for v in visual for c in v['checks'].values())
     unknown = any(c['status'] == 'unknown' for v in visual for c in v['checks'].values())
     report = {'schema': SCHEMA, 'input_sha256': identity, 'binding': binding,
+              'observation_round': observation_round,
               'status': 'REPAIR_REQUIRED' if failed or measurements['defects'] else 'INCOMPLETE' if unknown else 'READY',
               'measurements': measurements, 'visual': visual, 'frames': frames,
               'scope': manifest['scope'], 'checked_at': service._now()}

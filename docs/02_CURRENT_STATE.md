@@ -53,6 +53,8 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **审片未知结论恢复（2026-10-01）：** 原 `INCOMPLETE` 被永久缓存，Delivery Owner 直接停住；有确定缺陷但同时存在未知结论也无法进入已有局部修复。现在同一输入最多三轮观察（含首轮），仅重新请求含未知结论的画面批次并附未确定问题，复用其余批次；每轮身份与次数绑定当前输出和冻结上下文。检查中断不消耗已完成轮次，恢复使用相同请求身份，沿用网关对账；不重做视频或购买素材。未知消除后进入原质量判断/局部修复，达到上限仍保留未知，绝不转成自动 PASS。复查改善暂时判断不足，不保证相同采样能解决一切证据缺口；更丰富观察、正常 Voice/BGM 听感和跨内容交付仍未完成。
+- **本批局部验证：** Hypit、Preparation、隔离 Authoring、Material integration、Compiler **171 passed**；另一次含 Image/Speech、Library-first、Audio supply 的组合 **77 passed**（覆盖有重叠，不相加）。多批次固定预览验证只重查未知批次、重启沿用身份、三轮上限、上下文变化失效、解决未知后允许已有近黑修复及人审保持 pending；音画测量继续解码确定性本地 MP4。compileall、115 项技能合同与 diff check 通过，两项既有 Python 依赖提示。无前端源码修改；未调用模型/Provider/Build，未改当前 Creation，未执行完整 E2E。
 - **旁白供应接线修复（2026-10-01）：** 把已有冻结 Mode 场景继续送入真实 `ProductMaterialSupply`，复现 `voice_delivery` 对象被 `NeedCompiler` 当作标量检索条件拒绝，进而伪装成 Local 来源失败。现在仅对 Voice Need 的已知执行参数验证后从检索 filters 排除；原 Need、生成参数、Match/Rights/Readiness 不变，未知复杂条件仍拒绝。扩展既有集成与编译器回归，先失败再修复；Compiler、Material integration、Image/Speech、Library-first、Audio supply **77 passed**。这证明旁白供应可以走到实际检索，不证明正常声音观察、生成 Rights 或跨内容首版交付已经闭环。
 
 原始产品目标对齐、流程重审与 Director 实际执行链只读核对已完成。已确认两组根因：缺少持续自主交付首版的责任与执行闭环；Mode 在 Planning 中有体现，但 Material 风格参数未接全、Voice 朗读要求未进入实际请求、Production 未完整落实文稿、Quality 仍依赖人审。用户已批准将合并方案写入文档并设 Goal 实施，[同一任务](tasks/creator-autonomous-first-cut-2026-09-30.md) 已替换为唯一实施方案。
