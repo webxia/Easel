@@ -2293,3 +2293,102 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     if is_video:
         assert FakeVideo.waits == ['fixture-paid-video', 'fixture-paid-video']
         assert len(quote_reads) == 2  # first submit + second Need; query retry is not a new purchase
+
+
+def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(material_integration_env, monkeypatch):
+    import asyncio
+    from copy import deepcopy
+    from types import SimpleNamespace
+    from easel.creation_delivery import advance_creation, next_operation
+    from easel.materials.application import voice_delivery
+
+    attempt = material_integration_env
+    script = '假设清晨。窗边很安静。'
+    need = MaterialNeed(need_id='voice', scope=NeedScope(type=NeedScopeType.GLOBAL, ref='film'),
+        media_type=MediaType.AUDIO, role='旁白', intent=NeedIntent(description='清晰平静的旁白'),
+        importance=NeedImportance.REQUIRED, modality_spec=VoiceNeedSpec(identity=VoiceIdentityRef(
+            source=VoiceIdentitySource.EXPLICIT_USER, reference='普通话预置音色')))
+    plan = MaterialPlan(plan_id='voice-recovery', creation_id=attempt['creation_id'],
+                        attempt_id=attempt['attempt_id'], needs=(need,))
+    planning = PlanningIntegration().persist(attempt, plan, treatment='平静观察', script=script, scenes='两个场景')
+    plan, attempt, need = planning['plan'], planning['attempt'], planning['plan'].needs[0]
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    body = b'isolated-saved-voice-fixture'
+    path = store.write_asset_bytes('voice', 'original.mp3', body)
+    asset = MaterialAsset(asset_id='voice', media_type=MediaType.AUDIO,
+        file=FileInfo(path=path, sha256=hashlib.sha256(body).hexdigest(), size=len(body), mime='audio/mpeg'),
+        source=CandidateSource(kind='generative', provider='minimax', provider_asset_id='gen-voice'),
+        rights=RightsInfo(status=RightsStatus.UNKNOWN),
+        technical=TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=5, mime='audio/mpeg'))
+    store.write_asset(asset)
+    run = SupplyRun(supply_run_id='voice-recovery', plan_id=plan.plan_id,
+        started_at=datetime.now(timezone.utc), finished_at=datetime.now(timezone.utc), result_bundle_id='bundle')
+    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), (), bundle_id='bundle')
+    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
+    MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)
+    generation = {'schema': 'easel-material-generation@1', 'generation_id': 'gen-voice', 'status': 'COMPLETE',
+        'modality': 'voice', 'attempt_id': attempt['attempt_id'], 'plan_id': plan.plan_id,
+        'need_id': need.need_id, 'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest(),
+        'input_sha256': hashlib.sha256(script.encode()).hexdigest(),
+        'asset_id': asset.asset_id, 'asset_sha256': asset.file.sha256, 'asset_path': path, 'asset_bytes': len(body),
+        'voice_timing': voice_delivery.bind_voice_timing(script, asset, (), 'provider_timing_missing_or_invalid')}
+    store.write_generation_record('gen-voice', generation)
+    with creation.edit_creation(attempt['creation_id']) as work:
+        work['origin'] = {'type': 'chat'}
+        work['chat_workflow'] = {'proposal_status': 'READY_FOR_CONFIRMATION'}
+    work = creation.confirm_chat_proposal(attempt['creation_id'], 'fixture', delivery_proposal=script,
+                                          proposal_sha256=hashlib.sha256(script.encode()).hexdigest())
+    report = {'engine': 'fixture-asr', 'words': [
+        {'text': '假设', 'start_seconds': .15, 'end_seconds': .7, 'probability': .95},
+        {'text': '清晨。', 'start_seconds': .7, 'end_seconds': 1.5, 'probability': .9},
+        {'text': '窗边', 'start_seconds': 2., 'end_seconds': 3., 'probability': .96},
+        {'text': '很安静。', 'start_seconds': 3., 'end_seconds': 4.8, 'probability': .99}]}
+    recognized = voice_delivery.timing_from_recognition(script, asset, report)
+    assert [(r['start_seconds'], r['end_seconds']) for r in recognized['cues']] == [(.15, 1.5), (2., 4.8)]
+    for invalid in ('mismatch', 'truncated', 'overlap', 'confidence'):
+        bad = deepcopy(report)
+        if invalid == 'mismatch': bad['words'][0]['text'] = '真的'
+        if invalid == 'truncated': bad['words'].pop()
+        if invalid == 'overlap': bad['words'][1]['start_seconds'] = .2
+        if invalid == 'confidence': bad['words'][0]['probability'] = .2
+        with pytest.raises(ValueError):
+            voice_delivery.timing_from_recognition(script, asset, bad)
+    calls = []
+    def recognize(file, language):
+        calls.append(file)
+        assert file.read_bytes() == body and language is None
+        return deepcopy(report)
+    monkeypatch.setattr(voice_delivery, 'read_local_voice', recognize)
+    monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset',
+                        lambda *a, **kw: pytest.fail('recovery must never purchase new audio'))
+    write_record = AttemptMaterialStore.write_generation_record
+    writes = []
+    def interrupt(store, generation_id, value):
+        writes.append(generation_id)
+        if len(writes) == 1:
+            raise OSError('fixture crash after recognition checkpoint')
+        return write_record(store, generation_id, value)
+    monkeypatch.setattr(AttemptMaterialStore, 'write_generation_record', interrupt)
+    async def execute(operation, current):
+        assert operation == 'recover_voice_timing'
+        await asyncio.to_thread(MaterialProductOrchestrator().recover_voice_timing, attempt['attempt_id'])
+    assert next_operation(work)[0] == 'recover_voice_timing'
+    asyncio.run(advance_creation(work['id'], execute))
+    asyncio.run(advance_creation(work['id'], execute))
+    assert len(calls) == 1 and len(writes) == 2
+    assert next_operation(creation.get_creation(work['id']))[0] != 'recover_voice_timing'
+    recovered = store.read_generation_record('gen-voice')
+    assert recovered['provider_voice_timing'] == generation['voice_timing']
+    assert recovered['voice_timing']['source'] == 'local_asr'
+    assert store.read_bundle() == bundle and store.read_asset('voice').rights.status is RightsStatus.UNKNOWN
+    # Project timing independently from admission: ASR does not grant Rights or
+    # a semantic match. Production consumes it only after ordinary qualification.
+    from easel.materials.application.voice_delivery import authoring_voice_timings
+    qualified = SimpleNamespace(assets=(asset,), matches=(MaterialMatch(
+        need_id='voice', asset_id='voice', rank=1, score=1, qualified=True),))
+    projected = authoring_voice_timings(plan, qualified, store, script)
+    assert projected['assets'][0]['source'] == 'local_asr'
+    assert ''.join(c['display_text'] for c in projected['assets'][0]['cues']) == script
+    recovered['voice_recognition']['audio_sha256'] = '0' * 64
+    write_record(store, 'gen-voice', recovered)
+    assert authoring_voice_timings(plan, qualified, store, script)['unavailable_need_ids'] == ['voice']

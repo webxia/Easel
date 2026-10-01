@@ -2147,6 +2147,8 @@ async def _execute_creation_delivery(operation: str, work: dict) -> None:
         await asyncio.to_thread(recover_managed_materials, attempt_id, executor=_plan_material_recovery)
     elif operation == 'finish_material_generation':
         await asyncio.to_thread(MaterialProductOrchestrator().resume_minimax_intake, attempt_id)
+    elif operation == 'recover_voice_timing':
+        await asyncio.to_thread(MaterialProductOrchestrator().recover_voice_timing, attempt_id)
     elif operation == 'generate_material':
         from easel.integrations.material_generation import generate_for_commission
         await asyncio.to_thread(generate_for_commission, attempt_id)

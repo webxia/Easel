@@ -346,3 +346,29 @@ def test_domestic_generation_quote_uses_current_contract_and_system_voice(modali
     settings.base_url = 'https://api.minimax.io'
     with pytest.raises(ValueError, match='不能自动换算'):
         quote_generation(settings, modality=modality, read=read)
+
+
+def test_voice_recognition_is_offline_unprompted_and_uses_measured_word_times(tmp_path, monkeypatch):
+    import sys
+    from types import SimpleNamespace
+    from easel.materials.application import voice_delivery
+    from easel.runtime_config import EaselRuntimeConfig
+    calls = []
+    class Recognizer:
+        def __init__(self, path, **kwargs):
+            assert kwargs == {'device': 'cpu', 'compute_type': 'int8', 'local_files_only': True}
+            calls.append(path)
+        def transcribe(self, path, **kwargs):
+            assert kwargs == {'language': None, 'beam_size': 5, 'word_timestamps': True,
+                              'vad_filter': True, 'condition_on_previous_text': False}
+            return [SimpleNamespace(words=[SimpleNamespace(word='一句。', start=.23, end=1.71, probability=.93)])], SimpleNamespace(language='zh')
+    monkeypatch.setitem(sys.modules, 'faster_whisper', SimpleNamespace(WhisperModel=Recognizer))
+    # The adapter passes the actual file and no target script to the recognizer.
+    report = voice_delivery.transcribe_local_voice(tmp_path / 'saved.mp3', tmp_path / 'local-model', None)
+    assert report['words'][0] == {'text': '一句。', 'start_seconds': .23, 'end_seconds': 1.71, 'probability': .93}
+    assert calls == [str(tmp_path / 'local-model')]
+    monkeypatch.setattr(EaselRuntimeConfig, 'load', lambda: SimpleNamespace(get=lambda *a: str(tmp_path / 'absent-model')))
+    import subprocess
+    monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: pytest.fail('missing model must not download or start recognition'))
+    with pytest.raises(ValueError, match='本地语音识别模型未就绪'):
+        voice_delivery.read_local_voice(tmp_path / 'saved.mp3', None)

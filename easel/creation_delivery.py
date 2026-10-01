@@ -154,6 +154,21 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
             pending = True
         if pending:
             return 'finish_material_generation', 'recovering_material'
+    if gate.get('bundle_revision') and attempt.get('workspace', {}).get('path'):
+        from easel.materials.application.voice_delivery import pending_voice_timing_recovery
+        from easel.integrations.material_layer import PlanningIntegration
+        from easel.materials.store import AttemptMaterialStore
+        try:
+            store = AttemptMaterialStore(attempt['workspace']['path'])
+            pending = False
+            if any(r.get('modality') == 'voice' and r.get('status') == 'COMPLETE'
+                   for r in store.list_generation_records()):
+                planning = PlanningIntegration().load(attempt)
+                pending = pending_voice_timing_recovery(planning['plan'], store.read_bundle(), store, planning['script'])
+        except (ValueError, OSError):
+            pending = True
+        if pending:
+            return 'recover_voice_timing', 'recovering_material'
     if attempt.get('autonomous_material_recovery', {}).get('status') in {'PLANNING', 'SUPPLYING'}:
         return 'recover_material', 'recovering_material'
     if gate.get("bundle_revision") and gate.get("status") in {"MATERIAL_READY", "MATERIAL_NOT_READY"}:

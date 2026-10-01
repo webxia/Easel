@@ -1232,6 +1232,56 @@ class MaterialProductOrchestrator:
         return self._record_generated_asset(attempt, plan, store, checkpoint, generated,
                                             record["generation_id"].removeprefix("gen-"), record["model"])
 
+    def recover_voice_timing(self, attempt_id: str) -> None:
+        """Recover missing timing from retained narration; never generate media."""
+        from easel.integrations.hypit.service import get_film_attempt
+        from easel.materials.application.voice_delivery import (
+            pending_voice_timing_recovery, read_local_voice, timing_from_recognition,
+        )
+        attempt = get_film_attempt(attempt_id)
+        planning = PlanningIntegration().load(attempt)
+        plan, script = planning['plan'], planning['script']
+        store = AttemptMaterialStore(_workspace(attempt))
+        bundle = store.read_bundle()
+        pending = pending_voice_timing_recovery(plan, bundle, store, script)
+        if not pending:
+            return
+        record = pending[0]
+        with store.generation_lock(record['generation_id']):
+            if store.read_generation_record(record['generation_id']) != record:
+                raise MaterialIntegrationError('旁白记录已变化，请重新检查进度')
+            asset = store.read_asset(record['asset_id'])
+            path = store.resolve_asset_locator(asset.file.path)
+            if (asset.file.sha256 != record['asset_sha256'] or asset.file.path != record.get('asset_path')
+                    or asset.file.size != record.get('asset_bytes') or path.stat().st_size != asset.file.size
+                    or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
+                raise MaterialIntegrationError('旁白字节已变化，不能恢复旧时序')
+            need = next(n for n in plan.needs if n.need_id == record['need_id'])
+            binding = {'audio_sha256': asset.file.sha256, 'script_sha256': hashlib.sha256(script.encode()).hexdigest(),
+                       'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest()}
+            identity = 'voice-asr-' + hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest()
+            report_path = _workspace(attempt) / 'materials/observations' / (identity + '.json')
+            if _has_symlink_components(_workspace(attempt), report_path):
+                raise MaterialIntegrationError('旁白识别结果路径无效')
+            if report_path.is_file():
+                report = json.loads(report_path.read_text())
+                if any(report.get(key) != value for key, value in binding.items()):
+                    raise MaterialIntegrationError('旁白识别结果身份不一致')
+            else:
+                report = {**read_local_voice(path, None), **binding}
+                # Only a valid recognition is a reusable checkpoint. A failed
+                # guess must not poison Retry after local model repair.
+                timing_from_recognition(script, asset, report)
+                store.write_observation_record(identity, report)
+            timing = timing_from_recognition(script, asset, report)
+            current = PlanningIntegration().load(get_film_attempt(attempt_id))
+            if (current['plan'] != plan or current['script'] != script or store.read_bundle() != bundle
+                    or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
+                raise MaterialIntegrationError('识别期间旁白输入已变化；保留结果，未认领旧时序')
+            record.setdefault('provider_voice_timing', record.get('voice_timing'))
+            record.update(voice_timing=timing, voice_recognition=report)
+            store.write_generation_record(record['generation_id'], record)
+
     def _record_generated_asset(self, attempt, plan, store, checkpoint, generated, request_id, model):
         from easel.integrations.hypit.service import get_film_attempt
         attempt_id = attempt["attempt_id"]
