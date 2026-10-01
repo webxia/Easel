@@ -8,7 +8,7 @@ import {
   materialAssetPreviewUrl, reviewMaterialMatch, recoverFilmMaterials,
   validateFilmAttempt, retryCreationDelivery,
 } from '../lib/api';
-import { projectCreatorWorkspace, stageLabels } from '../lib/creatorWorkspace';
+import { creatorExecutionRecord, projectCreatorWorkspace, stageLabels } from '../lib/creatorWorkspace';
 import type { ChatMessage } from '../lib/store';
 import type { OperatorRecord, GenerationBudget } from '../lib/api';
 
@@ -589,6 +589,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   };
 
   const outputsForSelect = outputNames.map((name) => ({ name, item: record(outputs[name]) }));
+  const executionRecord = creatorExecutionRecord(creationSnapshot);
   const action = (label: string, fn: () => Promise<unknown>, className = 'btn', disabled = false) => (
     <button className={className} disabled={!operatorSessionReady || !attemptId || !!busy || disabled} onClick={() => void run(label, fn)}>
       {busy === label ? '处理中…' : label}
@@ -602,6 +603,21 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
         <button className="btn btn-sm" onClick={() => setRefreshVersion(version => version + 1)}>重新连接</button>
       </div>}
       {lastSynced && <small>最近状态读取：{lastSynced}</small>}
+      {backendDelivery && <details className="card film-op-card">
+        <summary>执行记录 · 自动更新</summary>
+        <p>当前：{projection.title}</p>
+        {executionRecord.pending.map(item => <p key={item.label}>
+          {item.label}尚未返回执行终态{item.elapsed ? `，已等待 ${item.elapsed}` : ''}。
+          {Number.isFinite(item.checkedAt) && <>最近核对：{new Date(item.checkedAt).toLocaleString('zh-CN')}。</>}
+        </p>)}
+        <small>每 5 秒读取已保存的状态；核对时间更新不代表产生新成果。断连时保留最后记录。这里不显示模型思考、原始提示词或凭证。</small>
+        <ol aria-label="制作执行记录">
+          {executionRecord.entries.map((entry, index) => <li key={`${entry.at}-${index}`}>
+            <time dateTime={new Date(entry.at).toISOString()}>{new Date(entry.at).toLocaleTimeString('zh-CN')}</time> · {entry.message}
+          </li>)}
+        </ol>
+        {!executionRecord.entries.length && <p>尚无可核实的执行记录。</p>}
+      </details>}
       {backendDelivery && generationGrant.currency === 'CNY' && <p>自主素材生成额度：已占用 ¥{heldGenerationCost.toFixed(4)} / ¥{String(generationGrant.max_amount)}（按核价保留额度，非实际账单）。</p>}
       {progressOpen && <div className="film-op-progress" aria-label="创作阶段进度">
         {timelineSteps.map(step => <div className={`film-op-progress-step is-${step.state}`} key={step.name}>

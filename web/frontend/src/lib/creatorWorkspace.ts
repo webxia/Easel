@@ -3,6 +3,47 @@ export type Snapshot = Record<string, unknown>;
 export const asRecord = (value: unknown): Snapshot => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Snapshot : {};
 export type StageState = 'waiting' | 'running' | 'action-required' | 'failed' | 'completed';
 export const stageLabels: Record<StageState, string> = { waiting: '等待', running: '进行中', 'action-required': '需处理', failed: '失败', completed: '完成' };
+
+export function creatorExecutionRecord(creation: Snapshot | null) {
+  const work = creation ?? {};
+  const delivery = asRecord(work.delivery);
+  const timestamp = (value: unknown) => typeof value === 'number' ? value : typeof value === 'string' ? Date.parse(value) : NaN;
+  const elapsed = (start: number, end: number) => {
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return '';
+    const seconds = Math.floor((end - start) / 1000);
+    return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
+  };
+  const entries: { at: number; message: string }[] = [];
+  const confirmed = timestamp(delivery.confirmed_at);
+  if (Number.isFinite(confirmed)) entries.push({ at: confirmed, message: '委托已确认，开始自主制作' });
+  const calls = Object.values(asRecord(delivery.agent_calls)).map(asRecord)
+    .filter(call => Number.isFinite(timestamp(call.created_at)))
+    .sort((a, b) => timestamp(a.created_at) - timestamp(b.created_at));
+  const pending: { label: string; elapsed: string; checkedAt: number }[] = [];
+  calls.forEach((call, index) => {
+    const start = timestamp(call.created_at);
+    const label = `创作任务 ${index + 1}`;
+    entries.push({ at: start, message: `${label}已登记${call.status === 'submitting' ? '，提交结果待核实' : ''}` });
+    const end = timestamp(call.ended_at);
+    if (['ok', 'error'].includes(String(call.status)) && Number.isFinite(end)) {
+      entries.push({ at: end, message: `${label}${call.status === 'ok' ? '执行完成，后续仍需阶段校验' : '执行失败，保留已有结果'}（耗时 ${elapsed(start, end)}）` });
+    } else if (['pending', 'submitting'].includes(String(call.status))) {
+      const checkedAt = timestamp(call.observed_at);
+      pending.push({ label, elapsed: elapsed(start, timestamp(work.updated_at)), checkedAt });
+    }
+  });
+  // Only stable lifecycle transitions are history. A polling timestamp is not
+  // a new production event, and raw model text/prompts never enter this view.
+  const states: Record<string, string> = { planning: '进入内容准备与创作规划', producing: '进入视频制作', ready: '作品已就绪', failed: '制作遇到问题' };
+  if (Array.isArray(work.history)) for (const item of work.history) {
+    const row = asRecord(item);
+    const at = timestamp(row.at);
+    if (row.event === 'video_lifecycle_status_projected' && states[String(row.to)] && Number.isFinite(at)) {
+      entries.push({ at, message: states[String(row.to)] });
+    }
+  }
+  return { entries: entries.sort((a, b) => a.at - b.at).slice(-60), pending };
+}
 export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snapshot | null, truth: Snapshot | null, candidates: Snapshot[] = []) {
   const work = creation ?? {};
   const item = attempt ?? {};
@@ -67,7 +108,7 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
       managed && delivery.status === 'quality_repair_required' ? '系统审片发现待修正问题，成片已保留' :
       managed && delivery.status === 'quality_incomplete' ? '系统审片证据尚不完整，成片已保留' :
       managed && delivery.status === 'reconciling' ? '正在核对制作结果' : managed && delivery.status === 'producing' ? '正在合成视频' :
-      managed && delivery.status === 'observing_execution' ? '正在等待创作任务完成' :
+      managed && delivery.status === 'observing_execution' ? (preparation.active_stage === 'planning' && planning.status !== 'PLANNING_READY' ? '正在创作规划 · 等待当前任务完成' : !preparation.handoff_id ? '正在准备内容 · 等待当前任务完成' : '正在等待创作任务完成') :
       managed && delivery.status === 'generating_material' ? '正在委托预算内生成所需素材' :
       managed && delivery.status === 'observing_material' ? '正在按场景核对候选素材的实际画面' :
       managed && delivery.status === 'recovering_material' ? (delivery.operation === 'recover_voice_timing' ? '正在核对旁白是否完整，并补齐必要的字幕时序' : delivery.operation === 'finish_material_generation' ? '正在检查已保存的生成素材，无需重新生成' : '正在按原方案补充缺失素材') :

@@ -1,6 +1,27 @@
 import assert from 'node:assert/strict';
-import { projectCreatorWorkspace as project } from '../src/lib/creatorWorkspace.ts';
+import { creatorExecutionRecord, projectCreatorWorkspace as project } from '../src/lib/creatorWorkspace.ts';
 const confirmed = { chat_workflow: { proposal_status: 'CONFIRMED' } };
+const progressWork = { ...confirmed, updated_at: '2026-10-01T12:42:04Z',
+  preparation: { status: 'HANDOFF_READY', handoff_id: 'h', active_stage: 'planning' },
+  delivery: { schema: 'easel-creation-delivery@1', status: 'observing_execution',
+    confirmed_at: '2026-10-01T12:37:14Z', proposal: 'private-prompt', agent_calls: {
+      one: { status: 'ok', created_at: '2026-10-01T12:37:16Z', ended_at: Date.parse('2026-10-01T12:41:41Z'), rawText: 'private-prompt' },
+      two: { status: 'pending', created_at: '2026-10-01T12:41:45Z', observed_at: '2026-10-01T12:42:04Z' },
+      invalid: { status: 'ok', created_at: 'invalid', ended_at: 0 },
+    } } };
+const progress = creatorExecutionRecord(progressWork);
+assert.equal(progress.entries.length, 4);
+assert.match(progress.entries[2].message, /4 分 25 秒/);
+assert.equal(progress.pending[0].elapsed, '19 秒');
+assert.equal(progress.pending[0].checkedAt, Date.parse('2026-10-01T12:42:04Z'));
+assert.ok(!JSON.stringify(progress).includes('private-prompt'));
+assert.deepEqual(creatorExecutionRecord(null), { entries: [], pending: [] });
+assert.match(project(progressWork, null, null).title, /正在创作规划/);
+assert.match(project({ ...progressWork, delivery: { ...progressWork.delivery, status: 'observation_failed' } }, null, null).title, /连接中断/);
+// More polls update the waiting observation, not the production event history.
+const nextPoll = structuredClone(progressWork);
+nextPoll.updated_at = nextPoll.delivery.agent_calls.two.observed_at = '2026-10-01T12:42:09Z';
+assert.deepEqual(creatorExecutionRecord(nextPoll).entries, progress.entries);
 const proposal = project({ chat_workflow: { proposal_status: 'READY_FOR_CONFIRMATION' } }, null, null);
 assert.equal(proposal.title, '需要你处理');
 assert.equal(proposal.proposal, true);
