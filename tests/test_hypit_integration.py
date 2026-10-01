@@ -342,7 +342,7 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
             "human": {"status": "approved"},
         })
 
-    system_review = {'schema': 'easel-output-quality@3', 'status': 'READY',
+    system_review = {'schema': 'easel-output-quality@4', 'status': 'READY',
                      'binding': {'output_name': 'final.video', 'sha256': exported['outputs']['final.video']['sha256']}}
     service.update_film_attempt(attempt['attempt_id'], event='fixture_system_review',
                                review={**exported['review'], 'system': system_review})
@@ -1183,7 +1183,7 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     import shutil
     import subprocess
     import wave
-    from easel.integrations.hypit.quality import audio_measurements, measure_output
+    from easel.integrations.hypit.quality import audio_measurements, measure_output, music_signal_window
     rng = np.random.default_rng(47)
     voice = rng.normal(0, .08, 64000).astype(np.float32)
     times = np.arange(len(voice)) / 16000
@@ -1201,6 +1201,21 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     assert any(d['kind'] in {'voice_missing', 'voice_masked'} for d in masked['defects'])
     assert audio_measurements(np.zeros(64000, dtype=np.float32))['defects'][0]['kind'] == 'silent_audio'
     assert any(d['kind'] == 'audio_clipping' for d in audio_measurements(np.ones(64000, dtype=np.float32))['defects'])
+    # Music remains identifiable beneath continuous, much louder narration.
+    # Codec alignment is shared by both references; voice is never counted as
+    # proof of music presence, even when the linear fit leaves tiny residuals.
+    voice_probe = voice[:16000]
+    music_probe = .08 * np.sin(2 * np.pi * (170 * times[:16000] + 6 * times[:16000] ** 2))
+    mixed = np.pad(.8 * voice_probe + .015 * music_probe, (300, 340))
+    probe = music_signal_window(mixed, music_probe, voice_probe)
+    assert probe['voice_projected'] and probe['correlation'] > .99
+    assert probe['estimated_gain'] == pytest.approx(.015, abs=.0001)
+    absent = music_signal_window(np.pad(.8 * voice_probe, (300, 340)), music_probe, voice_probe)
+    assert absent['estimated_gain'] < .0005
+    with pytest.raises(ValueError, match='过于相似'):
+        music_signal_window(mixed, voice_probe, voice_probe)
+    with pytest.raises(ValueError, match='旁白比较区间无效'):
+        music_signal_window(mixed, music_probe, np.full_like(voice_probe, np.nan))
     if not shutil.which('ffmpeg'):
         pytest.skip('Deterministic media fixture requires ffmpeg')
     source = tmp_path / 'voice.wav'

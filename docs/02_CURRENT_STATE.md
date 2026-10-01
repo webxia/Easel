@@ -53,9 +53,13 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **连续旁白下的配乐核对（2026-10-01）：** 上一批只寻找旁白外区间，30 秒作品包含 28 秒正常旁白时会直接落入 `music_unverifiable`，即使实际配乐完整。现优先保留独立区间比较，缺少区间时使用当前已准入旁白的实际音频与播放偏移进行两源线性比较；从成片与配乐参考中扣除可由旁白解释的分量，再比较配乐信号。两条声音共同确定 ±40ms 范围内的编码偏移，避免只追逐配乐相关性而把错位旁白残差当依据。没有重新合成音频、生成新素材或放宽已有通过阈值。
+- 同一回放先复现正常长旁白被阻断，再验证真实 AAC MP4 完成检查且进入 `first_cut_ready`；该片配乐被移除后仍检出 `music_missing`，而原旁白测量无缺陷。随机旁白与低增益扫频配乐覆盖有编码偏移的混音、仅有旁白、两源不可区分和无效采样；两源过于相似或缺少有效参考仍保留未知，不伪造声音分离结果。报告升级为 `easel-output-quality@4`，旧 @3 机器结论重新检查，Creator 已接受输出仍不自动重跑。
+- **本批验证：** Cross-Content/Hypit/Material/Preparation **150 passed**，包含三份本机 Hypit 静态 check；compileall、115 项技能合同、diff check 通过。只扩展既有风险场景，无新增测试文件；保留两项既有 Python 依赖提示。该证据覆盖受支持原生播放下的采样信号测量，不等于真实语音/配乐听感、完整音乐语义或跨内容审美验收；Goal 仍 active，未调用付费 AI、真实 Build 或完整 E2E，未改动真实 Creation。
+
 - **成片配乐信号漏检修复（2026-10-01）：** 原系统检查只比较准入旁白与实际成片；BGM 即使完全消失，只要旁白正常仍可能得到 READY。现从当前合格 BGM Match、实际源音频和原生编排恢复播放关系，在旁白之外抽取最多三个一秒窗口比较成片与已选配乐的信号，保留 Need/Asset/SHA、时间、相关性和估计增益。源音频过静或比较区间不足记 `music_unverifiable`，不自动通过、不授权重购；检出预期配乐信号缺失记 `music_missing`，由原有有界音频局部修复处理。身份继续复用原执行 fingerprint、输出 SHA 与保存前复核，不增加第二份交付状态。
 - 已核对本机 **Hypit 0.2.7** `audio-track` 的实际 `surface.ts`、`program.ts` 和 manifest：支持单段 once/loop 的起点及末端对齐、源截取和淡入淡出；音频淡变按采样时长处理，合法的 600ms 不要求是整数视频帧。避开整段旁白、两秒压低释放余量及淡变区间，比较允许 ±40ms 编码偏移。多段/拉伸等未覆盖形式保留证据缺口。报告升级为 `easel-output-quality@3`，自主流程不再认领旧 @2 的机器检查；既有 Creator 接受与未入队作品不被自动重跑。
-- **本批验证：** Cross-Content/Hypit/Material/Preparation **150 passed**；最后增加截取回放后单场景再验，并执行三个原生工程的本机静态 check。三种不同扫频音频分别覆盖起点循环、末端循环、末端一次播放和毫秒淡变；实际 MP4 中去掉 BGM 时，旧旁白测量仍无缺陷，新检查检出并派发音频修复。旁白末句丢失、缓存复用、源字节变化拒绝、满片旁白/拉伸不能假通过均覆盖。compileall、115 项技能合同与 diff check 通过，保留两项既有 Python 依赖提示；未调用付费 AI、真实 Build 或完整 E2E，未触碰真实 Creation。
+- **本批验证：** Cross-Content/Hypit/Material/Preparation **150 passed**；最后增加截取回放后单场景再验，并执行三个原生工程的本机静态 check。三种不同扫频音频分别覆盖起点循环、末端循环、末端一次播放和毫秒淡变；实际 MP4 中去掉 BGM 时，旧旁白测量仍无缺陷，新检查检出并派发音频修复。旁白末句丢失、缓存复用、源字节变化拒绝、缺少旁白参考或拉伸不能假通过均覆盖。compileall、115 项技能合同与 diff check 通过，保留两项既有 Python 依赖提示；未调用付费 AI、真实 Build 或完整 E2E，未触碰真实 Creation。
 - **能力边界：** 本批是输出信号核对，不是配乐歌词/乐器/情绪或完整听感识别，也不能证明每一时刻都有正确配乐。当前已安装 OpenClaw `agent` 入口对附件使用 `acceptNonImage: false`，不能直接把音频送入现有图片观察接口冒充听取。正常音频语义观察、生成 Rights 及其余开放项仍需完成，Goal 保持 active；已有跨内容 Fixture 中的配乐语义替身继续明确标注。
 
 - **跨内容串接回放（2026-10-01）：** `test_same_creator_mode_three_contents_reach_reviewable_first_cut` 复用既有隔离环境与原生编排 Fixture。相同冻结 Creator 和完整 clear_memo_video 1.3 包下，通勤等待、学习工具、工作间歇分别使用 2/3/4 句不同脚本、1/2/3 个不同视觉 Need 和不同配乐音频。串接显式委托、正式系统 Truth 审阅、Planning、真实 Local 检索/接收/技术检查、固定 TTS 返回的实际 MP3、逐 Need 画面观察、独立旁白内容观察、原 Gate、Production 选择、实测字幕/配乐压低编译及原生 Run 身份校验。核对 Mode 参数进入检索与 TTS 调用、上一作品旁白不能匹配下一作品、各 Need 选到不同 Fixture 画面、恢复不重复识别/观察/生成；三个工程的字幕、镜头结构和音频字节不同。

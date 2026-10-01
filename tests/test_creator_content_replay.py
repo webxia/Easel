@@ -139,15 +139,17 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         MaterialProductOrchestrator._recalculate_observed_materials(attempt, plan, supplied.bundle, store)
 
         # Fixture TTS output passes the real receive/inspection/generation path.
-        duration = 2 * len(sentences) + 1
+        duration = 28 if index == 0 else 2 * len(sentences) + 1
         mp3 = tmp_path / f'voice-{index}.mp3'
         subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i',
             f'sine=frequency={300 + index * 70}:sample_rate=16000:duration={duration}', str(mp3)],
             check=True, capture_output=True, timeout=20)
         cues, offset = [], 0
+        sentence_step = (duration - 1) / len(sentences)
         for n, sentence in enumerate(sentences):
             cues.append({'text': sentence, 'start_character': offset, 'end_character': offset + len(sentence),
-                         'start_seconds': n * 2 + .2, 'end_seconds': n * 2 + 1.6})
+                         'start_seconds': n * sentence_step + .2,
+                         'end_seconds': (n + 1) * sentence_step - .4})
             offset += len(sentence)
         calls = []
         class SpeechFixture:
@@ -309,6 +311,9 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         assert next_operation(saved) == (None, 'first_cut_ready')
         report = service.get_film_attempt(attempt['attempt_id'])['review']
         assert report['system']['status'] == 'READY'
+        if index == 0:
+            windows = report['system']['measurements']['music']['assets'][0]['windows']
+            assert windows and all(w['voice_projected'] and w['correlation'] > .9 for w in windows)
         assert report['human']['status'] != 'accepted'
         assert not saved.get('selected_output_name')
         output_hashes.add(report['system']['binding']['sha256'])
@@ -318,43 +323,42 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         quality.inspect_output(attempt['attempt_id'], executor=review_output)
         assert len(reviews) == review_count and operations == ['quality']
         assert before_calls == (len(calls), len(recognition_calls), len(observations))
-        if index in {1, 2}:
-            # Renderer regressions: BGM or the last spoken sentence is absent
-            # from actual MP4 despite valid source/timing/SVML.
-            # The existing owner must route an audio repair, not repurchase
-            # narration or trust the previous positive output report.
-            damaged = output.with_name('missing-music.mp4' if index == 1 else 'missing-tail.mp4')
-            if index == 1:
-                subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-i', str(output), '-i', str(voice_path),
-                    '-map', '0:v', '-map', '1:a', '-af', 'volume=0.9,adelay=500:all=1,apad',
-                    '-c:v', 'copy', '-c:a', 'aac', '-t', '30', str(damaged)],
-                    check=True, capture_output=True, timeout=20)
-            else:
-                begin, end = .5 + cues[-1]['start_seconds'], .5 + cues[-1]['end_seconds']
-                subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-i', str(output),
-                    '-af', f"volume=0:enable='between(t,{begin},{end})'", '-c:v', 'copy', '-c:a', 'aac', str(damaged)],
-                    check=True, capture_output=True, timeout=20)
-            def receive_damaged_output(item):
-                item['outputs']['final.video'].update(
-                    path=damaged.relative_to(creation.OUTPUTS_DIR).as_posix(), sha256=service._file_sha256(damaged))
-                return item
-            service._save_attempt(attempt['attempt_id'], receive_damaged_output)
-            assert next_operation(creation.get_creation(work['id'])) == ('quality', 'checking_quality')
-            asyncio.run(advance_creation(work['id'], execute))
-            damaged_attempt = service.get_film_attempt(attempt['attempt_id'])
-            assert damaged_attempt['review']['system']['status'] == 'REPAIR_REQUIRED'
-            defects = damaged_attempt['review']['system']['measurements']['defects']
-            assert any(d['kind'] == ('music_missing' if index == 1 else 'voice_missing') for d in defects)
-            if index == 1:
-                assert not damaged_attempt['review']['system']['measurements']['audio']['defects']
-                assert {d['kind'] for d in defects} == {'music_missing'}  # Prior voice-only QC missed this.
-            assert quality.repair_request(damaged_attempt)['allowed_changes'] == ['audio']
-            assert next_operation(creation.get_creation(work['id'])) == ('repair_quality', 'repairing_quality')
-            assert before_calls == (len(calls), len(recognition_calls), len(observations))
-            assert not creation.get_creation(work['id']).get('selected_output_name')
+        # Renderer regressions: BGM or the last spoken sentence is absent
+        # from actual MP4 despite valid source/timing/SVML.
+        # The existing owner must route an audio repair, not repurchase
+        # narration or trust the previous positive output report.
+        damaged = output.with_name('missing-music.mp4' if index < 2 else 'missing-tail.mp4')
+        if index < 2:
+            subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-i', str(output), '-i', str(voice_path),
+                '-map', '0:v', '-map', '1:a', '-af', 'volume=0.9,adelay=500:all=1,apad',
+                '-c:v', 'copy', '-c:a', 'aac', '-t', '30', str(damaged)],
+                check=True, capture_output=True, timeout=20)
+        else:
+            begin, end = .5 + cues[-1]['start_seconds'], .5 + cues[-1]['end_seconds']
+            subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-i', str(output),
+                '-af', f"volume=0:enable='between(t,{begin},{end})'", '-c:v', 'copy', '-c:a', 'aac', str(damaged)],
+                check=True, capture_output=True, timeout=20)
+        def receive_damaged_output(item):
+            item['outputs']['final.video'].update(
+                path=damaged.relative_to(creation.OUTPUTS_DIR).as_posix(), sha256=service._file_sha256(damaged))
+            return item
+        service._save_attempt(attempt['attempt_id'], receive_damaged_output)
+        assert next_operation(creation.get_creation(work['id'])) == ('quality', 'checking_quality')
+        asyncio.run(advance_creation(work['id'], execute))
+        damaged_attempt = service.get_film_attempt(attempt['attempt_id'])
+        assert damaged_attempt['review']['system']['status'] == 'REPAIR_REQUIRED'
+        defects = damaged_attempt['review']['system']['measurements']['defects']
+        assert any(d['kind'] == ('music_missing' if index < 2 else 'voice_missing') for d in defects)
+        if index < 2:
+            assert not damaged_attempt['review']['system']['measurements']['audio']['defects']
+            assert {d['kind'] for d in defects} == {'music_missing'}  # Prior voice-only QC missed this.
+        assert quality.repair_request(damaged_attempt)['allowed_changes'] == ['audio']
+        assert next_operation(creation.get_creation(work['id'])) == ('repair_quality', 'repairing_quality')
+        assert before_calls == (len(calls), len(recognition_calls), len(observations))
+        assert not creation.get_creation(work['id']).get('selected_output_name')
         if index == 0:
-            # A continuous narration leaves no uncontaminated probe: the same
-            # measurement must report a gap, never a missing/approved track.
+            # Without the admitted narration reference, an overlapping probe
+            # must still report a gap, never fabricate a separated signal.
             unmeasurable = quality.measure_music(output, 30, compiled, plan, bundle, store, (0., 30.))
             assert {d['kind'] for d in unmeasurable['defects']} == {'music_unverifiable'}
             transformed = quality.measure_music(output, 30, compiled.replace('playback="loop-start"',

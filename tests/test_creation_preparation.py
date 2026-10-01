@@ -143,7 +143,7 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
             elif operation == "export":
                 attempt["outputs"] = {"final.video": {"sha256": "fixture-only"}}
             elif operation == "quality":
-                attempt['review'] = {'system': {'schema': 'easel-output-quality@3', 'status': 'READY',
+                attempt['review'] = {'system': {'schema': 'easel-output-quality@4', 'status': 'READY',
                     'binding': {'output_name': 'final.video', 'sha256': 'fixture-only'}}}
             else:
                 pytest.fail(operation)
@@ -165,9 +165,9 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
     assert creation.get_creation(work["id"])["delivery"]["status"] == "first_cut_ready"
     snapshot = creation.get_creation(work['id'])
     system = snapshot['hypit_attempts'][-1]['review']['system']
-    system['schema'] = 'easel-output-quality@2'
-    assert next_operation(snapshot) == ('quality', 'checking_quality')
     system['schema'] = 'easel-output-quality@3'
+    assert next_operation(snapshot) == ('quality', 'checking_quality')
+    system['schema'] = 'easel-output-quality@4'
     system['visual'] = [{'checks': {'readability': {'status': 'unknown'}}}]
     for state in ('INCOMPLETE', 'REPAIR_REQUIRED'):
         system['status'] = state
@@ -275,7 +275,7 @@ def test_delivery_quality_repair_resumes_one_checkpoint_and_stops_at_budget(prep
     def failed_output(identity):
         return {'attempt_id': identity, 'execution_status': 'BUILD_COMPLETE',
             'outputs': {'final': {'sha256': 'output-sha'}}, 'review': {'human': {'status': 'pending'}, 'system': {
-                'schema': 'easel-output-quality@3', 'status': 'REPAIR_REQUIRED',
+                'schema': 'easel-output-quality@4', 'status': 'REPAIR_REQUIRED',
                 'binding': {'output_name': 'final', 'sha256': 'output-sha'},
                 'measurements': {'defects': [{'kind': 'voice_masked', 'reason': '配乐遮盖旁白', 'time_seconds': 2}]}}}}
     source = 'fa_' + '4' * 32

@@ -15,7 +15,7 @@ from PIL import Image
 from .errors import HypitIntegrationError
 from .narration import _attrs, _frames
 
-SCHEMA = 'easel-output-quality@3'
+SCHEMA = 'easel-output-quality@4'
 VISUAL_CHECKS = ('visual_match', 'readability', 'mode', 'creator', 'truth_expression', 'narrative')
 MAX_OBSERVATION_ROUNDS = 3
 
@@ -177,19 +177,68 @@ def measure_output(path: Path, metadata: dict, voice_path: Path | None, offset: 
     return {'visual_sampling_hz': 2, 'frame_count': len(frames), 'audio': audio, 'defects': defects}
 
 
+def music_signal_window(output: np.ndarray, reference: np.ndarray,
+                        narration: np.ndarray | None = None) -> dict:
+    """Measure the music component after projecting out a known voice signal.
+
+    This is a two-source linear comparison, not blind source separation. If
+    voice and music are effectively the same waveform, their individual gains
+    are not identifiable and the result must remain unknown.
+    """
+    ref = reference.astype(float)
+    samples = output.astype(float)
+    if (len(samples) < len(ref) or not len(ref) or not np.isfinite(samples).all()
+            or not np.isfinite(ref).all()):
+        raise ValueError('配乐对应输出采样不完整或无效')
+    energy = float(ref @ ref)
+    if energy / len(ref) < 1e-6:
+        raise ValueError('配乐采样过静，尚不能核实输出中的信号')
+    sums = np.concatenate(([0.], np.cumsum(samples ** 2)))
+    energies = sums[len(ref):] - sums[:-len(ref)]
+    total_energies = energies.copy()
+    projected = False
+    if narration is not None:
+        voice = narration.astype(float)
+        if len(voice) != len(ref) or not np.isfinite(voice).all():
+            raise ValueError('旁白比较区间无效')
+        voice_energy = float(voice @ voice)
+        if voice_energy / len(voice) >= 1e-6:
+            original_energy = energy
+            ref -= float(ref @ voice) / voice_energy * voice
+            energy = float(ref @ ref)
+            if energy < .05 * original_energy:
+                raise ValueError('旁白与配乐信号过于相似，无法分别核实')
+            voice_dot = np.correlate(samples, voice, mode='valid')
+            energies = np.maximum(0., energies - voice_dot ** 2 / voice_energy)
+            projected = True
+    dot = np.correlate(samples, ref, mode='valid')
+    correlations = np.clip(dot / np.sqrt(np.maximum(energies * energy, 1e-20)), -1., 1.)
+    if projected:
+        # Both sources share the codec displacement. Selecting only the best
+        # music partial correlation can lock onto unrelated residual noise at
+        # a displacement that no longer aligns the dominant narration.
+        alignment = (voice_dot ** 2 / voice_energy + dot ** 2 / energy) / np.maximum(total_energies, 1e-20)
+        alignment[(voice_dot < 0) | (dot < -1e-8 * energy)] = -1.  # Allow round-off around absent music.
+        best = int(np.argmax(alignment))
+    else:
+        best = int(np.argmax(correlations))
+    return {'correlation': round(float(correlations[best]), 4),
+            'estimated_gain': round(float(dot[best] / energy), 6), 'voice_projected': projected}
+
+
 def measure_music(path: Path, duration: float, author: str, plan, bundle, store,
-                  voice_span: tuple[float, float] | None) -> dict:
-    """Probe admitted BGM outside narration, without claiming a listening review.
+                  voice_span: tuple[float, float] | None, voice_path: Path | None = None) -> dict:
+    """Probe admitted BGM in the mix, without claiming a listening review.
 
     Only native once/loop audio placement is reconstructed. An
-    unsupported transform or no uncontaminated probe is an evidence gap, never
+    unsupported transform or inseparable signals are an evidence gap, never
     an automatic pass or authority to buy another soundtrack.
     """
     from fractions import Fraction
     from . import service
 
     needs = [n for n in plan.needs if getattr(n.modality_spec, 'kind', None) == 'bgm']
-    result = {'scope': 'sampled BGM signal presence outside narration; not music style or vocals',
+    result = {'scope': 'sampled BGM signal presence with known narration projection; not music style or vocals',
               'assets': [], 'defects': []}
     if not needs:
         return result
@@ -198,7 +247,7 @@ def measure_music(path: Path, duration: float, author: str, plan, bundle, store,
     items = [_attrs(m[0]) for m in re.finditer(r'<audio:Item\b[^>]*/>', author)]
     timelines = [_attrs(m[0]) for m in re.finditer(r'<time:Timeline\b[^>]*/>', author)]
     clocks = [_attrs(m[0]) for m in re.finditer(r'<time:Clock\b[^>]*/>', author)]
-    pcm = None
+    pcm, voice_pcm = None, None
     for need in needs:
         matched = {m.asset_id for m in bundle.matches if m.need_id == need.need_id and m.qualified}
         candidates = [(a, media) for a in bundle.assets if a.asset_id in matched for media in audio
@@ -267,9 +316,16 @@ def measure_music(path: Path, duration: float, author: str, plan, bundle, store,
             # and the frozen Mode's maximum supported ducking release (2s).
             fade_in = seconds(clip.get('fade-in', '0s'))
             fade_out = seconds(clip.get('fade-out', '0s'))
-            moments = [float(t) for t in np.arange(start + max(1., fade_in), stop - max(1., fade_out), 1.)
-                       if t + 1 <= stop - max(1., fade_out)
-                       and (voice_span is None or t + 1 <= voice_span[0] - 2 or t >= voice_span[1] + 2)]
+            all_moments = [float(t) for t in np.arange(start + max(1., fade_in), stop - max(1., fade_out), 1.)
+                           if t + 1 <= stop - max(1., fade_out)]
+            moments = [t for t in all_moments if voice_span is None or t + 1 <= voice_span[0] - 2 or t >= voice_span[1] + 2]
+            project_voice = len(moments) < 2 and voice_span is not None
+            if project_voice and voice_path is not None:
+                moments = all_moments
+                if voice_pcm is None:
+                    voice_pcm = np.frombuffer(_decode(voice_path, '-vn', '-ac', '1', '-ar', '16000', '-t', '300', '-f', 'f32le'), dtype='<f4')
+                    if not len(voice_pcm) or not np.isfinite(voice_pcm).all():
+                        raise ValueError('缺少有效的准入旁白声音，不能核对重叠配乐')
             if len(moments) < 2:
                 raise ValueError('旁白以外没有足够的配乐比较区间')
             selected = sorted({moments[0], moments[len(moments) // 2], moments[-1]})
@@ -285,14 +341,14 @@ def measure_music(path: Path, duration: float, author: str, plan, bundle, store,
                 candidates_pcm = pcm[max(0, position - 640):position + 16640].astype(float)
                 if len(candidates_pcm) < len(ref):
                     raise ValueError('配乐对应输出采样不完整')
-                dot = np.correlate(candidates_pcm, ref, mode='valid')
-                sums = np.concatenate(([0.], np.cumsum(candidates_pcm ** 2)))
-                energies = sums[len(ref):] - sums[:-len(ref)]
-                correlations = dot / np.sqrt(np.maximum(energies * energy, 1e-20))
-                best = int(np.argmax(correlations))
+                voice_ref = None
+                if project_voice and voice_pcm is not None:
+                    voice_ref = np.zeros(len(ref), dtype=float)
+                    positions = np.arange(round((t - voice_span[0]) * 16000), round((t - voice_span[0]) * 16000) + len(ref))
+                    valid = (positions >= 0) & (positions < len(voice_pcm))
+                    voice_ref[valid] = voice_pcm[positions[valid]]
                 row['windows'].append({'time_seconds': round(t, 4),
-                    'correlation': round(float(correlations[best]), 4),
-                    'estimated_gain': round(float(dot[best] / energy), 6)})
+                                      **music_signal_window(candidates_pcm, ref, voice_ref)})
             if len(row['windows']) < 2:
                 raise ValueError('配乐采样过静，尚不能核实输出中的信号')
             for window in row['windows']:
@@ -404,7 +460,7 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     if any(getattr(n.modality_spec, 'kind', None) == 'voice' for n in plan.needs) and voice_path is None:
         measurements['defects'].append({'kind': 'voice_unverifiable', 'reason': '当前旁白缺少可绑定的时序，尚不能核对完整性', 'time_seconds': 0.})
         voice_span = (0., output['metadata']['duration_seconds'])
-    music = measure_music(path, output['metadata']['duration_seconds'], author, plan, bundle, store, voice_span)
+    music = measure_music(path, output['metadata']['duration_seconds'], author, plan, bundle, store, voice_span, voice_path)
     measurements['music'] = music
     measurements['defects'].extend(music['defects'])
     # Actual output previews, never source thumbnails or authored screenshots.
