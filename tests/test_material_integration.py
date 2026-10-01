@@ -902,7 +902,7 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     # The system owns a separate reason for the same checkpoint fork. It must
     # not forge Creator rejection, reuse a paid approval or mutate the source.
     from easel.creation_delivery import SCHEMA
-    quality = {'schema': 'easel-output-quality@4', 'status': 'REPAIR_REQUIRED',
+    quality = {'schema': 'easel-output-quality@5', 'status': 'REPAIR_REQUIRED',
                'binding': {'output_name': 'final.video', 'sha256': output_hash},
                'measurements': {'defects': [{'kind': 'near_black', 'reason': '开头主体接近全黑', 'time_seconds': 1.}]},
                'visual': [{'frame_offset': 0, 'checks': {'visual_match': {'status': 'fail',

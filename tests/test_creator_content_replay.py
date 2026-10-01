@@ -496,7 +496,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             assert (current_root / author_path).read_text() == compiled
             if current_root != root:
                 current_attempt = service.get_film_attempt(kwargs['attempt_id'])
-                expected_scope = ['audio', 'visual', 'visual_material'] if index < 2 else ['audio']
+                expected_scope = ['audio', 'visual', 'visual_material'] if index < 2 else ['audio', 'visual']
                 assert current_attempt['revision_feedback']['allowed_changes'] == expected_scope
                 if index < 2:
                     alternatives = service.quality_visual_replacements(current_attempt)
@@ -534,8 +534,15 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 'frames': [{'index': f['index'], 'observed': True, 'description': 'fixture colored panel'} for f in manifest['frames']],
                 'checks': {k: {'status': 'pass', 'reason': 'fixed model fixture, not real aesthetic judgement',
                               'frame_indices': [0]} for k in quality.VISUAL_CHECKS}}
-            if index < 2 and manifest['binding']['sha256'] != service._file_sha256(rendered):
-                result['checks']['visual_match'].update(status='fail', reason='fixed visual mismatch on damaged output')
+            if manifest['binding']['sha256'] != service._file_sha256(rendered):
+                key = ('truth_expression', 'creator', 'narrative')[index]
+                result['checks'][key].update(status='fail',
+                    reason='fixed presentation defect; preserve the frozen script, voice and timing',
+                    repair_target='visual_material' if index < 2 else 'visual')
+                if index == 0 and manifest['observation_round'] == 1:
+                    result['checks'][key]['repair_target'] = 'unknown'
+                elif index == 0:
+                    assert key in manifest['review_focus']
             return result
         from easel.creation_delivery import advance_creation, next_operation
         operations = []
@@ -609,6 +616,12 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         assert next_operation(creation.get_creation(work['id'])) == ('quality', 'checking_quality')
         asyncio.run(advance_creation(work['id'], execute))
         damaged_attempt = service.get_film_attempt(attempt['attempt_id'])
+        if index == 0:
+            assert next_operation(creation.get_creation(work['id'])) == ('quality', 'checking_quality')
+            assert quality.repair_request(damaged_attempt) is None
+            asyncio.run(advance_creation(work['id'], execute))
+            damaged_attempt = service.get_film_attempt(attempt['attempt_id'])
+            assert damaged_attempt['review']['system']['observation_round'] == 2
         assert damaged_attempt['review']['system']['status'] == 'REPAIR_REQUIRED'
         defects = damaged_attempt['review']['system']['measurements']['defects']
         assert any(d['kind'] == ('music_missing' if index < 2 else 'voice_missing') for d in defects)
@@ -616,7 +629,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             assert not damaged_attempt['review']['system']['measurements']['audio']['defects']
             assert {d['kind'] for d in defects} == {'music_missing'}  # Prior voice-only QC missed this.
         assert quality.repair_request(damaged_attempt)['allowed_changes'] == (
-            ['audio', 'visual', 'visual_material'] if index < 2 else ['audio'])
+            ['audio', 'visual', 'visual_material'] if index < 2 else ['audio', 'visual'])
         assert next_operation(creation.get_creation(work['id'])) == ('repair_quality', 'repairing_quality')
         assert before_calls == (len(calls), len(recognition_calls), len(observations))
         assert not creation.get_creation(work['id']).get('selected_output_name')

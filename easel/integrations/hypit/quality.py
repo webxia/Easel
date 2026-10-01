@@ -15,17 +15,23 @@ from PIL import Image
 from .errors import HypitIntegrationError
 from .narration import _attrs, _frames
 
-SCHEMA = 'easel-output-quality@4'
+SCHEMA = 'easel-output-quality@5'
 VISUAL_CHECKS = ('visual_match', 'readability', 'mode', 'creator', 'truth_expression', 'narrative')
+CONTENT_CHECKS = frozenset({'creator', 'truth_expression', 'narrative'})
 MAX_OBSERVATION_ROUNDS = 3
+
+
+def _unresolved_check(key: str, check: dict) -> bool:
+    return (check.get('status') == 'unknown' or (key in CONTENT_CHECKS
+            and check.get('status') == 'fail' and check.get('repair_target') == 'unknown'))
 
 
 def needs_reobservation(report: dict) -> bool:
     """Incomplete observations get bounded review, never permission to rebuild."""
     round_number = report.get('observation_round', 1)
     unknown = report.get('status') == 'INCOMPLETE' or any(
-        check.get('status') == 'unknown'
-        for batch in report.get('visual', []) for check in batch.get('checks', {}).values())
+        _unresolved_check(key, check)
+        for batch in report.get('visual', []) for key, check in batch.get('checks', {}).items())
     return (report.get('status') in {'INCOMPLETE', 'REPAIR_REQUIRED'} and unknown
             and type(round_number) is int and 1 <= round_number < MAX_OBSERVATION_ROUNDS)
 
@@ -61,8 +67,12 @@ def repair_request(attempt: dict) -> dict | None:
                 scopes.add('visual')
                 if key == 'visual_match':
                     scopes.add('visual_material')
+            elif key in CONTENT_CHECKS and check.get('repair_target') in {'visual', 'visual_material'}:
+                scopes.add('visual')
+                if check['repair_target'] == 'visual_material':
+                    scopes.add('visual_material')
             else:
-                return None  # Truth/narrative changes need the existing Planning/Material path.
+                return None  # Content changes are not authorized by a presentation-only review.
             indices = check.get('frame_indices', [])
             if not indices:
                 return None
@@ -378,7 +388,7 @@ def validate_visual_review(manifest: dict, report: dict) -> None:
             or any(type(f.get('observed')) is not bool or not isinstance(f.get('description'), str)
                    or not f['description'].strip() or len(f['description']) > 4000 for f in frames)):
         raise ValueError('系统审片必须逐张说明实际看到的成片预览')
-    for check in report['checks'].values():
+    for key, check in report['checks'].items():
         if (not isinstance(check, dict) or check.get('status') not in {'pass', 'fail', 'unknown'}
                 or not isinstance(check.get('reason'), str) or not check['reason'].strip() or len(check['reason']) > 4000
                 or not isinstance(check.get('frame_indices'), list)
@@ -389,6 +399,9 @@ def validate_visual_review(manifest: dict, report: dict) -> None:
         if check['status'] == 'fail' and (not check['frame_indices']
                 or not all(frames[i]['observed'] for i in check['frame_indices'])):
             raise ValueError('缺陷必须引用已观察画面，证据不足应记为未知')
+        if (key in CONTENT_CHECKS and check['status'] == 'fail'
+                and check.get('repair_target') not in {'visual', 'visual_material', 'planning', 'unknown'}):
+            raise ValueError('内容表达缺陷应区分画面修正、素材替换、内容调整或尚未定位')
 
 
 def inspect_output(attempt_id: str, *, executor) -> dict:
@@ -533,11 +546,11 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         checkpoint = next((v for v in pending.get('visual', [])
                            if v.get('batch_sha256') == batch_identity), None)
         reusable = checkpoint or (cached if cached is not None
-            and all(c['status'] != 'unknown' for c in cached['checks'].values()) else None)
+            and all(not _unresolved_check(k, c) for k, c in cached['checks'].items()) else None)
         batch['observation_round'] = reusable['observation_round'] if reusable is not None else observation_round
         batch['review_focus'] = (reusable['review_focus'] if reusable is not None else {
             key: check['reason'][:500] for key, check in (cached or {}).get('checks', {}).items()
-            if check['status'] == 'unknown'})
+            if _unresolved_check(key, check)})
         batch['input_sha256'] = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
         report = reusable if reusable is not None else executor(attempt, batch, attachments[start:end])
         validate_visual_review(batch, report)

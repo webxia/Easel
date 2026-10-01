@@ -349,7 +349,7 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
             "human": {"status": "approved"},
         })
 
-    system_review = {'schema': 'easel-output-quality@4', 'status': 'READY',
+    system_review = {'schema': 'easel-output-quality@5', 'status': 'READY',
                      'binding': {'output_name': 'final.video', 'sha256': exported['outputs']['final.video']['sha256']}}
     service.update_film_attempt(attempt['attempt_id'], event='fixture_system_review',
                                review={**exported['review'], 'system': system_review})
@@ -1343,6 +1343,17 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     system['visual'][0]['checks']['narrative']['status'] = 'fail'
     assert quality.repair_request(attempt) is None  # Not permission to rewrite the script.
     system['visual'][0]['checks']['narrative']['status'] = 'pass'
+    for key in quality.CONTENT_CHECKS:
+        check = system['visual'][0]['checks'][key]
+        check.update(status='fail', repair_target='visual_material',
+                     reason='示意画面暗示亲身经历；保留原文，替换为符合原场景的画面')
+        assert quality.repair_request(attempt)['allowed_changes'] == ['captions', 'visual', 'visual_material']
+        check['repair_target'] = 'visual'
+        assert quality.repair_request(attempt)['allowed_changes'] == ['captions', 'visual']
+        for target in ('planning', 'unknown'):
+            check['repair_target'] = target
+            assert quality.repair_request(attempt) is None
+        check['status'] = 'pass'
     system['binding']['sha256'] = 'stale-output'
     assert quality.repair_request(attempt) is None
 
@@ -1435,6 +1446,16 @@ def test_system_quality_cannot_pass_unseen_or_stale_frames():
               'frames': [{'index': 0, 'observed': True, 'description': 'Actual output frame'}],
               'checks': {k: {'status': 'pass', 'reason': 'Observed output evidence', 'frame_indices': [0]} for k in VISUAL_CHECKS}}
     validate_visual_review(manifest, report)
+    for key in ('creator', 'truth_expression', 'narrative'):
+        report['checks'][key]['status'] = 'fail'
+        with pytest.raises(ValueError, match='内容表达缺陷'):
+            validate_visual_review(manifest, report)
+        report['checks'][key]['repair_target'] = 'visual_material'
+        validate_visual_review(manifest, report)
+        report['checks'][key]['repair_target'] = 'rewrite_script'
+        with pytest.raises(ValueError, match='内容表达缺陷'):
+            validate_visual_review(manifest, report)
+        report['checks'][key]['status'] = 'pass'
     report['frames'][0]['observed'] = False
     with pytest.raises(ValueError, match='未看到'):
         validate_visual_review(manifest, report)

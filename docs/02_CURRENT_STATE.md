@@ -53,6 +53,9 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **内容表达缺陷的责任定位（2026-10-01）：** 原 `repair_request` 将 creator / truth_expression / narrative 的全部失败都当作需改 Planning，画面误导也直接停在质量待处理。现系统审片 `@5` 在这三类失败中定位 `repair_target`：明确为画面表现或原 Need 内素材替换的，进入已有局部修订/观察/补料/Authoring/重新核价/审片路径；真正的脚本、场景要求或叙事顺序问题仍为 planning，不能借画面范围改写。仅定位未知时复用原最多三轮审片观察，只重看尚未定位批次；不会将未知自动改为通过。已完成批次的检查点、原脚本/字幕文字/旁白/时序与身份保护保持。没有新阶段、工作流或 Creator 确认。
+- **本批定位与恢复验证：** Hypit/Cross-Content/Preparation/Material integration **154 passed**，compileall、diff check 通过，保留两项既有依赖提示。三内容回放分别覆盖事实表达画面误导、Creator 画面表达及叙事画面问题；首个场景先未知定位、再有界复查定位后修复。原有池内替换、补料中断对账、观察检查点、声音/文字保护、费用重核与当前输出 Quality READY 的断言继续通过。直接合同反例验证 planning/unknown 不授予局部修改、缺少/非法定位不被认作可执行修改，人工审片与旧输出仍保留。模型与渲染仍为 Fixture；这证明责任路由与保护边界，不证明实际审片模型定位准确。需要改脚本/场景内容的有界恢复、旁白表达质量及更广泛声音验证仍未完成；Goal active / NOT_READY，未操作真实 Creation、付费 AI、真实 Build 或完整 E2E。
+
 - **声学观察独立样本证据（2026-10-01）：** 实际本地 AST 对四个公开、来源/许可/字节可追溯的 librosa 示例片段执行分类：vibeace 进入 instrumental_music，fishin 与 libri1 检出人声，短 trumpet 因 Music 分数不足保留 unknown。以相同公开配乐和朗读构造相对 RMS 0 / −12 / −24 dB 的三份混音，均检出人声，未作为无歌词配乐放行。没有为单一样本降低阈值，模型没有接收曲名或期望结论。完整来源、输入 SHA、窗口分数及限制见[具名局部验收](acceptance/local-acoustic-observation-2026-10-01.md)。这补足了真实模型音乐正例与人声混入的有限证据，但不是标注盲测、总体准确率或真实作品听感证明；旁白表达质量、内容缺陷恢复与真实音乐覆盖仍开放，Goal active / NOT_READY。仅文档更新，无生产代码改动；未操作真实 Creation、付费 AI、真实 Build 或完整 E2E。
 
 - **BGM 实际声音观察接入（2026-10-01）：** 原默认分析只支持视觉，配乐匹配可凭标题/语义标签进入制作，三内容回放还需直接补写 BGM caption。现复用后台素材观察、Attempt observations 与普通 Match/Readiness，在本地对配乐候选解码并运行固定版本 AST AudioSet 分类；逐窗口覆盖 1～300 秒资产及尾部，音乐、人声与乐器/曲风标签来自波形，不将 Need 或目标听感喂给模型。报告绑定模型与音频 SHA，按每个 Need 单独应用；无足够音乐证据、弱/不确定人声结论及缺失观察不由标题替代。乐器/曲风排序优先实际分类标签，元数据不能将已观察的摇滚吉他包装成钢琴氛围音乐；其他软偏好仍不升级为硬门禁。原有明确 Creator 核对入口保留，但正常新委托走后台观察。
