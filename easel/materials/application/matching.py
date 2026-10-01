@@ -9,7 +9,7 @@ from typing import Any
 
 from easel.materials.application.intelligence import IntelligenceStatus
 from easel.materials.application.rights import RightsAdmissionStatus, RightsService
-from easel.materials.application.visual_observation import PREFIX, observed_match, scoped_inference
+from easel.materials.application.visual_observation import PREFIX, observed_interval, observed_match, scoped_inference
 from easel.materials.domain import (
     MaterialAsset,
     MaterialMatch,
@@ -146,6 +146,9 @@ class MaterialMatcher:
             failures.append("min_pixels_not_met")
 
         duration = asset.technical.duration_seconds
+        interval = observed_interval(need, asset) if asset.media_type is MediaType.VIDEO else None
+        if interval is not None:
+            duration = interval[1] - interval[0]
         for lower_key in ("min_duration_seconds", "min_duration"):
             lower = self._number(constraints.get(lower_key))
             if lower_key in constraints and lower is None:
@@ -287,8 +290,10 @@ class MaterialMatcher:
             pixels = technical.width * technical.height
             signals.append(min(1.0, math.sqrt(pixels / (1080 * 1920))))
         target = need.duration_hint.target_seconds if need.duration_hint else None
-        if target and technical.duration_seconds:
-            ratio = technical.duration_seconds / target
+        interval = observed_interval(need, asset) if asset.media_type is MediaType.VIDEO else None
+        duration = interval[1] - interval[0] if interval else technical.duration_seconds
+        if target and duration:
+            ratio = duration / target
             signals.append(1.0 / (1.0 + abs(math.log(ratio))))
         return sum(signals) / len(signals) if signals else None
 

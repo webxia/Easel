@@ -584,6 +584,7 @@ class ProductionAuthoringIntegration:
 
     def qualified_authoring_assets(self, attempt: dict[str, Any]) -> list[dict[str, Any]]:
         """List only assets that can satisfy a current Need in this Attempt."""
+        from easel.materials.application.visual_observation import observed_interval, visual_use_prefix
         plan, bundle, _ = self.gate.assert_ready(attempt)
         store = AttemptMaterialStore(_workspace(attempt))
         authoring_source = "productions/easel-authoring/authors/main.svml"
@@ -595,6 +596,13 @@ class ProductionAuthoringIntegration:
                 "mime": asset.file.mime,
                 "sha256": asset.file.sha256,
                 "qualified_need_ids": list(need_ids),
+                **({'source_duration_seconds': asset.technical.duration_seconds,
+                    'observed_video_uses': [
+                        {'need_id': need.need_id, 'element_id_prefix': visual_use_prefix(need),
+                         'source_interval_seconds': list(interval), 'required': need.importance is NeedImportance.REQUIRED}
+                        for need in plan.needs if need.need_id in need_ids
+                        and (interval := observed_interval(need, asset)) is not None
+                    ]} if asset.media_type is MediaType.VIDEO else {}),
             }
             for asset in bundle.assets
             if (need_ids := self._qualified_need_ids(plan, bundle, asset))
@@ -770,6 +778,8 @@ class ProductionAuthoringIntegration:
             raise MaterialIntegrationError("SVRun author source is missing or outside the Attempt workspace")
         authored_text = _ensure_hypit_svml_header(authored_source)
         _assert_production_only_sources(run_text, authored_text)
+        from easel.integrations.hypit.revision import assert_observed_video_uses
+        assert_observed_video_uses(authored_source, self.qualified_authoring_assets(attempt))
         if self.compile_narration(attempt, authored_text, str(authored_source.relative_to(root))) != authored_text:
             raise MaterialIntegrationError("原生旁白/字幕与当前可信音频时序不一致，请重新完成编排")
         if '@easel/audio-mix@1' in authored_text:

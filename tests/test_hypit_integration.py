@@ -1292,13 +1292,17 @@ def test_system_quality_revision_changes_only_defective_layer(tmp_path):
     source, timings, paths = measured_narration_fixture()
     original = compile_measured_narration(source, timings, paths)
     base, target = tmp_path / 'base/main.svml', tmp_path / 'target/main.svml'
-    recipe = 'film.memo { background: #101820; }\ntext.caption { size: 48; fill: #FFFFFF; }'
+    recipe = 'film.memo { background: #101820; }\ntext.caption { size: 48; fill: #FFFFFF; features: {"text": "trim-start: 0; }", "weight": 1}; }'
     for path in (base, target):
         path.parent.mkdir()
         path.write_text(original)
         path.with_name('recipes.svs').write_text(recipe)
     target.write_text(original.replace('gain="0.1"', 'gain="0.04"'))
     assert_quality_revision(base, target, {'audio'})
+    target.with_name('recipes.svs').write_text(recipe.replace('"weight": 1', '"weight": 2'))
+    with pytest.raises(HypitIntegrationError, match='未授权部分'):
+        assert_quality_revision(base, target, {'audio'})
+    target.with_name('recipes.svs').write_text(recipe)
     with pytest.raises(HypitIntegrationError, match='未授权部分'):
         assert_quality_revision(base, target, {'visual'})
     target.write_text(original.replace('top="1420px"', 'top="1360px"'))

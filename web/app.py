@@ -2950,6 +2950,11 @@ async def _run_film_authoring(attempt_id: str) -> dict:
         "attributes、children、recipe、notes、输入输出类型才是组件合同；示例不能授权额外属性。"
         "Member 是激活时点，窗口到下个 Member 或 Sequence.until，不能添加 Item 的 for。"
         "不得修改这些只读合同，不得访问隔离区外的安装包。"
+        "素材清单中的 observed_video_uses 是逐场景的源视频观察范围。"
+        "选用时将对应 element_id_prefix 加上镜头编号作为原生 media-track Item/Member 的 id，"
+        "使该镜头真正进入 Film；每个 required 视频场景都要有对应的实际镜头。"
+        "appearance recipe 中 trim-start/trim-end 按该 Normalize 的 Clock 转为整数帧，"
+        "起点向上取整、终点向下取整，必须位于 source_interval_seconds 内；不得借其他 Need 的区间。"
     )
     revision = started.get("revision_feedback")
     if revision and revision.get('origin') == 'system_quality':

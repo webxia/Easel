@@ -983,9 +983,9 @@ def _assert_composition_revision(attempt: dict[str, Any], authored: Path | None 
 def _assert_local_video_trim_ranges(attempt: dict[str, Any], authored: Path | None = None) -> None:
     if "material_gate" not in attempt:
         return
-    from easel.integrations.material_layer import MaterialGateIntegration
+    from easel.integrations.material_layer import MaterialGateIntegration, ProductionAuthoringIntegration
     from easel.materials.store import AttemptMaterialStore
-    from easel.integrations.hypit.revision import assert_video_trim_ranges
+    from easel.integrations.hypit.revision import assert_video_trim_ranges, assert_observed_video_uses
 
     _, bundle, _ = MaterialGateIntegration().assert_ready(attempt)
     relative = "productions/easel-authoring/authors/main.svml"
@@ -994,6 +994,8 @@ def _assert_local_video_trim_ranges(attempt: dict[str, Any], authored: Path | No
               for asset in bundle.assets if asset.media_type.value == "video"
               and asset.technical.duration_seconds is not None}
     assert_video_trim_ranges(authored or _workspace(attempt) / relative, assets)
+    assert_observed_video_uses(authored or _workspace(attempt) / relative,
+                               ProductionAuthoringIntegration().qualified_authoring_assets(attempt))
 
 
 def complete_film_authoring(

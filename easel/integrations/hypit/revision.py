@@ -23,6 +23,45 @@ def _markup(source: Path):
     return root
 
 
+def _recipe_properties(sheet: Path, selector: str) -> dict[str, str]:
+    """Read top-level SVS properties without confusing JSON or strings for trims.
+
+    Hypit's static checker still owns the language and consumer vocabulary.
+    """
+    tokens = re.findall(r'"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'|/\*.*?\*/|//[^\n]*|[{};]|[^"\'{};/]+|.',
+                        sheet.read_text(), re.DOTALL)
+    depth, rule, statement, properties = 0, '', '', {}
+    for token in tokens:
+        if token.startswith(('/*', '//')):
+            statement += ' '
+            continue
+        if token == '{':
+            if depth == 0:
+                name = re.search(r'([\w.-]+)\s*$', statement)
+                rule, statement, properties = name[1] if name else '', '', {}
+            else:
+                statement += token
+            depth += 1
+        elif token == '}':
+            depth -= 1
+            if depth == 0:
+                if rule == selector:
+                    return properties
+                statement = ''
+            else:
+                statement += token
+        elif token == ';' and depth == 1:
+            pair = re.fullmatch(r'\s*([\w-]+)\s*:\s*(.*?)\s*', statement, re.DOTALL)
+            if pair:
+                if pair[1] in properties:
+                    raise HypitIntegrationError('编排样式属性重复，无法核对取片或受保护部分')
+                properties[pair[1]] = pair[2]
+            statement = ''
+        else:
+            statement += token
+    raise HypitIntegrationError('受保护的本地样式无法读取')
+
+
 def _protected_graph(source: Path) -> tuple:
     root = _markup(source)
     packages = {e.get("as"): e.get("from", "").split("@")[1]
@@ -124,10 +163,7 @@ def assert_quality_revision(base: Path, authored: Path, allowed: set[str]) -> No
                             sheet = path.parent / sheets[alias]
                             if sheet.is_symlink() or sheet.resolve().parent != path.parent.resolve():
                                 raise HypitIntegrationError('局部修正样式引用越界')
-                            body = re.search(r'(?<![\w.-])' + re.escape(selector) + r'\s*\{([^{}]*)\}', sheet.read_text())
-                            if body is None:
-                                raise HypitIntegrationError('受保护样式无法核对；保留原样式声明')
-                            protected['recipe:' + ref] = re.sub(r'\s+', ' ', body[1]).strip()
+                            protected['recipe:' + ref] = tuple(sorted(_recipe_properties(sheet, selector).items()))
                 for child in children:
                     references(child)
 
@@ -143,6 +179,112 @@ def assert_quality_revision(base: Path, authored: Path, allowed: set[str]) -> No
 
     if graph(base) != graph(authored):
         raise HypitIntegrationError('系统局部修正改变了脚本、素材身份、播放时序或未授权部分；只修正审片指出的表现层缺陷')
+
+
+def assert_observed_video_uses(authored: Path, assets: list[dict]) -> None:
+    """Bind per-Need sampled evidence to the source range actually put in Film."""
+    bounded = {a['src']: a for a in assets if a.get('observed_video_uses')}
+    if not bounded:
+        return
+    root = _markup(authored)
+    packages = {e.get('as'): e.get('from', '').rsplit('@', 1)[0] for e in root.findall('import')}
+    sheets = {e.get('as'): e.get('source') for e in root.findall('import') if e.get('source')}
+    nodes = {e.get('id'): e for e in root.iter() if e.get('id')}
+    parents = {child: parent for parent in root.iter() for child in parent}
+    if len(nodes) != sum(bool(e.get('id')) for e in root.iter()):
+        raise HypitIntegrationError('镜头标识重复，无法核对场景与取片范围')
+
+    def kind(e):
+        prefix, _, name = e.tag.partition('__')
+        return packages.get(prefix, prefix), name
+
+    def reference(value):
+        match = re.fullmatch(r'\{([\w.-]+)\}', value or '')
+        if match:
+            key = next((k for k in sorted(nodes, key=len, reverse=True)
+                        if match[1] == k or match[1].startswith(k + '.')), None)
+            return nodes.get(key)
+        return None
+
+    films = [e for e in root if kind(e) == ('@hypit/film', 'Film')]
+    if len(films) != 1:
+        raise HypitIntegrationError('当前区间编排需要唯一 Film，不能从未使用的镜头认领场景')
+    film = films[0]
+    if not any(kind(e) == ('@hypit/render-hyperframes', 'Video')
+               and reference(e.get('composition')) is film for e in root):
+        raise HypitIntegrationError('场景区间未关联到原生视频输出')
+    film_tracks = {reference(e.get('source')) for e in film if kind(e) == ('@hypit/film', 'Track')}
+
+    def uses_bounded_source(node, seen=None):
+        if node is None:
+            return False
+        seen = set() if seen is None else seen
+        if node in seen:
+            return False
+        seen.add(node)
+        return node.get('src') in bounded or any(
+            uses_bounded_source(reference(value), seen)
+            for child in node.iter() for value in child.attrib.values())
+
+    for track in film_tracks:
+        if track is not None and kind(track)[0] not in {'@hypit/media-track', '@hypit/audio-track', '@easel/audio-mix'} and uses_bounded_source(track):
+            raise HypitIntegrationError('已观察的视频区间需通过原生 media-track 使用，当前轨道无法核对源区间')
+    covered = set()
+    for sample in root.iter():
+        if kind(sample) not in {('@hypit/media-track', k) for k in ('Item', 'Member', 'Layer')}:
+            continue
+        item = sample
+        while kind(item) == ('@hypit/media-track', 'Layer'):
+            item = parents[item]
+        track = item
+        while track in parents and kind(track) != ('@hypit/media-track', 'Track'):
+            track = parents[track]
+        if track not in film_tracks:
+            continue
+        normalized = reference(sample.get('media'))
+        if normalized is None or kind(normalized) != ('@hypit/media-pipeline', 'Normalize'):
+            if uses_bounded_source(normalized):
+                raise HypitIntegrationError('观察区间不能经过未核对的中间变换；请直接使用素材 Normalize 并在镜头 recipe 中取片')
+            continue
+        media = reference(normalized.get('source'))
+        if media is None or media.get('src') not in bounded:
+            if uses_bounded_source(media):
+                raise HypitIntegrationError('观察区间不能经过未核对的中间变换；请直接使用原素材 Normalize')
+            continue
+        asset = bounded[media.get('src')]
+        uses = [u for u in asset['observed_video_uses'] if item.get('id', '').startswith(u['element_id_prefix'])]
+        if len(uses) != 1:
+            raise HypitIntegrationError('视频镜头必须使用提供的场景标识前缀，不能借另一场景的素材证据')
+        clock = reference(normalized.get('clock'))
+        if clock is None:
+            raise HypitIntegrationError('取片范围缺少实际 Normalize 的 Clock')
+        rate = Fraction(clock.get('frame-rate', '0'))
+        if rate <= 0:
+            raise HypitIntegrationError('取片帧率无效')
+        recipe_owner = sample
+        while not recipe_owner.get('appearance') and recipe_owner in parents:
+            recipe_owner = parents[recipe_owner]
+        recipe = re.fullmatch(r'\{([\w-]+)\.([\w.-]+)\}', recipe_owner.get('appearance', ''))
+        if not recipe or recipe[1] not in sheets:
+            raise HypitIntegrationError('视频区间必须使用可核验的本地 appearance recipe')
+        sheet = authored.parent / sheets[recipe[1]]
+        if sheet.is_symlink() or sheet.resolve().parent != authored.parent.resolve():
+            raise HypitIntegrationError('视频区间样式引用越界')
+        props = _recipe_properties(sheet, recipe[2])
+        duration = Fraction(str(asset['source_duration_seconds']))
+        total = math.floor(duration * rate + Fraction(1, 2))
+        try:
+            start, end = int(props.get('trim-start', '0')), int(props.get('trim-end', str(total)))
+        except ValueError as exc:
+            raise HypitIntegrationError('取片起止必须使用当前 Clock 下的整数帧') from exc
+        left, right = map(lambda v: Fraction(str(v)), uses[0]['source_interval_seconds'])
+        limit = total if right == duration else math.floor(right * rate)
+        if not (math.ceil(left * rate) <= start < end <= limit):
+            raise HypitIntegrationError('实际取片越过该场景已观察的相关区间；保留素材，修正该镜头截取')
+        covered.add(uses[0]['need_id'])
+    required = {u['need_id'] for a in bounded.values() for u in a['observed_video_uses'] if u['required']}
+    if required - covered:
+        raise HypitIntegrationError('必要视频场景尚未使用其已观察区间，不能只声明素材而不放入成片')
 
 
 def assert_video_trim_ranges(authored: Path, assets: dict[str, float]) -> None:
@@ -175,9 +317,7 @@ def assert_video_trim_ranges(authored: Path, assets: dict[str, float]) -> None:
         sheet = authored.parent / sheets[recipe[1]]
         if sheet.is_symlink() or sheet.resolve().parent != authored.parent.resolve():
             raise HypitIntegrationError("画面截取样式必须来自当前已核验的本地编排文件")
-        rules = re.findall(r'([\w.-]+)\s*\{([^}]+)\}', sheet.read_text(encoding="utf-8"))
-        properties = {key.strip(): value.strip() for selector, body in rules if selector == recipe[2]
-                      for key, value in re.findall(r'([\w-]+)\s*:\s*([^;]+);?', body)}
+        properties = _recipe_properties(sheet, recipe[2])
         if not any(key in properties for key in ("trim-start", "trim-end")):
             continue
         try:

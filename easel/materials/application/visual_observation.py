@@ -1,8 +1,8 @@
 """Byte-bound, per-Need visual evidence for the existing Material matcher.
 
 Video evidence describes sampled frames, never an assertion that every frame
-has been watched. Partial usable segments stay unqualified until authoring can
-bind the selected source interval to them.
+has been watched. Qualification carries a source interval that Production must
+bind to an actual native media use.
 """
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import hashlib
 import io
 import json
 import math
+import re
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,7 +23,7 @@ from easel.materials.domain import (
     SemanticAnnotation, SemanticField, SemanticInference,
 )
 
-SCHEMA = "easel-visual-observation@1"
+SCHEMA = "easel-visual-observation@2"
 PREFIX = "easel-visual-v1:"
 MAX_VISUAL_CANDIDATES = 9
 
@@ -50,10 +51,54 @@ def observed_match(need: MaterialNeed, asset: MaterialAsset) -> bool | None:
     scoped = [i for i in asset.semantic.inferences if i.analyzer_id.startswith(PREFIX)]
     if not scoped:
         return None
+    if asset.media_type is MediaType.VIDEO and observed_interval(need, asset) is None:
+        return False
     return any(scoped_inference(need, asset, i) and i.status is IntelligenceStatus.COMPLETE
                and any(a.field is SemanticField.CAPTION and a.evidence.endswith(":suitable")
                        and a.confidence is not None and a.confidence >= 0.75 for a in i.annotations)
                for i in scoped)
+
+
+def visual_use_prefix(need: MaterialNeed) -> str:
+    """A supplied native element ID prefix, not another production schema."""
+    return 'easel-visual-' + need_identity(need)[:16] + '-'
+
+
+def observed_interval(need: MaterialNeed, asset: MaterialAsset) -> tuple[float, float] | None:
+    for inference in asset.semantic.inferences:
+        if not scoped_inference(need, asset, inference) or inference.status is not IntelligenceStatus.COMPLETE:
+            continue
+        for annotation in inference.annotations:
+            if annotation.field is not SemanticField.CAPTION or (annotation.confidence or 0) < .75:
+                continue
+            match = re.search(r':span=([0-9.eE+-]+),([0-9.eE+-]+):suitable$', annotation.evidence or '')
+            if match:
+                try:
+                    start, end = float(match[1]), float(match[2])
+                except ValueError:
+                    continue
+                duration = asset.technical.duration_seconds
+                if duration and math.isfinite(start) and math.isfinite(end) and 0 <= start < end <= duration:
+                    return start, end
+    return None
+
+
+def _sampled_interval(manifest: dict, rows: list[dict], verdict: str) -> tuple[float, float] | None:
+    if manifest['media_type'] != 'video' or verdict not in {'suitable', 'partial'}:
+        return None
+    if verdict == 'suitable':
+        return 0., manifest['duration_seconds']
+    runs, start = [], None
+    for index, row in enumerate(rows):
+        if row['observed'] and row['related'] is True:
+            start = index if start is None else start
+            if index > start:
+                runs.append((manifest['frames'][start]['seek_seconds'], manifest['frames'][index]['seek_seconds']))
+        else:
+            start = None
+    # Use actual sample positions; never extend beyond the related observations
+    # or bridge an unrelated/unknown frame. A lone positive frame is not a span.
+    return max(runs, key=lambda span: span[1] - span[0]) if runs else None
 
 
 def _jpeg(raw: bytes, edge: int = 384) -> bytes:
@@ -148,7 +193,9 @@ def apply_observation(need: MaterialNeed, asset: MaterialAsset, manifest: dict, 
     for key in ("logo_present", "visible_text_present"):
         if report.get(key) is not None and type(report[key]) is not bool:
             raise ValueError("标志及文字观察只能是真、假或未知")
-    evidence = observation_identity(need, asset) + manifest["input_sha256"] + ":" + verdict
+    interval = _sampled_interval(manifest, rows, verdict)
+    suffix = f'span={interval[0]},{interval[1]}:suitable' if interval else verdict
+    evidence = observation_identity(need, asset) + manifest["input_sha256"] + ":" + suffix
     annotations = [SemanticAnnotation(field=field, value=report[key], confidence=0.8, evidence=evidence)
                    for field, key in ((SemanticField.CAPTION, "caption"), (SemanticField.STYLE, "style"))]
     # Sparse video samples cannot establish absence throughout the file.
@@ -162,7 +209,7 @@ def apply_observation(need: MaterialNeed, asset: MaterialAsset, manifest: dict, 
                 value=value if field is SemanticField.LOGO else (("visible text",) if value else ()),
                 confidence=0.8, evidence=evidence))
     inference = SemanticInference(analyzer_id=PREFIX + need_identity(need),
-        status=IntelligenceStatus.COMPLETE if verdict in {"suitable", "unsuitable"} else IntelligenceStatus.PARTIAL,
+        status=IntelligenceStatus.COMPLETE if verdict in {"suitable", "unsuitable"} or interval else IntelligenceStatus.PARTIAL,
         annotations=tuple(annotations), observed_at=datetime.now(timezone.utc))
     retained = tuple(i for i in asset.semantic.inferences if i.analyzer_id != inference.analyzer_id)
     return asset.model_copy(update={"semantic": asset.semantic.model_copy(update={
