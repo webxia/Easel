@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from datetime import datetime, timezone
 from io import BytesIO
@@ -34,6 +35,23 @@ from easel.materials.store import AttemptMaterialStore, GenerationRecordNotFound
 from easel.materials.application.voice_delivery import DEFAULT_DELIVERY, validate_voice_delivery, bind_voice_timing
 
 
+def recoverable_generation_records(plan, bundle, store, *, gate_revision=None) -> list[dict]:
+    """Only current known results, never uncertain submissions or another draft."""
+    revision = hashlib.sha256(plan.to_json().encode()).hexdigest()
+    needs = {n.need_id: hashlib.sha256(n.to_json().encode()).hexdigest() for n in plan.needs}
+    assets = {a.asset_id for a in bundle.assets}
+    return [r for r in store.list_generation_records()
+            if r.get('schema') == 'easel-material-generation@1' and r.get('provider') == 'minimax'
+            and r.get('modality') in {'image', 'voice'}
+            and r.get('attempt_id') == plan.attempt_id and r.get('plan_id') == plan.plan_id
+            and r.get('plan_revision') == revision and r.get('need_id') in needs
+            and r.get('need_sha256') == needs[r['need_id']]
+            and ((r.get('status') in {'RESULT_RECEIVED', 'RESULT_INTAKE_FAILED'} and r.get('received_asset'))
+                 or (r.get('status') == 'COMPLETE' and (r.get('asset_id') not in assets
+                     or (gate_revision is not None and gate_revision != bundle.revision
+                         and r.get('bundle_intake', {}).get('after_revision') == bundle.revision))))]
+
+
 class MiniMaxImageSpeechGeneration:
     """Generate an Image or script-bound Voice Asset and use ordinary Material intake."""
 
@@ -55,6 +73,14 @@ class MiniMaxImageSpeechGeneration:
         request_id: str,
         confirmed_paid: bool,
         speech_text: str | None = None,
+    ) -> GeneratedMaterialResult:
+        with store.generation_lock(f"gen-{request_id}"):
+            return self._generate(plan, need, store, request_id=request_id,
+                                  confirmed_paid=confirmed_paid, speech_text=speech_text)
+
+    def _generate(
+        self, plan: MaterialPlan, need: MaterialNeed, store: AttemptMaterialStore, *,
+        request_id: str, confirmed_paid: bool, speech_text: str | None,
     ) -> GeneratedMaterialResult:
         if not confirmed_paid:
             raise GenerationApprovalRequired("Explicit approval for possible MiniMax charges is required")
@@ -126,25 +152,13 @@ class MiniMaxImageSpeechGeneration:
         except GenerationRecordNotFound:
             previous = None
         if previous is not None:
-            fields = ("attempt_id", "plan_id", "plan_revision", "need_id", "model", "input_sha256", "modality")
+            fields = ("attempt_id", "plan_id", "plan_revision", "need_id", "need_sha256", "model", "input_sha256", "modality")
             if any(previous.get(field) != record.get(field) for field in fields):
                 raise GenerationRequestConflict("Generation request id is already bound to different input")
             if is_voice and (previous.get("voice_id") != record["voice_id"]
                     or previous.get("speech_settings", DEFAULT_DELIVERY) != speech_settings):
                 raise GenerationRequestConflict("Generation request is bound to another voice or delivery setting")
-            if previous.get("status") == "COMPLETE" and isinstance(previous.get("asset_id"), str):
-                asset = store.read_asset(str(previous["asset_id"]))
-                path = store.resolve_asset_locator(asset.file.path)
-                if (previous.get("asset_sha256") != asset.file.sha256
-                        or previous.get("asset_path") != asset.file.path
-                        or previous.get("asset_bytes") != asset.file.size
-                        or path.stat().st_size != asset.file.size
-                        or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
-                    raise GenerationRequestConflict("Persisted generated Asset bytes are stale")
-                return GeneratedMaterialResult(generation_id, generation_id, asset, previous)
-            raise GenerationRequestConflict(
-                f"Generation request already has state ({previous.get('status', 'unknown')}); inspect it before another paid request"
-            )
+            return self._resume_received(store, previous, speech_text=speech_text)
         if is_voice and spec.delivery_description and "voice_delivery" not in need.constraints:
             raise ValueError("旁白朗读描述尚未转成执行参数，需先补齐规划；未请求 TTS")
         store.write_generation_record(generation_id, record)
@@ -165,7 +179,8 @@ class MiniMaxImageSpeechGeneration:
                     rights=RightsInfo(status=RightsStatus.UNKNOWN),
                     technical=TechnicalInfo(status=TechnicalStatus.PENDING),
                 )
-                record.update({"voice_id": output.voice_id, "audio_format": output.audio_format})
+                record.update({"voice_id": output.voice_id, "audio_format": output.audio_format,
+                               "received_timings": list(output.timings), "received_timing_error": output.timing_error})
             else:
                 assert self._image is not None
                 aspect_ratio = spec.aspect_ratio if isinstance(spec, ImageNeedSpec) and spec.aspect_ratio else "16:9"
@@ -191,26 +206,81 @@ class MiniMaxImageSpeechGeneration:
                     technical=TechnicalInfo(status=TechnicalStatus.PENDING),
                 )
 
-            asset = TechnicalInspector(store).inspect_and_persist(asset)
+            # Receipt is durable before technical inspection or Asset registration.
+            # This is the only evidence that permits local recovery without buying again.
+            record.update(status="RESULT_RECEIVED", received_asset=asset.model_dump(mode="json"),
+                          received_at=datetime.now(timezone.utc).isoformat())
+            store.write_generation_record(generation_id, record)
+            return self._resume_received(store, record, speech_text=speech_text)
+        except Exception:
+            record["status"] = "RESULT_INTAKE_FAILED" if record.get("received_asset") else "SUBMISSION_UNCERTAIN"
+            record["failed_at"] = datetime.now(timezone.utc).isoformat()
+            store.write_generation_record(generation_id, record)
+            raise
+
+    def resume_received(self, store: AttemptMaterialStore, generation_id: str, *,
+                        speech_text: str | None = None) -> GeneratedMaterialResult:
+        """Finish only a durable known result. Never load credentials or call a Provider."""
+        with store.generation_lock(generation_id):
+            record = store.read_generation_record(generation_id)
+            if record.get('generation_id') != generation_id:
+                raise GenerationRequestConflict('生成记录身份不一致，不能认领另一请求')
+            return self._resume_received(store, record, speech_text=speech_text)
+
+    def _resume_received(self, store, record, *, speech_text=None):
+        generation_id = record["generation_id"]
+        is_voice = record.get("modality") == "voice"
+        if is_voice and (not isinstance(speech_text, str)
+                or hashlib.sha256(speech_text.encode()).hexdigest() != record.get("input_sha256")):
+            raise GenerationRequestConflict("本地旁白恢复必须使用原冻结脚本")
+        if record.get("status") == "COMPLETE" and isinstance(record.get("asset_id"), str):
+            asset = store.read_asset(record["asset_id"])
+            expected = (record.get("asset_path"), record.get("asset_sha256"), record.get("asset_bytes"))
+        elif record.get("status") in {"RESULT_RECEIVED", "RESULT_INTAKE_FAILED"} and isinstance(record.get("received_asset"), dict):
+            asset = MaterialAsset.model_validate_json(json.dumps(record["received_asset"]))
+            expected = (asset.file.path, asset.file.sha256, asset.file.size)
+        else:
+            raise GenerationRequestConflict(
+                f"Generation request already has state ({record.get('status', 'unknown')}); inspect it before another paid request"
+            )
+        path = store.resolve_asset_locator(asset.file.path)
+        expected_asset = 'asset-' + hashlib.sha256(generation_id.removeprefix('gen-').encode()).hexdigest()[:32]
+        if (asset.asset_id != expected_asset or asset.source.provider_asset_id != generation_id
+                or (asset.file.path, asset.file.sha256, asset.file.size) != expected
+                or path.stat().st_size != asset.file.size
+                or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
+            raise GenerationRequestConflict("Persisted generated Asset bytes are stale")
+        if record.get("status") == "COMPLETE":
+            return GeneratedMaterialResult(generation_id, generation_id, asset, record)
+        try:
+            # Asset metadata may have committed before a sidecar/receipt write
+            # failed. Keep its accepted evidence instead of restoring PENDING.
+            if path.with_name('asset.json').exists():
+                saved = store.read_asset(asset.asset_id)
+                if saved.file != asset.file or saved.source.provider_asset_id != generation_id:
+                    raise GenerationRequestConflict('已登记素材与生成回执身份不一致')
+                asset = saved
+            if asset.technical.status is TechnicalStatus.PASSED:
+                store.write_asset(asset)
+            else:
+                asset = TechnicalInspector(store).inspect_and_persist(asset)
+            if asset.technical.status is not TechnicalStatus.PASSED:
+                raise ValueError("已保存生成结果，本地技术检查尚未通过；只重试检查，不重新生成")
             if is_voice:
                 record["voice_timing"] = bind_voice_timing(
-                    speech_text or "", asset, output.timings, output.timing_error,
+                    speech_text, asset, tuple(record.get("received_timings", [])), record.get("received_timing_error"),
                 )
             record.update({
-                "status": "COMPLETE",
-                "asset_id": asset.asset_id,
-                "asset_path": asset.file.path,
-                "asset_sha256": asset.file.sha256,
-                "asset_bytes": asset.file.size,
-                "asset_mime": asset.file.mime,
-                "technical_status": asset.technical.status.value,
-                "rights_status": asset.rights.status.value,
+                "status": "COMPLETE", "asset_id": asset.asset_id,
+                "asset_path": asset.file.path, "asset_sha256": asset.file.sha256,
+                "asset_bytes": asset.file.size, "asset_mime": asset.file.mime,
+                "technical_status": asset.technical.status.value, "rights_status": asset.rights.status.value,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
             })
+            record.pop("failed_at", None)
             store.write_generation_record(generation_id, record)
             return GeneratedMaterialResult(generation_id, generation_id, asset, record)
         except Exception:
-            record["status"] = "RESULT_INTAKE_FAILED"
-            record["failed_at"] = datetime.now(timezone.utc).isoformat()
+            record.update(status="RESULT_INTAKE_FAILED", failed_at=datetime.now(timezone.utc).isoformat())
             store.write_generation_record(generation_id, record)
             raise

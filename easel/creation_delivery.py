@@ -140,6 +140,20 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     if execution == "CANCELLED":
         return None, "stopped"
     gate = attempt.get("material_gate") or {}
+    if (gate.get('status') == 'MATERIAL_NOT_READY' and gate.get('bundle_revision')
+            and attempt.get('workspace', {}).get('path')):
+        from easel.materials.store import AttemptMaterialStore
+        from easel.materials.application.generation_modalities import recoverable_generation_records
+        try:
+            store = AttemptMaterialStore(attempt['workspace']['path'])
+            pending = recoverable_generation_records(store.read_plan(), store.read_bundle(), store,
+                                                     gate_revision=gate.get('bundle_revision'))
+        except (ValueError, OSError):
+            # Execute under the normal bounded retry/error reporting path.
+            # A projection read error must not silently kill the dispatcher.
+            pending = True
+        if pending:
+            return 'finish_material_generation', 'recovering_material'
     if attempt.get('autonomous_material_recovery', {}).get('status') in {'PLANNING', 'SUPPLYING'}:
         return 'recover_material', 'recovering_material'
     if gate.get("bundle_revision") and gate.get("status") in {"MATERIAL_READY", "MATERIAL_NOT_READY"}:

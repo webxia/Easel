@@ -1199,6 +1199,34 @@ class MaterialProductOrchestrator:
         else:
             raise MaterialIntegrationError("MiniMax supports blocking Image, Video and script-bound Voice Needs only")
 
+        return self._record_generated_asset(attempt, plan, store, checkpoint, generated, request_id, model)
+
+    def resume_minimax_intake(self, attempt_id: str) -> dict[str, Any]:
+        """Resume received bytes into the existing Bundle without Provider access."""
+        from easel.integrations.hypit.service import get_film_attempt
+        from easel.materials.application.generation_modalities import recoverable_generation_records
+
+        attempt = get_film_attempt(attempt_id)
+        planning = PlanningIntegration().load(attempt)
+        if planning["truth_ledger"].get("status") != "PASSED":
+            raise MaterialIntegrationError("Script Truth must be reviewed before Material recovery")
+        plan = planning["plan"]
+        store = AttemptMaterialStore(_workspace(attempt))
+        checkpoint = store.read_bundle()
+        records = recoverable_generation_records(plan, checkpoint, store,
+                                                 gate_revision=attempt.get("material_gate", {}).get("bundle_revision"))
+        if not records:
+            raise MaterialIntegrationError("没有可接续的已保存生成结果；未请求 Provider")
+        record = records[0]
+        generated = MiniMaxImageSpeechGeneration().resume_received(
+            store, record["generation_id"], speech_text=planning["script"] if record["modality"] == "voice" else None,
+        )
+        return self._record_generated_asset(attempt, plan, store, checkpoint, generated,
+                                            record["generation_id"].removeprefix("gen-"), record["model"])
+
+    def _record_generated_asset(self, attempt, plan, store, checkpoint, generated, request_id, model):
+        from easel.integrations.hypit.service import get_film_attempt
+        attempt_id = attempt["attempt_id"]
         # Generation adds one Asset to the trusted Bundle. It must not search
         # Providers again or replace already acquired / reviewed supply facts.
         from easel.materials.application.assembly import MaterialBundleAssembler
@@ -1207,34 +1235,49 @@ class MaterialProductOrchestrator:
 
         attempt = get_film_attempt(attempt_id)
         current = store.read_bundle()
+        intake = generated.record.get("bundle_intake") or {}
+        resuming_registration = (intake.get("after_revision") == checkpoint.revision
+                                 and intake.get("before_revision") == attempt.get("material_gate", {}).get("bundle_revision"))
         if (current != checkpoint
-                or attempt.get("material_gate", {}).get("bundle_revision") != checkpoint.revision
+                or (attempt.get("material_gate", {}).get("bundle_revision") != checkpoint.revision
+                    and not resuming_registration)
                 or attempt.get("material_gate", {}).get("plan_revision")
                 != MaterialReadinessCalculator.plan_revision(plan)):
             raise MaterialIntegrationError("素材已生成并保留，但素材状态已变化；请重新检查进度，不要重复生成")
-        assets_by_id = {asset.asset_id: store.read_asset(asset.asset_id) for asset in checkpoint.assets}
-        if any(assets_by_id[asset.asset_id] != asset for asset in checkpoint.assets):
-            raise MaterialIntegrationError("素材已生成并保留，但已有素材记录已变化；请重新检查进度，不要重复生成")
-        assets_by_id[generated.asset.asset_id] = store.read_asset(generated.asset.asset_id)
-        assets = tuple(assets_by_id.values())
-        matcher = MaterialMatcher()
-        deduplicator = MaterialDeduplicator(store)
-        matches = []
-        for current_need in plan.needs:
-            ranked = matcher.match(current_need, assets)
-            matches.extend(deduplicator.deduplicate_and_diversify(
-                ranked.matches, assets, top_k=3,
-            ).shortlist)
-        suffix = hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:16]
-        now = datetime.now(timezone.utc)
-        run = SupplyRun(
-            supply_run_id=f"supply-gen-{suffix}", plan_id=plan.plan_id,
-            parent_run_id=checkpoint.supply_run_id,
-            started_at=now, finished_at=now, result_bundle_id=checkpoint.bundle_id,
-        )
-        bundle = MaterialBundleAssembler().assemble(
-            plan, run, assets, tuple(matches), bundle_id=checkpoint.bundle_id,
-        )
+        if resuming_registration:
+            if not any(a.asset_id == generated.asset.asset_id and a.file == generated.asset.file for a in checkpoint.assets):
+                raise MaterialIntegrationError("已保存素材与待恢复的 Bundle 不一致")
+            bundle = checkpoint
+            run = SupplyRun.model_validate_json(json.dumps(intake["supply_run"]))
+        else:
+            assets_by_id = {asset.asset_id: store.read_asset(asset.asset_id) for asset in checkpoint.assets}
+            if any(assets_by_id[asset.asset_id] != asset for asset in checkpoint.assets):
+                raise MaterialIntegrationError("素材已生成并保留，但已有素材记录已变化；请重新检查进度，不要重复生成")
+            assets_by_id[generated.asset.asset_id] = store.read_asset(generated.asset.asset_id)
+            assets = tuple(assets_by_id.values())
+            matcher = MaterialMatcher()
+            deduplicator = MaterialDeduplicator(store)
+            matches = []
+            for current_need in plan.needs:
+                ranked = matcher.match(current_need, assets)
+                matches.extend(deduplicator.deduplicate_and_diversify(
+                    ranked.matches, assets, top_k=3,
+                ).shortlist)
+            suffix = hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:16]
+            now = datetime.now(timezone.utc)
+            run = SupplyRun(
+                supply_run_id=f"supply-gen-{suffix}", plan_id=plan.plan_id,
+                parent_run_id=checkpoint.supply_run_id,
+                started_at=now, finished_at=now, result_bundle_id=checkpoint.bundle_id,
+            )
+            bundle = MaterialBundleAssembler().assemble(
+                plan, run, assets, tuple(matches), bundle_id=checkpoint.bundle_id,
+            )
+            generated.record["bundle_intake"] = {
+                "before_revision": checkpoint.revision, "after_revision": bundle.revision,
+                "supply_run": run.model_dump(mode="json"),
+            }
+            store.write_generation_record(generated.generation_id, generated.record)
         readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
         updated_gate = MaterialGateIntegration().record(
             attempt, plan, bundle, run, readiness, gaps,

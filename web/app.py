@@ -2140,6 +2140,8 @@ async def _execute_creation_delivery(operation: str, work: dict) -> None:
     elif operation == 'recover_material':
         from easel.integrations.material_recovery import recover_managed_materials
         await asyncio.to_thread(recover_managed_materials, attempt_id, executor=_plan_material_recovery)
+    elif operation == 'finish_material_generation':
+        await asyncio.to_thread(MaterialProductOrchestrator().resume_minimax_intake, attempt_id)
     elif operation in {"author", "release_authoring"}:
         if operation == "author":
             await _run_film_authoring(attempt_id)

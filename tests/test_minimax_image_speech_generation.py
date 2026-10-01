@@ -132,23 +132,39 @@ def test_image_generation_requires_explicit_paid_approval_and_is_idempotent(tmp_
     need = _need(MediaType.IMAGE, ImageNeedSpec(aspect_ratio="9:16", visual_style="暖色纪实"), "need-image")
     plan = MaterialPlan(plan_id="plan-1", creation_id="creation-1", attempt_id="attempt-1", needs=(need,))
     store = AttemptMaterialStore(tmp_path)
-    inspector = FakeInspector
 
     class FakeImage:
         model = "image-01"
+        calls = 0
         def generate(self, prompt, *, aspect_ratio):
+            self.calls += 1
+            with pytest.raises(ValueError, match='仍在执行'):
+                service.generate(plan, need, store, request_id='image-1', confirmed_paid=True)
             assert "Visual style: 暖色纪实" in prompt
             assert aspect_ratio == "9:16"
             return type("Result", (), {"image_bytes": body})()
 
-    monkeypatch.setattr(generation_module, "TechnicalInspector", inspector)
-    service = MiniMaxImageSpeechGeneration(image_adapter=FakeImage())
+    class InterruptedInspector(FakeInspector):
+        def inspect_and_persist(self, asset):
+            super().inspect_and_persist(asset)
+            raise OSError('fixture local intake interruption')
+
+    monkeypatch.setattr(generation_module, "TechnicalInspector", InterruptedInspector)
+    adapter = FakeImage()
+    service = MiniMaxImageSpeechGeneration(image_adapter=adapter)
     with pytest.raises(GenerationApprovalRequired):
         service.generate(plan, need, store, request_id="image-1", confirmed_paid=False)
-    result = service.generate(plan, need, store, request_id="image-1", confirmed_paid=True)
+    with pytest.raises(OSError, match='local intake'):
+        service.generate(plan, need, store, request_id="image-1", confirmed_paid=True)
+    assert store.read_generation_record('gen-image-1')['status'] == 'RESULT_INTAKE_FAILED'
+    def no_repeat_inspection(*args):
+        raise AssertionError('Accepted inspection must survive a receipt write interruption')
+    monkeypatch.setattr(generation_module, 'TechnicalInspector', no_repeat_inspection)
+    result = MiniMaxImageSpeechGeneration().resume_received(store, 'gen-image-1')
     repeated = service.generate(plan, need, store, request_id="image-1", confirmed_paid=True)
 
     assert result.asset.asset_id == repeated.asset.asset_id
+    assert adapter.calls == 1
     assert result.asset.rights.status is RightsStatus.UNKNOWN
     assert result.asset.technical.status is TechnicalStatus.PASSED
     assert result.record["input_sha256"] == hashlib.sha256(
@@ -194,7 +210,18 @@ def test_voice_generation_is_bound_to_frozen_script_digest(tmp_path, monkeypatch
             store, request_id="voice-scene", confirmed_paid=True, speech_text=script,
         )
 
-    result = service.generate(plan, need, store, request_id="voice-1", confirmed_paid=True, speech_text=script)
+    class FailedInspection(FakeInspector):
+        def inspect_and_persist(self, asset):
+            failed = asset.model_copy(update={'technical': TechnicalInfo(status=TechnicalStatus.FAILED)})
+            self.store.write_asset(failed)
+            return failed
+    monkeypatch.setattr(generation_module, 'TechnicalInspector', FailedInspection)
+    with pytest.raises(ValueError, match='只重试检查'):
+        service.generate(plan, need, store, request_id='voice-1', confirmed_paid=True, speech_text=script)
+    with pytest.raises(ValueError, match='原冻结脚本'):
+        MiniMaxImageSpeechGeneration().resume_received(store, 'gen-voice-1', speech_text='另一稿')
+    monkeypatch.setattr(generation_module, 'TechnicalInspector', FakeInspector)
+    result = MiniMaxImageSpeechGeneration().resume_received(store, 'gen-voice-1', speech_text=script)
     assert result.asset.media_type is MediaType.AUDIO
     assert result.asset.file.mime == "audio/mpeg"
     assert result.asset.rights.status is RightsStatus.UNKNOWN
@@ -262,7 +289,7 @@ def test_voice_alignment_rejects_truncation_overlap_and_stale_output(tmp_path):
     assert authoring_voice_timings(plan, bundle, store, script)['unavailable_need_ids'] == ['voice']
 
 
-def test_speech_stream_uncertain_result_and_unsupported_delivery_never_retries():
+def test_speech_stream_uncertain_result_and_unsupported_delivery_never_retries(tmp_path):
     transport = FakeTransport(b'data: {"data":{"status":1,"audio":"61"}}\n\n')
     adapter = MiniMaxSpeechAdapter('fixture-secret', transport=transport)
     with pytest.raises(ValueError, match='不支持'):
@@ -271,3 +298,19 @@ def test_speech_stream_uncertain_result_and_unsupported_delivery_never_retries()
     with pytest.raises(ValueError, match='without a complete result'):
         adapter.generate('旁白')
     assert len(transport.calls) == 1
+    script = '旁白'
+    need = _need(MediaType.AUDIO, VoiceNeedSpec(
+        identity=VoiceIdentityRef(source=VoiceIdentitySource.EXPLICIT_USER, reference='预置音色'),
+        text_ref='planning/SCRIPT.md', text_sha256=hashlib.sha256(script.encode()).hexdigest()), 'voice')
+    need = need.model_copy(update={'scope': NeedScope(type=NeedScopeType.GLOBAL, ref='program')})
+    plan = MaterialPlan(plan_id='p', creation_id='c', attempt_id='a', needs=(need,))
+    store = AttemptMaterialStore(tmp_path)
+    service = MiniMaxImageSpeechGeneration(speech_adapter=adapter)
+    with pytest.raises(ValueError, match='without a complete result'):
+        service.generate(plan, need, store, request_id='uncertain', confirmed_paid=True, speech_text=script)
+    assert store.read_generation_record('gen-uncertain')['status'] == 'SUBMISSION_UNCERTAIN'
+    with pytest.raises(ValueError, match='already has state'):
+        service.generate(plan, need, store, request_id='uncertain', confirmed_paid=True, speech_text=script)
+    with pytest.raises(ValueError, match='already has state'):
+        MiniMaxImageSpeechGeneration().resume_received(store, 'gen-uncertain', speech_text=script)
+    assert len(transport.calls) == 2  # one adapter probe + one generation; no retry

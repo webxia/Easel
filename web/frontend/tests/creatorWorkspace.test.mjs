@@ -62,6 +62,11 @@ assert.match(supplementingMaterial.title, /补充缺失素材/);
 const observationFailure = project({ ...confirmed, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:observe_material' } },
   { material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['scene-1'] } }, null);
 assert.equal(observationFailure.failureStage, '素材准备');
+const localIntake = project({ ...confirmed, delivery: { ...delivery, status: 'recovering_material', operation: 'finish_material_generation' } },
+  { material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['voice'] } }, null);
+assert.equal(localIntake.pending, 0);
+assert.match(localIntake.title, /已保存.*无需重新生成/);
+assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:finish_material_generation' } }, {}, null).failureStage, '素材准备');
 const exported = { execution_status: 'BUILD_COMPLETE', outputs: { final: { sha256: 'fixture' } } };
 const checkingQuality = project({ ...confirmed, delivery: { ...delivery, status: 'checking_quality' } }, exported, null);
 assert.equal(checkingQuality.pending, 0);

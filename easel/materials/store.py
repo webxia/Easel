@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import json
 import os
 import posixpath
@@ -204,6 +205,37 @@ class AttemptMaterialStore:
         """Persist provider-neutral execution facts under the owning Attempt."""
         run_id = self._validate_id(generation_id)
         return self._write_json(f"materials/generation-runs/{run_id}/result.json", payload)
+
+    @contextmanager
+    def generation_lock(self, generation_id: str):
+        """Hold a request across submission and local intake; never steal a live lock."""
+        run_id = self._validate_id(generation_id)
+        path = self._path(f"materials/generation-runs/{run_id}/execution.lock")
+        self._reject_symlink_components(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._verify_material_path(path.parent)
+        with path.open('a+b') as stream:
+            try:
+                if os.name == 'nt':
+                    import msvcrt
+                    if stream.tell() == 0:
+                        stream.write(b'0')
+                        stream.flush()
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                raise AttemptMaterialStoreError('该素材请求仍在执行，不能并发提交或接管') from exc
+            try:
+                yield
+            finally:
+                if os.name == 'nt':
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     def read_generation_record(self, generation_id: str) -> dict[str, object]:
         run_id = self._validate_id(generation_id)

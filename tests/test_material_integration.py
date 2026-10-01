@@ -1335,27 +1335,79 @@ def test_generation_preserves_bundle_then_rights_review_opens_production_gate(
     from easel.integrations import material_layer
 
     before = store.read_bundle()
-    added = asset.model_copy(update={"asset_id": "asset-second-generation"})
+    request_id = "fixture-second-generation"
+    generation_id = "gen-" + request_id
+    added = asset.model_copy(update={
+        "asset_id": "asset-" + hashlib.sha256(request_id.encode()).hexdigest()[:32],
+        "source": asset.source.model_copy(update={"provider_asset_id": generation_id}),
+    })
     added_locator = store.write_asset_bytes(added.asset_id, "original.png", payload)
     added = added.model_copy(update={"file": added.file.model_copy(update={"path": added_locator})})
 
-    def generate_fixture(_self, *_args, **_kwargs):
-        store.write_asset(added)
-        return SimpleNamespace(
-            asset=added, generation_id="gen-second", record={
-                "modality": "image", "billing": {"status": "UNKNOWN"},
-            },
-        )
+    calls = []
+    def generate_fixture(_self, frozen_plan, need, local_store, **_kwargs):
+        calls.append('provider-result')
+        local_store.write_generation_record(generation_id, {
+            'schema': 'easel-material-generation@1', 'generation_id': generation_id,
+            'attempt_id': frozen_plan.attempt_id, 'plan_id': frozen_plan.plan_id,
+            'plan_revision': MaterialReadinessCalculator.plan_revision(frozen_plan),
+            'need_id': need.need_id, 'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest(),
+            'provider': 'minimax', 'modality': 'image', 'model': 'image-01',
+            'status': 'RESULT_RECEIVED', 'received_asset': added.model_copy(update={
+                'technical': TechnicalInfo(status=TechnicalStatus.PENDING)}).model_dump(mode='json'),
+            'billing': {'status': 'UNKNOWN'}, 'operator_confirmed_paid': True,
+        })
+        raise OSError('fixture restart after receipt')
 
     with monkeypatch.context() as generation_patch:
         generation_patch.setattr(EaselRuntimeConfig, "load", lambda: SimpleNamespace(
             minimax=SimpleNamespace(api_key="fixture-key", image_model="image-01", base_url="https://api.minimax.cn"),
         ))
         generation_patch.setattr(material_layer.MiniMaxImageSpeechGeneration, "generate", generate_fixture)
-        result = orchestrator.generate_minimax_asset(
-            attempt["attempt_id"], need_id=plan.needs[0].need_id,
-            request_id="fixture-second-generation", confirmed_paid=True,
-        )
+        with pytest.raises(OSError, match='after receipt'):
+            orchestrator.generate_minimax_asset(
+                attempt["attempt_id"], need_id=plan.needs[0].need_id,
+                request_id=request_id, confirmed_paid=True,
+            )
+    from easel.creation_delivery import next_operation, SCHEMA
+    from easel.integrations.hypit.service import get_film_attempt
+    from easel.materials.application import generation_modalities
+    from easel.materials.application.generation_modalities import recoverable_generation_records
+
+    def state():
+        proposal = 'fixture approved'
+        digest = hashlib.sha256(proposal.encode()).hexdigest()
+        return {'chat_workflow': {'proposal_status': 'CONFIRMED', 'proposal_sha256': digest},
+                'delivery': {'schema': SCHEMA, 'proposal': proposal, 'proposal_sha256': digest},
+                'hypit_attempts': [get_film_attempt(attempt['attempt_id'])]}
+
+    assert next_operation(state()) == ('finish_material_generation', 'recovering_material')
+    frozen = store.read_plan()
+    assert not recoverable_generation_records(frozen.model_copy(update={'plan_id': 'other'}), before, store)
+    class LocalInspector:
+        def __init__(self, local_store):
+            self.store = local_store
+        def inspect_and_persist(self, asset):
+            calls.append('local-inspection')
+            self.store.write_asset(added)
+            return added
+    def no_credentials():
+        raise AssertionError('Local receipt recovery cannot load Provider credentials')
+    with monkeypatch.context() as recovery_patch:
+        recovery_patch.setattr(EaselRuntimeConfig, 'load', no_credentials)
+        recovery_patch.setattr(generation_modalities, 'TechnicalInspector', LocalInspector)
+        native_update = material_layer._update_attempt
+        def lost_gate_write(*args, **kwargs):
+            raise OSError('fixture interruption after Bundle commit')
+        recovery_patch.setattr(material_layer, '_update_attempt', lost_gate_write)
+        with pytest.raises(OSError, match='after Bundle commit'):
+            orchestrator.resume_minimax_intake(attempt['attempt_id'])
+        assert store.read_generation_record(generation_id)['status'] == 'COMPLETE'
+        assert next_operation(state()) == ('finish_material_generation', 'recovering_material')
+        recovery_patch.setattr(material_layer, '_update_attempt', native_update)
+        result = orchestrator.resume_minimax_intake(attempt['attempt_id'])
+    assert calls == ['provider-result', 'local-inspection']
+    assert next_operation(state())[0] != 'finish_material_generation'
     after = store.read_bundle()
     assert after.bundle_id == before.bundle_id
     assert {item.asset_id for item in after.assets} == {asset.asset_id, added.asset_id}
@@ -1379,9 +1431,10 @@ def test_generation_preserves_bundle_then_rights_review_opens_production_gate(
     assert reviewed["material_gate"]["status"] == "MATERIAL_READY"
     assert reviewed["production_authoring"]["status"] == "PENDING_SELECTION"
     persisted = AttemptMaterialStore(root).read_bundle()
-    assert persisted.assets[0].rights.status is RightsStatus.KNOWN
-    assert persisted.assets[0].source.creator == "Fixture Creator"
-    assert persisted.assets[0].source.source_page == "https://fixture.example/generated-asset"
+    reviewed_asset = next(a for a in persisted.assets if a.asset_id == asset.asset_id)
+    assert reviewed_asset.rights.status is RightsStatus.KNOWN
+    assert reviewed_asset.source.creator == "Fixture Creator"
+    assert reviewed_asset.source.source_page == "https://fixture.example/generated-asset"
 
 
 def test_current_bundle_rights_review_admits_external_asset_without_repeating_supply(

@@ -43,7 +43,7 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
     && (!managed || delivery.status === 'needs_cost_approval');
   const blockedPreparation = !attempt && ['MATERIAL_NOT_READY', 'BLOCKED_CREATIVE_MODE_REQUIRED', 'BLOCKED_RUNTIME_INVALID', 'BLOCKED_RUNTIME_NOT_CONFIGURED'].includes(String(preparation.status));
   const pending = selected ? 0 : proposal || blockedPreparation ? 1 : facts + materialTasks + (fee ? 1 : 0) + (output && !qualityPending ? 1 : 0);
-  const failureStage = productionFailed ? '视频制作' : planningFailed ? '创作规划' : materialFailed ? '素材准备' : contentFailed ? '内容准备' : managed && delivery.status === 'failed' ? (/:(quality|repair_quality)$/.test(String(delivery.exhausted_operation)) ? '审片' : /:(observe_material|recover_material)$/.test(String(delivery.exhausted_operation)) ? '素材准备' : attempt ? '视频制作' : '内容准备') : null;
+  const failureStage = productionFailed ? '视频制作' : planningFailed ? '创作规划' : materialFailed ? '素材准备' : contentFailed ? '内容准备' : managed && delivery.status === 'failed' ? (/:(quality|repair_quality)$/.test(String(delivery.exhausted_operation)) ? '审片' : /:(observe_material|recover_material|finish_material_generation)$/.test(String(delivery.exhausted_operation)) ? '素材准备' : attempt ? '视频制作' : '内容准备') : null;
   const state: StageState = selected ? 'completed' : failureStage ? 'failed' : pending ? 'action-required' : proposal ? 'waiting' : 'running';
   const timeline: { name: string; state: StageState }[] = [
     { name: '方案', state: proposal ? 'action-required' : 'completed' },
@@ -69,7 +69,7 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
       managed && delivery.status === 'reconciling' ? '正在核对制作结果' : managed && delivery.status === 'producing' ? '正在合成视频' :
       managed && delivery.status === 'observing_execution' ? '正在等待创作任务完成' :
       managed && delivery.status === 'observing_material' ? '正在按场景核对候选素材的实际画面' :
-      managed && delivery.status === 'recovering_material' ? '正在按原方案补充缺失素材' :
+      managed && delivery.status === 'recovering_material' ? (delivery.operation === 'finish_material_generation' ? '正在检查已保存的生成素材，无需重新生成' : '正在按原方案补充缺失素材') :
       managed && delivery.status === 'recovering_production' ? '正在复用已完成的内容和素材，恢复视频制作' :
       managed && delivery.status === 'exporting' ? '正在整理成片' : managed && delivery.status === 'authoring' ? '正在编排画面与声音' :
       managed && delivery.status === 'retrying' ? '正在恢复当前步骤' : preparation.active_stage === 'planning' && planning.status !== 'PLANNING_READY' ? '正在创作规划' : '正在准备作品',
