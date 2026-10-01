@@ -524,6 +524,14 @@ def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_inte
                 technical=TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=5, mime="audio/wav"),
                 semantic=_observed_semantic("Narration" if need_id == voice.need_id else "Quiet restrained music"),
         )
+        if need_id == voice.need_id:
+            from easel.materials.application.voice_delivery import apply_voice_content
+            frozen_need = plan.needs[0]
+            asset = apply_voice_content(frozen_need, asset, script, {
+                'audio_sha256': asset.file.sha256, 'script_sha256': frozen_need.modality_spec.text_sha256,
+                'need_sha256': hashlib.sha256(frozen_need.to_json().encode()).hexdigest(),
+                'words': [{'text': script, 'start_seconds': .2, 'end_seconds': 4.8, 'probability': .99}],
+            })
         store.write_asset(asset)
         assets.append(asset)
     now = datetime.now(timezone.utc)
@@ -2155,7 +2163,7 @@ def test_visual_replacement_stops_at_usable_choice_or_bound_and_reuses_saved_rep
     assert not store.read_asset(assets[-1].asset_id).semantic.inferences
 
 
-@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume'])
+@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'voice_preflight'])
 def test_commission_generation_reserves_before_submit_and_survives_restart(material_integration_env, monkeypatch, outcome):
     import asyncio
     from io import BytesIO
@@ -2169,10 +2177,13 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
 
     attempt = material_integration_env
     is_video = outcome == 'video_resume'
+    is_voice = outcome == 'voice_preflight'
     expected_cost = '1.650000' if is_video else '0.025000'
     plan = MaterialPlan(plan_id='commission-plan', creation_id=attempt['creation_id'], attempt_id=attempt['attempt_id'],
-        needs=tuple(MaterialNeed(need_id=f'image-{i}', scope=NeedScope(type=NeedScopeType.SCENE, ref=f'scene-{i}'),
-            media_type=MediaType.VIDEO if is_video else MediaType.IMAGE,
+        needs=tuple(MaterialNeed(need_id=f'image-{i}', scope=NeedScope(type=NeedScopeType.GLOBAL if is_voice else NeedScopeType.SCENE, ref=f'scene-{i}'),
+            media_type=MediaType.AUDIO if is_voice else MediaType.VIDEO if is_video else MediaType.IMAGE,
+            modality_spec=VoiceNeedSpec(identity=VoiceIdentityRef(source=VoiceIdentitySource.DIRECTOR_INTENT,
+                reference='预置普通话')) if is_voice else None,
             role='主视觉', intent=NeedIntent(description=f'不同场景 {i}'),
             constraints={'allow_generation': True}, importance=NeedImportance.REQUIRED) for i in range(2)))
     planning = PlanningIntegration().persist(attempt, plan, treatment='纪实观察', script='假设场景。', scenes='两个不同场景')
@@ -2210,6 +2221,19 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
             proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), generation_budget={**budget, 'maxCostCny': 1})
     with pytest.raises(creation.CreationError, match='后台交付者'):
         commissioned.generate_for_commission(attempt['attempt_id'])
+    if is_voice:
+        from easel.creation_delivery import active_delivery
+        runtime.get = lambda *args: str(Path(attempt['workspace']['path']) / 'absent-asr-model')
+        monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset',
+                            lambda *a, **kw: pytest.fail('missing observation must stop before paid TTS'))
+        token = active_delivery.set(work['id'])
+        try:
+            with pytest.raises(ValueError, match='本地语音识别模型未就绪'):
+                commissioned.generate_for_commission(attempt['attempt_id'])
+        finally:
+            active_delivery.reset(token)
+        assert not quote_reads and not creation.get_creation(work['id'])['delivery'].get('material_generations')
+        return
 
     media = BytesIO()
     Image.new('RGB', (64, 64), 'teal').save(media, format='PNG')
@@ -2303,7 +2327,8 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
         assert len(quote_reads) == 2  # first submit + second Need; query retry is not a new purchase
 
 
-def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(material_integration_env, monkeypatch):
+@pytest.mark.parametrize('provider_timing', [False, True])
+def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(material_integration_env, monkeypatch, provider_timing):
     import asyncio
     from copy import deepcopy
     from types import SimpleNamespace
@@ -2340,6 +2365,10 @@ def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(materia
         'input_sha256': hashlib.sha256(script.encode()).hexdigest(),
         'asset_id': asset.asset_id, 'asset_sha256': asset.file.sha256, 'asset_path': path, 'asset_bytes': len(body),
         'voice_timing': voice_delivery.bind_voice_timing(script, asset, (), 'provider_timing_missing_or_invalid')}
+    if provider_timing:
+        generation['voice_timing'] = voice_delivery.bind_voice_timing(script, asset, ({
+            'text': script, 'start_character': 0, 'end_character': len(script),
+            'start_seconds': .1, 'end_seconds': 4.9},))
     store.write_generation_record('gen-voice', generation)
     with creation.edit_creation(attempt['creation_id']) as work:
         work['origin'] = {'type': 'chat'}
@@ -2367,6 +2396,15 @@ def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(materia
         assert file.read_bytes() == body and language is None
         return deepcopy(report)
     monkeypatch.setattr(voice_delivery, 'read_local_voice', recognize)
+    if provider_timing:
+        wrong = deepcopy(report)
+        wrong['words'][0]['text'] = '真的'
+        monkeypatch.setattr(voice_delivery, 'read_local_voice', lambda *a: wrong)
+        with pytest.raises(ValueError, match='完整冻结旁白不一致'):
+            MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
+        assert store.read_generation_record('gen-voice') == generation
+        assert store.read_asset('voice') == asset and store.read_bundle() == bundle
+        monkeypatch.setattr(voice_delivery, 'read_local_voice', recognize)
     monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset',
                         lambda *a, **kw: pytest.fail('recovery must never purchase new audio'))
     write_record = AttemptMaterialStore.write_generation_record
@@ -2387,16 +2425,33 @@ def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(materia
     assert next_operation(creation.get_creation(work['id']))[0] != 'recover_voice_timing'
     recovered = store.read_generation_record('gen-voice')
     assert recovered['provider_voice_timing'] == generation['voice_timing']
-    assert recovered['voice_timing']['source'] == 'local_asr'
-    assert store.read_bundle() == bundle and store.read_asset('voice').rights.status is RightsStatus.UNKNOWN
-    # Project timing independently from admission: ASR does not grant Rights or
-    # a semantic match. Production consumes it only after ordinary qualification.
+    assert recovered['voice_timing']['source'] == ('provider_alignment' if provider_timing else 'local_asr')
+    if provider_timing:
+        assert recovered['voice_timing'] == generation['voice_timing']
+    observed = store.read_asset('voice')
+    assert store.read_bundle().assets == (observed,)
+    assert observed.file == asset.file and observed.rights.status is RightsStatus.UNKNOWN
+    assert voice_delivery.voice_content_observed(need, observed)
+    from easel.materials.application.matching import MaterialMatcher
+    assert not MaterialMatcher().match(need, (observed,)).matches  # ASR cannot grant Rights.
+    admitted = observed.model_copy(update={'rights': RightsInfo(status=RightsStatus.KNOWN,
+        license_name='Fixture License', evidence=(RightsEvidence(kind='asset_license', reference='fixture://voice'),))})
+    assert MaterialMatcher().match(need, (admitted,)).matches[0].reasons[1] == 'system_voice_content=complete'
+    for stale in (need.model_copy(update={'intent': NeedIntent(description='另一项声音要求')}),
+                  need.model_copy(update={'modality_spec': need.modality_spec.model_copy(update={'text_sha256': '0' * 64})})):
+        assert not MaterialMatcher().match(stale, (admitted,)).matches
+    assert not voice_delivery.voice_content_observed(need, observed.model_copy(update={
+        'file': observed.file.model_copy(update={'sha256': '0' * 64})}))
+    # Provider alignment alone is not independently observed content.
+    assert not voice_delivery.voice_content_observed(need, asset)
     from easel.materials.application.voice_delivery import authoring_voice_timings
     qualified = SimpleNamespace(assets=(asset,), matches=(MaterialMatch(
         need_id='voice', asset_id='voice', rank=1, score=1, qualified=True),))
     projected = authoring_voice_timings(plan, qualified, store, script)
-    assert projected['assets'][0]['source'] == 'local_asr'
+    assert projected['assets'][0]['source'] == ('provider_alignment' if provider_timing else 'local_asr')
     assert ''.join(c['display_text'] for c in projected['assets'][0]['cues']) == script
     recovered['voice_recognition']['audio_sha256'] = '0' * 64
     write_record(store, 'gen-voice', recovered)
-    assert authoring_voice_timings(plan, qualified, store, script)['unavailable_need_ids'] == ['voice']
+    if not provider_timing:
+        assert authoring_voice_timings(plan, qualified, store, script)['unavailable_need_ids'] == ['voice']
+    assert voice_delivery.pending_voice_timing_recovery(plan, store.read_bundle(), store, script, require_content=True)

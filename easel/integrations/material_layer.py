@@ -1233,17 +1233,18 @@ class MaterialProductOrchestrator:
                                             record["generation_id"].removeprefix("gen-"), record["model"])
 
     def recover_voice_timing(self, attempt_id: str) -> None:
-        """Recover missing timing from retained narration; never generate media."""
+        """Verify retained narration independently; repair timing only if missing."""
         from easel.integrations.hypit.service import get_film_attempt
         from easel.materials.application.voice_delivery import (
             pending_voice_timing_recovery, read_local_voice, timing_from_recognition,
+            bind_voice_timing, apply_voice_content, voice_content_observed,
         )
         attempt = get_film_attempt(attempt_id)
         planning = PlanningIntegration().load(attempt)
         plan, script = planning['plan'], planning['script']
         store = AttemptMaterialStore(_workspace(attempt))
         bundle = store.read_bundle()
-        pending = pending_voice_timing_recovery(plan, bundle, store, script)
+        pending = pending_voice_timing_recovery(plan, bundle, store, script, require_content=True)
         if not pending:
             return
         record = pending[0]
@@ -1279,8 +1280,15 @@ class MaterialProductOrchestrator:
                     or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
                 raise MaterialIntegrationError('识别期间旁白输入已变化；保留结果，未认领旧时序')
             record.setdefault('provider_voice_timing', record.get('voice_timing'))
-            record.update(voice_timing=timing, voice_recognition=report)
+            existing = record.get('voice_timing') or {}
+            if (existing.get('source') != 'provider_alignment'
+                    or bind_voice_timing(script, asset, tuple(existing.get('cues', [])), existing.get('error'))['status'] != 'READY'):
+                record['voice_timing'] = timing
+            record['voice_recognition'] = report
             store.write_generation_record(record['generation_id'], record)
+            if not voice_content_observed(need, asset):
+                store.write_asset(apply_voice_content(need, asset, script, report))
+            self._recalculate_observed_materials(attempt, plan, bundle, store)
 
     def _record_generated_asset(self, attempt, plan, store, checkpoint, generated, request_id, model):
         from easel.integrations.hypit.service import get_film_attempt
@@ -1449,6 +1457,7 @@ class MaterialProductOrchestrator:
         from easel.integrations.hypit.service import get_film_attempt
         from easel.materials.application.matching import MaterialMatcher
         from easel.materials.application.visual_observation import observed_match
+        from easel.materials.application.voice_delivery import voice_content_observed
 
         attempt = get_film_attempt(attempt_id)
         if attempt.get("material_planning", {}).get("status") != "PLANNING_READY":
@@ -1511,7 +1520,7 @@ class MaterialProductOrchestrator:
                 "semantic_reviewed_need_ids": [need.need_id for need in compatible_needs
                     if MaterialMatcher._creator_match_review(need, asset)],
                 "system_observed_need_ids": [need.need_id for need in compatible_needs
-                    if observed_match(need, asset) is True],
+                    if observed_match(need, asset) is True or voice_content_observed(need, asset)],
                 "reviewed": asset.rights.reviewed_at is not None,
             })
         return candidates

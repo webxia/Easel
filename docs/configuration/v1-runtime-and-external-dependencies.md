@@ -32,6 +32,6 @@ MiniMax 配置：优先使用 `EASEL_MINIMAX_API_KEY`，兼容读取已有 `MINI
 
 TTS 开启句级字幕，按[官方 HTTP 合同](https://platform.minimaxi.com/docs/api-reference/speech-t2a-http.md)消费流式终态完整音频与字幕。时序按冻结脚本和实际音频身份校验后进入既有编排工作区；缺失时保留音频与明确缺口，不自动重新生成。它不是听感验收或 Rights 证明。软件验证和未完成边界以 Current State 为准，未对真实账号调用新请求。
 
-缺失时序的本地恢复使用现有 `faster-whisper` 依赖。`EASEL_ASR_MODEL` 指向含 `model.bin`、`config.json`、`tokenizer.json` 的本地 CTranslate2 模型目录，未配置时查找 `~/.cache/easel-models/faster-whisper-small`。只使用本地模型，不自动下载、不请求 TTS；CPU/int8 子进程识别有 180 秒执行上限。`audio.voice-timing-recovery` 只检查依赖和文件，不声称识别效果已验证。已有有效 Provider 时序不受该可选恢复依赖影响。
+正常旁白内容核对及缺失时序恢复使用现有 `faster-whisper` 依赖。`EASEL_ASR_MODEL` 指向含 `model.bin`、`config.json`、`tokenizer.json` 的本地 CTranslate2 模型目录，未配置时查找 `~/.cache/easel-models/faster-whisper-small`。只使用本地模型，不自动下载、不请求 TTS；CPU/int8 子进程识别有 180 秒执行上限。`audio.voice-timing-recovery` 只检查依赖和文件，不声称识别效果已验证。新委托即使有有效 Provider 时序，也要独立识别实际旁白；缺少本地依赖时在委托 TTS 核价、占额和付费提交前停止，避免先买音频再发现无法检查。
 
-识别不注入目标脚本，逐词文本与实际时间必须覆盖完整冻结原文；按原文标点合并成整句字幕，边界仍取实际识别的首尾词，不均分或猜测时长。成功识别先保存检查点，再登记时序；保留原 Provider 时序与音频身份。错字、漏字、低置信或重叠不会改写脚本或重新购买，进入已有有界恢复与阶段 Retry。本地识别是内容/时序证据，不是音色、情绪、配乐适配或版权证明。
+识别不注入目标脚本，逐词文本与实际时间必须覆盖完整冻结原文；按原文标点合并成整句字幕，边界仍取实际识别的首尾词，不均分或猜测时长。成功识别先保存检查点，再登记按 Need/脚本/音频绑定的内容观察并重新计算原 Gate；有效 Provider 时序保持原值，只有缺失或无效时才用识别时序补齐。错字、漏字、低置信或重叠不会改写脚本或重新购买，进入已有有界恢复与阶段 Retry。本地识别是内容/时序证据，不是音色、情绪、配乐适配或版权证明；Unknown Rights 仍然阻断。

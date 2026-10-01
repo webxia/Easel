@@ -127,6 +127,9 @@ def generate_for_commission(attempt_id: str) -> None:
     # A fresh submit is quoted again even after a restart. A retained task/result
     # uses its original reservation and never buys a second generation.
     if execution is None:
+        if modality == 'voice':
+            from easel.materials.application.voice_delivery import require_local_voice_model
+            require_local_voice_model()  # Do not buy audio we already know cannot be checked.
         try:
             quote = quote_generation(settings, modality=modality, text=planning['script'] if modality == 'voice' else '',
                 seconds=MiniMaxVideoMaterialGeneration._duration(need) if modality == 'video' else 0,

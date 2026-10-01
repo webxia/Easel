@@ -39,14 +39,21 @@ def local_voice_model_path(config) -> Path:
     return Path(configured).expanduser() if configured else Path.home() / '.cache/easel-models/faster-whisper-small'
 
 
+def require_local_voice_model(config=None) -> Path:
+    from importlib.util import find_spec
+    from easel.runtime_config import EaselRuntimeConfig
+    model = local_voice_model_path(config or EaselRuntimeConfig.load())
+    if (not model.is_dir() or any(not (model / name).is_file() for name in LOCAL_ASR_FILES)
+            or find_spec('faster_whisper') is None):
+        raise ValueError('本地语音识别模型未就绪；未提交新的 TTS，已有旁白保留。请配置 EASEL_ASR_MODEL 本地模型目录')
+    return model
+
+
 def read_local_voice(path: Path, language: str | None) -> dict:
     """Bound local recognition in a child process; never download or call TTS."""
     import subprocess
     import sys
-    from easel.runtime_config import EaselRuntimeConfig
-    model = local_voice_model_path(EaselRuntimeConfig.load())
-    if not model.is_dir() or any(not (model / name).is_file() for name in LOCAL_ASR_FILES):
-        raise ValueError('本地语音识别模型未就绪；已保留旁白，不会重新生成。请配置 EASEL_ASR_MODEL 本地模型目录')
+    model = require_local_voice_model()
     model_digest = hashlib.sha256()
     for name in LOCAL_ASR_FILES:
         with (model / name).open('rb') as stream:
@@ -109,7 +116,7 @@ def timing_from_recognition(script: str, asset, report: dict) -> dict:
     return timing
 
 
-def pending_voice_timing_recovery(plan, bundle, store, script: str) -> list[dict]:
+def pending_voice_timing_recovery(plan, bundle, store, script: str, *, require_content: bool = False) -> list[dict]:
     assets = {a.asset_id: a for a in bundle.assets}
     needs = {n.need_id: n for n in plan.needs if getattr(n.modality_spec, 'kind', None) == 'voice'}
     pending = []
@@ -123,12 +130,57 @@ def pending_voice_timing_recovery(plan, bundle, store, script: str) -> list[dict
                 or record.get('asset_sha256') != asset.file.sha256):
             continue
         timing = record.get('voice_timing') or {}
-        if (not isinstance(timing.get('cues'), list)
+        if require_content and (_recognized_timing(record, need, asset, script) is None
+                                or not voice_content_observed(need, asset)):
+            pending.append(record)
+        elif (not isinstance(timing.get('cues'), list)
                 or bind_voice_timing(script, asset, tuple(timing['cues']), timing.get('error'))['status'] != 'READY'):
             pending.append(record)
         elif timing.get('source') == 'local_asr' and _recognized_timing(record, need, asset, script) != timing:
             pending.append(record)
     return pending
+
+
+VOICE_CONTENT_PREFIX = 'easel-voice-content-v1:'
+
+
+def _voice_content_binding(need, asset) -> str:
+    return (VOICE_CONTENT_PREFIX + hashlib.sha256(need.to_json().encode()).hexdigest()
+            + ':' + asset.file.sha256 + ':' + str(need.modality_spec.text_sha256) + ':')
+
+
+def voice_content_observed(need, asset) -> bool:
+    """Script completeness evidence, not speaker identity or listening approval."""
+    from easel.materials.domain import IntelligenceStatus, SemanticField
+    if getattr(need.modality_spec, 'kind', None) != 'voice' or not need.modality_spec.text_sha256:
+        return False
+    binding = _voice_content_binding(need, asset)
+    return any(i.analyzer_id == VOICE_CONTENT_PREFIX + need.need_id
+        and i.status is IntelligenceStatus.COMPLETE and any(
+            a.field is SemanticField.CAPTION and a.evidence and a.evidence.startswith(binding)
+            and re.fullmatch(r'[0-9a-f]{64}:complete', a.evidence[len(binding):])
+            and isinstance(a.value, str) and hashlib.sha256(a.value.encode()).hexdigest() == need.modality_spec.text_sha256
+            and a.confidence is not None and a.confidence >= .5 for a in i.annotations)
+        for i in asset.semantic.inferences)
+
+
+def apply_voice_content(need, asset, script: str, report: dict):
+    from datetime import datetime, timezone
+    from easel.materials.domain import IntelligenceStatus, SemanticAnnotation, SemanticField, SemanticInference
+    if (getattr(need.modality_spec, 'kind', None) != 'voice'
+            or need.modality_spec.text_sha256 != hashlib.sha256(script.encode()).hexdigest()
+            or report.get('audio_sha256') != asset.file.sha256
+            or report.get('script_sha256') != need.modality_spec.text_sha256
+            or report.get('need_sha256') != hashlib.sha256(need.to_json().encode()).hexdigest()):
+        raise ValueError('旁白观察与当前音频、脚本或 Need 不一致')
+    timing = timing_from_recognition(script, asset, report)
+    inference = SemanticInference(analyzer_id=VOICE_CONTENT_PREFIX + need.need_id,
+        status=IntelligenceStatus.COMPLETE, observed_at=datetime.now(timezone.utc),
+        annotations=(SemanticAnnotation(field=SemanticField.CAPTION, value=script,
+            confidence=min(w['probability'] for w in report['words']),
+            evidence=_voice_content_binding(need, asset) + timing['recognition_sha256'] + ':complete'),))
+    retained = tuple(i for i in asset.semantic.inferences if i.analyzer_id != inference.analyzer_id)
+    return asset.model_copy(update={'semantic': asset.semantic.model_copy(update={'inferences': retained + (inference,)})})
 
 
 def _recognized_timing(record, need, asset, script):

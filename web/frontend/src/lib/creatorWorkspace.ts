@@ -70,7 +70,7 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
       managed && delivery.status === 'observing_execution' ? '正在等待创作任务完成' :
       managed && delivery.status === 'generating_material' ? '正在委托预算内生成所需素材' :
       managed && delivery.status === 'observing_material' ? '正在按场景核对候选素材的实际画面' :
-      managed && delivery.status === 'recovering_material' ? (delivery.operation === 'recover_voice_timing' ? '正在识别已保存的旁白并恢复字幕时序，无需重新生成' : delivery.operation === 'finish_material_generation' ? '正在检查已保存的生成素材，无需重新生成' : '正在按原方案补充缺失素材') :
+      managed && delivery.status === 'recovering_material' ? (delivery.operation === 'recover_voice_timing' ? '正在核对旁白是否完整，并补齐必要的字幕时序' : delivery.operation === 'finish_material_generation' ? '正在检查已保存的生成素材，无需重新生成' : '正在按原方案补充缺失素材') :
       managed && delivery.status === 'recovering_production' ? '正在复用已完成的内容和素材，恢复视频制作' :
       managed && delivery.status === 'exporting' ? '正在整理成片' : managed && delivery.status === 'authoring' ? '正在编排画面与声音' :
       managed && delivery.status === 'retrying' ? '正在恢复当前步骤' : preparation.active_stage === 'planning' && planning.status !== 'PLANNING_READY' ? '正在创作规划' : '正在准备作品',

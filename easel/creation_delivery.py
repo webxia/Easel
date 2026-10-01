@@ -167,7 +167,8 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
             if any(r.get('modality') == 'voice' and r.get('status') == 'COMPLETE'
                    for r in store.list_generation_records()):
                 planning = PlanningIntegration().load(attempt)
-                pending = pending_voice_timing_recovery(planning['plan'], store.read_bundle(), store, planning['script'])
+                pending = pending_voice_timing_recovery(planning['plan'], store.read_bundle(), store, planning['script'],
+                                                        require_content=True)
         except (ValueError, OSError):
             pending = True
         if pending:

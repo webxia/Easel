@@ -10,6 +10,7 @@ from typing import Any
 from easel.materials.application.intelligence import IntelligenceStatus
 from easel.materials.application.rights import RightsAdmissionStatus, RightsService
 from easel.materials.application.visual_observation import PREFIX, observed_interval, observed_match, scoped_inference
+from easel.materials.application.voice_delivery import VOICE_CONTENT_PREFIX, voice_content_observed
 from easel.materials.domain import (
     MaterialAsset,
     MaterialMatch,
@@ -98,6 +99,9 @@ class MaterialMatcher:
 
     def _hard_filter(self, need: MaterialNeed, asset: MaterialAsset) -> tuple[str, ...]:
         failures: list[str] = []
+        if (getattr(need.modality_spec, 'kind', None) == 'voice' and need.modality_spec.text_sha256
+                and not self._creator_match_review(need, asset) and not voice_content_observed(need, asset)):
+            failures.append('voice_content_observation_missing')
         if need.media_type is not asset.media_type:
             failures.append("media_type_mismatch")
         if asset.technical.status is not TechnicalStatus.PASSED:
@@ -201,6 +205,8 @@ class MaterialMatcher:
             elif isinstance(value, (tuple, list)):
                 corpus_by_field[SemanticField(key)].extend(item for item in value if isinstance(item, str))
         for inference in asset.semantic.inferences:
+            if inference.analyzer_id.startswith(VOICE_CONTENT_PREFIX):
+                continue  # Voice evidence is scoped below, never generic tag overlap.
             if inference.analyzer_id.startswith(PREFIX) and not scoped_inference(need, asset, inference):
                 continue
             if inference.status not in {IntelligenceStatus.COMPLETE, IntelligenceStatus.PARTIAL}:
@@ -214,7 +220,8 @@ class MaterialMatcher:
         semantic_corpus = self._tokens(" ".join(value for values in corpus_by_field.values() for value in values))
         semantic = self._jaccard(query, semantic_corpus) if semantic_corpus else None
         system_observed = observed_match(need, asset) is True
-        if self._creator_match_review(need, asset) or system_observed:
+        voice_observed = voice_content_observed(need, asset)
+        if self._creator_match_review(need, asset) or system_observed or voice_observed:
             semantic = 1.0
 
         preferred_style = need.constraints.get("preferred_style")
@@ -241,6 +248,7 @@ class MaterialMatcher:
         total = sum(score * weight for score, weight in present) / sum(weight for _, weight in present) if present else 0.0
         reasons = tuple(
             ["system_visual_match=suitable" if system_observed else
+             "system_voice_content=complete" if voice_observed else
              f"semantic_overlap={semantic:.3f}" if semantic is not None else "semantic_evidence=absent"]
             + ([f"director_style_overlap={director:.3f}"] if director is not None else [])
             + ([f"continuity_overlap={continuity:.3f}"] if continuity is not None else [])
