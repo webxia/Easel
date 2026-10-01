@@ -15,8 +15,8 @@ from PIL import Image
 from .errors import HypitIntegrationError
 from .narration import _attrs, _frames
 
-SCHEMA = 'easel-output-quality@1'
-VISUAL_CHECKS = ('visual_match', 'readability', 'mode', 'truth_expression', 'narrative')
+SCHEMA = 'easel-output-quality@2'
+VISUAL_CHECKS = ('visual_match', 'readability', 'mode', 'creator', 'truth_expression', 'narrative')
 
 
 def repair_request(attempt: dict) -> dict | None:
@@ -216,6 +216,16 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     mode, mode_hash = load_frozen_creative_mode(attempt)
     root = Path(attempt['workspace']['path'])
     planning = PlanningIntegration().load(attempt)
+    # load_frozen_creative_mode verifies every handoff hash, including these
+    # existing files. Review must judge this Creator and this Content, not just
+    # a generic Mode applied to whatever script happened to be rendered.
+    try:
+        context = {key: json.loads((root / 'handoff' / filename).read_text()) for key, filename in (
+            ('creator_context', 'creator-context.json'), ('content_core', 'content-core.json'),
+            ('truth', 'truth-packet.json'))}
+        context.update(treatment=planning['treatment'], scenes=planning['scenes'])
+    except (OSError, KeyError, ValueError) as exc:
+        raise HypitIntegrationError('系统审片缺少已冻结的创作者、内容或导演方案，不能核实风格') from exc
     plan, bundle, _ = MaterialGateIntegration().assert_ready(attempt)
     store = AttemptMaterialStore(root)
     author = (root / 'productions/easel-authoring/authors/main.svml').read_text()
@@ -240,7 +250,7 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
             raise HypitIntegrationError('准入旁白已变化，无法核对成片')
         break
     identity = hashlib.sha256(json.dumps({'schema': SCHEMA, 'binding': binding, 'execution': fingerprint, 'mode': mode_hash,
-        'script': planning['script'], 'author': author, 'timings': timings}, sort_keys=True).encode()).hexdigest()
+        'script': planning['script'], 'author': author, 'timings': timings, 'context': context}, sort_keys=True).encode()).hexdigest()
     previous = attempt.get('review', {}).get('system', {})
     if previous.get('input_sha256') == identity and previous.get('status') in {'READY', 'REPAIR_REQUIRED', 'INCOMPLETE'}:
         return attempt
@@ -265,12 +275,11 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         frames.append({'index': index, 'time_seconds': round(t, 4), 'sha256': hashlib.sha256(raw).hexdigest()})
     manifest = {'schema': SCHEMA, 'input_sha256': identity, 'binding': binding, 'frames': frames,
                 'script': planning['script'], 'mode': mode, 'measurements': measurements,
+                **context,
                 'scope': 'sampled output frames and measured audio; no claimed full playback'}
     manifest['director'] = {name: (root / 'handoff/creative-mode' / name).read_text()
         for name in ('visual-bible.md', 'editing-bible.md', 'qc-rubric.md')
         if (root / 'handoff/creative-mode' / name).is_file()}
-    truth = root / 'handoff/truth-packet.json'
-    manifest['truth'] = json.loads(truth.read_text()) if truth.is_file() else None
     # Batch readable previews instead of shrinking away subtitle evidence or
     # dropping later sentences. Every batch retains the whole narrative context.
     visual, start = [], 0

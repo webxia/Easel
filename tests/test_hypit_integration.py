@@ -342,7 +342,7 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
             "human": {"status": "approved"},
         })
 
-    system_review = {'schema': 'easel-output-quality@1', 'status': 'READY',
+    system_review = {'schema': 'easel-output-quality@2', 'status': 'READY',
                      'binding': {'output_name': 'final.video', 'sha256': exported['outputs']['final.video']['sha256']}}
     service.update_film_attempt(attempt['attempt_id'], event='fixture_system_review',
                                review={**exported['review'], 'system': system_review})
@@ -1235,7 +1235,17 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     monkeypatch.setattr(service, '_output_path', lambda a, o: output)
     monkeypatch.setattr(service, '_save_attempt', lambda identity, update: update(attempt))
     monkeypatch.setattr(handoff, 'load_frozen_creative_mode', lambda a: ({'id': 'fixture-mode'}, 'mode-sha'))
-    monkeypatch.setattr(PlanningIntegration, 'load', lambda self, a: {'script': '已冻结的测试表达。'})
+    planning = {'script': '已冻结的测试表达。', 'treatment': '克制地提出一个问题。', 'scenes': '一段观察。'}
+    monkeypatch.setattr(PlanningIntegration, 'load', lambda self, a: planning)
+    frozen = tmp_path / 'handoff'
+    frozen.mkdir()
+    creator = {'schema': 'easel-creator-context@1', 'identity': {'public_description': '记录日常观察的程序员'},
+               'audience': '普通职场人', 'voice': {'tone': '平等、克制', 'avoid': ['导师口吻']},
+               'privacy_policy': {'do_not_infer_private_facts': True}}
+    content = {'topic': '技术变化后的职业判断', 'intended_takeaway': '保留疑问，不下绝对结论'}
+    (frozen / 'creator-context.json').write_text(json.dumps(creator, ensure_ascii=False))
+    (frozen / 'content-core.json').write_text(json.dumps(content, ensure_ascii=False))
+    (frozen / 'truth-packet.json').write_text('{"claims": []}')
     monkeypatch.setattr(MaterialGateIntegration, 'assert_ready', lambda self, a:
                         (SimpleNamespace(needs=()), SimpleNamespace(assets=(), matches=()), None))
     calls = []
@@ -1243,6 +1253,8 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
         calls.append(manifest)
         assert attachments and all(item['mimeType'] == 'image/jpeg' for item in attachments)
         assert manifest['binding']['sha256'] == service._file_sha256(output)
+        assert manifest['creator_context'] == creator and manifest['content_core'] == content
+        assert manifest['treatment'] == planning['treatment'] and manifest['scenes'] == planning['scenes']
         return {'schema': quality.SCHEMA, 'input_sha256': manifest['input_sha256'],
                 'frames': [{'index': f['index'], 'observed': True, 'description': 'fixture output frame'} for f in manifest['frames']],
                 'checks': {k: {'status': 'pass', 'reason': 'fixture evidence', 'frame_indices': [0]} for k in quality.VISUAL_CHECKS}}
@@ -1252,6 +1264,24 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     count = len(calls)
     quality.inspect_output('fixture', executor=observe)
     assert len(calls) == count
+    original_identity = attempt['review']['system']['input_sha256']
+    context_identities = {original_identity}
+    # Contract replay across three Content contexts under one Creator/Mode.
+    # The media/semantic response is a fixture, not cross-Content quality proof.
+    for topic, structure in [('通勤等待的观察', '等待与移动两段对照'), ('学习新工具的反思', '尝试、受挫、追问三个片段')]:
+        content.update(topic=topic)
+        planning.update(script=topic + '。', treatment=structure, scenes=structure)
+        (frozen / 'content-core.json').write_text(json.dumps(content, ensure_ascii=False))
+        quality.inspect_output('fixture', executor=observe)
+        context_identities.add(attempt['review']['system']['input_sha256'])
+    assert len(context_identities) == 3
+    # A same-video change to the Creator's public scope cannot reuse an old
+    # positive review even when script and Mode remain unchanged.
+    creator['voice']['avoid'].append('将尝试冒充已证实经验')
+    (frozen / 'creator-context.json').write_text(json.dumps(creator, ensure_ascii=False))
+    count = len(calls)
+    quality.inspect_output('fixture', executor=observe)
+    assert len(calls) > count
     request = quality.repair_request(attempt)
     assert request['allowed_changes'] == ['visual']
     assert request['sha256'] == attempt['outputs']['final']['sha256']
@@ -1260,6 +1290,9 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     request = quality.repair_request(attempt)
     assert request['allowed_changes'] == ['captions', 'visual']
     assert request['feedback'][-1]['time_seconds'] == system['frames'][1]['time_seconds']
+    system['visual'][0]['checks']['creator']['status'] = 'fail'
+    assert quality.repair_request(attempt) is None  # Visual repair cannot rewrite Creator identity/voice.
+    system['visual'][0]['checks']['creator']['status'] = 'pass'
     system['visual'][0]['checks']['narrative']['status'] = 'fail'
     assert quality.repair_request(attempt) is None  # Not permission to rewrite the script.
     system['visual'][0]['checks']['narrative']['status'] = 'pass'

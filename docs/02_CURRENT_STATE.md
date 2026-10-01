@@ -109,6 +109,10 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 - **本批时序验证：** Material/Voice/Preparation/Hypit **162 passed**，隔离 Authoring **18 passed**；模型配置与恢复定向检查 **21 passed**。覆盖无提示词、离线加载、保留真实词时间、模型缺失不启动下载、输入身份错配/缺词/错词/低置信/重叠拒绝、登记中断后识别仅一次、无 TTS 重购及真实 Production 投影。前端状态投影、lint/build、compileall、115 项技能合同与 diff check 通过，仅既有依赖/Hook/体积提示；本批仅文案投影变化，未重复浏览器矩阵。本机默认 ASR 模型目录未就绪，没有运行真实识别或下载模型；Fixture 不证明识别准确性、音色/情绪、BGM 听感或整个自主交付已完成。未运行付费 AI/Build/E2E，未修改真实 Creation。
 
 
+- **跨内容审片上下文修复（2026-10-01）：** 追踪发现原系统审片只携带 Script、Mode 和 Truth，未提供冻结 Creator Context、Content Core 及当前 Treatment/Scenes，无法按同一 Creator 的身份/语气/受众与各自表达意图审片。现从已验证的 Handoff 和 Planning 读取这些输入，随每批实际导出画面进入原审片执行器；明确同一 Creator/Mode 下允许主题、场景数、叙事结构变化，不套固定模板。报告升级为 `easel-output-quality@2`，增加 Creator 适配检查并把完整上下文纳入缓存身份；旧机器报告重新检查，Creator 已接受输出不被自动重跑。
+- **本批审片验证：** Hypit/Preparation/Material **147 passed**，最后系统审片定向回归通过；扩展已有确定性 MP4 用例，以同 Creator/Mode 的职业、通勤、学习三个 Content 上下文验证各自进入审片、缓存互不认领，Creator 公共边界变化也不复用旧报告。身份/语气问题不能借局部视觉修复改写。compileall、115 项技能合同与 diff check 通过；无前端源码改动。本批只证明跨内容的审片输入和缓存合同，不是三支不同内容从委托到成片的完整局部 Replay；该步骤仍未完成，真实模型审片效果未验证。未调用付费 AI、Build 或真实 Creation。
+- **生成 Rights 官方证据核对（2026-10-01）：** 已只读查看 [MiniMax 开放平台用户协议](https://platform.minimax.cn/protocol/user-agreement)：§9.5 允许用户自行决定输出物的使用场景，同时 §3.18 要求输入及输出的权利条件成立，§1.7 保留合成标识与水印要求。该公开条款不能单独替代逐素材来源、适用条件与第三方权利证据。本批未接受协议、未操作账户、未把付费回执转换为 Rights KNOWN；自动生成素材准入仍待补齐真实证据链，不能以增加重复人审来宣称已闭环。
+
 - **系统审片增量（2026-10-01）：** 现有 Delivery Owner 在导出后调用实际输出检查，复用原 Review，将机器结果记录为 `review.system`，与 technical/truth/style/human 接受分开。检查要求当前编排与实际提交 fingerprint 一致，报告绑定输出名、SHA、冻结 Mode/脚本、旁白时序及编排内容；保存前再次验证。可信完成报告可复用，检查期间不重新生成素材、下载或 Build；Creator 最终审片保留该机器证据，不把人审接受改写为自动检查通过。
 - 确定性检查解码实际视频，以 2 Hz 小图检测连续近黑片段；解码 16 kHz 音频，测量静音与持续削波，并将每句旁白按半秒窗口与准入原声音频比较，核对信号保留、末尾截断与明显遮盖。比较容许 ±40 ms 编码对齐，使用相关性/残差信号比作基线；这不是 ASR、发音/音色听感或精确 LUFS 验收，近黑采样也不保证检出所有短闪帧或解释创作意图。
 - 视觉审片通过现有持久网关发送**实际导出帧**，包含旁白句中位置与早期预览，携带冻结脚本、Truth、Mode 和视觉/剪辑/QC 文档。按传输容量分批保留可读预览，不丢弃后半段；每批逐帧记录所见，判断画面匹配、字幕可读、明显风格偏离、事实表达和叙事。无画面/无引用不能 PASS，缺陷也必须引用已观察画面；看不清或证据不足记 unknown。实际测量有缺陷或视觉 fail 时为 `REPAIR_REQUIRED`，无已知缺陷但有 unknown 为 `INCOMPLETE`，其余为 `READY`；仅后者进入首版待审，不自动接受、入库或发布。

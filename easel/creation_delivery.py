@@ -115,12 +115,13 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     if execution in {"SUBMITTED", "RUNNING", "CANCEL_REQUESTED"}:
         return "refresh", "producing"
     if execution == "BUILD_COMPLETE":
+        from easel.integrations.hypit.quality import SCHEMA as QUALITY_SCHEMA
         if not attempt.get("outputs"):
             return "export", "exporting"
         system = attempt.get("review", {}).get("system", {})
         binding = system.get("binding", {})
         output = attempt["outputs"].get(binding.get("output_name"), {})
-        if (system.get("schema") == "easel-output-quality@1" and output
+        if (system.get("schema") == QUALITY_SCHEMA and output
                 and output.get("sha256") == binding.get("sha256")):
             if system.get("status") == "READY":
                 return None, "first_cut_ready"
