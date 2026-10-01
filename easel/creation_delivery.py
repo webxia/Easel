@@ -171,6 +171,26 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
                 and attempt.get('material_planning', {}).get('truth_review_status') == 'PASSED'
                 and not attempt.get('autonomous_material_recovery')):
             return 'recover_material', 'recovering_material'
+        if (gate.get('status') == 'MATERIAL_NOT_READY' and attempt.get('workspace', {}).get('path')
+                and attempt.get('material_planning', {}).get('truth_review_status') == 'PASSED'
+                and delivery.get('authorization', {}).get('material_generation')):
+            from easel.integrations.material_generation import pending_generated_need
+            from easel.materials.store import AttemptMaterialStore
+            try:
+                plan = AttemptMaterialStore(attempt['workspace']['path']).read_plan()
+                pending = pending_generated_need(work, attempt, plan)
+            except (ValueError, OSError):
+                # Resolve/read failures belong to the owner's bounded operation
+                # retry, not an uncaught projection failure in the dispatcher.
+                pending = True
+            if pending:
+                return 'generate_material', 'generating_material'
+            statuses = {r.get('status') for r in delivery.get('material_generations', {}).values()
+                        if r.get('attempt_id') == attempt.get('attempt_id')}
+            if 'uncertain' in statuses:
+                return None, 'material_submission_uncertain'
+            if statuses & {'quote_unavailable', 'budget_exceeded'}:
+                return None, 'needs_generation_approval'
         if prep_status in {"SCRIPT_TRUTH_REVIEW_REQUIRED", "MATERIAL_NOT_READY"}:
             return None, "needs_evidence"
         return "prepare", "preparing"

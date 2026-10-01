@@ -1206,7 +1206,7 @@ async def _hypit_api_call(function, *args, **kwargs):
         owner = None
         if function in {resolve_film_attempt_runtime, validate_film_attempt, estimate_film_attempt,
                         approve_film_cost, submit_film_build, refresh_film_build, reconcile_film_submission,
-                        export_film_output, retry_failed_film_build, revise_film_output, cancel_film_build}:
+                        export_film_output, retry_failed_film_build, revise_film_output, cancel_film_build} or getattr(function, '__name__', '') == 'generate_minimax_asset':
             attempt = get_film_attempt(args[0])
             work = get_creation(attempt["creation_id"])
             owner = work["id"] if is_managed(work) else None
@@ -1225,6 +1225,8 @@ async def _hypit_api_call(function, *args, **kwargs):
         raise HTTPException(404, str(exc)) from exc
     except HypitIntegrationError as exc:
         raise HTTPException(400, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, SecretRedactor.redact_text(str(exc))) from exc
 
 
 @app.post("/api/creations/{creation_id}/handoff")
@@ -1313,7 +1315,7 @@ async def api_minimax_material_video_generation(
 ):
     from easel.integrations.material_layer import MaterialProductOrchestrator
 
-    return await asyncio.to_thread(
+    return await _hypit_api_call(
         MaterialProductOrchestrator().generate_minimax_asset,
         attempt_id,
         need_id=req.needId,
@@ -1330,7 +1332,7 @@ async def api_minimax_material_generation(
 ):
     from easel.integrations.material_layer import MaterialProductOrchestrator
 
-    return await asyncio.to_thread(
+    return await _hypit_api_call(
         MaterialProductOrchestrator().generate_minimax_asset,
         attempt_id,
         need_id=req.needId,
@@ -1809,6 +1811,7 @@ class ChatRequest(BaseModel):
     creativeMode: str | None = None
     capability: str | None = None
     creationAction: str | None = None
+    generationBudget: dict | None = None
     proposalContext: list[ProposalTurn] = Field(default_factory=list, max_length=48)
     sessionId: str | None = None
     turnId: str | None = None
@@ -1889,7 +1892,8 @@ async def api_proposal_preview(creation_id: str, req: ProposalPreviewRequest):
     serialized = json.dumps(turns, ensure_ascii=False, separators=(",", ":"))
     if len(serialized) > 32_000 or SecretRedactor.contains_secret(serialized):
         raise HTTPException(400, "方案内容过长或含疑似凭证，请先整理对话")
-    return proposal_specs(turns)
+    from easel.integrations.material_generation import generation_budget_preview
+    return {**proposal_specs(turns), "generation_budget": generation_budget_preview()}
 
 
 def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
@@ -1926,7 +1930,8 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
             if preview["missing"]:
                 raise HTTPException(409, "方案尚未明确：" + "、".join(preview["missing"]) + "；请先通过对话补充，再确认制作")
             work = confirm_chat_proposal(work["id"], req.turnId, proposal_sha256=proposal_sha256,
-                                         production_specs=preview["specs"], delivery_proposal=proposal_text)
+                                         production_specs=preview["specs"], delivery_proposal=proposal_text,
+                                         generation_budget=req.generationBudget)
             if is_managed(work):
                 return "", {**work, "_preparation_action": "delivery",
                             "_client_phase": "production_confirmed"}
@@ -2142,6 +2147,9 @@ async def _execute_creation_delivery(operation: str, work: dict) -> None:
         await asyncio.to_thread(recover_managed_materials, attempt_id, executor=_plan_material_recovery)
     elif operation == 'finish_material_generation':
         await asyncio.to_thread(MaterialProductOrchestrator().resume_minimax_intake, attempt_id)
+    elif operation == 'generate_material':
+        from easel.integrations.material_generation import generate_for_commission
+        await asyncio.to_thread(generate_for_commission, attempt_id)
     elif operation in {"author", "release_authoring"}:
         if operation == "author":
             await _run_film_authoring(attempt_id)

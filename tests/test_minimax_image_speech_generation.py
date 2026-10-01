@@ -314,3 +314,35 @@ def test_speech_stream_uncertain_result_and_unsupported_delivery_never_retries(t
     with pytest.raises(ValueError, match='already has state'):
         MiniMaxImageSpeechGeneration().resume_received(store, 'gen-uncertain', speech_text=script)
     assert len(transport.calls) == 2  # one adapter probe + one generation; no retry
+
+
+@pytest.mark.parametrize('modality,expected', [('voice', '0.001400'), ('image', '0.025000'), ('video', '1.980000')])
+def test_domestic_generation_quote_uses_current_contract_and_system_voice(modality, expected):
+    from types import SimpleNamespace
+    from easel.materials.providers.minimax_pricing import quote_generation, PRICE_URL
+    settings = SimpleNamespace(base_url='https://api.minimax.cn', speech_model='speech-2.8-hd',
+        speech_voice_id='male-qn-qingse', image_model='image-01', video_model='MiniMax-H3-Max')
+    contract = """
+## 语音
+单价：元/万字符
+| 同步 T2A | speech-2.8-hd | 说明 | 3.50 |
+1 个汉字算 2 个字符
+## 视频
+**视频生成-输出价格**
+| <div>MiniMax-H3-Max</div> | 480P | 按秒计费 | 0.33 元/秒 |
+## 图像
+单价：元/张
+| image-01<br />image-01-live | 描述 | 0.025 |
+"""
+    def read(url):
+        return contract if url == PRICE_URL else '| 1 | 中文 | `male-qn-qingse` | 青年 |'
+    quote = quote_generation(settings, modality=modality, text='中文', seconds=6, resolution='480P', read=read)
+    assert quote['currency'] == 'CNY' and quote['upper_estimate'] == expected
+    assert all(len(item['sha256']) == 64 for item in quote['evidence'])
+    if modality == 'voice':
+        settings.speech_voice_id = 'unverified-custom-voice'
+        with pytest.raises(ValueError, match='首次使用费用'):
+            quote_generation(settings, modality=modality, text='中文', read=read)
+    settings.base_url = 'https://api.minimax.io'
+    with pytest.raises(ValueError, match='不能自动换算'):
+        quote_generation(settings, modality=modality, read=read)

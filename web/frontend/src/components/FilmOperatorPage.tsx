@@ -10,7 +10,7 @@ import {
 } from '../lib/api';
 import { projectCreatorWorkspace, stageLabels } from '../lib/creatorWorkspace';
 import type { ChatMessage } from '../lib/store';
-import type { OperatorRecord } from '../lib/api';
+import type { OperatorRecord, GenerationBudget } from '../lib/api';
 
 type JsonRecord = Record<string, unknown>;
 const record = (value: unknown): JsonRecord =>
@@ -27,7 +27,7 @@ interface FilmOperatorPageProps {
   proposalPhase?: boolean;
   proposalReady?: boolean;
   proposalMessages?: ChatMessage[];
-  onConfirmProduction?: () => void;
+  onConfirmProduction?: (budget?: GenerationBudget) => void;
   progressOpen?: boolean;
   onProjection?: (value: { title: string; pending: number }) => void;
   onOpenConversation?: () => void;
@@ -37,6 +37,8 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   const [materialSearchTerms, setMaterialSearchTerms] = useState<Record<string, string>>({});
   const materialRecoveryRequest = useRef<{ id: string; payload: string } | null>(null);
   const [proposalPreview, setProposalPreview] = useState<OperatorRecord | null>(null);
+  const [generationCeiling, setGenerationCeiling] = useState('');
+  useEffect(() => { setGenerationCeiling(''); }, [creationId]);
   const [proposalPreviewError, setProposalPreviewError] = useState('');
   const [previewContext, setPreviewContext] = useState('');
   const proposalContext = JSON.stringify(proposalMessages.slice(-48).map(({ role, content }) => ({ role, content })));
@@ -48,6 +50,10 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
       .catch((reason: unknown) => { if (!cancelled) setProposalPreviewError(operationError(reason)); });
     return () => { cancelled = true; };
   }, [creationId, proposalPhase, proposalContext]);
+  const generationOffer = record(proposalPreview?.generation_budget);
+  const generationScope = record(generationOffer.scope);
+  const generationAmount = Number(generationCeiling);
+  const invalidGenerationBudget = generationCeiling !== '' && (!Number.isFinite(generationAmount) || generationAmount <= 0 || generationAmount > 1000 || !/^\d+(\.\d{1,2})?$/.test(generationCeiling) || !generationOffer.available);
   const proposalSpecifications = record(proposalPreview?.specs);
   const proposalMissing = Array.isArray(proposalPreview?.missing) ? proposalPreview.missing : [];
   const [creationSnapshot, setCreationSnapshot] = useState<OperatorRecord | null>(null);
@@ -196,6 +202,8 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
   const savedProposalStatus = record(creationSnapshot?.chat_workflow).proposal_status;
   const delivery = record(creationSnapshot?.delivery);
   const backendDelivery = delivery.schema === 'easel-creation-delivery@1';
+  const generationGrant = record(record(delivery.authorization).material_generation);
+  const heldGenerationCost = Object.values(record(delivery.material_generations)).map(record).reduce((sum, item) => sum + Number(record(item.quote).upper_estimate ?? 0), 0);
   const legacyDelivery = creationSnapshot !== null && !backendDelivery;
   const showingProposal = attemptId ? false : typeof savedProposalStatus === 'string'
     ? savedProposalStatus !== 'CONFIRMED' : proposalPhase;
@@ -592,6 +600,7 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
         <button className="btn btn-sm" onClick={() => setRefreshVersion(version => version + 1)}>重新连接</button>
       </div>}
       {lastSynced && <small>最近状态读取：{lastSynced}</small>}
+      {backendDelivery && generationGrant.currency === 'CNY' && <p>自主素材生成额度：已占用 ¥{heldGenerationCost.toFixed(4)} / ¥{String(generationGrant.max_amount)}（按核价保留额度，非实际账单）。</p>}
       {progressOpen && <div className="film-op-progress" aria-label="创作阶段进度">
         {timelineSteps.map(step => <div className={`film-op-progress-step is-${step.state}`} key={step.name}>
           <strong>{step.name}</strong><small>{timelineStateLabel[step.state]}</small>
@@ -608,15 +617,26 @@ export default function FilmOperatorPage({ creationId, title, onContinuePreparat
             音轨：{({ silent: '静音', voice: '旁白', music: '音乐', mixed: '旁白与音乐' } as Record<string, string>)[String(proposalSpecifications.audio_mode)] ?? '—'}<br />
             语言：{({ 'zh-CN': '简体中文', 'zh-TW': '繁体中文', en: '英语' } as Record<string, string>)[String(proposalSpecifications.language)] ?? '—'}
           </dd>
-          <dt>创作边界</dt><dd>确认后由 Easel 持续制作，可离开页面。无服务商费用的合成自动执行；付费或无法核实的费用另行确认。不自动发布。</dd>
+          <dt>创作边界</dt><dd>确认后由 Easel 持续制作，可离开页面。无服务商费用的合成自动执行；如设置下方预算，方案允许的素材生成在核价和额度内自动执行。其他费用、无法核价或超额时再请你处理。不自动发布。</dd>
           <dt>待确认信息</dt><dd>{proposalPreviewError || (!proposalPreview ? '正在核对方案…' : proposalMissing.length ? proposalMissing.join('、') + '；请在对话中明确这些规格。' : '规格已明确，确认后会冻结相同输入。')}</dd>
         </dl>
+        {generationOffer.available === true && <div className="film-op-review-claim">
+          <label>本次自主素材生成总预算（人民币，可留空）
+            <input className="field" type="number" inputMode="decimal" min="0.01" max="1000" step="0.01" value={generationCeiling} onChange={event => setGenerationCeiling(event.target.value)} placeholder="留空则付费生成另行确认" />
+          </label>
+          <small>允许 MiniMax 为方案需要的图片、视频和预置旁白生成素材；已有素材优先。旁白音色：{text(generationScope.speech_voice_id)}。图片：{text(generationScope.image_model)}；视频：{text(generationScope.video_model)}；旁白：{text(generationScope.speech_model)}。</small>
+          <p>每次提交前核对公开单价，累计预计费用不超过此额度；这是 Easel 的执行额度，不是服务商账户扣费硬上限。未核实结果保留额度且不重复购买。使用权仍按实际证据判断。</p>
+          {invalidGenerationBudget && <p role="alert">请填写最多两位小数、0～1000 元之间的正预算。</p>}
+        </div>}
         <details><summary>查看本次确认的对话依据</summary>
           {proposalMessages.slice(-48).map((message, index) => <p className="creator-proposal-turn" key={index}><strong>{message.role === 'user' ? '你' : 'Easel'}：</strong>{message.content}</p>)}
         </details>
         <p>可在左侧对话中修改方向，确认后进入内容准备。</p>
-        <button className="btn btn-primary" disabled={!proposalReady || continuationBusy || !proposalPreview || proposalMissing.length > 0 || !!proposalPreviewError || previewContext !== proposalContext} onClick={onConfirmProduction}>按这个方案制作</button>
+        <button className="btn btn-primary" disabled={!proposalReady || continuationBusy || !proposalPreview || proposalMissing.length > 0 || !!proposalPreviewError || previewContext !== proposalContext || invalidGenerationBudget} onClick={() => onConfirmProduction?.(generationCeiling ? { maxCostCny: generationAmount, scopeSha256: String(generationOffer.scope_sha256) } : undefined)}>按这个方案制作</button>
       </section>}
+      {backendDelivery && Object.values(record(delivery.material_generations)).map(record).filter(item => item.attempt_id === attemptId && ['budget_exceeded', 'quote_unavailable', 'uncertain'].includes(String(item.status))).map(item => <div className="film-op-message is-error" role="status" key={String(item.need_id)}>
+        {text(item.reason, '素材生成尚需处理，已保留现有结果。')}
+      </div>)}
       {!operatorSessionReady && <p className="page-subtitle">正在连接作品，请稍候…</p>}
       {notice && <div className="film-op-message is-ok" role="status">{notice}</div>}
       {backendDelivery && delivery.status === 'failed' && <section className="card film-op-card" role="alert">

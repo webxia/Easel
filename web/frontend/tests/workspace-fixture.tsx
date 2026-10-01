@@ -11,4 +11,4 @@ const session = { id: 'fixture-chat', title: '雨后的城市', capability: 'ai-
     { role: 'assistant', content: '核心表达：雨后城市的平静。用已有街景，15 秒竖屏静音，不自动发布。' }],
 } as ChatSession;
 createRoot(document.getElementById('root')!).render(<ChatPage session={session} onSend={() => {}} onCapabilityChange={() => {}}
-  onConfirmProduction={() => {}} onStop={() => {}} onResend={() => {}} />);
+  onConfirmProduction={(budget) => { document.documentElement.dataset.confirmedBudget = JSON.stringify(budget ?? null); }} onStop={() => {}} onResend={() => {}} />);

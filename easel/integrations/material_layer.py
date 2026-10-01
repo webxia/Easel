@@ -1140,6 +1140,7 @@ class MaterialProductOrchestrator:
         need_id: str,
         request_id: str,
         confirmed_paid: bool,
+        commission_request: str | None = None,
     ) -> dict[str, Any]:
         """Generate one explicitly approved blocking Need, then re-run its Material Gate."""
         from easel.integrations.hypit.service import get_film_attempt
@@ -1173,17 +1174,24 @@ class MaterialProductOrchestrator:
         settings = config.minimax
         if not settings.api_key:
             raise MaterialIntegrationError("MiniMax API key is not configured")
+        approval = None
+        if commission_request is not None:
+            from easel.integrations.material_generation import assert_commission_request
+            if request_id != commission_request:
+                raise MaterialIntegrationError('生成请求与委托费用记录不一致')
+            assert_commission_request(attempt, plan, planning['script'], settings, request_id, need_id)
+            approval = {'creation_id': attempt['creation_id'], 'request_id': request_id, 'source': 'commission_budget'}
         if need.media_type is MediaType.VIDEO:
             generated = MiniMaxVideoMaterialGeneration(MiniMaxVideoAdapter(
                 settings.api_key, model=settings.video_model, base_url=settings.base_url,
-            )).generate(plan, need, store, request_id=request_id, confirmed_paid=confirmed_paid)
+            )).generate(plan, need, store, request_id=request_id, confirmed_paid=confirmed_paid, approval=approval)
             model = settings.video_model
         elif need.media_type is MediaType.IMAGE:
             generated = MiniMaxImageSpeechGeneration(
                 image_adapter=MiniMaxImageAdapter(
                     settings.api_key, model=settings.image_model, base_url=settings.base_url,
                 ),
-            ).generate(plan, need, store, request_id=request_id, confirmed_paid=confirmed_paid)
+            ).generate(plan, need, store, request_id=request_id, confirmed_paid=confirmed_paid, approval=approval)
             model = settings.image_model
         elif need.media_type is MediaType.AUDIO and getattr(need.modality_spec, "kind", None) == "voice":
             generated = MiniMaxImageSpeechGeneration(
@@ -1193,7 +1201,7 @@ class MaterialProductOrchestrator:
                 ),
             ).generate(
                 plan, need, store, request_id=request_id, confirmed_paid=confirmed_paid,
-                speech_text=planning["script"],
+                speech_text=planning["script"], approval=approval,
             )
             model = settings.speech_model
         else:

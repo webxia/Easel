@@ -111,6 +111,15 @@ class MiniMaxVideoMaterialGeneration:
         *,
         request_id: str,
         confirmed_paid: bool,
+        approval: dict | None = None,
+    ) -> GeneratedMaterialResult:
+        with store.generation_lock(f"gen-{request_id}"):
+            return self._generate(plan, need, store, request_id=request_id,
+                                  confirmed_paid=confirmed_paid, approval=approval)
+
+    def _generate(
+        self, plan: MaterialPlan, need: MaterialNeed, store: AttemptMaterialStore, *,
+        request_id: str, confirmed_paid: bool, approval: dict | None,
     ) -> GeneratedMaterialResult:
         if not confirmed_paid:
             raise GenerationApprovalRequired("Explicit approval for possible MiniMax charges is required")
@@ -144,6 +153,7 @@ class MiniMaxVideoMaterialGeneration:
             "plan_id": plan.plan_id,
             "plan_revision": plan_revision,
             "need_id": need.need_id,
+            "need_sha256": hashlib.sha256(need.to_json().encode()).hexdigest(),
             "provider": "minimax",
             "model": model,
             "modality": "video",
@@ -153,8 +163,9 @@ class MiniMaxVideoMaterialGeneration:
             "ratio": ratio,
             "status": "SUBMITTING",
             "started_at": started.isoformat(),
-            "operator_confirmed_paid": True,
-            "operator_confirmed_at": started.isoformat(),
+            "operator_confirmed_paid": approval is None,
+            **({'commission_authorization': approval} if approval else {}),
+            **({"operator_confirmed_at": started.isoformat()} if approval is None else {}),
             "billing": {
                 "status": "UNKNOWN",
                 "may_be_billable": True,

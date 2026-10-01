@@ -785,6 +785,8 @@ export function stopChat(sessionId: string): Promise<{ stopped: boolean }> {
   });
 }
 
+export type GenerationBudget = { maxCostCny: number; scopeSha256: string };
+
 export function streamChat(
   message: string,
   persona: string | undefined,
@@ -806,6 +808,7 @@ export function streamChat(
   onCreation?: (creationId: string, phase?: 'proposal' | 'proposal_ready' | 'production_confirmed') => void,
   creationAction?: 'confirm_production',
   proposalContext?: Array<{ role: 'user' | 'assistant'; content: string }>,
+  generationBudget?: GenerationBudget,
 ): AbortController {
   const controller = new AbortController();
   let lastEventId = 0;
@@ -907,6 +910,7 @@ export function streamChat(
                 ...(capability ? { capability } : {}),
                 ...(creationAction ? { creationAction } : {}),
                 ...(proposalContext ? { proposalContext } : {}),
+                ...(generationBudget ? { generationBudget } : {}),
                 sessionId,
                 turnId,
                 attachments,

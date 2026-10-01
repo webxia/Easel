@@ -4,7 +4,9 @@ Status: Accepted
 
 2026-09-28 clarification authorized by the user: AI asset generation belongs to Material Layer; Hypit is the local video editing and rendering engine. The older Hypit Generation Gateway route in V1.3 is superseded by this clarification. AI generation implementation is a later phase.
 
-2026-09-28 implementation clarification: MiniMax Video Generation V2 was the first remote Material AI generation adapter; the current integration also covers Image-01 and preset-voice T2A. Each potentially billable request requires operator confirmation. This adds replaceable Provider adapters without changing frozen Material Layer ownership, Rights, or Readiness semantics. Current code and live-evidence status are tracked in [`02_CURRENT_STATE.md`](../02_CURRENT_STATE.md) and the generated-material Workstream.
+2026-09-28 implementation clarification: MiniMax Video Generation V2 was the first remote Material AI generation adapter; the current integration also covers Image-01 and preset-voice T2A. Each potentially billable request requires explicit authorization; the 2026-10-01 clarification below defines authorization reuse for newly commissioned work. This adds replaceable Provider adapters without changing frozen Material Layer ownership, Rights, or Readiness semantics. Current code and live-evidence status are tracked in [`02_CURRENT_STATE.md`](../02_CURRENT_STATE.md) and the generated-material Workstream.
+
+2026-10-01 授权澄清（用户已批准的[唯一自主首版 Task](../tasks/creator-autonomous-first-cut-2026-09-30.md) §4）：新委托可在确认方案时一并明确素材生成总预算与服务/模型/音色范围，范围内的首次生成不再逐次询问 Creator。每次真实提交仍核价、绑定输入并持久占用额度；授权外、未知价格或结果不确定不能自动重提。该调整只合并授权时机，不改变 Material V1.3 的 Rights、Match、Readiness 或身份语义；旧 Creation 不自动获得授权。具体实现及尚未覆盖的重做/对账边界以 Current State 为准。
 
 ## Context
 

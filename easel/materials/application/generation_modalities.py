@@ -42,7 +42,7 @@ def recoverable_generation_records(plan, bundle, store, *, gate_revision=None) -
     assets = {a.asset_id for a in bundle.assets}
     return [r for r in store.list_generation_records()
             if r.get('schema') == 'easel-material-generation@1' and r.get('provider') == 'minimax'
-            and r.get('modality') in {'image', 'voice'}
+            and r.get('modality') in {'image', 'voice', 'video'}
             and r.get('attempt_id') == plan.attempt_id and r.get('plan_id') == plan.plan_id
             and r.get('plan_revision') == revision and r.get('need_id') in needs
             and r.get('need_sha256') == needs[r['need_id']]
@@ -73,14 +73,15 @@ class MiniMaxImageSpeechGeneration:
         request_id: str,
         confirmed_paid: bool,
         speech_text: str | None = None,
+        approval: dict | None = None,
     ) -> GeneratedMaterialResult:
         with store.generation_lock(f"gen-{request_id}"):
             return self._generate(plan, need, store, request_id=request_id,
-                                  confirmed_paid=confirmed_paid, speech_text=speech_text)
+                                  confirmed_paid=confirmed_paid, speech_text=speech_text, approval=approval)
 
     def _generate(
         self, plan: MaterialPlan, need: MaterialNeed, store: AttemptMaterialStore, *,
-        request_id: str, confirmed_paid: bool, speech_text: str | None,
+        request_id: str, confirmed_paid: bool, speech_text: str | None, approval: dict | None,
     ) -> GeneratedMaterialResult:
         if not confirmed_paid:
             raise GenerationApprovalRequired("Explicit approval for possible MiniMax charges is required")
@@ -135,8 +136,9 @@ class MiniMaxImageSpeechGeneration:
             "model": model,
             "modality": "voice" if is_voice else "image",
             "input_sha256": input_digest,
-            "operator_confirmed_paid": True,
-            "operator_confirmed_at": datetime.now(timezone.utc).isoformat(),
+            "operator_confirmed_paid": approval is None,
+            **({'commission_authorization': approval} if approval else {}),
+            **({"operator_confirmed_at": datetime.now(timezone.utc).isoformat()} if approval is None else {}),
             "status": "GENERATING",
             "started_at": datetime.now(timezone.utc).isoformat(),
             "billing": {
@@ -245,7 +247,8 @@ class MiniMaxImageSpeechGeneration:
             )
         path = store.resolve_asset_locator(asset.file.path)
         expected_asset = 'asset-' + hashlib.sha256(generation_id.removeprefix('gen-').encode()).hexdigest()[:32]
-        if (asset.asset_id != expected_asset or asset.source.provider_asset_id != generation_id
+        if ((record.get('modality') != 'video' and asset.asset_id != expected_asset)
+                or asset.source.provider_asset_id != (record.get('task_id') if record.get('modality') == 'video' else generation_id)
                 or (asset.file.path, asset.file.sha256, asset.file.size) != expected
                 or path.stat().st_size != asset.file.size
                 or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):

@@ -2145,3 +2145,151 @@ def test_visual_replacement_stops_at_usable_choice_or_bound_and_reuses_saved_rep
     MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
     assert len(calls) == expected_count
     assert not store.read_asset(assets[-1].asset_id).semantic.inferences
+
+
+@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume'])
+def test_commission_generation_reserves_before_submit_and_survives_restart(material_integration_env, monkeypatch, outcome):
+    import asyncio
+    from io import BytesIO
+    from types import SimpleNamespace
+    from easel.creation_delivery import advance_creation, next_operation
+    from easel.integrations import material_generation as commissioned
+    from easel.runtime_config import EaselRuntimeConfig, MiniMaxRuntimeConfig
+    from easel.materials.providers import minimax_pricing
+    from easel.materials.providers.minimax_image import MiniMaxImageResult
+    from easel.materials import providers
+
+    attempt = material_integration_env
+    is_video = outcome == 'video_resume'
+    expected_cost = '1.650000' if is_video else '0.025000'
+    plan = MaterialPlan(plan_id='commission-plan', creation_id=attempt['creation_id'], attempt_id=attempt['attempt_id'],
+        needs=tuple(MaterialNeed(need_id=f'image-{i}', scope=NeedScope(type=NeedScopeType.SCENE, ref=f'scene-{i}'),
+            media_type=MediaType.VIDEO if is_video else MediaType.IMAGE,
+            role='主视觉', intent=NeedIntent(description=f'不同场景 {i}'),
+            constraints={'allow_generation': True}, importance=NeedImportance.REQUIRED) for i in range(2)))
+    planning = PlanningIntegration().persist(attempt, plan, treatment='纪实观察', script='假设场景。', scenes='两个不同场景')
+    attempt.update(planning['attempt'])
+    reviewed = PlanningIntegration().review_script(attempt, confirm_all_claims_reviewed=True,
+        expected_script_sha256=planning['truth_ledger']['script_sha256'],
+        expected_truth_packet_sha256=planning['truth_ledger']['truth_packet_sha256'])
+    attempt.update(reviewed['attempt'])
+    MaterialProductOrchestrator()._run(attempt, (), planning=PlanningIntegration().load(attempt))
+    attempt = service.get_film_attempt(attempt['attempt_id'])
+    gate = attempt['material_gate']
+    service.update_film_attempt(attempt['attempt_id'], event='fixture_only',
+        autonomous_material_recovery={'status': 'COMPLETE'},
+        material_observation={'status': 'COMPLETE', 'plan_revision': gate['plan_revision'], 'bundle_revision': gate['bundle_revision']})
+    settings = MiniMaxRuntimeConfig(api_key='fixture-key')
+    runtime = SimpleNamespace(minimax=settings)
+    monkeypatch.setattr(EaselRuntimeConfig, 'load', lambda: runtime)
+    quote_reads = []
+    def quote_document(url):
+        quote_reads.append(url)
+        return ('## 图像\n单价：元/张\n| image-01 | 图片 | 0.025 |\n'
+                '## 视频\n**视频生成-输出价格**\n| MiniMax-H3-Max | 480P | 按秒计费 | 0.33 元/秒 |\n')
+    monkeypatch.setattr(minimax_pricing, 'read_public_contract', quote_document)
+    proposal = '已确认的隔离委托'
+    with creation.edit_creation(attempt['creation_id']) as work:
+        work['origin'] = {'type': 'chat'}
+        work['chat_workflow'] = {'proposal_status': 'READY_FOR_CONFIRMATION'}
+    preview = commissioned.generation_budget_preview()
+    budget = {'maxCostCny': 2 if is_video else 0.03, 'scopeSha256': preview['scope_sha256']}
+    work = creation.confirm_chat_proposal(attempt['creation_id'], 'fixture-confirm',
+        delivery_proposal=proposal, proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), generation_budget=budget)
+    # Replayed confirmation cannot increase or retrofit an authorization.
+    with pytest.raises(creation.CreationError, match='扩大素材预算'):
+        creation.confirm_chat_proposal(work['id'], 'replayed', delivery_proposal=proposal,
+            proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), generation_budget={**budget, 'maxCostCny': 1})
+    with pytest.raises(creation.CreationError, match='后台交付者'):
+        commissioned.generate_for_commission(attempt['attempt_id'])
+
+    media = BytesIO()
+    Image.new('RGB', (64, 64), 'teal').save(media, format='PNG')
+    calls, dispatches = [], []
+    class FakeImage:
+        model = 'image-01'
+        def __init__(self, *args, **kwargs):
+            pass
+        def generate(self, prompt, **kwargs):
+            snapshot = creation.get_creation(work['id'])['delivery']
+            reservation = list(snapshot['material_generations'].values())[0]
+            assert reservation['status'] == 'reserved' and reservation['quote']['upper_estimate'] == '0.025000'
+            calls.append(prompt)
+            if outcome == 'uncertain':
+                raise TimeoutError('fixture lost synchronous response')
+            return MiniMaxImageResult(self.model, media.getvalue())
+    monkeypatch.setattr(providers, 'MiniMaxImageAdapter', FakeImage)
+    if is_video:
+        from easel.materials.application import generation as video_generation
+        class FakeVideo:
+            model = 'MiniMax-H3-Max'
+            waits = []
+            def __init__(self, *args, **kwargs):
+                pass
+            def submit(self, prompt, **kwargs):
+                record = list(creation.get_creation(work['id'])['delivery']['material_generations'].values())[0]
+                assert record['status'] == 'reserved' and record['quote']['upper_estimate'] == expected_cost
+                calls.append(prompt)
+                return SimpleNamespace(task_id='fixture-paid-video')
+            def wait(self, task_id):
+                self.waits.append(task_id)
+                if len(self.waits) == 1:
+                    raise TimeoutError('fixture query failed after task identity was saved')
+                return SimpleNamespace(task_id=task_id, video_url='https://fixture.invalid/not-downloaded.mp4')
+        class LocalAcquirer:
+            def __init__(self, store):
+                self.store = store
+            def acquire(self, candidate):
+                body = b'fixture-only-video-intake'
+                path = self.store.write_asset_bytes('fixture-video', 'original.mp4', body)
+                asset = MaterialAsset(asset_id='fixture-video', media_type=MediaType.VIDEO,
+                    file=FileInfo(path=path, sha256=hashlib.sha256(body).hexdigest(), size=len(body), mime='video/mp4'),
+                    source=candidate.source, rights=RightsInfo(status=RightsStatus.UNKNOWN),
+                    technical=TechnicalInfo(status=TechnicalStatus.PASSED, mime='video/mp4', duration_seconds=5))
+                self.store.write_asset(asset)
+                return asset
+        monkeypatch.setattr(providers, 'MiniMaxVideoAdapter', FakeVideo)
+        monkeypatch.setattr(video_generation, 'create_material_generation_acquirer', LocalAcquirer)
+        monkeypatch.setattr(video_generation, 'TechnicalInspector', lambda store: SimpleNamespace(inspect_and_persist=lambda asset: asset))
+    original = MaterialProductOrchestrator.generate_minimax_asset
+    def interrupted(self, *args, **kwargs):
+        dispatches.append(kwargs['request_id'])
+        if len(dispatches) == 1 and outcome == 'budget':
+            raise OSError('fixture restart after reservation, before submission')
+        if outcome == 'scope_changed':
+            runtime.minimax = MiniMaxRuntimeConfig(api_key='fixture-key', speech_voice_id='another-preset')
+        elif outcome == 'account_changed':
+            runtime.minimax = MiniMaxRuntimeConfig(api_key='fixture-other-key')
+        return original(self, *args, **kwargs)
+    monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset', interrupted)
+    async def execute(operation, current):
+        if operation == 'generate_material':
+            await asyncio.to_thread(commissioned.generate_for_commission, attempt['attempt_id'])
+        elif operation == 'observe_material':
+            latest = service.get_film_attempt(attempt['attempt_id'])['material_gate']
+            service.update_film_attempt(attempt['attempt_id'], event='fixture_observation',
+                material_observation={'status': 'COMPLETE', 'plan_revision': latest['plan_revision'], 'bundle_revision': latest['bundle_revision']})
+        else:
+            pytest.fail(operation)
+    for _ in range(6):
+        asyncio.run(advance_creation(work['id'], execute))
+    current = creation.get_creation(work['id'])
+    ledger = list(current['delivery']['material_generations'].values())
+    assert sum(float(r['quote']['upper_estimate']) for r in ledger if r.get('quote')) == float(expected_cost)
+    if outcome in {'scope_changed', 'account_changed'}:
+        assert not calls and current['delivery']['status'] == 'failed'
+    else:
+        assert len(calls) == 1  # the second Need cannot exceed the remaining budget
+        assert 'budget_exceeded' in {r['status'] for r in ledger}
+        assert next_operation(current)[1] == ('material_submission_uncertain' if outcome == 'uncertain' else 'needs_generation_approval')
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    if outcome in {'budget', 'video_resume'}:
+        assert dispatches[0] == dispatches[1]
+        record = store.list_generation_records()[0]
+        assert record['operator_confirmed_paid'] is False
+        assert record['commission_authorization']['source'] == 'commission_budget'
+        assert len(store.read_bundle().assets) == 1
+        assert store.read_bundle().assets[0].rights.status is RightsStatus.UNKNOWN
+    if is_video:
+        assert FakeVideo.waits == ['fixture-paid-video', 'fixture-paid-video']
+        assert len(quote_reads) == 2  # first submit + second Need; query retry is not a new purchase

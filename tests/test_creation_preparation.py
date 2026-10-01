@@ -970,6 +970,10 @@ def test_planning_resume_repairs_invalid_domain_file_once(prep_env, monkeypatch,
 def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkeypatch):
     from fastapi.testclient import TestClient
 
+    from dataclasses import replace
+    from easel.runtime_config import EaselRuntimeConfig, MiniMaxRuntimeConfig
+    config = replace(EaselRuntimeConfig.load(), minimax=MiniMaxRuntimeConfig(api_key='fixture-key'))
+    monkeypatch.setattr(EaselRuntimeConfig, 'load', lambda: config)
     agent_calls = []
 
     def fake_agent(message, timeout, session_id=None):
@@ -1026,12 +1030,25 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
                 {"role": "user", "content": "确认 6 个节拍、15 秒、9:16、静音、简体中文、不露脸。"},
             ],
         })
+        preview = client.post(f"/api/creations/{first_work['id']}/proposal-preview",
+            json={'proposalContext': [turn.model_dump() for turn in confirmation.proposalContext]}).json()
+        offered = preview['generation_budget']
+        assert offered['available'] is True and 'fixture-key' not in json.dumps(offered)
+        for invalid in (-1, True, 1001, .001):
+            invalid_request = {**confirmation.model_dump(), 'generationBudget': {
+                'maxCostCny': invalid, 'scopeSha256': offered['scope_sha256']}}
+            assert client.post('/api/chat', json=invalid_request).status_code == 409
+            assert not creation.get_creation(first_work['id'])['chat_workflow'].get('confirmed_at')
+        confirmation.generationBudget = {'maxCostCny': .50, 'scopeSha256': offered['scope_sha256']}
         response = client.post("/api/chat", json=confirmation.model_dump())
 
     assert response.status_code == 200
     body = response.json()
     assert body["creationId"] == first_body["creationId"]
     assert "委托已确认" in body["response"]
+    grant = creation.get_creation(body['creationId'])['delivery']['authorization']['material_generation']
+    assert grant['currency'] == 'CNY' and grant['max_amount'] == '0.5'
+    assert grant['scope_sha256'] == offered['scope_sha256']
     assert "INTERNAL_PREPARATION" not in body["response"]
     assert "outputs/content-core.json" not in body["response"]
     # Closing the page/server before dispatch cannot lose the commission.

@@ -324,8 +324,11 @@ def confirm_chat_proposal(
     proposal_sha256: str | None = None,
     production_specs: dict[str, Any] | None = None,
     delivery_proposal: str | None = None,
+    generation_budget: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Persist a user-issued production confirmation; natural-language text cannot call this implicitly."""
+    if generation_budget is not None and delivery_proposal is None:
+        raise CreationError('素材预算必须随新的明确委托一起确认')
     with edit_creation(creation_id) as data:
         if data.get("route") != "hypit_video" or data.get("origin", {}).get("type") != "chat":
             raise CreationError("当前作品不是聊天创建的视频作品")
@@ -346,6 +349,7 @@ def confirm_chat_proposal(
             data["chat_workflow"] = workflow
             if delivery_proposal is not None:
                 from easel.integrations.hypit.secrets import SecretRedactor
+                from easel.integrations.material_generation import commission_generation_authorization
 
                 if (not proposal_sha256 or len(delivery_proposal) > 32_000
                         or hashlib.sha256(delivery_proposal.encode("utf-8")).hexdigest() != proposal_sha256
@@ -360,12 +364,25 @@ def confirm_chat_proposal(
                     "confirmed_at": workflow["confirmed_at"],
                     "confirmed_by_turn": workflow["confirmed_by_turn"],
                     "authorization": {"no_provider_charge_build": True,
-                                      "paid_operations": "explicit_approval_required"},
+                                      "paid_operations": "explicit_approval_required",
+                                      "material_generation": commission_generation_authorization(generation_budget)},
                     "status": "pending", "failures": {},
                 }
         elif (proposal_sha256 is not None
               and workflow.get("proposal_sha256") != proposal_sha256):
             raise CreationError("本 Creation 已绑定另一份确认方案；不能静默替换冻结输入")
+        elif generation_budget is not None:
+            from decimal import Decimal, InvalidOperation
+            grant = data.get('delivery', {}).get('authorization', {}).get('material_generation') or {}
+            try:
+                same = (set(generation_budget) == {'maxCostCny', 'scopeSha256'}
+                        and not isinstance(generation_budget['maxCostCny'], bool)
+                        and Decimal(str(generation_budget['maxCostCny'])) == Decimal(grant.get('max_amount', 'NaN'))
+                        and generation_budget['scopeSha256'] == grant.get('scope_sha256'))
+            except (KeyError, InvalidOperation):
+                same = False
+            if not same:
+                raise CreationError('本作品已确认，不能通过重放确认静默扩大素材预算或改换服务')
     return get_creation(creation_id)
 
 

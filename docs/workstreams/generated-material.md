@@ -1,11 +1,11 @@
 # AI 素材生成
 
-状态：MiniMax Image / Video / 预置音色 TTS 已接入 Material Layer，并有隔离输出的技术验收；操作台已提供素材级 Rights 事实录入与 Gate 重算，真实 Creation/Production 使用尚未完成验收。每次潜在计费生成均需操作员逐次确认。详见 [T09A](../tasks/v1c-t09-minimax-video.md)、[软件验收](../acceptance/minimax-image-speech-software-2026-09-28.md) 和[隔离输出记录](../acceptance/minimax-image-speech-smoke-2026-09-28.md)。
+状态：MiniMax Image / Video / 预置音色 TTS 已接入 Material Layer，并有隔离输出的技术验收；操作台已提供素材级 Rights 事实录入与 Gate 重算，真实 Creation/Production 使用尚未完成验收。潜在计费生成需明确授权；新委托可按已批准总预算与服务范围复用授权，逐次执行仍核价和占额，未知或越界则停止。见 [ADR-004 授权澄清](../decisions/ADR-004-material-layer-v1.3-baseline.md)。详见 [T09A](../tasks/v1c-t09-minimax-video.md)、[软件验收](../acceptance/minimax-image-speech-software-2026-09-28.md) 和[隔离输出记录](../acceptance/minimax-image-speech-smoke-2026-09-28.md)。
 
 ```text
 冻结 Content / Script + MaterialPlan
 → Material Layer：Library / Local / 外部来源优先
-→ 明确确认后按 Need 调用 MiniMax Adapter
+→ 明确授权范围内，核价并按 Need 调用 MiniMax Adapter
 → Attempt 内记录结果并进入普通 Inspect / Rights / Match / Bundle / Readiness
 → Production 明确选材
 → Hypit 本地 CLI 剪辑、混音与渲染

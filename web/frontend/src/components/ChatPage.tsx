@@ -5,7 +5,7 @@ import BrushEntry from './BrushEntry';
 import FilmOperatorPage from './FilmOperatorPage';
 import type { ChatSession, ChatMessage, CreationCapability, StreamState } from '../lib/store';
 import { uploadFiles, adoptOversize } from '../lib/api';
-import type { UploadedFile } from '../lib/api';
+import type { UploadedFile, GenerationBudget } from '../lib/api';
 import { IconArrowUp, IconStop, IconPlus, IconFile } from './icons';
 
 interface ChatPageProps {
@@ -13,7 +13,7 @@ interface ChatPageProps {
   stream?: StreamState;          // 进行中的流式态（来自 App，切页也不丢）
   onSend: (displayText: string, attachments?: UploadedFile[]) => void;
   onCapabilityChange: (capability: CreationCapability | null) => void;
-  onConfirmProduction: () => void;
+  onConfirmProduction: (budget?: GenerationBudget) => void;
   onStop: () => void;
   onResend: (
     userIndex: number,
