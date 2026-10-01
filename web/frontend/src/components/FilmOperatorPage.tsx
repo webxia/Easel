@@ -6,7 +6,7 @@ import {
   refreshFilmBuild, resolveFilmRuntime, retryFailedFilmBuild, reviewFilmOutput, reviewMaterialRights, reviewScriptTruth, selectFilmBuild, submitFilmBuild,
   fetchPromotableMaterials, promoteAttemptMaterial,
   materialAssetPreviewUrl, reviewMaterialMatch, recoverFilmMaterials,
-  validateFilmAttempt, retryCreationDelivery,
+  validateFilmAttempt, retryCreationDelivery, reopenCreationProposal,
 } from '../lib/api';
 import { creatorExecutionRecord, projectCreatorWorkspace, stageLabels } from '../lib/creatorWorkspace';
 import type { ChatMessage } from '../lib/store';
@@ -36,6 +36,8 @@ interface FilmOperatorPageProps {
 export default function FilmOperatorPage({ creationId, onContinuePreparation, continuationBusy, proposalPhase = false, proposalReady = false, proposalMessages = [], onConfirmProduction, progressOpen = false, onProjection, onOpenConversation }: FilmOperatorPageProps) {
   const [materialSearchTerms, setMaterialSearchTerms] = useState<Record<string, string>>({});
   const materialRecoveryRequest = useRef<{ id: string; payload: string } | null>(null);
+  const [creationSnapshot, setCreationSnapshot] = useState<OperatorRecord | null>(null);
+  const editingProposal = record(creationSnapshot?.chat_workflow).editing_proposal === true;
   const [proposalPreview, setProposalPreview] = useState<OperatorRecord | null>(null);
   const [generationCeiling, setGenerationCeiling] = useState('');
   useEffect(() => { setGenerationCeiling(''); }, [creationId]);
@@ -43,13 +45,13 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   const [previewContext, setPreviewContext] = useState('');
   const proposalContext = JSON.stringify(proposalMessages.slice(-48).map(({ role, content }) => ({ role, content })));
   useEffect(() => {
-    if (!proposalPhase) return;
+    if (!proposalPhase && !editingProposal) return;
     let cancelled = false; setProposalPreview(null);
     previewCreatorProposal(creationId, JSON.parse(proposalContext))
       .then(value => { if (!cancelled) { setProposalPreview(value); setPreviewContext(proposalContext); setProposalPreviewError(''); } })
       .catch((reason: unknown) => { if (!cancelled) setProposalPreviewError(operationError(reason)); });
     return () => { cancelled = true; };
-  }, [creationId, proposalPhase, proposalContext]);
+  }, [creationId, proposalPhase, proposalContext, editingProposal]);
   const generationOffer = record(proposalPreview?.generation_budget);
   const generationScope = record(generationOffer.scope);
   const inputUse = record(proposalPreview?.input_use);
@@ -58,7 +60,6 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   const invalidGenerationBudget = generationCeiling !== '' && (!Number.isFinite(generationAmount) || generationAmount <= 0 || generationAmount > 1000 || !/^\d+(\.\d{1,2})?$/.test(generationCeiling) || !generationOffer.available);
   const proposalSpecifications = record(proposalPreview?.specs);
   const proposalMissing = Array.isArray(proposalPreview?.missing) ? proposalPreview.missing : [];
-  const [creationSnapshot, setCreationSnapshot] = useState<OperatorRecord | null>(null);
   const [attempts, setAttempts] = useState<OperatorRecord[]>([]);
   const [attemptId, setAttemptId] = useState('');
   useEffect(() => { materialRecoveryRequest.current = null; setMaterialSearchTerms({}); }, [attemptId]);
@@ -207,7 +208,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   const generationGrant = record(record(delivery.authorization).material_generation);
   const heldGenerationCost = Object.values(record(delivery.material_generations)).map(record).reduce((sum, item) => sum + Number(record(item.quote).upper_estimate ?? 0), 0);
   const legacyDelivery = creationSnapshot !== null && !backendDelivery;
-  const showingProposal = attemptId ? false : typeof savedProposalStatus === 'string'
+  const showingProposal = editingProposal ? true : attemptId ? false : typeof savedProposalStatus === 'string'
     ? savedProposalStatus !== 'CONFIRMED' : proposalPhase;
   const videoPlan = record(proposalPreview?.video_plan ?? record(creationSnapshot?.chat_workflow).video_plan);
   const rightsGateStatus = record(record(attempt).material_gate).status;
@@ -610,6 +611,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
       </div>}
       {showingProposal && <section className={`card film-op-card film-op-creator creator-status-card is-${projection.state}`}>
         <h2>当前创作方案</h2>
+        {editingProposal && <p>正在修改原作品方案。通过对话调整文案与分镜，确认新版本后继续；已有结果保留。本次恢复保持原时长、画幅、音轨和语言，新增素材费用仍按新确认的额度核对。</p>}
         <dl className="creator-proposal-facts">
           <dt>视频方案{videoPlan.revision ? ` · 第 ${videoPlan.revision} 版` : ''}</dt><dd>
             {videoPlan.sha256 ? <div className="creator-video-plan">
@@ -654,6 +656,12 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
         <h3>制作暂时中断</h3><p>{text(delivery.last_error, '当前步骤未完成')}</p>
         <p>已保留完成的内容和素材。重试只恢复当前步骤；不会重复提交结果未确定的制作，授权外费用会另行确认。</p>
         <button className="btn btn-primary" disabled={!!busy} onClick={() => void run('恢复制作', () => retryCreationDelivery(creationId))}>重试当前步骤</button>
+        <button className="btn" disabled={!!busy} onClick={() => void run('修改方案', async () => {
+          const value = await reopenCreationProposal(creationId);
+          setCreationSnapshot(value); onOpenConversation?.();
+          return value;
+        })}>修改方案后继续</button>
+        <small>当前支持内容准备或创作规划失败时返回修改；已进入素材或视频制作的作品不能直接覆盖。</small>
       </section>}
       {error && <div className="film-op-message is-error" role="alert">
         这一步暂时无法继续。{error}
@@ -671,7 +679,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
         </> : projection.blockedPreparation ? <><p>准备阶段需要处理：{projection.failureReason}</p><p>当前作品与已有内容已保留；补齐创作方式、素材或制作环境后，从准备阶段恢复。费用仍需单独批准。</p><button className="btn" disabled={continuationBusy} onClick={onContinuePreparation}>重新检查内容准备</button></> : <p>{connectionError ? '连接恢复后才能确认最新进度。' : '正在整理已确认的内容与创作边界；暂时没有可展示的阶段成果。'}</p>}
       </section>}
 
-      {operatorSessionReady && attemptId && attempt && <section className={`card film-op-card film-op-creator creator-status-card is-${projection.state}`}>
+      {!showingProposal && operatorSessionReady && attemptId && attempt && <section className={`card film-op-card film-op-creator creator-status-card is-${projection.state}`}>
         <div className="creator-status-eyebrow"><span className={`creator-state-badge is-${connectionError ? 'waiting' : projection.state}`}>{connectionError ? '待核实' : timelineStateLabel[projection.state]}</span><span>当前作品</span></div>
         <div className="film-op-heading"><h2>{backendDelivery ? projection.title.split(' · ')[0] : phaseTitle[phase]}</h2></div>
         <p>{connectionError || delivery.status === 'observation_failed' ? '以下为最后可信制作状态，实时进度尚未确认。' : backendDelivery && !['review', 'done'].includes(phase) ? (projection.pending > 0 ? '处理下方事项后，Easel 会在具备条件时继续。' : projection.failureStage ? '已有结果已保留，可从当前阶段恢复。' : '阶段成果会自动显示在这里，你可以继续对话或稍后返回。') : phaseDescription[phase]}</p>

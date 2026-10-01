@@ -304,6 +304,41 @@ def ensure_chat_proposal_state(creation_id: str) -> dict[str, Any]:
     return get_creation(creation_id)
 
 
+def reopen_video_proposal(creation_id: str, *, seed: dict | None = None) -> dict[str, Any]:
+    """Reopen a failed, pre-material commission without discarding checkpoints.
+
+    Caller must hold the delivery execution lock. Successful Material/Production
+    revisions require their own dependency invalidation, not this early recovery.
+    """
+    with edit_creation(creation_id) as data:
+        workflow = data.get("chat_workflow") or {}
+        if workflow.get("editing_proposal"):
+            return data
+        delivery = data.get("delivery") or {}
+        attempts = data.get("hypit_attempts", [])
+        if (delivery.get("status") != "failed" or data.get("selected_output_name")
+                or any(c.get("status") in {"pending", "submitting"} for c in delivery.get("agent_calls", {}).values())
+                or delivery.get("material_generations")
+                or any(a.get("material_planning", {}).get("status") == "PLANNING_READY"
+                       or a.get("material_gate", {}).get("bundle_revision")
+                       or a.get("production_authoring")
+                       or a.get("execution_status") not in {None, "NOT_SUBMITTED", "BLOCKED"}
+                       for a in attempts)):
+            raise CreationError("当前仅支持内容准备或创作规划失败后修改方案；制作已开始或结果未核实，不能覆盖已有执行")
+        history = data.setdefault("proposal_history", [])
+        history.append({"workflow": dict(workflow), "delivery": dict(delivery),
+                        "preparation": dict(data.get("preparation") or {}), "archived_at": _now()})
+        draft = workflow.get("video_plan") or seed
+        workflow.update(confirmed_at=None, confirmed_by_turn=None, proposal_status="DISCUSSING",
+                        phase="PROPOSAL", video_plan_required=True, editing_proposal=True,
+                        proposal_turn_id="editing")
+        if draft:
+            workflow["video_plan"] = draft
+        data["chat_workflow"] = workflow
+        delivery.update(status="revising_proposal", operation=None)
+    return get_creation(creation_id)
+
+
 def begin_video_proposal(creation_id: str, turn_id: str) -> dict[str, Any]:
     with edit_creation(creation_id) as data:
         workflow = data["chat_workflow"]
@@ -392,7 +427,13 @@ def confirm_chat_proposal(
                 if (not video_plan_sha256 or plan.get("sha256") != video_plan_sha256
                         or production_specs != plan.get("specs")):
                     raise CreationError("视频方案已更新或尚未完成，请查看当前文案与分镜后确认")
+            editing = workflow.get("editing_proposal", False)
+            if editing and data.get("preparation", {}).get("snapshot_hashes"):
+                previous = data["proposal_history"][-1]["workflow"].get("production_specs")
+                if production_specs != previous:
+                    raise CreationError("本次恢复复用原内容与素材规格，请保留原时长、画幅、音轨和语言；规格变化需要新的制作委托")
             workflow.update({
+                "editing_proposal": False,
                 "phase": "PRODUCTION_CONFIRMED",
                 "proposal_status": "CONFIRMED",
                 "confirmed_at": _now(),
@@ -431,6 +472,8 @@ def confirm_chat_proposal(
                                       "material_generation": commission_generation_authorization(generation_budget),
                                       "input_use": input_use},
                     "status": "pending", "failures": {},
+                    **({"agent_calls": data["proposal_history"][-1]["delivery"].get("agent_calls", {}),
+                        "proposal_revision": len(data["proposal_history"])} if editing else {}),
                 }
         elif (proposal_sha256 is not None
               and workflow.get("proposal_sha256") != proposal_sha256):

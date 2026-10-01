@@ -100,3 +100,12 @@ assert.equal(repairingQuality.pending, 0);
 assert.equal(repairingQuality.timeline[5].state, 'running');
 assert.match(repairingQuality.title, /正在修正系统审片/);
 assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:repair_quality' } }, exported, null).failureStage, '审片');
+
+const editing = project({ chat_workflow: { editing_proposal: true, proposal_status: 'DISCUSSING' },
+  delivery: { schema: 'easel-creation-delivery@1', status: 'revising_proposal' },
+  preparation: { status: 'MATERIAL_FAILED', active_stage: 'planning', snapshot_hashes: { core: 'x' } } },
+  { material_planning: { status: 'PLANNING_FAILED' } }, null);
+assert.equal(editing.proposal, true);
+assert.equal(editing.title, '修改创作方案');
+assert.equal(editing.failureStage, null);
+assert.equal(editing.timeline.find(row => row.name === '创作规划').state, 'waiting');

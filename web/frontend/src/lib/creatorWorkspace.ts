@@ -60,7 +60,8 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   const selected = !!attempt && work.selected_attempt_id === item.attempt_id && !!work.selected_output_name;
   const output = Object.keys(asRecord(item.outputs)).length > 0;
   const qualityPending = managed && output && !selected && delivery.status !== 'first_cut_ready';
-  const proposal = workflow.proposal_status !== 'CONFIRMED' && !attempt && (!preparation.status || preparation.status === 'CREATED');
+  const editing = workflow.editing_proposal === true;
+  const proposal = editing || workflow.proposal_status !== 'CONFIRMED' && !attempt && (!preparation.status || preparation.status === 'CREATED');
   const contentFailed = !repairing && !planning.status && !output && !selected && preparation.status === 'FAILED';
   const preparationFailed = !repairing && !output && !selected && gate.status !== 'MATERIAL_READY' && preparation.status === 'MATERIAL_FAILED';
   const planningFailed = ['FAILED', 'PLANNING_FAILED'].includes(String(planning.status)) || (preparationFailed && (preparation.failure_stage === 'planning' || (!preparation.failure_stage && !planning.status)));
@@ -84,12 +85,12 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
     && (!managed || delivery.status === 'needs_cost_approval');
   const blockedPreparation = !attempt && ['MATERIAL_NOT_READY', 'BLOCKED_CREATIVE_MODE_REQUIRED', 'BLOCKED_RUNTIME_INVALID', 'BLOCKED_RUNTIME_NOT_CONFIGURED'].includes(String(preparation.status));
   const pending = selected ? 0 : proposal || blockedPreparation ? 1 : facts + materialTasks + (fee ? 1 : 0) + (output && !qualityPending ? 1 : 0);
-  const failureStage = productionFailed ? '视频制作' : planningFailed ? '创作规划' : materialFailed ? '素材准备' : contentFailed ? '内容准备' : managed && delivery.status === 'failed' ? (/:(quality|repair_quality)$/.test(String(delivery.exhausted_operation)) ? '审片' : /:(observe_material|recover_material|finish_material_generation|generate_material|recover_voice_timing)$/.test(String(delivery.exhausted_operation)) ? '素材准备' : attempt ? '视频制作' : '内容准备') : null;
+  const failureStage = editing ? null : productionFailed ? '视频制作' : planningFailed ? '创作规划' : materialFailed ? '素材准备' : contentFailed ? '内容准备' : managed && delivery.status === 'failed' ? (/:(quality|repair_quality)$/.test(String(delivery.exhausted_operation)) ? '审片' : /:(observe_material|recover_material|finish_material_generation|generate_material|recover_voice_timing)$/.test(String(delivery.exhausted_operation)) ? '素材准备' : attempt ? '视频制作' : '内容准备') : null;
   const state: StageState = selected ? 'completed' : failureStage ? 'failed' : pending ? 'action-required' : proposal ? 'waiting' : 'running';
   const timeline: { name: string; state: StageState }[] = [
     { name: '方案', state: proposal ? 'action-required' : 'completed' },
     { name: '内容准备', state: contentFailed ? 'failed' : facts ? 'action-required' : contentReady || planning.status || output || selected ? 'completed' : proposal ? 'waiting' : 'running' },
-    { name: '创作规划', state: planningFailed ? 'failed' : planning.status === 'PLANNING_READY' || output || selected ? 'completed' : planning.status || preparation.active_stage === 'planning' ? 'running' : 'waiting' },
+    { name: '创作规划', state: editing ? 'waiting' : planningFailed ? 'failed' : planning.status === 'PLANNING_READY' || output || selected ? 'completed' : planning.status || preparation.active_stage === 'planning' ? 'running' : 'waiting' },
     { name: '素材准备', state: materialFailed || failureStage === '素材准备' ? 'failed' : gate.status === 'MATERIAL_READY' || output || selected ? 'completed' : materialWorking ? 'running' : needs ? 'action-required' : planning.status === 'PLANNING_READY' ? 'running' : 'waiting' },
     { name: '视频制作', state: productionFailed ? 'failed' : output || selected ? 'completed' : fee ? 'action-required' : gate.status === 'MATERIAL_READY' ? 'running' : 'waiting' },
     { name: '审片', state: selected ? 'completed' : failureStage === '审片' ? 'failed' : qualityPending ? ['checking_quality', 'repairing_quality'].includes(String(delivery.status)) ? 'running' : 'waiting' : output ? 'action-required' : 'waiting' },
@@ -100,7 +101,7 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   return { proposal, selected, pending, state, timeline, failureStage, blockedPreparation, materialWorking,
     failureReason: rawReason.includes('content.trim is outside') ? '镜头截取超出了原素材时长。已保留原成片、内容和素材；恢复会先修正该镜头截取并核验，重新合成仍需核价与批准。' : rawReason.startsWith('Creative Planning MaterialPlan Domain validation failed:') ? '创作规划的素材需求格式未通过核验。已保留内容与方案，重试会修正规划格式后重新核验。' : rawReason.startsWith('Hypit check 失败：') ? '视频编排文件未通过格式核验。已保留内容和素材，重试会修正编排并重新核验；通过后仍需核价与批准才能合成。' : rawReason,
     updatedAt: delivery.updated_at ?? item.updated_at ?? preparation.updated_at ?? work.updated_at,
-    title: managed && delivery.status === 'observation_failed' ? '状态连接中断 · 显示最后可信结果' :
+    title: editing ? '修改创作方案' : managed && delivery.status === 'observation_failed' ? '状态连接中断 · 显示最后可信结果' :
       managed && delivery.status === 'execution_uncertain' ? '执行结果待核实' :
       selected ? '最终成片已确认' : failureStage ? `${failureStage}遇到问题` : pending ? '需要你处理' : proposal ? '创作方案' :
       managed && delivery.status === 'checking_quality' ? '正在检查成片画面与声音' :

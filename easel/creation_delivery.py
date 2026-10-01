@@ -97,6 +97,8 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         return None, "unmanaged"
     delivery = work["delivery"]
     workflow = work.get("chat_workflow") or {}
+    if workflow.get("editing_proposal"):
+        return None, "revising_proposal"
     proposal = delivery.get("proposal")
     if (workflow.get("proposal_status") != "CONFIRMED" or not isinstance(proposal, str)
             or hashlib.sha256(proposal.encode()).hexdigest() != workflow.get("proposal_sha256")

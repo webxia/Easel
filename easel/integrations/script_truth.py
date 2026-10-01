@@ -197,12 +197,30 @@ def apply_system_script_review(script: str, truth_path: Path, ledger: dict[str, 
         raise ScriptTruthError("系统 Script 审阅未绑定当前脚本和事实底稿")
     decisions = report["decisions"]
     unresolved = {row["claim_id"] for row in current["claims"] if row["status"] == "REVIEW_REQUIRED"}
-    if (not isinstance(decisions, list) or len(decisions) != len(unresolved)
-            or any(not isinstance(item, dict) or not isinstance(item.get("claim_id"), str) for item in decisions)
-            or {item["claim_id"] for item in decisions} != unresolved):
-        raise ScriptTruthError("系统 Script 审阅必须覆盖全部待判断表述，不能遗漏或重复")
+    if (not isinstance(decisions, list)
+            or any(not isinstance(item, dict) or not isinstance(item.get("claim_id"), str) for item in decisions)):
+        raise ScriptTruthError("系统脚本审阅条目格式无效")
+    from collections import Counter
+    counts = Counter(item["claim_id"] for item in decisions)
+    known = {row["claim_id"]: row for row in current["claims"]}
+    missing = sorted(unresolved - counts.keys())
+    duplicates = sorted(key for key, count in counts.items() if count > 1)
+    unknown = sorted(counts.keys() - known.keys())
+    if missing or duplicates or unknown:
+        raise ScriptTruthError("系统脚本审阅覆盖不完整：遗漏=" + str(missing)
+                               + "；重复=" + str(duplicates) + "；未知编号=" + str(unknown))
     evidence = system_review_sources(truth_path)
-    by_id = {item["claim_id"]: item for item in decisions}
+    for item in decisions:
+        claim_id = item["claim_id"]
+        _validate_system_decision(item, claim_id, evidence)
+        if claim_id not in unresolved:
+            row = known[claim_id]
+            allowed = (item["kind"] == "creative_expression" and row["status"] in {"AUTO_REVIEWED", "FICTION_MARKED"}
+                       or item["kind"] == "supported_paraphrase" and row["status"] == "TRUTH_SUPPORTED")
+            if not allowed:
+                raise ScriptTruthError("额外审阅与已有判断冲突，不能覆盖：" + claim_id)
+    # Harmless extra review never replaces deterministic/source-bound evidence.
+    by_id = {item["claim_id"]: item for item in decisions if item["claim_id"] in unresolved}
     reviewed_at = datetime.now(timezone.utc).isoformat()
     # Copy after validation; a rejected report must not partially mutate evidence.
     current = json.loads(json.dumps(current))

@@ -346,6 +346,10 @@ export function approveFilmCost(attemptId: string, maxBudgetUsd: number): Promis
   return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/approve-cost`, { maxBudgetUsd });
 }
 
+export function reopenCreationProposal(creationId: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/creations/${encodeURIComponent(creationId)}/proposal/reopen`);
+}
+
 export function retryCreationDelivery(creationId: string): Promise<OperatorRecord> {
   return operatorPost(`/api/creations/${encodeURIComponent(creationId)}/delivery/retry`);
 }

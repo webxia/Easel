@@ -1743,3 +1743,43 @@ def test_video_proposal_revision_recovery_and_stale_confirmation(prep_env):
     creation.begin_video_proposal(cid, "late")
     creation.save_video_proposal(cid, "turn-2", VIDEO_PROPOSAL)
     assert creation.get_creation(cid)["delivery"]["video_plan"] == second
+
+
+def test_failed_planning_can_reopen_same_work_without_losing_checkpoint(prep_env):
+    from easel.creation_delivery import next_operation
+    from easel.creator_proposal import parse_video_plan
+    work = _confirmed_delivery()
+    cid = work['id']
+    plan = parse_video_plan(VIDEO_PROPOSAL)
+    with creation.edit_creation(cid) as current:
+        current['chat_workflow']['production_specs'] = plan['specs']
+        current['preparation'] = {'status': 'MATERIAL_FAILED', 'operation_key': 'a' * 64,
+                                  'snapshot_hashes': {'fixture': 'b' * 64}}
+        current['delivery'].update(status='failed', exhausted_operation='preparation:prepare',
+                                   agent_calls={'completed': {'status': 'ok'}})
+    before = creation.get_creation(cid)
+    editing = creation.reopen_video_proposal(cid)
+    assert editing['id'] == cid and editing['preparation'] == before['preparation']
+    assert next_operation(editing) == (None, 'revising_proposal')
+    assert editing['proposal_history'][0]['delivery'] == before['delivery']
+    # Repeated clicks neither append history nor discard current edits.
+    assert len(creation.reopen_video_proposal(cid)['proposal_history']) == 1
+    creation.begin_video_proposal(cid, 'revise')
+    creation.save_video_proposal(cid, 'revise', VIDEO_PROPOSAL)
+    kwargs = dict(delivery_proposal=before['delivery']['proposal'],
+        proposal_sha256=before['delivery']['proposal_sha256'], video_plan_sha256=plan['sha256'])
+    with pytest.raises(creation.CreationError):
+        creation.confirm_chat_proposal(cid, 'reconfirm', production_specs={**plan['specs'], 'duration_seconds': 30}, **kwargs)
+    result = creation.confirm_chat_proposal(cid, 'reconfirm', production_specs=plan['specs'], **kwargs)
+    assert result['preparation'] == before['preparation']
+    assert result['delivery']['proposal_revision'] == 1
+    assert result['delivery']['agent_calls'] == before['delivery']['agent_calls']
+    assert result['delivery']['status'] == 'pending'
+    assert not result['chat_workflow']['editing_proposal']
+    # Unknown remote execution and successful Material checkpoints cannot be overwritten.
+    for attempt in [{'execution_status': 'RUNNING'}, {'material_planning': {'status': 'PLANNING_READY'}}]:
+        with creation.edit_creation(cid) as current:
+            current['delivery']['status'] = 'failed'
+            current['hypit_attempts'] = [attempt]
+        with pytest.raises(creation.CreationError, match='制作已开始'):
+            creation.reopen_video_proposal(cid)

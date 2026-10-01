@@ -14,6 +14,14 @@ Last audited: 2026-10-01. This is the single summary of current implementation a
 | P3 | **NOT_STARTED**. |
 | Test suite | Latest complete deterministic run: **600 passed, 5 skipped** on 2026-10-01. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
 
+## 创作规划失败恢复（2026-10-01）
+
+- 真实失败根因：脚本共 14 项，其中 1 项已确定性标记为假设表达，模型额外审阅该项使原先“恰好等于待审集合”的校验拒绝整份报告。现允许当前脚本内、与已有判断一致的额外审阅，不覆盖既有证据；真正遗漏、重复、未知编号、过期身份、来源错误及相互冲突仍拒绝，错误明确指出差异。
+- 对只确认方向的旧委托，格式合格但含 unresolved 的报告增加一次有界责任复核：区分委托必须补充的信息与系统自行引入、可在原方向内删除/改写的无依据表达。后者沿用原脚本修正与重新审阅链路；不自动把事实判 PASS，不改写新委托已确认的逐字文案。
+- 新增同一作品“修改方案后继续”接口与页面入口，受原 delivery 执行锁保护。最小范围为内容准备/创作规划失败且未完成素材规划、未开始供应/生产、无未核实网关执行。保存原委托/方案/准备历史，暂停自动推进，沿用原对话修改完整方案；重新确认同规格版本后保留原 Preparation/Attempt 与已完成网关记录，原未提交规划文件归档后使用新确认稿。已冻结规格变化、Material/Production 已开始及执行不确定时明确拒绝覆盖；不是全阶段通用重编入口。
+- 验证：Script Truth、Preparation、跨 Content Replay、Hypit、隔离 Authoring **139 passed**；额外审阅保留原证据，遗漏/重复/未知/冲突拒绝，修改中的 Owner 停止、历史保存、同规格重新确认/检查点复用及生产阶段拒绝覆盖均有局部证据。前端状态场景、lint/build、compileall 与 diff check 通过，保留既有依赖/Hook/包体积提示。未跑浏览器 fixture 或新作品完整 E2E。
+- 对本次真实 `cr_b31cd80a62cc4da7927006c0692a9446` 原报告只读回放，结构校验已通过，仍保留“电车和油车又吵成一团”的内容依据问题。经用户授权，21:27 左右重启服务并调用正式阶段 Retry；原 Attempt 数量仍为 1，Owner 为 observing_execution，正在执行责任复核。未手改当前脚本、伪造审阅或创建新作品；此次记录只证明恢复已启动，不证明首版交付成功。
+
 ## 对话内视频方案（2026-10-01）
 
 - 用户确认前在聊天中讨论完整创作表达、逐字文案、分镜节奏、声音设计与规格；提案阶段注入真实 Director 表达文件，替换仅给方向和规格的提示。完整回复由服务端解析并保存到 Creation 的 `chat_workflow.video_plan`，同一方案修改递增版本；画布不再使用最后一条助手回复充当方案。

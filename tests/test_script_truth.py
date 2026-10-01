@@ -223,3 +223,26 @@ def test_system_review_cannot_replace_evidence_or_coverage_with_a_pass_flag(tmp_
     with pytest.raises(ScriptTruthError):
         apply_system_script_review(script, path, ledger, report)
     assert ledger["claims"][0]["status"] == "REVIEW_REQUIRED"
+
+
+def test_redundant_review_preserves_automatic_evidence_but_rejects_bad_coverage(tmp_path):
+    path = _truth(tmp_path)
+    script = '如果每个人可以为自己的场景做主，\n我们先看清问题。'
+    ledger = create_script_claim_ledger(script, path)
+    assert ledger['claims'][0]['status'] == 'FICTION_MARKED'
+    report = {'schema': 'easel-script-assessment@1', 'script_sha256': ledger['script_sha256'],
+              'truth_packet_sha256': ledger['truth_packet_sha256'], 'decisions': [
+                  {'claim_id': row['claim_id'], 'kind': 'creative_expression',
+                   'reason': '假设或主观表达，不引入现实事实', 'sources': []} for row in ledger['claims']]}
+    reviewed = apply_system_script_review(script, path, ledger, report)
+    assert reviewed['status'] == 'PASSED'
+    assert reviewed['claims'][0] == ledger['claims'][0]
+    for mutation, diagnostic in [('missing', '遗漏'), ('duplicate', '重复'), ('unknown', '未知编号'), ('conflict', '冲突')]:
+        invalid = json.loads(json.dumps(report))
+        if mutation == 'missing': invalid['decisions'].pop()
+        if mutation == 'duplicate': invalid['decisions'].append(dict(invalid['decisions'][0]))
+        if mutation == 'unknown': invalid['decisions'][0]['claim_id'] = 'claim-9999'
+        if mutation == 'conflict': invalid['decisions'][0]['kind'] = 'rewrite_required'
+        with pytest.raises(ScriptTruthError, match=diagnostic):
+            apply_system_script_review(script, path, ledger, invalid)
+    assert validate_script_claim_ledger(script, path, reviewed) == reviewed
