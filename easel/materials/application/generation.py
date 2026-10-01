@@ -79,6 +79,28 @@ class GenerationRequestConflict(ValueError):
     """The request id already has persisted execution state."""
 
 
+def visual_generation_prompt(need: MaterialNeed) -> str:
+    """Use the same effective scene style as retrieval and matching.
+
+    Planning resolves Mode defaults and scene overrides into preferred_style.
+    Unbound standalone Image Needs retain their existing visual_style fallback.
+    """
+    if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
+        raise ValueError('视觉生成只支持图片或视频 Need')
+    style = need.constraints.get('preferred_style') or getattr(need.modality_spec, 'visual_style', None)
+    if style is not None and not isinstance(style, str):
+        raise ValueError('视觉风格须为已规划的文字要求，未提交生成')
+    prompt = need.intent.description.strip()
+    if not prompt:
+        raise ValueError('视觉素材需要明确内容描述，未提交生成')
+    if style and style.strip():
+        prompt += '\nVisual style: ' + style.strip()
+    limit = 1500 if need.media_type is MediaType.IMAGE else 7000
+    if len(prompt) > limit:
+        raise ValueError(f'视觉素材描述与风格合计超过 {limit} 字符，需先精简规划；未提交生成')
+    return prompt
+
+
 @dataclass(frozen=True)
 class GeneratedMaterialResult:
     generation_id: str
@@ -134,7 +156,7 @@ class MiniMaxVideoMaterialGeneration:
         except GenerationRecordNotFound:
             previous = None
 
-        prompt = need.intent.description.strip()
+        prompt = visual_generation_prompt(need)
         prompt_hash = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
         duration = self._duration(need)
         ratio = self._ratio(need)

@@ -1181,6 +1181,9 @@ def test_product_supply_rehydrates_current_completed_generation_after_rights_rev
 def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_content(
     material_integration_env, tmp_path, monkeypatch,
 ):
+    from io import BytesIO
+    import base64
+    from easel.materials.domain import ImageNeedSpec
     old = material_integration_env
     actual_mode = json.loads((Path(__file__).resolve().parents[1]
                               / "creative_modes/clear_memo_video/mode.json").read_text())
@@ -1208,6 +1211,12 @@ def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_conten
                          media_type=MediaType.IMAGE, role="局部对照", intent=NeedIntent(description="station clock"),
                          constraints={"preferred_style": "high contrast documentary"},
                          importance=NeedImportance.REQUIRED),
+            MaterialNeed(need_id="scene-walk", scope=NeedScope(type=NeedScopeType.SCENE, ref="walk"),
+                         media_type=MediaType.VIDEO, role="主视觉", intent=NeedIntent(description="walk beside the station"),
+                         importance=NeedImportance.REQUIRED),
+            MaterialNeed(need_id="scene-sign", scope=NeedScope(type=NeedScopeType.SCENE, ref="sign"),
+                         media_type=MediaType.IMAGE, role="局部", intent=NeedIntent(description="station sign"),
+                         modality_spec=ImageNeedSpec(visual_style='quiet monochrome'), importance=NeedImportance.REQUIRED),
         ))
     original = plan.model_dump()
     planning = PlanningIntegration().persist(attempt, plan, treatment="两个具体观察，保留高对比时钟镜头。",
@@ -1216,6 +1225,8 @@ def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_conten
     bound = planning["plan"]
     assert bound.needs[0].constraints["preferred_style"] == style
     assert bound.needs[1].constraints["preferred_style"] == "high contrast documentary"
+    assert bound.needs[2].constraints['preferred_style'] == style
+    assert bound.needs[3].constraints['preferred_style'] == 'quiet monochrome'
     assert [need.intent for need in bound.needs] == [need.intent for need in plan.needs]
     # A later package edit never changes an already frozen production input.
     mode_path.write_text(json.dumps({**actual_mode, "visual_material_style": "unrelated glossy style"}))
@@ -1249,11 +1260,54 @@ def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_conten
     result = supply.run(bound, planning["attempt"], local_roots=(empty_root,), supply_run_id="style-supply",
                         bundle_id="style-bundle", search_terms={"scene-bus": ("bus stop", "bus", "station", "road")})
     assert result.readiness.status.value == "NOT_READY"  # preferences aren't observation or Rights evidence
-    assert len(requests) == 2, [(row.get("failures"), row.get("skipped")) for row in result.routing_trace]
+    assert len(requests) == 4, [(row.get("failures"), row.get("skipped")) for row in result.routing_trace]
     assert requests[0].semantic_queries[0] == "bus stop " + style
     assert requests[1].semantic_queries[0] == "station clock high contrast documentary"
     assert preferences[0][1][0].preferred_values == (style,)
     assert preferences[1][1][0].preferred_values == ("high contrast documentary",)
+    # Exercise the real image/video HTTP adapters with deterministic transport.
+    # Style must reach the actual generation request, not only retrieval metadata.
+    from easel.materials.application.generation import MiniMaxVideoMaterialGeneration, GenerationRequestConflict
+    from easel.materials.application.generation_modalities import MiniMaxImageSpeechGeneration
+    from easel.materials.providers.minimax_video import MiniMaxVideoAdapter, MiniMaxVideoObservationPending
+    from easel.materials.providers.minimax_image import MiniMaxImageAdapter
+    from easel.materials.providers.http_support import HttpResponse
+    image = BytesIO()
+    Image.new('RGB', (64, 64), 'teal').save(image, format='PNG')
+    generation_requests = []
+    class Transport:
+        def post(self, url, *, body, **kwargs):
+            payload = json.loads(body)
+            generation_requests.append(payload)
+            result = ({'task_id': 'fixture-style-video'} if 'content' in payload else
+                      {'data': {'image_base64': [base64.b64encode(image.getvalue()).decode()]}})
+            return HttpResponse(200, {}, json.dumps(result).encode())
+        def get(self, *args, **kwargs):
+            raise TimeoutError('fixture ends at observed generation request; no live video')
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    transport = Transport()
+    for need in bound.needs:
+        request_id = 'style-' + need.need_id
+        if need.media_type is MediaType.IMAGE:
+            engine = MiniMaxImageSpeechGeneration(image_adapter=MiniMaxImageAdapter('fixture-key', transport=transport))
+            first = engine.generate(bound, need, store, request_id=request_id, confirmed_paid=True)
+            assert first.asset.rights.status is RightsStatus.UNKNOWN
+            engine.generate(bound, need, store, request_id=request_id, confirmed_paid=True)
+            prompt = generation_requests[-1]['prompt']
+        else:
+            engine = MiniMaxVideoMaterialGeneration(MiniMaxVideoAdapter('fixture-key', transport=transport))
+            for _ in range(2):
+                with pytest.raises(MiniMaxVideoObservationPending):
+                    engine.generate(bound, need, store, request_id=request_id, confirmed_paid=True)
+            prompt = generation_requests[-1]['content'][0]['text']
+        assert prompt == need.intent.description + '\nVisual style: ' + need.constraints['preferred_style']
+        record = store.read_generation_record('gen-' + request_id)
+        assert record.get('prompt_sha256', record.get('input_sha256')) == hashlib.sha256(prompt.encode()).hexdigest()
+        changed = need.model_copy(update={'constraints': {**need.constraints, 'preferred_style': 'unrelated glossy style'}})
+        changed_plan = bound.model_copy(update={'needs': tuple(changed if n.need_id == need.need_id else n for n in bound.needs)})
+        with pytest.raises(GenerationRequestConflict):
+            engine.generate(changed_plan, changed, store, request_id=request_id, confirmed_paid=True)
+    assert len(generation_requests) == 4  # Resume and changed input cannot buy again.
     assert handoff.load_frozen_creative_mode(old)[0].get("voice_delivery") is None
     voice = MaterialNeed(need_id="narration", scope=NeedScope(type=NeedScopeType.GLOBAL, ref="program"),
         media_type=MediaType.AUDIO, role="旁白", intent=NeedIntent(description="平静的事后观察"),

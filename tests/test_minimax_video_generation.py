@@ -145,7 +145,7 @@ def _plan_and_need() -> tuple[MaterialPlan, MaterialNeed]:
         media_type=MediaType.VIDEO,
         role="b-roll",
         intent=NeedIntent(description="一位创作者在清晨走进工作室"),
-        constraints={"allow_generation": True, "orientation": "portrait"},
+        constraints={"allow_generation": True, "orientation": "portrait", "preferred_style": "restrained low saturation everyday"},
         importance=NeedImportance.REQUIRED,
     )
     plan = MaterialPlan(
@@ -163,6 +163,7 @@ class FakeAdapter:
         self.wait_calls = 0
 
     def submit(self, _prompt, **_kwargs):
+        assert _prompt == '一位创作者在清晨走进工作室\nVisual style: restrained low saturation everyday'
         self.submit_calls += 1
         return type("Task", (), {"task_id": "task-123"})()
 

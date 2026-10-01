@@ -125,11 +125,15 @@ def _need(media_type, spec, need_id):
     )
 
 
-def test_image_generation_requires_explicit_paid_approval_and_is_idempotent(tmp_path, monkeypatch):
+@pytest.mark.parametrize('preferred_style', [None, 'restrained low saturation everyday'])
+def test_image_generation_requires_explicit_paid_approval_and_is_idempotent(tmp_path, monkeypatch, preferred_style):
     image = BytesIO()
     Image.new("RGB", (2, 2), "white").save(image, format="PNG")
     body = image.getvalue()
     need = _need(MediaType.IMAGE, ImageNeedSpec(aspect_ratio="9:16", visual_style="暖色纪实"), "need-image")
+    if preferred_style:
+        need = need.model_copy(update={'constraints': {**need.constraints, 'preferred_style': preferred_style}})
+    effective_style = preferred_style or '暖色纪实'
     plan = MaterialPlan(plan_id="plan-1", creation_id="creation-1", attempt_id="attempt-1", needs=(need,))
     store = AttemptMaterialStore(tmp_path)
 
@@ -140,7 +144,7 @@ def test_image_generation_requires_explicit_paid_approval_and_is_idempotent(tmp_
             self.calls += 1
             with pytest.raises(ValueError, match='仍在执行'):
                 service.generate(plan, need, store, request_id='image-1', confirmed_paid=True)
-            assert "Visual style: 暖色纪实" in prompt
+            assert prompt == f'素材需求描述\nVisual style: {effective_style}'
             assert aspect_ratio == "9:16"
             return type("Result", (), {"image_bytes": body})()
 
@@ -168,7 +172,7 @@ def test_image_generation_requires_explicit_paid_approval_and_is_idempotent(tmp_
     assert result.asset.rights.status is RightsStatus.UNKNOWN
     assert result.asset.technical.status is TechnicalStatus.PASSED
     assert result.record["input_sha256"] == hashlib.sha256(
-        "素材需求描述\nVisual style: 暖色纪实".encode()
+        f"素材需求描述\nVisual style: {effective_style}".encode()
     ).hexdigest()
 
 

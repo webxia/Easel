@@ -12,6 +12,7 @@ from easel.materials.application.generation import (
     GenerationApprovalRequired,
     GenerationRequestConflict,
     GeneratedMaterialResult,
+    visual_generation_prompt,
 )
 from easel.materials.application.inspector import TechnicalInspector
 from PIL import Image
@@ -114,11 +115,7 @@ class MiniMaxImageSpeechGeneration:
         else:
             if self._image is None:
                 raise ValueError("MiniMax image adapter is not configured")
-            intent = need.intent.description.strip()
-            if isinstance(spec, ImageNeedSpec) and spec.visual_style:
-                intent = f"{intent}\nVisual style: {spec.visual_style}"
-            if not intent or len(intent) > 1500:
-                raise ValueError("Image Need prompt must contain 1–1500 characters")
+            intent = visual_generation_prompt(need)
             input_digest = hashlib.sha256(intent.encode("utf-8")).hexdigest()
             model = self._image.model
 

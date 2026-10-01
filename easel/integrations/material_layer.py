@@ -291,12 +291,13 @@ class PlanningIntegration:
             raise MaterialIntegrationError("Planning 风格来源与冻结 Creative Mode 不一致")
         bound_needs = []
         for need in plan.needs:
-            if (style and need.media_type in {MediaType.IMAGE, MediaType.VIDEO}
+            spec = need.modality_spec
+            scene_style = getattr(spec, 'visual_style', None) or style
+            if (scene_style and need.media_type in {MediaType.IMAGE, MediaType.VIDEO}
                     and not need.constraints.get("preferred_style")):
                 # A soft default on existing Need semantics; no subject,
                 # narrative, source restriction or readiness rule is invented.
-                need = need.model_copy(update={"constraints": {**need.constraints, "preferred_style": style}})
-            spec = need.modality_spec
+                need = need.model_copy(update={"constraints": {**need.constraints, "preferred_style": scene_style}})
             if getattr(spec, "kind", None) == "voice":
                 from easel.materials.application.voice_delivery import validate_voice_delivery
                 controls = need.constraints.get("voice_delivery", {})
