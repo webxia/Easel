@@ -2201,6 +2201,9 @@ async def _execute_creation_delivery(operation: str, work: dict) -> None:
     elif operation == 'repair_quality':
         from easel.integrations.hypit.service import repair_film_quality
         await asyncio.to_thread(repair_film_quality, work['delivery']['recovering_quality_from'])
+    elif operation == 'repair_planning':
+        from easel.integrations.material_recovery import repair_managed_planning
+        await asyncio.to_thread(repair_managed_planning, attempt_id, executor=_material_planning_executor)
     else:
         raise CreationError("未知的作品交付操作")
 
@@ -2862,7 +2865,23 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
                 "script": values["script"], "scenes": values["scenes"]}
 
     session_id = f"material-planning-{attempt['attempt_id']}"
-    if not all(path.is_file() for path in files.values()):
+    quality_repair = planning_context.get('quality_repair')
+    if quality_repair:
+        prompt += (
+            '\n〔修正系统审片发现的内容问题〕\n'
+            + json.dumps(quality_repair, ensure_ascii=False)
+            + '\n当前 planning 文件是已保留的原方案。仅修正反馈指出的脚本表达、叙事顺序和因此变化的选材意图。'
+              '保持冻结委托、事实、Creator、Mode、规格、Plan.policy、全部 Need ID、类型、用途、'
+              'scope、importance、时长范围、来源约束及声音身份/朗读参数不变。'
+              '可改视觉 Need.intent；声音 Need 保持原样，Voice text_ref/text_sha256 由后端随新 SCRIPT 重新绑定。'
+              '不得增加或删除 Need、降低约束或用假事实解决问题。无关脚本和场景保持原样。'
+              '旧素材会重新核对并尽量复用；不要声称旧旁白能用于变化后的文稿。'
+              '完成上述四文件后停止；沿用同一 Truth、素材、核价与制作流程。'
+        )
+        # The durable gateway reuses a completed call; copied source files
+        # alone are never evidence that the requested repair was executed.
+        run_agent_sync(prompt, TIMEOUT_PRODUCE, session_id)
+    elif not all(path.is_file() for path in files.values()):
         run_agent_sync(prompt, TIMEOUT_PRODUCE, session_id)
     try:
         result = validate_artifacts()
@@ -2994,6 +3013,13 @@ async def _run_film_authoring(attempt_id: str) -> dict:
         "起点向上取整、终点向下取整，必须位于 source_interval_seconds 内；不得借其他 Need 的区间。"
     )
     revision = started.get("revision_feedback")
+    if started.get('planning_repair', {}).get('status') == 'COMPLETE':
+        message += (
+            '\n〔系统内容修正后的重新编排〕\n'
+            '按当前已重新审阅的 SCRIPT/SCENES 和重新准入的素材编排；原时间点只用于定位旧成片问题。'
+            '同时解决以下反馈中的画面、字幕和声音问题；不要恢复旧脚本或旧旁白。\n'
+            + json.dumps(started['planning_repair']['request']['feedback'], ensure_ascii=False)
+        )
     if revision and revision.get('origin') == 'system_quality':
         message += (
             '\n〔Easel 系统审片局部修正〕\n' + json.dumps(revision, ensure_ascii=False)

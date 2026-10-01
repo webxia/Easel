@@ -913,6 +913,16 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
     assert result["plan"].needs[0].media_type is MediaType.VIDEO
     assert result["plan"].context_refs == refs
 
+    # A copied, valid plan must not short-circuit an output-bound rewrite.
+    # It uses the same executor and frozen references, with explicit scope.
+    feedback = {'origin': 'system_quality', 'allowed_changes': ['planning'],
+                'feedback': [{'text': '先解释问题，再反思结论', 'time_seconds': 2}]}
+    web._material_planning_executor(attempt, {'context_refs': refs, 'quality_repair': feedback})
+    assert len(prompt_seen) == 2
+    assert '修正系统审片发现的内容问题' in prompt_seen[-1]
+    assert json.dumps(feedback, ensure_ascii=False) in prompt_seen[-1]
+    assert '不得增加或删除 Need' in prompt_seen[-1]
+
 
 def test_failed_planning_and_not_ready_retry_reuse_frozen_attempt(prep_env):
     creation_id = prep_env["work"]["id"]

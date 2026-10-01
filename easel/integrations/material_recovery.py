@@ -30,6 +30,102 @@ def _production_started(attempt: dict) -> bool:
                 or attempt.get('authoring_status') not in {None, 'PENDING', 'READY_FOR_EXTERNAL_AUTHORING'})
 
 
+def repair_managed_planning(attempt_id: str, *, executor) -> dict:
+    """Repair writing in the existing fork, then rematch retained media.
+
+    The owner serializes this operation. Cache the validated model result
+    before updating any checkpoints, so interrupted persistence never causes
+    another rewrite, supply request or purchase.
+    """
+    from easel import creation
+    from easel.creation_delivery import active_delivery, is_managed
+    from easel.integrations.hypit.service import _execution_fingerprint, _file_sha256, _output_path
+    from easel.integrations.hypit.quality import repair_request
+
+    attempt = get_film_attempt(attempt_id)
+    work = creation.get_creation(attempt['creation_id'])
+    record = attempt.get('planning_repair', {})
+    request = record.get('request', {})
+    source = get_film_attempt(attempt.get('retry_source', {}).get('attempt_id', ''))
+    if (not is_managed(work) or active_delivery.get() != work['id']
+            or work.get('selected_output_name') or source['creation_id'] != work['id']
+            or source['attempt_id'] not in work['delivery'].get('quality_repairs', [])
+            or 'planning' not in request.get('allowed_changes', [])
+            or repair_request(source) != request
+            or _execution_fingerprint(source)['sha256'] != attempt['retry_source']['fingerprint']
+            or _file_sha256(_output_path(source, source['outputs'][request['output_name']])) != request['sha256']):
+        raise MaterialIntegrationError('内容修正必须由当前委托 Owner 执行，并绑定未变化的原成片与审片证据')
+    if record.get('status') == 'COMPLETE':
+        return attempt
+    if _production_started(attempt) or attempt.get('execution_status') != 'NOT_SUBMITTED':
+        raise MaterialIntegrationError('内容修正尚未完成，不能覆盖已开始的制作')
+    original = PlanningIntegration().load(source)
+    old_plan, old_bundle, _ = MaterialGateIntegration().assert_ready(source)
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    cache_key = 'planning-' + request['quality_report_sha256'][:32]
+    cached = store.read_recovery_record(cache_key)
+    if cached is None:
+        result = executor(attempt, {'context_refs': old_plan.context_refs, 'quality_repair': request})
+        cached = {key: result.get(key) for key in ('treatment', 'script', 'scenes', 'script_assessment')}
+        cached['plan'] = result['plan'].model_dump(mode='json')
+        cached['request'] = request
+    plan = MaterialPlan.model_validate_json(json.dumps(cached['plan']))
+    if (cached.get('request') != request or plan.creation_id != work['id']
+            or plan.attempt_id != attempt_id or plan.plan_id != f"plan-{attempt_id[-20:]}"
+            or plan.context_refs != old_plan.context_refs or plan.policy != old_plan.policy
+            or tuple(n.need_id for n in plan.needs) != tuple(n.need_id for n in old_plan.needs)):
+        raise MaterialIntegrationError('内容修正不能改变委托依据、素材策略或需求身份')
+    for old, new in zip(old_plan.needs, plan.needs):
+        # V1 rewrites words/scene order/visual intent, not the commission's
+        # source policy, voice identity or technical scope. Persist alone
+        # binds a changed Script to Voice; the model cannot loosen it.
+        visual = old.media_type.value in {'image', 'video'}
+        if (old.model_copy(update={'intent': new.intent}) if visual else old) != new:
+            raise MaterialIntegrationError('内容修正仅可调整需求表达，不得改变用途、来源约束或声音身份')
+        NeedCompiler().compile(new)
+    if any(not isinstance(cached.get(key), str) or not cached[key].strip()
+           for key in ('treatment', 'script', 'scenes')):
+        raise MaterialIntegrationError('内容修正缺少完整规划稿')
+    if all(cached[key] == original[key] for key in ('treatment', 'script', 'scenes')) and plan.needs == old_plan.needs:
+        raise MaterialIntegrationError('系统内容修正没有形成任何实际修改')
+    store.write_recovery_record(cache_key, cached)
+    persisted = PlanningIntegration().persist(attempt, plan, treatment=cached['treatment'],
+        script=cached['script'], scenes=cached['scenes'], script_assessment=cached.get('script_assessment'))
+    attempt, plan = persisted['attempt'], persisted['plan']
+    if persisted['truth_ledger']['status'] != 'PASSED':
+        return update_film_attempt(attempt_id, event='planning_repair_truth_required',
+            planning_repair={**record, 'status': 'TRUTH_REQUIRED'})
+    for asset in old_bundle.assets:
+        path = store.resolve_asset_locator(asset.file.path)
+        if path.stat().st_size != asset.file.size or _file_sha256(path) != 'sha256:' + asset.file.sha256:
+            raise MaterialIntegrationError('保留素材的字节或证据已变化，不能复用')
+        if store.read_asset(asset.asset_id) != asset:
+            raise MaterialIntegrationError('保留素材记录与原 Bundle 不一致：' + asset.asset_id)
+    matches = []
+    for need in plan.needs:
+        ranked = MaterialMatcher().match(need, old_bundle.assets)
+        matches.extend(MaterialDeduplicator(store).deduplicate_and_diversify(
+            ranked.matches, old_bundle.assets, top_k=3).shortlist)
+    now = datetime.now(timezone.utc)
+    run = SupplyRun(supply_run_id='planning-' + attempt_id[-20:], plan_id=plan.plan_id,
+        parent_run_id=old_bundle.supply_run_id, started_at=now, finished_at=now,
+        result_bundle_id='bundle-' + attempt_id[-20:])
+    bundle = MaterialBundleAssembler().assemble(plan, run, old_bundle.assets, tuple(matches),
+                                               bundle_id=run.result_bundle_id)
+    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
+    attempt = MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)['attempt']
+    # Changed Needs invalidate their scoped observation automatically. The
+    # regular owner now observes, supplements and (only if needed) requotes.
+    if readiness.status is ReadinessStatus.READY:
+        attempt = ProductionAuthoringIntegration().prepare(attempt, selected_asset_ids=())['attempt']
+    return update_film_attempt(attempt_id, event='planning_repair_completed',
+        planning_repair={**record, 'status': 'COMPLETE',
+                         'plan_revision': readiness.plan_revision,
+                         'script_sha256': persisted['truth_ledger']['script_sha256']},
+        material_observation={}, preparation_status='PRODUCTION_PREPARED'
+            if readiness.status is ReadinessStatus.READY else 'MATERIAL_NOT_READY')
+
+
 def recover_managed_materials(attempt_id: str, *, executor) -> dict:
     """One commissioned supplemental search; preserve Need, Rights and Voice."""
     from easel import creation

@@ -772,9 +772,11 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
         selection_path = source_root / "productions/easel-authoring/material-selection.json"
         selection = json.loads(selection_path.read_text(encoding="utf-8"))
         selected_ids = tuple(item["asset_id"] for item in selection["assets"])
-        target = ProductionAuthoringIntegration().prepare(
-            target, selected_asset_ids=selected_ids,
-        )["attempt"]
+        planning_repair = bool(revision and 'planning' in revision.get('allowed_changes', []))
+        if not planning_repair:
+            target = ProductionAuthoringIntegration().prepare(
+                target, selected_asset_ids=selected_ids,
+            )["attempt"]
         if revision is not None:
             current_source = get_film_attempt(attempt_id)
             current_review = current_source.get("review", {})
@@ -787,6 +789,17 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
                     and current_review.get("human", {}).get("status") == "rejected")
             if (not same_review or _execution_fingerprint(current_source)["sha256"] != source_fingerprint["sha256"]):
                 raise HypitIntegrationError("复制期间源成片或修改反馈发生变化，请重新确认")
+            if planning_repair:
+                # Preserve the old media/Truth as evidence, not approval for
+                # changed writing. The existing Planning executor owns repair;
+                # no old selection, authored timeline or price is promoted.
+                return update_film_attempt(
+                    target['attempt_id'], event='output_planning_repair_required',
+                    preparation_status='PLANNING_REPAIR_REQUIRED',
+                    planning_repair={'status': 'PENDING', 'request': revision},
+                    retry_source={'attempt_id': attempt_id, 'build_id': build_id,
+                                  'fingerprint': source_fingerprint['sha256'], 'status': 'READY'},
+                )
             # Previous valid authoring is a reference only; the new Attempt has
             # no Plan, price, approval, submission, export or final selection.
             for name in ("main.svml", "recipes.svs"):
@@ -879,6 +892,8 @@ def begin_film_authoring(attempt_id: str) -> dict[str, Any]:
     or duplicate UI click cannot create concurrent writers in one workspace.
     """
     attempt = get_film_attempt(attempt_id)
+    if attempt.get('planning_repair') and attempt['planning_repair'].get('status') != 'COMPLETE':
+        raise HypitIntegrationError('内容修正与重新核验尚未完成，不能开始视频编排')
     # Material-integrated attempts must pass the current MaterialReadiness
     # evidence and explicit Production Authoring selection before dispatch.
     # Legacy/unintegrated attempts retain the existing authoring contract.

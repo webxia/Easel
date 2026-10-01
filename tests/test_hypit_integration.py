@@ -1350,9 +1350,10 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
         assert quality.repair_request(attempt)['allowed_changes'] == ['captions', 'visual', 'visual_material']
         check['repair_target'] = 'visual'
         assert quality.repair_request(attempt)['allowed_changes'] == ['captions', 'visual']
-        for target in ('planning', 'unknown'):
-            check['repair_target'] = target
-            assert quality.repair_request(attempt) is None
+        check['repair_target'] = 'planning'
+        assert quality.repair_request(attempt)['allowed_changes'] == ['captions', 'planning', 'visual']
+        check['repair_target'] = 'unknown'
+        assert quality.repair_request(attempt) is None
         check['status'] = 'pass'
     system['binding']['sha256'] = 'stale-output'
     assert quality.repair_request(attempt) is None

@@ -150,6 +150,12 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         return None, "production_failed"
     if execution == "CANCELLED":
         return None, "stopped"
+    planning_repair = attempt.get('planning_repair', {})
+    if planning_repair and planning_repair.get('status') != 'COMPLETE':
+        if (planning_repair.get('status') == 'TRUTH_REQUIRED'
+                and attempt.get('material_planning', {}).get('truth_review_status') != 'PASSED'):
+            return None, 'needs_evidence'
+        return 'repair_planning', 'repairing_quality'
     gate = attempt.get("material_gate") or {}
     if (gate.get('status') == 'MATERIAL_NOT_READY' and gate.get('bundle_revision')
             and attempt.get('workspace', {}).get('path')):
@@ -230,7 +236,8 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
                 return None, 'material_submission_uncertain'
             if statuses & {'quote_unavailable', 'budget_exceeded'}:
                 return None, 'needs_generation_approval'
-        if prep_status in {"SCRIPT_TRUTH_REVIEW_REQUIRED", "MATERIAL_NOT_READY"}:
+        if (gate.get('status') == 'MATERIAL_NOT_READY'
+                or prep_status in {"SCRIPT_TRUTH_REVIEW_REQUIRED", "MATERIAL_NOT_READY"}):
             return None, "needs_evidence"
         return "prepare", "preparing"
     authoring = attempt.get("authoring_status")
@@ -359,7 +366,7 @@ async def advance_creation(
                                   last_error=SecretRedactor.redact_text(str(exc))[:1000] if exc.disconnected else None,
                                   updated_at=creation._now())
                     return False
-                if operation in {"prepare", "author", "observe_material", "recover_material", "quality"} and isinstance(exc, (DeliveryExecutionUncertain, subprocess.TimeoutExpired)):
+                if operation in {"prepare", "author", "observe_material", "recover_material", "quality", "repair_planning"} and isinstance(exc, (DeliveryExecutionUncertain, subprocess.TimeoutExpired)):
                     record.update(status="execution_uncertain", last_error=None,
                                   updated_at=creation._now())
                     return False

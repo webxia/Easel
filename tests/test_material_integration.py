@@ -936,6 +936,66 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     assert admitted['cost']['approved'] is False and cli.build_calls == 1
     assert service.get_film_attempt(attempt['attempt_id'])['production_authoring']['selected_asset_ids'] == [asset.asset_id]
 
+    # A real writing defect returns to existing Planning, not the protected
+    # presentation patch. Preserve old output/media; never copy its approval.
+    from easel.creation_delivery import active_delivery, next_operation
+    from easel.integrations.material_recovery import repair_managed_planning
+    quality['visual'][0]['checks'] = {'narrative': {'status': 'fail', 'repair_target': 'planning',
+        'reason': '脚本直接给出结论，需要先交代假设再提出反思', 'frame_indices': [0]}}
+    service.update_film_attempt(attempt['attempt_id'], event='fixture_content_review',
+                               review={'system': quality, 'human': {'status': 'pending'}})
+    content_repair = service.repair_film_quality(attempt['attempt_id'], cli=cli)
+    assert content_repair['planning_repair']['status'] == 'PENDING'
+    assert not content_repair.get('production_authoring')
+    assert not content_repair.get('revision_feedback')
+    assert content_repair['cost']['approved'] is False
+    with pytest.raises(HypitIntegrationError, match='内容修正'):
+        service.begin_film_authoring(content_repair['attempt_id'])
+    proposal = '当前委托'
+    proposal_hash = hashlib.sha256(proposal.encode()).hexdigest()
+    with creation.edit_creation(attempt['creation_id']) as current:
+        current['delivery'].pop('recovering_quality_from')
+        current['delivery'].update(proposal=proposal, proposal_sha256=proposal_hash)
+        current['chat_workflow'] = {'proposal_status': 'CONFIRMED', 'proposal_sha256': proposal_hash}
+    assert next_operation(creation.get_creation(attempt['creation_id'])) == ('repair_planning', 'repairing_quality')
+    new_planning = PlanningIntegration().load(content_repair)
+    result = {**new_planning, 'script': '假设先看到问题，再反思自己的判断。', 'scenes': '先呈现问题，再停留反思。'}
+    calls = []
+    def rewrite(item, context):
+        calls.append(context)
+        assert item['attempt_id'] == content_repair['attempt_id']
+        return result
+    with pytest.raises(MaterialIntegrationError, match='Owner'):
+        repair_managed_planning(content_repair['attempt_id'], executor=rewrite)
+    token = active_delivery.set(attempt['creation_id'])
+    record_gate = MaterialGateIntegration.record
+    try:
+        unsafe = result['plan'].model_copy(update={'policy': {'rights': 'ignore'}})
+        with pytest.raises(MaterialIntegrationError, match='素材策略'):
+            repair_managed_planning(content_repair['attempt_id'], executor=lambda *_: {**result, 'plan': unsafe})
+        assert PlanningIntegration().load(service.get_film_attempt(content_repair['attempt_id']))['script'] == new_planning['script']
+        def fail_gate(*_args, **_kwargs):
+            raise OSError('模拟规划保存后、素材状态写入前中断')
+        monkeypatch.setattr(MaterialGateIntegration, 'record', fail_gate)
+        with pytest.raises(OSError, match='中断'):
+            repair_managed_planning(content_repair['attempt_id'], executor=rewrite)
+        monkeypatch.setattr(MaterialGateIntegration, 'record', record_gate)
+        completed = repair_managed_planning(content_repair['attempt_id'], executor=rewrite)
+        assert completed['planning_repair']['status'] == 'COMPLETE'
+        assert len(calls) == 1
+        assert calls[0]['quality_repair'] == content_repair['planning_repair']['request']
+        assert repair_managed_planning(content_repair['attempt_id'], executor=rewrite) == completed
+        assert len(calls) == 1 and cli.build_calls == 1
+    finally:
+        active_delivery.reset(token)
+    assert completed['material_planning']['truth_review_status'] == 'PASSED'
+    assert PlanningIntegration().load(completed)['script'] == result['script']
+    assert PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['script'] == new_planning['script']
+    preserved = AttemptMaterialStore(completed['workspace']['path']).read_bundle()
+    assert preserved.assets == bundle.assets
+    assert completed['cost']['approved'] is False and completed['outputs'] == {}
+    assert next_operation(creation.get_creation(attempt['creation_id']))[0] == 'observe_material'
+
 
 def test_int04_workspace_asset_uses_ordinary_hypit_media_route(material_integration_env):
     attempt = material_integration_env

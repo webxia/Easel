@@ -71,8 +71,10 @@ def repair_request(attempt: dict) -> dict | None:
                 scopes.add('visual')
                 if check['repair_target'] == 'visual_material':
                     scopes.add('visual_material')
+            elif key in CONTENT_CHECKS and check.get('repair_target') == 'planning':
+                scopes.add('planning')
             else:
-                return None  # Content changes are not authorized by a presentation-only review.
+                return None  # Unknown responsibility cannot authorize a rewrite.
             indices = check.get('frame_indices', [])
             if not indices:
                 return None
