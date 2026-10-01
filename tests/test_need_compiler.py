@@ -12,6 +12,7 @@ from easel.materials.domain import (
     NeedIntent,
     NeedScope,
     NeedScopeType,
+    VoiceNeedSpec,
 )
 
 
@@ -83,6 +84,11 @@ def test_compiler_rejects_blank_intent_and_unrepresentable_constraints() -> None
         NeedCompiler().compile(make_need(intent=NeedIntent(description="   ")))
     with pytest.raises(NeedCompilationError, match="scalar retrieval filter"):
         NeedCompiler().compile(make_need(constraints={"orientation": ["portrait", "landscape"]}))
+    with pytest.raises(NeedCompilationError, match="scalar retrieval filter"):
+        NeedCompiler().compile(make_need(constraints={"voice_delivery": {"pace_ratio": 1}}))
+    with pytest.raises(NeedCompilationError, match="语速倍率"):
+        NeedCompiler().compile(make_need(media_type=MediaType.AUDIO,
+            modality_spec=VoiceNeedSpec(), constraints={"voice_delivery": {"pace_ratio": 10}}))
 
 
 def test_compiler_rejects_conflicting_canonical_filters_and_invalid_context() -> None:

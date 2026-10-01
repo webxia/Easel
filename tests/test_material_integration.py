@@ -1259,6 +1259,14 @@ def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_conten
         "pace_ratio": 1.05, "pitch_semitones": 0, "tone": "neutral"}
     assert "preferred_style" not in persisted_voice["plan"].needs[0].constraints
     assert persisted_voice["plan"].needs[0].modality_spec.text_sha256 == hashlib.sha256("假设站在夜班公交站。".encode()).hexdigest()
+    voice_before = persisted_voice["plan"].to_json()
+    voice_result = supply.run(persisted_voice["plan"], persisted_voice["attempt"],
+        local_roots=(empty_root,), supply_run_id="voice-style-supply", bundle_id="voice-style-bundle")
+    assert not voice_result.routing_trace[0]["failures"]
+    assert requests[-1].need_id == "narration"
+    assert "voice_delivery" not in requests[-1].filters
+    assert persisted_voice["plan"].to_json() == voice_before
+    assert voice_result.readiness.status.value == "NOT_READY"
 
 
 def test_generation_preserves_bundle_then_rights_review_opens_production_gate(

@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-from easel.materials.domain import BgmNeedSpec, MaterialNeed, RetrievalIntent
+from easel.materials.domain import BgmNeedSpec, MaterialNeed, RetrievalIntent, VoiceNeedSpec
+from easel.materials.application.voice_delivery import validate_voice_delivery
 
 
 class NeedCompilationError(ValueError):
@@ -43,6 +44,16 @@ class NeedCompiler:
         for key, value in need.constraints.items():
             if not isinstance(key, str) or not key.strip():
                 raise NeedCompilationError("Need constraint keys must be non-empty strings")
+            if key == "voice_delivery" and isinstance(need.modality_spec, VoiceNeedSpec):
+                # TTS execution controls stay on the original Need, consumed by
+                # generation. They cannot be represented as stock-search filters.
+                # Validate the known contract rather than discarding arbitrary
+                # structured constraints (which must still fail below).
+                try:
+                    validate_voice_delivery(value)
+                except ValueError as exc:
+                    raise NeedCompilationError(str(exc)) from exc
+                continue
             if not isinstance(value, self._FILTER_VALUE_TYPES):
                 raise NeedCompilationError(
                     f"Constraint {key!r} is not representable as a scalar retrieval filter"

@@ -53,6 +53,8 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **旁白供应接线修复（2026-10-01）：** 把已有冻结 Mode 场景继续送入真实 `ProductMaterialSupply`，复现 `voice_delivery` 对象被 `NeedCompiler` 当作标量检索条件拒绝，进而伪装成 Local 来源失败。现在仅对 Voice Need 的已知执行参数验证后从检索 filters 排除；原 Need、生成参数、Match/Rights/Readiness 不变，未知复杂条件仍拒绝。扩展既有集成与编译器回归，先失败再修复；Compiler、Material integration、Image/Speech、Library-first、Audio supply **77 passed**。这证明旁白供应可以走到实际检索，不证明正常声音观察、生成 Rights 或跨内容首版交付已经闭环。
+
 原始产品目标对齐、流程重审与 Director 实际执行链只读核对已完成。已确认两组根因：缺少持续自主交付首版的责任与执行闭环；Mode 在 Planning 中有体现，但 Material 风格参数未接全、Voice 朗读要求未进入实际请求、Production 未完整落实文稿、Quality 仍依赖人审。用户已批准将合并方案写入文档并设 Goal 实施，[同一任务](tasks/creator-autonomous-first-cut-2026-09-30.md) 已替换为唯一实施方案。
 
 当前：Goal 保持 active，①～⑤ **PARTIAL**。已接通委托推进、素材风格与观察、Truth 系统审阅、Voice 参数/时序、原生字幕/旁白/配乐压低及导出后的系统审片。已接通有证据的构图/字幕/混音两轮局部修复；已有候选替换与一次原许可范围内补料也已接入；逐 Need 视频观察区间已绑定原生取片；委托内付费执行、声音内容观察、其余质量缺口恢复及⑥跨内容回放仍未闭环，不能据此宣称“持续自主交付可看首版”或风格一致已实现。
