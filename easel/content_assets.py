@@ -20,6 +20,67 @@ class ContentAssetRegistrationError(ValueError):
     """Raised when a selected output cannot be safely registered."""
 
 
+def publication_requires_rights_review(material_usage: list[dict]) -> bool:
+    """Production permission is distinct from permission to distribute."""
+    if (not isinstance(material_usage, list)
+            or any(not isinstance(item, dict) or not isinstance(item.get('constraints'), list)
+                   or any(not isinstance(value, str) for value in item['constraints'])
+                   for item in material_usage)):
+        raise ContentAssetRegistrationError('成片素材使用范围记录无效')
+    return any('internal_production_only' in item['constraints'] for item in material_usage)
+
+
+def assert_media_publication_allowed(path: Path) -> None:
+    """Enforce retained output limits for original and Content Library copies."""
+    try:
+        relative = path.resolve().relative_to(creation.OUTPUTS_DIR.resolve())
+    except ValueError as exc:
+        raise ContentAssetRegistrationError('发布文件不属于内容库') from exc
+    parts = relative.parts
+    manifest_source = None
+    if len(parts) == 5 and parts[0] == '_creations' and parts[2] == 'attempts':
+        creation_id, attempt_id = parts[1], parts[3]
+        original_path = relative.as_posix()
+    elif len(parts) == 2 and re.fullmatch(r'creation-cr_[0-9a-f]{32}-[0-9a-f]{12}', parts[0]):
+        try:
+            manifest_path = path.parent / '.easel.json'
+            if manifest_path.is_symlink():
+                raise ValueError
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            if manifest.get('schema') != 'easel-content-asset@1' or path.name not in manifest.get('deliverables', []):
+                raise ValueError
+            manifest_source = manifest['source']
+            creation_id, attempt_id = manifest_source['creation_id'], manifest_source['attempt_id']
+            original_path = manifest_source['original_path']
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            raise ContentAssetRegistrationError('无法核实成片素材使用范围') from exc
+    else:
+        return  # Existing unrelated publication projects retain their behavior.
+    try:
+        work = creation.get_creation(creation_id)
+        attempt = next(item for item in work.get('hypit_attempts', []) if item.get('attempt_id') == attempt_id)
+        output_name, output = next((name, item) for name, item in attempt.get('outputs', {}).items()
+                                   if item.get('path') == original_path)
+        usage = output.get('material_usage', [])
+        digest = _digest(path)
+        if output.get('sha256') != 'sha256:' + digest:
+            raise ValueError
+        if manifest_source is not None and (manifest_source.get('sha256') != digest
+                or manifest_source.get('material_usage', []) != usage):
+            raise ValueError
+    except (OSError, ValueError, TypeError, KeyError, StopIteration) as exc:
+        raise ContentAssetRegistrationError('成片身份或素材使用范围与原记录不一致') from exc
+    review = attempt.get('review', {})
+    if (attempt.get('review_status') != 'APPROVED'
+            or review.get('binding') != {'output_name': output_name, 'sha256': output['sha256']}
+            or review.get('human', {}).get('status') != 'approved'
+            or any(review.get(key, {}).get('status') != 'pass' for key in ('technical', 'truth', 'style'))
+            or review.get('material_usage', []) != usage):
+        raise ContentAssetRegistrationError('当前成片尚未通过绑定此文件的最终审片，不能发布')
+    if publication_requires_rights_review(usage):
+        raise ContentAssetRegistrationError('本片素材使用范围仅限内部制作；入库未增加发布权限')
+
+
 def _digest(path: Path) -> str:
     value = hashlib.sha256()
     with path.open("rb") as stream:
@@ -125,8 +186,7 @@ def _selected_record(work: dict[str, Any], attempt_id: str, output_name: str) ->
     if (attempt is None or work.get("selected_attempt_id") != attempt_id
             or work.get("selected_output_name") != output_name
             or attempt.get("selected") is not True
-            or attempt.get("review_status") != "APPROVED"
-            or work.get("publication", {}).get("status") != "READY_FOR_MANUAL_PUBLISH"):
+            or attempt.get("review_status") != "APPROVED"):
         raise ContentAssetRegistrationError("只有当前已批准的 Selected Output 可以登记到内容库")
     output = attempt.get("outputs", {}).get(output_name)
     review = attempt.get("review", {})
@@ -135,6 +195,7 @@ def _selected_record(work: dict[str, Any], attempt_id: str, output_name: str) ->
             or review.get("binding", {}).get("output_name") != output_name
             or review.get("binding", {}).get("sha256") != sha
             or review.get("human", {}).get("status") != "approved"
+            or review.get('material_usage', []) != output.get('material_usage', [])
             or review.get("truth", {}).get("status") != "pass"
             or review.get("style", {}).get("status") != "pass"
             or review.get("technical", {}).get("status") != "pass"):
@@ -186,6 +247,7 @@ def register_selected_output(work: dict[str, Any], attempt_id: str, output_name:
             "selected_at": work.get("publication", {}).get("selected_at"),
             "original_path": output["path"], "sha256": sha,
             "attribution": output.get("attribution", []),
+            "material_usage": output.get("material_usage", []),
         },
         "media_metadata": metadata,
         "creative_mode": work.get("creative_mode"),

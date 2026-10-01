@@ -1813,6 +1813,7 @@ def _export_film_output_locked(attempt_id: str, output_name: str, *, cli) -> dic
     if output_name in attempt.get("outputs", {}):
         raise HypitIntegrationError("该 Hypit output 已导出；为保留审片绑定，不覆盖已有产物")
     attribution = _validated_attribution_metadata(attempt)
+    material_usage = _validated_output_usage(attempt)
     build_id = attempt["build"]["build_id"]
     creation_id = attempt["creation_id"]
     final_path = _output_file(creation_id, attempt_id, output_name,
@@ -1821,7 +1822,7 @@ def _export_film_output_locked(attempt_id: str, output_name: str, *, cli) -> dic
     output_dir.mkdir(parents=True, exist_ok=True)
     receipt = attempt.get("pending_output_export")
     if receipt:
-        return _finish_output_export(attempt_id, output_name, receipt, final_path, attribution)
+        return _finish_output_export(attempt_id, output_name, receipt, final_path, attribution, material_usage)
     if final_path.exists():
         raise HypitIntegrationError("该 Attempt 已有 final.mp4；为保留历史，不覆盖已有产物")
     staged = output_dir / f".final-{uuid.uuid4().hex}.part.mp4"
@@ -1860,6 +1861,7 @@ def _export_film_output_locked(attempt_id: str, output_name: str, *, cli) -> dic
         "sha256": "sha256:" + digest,
         "metadata": metadata,
         "attribution": attribution,
+        "material_usage": material_usage,
         "hypit_get": response,
         "exported_at": _now(),
     }
@@ -1880,17 +1882,20 @@ def _export_film_output_locked(attempt_id: str, output_name: str, *, cli) -> dic
     # Commit identity and verified metadata BEFORE publishing final.mp4. A
     # failed write may have committed already: preserve staged bytes either way.
     _save_attempt(attempt_id, prepare_export)
-    return _finish_output_export(attempt_id, output_name, receipt, final_path, attribution)
+    return _finish_output_export(attempt_id, output_name, receipt, final_path, attribution, material_usage)
 
 
-def _finish_output_export(attempt_id, output_name, receipt, final_path, attribution):
+def _finish_output_export(attempt_id, output_name, receipt, final_path, attribution, material_usage):
     attempt = get_film_attempt(attempt_id)
+    if material_usage != _validated_output_usage(attempt):
+        raise HypitIntegrationError('导出期间素材使用范围已变化；保留已下载结果，未认领旧依据')
     exported = receipt.get("output", {})
     relative = final_path.relative_to(creation.OUTPUTS_DIR).as_posix()
     staged_name = receipt.get("staged_name", "")
     if (receipt.get("build_id") != attempt.get("build", {}).get("build_id")
             or exported.get("result_output") != output_name or exported.get("path") != relative
             or exported.get("attribution") != attribution
+            or exported.get("material_usage", []) != material_usage
             or not re.fullmatch(r"\.final-[0-9a-f]{32}\.part\.mp4", staged_name)):
         raise HypitIntegrationError("待恢复导出凭据与当前 Build、输出或署名不一致")
     staged = final_path.parent / staged_name
@@ -1974,6 +1979,7 @@ def record_film_review(attempt_id: str, review: dict[str, Any]) -> dict[str, Any
         "feedback": list(review.get("feedback", [])),
         "binding": {"output_name": output_name, "sha256": output_hash},
         "attribution": output.get("attribution", []),
+        "material_usage": output.get("material_usage", []),
     }
     ready = all(normalized[name]["status"] == "pass" for name in ("technical", "truth", "style")) \
         and human["status"] == "approved"
@@ -1983,7 +1989,8 @@ def record_film_review(attempt_id: str, review: dict[str, Any]) -> dict[str, Any
             raise HypitIntegrationError("FilmBuildAttempt 不存在")
         current_output = item.get("outputs", {}).get(output_name)
         if (not isinstance(current_output, dict) or current_output.get("sha256") != output_hash
-                or current_output.get("technical_qc") != technical):
+                or current_output.get("technical_qc") != technical
+                or current_output.get('material_usage', []) != normalized['material_usage']):
             raise HypitIntegrationError("Review 对应产物在审片期间发生变化")
         previous_binding = item.get("review", {}).get("binding")
         binding_changed = previous_binding != normalized["binding"]
@@ -2032,6 +2039,7 @@ def select_film_attempt(creation_id: str, attempt_id: str, output_name: str) -> 
                 or review.get("truth", {}).get("status") != "pass"
                 or review.get("style", {}).get("status") != "pass"
                 or review.get("human", {}).get("status") != "approved"
+                or review.get("material_usage", []) != selected_output.get("material_usage", [])
                 or review.get("attribution", []) != selected_output.get("attribution", [])):
             raise HypitIntegrationError("所选 output 未通过与其名称和 sha256 绑定的完整审片")
         media_path = _output_path(attempt, selected_output)
@@ -2041,12 +2049,16 @@ def select_film_attempt(creation_id: str, attempt_id: str, output_name: str) -> 
             item["selected"] = item.get("attempt_id") == attempt_id
         work["selected_attempt_id"] = attempt_id
         work["selected_output_name"] = output_name
+        from easel.content_assets import publication_requires_rights_review
+        material_usage = selected_output.get('material_usage', [])
         work["publication"] = {
-            "status": "READY_FOR_MANUAL_PUBLISH",
+            "status": ("RIGHTS_REVIEW_REQUIRED" if publication_requires_rights_review(material_usage)
+                       else "READY_FOR_MANUAL_PUBLISH"),
             "media": selected_output.get("path"),
             "output_name": output_name,
             "sha256": selected_output.get("sha256"),
             "attribution": selected_output.get("attribution", []),
+            "material_usage": material_usage,
             "attribution_status": (
                 "PUBLISH_METADATA_READY" if selected_output.get("attribution") else "NOT_REQUIRED"
             ),
@@ -2062,6 +2074,29 @@ def select_film_attempt(creation_id: str, attempt_id: str, output_name: str) -> 
             "output_name": output_name, "sha256": binding["sha256"],
         })
     return creation.get_creation(creation_id)
+
+
+def _validated_output_usage(attempt: dict[str, Any]) -> list[dict[str, Any]]:
+    """Carry selected Material usage limits through export; never broaden them."""
+    if attempt.get('material_planning', {}).get('status') != 'PLANNING_READY':
+        return []
+    from easel.materials.store import AttemptMaterialStore
+    bundle = AttemptMaterialStore(_workspace(attempt)).read_bundle()
+    assets = {asset.asset_id: asset for asset in bundle.assets}
+    selected = attempt.get('production_authoring', {}).get('selection_validation', {}).get('assets', [])
+    if not isinstance(selected, list) or any(not isinstance(item, dict) for item in selected):
+        raise HypitIntegrationError('所选素材使用范围记录无效')
+    usage, seen = [], set()
+    for item in selected:
+        asset = assets.get(item.get('asset_id'))
+        if (asset is None or asset.asset_id in seen or item.get('sha256') != asset.file.sha256
+                or item.get('usage_constraints', []) != list(asset.rights.usage_constraints)):
+            raise HypitIntegrationError('所选素材身份或使用范围已变化，不能沿用原导出依据')
+        seen.add(asset.asset_id)
+        if asset.rights.usage_constraints:
+            usage.append({'asset_id': asset.asset_id, 'sha256': asset.file.sha256,
+                          'constraints': list(asset.rights.usage_constraints)})
+    return sorted(usage, key=lambda item: item['asset_id'])
 
 
 def _validated_attribution_metadata(attempt: dict[str, Any]) -> list[dict[str, Any]]:

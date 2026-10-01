@@ -4702,9 +4702,14 @@ async def api_publish(platform: str, req: PublishRequest):
         raise HTTPException(400, f"{cfg['name']} 暂不支持一键发布")
     if not req.title.strip() and not req.body.strip():
         raise HTTPException(400, '标题/正文不能为空')
+    from easel.content_assets import assert_media_publication_allowed, ContentAssetRegistrationError
     imgs, vids = [], []
     for rel in req.media or []:
         full = _safe_output_path(rel)
+        try:
+            assert_media_publication_allowed(full)
+        except ContentAssetRegistrationError as exc:
+            raise HTTPException(409, str(exc)) from exc
         ext = full.suffix.lower()
         if ext in VIDEO_EXTS:
             vids.append(str(full))

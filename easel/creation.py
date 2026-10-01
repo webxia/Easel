@@ -194,8 +194,7 @@ def _derive_hypit_video_status(data: dict[str, Any]) -> str:
     selected = next((item for item in attempts if item.get("attempt_id") == selected_id), None)
     if (selected is not None
             and selected.get("selected") is True
-            and selected.get("review_status") == "APPROVED"
-            and data.get("publication", {}).get("status") == "READY_FOR_MANUAL_PUBLISH"):
+            and selected.get("review_status") == "APPROVED"):
         return "ready"
 
     current = next((item for item in attempts if item.get("selected") is True), None)

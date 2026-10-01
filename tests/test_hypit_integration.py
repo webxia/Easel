@@ -285,7 +285,8 @@ def test_authoring_is_runtime_independent_and_static_check_only(integration_env)
     assert completed["plan"]["status"] == "pending"
 
 
-def test_complete_lifecycle_requires_review_before_selection(integration_env, monkeypatch):
+@pytest.mark.parametrize('internal_only', [False, True])
+def test_complete_lifecycle_requires_review_before_selection(integration_env, monkeypatch, internal_only):
     work = creation.create_creation(
         "测试 Hypit Creation 状态投影；主题“看清再开始”",
         profile="个人经营实践",
@@ -328,9 +329,15 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
         "duration_seconds": 30.0, "width": 720, "height": 1280,
         "audio_present": True, "size_bytes": 9,
     })
+    usage = ([{'asset_id': 'fixture-voice', 'sha256': 'a' * 64,
+               'constraints': ['internal_production_only']}] if internal_only else [])
+    monkeypatch.setattr(service, '_validated_output_usage', lambda _attempt: usage)
     exported = service.export_film_output(attempt["attempt_id"], "final.video", cli=cli)
     assert exported["status"] == "EXPORTED"
     assert (integration_env["outputs"] / exported["outputs"]["final.video"]["path"]).is_file()
+    from easel.content_assets import assert_media_publication_allowed, ContentAssetRegistrationError
+    with pytest.raises(ContentAssetRegistrationError, match='最终审片'):
+        assert_media_publication_allowed(integration_env['outputs'] / exported['outputs']['final.video']['path'])
     with pytest.raises(HypitIntegrationError, match="审片"):
         service.select_film_attempt(work["id"], attempt["attempt_id"], "final.video")
 
@@ -356,9 +363,17 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
     })
     assert reviewed["status"] == "REVIEW_APPROVED"
     assert reviewed['review']['system'] == system_review
+    if internal_only:
+        changed_outputs = {key: {**value, 'material_usage': []} for key, value in reviewed['outputs'].items()}
+        service.update_film_attempt(attempt['attempt_id'], event='fixture_usage_changed', outputs=changed_outputs)
+        with pytest.raises(HypitIntegrationError, match='完整审片'):
+            service.select_film_attempt(work['id'], attempt['attempt_id'], 'final.video')
+        service.update_film_attempt(attempt['attempt_id'], event='fixture_usage_restored', outputs=reviewed['outputs'])
     selected = service.select_film_attempt(work["id"], attempt["attempt_id"], "final.video")
     assert selected["selected_attempt_id"] == attempt["attempt_id"]
-    assert selected["publication"]["status"] == "READY_FOR_MANUAL_PUBLISH"
+    assert selected["publication"]["status"] == ('RIGHTS_REVIEW_REQUIRED' if internal_only else 'READY_FOR_MANUAL_PUBLISH')
+    assert selected['publication']['material_usage'] == usage
+    assert reviewed['review']['material_usage'] == usage
     assert selected["publication"]["publish_automatically"] is False
     assert selected["status"] == "ready"
     content_asset = selected["content_asset"]
@@ -369,12 +384,29 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
     assert manifest["source"]["creation_id"] == work["id"]
     assert manifest["source"]["attempt_id"] == attempt["attempt_id"]
     assert manifest["source"]["build_id"] == complete["build"]["build_id"]
+    assert manifest['source']['material_usage'] == usage
     assert content_asset["theme"] == "看清再开始"
     assert content_asset["copy"]["on_screen"] == ["先看清。", "再开始。"]
     from easel.content_assets import register_selected_output
     repeated = register_selected_output(selected, attempt["attempt_id"], "final.video")
     assert repeated["asset_id"] == content_asset["asset_id"]
     assert len(list(integration_env["outputs"].glob("creation-*/final.mp4"))) == 1
+    if not internal_only:
+        assert_media_publication_allowed(library_file)
+    if internal_only:
+        import asyncio
+        from tests.test_creation_preparation import web
+        monkeypatch.setattr(web, 'OUTPUTS_DIR', integration_env['outputs'])
+        monkeypatch.setattr(web.subprocess, 'run', lambda *a, **k: pytest.fail('restricted output cannot start a publisher'))
+        for path in (content_asset['path'], exported['outputs']['final.video']['path']):
+            with pytest.raises(web.HTTPException, match='素材使用范围') as error:
+                asyncio.run(web.api_publish('xiaohongshu', web.PublishRequest(title='fixture', body='fixture', media=[path])))
+            assert error.value.status_code == 409
+        # A copied library manifest cannot erase restrictions on the original.
+        manifest['source']['material_usage'] = []
+        (integration_env['outputs'] / content_asset['manifest']).write_text(json.dumps(manifest))
+        with pytest.raises(web.HTTPException, match='使用范围与原记录不一致'):
+            asyncio.run(web.api_publish('xiaohongshu', web.PublishRequest(title='fixture', body='fixture', media=[content_asset['path']])))
 
     creation_file = integration_env["outputs"] / "_creations" / work["id"] / "creation.json"
     persisted = json.loads(creation_file.read_text(encoding="utf-8"))

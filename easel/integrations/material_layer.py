@@ -919,7 +919,8 @@ class ProductionAuthoringIntegration:
             if declared_need_ids is not None and declared_need_ids != list(qualified_need_ids):
                 raise MaterialIntegrationError("Production selection Need/Match evidence is stale")
             selected_ids.append(asset_id)
-            checked.append({"asset_id": asset_id, "sha256": digest, "src": expected_src})
+            checked.append({"asset_id": asset_id, "sha256": digest, "src": expected_src,
+                            "usage_constraints": list(asset.rights.usage_constraints)})
             normalized_records.append({
                 **item,
                 "src": expected_src,

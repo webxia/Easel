@@ -1880,6 +1880,7 @@ def test_production_selection_carries_verified_attribution_facts(material_integr
         "rights": RightsInfo(
             status=RightsStatus.ATTRIBUTION_REQUIRED, attribution_required=True,
             attribution_text=f"Photo by Ada — {source_page}",
+            usage_constraints=('internal_production_only',),
             evidence=(RightsEvidence(kind="asset_license", reference="fixture:license"),),
         ),
     })
@@ -1904,6 +1905,17 @@ def test_production_selection_carries_verified_attribution_facts(material_integr
         "destination": "export_credits", "rights_status": "ATTRIBUTION_REQUIRED",
         "evidence_references": ["fixture:license"],
     }]
+    assert service._validated_output_usage(result['attempt']) == [{
+        'asset_id': asset.asset_id, 'sha256': asset.file.sha256,
+        'constraints': ['internal_production_only'],
+    }]
+    # Clearing a restriction after selection must not silently broaden an
+    # already authored/exported result's permission.
+    changed = asset.model_copy(update={'rights': asset.rights.model_copy(update={'usage_constraints': ()})})
+    changed_bundle = MaterialBundleAssembler().assemble(plan, run, (changed,), matches, bundle_id=bundle.bundle_id)
+    AttemptMaterialStore(root).write_bundle(changed_bundle)
+    with pytest.raises(service.HypitIntegrationError, match='使用范围已变化'):
+        service._validated_output_usage(result['attempt'])
 
 
 @pytest.mark.parametrize(('interrupt_after_supply', 'automatic'), [(False, False), (True, False), (True, True)])

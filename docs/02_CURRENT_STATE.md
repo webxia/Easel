@@ -53,6 +53,10 @@ Last audited: 2026-09-30. This is the single summary of current implementation a
 
 ## 当前 Goal：自主首版与 Director 全链执行
 
+- **成片入库与发布权限解耦（2026-10-01）：** 发现 Creation ready 投影和内容库登记都要求 `READY_FOR_MANUAL_PUBLISH`，而导出仅携带署名，其他素材使用范围丢失。现 Production selection 记录实际所选素材的使用限制，导出前核对当前 Asset 身份/范围，并随输出、最终 Review、Selected Output 和内容库清单保存。审片后改变使用范围不能复用原批准；导出接续同样保留范围绑定。成片已被接受即可显示完成和入库，发布权限不再是这两个动作的前提。
+- 已有明确 `internal_production_only` 条件的作品可确认并入库，其发布状态保留 Rights 待核对；Web 发布入口同时核对原导出文件/内容库副本的 SHA、原记录、最终审片及此条件，清单中删掉限制不能放行。没有新增制作确认，也没有给所有生成素材自动附加该限制；本批建立的是可执行的范围保留，不是生成许可自动判断。未调用任何发布程序或外部发布服务。
+- **本批验证：** MiniMax/Rights/Cross-Content/Preparation/Material/Hypit/发布防护组合 **193 passed**，最终审片入口与导出期间范围复核增量后 Hypit **46 passed**；compileall、115 项技能合同、diff check 通过，保留两项既有依赖提示。扩展原生命周期与选材场景，覆盖普通与内部用途成片的入库、读取恢复、重复登记、使用范围变化和发布接口拒绝；无真实 Creation、付费 AI、真实 Build 或完整 E2E。生成 Rights 自动准入、声音语义和其余恢复仍开放，Goal active。
+
 - **生成素材请求前的协议证据（2026-10-01）：** 查明当前委托生成只保留费用来源，没有保存适用服务协议；后续 Rights 因而无法核对生成时的依据。现委托内首次核价同时读取国内 MiniMax 官方协议正文，保存原文、URL、时间与 SHA；执行前将报价、已确认的文字使用声明和账号范围摘要一并写入原生成记录。图片/视频/旁白的资产 sidecar 带协议摘要和逐资产生成来源引用，绑定真实接收字节。协议正文是外部证据，不是指令、用户接受声明或系统许可结论；UNKNOWN 不会因此变为 KNOWN。
 - 本次只读核对官方 [用户协议](https://platform.minimax.cn/protocol/user-agreement)：1.7 涉及输出传播标识与原标识保留，6.2 涉及输入权利，6.3 不承诺所有生成输出权利归用户，9.5 要求核对真实性/合规性/适用范围。实际正文解析为 17757 字符，SHA `90d05ccc1dbf8404cbc40cfb096698ceec2bc894440ac507cd048ecb9a896ae0`（2026-10-01）；不把该摘要当作永久许可白名单。缺少适用输出依据与可执行条件的自动准入映射仍未完成，不能据本批宣称已免除 Rights 人工处理。
 - **本批局部证据：** MiniMax Image/Speech/Video、Rights、Cross-Content、Preparation、Material integration、Hypit **190 passed**；compileall、115 项技能合同、diff check 通过，保留两项既有依赖提示。沿用既有三内容与委托生成场景验证协议/输入声明到资产的关联，以及查询重试、本地接收恢复不重新抓取或覆盖请求时证据。新增一个等价参数场景：协议读取首次失败时，没有费用占额、生成记录或 Provider 提交，后台重试后仅生成一次。缺失/错误页面不作为协议正文保存；旧记录与手动生成不回填新协议。仍需实现生成权利条件的自动判断/落实、声音语义与其余恢复；Goal active，未操作真实作品、调用付费 AI、执行真实 Build 或完整 E2E。
