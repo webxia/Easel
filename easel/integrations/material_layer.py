@@ -1784,6 +1784,8 @@ class MaterialProductOrchestrator:
         for asset_id in generated_records:
             admit_generated(asset_id)
         matcher = MaterialMatcher()
+        # Keep the saved batch identity: upgrades must not reshuffle work that
+        # already dispatched. Only newly nominated batches use this ranking.
         batch_key = hashlib.sha256(("ranked-v2\n" + MaterialReadinessCalculator.plan_revision(plan) + "\n"
             + "\n".join(sorted(a.asset_id + ":" + a.file.sha256 for a in bundle.assets))
             + ('\nalternatives:' + revision['quality_report_sha256'] if visual_repair else '')).encode()).hexdigest()
@@ -1800,12 +1802,16 @@ class MaterialProductOrchestrator:
                         or (visual_repair and need.need_id not in excluded)):
                     continue
                 assets = [a for a in bundle.assets if a.asset_id in verified and a.media_type is need.media_type
-                          and a.asset_id not in excluded.get(need.need_id, ())]
+                          and a.asset_id not in excluded.get(need.need_id, ())
+                          and a.technical.status is TechnicalStatus.PASSED
+                          and a.rights.status is not RightsStatus.RESTRICTED]
+                scores = {a.asset_id: matcher._soft_scores(need, a) for a in assets}
                 assets.sort(key=lambda a: (
                     any(scoped_inference(need, a, i) for i in a.semantic.inferences) and observed_match(need, a) is not True,
                     RightsService().evaluate(a, need, attribution=RightsService.attribution_condition_for(a)).status
                     is RightsAdmissionStatus.BLOCKED,
-                    -matcher._soft_scores(need, a)[1], a.asset_id))
+                    -(scores[a.asset_id][0].semantic or 0),
+                    -scores[a.asset_id][1], a.asset_id))
                 pairs[need.need_id] = [a.asset_id for a in assets[:MAX_VISUAL_CANDIDATES]]
             # Freeze nominated candidates before the first model dispatch.
             # New evidence must not reshuffle a resumed batch into more calls.

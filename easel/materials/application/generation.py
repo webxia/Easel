@@ -121,6 +121,11 @@ def visual_generation_prompt(need: MaterialNeed) -> str:
         raise ValueError('视觉素材需要明确内容描述，未提交生成')
     if style and style.strip():
         prompt += '\nVisual style: ' + style.strip()
+    details = need.constraints.get('preferred_visual_details')
+    if details is not None:
+        if not isinstance(details, str) or not details.strip():
+            raise ValueError('可替代视觉细节须为非空文字，未提交生成')
+        prompt += '\nOptional visual preferences (preserve the core subject): ' + details.strip()
     limit = 1500 if need.media_type is MediaType.IMAGE else 7000
     if len(prompt) > limit:
         raise ValueError(f'视觉素材描述与风格合计超过 {limit} 字符，需先精简规划；未提交生成')

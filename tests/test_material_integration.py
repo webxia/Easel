@@ -1310,7 +1310,8 @@ def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_conten
                          importance=NeedImportance.REQUIRED),
             MaterialNeed(need_id="scene-clock", scope=NeedScope(type=NeedScopeType.SCENE, ref="clock"),
                          media_type=MediaType.IMAGE, role="局部对照", intent=NeedIntent(description="station clock"),
-                         constraints={"preferred_style": "high contrast documentary"},
+                         constraints={"preferred_style": "high contrast documentary",
+                                      "preferred_visual_details": "wide shot or a readable clock close-up"},
                          importance=NeedImportance.REQUIRED),
             MaterialNeed(need_id="scene-walk", scope=NeedScope(type=NeedScopeType.SCENE, ref="walk"),
                          media_type=MediaType.VIDEO, role="主视觉", intent=NeedIntent(description="walk beside the station"),
@@ -1364,6 +1365,8 @@ def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_conten
     assert len(requests) == 4, [(row.get("failures"), row.get("skipped")) for row in result.routing_trace]
     assert requests[0].semantic_queries[0] == "bus stop " + style
     assert requests[1].semantic_queries[0] == "station clock high contrast documentary"
+    assert 'preferred_visual_details' not in requests[1].filters
+    assert requests[1].ranking_hints['preferred_visual_details'] == bound.needs[1].constraints['preferred_visual_details']
     assert preferences[0][1][0].preferred_values == (style,)
     assert preferences[1][1][0].preferred_values == ("high contrast documentary",)
     # Exercise the real image/video HTTP adapters with deterministic transport.
@@ -1401,7 +1404,10 @@ def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_conten
                 with pytest.raises(MiniMaxVideoObservationPending):
                     engine.generate(bound, need, store, request_id=request_id, confirmed_paid=True)
             prompt = generation_requests[-1]['content'][0]['text']
-        assert prompt == need.intent.description + '\nVisual style: ' + need.constraints['preferred_style']
+        expected_prompt = need.intent.description + '\nVisual style: ' + need.constraints['preferred_style']
+        if need.constraints.get('preferred_visual_details'):
+            expected_prompt += '\nOptional visual preferences (preserve the core subject): ' + need.constraints['preferred_visual_details']
+        assert prompt == expected_prompt
         record = store.read_generation_record('gen-' + request_id)
         assert record.get('prompt_sha256', record.get('input_sha256')) == hashlib.sha256(prompt.encode()).hexdigest()
         changed = need.model_copy(update={'constraints': {**need.constraints, 'preferred_style': 'unrelated glossy style'}})
@@ -2206,7 +2212,8 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
     root = Path(attempt['workspace']['path'])
     store = AttemptMaterialStore(root)
     plan, asset, run, _, _, _ = _contracts(attempt, root)
-    first = plan.needs[0].model_copy(update={'constraints': {'preferred_style': 'quiet red', 'logo': False}})
+    first = plan.needs[0].model_copy(update={'constraints': {'preferred_style': 'quiet red', 'logo': False,
+        'preferred_visual_details': 'wide shot, background lamp optional'}})
     second = first.model_copy(update={'need_id': 'another-scene', 'intent': NeedIntent(description='完全不同的内容')})
     plan = plan.model_copy(update={'needs': (first, second)})
     image = io.BytesIO()
@@ -2234,6 +2241,9 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
         nonlocal interrupted
         manifest = json.loads(message.split("输入：", 1)[1].split("\n", 1)[0])
         assert '不请求 Provider/Hypit' in message
+        assert '仅这些偏好不符不能判 partial/unsuitable' in message
+        assert '整体保留 verdict=partial' not in message
+        assert manifest['need']['constraints']['preferred_visual_details'] == 'wide shot, background lamp optional'
         need_id = manifest['need']['need_id']
         path = root / 'materials/observations' / (manifest['input_sha256'] + '.json')
         if message in completed_messages:
@@ -2312,7 +2322,7 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
         prepare_observation(first, observed, store.resolve_asset_locator(asset.file.path))
 
 
-@pytest.mark.parametrize('usable_index', [3, None])
+@pytest.mark.parametrize('usable_index', [3, None, 'content_first'])
 def test_visual_replacement_stops_at_usable_choice_or_bound_and_reuses_saved_report(
         material_integration_env, monkeypatch, usable_index):
     import io
@@ -2321,6 +2331,11 @@ def test_visual_replacement_stops_at_usable_choice_or_bound_and_reuses_saved_rep
     root = Path(attempt['workspace']['path'])
     store = AttemptMaterialStore(root)
     plan, original, run, _, _, _ = _contracts(attempt, root)
+    content_first = usable_index == 'content_first'
+    if content_first:
+        usable_index = 3
+        need = plan.needs[0].model_copy(update={'constraints': {'preferred_style': 'quiet documentary'}})
+        plan = plan.model_copy(update={'needs': (need,)})
     assets = []
     for index in range(MAX_VISUAL_CANDIDATES + 1):
         raw = io.BytesIO()
@@ -2331,8 +2346,20 @@ def test_visual_replacement_stops_at_usable_choice_or_bound_and_reuses_saved_rep
         asset = original.model_copy(update={'asset_id': asset_id,
             'file': FileInfo(path=locator, sha256=hashlib.sha256(data).hexdigest(), size=len(data), mime='image/png'),
             'semantic': SemanticInfo(caption=plan.needs[0].intent.description)})
+        if content_first:
+            asset = asset.model_copy(update={
+                'semantic': SemanticInfo(caption=plan.needs[0].intent.description,
+                    attributes={'style': 'quiet documentary'} if index != 3 else {}),
+                'rights': RightsInfo(status=RightsStatus.RESTRICTED) if index == 0 else asset.rights,
+            })
         store.write_asset(asset)
         assets.append(asset)
+    if content_first:
+        from easel.materials.application.matching import MaterialMatcher
+        matcher = MaterialMatcher()
+        preferred, relevant = (matcher._soft_scores(plan.needs[0], assets[i]) for i in (1, 3))
+        assert preferred[1] > relevant[1]  # Previous weighted ranking observed this first.
+        assert preferred[0].semantic < relevant[0].semantic
     planning = PlanningIntegration().persist(attempt, plan, treatment='T', script='假设脚本内容。', scenes='S')
     plan = planning['plan']
     bundle = MaterialBundleAssembler().assemble(plan, run, tuple(assets), (), bundle_id='bundle-int-1')
@@ -2351,7 +2378,7 @@ def test_visual_replacement_stops_at_usable_choice_or_bound_and_reuses_saved_rep
     interrupted = False
     def interrupt_record(self, asset):
         nonlocal interrupted
-        if asset.asset_id == 'candidate-02' and asset.semantic.inferences and not interrupted:
+        if asset.asset_id == ('candidate-03' if content_first else 'candidate-02') and asset.semantic.inferences and not interrupted:
             interrupted = True
             raise OSError('模拟报告已保存、Asset 尚未更新时中断')
         return write_asset(self, asset)
@@ -2361,8 +2388,8 @@ def test_visual_replacement_stops_at_usable_choice_or_bound_and_reuses_saved_rep
     with pytest.raises(OSError, match='模拟报告'):
         MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
     result = MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
-    expected_count = usable_index + 1 if usable_index is not None else MAX_VISUAL_CANDIDATES
-    assert calls == [a.asset_id for a in assets[:expected_count]]
+    expected_count = 1 if content_first else usable_index + 1 if usable_index is not None else MAX_VISUAL_CANDIDATES
+    assert calls == (['candidate-03'] if content_first else [a.asset_id for a in assets[:expected_count]])
     assert result['material_status'] == ('MATERIAL_READY' if usable_index is not None else 'MATERIAL_NOT_READY')
     MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
     assert len(calls) == expected_count

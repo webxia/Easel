@@ -44,6 +44,11 @@ class NeedCompiler:
         for key, value in need.constraints.items():
             if not isinstance(key, str) or not key.strip():
                 raise NeedCompilationError("Need constraint keys must be non-empty strings")
+            if key == "preferred_visual_details":
+                if need.media_type.value not in {"image", "video"} or not isinstance(value, str) or not value.strip():
+                    raise NeedCompilationError("preferred_visual_details 须为视觉 Need 的非空偏好说明")
+                # Director discretion is not a stock Provider hard filter.
+                continue
             if key == "voice_delivery" and isinstance(need.modality_spec, VoiceNeedSpec):
                 # TTS execution controls stay on the original Need, consumed by
                 # generation. They cannot be represented as stock-search filters.
@@ -122,6 +127,8 @@ class NeedCompiler:
         if isinstance(need.modality_spec, BgmNeedSpec) and not need.modality_spec.vocals_allowed:
             negative_terms = tuple(dict.fromkeys((*negative_terms, 'vocals')))
         ranking_hints: dict[str, str | int | float | bool] = {"role": role}
+        if "preferred_visual_details" in need.constraints:
+            ranking_hints["preferred_visual_details"] = need.constraints["preferred_visual_details"]
         if need.intent.function:
             ranking_hints["intent_function"] = need.intent.function
         query_context = {

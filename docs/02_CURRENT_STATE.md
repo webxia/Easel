@@ -14,6 +14,13 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 | P3 | **NOT_STARTED**. |
 | Test suite | Latest complete deterministic run: **600 passed, 5 skipped** on 2026-10-01. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
 
+## 制作效率与低打扰优化：第一批（2026-10-02）
+
+- 用户已批准开始收敛优化，当前范围与顺序见[唯一 Task 顶部执行目标](tasks/creator-autonomous-first-cut-2026-09-30.md)。A 第一批已实现；B 多 Need 观察复用、C 有界镜头替代、D 例外组合接受及体验收尾待实施，不将原先记录的需求标成全部完成。Goal 工具拒绝新目标，原因是旧目标仍暂停且未完成；未伪报目标完成。
+- 根因：视觉观察 Prompt 同时要求“审美偏好不否决”和“部分符合的细节整体 partial”，导致可替代细节容易被当作硬门槛。现去除冲突，Planning 将核心表达/明确硬要求留在 intent.description，可替代细节放入现有 constraints 的可选文字键 preferred_visual_details。Compiler 不将其传为供应硬过滤；实际图片/视频生成请求作为可取舍偏好传递，观察按同一 Need 判断并记录偏差。旧 Need 不自动降级要求，无该字段的旧生成请求文字与身份不变。尚不能仅凭这些合同断言真实模型一定正确取舍。
+- 新提名视觉批次保留原 Rights 优先级，在此基础上先按内容相关性、再综合风格/质量排序；排除已知 RESTRICTED 及技术未通过的候选。UNKNOWN Rights 保留观察机会但不自动准入。已保存批次和有效报告继续复用，不因升级重排或重复请求。
+- 验证：Material integration、Preparation、跨 Content Replay、Matching、MiniMax image/speech 共 **151 passed**；强化候选排序回放并保留 Rights 优先级后相关 **8 passed**。场景覆盖同素材逐 Need 独立结论、未知 Rights 不放行、报告修复上限、实际生成请求和身份、旧加权排序优先风格候选而新排序先检查内容候选、报告落盘后中断不重调。compileall / diff check 通过。只增加一个有独立排序风险的参数场景，未调用付费 AI、重建作品、重启服务或启动完整 E2E；未修改前端，本批不重复前端构建。
+
 ## 当前作品已按用户要求清理（2026-10-02）
 
 - 用户在第二轮选材仍未满足后明确要求删除本次未完成制作。已停止该作品交付，删除 `cr_b31cd80a62cc4da7927006c0692a9446` 的 Creation 目录（含方案/准备快照/阶段记录）、对应 Hypit 制作工作区（含素材、旁白、观察报告及临时误写的同作品子目录）、聊天到该作品的绑定以及本次本地 ASR 调试临时文件。其余 8 个 Creation 保留；此作品未提交 Build、未产生 Selected Output，Material Library 中没有其推广资产或使用记录。共享服务、其他作品、模型和项目代码保留。

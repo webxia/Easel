@@ -10,6 +10,8 @@ This document records workstream order, not task-level status. [`02_CURRENT_STAT
 
 [Creator 作品工作区体验优化](tasks/creator-workspace-2026-09-30.md) 的软件实现与确定性验收已完成，沿用 [Creator E2E 前修复](tasks/creator-e2e-repair-2026-09-30.md) 和 [T19](tasks/v1c-t19-low-friction-creation.md) 基线。用户随后明确启动了 [T15](tasks/v1c-t15-e2e-readiness.md) 的一次普通 UI 真实验收；本次已完成成片与入库，但因工程干预记为 PARTIAL。根因修复与具名运行结果见 Current State 的验收链接；下一次无工程救场验证需用户单独启动，不自动创建第二个作品。Generated Material 的既有边界与待验收项见 [Workstream](workstreams/generated-material.md)。
 
+2026-10-02 当前执行顺序：唯一 Task 的 **A 核心/偏好与初筛 → B 独立观察复用 → C Director 有界替代 → D 例外组合接受 → 局部回放收尾**，替代历史“暂缓选材优化”。不自动恢复已删除或其他作品。
+
 ## Workstream Order
 
 1. **自主首版与 Director 全链执行** — ①委托与持续交付 → ②Director 决策传递 → ③Material/Voice → ④Production → ⑤Quality/局部修复 → ⑥同 Creator/Mode 的跨内容局部回放；T19 的适用要求并入本轮，不作为并列路线。
