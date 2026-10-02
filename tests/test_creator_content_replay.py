@@ -299,6 +299,10 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                             'description': 'colored fixture panel'} for f in manifest['frames']]}
         from easel.creation_delivery import advance_creation, next_operation
         monkeypatch.setattr(web, '_observe_material_frames', observe)
+        from easel.materials.application.visual_observation import GROUP_SCHEMA
+        monkeypatch.setattr(web, '_observe_material_group', lambda a, group, attachments: {
+            'schema': GROUP_SCHEMA, 'input_sha256': group['input_sha256'],
+            'reports': {item['need']['need_id']: observe(a, item, attachments) for item in group['observations']}})
         material_operations = []
         async def execute_material(operation, current):
             material_operations.append(operation)

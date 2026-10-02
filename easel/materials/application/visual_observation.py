@@ -26,6 +26,90 @@ from easel.materials.domain import (
 SCHEMA = "easel-visual-observation@2"
 PREFIX = "easel-visual-v1:"
 MAX_VISUAL_CANDIDATES = 9
+GROUP_SCHEMA = 'easel-shared-visual-observation@1'
+MAX_SHARED_NEEDS = 4
+
+
+def validate_shared_report(group: dict, asset: MaterialAsset, report: dict) -> dict:
+    """One image input, independently validated evidence for each Need."""
+    rows = report.get('reports')
+    manifests = group['observations']
+    digest = hashlib.sha256(json.dumps({k: v for k, v in group.items() if k != 'input_sha256'},
+                                      sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    if (group.get('schema') != GROUP_SCHEMA or group.get('input_sha256') != digest
+            or not 1 <= len(manifests) <= MAX_SHARED_NEEDS
+            or len({m['need']['need_id'] for m in manifests}) != len(manifests)):
+        raise ValueError('共享观察输入身份或场景数量无效')
+    if (report.get('schema') != GROUP_SCHEMA or report.get('input_sha256') != group['input_sha256']
+            or not isinstance(rows, dict) or set(rows) != {m['need']['need_id'] for m in manifests}):
+        raise ValueError('共享观察必须逐场景覆盖，绑定同一组实际预览')
+    for manifest in manifests:
+        need = MaterialNeed.model_validate_json(json.dumps(manifest['need']))
+        apply_observation(need, asset, manifest, rows[need.need_id])
+    return rows
+
+
+def observe_shared_asset(attempt, need, asset, manifest, attachments, candidate_needs, store, batch_key, executor):
+    """Freeze grouping before dispatch; resume the same group after partial writes.
+
+    Individual valid reports remain the ordinary matching checkpoints. Grouping
+    only shares the model call, never a matching verdict or Rights evidence.
+    """
+    key = hashlib.sha256((batch_key + ':' + asset.asset_id + ':' + asset.file.sha256).encode()).hexdigest()
+    record_path = store.materials_root / 'observations' / f'shared-input-{key}.json'
+    if record_path.is_symlink():
+        raise ValueError('共享观察输入路径无效')
+    if record_path.is_file():
+        groups = json.loads(record_path.read_text(encoding='utf-8'))['groups']
+    else:
+        pending = []
+        for other in candidate_needs:
+            current = {**manifest, 'need': other.model_dump(mode='json'), 'need_sha256': need_identity(other)}
+            current.pop('input_sha256')
+            current['input_sha256'] = hashlib.sha256(json.dumps(current, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            saved = store.materials_root / 'observations' / (current['input_sha256'] + '.json')
+            try:
+                read_observation_report(saved, other, asset, current)
+            except (OSError, ValueError, TypeError, AttributeError):
+                pending.append(current)
+        groups = []
+        for start in range(0, len(pending), MAX_SHARED_NEEDS):
+            group = {'schema': GROUP_SCHEMA, 'observations': pending[start:start + MAX_SHARED_NEEDS]}
+            group['input_sha256'] = hashlib.sha256(json.dumps(group, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            groups.append(group)
+        store.write_observation_record('shared-input-' + key, {'groups': groups})
+    group = next((g for g in groups if any(m['input_sha256'] == manifest['input_sha256'] for m in g['observations'])), None)
+    if group is None:
+        raise ValueError('当前场景不在已冻结的共享观察中，不能另起观察请求')
+    # Reconstructed previews and Need identity must still match the saved group.
+    expected = {n.need_id: n for n in candidate_needs}
+    for item in group['observations']:
+        raw_need = MaterialNeed.model_validate_json(json.dumps(item['need']))
+        rebound = {**manifest, 'need': raw_need.model_dump(mode='json'), 'need_sha256': need_identity(raw_need)}
+        rebound.pop('input_sha256')
+        rebound['input_sha256'] = hashlib.sha256(json.dumps(rebound, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        if (raw_need.need_id not in expected or expected[raw_need.need_id] != raw_need
+                or item != rebound):
+            raise ValueError('共享观察需求或预览已变化，不能沿用')
+    path = store.materials_root / 'observations' / (group['input_sha256'] + '.json')
+    if path.is_symlink():
+        raise ValueError('共享观察报告路径无效')
+    report = None
+    if path.is_file() and path.stat().st_size <= 512 * 1024:
+        try:
+            report = json.loads(path.read_text(encoding='utf-8'))
+            validate_shared_report(group, asset, report)
+        except (OSError, ValueError, TypeError, AttributeError):
+            report = None
+    if report is None:
+        report = executor(attempt, group, attachments)
+        validate_shared_report(group, asset, report)
+        store.write_observation_record(group['input_sha256'], report)
+    # Group is durable before distributing individual reports; a crash here
+    # resumes this group without another model call.
+    for item in group['observations']:
+        store.write_observation_record(item['input_sha256'], report['reports'][item['need']['need_id']])
+    return report['reports'][need.need_id]
 
 
 def read_observation_report(path: Path, need: MaterialNeed, asset: MaterialAsset, manifest: dict) -> dict:

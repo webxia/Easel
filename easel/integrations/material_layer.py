@@ -1725,13 +1725,13 @@ class MaterialProductOrchestrator:
         return {"material_status": gate["status"], "attempt": updated,
                 "readiness": readiness.model_dump(mode="json")}
 
-    def observe_visual_materials(self, attempt_id: str, *, executor) -> dict[str, Any]:
+    def observe_visual_materials(self, attempt_id: str, *, executor, group_executor=None) -> dict[str, Any]:
         """Observe current candidates and admit evidenced commissioned usage."""
         from easel.integrations.hypit.service import get_film_attempt
         from easel.materials.application.matching import MaterialMatcher
         from easel.materials.application.visual_observation import (
             MAX_VISUAL_CANDIDATES, apply_observation, observed_match, prepare_observation, scoped_inference,
-            read_observation_report,
+            read_observation_report, observe_shared_asset,
         )
 
         attempt = get_film_attempt(attempt_id)
@@ -1857,7 +1857,14 @@ class MaterialProductOrchestrator:
                 if report is None:
                     # Pending gateway calls escape to the durable owner. Never
                     # turn an uncertain model run into a failed observation.
-                    report = executor(attempt, manifest, attachments)
+                    if group_executor is not None:
+                        # Use frozen nominations, not each scene's evolving
+                        # readiness: otherwise a resumed group changes identity.
+                        shared_needs = [n for n in plan.needs if asset_id in pairs.get(n.need_id, [])]
+                        report = observe_shared_asset(attempt, need, asset, manifest, attachments,
+                            shared_needs, store, batch_key, group_executor)
+                    else:
+                        report = executor(attempt, manifest, attachments)
                     store.write_observation_record(manifest["input_sha256"], report)
                 current = store.read_asset(asset.asset_id)
                 if current.file != asset.file:

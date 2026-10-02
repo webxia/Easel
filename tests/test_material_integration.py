@@ -2198,6 +2198,7 @@ def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
     ('suitable', False, 'MATERIAL_NOT_READY', None),
     ('suitable', True, None, 'persistent'),
     ('partial', True, 'MATERIAL_NOT_READY', 'related_type'),
+    ('unsuitable', True, 'MATERIAL_NOT_READY', 'shared'),
 ])
 def test_system_visual_observation_is_per_need_and_resumes_without_supply(
         material_integration_env, monkeypatch, second_verdict, known_rights, expected, report_fault):
@@ -2205,7 +2206,7 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
     import io
     from easel.creation_delivery import DeliveryExecutionUncertain
     from easel.materials.application.matching import MaterialMatcher
-    from easel.materials.application.visual_observation import SCHEMA, observed_match, prepare_observation
+    from easel.materials.application.visual_observation import SCHEMA, GROUP_SCHEMA, observed_match, prepare_observation, validate_shared_report
     import web.app as webapp
 
     attempt = material_integration_env
@@ -2236,10 +2237,39 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
     calls = []
     interrupted = False
     completed_messages = set()
+    group_calls = []
+    write_report = AttemptMaterialStore.write_observation_record
+    def interrupt_distribution(self, identity, report):
+        nonlocal interrupted
+        if report_fault == 'shared' and report.get('schema') == SCHEMA and not interrupted:
+            interrupted = True
+            raise DeliveryExecutionUncertain('fixture interrupted after durable group, before child reports')
+        return write_report(self, identity, report)
+    monkeypatch.setattr(AttemptMaterialStore, 'write_observation_record', interrupt_distribution)
 
     def observe(message, timeout, session_id, *, attachments):
         nonlocal interrupted
         manifest = json.loads(message.split("输入：", 1)[1].split("\n", 1)[0])
+        if manifest.get('schema') == GROUP_SCHEMA:
+            group_calls.append(manifest['input_sha256'])
+            assert len(attachments) == 1 and '不得复制适用结论' in message
+            rows = {}
+            for item in manifest['observations']:
+                nid = item['need']['need_id']
+                calls.append(nid)
+                good = nid == first.need_id
+                rows[nid] = {'schema': SCHEMA, 'input_sha256': item['input_sha256'],
+                    'verdict': 'suitable' if good else 'unsuitable', 'caption': 'actual red field',
+                    'style': 'quiet red', 'reason': 'independent fixture scene judgment',
+                    'logo_present': False, 'visible_text_present': False,
+                    'frames': [{'index': 0, 'observed': True, 'related': good, 'description': 'actual red field'}]}
+            report = {'schema': GROUP_SCHEMA, 'input_sha256': manifest['input_sha256'], 'reports': rows}
+            with pytest.raises(ValueError, match='逐场景覆盖'):
+                validate_shared_report(manifest, asset, {**report, 'reports': {first.need_id: rows[first.need_id]}})
+            with pytest.raises(ValueError, match='不一致'):
+                validate_shared_report(manifest, asset, {**report, 'reports': {**rows, second.need_id: rows[first.need_id]}})
+            (root / 'materials/observations' / (manifest['input_sha256'] + '.json')).write_text(json.dumps(report))
+            return ''
         assert '不请求 Provider/Hypit' in message
         assert '仅这些偏好不符不能判 partial/unsuitable' in message
         assert '整体保留 verdict=partial' not in message
@@ -2285,8 +2315,9 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
         return ''
 
     monkeypatch.setattr(webapp, 'run_agent_sync', observe)
+    extra = {'group_executor': webapp._observe_material_group} if report_fault == 'shared' else {}
     with pytest.raises(DeliveryExecutionUncertain):
-        MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames)
+        MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames, **extra)
     if report_fault == 'persistent':
         for _ in range(3):
             with pytest.raises(webapp.PreparationError, match='素材观察报告未通过校验'):
@@ -2294,8 +2325,10 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
         assert calls == [first.need_id, second.need_id]  # One repair; no endless new requests.
         assert not observed_match(second, store.read_asset(asset.asset_id))
         return
-    result = MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames)
-    if report_fault:
+    result = MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames, **extra)
+    if report_fault == 'shared':
+        assert len(group_calls) == 1
+    elif report_fault:
         assert list((root / 'materials/observations').glob('*.rejected-*.txt'))
     assert calls == [first.need_id, second.need_id]
     assert result['material_status'] == expected
