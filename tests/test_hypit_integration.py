@@ -296,6 +296,7 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
     )
     creation.mark_chat_proposal_ready(work["id"])
     creation.confirm_chat_proposal(work["id"], "explicit-confirmation")
+    _, prior_attempt = make_attempt(work, integration_env)
     _, attempt = make_attempt(work, integration_env)
     service.update_film_attempt(
         attempt["attempt_id"], event="test_copy_context_added",
@@ -369,7 +370,36 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
         with pytest.raises(HypitIntegrationError, match='完整审片'):
             service.select_film_attempt(work['id'], attempt['attempt_id'], 'final.video')
         service.update_film_attempt(attempt['attempt_id'], event='fixture_usage_restored', outputs=reviewed['outputs'])
+    prior_media = Path(prior_attempt['workspace']['path']) / 'materials/assets/failed/media.mp4'
+    prior_media.parent.mkdir(parents=True)
+    prior_media.write_bytes(b'failed attempt media')
+    owned = workspace / 'materials' / 'assets'
+    for asset_id in ('used', 'rejected'):
+        directory = owned / asset_id
+        directory.mkdir(parents=True)
+        (directory / 'media.png').write_bytes(b'fixture')
+        (directory / 'asset.json').write_text('{}')
+    external = integration_env['outputs'] / 'original.png'
+    external.write_bytes(b'original')
+    link = owned / 'outside.png'
+    link.symlink_to(external)
+    with monkeypatch.context() as failed_archive:
+        failed_archive.setattr('easel.content_assets.register_selected_output',
+                               lambda *_args: (_ for _ in ()).throw(OSError('archive failed')))
+        with pytest.raises(OSError, match='archive failed'):
+            service.select_film_attempt(work['id'], attempt['attempt_id'], 'final.video')
+    assert (owned / 'used/media.png').exists() and prior_media.exists()
     selected = service.select_film_attempt(work["id"], attempt["attempt_id"], "final.video")
+    assert selected['material_cleanup']['status'] == 'PENDING'
+    assert external.read_bytes() == b'original'
+    assert (owned / 'used/media.png').exists()
+    link.unlink()
+    selected = service.select_film_attempt(work['id'], attempt['attempt_id'], 'final.video')
+    assert selected['material_cleanup']['status'] == 'COMPLETE'
+    for asset_id in ('used', 'rejected'):
+        assert not (owned / asset_id / 'media.png').exists()
+        assert (owned / asset_id / 'asset.json').exists()
+    assert external.read_bytes() == b'original'
     assert selected["selected_attempt_id"] == attempt["attempt_id"]
     assert selected["publication"]["status"] == ('RIGHTS_REVIEW_REQUIRED' if internal_only else 'READY_FOR_MANUAL_PUBLISH')
     assert selected['publication']['material_usage'] == usage

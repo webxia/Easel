@@ -123,3 +123,9 @@ Director 可以对明确标为可取舍的景别、背景细节和色调作内�
 必要局部验证通过后完成相关 lint/build/compile 检查；检查 Secret、runtime、产物排除后按用户已授权要求提交并推送 origin/easel-studio。不得推 upstream、force push 或改写共享历史。
 
 完成报告区分已实现、局部证据与真实验证缺口，使用 FIXED / PARTIAL / REMAINING / TESTS / READY_FOR_HUMAN_E2E。真实 E2E 由用户随后启动；不得把局部回放等同真人成片验收。
+
+## 成片入库后的素材清理（2026-10-02 用户追加授权）
+
+Creator 最终确认且成片成功注册内容库后，清理该 Creation 全部 Attempt 的 materials/assets 中媒体及非 JSON 附件，以及 materials 与 references 下的音画预览与素材副本。成功、失败及未选用素材均适用；保留方案、资产/观察/权利/费用 JSON 记录、制作工程及成片。只删除作品拥有的本地副本，不删除共享素材库或用户原始文件。
+
+Selection 与入库先持久保存，再执行清理；清理失败记录 PENDING，重复确认可幂等接续，不能让清理失败丢失已确认成片。拒绝链接路径，清理与制作共用 Creation 执行锁。素材删除后旧片不能直接复用原素材修改；后续修改必须重新取得素材并遵守原费用边界。本次不扫描清理既有真实作品，不重载服务或推进生产。

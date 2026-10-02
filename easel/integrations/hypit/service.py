@@ -2105,6 +2105,60 @@ def record_film_review(attempt_id: str, review: dict[str, Any]) -> dict[str, Any
 
 
 def select_film_attempt(creation_id: str, attempt_id: str, output_name: str) -> dict[str, Any]:
+    from easel.creation_delivery import execution_lock
+    with execution_lock(creation_id) as acquired:
+        if not acquired:
+            raise HypitIntegrationError("制作仍在处理，请稍后确认成片")
+        _select_film_attempt(creation_id, attempt_id, output_name)
+        return _cleanup_completed_materials(creation_id)
+
+
+def _cleanup_completed_materials(creation_id: str) -> dict[str, Any]:
+    """Release owned media only after selection and library registration persisted."""
+    media_extensions = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif',
+                        '.mp4', '.mov', '.m4v', '.webm', '.wav', '.mp3', '.aac',
+                        '.flac', '.m4a', '.oga', '.ogg', '.opus'}
+    with creation.edit_creation(creation_id) as work:
+        if not work.get('selected_attempt_id') or not work.get('content_asset'):
+            raise HypitIntegrationError("成片未入库，不能清理素材")
+        for item in work.get('hypit_attempts', []):
+            deleted = item.get('material_cleanup', {}).get('deleted_files', 0)
+            try:
+                raw_workspace = Path(item['workspace']['path']).expanduser()
+                if any(path.is_symlink() for path in (raw_workspace, *raw_workspace.parents)):
+                    raise HypitIntegrationError('制作工作区为链接，拒绝清理')
+                workspace = _workspace({**item, 'creation_id': creation_id})
+                targets = []
+                for name in ('materials', 'references'):
+                    directory = workspace / name
+                    if directory.is_symlink():
+                        raise HypitIntegrationError("素材目录为链接，拒绝清理")
+                    if not directory.exists():
+                        continue
+                    for path in directory.rglob('*'):
+                        if path.is_symlink():
+                            raise HypitIntegrationError("素材路径为链接，拒绝清理")
+                        if path.is_file() and (path.suffix.lower() in media_extensions
+                                or (name == 'materials' and 'assets' in path.relative_to(directory).parts
+                                    and path.suffix.lower() != '.json')):
+                            targets.append(path)
+                for path in targets:
+                    path.unlink(missing_ok=True)
+                    deleted += 1
+                item['material_cleanup'] = {'status': 'COMPLETE', 'deleted_files': deleted,
+                                            'at': _now(), 'policy': 'after_selected_output_registered'}
+            except (OSError, HypitIntegrationError):
+                item['material_cleanup'] = {'status': 'PENDING', 'deleted_files': deleted,
+                                            'at': _now(), 'policy': 'after_selected_output_registered'}
+        work['material_cleanup'] = {
+            'status': ('COMPLETE' if all(i.get('material_cleanup', {}).get('status') == 'COMPLETE'
+                       for i in work.get('hypit_attempts', [])) else 'PENDING'),
+            'at': _now(),
+        }
+    return creation.get_creation(creation_id)
+
+
+def _select_film_attempt(creation_id: str, attempt_id: str, output_name: str) -> dict[str, Any]:
     with creation.edit_creation(creation_id) as work:
         attempt = _attempt_in_creation(work, attempt_id)
         if attempt is None:
