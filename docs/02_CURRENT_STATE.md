@@ -14,6 +14,12 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 | P3 | **NOT_STARTED**. |
 | Test suite | Latest complete deterministic run: **600 passed, 5 skipped** on 2026-10-01. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
 
+## 当前作品已按用户要求清理（2026-10-02）
+
+- 用户在第二轮选材仍未满足后明确要求删除本次未完成制作。已停止该作品交付，删除 `cr_b31cd80a62cc4da7927006c0692a9446` 的 Creation 目录（含方案/准备快照/阶段记录）、对应 Hypit 制作工作区（含素材、旁白、观察报告及临时误写的同作品子目录）、聊天到该作品的绑定以及本次本地 ASR 调试临时文件。其余 8 个 Creation 保留；此作品未提交 Build、未产生 Selected Output，Material Library 中没有其推广资产或使用记录。共享服务、其他作品、模型和项目代码保留。
+- 下方具名运行记录均为清理前历史证据，不再表示这个作品仍在运行，也不再将已删除媒体视为后续 Replay 可用数据。当前不继续或重建该 Creation；本条不把真实自主交付记为完成。
+- 用户新增的“一次接受当前所选画面/BGM/旁白并继续”及“核心表达/硬要求与可替代镜头表达分开，由 Director 先作替代取舍”的要求，已加入[唯一实施 Task](tasks/creator-autonomous-first-cut-2026-09-30.md)末尾优化记录。仅记录，未实施统一通过功能或修改素材核对标准；事实与权利要求保留。
+
 ## 视觉补料耗尽误报人工事项（2026-10-02）
 
 - 本次作品旁白恢复后，仅 `need-img-charging-scene` 未满足。生成图片的已绑定观察结论为 partial：画面过暗，墙边设备/地面线缆无法明确判断。该图片仍为 UNKNOWN Rights，不能凭生成成功或 Creator 点击确认就认领合格。此时没有需要 Creator 提供的事实或新费用决定；根因是 Owner 在一次补充检索、一次委托生成之后，将所有剩余缺口落为 `needs_evidence`，前端又把缺口直接计为人工待办。
