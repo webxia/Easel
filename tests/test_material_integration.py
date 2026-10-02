@@ -3011,3 +3011,49 @@ def test_visual_supply_continues_once_after_rejection_and_stops_as_system_gap(ma
         material_observation={'status': 'COMPLETE', 'plan_revision': gate['plan_revision'],
                               'bundle_revision': gate['bundle_revision']})
     assert next_operation(creation.get_creation(attempt['creation_id'])) == (None, 'material_supply_exhausted')
+
+
+def test_combination_review_resumes_saved_choice_and_preserves_admission(material_integration_env, monkeypatch):
+    from easel.integrations.hypit import service
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+
+    attempt = material_integration_env
+    _planning(attempt)
+    root = Path(attempt['workspace']['path'])
+    plan, asset, run, bundle, readiness, gaps = _contracts(attempt, root)
+    MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)
+    store = AttemptMaterialStore(root)
+    owner = MaterialProductOrchestrator()
+    args = dict(plan_revision=readiness.plan_revision, bundle_revision=bundle.revision,
+                confirm_review=True, reviews=[dict(need_id='need-main', asset_id=asset.asset_id,
+                    expected_sha256=asset.file.sha256, observed_content='已查看实际画面，接受当前场景表达。',
+                    logo_present=None, visible_text_present=None)])
+    before = store.read_asset(asset.asset_id).to_json()
+    stale = {**args, 'reviews': [{**args['reviews'][0], 'expected_sha256': '0' * 64}]}
+    with pytest.raises(MaterialIntegrationError):
+        owner.review_material_combination(attempt['attempt_id'], **stale)
+    assert store.read_asset(asset.asset_id).to_json() == before
+
+    recalculate = owner._recalculate_observed_materials
+    monkeypatch.setattr(owner, '_recalculate_observed_materials',
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError('interrupted')))
+    with pytest.raises(RuntimeError, match='interrupted'):
+        owner.review_material_combination(attempt['attempt_id'], **args)
+    current = service.get_film_attempt(attempt['attempt_id'])
+    assert current['material_combination_review']['status'] == 'PENDING'
+    monkeypatch.setattr(owner, '_recalculate_observed_materials', recalculate)
+    result = owner.finish_material_combination(attempt['attempt_id'])
+    assert result['attempt']['material_combination_review']['status'] == 'COMPLETE'
+    selection = json.loads((root / 'productions/easel-authoring/material-selection.json').read_text())
+    assert selection['creator_material_choices'] == {
+        'need-main': {'asset_id': asset.asset_id, 'sha256': asset.file.sha256}}
+    saved = store.read_bundle().to_json()
+    owner.review_material_combination(attempt['attempt_id'], **args)
+    assert store.read_bundle().to_json() == saved
+
+    # Human creative acceptance cannot stand in for missing rights.
+    unknown = store.read_asset(asset.asset_id).model_copy(update={'rights': RightsInfo(status=RightsStatus.UNKNOWN)})
+    store.write_asset(unknown)
+    with pytest.raises(MaterialIntegrationError):
+        ProductionAuthoringIntegration().accepted_combination(
+            result['attempt'], plan, store.read_bundle().model_copy(update={'assets': (unknown,)}), store)

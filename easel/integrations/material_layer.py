@@ -583,6 +583,24 @@ class ProductionAuthoringIntegration:
     def __init__(self, gate: MaterialGateIntegration | None = None):
         self.gate = gate or MaterialGateIntegration()
 
+    @staticmethod
+    def accepted_combination(attempt, plan, bundle, store) -> dict:
+        """Read the saved Creator choice without treating it as admission."""
+        marker = attempt.get('material_combination_review', {})
+        if not marker.get('request_id'):
+            return {}
+        journal = store.read_recovery_record(marker['request_id'])
+        if not journal or journal['plan_revision'] != MaterialReadinessCalculator.plan_revision(plan):
+            raise MaterialIntegrationError('已接受的素材组合与当前方案不一致')
+        choices = journal['choices']
+        assets = {a.asset_id: a for a in bundle.assets}
+        for need_id, choice in choices.items():
+            asset = assets.get(choice['asset_id'])
+            if (asset is None or asset.file.sha256 != choice['sha256']
+                    or need_id not in ProductionAuthoringIntegration._qualified_need_ids(plan, bundle, asset)):
+                raise MaterialIntegrationError('已接受的素材仍须满足当前权利、技术和匹配要求')
+        return choices
+
     def qualified_authoring_assets(self, attempt: dict[str, Any]) -> list[dict[str, Any]]:
         """List only assets that can satisfy a current Need in this Attempt."""
         from easel.materials.application.visual_observation import observed_interval, visual_use_prefix
@@ -711,6 +729,9 @@ class ProductionAuthoringIntegration:
         choices = director_shot_choices(attempt, plan)
         if choices:
             selection['director_shot_choices'] = choices
+        accepted = self.accepted_combination(attempt, plan, bundle, store)
+        if accepted:
+            selection['creator_material_choices'] = accepted
         (output_dir / "material-selection.json").write_text(
             json.dumps(selection, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8"
         )
@@ -822,6 +843,14 @@ class ProductionAuthoringIntegration:
             if selection["revision"] != bundle.revision:
                 raise MaterialIntegrationError("Production selection revision alias does not match the current MaterialBundle")
             selection.pop("revision")
+        from easel.integrations.material_recovery import director_shot_choices
+        # These are server-owned authoring inputs, not model-owned selection.
+        for key, expected in (
+            ('director_shot_choices', director_shot_choices(attempt, plan)),
+            ('creator_material_choices', self.accepted_combination(attempt, plan, bundle, store)),
+        ):
+            if key in selection and selection.pop(key) != expected:
+                raise MaterialIntegrationError('Production 改写了已保存的导演或 Creator 决定')
         allowed_selection_fields = {
             "schema", "creation_id", "attempt_id", "plan_id", "plan_revision",
             "bundle_id", "bundle_revision", "readiness_revision",
@@ -1004,6 +1033,9 @@ class ProductionAuthoringIntegration:
                         f"旁白时长与 Timeline {timeline_end:.3f}s 不一致；禁止静默截断"
                     )
 
+        accepted = self.accepted_combination(attempt, plan, bundle, store)
+        if any(choice['asset_id'] not in selected_ids for choice in accepted.values()):
+            raise MaterialIntegrationError('Production 未使用 Creator 已接受的完整素材组合')
         selected_sources = {item["src"] for item in checked}
         unselected_sources = declared_media_sources - selected_sources
         if unselected_sources:
@@ -1486,6 +1518,11 @@ class MaterialProductOrchestrator:
         from easel.materials.application.matching import MaterialMatcher
         from easel.materials.application.visual_observation import observed_match
         from easel.materials.application.voice_delivery import voice_content_observed
+        from easel.materials.domain import SemanticField
+
+        def presence(asset, need, field):
+            evidence = MaterialMatcher._annotations(asset, field, need)
+            return any(MaterialMatcher._is_present(item.value) for item in evidence) if evidence else None
 
         attempt = get_film_attempt(attempt_id)
         if attempt.get("material_planning", {}).get("status") != "PLANNING_READY":
@@ -1536,6 +1573,8 @@ class MaterialProductOrchestrator:
                     "description": need.intent.description,
                     "constraints": {key: need.constraints[key] for key in ("logo", "text_in_frame")
                                     if key in need.constraints},
+                    "logo_present": presence(asset, need, SemanticField.LOGO),
+                    "visible_text_present": presence(asset, need, SemanticField.VISIBLE_TEXT),
                 } for need in compatible_needs],
                 "rights": asset.rights.model_dump(mode="json"),
                 "rights_blocking_need_ids": [need.need_id for need in compatible_needs
@@ -1582,12 +1621,17 @@ class MaterialProductOrchestrator:
                     return True
         return False
 
-    def review_material_match(
+    def review_material_match(self, attempt_id: str, **review) -> dict[str, Any]:
+        attempt, plan, bundle, store, asset = self._prepare_material_match_review(attempt_id, **review)
+        store.write_asset(asset)
+        return self._recalculate_observed_materials(attempt, plan, bundle, store)
+
+    def _prepare_material_match_review(
         self, attempt_id: str, *, asset_id: str, expected_sha256: str,
         need_id: str, observed_content: str, logo_present: bool | None,
         visible_text_present: bool | None, confirm_review: bool,
         voice_recognition_review: dict | None = None,
-    ) -> dict[str, Any]:
+    ) -> tuple:
         """Bind a Creator observation to one visual or script-bound narration Asset."""
         from easel.integrations.hypit.service import get_film_attempt
         from easel.materials.application.intelligence import IntelligenceStatus
@@ -1680,8 +1724,99 @@ class MaterialProductOrchestrator:
             # Human review covers named characters only. Confidence, completeness,
             # actual time bounds and every other character still have to pass.
             timing_from_recognition(planning['script'], reviewed_asset, report)
-        store.write_asset(reviewed_asset)
-        return self._recalculate_observed_materials(attempt, plan, bundle, store)
+        return attempt, plan, bundle, store, reviewed_asset
+
+    def review_material_combination(self, attempt_id: str, *, plan_revision: str, bundle_revision: str,
+                                   reviews: list[dict], confirm_review: bool) -> dict:
+        """Preflight the entire choice before persisting any human evidence."""
+        from easel.integrations.material_recovery import _production_started
+        from easel.integrations.hypit.service import get_film_attempt
+        from easel.materials.application.visual_observation import need_identity
+        attempt = get_film_attempt(attempt_id)
+        store = AttemptMaterialStore(_workspace(attempt))
+        payload = {'plan_revision': plan_revision, 'bundle_revision': bundle_revision,
+                   'reviews': reviews, 'confirm_review': confirm_review}
+        request_id = 'combination-' + hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        prior = store.read_recovery_record(request_id)
+        if prior is not None:
+            return self.finish_material_combination(attempt_id, request_id=request_id)
+        if attempt.get('material_combination_review', {}).get('status') == 'PENDING':
+            raise MaterialIntegrationError('上一组素材接受正在保存，请等待状态更新')
+        if confirm_review is not True or not reviews or _production_started(attempt):
+            raise MaterialIntegrationError('只可在编排开始前明确接受当前素材组合')
+        planning = PlanningIntegration().load(attempt)
+        if planning['truth_ledger']['status'] != 'PASSED':
+            raise MaterialIntegrationError('仍有未解决的内容事实事项，素材组合接受不能替代事实核验')
+        plan, bundle = planning['plan'], store.read_bundle()
+        if (MaterialReadinessCalculator.plan_revision(plan) != plan_revision
+                or bundle.revision != bundle_revision
+                or attempt.get('material_gate', {}).get('bundle_revision') != bundle_revision):
+            raise MaterialIntegrationError('方案或素材组合已更新，请刷新后重新核对')
+        ids = [r.get('need_id') for r in reviews]
+        supported = {n.need_id: n for n in plan.needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}
+                     or getattr(n.modality_spec, 'kind', None) in {'voice', 'bgm'}}
+        required = {key for key, n in supported.items() if n.importance is NeedImportance.REQUIRED}
+        if len(set(ids)) != len(ids) or not required.issubset(ids) or set(ids) - set(supported):
+            raise MaterialIntegrationError('组合须覆盖每个必需画面、旁白和配乐，各场景只能选一项')
+        staged = {}
+        for review in reviews:
+            if review.get('voice_recognition_review') is not None:
+                raise MaterialIntegrationError('指定字符的旁白识别复核须保留原独立证据入口')
+            _, _, _, _, reviewed = self._prepare_material_match_review(attempt_id, **review, confirm_review=True)
+            need = supported[review['need_id']]
+            if reviewed.media_type is not need.media_type:
+                raise MaterialIntegrationError('所选素材类型与当前场景不一致')
+            # The formal Creator evidence is scoped to the full Need as well
+            # as bytes; later edits cannot inherit this combination decision.
+            inference = next(i for i in reviewed.semantic.inferences if i.analyzer_id == 'creator-match:' + need.need_id)
+            inference = inference.model_copy(update={'annotations': tuple(a.model_copy(update={
+                'evidence': a.evidence + ':need=' + need_identity(need)}) for a in inference.annotations)})
+            base = staged.get(reviewed.asset_id, store.read_asset(reviewed.asset_id))
+            inferences = tuple(i for i in base.semantic.inferences if i.analyzer_id != inference.analyzer_id) + (inference,)
+            staged[reviewed.asset_id] = base.model_copy(update={'semantic': base.semantic.model_copy(update={'inferences': inferences})})
+        journal = {'status': 'PENDING', 'plan_revision': plan_revision,
+                   'choices': {r['need_id']: {'asset_id': r['asset_id'], 'sha256': r['expected_sha256']} for r in reviews},
+                   'bundle': bundle.model_dump(mode='json'),
+                   'original_assets': {a.asset_id: store.read_asset(a.asset_id).model_dump(mode='json') for a in bundle.assets},
+                   'reviewed_assets': {key: a.model_dump(mode='json') for key, a in staged.items()}}
+        store.write_recovery_record(request_id, journal)
+        return self.finish_material_combination(attempt_id, request_id=request_id)
+
+    def finish_material_combination(self, attempt_id: str, *, request_id: str | None = None) -> dict:
+        """Finish the same saved human decision; never prompt or buy again."""
+        from easel.integrations.hypit.service import get_film_attempt
+        attempt = get_film_attempt(attempt_id)
+        request_id = request_id or attempt.get('material_combination_review', {}).get('request_id')
+        store = AttemptMaterialStore(_workspace(attempt))
+        journal = store.read_recovery_record(request_id) if request_id else None
+        if not journal:
+            raise MaterialIntegrationError('素材组合接受检查点缺失')
+        if journal['status'] == 'COMPLETE':
+            if attempt.get('material_combination_review') == {'status': 'PENDING', 'request_id': request_id}:
+                attempt = _update_attempt(attempt, material_combination_review={'status': 'COMPLETE', 'request_id': request_id})
+            return {'material_status': attempt.get('material_gate', {}).get('status'), 'attempt': attempt}
+        plan = PlanningIntegration().load(attempt)['plan']
+        if MaterialReadinessCalculator.plan_revision(plan) != journal['plan_revision']:
+            raise MaterialIntegrationError('组合接受期间方案变化，不能沿用旧决定')
+        bundle = MaterialBundle.model_validate_json(json.dumps(journal['bundle']))
+        if {a.asset_id for a in store.read_bundle().assets} != set(journal['original_assets']):
+            raise MaterialIntegrationError('组合接受期间候选集合变化，请重新核对')
+        for asset_id, original in journal['original_assets'].items():
+            current = store.read_asset(asset_id)
+            target = journal['reviewed_assets'].get(asset_id, original)
+            if current.model_dump(mode='json') not in (original, target):
+                raise MaterialIntegrationError('组合接受期间素材证据变化，未覆盖新记录')
+            path = store.resolve_asset_locator(current.file.path)
+            if path.stat().st_size != current.file.size or hashlib.sha256(path.read_bytes()).hexdigest() != current.file.sha256:
+                raise MaterialIntegrationError('组合接受期间素材字节变化，不能继续')
+        attempt = _update_attempt(attempt, material_combination_review={'status': 'PENDING', 'request_id': request_id})
+        for raw in journal['reviewed_assets'].values():
+            store.write_asset(MaterialAsset.model_validate_json(json.dumps(raw)))
+        result = self._recalculate_observed_materials(attempt, plan, bundle, store, require_scoped_visual=True)
+        store.write_recovery_record(request_id, {**journal, 'status': 'COMPLETE'})
+        result['attempt'] = _update_attempt(result['attempt'],
+            material_combination_review={'status': 'COMPLETE', 'request_id': request_id})
+        return result
 
     @staticmethod
     def _recalculate_observed_materials(attempt, plan, bundle, store, *, require_scoped_visual=False) -> dict[str, Any]:

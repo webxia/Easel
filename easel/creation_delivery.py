@@ -118,6 +118,8 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     attempt = _attempt(work)
     if not attempt:
         return "prepare", "preparing"
+    if attempt.get('material_combination_review', {}).get('status') == 'PENDING':
+        return 'finish_material_review', 'reviewing_material'
     execution = attempt.get("execution_status")
     # A persisted intent to submit is never a license to submit again.
     if execution in {"SUBMITTING", "SUBMISSION_UNCERTAIN"}:

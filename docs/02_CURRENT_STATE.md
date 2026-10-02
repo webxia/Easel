@@ -23,6 +23,13 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - 局部验证：Material integration、Hypit integration、三内容 Replay、Preparation **164 passed**；补充真实补料 Prompt 合同后相关 **2 passed**；两项既有 Python 依赖提示保留。新增一个有可替代细节的恢复参数场景，复用现有质量场景检查实际 Quality 输入，不新建测试文件。未调用真实模型、Provider 或 Hypit Build，未重启服务或操作现有 Creation；本批未改前端，不重复前端构建。
 - 应用原 Goal 已由用户恢复，工具复核为 active；继续沿用同一总目标，不创建替代 Goal。
 
+## D：例外组合接受（进行中，2026-10-02）
+
+- 后端新增一次组合接受入口，先核对当前方案/素材版本、完整必需 Need 集合与逐素材字节，再保存逐 Need 的人工观察证据；不覆盖系统原观察或正式 Rights。保存中断由既有 Delivery Owner 接续同一份记录，完整提交可幂等重放；相关人工素材写入共用 Creation 执行锁。
+- 根因修复：原单项复核只使素材可能合格，没有约束 Production 实际使用。现将保存的组合决定提供给编排，并在正式选材校验中要求包含所接受素材；每项仍重新验证正式匹配与权利准入。同时修复导演取舍输入被旧选材字段校验拒绝的问题，服务端决定不得由 Authoring 改写。
+- 本批局部验证：Material integration、Hypit integration、三内容 Replay **107 passed**；新增一个组合事务场景覆盖过期字节零写入、写入后中断恢复、完整提交幂等、UNKNOWN Rights 拒绝。compileall/diff check 通过；两项既有依赖提示保留。
+- **尚未完成 D**：页面组合选择/预览入口、减少重复核对表单、更多候选时保留所选项及恢复继承边界、API 与页面确定性场景仍需收尾。不得据此声称整组接受体验已上线或 E 已完成。未操作现有 Creation、重启服务、调用付费 AI 或启动真实 Build/E2E。
+
 ## B：共享视觉观察（2026-10-02）
 
 - 根因：每个 Need 单独发出同一素材的预览，四个场景共享候选时重复传图与模型等待。后台现在对同一素材一次输入最多四个 Need，逐 Need 返回独立报告；不复制适用结论，不改 Rights 或正式观察证据格式。已有有效单场景报告继续复用，独立 executor 仍用于已有局部调用。

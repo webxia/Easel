@@ -623,6 +623,13 @@ class MaterialMatchReviewRequest(BaseModel):
     confirmReview: bool
 
 
+class MaterialCombinationReviewRequest(BaseModel):
+    planRevision: str = Field(pattern=r'^[0-9a-f]{64}$')
+    bundleRevision: str = Field(pattern=r'^[0-9a-f]{64}$')
+    reviews: list[MaterialMatchReviewRequest] = Field(min_length=1, max_length=100)
+    confirmReview: bool
+
+
 def require_local_operator(request: Request):
     """Require a short-lived same-origin session on the loopback Web service."""
     if not _is_loopback_operator_request(request):
@@ -1236,6 +1243,8 @@ async def api_creation_stage(creation_id: str, stage: str, req: CreationStageReq
 async def _hypit_api_call(function, *args, **kwargs):
     try:
         owner = None
+        if getattr(function, '__name__', '') in {'review_material_combination', 'review_material_match', 'review_material_rights', 'review_generated_material_rights'}:
+            owner = get_film_attempt(args[0])['creation_id']
         if function in {resolve_film_attempt_runtime, validate_film_attempt, estimate_film_attempt,
                         approve_film_cost, submit_film_build, refresh_film_build, reconcile_film_submission,
                         export_film_output, retry_failed_film_build, revise_film_output, cancel_film_build} or getattr(function, '__name__', '') == 'generate_minimax_asset':
@@ -1306,6 +1315,7 @@ async def api_script_truth_status(attempt_id: str,
     return {**planning["truth_ledger"], "script": planning["script"],
             "material_needs": [{"need_id": need.need_id, "description": need.intent.description,
                                 "media_type": need.media_type.value,
+                                "importance": need.importance.value,
                                 "modality_kind": getattr(need.modality_spec, "kind", None),
                                 "generation_allowed": need.constraints.get("allow_generation") is True,
                                 "required_source_kind": need.constraints.get("required_source_kind"),
@@ -1465,6 +1475,20 @@ async def api_material_match_review_current(
         logo_present=req.logoPresent, visible_text_present=req.visibleTextPresent,
         confirm_review=req.confirmReview, voice_recognition_review=req.voiceRecognitionReview,
     )
+
+
+@app.post('/api/film-attempts/{attempt_id}/material-match/review-combination')
+async def api_material_match_review_combination(attempt_id: str, req: MaterialCombinationReviewRequest,
+                                                _operator: None = Depends(require_local_operator)):
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+    if any(not item.confirmReview for item in req.reviews):
+        raise HTTPException(400, '组合中每项素材必须属于本次明确接受范围')
+    return await _hypit_api_call(MaterialProductOrchestrator().review_material_combination, attempt_id,
+        plan_revision=req.planRevision, bundle_revision=req.bundleRevision, confirm_review=req.confirmReview,
+        reviews=[{'asset_id': item.assetId, 'expected_sha256': item.assetSha256, 'need_id': item.needId,
+                  'observed_content': item.observedContent, 'logo_present': item.logoPresent,
+                  'visible_text_present': item.visibleTextPresent, 'voice_recognition_review': item.voiceRecognitionReview}
+                 for item in req.reviews])
 
 
 @app.post("/api/film-attempts/{attempt_id}/material-rights/review")
@@ -2195,6 +2219,8 @@ async def _execute_creation_delivery(operation: str, work: dict) -> None:
     if operation == "observe_material":
         await asyncio.to_thread(MaterialProductOrchestrator().observe_visual_materials,
                                 attempt_id, executor=_observe_material_frames, group_executor=_observe_material_group)
+    elif operation == 'finish_material_review':
+        await asyncio.to_thread(MaterialProductOrchestrator().finish_material_combination, attempt_id)
     elif operation == 'recover_material':
         from easel.integrations.material_recovery import recover_managed_materials
         await asyncio.to_thread(recover_managed_materials, attempt_id, executor=_plan_material_recovery)
@@ -2540,6 +2566,7 @@ def _authoring_agent_message(attempt_id: str, task: dict[str, str]) -> str:
         "Truth Packet、Creator Context 与 Creative Mode，以及 MaterialBundle。"
         "material-selection.json 中 director_shot_choices 是本轮可替代镜头决定：在实际合格素材基础上落实，"
         "仅替代明确可取舍细节，不改 SCRIPT/SCENES 原稿、核心表达或硬要求。"
+        "creator_material_choices 若存在，是 Creator 已接受的逐场景素材组合，必须实际使用；不能重新换掉。"
         "AUTHORING_TASK.md 提供示例；hypit-contracts/ 是 Easel 从本机 Hypit vocabulary 导出的正式安装版契约。"
         "编排前读取所用包的 JSON：attributes、children、recipe、notes 和类型引用必须一致；"
         "遇到错误先按该组件契约核对，不得从相邻组件猜属性。不得修改 hypit-contracts/，"

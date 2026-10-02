@@ -9,7 +9,7 @@ from typing import Any
 
 from easel.materials.application.intelligence import IntelligenceStatus
 from easel.materials.application.rights import RightsAdmissionStatus, RightsService
-from easel.materials.application.visual_observation import PREFIX, observed_interval, observed_match, scoped_inference
+from easel.materials.application.visual_observation import PREFIX, observed_interval, observed_match, scoped_inference, need_identity
 from easel.materials.application.voice_delivery import VOICE_CONTENT_PREFIX, voice_content_observed
 from easel.materials.application.music_observation import PREFIX as MUSIC_PREFIX, binding as music_binding, music_observed
 from easel.materials.domain import (
@@ -332,7 +332,7 @@ class MaterialMatcher:
             and inference.status is IntelligenceStatus.COMPLETE
             and any(annotation.field is SemanticField.CAPTION
                     and isinstance(annotation.value, str) and annotation.value.strip()
-                    and annotation.evidence == expected
+                    and annotation.evidence in {expected, expected + ':need=' + need_identity(need)}
                     for annotation in inference.annotations)
             for inference in asset.semantic.inferences
         )
@@ -357,6 +357,10 @@ class MaterialMatcher:
         results = []
         for inference in asset.semantic.inferences:
             if inference.analyzer_id.startswith(PREFIX) and not scoped_inference(need, asset, inference):
+                continue
+            if inference.analyzer_id.startswith('creator-match:') and any(
+                    ':need=' in (a.evidence or '') and not a.evidence.endswith(':need=' + need_identity(need))
+                    for a in inference.annotations):
                 continue
             if inference.status in {IntelligenceStatus.COMPLETE, IntelligenceStatus.PARTIAL}:
                 results.extend(annotation for annotation in inference.annotations
