@@ -79,8 +79,13 @@ def parse_video_plan(response: str) -> dict | None:
         return None
     parts = re.split(r"(?m)^## (创作表达|文案|分镜与节奏|声音设计|制作规格)\s*$", response)
     sections = {}
+    settings = None
     for index in range(1, len(parts), 2):
         heading, body = parts[index], parts[index + 1].strip()
+        if heading == "制作规格":
+            if settings is not None:
+                return None
+            settings = body
         if heading in PLAN_SECTIONS:
             key = PLAN_SECTIONS[heading]
             if key in sections or not body or body in {"待确认", "待补充", "待生成"}:
@@ -89,7 +94,9 @@ def parse_video_plan(response: str) -> dict | None:
     if set(sections) != set(PLAN_SECTIONS.values()):
         return None
     payload = {"schema": "easel-video-proposal@1", **sections,
-               "specs": proposal_specs([{"role": "assistant", "content": response}])["specs"]}
+               "specs": proposal_specs([{"role": "assistant", "content": settings or ""}])["specs"]}
+    if settings:
+        payload["specification_notes"] = settings
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return {**payload, "sha256": hashlib.sha256(encoded.encode()).hexdigest()}
 
@@ -101,6 +108,8 @@ def video_proposal_preview(work: dict, turns: list[dict]) -> dict:
     plan = workflow.get("video_plan") or {}
     specs = plan.get("specs") or {key: None for key in SPEC_LABELS}
     missing = [label for key, label in SPEC_LABELS.items() if specs.get(key) is None]
-    if workflow.get("proposal_status") not in {"READY_FOR_CONFIRMATION", "CONFIRMED"} or not plan:
+    if not plan:
         missing.append("完整视频方案（文案、分镜与声音设计）")
+    elif workflow.get("proposal_status") not in {"READY_FOR_CONFIRMATION", "CONFIRMED"} and not missing:
+        missing.append("当前方案尚未完成更新")
     return {"specs": specs, "missing": missing}

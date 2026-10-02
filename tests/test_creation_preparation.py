@@ -1109,6 +1109,9 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
             assert "提案阶段的最高优先级边界" in message
             assert "不得展开内部思考、工具/命令/会话状态或自我对话" in message
             assert "不得扫描本机素材目录" in message
+            assert "提出一个可执行推荐及简短依据" in message
+            assert "明确标为 Easel 推荐" in message
+            assert "没有明确来源时，不自行补视频时长" not in message
             assert "只写以下四个 JSON 文件" not in message
             return VIDEO_PROPOSAL
         assert "提案阶段的最高优先级边界" not in message
@@ -1159,6 +1162,7 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
         })
         preview = client.post(f"/api/creations/{first_work['id']}/proposal-preview",
             json={'proposalContext': [turn.model_dump() for turn in confirmation.proposalContext]}).json()
+        assert preview['confirmable'] is True
         offered = preview['generation_budget']
         assert offered['available'] is True and 'fixture-key' not in json.dumps(offered)
         declaration = preview['input_use']
@@ -1270,7 +1274,9 @@ def test_car_proposal_prompt_limits_unconfirmed_details_and_user_facing_language
     assert "本轮动手前先查技能库" not in message
     assert "用户修改时返回整份更新后的方案" in message
     assert "## 文案、## 分镜与节奏" in message
-    assert "不自行补视频时长、价格区间、平台、画幅或目标受众" in message
+    assert "不把未知价格、发布平台、目标受众或用户经历编造成事实" in message
+    assert "用户明确给出的制作要求优先" in message
+    assert "所有推荐只在用户点击制作后才成为执行约定" in message
     assert "不要使用“已确认事实”“截面事实”" in message
     assert "不要向用户提后端、Preparation、Production Brief、Creator Context、Agent、Skill 或文件流程" in message
     assert creation.get_creation(work["id"])["preparation"]["status"] == "CREATED"
@@ -1766,17 +1772,34 @@ def test_video_proposal_revision_recovery_and_stale_confirmation(prep_env):
     creation.save_video_proposal(cid, "turn-1", "只讨论方向")
     assert creation.get_creation(cid)["chat_workflow"]["proposal_status"] == "DISCUSSING"
     assert parse_video_plan(VIDEO_PROPOSAL.replace("## 文案", "## 缺少文案")) is None
-    first = creation.save_video_proposal(cid, "turn-1", VIDEO_PROPOSAL)["chat_workflow"]["video_plan"]
+    # Scene/example settings must never supply missing confirmation fields.
+    no_settings = parse_video_plan(VIDEO_PROPOSAL.split("## 制作规格")[0] + "\n时长：15 秒\n画幅：9:16")
+    assert no_settings and all(value is None for value in no_settings['specs'].values())
+    recommended = VIDEO_PROPOSAL + "\n规格说明：以上为 Easel 推荐，按当前短文案与静帧设计；点击制作后才确认。"
+    first = creation.save_video_proposal(cid, "turn-1", recommended)["chat_workflow"]["video_plan"]
     assert first["revision"] == 1
+    assert "Easel 推荐" in first["specification_notes"]
     # Disk recovery needs no browser transcript and specs cannot be changed by it.
     preview = video_proposal_preview(creation.get_creation(cid), [{"role": "user", "content": "改为90秒"}])
     assert not preview["missing"] and preview["specs"]["duration_seconds"] == 15
+    # Complete copy/storyboard is not an executable commission without specs.
+    creation.begin_video_proposal(cid, "spec-gap")
+    incomplete = creation.save_video_proposal(cid, "spec-gap", VIDEO_PROPOSAL.replace("时长：15 秒", "时长：待确认"))
+    assert incomplete["chat_workflow"]["proposal_status"] == "DISCUSSING"
+    assert video_proposal_preview(incomplete, [])["missing"] == ["总时长"]
+    # Older saved READY records must not bypass missing specs through direct confirmation.
+    with creation.edit_creation(cid) as stored:
+        stored["chat_workflow"]["proposal_status"] = "READY_FOR_CONFIRMATION"
+    draft = incomplete["chat_workflow"]["video_plan"]
+    with pytest.raises(creation.CreationError, match="尚未完成"):
+        creation.confirm_chat_proposal(cid, "bad-confirm", video_plan_sha256=draft["sha256"], production_specs=draft["specs"])
+    assert creation.get_creation(cid).get("delivery") is None
     creation.begin_video_proposal(cid, "turn-2")
     assert video_proposal_preview(creation.get_creation(cid), [])["missing"]
     creation.save_video_proposal(cid, "turn-1", VIDEO_PROPOSAL)
     assert creation.get_creation(cid)["chat_workflow"]["proposal_status"] == "DISCUSSING"
     second = creation.save_video_proposal(cid, "turn-2", VIDEO_PROPOSAL.replace("先看问题", "看清选择"))["chat_workflow"]["video_plan"]
-    assert second["revision"] == 2 and second["sha256"] != first["sha256"]
+    assert second["revision"] == 3 and second["sha256"] != first["sha256"]
     proposal = json.dumps([{"role": "assistant", "content": VIDEO_PROPOSAL}], ensure_ascii=False)
     kwargs = dict(delivery_proposal=proposal, proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(),
                   production_specs=second["specs"])

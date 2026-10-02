@@ -27,15 +27,15 @@ interface FilmOperatorPageProps {
   onContinuePreparation: () => void;
   continuationBusy: boolean;
   proposalPhase?: boolean;
-  proposalReady?: boolean;
   proposalMessages?: ChatMessage[];
   onConfirmProduction?: (budget?: GenerationBudget, inputUseStatementSha256?: string, videoPlanSha256?: string) => void;
   progressOpen?: boolean;
   onProjection?: (value: { title: string; pending: number }) => void;
   onOpenConversation?: () => void;
+  onUpdateProposal?: (message: string) => void;
 }
 
-export default function FilmOperatorPage({ creationId, onContinuePreparation, continuationBusy, proposalPhase = false, proposalReady = false, proposalMessages = [], onConfirmProduction, progressOpen = false, onProjection, onOpenConversation }: FilmOperatorPageProps) {
+export default function FilmOperatorPage({ creationId, onContinuePreparation, continuationBusy, proposalPhase = false, proposalMessages = [], onConfirmProduction, progressOpen = false, onProjection, onOpenConversation, onUpdateProposal }: FilmOperatorPageProps) {
   const [materialSearchTerms, setMaterialSearchTerms] = useState<Record<string, string>>({});
   const materialRecoveryRequest = useRef<{ id: string; payload: string } | null>(null);
   const [creationSnapshot, setCreationSnapshot] = useState<OperatorRecord | null>(null);
@@ -45,15 +45,20 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   useEffect(() => { setGenerationCeiling(''); }, [creationId]);
   const [proposalPreviewError, setProposalPreviewError] = useState('');
   const [previewContext, setPreviewContext] = useState('');
+  const [previewRetry, setPreviewRetry] = useState(0);
+  const [proposalChoices, setProposalChoices] = useState<Record<string, string>>({});
+  const proposalStatus = String(record(creationSnapshot?.chat_workflow).proposal_status);
+  const proposalVersion = JSON.stringify([record(record(creationSnapshot?.chat_workflow).video_plan).sha256, record(creationSnapshot?.chat_workflow).proposal_status]);
+  useEffect(() => { setProposalChoices({}); }, [creationId, proposalVersion]);
   const proposalContext = JSON.stringify(proposalMessages.slice(-48).map(({ role, content }) => ({ role, content })));
   useEffect(() => {
-    if (!proposalPhase && !editingProposal) return;
+    if (!proposalPhase && !editingProposal && !['DISCUSSING', 'READY_FOR_CONFIRMATION'].includes(proposalStatus)) return;
     let cancelled = false; setProposalPreview(null);
     previewCreatorProposal(creationId, JSON.parse(proposalContext))
       .then(value => { if (!cancelled) { setProposalPreview(value); setPreviewContext(proposalContext); setProposalPreviewError(''); } })
       .catch((reason: unknown) => { if (!cancelled) setProposalPreviewError(operationError(reason)); });
     return () => { cancelled = true; };
-  }, [creationId, proposalPhase, proposalContext, editingProposal]);
+  }, [creationId, proposalPhase, proposalContext, editingProposal, proposalVersion, proposalStatus, previewRetry]);
   const generationOffer = record(proposalPreview?.generation_budget);
   const generationScope = record(generationOffer.scope);
   const inputUse = record(proposalPreview?.input_use);
@@ -62,6 +67,17 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   const invalidGenerationBudget = generationCeiling !== '' && (!Number.isFinite(generationAmount) || generationAmount <= 0 || generationAmount > 1000 || !/^\d+(\.\d{1,2})?$/.test(generationCeiling) || !generationOffer.available);
   const proposalSpecifications = record(proposalPreview?.specs);
   const proposalMissing = Array.isArray(proposalPreview?.missing) ? proposalPreview.missing : [];
+  const proposalCanConfirm = proposalPreview?.confirmable === true || (proposalPreview?.confirmable === undefined && record(creationSnapshot?.chat_workflow).proposal_status === 'READY_FOR_CONFIRMATION');
+  const proposalOptions: Record<string, string[]> = {
+    '明确画幅比例': ['9:16（竖屏）', '16:9（横屏）', '1:1（方屏）', '4:5', '4:3', '3:4'],
+    '音轨方式': ['静音', '纯旁白', '纯音乐', '旁白与音乐'],
+    '语言': ['简体中文', '繁体中文', '英语'],
+  };
+  const updateProposal = () => {
+    const choices = Object.entries(proposalChoices).filter(([, value]) => value.trim())
+      .map(([label, value]) => `${label === '明确画幅比例' ? '画幅' : label === '音轨方式' ? '音轨' : label === '总时长' ? '时长' : label}：${value}${label === '总时长' ? ' 秒' : ''}`);
+    onUpdateProposal?.(`请保留当前文案、创作方向和我已明确的要求，补齐并返回完整可执行方案。${choices.length ? '\n我选择的设置：\n' + choices.join('\n') : ''}\n其余缺少的制作设置请由 Easel 根据内容与当前风格给出一个明确推荐，说明推荐依据，随整份方案等待我确认；不要启动制作。`);
+  };
   const [attempts, setAttempts] = useState<OperatorRecord[]>([]);
   const [attemptId, setAttemptId] = useState('');
   useEffect(() => { materialRecoveryRequest.current = null; setMaterialSearchTerms({}); }, [attemptId]);
@@ -637,15 +653,30 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
             </div> : <p>还没有形成完整视频方案。请在对话中讨论具体文案、分镜与声音设计，方案会显示在这里。</p>}
           </dd>
           <dt>创作方式</dt><dd>{text(creationSnapshot?.creative_mode, '尚未确认，请在对话中确定创作方式')}</dd>
-          <dt>本次确认的规格</dt><dd>
+          <dt>制作设置（随方案一起确认）</dt><dd>
             总时长：{proposalSpecifications.duration_seconds == null ? '—' : `${proposalSpecifications.duration_seconds} 秒`}<br />
             画幅：{text(proposalSpecifications.aspect_ratio)}<br />
             音轨：{({ silent: '静音', voice: '旁白', music: '音乐', mixed: '旁白与音乐' } as Record<string, string>)[String(proposalSpecifications.audio_mode)] ?? '—'}<br />
             语言：{({ 'zh-CN': '简体中文', 'zh-TW': '繁体中文', en: '英语' } as Record<string, string>)[String(proposalSpecifications.language)] ?? '—'}
+            {typeof videoPlan.specification_notes === 'string' && <p style={{ whiteSpace: 'pre-wrap' }}>{videoPlan.specification_notes}</p>}
+            <small>已明确的要求优先。Easel 的推荐可在对话中修改，点击制作后才成为本次执行约定。</small>
           </dd>
           <dt>创作边界</dt><dd>确认后由 Easel 持续制作，可离开页面。无服务商费用的合成自动执行；如设置下方预算，方案允许的素材生成在核价和额度内自动执行。其他费用、无法核价或超额时再请你处理。不自动发布。</dd>
-          <dt>待确认信息</dt><dd>{proposalPreviewError || (!proposalPreview ? '正在核对方案…' : proposalMissing.length ? proposalMissing.join('、') + '；请在对话中明确这些规格。' : '确认后将按当前版本的文案、分镜与规格制作。')}</dd>
+          <dt>下一步</dt><dd>{proposalPreviewError || (!proposalPreview ? '正在核对方案…' : proposalMissing.length ? '方案还缺少：' + proposalMissing.join('、') + '。可请 Easel 补齐推荐，无需自己组织参数。' : continuationBusy ? '正在更新方案，完成后即可确认。' : '方案已完整，可直接确认制作，也可继续通过对话修改。')}</dd>
         </dl>
+        {proposalPreviewError && <button className="btn" disabled={continuationBusy} onClick={() => setPreviewRetry(value => value + 1)}>重新核对方案</button>}
+        {!!proposalPreview && !proposalPreviewError && proposalMissing.length > 0 && <div className="film-op-review-claim" role="status">
+          <p>补齐方案后即可制作。Easel 会保留已有文案与分镜，并更新完整方案供你一次确认。</p>
+          <details><summary>自行选择缺少的设置（可选）</summary>
+            {proposalMissing.filter(label => label === '总时长' || proposalOptions[label]).map(label => <label key={label}>{label}
+              {label === '总时长' ? <input aria-label={label} className="field" type="number" min="1" max="900" step="1" placeholder="留空交给 Easel 推荐（秒）" value={proposalChoices[label] || ''} onChange={event => setProposalChoices(value => ({ ...value, [label]: event.target.value }))} />
+                : <select aria-label={label} className="field" value={proposalChoices[label] || ''} onChange={event => setProposalChoices(value => ({ ...value, [label]: event.target.value }))}>
+                  <option value="">交给 Easel 推荐</option>{proposalOptions[label].map(option => <option key={option} value={option}>{option}</option>)}
+                </select>}
+            </label>)}
+          </details>
+          {onUpdateProposal && <button className="btn btn-primary" disabled={continuationBusy} onClick={updateProposal}>{continuationBusy ? '正在更新方案…' : Object.values(proposalChoices).some(Boolean) ? '按所选设置更新方案' : '请 Easel 补齐推荐设置'}</button>}
+        </div>}
         {generationOffer.available === true && <div className="film-op-review-claim">
           <label>本次自主素材生成总预算（人民币，可留空）
             <input className="field" type="number" inputMode="decimal" min="0.01" max="1000" step="0.01" value={generationCeiling} onChange={event => setGenerationCeiling(event.target.value)} placeholder="留空则付费生成另行确认" />
@@ -659,7 +690,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
         </details>
         {inputUseSha256 && <p className="film-op-input-use">点击制作即确认以下文字使用范围：{String(inputUse.statement)}如有未核实的引用，请先在对话中明确。</p>}
         <p>可在左侧对话中修改方向，确认后进入内容准备。</p>
-        <button className="btn btn-primary" disabled={!proposalReady || continuationBusy || !proposalPreview || proposalMissing.length > 0 || !!proposalPreviewError || previewContext !== proposalContext || invalidGenerationBudget} onClick={() => onConfirmProduction?.(generationCeiling ? { maxCostCny: generationAmount, scopeSha256: String(generationOffer.scope_sha256) } : undefined, inputUseSha256, typeof videoPlan.sha256 === 'string' ? videoPlan.sha256 : undefined)}>按这个方案制作</button>
+        <button className="btn btn-primary" disabled={!proposalCanConfirm || continuationBusy || !proposalPreview || proposalMissing.length > 0 || !!proposalPreviewError || previewContext !== proposalContext || invalidGenerationBudget} onClick={() => onConfirmProduction?.(generationCeiling ? { maxCostCny: generationAmount, scopeSha256: String(generationOffer.scope_sha256) } : undefined, inputUseSha256, typeof videoPlan.sha256 === 'string' ? videoPlan.sha256 : undefined)}>按这个方案制作</button>
       </section>}
       {backendDelivery && Object.values(record(delivery.material_generations)).map(record).filter(item => item.attempt_id === attemptId && ['budget_exceeded', 'quote_unavailable', 'uncertain'].includes(String(item.status))).map(item => <div className="film-op-message is-error" role="status" key={String(item.need_id)}>
         {text(item.reason, '素材生成尚需处理，已保留现有结果。')}

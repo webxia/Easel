@@ -13,15 +13,17 @@ const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const browser = await chromium.launch({ headless: true });
 const base = process.env.WORKSPACE_FIXTURE_URL || 'http://127.0.0.1:5199/tests/workspace-fixture.html';
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: 'zh-CN', timezoneId: 'Asia/Shanghai' });
-let scenario = 'proposal'; let disconnected = false; const mutations = []; let feedback = []; let revisionStarted = false; const outputHash = 'sha256:' + 'a'.repeat(64);
+let scenario = 'proposal'; let disconnected = false; let previewUnavailable = false; const mutations = []; let feedback = []; let revisionStarted = false; const outputHash = 'sha256:' + 'a'.repeat(64);
 await page.route('**/api/**', async route => {
   const request = route.request(); const rawPath = new URL(request.url()).pathname; const path = rawPath.slice(rawPath.indexOf('/api/'));
   if (request.method() !== 'GET' && path !== '/api/operator/session' && !path.endsWith('/proposal-preview')) mutations.push(path);
   if (disconnected && path.includes('creations/')) return route.abort();
+  if (previewUnavailable && path.endsWith('/proposal-preview')) return route.fulfill({ status: 503, json: { detail: '方案读取暂时失败' } });
   if (path.startsWith('/api/media/')) return route.fulfill({ contentType: 'video/mp4', body: videoBytes });
   if (path.endsWith('/preview')) return route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j9WQAAAAASUVORK5CYII=', 'base64') });
   let result = {};
-  const proposal = scenario === 'proposal';
+  const proposal = scenario.startsWith('proposal');
+  const incomplete = scenario === 'proposal-missing';
   const attempt = { attempt_id: 'fixture-attempt', authoring_status: scenario === 'failed' ? 'AUTHORING_FAILED' : 'AUTHORING_RUNNING',
     execution_status: 'NOT_SUBMITTED', material_planning: { status: 'PLANNING_READY' }, material_gate: { status: 'MATERIAL_READY' },
     updated_at: '2026-09-30T10:00:00Z', last_error: { message: '镜头时长与已确认时长不一致' } };
@@ -33,10 +35,10 @@ await page.route('**/api/**', async route => {
   if (scenario === 'review') { attempt.execution_status = 'BUILD_COMPLETE'; attempt.authoring_status = 'AUTHORING_READY'; attempt.outputs = { final: { path: 'fixture-final.mp4', sha256: outputHash, technical_qc: { status: 'pass' }, metadata: { duration_seconds: 15 } } }; attempt.review = { feedback }; }
   if (path === '/api/operator/session') result = { authenticated: true };
   else if (path === '/api/upload/limits') result = { max_mb: 50 };
-  else if (path === '/api/creations/fixture-creation') result = { id: 'fixture-creation', idea: '雨后城市的平静', creative_mode: '观察式短片', chat_workflow: { proposal_status: proposal ? 'READY_FOR_CONFIRMATION' : 'CONFIRMED' },
+  else if (path === '/api/creations/fixture-creation') result = { id: 'fixture-creation', idea: '雨后城市的平静', creative_mode: '观察式短片', chat_workflow: { proposal_status: incomplete ? 'DISCUSSING' : proposal ? 'READY_FOR_CONFIRMATION' : 'CONFIRMED' },
     ...(scenario.startsWith('delivery-') ? { delivery: { schema: 'easel-creation-delivery@1', status: ({ 'delivery-cost': 'checking_cost', 'delivery-export': 'exporting', 'delivery-disconnected': 'observation_failed' })[scenario] } } : {}),
     preparation: scenario === 'early-failure' ? { status: 'FAILED', last_error: '内容节拍合计与总时长不一致' } : {} };
-  else if (path.endsWith('/proposal-preview')) result = { specs: { duration_seconds: 15, aspect_ratio: '9:16', audio_mode: 'silent', language: 'zh-CN' }, missing: [], video_plan: { revision: 2, sha256: 'c'.repeat(64), treatment: '雨后城市的平静', script: '雨停了，城市慢下来。', scenes: '0–15 秒：雨后街道与窗边，缓慢收束。', sound: '静音，屏幕文案表达。' },
+  else if (path.endsWith('/proposal-preview')) result = { confirmable: !incomplete, specs: { duration_seconds: incomplete ? null : 15, aspect_ratio: incomplete ? null : '9:16', audio_mode: incomplete ? null : 'silent', language: 'zh-CN' }, missing: incomplete ? ['总时长', '明确画幅比例', '音轨方式'] : [], video_plan: { revision: 2, sha256: 'c'.repeat(64), treatment: '雨后城市的平静', script: '雨停了，城市慢下来。', scenes: '0–15 秒：雨后街道与窗边，缓慢收束。', sound: '静音，屏幕文案表达。', specification_notes: 'Easel 推荐：15 秒、9:16、静音，适合本版短文案。' },
     generation_budget: { available: true, scope_sha256: 'fixture-scope', scope: { speech_voice_id: 'male-qn-qingse', speech_model: 'speech-2.8-hd', image_model: 'image-01', video_model: 'MiniMax-H3-Max' } } };
   else if (path.endsWith('/film-attempts')) result = proposal || scenario === 'early-failure' ? [] : revisionStarted ? [{ ...attempt, attempt_id: 'fixture-revision', outputs: {}, authoring_status: 'AUTHORING_RUNNING', execution_status: 'NOT_SUBMITTED' }, attempt] : [attempt];
   else if (path === '/api/film-attempts/fixture-attempt') result = attempt;
@@ -51,11 +53,37 @@ await page.route('**/api/**', async route => {
 });
 const errors = []; page.on('pageerror', error => errors.push(error.message));
 try {
-  for (const state of ['proposal', 'early-failure', 'failed', 'material', 'cost', 'review', 'running', 'delivery-cost', 'delivery-export', 'delivery-disconnected']) {
-    scenario = state; revisionStarted = false;
+  for (const state of ['proposal', 'proposal-stale', 'proposal-missing', 'proposal-error', 'early-failure', 'failed', 'material', 'cost', 'review', 'running', 'delivery-cost', 'delivery-export', 'delivery-disconnected']) {
+    scenario = state; revisionStarted = false; previewUnavailable = state === 'proposal-error';
     await page.goto(`${base}?scenario=${state}`);
     const canvas = page.getByRole('complementary', { name: '作品画布' });
     await canvas.waitFor();
+    if (state === 'proposal-stale') {
+      await page.getByRole('button', { name: '按这个方案制作' }).waitFor();
+      await page.getByText('方案已完整，可直接确认制作，也可继续通过对话修改。', { exact: true }).waitFor();
+      assert.equal(await page.getByRole('button', { name: '按这个方案制作' }).isEnabled(), true);
+      await page.getByRole('button', { name: '按这个方案制作' }).click();
+      assert.equal(await page.evaluate(() => document.documentElement.dataset.confirmedPlan), 'c'.repeat(64));
+    }
+    if (state === 'proposal-missing') {
+      await page.getByRole('button', { name: '请 Easel 补齐推荐设置' }).waitFor();
+      assert.equal(await page.getByRole('button', { name: '按这个方案制作' }).isEnabled(), false);
+      await page.getByRole('button', { name: '请 Easel 补齐推荐设置' }).click();
+      assert.match(await page.evaluate(() => document.documentElement.dataset.proposalUpdate), /不要启动制作/);
+      await page.getByText('自行选择缺少的设置（可选）', { exact: true }).click();
+      await page.getByLabel('明确画幅比例', { exact: true }).selectOption('16:9（横屏）');
+      await page.getByRole('button', { name: '按所选设置更新方案' }).click();
+      assert.match(await page.evaluate(() => document.documentElement.dataset.proposalUpdate), /画幅：16:9（横屏）/);
+      assert.equal(mutations.length, 0);
+    }
+    if (state === 'proposal-error') {
+      await page.getByRole('button', { name: '重新核对方案' }).waitFor();
+      assert.equal(await page.getByRole('button', { name: '按这个方案制作' }).isEnabled(), false);
+      previewUnavailable = false;
+      await page.getByRole('button', { name: '重新核对方案' }).click();
+      await page.getByText('方案已完整，可直接确认制作，也可继续通过对话修改。', { exact: true }).waitFor();
+      assert.equal(await page.getByRole('button', { name: '按这个方案制作' }).isEnabled(), true);
+    }
     await page.getByText('做一支雨后城市短片，15 秒，9:16，静音，简体中文。', { exact: true }).waitFor();
     if (state === 'proposal') {
       const confirm = page.getByRole('button', { name: '按这个方案制作' });
@@ -77,7 +105,8 @@ try {
       assert.equal(await page.getByRole('button', { name: '同意本次费用并制作' }).count(), 0);
       if (state === 'delivery-export') await page.getByRole('heading', { name: '正在整理成片' }).waitFor();
       if (state === 'delivery-disconnected') {
-        await page.getByRole('heading', { name: '状态连接中断 · 显示最后可信结果' }).waitFor();
+        await page.getByRole('heading', { name: '上次状态：状态连接中断' }).waitFor();
+        await page.getByText('以下为最后可信制作状态，实时进度尚未确认。', { exact: true }).waitFor();
         assert.equal(await page.getByText('尚未生成视频预览；当前正在整理内容、编排或合成。').count(), 0);
       }
     }

@@ -286,8 +286,9 @@ export default function ChatPage({ session, stream, onSend, onCapabilityChange, 
       </div>
       {hasWork && <aside className="creator-work-canvas" aria-label="作品画布">
         <FilmOperatorPage key={session.activeCreationId} creationId={session.activeCreationId!} title={session.title}
-          proposalPhase={session.activeCreationPhase !== 'production_confirmed'} proposalReady={session.activeCreationPhase === 'proposal_ready'}
+          proposalPhase={session.activeCreationPhase !== 'production_confirmed'}
           proposalMessages={session.messages} onConfirmProduction={onConfirmProduction}
+          onUpdateProposal={message => { setWorkspaceTab('conversation'); onSend(message); }}
           progressOpen={progressOpen} onProjection={setWorkspaceStatus}
           onOpenConversation={() => { setWorkspaceTab('conversation'); requestAnimationFrame(() => textareaRef.current?.focus()); }}
           onContinuePreparation={() => onSend('继续准备当前作品')} continuationBusy={isStreaming} />

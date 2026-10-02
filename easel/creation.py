@@ -359,7 +359,8 @@ def save_video_proposal(creation_id: str, turn_id: str, response: str) -> dict[s
             previous = workflow.get("video_plan") or {}
             revision = previous.get("revision", 0) + (previous.get("sha256") != plan["sha256"])
             workflow["video_plan"] = {**plan, "revision": revision, "updated_at": _now()}
-        workflow["proposal_status"] = "READY_FOR_CONFIRMATION" if plan else "DISCUSSING"
+        workflow["proposal_status"] = ("READY_FOR_CONFIRMATION"
+            if plan and all(value is not None for value in plan["specs"].values()) else "DISCUSSING")
     return get_creation(creation_id)
 
 
@@ -425,7 +426,9 @@ def confirm_chat_proposal(
             if workflow.get("video_plan_required"):
                 plan = workflow.get("video_plan") or {}
                 if (not video_plan_sha256 or plan.get("sha256") != video_plan_sha256
-                        or production_specs != plan.get("specs")):
+                        or production_specs != plan.get("specs")
+                        or any(plan.get("specs", {}).get(key) is None for key in
+                               ("duration_seconds", "aspect_ratio", "audio_mode", "language"))):
                     raise CreationError("视频方案已更新或尚未完成，请查看当前文案与分镜后确认")
             editing = workflow.get("editing_proposal", False)
             if editing and data.get("preparation", {}).get("snapshot_hashes"):

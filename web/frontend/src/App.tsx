@@ -543,8 +543,7 @@ export default function App() {
 
   const handleConfirmProduction = useCallback((sessionId: string, generationBudget?: GenerationBudget, inputUseStatementSha256?: string, videoPlanSha256?: string) => {
     const current = sessionsRef.current.find((s) => s.id === sessionId);
-    if (current?.capability !== 'ai-film' || !current.activeCreationId
-        || current.activeCreationPhase !== 'proposal_ready') return;
+    if (current?.capability !== 'ai-film' || !current.activeCreationId) return;
     sendUserAndStream(sessionId, '确认当前创作方案，继续准备内容与素材', [], undefined, undefined, 'confirm_production', generationBudget, inputUseStatementSha256, videoPlanSha256);
   }, [sendUserAndStream]);
 
