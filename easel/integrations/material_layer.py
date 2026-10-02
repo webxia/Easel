@@ -707,6 +707,10 @@ class ProductionAuthoringIntegration:
             "assets": records,
             "status": "PENDING_PRODUCTION_SELECTION" if not selected else "SELECTED",
         }
+        from easel.integrations.material_recovery import director_shot_choices
+        choices = director_shot_choices(attempt, plan)
+        if choices:
+            selection['director_shot_choices'] = choices
         (output_dir / "material-selection.json").write_text(
             json.dumps(selection, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8"
         )

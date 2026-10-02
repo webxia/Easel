@@ -438,6 +438,10 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
             ('creator_context', 'creator-context.json'), ('content_core', 'content-core.json'),
             ('truth', 'truth-packet.json'))}
         context.update(treatment=planning['treatment'], scenes=planning['scenes'])
+        from easel.integrations.material_recovery import director_shot_choices
+        choices = director_shot_choices(attempt, planning['plan'])
+        if choices:
+            context['director_shot_choices'] = choices
     except (OSError, KeyError, ValueError) as exc:
         raise HypitIntegrationError('系统审片缺少已冻结的创作者、内容或导演方案，不能核实风格') from exc
     plan, bundle, _ = MaterialGateIntegration().assert_ready(attempt)

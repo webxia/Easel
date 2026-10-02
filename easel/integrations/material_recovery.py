@@ -187,6 +187,8 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
                                    + (f':round-{len(previous_rounds) + 1}' if previous_rounds else '')).encode()).hexdigest()
         record = {'status': 'PLANNING' if needs else 'NOT_APPLICABLE', 'request_id': 'auto-' + identity[:32],
                   'plan_revision': gate['plan_revision'], 'bundle_revision': gate['bundle_revision'], 'needs': needs,
+                  'shot_choice_need_ids': [n['need_id'] for n in needs
+                      if n['media_type'] in {'image', 'video'} and n['constraints'].get('preferred_visual_details')],
                   **({'previous_rounds': previous_rounds} if previous_rounds else {}),
                   **({'quality_report_sha256': revision['quality_report_sha256']} if quality else {})}
         attempt = update_film_attempt(attempt_id, event='automatic_material_recovery_started',
@@ -204,7 +206,8 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
             validate_recovery_queries(record, cached)
             store.write_recovery_record(request_id, cached)
         validate_recovery_queries(record, cached)
-        record = {**record, 'status': 'SUPPLYING', 'search_terms': cached['search_terms']}
+        record = {**record, 'status': 'SUPPLYING', 'search_terms': cached['search_terms'],
+                  **({'shot_choices': cached['shot_choices']} if record.get('shot_choice_need_ids') else {})}
         attempt = update_film_attempt(attempt_id, event='automatic_material_recovery_queries_ready',
                                       autonomous_material_recovery=record)
     result = recover_materials(attempt_id, request_id=record['request_id'],
@@ -217,12 +220,22 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
 
 
 def validate_recovery_queries(record: dict, report: dict) -> None:
-    """Only retrieval wording is delegated; frozen intent and policy stay in code."""
+    """Delegate optional shot details, never mutation of the frozen Need."""
     from easel.materials.domain import MaterialNeed
     terms = report.get('search_terms')
-    if (set(report) != {'request_id', 'search_terms'} or report.get('request_id') != record['request_id'] or not isinstance(terms, dict)
+    shot_ids = record.get('shot_choice_need_ids', [])
+    keys = {'request_id', 'search_terms'} | ({'shot_choices'} if shot_ids else set())
+    if (set(report) != keys or report.get('request_id') != record['request_id'] or not isinstance(terms, dict)
             or set(terms) != {n['need_id'] for n in record['needs']}):
         raise MaterialIntegrationError('补料检索建议必须覆盖当前缺口并绑定当前请求')
+    if shot_ids:
+        choices = report.get('shot_choices')
+        if not isinstance(choices, dict) or set(choices) != set(shot_ids):
+            raise MaterialIntegrationError('镜头取舍须覆盖当前可替代视觉需求')
+        for choice in choices.values():
+            if (not isinstance(choice, dict) or set(choice) != {'expression', 'reason'}
+                    or any(not isinstance(v, str) or not v.strip() or len(v) > 1200 for v in choice.values())):
+                raise MaterialIntegrationError('镜头取舍须说明替代表达及依据，不能改写核心需求')
     for raw in record['needs']:
         value = terms[raw['need_id']]
         if not isinstance(value, list) or not value or any(not isinstance(v, str) for v in value):
@@ -232,6 +245,38 @@ def validate_recovery_queries(record: dict, report: dict) -> None:
         if any(' '.join(term.casefold().split()) in used for term in value):
             raise MaterialIntegrationError('补料检索建议重复了已尝试的短语，须根据观察证据调整')
         NeedCompiler(search_terms={raw['need_id']: tuple(value)}).compile(MaterialNeed.model_validate_json(json.dumps(raw)))
+
+
+def director_shot_choices(attempt: dict, plan: MaterialPlan) -> dict:
+    """Project completed directing decisions without rewriting the Plan.
+
+    SUPPLYING is included because supply prepares Authoring before its caller
+    marks the same recovery COMPLETE. Evidence remains tied to the whole Plan.
+    """
+    current = attempt.get('autonomous_material_recovery') or {}
+    result = {}
+    revision = MaterialReadinessCalculator.plan_revision(plan)
+    needs = {n.need_id: n.model_dump(mode='json') for n in plan.needs}
+    inherited = attempt.get('director_shot_checkpoint') or {}
+    if inherited.get('plan_revision') == revision:
+        for need_id, choice in inherited['choices'].items():
+            if (need_id not in needs or choice.get('core_requirement') != needs[need_id]['intent']['description']
+                    or choice.get('optional_details') != needs[need_id]['constraints'].get('preferred_visual_details')):
+                raise MaterialIntegrationError('恢复镜头取舍与当前核心要求不一致')
+        result.update(inherited['choices'])
+    for record in [*current.get('previous_rounds', []), current]:
+        if not record.get('shot_choices') or record.get('status') not in {'SUPPLYING', 'COMPLETE'}:
+            continue
+        if record.get('plan_revision') != revision or any(needs.get(n['need_id']) != n for n in record['needs']):
+            raise MaterialIntegrationError('镜头取舍与当前素材规划不一致，不能沿用')
+        report = {'request_id': record['request_id'], 'search_terms': record['search_terms'],
+                  'shot_choices': record['shot_choices']}
+        validate_recovery_queries(record, report)
+        for need_id, choice in record['shot_choices'].items():
+            result[need_id] = {**choice, 'request_id': record['request_id'],
+                               'core_requirement': needs[need_id]['intent']['description'],
+                               'optional_details': needs[need_id]['constraints']['preferred_visual_details']}
+    return result
 
 
 def recover_materials(attempt_id: str, *, request_id: str, expected_plan_revision: str,

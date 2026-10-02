@@ -2884,12 +2884,17 @@ def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(materia
         assert not voice_delivery.pending_voice_timing_recovery(plan, store.read_bundle(), store, script, require_content=True)
 
 
-def test_visual_supply_continues_once_after_rejection_and_stops_as_system_gap(material_integration_env, monkeypatch):
+@pytest.mark.parametrize('optional_shot', [False, True])
+def test_visual_supply_continues_once_after_rejection_and_stops_as_system_gap(material_integration_env, monkeypatch, optional_shot):
     from easel.creation_delivery import SCHEMA, next_operation
     from easel.integrations import material_recovery as recovery
     attempt = material_integration_env
     planning = _planning(attempt)
     plan = planning['plan']
+    if optional_shot:
+        need = plan.needs[0].model_copy(update={'constraints': {'preferred_visual_details': '远景与背景灯光可取舍'}})
+        plan = plan.model_copy(update={'needs': (need,)})
+        PlanningIntegration().persist(attempt, plan, treatment='T', script='假设脚本内容。\n', scenes='S')
     store = AttemptMaterialStore(attempt['workspace']['path'])
     run = SupplyRun(supply_run_id='initial-empty', plan_id=plan.plan_id,
         started_at=datetime.now(timezone.utc), finished_at=datetime.now(timezone.utc), result_bundle_id='empty')
@@ -2908,13 +2913,28 @@ def test_visual_supply_continues_once_after_rejection_and_stops_as_system_gap(ma
         work['chat_workflow'] = {'proposal_status': 'CONFIRMED', 'proposal_sha256': digest}
     assert next_operation(creation.get_creation(attempt['creation_id'])) == ('recover_material', 'recovering_material')
     query_calls, supply_calls = [], []
+    choice = {'expression': '采用主体清晰的近景，省略无关背景灯光', 'reason': '已有候选无法同时呈现背景，保留原核心表达'}
     def queries(current, record):
         query_calls.append(record['request_id'])
         assert record['previous_rounds'] == [prior]
+        extra = {'shot_choices': {'need-main': choice}} if optional_shot else {}
         with pytest.raises(MaterialIntegrationError, match='重复'):
             recovery.validate_recovery_queries(record, {'request_id': record['request_id'],
-                'search_terms': {'need-main': [' DARK  parking ']}})
-        return {'request_id': record['request_id'], 'search_terms': {'need-main': ['visible charging connector lit pavement']}}
+                'search_terms': {'need-main': [' DARK  parking ']}, **extra})
+        report = {'request_id': record['request_id'], 'search_terms': {'need-main': ['visible charging connector lit pavement']}, **extra}
+        if optional_shot:
+            for wrong in ({}, {'other-need': choice}, {'need-main': {**choice, 'rewrite_script': True}}):
+                with pytest.raises(MaterialIntegrationError, match='镜头取舍'):
+                    recovery.validate_recovery_queries(record, {**report, 'shot_choices': wrong})
+            import web.app as webapp
+            def directed_query(message, *args, **kwargs):
+                assert '先作为 Director' in message and 'preferred_visual_details' in message
+                assert 'shot_choices' in message and '不以镜头决定或检索建议作为匹配证据' in message
+                store.write_recovery_record(record['request_id'] + '-queries', report)
+                return ''
+            monkeypatch.setattr(webapp, 'run_agent_sync', directed_query)
+            return webapp._plan_material_recovery(current, record)
+        return report
     actual_supply = recovery.ProductMaterialSupply.run
     def supply(self, *args, **kwargs):
         supply_calls.append(kwargs)
@@ -2931,6 +2951,26 @@ def test_visual_supply_continues_once_after_rejection_and_stops_as_system_gap(ma
     assert len(query_calls) == len(supply_calls) == 1
     assert PlanningIntegration().load(updated)['plan'] == plan
     assert PlanningIntegration().load(updated)['script'] == '假设脚本内容。\n'
+    choices = recovery.director_shot_choices(updated, plan)
+    if optional_shot:
+        assert choices['need-main']['expression'] == choice['expression']
+        assert choices['need-main']['core_requirement'] == plan.needs[0].intent.description
+        changed = plan.model_copy(update={'needs': (plan.needs[0].model_copy(update={'intent': NeedIntent(description='新主体')}),)})
+        with pytest.raises(MaterialIntegrationError, match='不一致'):
+            recovery.director_shot_choices(updated, changed)
+        # The retained decision reaches actual Authoring input through the
+        # ordinary Gate, once independently qualified media becomes available.
+        _, asset, qualified_run, original_bundle, _, _ = _contracts(attempt, Path(attempt['workspace']['path']))
+        qualified_run = qualified_run.model_copy(update={'result_bundle_id': 'qualified'})
+        qualified = MaterialBundleAssembler().assemble(plan, qualified_run, (asset,), original_bundle.matches, bundle_id='qualified')
+        ready, qualified_gaps = MaterialReadinessCalculator(store=store).calculate(plan, qualified)
+        assert ready.status.value == 'READY'
+        prepared = MaterialGateIntegration().record(updated, plan, qualified, qualified_run, ready, qualified_gaps)['attempt']
+        ProductionAuthoringIntegration().prepare(prepared)
+        selected = json.loads((Path(attempt['workspace']['path']) / 'productions/easel-authoring/material-selection.json').read_text())
+        assert selected['director_shot_choices'] == choices
+        # Restore the empty-supply fixture to check the real exhausted state.
+        updated = MaterialGateIntegration().record(prepared, plan, bundle, run, readiness, gaps)['attempt']
     assert recovery.visual_supply_recovery_state(updated) == 'exhausted'
     assert recovery.recover_managed_materials(attempt['attempt_id'], executor=queries) == updated
     gate = updated['material_gate']

@@ -14,20 +14,33 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 | P3 | **NOT_STARTED**. |
 | Test suite | Latest complete deterministic run: **600 passed, 5 skipped** on 2026-10-01. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
 
+## 当前执行与剩余任务（2026-10-02 收敛）
+
+- 唯一目标保持“自主首版 + 同 Creator/Director 跨内容风格执行”，不建立第二个 Goal 或工作流。唯一 Task、Index、Roadmap 已统一；恢复、工作区、E2E 前修复与 T15 旧记录均标为历史范围。旧逐次确认费用、T19 再 T15、跨内容另行立项等收尾指令已移除。
+- 已有六段主链与三内容局部 Replay 复用。A 第一批已实现；本轮 C 的核心决定链已接通；剩余 **B 观察复用 → D 例外组合接受 → E 页面体验与全链回放收尾**。C 的真人模型取舍质量仍未验收，E 须覆盖新的替代决定在跨内容/质量恢复中的消费，不以现有 Fixture 声称真实风格稳定。
+- C 根因：补料只让模型更换查询措辞，没有可被后续编排消费的镜头取舍。现在仅对明确含 preferred_visual_details 的新需求，在原补料报告中保存 expression/reason，再形成检索建议；决定绑定原请求、完整规划及 Need。确认 SCRIPT/SCENES 与核心/硬要求不变；未声明可取舍细节的旧 Need 保持原行为。仍走独立观察、Match/Rights/Readiness，不能用决定充当合格证据，也不增加付费生成或恢复次数。
+- 决定随现有 material-selection.json 进入隔离 Authoring，系统 Quality 消费同一服务端记录并纳入输入身份；普通 checkpoint 恢复在需求不变时保留这些决定，需求变化不得认领旧决定。补料结果落盘中断仍复用原请求与决定，不重新派发供应；候选耗尽仍是系统停止状态。
+- 局部验证：Material integration、Hypit integration、三内容 Replay、Preparation **164 passed**；补充真实补料 Prompt 合同后相关 **2 passed**；两项既有 Python 依赖提示保留。新增一个有可替代细节的恢复参数场景，复用现有质量场景检查实际 Quality 输入，不新建测试文件。未调用真实模型、Provider 或 Hypit Build，未重启服务或操作现有 Creation；本批未改前端，不重复前端构建。
+- 应用目标管理器查询仍为 paused，当前接口不能恢复；应用 UI 操作也被安全限制阻止。用户已授权本轮实施，文档/代码工作照常进行，但应用自动持续执行尚未启用；需要用户在目标控件恢复原 Goal，不虚报目标已启动或已完成。
+
 ## 制作效率与低打扰优化：第一批（2026-10-02）
 
-- 用户已批准开始收敛优化，当前范围与顺序见[唯一 Task 顶部执行目标](tasks/creator-autonomous-first-cut-2026-09-30.md)。A 第一批已实现；B 多 Need 观察复用、C 有界镜头替代、D 例外组合接受及体验收尾待实施，不将原先记录的需求标成全部完成。Goal 工具拒绝新目标，原因是旧目标仍暂停且未完成；未伪报目标完成。
+- A 第一批完成记录；后续状态以本页顶部当前任务清单为准。
 - 根因：视觉观察 Prompt 同时要求“审美偏好不否决”和“部分符合的细节整体 partial”，导致可替代细节容易被当作硬门槛。现去除冲突，Planning 将核心表达/明确硬要求留在 intent.description，可替代细节放入现有 constraints 的可选文字键 preferred_visual_details。Compiler 不将其传为供应硬过滤；实际图片/视频生成请求作为可取舍偏好传递，观察按同一 Need 判断并记录偏差。旧 Need 不自动降级要求，无该字段的旧生成请求文字与身份不变。尚不能仅凭这些合同断言真实模型一定正确取舍。
 - 新提名视觉批次保留原 Rights 优先级，在此基础上先按内容相关性、再综合风格/质量排序；排除已知 RESTRICTED 及技术未通过的候选。UNKNOWN Rights 保留观察机会但不自动准入。已保存批次和有效报告继续复用，不因升级重排或重复请求。
 - 验证：Material integration、Preparation、跨 Content Replay、Matching、MiniMax image/speech 共 **151 passed**；强化候选排序回放并保留 Rights 优先级后相关 **8 passed**。场景覆盖同素材逐 Need 独立结论、未知 Rights 不放行、报告修复上限、实际生成请求和身份、旧加权排序优先风格候选而新排序先检查内容候选、报告落盘后中断不重调。compileall / diff check 通过。只增加一个有独立排序风险的参数场景，未调用付费 AI、重建作品、重启服务或启动完整 E2E；未修改前端，本批不重复前端构建。
 
-## 当前作品已按用户要求清理（2026-10-02）
+## 历史增量与具名证据
+
+以下按当时记录保留；“当前”“仍待”“Goal active/暂停”等均是记录时状态。已被后续记录取代的内容不作为当前缺口清单；现行范围只取本页顶部与当前收尾队列；旧 Task 章节及历史任务状态通过 Git 追溯。
+
+### 当前作品已按用户要求清理（2026-10-02）
 
 - 用户在第二轮选材仍未满足后明确要求删除本次未完成制作。已停止该作品交付，删除 `cr_b31cd80a62cc4da7927006c0692a9446` 的 Creation 目录（含方案/准备快照/阶段记录）、对应 Hypit 制作工作区（含素材、旁白、观察报告及临时误写的同作品子目录）、聊天到该作品的绑定以及本次本地 ASR 调试临时文件。其余 8 个 Creation 保留；此作品未提交 Build、未产生 Selected Output，Material Library 中没有其推广资产或使用记录。共享服务、其他作品、模型和项目代码保留。
 - 下方具名运行记录均为清理前历史证据，不再表示这个作品仍在运行，也不再将已删除媒体视为后续 Replay 可用数据。当前不继续或重建该 Creation；本条不把真实自主交付记为完成。
 - 用户新增的“一次接受当前所选画面/BGM/旁白并继续”及“核心表达/硬要求与可替代镜头表达分开，由 Director 先作替代取舍”的要求，已加入[唯一实施 Task](tasks/creator-autonomous-first-cut-2026-09-30.md)末尾优化记录。仅记录，未实施统一通过功能或修改素材核对标准；事实与权利要求保留。
 
-## 视觉补料耗尽误报人工事项（2026-10-02）
+### 视觉补料耗尽误报人工事项（2026-10-02）
 
 - 本次作品旁白恢复后，仅 `need-img-charging-scene` 未满足。生成图片的已绑定观察结论为 partial：画面过暗，墙边设备/地面线缆无法明确判断。该图片仍为 UNKNOWN Rights，不能凭生成成功或 Creator 点击确认就认领合格。此时没有需要 Creator 提供的事实或新费用决定；根因是 Owner 在一次补充检索、一次委托生成之后，将所有剩余缺口落为 `needs_evidence`，前端又把缺口直接计为人工待办。
 - 最小改动：复用现有补料操作，为此类纯视觉缺口增加一轮有界检索（总计至多两轮补充检索）；优先完成原来的生成对账、预算和观察，再判断是否还可补料。已适配场景但缺少 Rights 的候选仍走原权利事项，不混为选材失败。只改检索词，保留脚本、Need、素材、授权、原生成结果及每轮请求；不得重开不确定的 Provider 请求或重复购买。
@@ -36,7 +49,7 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - 验证：Material integration、Preparation、跨 Content Replay **116 passed**，新增一个跨模块恢复场景保护第二轮的固定身份、重复查询拒绝、补料落盘后中断不重复供应、原方案不变，以及用尽后的正确责任状态。三种确定性作品投影（自动补料、系统选材耗尽、真实待处理）检查通过；frontend lint/build、compileall、diff check 通过，保留既有依赖/Hook/chunk 提示。
 - 真实恢复：服务重载后当前作品从 `needs_evidence` 自动进入第二轮补料，只处理充电场景；已保存四条不同的新检索词，第二轮补料完成，Owner 随后继续观察候选。未重新生成旁白、未请求新的付费素材生成；视觉缺口尚待观察结果，不把搜索完成视为素材 READY 或成片完成。
 
-## 旁白识别低置信恢复（2026-10-02）
+### 旁白识别低置信恢复（2026-10-02）
 
 - 当前作品 `cr_b31cd80a62cc4da7927006c0692a9446` 已完成一条 39.312 秒旁白；失败发生于独立本地识别/时序恢复，不是 TTS 生成失败。原音频 SHA 为 `ea6ea62cbc9d6cf1f8e8925e56bf1bcb225f0fd8782c57947826896a3d32425c`。离线重放现有 small 模型复现：首词“最近”置信度约 0.313，并出现“比→筆”“劲头→鏡頭”等实际识别差异。同输入、同模型的重复 Retry 不会修复模型能力问题，不能据此断言原音频多读或重新购买。
 - 原错误合并低置信、非法置信度和多余内容，且被拒绝的识别报告未落盘；现分开提示，文字不符时指出实际字符位置及识别/脚本差异，拒绝报告按摘要保存为诊断证据，不能作为成功检查点复用。完整脚本、标准简繁等价、最低置信度 0.5、实际时序及音频/脚本/Need 身份检查均保持。原成功检查点仍复用，换模型后失败报告不阻止重新识别。
@@ -47,7 +60,7 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - 补修仍为 **130 passed**，复用既有恢复场景覆盖真实 HTTP 合同、确认后检查点复用、不改原报告、其他未确认字符继续阻断、旧音频/脚本/Need/报告身份失效、低置信继续拒绝和 Rights 不被批准。compileall、diff check 通过；未新增测试数量或运行完整 E2E。
 
 
-## 素材观察报告恢复校验（2026-10-02）
+### 素材观察报告恢复校验（2026-10-02）
 
 - **逐帧类型错误补修：** 后续报告完整包含 frame 0，但将 `frames[0].related` 写为字符串 `partial`；原校验把帧数、编号、类型和说明错误统称为“必须逐张记录”，修复提示只有示例、没有明确区分顶层 verdict 枚举与逐帧布尔/未知值。现分别报告具体字段错误，补齐 prompt 的明确类型合同，保留 partial/uncertain 的真实含义，不通过强制布尔转换批准素材。已有报告先校验，坏稿直接进入一次固定身份修复，不因 prompt 更新重跑初次观察。对应局部场景复现本次错误，验证修正后仍为 partial、逐帧不确定保留 null、Material 仍不放行；原语法、旧身份、Rights 和修复次数边界继续验证。
 - 本次补修的四组局部回归 **133 passed**，compileall/diff check 通过。经用户授权重载服务并正式 Retry，09:13 发起同一报告的修复，模型将逐帧 related 修正为布尔值 true、顶层 verdict 保留 partial；原报告已通过读取校验，09:13:47 Owner 派发下一候选观察。没有手动修改报告或将 partial 素材强制准入；恢复已取得真实进展，首版尚未完成。
@@ -57,9 +70,9 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - 局部验证：Material integration、Preparation、跨 Content Replay、隔离 Authoring **132 passed**；扩展既有场景覆盖模型写坏 JSON 后中断、旧输入身份、有效报告复用、修复仍坏时反复恢复不新增调用，以及独立 Need/Rights 证据继续成立。compileall/diff check 通过，保留两项既有依赖提示。未扩展暂缓的选材优化。
 - 经用户授权重载服务，并通过正式阶段 Retry 恢复同一 Creation/Attempt。10 月 2 日 08:59:33 发起当前坏报告的修复，09:00 已写出可解析且绑定原输入身份的报告，保留原 unsuitable 结论；坏字节诊断副本已保存。已有三份报告及供应素材继续复用，未手改报告、未重新供应素材。此时网关尚待返回终态，不把文件写出等同整个阶段或成片完成。
 
-## 素材观察模型能力与提交拒绝恢复（2026-10-01）
+### 素材观察模型能力与提交拒绝恢复（2026-10-01）
 
-- **后续优化暂缓：** 用户要求当前优先跑通制作；视觉候选初筛、重复观察与整片选材协调问题已记入[唯一实施 Task 的后续评估](tasks/creator-autonomous-first-cut-2026-09-30.md#10-后续统一评估视觉选材效率2026-10-01暂缓实施)。本次仅记录，不启动优化，不改变当前制作链路。
+- **后续优化暂缓：** 用户要求当前优先跑通制作；视觉候选初筛、重复观察与整片选材协调问题已记入[唯一实施 Task 的后续评估](tasks/creator-autonomous-first-cut-2026-09-30.md#唯一剩余任务清单)。本次仅记录，不启动优化，不改变当前制作链路。
 - 10 月 2 日补充本次 09:44 耗时与命中率快照，记录“场景初筛 → 观察复用 → 自适应候选 → 受控并发 → 简短结构化输出”的建议顺序；最小实施范围先为初筛和复用，以隔离回放比较效率及误配，再评估并发。仍为待评估方案，尚未实施，详见上述 Task 第 10 节。
 
 - 当前真实作品在 21:34 完成 Planning 和素材搜索；首项图片观察于 21:34:49 被网关以 `INVALID_REQUEST / active model does not accept image inputs` 拒绝。旧适配器把明确拒绝归为提交不确定，再把查询 timeout 持续记为 pending，形成没有实际观察进展的长期等待。
@@ -68,7 +81,7 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - 局部验证：Preparation、Material integration、跨内容 Replay、隔离 Authoring **131 passed**；覆盖纯文本配置提交前阻止、明确拒绝可恢复、传输中断仍等待原 run，以及图片附件与完成结果复用。后续取消单次模型 override 后，相关 4 项再次通过。compileall/diff check 通过；无新完整 E2E。
 - 用户明确要求恢复本次制作：依据原拒绝日志核对原 run 的提交时间，持有原 Delivery 锁修正等待记录，保存日志条目摘要与恢复历史；没有把报告伪造为通过。重载服务后使用正式 Retry，22:26:45 已真实发出图片观察模型请求，22:26:48 收到 HTTP 200；仍为原 Creation/Attempt，复用现有素材。22:27 已生成首份真实图片观察报告，识别夜间停车场与通勤场景不符并记 unsuitable，后续继续核对候选；证明图片输入和观察文件写入已恢复，尚不证明首版交付完成。
 
-## 创作规划失败恢复（2026-10-01）
+### 创作规划失败恢复（2026-10-01）
 
 - 真实失败根因：脚本共 14 项，其中 1 项已确定性标记为假设表达，模型额外审阅该项使原先“恰好等于待审集合”的校验拒绝整份报告。现允许当前脚本内、与已有判断一致的额外审阅，不覆盖既有证据；真正遗漏、重复、未知编号、过期身份、来源错误及相互冲突仍拒绝，错误明确指出差异。
 - 对只确认方向的旧委托，格式合格但含 unresolved 的报告增加一次有界责任复核：区分委托必须补充的信息与系统自行引入、可在原方向内删除/改写的无依据表达。后者沿用原脚本修正与重新审阅链路；不自动把事实判 PASS，不改写新委托已确认的逐字文案。
@@ -76,7 +89,7 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - 验证：Script Truth、Preparation、跨 Content Replay、Hypit、隔离 Authoring **139 passed**；额外审阅保留原证据，遗漏/重复/未知/冲突拒绝，修改中的 Owner 停止、历史保存、同规格重新确认/检查点复用及生产阶段拒绝覆盖均有局部证据。前端状态场景、lint/build、compileall 与 diff check 通过，保留既有依赖/Hook/包体积提示。未跑浏览器 fixture 或新作品完整 E2E。
 - 对本次真实 `cr_b31cd80a62cc4da7927006c0692a9446` 原报告只读回放，结构校验已通过，仍保留“电车和油车又吵成一团”的内容依据问题。经用户授权，21:27 左右重启服务并调用正式阶段 Retry；原 Attempt 数量仍为 1，Owner 为 observing_execution，正在执行责任复核。未手改当前脚本、伪造审阅或创建新作品；此次记录只证明恢复已启动，不证明首版交付成功。
 
-## 对话内视频方案（2026-10-01）
+### 对话内视频方案（2026-10-01）
 
 - 用户确认前在聊天中讨论完整创作表达、逐字文案、分镜节奏、声音设计与规格；提案阶段注入真实 Director 表达文件，替换仅给方向和规格的提示。完整回复由服务端解析并保存到 Creation 的 `chat_workflow.video_plan`，同一方案修改递增版本；画布不再使用最后一条助手回复充当方案。
 - 新讨论轮次使旧方案暂不可确认；迟到回复不能覆盖当前轮次。画布展示持久方案，预览规格与确认共用该版本，确认请求绑定方案摘要；确认后的 `delivery.video_plan` 与 Handoff 保留该方案。已有已确认作品不迁移、不重新入队。
@@ -84,7 +97,7 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - 局部验证：Preparation、跨 Content Replay、隔离 Authoring、Hypit **120 passed**；覆盖方向不足、版本修改/持久恢复、过期确认、迟到回复、确认冻结、下游复用与重写拒绝。前端状态场景、lint/build、compileall、115 项技能合同及 diff check 通过，保留既有依赖/Hook/包体积提示。页面 fixture 增补具体文案/分镜与确认摘要断言；本轮未运行浏览器 fixture 或真实模型/E2E。
 - 部署边界：未重启当前服务，未修改或推进正在制作的 Creation；后端新行为需下次服务重启后生效。
 
-## Creator 作品工作区（2026-09-30 软件验收）
+### Creator 作品工作区（2026-09-30 软件验收）
 
 - Conversation 与 Work Canvas 分栏；窄屏“对话 / 作品”切换、待处理数量、稳定输入框和独立滚动面。作品从 Proposal 出现；作品状态从现有 Creation / Attempt 恢复，不依赖聊天中另发“继续”。七阶段进度由统一只读投影提供，默认收进“查看制作进度”。
 - Proposal 卡与显式确认共用服务端字面规格解析；时长、明确画幅比例、音轨和语言缺失时留空。示例、问题、上限和歧义不补猜；未知规格要求通过对话补足。确认后保存同一组规格与原有对话哈希，Preparation 冻结前校验相同值，规格漂移阻断。旧 Creation 的已冻结输入未被迁移或修改。
@@ -96,7 +109,7 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - 验证：后端定向覆盖 110 项（109 passed / 1 deselected 的组合运行，显式确认 API 单独通过；后续 11 项关联回归通过），前端状态投影场景、隔离 Chromium 桌面/390px 窄屏场景通过。页面检查覆盖 Proposal、无 Attempt 失败、编排失败、素材任务、费用、可播放的确定性测试视频、输出绑定的时间点反馈及修改派发、运行状态与断连；全部接口拦截，未调用真实 Provider / Authoring / Build。lint/build、compileall、skill 合同与 diff check 通过。保留 AccountsPage 既有 Hook 警告及构建体积提示。
 - **验证边界：** 未修改或继续当前 Creation，未执行付费 AI、真实 Build 或完整 E2E。真实 Creator 审片、修改结果与外部制作验收由 Creator 随后操作；软件测试不代表真实视频效果已验证。
 
-## Creator E2E 前修复（上一轮修复基线）
+### Creator E2E 前修复（上一轮修复基线）
 
 本轮只修改代码、任务书、UI 和确定性验证；未继续当前 Creation，也未启动新的完整 E2E。当前人工 Creation 仍由 Creator 后续操作，Build 尚未提交。
 
@@ -109,11 +122,11 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - 提案阶段继续使用现有新版 Proposal，已去除冲突的制作通用提醒；当前阶段不会自动填造 Creator 身份、规格或内部流程说明。
 - **待真实验证：** Build 失败后的 checkpoint 恢复只有确定性软件回归，尚无真实失败 Build 试验；安全 AI 视觉预审没有已配置的分析器，异常视觉匹配目前由 Creator 按 Need 核对。上述能力不能以自动 PASS 或再次 Provider 请求代替。
 
-## 本次 Creator 真实 E2E（2026-09-30，PARTIAL）
+### 本次 Creator 真实 E2E（2026-09-30，PARTIAL）
 
 用户已明确启动一次普通 UI E2E，范围见 [具名验收记录](acceptance/creator-workspace-e2e-2026-09-30.md)。同一 Creation 完成 Proposal/冻结内容/规划/逐 Need 素材核对，Gate READY 后自动进入 Authoring。过程中暴露并修复了 Planning schema/检索合同、无 Profile 图库隔离、轮询重置确认、阶段误标、制作聊天泄漏和隔离 Authoring 契约缺漏。正式安装版 vocabulary 已接入隔离助手的只读合同输入，从同一失败阶段恢复后完成一个零第三方计费 Build、自动技术检查、一般时间点反馈、最终确认及内容库入库。成片为 12 秒、1080×1920、彻底静音；刷新/返回与选中输出 SHA 绑定验证通过。FUNCTIONAL/CORRECT/RECOVERABLE/CONTENT_LIBRARY=PASS，CREATOR_E2E=PARTIAL、CREATOR_VISIBLE/AUTONOMOUS=FAIL：本次曾泄漏内部制作回复，并依赖产品代码修复及服务重启，不能将修复后的结果当作完全自主验收。未手改真实产物/数据库/状态，未绕过审核或费用门禁。
 
-## 本次 Creator 自主性与音画质量 E2E（2026-09-30，已入库；自主性 FAIL）
+### 本次 Creator 自主性与音画质量 E2E（2026-09-30，已入库；自主性 FAIL）
 
 用户另行授权一个 36 秒、5 场景、真实旁白与 BGM 的 Creation，详见 [具名验收记录](acceptance/creator-audio-quality-e2e-2026-09-30.md)。一次 TTS 保留（31.932 秒），Creator 已确认旁白与 At Rest 配乐听感；实际 TTS 账单未核实。Material READY 后首次本地 Build 导出 36 秒、1080×1920、有音轨成片，技术 QC pass，CC BY credit 到达导出记录；第四场景开头近黑，未批准入库。局部修订先遇模型网关 502/400，再因错误帧率的截取越界使 Build 确定失败。安全诊断、合同索引、声音/字幕不变校验、基于准入原片/Normalize Clock 的截取范围检查已接入；失败 Build 恢复保留内容/素材，不合格编排停在 AUTHORING_REPAIR_REQUIRED，全检查通过才 READY，费用与审片仍重过。原生 Run 的隔离校验副本同时复制绑定身份记录，错配/缺失仍拒绝。83 项定向回归、lint/build/compileall/diff check 通过；实际普通恢复在提交前拦住越界，正常修复后完成 Build `bld_20260930T103231067Z_BF556E2071`。同一 Creation 三个阶段/修订 Attempt；最终修订版 36 秒、1080×1920、有音轨，SHA `2beb5b487123ee5fe2541190eaf3d995b91f6b212ad3731981485f066feb862f`。Creator 完整审阅后明确“成片可用，确认并保存内容库”，普通确认已绑定当前输出与 SHA；内容库文件字节核对一致，CC BY credit 保留，未发布。FUNCTIONAL/CORRECT/RECOVERABLE/CONTENT_LIBRARY 及基本内容/音画/节奏质量 PASS；风格一致性 PARTIAL（偏暗、字幕对比不足、未呈现前景虚化）。AUTONOMOUS/CREATOR_VISIBLE=FAIL，按本轮无工程救场标准 CREATOR_E2E=FAIL。用户已要求暂停；只补齐收尾记录，不启动另一轮 E2E。
 
@@ -121,7 +134,7 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 
 [素材缺口恢复任务](tasks/creator-material-recovery-2026-09-30.md) 软件与同一 Creation 的阶段恢复已完成：来源修订只扩展明确选择的 BGM 来源，保留脚本/场景/旁白 Need 与冻结 Handoff；正式旧/新 Plan revision、父 SupplyRun、Bundle checkpoint 和请求身份记录，补充缺失素材。中断后对账完成的 Supply，重复请求复用结果。早期恢复保留原 7 个 Asset，集合增至 38 个；后续仅补缺失窗景，再经逐 Need 核对与独立配乐 Rights/署名复核，Material Gate READY，进入上述真实制作与最终入库。配乐试听、缺失署名事实和旁白试听结论都在普通作品区处理，未知许可不被 UI 合并放行。前一组合 127 passed；最终增量 Material/Compiler/Rights/敏感接口 52 passed（28 deselected），lint/build、compileall、技能合同和 diff check 通过。最终成片基本质量已由 Creator 审阅接受，但自主 E2E 因工程介入失败；完整运行与限制见同一份 [Acceptance](acceptance/creator-audio-quality-e2e-2026-09-30.md)。
 
-## 当前 Goal：自主首版与 Director 全链执行
+### 当前 Goal：自主首版与 Director 全链执行
 
 - **工作区 UI 信息层级优化（2026-10-01）：** 当前状态/成果与待办置于作品画布首要位置，预算与默认折叠的执行记录下移；状态只保留一处主标题，更新时刻改为紧凑本地时间。统一状态标识、卡片留白、画布底色、标题层级与窄屏间距；日志改为时间/事件两列，长方案说明提供摘要与完整展开入口。准备完成标签只显示投影中确已完成的内容/素材阶段，避免固定文案误报。前端状态场景、lint/build、diff check 通过，Safari 实际制作页面已检查状态卡和日志展开/收起；未修改生产逻辑、重启后端、重试或额外调用模型，当前任务继续原运行。保留既有 Hook 与包体积提示；本次未重新跑真实制作或完整 E2E。
 
@@ -314,7 +327,7 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - **2026-10-01 前一恢复批次验证：** Preparation、隔离 Authoring、Hypit 共 **103 passed**，包含一次派发后的超时/对账/身份错配、执行期间保留隔离工作区、完成后复用产物及三个导出中断点与哈希变更拒绝。frontend lint/build、compileall、115 项技能合同与 diff check 通过；只有既有 Hook/体积提示和两项测试依赖弃用提示。本次没有重跑页面 E2E 或全量测试。最初一轮 Preparation 测试暴露了继承本机配置后尝试外部检索的隔离缺口，已中止；Fixture 现固定临时配置、素材库和仅本地 Provider Registry，最终回归不依赖网络或真实凭证。
 - 本轮没有修改或继续真实 Creation，没有调用付费 AI、真实 Build 或完整 E2E，没有重启生产服务。最终执行回放使用隔离数据和假执行器；未核实真实交付质量。`READY_FOR_HUMAN_E2E=NO`，旧具名运行及其失败结论保持不变。
 
-## Official Product Path
+### Official Product Path
 
 ```text
 Web ai-film
@@ -330,7 +343,7 @@ Web ai-film
 
 Required Needs without current inspected, rights-admitted assets stop at `MATERIAL_NOT_READY`. A Local path or empty Local root does not bypass Planning or the Gate. Production owns final selection; Hypit owns production execution. Legacy `auto-short-video`, `video-production`, and shared media scripts are not the official Web mainline.
 
-## Capability Status
+### Capability Status
 
 | Capability | Status and evidence boundary |
 |---|---|
@@ -345,7 +358,7 @@ Required Needs without current inspected, rights-admitted assets stop at `MATERI
 | Export / Review | Named Local visual and Pexels External Material runs completed export, review and Selected Output. Broader modality and release evidence remains pending. |
 | Content Asset / Material Promotion | Formal approved Selected Output is copied into a Creator-visible Content Library project and linked back to Creation / Attempt / Build / output / SHA; four existing approved selections were reconciled idempotently. Attempt Material promotion is explicit and scope-bound; UNKNOWN / RESTRICTED Rights fail closed, while Rights, acquisition provenance, generation lineage and source Creation / Attempt are retained. Deterministic promotion → later Library reuse is verified; the current real Pexels Attempt asset is eligible but remains unpromoted until a Creator/Operator chooses it. See [acceptance](acceptance/content-asset-material-promotion-2026-09-29.md). |
 
-## Named Evidence
+### Named Evidence
 
 - Local visual Web run: Creation `cr_0283a7adf4094e80bc0c59b58a68dc99`, Build `bld_20260924T135801492Z_4696AF96FC`; its Acceptance records the 15-second final video and human-approved Selected Output.
 - External Material Web run: Creation `cr_fc46c0fd949a4beca0043be745b9458d`, Attempt `fa_c1e6b95191ce6b69be351d8a39cb1e81`; Pexels MaterialReadiness `READY`, Hypit Build `bld_20260928T162455494Z_A032509CF4`, 10-second 540×960 MP4, SHA-256 `59ad3d0d7ab60673ce7cc728283add9b0de892d2d5996ca4d4d1a7e4f0eb44b3`, Review approved and `final.video` selected. The stale Preparation snapshot remains as history; read-time Creation status now projects `ready` from the selected Attempt.
@@ -353,15 +366,12 @@ Required Needs without current inspected, rights-admitted assets stop at `MATERI
 - Hypit v0.2.7 remains the locally invoked editing/rendering engine. The old `hypihub.default` endpoint and Hypit Image/Video/Voice generation bindings remain removed. MiniMax Image/Video/T2A are separate remote Material providers; API-key presence does not establish authentication or generated output.
 - Latest six-profile readiness and dependency facts: [`configuration/v1-runtime-and-external-dependencies.md`](configuration/v1-runtime-and-external-dependencies.md).
 
-## Closure Queue
+## 当前收尾队列
 
-- **T01–T08, T17, T18:** original scoped software evidence remains historical; Hypit generation portions of T06/T08 no longer define the official product route. Authenticated full-path re-verification remains pending.
-- **T09 / AI Material Generation:** previous Hypit execution task is superseded. MiniMax Image, Video and preset-voice TTS implementation and isolated modality smoke evidence are tracked in [`v1c-t09-minimax-video.md`](tasks/v1c-t09-minimax-video.md); real Creation/Production use and Rights evidence remain separate open work.
-- **Generated Material baseline:** current scope and gates are recorded in [`workstreams/generated-material.md`](workstreams/generated-material.md). Any billable generation requires per-request operator confirmation.
-- **T10 external-acquisition branch:** one named Pexels Creation reached MaterialReadiness `READY` and later completed Production/Export/Review/Selection. **T11–T14 NOT_STARTED:** positive Library-reuse, attribution-bearing-output, Supplemental Supply and Continuity remain separate branches; do not batch these into T15.
-- **T15 E2E PAUSED FOR REPAIR:** Creator reported the current Creation at `AUTHORING_FAILED`; no Build has been submitted for it. The current Goal repairs Hypit Authoring, Material Match, Progress, Review and Proposal software without resuming that Creation or running another full E2E. Earlier named Local/Pexels runs remain historical evidence for their exact outputs, not evidence that the revised semantic Match gate has been exercised live. Creator will continue the real E2E manually. See [repair task](tasks/creator-e2e-repair-2026-09-30.md), [T15](tasks/v1c-t15-e2e-readiness.md) and [T19](tasks/v1c-t19-low-friction-creation.md).
-- **T16 NOT_STARTED:** multi-Content consistency validation remains separate from T15 and requires an explicit subsequent scope.
-- These statuses describe Closure evidence work, not permission to start all tasks automatically. The next work is [T19](tasks/v1c-t19-low-friction-creation.md), then resume [T15](tasks/v1c-t15-e2e-readiness.md), as ordered in the [Roadmap](03_ROADMAP.md).
+- 唯一执行范围是自主首版 Task。A 首批、C 决定链和已有六段主链基础复用；剩余 B 观察复用 → D 例外组合接受 → E 体验及全链局部回放，不重做 T19 或旧 E2E 修复。
+- 新委托在明确授权范围内逐次核价和记录，无须逐次人工确认；未知价格、授权外费用、提交不确定继续停留在正式边界。
+- 跨内容局部回放属于本目标，已有三内容场景；真实跨内容感知效果尚未验收，不列为无关后续任务。
+- 旧音画作品已入库但有工程介入；最新未完成作品已删除。不存在本轮要继续的“当前失败 Creation”。真实 E2E 等用户另行启动。
 
 ## Status Rules
 

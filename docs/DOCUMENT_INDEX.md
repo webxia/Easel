@@ -52,14 +52,14 @@
 
 ## Workstreams 与模板
 
-- 当前唯一实施方案：[`tasks/creator-autonomous-first-cut-2026-09-30.md`](tasks/creator-autonomous-first-cut-2026-09-30.md)。用户已批准实施自主首版与 Director 全链执行；按①委托/持续交付 → ②导演决策传递 → ③Material/Voice → ④Production → ⑤Quality/恢复 → ⑥跨内容局部回放推进，替换此前候选方案。
-- 当前素材阶段恢复：[`tasks/creator-material-recovery-2026-09-30.md`](tasks/creator-material-recovery-2026-09-30.md)。
-- 当前 Creator 工作区 Goal：[`tasks/creator-workspace-2026-09-30.md`](tasks/creator-workspace-2026-09-30.md)。
+- 当前唯一实施方案：[`tasks/creator-autonomous-first-cut-2026-09-30.md`](tasks/creator-autonomous-first-cut-2026-09-30.md)。用户已批准实施自主首版与 Director 全链执行；已有六段主链基础复用；当前剩余按 C 镜头替代 → B 观察复用 → D 例外组合接受 → E 体验及全链局部回放推进。
+- 历史已完成的素材阶段恢复：[`tasks/creator-material-recovery-2026-09-30.md`](tasks/creator-material-recovery-2026-09-30.md)。
+- 历史工作区软件验收：[`tasks/creator-workspace-2026-09-30.md`](tasks/creator-workspace-2026-09-30.md)。
 
 - 当前能力边界：[`workstreams/generated-material.md`](workstreams/generated-material.md)。MiniMax 图片、视频和预置音色语音生成均已接入代码；生成素材的 Creation/Production 闭环仍需单独验收。
 - 当前 E2E Task：[`tasks/v1c-t15-e2e-readiness.md`](tasks/v1c-t15-e2e-readiness.md)。
-- 当前低打扰产品改进：[`tasks/v1c-t19-low-friction-creation.md`](tasks/v1c-t19-low-friction-creation.md)。
-- 当前 Creator E2E 前修复：[`tasks/creator-e2e-repair-2026-09-30.md`](tasks/creator-e2e-repair-2026-09-30.md)。
+- 已并入唯一 Task 的低打扰历史基线：[`tasks/v1c-t19-low-friction-creation.md`](tasks/v1c-t19-low-friction-creation.md)。
+- 历史 Creator E2E 前修复基线：[`tasks/creator-e2e-repair-2026-09-30.md`](tasks/creator-e2e-repair-2026-09-30.md)。
 - 已完成的 Material 基础能力不再保留单独 Workstream 文档。
 - 新 Workstream 先在 `03_ROADMAP.md` 中登记，确认确有独立上下文后再新增文件。
 

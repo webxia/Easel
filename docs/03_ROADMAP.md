@@ -6,18 +6,14 @@ This document records workstream order, not task-level status. [`02_CURRENT_STAT
 
 当前优先项为 [自主首版与 Director 全链执行唯一实施方案](tasks/creator-autonomous-first-cut-2026-09-30.md)。原始目标对齐、流程重审与代码追踪已完成，用户已批准按合并方案实施。仅改现有主链，先局部验证，不继续旧 Creation，不调用付费 AI，不启动真实 Build 或完整 E2E。
 
-[Creator 素材缺口恢复](tasks/creator-material-recovery-2026-09-30.md) 及同一音画作品的阶段恢复已完成，最终修订版经 Creator 审片入库，未发布。因工程介入，本轮自主 E2E 为 FAIL；用户已暂停后续工作，本次仅补齐文档并提交推送。下一次无工程救场验收需另行授权，不新增作品或重复付费。
+## 当前顺序
 
-[Creator 作品工作区体验优化](tasks/creator-workspace-2026-09-30.md) 的软件实现与确定性验收已完成，沿用 [Creator E2E 前修复](tasks/creator-e2e-repair-2026-09-30.md) 和 [T19](tasks/v1c-t19-low-friction-creation.md) 基线。用户随后明确启动了 [T15](tasks/v1c-t15-e2e-readiness.md) 的一次普通 UI 真实验收；本次已完成成片与入库，但因工程干预记为 PARTIAL。根因修复与具名运行结果见 Current State 的验收链接；下一次无工程救场验证需用户单独启动，不自动创建第二个作品。Generated Material 的既有边界与待验收项见 [Workstream](workstreams/generated-material.md)。
+1. 复用已有后端推进、委托、Director、Material/Voice、Production、Quality 与跨内容回放基础；不从头重做。
+2. 唯一 Task 剩余：**C 镜头替代 → B 独立观察复用 → D 例外组合接受 → E 体验与全链局部回放**。C 不依赖 B，正常路径不增加人审。
+3. 局部证据成立后评估真人验收准备度；真实自主交付及跨内容风格效果由用户另行启动验收。
+4. Library 等其他专项证据与 P3 不并入本轮。
 
-2026-10-02 当前执行顺序：唯一 Task 的 **A 核心/偏好与初筛 → B 独立观察复用 → C Director 有界替代 → D 例外组合接受 → 局部回放收尾**，替代历史“暂缓选材优化”。不自动恢复已删除或其他作品。
-
-## Workstream Order
-
-1. **自主首版与 Director 全链执行** — ①委托与持续交付 → ②Director 决策传递 → ③Material/Voice → ④Production → ⑤Quality/局部修复 → ⑥同 Creator/Mode 的跨内容局部回放；T19 的适用要求并入本轮，不作为并列路线。
-2. **V1 真人验收准备 / T15** — 上述局部证据成立后评估 readiness，真实 E2E 等用户启动，既有作品不自动恢复。
-3. **Product evidence branches** — select the relevant external acquisition, positive Library reuse, attribution, Supplemental Supply, or Continuity capability according to the user goal and prerequisites. These are separate branches, not an automatic batch.
-4. **P3** — consider only after an explicit new request.
+历史素材恢复、Creator 工作区、E2E 前修复及 T19 是复用基线，不是并行当前任务。旧音画作品已审片入库但自主性 FAIL；最近未完成作品已删除，不恢复或重建。历史暂停/运行记录不覆盖当前实施授权。
 
 ## Existing Foundations
 

@@ -757,6 +757,11 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
         readiness, gaps = MaterialReadinessCalculator(store=target_store).calculate(new_plan, new_bundle)
         if readiness.status is not ReadinessStatus.READY:
             raise HypitIntegrationError("复用素材未通过当前 MaterialReadiness，禁止视频制作重试")
+        from easel.integrations.material_recovery import director_shot_choices
+        choices = director_shot_choices(source, plan)
+        if choices and new_plan.needs == plan.needs:
+            target = update_film_attempt(target['attempt_id'], event='build_retry_director_choices_reused',
+                director_shot_checkpoint={'plan_revision': readiness.plan_revision, 'choices': choices})
         target = MaterialGateIntegration().record(
             target, new_plan, new_bundle, new_run, readiness, gaps,
         )["attempt"]

@@ -1,5 +1,7 @@
 # V1C-T15：E2E 准备与正式产品验证
 
+历史基线 / 具名验收记录（2026-10-02 归档标识）：下文状态、当前作品、恢复授权与 READY 判断只适用于当时范围，不是当前执行指令。当前唯一范围见 [自主首版 Task](creator-autonomous-first-cut-2026-09-30.md)，实际状态见 [Current State](../02_CURRENT_STATE.md)。
+
 状态：**E2E IN PROGRESS**。标准对话正式恢复流程已通过 Preparation 并进入 Script Truth 人工审核门；尚未进入 Material Supply，三条完整 Creation E2E 均未完成。
 
 ## 目标链路

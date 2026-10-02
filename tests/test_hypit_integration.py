@@ -1283,6 +1283,16 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
     monkeypatch.setattr(service, '_save_attempt', lambda identity, update: update(attempt))
     monkeypatch.setattr(handoff, 'load_frozen_creative_mode', lambda a: ({'id': 'fixture-mode'}, 'mode-sha'))
     planning = {'script': '已冻结的测试表达。', 'treatment': '克制地提出一个问题。', 'scenes': '一段观察。'}
+    from easel.materials.domain import MaterialPlan
+    planning['plan'] = MaterialPlan.model_validate_json(json.dumps({'plan_id': 'fixture-plan', 'creation_id': 'fixture-creation',
+        'attempt_id': 'fixture', 'needs': [{'need_id': 'visual', 'scope': {'type': 'scene', 'ref': 'scene'},
+            'media_type': 'image', 'role': '主视觉', 'importance': 'required',
+            'intent': {'description': '主体清晰可见'}, 'constraints': {'preferred_visual_details': '背景灯光可取舍'}}]}))
+    from easel.materials.application.readiness import MaterialReadinessCalculator
+    shots = {'visual': {'expression': '主体近景', 'reason': '背景非必要', 'request_id': 'fixture-shot',
+                        'core_requirement': '主体清晰可见', 'optional_details': '背景灯光可取舍'}}
+    attempt['director_shot_checkpoint'] = {'plan_revision': MaterialReadinessCalculator.plan_revision(planning['plan']),
+                                           'choices': shots}
     monkeypatch.setattr(PlanningIntegration, 'load', lambda self, a: planning)
     frozen = tmp_path / 'handoff'
     frozen.mkdir()
@@ -1302,6 +1312,7 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
         assert manifest['binding']['sha256'] == service._file_sha256(output)
         assert manifest['creator_context'] == creator and manifest['content_core'] == content
         assert manifest['treatment'] == planning['treatment'] and manifest['scenes'] == planning['scenes']
+        assert manifest['director_shot_choices'] == shots
         return {'schema': quality.SCHEMA, 'input_sha256': manifest['input_sha256'],
                 'frames': [{'index': f['index'], 'observed': True, 'description': 'fixture output frame'} for f in manifest['frames']],
                 'checks': {k: {'status': 'pass', 'reason': 'fixture evidence', 'frame_indices': [0]} for k in quality.VISUAL_CHECKS}}

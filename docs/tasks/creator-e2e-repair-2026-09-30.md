@@ -1,5 +1,7 @@
 # Creator E2E 前修复任务
 
+历史基线 / 具名验收记录（2026-10-02 归档标识）：下文状态、当前作品、恢复授权与 READY 判断只适用于当时范围，不是当前执行指令。当前唯一范围见 [自主首版 Task](creator-autonomous-first-cut-2026-09-30.md)，实际状态见 [Current State](../02_CURRENT_STATE.md)。
+
 状态：SOFTWARE_ACCEPTED / 待人工 E2E。范围来自本次 Goal；人工 Creator E2E 由 Creator 自行启动，本任务只做确定性验证。
 
 | 顺序 | Task | 根因与最小修复 | 定向验收 |

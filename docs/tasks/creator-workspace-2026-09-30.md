@@ -1,5 +1,7 @@
 # Creator 作品工作区体验优化
 
+历史基线 / 具名验收记录（2026-10-02 归档标识）：下文状态、当前作品、恢复授权与 READY 判断只适用于当时范围，不是当前执行指令。当前唯一范围见 [自主首版 Task](creator-autonomous-first-cut-2026-09-30.md)，实际状态见 [Current State](../02_CURRENT_STATE.md)。
+
 状态：SOFTWARE_ACCEPTED；范围内实现与确定性验证完成，真实 Creator E2E 待人工操作。范围：用户本次 Goal，保留当前未提交修复与冻结主链，不操作当前 Creation。
 
 顺序与依赖：统一只读状态投影 → Conversation + Work Canvas / Proposal → 制作、无 Attempt、失败与断连恢复 → 分别保留事实、Match、Rights、费用门禁的任务卡 → 成片审阅与反馈 → 清理重复入口。
