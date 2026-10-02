@@ -2191,6 +2191,7 @@ def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
     ('suitable', True, 'MATERIAL_READY', 'identity'),
     ('suitable', False, 'MATERIAL_NOT_READY', None),
     ('suitable', True, None, 'persistent'),
+    ('partial', True, 'MATERIAL_NOT_READY', 'related_type'),
 ])
 def test_system_visual_observation_is_per_need_and_resumes_without_supply(
         material_integration_env, monkeypatch, second_verdict, known_rights, expected, report_fault):
@@ -2242,6 +2243,13 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
             if report_fault:
                 path.write_text('{"reason": "contains "unescaped" quotes"}' if report_fault != 'identity'
                                 else json.dumps({'schema': SCHEMA, 'input_sha256': 'stale'}))
+                if report_fault == 'related_type':
+                    path.write_text(json.dumps({'schema': SCHEMA, 'input_sha256': manifest['input_sha256'],
+                        'verdict': 'partial', 'caption': 'red field', 'style': 'quiet red', 'reason': 'Only partly related',
+                        'frames': [{'index': 0, 'observed': True, 'related': 'partial', 'description': 'red field'}]}))
+                    from easel.materials.application.visual_observation import read_observation_report
+                    with pytest.raises(ValueError, match=r'frames\[0\].related'):
+                        read_observation_report(path, second, asset, manifest)
                 completed_messages.add(message)
             raise DeliveryExecutionUncertain('same observation still running')
         calls.append(need_id)
@@ -2259,6 +2267,9 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
                 'frames': [{'index': 0, 'observed': True, 'related': verdict == 'suitable', 'description': 'red field'}]}
         if report_fault and need_id == second.need_id:
             assert '上一报告未通过合同校验' in message
+            assert 'related 只能为 JSON true/false/null' in message
+            if report_fault == 'related_type':
+                report['frames'][0]['related'] = None
         path.write_text('{"broken":' if report_fault == 'persistent' and need_id == second.need_id else json.dumps(report))
         completed_messages.add(message)
         return ''

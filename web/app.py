@@ -2717,6 +2717,12 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
         "只有部分适合填 partial；明显错配填 unsuitable；看不到附件或证据不足填 uncertain。"
         "视频只是采样，不能声称看过完整片段；未见标志或文字不证明全片不存在。"
         "软风格差异写入依据，不把所有审美偏好当作否决条件。\n"
+        "字段合同：顶层 verdict 是 suitable/unsuitable/partial/uncertain 四选一字符串。"
+        "frames 必须按输入逐帧覆盖，index 为从 0 开始的整数；observed 为 JSON true/false；"
+        "related 只能为 JSON true/false/null（关联明确/不关联/尚不能确定），不能填 partial、unknown 或字符串布尔值。"
+        "部分符合的细节写入 description/reason，整体保留 verdict=partial；不确定的逐帧关联用 null，不能猜成 true。"
+        "每帧 description 及顶层 caption/style/reason 为非空字符串，logo_present/visible_text_present 为 true/false/null。"
+        "用 JSON 序列化器输出，不手拼含未转义引号的字符串。\n"
         + "输入：" + json.dumps(manifest, ensure_ascii=False) + "\n"
         + f"仅写 {report_path}，JSON 如下，替换判断但保持当前身份：\n"
         + json.dumps(template, ensure_ascii=False)
@@ -2730,8 +2736,11 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
         instruction = prompt + ("\n上一报告未通过合同校验。读取当前报告，按上述当前输入身份与模板修正 JSON 语法及字段；"
                                 "用 JSON 序列化器写入，正确转义引号。保留真实观察依据，不得为通过校验改成 suitable。"
                                 if repair else "")
-        run_agent_sync(instruction, TIMEOUT_PRODUCE, f"visual-{attempt['attempt_id']}-{identity[:12]}",
-                       attachments=attachments)
+        # A saved draft must be validated before any new submission. Invalid
+        # drafts go directly to the single repair; valid ones need no model call.
+        if repair or not report_path.is_file():
+            run_agent_sync(instruction, TIMEOUT_PRODUCE, f"visual-{attempt['attempt_id']}-{identity[:12]}",
+                           attachments=attachments)
         try:
             return read_observation_report(report_path, need, asset, manifest)
         except (OSError, ValueError, TypeError, AttributeError) as exc:

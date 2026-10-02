@@ -189,11 +189,18 @@ def apply_observation(need: MaterialNeed, asset: MaterialAsset, manifest: dict, 
         raise ValueError("观察报告缺少明确的适用结论")
     rows = report.get("frames")
     if (not isinstance(rows, list) or len(rows) != len(manifest["frames"])
-            or [r.get("index") for r in rows if isinstance(r, dict)] != list(range(len(rows)))
-            or any(type(r.get("observed")) is not bool
-                   or r.get("related") is not None and type(r.get("related")) is not bool
-                   or not isinstance(r.get("description"), str) or not r["description"].strip() for r in rows)):
+            or any(not isinstance(r, dict) for r in rows)
+            or [r.get("index") for r in rows] != list(range(len(rows)))):
         raise ValueError("观察报告必须逐张记录实际预览，不得省略未知项")
+    for index, row in enumerate(rows):
+        if type(row.get('index')) is not int:
+            raise ValueError(f'frames[{index}].index 必须为整数帧编号')
+        if type(row.get('observed')) is not bool:
+            raise ValueError(f'frames[{index}].observed 必须为 JSON 布尔值 true/false')
+        if 'related' not in row or row['related'] is not None and type(row['related']) is not bool:
+            raise ValueError(f'frames[{index}].related 只能为 JSON true/false/null；partial 属于顶层 verdict，不是逐帧字段值')
+        if not isinstance(row.get('description'), str) or not row['description'].strip():
+            raise ValueError(f'frames[{index}].description 必须为非空的实际观察说明')
     if verdict == "suitable" and not all(r["observed"] and r["related"] is True for r in rows):
         raise ValueError("只有部分采样画面适合时，不能批准整项素材匹配")
     for key in ("caption", "style", "reason"):
