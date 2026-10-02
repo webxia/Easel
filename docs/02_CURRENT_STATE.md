@@ -14,6 +14,15 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 | P3 | **NOT_STARTED**. |
 | Test suite | Latest complete deterministic run: **600 passed, 5 skipped** on 2026-10-01. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
 
+## 视觉补料耗尽误报人工事项（2026-10-02）
+
+- 本次作品旁白恢复后，仅 `need-img-charging-scene` 未满足。生成图片的已绑定观察结论为 partial：画面过暗，墙边设备/地面线缆无法明确判断。该图片仍为 UNKNOWN Rights，不能凭生成成功或 Creator 点击确认就认领合格。此时没有需要 Creator 提供的事实或新费用决定；根因是 Owner 在一次补充检索、一次委托生成之后，将所有剩余缺口落为 `needs_evidence`，前端又把缺口直接计为人工待办。
+- 最小改动：复用现有补料操作，为此类纯视觉缺口增加一轮有界检索（总计至多两轮补充检索）；优先完成原来的生成对账、预算和观察，再判断是否还可补料。已适配场景但缺少 Rights 的候选仍走原权利事项，不混为选材失败。只改检索词，保留脚本、Need、素材、授权、原生成结果及每轮请求；不得重开不确定的 Provider 请求或重复购买。
+- 补料规划此前将素材数组前九项作为证据，可能漏掉排在后面的最新生成失败图；现优先取当前 Need 的最新已绑定观察，并传入历史检索词，重复短语拒绝。新轮次有独立固定请求身份与缓存，中断恢复复用原检索建议和补料结果。原费用、Rights、Match、Readiness 与首版审阅门禁保持。
+- 上限用尽仍缺纯视觉素材时使用 `material_supply_exhausted`，作品区展示“自动选材暂未完成”、具体缺口和已保留结果，停止状态不伪装运行，不计入 Creator 审核待办，不展开放行不合格素材的表单。提供已有的“讨论这个场景”入口，真正的事实/权利/费用任务仍保留正式操作。该有限补救不保证任何严苛场景一定可找到素材，也不替代暂缓的整体选材效率优化。
+- 验证：Material integration、Preparation、跨 Content Replay **116 passed**，新增一个跨模块恢复场景保护第二轮的固定身份、重复查询拒绝、补料落盘后中断不重复供应、原方案不变，以及用尽后的正确责任状态。三种确定性作品投影（自动补料、系统选材耗尽、真实待处理）检查通过；frontend lint/build、compileall、diff check 通过，保留既有依赖/Hook/chunk 提示。
+- 真实恢复：服务重载后当前作品从 `needs_evidence` 自动进入第二轮补料，只处理充电场景；已保存四条不同的新检索词，第二轮补料完成，Owner 随后继续观察候选。未重新生成旁白、未请求新的付费素材生成；视觉缺口尚待观察结果，不把搜索完成视为素材 READY 或成片完成。
+
 ## 旁白识别低置信恢复（2026-10-02）
 
 - 当前作品 `cr_b31cd80a62cc4da7927006c0692a9446` 已完成一条 39.312 秒旁白；失败发生于独立本地识别/时序恢复，不是 TTS 生成失败。原音频 SHA 为 `ea6ea62cbc9d6cf1f8e8925e56bf1bcb225f0fd8782c57947826896a3d32425c`。离线重放现有 small 模型复现：首词“最近”置信度约 0.313，并出现“比→筆”“劲头→鏡頭”等实际识别差异。同输入、同模型的重复 Retry 不会修复模型能力问题，不能据此断言原音频多读或重新购买。

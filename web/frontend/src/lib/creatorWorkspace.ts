@@ -73,11 +73,12 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   const facts = claims.filter(claim => claim.status === 'REVIEW_REQUIRED').length;
   const blockingIds = Array.isArray(gate.blocking_needs) ? gate.blocking_needs : [];
   const needs = blockingIds.length;
+  const materialUnavailable = managed && delivery.status === 'material_supply_exhausted';
   const materialWorking = managed && gate.status === 'MATERIAL_NOT_READY'
     && ['observing_material', 'recovering_material', 'generating_material', 'observing_execution', 'execution_uncertain', 'observation_failed', 'retrying'].includes(String(delivery.status));
   const rightsTasks = candidates.filter(asset => ['UNKNOWN', 'RESTRICTED'].includes(String(asRecord(asset.rights).status))
     && Array.isArray(asset.needs) && asset.needs.some(need => blockingIds.includes(asRecord(need).need_id))).length;
-  const materialTasks = materialWorking ? 0 : Math.max(needs, rightsTasks + blockingIds.filter(needId => !candidates.some(asset => Array.isArray(asset.semantic_reviewed_need_ids) && asset.semantic_reviewed_need_ids.includes(needId)) && candidates.some(asset =>
+  const materialTasks = materialWorking || materialUnavailable ? 0 : Math.max(needs, rightsTasks + blockingIds.filter(needId => !candidates.some(asset => Array.isArray(asset.semantic_reviewed_need_ids) && asset.semantic_reviewed_need_ids.includes(needId)) && candidates.some(asset =>
     ['image', 'video'].includes(String(asset.media_type)) && Array.isArray(asset.needs)
     && asset.needs.some(need => asRecord(need).need_id === needId)
     && !(Array.isArray(asset.semantic_reviewed_need_ids) && asset.semantic_reviewed_need_ids.includes(needId)))).length);
@@ -86,24 +87,24 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   const blockedPreparation = !attempt && ['MATERIAL_NOT_READY', 'BLOCKED_CREATIVE_MODE_REQUIRED', 'BLOCKED_RUNTIME_INVALID', 'BLOCKED_RUNTIME_NOT_CONFIGURED'].includes(String(preparation.status));
   const pending = selected ? 0 : proposal || blockedPreparation ? 1 : facts + materialTasks + (fee ? 1 : 0) + (output && !qualityPending ? 1 : 0);
   const failureStage = editing ? null : productionFailed ? '视频制作' : planningFailed ? '创作规划' : materialFailed ? '素材准备' : contentFailed ? '内容准备' : managed && delivery.status === 'failed' ? (/:(quality|repair_quality)$/.test(String(delivery.exhausted_operation)) ? '审片' : /:(observe_material|recover_material|finish_material_generation|generate_material|recover_voice_timing)$/.test(String(delivery.exhausted_operation)) ? '素材准备' : attempt ? '视频制作' : '内容准备') : null;
-  const state: StageState = selected ? 'completed' : failureStage ? 'failed' : pending ? 'action-required' : proposal ? 'waiting' : 'running';
+  const state: StageState = selected ? 'completed' : failureStage ? 'failed' : pending ? 'action-required' : proposal || materialUnavailable ? 'waiting' : 'running';
   const timeline: { name: string; state: StageState }[] = [
     { name: '方案', state: proposal ? 'action-required' : 'completed' },
     { name: '内容准备', state: contentFailed ? 'failed' : facts ? 'action-required' : contentReady || planning.status || output || selected ? 'completed' : proposal ? 'waiting' : 'running' },
     { name: '创作规划', state: editing ? 'waiting' : planningFailed ? 'failed' : planning.status === 'PLANNING_READY' || output || selected ? 'completed' : planning.status || preparation.active_stage === 'planning' ? 'running' : 'waiting' },
-    { name: '素材准备', state: materialFailed || failureStage === '素材准备' ? 'failed' : gate.status === 'MATERIAL_READY' || output || selected ? 'completed' : materialWorking ? 'running' : needs ? 'action-required' : planning.status === 'PLANNING_READY' ? 'running' : 'waiting' },
+    { name: '素材准备', state: materialFailed || failureStage === '素材准备' ? 'failed' : gate.status === 'MATERIAL_READY' || output || selected ? 'completed' : materialWorking ? 'running' : materialUnavailable ? 'waiting' : needs ? 'action-required' : planning.status === 'PLANNING_READY' ? 'running' : 'waiting' },
     { name: '视频制作', state: productionFailed ? 'failed' : output || selected ? 'completed' : fee ? 'action-required' : gate.status === 'MATERIAL_READY' ? 'running' : 'waiting' },
     { name: '审片', state: selected ? 'completed' : failureStage === '审片' ? 'failed' : qualityPending ? ['checking_quality', 'repairing_quality'].includes(String(delivery.status)) ? 'running' : 'waiting' : output ? 'action-required' : 'waiting' },
     { name: '成片', state: selected ? 'completed' : 'waiting' },
   ];
   const reason = delivery.last_error ?? asRecord(item.last_error).message ?? preparation.last_error ?? preparation.error;
   const rawReason = typeof reason === 'string' ? reason : typeof asRecord(reason).message === 'string' ? String(asRecord(reason).message) : '当前阶段未完成，已保留最后可信结果。';
-  return { proposal, selected, pending, state, timeline, failureStage, blockedPreparation, materialWorking,
+  return { proposal, selected, pending, state, timeline, failureStage, blockedPreparation, materialWorking, materialUnavailable,
     failureReason: rawReason.includes('content.trim is outside') ? '镜头截取超出了原素材时长。已保留原成片、内容和素材；恢复会先修正该镜头截取并核验，重新合成仍需核价与批准。' : rawReason.startsWith('Creative Planning MaterialPlan Domain validation failed:') ? '创作规划的素材需求格式未通过核验。已保留内容与方案，重试会修正规划格式后重新核验。' : rawReason.startsWith('Hypit check 失败：') ? '视频编排文件未通过格式核验。已保留内容和素材，重试会修正编排并重新核验；通过后仍需核价与批准才能合成。' : rawReason,
     updatedAt: delivery.updated_at ?? item.updated_at ?? preparation.updated_at ?? work.updated_at,
     title: editing ? '修改创作方案' : managed && delivery.status === 'observation_failed' ? '状态连接中断 · 显示最后可信结果' :
       managed && delivery.status === 'execution_uncertain' ? '执行结果待核实' :
-      selected ? '最终成片已确认' : failureStage ? `${failureStage}遇到问题` : pending ? '需要你处理' : proposal ? '创作方案' :
+      selected ? '最终成片已确认' : materialUnavailable ? '自动选材暂未完成' : failureStage ? `${failureStage}遇到问题` : pending ? '需要你处理' : proposal ? '创作方案' :
       managed && delivery.status === 'checking_quality' ? '正在检查成片画面与声音' :
       managed && delivery.status === 'repairing_quality' ? '正在修正系统审片发现的局部问题' :
       managed && delivery.status === 'quality_repair_required' ? '系统审片发现待修正问题，成片已保留' :

@@ -793,7 +793,16 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
         {phase === 'preparation-failed' && <p>{projection.failureReason}。已保留方案和成功阶段；将从当前准备记录恢复。付费操作仍需另行批准。</p>}
         {phase === 'preparation-failed' && <button className="btn btn-primary"
           disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重新准备素材</button>}
-        {phase === 'material' && !projection.materialWorking && rightsCandidatesLoaded && missingSupplyNeeds.length > 0 && <div className="film-op-review-claim">
+        {phase === 'material' && projection.materialUnavailable && <div className="film-op-review-claim">
+          <h3>自动选材暂未完成</h3>
+          <p>已按当前方案检索并补充候选，仍有场景缺少合格素材。系统已停止继续尝试，方案、旁白与通过核对的素材均已保留。</p>
+          {Array.isArray(scriptTruth?.material_needs) && scriptTruth.material_needs.map(record)
+            .filter(need => blockingNeedIds.includes(text(need.need_id)))
+            .map(need => <p key={text(need.need_id)}>尚未满足：{text(need.description)}</p>)}
+          <p>这不是等待你审核的任务。你可以在对话中调整场景表达或提供参考素材；涉及新费用时仍按委托预算核验。</p>
+          <button className="btn" onClick={onOpenConversation}>讨论这个场景</button>
+        </div>}
+        {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && rightsCandidatesLoaded && missingSupplyNeeds.length > 0 && <div className="film-op-review-claim">
           <h3>任务：补充符合方案的素材</h3><p>这些需求尚无类型与来源都符合方案的候选，暂时不能进入视频制作。使用权复核不会改变素材来源。</p>
           {missingSupplyNeeds.map(need => <p key={text(need.need_id)}>
             {need.modality_kind === 'bgm' ? '配乐要求：无歌词器乐，音色与节奏须符合已确认的创作规划。' : `素材要求：${text(need.description)}。`}
@@ -839,7 +848,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
               });
             }}>{busy === '补充素材' ? '正在检索并检查缺失素材…' : '保留已有结果并补充素材'}</button>
         </details>}
-        {phase === 'material' && !projection.materialWorking && pendingVoiceNeed && <div className="film-op-review-claim">
+        {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && pendingVoiceNeed && <div className="film-op-review-claim">
           <h3>任务：准备整片旁白</h3>
           <p>{existingVoiceCandidate && !voiceRightsPending
             ? '已有旁白已保留；请记录实际试听结论，完成当前脚本与音频的匹配核对。'
@@ -916,7 +925,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
                 {busy === '生成素材' ? '正在生成旁白…' : '生成旁白素材'}
               </button></>}
         </div>}
-        {phase === 'material' && !projection.materialWorking && pendingMusicNeed && selectedMusic && <div className="film-op-review-claim">
+        {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && pendingMusicNeed && selectedMusic && <div className="film-op-review-claim">
           <h3>任务：核对配乐</h3>
           <p>要求：{text(pendingMusicNeed.description)}。只记录实际试听依据；使用权与署名条件另行检查。</p>
           <label>配乐候选<select className="field" value={text(selectedMusic.asset_id)}
@@ -938,7 +947,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
               setAttempt(record(result.attempt));
             })}>记录这一项配乐核对</button>
         </div>}
-        {phase === 'material' && !projection.materialWorking && visualCandidates.length > 0 && <div className="film-op-review-claim">
+        {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && visualCandidates.length > 0 && <div className="film-op-review-claim">
           <strong>核对画面是否真的符合场景</strong>
           <p>请查看素材预览，只确认你实际看见的内容。每个场景都单独核对；未确认的画面不会算作已覆盖。</p>
           <label>对应场景
@@ -979,7 +988,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
           <button className="btn btn-primary" disabled={!visualReviewReady || !!busy} onClick={submitVisualReview}>
             提交这一组画面核对</button>
         </div>}
-        {phase === 'material' && !projection.materialWorking && !voiceRightsPending && rightsReviewCandidates.length > 0 && <>
+        {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && !voiceRightsPending && rightsReviewCandidates.length > 0 && <>
         <section className="card film-op-card">
           <h3>任务：核对素材使用权</h3>
           {voiceRightsPending && <p>当前待复核：刚生成的 MiniMax 旁白音频。请核对该素材对应的使用条款和证据。</p>}

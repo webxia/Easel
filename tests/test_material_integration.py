@@ -2855,3 +2855,59 @@ def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(materia
         MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
         assert store.read_generation_record('gen-voice')['voice_recognition'] == bad
         assert not voice_delivery.pending_voice_timing_recovery(plan, store.read_bundle(), store, script, require_content=True)
+
+
+def test_visual_supply_continues_once_after_rejection_and_stops_as_system_gap(material_integration_env, monkeypatch):
+    from easel.creation_delivery import SCHEMA, next_operation
+    from easel.integrations import material_recovery as recovery
+    attempt = material_integration_env
+    planning = _planning(attempt)
+    plan = planning['plan']
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    run = SupplyRun(supply_run_id='initial-empty', plan_id=plan.plan_id,
+        started_at=datetime.now(timezone.utc), finished_at=datetime.now(timezone.utc), result_bundle_id='empty')
+    bundle = MaterialBundleAssembler().assemble(plan, run, (), (), bundle_id='empty')
+    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
+    attempt = MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)['attempt']
+    prior = {'status': 'COMPLETE', 'request_id': 'first-search', 'plan_revision': readiness.plan_revision,
+             'bundle_revision': bundle.revision, 'search_terms': {'need-main': ['dark parking']}}
+    service.update_film_attempt(attempt['attempt_id'], event='fixture_first_search_complete',
+        autonomous_material_recovery=prior,
+        material_observation={'status': 'COMPLETE', 'plan_revision': readiness.plan_revision,
+                              'bundle_revision': bundle.revision})
+    with creation.edit_creation(attempt['creation_id']) as work:
+        digest = hashlib.sha256(b'proposal').hexdigest()
+        work['delivery'] = {'schema': SCHEMA, 'proposal': 'proposal', 'proposal_sha256': digest}
+        work['chat_workflow'] = {'proposal_status': 'CONFIRMED', 'proposal_sha256': digest}
+    assert next_operation(creation.get_creation(attempt['creation_id'])) == ('recover_material', 'recovering_material')
+    query_calls, supply_calls = [], []
+    def queries(current, record):
+        query_calls.append(record['request_id'])
+        assert record['previous_rounds'] == [prior]
+        with pytest.raises(MaterialIntegrationError, match='重复'):
+            recovery.validate_recovery_queries(record, {'request_id': record['request_id'],
+                'search_terms': {'need-main': [' DARK  parking ']}})
+        return {'request_id': record['request_id'], 'search_terms': {'need-main': ['visible charging connector lit pavement']}}
+    actual_supply = recovery.ProductMaterialSupply.run
+    def supply(self, *args, **kwargs):
+        supply_calls.append(kwargs)
+        return actual_supply(self, *args, **kwargs)
+    monkeypatch.setattr(recovery.ProductMaterialSupply, 'run', supply)
+    actual_record = recovery.MaterialGateIntegration.record
+    def interrupted(*args, **kwargs):
+        raise RuntimeError('fixture interrupted after supply')
+    monkeypatch.setattr(recovery.MaterialGateIntegration, 'record', interrupted)
+    with pytest.raises(RuntimeError, match='interrupted'):
+        recovery.recover_managed_materials(attempt['attempt_id'], executor=queries)
+    monkeypatch.setattr(recovery.MaterialGateIntegration, 'record', actual_record)
+    updated = recovery.recover_managed_materials(attempt['attempt_id'], executor=queries)
+    assert len(query_calls) == len(supply_calls) == 1
+    assert PlanningIntegration().load(updated)['plan'] == plan
+    assert PlanningIntegration().load(updated)['script'] == '假设脚本内容。\n'
+    assert recovery.visual_supply_recovery_state(updated) == 'exhausted'
+    assert recovery.recover_managed_materials(attempt['attempt_id'], executor=queries) == updated
+    gate = updated['material_gate']
+    service.update_film_attempt(attempt['attempt_id'], event='fixture_observation_complete',
+        material_observation={'status': 'COMPLETE', 'plan_revision': gate['plan_revision'],
+                              'bundle_revision': gate['bundle_revision']})
+    assert next_operation(creation.get_creation(attempt['creation_id'])) == (None, 'material_supply_exhausted')

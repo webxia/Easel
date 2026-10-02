@@ -238,6 +238,16 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
                 return None, 'material_submission_uncertain'
             if statuses & {'quote_unavailable', 'budget_exceeded'}:
                 return None, 'needs_generation_approval'
+        if gate.get('status') == 'MATERIAL_NOT_READY' and attempt.get('autonomous_material_recovery'):
+            from easel.integrations.material_recovery import visual_supply_recovery_state
+            try:
+                recovery_state = visual_supply_recovery_state(attempt)
+            except (ValueError, OSError):
+                return 'recover_material', 'recovering_material'
+            if recovery_state == 'available':
+                return 'recover_material', 'recovering_material'
+            if recovery_state == 'exhausted':
+                return None, 'material_supply_exhausted'
         if (gate.get('status') == 'MATERIAL_NOT_READY'
                 or prep_status in {"SCRIPT_TRUTH_REVIEW_REQUIRED", "MATERIAL_NOT_READY"}):
             return None, "needs_evidence"

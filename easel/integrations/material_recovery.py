@@ -126,8 +126,28 @@ def repair_managed_planning(attempt_id: str, *, executor) -> dict:
             if readiness.status is ReadinessStatus.READY else 'MATERIAL_NOT_READY')
 
 
+def visual_supply_recovery_state(attempt: dict) -> str | None:
+    """A bounded second search is system work, not a Creator evidence task."""
+    record = attempt.get('autonomous_material_recovery') or {}
+    gate = attempt.get('material_gate') or {}
+    if (record.get('status') != 'COMPLETE' or record.get('quality_report_sha256')
+            or gate.get('status') != 'MATERIAL_NOT_READY'
+            or record.get('plan_revision') != gate.get('plan_revision')):
+        return None
+    from easel.materials.application.visual_observation import observed_match
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    plan, bundle = store.read_plan(), store.read_bundle()
+    missing = [n for n in plan.needs if n.need_id in gate.get('blocking_needs', [])]
+    if not missing or any(n.media_type.value not in {'image', 'video'} for n in missing):
+        return None
+    # An otherwise suitable candidate blocked by Rights remains a distinct task.
+    if any(observed_match(n, asset) is True for n in missing for asset in bundle.assets):
+        return None
+    return 'available' if len(record.get('previous_rounds', [])) < 1 else 'exhausted'
+
+
 def recover_managed_materials(attempt_id: str, *, executor) -> dict:
-    """One commissioned supplemental search; preserve Need, Rights and Voice."""
+    """Bounded commissioned supplemental searches; preserve Need, Rights and Voice."""
     from easel import creation
     from easel.creation_delivery import active_delivery, is_managed
     attempt = get_film_attempt(attempt_id)
@@ -141,8 +161,13 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
             or (revision.get('origin') == 'system_quality' and 'visual_material' in revision.get('allowed_changes', []))):
         if active_delivery.get() != attempt['creation_id']:
             raise MaterialIntegrationError('额外视觉补料只能由当前委托 Owner 执行')
+    previous_rounds = []
     if record and record.get('status') in {'COMPLETE', 'NOT_APPLICABLE'}:
-        return attempt
+        if visual_supply_recovery_state(attempt) != 'available':
+            return attempt
+        previous_rounds = record.get('previous_rounds', []) + [
+            {key: value for key, value in record.items() if key != 'previous_rounds'}]
+        record = None
     if record is None:
         gate = attempt.get('material_gate', {})
         revision = attempt.get('revision_feedback', {})
@@ -158,9 +183,11 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
             need_ids = gate['blocking_needs']
         needs = [n.model_dump(mode='json') for n in planning['plan'].needs
                  if n.need_id in need_ids and getattr(n.modality_spec, 'kind', None) != 'voice']
-        identity = hashlib.sha256((attempt_id + gate['plan_revision'] + gate['bundle_revision']).encode()).hexdigest()
+        identity = hashlib.sha256((attempt_id + gate['plan_revision'] + gate['bundle_revision']
+                                   + (f':round-{len(previous_rounds) + 1}' if previous_rounds else '')).encode()).hexdigest()
         record = {'status': 'PLANNING' if needs else 'NOT_APPLICABLE', 'request_id': 'auto-' + identity[:32],
                   'plan_revision': gate['plan_revision'], 'bundle_revision': gate['bundle_revision'], 'needs': needs,
+                  **({'previous_rounds': previous_rounds} if previous_rounds else {}),
                   **({'quality_report_sha256': revision['quality_report_sha256']} if quality else {})}
         attempt = update_film_attempt(attempt_id, event='automatic_material_recovery_started',
                                       autonomous_material_recovery=record)
@@ -200,6 +227,10 @@ def validate_recovery_queries(record: dict, report: dict) -> None:
         value = terms[raw['need_id']]
         if not isinstance(value, list) or not value or any(not isinstance(v, str) for v in value):
             raise MaterialIntegrationError('补料检索建议须为短语列表')
+        used = {' '.join(term.casefold().split()) for previous in record.get('previous_rounds', [])
+                for term in previous.get('search_terms', {}).get(raw['need_id'], [])}
+        if any(' '.join(term.casefold().split()) in used for term in value):
+            raise MaterialIntegrationError('补料检索建议重复了已尝试的短语，须根据观察证据调整')
         NeedCompiler(search_terms={raw['need_id']: tuple(value)}).compile(MaterialNeed.model_validate_json(json.dumps(raw)))
 
 
