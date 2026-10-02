@@ -88,6 +88,27 @@ def read_local_voice(path: Path, language: str | None) -> dict:
     return report
 
 
+VOICE_ASR_REVIEW_PREFIX = 'creator-voice-asr-review-v1:'
+
+
+def recognition_digest(report: dict) -> str:
+    return hashlib.sha256(json.dumps(report, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+
+
+def _reviewed_character(script: str, asset, report: dict, position: int) -> bool:
+    from easel.materials.domain import IntelligenceStatus, SemanticField
+    if (report.get('audio_sha256') != asset.file.sha256
+            or report.get('script_sha256') != hashlib.sha256(script.encode()).hexdigest()
+            or not re.fullmatch(r'[0-9a-f]{64}', str(report.get('need_sha256', '')))):
+        return False
+    prefix = (VOICE_ASR_REVIEW_PREFIX + report['need_sha256'] + ':' + asset.file.sha256
+              + ':' + report['script_sha256'] + ':' + recognition_digest(report) + ':')
+    return any(i.analyzer_id.startswith(VOICE_ASR_REVIEW_PREFIX) and i.status is IntelligenceStatus.COMPLETE
+        and any(a.field is SemanticField.CAPTION and a.value == script[position]
+                and a.evidence == prefix + str(position) and a.confidence == 1.0
+                for a in i.annotations) for i in asset.semantic.inferences)
+
+
 def timing_from_recognition(script: str, asset, report: dict) -> dict:
     """Accept complete unprompted recognition, never interpolate or rewrite text."""
     words = report.get('words')
@@ -113,7 +134,11 @@ def timing_from_recognition(script: str, asset, report: dict) -> dict:
         expected = _spoken(script[begin:end])
         if text != expected:
             convert = _asr_script_converter().convert
-            if convert(text) != convert(expected):
+            actual, wanted = convert(text), convert(expected)
+            reviewed = (len(actual) == len(wanted) == len(text) == len(expected) and all(a == b or _reviewed_character(
+                script, asset, report, positions[offset + index])
+                for index, (a, b) in enumerate(zip(actual, wanted))))
+            if actual != wanted and not reviewed:
                 raise ValueError(f'旁白识别文字与冻结脚本不一致（第 {offset + 1} 个有效字符：'
                                  f'识别“{text[:40]}”，脚本“{expected[:40]}”）；'
                                  '这不能单独证明原音频读错；原音频已保留，未重购或改写')

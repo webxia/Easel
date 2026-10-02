@@ -2691,6 +2691,7 @@ def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(materia
     readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
     MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)
     generation = {'schema': 'easel-material-generation@1', 'generation_id': 'gen-voice', 'status': 'COMPLETE',
+        'plan_revision': MaterialReadinessCalculator.plan_revision(plan),
         'modality': 'voice', 'attempt_id': attempt['attempt_id'], 'plan_id': plan.plan_id,
         'need_id': need.need_id, 'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest(),
         'input_sha256': hashlib.sha256(script.encode()).hexdigest(),
@@ -2805,3 +2806,52 @@ def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(materia
     if not provider_timing:
         assert authoring_voice_timings(plan, qualified, store, script)['unavailable_need_ids'] == ['voice']
     assert voice_delivery.pending_voice_timing_recovery(plan, store.read_bundle(), store, script, require_content=True)
+    if provider_timing:
+        # Formal listening review resolves only named ASR characters, keeping the
+        # raw report and measured times. Generic captions cannot approve it.
+        bad = {**deepcopy(report), 'audio_sha256': asset.file.sha256,
+               'script_sha256': hashlib.sha256(script.encode()).hexdigest(),
+               'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest()}
+        bad['words'][0]['text'] = '真的'
+        digest = voice_delivery.recognition_digest(bad)
+        store.write_observation_record('voice-asr-rejected-' + digest, bad)
+        request = dict(asset_id=asset.asset_id, expected_sha256=asset.file.sha256, need_id=need.need_id,
+                       observed_content='已试听：前两个字是冻结原文假设，不是识别器输出的真的',
+                       logo_present=None, visible_text_present=None, confirm_review=True)
+        original = store.read_asset('voice')
+        for invalid in ({'recognition_sha256': '0' * 64, 'corrections': [{'character': 0, 'text': '假'}]},
+                        {'recognition_sha256': digest, 'corrections': [{'character': 0, 'text': '改'}]},
+                        {'recognition_sha256': digest, 'corrections': [{'character': 0, 'text': '假'}]}):
+            with pytest.raises((MaterialIntegrationError, ValueError)):
+                MaterialProductOrchestrator().review_material_match(attempt['attempt_id'], **request,
+                    voice_recognition_review=invalid)
+            assert store.read_asset('voice') == original
+        from fastapi.testclient import TestClient
+        from web.app import app
+        client = TestClient(app, base_url='http://127.0.0.1', client=('127.0.0.1', 50000),
+                            headers={'Origin': 'http://127.0.0.1'})
+        assert client.post('/api/operator/session').status_code == 200
+        response = client.post(f"/api/film-attempts/{attempt['attempt_id']}/material-match/review-current", json={
+            'assetId': asset.asset_id, 'assetSha256': asset.file.sha256, 'needId': need.need_id,
+            'observedContent': request['observed_content'], 'confirmReview': True,
+            'voiceRecognitionReview': {'recognition_sha256': digest,
+                'corrections': [{'character': 0, 'text': '假'}, {'character': 1, 'text': '设'}]}})
+        assert response.status_code == 200, response.text
+        approved = store.read_asset('voice')
+        assert voice_delivery.timing_from_recognition(script, approved, bad)['status'] == 'READY'
+        assert store.read_asset('voice').rights.status is RightsStatus.UNKNOWN
+        for key in ('audio_sha256', 'script_sha256', 'need_sha256'):
+            changed = deepcopy(bad); changed[key] = '0' * 64
+            with pytest.raises(ValueError):
+                voice_delivery.timing_from_recognition(script, approved, changed)
+        changed = deepcopy(bad); changed['words'][0]['probability'] = .2
+        with pytest.raises(ValueError):
+            voice_delivery.timing_from_recognition(script, approved, changed)
+        failed = deepcopy(generation)
+        write_record(store, 'gen-voice', failed)
+        for checkpoint in observation_dir.glob('voice-asr-' + '?' * 64 + '.json'):
+            checkpoint.unlink()
+        monkeypatch.setattr(voice_delivery, 'read_local_voice', lambda *a: pytest.fail('approved report must be reused'))
+        MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
+        assert store.read_generation_record('gen-voice')['voice_recognition'] == bad
+        assert not voice_delivery.pending_voice_timing_recovery(plan, store.read_bundle(), store, script, require_content=True)

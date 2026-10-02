@@ -1240,7 +1240,7 @@ class MaterialProductOrchestrator:
         from easel.integrations.hypit.service import get_film_attempt
         from easel.materials.application.voice_delivery import (
             pending_voice_timing_recovery, read_local_voice, timing_from_recognition,
-            bind_voice_timing, apply_voice_content, voice_content_observed,
+            bind_voice_timing, apply_voice_content, voice_content_observed, recognition_digest,
         )
         attempt = get_film_attempt(attempt_id)
         planning = PlanningIntegration().load(attempt)
@@ -1272,7 +1272,23 @@ class MaterialProductOrchestrator:
                 if any(report.get(key) != value for key, value in binding.items()):
                     raise MaterialIntegrationError('旁白识别结果身份不一致')
             else:
-                report = {**read_local_voice(path, None), **binding}
+                report = None
+                for rejected_path in sorted((_workspace(attempt) / 'materials/observations').glob('voice-asr-rejected-*.json')):
+                    if _has_symlink_components(_workspace(attempt), rejected_path):
+                        continue
+                    candidate = json.loads(rejected_path.read_text())
+                    if rejected_path.stem != 'voice-asr-rejected-' + recognition_digest(candidate):
+                        continue
+                    if any(candidate.get(key) != value for key, value in binding.items()):
+                        continue
+                    try:
+                        timing_from_recognition(script, asset, candidate)
+                    except ValueError:
+                        continue
+                    report = candidate
+                    break
+                if report is None:
+                    report = {**read_local_voice(path, None), **binding}
                 # Only a valid recognition is a reusable checkpoint. A failed
                 # guess must not poison Retry after local model repair.
                 try:
@@ -1566,6 +1582,7 @@ class MaterialProductOrchestrator:
         self, attempt_id: str, *, asset_id: str, expected_sha256: str,
         need_id: str, observed_content: str, logo_present: bool | None,
         visible_text_present: bool | None, confirm_review: bool,
+        voice_recognition_review: dict | None = None,
     ) -> dict[str, Any]:
         """Bind a Creator observation to one visual or script-bound narration Asset."""
         from easel.integrations.hypit.service import get_film_attempt
@@ -1616,9 +1633,50 @@ class MaterialProductOrchestrator:
             annotations=tuple(annotations), observed_at=datetime.now(timezone.utc),
         )
         retained = tuple(item for item in asset.semantic.inferences if item.analyzer_id != inference.analyzer_id)
-        store.write_asset(asset.model_copy(update={
+        reviewed_asset = asset.model_copy(update={
             "semantic": asset.semantic.model_copy(update={"inferences": retained + (inference,)}),
-        }))
+        })
+        if voice_recognition_review is not None:
+            from easel.materials.application.voice_delivery import (
+                VOICE_ASR_REVIEW_PREFIX, recognition_digest, timing_from_recognition)
+            digest = voice_recognition_review.get('recognition_sha256')
+            corrections = voice_recognition_review.get('corrections')
+            if (getattr(need.modality_spec, 'kind', None) != 'voice'
+                    or not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)
+                    or not isinstance(corrections, list) or not 1 <= len(corrections) <= 20):
+                raise MaterialIntegrationError('旁白识别复核需要当前报告身份与具体字符结论')
+            report_path = _workspace(attempt) / 'materials/observations' / ('voice-asr-rejected-' + digest + '.json')
+            if _has_symlink_components(_workspace(attempt), report_path) or not report_path.is_file():
+                raise MaterialIntegrationError('待复核旁白识别报告不存在或路径无效')
+            report = json.loads(report_path.read_text())
+            binding = {'audio_sha256': asset.file.sha256,
+                       'script_sha256': hashlib.sha256(planning['script'].encode()).hexdigest(),
+                       'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest()}
+            if recognition_digest(report) != digest or any(report.get(k) != v for k, v in binding.items()):
+                raise MaterialIntegrationError('旁白识别复核与当前音频、脚本或 Need 不一致')
+            character_reviews, seen = [], set()
+            for correction in corrections:
+                position = correction.get('character') if isinstance(correction, dict) else None
+                text = correction.get('text') if isinstance(correction, dict) else None
+                if (type(position) is not int or position in seen or not 0 <= position < len(planning['script'])
+                        or text != planning['script'][position] or not text.strip()):
+                    raise MaterialIntegrationError('旁白识别复核只接受冻结脚本中的独立字符，不改写脚本')
+                seen.add(position)
+                evidence = (VOICE_ASR_REVIEW_PREFIX + binding['need_sha256'] + ':' + binding['audio_sha256']
+                            + ':' + binding['script_sha256'] + ':' + digest + ':' + str(position))
+                character_reviews.append(SemanticInference(
+                    analyzer_id=VOICE_ASR_REVIEW_PREFIX + need_id + ':' + str(position),
+                    status=IntelligenceStatus.COMPLETE,
+                    annotations=(SemanticAnnotation(field=SemanticField.CAPTION, value=text,
+                        evidence=evidence, confidence=1.0),), observed_at=datetime.now(timezone.utc)))
+            review_ids = {i.analyzer_id for i in character_reviews}
+            retained_reviews = tuple(i for i in reviewed_asset.semantic.inferences if i.analyzer_id not in review_ids)
+            reviewed_asset = reviewed_asset.model_copy(update={'semantic': reviewed_asset.semantic.model_copy(
+                update={'inferences': retained_reviews + tuple(character_reviews)})})
+            # Human review covers named characters only. Confidence, completeness,
+            # actual time bounds and every other character still have to pass.
+            timing_from_recognition(planning['script'], reviewed_asset, report)
+        store.write_asset(reviewed_asset)
         return self._recalculate_observed_materials(attempt, plan, bundle, store)
 
     @staticmethod

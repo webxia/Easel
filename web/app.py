@@ -613,6 +613,7 @@ class MaterialRightsReviewRequest(BaseModel):
 
 
 class MaterialMatchReviewRequest(BaseModel):
+    voiceRecognitionReview: dict | None = None
     assetId: str = Field(min_length=1, max_length=128)
     assetSha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     needId: str = Field(min_length=1, max_length=128)
@@ -1462,7 +1463,7 @@ async def api_material_match_review_current(
         asset_id=req.assetId, expected_sha256=req.assetSha256,
         need_id=req.needId, observed_content=req.observedContent,
         logo_present=req.logoPresent, visible_text_present=req.visibleTextPresent,
-        confirm_review=req.confirmReview,
+        confirm_review=req.confirmReview, voice_recognition_review=req.voiceRecognitionReview,
     )
 
 
