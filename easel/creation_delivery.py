@@ -191,14 +191,25 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
             pending = True
         if pending:
             return 'recover_voice_timing', 'recovering_material'
-    if attempt.get('autonomous_material_recovery', {}).get('status') in {'PLANNING', 'SUPPLYING'}:
+    accepted = attempt.get('material_combination_review', {})
+    if accepted.get('status') == 'COMPLETE':
+        from easel.integrations.material_layer import ProductionAuthoringIntegration
+        from easel.materials.store import AttemptMaterialStore
+        try:
+            store = AttemptMaterialStore(attempt['workspace']['path'])
+            ProductionAuthoringIntegration.accepted_combination(attempt, store.read_plan(), store.read_bundle(), store)
+        except (ValueError, OSError):
+            return None, 'needs_evidence'
+        # The accepted combination is a human creative choice. Preserve it;
+        # admission and narration timing are still independently checked.
+    if accepted.get('status') != 'COMPLETE' and attempt.get('autonomous_material_recovery', {}).get('status') in {'PLANNING', 'SUPPLYING'}:
         return 'recover_material', 'recovering_material'
     if gate.get("bundle_revision") and gate.get("status") in {"MATERIAL_READY", "MATERIAL_NOT_READY"}:
         observed = attempt.get("material_observation") or {}
         revision = attempt.get('revision_feedback', {})
         visual_repair = (revision.get('origin') == 'system_quality'
                          and 'visual_material' in revision.get('allowed_changes', []))
-        if (observed.get("status") != "COMPLETE"
+        if (accepted.get('status') != 'COMPLETE' or visual_repair) and (observed.get("status") != "COMPLETE"
                 or observed.get("bundle_revision") != gate.get("bundle_revision")
                 or observed.get("plan_revision") != gate.get("plan_revision")
                 or (visual_repair and observed.get('quality_report_sha256') != revision.get('quality_report_sha256'))):

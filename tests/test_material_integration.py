@@ -3051,9 +3051,19 @@ def test_combination_review_resumes_saved_choice_and_preserves_admission(materia
     owner.review_material_combination(attempt['attempt_id'], **args)
     assert store.read_bundle().to_json() == saved
 
+    from easel import creation_delivery
+    monkeypatch.setattr(creation_delivery, 'is_managed', lambda work: True)
+    monkeypatch.setattr(creation_delivery, '_attempt', lambda work: service.get_film_attempt(attempt['attempt_id']))
+    proposal_hash = hashlib.sha256(b'fixture').hexdigest()
+    work = {'delivery': {'proposal': 'fixture', 'proposal_sha256': proposal_hash},
+            'chat_workflow': {'proposal_status': 'CONFIRMED', 'proposal_sha256': proposal_hash}}
+    assert creation_delivery.next_operation(work) == ('author', 'authoring')
+
     # Human creative acceptance cannot stand in for missing rights.
     unknown = store.read_asset(asset.asset_id).model_copy(update={'rights': RightsInfo(status=RightsStatus.UNKNOWN)})
     store.write_asset(unknown)
     with pytest.raises(MaterialIntegrationError):
         ProductionAuthoringIntegration().accepted_combination(
             result['attempt'], plan, store.read_bundle().model_copy(update={'assets': (unknown,)}), store)
+
+    assert creation_delivery.next_operation(work) == (None, 'needs_evidence')

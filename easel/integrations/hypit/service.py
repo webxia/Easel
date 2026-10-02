@@ -762,6 +762,21 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
         if choices and new_plan.needs == plan.needs:
             target = update_film_attempt(target['attempt_id'], event='build_retry_director_choices_reused',
                 director_shot_checkpoint={'plan_revision': readiness.plan_revision, 'choices': choices})
+        accepted = ProductionAuthoringIntegration.accepted_combination(
+            source, plan, bundle, AttemptMaterialStore(source_root))
+        if accepted and new_plan.needs == plan.needs:
+            # A requested visual replacement may revise visuals; unrelated
+            # voice/music choices remain fixed across the same checkpoint.
+            if revision and 'visual_material' in revision.get('allowed_changes', []):
+                visual_ids = {n.need_id for n in plan.needs if n.media_type.value in {'image', 'video'}}
+                accepted = {key: value for key, value in accepted.items() if key not in visual_ids}
+            if accepted:
+                source_request = source['material_combination_review']['request_id']
+                target_store.write_recovery_record(source_request, {
+                    'status': 'COMPLETE', 'plan_revision': readiness.plan_revision,
+                    'choices': accepted, 'inherited_from': source['attempt_id']})
+                target = update_film_attempt(target['attempt_id'], event='creator_material_choices_reused',
+                    material_combination_review={'status': 'COMPLETE', 'request_id': source_request})
         target = MaterialGateIntegration().record(
             target, new_plan, new_bundle, new_run, readiness, gaps,
         )["attempt"]

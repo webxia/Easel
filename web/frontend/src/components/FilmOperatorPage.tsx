@@ -1,3 +1,5 @@
+import MaterialCombinationReview from './MaterialCombinationReview';
+import { combinationRows } from '../lib/materialCombination';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   approveFilmCost, cancelFilmBuild, createOperatorSession, reviseFilmOutput, previewCreatorProposal,
@@ -5,7 +7,7 @@ import {
   fetchMaterialRightsCandidates, listFilmAttempts, reconcileFilmBuild, startFilmAuthoring,
   refreshFilmBuild, resolveFilmRuntime, retryFailedFilmBuild, reviewFilmOutput, reviewMaterialRights, reviewScriptTruth, selectFilmBuild, submitFilmBuild,
   fetchPromotableMaterials, promoteAttemptMaterial,
-  materialAssetPreviewUrl, reviewMaterialMatch, recoverFilmMaterials,
+  materialAssetPreviewUrl, reviewMaterialMatch, reviewMaterialCombination, recoverFilmMaterials,
   validateFilmAttempt, retryCreationDelivery, reopenCreationProposal,
 } from '../lib/api';
 import { creatorExecutionRecord, projectCreatorWorkspace, stageLabels } from '../lib/creatorWorkspace';
@@ -298,6 +300,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
     human: scriptClaims.filter((claim) => claim.status === 'HUMAN_REVIEWED').length,
     pending: scriptClaims.filter((claim) => claim.status === 'REVIEW_REQUIRED').length,
   };
+  const combination = combinationRows(scriptTruth?.material_needs, rightsCandidates);
   const plan = record(attemptStatus.plan);
   const cost = record(attemptStatus.cost);
   const build = record(attemptStatus.build);
@@ -793,6 +796,16 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
         {phase === 'preparation-failed' && <p>{projection.failureReason}。已保留方案和成功阶段；将从当前准备记录恢复。付费操作仍需另行批准。</p>}
         {phase === 'preparation-failed' && <button className="btn btn-primary"
           disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重新准备素材</button>}
+        {phase === 'material' && !projection.materialWorking && operatorSessionReady && <MaterialCombinationReview
+          key={`${attemptId}:${materialGate.plan_revision}:${materialGate.bundle_revision}`}
+          attemptId={attemptId} rows={combination} busy={!!busy}
+          onAccept={reviews => void run('接受素材组合', async () => {
+            const result = await reviewMaterialCombination(attemptId, {
+              planRevision: materialGate.plan_revision, bundleRevision: materialGate.bundle_revision,
+              confirmReview: true, reviews,
+            });
+            setAttempt(record(result.attempt));
+          })} />}
         {phase === 'material' && projection.materialUnavailable && <div className="film-op-review-claim">
           <h3>自动选材暂未完成</h3>
           <p>已按当前方案检索并补充候选，仍有场景缺少合格素材。系统已停止继续尝试，方案、旁白与通过核对的素材均已保留。</p>

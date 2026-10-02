@@ -595,7 +595,7 @@ class ProductionAuthoringIntegration:
         choices = journal['choices']
         assets = {a.asset_id: a for a in bundle.assets}
         for need_id, choice in choices.items():
-            asset = assets.get(choice['asset_id'])
+            asset = store.read_asset(choice['asset_id']) if choice['asset_id'] in assets else None
             if (asset is None or asset.file.sha256 != choice['sha256']
                     or need_id not in ProductionAuthoringIntegration._qualified_need_ids(plan, bundle, asset)):
                 raise MaterialIntegrationError('已接受的素材仍须满足当前权利、技术和匹配要求')
@@ -1831,15 +1831,23 @@ class MaterialProductOrchestrator:
         matcher = MaterialMatcher()
         deduplicator = MaterialDeduplicator(store)
         matches = []
+        marker = attempt.get('material_combination_review', {})
+        journal = store.read_recovery_record(marker['request_id']) if marker.get('request_id') else None
+        choices = journal['choices'] if journal and journal['plan_revision'] == MaterialReadinessCalculator.plan_revision(plan) else {}
         for current_need in plan.needs:
             eligible = assets
             if require_scoped_visual and current_need.media_type in {MediaType.IMAGE, MediaType.VIDEO}:
                 eligible = tuple(a for a in assets if observed_match(current_need, a) is True
                                  or matcher._creator_match_review(current_need, a))
             ranked = matcher.match(current_need, eligible)
-            matches.extend(deduplicator.deduplicate_and_diversify(
+            shortlist = list(deduplicator.deduplicate_and_diversify(
                 ranked.matches, assets, top_k=3,
             ).shortlist)
+            chosen = choices.get(current_need.need_id, {}).get('asset_id')
+            chosen_match = next((m for m in ranked.matches if m.asset_id == chosen), None)
+            if chosen_match and not any(m.asset_id == chosen for m in shortlist):
+                shortlist = shortlist[:2] + [chosen_match]
+            matches.extend(shortlist)
         digest = hashlib.sha256("\n".join(asset.to_json() for asset in assets).encode()).hexdigest()[:16]
         now = datetime.now(timezone.utc)
         reviewed_run = SupplyRun(
@@ -1854,8 +1862,10 @@ class MaterialProductOrchestrator:
         gate = MaterialGateIntegration().record(
             attempt, plan, revised_bundle, reviewed_run, readiness, gaps,
         )
+        accepted_qualified = all(any(m.need_id == need_id and m.asset_id == c['asset_id'] and m.qualified
+                                    for m in revised_bundle.matches) for need_id, c in choices.items())
         authoring = (ProductionAuthoringIntegration().prepare(gate["attempt"], selected_asset_ids=())
-                     if readiness.status is ReadinessStatus.READY else None)
+                     if readiness.status is ReadinessStatus.READY and accepted_qualified else None)
         updated = authoring["attempt"] if authoring else gate["attempt"]
         return {"material_status": gate["status"], "attempt": updated,
                 "readiness": readiness.model_dump(mode="json")}
