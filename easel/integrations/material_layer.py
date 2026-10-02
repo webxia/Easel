@@ -1664,6 +1664,7 @@ class MaterialProductOrchestrator:
         from easel.materials.application.matching import MaterialMatcher
         from easel.materials.application.visual_observation import (
             MAX_VISUAL_CANDIDATES, apply_observation, observed_match, prepare_observation, scoped_inference,
+            read_observation_report,
         )
 
         attempt = get_film_attempt(attempt_id)
@@ -1772,10 +1773,15 @@ class MaterialProductOrchestrator:
                 report_path = _workspace(attempt) / relative
                 if _has_symlink_components(_workspace(attempt), report_path):
                     raise MaterialIntegrationError("素材观察路径无效")
+                report = None
                 if report_path.is_file():
-                    report = json.loads(report_path.read_text())
-                    apply_observation(need, asset, manifest, report)
-                else:
+                    try:
+                        report = read_observation_report(report_path, need, asset, manifest)
+                    except (OSError, ValueError, TypeError, AttributeError):
+                        # A completed model run may have written invalid JSON or
+                        # stale evidence. Resume its bounded report repair below.
+                        pass
+                if report is None:
                     # Pending gateway calls escape to the durable owner. Never
                     # turn an uncertain model run into a failed observation.
                     report = executor(attempt, manifest, attachments)

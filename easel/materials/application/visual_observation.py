@@ -28,6 +28,15 @@ PREFIX = "easel-visual-v1:"
 MAX_VISUAL_CANDIDATES = 9
 
 
+def read_observation_report(path: Path, need: MaterialNeed, asset: MaterialAsset, manifest: dict) -> dict:
+    """Only a validated report is a reusable checkpoint, including on resume."""
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > 128 * 1024:
+        raise ValueError('素材观察报告缺失或路径无效或过大')
+    report = json.loads(path.read_text(encoding='utf-8'))
+    apply_observation(need, asset, manifest, report)
+    return report
+
+
 def need_identity(need: MaterialNeed) -> str:
     return hashlib.sha256(json.dumps(need.model_dump(mode="json"), sort_keys=True,
                                     ensure_ascii=False).encode()).hexdigest()

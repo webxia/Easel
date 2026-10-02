@@ -2186,13 +2186,14 @@ def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
         recovery.recover_materials(attempt["attempt_id"], **{**args, "request_id": "new-after-build"})
 
 
-@pytest.mark.parametrize(('second_verdict', 'known_rights', 'expected'), [
-    ('unsuitable', True, 'MATERIAL_NOT_READY'),
-    ('suitable', True, 'MATERIAL_READY'),
-    ('suitable', False, 'MATERIAL_NOT_READY'),
+@pytest.mark.parametrize(('second_verdict', 'known_rights', 'expected', 'report_fault'), [
+    ('unsuitable', True, 'MATERIAL_NOT_READY', 'syntax'),
+    ('suitable', True, 'MATERIAL_READY', 'identity'),
+    ('suitable', False, 'MATERIAL_NOT_READY', None),
+    ('suitable', True, None, 'persistent'),
 ])
 def test_system_visual_observation_is_per_need_and_resumes_without_supply(
-        material_integration_env, monkeypatch, second_verdict, known_rights, expected):
+        material_integration_env, monkeypatch, second_verdict, known_rights, expected, report_fault):
     import base64
     import io
     from easel.creation_delivery import DeliveryExecutionUncertain
@@ -2226,14 +2227,22 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
                         lambda *a, **k: pytest.fail('observation must not acquire or generate material'))
     calls = []
     interrupted = False
+    completed_messages = set()
 
     def observe(message, timeout, session_id, *, attachments):
         nonlocal interrupted
         manifest = json.loads(message.split("输入：", 1)[1].split("\n", 1)[0])
         assert '不请求 Provider/Hypit' in message
         need_id = manifest['need']['need_id']
+        path = root / 'materials/observations' / (manifest['input_sha256'] + '.json')
+        if message in completed_messages:
+            return ''  # Same durable gateway request cannot execute twice.
         if need_id == second.need_id and not interrupted:
             interrupted = True
+            if report_fault:
+                path.write_text('{"reason": "contains "unescaped" quotes"}' if report_fault != 'identity'
+                                else json.dumps({'schema': SCHEMA, 'input_sha256': 'stale'}))
+                completed_messages.add(message)
             raise DeliveryExecutionUncertain('same observation still running')
         calls.append(need_id)
         assert manifest['need']['constraints']['preferred_style'] == 'quiet red'
@@ -2248,13 +2257,25 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
                 'caption': 'A red field', 'style': 'quiet red', 'reason': 'Fixed fixture visual assessment',
                 'logo_present': False, 'visible_text_present': False,
                 'frames': [{'index': 0, 'observed': True, 'related': verdict == 'suitable', 'description': 'red field'}]}
-        (root / 'materials/observations' / (manifest['input_sha256'] + '.json')).write_text(json.dumps(report))
+        if report_fault and need_id == second.need_id:
+            assert '上一报告未通过合同校验' in message
+        path.write_text('{"broken":' if report_fault == 'persistent' and need_id == second.need_id else json.dumps(report))
+        completed_messages.add(message)
         return ''
 
     monkeypatch.setattr(webapp, 'run_agent_sync', observe)
     with pytest.raises(DeliveryExecutionUncertain):
         MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames)
+    if report_fault == 'persistent':
+        for _ in range(3):
+            with pytest.raises(webapp.PreparationError, match='素材观察报告未通过校验'):
+                MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames)
+        assert calls == [first.need_id, second.need_id]  # One repair; no endless new requests.
+        assert not observed_match(second, store.read_asset(asset.asset_id))
+        return
     result = MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames)
+    if report_fault:
+        assert list((root / 'materials/observations').glob('*.rejected-*.txt'))
     assert calls == [first.need_id, second.need_id]
     assert result['material_status'] == expected
     assert result['attempt']['material_observation']['status'] == 'COMPLETE'

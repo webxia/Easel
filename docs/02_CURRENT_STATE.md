@@ -14,6 +14,13 @@ Last audited: 2026-10-01. This is the single summary of current implementation a
 | P3 | **NOT_STARTED**. |
 | Test suite | Latest complete deterministic run: **600 passed, 5 skipped** on 2026-10-01. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
 
+## 素材观察报告恢复校验（2026-10-02）
+
+- 本次真实作品第四份图片观察报告包含未转义双引号，导致 JSON 解析失败。恢复入口此前按“文件存在”直接解析并复用，绕过 Web 执行器已有的有界报告修复；Owner 连续读取同一坏文件三次后停止。前三份有效观察报告、规划和已供应素材均保留。
+- 新报告与恢复读取共用同一报告读取/身份/内容校验。恢复发现语法或合同无效时进入原执行器；已完成初次调用沿用网关记录，再发起一次固定身份的报告修复。解析错误变化不会产生新的修复请求，重复阶段恢复不能无限追加同输入的格式修复。坏报告按字节摘要保留诊断副本；未知、错配、Rights 缺失仍不能作为合格素材通过。
+- 局部验证：Material integration、Preparation、跨 Content Replay、隔离 Authoring **132 passed**；扩展既有场景覆盖模型写坏 JSON 后中断、旧输入身份、有效报告复用、修复仍坏时反复恢复不新增调用，以及独立 Need/Rights 证据继续成立。compileall/diff check 通过，保留两项既有依赖提示。未扩展暂缓的选材优化。
+- 经用户授权重载服务，并通过正式阶段 Retry 恢复同一 Creation/Attempt。10 月 2 日 08:59:33 发起当前坏报告的修复，09:00 已写出可解析且绑定原输入身份的报告，保留原 unsuitable 结论；坏字节诊断副本已保存。已有三份报告及供应素材继续复用，未手改报告、未重新供应素材。此时网关尚待返回终态，不把文件写出等同整个阶段或成片完成。
+
 ## 素材观察模型能力与提交拒绝恢复（2026-10-01）
 
 - **后续优化暂缓：** 用户要求当前优先跑通制作；视觉候选初筛、重复观察与整片选材协调问题已记入[唯一实施 Task 的后续评估](tasks/creator-autonomous-first-cut-2026-09-30.md#10-后续统一评估视觉选材效率2026-10-01暂缓实施)。本次仅记录，不启动优化，不改变当前制作链路。

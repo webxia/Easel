@@ -2692,7 +2692,7 @@ def _plan_material_recovery(attempt: dict, record: dict) -> dict:
 
 def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[dict]) -> dict:
     """Use actual inline image inputs, through the same durable agent boundary."""
-    from easel.materials.application.visual_observation import SCHEMA, apply_observation
+    from easel.materials.application.visual_observation import SCHEMA, read_observation_report
     from easel.materials.domain import MaterialNeed
     from easel.materials.store import AttemptMaterialStore
 
@@ -2725,17 +2725,24 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
     asset = AttemptMaterialStore(root).read_asset(manifest["asset_id"])
     failure = ""
     for repair in range(2):
-        instruction = prompt + (f"\n上一报告未通过合同校验：{failure}，只修正该报告。" if repair else "")
+        # Keep the repair request identity stable across owner restarts even if
+        # the malformed response changes its parser error. One repair per input.
+        instruction = prompt + ("\n上一报告未通过合同校验。读取当前报告，按上述当前输入身份与模板修正 JSON 语法及字段；"
+                                "用 JSON 序列化器写入，正确转义引号。保留真实观察依据，不得为通过校验改成 suitable。"
+                                if repair else "")
         run_agent_sync(instruction, TIMEOUT_PRODUCE, f"visual-{attempt['attempt_id']}-{identity[:12]}",
                        attachments=attachments)
         try:
-            if report_path.is_symlink() or not report_path.is_file() or report_path.stat().st_size > 128 * 1024:
-                raise ValueError("素材观察报告缺失或路径无效")
-            report = json.loads(report_path.read_text(encoding="utf-8"))
-            apply_observation(need, asset, manifest, report)
-            return report
+            return read_observation_report(report_path, need, asset, manifest)
         except (OSError, ValueError, TypeError, AttributeError) as exc:
             failure = SecretRedactor.redact_text(str(exc))[:1000]
+            if report_path.is_file() and not report_path.is_symlink() and report_path.stat().st_size <= 128 * 1024:
+                raw = report_path.read_bytes()
+                rejected = report_path.with_suffix('.rejected-' + hashlib.sha256(raw).hexdigest() + '.txt')
+                if rejected.is_symlink():
+                    raise PreparationError('素材观察诊断路径无效')
+                if not rejected.exists():
+                    rejected.write_bytes(raw)
     raise PreparationError("素材观察报告未通过校验：" + failure)
 
 
