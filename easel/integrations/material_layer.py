@@ -1275,7 +1275,12 @@ class MaterialProductOrchestrator:
                 report = {**read_local_voice(path, None), **binding}
                 # Only a valid recognition is a reusable checkpoint. A failed
                 # guess must not poison Retry after local model repair.
-                timing_from_recognition(script, asset, report)
+                try:
+                    timing_from_recognition(script, asset, report)
+                except ValueError:
+                    rejected_sha = hashlib.sha256(json.dumps(report, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+                    store.write_observation_record('voice-asr-rejected-' + rejected_sha, report)
+                    raise
                 store.write_observation_record(identity, report)
             timing = timing_from_recognition(script, asset, report)
             current = PlanningIntegration().load(get_film_attempt(attempt_id))

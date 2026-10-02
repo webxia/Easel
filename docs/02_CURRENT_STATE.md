@@ -1,6 +1,6 @@
 # Easel Current State
 
-Last audited: 2026-10-01. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
+Last audited: 2026-10-02. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
 
 ## Snapshot
 
@@ -13,6 +13,14 @@ Last audited: 2026-10-01. This is the single summary of current implementation a
 | Runtime profiles | `generation` is **READY** (configuration only). `v1-release` is **NOT_READY**: model auth/endpoint and `audio.production` require live verification. Hypit 0.2.7 doctor, Runtime Worker and both local Programs are ready. |
 | P3 | **NOT_STARTED**. |
 | Test suite | Latest complete deterministic run: **600 passed, 5 skipped** on 2026-10-01. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
+
+## 旁白识别低置信恢复（2026-10-02）
+
+- 当前作品 `cr_b31cd80a62cc4da7927006c0692a9446` 已完成一条 39.312 秒旁白；失败发生于独立本地识别/时序恢复，不是 TTS 生成失败。原音频 SHA 为 `ea6ea62cbc9d6cf1f8e8925e56bf1bcb225f0fd8782c57947826896a3d32425c`。离线重放现有 small 模型复现：首词“最近”置信度约 0.313，并出现“比→筆”“劲头→鏡頭”等实际识别差异。同输入、同模型的重复 Retry 不会修复模型能力问题，不能据此断言原音频多读或重新购买。
+- 原错误合并低置信、非法置信度和多余内容，且被拒绝的识别报告未落盘；现分开提示，文字不符时指出实际字符位置及识别/脚本差异，拒绝报告按摘要保存为诊断证据，不能作为成功检查点复用。完整脚本、标准简繁等价、最低置信度 0.5、实际时序及音频/脚本/Need 身份检查均保持。原成功检查点仍复用，换模型后失败报告不阻止重新识别。
+- 局部验证：Material integration、MiniMax image/speech、Preparation **130 passed**；扩展既有恢复场景，验证错误类别、被拒报告保存、不能认领为成功检查点，以及恢复不重购/不改原音频。compileall、diff check 通过；保留两项既有依赖提示。本次不新增测试用例，仅扩展既有风险场景。
+- **真实局部重放：** 本机配置切换至 `mobiuslabsgmbh/faster-whisper-large-v3-turbo`，模型文件 1,617,884,929 字节，SHA-256 `e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da`。启用 VAD 时“声”置信度约 0.259；关闭 VAD 后同音频所有词均达到既有 0.5 门槛。生成旁白核对现使用完整音频，不先拼接静音裁切后的语音片段，保持无目标脚本提示及实际时间。增大 beam 至 10/20 未修复文字差异；启用前文条件反而幻觉出“对”，不采用这些参数。
+- **尚未闭环：** 无 VAD 的较强模型仍将冻结脚本“劲”识别为“镜”（第 87 个有效字符）。真实 `recover_voice_timing` 已验证会保存拒绝报告并停止，不会认领时序或重购。这份识别差异本身不能证明 TTS 实际读错，不能通过同音替换、降低置信度或输入目标脚本来制造通过。当前仅修复低置信与诊断根因；本作品的内容/时序恢复仍为 BLOCKED，未继续制作。还发现原音频为 39.312 秒，应在恢复后核对已确认时长边界，不能静默截断。文件 readiness 不是识别质量保证。
 
 ## 素材观察报告恢复校验（2026-10-02）
 

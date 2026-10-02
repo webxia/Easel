@@ -30,8 +30,11 @@ def transcribe_local_voice(path: Path, model_path: Path, language: str | None) -
     from faster_whisper import WhisperModel
     from importlib.metadata import version
     model = WhisperModel(str(model_path), device='cpu', compute_type='int8', local_files_only=True)
+    # Inspect the complete generated narration. VAD cuts can remove quiet word
+    # onsets and make otherwise clear words appear low-confidence. Keep real
+    # silence and recognizer timestamps; do not splice speech before alignment.
     segments, info = model.transcribe(str(path), language=language, beam_size=5,
-                                     word_timestamps=True, vad_filter=True,
+                                     word_timestamps=True, vad_filter=False,
                                      condition_on_previous_text=False)
     rows = [{'text': word.word, 'start_seconds': word.start, 'end_seconds': word.end,
              'probability': word.probability} for segment in segments for word in (segment.words or [])]
@@ -97,15 +100,23 @@ def timing_from_recognition(script: str, asset, report: dict) -> dict:
             raise ValueError('旁白识别结果格式无效')
         text = _spoken(word['text'])
         confidence = word.get('probability')
-        if (not text or type(confidence) not in (int, float) or not math.isfinite(confidence)
-                or not .5 <= confidence <= 1 or offset + len(text) > len(positions)):
-            raise ValueError('旁白识别有低置信或多余内容；不能猜测字幕时序')
+        if not text:
+            raise ValueError('旁白识别包含无有效文字的条目；原音频已保留')
+        if type(confidence) not in (int, float) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
+            raise ValueError('旁白识别置信度格式无效；原音频已保留')
+        if confidence < .5:
+            raise ValueError(f'本地旁白识别置信度不足（第 {offset + 1} 个有效字符，{confidence:.3f} < 0.500）；'
+                             '不能据此判断音频多读或生成字幕时序，请检查本地识别模型；原旁白保留，无需重新生成')
+        if offset + len(text) > len(positions):
+            raise ValueError('旁白识别包含脚本之外的多余内容；原音频已保留，不能猜测字幕时序')
         begin, end = positions[offset], positions[offset + len(text) - 1] + 1
         expected = _spoken(script[begin:end])
         if text != expected:
             convert = _asr_script_converter().convert
             if convert(text) != convert(expected):
-                raise ValueError('识别内容或时间与完整冻结旁白不一致；原音频已保留，未重购或改写')
+                raise ValueError(f'旁白识别文字与冻结脚本不一致（第 {offset + 1} 个有效字符：'
+                                 f'识别“{text[:40]}”，脚本“{expected[:40]}”）；'
+                                 '这不能单独证明原音频读错；原音频已保留，未重购或改写')
         # Display and character offsets always come from the frozen script. Keep
         # raw recognition intact below (including its hash), with measured times.
         cues.append({'text': script[begin:end], 'start_character': begin, 'end_character': end,

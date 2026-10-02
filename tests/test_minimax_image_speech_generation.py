@@ -379,7 +379,7 @@ def test_voice_recognition_is_offline_unprompted_and_uses_measured_word_times(tm
             calls.append(path)
         def transcribe(self, path, **kwargs):
             assert kwargs == {'language': None, 'beam_size': 5, 'word_timestamps': True,
-                              'vad_filter': True, 'condition_on_previous_text': False}
+                              'vad_filter': False, 'condition_on_previous_text': False}
             return [SimpleNamespace(words=[SimpleNamespace(word='一句。', start=.23, end=1.71, probability=.93)])], SimpleNamespace(language='zh')
     monkeypatch.setitem(sys.modules, 'faster_whisper', SimpleNamespace(WhisperModel=Recognizer))
     # The adapter passes the actual file and no target script to the recognizer.

@@ -2733,7 +2733,8 @@ def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(materia
         if invalid == 'truncated': bad['words'].pop()
         if invalid == 'overlap': bad['words'][1]['start_seconds'] = .2
         if invalid == 'confidence': bad['words'][0]['probability'] = .2
-        with pytest.raises(ValueError):
+        message = '本地旁白识别置信度不足' if invalid == 'confidence' else '脚本之外的多余内容' if invalid == 'extra' else None
+        with pytest.raises(ValueError, match=message):
             voice_delivery.timing_from_recognition(script, asset, bad)
     calls = []
     def recognize(file, language):
@@ -2745,10 +2746,14 @@ def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(materia
         wrong = deepcopy(report)
         wrong['words'][0]['text'] = '真的'
         monkeypatch.setattr(voice_delivery, 'read_local_voice', lambda *a: wrong)
-        with pytest.raises(ValueError, match='完整冻结旁白不一致'):
+        with pytest.raises(ValueError, match='旁白识别文字与冻结脚本不一致'):
             MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
         assert store.read_generation_record('gen-voice') == generation
         assert store.read_asset('voice') == asset and store.read_bundle() == bundle
+        observation_dir = Path(attempt['workspace']['path']) / 'materials/observations'
+        rejected = list(observation_dir.glob('voice-asr-rejected-*.json'))
+        assert len(rejected) == 1 and json.loads(rejected[0].read_text())['words'][0]['text'] == '真的'
+        assert not list(observation_dir.glob('voice-asr-' + '?' * 64 + '.json'))
         monkeypatch.setattr(voice_delivery, 'read_local_voice', recognize)
     monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset',
                         lambda *a, **kw: pytest.fail('recovery must never purchase new audio'))
