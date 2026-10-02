@@ -66,7 +66,7 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 
 ## 历史增量与具名证据
 
-以下按当时记录保留；“当前”“仍待”“Goal active/暂停”等均是记录时状态。已被后续记录取代的内容不作为当前缺口清单；现行范围只取本页顶部与当前收尾队列；旧 Task 章节及历史任务状态通过 Git 追溯。
+以下按当时记录保留；“当前”“仍待”“Goal active/暂停”等均是记录时状态。已被后续记录取代的内容不作为当前缺口清单；现行范围只取本页顶部与当前剩余事项及顺序；旧 Task 章节及历史任务状态通过 Git 追溯。
 
 ### 当前作品已按用户要求清理（2026-10-02）
 
@@ -106,8 +106,8 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 
 ### 素材观察模型能力与提交拒绝恢复（2026-10-01）
 
-- **后续优化暂缓：** 用户要求当前优先跑通制作；视觉候选初筛、重复观察与整片选材协调问题已记入[唯一实施 Task 的后续评估](tasks/creator-autonomous-first-cut-2026-09-30.md#唯一剩余任务清单)。本次仅记录，不启动优化，不改变当前制作链路。
-- 10 月 2 日补充本次 09:44 耗时与命中率快照，记录“场景初筛 → 观察复用 → 自适应候选 → 受控并发 → 简短结构化输出”的建议顺序；最小实施范围先为初筛和复用，以隔离回放比较效率及误配，再评估并发。仍为待评估方案，尚未实施，详见上述 Task 第 10 节。
+- **后续优化暂缓：** 用户要求当前优先跑通制作；视觉候选初筛、重复观察与整片选材协调问题已记入唯一实施 Task 的当时后续评估（旧章节通过 Git 历史追溯）。本次仅记录，不启动优化，不改变当前制作链路。
+- 10 月 2 日补充本次 09:44 耗时与命中率快照，记录“场景初筛 → 观察复用 → 自适应候选 → 受控并发 → 简短结构化输出”的建议顺序；最小实施范围先为初筛和复用，以隔离回放比较效率及误配，再评估并发。这是当时待评估的建议，旧 Task 第 10 节通过 Git 历史追溯；后续已完成初筛与观察复用，当前范围见本页顶部，不将受控并发等建议自动列为新任务。
 
 - 当前真实作品在 21:34 完成 Planning 和素材搜索；首项图片观察于 21:34:49 被网关以 `INVALID_REQUEST / active model does not accept image inputs` 拒绝。旧适配器把明确拒绝归为提交不确定，再把查询 timeout 持续记为 pending，形成没有实际观察进展的长期等待。
 - 已核对 [MiniMax 官方 OpenAI 兼容合同](https://platform.minimaxi.com/docs/api-reference/text-openai-api.md)：MiniMax-M3 支持图片输入。本机模型条目误配为仅 text，已通过配置命令修正为 text/image，网关模型目录确认生效；保留原模型与账号。该本机配置不纳入 Git。
@@ -361,6 +361,10 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - **2026-10-01 前一恢复批次验证：** Preparation、隔离 Authoring、Hypit 共 **103 passed**，包含一次派发后的超时/对账/身份错配、执行期间保留隔离工作区、完成后复用产物及三个导出中断点与哈希变更拒绝。frontend lint/build、compileall、115 项技能合同与 diff check 通过；只有既有 Hook/体积提示和两项测试依赖弃用提示。本次没有重跑页面 E2E 或全量测试。最初一轮 Preparation 测试暴露了继承本机配置后尝试外部检索的隔离缺口，已中止；Fixture 现固定临时配置、素材库和仅本地 Provider Registry，最终回归不依赖网络或真实凭证。
 - 本轮没有修改或继续真实 Creation，没有调用付费 AI、真实 Build 或完整 E2E，没有重启生产服务。最终执行回放使用隔离数据和假执行器；未核实真实交付质量。`READY_FOR_HUMAN_E2E=NO`，旧具名运行及其失败结论保持不变。
 
+## 当前实现能力与具名证据
+
+以下为现行能力汇总；前面的历史增量不构成当前开发队列。
+
 ### Official Product Path
 
 ```text
@@ -384,11 +388,11 @@ Required Needs without current inspected, rights-admitted assets stop at `MATERI
 | Creation / lifecycle | Software path is implemented; Creation read-time lifecycle projection, Attempt transitions and selection gates have deterministic regression coverage. A stale Preparation `MATERIAL_NOT_READY` no longer overrides a later selected, reviewed output in the read-time projection. |
 | Planning / Truth | Planning freezes proposal, Content, Creator Context and Creative Mode. The explicitly confirmed chat transcript is now SHA-bound into a validated Production Brief and Planning context. The hash-bound claim ledger auto-classifies deterministic scene directions. New commissions execute source-bound semantic assessment and one bounded Planning rewrite before escalating genuine information gaps; `SYSTEM_REVIEWED` is distinct from verbatim source support, `DELEGATE_REVIEWED` and `HUMAN_REVIEWED`. Software contracts are verified; live semantic-review quality is not yet verified. Same-origin loopback review has no manually entered Operator Token. |
 | Material sources | Library-first, Local, eligible external routing, Rights/inspection, matching, Bundle and Readiness are software connected. Pexels/Pixabay acquisitions carry mapped official license terms, material-page evidence and listed restrictions; where asset-specific third-party evidence is unknown, corresponding gates still block or request focused review. Generic SHA-bound review remains for unusual/generated/unknown Rights. One Local visual route and one Pexels external-acquisition route through MaterialReadiness are real-world verified. Positive Library reuse remains unverified. |
-| AI Material Generation | **IMAGE / VIDEO / PRESET-VOICE TTS SOFTWARE CONNECTED; ALL THREE HAVE LIMITED ISOLATED LIVE EVIDENCE.** MiniMax adapters require per-request operator confirmation and enter ordinary Material intake/Gate. Completed generation is restored only for the current Attempt/Plan revision. The Operator UI now accepts hash-bound, operator-submitted Rights facts for current generated assets and recomputes the same Gate; it does not infer licenses. Unknown Rights blocks admission. Full Creation/Production use remains unverified. See [AI Material Workstream](workstreams/generated-material.md), [T09A](tasks/v1c-t09-minimax-video.md), and [Image/Voice smoke evidence](acceptance/minimax-image-speech-smoke-2026-09-28.md). |
+| AI Material Generation | **IMAGE / VIDEO / PRESET-VOICE TTS SOFTWARE CONNECTED; ALL THREE HAVE LIMITED ISOLATED LIVE EVIDENCE.** MiniMax adapters enter ordinary Material intake/Gate. 新委托可在已批准预算与服务范围内逐次核价并执行；未知价格或授权外费用停止。旧作品不自动认领新授权。 Completed generation is restored only for the current Attempt/Plan revision. The Operator UI now accepts hash-bound, operator-submitted Rights facts for current generated assets and recomputes the same Gate; it does not infer licenses. Unknown Rights blocks admission. 生成旁白已有工程介入的具名制作与入库证据；图片/视频完整真实制作及当前版本自主生成交付仍未验收。 See [AI Material Workstream](workstreams/generated-material.md), [T09A](tasks/v1c-t09-minimax-video.md), and [Image/Voice smoke evidence](acceptance/minimax-image-speech-smoke-2026-09-28.md). |
 | Continuity | Provider-neutral references and lineage are software connected; cross-Content adherence is unverified. |
-| Rights / attribution | Hash-bound local Rights evidence gates required Needs. Pexels/Pixabay ordinary published licenses no longer default to UNKNOWN after valid acquisition; explicit commercial trademark conditions and other unverified identity restrictions are not auto-cleared. Attribution facts have a software propagation path; attribution-bearing real export is unverified. |
+| Rights / attribution | Hash-bound local Rights evidence gates required Needs. Pexels/Pixabay ordinary published licenses no longer default to UNKNOWN after valid acquisition; explicit commercial trademark conditions and other unverified identity restrictions are not auto-cleared. Attribution facts have a software propagation path; 2026-09-30 音画修订版的具名运行已验证 CC BY credit 随导出与入库保留，其他素材及路线不据此推定通过。 |
 | Production / Hypit | Selection qualification, current revisions, bytes and SVML/SVRun references are software gated. Non-paid Authoring starts automatically once the confirmed Production Brief and Material Gate are ready. The Creator-facing production card now shows Chinese progress and one primary action; Runtime/check/plan/pricing/export use their existing formal APIs in the background, while engineering controls stay collapsed. The named External Material Creation completed one real Hypit Build; broader V1 lifecycle evidence remains separate. |
-| Audio | BGM and accepted audio material can be authored into Hypit tracks in software. Material Layer connects preset-voice TTS using the frozen, truth-reviewed Script; one isolated real TTS output passed technical intake. It is not voice cloning. Final audio stream/listening, mix quality and real attribution-bearing output remain unverified. SFX is not a V1 Release gate. |
+| Audio | BGM and accepted audio material can be authored into Hypit tracks in software. Material Layer connects preset-voice TTS using the frozen, truth-reviewed Script; one isolated real TTS output passed technical intake. It is not voice cloning. 2026-09-30 具名音画运行已由 Creator 试听并确认成片入库，CC BY credit 保留；该运行有工程介入，不证明当前版本自主音画交付、跨内容混音质量或风格一致性。 SFX is not a V1 Release gate. |
 | Export / Review | Named Local visual and Pexels External Material runs completed export, review and Selected Output. Broader modality and release evidence remains pending. |
 | Content Asset / Material Promotion | Formal approved Selected Output is copied into a Creator-visible Content Library project and linked back to Creation / Attempt / Build / output / SHA; four existing approved selections were reconciled idempotently. Attempt Material promotion is explicit and scope-bound; UNKNOWN / RESTRICTED Rights fail closed, while Rights, acquisition provenance, generation lineage and source Creation / Attempt are retained. Deterministic promotion → later Library reuse is verified; the current real Pexels Attempt asset is eligible but remains unpromoted until a Creator/Operator chooses it. See [acceptance](acceptance/content-asset-material-promotion-2026-09-29.md). |
 
@@ -400,10 +404,12 @@ Required Needs without current inspected, rights-admitted assets stop at `MATERI
 - Hypit v0.2.7 remains the locally invoked editing/rendering engine. The old `hypihub.default` endpoint and Hypit Image/Video/Voice generation bindings remain removed. MiniMax Image/Video/T2A are separate remote Material providers; API-key presence does not establish authentication or generated output.
 - Latest six-profile readiness and dependency facts: [`configuration/v1-runtime-and-external-dependencies.md`](configuration/v1-runtime-and-external-dependencies.md).
 
-## 当前收尾队列
+## 当前剩余事项与顺序
 
-- 唯一执行范围是自主首版 Task。A 首批、C 决定链、B 观察复用和已有六段主链基础复用；剩余 D 例外组合接受 → E 体验及全链局部回放，不重做 T19 或旧 E2E 修复。
-- 新委托在明确授权范围内逐次核价和记录，无须逐次人工确认；未知价格、授权外费用、提交不确定继续停留在正式边界。
+- 唯一自主首版 Task 的 A/C/B/D/E 软件范围已完成，不再保留开发收尾队列；T19、工作区及旧 E2E 修复只作历史基线。
+- 下一步由用户启动：加载新代码，核实实际模型认证/endpoint 与音频能力，新建作品验收自主首版，再以同 Creator/Director 的不同 Content 验收风格一致性。记录实际耗时、人工介入与恢复结果；有具体失败证据后才确定新的修复任务。
+- Library 正向真实复用、署名素材真实导出等专项证据缺口单独保留；P3 尚未启动，不并入本轮。
+- 新委托在明确授权范围内逐次核价和记录，无须逐次人工确认；未知价格、授权外费用、提交不确定继续停留在正式边界。软件验收准备度不替代真实运行依赖与感知效果验收。
 - 跨内容局部回放属于本目标，已有三内容场景；真实跨内容感知效果尚未验收，不列为无关后续任务。
 - 旧音画作品已入库但有工程介入；最新未完成作品已删除。不存在本轮要继续的“当前失败 Creation”。真实 E2E 等用户另行启动。
 

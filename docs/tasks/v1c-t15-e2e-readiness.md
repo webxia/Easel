@@ -2,7 +2,9 @@
 
 历史基线 / 具名验收记录（2026-10-02 归档标识）：下文状态、当前作品、恢复授权与 READY 判断只适用于当时范围，不是当前执行指令。当前唯一范围见 [自主首版 Task](creator-autonomous-first-cut-2026-09-30.md)，实际状态见 [Current State](../02_CURRENT_STATE.md)。
 
-状态：**E2E IN PROGRESS**。标准对话正式恢复流程已通过 Preparation 并进入 Script Truth 人工审核门；尚未进入 Material Supply，三条完整 Creation E2E 均未完成。
+文档状态：**HISTORICAL / 验收基线**；不表示当前有 E2E 正在运行。
+
+当时运行状态：**E2E IN PROGRESS（2026-09-28）**。标准对话正式恢复流程已通过 Preparation 并进入 Script Truth 人工审核门；尚未进入 Material Supply，三条完整 Creation E2E 均未完成。
 
 ## 目标链路
 
@@ -44,7 +46,7 @@ Web 明确确认 → 冻结 Content / Context / Creative Mode
 - 本机有 11 个 Creation 记录；只有具名 Acceptance 的结果可作为已验证证据。T15 的多 Content 验收仍需新鲜运行，不用历史选定结果替代。
 - 本次预检没有调用 OpenClaw 模型、MiniMax 生成或 Hypit Build。
 
-## 当前正式运行
+## 历史正式运行（2026-09-28）
 
 - 2026-09-28，标准 Web 对话从 Creation `cr_c995c3cbb8104389a4bf568023531e8b` 恢复已有 Handoff `ho_42843e2cea71ac9f9dbe8d4d9325c0ca` 与 Attempt `fa_42843e2cea71ac9f9dbe8d4d9325c0ca`；没有新建 Creation。
 - 重启加载当前代码后，原 `AcquisitionInfo` 导入异常未复现。Planning 已产生 Script Truth ledger，Preparation 状态为 `SCRIPT_TRUTH_REVIEW_REQUIRED`；Material Supply 因人工审阅门正常停止，尚无外部素材检索、MiniMax 生成或 Hypit Build。

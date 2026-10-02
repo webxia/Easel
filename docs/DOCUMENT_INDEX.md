@@ -39,7 +39,7 @@
 | AI 素材生成 | 默认上下文 + [`workstreams/generated-material.md`](workstreams/generated-material.md) | MiniMax Image / Video / preset-voice TTS adapters；范围与验收见对应 Task。 |
 | Creation 人工负担/制作闭环 | 默认上下文 + [`自主首版唯一实施 Task`](tasks/creator-autonomous-first-cut-2026-09-30.md) | 关联源码、测试；[`T19`](tasks/v1c-t19-low-friction-creation.md) 仅作为已并入的历史基线。 |
 | Runtime / 外部依赖 / 凭证 | 默认上下文 | [`configuration/v1-runtime-and-external-dependencies.md`](configuration/v1-runtime-and-external-dependencies.md) 和所选能力的 readiness Acceptance；严禁读取或输出 secret。 |
-| 真实产品/E2E 验证 | 默认上下文 + [T15](tasks/v1c-t15-e2e-readiness.md) | 只读该条具名 Acceptance、实际 Attempt/Build 证据及所需当前契约。 |
+| 真实产品/E2E 验证 | 默认上下文 + [T15](tasks/v1c-t15-e2e-readiness.md) | T15 只作历史验收基线；当前范围读取唯一自主首版 Task，再读该条具名 Acceptance、实际 Attempt/Build 证据及所需当前契约。 |
 | 文档历史、旧设计或审计追因 | 默认上下文 | 使用下方 Historical 路由；明确说明它是历史证据。 |
 
 ## 架构入口
@@ -57,7 +57,7 @@
 - 历史工作区软件验收：[`tasks/creator-workspace-2026-09-30.md`](tasks/creator-workspace-2026-09-30.md)。
 
 - 当前能力边界：[`workstreams/generated-material.md`](workstreams/generated-material.md)。MiniMax 图片、视频和预置音色语音生成均已接入代码；生成素材的 Creation/Production 闭环仍需单独验收。
-- 当前 E2E Task：[`tasks/v1c-t15-e2e-readiness.md`](tasks/v1c-t15-e2e-readiness.md)。
+- 历史 E2E 验收基线（当前真人验收范围以唯一自主首版 Task 为准）：[`tasks/v1c-t15-e2e-readiness.md`](tasks/v1c-t15-e2e-readiness.md)。
 - 已并入唯一 Task 的低打扰历史基线：[`tasks/v1c-t19-low-friction-creation.md`](tasks/v1c-t19-low-friction-creation.md)。
 - 历史 Creator E2E 前修复基线：[`tasks/creator-e2e-repair-2026-09-30.md`](tasks/creator-e2e-repair-2026-09-30.md)。
 - 已完成的 Material 基础能力不再保留单独 Workstream 文档。
