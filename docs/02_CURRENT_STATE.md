@@ -27,6 +27,7 @@ Last audited: 2026-10-01. This is the single summary of current implementation a
 ## 素材观察模型能力与提交拒绝恢复（2026-10-01）
 
 - **后续优化暂缓：** 用户要求当前优先跑通制作；视觉候选初筛、重复观察与整片选材协调问题已记入[唯一实施 Task 的后续评估](tasks/creator-autonomous-first-cut-2026-09-30.md#10-后续统一评估视觉选材效率2026-10-01暂缓实施)。本次仅记录，不启动优化，不改变当前制作链路。
+- 10 月 2 日补充本次 09:44 耗时与命中率快照，记录“场景初筛 → 观察复用 → 自适应候选 → 受控并发 → 简短结构化输出”的建议顺序；最小实施范围先为初筛和复用，以隔离回放比较效率及误配，再评估并发。仍为待评估方案，尚未实施，详见上述 Task 第 10 节。
 
 - 当前真实作品在 21:34 完成 Planning 和素材搜索；首项图片观察于 21:34:49 被网关以 `INVALID_REQUEST / active model does not accept image inputs` 拒绝。旧适配器把明确拒绝归为提交不确定，再把查询 timeout 持续记为 pending，形成没有实际观察进展的长期等待。
 - 已核对 [MiniMax 官方 OpenAI 兼容合同](https://platform.minimaxi.com/docs/api-reference/text-openai-api.md)：MiniMax-M3 支持图片输入。本机模型条目误配为仅 text，已通过配置命令修正为 text/image，网关模型目录确认生效；保留原模型与账号。该本机配置不纳入 Git。
