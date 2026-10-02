@@ -118,8 +118,6 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     attempt = _attempt(work)
     if not attempt:
         return "prepare", "preparing"
-    if attempt.get('material_combination_review', {}).get('status') == 'PENDING':
-        return 'finish_material_review', 'reviewing_material'
     execution = attempt.get("execution_status")
     # A persisted intent to submit is never a license to submit again.
     if execution in {"SUBMITTING", "SUBMISSION_UNCERTAIN"}:
@@ -154,6 +152,9 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         return None, "production_failed"
     if execution == "CANCELLED":
         return None, "stopped"
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+    if MaterialProductOrchestrator.pending_combination_request(attempt):
+        return 'finish_material_review', 'reviewing_material'
     planning_repair = attempt.get('planning_repair', {})
     if planning_repair and planning_repair.get('status') != 'COMPLETE':
         if (planning_repair.get('status') == 'TRUTH_REQUIRED'

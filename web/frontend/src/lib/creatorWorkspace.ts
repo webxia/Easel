@@ -71,7 +71,9 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
     || (!repairing && ['AUTHORING_FAILED', 'PLAN_FAILED'].includes(String(item.authoring_status)));
   const claims = Array.isArray(truth?.claims) ? truth.claims.map(asRecord) : [];
   const facts = claims.filter(claim => claim.status === 'REVIEW_REQUIRED').length;
-  const blockingIds = Array.isArray(gate.blocking_needs) ? gate.blocking_needs : [];
+  const choices = asRecord(item.material_combination_review);
+  const choiceBlocks = Array.isArray(choices.blocking_needs) ? choices.blocking_needs : [];
+  const blockingIds = Array.from(new Set([...(Array.isArray(gate.blocking_needs) ? gate.blocking_needs : []), ...choiceBlocks]));
   const needs = blockingIds.length;
   const materialUnavailable = managed && delivery.status === 'material_supply_exhausted';
   const materialWorking = managed && gate.status === 'MATERIAL_NOT_READY'
@@ -92,7 +94,7 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
     { name: '方案', state: proposal ? 'action-required' : 'completed' },
     { name: '内容准备', state: contentFailed ? 'failed' : facts ? 'action-required' : contentReady || planning.status || output || selected ? 'completed' : proposal ? 'waiting' : 'running' },
     { name: '创作规划', state: editing ? 'waiting' : planningFailed ? 'failed' : planning.status === 'PLANNING_READY' || output || selected ? 'completed' : planning.status || preparation.active_stage === 'planning' ? 'running' : 'waiting' },
-    { name: '素材准备', state: materialFailed || failureStage === '素材准备' ? 'failed' : gate.status === 'MATERIAL_READY' || output || selected ? 'completed' : materialWorking ? 'running' : materialUnavailable ? 'waiting' : needs ? 'action-required' : planning.status === 'PLANNING_READY' ? 'running' : 'waiting' },
+    { name: '素材准备', state: materialFailed || failureStage === '素材准备' ? 'failed' : gate.status === 'MATERIAL_READY' && choiceBlocks.length === 0 || output || selected ? 'completed' : materialWorking ? 'running' : materialUnavailable ? 'waiting' : needs ? 'action-required' : planning.status === 'PLANNING_READY' ? 'running' : 'waiting' },
     { name: '视频制作', state: productionFailed ? 'failed' : output || selected ? 'completed' : fee ? 'action-required' : gate.status === 'MATERIAL_READY' ? 'running' : 'waiting' },
     { name: '审片', state: selected ? 'completed' : failureStage === '审片' ? 'failed' : qualityPending ? ['checking_quality', 'repairing_quality'].includes(String(delivery.status)) ? 'running' : 'waiting' : output ? 'action-required' : 'waiting' },
     { name: '成片', state: selected ? 'completed' : 'waiting' },
@@ -119,4 +121,17 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
       managed && delivery.status === 'exporting' ? '正在整理成片' : managed && delivery.status === 'authoring' ? '正在编排画面与声音' :
       managed && delivery.status === 'retrying' ? '正在恢复当前步骤' : preparation.active_stage === 'planning' && planning.status !== 'PLANNING_READY' ? '正在创作规划' : '正在准备作品',
   };
+}
+
+// Mirrors the existing early-revision boundary; the server validates again.
+export function canReviseEarlyProposal(creation: Snapshot | null) {
+  const work = creation ?? {};
+  const delivery = asRecord(work.delivery);
+  const attempts = Array.isArray(work.hypit_attempts) ? work.hypit_attempts.map(asRecord) : [];
+  return delivery.status === 'failed' && !work.selected_output_name
+    && !Object.values(asRecord(delivery.agent_calls)).map(asRecord).some(c => ['pending', 'submitting'].includes(String(c.status)))
+    && Object.keys(asRecord(delivery.material_generations)).length === 0
+    && !attempts.some(a => asRecord(a.material_planning).status === 'PLANNING_READY'
+      || asRecord(a.material_gate).bundle_revision || a.production_authoring
+      || ![undefined, null, 'NOT_SUBMITTED', 'BLOCKED'].includes(a.execution_status as string | null | undefined));
 }

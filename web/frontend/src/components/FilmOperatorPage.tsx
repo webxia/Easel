@@ -10,7 +10,7 @@ import {
   materialAssetPreviewUrl, reviewMaterialMatch, reviewMaterialCombination, recoverFilmMaterials,
   validateFilmAttempt, retryCreationDelivery, reopenCreationProposal,
 } from '../lib/api';
-import { creatorExecutionRecord, projectCreatorWorkspace, stageLabels } from '../lib/creatorWorkspace';
+import { canReviseEarlyProposal, creatorExecutionRecord, projectCreatorWorkspace, stageLabels } from '../lib/creatorWorkspace';
 import type { ChatMessage } from '../lib/store';
 import type { OperatorRecord, GenerationBudget } from '../lib/api';
 
@@ -82,7 +82,9 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   const [creationConnectionError, setCreationConnectionError] = useState('');
   const [attemptConnectionError, setConnectionError] = useState('');
   const [attemptListError, setAttemptListError] = useState('');
-  const connectionError = creationConnectionError || attemptConnectionError || attemptListError;
+  const [truthConnectionError, setTruthConnectionError] = useState('');
+  const [materialConnectionError, setMaterialConnectionError] = useState('');
+  const connectionError = creationConnectionError || attemptConnectionError || attemptListError || truthConnectionError || materialConnectionError;
   const [lastSynced, setLastSynced] = useState('');
   const [feedbackText, setFeedbackText] = useState('');
   const [feedbackTime, setFeedbackTime] = useState('');
@@ -95,6 +97,10 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   const [generationResult, setGenerationResult] = useState<unknown>(null);
   const [rightsCandidates, setRightsCandidates] = useState<OperatorRecord[]>([]);
   const [rightsCandidatesLoaded, setRightsCandidatesLoaded] = useState(false);
+  useEffect(() => {
+    setScriptTruth(null); setTruthConnectionError('');
+    setRightsCandidates([]); setRightsCandidatesLoaded(false); setMaterialConnectionError('');
+  }, [attemptId]);
   const [voiceRightsDecision, setVoiceRightsDecision] = useState('UNKNOWN');
   const [voiceTermsName, setVoiceTermsName] = useState('');
   const [voiceEvidenceReference, setVoiceEvidenceReference] = useState('');
@@ -215,8 +221,10 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   const videoPlan = record(proposalPreview?.video_plan ?? record(creationSnapshot?.chat_workflow).video_plan);
   const rightsGateStatus = record(record(attempt).material_gate).status;
   const rightsBundleRevision = record(record(attempt).material_gate).bundle_revision;
+  const choiceBlocks = record(attempt?.material_combination_review).blocking_needs;
+  const combinationBlocked = Array.isArray(choiceBlocks) && choiceBlocks.length > 0;
   useEffect(() => {
-    if (!operatorSessionReady || !attemptId || (!advancedOpen && rightsGateStatus !== 'MATERIAL_NOT_READY')) {
+    if (!operatorSessionReady || !attemptId || (!advancedOpen && rightsGateStatus !== 'MATERIAL_NOT_READY' && !combinationBlocked)) {
       setRightsCandidates([]);
       setRightsCandidatesLoaded(false);
       return;
@@ -225,24 +233,24 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
     fetchMaterialRightsCandidates(attemptId).then((items) => {
       if (!cancelled) {
         setRightsCandidates(items);
-        setRightsCandidatesLoaded(true);
+        setRightsCandidatesLoaded(true); setMaterialConnectionError('');
         setRightsAssetId((current) => items.some((item) => item.asset_id === current)
           ? current : text(items.find((item) => item.media_type === 'audio' && item.provider === 'minimax'
             && record(item.rights).status === 'UNKNOWN')?.asset_id, text(items[0]?.asset_id, '')));
       }
-    }).catch((reason: unknown) => { if (!cancelled) setError(operationError(reason)); });
+    }).catch((reason: unknown) => { if (!cancelled) setMaterialConnectionError(operationError(reason)); });
     return () => { cancelled = true; };
   }, [operatorSessionReady, attemptId, refreshVersion, advancedOpen,
-    rightsGateStatus, rightsBundleRevision]);
+    rightsGateStatus, rightsBundleRevision, combinationBlocked]);
 
   useEffect(() => {
     if (!operatorSessionReady || !attemptId) { setScriptTruth(null); return; }
     let cancelled = false;
     fetchScriptTruth(attemptId).then((ledger) => {
       if (!cancelled) {
-        setScriptTruth(ledger);
+        setScriptTruth(ledger); setTruthConnectionError('');
       }
-    }).catch(() => { if (!cancelled) setScriptTruth(null); });
+    }).catch((reason: unknown) => { if (!cancelled) setTruthConnectionError(operationError(reason)); });
     return () => { cancelled = true; };
   }, [operatorSessionReady, attemptId, refreshVersion]);
 
@@ -277,8 +285,10 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   const materialGate = record(attemptStatus.material_gate);
   const preparationStatus = text(record(creationSnapshot?.preparation).status, '');
   const materialPlan = record(attemptStatus.material_planning);
-  const blockingNeedIds = Array.isArray(materialGate.blocking_needs)
-    ? materialGate.blocking_needs.filter((value): value is string => typeof value === 'string') : [];
+  const blockingNeedIds = Array.from(new Set([
+    ...(Array.isArray(materialGate.blocking_needs) ? materialGate.blocking_needs : []),
+    ...(Array.isArray(choiceBlocks) ? choiceBlocks : []),
+  ])).filter((value): value is string => typeof value === 'string');
   const pendingVoiceNeed = Array.isArray(scriptTruth?.material_needs)
     ? scriptTruth.material_needs.map(record).find(need => blockingNeedIds.includes(text(need.need_id))
       && need.media_type === 'audio' && need.modality_kind === 'voice' && need.generation_allowed === true)
@@ -301,6 +311,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
     pending: scriptClaims.filter((claim) => claim.status === 'REVIEW_REQUIRED').length,
   };
   const combination = combinationRows(scriptTruth?.material_needs, rightsCandidates);
+  const combinationAvailable = combination.length > 0 && combination.every(row => row.candidates.length > 0);
   const plan = record(attemptStatus.plan);
   const cost = record(attemptStatus.cost);
   const build = record(attemptStatus.build);
@@ -387,7 +398,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
     : ['SUBMITTING', 'SUBMISSION_UNCERTAIN'].includes(execution) ? 'verifying'
     : ['SUBMITTING', 'SUBMISSION_UNCERTAIN', 'SUBMITTED', 'RUNNING', 'CANCEL_REQUESTED'].includes(execution) ? 'building'
     : scriptTruth?.status === 'REVIEW_REQUIRED' ? 'content-review'
-    : materialGate.status === 'MATERIAL_NOT_READY' ? 'material'
+    : materialGate.status === 'MATERIAL_NOT_READY' || combinationBlocked ? 'material'
     : projection.failureStage === '内容准备' ? 'preparation-failed'
     : plan.status === 'ready' && cost.status === 'pricing_read' && execution === 'NOT_SUBMITTED' ? 'ready'
     : materialGate.status === 'MATERIAL_READY' ? 'preparing' : 'planning';
@@ -656,14 +667,14 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
       {!operatorSessionReady && <p className="page-subtitle">正在连接作品，请稍候…</p>}
       {notice && <div className="film-op-message is-ok" role="status">{notice}</div>}
       {backendDelivery && delivery.status === 'failed' && <section className="card film-op-card" role="alert">
-        <h3>制作暂时中断</h3><p>{text(delivery.last_error, '当前步骤未完成')}</p>
-        <p>已保留完成的内容和素材。重试只恢复当前步骤；不会重复提交结果未确定的制作，授权外费用会另行确认。</p>
-        <button className="btn btn-primary" disabled={!!busy} onClick={() => void run('恢复制作', () => retryCreationDelivery(creationId))}>重试当前步骤</button>
-        <button className="btn" disabled={!!busy} onClick={() => void run('修改方案', async () => {
+        <h3>{projection.failureStage ? `${projection.failureStage}遇到问题` : '制作暂时中断'}</h3><p>{projection.failureReason}</p>
+        <p>当前方案与已完成的阶段结果已保留。重试从当前失败阶段恢复；结果未确定时先核对，授权外费用会另行确认。</p>
+        <button className="btn btn-primary" disabled={!!busy} onClick={() => void run('恢复制作', () => retryCreationDelivery(creationId))}>{projection.failureStage ? `重试${projection.failureStage}` : '重试当前步骤'}</button>
+        {canReviseEarlyProposal(creationSnapshot) && <button className="btn" disabled={!!busy} onClick={() => void run('修改方案', async () => {
           const value = await reopenCreationProposal(creationId);
           setCreationSnapshot(value); onOpenConversation?.();
           return value;
-        })}>修改方案后继续</button>
+        })}>修改方案后继续</button>}
         <small>当前支持内容准备或创作规划失败时返回修改；已进入素材或视频制作的作品不能直接覆盖。</small>
       </section>}
       {error && <div className="film-op-message is-error" role="alert">
@@ -684,7 +695,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
 
       {!showingProposal && operatorSessionReady && attemptId && attempt && <section className={`card film-op-card film-op-creator creator-status-card is-${projection.state}`}>
         <div className="creator-status-eyebrow"><span className={`creator-state-badge is-${connectionError ? 'waiting' : projection.state}`}>{connectionError ? '待核实' : timelineStateLabel[projection.state]}</span><span>当前作品</span></div>
-        <div className="film-op-heading"><h2>{backendDelivery ? projection.title.split(' · ')[0] : phaseTitle[phase]}</h2></div>
+        <div className="film-op-heading"><h2>{connectionError || delivery.status === 'observation_failed' ? `上次状态：${projection.title.split(' · ')[0]}` : backendDelivery ? projection.title.split(' · ')[0] : phaseTitle[phase]}</h2></div>
         <p>{connectionError || delivery.status === 'observation_failed' ? '以下为最后可信制作状态，实时进度尚未确认。' : backendDelivery && !['review', 'done'].includes(phase) ? (projection.pending > 0 ? '处理下方事项后，Easel 会在具备条件时继续。' : projection.failureStage ? '已有结果已保留，可从当前阶段恢复。' : '阶段成果会自动显示在这里，你可以继续对话或稍后返回。') : phaseDescription[phase]}</p>
         {projection.pending > 0 && <p>当前待处理 {projection.pending} 项；优先处理下方事项。</p>}
 
@@ -796,9 +807,10 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
         {phase === 'preparation-failed' && <p>{projection.failureReason}。已保留方案和成功阶段；将从当前准备记录恢复。付费操作仍需另行批准。</p>}
         {phase === 'preparation-failed' && <button className="btn btn-primary"
           disabled={continuationBusy || !!busy} onClick={onContinuePreparation}>重新准备素材</button>}
+        {phase === 'material' && combinationBlocked && <p>你已接受这组素材。所选素材仍有使用权、技术可用性或当前需求匹配条件未满足；请处理下方正式事项，完成后会自动继续。</p>}
         {phase === 'material' && !projection.materialWorking && operatorSessionReady && <MaterialCombinationReview
-          key={`${attemptId}:${materialGate.plan_revision}:${materialGate.bundle_revision}`}
-          attemptId={attemptId} rows={combination} busy={!!busy}
+          key={`${attemptId}:${materialGate.plan_revision}:${materialGate.bundle_revision}:${rightsCandidates.map(a => a.asset_sha256).join(',')}`}
+          attemptId={attemptId} rows={combination} busy={!!busy || !!connectionError}
           onAccept={reviews => void run('接受素材组合', async () => {
             const result = await reviewMaterialCombination(attemptId, {
               planRevision: materialGate.plan_revision, bundleRevision: materialGate.bundle_revision,
@@ -807,12 +819,12 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
             setAttempt(record(result.attempt));
           })} />}
         {phase === 'material' && projection.materialUnavailable && <div className="film-op-review-claim">
-          <h3>自动选材暂未完成</h3>
+          <h3>已保留的结果与缺失项</h3>
           <p>已按当前方案检索并补充候选，仍有场景缺少合格素材。系统已停止继续尝试，方案、旁白与通过核对的素材均已保留。</p>
           {Array.isArray(scriptTruth?.material_needs) && scriptTruth.material_needs.map(record)
             .filter(need => blockingNeedIds.includes(text(need.need_id)))
             .map(need => <p key={text(need.need_id)}>尚未满足：{text(need.description)}</p>)}
-          <p>这不是等待你审核的任务。你可以在对话中调整场景表达或提供参考素材；涉及新费用时仍按委托预算核验。</p>
+          <p>{combinationAvailable ? '你可以查看上方候选并接受适合方案的组合，或在对话中调整场景表达、提供参考素材。' : '你可以在对话中调整场景表达或提供参考素材。'}涉及新费用时仍按委托预算核验。</p>
           <button className="btn" onClick={onOpenConversation}>讨论这个场景</button>
         </div>}
         {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && rightsCandidatesLoaded && missingSupplyNeeds.length > 0 && <div className="film-op-review-claim">
@@ -861,7 +873,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
               });
             }}>{busy === '补充素材' ? '正在检索并检查缺失素材…' : '保留已有结果并补充素材'}</button>
         </details>}
-        {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && pendingVoiceNeed && <div className="film-op-review-claim">
+        {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && pendingVoiceNeed && (!existingVoiceCandidate || voiceRightsPending || !combinationAvailable || advancedOpen) && <div className="film-op-review-claim">
           <h3>任务：准备整片旁白</h3>
           <p>{existingVoiceCandidate && !voiceRightsPending
             ? '已有旁白已保留；请记录实际试听结论，完成当前脚本与音频的匹配核对。'
@@ -938,7 +950,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
                 {busy === '生成素材' ? '正在生成旁白…' : '生成旁白素材'}
               </button></>}
         </div>}
-        {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && pendingMusicNeed && selectedMusic && <div className="film-op-review-claim">
+        {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && (!combinationAvailable || advancedOpen) && pendingMusicNeed && selectedMusic && <div className="film-op-review-claim">
           <h3>任务：核对配乐</h3>
           <p>要求：{text(pendingMusicNeed.description)}。只记录实际试听依据；使用权与署名条件另行检查。</p>
           <label>配乐候选<select className="field" value={text(selectedMusic.asset_id)}
@@ -960,7 +972,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
               setAttempt(record(result.attempt));
             })}>记录这一项配乐核对</button>
         </div>}
-        {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && visualCandidates.length > 0 && <div className="film-op-review-claim">
+        {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && (!combinationAvailable || advancedOpen) && visualCandidates.length > 0 && <div className="film-op-review-claim">
           <strong>核对画面是否真的符合场景</strong>
           <p>请查看素材预览，只确认你实际看见的内容。每个场景都单独核对；未确认的画面不会算作已覆盖。</p>
           <label>对应场景

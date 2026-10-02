@@ -210,6 +210,10 @@ class MaterialMatcher:
             elif isinstance(value, (tuple, list)):
                 corpus_by_field[SemanticField(key)].extend(item for item in value if isinstance(item, str))
         for inference in asset.semantic.inferences:
+            if inference.analyzer_id.startswith('creator-match:') and (
+                    inference.analyzer_id != 'creator-match:' + need.need_id
+                    or not self._creator_match_review(need, asset)):
+                continue
             if inference.analyzer_id.startswith(MUSIC_PREFIX) and not all(
                     a.evidence and a.evidence.startswith(music_binding(need, asset)) for a in inference.annotations):
                 continue

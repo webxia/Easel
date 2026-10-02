@@ -92,7 +92,8 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 reference='同一预置普通话声音'), delivery_description='自然、平静'))
         visuals = tuple(MaterialNeed(need_id=f'visual-{n}', scope=NeedScope(type=NeedScopeType.SCENE, ref=f'scene-{n}'),
             media_type=MediaType.IMAGE, role='主视觉', intent=NeedIntent(description=subject),
-            importance=NeedImportance.REQUIRED) for n, subject in enumerate(subjects))
+            importance=NeedImportance.REQUIRED,
+            constraints={'preferred_visual_details': '安静的环境细节与低饱和背景'}) for n, subject in enumerate(subjects))
         music_need = MaterialNeed(need_id='music', scope=NeedScope(type=NeedScopeType.GLOBAL, ref='film'),
             media_type=MediaType.AUDIO, role='bgm', importance=NeedImportance.REQUIRED,
             intent=NeedIntent(description='calm background music'), modality_spec=BgmNeedSpec(mood='calm'))
@@ -142,6 +143,10 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 for need_id in answer['search_terms']:
                     n = int(need_id.split('-')[-1])
                     answer['search_terms'][need_id] = [subjects[n] + ' alternative']
+                    if need_id in answer.get('shot_choices', {}):
+                        answer['shot_choices'][need_id] = {
+                            'expression': subjects[n] + '主体可辨，背景细节可替代',
+                            'reason': '已有画面观察不适配，保留主体并取舍环境细节'}
                     # Newly available, licensed local source stands in for a
                     # retrieval response. Supply/receipt/observation remain real.
                     picture = Image.new('RGB', (64, 96), (120, 60 + n * 25, 80))
@@ -511,6 +516,12 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                     assert replaced != compiled
                     (current_root / author_path).write_text(replaced)
                 new_plan, new_bundle, new_ready = MaterialGateIntegration().assert_ready(current_attempt)
+                from easel.integrations.material_recovery import director_shot_choices
+                author_choices = director_shot_choices(current_attempt, new_plan)
+                author_manifest = json.loads((current_root / 'productions/easel-authoring/material-selection.json').read_text())
+                assert author_manifest.get('director_shot_choices', {}) == author_choices
+                if index == 1:
+                    assert set(author_choices) == {n.need_id for n in visuals}
                 # Fixed model answer only. Forking, checkpoint reuse, authoring
                 # admission and all ensuing state transitions run in product code.
                 new_run = current_root / run.relative_to(root)
@@ -531,6 +542,14 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             reviews.append(manifest)
             assert manifest['creator_context'] == creator and manifest['mode'] == mode
             assert manifest['content_core']['topic'] == topic and manifest['script'] == script
+            from easel.integrations.material_recovery import director_shot_choices
+            current_plan = PlanningIntegration().load(a)['plan']
+            expected_choices = director_shot_choices(a, current_plan)
+            assert manifest.get('director_shot_choices', {}) == expected_choices
+            if index == 1 and a['attempt_id'] != attempt['attempt_id']:
+                assert set(expected_choices) == {n.need_id for n in visuals}
+                assert all(expected_choices[n.need_id]['expression'].startswith(subjects[j])
+                           for j, n in enumerate(visuals))
             assert manifest['measurements']['audio']['voice_windows']
             assert manifest['measurements']['music']['assets'][0]['sha256'] == music_asset.file.sha256
             assert attachments and all(x['mimeType'] == 'image/jpeg' for x in attachments)

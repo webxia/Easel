@@ -742,6 +742,20 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
         bundle_id=bundle.bundle_id)
     readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
     attempt.update(MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)["attempt"])
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+    owner = MaterialProductOrchestrator()
+    owner.review_material_match(attempt['attempt_id'], asset_id=alternate.asset_id,
+        expected_sha256=alternate.file.sha256, need_id='need-main',
+        observed_content='已查看备选图片，符合此场景表达。', logo_present=None, visible_text_present=None,
+        confirm_review=True)
+    source_bundle = store.read_bundle()
+    accepted_result = owner.review_material_combination(attempt['attempt_id'],
+        plan_revision=readiness.plan_revision, bundle_revision=source_bundle.revision, confirm_review=True,
+        reviews=[dict(asset_id=asset.asset_id, expected_sha256=asset.file.sha256, need_id='need-main',
+                      observed_content='已查看所选画面，接受当前表达。', logo_present=None, visible_text_present=None)])
+    attempt.update(accepted_result['attempt'])
+    bundle = store.read_bundle()
+    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
     observation_record = {"schema": "fixture-visual-report", "asset_sha256": asset.file.sha256}
     observation_path = AttemptMaterialStore(root).write_observation_record("fixture-report", observation_record)
     attempt.update(service.update_film_attempt(attempt["attempt_id"], event="fixture_observation",
@@ -824,8 +838,11 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     assert retried["material_observation"]["bundle_revision"] == retried["material_gate"]["bundle_revision"]
     retried_bundle = retried_store.read_bundle()
     retried_supply = retried_store.read_supply_run(retried_bundle.supply_run_id)
-    assert retried_supply.parent_run_id == run.supply_run_id
+    assert retried_supply.parent_run_id == store.read_bundle().supply_run_id
     assert retried_supply.provider_results == ()
+    accepted_retry = ProductionAuthoringIntegration.accepted_combination(
+        retried, retried_store.read_plan(), retried_bundle, retried_store)
+    assert accepted_retry == {'need-main': {'asset_id': asset.asset_id, 'sha256': asset.file.sha256}}
     assert cli.build_calls == 1
     with pytest.raises(HypitIntegrationError, match="显式成本批准"):
         service.submit_film_build(retried["attempt_id"], title="尚未批准", cli=cli)
@@ -917,6 +934,7 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     assert repaired['revision_feedback']['origin'] == 'system_quality'
     assert repaired['revision_feedback']['allowed_changes'] == ['visual', 'visual_material']
     assert repaired['cost']['approved'] is False and repaired['plan']['status'] == 'pending'
+    assert not repaired.get('material_combination_review')
     assert repaired['outputs'] == {} and repaired['execution_status'] == 'NOT_SUBMITTED'
     assert service.get_film_attempt(attempt['attempt_id'])['review']['human']['status'] == 'pending'
     assert service.repair_film_quality(attempt['attempt_id'], cli=cli)['attempt_id'] == repaired['attempt_id']
@@ -994,7 +1012,9 @@ def test_failed_build_retries_from_verified_checkpoints_without_supply_or_submis
     preserved = AttemptMaterialStore(completed['workspace']['path']).read_bundle()
     assert preserved.assets == bundle.assets
     assert completed['cost']['approved'] is False and completed['outputs'] == {}
-    assert next_operation(creation.get_creation(attempt['creation_id']))[0] == 'observe_material'
+    assert next_operation(creation.get_creation(attempt['creation_id']))[0] == 'author'
+    assert ProductionAuthoringIntegration.accepted_combination(completed,
+        PlanningIntegration().load(completed)['plan'], preserved, AttemptMaterialStore(completed['workspace']['path'])) == accepted_retry
 
 
 def test_int04_workspace_asset_uses_ordinary_hypit_media_route(material_integration_env):
@@ -3013,7 +3033,8 @@ def test_visual_supply_continues_once_after_rejection_and_stops_as_system_gap(ma
     assert next_operation(creation.get_creation(attempt['creation_id'])) == (None, 'material_supply_exhausted')
 
 
-def test_combination_review_resumes_saved_choice_and_preserves_admission(material_integration_env, monkeypatch):
+@pytest.mark.parametrize('shared_need', [False, True])
+def test_combination_review_resumes_saved_choice_and_preserves_admission(material_integration_env, monkeypatch, shared_need):
     from easel.integrations.hypit import service
     from easel.integrations.material_layer import MaterialProductOrchestrator
 
@@ -3021,19 +3042,57 @@ def test_combination_review_resumes_saved_choice_and_preserves_admission(materia
     _planning(attempt)
     root = Path(attempt['workspace']['path'])
     plan, asset, run, bundle, readiness, gaps = _contracts(attempt, root)
+    if shared_need:
+        from easel.materials.application.matching import MaterialMatcher
+        second = plan.needs[0].model_copy(update={'need_id': 'need-second',
+            'scope': NeedScope(type=NeedScopeType.SCENE, ref='scene-2'),
+            'intent': NeedIntent(description='同一画面用于另一个观察场景')})
+        planning = PlanningIntegration().persist(attempt, plan.model_copy(update={'needs': (*plan.needs, second)}),
+            treatment='# Treatment', script='假设脚本内容。', scenes='两个观察场景。')
+        attempt.update(planning['attempt'])
+        plan = planning['plan']
+        matches = tuple(m for n in plan.needs for m in MaterialMatcher().match(n, (asset,)).matches)
+        bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), matches, bundle_id=bundle.bundle_id)
+        readiness, gaps = MaterialReadinessCalculator(store=AttemptMaterialStore(root)).calculate(plan, bundle)
     MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)
     store = AttemptMaterialStore(root)
     owner = MaterialProductOrchestrator()
     args = dict(plan_revision=readiness.plan_revision, bundle_revision=bundle.revision,
-                confirm_review=True, reviews=[dict(need_id='need-main', asset_id=asset.asset_id,
+                confirm_review=True, reviews=[dict(need_id=n.need_id, asset_id=asset.asset_id,
                     expected_sha256=asset.file.sha256, observed_content='已查看实际画面，接受当前场景表达。',
-                    logo_present=None, visible_text_present=None)])
+                    logo_present=None, visible_text_present=None, voice_recognition_review=None) for n in plan.needs])
+    from easel import creation_delivery
+    monkeypatch.setattr(creation_delivery, 'is_managed', lambda work: True)
+    monkeypatch.setattr(creation_delivery, '_attempt', lambda work: service.get_film_attempt(attempt['attempt_id']))
+    proposal_hash = hashlib.sha256(b'fixture').hexdigest()
+    work = {'delivery': {'proposal': 'fixture', 'proposal_sha256': proposal_hash},
+            'chat_workflow': {'proposal_status': 'CONFIRMED', 'proposal_sha256': proposal_hash}}
     before = store.read_asset(asset.asset_id).to_json()
     stale = {**args, 'reviews': [{**args['reviews'][0], 'expected_sha256': '0' * 64}]}
     with pytest.raises(MaterialIntegrationError):
         owner.review_material_combination(attempt['attempt_id'], **stale)
+    for bad_reviews in ([], args['reviews'] * 2):
+        with pytest.raises(MaterialIntegrationError):
+            owner.review_material_combination(attempt['attempt_id'], **{**args, 'reviews': bad_reviews})
     assert store.read_asset(asset.asset_id).to_json() == before
 
+    from fastapi.testclient import TestClient
+    from web.app import app, require_local_operator
+    api_body = {'planRevision': args['plan_revision'], 'bundleRevision': args['bundle_revision'], 'confirmReview': True,
+                'reviews': [{'assetId': asset.asset_id, 'assetSha256': asset.file.sha256, 'needId': r['need_id'],
+                             'observedContent': r['observed_content'], 'confirmReview': True} for r in args['reviews']]}
+    with TestClient(app) as client:
+        assert client.post(f"/api/film-attempts/{attempt['attempt_id']}/material-match/review-combination",
+                           json=api_body).status_code == 403
+
+    finish = owner.finish_material_combination
+    monkeypatch.setattr(owner, 'finish_material_combination',
+        lambda *a, **kw: (_ for _ in ()).throw(OSError('after journal, before marker')))
+    with pytest.raises(OSError, match='before marker'):
+        owner.review_material_combination(attempt['attempt_id'], **args)
+    assert not service.get_film_attempt(attempt['attempt_id']).get('material_combination_review')
+    assert creation_delivery.next_operation(work) == ('finish_material_review', 'reviewing_material')
+    monkeypatch.setattr(owner, 'finish_material_combination', finish)
     recalculate = owner._recalculate_observed_materials
     monkeypatch.setattr(owner, '_recalculate_observed_materials',
                         lambda *a, **kw: (_ for _ in ()).throw(RuntimeError('interrupted')))
@@ -3041,23 +3100,61 @@ def test_combination_review_resumes_saved_choice_and_preserves_admission(materia
         owner.review_material_combination(attempt['attempt_id'], **args)
     current = service.get_film_attempt(attempt['attempt_id'])
     assert current['material_combination_review']['status'] == 'PENDING'
+    service.update_film_attempt(attempt['attempt_id'], event='fixture_uncertain_execution',
+                                execution_status='SUBMISSION_UNCERTAIN')
+    assert creation_delivery.next_operation(work) == ('reconcile', 'reconciling')
+    with pytest.raises(MaterialIntegrationError, match='先核对'):
+        owner.finish_material_combination(attempt['attempt_id'])
+    service.update_film_attempt(attempt['attempt_id'], event='fixture_execution_restored',
+                                execution_status='NOT_SUBMITTED')
     monkeypatch.setattr(owner, '_recalculate_observed_materials', recalculate)
     result = owner.finish_material_combination(attempt['attempt_id'])
     assert result['attempt']['material_combination_review']['status'] == 'COMPLETE'
     selection = json.loads((root / 'productions/easel-authoring/material-selection.json').read_text())
     assert selection['creator_material_choices'] == {
-        'need-main': {'asset_id': asset.asset_id, 'sha256': asset.file.sha256}}
+        n.need_id: {'asset_id': asset.asset_id, 'sha256': asset.file.sha256} for n in plan.needs}
     saved = store.read_bundle().to_json()
     owner.review_material_combination(attempt['attempt_id'], **args)
     assert store.read_bundle().to_json() == saved
+    app.dependency_overrides[require_local_operator] = lambda: None
+    try:
+        with TestClient(app) as client:
+            response = client.post(f"/api/film-attempts/{attempt['attempt_id']}/material-match/review-combination", json=api_body)
+            assert response.status_code == 200, response.text
+            assert store.read_bundle().to_json() == saved
+    finally:
+        app.dependency_overrides.pop(require_local_operator, None)
 
-    from easel import creation_delivery
-    monkeypatch.setattr(creation_delivery, 'is_managed', lambda work: True)
-    monkeypatch.setattr(creation_delivery, '_attempt', lambda work: service.get_film_attempt(attempt['attempt_id']))
-    proposal_hash = hashlib.sha256(b'fixture').hexdigest()
-    work = {'delivery': {'proposal': 'fixture', 'proposal_sha256': proposal_hash},
-            'chat_workflow': {'proposal_status': 'CONFIRMED', 'proposal_sha256': proposal_hash}}
     assert creation_delivery.next_operation(work) == ('author', 'authoring')
+
+    from easel.materials.application.matching import MaterialMatcher
+    if not shared_need:
+        from easel.materials.application.dedup import MaterialDeduplicator
+        chosen = store.read_asset(asset.asset_id)
+        extra = []
+        for index in range(4):
+            data = f'fixture alternative {index}'.encode()
+            sha = hashlib.sha256(data).hexdigest()
+            asset_id = f'asset-00{index}'
+            inferences = tuple(i.model_copy(update={'annotations': tuple(a.model_copy(update={
+                'evidence': a.evidence.replace(chosen.file.sha256, sha) if a.evidence else None
+            }) for a in i.annotations)}) for i in chosen.semantic.inferences)
+            candidate = chosen.model_copy(update={'asset_id': asset_id,
+                'file': chosen.file.model_copy(update={'path': store.write_asset_bytes(asset_id, 'original.png', data),
+                                                       'sha256': sha, 'size': len(data)}),
+                'source': chosen.source.model_copy(update={'provider_asset_id': asset_id}),
+                'technical': chosen.technical.model_copy(update={'width': 20 + index, 'height': 40 + index}),
+                'semantic': chosen.semantic.model_copy(update={'inferences': inferences})})
+            store.write_asset(candidate)
+            extra.append(candidate)
+        assets = (*extra, chosen)
+        ranked = MaterialMatcher().match(plan.needs[0], assets)
+        baseline = MaterialDeduplicator(store).deduplicate_and_diversify(ranked.matches, assets, top_k=3).shortlist
+        assert asset.asset_id not in {m.asset_id for m in baseline}
+        protected = owner._rank_reviewed_materials(result['attempt'], plan, assets, store, require_scoped_visual=True)
+        assert asset.asset_id in {m.asset_id for m in protected}
+    edited_need = plan.needs[0].model_copy(update={'intent': NeedIntent(description='完全不同的场景需求')})
+    assert not MaterialMatcher._creator_match_review(edited_need, store.read_asset(asset.asset_id))
 
     # Human creative acceptance cannot stand in for missing rights.
     unknown = store.read_asset(asset.asset_id).model_copy(update={'rights': RightsInfo(status=RightsStatus.UNKNOWN)})
@@ -3067,3 +3164,29 @@ def test_combination_review_resumes_saved_choice_and_preserves_admission(materia
             result['attempt'], plan, store.read_bundle().model_copy(update={'assets': (unknown,)}), store)
 
     assert creation_delivery.next_operation(work) == (None, 'needs_evidence')
+
+    if not shared_need:
+        # Supply can remain READY via alternatives while the accepted choice
+        # is blocked. Preserve a separate, actionable selection gap.
+        current_bundle = store.read_bundle()
+        wider = current_bundle.model_copy(update={'assets': (*extra, unknown)})
+        blocked = owner._recalculate_observed_materials(
+            service.get_film_attempt(attempt['attempt_id']), plan, wider, store, require_scoped_visual=True)
+        assert blocked['material_status'] == 'MATERIAL_READY'
+        assert blocked['attempt']['material_combination_review']['blocking_needs'] == ['need-main']
+        assert creation_delivery.next_operation(work) == (None, 'needs_evidence')
+        restored = owner.review_material_rights(attempt['attempt_id'],
+            asset_id=asset.asset_id, expected_sha256=asset.file.sha256,
+            rights=asset.rights, confirm_review=True)
+        assert restored['attempt']['material_combination_review']['blocking_needs'] == []
+        assert creation_delivery.next_operation(work) == ('author', 'authoring')
+        assert asset.asset_id in {m.asset_id for m in store.read_bundle().matches}
+        path = store.resolve_asset_locator(asset.file.path)
+        original_bytes = path.read_bytes()
+        path.write_bytes(b'changed after acceptance')
+        damaged = owner._recalculate_observed_materials(
+            service.get_film_attempt(attempt['attempt_id']), plan, store.read_bundle(), store)
+        assert damaged['material_status'] == 'MATERIAL_READY'  # Alternatives remain usable.
+        assert damaged['attempt']['material_combination_review']['blocking_needs'] == ['need-main']
+        assert creation_delivery.next_operation(work) == (None, 'needs_evidence')
+        path.write_bytes(original_bytes)

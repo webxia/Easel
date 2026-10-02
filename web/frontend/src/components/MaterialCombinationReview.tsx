@@ -39,12 +39,12 @@ export default function MaterialCombinationReview({ attemptId, rows, busy, onAcc
         <strong>{index + 1}. {String(need.description)}</strong>
         <label>所选素材<select className="field" value={String(asset.asset_id)} disabled={busy}
           onChange={e => { setChoices({ ...choices, [String(need.need_id)]: e.target.value }); setObservations(''); }}>
-          {rows[index].candidates.map((a, i) => <option key={String(a.asset_id)} value={String(a.asset_id)}>候选 {i + 1} · {String(a.source_kind ?? '素材')}</option>)}
+          {rows[index].candidates.map((a, i) => <option key={String(a.asset_id)} value={String(a.asset_id)}>候选 {i + 1} · {({ stock: '图库素材', generative: '生成素材', local: '本地素材', fixture: '测试素材' } as Record<string, string>)[String(a.source_kind)] ?? '素材'}</option>)}
         </select></label>
         {asset.media_type === 'image' ? <img src={src} alt={String(need.description)} style={{ maxWidth: '100%', maxHeight: 240 }} />
           : asset.media_type === 'video' ? <video src={src} controls preload="metadata" style={{ maxWidth: '100%', maxHeight: 240 }} />
           : <audio src={src} controls preload="metadata" />}
-        <p>{list(asset.system_observed_need_ids).includes(need.need_id) ? '系统已有本场景观察记录。' : '当前适配性仍需你的实际判断。'}
+        <p>{list(asset.system_observed_need_ids).includes(need.need_id) ? '系统已核对本场景，已有适配证据。' : '当前适配性仍需你的实际判断。'}
           {rec(asset.rights).status === 'UNKNOWN' && ' 使用权尚未确认，接受组合不会解决这项缺口。'}</p>
         {(['logo_present', 'visible_text_present'] as const).map(field => {
           const required = rec(evidence.constraints)[field === 'logo_present' ? 'logo' : 'text_in_frame'] === false;

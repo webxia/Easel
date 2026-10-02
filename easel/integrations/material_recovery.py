@@ -101,11 +101,22 @@ def repair_managed_planning(attempt_id: str, *, executor) -> dict:
             raise MaterialIntegrationError('保留素材的字节或证据已变化，不能复用')
         if store.read_asset(asset.asset_id) != asset:
             raise MaterialIntegrationError('保留素材记录与原 Bundle 不一致：' + asset.asset_id)
-    matches = []
-    for need in plan.needs:
-        ranked = MaterialMatcher().match(need, old_bundle.assets)
-        matches.extend(MaterialDeduplicator(store).deduplicate_and_diversify(
-            ranked.matches, old_bundle.assets, top_k=3).shortlist)
+    accepted = ProductionAuthoringIntegration.accepted_combination(
+        source, old_plan, old_bundle, AttemptMaterialStore(source['workspace']['path']))
+    old_needs = {n.need_id: n for n in old_plan.needs}
+    retained = {n.need_id: accepted[n.need_id] for n in plan.needs
+                if n.need_id in accepted and n == old_needs.get(n.need_id)}
+    marker = {}
+    if retained:
+        revision = MaterialReadinessCalculator.plan_revision(plan)
+        request_id = 'combination-' + hashlib.sha256(
+            json.dumps({'plan_revision': revision, 'choices': retained}, sort_keys=True).encode()).hexdigest()
+        store.write_recovery_record(request_id, {'status': 'COMPLETE', 'plan_revision': revision,
+            'choices': retained, 'inherited_from': source['attempt_id']})
+        marker = {'status': 'COMPLETE', 'request_id': request_id}
+    attempt = update_film_attempt(attempt_id, event='planning_repair_material_choices_rebound',
+                                 material_combination_review=marker)
+    matches = MaterialProductOrchestrator._rank_reviewed_materials(attempt, plan, old_bundle.assets, store)
     now = datetime.now(timezone.utc)
     run = SupplyRun(supply_run_id='planning-' + attempt_id[-20:], plan_id=plan.plan_id,
         parent_run_id=old_bundle.supply_run_id, started_at=now, finished_at=now,

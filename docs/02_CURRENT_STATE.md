@@ -6,24 +6,41 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 
 | Area | Current status |
 |---|---|
-| Product | Official `ai-film` Web path is connected through Material Gate, Hypit authoring/execution, and Easel output review. Overall V1 remains **PARTIAL / NOT_READY**. |
+| Product | Official `ai-film` Web path is connected through Material Gate, Hypit authoring/execution, and Easel output review. 唯一自主首版 Task 的本轮软件范围已完成；整体 V1 的真实自主交付与跨内容效果仍为 **PARTIAL / REAL_WORLD_NOT_VERIFIED**。 |
 | Material Layer | P0/INT/P1 supply contracts are software accepted. MiniMax Image/Video/preset-voice TTS and ordinary Gate are software connected; isolated outputs passed technical inspection. 新委托预置旁白及文字生成图片/视频在用途声明、已审核条款、请求身份与实际观察证据齐全时，可按本作品内部用途自动准入；缺证仍为 UNKNOWN，旧文字声明不扩权。完整真实 Creation/Production 使用未验收。 |
 | Local visual Product E2E | **REAL_WORLD_VERIFIED** for one named Creation through human-approved Selected Output; it does not establish full V1 or multi-Content consistency. |
 | External Material Product E2E | **REAL_WORLD_VERIFIED** for one standard-chat Creation through Pexels Search/Acquisition, MaterialReadiness `READY`, Production Authoring, Hypit Build, Export, Review and Selected Output. The [named Acceptance](acceptance/external-material-product-e2e-2026-09-29.md) records the initial MaterialReadiness stop; the same Creation was subsequently completed. |
-| Runtime profiles | `generation` is **READY** (configuration only). `v1-release` is **NOT_READY**: model auth/endpoint and `audio.production` require live verification. Hypit 0.2.7 doctor, Runtime Worker and both local Programs are ready. |
+| Runtime profiles | `generation` is **READY** (configuration only). `v1-release` is **NOT_READY**: model auth/endpoint and `audio.production` require live verification. 本机旁白识别与配乐观察的离线依赖/模型预检已通过，不能据此代替真实声音效果验收。 Hypit 0.2.7 doctor, Runtime Worker and both local Programs are ready. |
 | P3 | **NOT_STARTED**. |
-| Test suite | Latest complete deterministic run: **600 passed, 5 skipped** on 2026-10-01. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
+| Test suite | Latest complete deterministic run: **614 passed, 5 skipped** on 2026-10-02. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
 
-## 当前执行与剩余任务（2026-10-02 收敛）
+## 本轮收尾与真人验收边界（2026-10-02）
 
-- 唯一目标保持“自主首版 + 同 Creator/Director 跨内容风格执行”，不建立第二个 Goal 或工作流。唯一 Task、Index、Roadmap 已统一；恢复、工作区、E2E 前修复与 T15 旧记录均标为历史范围。旧逐次确认费用、T19 再 T15、跨内容另行立项等收尾指令已移除。
-- 已有六段主链与三内容局部 Replay 复用。A 第一批已实现；C 的核心决定链与 B 共享观察已接通；剩余 **D 例外组合接受 → E 页面体验与全链回放收尾**。C 的真人模型取舍质量仍未验收，E 须覆盖新的替代决定在跨内容/质量恢复中的消费，不以现有 Fixture 声称真实风格稳定。
-- C 根因：补料只让模型更换查询措辞，没有可被后续编排消费的镜头取舍。现在仅对明确含 preferred_visual_details 的新需求，在原补料报告中保存 expression/reason，再形成检索建议；决定绑定原请求、完整规划及 Need。确认 SCRIPT/SCENES 与核心/硬要求不变；未声明可取舍细节的旧 Need 保持原行为。仍走独立观察、Match/Rights/Readiness，不能用决定充当合格证据，也不增加付费生成或恢复次数。
-- 决定随现有 material-selection.json 进入隔离 Authoring，系统 Quality 消费同一服务端记录并纳入输入身份；普通 checkpoint 恢复在需求不变时保留这些决定，需求变化不得认领旧决定。补料结果落盘中断仍复用原请求与决定，不重新派发供应；候选耗尽仍是系统停止状态。
-- 局部验证：Material integration、Hypit integration、三内容 Replay、Preparation **164 passed**；补充真实补料 Prompt 合同后相关 **2 passed**；两项既有 Python 依赖提示保留。新增一个有可替代细节的恢复参数场景，复用现有质量场景检查实际 Quality 输入，不新建测试文件。未调用真实模型、Provider 或 Hypit Build，未重启服务或操作现有 Creation；本批未改前端，不重复前端构建。
-- 应用原 Goal 已由用户恢复，工具复核为 active；继续沿用同一总目标，不创建替代 Goal。
+- [唯一 Task](tasks/creator-autonomous-first-cut-2026-09-30.md) 的 A/C/B/D/E 最小范围已实现并完成确定性软件验证；不再保留并行实施队列。仍沿用 Creation/Preparation/Planning/Material/Hypit/Review/Selected Output，未新建 Director、Workflow 或 Production Domain。正式 Material V1.3 的 Truth、Rights、Match、Readiness、身份与费用约束保留。
+- 已有 Delivery Owner、委托授权、Director/Mode、声音时序、原生编排、系统 Quality、有界恢复继续复用。新增镜头软偏好与替代决定、共享观察、例外组合接受、选择保持及画布状态收尾，原 Task 的两项目标未缩减为单纯串联阶段。
+- 正常路径后台自主推进；组合接受是自动选材未满足期望时的可选取舍。一次查看所选画面/旁白/BGM，写一段整体判断，只补缺失条件。已有单项核对入口收拢到高级路径或缺少完整组合时的回退，不新增正常制作审批。
+- 组合选择绑定方案、每个 Need 和素材字节；同一素材用于多个场景有独立证据。分组先完整预检，保存中断接续同一决定，已完成提交可幂等重放。共享/单项观察及机器审片原报告保留，人审取舍不伪装系统 PASS。
+- 供应 READY 只表示存在合格候选，不能代表用户所选素材已准入。所选组合的 blocking_needs 在原接受记录中保存，页面单独展示其待办；未通过正式条件不进入编排。补齐使用权后本地重算并自动继续，不重新搜料或要求发送“继续”。候选排序不能挤掉已接受的合格素材。
+- 普通 checkpoint 重试保留选择；明确视觉修改释放相关画面选择、保留声音。规划修正只为完整 Need 未变化的项重绑定，变化后不认领旧判断。提交结果不确定仍先对账，不以组合恢复覆盖已开始的执行。
+- 早期无 Attempt 失败现在明确阶段/原因和阶段 Retry；修改方案按钮遵守已有准备/规划边界。内容与素材信息读取失败保留当前作品的最后可信证据，切换 Attempt 清除旧缓存；断连显示“上次状态”，不误报生产失败或丢弃脚本。
+- 隔离页面检查采用临时 Fixture 服务（127.0.0.1:8641），全部 API 返回固定数据：耗尽时可选择并一次接受三项，换候选清空旧取舍、缺失标识证据阻止提交，提交后转入编排；制作中无组合确认；无 Attempt 失败可阶段 Retry；供应 READY/所选素材缺权利仍显示 1 项正式待办；断连保留证据。390px 窄屏无横向溢出。Fixture 音视频仅证明加载与交互，不代表真实听感或成片质量。
 
-## D：例外组合接受（进行中，2026-10-02）
+### 完成证据与范围核对
+
+| 要求 | 当前代码与确定性证据 |
+|---|---|
+| 委托后唯一后台交付、预算与未知提交 | creation_delivery / material_generation；Creation Preparation 中 delivery replay、commission bound、gateway timeout 与 build/quality recovery 场景；旧 Creation 不自动认领授权 |
+| Director 判断贯穿实际执行 | Planning/Compiler → material_recovery 决定 → material-selection → 原生 Voice/Production → Quality；三内容回放增加软偏好与真实补料报告决定，断点恢复后核对编排及 Quality 输入仍消费同一决定 |
+| Material/Voice 可用且少打扰 | scoped visual/music/voice evidence、shared observation、实际语音时序；Material Integration 保护独立 Need、未知 Rights、不重复供应/生成和坏报告有界修复 |
+| Hypit 原生 Production 与可看性 | 本机 Hypit 0.2.7 静态 check 的三内容回放；原生字幕/ducking/取片合同；Hypit Integration 检出近黑、旁白截断、BGM 遮盖/缺失，未看/陈旧帧不能 PASS；修改只触及允许层 |
+| 组合接受与恢复 | 原 combination review 场景覆盖单 Need/同素材双 Need、陈旧/缺失/重复选择零写入、API 认证、日志落盘到标记之间中断、幂等、未知提交优先对账、前三项之外选材保持、供应 READY 但所选 Rights 仍阻断以及补权利自动继续、所选字节变化仍阻断；原失败 Build checkpoint 场景保护继承/视觉修改释放/规划重绑定 |
+| 人审成片与入库边界 | Hypit lifecycle/selection/hash tests：最终接受绑定当前输出与 SHA，输出 A 的审阅不能选 B，仅内部用途仍单独保留限制；不自动发布 |
+
+- 本轮最终全量：**614 passed, 5 skipped**；收尾边界相关四组 **167 passed**；末次加强所选素材字节核验后组合/重试相关 **3 passed**；本机 Hypit 静态契约三内容回放 **1 passed**。Frontend lint/build、compileall、115 项 skill/publisher 合同与 diff check 通过。保留两项 Python 依赖提示、一项原 Hook 提示及原打包体积提示，不扩展本轮重构。
+- **READY_FOR_HUMAN_E2E = YES（软件及离线预检范围）**。真正的素材命中率、Creative Mode 取舍质量、旁白/BGM 听感、实际首版可看性、跨内容风格一致性和时延仍需 Creator 验收；局部渲染边界使用替代输出，不能证明真实 Hypit 成片感知效果。
+- 本轮未修改、继续或重建现有 Creation，未调用付费 AI、提交真实 Build、运行完整 E2E或重载产品服务。真人验收前需加载本轮新代码并新建作品；服务重载及真实制作由用户后续启动。本轮不宣称整体 V1 已通过真实产品验收。
+
+## D：例外组合接受增量记录（已由上方收尾核对，2026-10-02）
 
 - 后端新增一次组合接受入口，先核对当前方案/素材版本、完整必需 Need 集合与逐素材字节，再保存逐 Need 的人工观察证据；不覆盖系统原观察或正式 Rights。保存中断由既有 Delivery Owner 接续同一份记录，完整提交可幂等重放；相关人工素材写入共用 Creation 执行锁。
 - 根因修复：原单项复核只使素材可能合格，没有约束 Production 实际使用。现将保存的组合决定提供给编排，并在正式选材校验中要求包含所接受素材；每项仍重新验证正式匹配与权利准入。同时修复导演取舍输入被旧选材字段校验拒绝的问题，服务端决定不得由 Authoring 改写。
@@ -31,7 +48,7 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 - 页面已接入可选组合入口：逐场景选择与实际画面/音频预览，一段整体取舍说明，一次明确接受；仅缺失的无标识/无文字证据要求补充，已有证据预填。旁白候选必须绑定当前脚本生成，输入身份变化重置表单。正常自动制作不展示新增必经确认。
 - 接续修复：组合接受后不因原观察版本变化重跑视觉判断或自动换料；旁白时序仍先核验，当前实际 Rights/Match 仍检查。合格的所选候选不会因三项 shortlist 排序被丢弃。普通制作 checkpoint 重试继承原选择；明确视觉修改可释放视觉选择，保留声音选择。后者已进入代码，仍需带组合记录的专项回放证明。
 - 新一批 Material/Hypit/三内容回放 **107 passed**；组合场景增加实际 next_operation 断言：直接 author，Rights 变为 UNKNOWN 后 needs_evidence。前端 lint/build、compileall、diff check 通过；保留既有 Hook 和打包体积提示。
-- **尚未完成 D/E**：减少重复核对入口、API 与隔离页面交互检查、带组合记录的恢复与多候选回放，以及最终跨内容证据收尾。未操作现有 Creation、重启服务、调用付费 AI 或启动真实 Build/E2E。
+- 上述当时待收尾项已完成，当前证据和真人边界以上方完成核对为准；不将此增量记录作为剩余任务。
 
 ## B：共享视觉观察（2026-10-02）
 

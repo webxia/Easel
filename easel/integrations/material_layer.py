@@ -597,6 +597,7 @@ class ProductionAuthoringIntegration:
         for need_id, choice in choices.items():
             asset = store.read_asset(choice['asset_id']) if choice['asset_id'] in assets else None
             if (asset is None or asset.file.sha256 != choice['sha256']
+                    or not MaterialReadinessCalculator(store=store)._accessible(asset)
                     or need_id not in ProductionAuthoringIntegration._qualified_need_ids(plan, bundle, asset)):
                 raise MaterialIntegrationError('已接受的素材仍须满足当前权利、技术和匹配要求')
         return choices
@@ -1726,6 +1727,26 @@ class MaterialProductOrchestrator:
             timing_from_recognition(planning['script'], reviewed_asset, report)
         return attempt, plan, bundle, store, reviewed_asset
 
+    @staticmethod
+    def pending_combination_request(attempt) -> str | None:
+        marker = attempt.get('material_combination_review', {})
+        if marker.get('status') == 'PENDING':
+            return marker['request_id']
+        if not attempt.get('workspace', {}).get('path'):
+            return None  # No workspace means no durable combination journal yet.
+        root = _workspace(attempt)
+        directory = root / 'materials/recoveries'
+        if _has_symlink_components(root, directory):
+            raise MaterialIntegrationError('素材接受记录路径无效')
+        if not directory.is_dir():
+            return None
+        store = AttemptMaterialStore(root)
+        pending = [path.stem for path in sorted(directory.glob('combination-*.json'))
+                   if store.read_recovery_record(path.stem).get('status') == 'PENDING']
+        if len(pending) > 1:
+            raise MaterialIntegrationError('存在冲突的未完成素材接受记录，未覆盖任何决定')
+        return pending[0] if pending else None
+
     def review_material_combination(self, attempt_id: str, *, plan_revision: str, bundle_revision: str,
                                    reviews: list[dict], confirm_review: bool) -> dict:
         """Preflight the entire choice before persisting any human evidence."""
@@ -1740,7 +1761,7 @@ class MaterialProductOrchestrator:
         prior = store.read_recovery_record(request_id)
         if prior is not None:
             return self.finish_material_combination(attempt_id, request_id=request_id)
-        if attempt.get('material_combination_review', {}).get('status') == 'PENDING':
+        if self.pending_combination_request(attempt):
             raise MaterialIntegrationError('上一组素材接受正在保存，请等待状态更新')
         if confirm_review is not True or not reviews or _production_started(attempt):
             raise MaterialIntegrationError('只可在编排开始前明确接受当前素材组合')
@@ -1786,15 +1807,19 @@ class MaterialProductOrchestrator:
         """Finish the same saved human decision; never prompt or buy again."""
         from easel.integrations.hypit.service import get_film_attempt
         attempt = get_film_attempt(attempt_id)
-        request_id = request_id or attempt.get('material_combination_review', {}).get('request_id')
+        request_id = request_id or self.pending_combination_request(attempt)
         store = AttemptMaterialStore(_workspace(attempt))
         journal = store.read_recovery_record(request_id) if request_id else None
         if not journal:
             raise MaterialIntegrationError('素材组合接受检查点缺失')
         if journal['status'] == 'COMPLETE':
-            if attempt.get('material_combination_review') == {'status': 'PENDING', 'request_id': request_id}:
-                attempt = _update_attempt(attempt, material_combination_review={'status': 'COMPLETE', 'request_id': request_id})
+            marker = attempt.get('material_combination_review', {})
+            if marker.get('status') == 'PENDING' and marker.get('request_id') == request_id:
+                attempt = _update_attempt(attempt, material_combination_review={**marker, 'status': 'COMPLETE'})
             return {'material_status': attempt.get('material_gate', {}).get('status'), 'attempt': attempt}
+        from easel.integrations.material_recovery import _production_started
+        if _production_started(attempt) or attempt.get('execution_status') not in {None, 'NOT_SUBMITTED', 'BLOCKED'}:
+            raise MaterialIntegrationError('制作已开始，不能覆盖素材组合；先核对当前执行结果')
         plan = PlanningIntegration().load(attempt)['plan']
         if MaterialReadinessCalculator.plan_revision(plan) != journal['plan_revision']:
             raise MaterialIntegrationError('组合接受期间方案变化，不能沿用旧决定')
@@ -1814,20 +1839,56 @@ class MaterialProductOrchestrator:
             store.write_asset(MaterialAsset.model_validate_json(json.dumps(raw)))
         result = self._recalculate_observed_materials(attempt, plan, bundle, store, require_scoped_visual=True)
         store.write_recovery_record(request_id, {**journal, 'status': 'COMPLETE'})
-        result['attempt'] = _update_attempt(result['attempt'],
-            material_combination_review={'status': 'COMPLETE', 'request_id': request_id})
+        result['attempt'] = _update_attempt(result['attempt'], material_combination_review={
+            **result['attempt'].get('material_combination_review', {}), 'status': 'COMPLETE', 'request_id': request_id})
         return result
 
     @staticmethod
     def _recalculate_observed_materials(attempt, plan, bundle, store, *, require_scoped_visual=False) -> dict[str, Any]:
         """Re-rank existing bytes; observation is never another supply request."""
         from easel.materials.application.assembly import MaterialBundleAssembler
-        from easel.materials.application.dedup import MaterialDeduplicator
-        from easel.materials.application.matching import MaterialMatcher
-        from easel.materials.application.visual_observation import observed_match
 
         old_run = store.read_supply_run(bundle.supply_run_id)
         assets = tuple(store.read_asset(item.asset_id) for item in bundle.assets)
+        matches = MaterialProductOrchestrator._rank_reviewed_materials(attempt, plan, assets, store, require_scoped_visual=require_scoped_visual)
+        digest = hashlib.sha256("\n".join(asset.to_json() for asset in assets).encode()).hexdigest()[:16]
+        now = datetime.now(timezone.utc)
+        reviewed_run = SupplyRun(
+            supply_run_id=f"match-{bundle.supply_run_id[-40:]}-{digest}",
+            plan_id=plan.plan_id, parent_run_id=old_run.supply_run_id,
+            started_at=now, finished_at=now, result_bundle_id=bundle.bundle_id,
+        )
+        revised_bundle = MaterialBundleAssembler().assemble(
+            plan, reviewed_run, assets, tuple(matches), bundle_id=bundle.bundle_id,
+        )
+        readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, revised_bundle)
+        gate = MaterialGateIntegration().record(
+            attempt, plan, revised_bundle, reviewed_run, readiness, gaps,
+        )
+        marker = attempt.get('material_combination_review', {})
+        journal = store.read_recovery_record(marker['request_id']) if marker.get('request_id') else None
+        choices = journal['choices'] if journal else {}
+        accepted_assets = {a.asset_id: a for a in revised_bundle.assets}
+        blocked = [key for key, choice in choices.items()
+                   if choice['asset_id'] not in accepted_assets
+                   or accepted_assets[choice['asset_id']].file.sha256 != choice['sha256']
+                   or not MaterialReadinessCalculator(store=store)._accessible(accepted_assets[choice['asset_id']])
+                   or not any(m.need_id == key and m.asset_id == choice['asset_id'] and m.qualified
+                              for m in revised_bundle.matches)]
+        if choices:
+            gate['attempt'] = _update_attempt(gate['attempt'],
+                material_combination_review={**marker, 'blocking_needs': blocked})
+        authoring = (ProductionAuthoringIntegration().prepare(gate["attempt"], selected_asset_ids=())
+                     if readiness.status is ReadinessStatus.READY and not blocked else None)
+        updated = authoring["attempt"] if authoring else gate["attempt"]
+        return {"material_status": gate["status"], "attempt": updated,
+                "readiness": readiness.model_dump(mode="json")}
+
+    @staticmethod
+    def _rank_reviewed_materials(attempt, plan, assets, store, *, require_scoped_visual=False):
+        from easel.materials.application.dedup import MaterialDeduplicator
+        from easel.materials.application.matching import MaterialMatcher
+        from easel.materials.application.visual_observation import observed_match
         matcher = MaterialMatcher()
         deduplicator = MaterialDeduplicator(store)
         matches = []
@@ -1848,27 +1909,7 @@ class MaterialProductOrchestrator:
             if chosen_match and not any(m.asset_id == chosen for m in shortlist):
                 shortlist = shortlist[:2] + [chosen_match]
             matches.extend(shortlist)
-        digest = hashlib.sha256("\n".join(asset.to_json() for asset in assets).encode()).hexdigest()[:16]
-        now = datetime.now(timezone.utc)
-        reviewed_run = SupplyRun(
-            supply_run_id=f"match-{bundle.supply_run_id[-40:]}-{digest}",
-            plan_id=plan.plan_id, parent_run_id=old_run.supply_run_id,
-            started_at=now, finished_at=now, result_bundle_id=bundle.bundle_id,
-        )
-        revised_bundle = MaterialBundleAssembler().assemble(
-            plan, reviewed_run, assets, tuple(matches), bundle_id=bundle.bundle_id,
-        )
-        readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, revised_bundle)
-        gate = MaterialGateIntegration().record(
-            attempt, plan, revised_bundle, reviewed_run, readiness, gaps,
-        )
-        accepted_qualified = all(any(m.need_id == need_id and m.asset_id == c['asset_id'] and m.qualified
-                                    for m in revised_bundle.matches) for need_id, c in choices.items())
-        authoring = (ProductionAuthoringIntegration().prepare(gate["attempt"], selected_asset_ids=())
-                     if readiness.status is ReadinessStatus.READY and accepted_qualified else None)
-        updated = authoring["attempt"] if authoring else gate["attempt"]
-        return {"material_status": gate["status"], "attempt": updated,
-                "readiness": readiness.model_dump(mode="json")}
+        return tuple(matches)
 
     def observe_visual_materials(self, attempt_id: str, *, executor, group_executor=None) -> dict[str, Any]:
         """Observe current candidates and admit evidenced commissioned usage."""
@@ -2113,17 +2154,7 @@ class MaterialProductOrchestrator:
 
         assets = tuple(store.read_asset(item.asset_id) for item in bundle.assets)
         from easel.materials.application.assembly import MaterialBundleAssembler
-        from easel.materials.application.dedup import MaterialDeduplicator
-        from easel.materials.application.matching import MaterialMatcher
-
-        matches = []
-        matcher = MaterialMatcher()
-        deduplicator = MaterialDeduplicator(store)
-        for need in plan.needs:
-            ranked = matcher.match(need, assets)
-            matches.extend(deduplicator.deduplicate_and_diversify(
-                ranked.matches, assets, top_k=3,
-            ).shortlist)
+        matches = self._rank_reviewed_materials(attempt, plan, assets, store)
 
         review_digest = hashlib.sha256(
             (asset_id + "\0" + expected_sha256 + "\0" + reviewed_rights.to_json()).encode("utf-8")
@@ -2145,7 +2176,20 @@ class MaterialProductOrchestrator:
             attempt, plan, revised_bundle, reviewed_run, readiness, gaps,
         )
         authoring = None
-        if readiness.status is ReadinessStatus.READY:
+        marker = attempt.get('material_combination_review', {})
+        journal = store.read_recovery_record(marker['request_id']) if marker.get('request_id') else None
+        choices = journal['choices'] if journal else {}
+        accepted_assets = {a.asset_id: a for a in revised_bundle.assets}
+        blocked = [key for key, choice in choices.items()
+                   if choice['asset_id'] not in accepted_assets
+                   or accepted_assets[choice['asset_id']].file.sha256 != choice['sha256']
+                   or not MaterialReadinessCalculator(store=store)._accessible(accepted_assets[choice['asset_id']])
+                   or not any(m.need_id == key and m.asset_id == choice['asset_id'] and m.qualified
+                              for m in revised_bundle.matches)]
+        if choices:
+            gate['attempt'] = _update_attempt(gate['attempt'],
+                material_combination_review={**marker, 'blocking_needs': blocked})
+        if readiness.status is ReadinessStatus.READY and not blocked:
             authoring = ProductionAuthoringIntegration().prepare(
                 gate["attempt"], selected_asset_ids=(),
             )
