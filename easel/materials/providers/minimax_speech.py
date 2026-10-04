@@ -22,6 +22,7 @@ class MiniMaxSpeechResult:
     audio_format: str
     timings: tuple[dict, ...] = ()
     timing_error: str | None = None
+    original_subtitles: tuple[dict, ...] = ()
 
 
 class MiniMaxSpeechAdapter:
@@ -132,12 +133,13 @@ class MiniMaxSpeechAdapter:
         timings = ()
         timing_error = None
         try:
-            timings = self._timings(final.get("subtitles", subtitles))
+            timings = self.map_timings(text, self._timings(final.get("subtitles", subtitles)))
         except (TypeError, ValueError, KeyError):
             # Valid audio must survive missing/bad alignment; this does not
             # authorize another paid TTS request or fabricate subtitle timing.
             timing_error = "provider_timing_missing_or_invalid"
-        return MiniMaxSpeechResult(self._model, self._voice_id, audio, "mp3", timings, timing_error)
+        return MiniMaxSpeechResult(self._model, self._voice_id, audio, "mp3", timings, timing_error,
+                                   tuple(final.get("subtitles", subtitles)) if isinstance(final.get("subtitles", subtitles), list) else ())
 
     @staticmethod
     def _timings(rows) -> tuple[dict, ...]:
@@ -156,3 +158,40 @@ class MiniMaxSpeechAdapter:
             cues.append({"text": row["text"], "start_seconds": begin / 1000, "end_seconds": end / 1000,
                          "start_character": start_char, "end_character": end_char})
         return tuple(cues)
+
+    @staticmethod
+    def map_timings(script: str, cues: tuple[dict, ...]) -> tuple[dict, ...]:
+        """Map exact subtitle text, retaining measured times and provider offsets.
+
+        Official T2ASubtitle offsets are [begin,end), milliseconds. Some saved
+        responses index the newline-free synthesis text. Accept that deviation
+        only when *all* text/offsets prove one complete, unambiguous mapping.
+        Never subtract a guessed newline count or search for a convenient match.
+        """
+        if not cues:
+            raise ValueError('missing subtitles')
+        possibilities = []
+        for indices in (list(range(len(script))), [i for i, c in enumerate(script) if c not in '\r\n']):
+            canonical = ''.join(script[i] for i in indices)
+            cursor, last_time, mapped = 0, 0., []
+            try:
+                for cue in cues:
+                    begin, end = cue['start_character'], cue['end_character']
+                    start, finish = cue['start_seconds'], cue['end_seconds']
+                    if (type(begin) is not int or type(end) is not int or begin != cursor
+                            or not begin < end <= len(indices) or cue['text'] != canonical[begin:end]
+                            or any(type(t) not in (int, float) or not math.isfinite(t) for t in (start, finish))
+                            or not last_time <= start < finish):
+                        raise ValueError('ambiguous or incomplete subtitle mapping')
+                    a, b = indices[begin], indices[end - 1] + 1
+                    mapped.append({**cue, 'text': script[a:b], 'start_character': a, 'end_character': b})
+                    cursor, last_time = end, finish
+                if cursor != len(indices):
+                    raise ValueError('incomplete subtitle text')
+            except (KeyError, TypeError, ValueError):
+                continue
+            if mapped not in possibilities:
+                possibilities.append(mapped)
+        if len(possibilities) != 1:
+            raise ValueError('subtitle text cannot uniquely cover frozen script')
+        return tuple(possibilities[0])

@@ -4,16 +4,14 @@ This document records workstream order, not task-level status. [`02_CURRENT_STAT
 
 ## 当前 Workstream 与下一步
 
-当前优先项为 [自主首版与 Director 全链执行唯一实施方案](tasks/creator-autonomous-first-cut-2026-09-30.md)。原始目标对齐、流程重审与代码追踪已完成，用户已批准按合并方案实施。本轮最小范围已完成确定性软件验收，仅改现有主链，未继续旧 Creation、调用付费 AI 或启动真实 Build/完整 E2E。下一步是用户另行启动的真人验收。
+当前唯一方案为[素材层可靠供给与耗时优化](tasks/creation-latency-2026-10-02.md) v0.5，软件范围已完成。真实新作品验收已执行并以 **PARTIAL / 4 of 9 / AUTONOMOUS=NO** 停止；历史 v0.4 FAILED 保持。具体输入、版本、调用及阻塞以 [Current State](02_CURRENT_STATE.md) 和[本轮运行记录](acceptance/creation-latency-v05-material-e2e-2026-10-04.md)为准。
 
 ## 当前顺序
 
-1. 复用已有后端推进、委托、Director、Material/Voice、Production、Quality 与跨内容回放基础；不从头重做。
-2. 唯一 Task 已按 **C 镜头替代 → B 独立观察复用 → D 例外组合接受 → E 体验与全链局部回放** 完成软件收尾；正常路径不增加人审。
-3. 软件/离线预检准备度为 READY_FOR_HUMAN_E2E；加载新代码、新建作品后的真实自主交付及跨内容风格效果由用户另行启动验收。
-4. Library 等其他专项证据与 P3 不并入本轮。
-
-历史素材恢复、Creator 工作区、E2E 前修复及 T19 是复用基线，不是并行当前任务。旧音画作品已审片入库但自主性 FAIL；最近未完成作品已删除，不恢复或重建。历史暂停/运行记录不覆盖当前实施授权。
+1. [原 Task §12.10](tasks/creation-latency-2026-10-02.md#1210-v05-实测追因与解决方案)已获软件实施批准；可靠要求/报告和音频适配、逐 Need 单批供料及累计边界已汇合并通过确定性验证。用户取消备用声音模型，当前模型有限放宽规则见 §12.10.10；不再等待资源批准。仍复用 A1/A2/A3/B1/B2，不新建平行 Task。下一步为有限真实报告/声音能力门 → 前置通过后另行允许同作品素材恢复；当前未加载服务或运行作品，不重跑对话与有效规划。
+2. 继续真实素材验收须先核对实际加载版本、活动运行与未知提交、冻结输入、当前作品授权和累计剩余额度。当前停止状态不构成自动恢复指令；离线 OpenClaw 补丁落盘不等于运行中已加载。
+3. 素材验收沿原 Delivery Owner 的持久 `MATERIAL_READY` 终点；全部 required 正式覆盖后停止。生成成功不能替代准入，恢复不能清零累计额度或重复购买。旧作品预算不得转授新作品。
+4. 完整视频 Authoring / Build / Quality 及跨内容真实效果后置，需另行启动。素材齐备不等于整片完成，不创建第二制作链。
 
 ## Existing Foundations
 

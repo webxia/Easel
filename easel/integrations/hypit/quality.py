@@ -15,7 +15,7 @@ from PIL import Image
 from .errors import HypitIntegrationError
 from .narration import _attrs, _frames
 
-SCHEMA = 'easel-output-quality@5'
+SCHEMA = 'easel-output-quality@6'
 VISUAL_CHECKS = ('visual_match', 'readability', 'mode', 'creator', 'truth_expression', 'narrative')
 CONTENT_CHECKS = frozenset({'creator', 'truth_expression', 'narrative'})
 MAX_OBSERVATION_ROUNDS = 3
@@ -384,12 +384,19 @@ def validate_visual_review(manifest: dict, report: dict) -> None:
     if (report.get('schema') != SCHEMA or report.get('input_sha256') != manifest['input_sha256']
             or not isinstance(report.get('checks'), dict) or set(report['checks']) != set(VISUAL_CHECKS)):
         raise ValueError('审片报告与当前输出或检查范围不一致')
+    if any(report['checks'].get(k) != v for k, v in manifest.get('resolved_checks', {}).items()):
+        raise ValueError('局部补证不能重判或改写已有有效检查结论')
     frames = report.get('frames')
     if (not isinstance(frames, list) or [f.get('index') for f in frames if isinstance(f, dict)]
             != list(range(len(manifest['frames'])))
             or any(type(f.get('observed')) is not bool or not isinstance(f.get('description'), str)
                    or not f['description'].strip() or len(f['description']) > 4000 for f in frames)):
         raise ValueError('系统审片必须逐张说明实际看到的成片预览')
+    for saved in manifest.get('resolved_frames', []):
+        index = saved['index']
+        if (frames[index].get('observed') != saved['observed']
+                or frames[index].get('description') != saved['description']):
+            raise ValueError('局部补证不能重写原采样的有效观察事实')
     for key, check in report['checks'].items():
         if (not isinstance(check, dict) or check.get('status') not in {'pass', 'fail', 'unknown'}
                 or not isinstance(check.get('reason'), str) or not check['reason'].strip() or len(check['reason']) > 4000
@@ -401,6 +408,11 @@ def validate_visual_review(manifest: dict, report: dict) -> None:
         if check['status'] == 'fail' and (not check['frame_indices']
                 or not all(frames[i]['observed'] for i in check['frame_indices'])):
             raise ValueError('缺陷必须引用已观察画面，证据不足应记为未知')
+        if key == 'narrative' and check['status'] == 'pass':
+            expected = {n for f in manifest['frames'] for n in f.get('expression_need_ids', [])}
+            cited = {n for i in check['frame_indices'] for n in manifest['frames'][i].get('expression_need_ids', [])}
+            if not expected <= cited:
+                raise ValueError('必要表达通过结论必须引用本组各承担项的实际帧；缺证应记为 unknown')
         if (key in CONTENT_CHECKS and check['status'] == 'fail'
                 and check.get('repair_target') not in {'visual', 'visual_material', 'planning', 'unknown'}):
             raise ValueError('内容表达缺陷应区分画面修正、素材替换、内容调整或尚未定位')
@@ -510,9 +522,12 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     music = measure_music(path, output['metadata']['duration_seconds'], author, plan, bundle, store, voice_span, voice_path)
     measurements['music'] = music
     measurements['defects'].extend(music['defects'])
+    from .revision import expression_uses
+    commitments = expression_uses(root / 'productions/easel-authoring/authors/main.svml')
     # Actual output previews, never source thumbnails or authored screenshots.
     duration = output['metadata']['duration_seconds']
     moments = sorted({min(duration - .05, .5), *[min(duration - .05, offset + (c['start_seconds'] + c['end_seconds']) / 2) for c in cues]})
+    moments = sorted(set(moments + [(r['at_seconds'] + r['end_seconds']) / 2 for r in commitments]))
     if len(moments) < 5:
         moments = sorted(set(moments + [duration * n / 6 for n in range(1, 6)]))
     attachments, frames = [], []
@@ -525,7 +540,9 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
             image.save(buffer, format='JPEG', quality=70)
         raw = buffer.getvalue()
         attachments.append({'type': 'image', 'mimeType': 'image/jpeg', 'content': base64.b64encode(raw).decode()})
-        frames.append({'index': index, 'time_seconds': round(t, 4), 'sha256': hashlib.sha256(raw).hexdigest()})
+        frames.append({'index': index, 'time_seconds': round(t, 4), 'sha256': hashlib.sha256(raw).hexdigest(),
+                       'caption_expected': any(offset + c['start_seconds'] <= t < offset + c['end_seconds'] for c in cues),
+                       'expression_need_ids': [r['need_id'] for r in commitments if r['at_seconds'] <= t < r['end_seconds']]})
     manifest = {'schema': SCHEMA, 'input_sha256': identity, 'binding': binding, 'frames': frames,
                 'script': planning['script'], 'mode': mode, 'measurements': measurements,
                 **context,
@@ -535,7 +552,7 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         if (root / 'handoff/creative-mode' / name).is_file()}
     # Batch readable previews instead of shrinking away subtitle evidence or
     # dropping later sentences. Every batch retains the whole narrative context.
-    visual, start = [], 0
+    visual, review_frames, start = [], [], 0
     attachment_budget = 90000 - len(json.dumps({**manifest, 'frames': []}, ensure_ascii=False).encode()) - 7000
     while start < len(frames):
         end, size = start, 0
@@ -548,20 +565,72 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
                  'frame_offset': start, 'frame_total': len(frames)}
         batch_identity = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
         cached = next((v for v in previous.get('visual', [])
-                       if same_input and v.get('batch_sha256') == batch_identity), None)
+                       if same_input and v.get('source_batch_sha256', v.get('batch_sha256')) == batch_identity), None)
         checkpoint = next((v for v in pending.get('visual', [])
-                           if v.get('batch_sha256') == batch_identity), None)
+                           if v.get('source_batch_sha256', v.get('batch_sha256')) == batch_identity), None)
         reusable = checkpoint or (cached if cached is not None
             and all(not _unresolved_check(k, c) for k, c in cached['checks'].items()) else None)
         batch['observation_round'] = reusable['observation_round'] if reusable is not None else observation_round
         batch['review_focus'] = (reusable['review_focus'] if reusable is not None else {
             key: check['reason'][:500] for key, check in (cached or {}).get('checks', {}).items()
             if _unresolved_check(key, check)})
-        batch['input_sha256'] = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
-        report = reusable if reusable is not None else executor(attempt, batch, attachments[start:end])
+        batch_attachments = list(attachments[start:end])
+        if reusable is not None:
+            # A completed checkpoint includes its supplemental frames too.
+            batch['frames'] = [{k: v for k, v in f.items() if k not in {'observed', 'description'}} for f in reusable['frames']]
+        elif cached is not None and batch['review_focus']:
+            # Retain original evidence and all valid resolved checks. Only this
+            # incomplete group receives one new, output-bound sample per round.
+            resolved = {k: v for k, v in cached['checks'].items() if k not in batch['review_focus']}
+            retained_indices = set(range(end - start)) | {i for c in resolved.values() for i in c['frame_indices']}
+            index_map = {old: new for new, old in enumerate(sorted(retained_indices))}
+            batch['frames'] = [{k: v for k, v in f.items() if k not in {'description', 'observed'}}
+                               for i, f in enumerate(cached['frames']) if i in retained_indices]
+            batch['frames'] = [{**f, 'index': i} for i, f in enumerate(batch['frames'])]
+            resolved = {k: {**c, 'frame_indices': [index_map[i] for i in c['frame_indices']]} for k, c in resolved.items()}
+            batch_attachments = []
+            for f in batch['frames']:
+                raw = _decode(path, '-ss', str(f['time_seconds']), '-frames:v', '1', '-vf', 'scale=-2:640',
+                              '-f', 'image2pipe', '-vcodec', 'mjpeg')
+                buffer = io.BytesIO()
+                with Image.open(io.BytesIO(raw)) as im:
+                    im.save(buffer, format='JPEG', quality=70)
+                raw = buffer.getvalue()
+                if hashlib.sha256(raw).hexdigest() != f['sha256']:
+                    raise HypitIntegrationError('补证前原采样身份发生变化')
+                batch_attachments.append({'type': 'image', 'mimeType': 'image/jpeg', 'content': base64.b64encode(raw).decode()})
+            disputed = [i for k in batch['review_focus'] for i in cached['checks'][k]['frame_indices']]
+            anchor = cached['frames'][disputed[0] if disputed else 0]['time_seconds']
+            windows = [(offset + c['start_seconds'], offset + c['end_seconds']) for c in cues
+                       if offset + c['start_seconds'] <= anchor < offset + c['end_seconds']]
+            if not windows:
+                windows = [(r['at_seconds'], r['end_seconds']) for r in commitments
+                           if r['at_seconds'] <= anchor < r['end_seconds']]
+            left, right = windows[0] if windows else (max(0., anchor - .5), min(duration - .05, anchor + .5))
+            t = round(left + (right - left) * (1 / 3 if observation_round == 2 else 2 / 3), 4)
+            if any(abs(t - f['time_seconds']) < .001 for f in batch['frames']):
+                raise HypitIntegrationError('当前缺证没有新的可用采样，保留 unknown，不原样重判')
+            raw = _decode(path, '-ss', str(t), '-frames:v', '1', '-vf', 'scale=-2:640', '-f', 'image2pipe', '-vcodec', 'mjpeg')
+            buffer = io.BytesIO()
+            with Image.open(io.BytesIO(raw)) as im:
+                im.save(buffer, format='JPEG', quality=70)
+            raw = buffer.getvalue()
+            batch['frames'].append({'index': len(batch['frames']), 'time_seconds': t,
+                'sha256': hashlib.sha256(raw).hexdigest(),
+                'caption_expected': any(offset + c['start_seconds'] <= t < offset + c['end_seconds'] for c in cues),
+                'expression_need_ids': [r['need_id'] for r in commitments if r['at_seconds'] <= t < r['end_seconds']]})
+            batch_attachments.append({'type': 'image', 'mimeType': 'image/jpeg', 'content': base64.b64encode(raw).decode()})
+            batch['resolved_checks'] = resolved
+            batch['resolved_frames'] = [{**cached['frames'][old], 'index': new} for old, new in index_map.items()]
+            if len(json.dumps(batch, ensure_ascii=False).encode()) + sum(len(a['content']) for a in batch_attachments) > 95000:
+                raise HypitIntegrationError('局部补证超过容量，保留已观察结果，不重审整片')
+        batch['input_sha256'] = reusable['input_sha256'] if reusable is not None else hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
+        report = reusable if reusable is not None else executor(attempt, batch, batch_attachments)
         validate_visual_review(batch, report)
-        visual.append({**report, 'frame_offset': start, 'batch_sha256': batch_identity,
+        visual.append({**report, 'frames': [{**f, **report['frames'][i]} for i, f in enumerate(batch['frames'])], 'frame_offset': len(review_frames), 'batch_sha256': batch_identity,
+                       'source_batch_sha256': batch_identity,
                        'observation_round': batch['observation_round'], 'review_focus': batch['review_focus']})
+        review_frames.extend([{**f, 'index': len(review_frames) + i} for i, f in enumerate(batch['frames'])])
         if reusable is None:
             save_review({'schema': SCHEMA, 'status': 'CHECKING', 'input_sha256': identity,
                          'binding': binding, 'observation_round': observation_round,
@@ -572,6 +641,6 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     report = {'schema': SCHEMA, 'input_sha256': identity, 'binding': binding,
               'observation_round': observation_round,
               'status': 'REPAIR_REQUIRED' if failed or measurements['defects'] else 'INCOMPLETE' if unknown else 'READY',
-              'measurements': measurements, 'visual': visual, 'frames': frames,
+              'measurements': measurements, 'visual': visual, 'frames': review_frames,
               'scope': manifest['scope'], 'checked_at': service._now()}
     return save_review(report, complete=True)

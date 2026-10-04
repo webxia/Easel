@@ -236,6 +236,11 @@ def run_attempt_scoped_authoring(
                             cwd=cwd, env=env, runner=runner)
 
         staged_message = message.replace(str(source), str(staged_workspace))
+        staged_message += (
+            "\n先读取所用组件的必要合同，再逐文件调用 write/edit 实际保存；"
+            "不要在聊天中展开完整设计推演或输出整份源码。每完成一个文件即落盘，"
+            "以免输出长度耗尽时所有产物仍为空。已保存文件仍须完整合同校验。"
+        )
         agent_command = [
             *command_prefix, "--profile", profile, "agent", "--agent", agent_id,
             "--session-key", f"agent:{agent_id}:attempt-{attempt_id}",
@@ -252,13 +257,20 @@ def run_attempt_scoped_authoring(
                 f"上一轮漏写了这些必需文件：{json.dumps(missing, ensure_ascii=False)}。\n"
                 f"唯一工作区根目录是：{staged_workspace}\n"
                 "只补写上述缺失文件，必须逐字使用 productions/easel-authoring/ 下的完整相对路径；"
+                "若主 SVML 需要尚不存在的 productions/easel-authoring/authors/recipes.svs，"
+                "也允许补写此唯一的样式依赖；已有样式文件不得重写。"
                 "不要写到 workspace/authors、workspace/runs 等根目录，不要重写已有文件，"
-                "不要改动 SCRIPT、SCENES、TREATMENT 或素材选择。写完后停止。"
+                "不要改动 SCRIPT、SCENES、TREATMENT 或素材选择。"
+                "直接分文件调用 write 保存，不在聊天中输出设计推演或整份源码。写完后停止。"
             )
             result = _agent_result(
                 runner, [*agent_command[:-1], repair_message], phase="补齐", capture_output=True, text=True,
                 cwd=str(cwd), timeout=timeout + 30, env=env,
             )
+            if _missing_authoring_artifacts(staged_workspace):
+                raise OpenClawAuthoringBoundaryError(
+                    "视频编排补齐后仍缺少必需的普通文件；已保留原内容和素材，未提交视频合成"
+                )
         if validate_artifacts is not None:
             from easel.integrations.hypit.errors import HypitIntegrationError
 

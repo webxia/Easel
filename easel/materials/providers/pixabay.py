@@ -99,13 +99,20 @@ class PixabayProvider:
         intent: RetrievalIntent,
         continuation: ProviderContinuation | None = None,
     ) -> ProviderPage:
+        self.last_search_query = None
         if not self._api_key:
             raise ProviderAuthError(self.provider_id, "Pixabay API key is not configured")
         media_type = self._media_type(intent)
         query_index, page = self._continuation_state(intent, continuation)
-        query = intent.semantic_queries[query_index]
-        if len(query) > 100:
+        # Official q contract: <=100 characters. Skip an unsupported hint,
+        # retaining a complete later query; never silently truncate meaning.
+        while query_index < len(intent.semantic_queries) and len(intent.semantic_queries[query_index]) > 100:
+            query_index += 1
+            page = 1
+        if query_index == len(intent.semantic_queries):
             raise ProviderUnsupportedError(self.provider_id, "Pixabay query must not exceed 100 characters")
+        query = intent.semantic_queries[query_index]
+        self.last_search_query = query
         endpoint = "/videos/" if media_type is MediaType.VIDEO else "/"
         params: dict[str, str | int | bool] = {
             "key": self._api_key,

@@ -40,6 +40,35 @@ def _asset(store: AttemptMaterialStore, name: str = "asset-1") -> MaterialAsset:
     return asset
 
 
+def test_related_subject_with_hard_conflict_is_durable_negative_evidence(tmp_path):
+    import pytest
+    from easel.materials.application.visual_observation import (
+        SCHEMA, apply_observation, observed_match, prepare_observation, read_observation_report, requires_reassessment,
+    )
+    from easel.materials.domain import MaterialNeed, NeedScope, NeedScopeType, NeedIntent, NeedImportance
+    store = AttemptMaterialStore(tmp_path)
+    asset = _asset(store)
+    need = MaterialNeed(need_id='desk', scope=NeedScope(type=NeedScopeType.SCENE, ref='s'),
+        media_type=MediaType.IMAGE, role='primary', intent=NeedIntent(description='desk without logo'),
+        importance=NeedImportance.REQUIRED, constraints={'logo': False, 'preferred_style': 'warm'})
+    manifest, _ = prepare_observation(need, asset, store.resolve_asset_locator(asset.file.path))
+    report = {'schema': SCHEMA, 'input_sha256': manifest['input_sha256'], 'verdict': 'unsuitable',
+        'caption': 'desk with logo', 'style': 'cold', 'reason': 'logo violates explicit prohibition',
+        'failure_kind': 'hard_constraint', 'logo_present': True,
+        'frames': [{'index': 0, 'observed': True, 'related': True, 'meets_requirements': False,
+                    'description': 'visible desk and logo'}]}
+    store.write_observation_record(manifest['input_sha256'], report)
+    path = store.materials_root / 'observations' / (manifest['input_sha256'] + '.json')
+    assert read_observation_report(path, need, asset, manifest) == report
+    assert observed_match(need, apply_observation(need, asset, manifest, report)) is False
+    assert not requires_reassessment(need, report, asset.media_type)
+    assert requires_reassessment(need, {**report, 'failure_kind': 'preference_only', 'reason': '仅色调不符'}, asset.media_type)
+    with pytest.raises(ValueError, match='逐帧证据矛盾'):
+        apply_observation(need, asset, manifest, {**report, 'frames': [{**report['frames'][0], 'meets_requirements': None}]})
+    with pytest.raises(ValueError, match='一般偏好'):
+        apply_observation(need, asset, manifest, {**report, 'failure_kind': 'preference_only'})
+
+
 class _FakeAnalyzer:
     analyzer_id = "fixture-florence"
 
@@ -174,7 +203,15 @@ def test_video_observation_retains_actual_sample_times_and_does_not_extrapolate(
     need = MaterialNeed(need_id='late-subject', scope=NeedScope(type=NeedScopeType.SCENE, ref='s1'),
         media_type=MediaType.VIDEO, role='primary_visual', intent=NeedIntent(description='blue field'),
         importance=NeedImportance.REQUIRED, constraints={'logo': False})
-    manifest, attachments = prepare_observation(need, asset, video)
+    decode_calls = []
+    run = subprocess.run
+    def track_decode(*args, **kwargs):
+        decode_calls.append(args[0])
+        return run(*args, **kwargs)
+    monkeypatch.setattr(subprocess, 'run', track_decode)
+    preview_cache = {}
+    manifest, attachments = prepare_observation(need, asset, video, preview_cache=preview_cache)
+    assert len(decode_calls) == 5
     assert manifest['coverage'] == 'sampled_frames'
     assert len(attachments) == 5
     assert [frame['seek_seconds'] for frame in manifest['frames']] == [0, .475, .95, 1.425, 1.9]
@@ -192,6 +229,13 @@ def test_video_observation_retains_actual_sample_times_and_does_not_extrapolate(
                for a in observed.semantic.inferences[-1].annotations)  # absence not proven
     with pytest.raises(ValueError, match='部分采样'):
         apply_observation(need, asset, manifest, {**report, 'verdict': 'suitable'})
+    with pytest.raises(ValueError, match='逐帧证据矛盾'):
+        apply_observation(need, asset, manifest, {**report, 'verdict': 'unsuitable'})
+    unknown = {**report, 'verdict': 'uncertain', 'frames': [
+        {**row, 'observed': False, 'related': None} for row in report['frames']]}
+    assert observed_match(need, apply_observation(need, asset, manifest, unknown)) is False
+    with pytest.raises(ValueError, match='关联未知'):
+        apply_observation(need, asset, manifest, {**unknown, 'verdict': 'unsuitable'})
     with pytest.raises(ValueError, match='逐张'):
         apply_observation(need, asset, manifest, {**report, 'frames': report['frames'][1:]})
     with pytest.raises(ValueError, match='不一致'):
@@ -210,7 +254,10 @@ def test_video_observation_retains_actual_sample_times_and_does_not_extrapolate(
     evidence = asset.model_copy(update={'rights': RightsInfo(status=RightsStatus.KNOWN, license_name='Fixture license',
         evidence=(RightsEvidence(kind='asset_license', reference='fixture-rights'),))})
     for current_need, related in ((free_need, lambda i: i >= 3), (red_need, lambda i: i <= 2)):
-        current_manifest, _ = prepare_observation(current_need, evidence, video)
+        current_manifest, current_attachments = prepare_observation(current_need, evidence, video, preview_cache=preview_cache)
+        assert current_manifest['input_sha256'] != manifest['input_sha256']
+        assert current_manifest['frames'] == manifest['frames']
+        assert current_attachments == attachments
         current_report = {**report, 'caption': current_need.intent.description,
                           'input_sha256': current_manifest['input_sha256'],
                           'frames': [{**r, 'related': related(r['index'])} for r in report['frames']]}
@@ -219,7 +266,15 @@ def test_video_observation_retains_actual_sample_times_and_does_not_extrapolate(
     assert len(matches) == 2
     assert observed_interval(red_need, evidence) == (0, .95)
     longer = free_need.model_copy(update={'constraints': {'min_duration_seconds': .5}})
-    longer_manifest, _ = prepare_observation(longer, evidence, video)
+    longer_manifest, _ = prepare_observation(longer, evidence, video, preview_cache=preview_cache)
+    assert len(decode_calls) == 5  # Four Needs reuse pixels, never the matching verdict.
+    # Even a warm cache must reject changed source bytes before any reuse.
+    video.write_bytes(data + b'changed')
+    with pytest.raises(ValueError, match='字节已变化'):
+        prepare_observation(longer, evidence, video, preview_cache=preview_cache)
+    video.write_bytes(data)
+    assert prepare_observation(longer, evidence, video) == (longer_manifest, attachments)
+    assert len(decode_calls) == 10  # A new pass reconstructs the same evidence.
     limited = apply_observation(longer, evidence, longer_manifest,
                                 {**report, 'input_sha256': longer_manifest['input_sha256']})
     assert not MaterialMatcher().match(longer, [limited]).matches  # .475 s, not the two-second source
@@ -254,8 +309,16 @@ def test_video_observation_retains_actual_sample_times_and_does_not_extrapolate(
     styles.write_text(style_header + 'media.blue { stack-order: 0; trim-start: 15; trim-end: 19; }\nmedia.red { stack-order: 0; trim-start: 0; trim-end: 9; }\n</sheet>')
     assert_observed_video_uses(author, options)
     styles.write_text(style_header + 'media.blue { stack-order: 0; trim-start: 0; trim-end: 19; }\nmedia.red { stack-order: 0; trim-start: 0; trim-end: 9; }\n</sheet>')
-    with pytest.raises(HypitIntegrationError, match='越过'):
+    with pytest.raises(HypitIntegrationError, match='越过') as trim_error:
         assert_observed_video_uses(author, options)
+    # A real Authoring repair needs the failing use and exact Clock-domain
+    # limits, rather than guessing which of several admitted scenes is wrong.
+    assert blue_use['need_id'] in str(trim_error.value)
+    assert blue_use['element_id_prefix'] + '1' in str(trim_error.value)
+    assert 'appearance=recipes.media.blue' in str(trim_error.value)
+    assert 'Clock=10 fps' in str(trim_error.value)
+    assert '15 <= trim-start < trim-end <= 19' in str(trim_error.value)
+    assert 'trim-start=0 / trim-end=19' in str(trim_error.value)
     styles.write_text(style_header + 'media.blue { stack-order: 0; trim-start: 15; trim-end: 19; }\nmedia.red { stack-order: 0; trim-start: 0; trim-end: 9; }\n</sheet>')
     author.write_text(source.replace('<f:Track source={pictures.visual}/>', ''))
     with pytest.raises(HypitIntegrationError, match='必要视频场景'):

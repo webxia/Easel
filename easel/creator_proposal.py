@@ -93,6 +93,10 @@ def parse_video_plan(response: str) -> dict | None:
             sections[key] = body
     if set(sections) != set(PLAN_SECTIONS.values()):
         return None
+    # Reject mixed narration/instructions before approval. No post-confirmation
+    # normalization can safely guess which words the Creator approved to speak.
+    if re.search(r"(?m)^\s*(?:#{1,6}\s*|[-*]\s*)?(?:\*\*)?(?:逐字旁白|旁白说明|屏幕(?:文字|说明|文案)|画面说明|字幕说明|朗读说明)", sections["script"]):
+        return None
     payload = {"schema": "easel-video-proposal@1", **sections,
                "specs": proposal_specs([{"role": "assistant", "content": settings or ""}])["specs"]}
     if settings:

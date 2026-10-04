@@ -1,6 +1,62 @@
 # Easel Current State
 
-Last audited: 2026-10-02. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
+Last audited: 2026-10-05. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
+
+
+## v0.5 实测根因修复（2026-10-05，软件通过 / 真实能力未验收）
+
+用户要求设定目标并按收敛方案修复，已实施[原 Task §12.10.9](tasks/creation-latency-2026-10-02.md#12109-2026-10-05-获批软件修复验证与剩余能力门)。历史 84 分 38 秒中，51 次视觉请求累计约 66 分 09 秒，来源适配自身累计约 17 秒；主要是无关联候选跨 Need 提名、批后切换迟滞、偏好误拒、partial 阻止合法补位及报告交付故障，不能只归因模型慢。真实结果仍为 4/9 / PARTIAL / 已停止，不能认领素材齐备或提速。
+
+软件已改：要求合同完整绑定冻结输入，明确必要项/偏好/后期职责；沿原 agent.wait(runId) 接收最多 3000 UTF-16 单位紧凑结果，系统组装保存普通观察，原结果中断可恢复，截断/错 run 不扩搜索或生成。来源/实际 query/排名及字节去重关联持久保存，每次最多两张不同素材后返回原 Owner 重算；仅有依据才跨 Need 提名，一次全计划无语义探索，跨池关联不清零。同 Need/query 的来源收益不污染其他 Need；优先已编译变体，旁白不再搜索图库朗读指令。
+
+硬缺失 partial 可支持合法图片补位，unknown/Rights/报告故障本身不能；绑定生成先服务其原 Need，不重开全池。预留全部剩余允许生图 Need 的工作容量，沿原调用/费用账本不重置。MiniMax 官方字幕合同已核对，增加整段精确、唯一的原文/去换行索引映射并保留原字幕；同条件 ASR 正负缓存复用。用户之后取消备用模型并允许当前模型有限放宽，具体规则见下段；未通过现规则时仍明确 `needs_audio_verification`，保留音频、不重购或重复全文识别。BGM 未明权利不做昂贵声音观察，作者/单曲来源/完整署名仍须正式事实入口核实，没有修改当前记录。
+
+确定性全量 **672 passed、5 skipped（38.75 秒）**；compileall、115 项合同、前端投影、lint/build、diff check 通过，仅既有依赖/hook/包体提示。回放中的模型/Provider/renderer 均为 fake，不是实际素材或成片验收。原 Task/顺序已同步；没有新建平行 Task、接新图库、重启服务、恢复作品、调用真实模型/Provider、使用 10 元授权或执行 E2E/Build；历史 Acceptance 不改写，运行中服务不认领加载新代码。
+
+最新声音规则（用户已批准，[原 Task §12.10.10](tasks/creation-latency-2026-10-02.md#121010-当前声音模型的有限放宽用户已批准2026-10-05)）：不下载/切换模型，不再等待备用资源决定。保留全部词≥0.5原路径；全文逐字一致、无增删且实际时间完整有效时，允许最低词≥0.25、低于0.5的字符≤全文5%且最多3字、按字符加权均值≥0.85的有限路径。普通内容/时序/生成Rights/Match共用规则，保留原概率；失败身份包含新规则，原primary识别缓存仍复用，旧失败不删除，当前Owner不派发备用模型。只读当前保存报告（含脚本/Need/音频SHA核对）95字一致、低置信1字、最低约0.282、加权均值约0.988，满足新规则；只在内存判断，未正式登记或更新Gate，历史4/9不改。BGM许可及音乐/人声规则不放宽。
+
+本次声音增量全量 **682 passed、5 skipped（42.52秒）**，保护低分/比例/绝对量/均值边界、错字/漏字/增字/时间及旧拒绝+中断恢复零新ASR/TTS；compileall、115项合同及diff check通过，无前端代码修改。没有下载、真实推理、费用、重启、恢复、E2E/Build。不能以保存报告的只读新规则通过认领旁白已正式准入或BGM合格。下一顺序为有限真实报告和声音能力验证 → 另行允许加载及复核 → 同 Attempt 至9/9 MATERIAL_READY；完整视频后置，无同条件提速比例。
+
+## Planning 工具消失根因修复（2026-10-04，未重启）
+
+用户授权修复根因但明确不重启。本次只读具名 Planning 会话与 OpenClaw 2026.9.4 源码，确认首个 `length` 在四次 `write` 失败之前；对应网关日志明确记录同 run 的 `running isolated finalization` 及 `reported capability activity`。`resolveSettledToolTerminalContinuationInstruction` 回溯前一批已结束工具，未排除当前 assistant 已截断，错误进入 `runPreparedSettledTurnFinalization(disableTools=true)`，导致后续写文件工具不可用。不是文件系统写权限或全局 write 禁用；单纯建议换 exec 也无法在该无工具阶段解决问题。
+
+已增加版本限定、幂等且保留原文件备份的离线修复脚本 `scripts/patch_openclaw_finalization.py`，并应用到本机安装版 OpenClaw 2026.9.4 的 `builtin-openclaw-B-H-7lKk.mjs`：当前 attempt 的 assistant 为 `stopReason=length` 时拒绝无工具最终回复阶段，交回原终态/有界恢复处理；正常 stop/toolUse 的收尾不变。不开放额外工具，不重复执行原工具，不修改正式 Planning 文件、Gate、授权或累计额度。
+
+已安装文件 SHA 从 `0a8c813e535c92d03f69bc58381518ba0e6ac6e46f3adda54138c5f668340ea8` 变为 `654bb2d9753e0a354320a70bdb96a120e9d5c0780e3d76f0e69bf08f4e2dd6d6`；同目录 `.easel-finalization-original` 保存原文件。源码仓库保存可复现脚本及上游判断函数回归夹具，不将整套安装包纳入 Git。依赖升级后需重新核对，不自动对未知版本打补丁。
+
+离线回归 **2 passed**：重现原错误分支、修复后截断拒绝、正常收尾保持、幂等/备份/版本拒绝；既有 Planning/Gateway 局部 **14 passed, 50 deselected**；安装包 `node --check` 与 diff check 通过。无真实模型/Provider/Build 调用。**补丁仅落盘，未重启 Web、网关或 Hypit，未恢复作品；运行中服务是否加载新模块不作成功声明，真实效果待后续允许加载后的验收。** 输出长度不足本身仍可能发生，不宣称 Planning 已稳定完成；历史失败保留。
+
+## v0.5 正常对话 → 真实规划 → 素材齐备验收（2026-10-04，PARTIAL，已停止）
+
+唯一新作品 `cr_77175a2271bf4e408a359884efc438e6` 来自正常对话方案第2版，21:27:53正式确认；Attempt `fa_22f91d9f97ab6e7c355d46ba87bb478b`。Preparation/Planning/Script Truth 已真实通过，Plan `plan-6e7c355d46ba87bb478b` revision `5e83f86c1486cfe88030ef5be47d35683a43e1faad3037e416ebe30b98593846`：7required视觉、required旁白及BGM，共9项。本次新预算10元独立绑定，旧授权不转授。终点在确认前正式持久设置并原子继承 `MATERIAL_READY`，未派发Authoring/Build/Quality。
+
+独立运行在Planning失败，随后发生D1规划最小落盘提示修复、D2共享报告身份具名/持久单次修复、D3新生成结果先准入不重开旧池、D4补料证据摘要压缩/先保存最小报告；全部原失败保留，本轮只能认领诊断结果，AUTONOMOUS=NO。素材入口21:43:21；最终4/9覆盖（A/B复用一张Pexels、E/G共用一张MiniMax生成图片），余C/D/F、旁白、BGM仍缺。图片1次+预置旁白1次，正式占额¥0.1048/¥10，剩余额度¥9.8952，实际账单未知。恢复不清零调用或费用，不手改输入/审核/数据库。
+
+最近加载Easel源码集合SHA `00e19009a32b084c0a16cba4172557171bdc0bd0502a452ceb63519293694c78`。必要全量646passed、5skipped（42.53s），局部身份恢复8passed、生成准入/停止12passed、补料恢复10passed，技能合同/compileall/frontend lint/build/diffcheck通过。素材入口21:43:21→23:07:59停止，共84分38秒，均属D1工程介入后的诊断素材阶段。最终阻塞为旁白本机ASR第6个有效字符置信度0.282<0.500；3次本地恢复后Owner正式停止，原27.18秒音频保留、未重购，内容/时序与Rights尚未准入。当前仅一套本机ASR模型，没有已安装替代能力；不降阈值、手改结论或用人工认读救场。BGM仍缺音乐适用/可核实署名条件，C/D/F未覆盖。累计Prepare7/24、Material88/1840（来源适配26、视觉请求51、补料建议3、报价/提交各2、本机音乐1、旁白3），117个逐Need有效视觉判断。无未知请求、无视频制作派发；真实未齐备、未宣称提速或自主通过。唯一事实记录：[v0.5 Material E2E](acceptance/creation-latency-v05-material-e2e-2026-10-04.md)，原Task §12.8。
+
+## 本次 v0.4 独立验收与诊断（2026-10-04，已停止）
+
+唯一新作品 `cr_8499196003b141e8bf326c35e3b28c44` 的固定基线独立 E2E **FAILED**；09:27:55 确认后停在素材审核，未 Build。D1/D2/D3 仅改观察提示的报告保存、偏好/后期效果职责及 related 合同含义；Gate、validator 与正式产物未改，现有 12 项局部回归通过。两次正式画布恢复、三次 Web 安全重载后仍未交付，不能记自主通过或稳定修复。当前源码 SHA `5b1c7947d18a9be8da2e5cca8072ea4d6ede0a70e70228dda5a5a7a06edb2f9d`，Web PID37110。
+
+10:49:50 最终停止，素材累计 83/1636，prepare 5/24；43 次制作网关派发包含 37 次视觉观察，44 次 Provider 适配器检索计数不等于实际 HTTP 次数。86 条已保存判断中 67 unsuitable、19 partial，0 正式合格覆盖，8 项 required Need 仍缺。无未知提交/待释放调用；有效成果保留，临时防休眠已结束。10 元预算有效，无生成提交/核价占用；模型账单未知，不能称总费用为零。
+
+剩余阻塞：报告结论与逐帧字段矛盾仍无法稳定修复；偏好/后期效果仍可能被误设为门槛；预算已授权但冻结 Brief 与画面 Need 不允许生成，权限意图传递待核实，不自行解禁。无首版，Voice/Production/Quality 效果未验收，不再盲重试，不自动第二作品。仅更新原 Task 和 [唯一运行记录](acceptance/creation-latency-v04-e2e-2026-10-03.md)，没有同条件基线或提速比例。
+
+方案衔接（2026-10-04）：用户已批准唯一 [Task §1/§6.1/§12](tasks/creation-latency-2026-10-02.md#12-v05-素材层可靠供给与耗时优化方案) 的 v0.5 软件实施与确定性验证；不重启旧任务，不恢复作品，不进行真实模型、素材采购、Material E2E 或 Build。原作品 10 元授权绑定不变，本轮未使用。以下软件结果不改写上述 FAILED。
+
+## v0.5 素材可靠供给与耗时优化（2026-10-04，软件收口）
+
+原 Task §12.7 记录 S1/S2/S3 三项实施及依赖，未新增平行方案：
+
+- **A1/A2：** 逐帧主体相关性与完整适用性分离，硬条件冲突的相关图片可正常保存负面报告；unknown 与报告合同故障继续区分。旧 @2 报告兼容，有效正面与明确硬冲突/内容错配不重做。Owner 自动识别可追溯的旧偏好或静帧后期镜头误拒，只重新观察受影响关联，历史报告保留；无法识别的旧负面证据不自动推翻。静帧无需完成镜头运动，必要主体、表达及硬要求不放宽。
+- **A3：** Preparation/Planning 明确补位内容许可与费用授权不同，默认格式示例不能吞掉用户明确许可；冻结 Brief hash 与 Need 许可冲突直接拒绝，缺冻结文件不能从草稿重造授权。图片补位只针对当前允许静态表达的真实缺口，逐 Need 负面报告及字节、成功供料/查询、已完成观察均须有效。真实证据/身份、源动态要求、禁令、未观察或缺证、Rights 待解决、未知提交和空间不足不自动购买。继续使用原图片 Adapter、核价/占额/请求身份及技术 intake→观察→Rights→Match→Readiness。
+- **B1/B2：** 中文原意和硬约束保留，Planning 提供 provider-neutral 英文主体短语，Compiler 英文优先且不截断语义；沿现有 Pexels/Pixabay/Openverse Audio 获取路径，每批一个外部来源并按已拒批次切换。查询结果按来源/输入缓存，成功空结果也复用；恢复不重复已得素材/有效观察，不清总账。跨来源按字节去重，新增有效 Rights 证据保留。现有小批提名上限与有效拒绝可作为低收益依据，不能要求全池交叉审核或穷尽全部来源才生成；仍有更有依据候选时先看小批。为生图及验证保守预留 5 次调用，不提高额度。记录 query/来源/调用耗时、缓存、重复字节、覆盖、缺口和费用预占；估计时间及实际账单未核实为 unknown。
+- **独立素材终点：** 正式 Operator API `POST /api/creations/{id}/delivery/material-endpoint` 在制作/未知执行开始前持久设置原 Delivery Owner 的 `MATERIAL_READY` 终点。必要观察及当前 Gate 验证完成后自动停止，保存真实素材验收结果；不派发 Authoring、Runtime/Build 或 Quality。`film_delivery_complete=false`，页面显示“素材已就绪 · 本轮已停止”，视频制作及成片阶段仍等待，Creation 不记整片 ready。默认整片委托行为保留。
+
+**确定性验证：** 搜索满足后零生成且停止；一次假生图经完整普通准入达到 READY 后停止；禁止/动态/真实身份/缺授权/报告故障/输入变化/验证空间不足不提交；有效负面保存、中断/费用/未知提交、累计额度、跨内容旧链及受影响重评/历史保留均有 Fixture 或局部 Replay。前端状态投影确认素材完成而成片未完成。最终全量 **644 passed, 5 skipped（43.81s）**，compileall、115 项 skill/publisher 合同、diff check、Creator 状态投影和 frontend lint/build 通过；仅既有两项 Python 依赖提示、Hook 与构建体积提示。未调用真实模型、Provider 采购或视频 Build。
+
+`SOFTWARE=PASS / SOFTWARE_ACCEPTED`。`READY_FOR_MATERIAL_E2E=YES` 仅表示软件入口和停止边界已验证；真实验收尚未执行。下一步须单独核对正式 Planning 输入、Creation/Attempt/许可/预算绑定、剩余额度及未知执行后由用户启动。10 元不能转授新作品，不预先承诺提速比例；真实足量召回、模型判断可靠性、生成适用性及实际耗时仍待验证。软件完成后停止。
 
 ## Snapshot
 
@@ -12,7 +68,47 @@ Last audited: 2026-10-02. This is the single summary of current implementation a
 | External Material Product E2E | **REAL_WORLD_VERIFIED** for one standard-chat Creation through Pexels Search/Acquisition, MaterialReadiness `READY`, Production Authoring, Hypit Build, Export, Review and Selected Output. The [named Acceptance](acceptance/external-material-product-e2e-2026-09-29.md) records the initial MaterialReadiness stop; the same Creation was subsequently completed. |
 | Runtime profiles | `generation` is **READY** (configuration only). `v1-release` is **NOT_READY**: model auth/endpoint and `audio.production` require live verification. 本机旁白识别与配乐观察的离线依赖/模型预检已通过，不能据此代替真实声音效果验收。 Hypit 0.2.7 doctor, Runtime Worker and both local Programs are ready. |
 | P3 | **NOT_STARTED**. |
-| Test suite | Latest complete deterministic run: **614 passed, 5 skipped** on 2026-10-02. Frontend lint/build, compileall, skill contracts and diff check passed. This includes isolated cross-Content replay; no live E2E, paid generation or real Build was run. Existing dependency/Hook/chunk-size warnings remain. |
+| Test suite | Latest complete deterministic run: **644 passed, 5 skipped** on 2026-10-04（v0.5 软件实施，43.81s）. compileall、115 项 skill/publisher 合同、diff check、Creator 状态投影及 frontend lint/build 通过。包含隔离跨内容回放、两种素材终点与生图边界；未运行真实 E2E、付费生成或视频 Build。既有 dependency/Hook/chunk-size 提示保留。 |
+
+
+## 创作临时网关环境释放修复（2026-10-03）
+
+- 用户要求删除本次失败创作数据并修复未释放的根因，范围见 [修复 Task](tasks/creation-runtime-release-2026-10-03.md)。真实日志确认网关 MCP 活跃环境达到 256 上限；安装版 OpenClaw **2026.9.4** 按会话保留环境，空闲回收默认 0，本机该配置此前未设置。Easel 持久保存视觉核验终态后未释放临时环境，独立核验会话累积。
+- Delivery Agent 提交前保存作品专属会话/agent 身份。只有带结束时间且非 yield 的 `ok/error` 终态才调用正式 `sessions.abort(key, agentId, clearQueued=true)` 等待 MCP retirement，保留历史与成功产物；未知执行继续观察同一 run。先持久保存待清理，网关确认无活跃运行后标已释放；响应丢失或无效时，原 `observe_agent` 接续清理后才继续。停止、修改方案或交付后仍核对原有未知执行并接续终态清理，不派发新工作；已结束运行不因清理失败重新提交。
+- 环境上限错误保存白名单中文分类，不保存原始响应或凭证。未改变 Material V1.3、素材适用、Truth/Rights、费用或 Build 准入，也未实施待审阅的三步耗时方案。
+- 本机隔离 easel profile 已设置 `mcp.sessionIdleTtlMs=300000`，网关日志确认热加载；该值是本机空闲回收兜底，不代表其他安装已配置。确认其他作品无活跃执行后，Web 服务已平滑重启加载修复，`/api/status` 返回 200；没有重启网关、调用模型或启动制作。
+- 本次失败作品数据已按授权删除：**93 个专属网关会话及其 SQLite transcript 归档、101 条终态任务及 delivery state、571 条对应 audit 记录**，以及 Creation、Attempt workspace、聊天绑定、独立快照/任务事件和相关原始流/日志。检查专属路径、网关列表、绑定和数据库引用；保留其他作品、共享素材库和配置。仅保留本条不含作品内容/身份的故障与修复摘要，不保留素材或提示正文。
+- 全量确定性 **617 passed, 5 skipped（38.19s）**；Preparation/隔离 Authoring **80 passed**；yield Fixture 补强后网关局部 **6 passed**。覆盖终态释放、停止后仍核对原执行、未知/yield 不释放、清理中断接续、错误网关拒绝、缓存成功不重跑、失败分类脱敏及隔离产物提升。compileall、115 项 skill/publisher 合同和 diff check 通过，仅既有两项 Python 依赖提示。本批无前端代码修改，未重复前端构建；为 **SOFTWARE_ACCEPTED**，未通过真实模型调用验收新作品交付或素材匹配效果。
+
+## 创作耗时优化：首批（2026-10-02）
+
+- **2026-10-03 v0.4 软件完成：** 用户批准唯一 [Task](tasks/creation-latency-2026-10-02.md) 的软件实施；当前为 **APPROVED / SOFTWARE_ACCEPTED / REAL_WORLD_NOT_VERIFIED**。按 §4.1 分段完成累计派发额度与请求历史、查询/Provider 限制、明确混杂旁白的确认拦截、已观察取片整数边界、初次编排必要表达承担项、已核实识别词边界字幕分组，以及有界 Quality 新时点补证与局部报告恢复。R1/R2 只核实和回归，不重复开发；Material V1.3、Truth/Rights、费用及 Quality 文字/时序/依赖权限未改变。3A/3B 等仍延期。
+- **本批确定性结果：** 全量 **632 passed、5 skipped（39.08s）**，局部六文件 **214 passed**，最后五个关键回归 **5 passed**，最终 Provider 选词记录清理后的局部 **108 passed（8.49s）**；compileall、115 项 skill/publisher 合同及 diff check 通过，既有两项依赖弃用提示。当前安装 Hypit 原生文字 Area 与实测字幕组合的实际静态 check 成功；无 Build/Runtime/真实模型。确认稿/Truth、候选接续、共享观察中断、合格后停止、正式选择/越界、未知提交对账及返修受保护输入继续回归。重复同证据补看、已保存报告重审、错误重派覆盖原 run 历史等具体风险已由局部证据保护，不代表真实误判率或端到端耗时通过。
+- **1A 生效边界：** 原 Creation Delivery 持久阶段额度在派发前预占；网关初次/补证/报告修复/明确故障重派、Provider 适配检索、本地声音新观察及生成报价/新提交累计，轮询/清理/有效结果读取不计。子流程、修复副本与显式 Retry 不清零；额度耗尽保留结果并停止新工作，未知提交先对账，不认领成功。上限及推导见 Task §10.1；适配器记录可能命中既有缓存，不冒充实际 HTTP 数或账单。
+- **实证与未验收：** 只读对应 OpenClaw SQLite 会话确认最终两次 assistant `stopReason=length`，最后文本约 2.87 万字符却未保存报告；本批先校验文件、有限局部修复、要求先实际写入后简短回复。Quality 每组只判断采样所覆盖表达，具体缺证补不同实际时点，保留有效观察/检查和中断 checkpoint；无新采样/容量不足/持续 unknown 保留缺口。真实报告稳定性、召回、语义误拒/误通过、完整动态表达、实际音画与导演语言仍未验证。
+- **审查修正执行：R1/R2 软件完成，R3 本轮实测未通过，整体仍 PARTIAL。** 用户要求设定目标后执行，[Task §9](tasks/creation-latency-2026-10-02.md#9-实施后审查任务清单2026-10-03) 保持唯一任务清单。`related-first-v4` 将同池名单拆为派发前冻结的轮次，每 Need / 计划及素材池最多提名 9 项；先接续未观察关联，再沿原有限补料处理缺口。保存提名数、未观察列表及覆盖/候选耗尽/预算耗尽原因。有效报告结果摘要及时持久保存，恢复不丢掉已覆盖 Need 的判断记录。正式准入、Rights、费用和未知执行对账保持原边界。
+- **本次执行终点：软件及确定性验证后停止。** 没有重启服务、继续旧 Creation、调用真实模型或执行 Build/完整 E2E；运行中服务未加载本批修改。没有已知确定性回归阻塞，具备独立真实验收准备条件；实际启动须另行确认新委托、费用及执行范围并完成版本/环境预检，不自动转授旧 10 元授权，不代用户接受成片。旧 R3 保持失败及工程介入记录。
+- **R3 已核实进展与 2B 修正：** 六视觉 Need 及已生成旁白完成正式覆盖（旁白预算预估上限 0.075600 元，非最终账单），经配乐定向补料及实际公开源页核实，19:09:44 前已 MATERIAL_READY 并自动进入编排，20:17:11 首个真实无 Provider 费用 Build 已提交并完成，45 秒 / 1080×1920 / 24fps MP4 技术 QC pass；实际首屏字幕对比和必要画面关系存在不足，20:47:49 首轮四组 Quality 已为 REPAIR_REQUIRED，关键画面/剪辑表达失败及四处声音遮盖告警；报告另有字幕底色/素材朝向误判。20:53:57 后续复查因报告未落盘而重试耗尽，Delivery failed，所有请求已终态，无第二 Attempt 或新购买；不能宣称可看首版或风格通过。实际补料查询被复杂声音偏好覆盖，当前首个分页查询不变；最小修正保留明确补料词首位、偏好次位，默认初次检索及正式合同不变。全量 627/5 跳过、compileall/115 项合同/diff check 通过。确认无未知运行后重载 Web，正常 BGM-only 恢复不重购旁白；新配乐已通过既有声音证据及真实公开源页权利复核，Production/export 仍必须落实 CC BY 署名，不能据候选返回或文件存在宣称成片通过。19:15:10–19:34:50 发生合盖休眠；恢复后原编排请求明确失败，下一隔离轮自动补齐后仍缺主 SVML，原三次有界编排耗尽后，最小修正补齐指令的样式依赖冲突及缺失文件失败分类，627/5 回归通过；无未知运行时重载 Web 并经原 Delivery 重试入口接续，另已完成仅补充取片失败定位/精确帧界的诊断修正，627/5 回归通过，已核对隔离接续合同及既有测试，平滑加载诊断增强并保留同一 run/stage，未重派或取消；已有真实 MP4，详细阶段与人工救场限制见具名 R3 验收。
+- **R3 真实首个问题：** 17:59:14 正式确认后首次规划因文案字段混入非朗读说明，规划删去说明而被冻结一致性检查阻止；两次合同修正仍失败，尚无生成或 Build。18:14:21 经正常方案编辑整理，18:16:44 同内容同规格、10 元生成额度重新正式确认并接续。此人工恢复意味着初始无需救场自主性未通过；继续运行验证真实素材/制作，不倒算初始自主成功，详见 [本次验收](acceptance/creation-latency-r3-2026-10-03.md)。
+- **本次验证：** 第 5 项合格及描述缺失的第 9 项合格可在无新增素材下从报告保存后中断沿正常 Delivery 恢复至 `MATERIAL_READY` / 下一步 Authoring；首批已齐不继续，全失败最多 9 项且第 10 项保留为未观察，重入不新增调用。共享组分发中断复用已保存结果，后续组跳过已覆盖 Need。附件不可见保留 uncertain，否定与逐帧字段矛盾有界修复，持续坏报告不无限调用，未知结果不当内容拒绝；上述软件动作不证明真实语义误判率改善。局部 **135 passed（9.82s）**；全量 **623 passed、5 skipped（37.88s）**，compileall、115 项 skill/publisher 合同及 diff check 通过，仅既有两项依赖提示。未改前端、重启服务、调用真实模型或执行真实 Build/E2E。真实速度、五项风格及无工程救场首版仍 **NOT_VERIFIED**；具体新委托草案与费用缺口见同一 Task，未创建或启动作品。
+- **R3 已获真实启动授权：** 用户采用草案、素材/旁白生成总预算上限 10 元，仅生成真实缺口，并允许问题中说明的正常模型、服务加载与真实 Build/E2E，不发布。核对无其他自主委托与 Web 执行子进程后平滑重启 Web，未重启网关；临时防休眠。正常 `/api/chat` 已新建 Creation `cr_9d6b90b9df6249fea31eee265301efbd`，完成一轮完整提案及一轮修改，通过原 `confirm_production` 绑定 45 秒 / 9:16 / 旁白与音乐 / 简体中文、当前 Mode 与预算。提案自加手部精确动作已在确认前改为日常 B-roll + 工程文字承担核心关系，保留必要表达；未手写制作 Plan、Asset 或工程。阶段与成片结果见 [本次验收记录](acceptance/creation-latency-r3-2026-10-03.md)，本轮真实验收未通过，后续事项已收敛在原 Task 的 R3 终态节。上条“未重启/未真实调用”仅指软件验证阶段，不覆盖本次获授权的 R3。
+
+- **此前软件增量（审查修正前）：** 正式 Web 入口已接共享视觉审核；此前每 Need 同类型候选仍最多九项。新提名 `related-first-v3` 每批最多四项相关 + 一项未知文字关联探索，全无文字关联则最多探索四项，但没有同池后续批次；本次 v4 已补齐接续。描述只决定提名，不证明适用。各共享子报告独立验证后及时登记，新组跳过正式覆盖，保存中断的组仍按原身份恢复。无变化重算保留原 SupplyRun/Bundle，必要匹配/Readiness 仍执行。保存当前 Need/字节绑定的 verdict/reason/可用性供有限补料调整策略；报告自身的逐帧证据与否定结论矛盾进入已有一次结构修复，unknown 不等于内容错配，技术故障仍走原执行对账。
+- **规划与风格：** 对话/Planning/Authoring 明确区分要求来源、必要表达、Mode 稳定表达和软偏好，在获准能力内提出可制作镜头，并要求五项音画表达实际落实、沿已有 Quality 检查。新增现有 Delivery 内部 Preparation/Planning/结构修正/Truth/事实文稿修正计时。调用计时包含 checkpoint 读取与等待，不等于模型提交；内部时间属于大阶段，不能叠加算端到端。确认稿、有效 Truth、实际抽帧、费用与准入继续复用既有边界，不建设通用缓存/事实/观测层，不新增裁切消硬冲突准入。
+- **此前软件证据与限制：** 全量 **618 passed、5 skipped（37.04s）**，局部 **130 passed（8.77s）**；compileall、115 项 skill/publisher 合同及 diff check 通过，仅既有两项依赖提示，本轮未改前端或重复前端构建。固定三场景/九素材的送审关联 **27 → 12**，两次共享调用达到 MATERIAL_READY，保留未知描述探索且不复审已覆盖场景；全失败首批 **9 → 4** 仍明确 NOT_READY，不能单凭此宣称交付改善。报告一致性检查只能发现自身矛盾，不能自动证明画面语义误判；没有新增补看能力。真实成片风格、自主交付、服务加载和整片提速仍 **NOT_VERIFIED**。本轮未重启服务、调用模型、运行真实 Build/E2E。
+
+- 以下为 2026-10-02 首批独立证据，不能当作本轮真实链路验收。用户新增优先项为缩短创作时间；[Task](tasks/creation-latency-2026-10-02.md) 已记录方案确认、Preparation/Planning/Truth、素材/声音、编排、Build、审片全链瓶颈与后续顺序。真实整片时延仍未测量，不能将局部减少计算等同整体提速比例。
+- 原 Delivery Owner 每三秒扫描一次，成功步骤也等待下轮。现在成功且操作/Attempt 已变化时立即接续，每轮最多 32 步；同操作仍等待轮询，失败/不确定执行返回原机制，未改变执行锁、费用批准、对账和停止条件。回放的同一 18 次操作由 18 次调度减少为 6 个连续批次；真实节省取决于原各步骤完成时与轮询时钟的关系，并非固定每步三秒。
+- 同素材视觉预览在单次观察内按版本、字节、媒体类型与时长有限复用，最多缓存九项。每次仍校验实际文件 SHA/大小，并生成独立 Need 输入与判断；不持久化缓存，重启重建。真实短视频的四个 Need 回放从 20 次 ffmpeg 抽帧减少为 5 次，采样时间与帧摘要保持，字节改变拒绝复用。
+- 原 delivery 增加 `operation_timings`，按 Attempt/操作保存次数、累计/最近执行秒数、首次/最近起止时间及最近结果。该执行时间包含单次调用的等待，不包含两次调用之间的远端运行、调度或人工等待；不可直接求和当作端到端时间。网关运行仍使用已有持久身份和时间记录。
+- 确定性全量 **615 passed, 5 skipped（37.99s）**；Preparation/Material 局部 **127 passed**；compileall、115 项 skill/publisher 合同和 diff check 通过，仅既有两项依赖提示。复用原场景验证立即接续、同操作不忙轮询、失败与未知提交不重提、停止、计时累积、逐 Need 独立证据及实际抽帧复用。本批没有前端改动，未重复前端检查。
+- 本批为 **SOFTWARE_ACCEPTED / REAL_WORLD_LATENCY_NOT_VERIFIED**。未调用付费 AI、真实 Build/E2E、推进已有作品或重载服务；运行中服务需加载新代码后生效。后续按唯一 v0.3 最小范围处理素材候选/重复工作并验证单主题链路；有限并发等延期，不减少必要审片。
+
+## 作品画布状态误报修复（2026-10-02）
+
+- 本机读取确认：当前作品 Creation/Attempt 接口正常，Delivery 正等待 Planning；尚无持久规划证据时，页面提前请求 script-truth 返回 400，被误报为“状态更新失败”。重连仅重读相同接口，无法消除该误报。
+- 画布与旧路径轮询现在仅在 material_planning 为 PLANNING_READY 后读取事实审核数据；完成规划后的证据读取错误仍正常显示。重新连接会重新建立同源 Operator 会话并刷新状态，不重新提交制作。
+- 扩展已有 workspace-browser Fixture 验证规划未完成零审核请求、已完成规划后读取失败及重连恢复、会话重新建立；页面场景全部通过，lint/build 与 diff check 通过，既有 Hook/打包体积提示保留。前端已重新构建并确认当前服务返回新版资源；未重启制作服务、修改既有作品或提交真实 Build。真实作品能否完成仍需后台执行结果。
 
 ## 本轮收尾与真人验收边界（2026-10-02）
 
@@ -419,12 +515,11 @@ Required Needs without current inspected, rights-admitted assets stop at `MATERI
 
 ## 当前剩余事项与顺序
 
-- 唯一自主首版 Task 的 A/C/B/D/E 软件范围已完成，不再保留开发收尾队列；T19、工作区及旧 E2E 修复只作历史基线。
-- 下一步由用户启动：加载新代码，核实实际模型认证/endpoint 与音频能力，新建作品验收自主首版，再以同 Creator/Director 的不同 Content 验收风格一致性。记录实际耗时、人工介入与恢复结果；有具体失败证据后才确定新的修复任务。
-- Library 正向真实复用、署名素材真实导出等专项证据缺口单独保留；P3 尚未启动，不并入本轮。
-- 新委托在明确授权范围内逐次核价和记录，无须逐次人工确认；未知价格、授权外费用、提交不确定继续停留在正式边界。软件验收准备度不替代真实运行依赖与感知效果验收。
-- 跨内容局部回放属于本目标，已有三内容场景；真实跨内容感知效果尚未验收，不列为无关后续任务。
-- 旧音画作品已入库但有工程介入；最新未完成作品已删除。不存在本轮要继续的“当前失败 Creation”。真实 E2E 等用户另行启动。
+- v0.5 软件范围已完成确定性验证；最新正常对话新作品真实验收 **PARTIAL / 4 of 9 / AUTONOMOUS=NO**，已因旁白 ASR 证据不足停止。正式输入、工程干预、调用与费用见顶部摘要及[唯一运行记录](acceptance/creation-latency-v05-material-e2e-2026-10-04.md)。不能继续沿用“尚未启动素材验收”或“没有当前失败作品”的旧阶段描述。
+- 未覆盖三项视觉 Need、旁白及 BGM；后续若获授权，从同一有效 Planning 检查点处理。现有能力的无变化重试已耗尽相应停止边界，不降低阈值、不人工改证据、不重复购买。当前新作品预算10元独立绑定，占额0.1048元，剩余9.8952元；实际 Provider 账单未核实，恢复前重新核对累计总账与未知提交。
+- OpenClaw Planning 收尾补丁仅离线落盘，未重启加载或真实验证；不把源码修复当成服务已生效。任何后续加载先核对其他活动作品。
+- 唯一自主首版 Task 的 A/C/B/D/E 软件范围已完成；完整视频自主交付与跨内容真实感知验收后置，需用户另行启动。不在素材终点派发 Authoring / Build / Quality。
+- Library 正向真实复用等专项证据缺口单独保留；P3 尚未启动。具名音画作品曾经人审入库但有工程介入，不据此推定当前版本自主通过。
 
 ## Status Rules
 

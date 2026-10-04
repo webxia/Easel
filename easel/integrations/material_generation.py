@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from decimal import Decimal, InvalidOperation
 
 from easel import creation
@@ -190,6 +191,14 @@ def pending_generated_need(work, attempt, plan):
         if (need.need_id not in blocking or need.constraints.get('allow_generation') is False
                 or not MaterialSourceRouter._generation_eligible(need)):
             continue
+        if need.media_type.value in {'image', 'video'}:
+            # This fallback only buys static images. An explicitly requested
+            # video generation keeps its existing route outside this strategy.
+            if need.media_type.value == 'video':
+                if work['delivery'].get('endpoint') == 'MATERIAL_READY':
+                    continue
+            elif not image_fallback_decision(work, attempt, plan, need)['eligible']:
+                continue
         key = 'delivery-' + _digest([plan.attempt_id, revision, need.need_id])[:32]
         if any(r.get('need_id') == need.need_id and r.get('status') == 'uncertain' for r in records.values()):
             continue
@@ -201,6 +210,102 @@ def pending_generated_need(work, attempt, plan):
         if prior is None or prior.get('status') == 'reserved':
             return need, key
     return None
+
+
+def image_fallback_decision(work, attempt, plan, need) -> dict:
+    """A shortage is established by valid supply/observation, never report failure."""
+    from easel.materials.application.readiness import MaterialReadinessCalculator
+    from easel.materials.application.visual_observation import need_identity
+    from easel.materials.application.matching import MaterialMatcher
+    from easel.creation_preparation import _load_snapshot, preparation_paths
+    from easel.materials.domain import MediaType
+    result = {'eligible': False, 'need_id': need.need_id, 'reason': '未证明允许且适用于静态图的真实缺口'}
+    if (need.media_type is not MediaType.IMAGE or need.constraints.get('allow_generation') is not True
+            or any(need.constraints.get(k) is True for k in ('requires_real_evidence', 'requires_real_identity', 'requires_dynamic_action'))
+            or need.constraints.get('required_identity_refs')
+            or need.constraints.get('required_source_kind') in {'stock', 'local'}):
+        return result
+    preparation = work.get('preparation', {})
+    if preparation.get('snapshot_hashes'):
+        if not preparation_paths(work['id'], preparation['operation_key'])['snapshot'].is_dir():
+            return {**result, 'reason': '冻结内容许可文件缺失，不能重新制造授权'}
+        snapshot = _load_snapshot(work, preparation)
+        if (snapshot['hashes']['production_brief'] != plan.context_refs.get('production_brief_sha256')
+                or snapshot['bundle']['production_brief']['ai_generation_allowed'] is not True):
+            return {**result, 'reason': '冻结 Brief 未允许生成或许可来源不匹配'}
+    elif plan.context_refs.get('production_brief_sha256'):
+        return {**result, 'reason': '缺少可核对的冻结内容许可'}
+    gate, observation = attempt.get('material_gate', {}), attempt.get('material_observation', {})
+    if (need.need_id not in gate.get('blocking_needs', [])
+            or gate.get('plan_revision') != MaterialReadinessCalculator.plan_revision(plan)
+            or observation.get('status') != 'COMPLETE'
+            or observation.get('plan_revision') != gate.get('plan_revision')
+            or observation.get('bundle_revision') != gate.get('bundle_revision')):
+        return {**result, 'reason': '素材观察未完成或依据已变化；报告故障不触发生图'}
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    bundle = store.read_bundle()
+    if bundle.revision != gate.get('bundle_revision'):
+        return result
+    matcher = MaterialMatcher()
+    if matcher.match(need, bundle.assets).matches:
+        return {**result, 'reason': '已有合格覆盖'}
+    outcomes = {r['asset_id']: r for r in observation.get('outcomes', [])
+                if r.get('need_id') == need.need_id and r.get('need_sha256') == need_identity(need)}
+    from easel.materials.application.visual_observation import observed_match
+    pool = [a for a in bundle.assets if a.media_type is need.media_type]
+    candidates = [a for a in pool if a.asset_id in outcomes or observed_match(need, a) is True]
+    unobserved = [a for a in pool if a not in candidates]
+    progress = observation.get('candidate_progress', {}).get(need.need_id, {})
+    if progress.get('next_candidates') and progress.get('stop_reason') == 'batch_complete':
+        return {**result, 'reason': '仍有更有依据的未观察候选，应先接续小批'}
+    valid_rejections = 0
+    for asset in candidates:
+        row = outcomes.get(asset.asset_id, {})
+        if row.get('asset_sha256') != asset.file.sha256:
+            return {**result, 'reason': '观察身份失效，不能触发生图'}
+        from easel.materials.application.visual_observation import read_observation_report
+        identity = row.get('input_sha256', '')
+        if not isinstance(identity, str) or not re.fullmatch(r'[0-9a-f]{64}', identity):
+            return result
+        input_path = store.materials_root / 'observations' / (identity + '.input.json')
+        try:
+            if input_path.is_symlink():
+                return result
+            manifest = json.loads(input_path.read_text())
+            report = read_observation_report(store.materials_root / 'observations' / (identity + '.json'), need, asset, manifest)
+            path = store.resolve_asset_locator(asset.file.path)
+            if hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256:
+                return result
+            if report['verdict'] == 'suitable':
+                return {**result, 'reason': '内容合适但准入缺证，先处理权利或技术条件'}
+            if report['verdict'] == 'unsuitable' or (report['verdict'] == 'partial'
+                    and report.get('failure_kind') in {'content_mismatch', 'hard_constraint'}
+                    and any(f.get('meets_requirements') is False for f in report['frames'])):
+                valid_rejections += 1
+        except (ValueError, OSError, TypeError, AttributeError):
+            return {**result, 'reason': '有效负面报告缺失或失效，不能触发生图'}
+    path = store.materials_root / 'product-supply.json'
+    if path.is_symlink() or not path.is_file():
+        return {**result, 'reason': '尚无 Library-first / 检索证据'}
+    evidence = json.loads(path.read_text())
+    trace = next((r for r in evidence.get('routing', []) if r.get('need_id') == need.need_id), {})
+    if (evidence.get('attempt_id') != attempt['attempt_id']
+            or evidence.get('plan_revision') != gate.get('plan_revision') or not trace.get('attempted_sources')
+            or trace.get('failures')):
+        return {**result, 'reason': '检索未执行或调用故障，不能当作召回不足'}
+    if candidates and not valid_rejections:
+        return {**result, 'reason': '只有缺证或未知，不能当作真实召回失败'}
+    budget = work['delivery'].get('call_budgets', {}).get('material')
+    # Reserve verification room for every remaining permitted image gap.
+    remaining_generation_needs = [n for n in plan.needs if n.need_id in gate.get('blocking_needs', [])
+        and n.media_type is MediaType.IMAGE and n.constraints.get('allow_generation') is True]
+    reserve = 7 * max(1, len(remaining_generation_needs))
+    if budget and budget['limit'] - budget['used'] < reserve:
+        return {**result, 'reason': '累计调用空间不足以生成并验证', 'reserved_calls': reserve}
+    return {**result, 'eligible': True, 'reason': '相关有界检索无可用覆盖；静态图许可成立，仅补当前缺口',
+            'reserved_calls': reserve, 'remaining_calls': budget['limit'] - budget['used'] if budget else None,
+            'rejected_associations': len(candidates), 'remaining_low_yield_candidates': len(unobserved),
+            'generation_elapsed_estimate': 'unknown'}
 
 
 def generate_for_commission(attempt_id: str) -> None:
@@ -219,6 +324,11 @@ def generate_for_commission(attempt_id: str) -> None:
     if not choice:
         return
     need, request_id = choice
+    if need.media_type.value == 'image':
+        with creation.edit_creation(work['id']) as current:
+            current['delivery'].setdefault('material_supply_decisions', []).append(
+                {**image_fallback_decision(work, attempt, planning['plan'], need),
+                 'request_id': request_id, 'created_at': creation._now()})
     authorization = work['delivery']['authorization']['material_generation']
     settings = EaselRuntimeConfig.load().minimax
     if (not settings.api_key or generation_scope(settings) != authorization['scope']
@@ -237,6 +347,10 @@ def generate_for_commission(attempt_id: str) -> None:
     # A fresh submit is quoted again even after a restart. A retained task/result
     # uses its original reservation and never buys a second generation.
     if execution is None:
+        from easel.creation_delivery import active_delivery, reserve_delivery_call
+        if active_delivery.get() == work['id']:
+            with creation.edit_creation(work['id']) as current:
+                reserve_delivery_call(current, category='generation_quote', stage_override='material', need_count=len(planning['plan'].needs))
         if any(getattr(n.modality_spec, 'kind', None) == 'bgm' for n in planning['plan'].needs):
             from easel.materials.application.music_observation import require_local_music_model
             require_local_music_model()  # Check known delivery dependencies before any new paid material.
@@ -262,6 +376,8 @@ def generate_for_commission(attempt_id: str) -> None:
                 ledger[request_id] = {'status': 'budget_exceeded', 'need_id': need.need_id,
                                       'attempt_id': attempt_id, 'reason': '所需生成费用超出委托剩余额度；未提交生成'}
                 return
+            if active_delivery.get() == work['id']:
+                reserve_delivery_call(current, category='generation_submit', stage_override='material', need_count=len(planning['plan'].needs))
             ledger[request_id] = {'status': 'reserved', 'attempt_id': attempt_id, 'need_id': need.need_id,
                                  'fingerprint': fingerprint, 'quote': quote, 'reserved_at': creation._now()}
     elif execution.get('status') in {'GENERATING', 'SUBMITTING', 'SUBMISSION_UNCERTAIN'}:

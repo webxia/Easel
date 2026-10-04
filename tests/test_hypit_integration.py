@@ -350,7 +350,7 @@ def test_complete_lifecycle_requires_review_before_selection(integration_env, mo
             "human": {"status": "approved"},
         })
 
-    system_review = {'schema': 'easel-output-quality@5', 'status': 'READY',
+    system_review = {'schema': 'easel-output-quality@6', 'status': 'READY',
                      'binding': {'output_name': 'final.video', 'sha256': exported['outputs']['final.video']['sha256']}}
     service.update_film_attempt(attempt['attempt_id'], event='fixture_system_review',
                                review={**exported['review'], 'system': system_review})
@@ -1307,6 +1307,7 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
         'outputs': {'final': {'path': str(output), 'sha256': service._file_sha256(output),
                             'metadata': {'duration_seconds': 4, 'audio_present': True}}},
         'review': {'human': {'status': 'pending'}}}
+    from easel.integrations import material_recovery  # Import before temporary service fixture bindings.
     monkeypatch.setattr(service, 'get_film_attempt', lambda identity: attempt)
     monkeypatch.setattr(service, '_execution_fingerprint', lambda a: {'sha256': 'fixture-input'})
     monkeypatch.setattr(service, '_output_path', lambda a, o: output)
@@ -1427,6 +1428,12 @@ def test_output_quality_detects_masking_truncated_voice_and_decoded_black_frames
             report['checks']['readability'] = {'status': 'unknown', 'reason': '字幕边界仍不确定', 'frame_indices': []}
         if manifest['observation_round'] > 1:
             assert manifest['review_focus'] == {'readability': '字幕边界仍不确定'}
+            assert len(manifest['frames']) > 1
+            assert manifest['frames'][0]['time_seconds'] != manifest['frames'][-1]['time_seconds']
+            for k, check in manifest['resolved_checks'].items():
+                assert report['checks'][k] == check
+            for f in manifest['resolved_frames']:
+                assert report['frames'][f['index']]['description'] == f['description']
         return report
     previous_system = attempt['review']['system']
     with pytest.raises(HypitIntegrationError, match='after two validated batches'):
@@ -1502,6 +1509,12 @@ def test_system_quality_cannot_pass_unseen_or_stale_frames():
     with pytest.raises(ValueError, match='未看到'):
         validate_visual_review(manifest, report)
     report['frames'][0]['observed'] = True
+    manifest['frames'].append({'index': 1, 'expression_need_ids': ['essential']})
+    report['frames'].append({'index': 1, 'observed': True, 'description': '必要关系承担帧'})
+    with pytest.raises(ValueError, match='必要表达通过结论'):
+        validate_visual_review(manifest, report)
+    report['checks']['narrative']['frame_indices'].append(1)
+    validate_visual_review(manifest, report)
     report['input_sha256'] = 'other-output'
     with pytest.raises(ValueError, match='当前输出'):
         validate_visual_review(manifest, report)
@@ -1571,3 +1584,37 @@ def test_system_quality_revision_changes_only_defective_layer(tmp_path):
     with pytest.raises(HypitIntegrationError, match='未授权部分'):
         assert_quality_revision(base, target, {'visual', 'visual_material'}, replacements={
             './old.mp4': {'./new.mp4': {'media_type': 'video', 'width': 64, 'height': 96}}})
+
+
+def test_initial_expression_coverage_requires_visible_graph_and_actual_windows(tmp_path):
+    from easel.integrations.hypit.revision import expression_uses
+    source, timings, paths = measured_narration_fixture()
+    source = source.replace('<typo:Track id="easel-captions"', '''<copy:Value id="one-item">今天这一件</copy:Value>
+<typo:Track id="choice-graphic" timeline={program.timeline}>
+<typo:Area id="selected-item" content={one-item} placement={easel-caption-frame} style={easel-caption-style} at="1s" for="2s"/>
+</typo:Track>
+<typo:Track id="easel-captions"''').replace('<film:Track source={voice-track.audio}/>',
+        '<film:Track source={choice-graphic.track}/><film:Track source={voice-track.audio}/>')
+    row = {'need_id': 'choice', 'element_ids': ['selected-item'], 'at_seconds': 1, 'end_seconds': 3, 'responsibility': 'graphic'}
+    path = tmp_path / 'main.svml'
+    def write(text, value=row):
+        path.write_text(text + '\n<!-- Easel expression: ' + json.dumps(value) + ' -->')
+    write(source)
+    assert expression_uses(path, required_need_ids={'choice'}) == [row]
+    from easel.integrations.hypit.revision import assert_quality_revision
+    revised = tmp_path / 'revised.svml'
+    revised.write_text(path.read_text().replace('\"at_seconds\": 1', '\"at_seconds\": 1.5'))
+    with pytest.raises(HypitIntegrationError, match='未授权部分'):
+        assert_quality_revision(path, revised, {'visual', 'captions'})
+    write(source.replace('<film:Track source={choice-graphic.track}/>', ''))
+    with pytest.raises(HypitIntegrationError, match='未进入 Film'):
+        expression_uses(path, required_need_ids={'choice'})
+    write(source, {**row, 'end_seconds': 4})
+    with pytest.raises(HypitIntegrationError, match='播放窗口'):
+        expression_uses(path, required_need_ids={'choice'})
+    write(source, {**row, 'element_ids': ['voice-track']})
+    with pytest.raises(HypitIntegrationError):
+        expression_uses(path, required_need_ids={'choice'})
+    write(source)
+    with pytest.raises(HypitIntegrationError, match='完整覆盖'):
+        expression_uses(path, required_need_ids={'choice', 'other'})

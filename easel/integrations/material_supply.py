@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from easel.integrations.hypit.secrets import SecretRedactor
+
 import hashlib
 import json
 import os
@@ -9,6 +11,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from time import monotonic
 from typing import Callable
 
 from easel import creation
@@ -21,7 +24,7 @@ from easel.materials.application.library_reuse import LibraryReuseService
 from easel.materials.application.matching import MaterialMatcher
 from easel.materials.application.readiness import MaterialReadinessCalculator
 from easel.materials.application.standalone import StandaloneMaterialFlow
-from easel.materials.application.acquisition import MaterialAcquirer
+from easel.materials.application.acquisition import MaterialAcquirer, RemoteURLPolicy
 from easel.materials.domain import (
     MaterialAsset, MaterialBundle, MaterialGap, MaterialPlan, MaterialReadiness, MediaType,
     RightsInfo, SupplyRun, SupplySourceResult, TechnicalStatus, SemanticField,
@@ -127,11 +130,16 @@ class ProductMaterialSupply:
         additional_visual_need_ids: tuple[str, ...] = (),
     ) -> ProductSupplyResult:
         started_at = datetime.now(timezone.utc)
+        started = monotonic()
         if set(additional_visual_need_ids) - {n.need_id for n in plan.needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}:
             raise ValueError('额外视觉补料只能使用现有图像或视频 Need')
         store = AttemptMaterialStore(attempt["workspace"]["path"])
         from easel.creation_delivery import is_managed
         retain_sources = is_managed(creation.get_creation(attempt['creation_id'])) or supply_run_id.startswith('supplement-')
+        from easel.creation_delivery import active_delivery
+        if active_delivery.get() == attempt['creation_id']:
+            with creation.edit_creation(attempt['creation_id']) as work:
+                work['delivery'].setdefault('material_started_at', creation._now())
         catalog = MaterialLibraryCatalog(self.library_root)
         scope = self.scope_for_attempt(attempt)
         registry, missing_keys = (
@@ -140,6 +148,7 @@ class ProductMaterialSupply:
         )
         assert registry is not None
         infos = registry.infos()
+        from easel.materials.application.routing import ProviderRoutingPolicy
         library_first = LibraryFirstSupplyService(
             LibraryReuseService(catalog),
             AdvancedMaterialMatcher(MaterialSemanticIndex(catalog)),
@@ -190,26 +199,93 @@ class ProductMaterialSupply:
                               "attempted_sources": [], "failures": [],
                               "selection_authority": False})
                 continue
+            # A rejected batch can continue at an untried capable source. Keep
+            # one external source per pass, rather than fan-out on every retry.
+            from easel.materials.application.visual_observation import scoped_inference
+            current_intent = hashlib.sha256(NeedCompiler(search_terms=search_terms).compile(need, creative_mode_terms=style_terms).to_json().encode()).hexdigest()
+            current_links = (store.read_recovery_record('candidate-links') or {}).get('assets', {})
+            rejected_sources = {a.source.provider for a in assets.values()
+                if any(r.get('need_id') == need.need_id and r.get('compiled_intent_sha256') == current_intent
+                       for r in current_links.get(a.asset_id, []))
+                if a.media_type is need.media_type and any(
+                    scoped_inference(need, a, i) and any((ann.evidence or '').endswith(':unsuitable')
+                        for ann in i.annotations) for i in a.semantic.inferences)
+                and not matcher.match(need, (a,)).matches}
+            preferred = tuple(i.provider_id for i in infos if i.provider_id not in rejected_sources)
+            policy = ProviderRoutingPolicy(preferred_provider_order=preferred, max_external_providers=1)
+            reused_queries, reused_assets, duplicate_bytes = [], [], []
+            search_clock = []
+            wire_queries = []
             def source_supply(source_id: str, requested_need=need) -> tuple[MaterialAsset, ...]:
-                source_registry = ProviderRegistry()
+                wire_queries.clear()
+                def before_search(provider_id, intent, retry):
+                    from easel.creation_delivery import active_delivery, reserve_delivery_call, DeliveryExecutionUncertain
+                    cid = active_delivery.get()
+                    if cid != attempt['creation_id']:
+                        return
+                    search_clock[:] = [monotonic()]
+                    with creation.edit_creation(cid) as work:
+                        if any(c.get('status') in {'pending', 'submitting'} for c in work['delivery'].get('agent_calls', {}).values()):
+                            raise DeliveryExecutionUncertain('素材检索前已有未知提交，先核对原执行')
+                        stage, ordinal = reserve_delivery_call(work, category='provider_search', stage_override='material',
+                            need_count=len(plan.needs), source_count=len(infos))
+                        work['delivery'].setdefault('provider_calls', []).append({
+                            'stage': stage, 'stage_ordinal': ordinal, 'provider_id': provider_id,
+                            'need_id': intent.need_id, 'retry': retry, 'supply_run_id': supply_run_id,
+                            'intent_sha256': hashlib.sha256(intent.to_json().encode()).hexdigest(),
+                            'query_hints': SecretRedactor.redact(list(intent.semantic_queries)), 'created_at': creation._now()})
+                def after_search(provider_id, intent, query, failure_type):
+                    wire_queries.append(SecretRedactor.redact(query))
+                    from easel.creation_delivery import active_delivery
+                    cid = active_delivery.get()
+                    if cid != attempt['creation_id']:
+                        return
+                    with creation.edit_creation(cid) as work:
+                        record = work['delivery']['provider_calls'][-1]
+                        if record['provider_id'] == provider_id and record['need_id'] == intent.need_id:
+                            record.update(actual_query=SecretRedactor.redact(query), failure_type=failure_type,
+                                finished_at=creation._now(), elapsed_seconds=round(monotonic() - search_clock[0], 6))
+                source_registry = ProviderRegistry(before_search=before_search, after_search=after_search)
                 source_registry.register(registry.get(source_id))
                 subset = plan.model_copy(update={"needs": (requested_need,)})
                 key = hashlib.sha256(f"{supply_run_id}\0{source_id}\0{requested_need.need_id}".encode()).hexdigest()[:20]
+                provider = registry.get(source_id)
+                local_revision = []
+                if isinstance(provider, LocalProvider):
+                    # Local media and byte-bound Rights sidecars are mutable
+                    # inputs. Cache reuse must notice additions/changed evidence.
+                    for media_path in provider._supported_files(requested_need.media_type):
+                        for path in (media_path, Path(str(media_path) + '.rights.json')):
+                            if path.exists() and not path.is_symlink():
+                                stat = path.stat()
+                                local_revision.append((str(path), stat.st_size, stat.st_mtime_ns))
                 input_sha256 = hashlib.sha256(json.dumps({
                     'plan': subset.model_dump(mode='json'), 'style': style_terms,
-                    'search_terms': search_terms, 'top_n': top_n,
-                    **({'additional_visual': True, 'retained_sha256': sorted(retained_hashes)} if additional else {}),
+                    'search_terms': (search_terms or {}).get(requested_need.need_id), 'top_n': top_n,
+                    'compiled_intent': NeedCompiler(search_terms=search_terms).compile(requested_need,
+                        creative_mode_terms=style_terms).model_dump(mode='json'),
+                    'provider_contract': provider.info().model_dump(mode='json'),
+                    'local_roots': [str(Path(p).resolve()) for p in local_roots], 'local_revision': local_revision,
                 }, sort_keys=True).encode()).hexdigest()
+                # Query/input identity, independent of the surrounding recovery
+                # run. A completed empty query is reusable too.
+                key = hashlib.sha256((source_id + input_sha256).encode()).hexdigest()[:20]
                 receipt = store.read_recovery_record(f'source-{key}') if retain_sources else None
                 if receipt is not None:
+                    wire_queries[:] = receipt.get('actual_queries', [])
+                    reused_queries.append(source_id)
                     if receipt.get('input_sha256') != input_sha256:
                         raise ValueError('同一素材供应请求不能改变检索依据')
                     restored = tuple(MaterialAsset.model_validate_json(json.dumps(item)) for item in receipt['assets'])
                     for asset in restored:
                         path = store.resolve_asset_locator(asset.file.path)
-                        if (store.read_asset(asset.asset_id) != asset or path.stat().st_size != asset.file.size
+                        current = store.read_asset(asset.asset_id)
+                        if (current.file != asset.file or current.source != asset.source
+                                or current.technical != asset.technical or path.stat().st_size != asset.file.size
                                 or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
                             raise ValueError('已完成素材供应的结果已变化，不能重复请求或覆盖')
+                    restored = tuple(store.read_asset(a.asset_id) for a in restored)
+                    reused_assets.extend(a.asset_id for a in restored)
                     results = tuple(SupplySourceResult.model_validate_json(json.dumps(item)) for item in receipt['provider_results'])
                 else:
                     restored = None
@@ -234,20 +310,50 @@ class ProductMaterialSupply:
                         store.write_recovery_record(f'source-{key}', {
                             'input_sha256': input_sha256, 'assets': [a.model_dump(mode='json') for a in restored],
                             'provider_results': [r.model_dump(mode='json') for r in results],
+                            'actual_queries': list(wire_queries),
+                            'candidate_origins': [{
+                                'provider': c.source.provider, 'provider_asset_id': c.source.provider_asset_id,
+                                'source_page': RemoteURLPolicy.redact(c.source.source_page), 'media_type': c.media_type.value, 'rank': rank}
+                                for r in result.provider_results if r.page is not None
+                                for rank, c in enumerate(r.page.candidates)],
                         })
                 for item in results:
                     totals = source_totals[item.source_id]
                     totals["candidates"] = int(totals["candidates"]) + item.candidates_found
-                    totals["acquired"] = int(totals["acquired"]) + item.acquired_assets
+                    totals["acquired"] = int(totals["acquired"]) + (item.acquired_assets if receipt is None else 0)
                     if item.failure_summary:
                         totals["failures"].append(item.failure_summary)
-                return restored
+                links = store.read_recovery_record('candidate-links') or {'assets': {}}
+                origins = receipt.get('candidate_origins', []) if receipt is not None else [
+                    {'provider': c.source.provider, 'provider_asset_id': c.source.provider_asset_id,
+                     'source_page': RemoteURLPolicy.redact(c.source.source_page), 'media_type': c.media_type.value, 'rank': rank}
+                    for r in result.provider_results if r.page is not None for rank, c in enumerate(r.page.candidates)]
+                ranked_assets = [(rank, asset) for rank, asset in enumerate(restored)]
+                for origin in origins:
+                    for asset in assets.values():
+                        if (asset.media_type.value == origin['media_type'] and asset.source.provider == origin['provider']
+                                and (origin['provider_asset_id'] and asset.source.provider_asset_id == origin['provider_asset_id']
+                                     or origin['source_page'] and asset.source.source_page == origin['source_page'])):
+                            ranked_assets.append((origin['rank'], asset))
+                for rank, asset in ranked_assets:
+                    row = {'need_id': requested_need.need_id,
+                           'need_sha256': hashlib.sha256(requested_need.to_json().encode()).hexdigest(),
+                           'asset_sha256': asset.file.sha256, 'source_id': source_id, 'rank': rank,
+                           'queries': wire_queries, 'input_sha256': input_sha256,
+                           'compiled_intent_sha256': hashlib.sha256(NeedCompiler(search_terms=search_terms).compile(requested_need,
+                               creative_mode_terms=style_terms).to_json().encode()).hexdigest()}
+                    entries = links['assets'].setdefault(asset.asset_id, [])
+                    if row not in entries:
+                        entries.append(row)
+                store.write_recovery_record('candidate-links', links)
+                return tuple(a for a in restored if a.asset_id not in assets)
 
             result = library_first.supply_need(
                 need, scope=scope, creation_id=attempt["creation_id"],
-                attempt_id=attempt["attempt_id"], provider_infos=infos,
+                attempt_id=attempt["attempt_id"], provider_infos=() if getattr(need.modality_spec, 'kind', None) == 'voice' else infos,
                 external_supply=source_supply, director_preferences=director_preferences,
                 excluded_sha256=retained_hashes if additional else frozenset(),
+                policy=policy,
             )
             library_by_id = {item.library_asset_id: item for item in result.reuse_candidates}
             for matched in result.library_matches:
@@ -255,6 +361,18 @@ class ProductMaterialSupply:
                 imported = self._import_library(candidate.record, catalog, store, scope)
                 assets[imported.asset_id] = imported
             for asset in result.external_assets:
+                duplicate = next((a for a in assets.values() if a.media_type is asset.media_type
+                    and a.file.sha256 == asset.file.sha256 and (a.rights == asset.rights
+                    or a.rights.status.value == 'KNOWN' and asset.rights.status.value == 'UNKNOWN')), None)
+                if duplicate is not None:
+                    links = store.read_recovery_record('candidate-links') or {'assets': {}}
+                    merged = links['assets'].setdefault(duplicate.asset_id, [])
+                    for row in links['assets'].get(asset.asset_id, []):
+                        if row not in merged:
+                            merged.append(row)
+                    store.write_recovery_record('candidate-links', links)
+                    duplicate_bytes.append(asset.asset_id)
+                    continue
                 assets[asset.asset_id] = asset
             trace.append({
                 "need_id": need.need_id,
@@ -273,6 +391,9 @@ class ProductMaterialSupply:
                 "failures": [{"source_id": item.source_id, "error": item.error}
                              for item in result.failures],
                 "generation_route_eligible": result.generation_route is not None,
+                "reused_queries": reused_queries, "reused_asset_ids": reused_assets,
+                "duplicate_byte_asset_ids": duplicate_bytes,
+                "source_switch_reason": 'prior_batch_rejected' if rejected_sources else 'library_first_gap',
                 "selection_authority": False,
             })
 
@@ -345,6 +466,12 @@ class ProductMaterialSupply:
             "attempt_id": attempt["attempt_id"], "library_scope": scope.key,
             "library_root": str(catalog.root), "routing": trace,
             "generation_preparation": generation_preparation,
+            "plan_revision": MaterialReadinessCalculator.plan_revision(plan),
+            "bundle_revision": bundle.revision,
+            "elapsed_seconds": round(monotonic() - started, 6),
+            "required_covered": len([n for n in plan.needs if n.importance.value == 'required'
+                                      and n.need_id not in readiness.blocking_needs]),
+            "blocking_needs": list(readiness.blocking_needs),
         }, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         return ProductSupplyResult(
             plan, bundle, run, readiness, gaps, tuple(trace), generation_preparation,

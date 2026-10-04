@@ -179,7 +179,8 @@ class MiniMaxImageSpeechGeneration:
                     technical=TechnicalInfo(status=TechnicalStatus.PENDING),
                 )
                 record.update({"voice_id": output.voice_id, "audio_format": output.audio_format,
-                               "received_timings": list(output.timings), "received_timing_error": output.timing_error})
+                               "received_timings": list(output.timings), "received_timing_error": output.timing_error,
+                               "provider_subtitles": list(output.original_subtitles)})
             else:
                 assert self._image is not None
                 aspect_ratio = spec.aspect_ratio if isinstance(spec, ImageNeedSpec) and spec.aspect_ratio else "16:9"

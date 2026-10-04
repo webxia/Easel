@@ -313,6 +313,8 @@ class MaterialAcquirer:
                 "method": descriptor.mode,
                 "provider": descriptor.provider,
                 "provider_asset_id": candidate.source.provider_asset_id,
+                "need_id": candidate.need_id,
+                "candidate_id": candidate.candidate_id,
                 "source_page": self._url_policy.redact(candidate.source.source_page),
                 "requested_url": self._url_policy.redact(requested_url),
                 "final_url": self._url_policy.redact(final_url),

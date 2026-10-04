@@ -107,6 +107,8 @@ class MaterialMatcher:
         if (getattr(need.modality_spec, 'kind', None) == 'voice' and need.modality_spec.text_sha256
                 and not self._creator_match_review(need, asset) and not voice_content_observed(need, asset)):
             failures.append('voice_content_observation_missing')
+        if need.constraints.get('requires_dynamic_action') is True and asset.media_type is MediaType.IMAGE:
+            failures.append('required_dynamic_action_cannot_be_a_still_image')
         if need.media_type is not asset.media_type:
             failures.append("media_type_mismatch")
         if asset.technical.status is not TechnicalStatus.PASSED:

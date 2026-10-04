@@ -108,6 +108,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   const [feedbackKind, setFeedbackKind] = useState('general');
   const [notice, setNotice] = useState('');
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [sessionRetry, setSessionRetry] = useState(0);
   const [inspectResult, setInspectResult] = useState<unknown>(null);
   const [generationNeedId, setGenerationNeedId] = useState('');
   const [generationResult, setGenerationResult] = useState<unknown>(null);
@@ -167,12 +168,15 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   useEffect(() => {
     let cancelled = false;
     createOperatorSession().then(() => {
-      if (!cancelled) setOperatorSessionReady(true);
+      if (!cancelled) {
+        setOperatorSessionReady(true);
+        setRefreshVersion(version => version + 1);
+      }
     }).catch((reason: unknown) => {
       if (!cancelled) setError(operationError(reason));
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [sessionRetry]);
 
   useEffect(() => {
     if (!creationId) { setCreationSnapshot(null); return; }
@@ -259,8 +263,13 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
   }, [operatorSessionReady, attemptId, refreshVersion, advancedOpen,
     rightsGateStatus, rightsBundleRevision, combinationBlocked]);
 
+  const truthPlanningReady = record(attempt?.material_planning).status === 'PLANNING_READY';
   useEffect(() => {
-    if (!operatorSessionReady || !attemptId) { setScriptTruth(null); return; }
+    // Planning creates the ledger; absence before completion is normal.
+    // After completion, keep read failures visible to protect evidence checks.
+    if (!operatorSessionReady || !attemptId || !truthPlanningReady) {
+      setScriptTruth(null); setTruthConnectionError(''); return;
+    }
     let cancelled = false;
     fetchScriptTruth(attemptId).then((ledger) => {
       if (!cancelled) {
@@ -268,7 +277,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
       }
     }).catch((reason: unknown) => { if (!cancelled) setTruthConnectionError(operationError(reason)); });
     return () => { cancelled = true; };
-  }, [operatorSessionReady, attemptId, refreshVersion]);
+  }, [operatorSessionReady, attemptId, refreshVersion, truthPlanningReady]);
 
   useEffect(() => {
     if (creationSnapshot?.selected_attempt_id === attemptId
@@ -465,7 +474,11 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
           ? await fetchFilmAttempt(attemptId) : await refreshFilmBuild(attemptId);
         if (!cancelled) {
           setAttempt(current as unknown as OperatorRecord); setConnectionError(''); setLastSynced(new Date().toLocaleString('zh-CN'));
-          try { setScriptTruth(await fetchScriptTruth(attemptId)); } catch { /* Planning may not have produced a script yet. */ }
+          if (record(current.material_planning).status === 'PLANNING_READY') {
+            try { setScriptTruth(await fetchScriptTruth(attemptId)); } catch (reason: unknown) {
+              if (!cancelled) setTruthConnectionError(operationError(reason));
+            }
+          }
         }
       } catch (reason: unknown) {
         if (!cancelled) setConnectionError(operationError(reason));
@@ -631,7 +644,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
     <div className="film-operator-page">
       {connectionError && <div className="film-op-message is-error" role="status">
         状态更新失败，显示最后一次可信状态。当前是否仍在制作尚未确认。
-        <button className="btn btn-sm" onClick={() => setRefreshVersion(version => version + 1)}>重新连接</button>
+        <button className="btn btn-sm" onClick={() => { setSessionRetry(version => version + 1); setRefreshVersion(version => version + 1); }}>重新连接</button>
       </div>}
       <div className="creator-canvas-label"><span>作品画布</span>{lastSynced && <small title={`最近状态读取：${lastSynced}`}>{connectionError ? '连接中断' : '自动更新'} · {lastSynced.split(' ').at(-1)}</small>}</div>
       {progressOpen && <div className="film-op-progress" aria-label="创作阶段进度">
@@ -715,6 +728,7 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
       {backendDelivery && ['execution_uncertain', 'observation_failed'].includes(text(delivery.status)) && <p role="status">
         {delivery.status === 'execution_uncertain' ? '上一次执行是否结束尚未核实。已保留结果，当前不会重复派发。' : '暂时无法取得制作进度，显示最后可信结果；Easel 会继续查询。'}
       </p>}
+      {backendDelivery && delivery.endpoint === 'MATERIAL_READY' && delivery.status === 'material_ready' && <p role="status">素材已通过本轮验收并停止；视频编排和制作尚未开始。</p>}
       {!showingProposal && operatorSessionReady && !attemptId && delivery.status !== 'failed' && <section className={`card film-op-card film-op-creator creator-status-card is-${projection.state}`}>
         <h2>{projection.title}</h2>
         {projection.failureStage ? <>
@@ -851,12 +865,14 @@ export default function FilmOperatorPage({ creationId, onContinuePreparation, co
           })} />}
         {phase === 'material' && projection.materialUnavailable && <div className="film-op-review-claim">
           <h3>已保留的结果与缺失项</h3>
-          <p>已按当前方案检索并补充候选，仍有场景缺少合格素材。系统已停止继续尝试，方案、旁白与通过核对的素材均已保留。</p>
+          <p>{projection.audioVerificationBlocked ? '声音验证尚未取得完整证据，系统已停止同条件重复识别。已保留旁白、素材和现有许可，需要先补齐声音验证能力。' : '已按当前方案检索并补充候选，仍有场景缺少合格素材。系统已停止继续尝试，方案、旁白与通过核对的素材均已保留。'}</p>
           {Array.isArray(scriptTruth?.material_needs) && scriptTruth.material_needs.map(record)
             .filter(need => blockingNeedIds.includes(text(need.need_id)))
             .map(need => <p key={text(need.need_id)}>尚未满足：{text(need.description)}</p>)}
-          <p>{combinationAvailable ? '你可以查看上方候选并接受适合方案的组合，或在对话中调整场景表达、提供参考素材。' : '你可以在对话中调整场景表达或提供参考素材。'}涉及新费用时仍按委托预算核验。</p>
-          <button className="btn" onClick={onOpenConversation}>讨论这个场景</button>
+          {projection.audioVerificationBlocked ? <p>补齐声音证据后再恢复。无需重新生成旁白，预算与已有成果继续保留。</p> : <>
+            <p>{combinationAvailable ? '你可以查看上方候选并接受适合方案的组合，或在对话中调整场景表达、提供参考素材。' : '你可以在对话中调整场景表达或提供参考素材。'}涉及新费用时仍按委托预算核验。</p>
+            <button className="btn" onClick={onOpenConversation}>讨论这个场景</button>
+          </>}
         </div>}
         {phase === 'material' && !projection.materialWorking && !projection.materialUnavailable && rightsCandidatesLoaded && missingSupplyNeeds.length > 0 && <div className="film-op-review-claim">
           <h3>任务：补充符合方案的素材</h3><p>这些需求尚无类型与来源都符合方案的候选，暂时不能进入视频制作。使用权复核不会改变素材来源。</p>

@@ -26,6 +26,12 @@ easel runtime readiness --profile generation --json --no-probe
 
 MiniMax 配置：优先使用 `EASEL_MINIMAX_API_KEY`，兼容读取已有 `MINIMAX_API_KEY`；共享 API host 仅接受官方 HTTPS 地址。可选 `EASEL_MINIMAX_VIDEO_MODEL`、`EASEL_MINIMAX_IMAGE_MODEL=image-01`、`EASEL_MINIMAX_SPEECH_MODEL=speech-2.8-hd` 和 `EASEL_MINIMAX_SPEECH_VOICE_ID`。TTS 使用冻结且通过 truth review 的脚本与预置音色，不执行声音克隆。真实 Provider 验收按模态分别记录，见 [T09A](../tasks/v1c-t09-minimax-video.md)、[Image-01](https://platform.minimaxi.com/docs/guides/image-generation) 和 [T2A HTTP](https://platform.minimaxi.com/docs/api-reference/speech-t2a-http)。
 
+### 临时网关环境的生命周期（2026-10-03）
+
+OpenClaw 2026.9.4 的 MCP 环境默认按会话生命周期保留，`mcp.sessionIdleTtlMs` 未设置时为 0（不做空闲回收）。Easel 持续交付在已核实执行终态后通过正式 `sessions.abort` 的 key/agent + `clearQueued=true` 释放临时环境；会话历史和成功产物仍保留，释放中断先对账清理，不重复模型调用。
+
+隔离 easel profile 可用 `openclaw --profile easel config set mcp.sessionIdleTtlMs 300000` 开启五分钟空闲回收兜底，该配置支持网关热加载。本机已设置，其他安装需自行核实；活跃 lease 不参与空闲回收，不以清空聊天历史或调高 256 上限代替生命周期管理。
+
 ### Voice 执行要求与时序（2026-10-01）
 
 新的 clear_memo_video 1.2 在冻结 Mode 中提供 voice_delivery 默认值；Planning 可在现有 Need.constraints.voice_delivery 中按内容选择 pace_ratio、pitch_semitones、tone。它们不选择 Provider 或音色，预置音色仍来自上述运行配置。MiniMax adapter 将这些中立要求转为官方 speed/pitch/emotion 参数；不支持的参数在提交前拒绝，不通过自然语言描述假装已执行。
@@ -37,6 +43,10 @@ TTS 开启句级字幕，按[官方 HTTP 合同](https://platform.minimaxi.com/d
 生成旁白识别保留完整音频，关闭 VAD 静音裁切，避免弱词起音在预处理后降低置信度；不使用前文条件拼接，避免静音处幻觉。2026-10-02 同音频实测 small 存在低置信和错字，较强的本地 large-v3-turbo 配合完整音频消除了本次低置信，但仍有单字差异，不能宣称通用可用；具体证据及剩余阻碍见 Current State。模型须在本机明确配置，生产不自动下载或轮换模型。
 
 识别不注入目标脚本，逐词文本与实际时间必须覆盖完整冻结原文；仅在本地 ASR 比较时用固定 `opencc-python-reimplemented==0.1.7` 的 `t2s` 接受标准简繁等价，不采用同音容错或地区词汇替换。原识别报告保留，字幕仍使用冻结原文，Provider alignment 保持严格原文校验；转换库也纳入运行预检。按原文标点合并成整句字幕，边界仍取实际识别的首尾词，不均分或猜测时长。成功识别先保存检查点，再登记按 Need/脚本/音频绑定的内容观察并重新计算原 Gate；有效 Provider 时序保持原值，只有缺失或无效时才用识别时序补齐。错字、漏字、低置信或重叠不会改写脚本或重新购买，进入已有有界恢复与阶段 Retry。本地识别是内容/时序证据，不是音色、情绪、配乐适配或版权证明；Unknown Rights 仍然阻断。 当本地识别存在具体文字差异且 Creator 已实际试听确认时，现有素材匹配复核接口可接收 `voiceRecognitionReview`（`recognition_sha256` 与指定 `character/text` 结论）。该例外绑定当前音频、脚本、Need 和原识别报告，仅确认所列字符，原 ASR 文字不修改；其他内容、置信度、完整覆盖和时间仍按同一合同验证。未确认的同音差异不能自动放行。
+
+2026-10-05 用户决定仅用当前声音模型、不下载备用模型，并授权有限放宽：全部词≥0.5保持原路径；完整原文逐字一致、真实时间有效时，可接受最低词≥0.25、低于0.5的字符≤全文5%且最多3字、字符加权均值≥0.85的路径。原文本/概率/时间不改，统计和准入规则单独保存；错字/漏字/增字、极低分或广泛弱证据仍拒绝。规则改变只重算已保存primary识别，不重跑模型或TTS；新失败身份绑定规则，同条件失败复用。详情及未正式恢复边界见[原 Task §12.10.10](../tasks/creation-latency-2026-10-02.md#121010-当前声音模型的有限放宽用户已批准2026-10-05)。
+
+既往独立证据接口保留兼容：`EASEL_ASR_SUPPLEMENT_MODEL`、`EASEL_ASR_SUPPLEMENT_CAPABILITY` 及固定正负样本资格脚本不构成当前生产配置要求；当前 Owner 不查找、下载或调用备用模型。已合法取得的历史补证仍按原音频/脚本/Need/实际配置及区间完整核验，不伪造新能力。模型文件和 readiness 均不能代替实际内容/权利准入。
 
 ### BGM 本地声学观察（2026-10-01）
 

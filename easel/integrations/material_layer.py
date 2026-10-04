@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import shutil
 from datetime import datetime, timezone
@@ -283,6 +284,18 @@ class PlanningIntegration:
             if not isinstance(value, str) or not value.strip() or "\x00" in value:
                 raise MaterialIntegrationError(f"Planning artifact {name} 不能为空")
         script_digest = hashlib.sha256(script.encode("utf-8")).hexdigest()
+        work = creation.get_creation(attempt['creation_id'])
+        if work.get('preparation', {}).get('snapshot_hashes'):
+            from easel.creation_preparation import _load_snapshot, preparation_paths
+            if not preparation_paths(work['id'], work['preparation']['operation_key'])['snapshot'].is_dir():
+                raise MaterialIntegrationError('冻结 Brief 缺失，不能重新制造许可')
+            snapshot = _load_snapshot(work, work['preparation'])
+            if plan.context_refs.get('production_brief_sha256') != snapshot['hashes']['production_brief']:
+                raise MaterialIntegrationError('素材规划许可来源必须绑定当前冻结 Brief')
+            if (not snapshot['bundle']['production_brief']['ai_generation_allowed']
+                    and any(n.media_type in {MediaType.IMAGE, MediaType.VIDEO}
+                            and n.constraints.get('allow_generation') is True for n in plan.needs)):
+                raise MaterialIntegrationError('素材生成许可与冻结 Brief 冲突；不能因预算授权擅自解禁')
         from easel.integrations.hypit.handoff import load_frozen_creative_mode
         mode, mode_hash = load_frozen_creative_mode(attempt)
         style = mode.get("visual_material_style")
@@ -619,7 +632,10 @@ class ProductionAuthoringIntegration:
                 **({'source_duration_seconds': asset.technical.duration_seconds,
                     'observed_video_uses': [
                         {'need_id': need.need_id, 'element_id_prefix': visual_use_prefix(need),
-                         'source_interval_seconds': list(interval), 'required': need.importance is NeedImportance.REQUIRED}
+                         'source_interval_seconds': list(interval), 'required': need.importance is NeedImportance.REQUIRED,
+                         'integer_frame_bounds': {str(rate): [math.ceil(interval[0] * rate),
+                                                             math.floor(interval[1] * rate)]
+                                                  for rate in (24, 25, 30, 60)}}
                         for need in plan.needs if need.need_id in need_ids
                         and (interval := observed_interval(need, asset)) is not None
                     ]} if asset.media_type is MediaType.VIDEO else {}),
@@ -1277,7 +1293,7 @@ class MaterialProductOrchestrator:
         from easel.integrations.hypit.service import get_film_attempt
         from easel.materials.application.voice_delivery import (
             pending_voice_timing_recovery, read_local_voice, timing_from_recognition,
-            bind_voice_timing, apply_voice_content, voice_content_observed, recognition_digest,
+            bind_voice_timing, apply_voice_content, voice_content_observed, recognition_digest, voice_verification_identity, voice_recovery_identity,
         )
         attempt = get_film_attempt(attempt_id)
         planning = PlanningIntegration().load(attempt)
@@ -1300,7 +1316,12 @@ class MaterialProductOrchestrator:
             need = next(n for n in plan.needs if n.need_id == record['need_id'])
             binding = {'audio_sha256': asset.file.sha256, 'script_sha256': hashlib.sha256(script.encode()).hexdigest(),
                        'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest()}
-            identity = 'voice-asr-' + hashlib.sha256(json.dumps(binding, sort_keys=True).encode()).hexdigest()
+            verification = voice_verification_identity(None)
+            identity = voice_recovery_identity(binding, verification)
+            failure_key = 'voice-failure-' + identity
+            cached_failure = store.read_recovery_record(failure_key)
+            if cached_failure is not None:
+                raise MaterialIntegrationError('同一音频和验证配置已有确定性失败：' + cached_failure['reason'] + '；需有依据的输入或验证规则变化，未重复识别或TTS')
             report_path = _workspace(attempt) / 'materials/observations' / (identity + '.json')
             if _has_symlink_components(_workspace(attempt), report_path):
                 raise MaterialIntegrationError('旁白识别结果路径无效')
@@ -1309,8 +1330,11 @@ class MaterialProductOrchestrator:
                 if any(report.get(key) != value for key, value in binding.items()):
                     raise MaterialIntegrationError('旁白识别结果身份不一致')
             else:
-                report = None
+                primary_key = 'voice-primary-' + hashlib.sha256(json.dumps({**binding, 'verification': verification}, sort_keys=True).encode()).hexdigest()
+                report = store.read_recovery_record(primary_key)
                 for rejected_path in sorted((_workspace(attempt) / 'materials/observations').glob('voice-asr-rejected-*.json')):
+                    if report is not None:
+                        break
                     if _has_symlink_components(_workspace(attempt), rejected_path):
                         continue
                     candidate = json.loads(rejected_path.read_text())
@@ -1318,19 +1342,32 @@ class MaterialProductOrchestrator:
                         continue
                     if any(candidate.get(key) != value for key, value in binding.items()):
                         continue
-                    try:
-                        timing_from_recognition(script, asset, candidate)
-                    except ValueError:
+                    legacy_same_model = (candidate.get('model_sha256') == verification.get('model_sha256')
+                        and candidate.get('engine') == verification.get('engine')
+                        and candidate.get('version') == verification.get('version'))
+                    if candidate.get('verification_config') != verification and not legacy_same_model:
                         continue
+                    # Preserve an old complete recognition as actual evidence,
+                    # including its low probabilities. It is not relabeled as
+                    # a new model run; the current admission policy checks the
+                    # original full text, timestamps and unmodified confidence.
                     report = candidate
+                    store.write_recovery_record(primary_key, report)
                     break
                 if report is None:
-                    report = {**read_local_voice(path, None), **binding}
+                    from easel.creation_delivery import active_delivery, reserve_delivery_call
+                    if active_delivery.get() == attempt['creation_id']:
+                        with creation.edit_creation(attempt['creation_id']) as work:
+                            reserve_delivery_call(work, category='local_voice_observation', stage_override='material', need_count=len(plan.needs))
+                    report = {**read_local_voice(path, None), **binding, 'verification_config': verification}
+                    store.write_recovery_record(primary_key, report)
                 # Only a valid recognition is a reusable checkpoint. A failed
                 # guess must not poison Retry after local model repair.
                 try:
                     timing_from_recognition(script, asset, report)
-                except ValueError:
+                except ValueError as exc:
+                    store.write_recovery_record(failure_key, {'binding': binding, 'verification': verification,
+                        'reason': str(exc)[:800], 'recognition_sha256': recognition_digest(report)})
                     rejected_sha = hashlib.sha256(json.dumps(report, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
                     store.write_observation_record('voice-asr-rejected-' + rejected_sha, report)
                     raise
@@ -1341,6 +1378,15 @@ class MaterialProductOrchestrator:
                     or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
                 raise MaterialIntegrationError('识别期间旁白输入已变化；保留结果，未认领旧时序')
             record.setdefault('provider_voice_timing', record.get('voice_timing'))
+            if asset.source.provider == 'minimax' and record.get('received_timings'):
+                from easel.materials.providers.minimax_speech import MiniMaxSpeechAdapter
+                try:
+                    mapped = MiniMaxSpeechAdapter.map_timings(script, tuple(record['received_timings']))
+                    fixed = bind_voice_timing(script, asset, mapped)
+                    if fixed['status'] == 'READY':
+                        record['voice_timing'] = fixed
+                except ValueError:
+                    pass  # Invalid alignment is retained; independent ASR timing may still be valid.
             existing = record.get('voice_timing') or {}
             if (existing.get('source') != 'provider_alignment'
                     or bind_voice_timing(script, asset, tuple(existing.get('cues', [])), existing.get('error'))['status'] != 'READY'):
@@ -1851,16 +1897,21 @@ class MaterialProductOrchestrator:
         old_run = store.read_supply_run(bundle.supply_run_id)
         assets = tuple(store.read_asset(item.asset_id) for item in bundle.assets)
         matches = MaterialProductOrchestrator._rank_reviewed_materials(attempt, plan, assets, store, require_scoped_visual=require_scoped_visual)
-        digest = hashlib.sha256("\n".join(asset.to_json() for asset in assets).encode()).hexdigest()[:16]
-        now = datetime.now(timezone.utc)
-        reviewed_run = SupplyRun(
-            supply_run_id=f"match-{bundle.supply_run_id[-40:]}-{digest}",
-            plan_id=plan.plan_id, parent_run_id=old_run.supply_run_id,
-            started_at=now, finished_at=now, result_bundle_id=bundle.bundle_id,
-        )
+        reviewed_run = old_run
         revised_bundle = MaterialBundleAssembler().assemble(
             plan, reviewed_run, assets, tuple(matches), bundle_id=bundle.bundle_id,
         )
+        if revised_bundle != bundle:
+            digest = hashlib.sha256("\n".join(asset.to_json() for asset in assets).encode()).hexdigest()[:16]
+            now = datetime.now(timezone.utc)
+            reviewed_run = SupplyRun(
+                supply_run_id=f"match-{bundle.supply_run_id[-40:]}-{digest}",
+                plan_id=plan.plan_id, parent_run_id=old_run.supply_run_id,
+                started_at=now, finished_at=now, result_bundle_id=bundle.bundle_id,
+            )
+            revised_bundle = MaterialBundleAssembler().assemble(
+                plan, reviewed_run, assets, tuple(matches), bundle_id=bundle.bundle_id,
+            )
         readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, revised_bundle)
         gate = MaterialGateIntegration().record(
             attempt, plan, revised_bundle, reviewed_run, readiness, gaps,
@@ -1918,6 +1969,9 @@ class MaterialProductOrchestrator:
         from easel.materials.application.visual_observation import (
             MAX_VISUAL_CANDIDATES, apply_observation, observed_match, prepare_observation, scoped_inference,
             read_observation_report, observe_shared_asset,
+            nominate_visual_candidates, NOMINATION_REVISION,
+            observation_for_need, need_identity,
+            requires_reassessment, ASSESSMENT_REVISION,
         )
 
         attempt = get_film_attempt(attempt_id)
@@ -1927,6 +1981,8 @@ class MaterialProductOrchestrator:
         bundle = store.read_bundle()
         candidates = self.material_rights_candidates(attempt_id)
         verified = {c["asset_id"] for c in candidates}
+        if bundle.assets and not verified:
+            raise MaterialIntegrationError("当前 Bundle 没有可访问且字节有效的素材；原观察不能复用，请先恢复正式来源文件，不再无变化重评")
         revision = attempt.get('revision_feedback', {})
         visual_repair = (revision.get('origin') == 'system_quality'
                          and 'visual_material' in revision.get('allowed_changes', []))
@@ -1974,96 +2030,264 @@ class MaterialProductOrchestrator:
         for asset_id in generated_records:
             admit_generated(asset_id)
         matcher = MaterialMatcher()
-        # Keep the saved batch identity: upgrades must not reshuffle work that
-        # already dispatched. Only newly nominated batches use this ranking.
-        batch_key = hashlib.sha256(("ranked-v2\n" + MaterialReadinessCalculator.plan_revision(plan) + "\n"
-            + "\n".join(sorted(a.asset_id + ":" + a.file.sha256 for a in bundle.assets))
+        # Pool identity stays stable while each bounded round has its own
+        # immutable nominations. Replaying completed rounds cannot reshuffle
+        # an uncertain dispatch or strand the remaining candidates.
+        batch_key = hashlib.sha256((NOMINATION_REVISION + "\n" + MaterialReadinessCalculator.plan_revision(plan) + "\n"
             + ('\nalternatives:' + revision['quality_report_sha256'] if visual_repair else '')).encode()).hexdigest()
-        batch_relative = f"materials/observations/batch-{batch_key}.json"
-        batch_path = _workspace(attempt) / batch_relative
-        if _has_symlink_components(_workspace(attempt), batch_path):
-            raise MaterialIntegrationError("素材观察路径无效")
-        if batch_path.is_file():
-            pairs = json.loads(batch_path.read_text())
-        else:
-            pairs = {}
-            for need in plan.needs:
-                if (need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}
-                        or (visual_repair and need.need_id not in excluded)):
-                    continue
-                assets = [a for a in bundle.assets if a.asset_id in verified and a.media_type is need.media_type
-                          and a.asset_id not in excluded.get(need.need_id, ())
-                          and a.technical.status is TechnicalStatus.PASSED
-                          and a.rights.status is not RightsStatus.RESTRICTED]
-                scores = {a.asset_id: matcher._soft_scores(need, a) for a in assets}
-                assets.sort(key=lambda a: (
-                    any(scoped_inference(need, a, i) for i in a.semantic.inferences) and observed_match(need, a) is not True,
-                    RightsService().evaluate(a, need, attribution=RightsService.attribution_condition_for(a)).status
-                    is RightsAdmissionStatus.BLOCKED,
-                    -(scores[a.asset_id][0].semantic or 0),
-                    -scores[a.asset_id][1], a.asset_id))
-                pairs[need.need_id] = [a.asset_id for a in assets[:MAX_VISUAL_CANDIDATES]]
-            # Freeze nominated candidates before the first model dispatch.
-            # New evidence must not reshuffle a resumed batch into more calls.
-            store.write_observation_record(f"batch-{batch_key}", pairs)
-        reports = []
-        for need in plan.needs:
-            if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
-                continue
-            selected = pairs.get(need.need_id, [])
-            if (not isinstance(selected, list) or len(selected) > MAX_VISUAL_CANDIDATES or len(set(selected)) != len(selected)
-                    or any(a not in verified for a in selected)):
-                raise MaterialIntegrationError("当前素材字节与已保存的观察候选不一致")
-            for asset_id in selected:
-                # Readiness needs a usable choice, not exhaustive review of the
-                # whole pool. Preserve independent evidence for each Need.
-                usable = tuple(store.read_asset(a.asset_id) for a in bundle.assets
-                               if a.asset_id in verified and a.asset_id not in excluded.get(need.need_id, ()))
-                usable = tuple(a for a in usable if observed_match(need, a) is True
-                               or matcher._creator_match_review(need, a))
-                if matcher.match(need, usable).matches:
-                    break
-                asset = store.read_asset(asset_id)
-                if matcher._creator_match_review(need, asset):
-                    continue
-                path = store.resolve_asset_locator(asset.file.path)
-                manifest, attachments = prepare_observation(need, asset, path)
-                relative = f"materials/observations/{manifest['input_sha256']}.json"
-                report_path = _workspace(attempt) / relative
-                if _has_symlink_components(_workspace(attempt), report_path):
-                    raise MaterialIntegrationError("素材观察路径无效")
-                report = None
-                if report_path.is_file():
-                    try:
-                        report = read_observation_report(report_path, need, asset, manifest)
-                    except (OSError, ValueError, TypeError, AttributeError):
-                        # A completed model run may have written invalid JSON or
-                        # stale evidence. Resume its bounded report repair below.
-                        pass
-                if report is None:
-                    # Pending gateway calls escape to the durable owner. Never
-                    # turn an uncertain model run into a failed observation.
-                    if group_executor is not None:
-                        # Use frozen nominations, not each scene's evolving
-                        # readiness: otherwise a resumed group changes identity.
-                        shared_needs = [n for n in plan.needs if asset_id in pairs.get(n.need_id, [])]
-                        report = observe_shared_asset(attempt, need, asset, manifest, attachments,
-                            shared_needs, store, batch_key, group_executor)
-                    else:
-                        report = executor(attempt, manifest, attachments)
-                    store.write_observation_record(manifest["input_sha256"], report)
-                current = store.read_asset(asset.asset_id)
-                if current.file != asset.file:
-                    raise MaterialIntegrationError("素材在观察期间发生变化，不能登记旧证据")
-                observed = apply_observation(need, current, manifest, report)
-                # Reusing valid evidence must not manufacture a new timestamp
-                # and bundle revision at every owner restart.
-                if not any(scoped_inference(need, current, i, manifest["input_sha256"])
-                           for i in current.semantic.inferences):
-                    store.write_asset(observed)
-                store.write_observation_record(manifest["input_sha256"] + ".input", manifest)
-                admit_generated(asset_id)
+        current_assets = {a.asset_id: store.read_asset(a.asset_id) for a in bundle.assets}
+        outcomes = [row for row in attempt.get('material_observation', {}).get('outcomes', [])
+                    if row.get('need_id') in needs and row.get('asset_id') in current_assets
+                    and row.get('need_sha256') == need_identity(needs[row['need_id']])
+                    and row.get('asset_sha256') == current_assets[row['asset_id']].file.sha256]
+        reassess = set()
+        for row in outcomes:
+            saved = store.materials_root / 'observations' / (row['input_sha256'] + '.json')
+            if saved.is_file() and not saved.is_symlink():
+                report = json.loads(saved.read_text())
+                if requires_reassessment(needs[row['need_id']], report, current_assets[row['asset_id']].media_type):
+                    reassess.add((row['need_id'], row['asset_id']))
+        if reassess:
+            batch_key = hashlib.sha256((batch_key + ASSESSMENT_REVISION + json.dumps(sorted(reassess))).encode()).hexdigest()
+        reports = [f"materials/observations/{row['input_sha256']}.json" for row in outcomes
+                   if row.get('input_sha256')]
+        preview_cache = {}
+        def covered(need):
+            usable = tuple(store.read_asset(a.asset_id) for a in bundle.assets
+                           if a.asset_id in verified and a.asset_id not in excluded.get(need.need_id, ()))
+            usable = tuple(a for a in usable if observed_match(need, a) is True
+                           or matcher._creator_match_review(need, a))
+            return bool(matcher.match(need, usable).matches)
+
+        # A completed fallback first closes its own intake checkpoint. Adding
+        # one generated file must not reopen exploration of the old stock pool.
+        # Reuse across unresolved scenes still requires independent observation.
+        generated_intake = {asset_id for asset_id, record in generated_records.items()
+            if record.get('status') == 'COMPLETE'
+            and current_assets[asset_id].media_type in {MediaType.IMAGE, MediaType.VIDEO}
+            and not covered(needs[record['need_id']])
+            and not any(scoped_inference(needs[record['need_id']], current_assets[asset_id], i)
+                        for i in current_assets[asset_id].semantic.inferences)}
+        if generated_intake:
+            batch_key = hashlib.sha256((batch_key + '\ngenerated-intake-v1:'
+                + ','.join(sorted(generated_intake))).encode()).hexdigest()
+
+        def register(need, asset, manifest, report):
+            current = store.read_asset(asset.asset_id)
+            if current.file != asset.file:
+                raise MaterialIntegrationError("素材在观察期间发生变化，不能登记旧证据")
+            observed = apply_observation(need, current, manifest, report)
+            # Valid shared children enter independent evidence immediately,
+            # before another group is nominated. Resume never changes timestamps.
+            if not any(scoped_inference(need, current, i, manifest["input_sha256"])
+                       for i in current.semantic.inferences):
+                store.write_asset(observed)
+            store.write_observation_record(manifest["input_sha256"] + ".input", manifest)
+            admit_generated(asset.asset_id)
+            relative = f"materials/observations/{manifest['input_sha256']}.json"
+            if relative not in reports:
                 reports.append(relative)
+                outcomes[:] = [row for row in outcomes if (row['need_id'], row['asset_id']) != (need.need_id, asset.asset_id)]
+                outcomes.append({"need_id": need.need_id, "need_sha256": manifest["need_sha256"],
+                    "asset_id": asset.asset_id, "asset_sha256": asset.file.sha256,
+                    "input_sha256": manifest["input_sha256"],
+                    "verdict": report["verdict"], "reason": report["reason"],
+                    "failure_kind": report.get('failure_kind'),
+                    "usable": bool(matcher.match(need, (store.read_asset(asset.asset_id),)).matches)})
+                # A later uncertain call must not discard earlier independent
+                # outcomes merely because their Need is already covered on resume.
+                _update_attempt(get_film_attempt(attempt_id), material_observation={
+                    "status": "PENDING", "nomination_revision": NOMINATION_REVISION,
+                    "reports": list(reports), "outcomes": list(outcomes),
+                    "updated_at": creation._now(),
+                })
+
+        # This ledger is Plan-bound, never pool-bound. Keep historical spending
+        # even when a candidate disappears or a new source adds assets.
+        ledger_key = 'visual-budget-' + MaterialReadinessCalculator.plan_revision(plan)
+        ledger = store.read_recovery_record(ledger_key) or {'associations': {}}
+        for row in attempt.get('material_observation', {}).get('outcomes', []):
+            if row.get('need_id') in needs and row.get('need_sha256') == need_identity(needs[row['need_id']]):
+                token = row.get('asset_id', '') + ':' + row.get('asset_sha256', '')
+                entries = ledger['associations'].setdefault(row['need_id'], [])
+                if token not in entries:
+                    entries.append(token)
+        nominated = {n.need_id: {t.split(':', 1)[0] for t in ledger['associations'].get(n.need_id, [])}
+                     for n in plan.needs}
+        links = (store.read_recovery_record('candidate-links') or {}).get('assets', {})
+        def origin_ranks(need):
+            return {asset_id: min(r.get('rank', 0) for r in rows
+                        if r.get('need_id') == need.need_id and r.get('need_sha256') == hashlib.sha256(need.to_json().encode()).hexdigest()
+                        and asset_id in current_assets and r.get('asset_sha256') == current_assets[asset_id].file.sha256)
+                    for asset_id, rows in links.items() if any(
+                        r.get('need_id') == need.need_id and r.get('need_sha256') == hashlib.sha256(need.to_json().encode()).hexdigest()
+                        and asset_id in current_assets and r.get('asset_sha256') == current_assets[asset_id].file.sha256 for r in rows)}
+        for asset_id, record in generated_records.items():
+            if record.get('need_id') in needs:
+                links.setdefault(asset_id, []).append({'need_id': record['need_id'],
+                    'need_sha256': hashlib.sha256(needs[record['need_id']].to_json().encode()).hexdigest(),
+                    'asset_sha256': current_assets[asset_id].file.sha256, 'rank': 0})
+
+        def eligible_assets(need):
+            return [store.read_asset(a.asset_id) for a in bundle.assets
+                    if a.asset_id in verified and a.media_type is need.media_type
+                    and (not generated_intake or a.asset_id in generated_intake
+                         and generated_records[a.asset_id]['need_id'] == need.need_id)
+                    and a.asset_id not in excluded.get(need.need_id, ())
+                    and a.technical.status is TechnicalStatus.PASSED
+                    and a.rights.status is not RightsStatus.RESTRICTED]
+
+        def strategy_keys(need, asset_id):
+            return {hashlib.sha256(json.dumps({k: r.get(k) for k in
+                        ('source_id', 'compiled_intent_sha256', 'queries')}, sort_keys=True).encode()).hexdigest()
+                    for r in links.get(asset_id, []) if r.get('need_id') == need.need_id and r.get('source_id')}
+
+        def rejected_strategies(need):
+            return set().union(*(strategy_keys(need, row['asset_id']) for row in outcomes
+                if row.get('need_id') == need.need_id and row.get('failure_kind') in {'content_mismatch', 'hard_constraint'}
+                and row.get('verdict') in {'partial', 'unsuitable'})) if outcomes else set()
+
+        def has_content_gap(need):
+            return any(row.get('need_id') == need.need_id and row.get('failure_kind') in {'content_mismatch', 'hard_constraint'}
+                       and row.get('verdict') in {'partial', 'unsuitable'} for row in outcomes)
+
+        def remaining(need):
+            rejected = rejected_strategies(need)
+            return [a for a in eligible_assets(need) if (a.asset_id not in nominated[need.need_id] or (need.need_id, a.asset_id) in reassess)
+                    and not matcher._creator_match_review(need, a)
+                    and (not strategy_keys(need, a.asset_id) or not strategy_keys(need, a.asset_id) <= rejected)
+                    and (not any(scoped_inference(need, a, i) for i in a.semantic.inferences)
+                         or (need.need_id, a.asset_id) in reassess)]
+
+        current_pairs = {}
+        visual_needs = [n for n in plan.needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}
+                        and (not visual_repair or n.need_id in excluded)]
+        # At least one new association per round, at most nine per Need/pool.
+        # Reports/groups are saved before registration; resume walks the same
+        # round sequence and reuses those checkpoints without a new call.
+        for batch_index in range(MAX_VISUAL_CANDIDATES * max(1, len(visual_needs))):
+            round_key = f"{batch_key}-{batch_index}"
+            batch_path = _workspace(attempt) / f"materials/observations/batch-{round_key}.json"
+            if _has_symlink_components(_workspace(attempt), batch_path):
+                raise MaterialIntegrationError("素材观察路径无效")
+            if store.read_recovery_record('visual-done-' + round_key):
+                continue
+            if batch_path.is_file():
+                pairs = json.loads(batch_path.read_text())
+            else:
+                pairs = {}
+                exploration_taken = False
+                explored_ids = set().union(*nominated.values())
+                for need in visual_needs:
+                    budget = MAX_VISUAL_CANDIDATES - len(ledger['associations'].get(need.need_id, []))
+                    if budget > 0 and not covered(need):
+                        pool = remaining(need)
+                        ranks = origin_ranks(need)
+                        # Unrelated files get a single exploration association in
+                        # the whole action, never the same batch for every Need.
+                        related = nominate_visual_candidates(need, pool, matcher, origin_ranks=ranks, allow_exploration=False)
+                        targeted = [a.asset_id for a in pool if (need.need_id, a.asset_id) in reassess]
+                        ids = (targeted or related)[:budget]
+                        if not ids and not exploration_taken and not has_content_gap(need):
+                            ids = nominate_visual_candidates(need, [a for a in pool if a.asset_id not in explored_ids],
+                                matcher, origin_ranks=ranks)[:1]
+                            exploration_taken = bool(ids)
+                        if ids:
+                            pairs[need.need_id] = ids
+                            # At most two distinct assets per Owner action.
+                            # Only independent nomination hints can share them.
+                            for other in visual_needs:
+                                if other == need or covered(other):
+                                    continue
+                                other_budget = MAX_VISUAL_CANDIDATES - len(ledger['associations'].get(other.need_id, []))
+                                related_ids = nominate_visual_candidates(other, remaining(other), matcher,
+                                    origin_ranks=origin_ranks(other), allow_exploration=False)
+                                shared_ids = [a for a in ids if a in related_ids][:max(0, other_budget)]
+                                if shared_ids:
+                                    pairs[other.need_id] = shared_ids
+                            break
+                if not pairs:
+                    break
+                store.write_observation_record(f"batch-{round_key}", pairs)
+            if not isinstance(pairs, dict) or any(nid not in {n.need_id for n in visual_needs} for nid in pairs):
+                raise MaterialIntegrationError("已保存的观察需求与当前方案不一致")
+            for need in visual_needs:
+                selected = pairs.get(need.need_id, [])
+                eligible = {a.asset_id for a in eligible_assets(need)}
+                if (not isinstance(selected, list) or len(selected) > MAX_VISUAL_CANDIDATES
+                        or any(not isinstance(a, str) for a in selected)
+                        or len(set(selected)) != len(selected)
+                        or any(a not in eligible for a in selected)):
+                    raise MaterialIntegrationError("当前素材与已保存的观察候选或接续预算不一致")
+                nominated[need.need_id].update(selected)
+                entries = ledger['associations'].setdefault(need.need_id, [])
+                for asset_id in selected:
+                    token = asset_id + ':' + current_assets[asset_id].file.sha256
+                    if token not in entries:
+                        entries.append(token)
+                if len(entries) > MAX_VISUAL_CANDIDATES:
+                    raise MaterialIntegrationError('累计观察关联预算已用尽，不能换池归零')
+            store.write_recovery_record(ledger_key, ledger)
+            current_pairs = pairs
+            for need in plan.needs:
+                if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
+                    continue
+                selected = pairs.get(need.need_id, [])
+                for asset_id in selected:
+                    # Readiness needs a usable choice, not exhaustive review of the
+                    # whole pool. Preserve independent evidence for each Need.
+                    if covered(need):
+                        break
+                    asset = store.read_asset(asset_id)
+                    if matcher._creator_match_review(need, asset):
+                        continue
+                    path = store.resolve_asset_locator(asset.file.path)
+                    manifest, attachments = prepare_observation(need, asset, path, preview_cache=preview_cache)
+                    reassessing = (need.need_id, asset_id) in reassess
+                    if reassessing:
+                        manifest.pop('input_sha256')
+                        manifest['assessment_revision'] = ASSESSMENT_REVISION
+                        manifest['input_sha256'] = hashlib.sha256(json.dumps(manifest, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+                    relative = f"materials/observations/{manifest['input_sha256']}.json"
+                    report_path = _workspace(attempt) / relative
+                    if _has_symlink_components(_workspace(attempt), report_path):
+                        raise MaterialIntegrationError("素材观察路径无效")
+                    report = None
+                    if report_path.is_file():
+                        try:
+                            report = read_observation_report(report_path, need, asset, manifest)
+                        except (OSError, ValueError, TypeError, AttributeError):
+                            # A completed model run may have written invalid JSON or
+                            # stale evidence. Resume its bounded report repair below.
+                            pass
+                    if report is None:
+                        # Pending gateway calls escape to the durable owner. Never
+                        # turn an uncertain model run into a failed observation.
+                        if group_executor is not None and not reassessing:
+                            # Use frozen nominations, not each scene's evolving
+                            # readiness: otherwise a resumed group changes identity.
+                            shared_needs = [n for n in plan.needs if asset_id in pairs.get(n.need_id, [])]
+                            report = observe_shared_asset(attempt, need, asset, manifest, attachments,
+                                shared_needs, store, round_key, group_executor,
+                                covered_need_ids={n.need_id for n in shared_needs if covered(n)})
+                        else:
+                            report = executor(attempt, manifest, attachments)
+                        store.write_observation_record(manifest["input_sha256"], report)
+                    register(need, asset, manifest, report)
+                    reassess.discard((need.need_id, asset_id))
+                    if group_executor is not None:
+                        for other in plan.needs:
+                            if other == need or asset_id not in pairs.get(other.need_id, []):
+                                continue
+                            other_manifest = observation_for_need(manifest, other)
+                            other_path = _workspace(attempt) / f"materials/observations/{other_manifest['input_sha256']}.json"
+                            try:
+                                other_report = read_observation_report(other_path, other, asset, other_manifest)
+                            except (OSError, ValueError, TypeError, AttributeError):
+                                continue  # Missing/invalid children aren't evidence and don't trigger new calls here.
+                            register(other, asset, other_manifest, other_report)
+            store.write_recovery_record('visual-done-' + round_key, {'completed_at': creation._now()})
+            break  # One frozen batch per Owner action, then recompute the Gate.
         current_attempt = get_film_attempt(attempt_id)
         if active_delivery.get() == attempt['creation_id']:
             from easel.materials.application.music_observation import (
@@ -2080,6 +2304,9 @@ class MaterialProductOrchestrator:
                     if matcher.match(need, available).matches:
                         break
                     asset = store.read_asset(candidate.asset_id)
+                    from easel.materials.application.rights import RightsAdmissionStatus
+                    if RightsService().evaluate(asset, need, attribution=RightsService.attribution_condition_for(asset)).status not in {RightsAdmissionStatus.ADMITTED, RightsAdmissionStatus.CONDITIONAL}:
+                        continue  # Unknown Rights are not a reason to spend on audio evidence.
                     identity = 'music-' + hashlib.sha256((MUSIC_SCHEMA + MODEL_REVISION + asset.file.sha256).encode()).hexdigest()
                     report_path = _workspace(attempt) / 'materials/observations' / (identity + '.json')
                     if _has_symlink_components(_workspace(attempt), report_path):
@@ -2088,6 +2315,10 @@ class MaterialProductOrchestrator:
                     if report_path.is_file():
                         report = json.loads(report_path.read_text())
                     else:
+                        from easel.creation_delivery import active_delivery, reserve_delivery_call
+                        if active_delivery.get() == attempt['creation_id']:
+                            with creation.edit_creation(attempt['creation_id']) as work:
+                                reserve_delivery_call(work, category='local_music_observation', stage_override='material', need_count=len(plan.needs))
                         report = read_local_music(path)
                         apply_music_observation(need, asset, report)
                         store.write_observation_record(identity, report)
@@ -2097,6 +2328,16 @@ class MaterialProductOrchestrator:
                     # A saved report survives a crash before Asset/Bundle registration.
                     if asset.semantic.inferences != observed.semantic.inferences:
                         store.write_asset(observed)
+        # Only related pending candidates (or a never-explored file) justify
+        # another batch; hard mismatch is a strategy change, not more of the same.
+        explored = set().union(*nominated.values())
+        def pending_candidates(need):
+            if any(row.get('need_id') == need.need_id and row.get('asset_id') in current_pairs.get(need.need_id, []) and row.get('failure_kind') in {'content_mismatch', 'hard_constraint'}
+                   and row.get('verdict') in {'partial', 'unsuitable'} for row in outcomes):
+                return []
+            pool = remaining(need)
+            related = nominate_visual_candidates(need, pool, matcher, origin_ranks=origin_ranks(need), allow_exploration=False)
+            return related or ([] if has_content_gap(need) else [a.asset_id for a in pool if a.asset_id not in explored][:1])
         current_plan = PlanningIntegration().load(current_attempt)["plan"]
         if current_plan != plan or store.read_bundle() != bundle:
             raise MaterialIntegrationError("素材观察期间方案或候选发生变化；保留证据并重新核对")
@@ -2106,6 +2347,17 @@ class MaterialProductOrchestrator:
             "status": "COMPLETE", "plan_revision": result["attempt"]["material_gate"]["plan_revision"],
             "bundle_revision": result["attempt"]["material_gate"]["bundle_revision"],
             "reports": reports, "updated_at": creation._now(),
+            "nomination_revision": NOMINATION_REVISION,
+            "nominated_associations": sum(len(ids) for ids in ledger['associations'].values()),
+            "candidate_progress": {n.need_id: {
+                "nominated": len(ledger['associations'].get(n.need_id, [])),
+                "remaining_unobserved": [a.asset_id for a in remaining(n)],
+                "next_candidates": pending_candidates(n),
+                "stop_reason": "covered" if covered(n) else
+                    "budget_exhausted" if len(ledger['associations'].get(n.need_id, [])) >= MAX_VISUAL_CANDIDATES
+                    else "batch_complete" if pending_candidates(n) else "candidates_exhausted",
+            } for n in visual_needs},
+            "outcomes": outcomes,
             **({'quality_report_sha256': revision['quality_report_sha256']} if visual_repair else {}),
         })
         return result

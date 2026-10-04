@@ -28,6 +28,80 @@ PREFIX = "easel-visual-v1:"
 MAX_VISUAL_CANDIDATES = 9
 GROUP_SCHEMA = 'easel-shared-visual-observation@1'
 MAX_SHARED_NEEDS = 4
+NOMINATION_REVISION = 'need-origin-single-batch-v5'
+ASSESSMENT_REVISION = 'requirements-v1'
+MAX_PRIMARY_VISUAL_CANDIDATES = 2
+MAX_EXPLORATORY_VISUAL_CANDIDATES = 1
+
+
+def requires_reassessment(need: MaterialNeed, report: dict, media_type: MediaType) -> bool:
+    """Only identifiable obsolete preference/postproduction refusals are retried."""
+    if 'requirements_contract' in report or report.get('verdict') not in {'partial', 'unsuitable'}:
+        return False
+    if report.get('failure_kind') in {'hard_constraint', 'content_mismatch', 'evidence_insufficient'}:
+        return False
+    reason = report.get('reason', '')
+    return (report.get('failure_kind') in {'preference_only', 'postproduction_only', 'none'}
+            or bool(need.constraints.get('preferred_visual_details') or need.constraints.get('preferred_style'))
+            and bool(re.search(r'仅.*(?:色调|颜色|留白|景别|风格)|only.*(?:style|color|wide shot)', reason, re.I))
+            or media_type is MediaType.IMAGE
+            and bool(re.search(r'(?:无法|不能|缺少|没有).*(?:微推|镜头运动|景别切换)|(?:lacks|missing).*(?:camera movement|zoom)', reason, re.I)))
+
+
+def pending_visual_reassessment(attempt: dict) -> bool:
+    from easel.materials.store import AttemptMaterialStore
+    rows = attempt.get('material_observation', {}).get('outcomes', [])
+    if not rows:
+        return False
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    needs = {n.need_id: n for n in store.read_plan().needs}
+    assets = {a.asset_id: a for a in store.read_bundle().assets}
+    for row in rows:
+        need, asset = needs.get(row.get('need_id')), assets.get(row.get('asset_id'))
+        identity = row.get('input_sha256', '')
+        if (need is None or asset is None or row.get('need_sha256') != need_identity(need)
+                or row.get('asset_sha256') != asset.file.sha256 or not isinstance(identity, str)
+                or not re.fullmatch(r'[0-9a-f]{64}', identity)):
+            continue
+        path = store.materials_root / 'observations' / (identity + '.json')
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 128 * 1024:
+            raise ValueError('当前素材观察证据缺失，先恢复报告')
+        if requires_reassessment(need, json.loads(path.read_text()), asset.media_type):
+            return True
+    return False
+
+
+def nominate_visual_candidates(need, assets, matcher, *, origin_ranks=None, allow_exploration=True):
+    """Bound scene/asset associations, not eligibility or visual verdicts.
+
+    Text is only a nomination hint. Keep one non-overlapping candidate for
+    incomplete/multilingual metadata; no overlap at all gets a small exploration
+    batch. The orchestrator freezes and advances batches within the total
+    per-Need/pool budget before returning to bounded query recovery.
+    """
+    from easel.materials.application.rights import RightsAdmissionStatus, RightsService
+    origin_ranks = origin_ranks or {}
+    scores = {a.asset_id: matcher._soft_scores(need, a) for a in assets}
+    ranked = sorted(assets, key=lambda a: (
+        any(scoped_inference(need, a, i) for i in a.semantic.inferences) and observed_match(need, a) is not True,
+        RightsService().evaluate(a, need, attribution=RightsService.attribution_condition_for(a)).status
+        is RightsAdmissionStatus.BLOCKED,
+        origin_ranks.get(a.asset_id, 100000),
+        -(scores[a.asset_id][0].semantic or 0), -scores[a.asset_id][1], a.asset_id))
+    related = [a for a in ranked if a.asset_id in origin_ranks or (scores[a.asset_id][0].semantic or 0) > 0]
+    unexplained = [a for a in ranked if a not in related]
+    selected = related[:MAX_PRIMARY_VISUAL_CANDIDATES]
+    if allow_exploration and not selected:
+        selected += unexplained[:MAX_EXPLORATORY_VISUAL_CANDIDATES]
+    return [a.asset_id for a in selected]
+
+
+def observation_for_need(manifest, need):
+    """Share pixels while retaining the full, independent Need identity."""
+    current = {**manifest, 'need': need.model_dump(mode='json'), 'need_sha256': need_identity(need)}
+    current.pop('input_sha256')
+    current['input_sha256'] = hashlib.sha256(json.dumps(current, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    return current
 
 
 def validate_shared_report(group: dict, asset: MaterialAsset, report: dict) -> dict:
@@ -45,11 +119,15 @@ def validate_shared_report(group: dict, asset: MaterialAsset, report: dict) -> d
         raise ValueError('共享观察必须逐场景覆盖，绑定同一组实际预览')
     for manifest in manifests:
         need = MaterialNeed.model_validate_json(json.dumps(manifest['need']))
-        apply_observation(need, asset, manifest, rows[need.need_id])
+        try:
+            apply_observation(need, asset, manifest, rows[need.need_id])
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ValueError(f'reports[{need.need_id}]: {exc}') from exc
     return rows
 
 
-def observe_shared_asset(attempt, need, asset, manifest, attachments, candidate_needs, store, batch_key, executor):
+def observe_shared_asset(attempt, need, asset, manifest, attachments, candidate_needs, store, batch_key, executor,
+                         *, covered_need_ids=()):
     """Freeze grouping before dispatch; resume the same group after partial writes.
 
     Individual valid reports remain the ordinary matching checkpoints. Grouping
@@ -64,9 +142,9 @@ def observe_shared_asset(attempt, need, asset, manifest, attachments, candidate_
     else:
         pending = []
         for other in candidate_needs:
-            current = {**manifest, 'need': other.model_dump(mode='json'), 'need_sha256': need_identity(other)}
-            current.pop('input_sha256')
-            current['input_sha256'] = hashlib.sha256(json.dumps(current, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+            if other.need_id in covered_need_ids and other.need_id != need.need_id:
+                continue
+            current = observation_for_need(manifest, other)
             saved = store.materials_root / 'observations' / (current['input_sha256'] + '.json')
             try:
                 read_observation_report(saved, other, asset, current)
@@ -85,9 +163,7 @@ def observe_shared_asset(attempt, need, asset, manifest, attachments, candidate_
     expected = {n.need_id: n for n in candidate_needs}
     for item in group['observations']:
         raw_need = MaterialNeed.model_validate_json(json.dumps(item['need']))
-        rebound = {**manifest, 'need': raw_need.model_dump(mode='json'), 'need_sha256': need_identity(raw_need)}
-        rebound.pop('input_sha256')
-        rebound['input_sha256'] = hashlib.sha256(json.dumps(rebound, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        rebound = observation_for_need(manifest, raw_need)
         if (raw_need.need_id not in expected or expected[raw_need.need_id] != raw_need
                 or item != rebound):
             raise ValueError('共享观察需求或预览已变化，不能沿用')
@@ -183,7 +259,7 @@ def _sampled_interval(manifest: dict, rows: list[dict], verdict: str) -> tuple[f
         return 0., manifest['duration_seconds']
     runs, start = [], None
     for index, row in enumerate(rows):
-        if row['observed'] and row['related'] is True:
+        if row['observed'] and row.get('meets_requirements', row['related']) is True:
             start = index if start is None else start
             if index > start:
                 runs.append((manifest['frames'][start]['seek_seconds'], manifest['frames'][index]['seek_seconds']))
@@ -203,7 +279,8 @@ def _jpeg(raw: bytes, edge: int = 384) -> bytes:
         return output.getvalue()
 
 
-def prepare_observation(need: MaterialNeed, asset: MaterialAsset, path: Path) -> tuple[dict, list[dict]]:
+def prepare_observation(need: MaterialNeed, asset: MaterialAsset, path: Path, *,
+                        preview_cache: dict | None = None) -> tuple[dict, list[dict]]:
     """Decode actual bytes locally, then send bounded images to the agent RPC."""
     digest = hashlib.sha256()
     size = 0
@@ -213,7 +290,14 @@ def prepare_observation(need: MaterialNeed, asset: MaterialAsset, path: Path) ->
             size += len(chunk)
     if digest.hexdigest() != asset.file.sha256 or size != asset.file.size:
         raise ValueError("素材字节已变化，不能沿用观察身份")
-    if asset.media_type is MediaType.IMAGE:
+    # Cache only decoded pixels within one observation pass. Every use still
+    # hashes the actual source, and every Need gets a separately bound manifest.
+    preview_key = (SCHEMA, asset.file.sha256, asset.file.size,
+                   asset.media_type.value, asset.technical.duration_seconds)
+    cached = preview_cache.get(preview_key) if preview_cache is not None else None
+    if cached is not None:
+        frames = cached
+    elif asset.media_type is MediaType.IMAGE:
         frames = [(None, _jpeg(path.read_bytes()))]
     elif asset.media_type is MediaType.VIDEO:
         duration = asset.technical.duration_seconds
@@ -248,6 +332,10 @@ def prepare_observation(need: MaterialNeed, asset: MaterialAsset, path: Path) ->
     # than truncate observations or exceed the OS argument limit.
     if sum(len(a["content"]) for a in attachments) > 80_000:
         raise ValueError("素材预览超过本地观察传输上限，未提交分析")
+    if preview_cache is not None and cached is None:
+        if len(preview_cache) >= MAX_VISUAL_CANDIDATES:
+            preview_cache.pop(next(iter(preview_cache)))
+        preview_cache[preview_key] = frames
     manifest = {"schema": SCHEMA, "need": need.model_dump(mode="json"),
                 "need_sha256": need_identity(need), "asset_id": asset.asset_id,
                 "asset_sha256": asset.file.sha256, "media_type": asset.media_type.value,
@@ -267,7 +355,18 @@ def apply_observation(need: MaterialNeed, asset: MaterialAsset, manifest: dict, 
             or manifest.get("asset_id") != asset.asset_id
             or report.get("schema") != SCHEMA
             or report.get("input_sha256") != manifest.get("input_sha256")):
-        raise ValueError("观察报告与当前场景、素材或预览不一致")
+        raise ValueError("观察报告与当前场景、素材或预览不一致；"
+                         f"schema 应为 {SCHEMA}，input_sha256 应为 {manifest.get('input_sha256')}，"
+                         f"实际为 {report.get('input_sha256')}")
+    if 'requirements_contract' in report:
+        from easel.materials.application.visual_contract import assemble_report, digest
+        contract = report['requirements_contract']
+        if (not isinstance(contract, dict) or contract.get('need_sha256') != need_identity(need)
+                or contract.get('source_data', {}).get('need') != need.model_dump(mode='json')):
+            raise ValueError('逐项要求合同不属于当前 Need')
+        rebuilt = assemble_report(manifest, contract, report.get('compact_results', []))
+        if rebuilt != report or report.get('requirements_sha256') != digest(contract):
+            raise ValueError('逐项要求、事实和正式适用结论不一致')
     verdict = report.get("verdict")
     if verdict not in {"suitable", "unsuitable", "partial", "uncertain"}:
         raise ValueError("观察报告缺少明确的适用结论")
@@ -285,8 +384,22 @@ def apply_observation(need: MaterialNeed, asset: MaterialAsset, manifest: dict, 
             raise ValueError(f'frames[{index}].related 只能为 JSON true/false/null；partial 属于顶层 verdict，不是逐帧字段值')
         if not isinstance(row.get('description'), str) or not row['description'].strip():
             raise ValueError(f'frames[{index}].description 必须为非空的实际观察说明')
-    if verdict == "suitable" and not all(r["observed"] and r["related"] is True for r in rows):
+        if 'meets_requirements' in row and row['meets_requirements'] is not None and type(row['meets_requirements']) is not bool:
+            raise ValueError('meets_requirements 只能为 JSON true/false/null')
+        if row.get('meets_requirements') is True and (not row['observed'] or row['related'] is not True):
+            raise ValueError('适用证据不能来自未观察或不相关画面')
+    # Legacy reports use related as their combined applicability field. New
+    # reports separate visible subject relevance from complete requirements.
+    applicability = [r.get('meets_requirements', r['related']) for r in rows]
+    if verdict == "suitable" and not all(r["observed"] and ok is True for r, ok in zip(rows, applicability)):
         raise ValueError("只有部分采样画面适合时，不能批准整项素材匹配")
+    if verdict == "unsuitable" and not all(r["observed"] and ok is False for r, ok in zip(rows, applicability)):
+        raise ValueError("不适合结论与逐帧证据矛盾：未观察或关联未知应保留 uncertain，部分相关应保留 partial")
+    failure_kind = report.get('failure_kind')
+    if failure_kind is not None and failure_kind not in {'content_mismatch', 'hard_constraint', 'evidence_insufficient', 'none'}:
+        raise ValueError('一般偏好和后期镜头效果不能作为素材拒绝原因')
+    if failure_kind == 'evidence_insufficient' and verdict != 'uncertain':
+        raise ValueError('证据不足必须保留 uncertain')
     for key in ("caption", "style", "reason"):
         if not isinstance(report.get(key), str) or not report[key].strip() or len(report[key]) > 4000:
             raise ValueError("观察报告缺少画面、风格或判断依据")

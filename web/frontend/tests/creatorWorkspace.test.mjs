@@ -88,6 +88,13 @@ const localIntake = project({ ...confirmed, delivery: { ...delivery, status: 're
 assert.equal(localIntake.pending, 0);
 assert.match(localIntake.title, /已保存.*无需重新生成/);
 assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:finish_material_generation' } }, {}, null).failureStage, '素材准备');
+const materialEndpoint = project({ ...confirmed, delivery: { ...delivery, endpoint: 'MATERIAL_READY', status: 'material_ready' } },
+  { material_gate: { status: 'MATERIAL_READY', blocking_needs: [] } }, null);
+assert.match(materialEndpoint.title, /素材已就绪.*停止/);
+assert.equal(materialEndpoint.timeline[3].state, 'completed');
+assert.equal(materialEndpoint.timeline[4].state, 'waiting');
+assert.equal(materialEndpoint.timeline[6].state, 'waiting');
+assert.equal(materialEndpoint.selected, false);
 const exported = { execution_status: 'BUILD_COMPLETE', outputs: { final: { sha256: 'fixture' } } };
 const checkingQuality = project({ ...confirmed, delivery: { ...delivery, status: 'checking_quality' } }, exported, null);
 assert.equal(checkingQuality.pending, 0);
@@ -109,3 +116,10 @@ assert.equal(editing.proposal, true);
 assert.equal(editing.title, '修改创作方案');
 assert.equal(editing.failureStage, null);
 assert.equal(editing.timeline.find(row => row.name === '创作规划').state, 'waiting');
+
+const audioCapabilityBlocked = project({ ...confirmed, delivery: { ...delivery, status: 'needs_audio_verification' } },
+  { material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['voice'] } }, null);
+assert.equal(audioCapabilityBlocked.materialWorking, false);
+assert.equal(audioCapabilityBlocked.materialUnavailable, true);
+assert.equal(audioCapabilityBlocked.pending, 0);
+assert.match(audioCapabilityBlocked.title, /声音验证尚未完成/);

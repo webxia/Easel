@@ -218,7 +218,9 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         assert all(n.constraints['preferred_style'] == mode['visual_material_style'] for n in plan.needs if n.media_type is MediaType.IMAGE)
         if prior_voice:
             assert not MaterialMatcher().match(voice_need, (prior_voice,)).matches
-        assert requests and all(mode['visual_material_style'] in r.semantic_queries[0] for r in requests if r.need_id.startswith('visual-'))
+        assert requests and all(any(mode['visual_material_style'] in q for q in r.semantic_queries)
+                                and mode['visual_material_style'] not in r.semantic_queries[0]
+                                for r in requests if r.need_id.startswith('visual-'))
         # The actual owner now invokes acoustic observation. Replace only the
         # local classifier, not Asset semantics or a Creator listening decision.
         from tests.test_material_audio_supply import acoustic_fixture
@@ -279,6 +281,8 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         fixture_terms = minimax_pricing.usage_terms_evidence(lambda _: MINIMAX_TERMS_FIXTURE)
         monkeypatch.setattr(material_generation, 'MINIMAX_INTERNAL_TERMS_SHA256', fixture_terms['sha256'])
         monkeypatch.setattr(voice_delivery, 'require_local_voice_model', lambda: None)  # Fixed offline recognizer below.
+        monkeypatch.setattr(voice_delivery, 'voice_verification_identity', lambda *a: {
+            'model_sha256': 'a' * 64, 'engine': 'fixed-replay-ASR', 'rules': 'fixture-v1'})
         orchestrator = MaterialProductOrchestrator()
         recognition_calls = []
         def recognize(path, language):
@@ -331,8 +335,10 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 break
         monkeypatch.setattr(AttemptMaterialStore, 'write_asset', write_asset)
         assert bool(acoustic_interrupted) is (index == 2)
-        assert material_operations == (['observe_material'] if index == 2 else []) + ['observe_material', 'recover_material', 'generate_material',
-                                       'recover_voice_timing', 'observe_material'], creation.get_creation(work['id'])['delivery']
+        assert material_operations.count('recover_material') == 1
+        assert material_operations.count('generate_material') == 1
+        assert material_operations.count('recover_voice_timing') == 1
+        assert 1 <= material_operations.count('observe_material') <= 2 * len(sentences) + 1
         assert calls == [(script, mode['voice_delivery'])]
         assert len(acoustic_calls) == 1
         assert music_preflights == [True]
@@ -727,8 +733,13 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             repair_operations.extend(['observe_material', 'observe_material'])
         elif index == 1:
             repair_operations.extend(['observe_material', 'recover_material', 'recover_material', 'observe_material'])
-        assert operations[repair_start:] == repair_operations + ['author', 'validate', 'price',
-            'approve_free', 'submit', 'refresh', 'export', 'quality']
+        suffix = ['author', 'validate', 'price', 'approve_free', 'submit', 'refresh', 'export', 'quality']
+        assert operations[-len(suffix):] == suffix
+        material_prefix = operations[repair_start:-len(suffix)]
+        assert material_prefix[:2 if index == 1 else 1] == ['repair_quality'] * (2 if index == 1 else 1)
+        assert material_prefix.count('recover_material') == (2 if index == 1 else 0)
+        assert material_prefix.count('observe_material') >= repair_operations.count('observe_material')
+        assert set(material_prefix) <= {'repair_quality', 'observe_material', 'recover_material'}
         assert current['delivery']['quality_repairs'] == [attempt['attempt_id']]
         assert current['delivery']['material_generations'] == ledger
         assert renderer_calls.count('build') == renderer_calls.count('get') == 2

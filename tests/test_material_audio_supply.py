@@ -166,7 +166,9 @@ def test_bgm_matching_reuses_material_matcher_without_timeline_decisions():
     from urllib.parse import parse_qs, urlparse
     assert parse_qs(urlparse(transport.url).query)['q'] == [intent.semantic_queries[0]]
     first_query = intent.semantic_queries[0]
-    assert all(term in first_query for term in ('calm', 'ambient', 'piano', 'pad', 'low', '60-80 bpm', 'instrumental'))
+    assert first_query == 'music'
+    assert all(term in intent.semantic_queries[1] for term in
+               ('calm', 'ambient', 'piano', 'pad', 'low', '60-80 bpm', 'instrumental'))
     assert len(intent.semantic_queries) <= 4
     assert 'vocals' in intent.negative_terms
     allowed = compiler.compile(need.model_copy(update={'modality_spec': BgmNeedSpec(vocals_allowed=True)}))

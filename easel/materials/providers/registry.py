@@ -18,7 +18,6 @@ from easel.materials.providers.errors import (
     ProviderNetworkError,
     ProviderTemporaryError,
     ProviderUnsupportedError,
-    ProviderUnsupportedError,
 )
 from easel.materials.providers.models import (
     PaginationMode,
@@ -61,7 +60,9 @@ class ProviderSearchResult(ContractModel):
 class ProviderRegistry:
     """Registers neutral Provider adapters and isolates each search failure."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, before_search: Callable | None = None, after_search: Callable | None = None) -> None:
+        self.before_search = before_search
+        self.after_search = after_search
         self._providers: dict[str, MaterialProvider] = {}
         self._infos: dict[str, ProviderInfo] = {}
 
@@ -151,6 +152,11 @@ class ProviderRegistry:
                 raise ProviderUnsupportedError(info.provider_id, "Continuation mode is unsupported by Provider")
         provider = self._providers[info.provider_id]
         for attempt in range(1, retry_policy.max_attempts + 1):
+            # Product ownership may bound dispatches. The neutral registry
+            # doesn't own that state or absorb cancellation/budget exceptions.
+            if self.before_search is not None:
+                self.before_search(info.provider_id, intent, attempt)
+            failure_type = None
             try:
                 page = provider.search(intent, continuation)
                 if not isinstance(page, ProviderPage):
@@ -166,8 +172,9 @@ class ProviderRegistry:
                         raise ProviderInvalidResponseError(info.provider_id, "Candidate Need identity does not match request")
                     if candidate.media_type not in info.media_types:
                         raise ProviderInvalidResponseError(info.provider_id, "Candidate media_type exceeds declared capability")
-                return page
+                break
             except ProviderError as exc:
+                failure_type = type(exc).__name__
                 if exc.provider_id != info.provider_id:
                     raise ProviderInvalidResponseError(info.provider_id, "Provider raised an error for another Provider") from exc
                 if not exc.retryable or attempt >= retry_policy.max_attempts:
@@ -182,6 +189,7 @@ class ProviderRegistry:
                 if delay:
                     sleep(delay)
             except (TimeoutError, ConnectionError) as exc:
+                failure_type = type(exc).__name__
                 if attempt >= retry_policy.max_attempts:
                     raise ProviderNetworkError(info.provider_id, type(exc).__name__) from exc
                 delay = retry_policy.initial_delay_seconds * (2 ** (attempt - 1))
@@ -190,8 +198,15 @@ class ProviderRegistry:
                 if delay:
                     sleep(delay)
             except Exception as exc:
+                failure_type = type(exc).__name__
                 raise ProviderInvalidResponseError(
                     info.provider_id,
                     f"Provider adapter failed with {type(exc).__name__}",
                 ) from exc
-        raise ProviderError(info.provider_id, "Provider retry loop exhausted")
+            finally:
+                # Recording failures belong to the owner, not Provider isolation.
+                if self.after_search is not None:
+                    self.after_search(info.provider_id, intent, getattr(provider, "last_search_query", None), failure_type)
+        else:
+            raise ProviderError(info.provider_id, "Provider retry loop exhausted")
+        return page

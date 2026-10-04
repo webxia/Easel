@@ -235,3 +235,14 @@ def test_pixabay_rejects_continuation_bound_to_another_search() -> None:
     page = provider.search(intent(MediaType.VIDEO, "first query"))
     with pytest.raises(ProviderUnsupportedError, match="invalid for this search"):
         provider.search(intent(MediaType.VIDEO, "other query"), page.continuation)
+
+
+def test_pixabay_skips_overlong_hint_without_truncating_subject_or_losing_filters():
+    transport = FakeTransport(response({'totalHits': 0, 'hits': []}))
+    provider = PixabayProvider('fixture-key', transport=transport, response_cache=MemoryTTLResponseCache())
+    retrieval = intent(MediaType.VIDEO, 'a' * 101, 'notebook desk', orientation='portrait')
+    provider.search(retrieval)
+    params = parse_qs(urlparse(transport.requests[0][0]).query)
+    assert params['q'] == ['notebook desk']
+    assert params['orientation'] == ['vertical']
+    assert retrieval.semantic_queries[0] == 'a' * 101

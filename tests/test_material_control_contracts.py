@@ -1,0 +1,218 @@
+"""Failure-shape contracts; no real gateway, provider or model inference."""
+from copy import deepcopy
+import hashlib
+
+import pytest
+from easel.materials.domain import (
+    MaterialNeed, NeedIntent, NeedScope, NeedScopeType, NeedImportance, MediaType,
+    MaterialAsset, CandidateSource, FileInfo, TechnicalInfo, TechnicalStatus, RightsInfo,
+    RightsStatus, RightsEvidence, VoiceNeedSpec, VoiceIdentityRef, VoiceIdentitySource,
+)
+from easel.materials.application.visual_contract import (
+    compilation_input, validate_compilation, batches, assemble_report,
+)
+from easel.materials.application.visual_observation import apply_observation, need_identity
+from easel.materials.providers.minimax_speech import MiniMaxSpeechAdapter
+
+
+def visual_need():
+    return MaterialNeed(need_id='paper', scope=NeedScope(type=NeedScopeType.SCENE, ref='paper'),
+        media_type=MediaType.IMAGE, role='visual', importance=NeedImportance.REQUIRED,
+        intent=NeedIntent(description='two visible paper sheets'),
+        constraints={'preferred_visual_details': 'low angle'})
+
+
+@pytest.mark.parametrize('fault', [None, 'missing', 'unknown_status', 'duplicated', 'wrong_need', 'preference_promoted'])
+def test_required_paper_and_optional_angle_have_distinct_admission_contracts(fault):
+    need = visual_need()
+    frozen = compilation_input(need, {'brief_sha256': 'a' * 64}, {})
+    response = {'clauses': [[0, 0, len(frozen['sources'][0]['text']), 'required', None],
+                             [1, 0, len(frozen['sources'][1]['text']), 'preference', None]]}
+    if fault == 'preference_promoted':
+        response['clauses'][1][3] = 'required'
+        with pytest.raises(ValueError, match='显式偏好'):
+            validate_compilation(frozen, response)
+        return
+    contract = validate_compilation(frozen, response)
+    asset = MaterialAsset(asset_id='image', media_type=MediaType.IMAGE,
+        file=FileInfo(path='materials/assets/image/original.png', sha256='b' * 64, size=1, mime='image/png'),
+        source=CandidateSource(kind='fixture'), rights=RightsInfo(status=RightsStatus.UNKNOWN), technical=TechnicalInfo(status=TechnicalStatus.PASSED))
+    manifest = {'need_sha256': need_identity(need), 'asset_sha256': asset.file.sha256, 'asset_id': asset.asset_id,
+                'input_sha256': 'c' * 64, 'media_type': 'image', 'frames': [{'index': 0, 'sha256': 'd' * 64}]}
+    result = {'frame': 0, 'observed': True, 'description': 'two sheets, frontal', 'style': 'daylight',
+              'logo': False, 'text': False, 'preference_notes': 'angle differs',
+              'checks': [{'id': 0, 'status': 'met', 'basis': 'two sheets visibly distinct'}]}
+    good = assemble_report(manifest, contract, [result])
+    assert good['verdict'] == 'suitable'  # The explicit angle preference cannot refuse it.
+    apply_observation(need, asset, manifest, good)
+    missing_paper = deepcopy(result)
+    missing_paper['checks'][0].update(status='not_met', basis='only one sheet visible')
+    assert assemble_report(manifest, contract, [missing_paper])['verdict'] == 'unsuitable'
+    if fault == 'missing': result['checks'] = []
+    elif fault == 'unknown_status': result['checks'][0]['status'] = 'looks fine'
+    elif fault == 'duplicated': result['checks'] += deepcopy(result['checks'])
+    elif fault == 'wrong_need': contract['need_sha256'] = 'e' * 64
+    if fault:
+        with pytest.raises(ValueError):
+            if fault == 'wrong_need':
+                apply_observation(need, asset, manifest, {**good, 'requirements_contract': contract})
+            else:
+                assemble_report(manifest, contract, [result])
+    else:
+        # Capacity is planned for escaped Unicode, with no omitted clauses.
+        for group in batches(manifest, contract):
+            assert group['clauses']
+
+
+@pytest.mark.parametrize('fault', [None, 'missing', 'extra', 'reordered', 'overlap', 'wrong_offset'])
+def test_subtitle_mapping_proves_whole_script_without_guessing_newline_counts(fault):
+    script = '第一句。\n第二句。\n第一句。'
+    texts = ['第一句。', '第二句。', '第一句。']
+    cues = tuple({'text': text, 'start_character': i * 4, 'end_character': (i + 1) * 4,
+                  'start_seconds': float(i), 'end_seconds': i + .8} for i, text in enumerate(texts))
+    rows = list(deepcopy(cues))
+    if fault == 'missing': rows.pop(1)
+    elif fault == 'extra': rows[-1]['text'] += '啊'
+    elif fault == 'reordered': rows[0]['text'], rows[1]['text'] = rows[1]['text'], rows[0]['text']
+    elif fault == 'overlap': rows[1]['start_seconds'] = .4
+    elif fault == 'wrong_offset': rows[1]['start_character'] = 5
+    if fault:
+        with pytest.raises(ValueError):
+            MiniMaxSpeechAdapter.map_timings(script, tuple(rows))
+    else:
+        mapped = MiniMaxSpeechAdapter.map_timings(script, cues)
+        assert [(r['start_character'], r['end_character']) for r in mapped] == [(0, 4), (5, 9), (10, 14)]
+        assert [(r['start_seconds'], r['end_seconds']) for r in mapped] == [(i, i + .8) for i in range(3)]
+        assert cues[1]['start_character'] == 4  # Original Provider evidence is unchanged.
+
+
+@pytest.mark.parametrize('fault', [None, 'same_model', 'different_audio', 'stale_primary', 'missing_interval', 'disagreement', 'bad_capability'])
+def test_independent_interval_closes_low_confidence_without_rewriting_probabilities(fault):
+    from easel.materials.application.voice_delivery import (
+        apply_voice_content, timing_from_recognition, voice_content_observed, recognition_digest,
+    )
+    from easel.materials.application.voice_supplement import primary_digest, REVISION
+    from easel.materials.application.matching import MaterialMatcher
+    script = '假设清晨。'
+    need = MaterialNeed(need_id='voice', scope=NeedScope(type=NeedScopeType.GLOBAL, ref='film'),
+        media_type=MediaType.AUDIO, role='voice', intent=NeedIntent(description='clear narration'),
+        importance=NeedImportance.REQUIRED, modality_spec=VoiceNeedSpec(text_ref='artifacts/SCRIPT.md', text_sha256=hashlib.sha256(script.encode()).hexdigest(),
+            identity=VoiceIdentityRef(source=VoiceIdentitySource.EXPLICIT_USER, reference='preset Mandarin')))
+    asset = MaterialAsset(asset_id='voice', media_type=MediaType.AUDIO,
+        file=FileInfo(path='materials/assets/voice/audio.mp3', sha256='a' * 64, size=1, mime='audio/mpeg'),
+        source=CandidateSource(kind='generative', provider='minimax'),
+        rights=RightsInfo(status=RightsStatus.UNKNOWN),
+        technical=TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=2., mime='audio/mpeg'))
+    words = [{'text': '假设', 'start_seconds': .1, 'end_seconds': .6, 'probability': .2},
+             {'text': '清晨。', 'start_seconds': .6, 'end_seconds': 1.2, 'probability': .95}]
+    primary = {'words': words, 'model_sha256': 'b' * 64, 'audio_sha256': asset.file.sha256,
+               'script_sha256': hashlib.sha256(script.encode()).hexdigest(),
+               'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest()}
+    descriptor = {'model_sha256': 'c' * 64, 'rules': 'complete-voice-and-independent-interval@2', 'version': 'fixture'}
+    independent = {'words': [{**w, 'probability': .95} for w in words],
+                   'model_sha256': descriptor['model_sha256'], 'verification_config': descriptor}
+    cases = []
+    for name in ('complete', 'wrong_word', 'missing_word', 'extra_word'):
+        report = deepcopy(independent)
+        if name == 'wrong_word': report['words'][0]['text'] = '真的'
+        elif name == 'missing_word': report['words'].pop()
+        elif name == 'extra_word': report['words'][-1]['text'] += '啊'
+        cases.append({'id': name, 'expected_acceptance': name == 'complete', 'script': script,
+                      'audio_sha256': hashlib.sha256(name.encode()).hexdigest(), 'duration_seconds': 2., 'recognition': report})
+    capability = {'schema': 'local-voice-capability@1', 'verification': descriptor, 'cases': cases}
+    capability['identity'] = recognition_digest(capability)
+    proof = {'schema': REVISION, 'primary_sha256': primary_digest(primary), 'audio_sha256': asset.file.sha256,
+             'script_sha256': primary['script_sha256'], 'need_sha256': primary['need_sha256'], 'word_index': 0,
+             'context_words': [0, 2], 'interval': [0., 1.5], 'recognition': independent,
+             'verification': descriptor, 'capability': capability, 'capability_sha256': capability['identity']}
+    if fault == 'same_model': descriptor['model_sha256'] = 'b' * 64
+    elif fault == 'different_audio': proof['audio_sha256'] = 'e' * 64
+    elif fault == 'stale_primary': proof['primary_sha256'] = 'e' * 64
+    elif fault == 'missing_interval': proof['interval'] = [.3, 1.5]
+    elif fault == 'disagreement': independent['words'][0]['text'] = '真的'
+    elif fault == 'bad_capability': capability['cases'][1]['recognition'] = deepcopy(independent)
+    combined = {**primary, 'supplements': [proof]}
+    if fault:
+        with pytest.raises(ValueError):
+            timing_from_recognition(script, asset, combined)
+        assert not voice_content_observed(need, asset)
+    else:
+        observed = apply_voice_content(need, asset, script, combined)
+        assert words[0]['probability'] == .2
+        assert observed.semantic.inferences[-1].annotations[0].confidence is None
+        assert voice_content_observed(need, observed)
+        assert not MaterialMatcher().match(need, (observed,)).matches  # No automatic generated Rights.
+        licensed = observed.model_copy(update={'rights': RightsInfo(status=RightsStatus.KNOWN, license_name='Fixture',
+            evidence=(RightsEvidence(kind='asset_license', reference='fixture://voice'),))})
+        assert MaterialMatcher().match(need, (licensed,)).matches
+
+
+def test_same_planning_turn_binds_requirements_and_queries_to_the_canonical_need():
+    from easel.materials.domain import MaterialPlan
+    from easel.materials.application.visual_contract import planning_contracts, digest
+    need = visual_need()
+    mode = {'visual_material_style': 'restrained daylight'}
+    plan = MaterialPlan(plan_id='plan', creation_id='creation', attempt_id='attempt', needs=(need,))
+    response = {need.need_id: {'clauses': [
+        {'path': 'intent/description', 'text': need.intent.description, 'kind': 'required', 'preference_path': None},
+        {'path': 'constraints/preferred_visual_details', 'text': 'low angle', 'kind': 'preference', 'preference_path': None}],
+        'queries': ['two paper sheets', 'paper pages on desk', 'paper documents']}}
+    identity, saved = planning_contracts(plan, mode, response)[0]
+    assert identity == digest(saved['input'])
+    assert saved['contract']['queries'][0] == 'two paper sheets'
+    assert saved['input']['need']['constraints']['preferred_style'] == mode['visual_material_style']
+    assert saved['contract']['clauses'][-1]['kind'] == 'preference'
+    changed = deepcopy(response)
+    changed[need.need_id]['clauses'][0]['text'] = 'one paper sheet'
+    with pytest.raises(ValueError, match='引用不等于原文'):
+        planning_contracts(plan, mode, changed)
+
+
+@pytest.mark.parametrize('fault', [None, 'below_floor', 'dense_low', 'too_many', 'weak_average',
+                                   'wrong_word', 'missing_word', 'extra_word', 'overlap'])
+def test_sparse_voice_uncertainty_keeps_exact_text_time_and_rights_boundaries(fault):
+    from easel.materials.application.voice_delivery import apply_voice_content, timing_from_recognition, voice_content_observed
+    from easel.materials.application.matching import MaterialMatcher
+    script = '每次整理重要的纸面记录' * 10
+    need = MaterialNeed(need_id='voice', scope=NeedScope(type=NeedScopeType.GLOBAL, ref='film'),
+        media_type=MediaType.AUDIO, role='voice', intent=NeedIntent(description='clear narration'),
+        importance=NeedImportance.REQUIRED, modality_spec=VoiceNeedSpec(text_ref='artifacts/SCRIPT.md',
+            text_sha256=hashlib.sha256(script.encode()).hexdigest(),
+            identity=VoiceIdentityRef(source=VoiceIdentitySource.EXPLICIT_USER, reference='preset Mandarin')))
+    asset = MaterialAsset(asset_id='voice', media_type=MediaType.AUDIO,
+        file=FileInfo(path='materials/assets/voice/audio.mp3', sha256='a' * 64, size=1, mime='audio/mpeg'),
+        source=CandidateSource(kind='generative', provider='minimax'), rights=RightsInfo(status=RightsStatus.UNKNOWN),
+        technical=TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=len(script) + 1., mime='audio/mpeg'))
+    words = [{'text': c, 'start_seconds': float(i), 'end_seconds': i + .8,
+              'probability': .282 if i == 0 else .97} for i, c in enumerate(script)]
+    if fault == 'below_floor': words[0]['probability'] = .249
+    elif fault == 'dense_low':
+        words = words[:10]  # One word in a short text is not <=5%.
+        script = script[:10]
+    elif fault == 'too_many':
+        for w in words[:4]: w['probability'] = .3  # Only 3.6%, but above the absolute cap.
+    elif fault == 'weak_average':
+        for w in words[1:]: w['probability'] = .8
+    elif fault == 'wrong_word': words[0]['text'] = '美'
+    elif fault == 'missing_word': words.pop()
+    elif fault == 'extra_word': words[-1]['text'] += '啊'
+    elif fault == 'overlap': words[1]['start_seconds'] = .1
+    report = {'words': words, 'audio_sha256': asset.file.sha256,
+              'script_sha256': hashlib.sha256(script.encode()).hexdigest(),
+              'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest()}
+    original = deepcopy(report)
+    if fault:
+        with pytest.raises(ValueError): timing_from_recognition(script, asset, report)
+    else:
+        timing = timing_from_recognition(script, asset, report)
+        assert timing['confidence_acceptance']['low_confidence_characters'] == 1
+        observed = apply_voice_content(need, asset, script, report)
+        assert observed.semantic.inferences[-1].annotations[0].confidence == .282
+        assert voice_content_observed(need, observed)
+        assert not MaterialMatcher().match(need, (observed,)).matches
+        licensed = observed.model_copy(update={'rights': RightsInfo(status=RightsStatus.KNOWN, license_name='Fixture',
+            evidence=(RightsEvidence(kind='asset_license', reference='fixture://voice'),))})
+        assert MaterialMatcher().match(need, (licensed,)).matches
+        unbound = observed.model_copy(update={'file': observed.file.model_copy(update={'sha256': 'b' * 64})})
+        assert not voice_content_observed(need, unbound)
+    assert report == original  # Scores, text and times are evidence, not editable gates.

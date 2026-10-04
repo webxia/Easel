@@ -465,6 +465,8 @@ def confirm_chat_proposal(
                 # never acquire a delivery record through a replay or restart.
                 data["delivery"] = {
                     "schema": "easel-creation-delivery@1",
+                    **({'endpoint': 'MATERIAL_READY', 'endpoint_set_at': workflow['endpoint_set_at']}
+                       if workflow.get('delivery_endpoint') == 'MATERIAL_READY' else {}),
                     "proposal": delivery_proposal,
                     **({"video_plan": dict(workflow["video_plan"])} if workflow.get("video_plan_required") else {}),
                     "proposal_sha256": proposal_sha256,

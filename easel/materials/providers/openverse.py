@@ -109,6 +109,7 @@ class OpenverseProvider:
         )
 
     def search(self, intent: RetrievalIntent, continuation: ProviderContinuation | None = None) -> ProviderPage:
+        self.last_search_query = None
         try:
             media_type = MediaType(intent.filters["media_type"])
         except (KeyError, TypeError, ValueError) as exc:
@@ -117,6 +118,7 @@ class OpenverseProvider:
             raise ProviderUnsupportedError(self.provider_id, "Openverse supports image and audio search only")
         query_index, page = self._continuation(intent, continuation)
         query = intent.semantic_queries[query_index]
+        self.last_search_query = query
         if len(query) > 200:
             raise ProviderUnsupportedError(self.provider_id, "Openverse query must not exceed 200 characters")
         params: dict[str, str | int] = {"q": query, "page": page, "page_size": _PAGE_SIZE}

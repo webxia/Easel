@@ -83,11 +83,13 @@ class PexelsProvider:
         intent: RetrievalIntent,
         continuation: ProviderContinuation | None = None,
     ) -> ProviderPage:
+        self.last_search_query = None
         if not self._api_key:
             raise ProviderAuthError(self.provider_id, "Pexels API key is not configured")
         media_type = self._media_type(intent)
         query_index, page = self._continuation_state(intent, continuation)
         query = intent.semantic_queries[query_index]
+        self.last_search_query = query
         endpoint = "/videos/search" if media_type is MediaType.VIDEO else "/search"
         params: dict[str, str | int] = {"query": query, "page": page, "per_page": _PAGE_SIZE}
         self._map_filters(intent, media_type, params)

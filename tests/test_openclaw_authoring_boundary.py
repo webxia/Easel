@@ -231,7 +231,8 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
     assert list(stage_parent.iterdir()) == []
 
 
-def test_attempt_authoring_repairs_only_missing_allowlisted_artifacts_once(tmp_path):
+@pytest.mark.parametrize("outcome", ["run_only", "missing_sources", "still_missing"])
+def test_attempt_authoring_repairs_only_missing_allowlisted_artifacts_once(tmp_path, outcome):
     attempt = _seed_attempt(tmp_path / "attempt")
     stage_parent = tmp_path / "openclaw" / "authoring-staging"
     config = {}
@@ -261,30 +262,49 @@ def test_attempt_authoring_repairs_only_missing_allowlisted_artifacts_once(tmp_p
             authoring = agent_workspace / "productions/easel-authoring"
             (authoring / "authors").mkdir(parents=True, exist_ok=True)
             (authoring / "runs").mkdir(parents=True, exist_ok=True)
-            (authoring / "material-selection.json").write_text('{"schema":"test"}', encoding="utf-8")
-            (authoring / "authors/main.svml").write_text("<svml/>", encoding="utf-8")
+            if len(agent_messages) == 1:
+                (authoring / "material-selection.json").write_text('{"schema":"test"}', encoding="utf-8")
+                if outcome == "run_only":
+                    (authoring / "authors/main.svml").write_text("<svml/>", encoding="utf-8")
             if len(agent_messages) == 2:
-                (authoring / "runs/main.svrun").write_text("<svrun/>", encoding="utf-8")
+                assert "样式依赖" in message
+                assert (authoring / "material-selection.json").read_text() == '{"schema":"test"}'
+                if outcome != "still_missing":
+                    (authoring / "runs/main.svrun").write_text("<svrun/>", encoding="utf-8")
+                if outcome == "missing_sources":
+                    (authoring / "authors/main.svml").write_text(
+                        '<svml><import as="recipes" source="./recipes.svs"/></svml>')
+                    (authoring / "authors/recipes.svs").write_text("media.still { fit: cover; }")
             return subprocess.CompletedProcess(cmd, 0, "done", "")
         raise AssertionError(f"unexpected OpenClaw command: {cmd}")
 
-    run_attempt_scoped_authoring(
-        attempt_id=ATTEMPT_ID,
-        attempt_workspace=attempt,
-        message=f"workspace={attempt}",
-        command_prefix=["openclaw"],
-        profile="easel",
-        staging_parent=stage_parent,
-        timeout=5,
-        thinking="off",
-        cwd=tmp_path,
-        env={},
-        runner=runner,
-    )
+    def run():
+        return run_attempt_scoped_authoring(
+            attempt_id=ATTEMPT_ID,
+            attempt_workspace=attempt,
+            message=f"workspace={attempt}",
+            command_prefix=["openclaw"],
+            profile="easel",
+            staging_parent=stage_parent,
+            timeout=5,
+            thinking="off",
+            cwd=tmp_path,
+            env={},
+            runner=runner,
+        )
+
+    if outcome == "still_missing":
+        with pytest.raises(OpenClawAuthoringBoundaryError, match="补齐后仍缺少"):
+            run()
+        assert not (attempt / "productions/easel-authoring/authors/main.svml").exists()
+    else:
+        run()
+        assert (attempt / "productions/easel-authoring/runs/main.svrun").is_file()
+        if outcome == "missing_sources":
+            assert (attempt / "productions/easel-authoring/authors/recipes.svs").is_file()
 
     assert len(agent_messages) == 2
     assert "productions/easel-authoring/runs/main.svrun" in agent_messages[1]
-    assert (attempt / "productions/easel-authoring/runs/main.svrun").is_file()
     assert list(stage_parent.iterdir()) == []
 
 

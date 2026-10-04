@@ -116,8 +116,14 @@ def test_delivery_excludes_legacy_and_serializes_cancellation_and_restarts(prep_
         assert creation._creation_path(current['id']).read_bytes() == original
 
 
-def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(prep_env):
-    from easel.creation_delivery import advance_creation, next_operation, DeliveryExecutionUncertain
+@pytest.mark.parametrize('drain_ready', [False, True])
+def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(prep_env, monkeypatch, drain_ready):
+    from itertools import count
+    from easel import creation_delivery
+    from easel.creation_delivery import advance_creation, next_operation, DeliveryExecutionUncertain, _advance_ready_creation
+
+    clock = count(0, .25)
+    monkeypatch.setattr(creation_delivery, 'monotonic', lambda: next(clock))
 
     work = _confirmed_delivery()
     calls = []
@@ -169,7 +175,7 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
             elif operation == "export":
                 attempt["outputs"] = {"final.video": {"sha256": "fixture-only"}}
             elif operation == "quality":
-                attempt['review'] = {'system': {'schema': 'easel-output-quality@5', 'status': 'READY',
+                attempt['review'] = {'system': {'schema': 'easel-output-quality@6', 'status': 'READY',
                     'binding': {'output_name': 'final.video', 'sha256': 'fixture-only'}}}
             else:
                 pytest.fail(operation)
@@ -178,8 +184,12 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
 
     # New event loop/dispatcher for every operation models a process restart;
     # no in-memory task registry participates in deciding what runs next.
+    bursts = []
     for _ in range(20):
-        asyncio.run(advance_creation(work["id"], execute))
+        start = len(calls)
+        asyncio.run(_advance_ready_creation(work['id'], asyncio.Event(), execute)
+                    if drain_ready else advance_creation(work["id"], execute))
+        bursts.append(calls[start:])
         if calls[-1:] == ["refresh"] and calls.count("refresh") == 1:
             saved = creation.get_creation(work["id"])
             assert saved["delivery"]["status"] == "observation_failed"
@@ -189,11 +199,32 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
     assert calls == ["prepare", "observe_material", "observe_material", 'recover_material', 'observe_material', "author", "author", "runtime", "validate", "price", "approve_free",
                      "submit", "reconcile", "reconcile", "refresh", "refresh", "export", "quality"]
     assert creation.get_creation(work["id"])["delivery"]["status"] == "first_cut_ready"
+    if drain_ready:
+        # Ready stages chain immediately; unknown execution, failed execution,
+        # and an unchanged reconciliation each return to the polling clock.
+        assert bursts == [
+            ['prepare', 'observe_material'],
+            ['observe_material', 'recover_material', 'observe_material', 'author'],
+            ['author', 'runtime', 'validate', 'price', 'approve_free', 'submit'],
+            ['reconcile'], ['reconcile', 'refresh'], ['refresh', 'export', 'quality'],
+        ]
+        stopped = asyncio.Event()
+        stopped.set()
+        asyncio.run(_advance_ready_creation(work['id'], stopped, execute))
+        assert len(calls) == 18
     snapshot = creation.get_creation(work['id'])
+    timings = snapshot['delivery']['operation_timings']
+    assert sum(t['calls'] for t in timings.values()) == len(calls)
+    assert sum(t['elapsed_seconds'] for t in timings.values()) == len(calls) * .25
+    assert timings['preparation:prepare']['last_outcome'] == 'completed'
+    attempt_id = snapshot['hypit_attempts'][-1]['attempt_id']
+    assert timings[f'{attempt_id}:author']['calls'] == 2
+    assert timings[f'{attempt_id}:author']['elapsed_seconds'] == .5
+    assert timings[f'{attempt_id}:submit']['last_outcome'] == 'failed'
     system = snapshot['hypit_attempts'][-1]['review']['system']
     system['schema'] = 'easel-output-quality@3'
     assert next_operation(snapshot) == ('quality', 'checking_quality')
-    system['schema'] = 'easel-output-quality@5'
+    system['schema'] = 'easel-output-quality@6'
     system['visual'] = [{'checks': {'readability': {'status': 'unknown'}}}]
     for state in ('INCOMPLETE', 'REPAIR_REQUIRED'):
         system['status'] = state
@@ -301,7 +332,7 @@ def test_delivery_quality_repair_resumes_one_checkpoint_and_stops_at_budget(prep
     def failed_output(identity):
         return {'attempt_id': identity, 'execution_status': 'BUILD_COMPLETE',
             'outputs': {'final': {'sha256': 'output-sha'}}, 'review': {'human': {'status': 'pending'}, 'system': {
-                'schema': 'easel-output-quality@5', 'status': 'REPAIR_REQUIRED',
+                'schema': 'easel-output-quality@6', 'status': 'REPAIR_REQUIRED',
                 'binding': {'output_name': 'final', 'sha256': 'output-sha'},
                 'measurements': {'defects': [{'kind': 'voice_masked', 'reason': '配乐遮盖旁白', 'time_seconds': 2}]}}}}
     source = 'fa_' + '4' * 32
@@ -340,7 +371,7 @@ def test_delivery_quality_repair_resumes_one_checkpoint_and_stops_at_budget(prep
 
 
 def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(prep_env):
-    from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain
+    from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain, next_operation
     from easel.integrations.openclaw_delivery import run_delivery_agent, reconcile_agent_calls
 
     work = _confirmed_delivery()
@@ -365,10 +396,20 @@ def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(pre
             assert params["deliver"] is False
             assert params["attachments"] == attachments
             raise subprocess.TimeoutExpired(command, 20)
+        if method == "sessions.abort":
+            assert terminal
+            assert params == {"key": "fixture-session", "agentId": "main", "clearQueued": True}
+            return subprocess.CompletedProcess(command, 0, json.dumps({
+                "ok": True, "status": "no-active-run", "abortedRunId": None,
+            }), "")
         assert method == "agent.wait" and params == {"runId": run_id, "timeoutMs": 0}
-        result = {"runId": run_id, "status": "ok" if terminal else "timeout"}
+        result = {"runId": run_id, "status": "ok"}
         if terminal:
             result["endedAt"] = 1000
+        else:
+            # Yield can carry an end timestamp without establishing that the
+            # executor has stopped. It must retain its runtime and run identity.
+            result.update(endedAt=999, yielded=True)
         return subprocess.CompletedProcess(command, 0, json.dumps(result), "")
 
     command = ["openclaw", "--profile", "fixture", "agent", "--agent", "main",
@@ -378,6 +419,9 @@ def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(pre
     try:
         with pytest.raises(DeliveryExecutionUncertain):
             run_delivery_agent(command, runner=gateway, attachments=attachments)
+        with creation.edit_creation(work['id']) as current:
+            current['delivery']['stopped'] = True
+        assert next_operation(creation.get_creation(work['id'])) == ('observe_agent', 'observing_execution')
         with pytest.raises(DeliveryExecutionUncertain, match="另一网关"):
             reconcile_agent_calls(work["id"], command_prefix=["openclaw"], profile="different", runner=gateway)
         with pytest.raises(DeliveryExecutionUncertain, match="另一项执行"):
@@ -385,14 +429,126 @@ def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(pre
                 runner=lambda command, **_: subprocess.CompletedProcess(command, 0,
                     json.dumps({"runId": "unrelated", "status": "ok", "endedAt": 1000}), ""))
         reconcile_agent_calls(work["id"], command_prefix=["openclaw"], profile="fixture", runner=gateway)
+        assert next_operation(creation.get_creation(work['id'])) == ('observe_agent', 'observing_execution')
         with pytest.raises(DeliveryExecutionUncertain):
             run_delivery_agent(command, runner=gateway, attachments=attachments)
         terminal = True
         reconcile_agent_calls(work["id"], command_prefix=["openclaw"], profile="fixture", runner=gateway)
+        assert next_operation(creation.get_creation(work['id'])) == (None, 'stopped')
         assert run_delivery_agent(command, runner=gateway, attachments=attachments).returncode == 0
-        assert calls == ["models.list", "agent", "agent.wait", "agent.wait", "agent.wait"]
+        assert calls == ["models.list", "agent", "agent.wait", "agent.wait", "agent.wait", "sessions.abort"]
         stored = next(iter(creation.get_creation(work["id"])["delivery"]["agent_calls"].values()))
         assert stored["status"] == "ok" and "message" not in stored and "attachments" not in stored
+        assert stored["runtime_release"] == "released"
+    finally:
+        active_delivery.reset(token)
+
+
+@pytest.mark.parametrize('reply_kind', ['complete', 'length', 'capacity', 'other_run'])
+def test_material_result_is_received_from_same_run_and_reused_without_dispatch(prep_env, reply_kind):
+    from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain
+    from easel.integrations.openclaw_delivery import run_delivery_agent
+    work = _confirmed_delivery()
+    methods, run_id = [], None
+    result_text = '{"frames":[{"observed":true}]}'
+
+    def gateway(command, **kwargs):
+        nonlocal run_id
+        method = command[command.index('call') + 1]
+        params = json.loads(command[command.index('--params') + 1])
+        methods.append(method)
+        if method == 'agent':
+            run_id = params['idempotencyKey']
+            payload = {'runId': run_id, 'status': 'accepted'}
+        elif method == 'sessions.abort':
+            payload = {'ok': True, 'status': 'no-active-run', 'abortedRunId': None}
+        else:
+            assert method == 'agent.wait' and params['runId'] == run_id
+            payload = {'runId': 'another-run' if reply_kind == 'other_run' else run_id,
+                       'status': 'ok', 'endedAt': 1000,
+                       'stopReason': 'length' if reply_kind == 'length' else 'stop',
+                       'terminalReply': {'disposition': 'visible', 'text':
+                           '界' * 3001 if reply_kind == 'capacity' else result_text}}
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), '')
+
+    command = ['openclaw', '--profile', 'fixture', 'agent', '--agent', 'main',
+               '--session-key', 'fixture-material', '--message', '只返回紧凑观察结果']
+    token = active_delivery.set(work['id'])
+    try:
+        with pytest.raises(DeliveryExecutionUncertain):
+            run_delivery_agent(command, runner=gateway, capture_reply=True)
+        if reply_kind == 'other_run':
+            with pytest.raises(DeliveryExecutionUncertain, match='另一项执行'):
+                run_delivery_agent(command, runner=gateway, capture_reply=True)
+        elif reply_kind != 'complete':
+            for _ in range(2):
+                with pytest.raises(ValueError, match='截断|容量'):
+                    run_delivery_agent(command, runner=gateway, capture_reply=True)
+        else:
+            assert run_delivery_agent(command, runner=gateway, capture_reply=True).stdout == result_text
+            before = list(methods)
+            assert run_delivery_agent(command, runner=gateway, capture_reply=True).stdout == result_text
+            assert methods == before
+        assert methods.count('agent') == 1
+        call = next(iter(creation.get_creation(work['id'])['delivery']['agent_calls'].values()))
+        assert call['run_id'] == run_id
+        assert call.get('terminal_reply', {}).get('text') == (result_text if reply_kind == 'complete' else None)
+    finally:
+        active_delivery.reset(token)
+
+
+@pytest.mark.parametrize('terminal_status', ['ok', 'error'])
+def test_gateway_runtime_retirement_recovers_without_repeating_finished_run(prep_env, terminal_status):
+    from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain, next_operation
+    from easel.integrations.openclaw_delivery import run_delivery_agent, reconcile_agent_calls
+
+    work = _confirmed_delivery()
+    command = ['openclaw', '--profile', 'fixture', 'agent', '--agent', 'main',
+               '--session-key', 'owned-fixture-session', '--message', 'write report']
+    methods = []
+    cleanup_response = 'lost'
+
+    def gateway(command, **kwargs):
+        method = command[command.index('call') + 1]
+        params = json.loads(command[command.index('--params') + 1])
+        methods.append(method)
+        if method == 'agent':
+            payload = {'runId': params['idempotencyKey'], 'status': terminal_status, 'endedAt': 1000,
+                       'error': 'bundle-mcp: live runtime limit (256) reached; token=DO_NOT_PERSIST'}
+        else:
+            assert method == 'sessions.abort'
+            assert params == {'key': 'owned-fixture-session', 'agentId': 'main', 'clearQueued': True}
+            stored = next(iter(creation.get_creation(work['id'])['delivery']['agent_calls'].values()))
+            assert stored['status'] == terminal_status and stored['runtime_release'] == 'pending'
+            if cleanup_response == 'lost':
+                raise subprocess.TimeoutExpired(command, 20)
+            payload = ({'ok': True, 'status': 'no-active-run', 'abortedRunId': None}
+                       if cleanup_response == 'released' else {'ok': True})
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), '')
+
+    token = active_delivery.set(work['id'])
+    try:
+        with pytest.raises(DeliveryExecutionUncertain, match='接续清理'):
+            run_delivery_agent(command, runner=gateway)
+        with creation.edit_creation(work['id']) as current:
+            current['delivery']['stopped'] = True
+        assert next_operation(creation.get_creation(work['id'])) == ('observe_agent', 'observing_execution')
+        with pytest.raises(DeliveryExecutionUncertain, match='另一网关'):
+            reconcile_agent_calls(work['id'], command_prefix=['openclaw'], profile='other', runner=gateway)
+        cleanup_response = 'invalid'
+        with pytest.raises(DeliveryExecutionUncertain, match='接续清理'):
+            run_delivery_agent(command, runner=gateway)
+        cleanup_response = 'released'
+        reconcile_agent_calls(work['id'], command_prefix=['openclaw'], profile='fixture', runner=gateway)
+        assert next_operation(creation.get_creation(work['id'])) == (None, 'stopped')
+        if terminal_status == 'ok':
+            assert run_delivery_agent(command, runner=gateway).returncode == 0
+        else:
+            with pytest.raises(RuntimeError, match='临时工具环境已达上限'):
+                run_delivery_agent(command, runner=gateway)
+        assert methods == ['agent', 'sessions.abort', 'sessions.abort', 'sessions.abort']
+        stored = next(iter(creation.get_creation(work['id'])['delivery']['agent_calls'].values()))
+        assert stored['runtime_release'] == 'released' and 'DO_NOT_PERSIST' not in json.dumps(stored)
     finally:
         active_delivery.reset(token)
 
@@ -476,6 +632,9 @@ def test_delivery_authoring_keeps_live_stage_and_recovers_completed_files(prep_e
             assert run_id is None, "recovery must not submit another Agent"
             run_id = params["idempotencyKey"]
             payload = {"runId": run_id, "status": "accepted"}
+        elif method == 'sessions.abort':
+            assert terminal and staged.is_dir()
+            payload = {'ok': True, 'status': 'no-active-run', 'abortedRunId': None}
         else:
             assert params["runId"] == run_id
             payload = {"runId": run_id, "status": "ok" if terminal else "timeout"}
@@ -825,7 +984,7 @@ def test_script_truth_operator_api_is_protected_hash_bound_and_resumes(prep_env,
 
 @pytest.mark.parametrize("repair_succeeds", [True, False])
 def test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_review(prep_env, monkeypatch, repair_succeeds):
-    from easel.creation_delivery import DeliveryExecutionUncertain
+    from easel.creation_delivery import DeliveryExecutionUncertain, active_delivery
     from easel.integrations.material_layer import PlanningIntegration
     from easel.integrations.material_supply import ProductMaterialSupply
 
@@ -883,21 +1042,38 @@ def test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_re
     monkeypatch.setattr(web, "run_agent_sync", agent)
     monkeypatch.setattr(web, "_hypit_runtime_profile", lambda: None)
     monkeypatch.setattr(ProductMaterialSupply, "run", supply)
+
+    async def execute(current):
+        token = active_delivery.set(work['id'])
+        try:
+            await web._execute_creation_delivery("prepare", current)
+        finally:
+            active_delivery.reset(token)
+
     with pytest.raises(DeliveryExecutionUncertain):
-        asyncio.run(web._execute_creation_delivery("prepare", creation.get_creation(work["id"])))
+        asyncio.run(execute(creation.get_creation(work["id"])))
     assert not supplied
     saved = creation.get_creation(work["id"])
     assert len(next(iter(saved["delivery"]["script_repairs"].values()))) == 1
+    attempt_id = saved['hypit_attempts'][-1]['attempt_id']
+    timings = saved['delivery']['phase_timings']
+    assert timings[f'{attempt_id}:planning']['calls'] == 1
+    assert timings[f'{attempt_id}:truth']['calls'] == 1
+    assert timings[f'{attempt_id}:truth_repair']['last_outcome'] == 'uncertain'
     if repair_succeeds:
-        asyncio.run(web._execute_creation_delivery("prepare", saved))
+        asyncio.run(execute(saved))
     else:
         with pytest.raises(prep.PreparationError, match="修正次数已用完"):
-            asyncio.run(web._execute_creation_delivery("prepare", saved))
+            asyncio.run(execute(saved))
     saved = creation.get_creation(work["id"])
     assert saved["preparation"]["status"] == ("MATERIAL_NOT_READY" if repair_succeeds else "MATERIAL_FAILED")
     assert calls == ["plan", "assess", "rewrite", "assess"]
     assert len(supplied) == (1 if repair_succeeds else 0)
     assert len(saved["hypit_attempts"]) == 1
+    timings = saved['delivery']['phase_timings']
+    assert timings[f'{attempt_id}:planning']['calls'] == 1
+    assert timings[f'{attempt_id}:truth']['calls'] == 2  # Changed Script is reassessed.
+    assert timings[f'{attempt_id}:truth_repair']['calls'] == 1  # Completed repair isn't repeated.
     if not repair_succeeds:
         from easel.creation_delivery import retry_delivery, MAX_FAILURES
         attempt_id = saved["hypit_attempts"][-1]["attempt_id"]
@@ -909,7 +1085,7 @@ def test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_re
         assert retried["delivery"]["script_repair_rounds"][attempt_id] == 1
         assert attempt_id not in retried["delivery"]["script_repairs"]
         repair_succeeds = True
-        asyncio.run(web._execute_creation_delivery("prepare", retried))
+        asyncio.run(execute(retried))
         assert calls.count("rewrite") == 2
         assert len(supplied) == 1
 
@@ -1772,6 +1948,8 @@ def test_video_proposal_revision_recovery_and_stale_confirmation(prep_env):
     creation.save_video_proposal(cid, "turn-1", "只讨论方向")
     assert creation.get_creation(cid)["chat_workflow"]["proposal_status"] == "DISCUSSING"
     assert parse_video_plan(VIDEO_PROPOSAL.replace("## 文案", "## 缺少文案")) is None
+    for prefix in ("逐字旁白（已批准）：\n", "屏幕说明：只显示标题\n"):
+        assert parse_video_plan(VIDEO_PROPOSAL.replace("## 文案\n", "## 文案\n" + prefix)) is None
     # Scene/example settings must never supply missing confirmation fields.
     no_settings = parse_video_plan(VIDEO_PROPOSAL.split("## 制作规格")[0] + "\n时长：15 秒\n画幅：9:16")
     assert no_settings and all(value is None for value in no_settings['specs'].values())
@@ -1805,8 +1983,13 @@ def test_video_proposal_revision_recovery_and_stale_confirmation(prep_env):
                   production_specs=second["specs"])
     with pytest.raises(creation.CreationError, match="已更新"):
         creation.confirm_chat_proposal(cid, "confirm", video_plan_sha256=first["sha256"], **kwargs)
+    from easel.creation_delivery import set_material_endpoint
+    pending = set_material_endpoint(cid)
+    assert pending.get('delivery') is None
+    assert creation.get_creation(cid)['chat_workflow']['delivery_endpoint'] == 'MATERIAL_READY'
     confirmed = creation.confirm_chat_proposal(cid, "confirm", video_plan_sha256=second["sha256"], **kwargs)
     assert confirmed["delivery"]["video_plan"] == second
+    assert confirmed['delivery']['endpoint'] == 'MATERIAL_READY'
     creation.begin_video_proposal(cid, "late")
     creation.save_video_proposal(cid, "turn-2", VIDEO_PROPOSAL)
     assert creation.get_creation(cid)["delivery"]["video_plan"] == second
@@ -1850,3 +2033,82 @@ def test_failed_planning_can_reopen_same_work_without_losing_checkpoint(prep_env
             current['hypit_attempts'] = [attempt]
         with pytest.raises(creation.CreationError, match='制作已开始'):
             creation.reopen_video_proposal(cid)
+
+
+def test_delivery_stage_budget_counts_nested_calls_and_survives_digest_retry(prep_env):
+    from easel.creation_delivery import active_delivery, active_operation, DeliveryBudgetExhausted, DeliveryExecutionUncertain, retry_delivery
+    from easel.integrations.openclaw_delivery import run_delivery_agent, reconcile_agent_calls
+    work = _confirmed_delivery()
+    cid = work['id']
+    submitted = []
+    def gateway(command, **kwargs):
+        method = command[command.index('call') + 1]
+        params = json.loads(command[command.index('--params') + 1])
+        if method == 'agent':
+            submitted.append(params['idempotencyKey'])
+            return subprocess.CompletedProcess(command, 0, json.dumps({'runId': submitted[-1], 'status': 'error', 'endedAt': 100}), '')
+        if method == 'agent.wait':
+            return subprocess.CompletedProcess(command, 0, json.dumps({'runId': params['runId'], 'status': 'ok', 'endedAt': 101}), '')
+        return subprocess.CompletedProcess(command, 0, json.dumps({'ok': True, 'status': 'no-active-run'}), '')
+    command = ['openclaw', '--profile', 'fixture', 'agent', '--agent', 'main',
+               '--session-key', 'agent:main:fixture', '--message', 'initial']
+    token = active_delivery.set(cid)
+    operation = active_operation.set('quality')
+    try:
+        with creation.edit_creation(cid) as current:
+            current['delivery']['call_budgets'] = {'quality': {'used': 0, 'limit': 2, 'categories': {}}}
+        for _ in range(2):
+            with pytest.raises(RuntimeError, match='执行失败'):
+                run_delivery_agent(command, runner=gateway)
+        call = next(iter(creation.get_creation(cid)['delivery']['agent_calls'].values()))
+        assert len(call['history']) == 1 and call['history'][0]['run_id'] == submitted[0]
+        assert call['stage_ordinal'] == 2 and submitted[0] != submitted[1]
+        # Reentering the child and changing its prompt cannot reset the stage.
+        with pytest.raises(DeliveryBudgetExhausted):
+            run_delivery_agent([*command[:-1], 'report repair'], runner=gateway)
+        assert len(submitted) == 2
+        with creation.edit_creation(cid) as current:
+            calls = current['delivery']['agent_calls']
+            call = next(iter(calls.values()))
+            call.update(status='pending', runtime_release='pending')
+        # Even exhausted stages reconcile unknown runs instead of abandoning them.
+        with pytest.raises(DeliveryExecutionUncertain, match='未知提交'):
+            run_delivery_agent([*command[:-1], 'another request'], runner=gateway)
+        reconcile_agent_calls(cid, command_prefix=['openclaw'], profile='fixture', runner=gateway)
+        assert run_delivery_agent(command, runner=gateway).returncode == 0
+        assert len(submitted) == 2
+        assert creation.get_creation(cid)['delivery']['call_budgets']['quality']['used'] == 2
+        with creation.edit_creation(cid) as current:
+            current['delivery'].update(status='failed', exhausted_operation='fixture:quality')
+        retry_delivery(cid)
+        assert creation.get_creation(cid)['delivery']['call_budgets']['quality']['used'] == 2
+    finally:
+        active_operation.reset(operation)
+        active_delivery.reset(token)
+
+
+def test_quality_saved_report_is_reused_and_invalid_draft_gets_only_local_repair(prep_env, monkeypatch):
+    from easel.integrations.hypit.quality import SCHEMA, VISUAL_CHECKS
+    # A disposable test path, independent of all real Attempt/runtime files.
+    root = Path(creation.CREATIONS_DIR) / 'quality-fixture'
+    path = root / '.easel/quality' / ('a' * 64 + '.json')
+    path.parent.mkdir(parents=True)
+    manifest = {'schema': SCHEMA, 'input_sha256': 'a' * 64,
+                'frames': [{'index': 0, 'time_seconds': 1, 'caption_expected': True}], 'frame_total': 1}
+    report = {'schema': SCHEMA, 'input_sha256': manifest['input_sha256'],
+              'frames': [{'index': 0, 'observed': True, 'description': '实际画面'}],
+              'checks': {k: {'status': 'pass', 'reason': '可见依据', 'frame_indices': [0]} for k in VISUAL_CHECKS}}
+    path.write_text(json.dumps(report))
+    calls = []
+    def repair(message, *args, **kwargs):
+        calls.append(message)
+        assert '局部合同修复' in message and 'description/reason' in message
+        path.write_text(json.dumps(report))
+        return ''
+    monkeypatch.setattr(web, 'run_agent_sync', repair)
+    attempt = {'attempt_id': 'fixture', 'workspace': {'path': str(root)}}
+    assert web._review_output_frames(attempt, manifest, []) == report
+    assert not calls
+    path.write_text('{invalid')
+    assert web._review_output_frames(attempt, manifest, []) == report
+    assert len(calls) == 1

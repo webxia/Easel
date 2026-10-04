@@ -12,6 +12,8 @@ import hashlib
 import logging
 import os
 import subprocess
+from datetime import datetime
+from time import monotonic
 from typing import Any, Awaitable, Callable
 
 from easel import creation
@@ -22,11 +24,57 @@ SCHEMA = "easel-creation-delivery@1"
 MAX_FAILURES = 3
 MAX_BUILD_RECOVERIES = 2
 MAX_QUALITY_REPAIRS = 2
+active_operation: ContextVar[str | None] = ContextVar("active_delivery_operation", default=None)
 active_delivery: ContextVar[str | None] = ContextVar("active_creation_delivery", default=None)
 
 
 class DeliveryExecutionUncertain(RuntimeError):
     """Caller lost execution observation; this does not prove remote work ended."""
+
+
+class DeliveryBudgetExhausted(RuntimeError):
+    """No new work; durable results and uncertain-run reconciliation remain valid."""
+
+
+def delivery_call_stage(operation: str | None) -> str:
+    if operation in {"observe_material", "recover_material", "generate_material", "review_material"}:
+        return "material"
+    if operation in {"author"}:
+        return "author"
+    if operation in {"quality"}:
+        return "quality"
+    return "prepare"
+
+
+def reserve_delivery_call(work: dict, *, category: str, frame_count: int = 1,
+                          stage_override: str | None = None, need_count: int | None = None, source_count: int = 1) -> tuple[str, int]:
+    """Use the existing commission record, shared by all nested calls/forks.
+
+    Called inside edit_creation before dispatch. Attempts and explicit Retry do
+    not reset this ledger. Polling/reusing a persisted call never reaches it.
+    """
+    stage = stage_override or delivery_call_stage(active_operation.get() or work["delivery"].get("operation"))
+    record = work["delivery"]
+    attempt = _attempt(work)
+    needs = max(1, len(attempt.get("material_gate", {}).get("required_need_ids", [])))
+    if stage == "material" and attempt.get("workspace", {}).get("path"):
+        from pathlib import Path
+        import json
+        plan_path = Path(attempt["workspace"]["path"]) / "materials/plan.json"
+        if plan_path.is_file():
+            needs = max(1, len(json.loads(plan_path.read_text())["needs"]))
+    needs = max(needs, need_count or 1)
+    limits = {"prepare": MAX_FAILURES * 8,
+              "material": needs * (MAX_FAILURES * 9 * 2 * 3 + max(1, source_count) * 2 * 3) + 4,
+              "author": MAX_FAILURES * 4 * (1 + MAX_QUALITY_REPAIRS),
+              "quality": 2 * 3 * max(1, frame_count) * (1 + MAX_QUALITY_REPAIRS)}
+    budgets = record.setdefault("call_budgets", {})
+    budget = budgets.setdefault(stage, {"used": 0, "limit": limits[stage], "categories": {}})
+    if budget["used"] >= budget["limit"]:
+        raise DeliveryBudgetExhausted(f"{stage} 阶段累计调用额度已耗尽；保留成果，停止派发新工作")
+    budget["used"] += 1
+    budget["categories"][category] = budget["categories"].get(category, 0) + 1
+    return stage, budget["used"]
 
 
 class DeliveryObservationPending(RuntimeError):
@@ -39,6 +87,93 @@ class DeliveryObservationPending(RuntimeError):
 
 def is_managed(work: dict[str, Any]) -> bool:
     return (work.get("delivery") or {}).get("schema") == SCHEMA
+
+
+def set_material_endpoint(creation_id: str) -> dict:
+    """Persist a narrow owner endpoint before resuming the formal material path."""
+    with execution_lock(creation_id) as acquired:
+        if not acquired:
+            raise creation.CreationError('当前步骤仍在执行，不能更换验收终点')
+        with creation.edit_creation(creation_id) as work:
+            attempt = _attempt(work)
+            if (not is_managed(work) and work.get('route') == 'hypit_video'
+                    and work.get('origin', {}).get('type') == 'chat'
+                    and not work.get('chat_workflow', {}).get('confirmed_at')
+                    and not work.get('hypit_attempts')):
+                work.setdefault('chat_workflow', {})['delivery_endpoint'] = 'MATERIAL_READY'
+                work['chat_workflow']['endpoint_set_at'] = creation._now()
+                return work
+            if (not is_managed(work) or work.get('selected_output_name')
+                    or attempt.get('execution_status') not in {None, 'NOT_SUBMITTED', 'BLOCKED'}
+                    or attempt.get('authoring_status') not in {None, 'PENDING', 'READY_FOR_EXTERNAL_AUTHORING'}
+                    or attempt.get('production_authoring', {}).get('selected_asset_ids')
+                    or attempt.get('cost', {}).get('approved')
+                    or work['delivery'].get('recovering_quality_from')
+                    or any(c.get('status') in {'pending', 'submitting'} for c in work['delivery'].get('agent_calls', {}).values())):
+                raise creation.CreationError('素材验收终点必须在制作或未知执行开始前设定')
+            work['delivery']['endpoint'] = 'MATERIAL_READY'
+            work['delivery']['endpoint_set_at'] = creation._now()
+    return creation.get_creation(creation_id)
+
+
+def _save_material_endpoint(work):
+    record = work['delivery']
+    gate = _attempt(work)['material_gate']
+    prior = record.get('material_endpoint_result', {})
+    if prior.get('gate') == gate:
+        return
+    finished = creation._now()
+    started = record.get('material_started_at')
+    record['material_endpoint_result'] = {
+        'attempt_id': _attempt(work)['attempt_id'], 'gate': dict(gate),
+        'completed_at': finished, 'film_delivery_complete': False,
+        'elapsed_wall_seconds': (datetime.fromisoformat(finished) - datetime.fromisoformat(started)).total_seconds() if started else None,
+        'actual_provider_charge': 'unknown',
+    }
+
+
+@contextmanager
+def measure_delivery_phase(phase: str, attempt_id: str = "preparation"):
+    """Time only a few internal calls hidden inside the prepare operation.
+
+    Counts invocations (including durable checkpoint reads), not model submits.
+    These intervals nest inside operation_timings; never sum both as wall time.
+    """
+    creation_id = active_delivery.get()
+    if not creation_id or not is_managed(creation.get_creation(creation_id)):
+        yield
+        return
+    if phase not in {"preparation", "planning", "structure_repair", "truth", "truth_repair"}:
+        raise ValueError("未知制作计时阶段")
+    key = f"{attempt_id}:{phase}"
+    started_at, started = creation._now(), monotonic()
+    with creation.edit_creation(creation_id) as current:
+        timing = current["delivery"].setdefault("phase_timings", {}).setdefault(key, {
+            "calls": 0, "elapsed_seconds": 0.0, "first_started_at": started_at,
+        })
+        timing.update(calls=timing["calls"] + 1, last_started_at=started_at, last_outcome="running")
+    outcome = "completed"
+    try:
+        yield
+    except DeliveryObservationPending:
+        outcome = "pending"
+        raise
+    except (DeliveryExecutionUncertain, subprocess.TimeoutExpired):
+        outcome = "uncertain"
+        raise
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    except Exception:
+        outcome = "failed"
+        raise
+    finally:
+        elapsed = max(0.0, monotonic() - started)
+        with creation.edit_creation(creation_id) as current:
+            timing = current["delivery"]["phase_timings"][key]
+            timing.update(elapsed_seconds=round(timing["elapsed_seconds"] + elapsed, 6),
+                          last_elapsed_seconds=round(elapsed, 6), last_outcome=outcome,
+                          last_finished_at=creation._now())
 
 
 def enrolled_creation_ids() -> list[str]:
@@ -96,6 +231,13 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     if not is_managed(work):
         return None, "unmanaged"
     delivery = work["delivery"]
+    # Observe an existing executor and retire its runtime independently of
+    # commission validity/stopping. Stopping new work cannot strand a live or
+    # uncertain run, nor authorize abort before its terminal state is known.
+    if any(call.get("status") in {"pending", "submitting"}
+           or call.get("runtime_release") == "pending"
+           for call in delivery.get("agent_calls", {}).values()):
+        return "observe_agent", "observing_execution"
     workflow = work.get("chat_workflow") or {}
     if workflow.get("editing_proposal"):
         return None, "revising_proposal"
@@ -108,9 +250,6 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         return None, "stopped"
     if work.get("selected_output_name"):
         return None, "accepted"
-    if any(call.get("status") in {"pending", "submitting"}
-           for call in delivery.get("agent_calls", {}).values()):
-        return "observe_agent", "observing_execution"
     if delivery.get("recovering_build_from"):
         return "retry_build", "recovering_production"
     if delivery.get("recovering_quality_from"):
@@ -191,6 +330,18 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         except (ValueError, OSError):
             pending = True
         if pending:
+            from easel.materials.application.voice_delivery import voice_verification_identity, voice_recovery_identity
+            try:
+                need = next(n for n in planning['plan'].needs if n.need_id == pending[0]['need_id'])
+                record = pending[0]
+                binding = {'audio_sha256': record['asset_sha256'],
+                           'script_sha256': hashlib.sha256(planning['script'].encode()).hexdigest(),
+                           'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest()}
+                failure_key = 'voice-failure-' + voice_recovery_identity(binding, voice_verification_identity(None))
+                if store.read_recovery_record(failure_key):
+                    return None, 'needs_audio_verification'
+            except (ValueError, OSError, TypeError):
+                pass  # Diagnose an invalid projection through the existing Owner.
             return 'recover_voice_timing', 'recovering_material'
     accepted = attempt.get('material_combination_review', {})
     if accepted.get('status') == 'COMPLETE':
@@ -207,6 +358,14 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         return 'recover_material', 'recovering_material'
     if gate.get("bundle_revision") and gate.get("status") in {"MATERIAL_READY", "MATERIAL_NOT_READY"}:
         observed = attempt.get("material_observation") or {}
+        if observed.get('status') == 'COMPLETE' and accepted.get('status') != 'COMPLETE':
+            from easel.materials.application.visual_observation import pending_visual_reassessment
+            try:
+                reassessment = pending_visual_reassessment(attempt)
+            except (ValueError, OSError):
+                reassessment = True
+            if reassessment:
+                return 'observe_material', 'observing_material'
         revision = attempt.get('revision_feedback', {})
         visual_repair = (revision.get('origin') == 'system_quality'
                          and 'visual_material' in revision.get('allowed_changes', []))
@@ -215,6 +374,9 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
                 or observed.get("plan_revision") != gate.get("plan_revision")
                 or (visual_repair and observed.get('quality_report_sha256') != revision.get('quality_report_sha256'))):
             return "observe_material", "observing_material"
+        if any(progress.get('stop_reason') == 'batch_complete' and progress.get('next_candidates')
+               for progress in observed.get('candidate_progress', {}).values()):
+            return 'observe_material', 'observing_material'
         if visual_repair and not attempt.get('autonomous_material_recovery'):
             from easel.integrations.hypit.service import quality_visual_replacement_gaps
             try:
@@ -231,6 +393,21 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         if (gate.get('status') == 'MATERIAL_NOT_READY' and gate.get('plan_revision') and gate.get('bundle_revision')
                 and attempt.get('material_planning', {}).get('truth_review_status') == 'PASSED'
                 and not attempt.get('autonomous_material_recovery')):
+            if delivery.get('authorization', {}).get('material_generation'):
+                from easel.integrations.material_generation import pending_generated_need
+                from easel.materials.store import AttemptMaterialStore
+                try:
+                    plan = AttemptMaterialStore(attempt['workspace']['path']).read_plan()
+                    choice = pending_generated_need(work, attempt, plan)
+                    if not choice:
+                        from easel.integrations.material_generation import image_fallback_decision
+                        if any((decision := image_fallback_decision(work, attempt, plan, n)).get('reserved_calls') and not decision['eligible']
+                               for n in plan.needs if n.media_type.value == 'image' and n.need_id in gate.get('blocking_needs', [])):
+                            return None, 'material_supply_exhausted'
+                except (ValueError, OSError):
+                    choice = None
+                if choice and choice[0].media_type.value == 'image':
+                    return 'generate_material', 'generating_material'
             return 'recover_material', 'recovering_material'
         if (gate.get('status') == 'MATERIAL_NOT_READY' and attempt.get('workspace', {}).get('path')
                 and attempt.get('material_planning', {}).get('truth_review_status') == 'PASSED'
@@ -266,6 +443,13 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
                 or prep_status in {"SCRIPT_TRUTH_REVIEW_REQUIRED", "MATERIAL_NOT_READY"}):
             return None, "needs_evidence"
         return "prepare", "preparing"
+    if delivery.get('endpoint') == 'MATERIAL_READY' and attempt.get('material_gate', {}).get('status') == 'MATERIAL_READY':
+        from easel.integrations.material_layer import MaterialGateIntegration
+        try:
+            MaterialGateIntegration().assert_ready(attempt)
+        except (ValueError, OSError):
+            return None, 'needs_evidence'
+        return None, 'material_ready'
     authoring = attempt.get("authoring_status")
     if authoring in {"PENDING", "READY_FOR_EXTERNAL_AUTHORING", "AUTHORING_RUNNING", "AUTHORING_FAILED"}:
         return "author", "authoring"
@@ -342,10 +526,13 @@ async def advance_creation(
         if (observation or previous_operation == operation) and record.get("status") == "observation_failed":
             status = "observation_failed"
         stored_operation = previous_operation if status == "execution_uncertain" else operation
-        if (record.get("status"), record.get("operation")) != (status, stored_operation):
+        if ((record.get("status"), record.get("operation")) != (status, stored_operation)
+                or status == 'material_ready' and not record.get('material_endpoint_result')):
             with creation.edit_creation(creation_id) as current:
                 record = current["delivery"]
                 record.update(status=status, operation=stored_operation, updated_at=creation._now())
+                if status == 'material_ready':
+                    _save_material_endpoint(current)
                 if status == "failed":
                     record["exhausted_operation"] = key
         if not operation:
@@ -370,10 +557,35 @@ async def advance_creation(
         # or CLI child still runs. Shutdown drains that call before unlocking.
         async def invoke():
             token = active_delivery.set(creation_id)
+            operation_token = active_operation.set(operation)
+            started_at, started = creation._now(), monotonic()
+            outcome = "completed"
             try:
                 await execute(operation, work)
+            except DeliveryObservationPending:
+                outcome = "pending"
+                raise
+            except (DeliveryExecutionUncertain, subprocess.TimeoutExpired):
+                outcome = "uncertain"
+                raise
+            except asyncio.CancelledError:
+                outcome = "cancelled"
+                raise
+            except Exception:
+                outcome = "failed"
+                raise
             finally:
+                active_operation.reset(operation_token)
                 active_delivery.reset(token)
+                elapsed = max(0.0, monotonic() - started)
+                with creation.edit_creation(creation_id) as current:
+                    timing = current["delivery"].setdefault("operation_timings", {}).setdefault(key, {
+                        "calls": 0, "elapsed_seconds": 0.0, "first_started_at": started_at,
+                    })
+                    timing.update(calls=timing["calls"] + 1,
+                                  elapsed_seconds=round(timing["elapsed_seconds"] + elapsed, 6),
+                                  last_elapsed_seconds=round(elapsed, 6), last_outcome=outcome,
+                                  last_started_at=started_at, last_finished_at=creation._now())
 
         task = asyncio.create_task(invoke())
         try:
@@ -396,6 +608,11 @@ async def advance_creation(
                     record.update(status="execution_uncertain", last_error=None,
                                   updated_at=creation._now())
                     return False
+                if isinstance(exc, DeliveryBudgetExhausted):
+                    record.update(status="failed", exhausted_operation=key,
+                                  last_error=str(exc), updated_at=creation._now())
+                    record.setdefault("failures", {})[key] = MAX_FAILURES
+                    return False
                 count = record.setdefault("failures", {}).get(key, 0) + 1
                 record["failures"][key] = count
                 record.update(status="observation_failed" if observation else "failed" if count >= MAX_FAILURES else "retrying",
@@ -411,7 +628,25 @@ async def advance_creation(
                 record.pop('recovering_quality_from', None)
             record.setdefault("failures", {}).pop(key, None)
             record.update(status=next_operation(current)[1], operation=None, last_error=None, updated_at=creation._now())
+            if record['status'] == 'material_ready':
+                _save_material_endpoint(current)
         return True
+
+
+async def _advance_ready_creation(creation_id: str, stop: asyncio.Event, execute: Callable) -> None:
+    """Drain ready transitions; unchanged operations still use the polling clock."""
+    # Bound a burst even if a broken executor cycles through different states.
+    for _ in range(32):
+        if stop.is_set():
+            return
+        before = creation.get_creation(creation_id)
+        previous = (_attempt(before).get("attempt_id"), next_operation(before)[0])
+        if not await advance_creation(creation_id, execute):
+            return
+        after = creation.get_creation(creation_id)
+        following = (_attempt(after).get("attempt_id"), next_operation(after)[0])
+        if following[1] is None or following == previous:
+            return
 
 
 async def serve_delivery(stop: asyncio.Event, execute: Callable, *, interval: float = 3.0) -> None:
@@ -430,7 +665,7 @@ async def serve_delivery(stop: asyncio.Event, execute: Callable, *, interval: fl
                         prior.result()
                     except Exception as exc:
                         logging.getLogger(__name__).warning("作品交付状态读写失败：%s", type(exc).__name__)
-                running[creation_id] = asyncio.create_task(advance_creation(creation_id, execute))
+                running[creation_id] = asyncio.create_task(_advance_ready_creation(creation_id, stop, execute))
             try:
                 await asyncio.wait_for(stop.wait(), timeout=interval)
             except asyncio.TimeoutError:

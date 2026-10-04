@@ -144,6 +144,8 @@ def assert_quality_revision(base: Path, authored: Path, allowed: set[str], *,
         raise HypitIntegrationError('系统质量修正范围无效')
     if 'visual_material' in allowed and 'visual' not in allowed:
         raise HypitIntegrationError('系统视觉素材修正需要对应画面缺陷')
+    if expression_uses(base) != expression_uses(authored):
+        raise HypitIntegrationError('系统质量修正改变了未授权部分：必要表达承担项或时间窗')
     base_root = _markup(base)
     base_nodes = {e.get('id'): e for e in base_root.iter() if e.get('id')}
     sound_copy_ids = _quality_protected_dependencies(base) if 'visual_material' in allowed else set()
@@ -346,8 +348,15 @@ def assert_observed_video_uses(authored: Path, assets: list[dict]) -> None:
             raise HypitIntegrationError('取片起止必须使用当前 Clock 下的整数帧') from exc
         left, right = map(lambda v: Fraction(str(v)), uses[0]['source_interval_seconds'])
         limit = total if right == duration else math.floor(right * rate)
-        if not (math.ceil(left * rate) <= start < end <= limit):
-            raise HypitIntegrationError('实际取片越过该场景已观察的相关区间；保留素材，修正该镜头截取')
+        first = math.ceil(left * rate)
+        if not (first <= start < end <= limit):
+            raise HypitIntegrationError(
+                '实际取片越过该场景已观察的相关区间；保留素材，修正该镜头截取。'
+                f'场景 {uses[0]["need_id"]}，镜头 {item.get("id")}，'
+                f'appearance={recipe[1]}.{recipe[2]}，Normalize Clock={rate} fps；'
+                f'允许整数帧 {first} <= trim-start < trim-end <= {limit}，'
+                f'实际 trim-start={start} / trim-end={end}。只修正该镜头 recipe。'
+            )
         covered.add(uses[0]['need_id'])
     required = {u['need_id'] for a in bounded.values() for u in a['observed_video_uses'] if u['required']}
     if required - covered:
@@ -410,3 +419,96 @@ def assert_video_trim_ranges(authored: Path, assets: dict[str, float]) -> None:
                 f"标准化帧率 {rate:g} fps，{frames} 帧）。"
                 "秒转帧必须使用该 Normalize 的 Clock；只修正此镜头截取，保留声音、字幕和素材"
             )
+
+
+def expression_uses(source: Path, *, required_need_ids: set[str] | None = None) -> list[dict]:
+    """Bind directing commitments to visible native graph nodes and windows.
+
+    This establishes authored coverage, not semantic correctness of the picture;
+    the encoded output still has to be reviewed against the frozen intent.
+    """
+    import json
+    text = source.read_text(encoding='utf-8')
+    rows = []
+    for raw in re.findall(r'<!-- Easel expression: (.*?) -->', text):
+        try:
+            row = json.loads(raw)
+        except ValueError as exc:
+            raise HypitIntegrationError('必要表达编排记录不是有效 JSON') from exc
+        if (not isinstance(row, dict) or set(row) != {'need_id', 'element_ids', 'at_seconds', 'end_seconds', 'responsibility'}
+                or not isinstance(row['need_id'], str) or not row['need_id']
+                or not isinstance(row['element_ids'], list) or not row['element_ids']
+                or any(not isinstance(v, str) or not v for v in row['element_ids'])
+                or row['responsibility'] not in {'material', 'graphic', 'combined'}
+                or any(type(row[k]) not in (int, float) or not math.isfinite(row[k]) for k in ('at_seconds', 'end_seconds'))
+                or not 0 <= row['at_seconds'] < row['end_seconds']):
+            raise HypitIntegrationError('必要表达须明确 Need、实际元素、承担方式和有效时间窗')
+        rows.append(row)
+    if not rows and required_need_ids is None:
+        return []
+    if len({r['need_id'] for r in rows}) != len(rows):
+        raise HypitIntegrationError('必要表达记录存在重复 Need')
+    if required_need_ids is not None and {r['need_id'] for r in rows} != required_need_ids:
+        raise HypitIntegrationError('必要表达编排未完整覆盖当前 required 视觉 Need')
+    root = _markup(source)
+    packages = {e.get('as'): e.get('from', '').rsplit('@', 1)[0] for e in root.findall('import')}
+    nodes = {e.get('id'): e for e in root.iter() if e.get('id')}
+    film = next((e for e in root.iter() if packages.get(e.tag.partition('__')[0]) == '@hypit/film'
+                 and e.tag.endswith('__Film')), None)
+    reachable = set()
+    def visit(e):
+        for child in e.iter():
+            if child.get('id'):
+                reachable.add(child.get('id'))
+            for value in child.attrib.values():
+                for ref in re.findall(r'\{([\w.-]+)\}', value):
+                    identity = next((v for v in sorted(nodes, key=len, reverse=True)
+                                     if ref == v or ref.startswith(v + '.')), None)
+                    if identity and identity not in reachable:
+                        reachable.add(identity)
+                        visit(nodes[identity])
+    if film is None:
+        raise HypitIntegrationError('必要表达缺少实际 Film')
+    visit(film)
+    from .narration import _frames
+    timeline = next((e for e in root.iter() if e.tag.endswith('__Timeline')), None)
+    clock = nodes.get((timeline.get('clock', '') if timeline is not None else '').strip('{}'))
+    if timeline is None or clock is None:
+        raise HypitIntegrationError('必要表达缺少有效时间线与 Clock')
+    fps = Fraction(clock.get('frame-rate', '0'))
+    duration = float(_frames(timeline.get('end', ''), fps) / fps)
+    parents = {child: parent for parent in root.iter() for child in parent}
+    for row in rows:
+        if row['end_seconds'] > duration:
+            raise HypitIntegrationError('必要表达时间窗越过实际 Timeline')
+        if any(v not in reachable for v in row['element_ids']):
+            raise HypitIntegrationError(f"必要表达 {row['need_id']} 引用的元素未进入 Film")
+        visible = [nodes[v] for v in row['element_ids']]
+        for e in visible:
+            if e.get('during') == 'program':
+                left, right = 0., duration
+            else:
+                left = float(_frames(e.get('at', '0f'), fps) / fps)
+                if e.get('for'):
+                    right = left + float(_frames(e.get('for'), fps) / fps)
+                elif e.tag.endswith('__Member'):
+                    parent = parents[e]
+                    siblings = list(parent)
+                    next_member = next((v for v in siblings[siblings.index(e) + 1:] if v.tag.endswith('__Member')), None)
+                    end_value = next_member.get('at') if next_member is not None else parent.get('until')
+                    if end_value is None:
+                        raise HypitIntegrationError('必要表达 Member 缺少可核对的结束窗')
+                    right = float(_frames(end_value, fps) / fps)
+                else:
+                    raise HypitIntegrationError('必要表达元素需要明确 at/for 或 Member 窗口')
+            if row['at_seconds'] < left - 1e-6 or row['end_seconds'] > right + 1e-6:
+                raise HypitIntegrationError('必要表达记录与实际图层播放窗口不一致')
+        if row['responsibility'] in {'graphic', 'combined'} and not any(
+                packages.get(e.tag.partition('__')[0]) == '@hypit/typography-track' and e.tag.endswith('__Area')
+                and not e.get('id', '').startswith('easel-caption-') for e in visible):
+            raise HypitIntegrationError('文字/图形承担的表达需要实际独立文字 Area，普通旁白字幕不能代替')
+        if any((packages.get(e.tag.partition('__')[0]), e.tag.partition('__')[2]) not in
+               {('@hypit/media-track', 'Item'), ('@hypit/media-track', 'Member'), ('@hypit/typography-track', 'Area')}
+               for e in visible):
+            raise HypitIntegrationError('必要表达应绑定实际画面 Item/Member 或文字 Area')
+    return rows

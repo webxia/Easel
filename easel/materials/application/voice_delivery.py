@@ -60,16 +60,34 @@ def require_local_voice_model(config=None) -> Path:
     return model
 
 
-def read_local_voice(path: Path, language: str | None) -> dict:
+@lru_cache(maxsize=4)
+def _model_digest(files):
+    digest = hashlib.sha256()
+    for name, size, modified in files:
+        with Path(name).open('rb') as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def voice_verification_identity(language=None, model=None):
+    from importlib.metadata import version
+    model = model or require_local_voice_model()
+    files = tuple((str(model / name), (model / name).stat().st_size, (model / name).stat().st_mtime_ns)
+                  for name in LOCAL_ASR_FILES)
+    return {'model_sha256': _model_digest(files), 'engine': 'faster-whisper',
+            'version': version('faster-whisper'), 'language': language,
+            'parameters': {'device': 'cpu', 'compute_type': 'int8', 'beam_size': 5,
+                           'word_timestamps': True, 'vad_filter': False, 'condition_on_previous_text': False},
+            'rules': 'complete-voice-and-independent-interval@2'}
+
+
+def read_local_voice(path: Path, language: str | None, *, model_path: Path | None = None) -> dict:
     """Bound local recognition in a child process; never download or call TTS."""
     import subprocess
     import sys
-    model = require_local_voice_model()
-    model_digest = hashlib.sha256()
-    for name in LOCAL_ASR_FILES:
-        with (model / name).open('rb') as stream:
-            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
-                model_digest.update(chunk)
+    model = require_local_voice_model({'EASEL_ASR_MODEL': str(model_path)}) if model_path else require_local_voice_model()
+    identity = voice_verification_identity(language, model)
     code = ('import json,sys; from pathlib import Path; '
             'from easel.materials.application.voice_delivery import transcribe_local_voice; '
             'print(json.dumps(transcribe_local_voice(Path(sys.argv[1]), Path(sys.argv[2]), '
@@ -84,11 +102,41 @@ def read_local_voice(path: Path, language: str | None) -> dict:
         raise ValueError('本地语音识别未完成；原旁白已保留，只重试识别') from exc
     if not isinstance(report, dict):
         raise ValueError('本地语音识别结果格式无效；原旁白已保留')
-    report['model_sha256'] = model_digest.hexdigest()
+    report['model_sha256'] = identity['model_sha256']
+    report['verification_config'] = identity
     return report
 
 
 VOICE_ASR_REVIEW_PREFIX = 'creator-voice-asr-review-v1:'
+
+# The single configured recognizer remains unchanged. This is an admission
+# policy, not a fabricated/calibrated probability or a new recognition run.
+VOICE_CONFIDENCE_POLICY = {
+    'revision': 'bounded-voice-confidence@1', 'word_floor': .25,
+    'low_character_fraction': .05, 'low_character_cap': 3,
+    'character_weighted_mean_floor': .85,
+}
+
+
+def bounded_voice_confidence(script, asset, report):
+    """Permit sparse uncertainty only after complete exact text/time checking."""
+    low = recognition_uncertain_positions(script, asset, report)
+    rows = report['words']
+    lengths = [len(_spoken(row['text'])) for row in rows]
+    total = sum(lengths)
+    count = sum(lengths[index] for index in low)
+    minimum = min(row['probability'] for row in rows)
+    mean = math.fsum(row['probability'] * length for row, length in zip(rows, lengths)) / total
+    limit = min(VOICE_CONFIDENCE_POLICY['low_character_cap'],
+                math.floor(total * VOICE_CONFIDENCE_POLICY['low_character_fraction']))
+    if (not low or minimum < VOICE_CONFIDENCE_POLICY['word_floor'] or count > limit
+            or mean < VOICE_CONFIDENCE_POLICY['character_weighted_mean_floor']):
+        raise ValueError('本地旁白识别置信度不足；有限放宽仍要求最低词分数≥0.25、'
+                         '低于0.5的字符不超过全文5%且最多3字、按字符加权均值≥0.85；'
+                         '原报告和音频保留，未重复识别或TTS')
+    return {'policy': dict(VOICE_CONFIDENCE_POLICY), 'minimum_word_probability': minimum,
+            'character_weighted_mean': mean, 'low_confidence_characters': count,
+            'spoken_characters': total}
 
 
 def recognition_digest(report: dict) -> str:
@@ -115,8 +163,8 @@ def timing_from_recognition(script: str, asset, report: dict) -> dict:
     if not isinstance(words, list) or not words or len(words) > 20000:
         raise ValueError('旁白识别没有有效时间依据；原音频已保留')
     positions = [i for i, c in enumerate(script) if _spoken(c)]
-    offset, cues = 0, []
-    for word in words:
+    offset, cues, relaxed = 0, [], None
+    for word_index, word in enumerate(words):
         if not isinstance(word, dict) or not isinstance(word.get('text'), str):
             raise ValueError('旁白识别结果格式无效')
         text = _spoken(word['text'])
@@ -126,8 +174,15 @@ def timing_from_recognition(script: str, asset, report: dict) -> dict:
         if type(confidence) not in (int, float) or not math.isfinite(confidence) or not 0 <= confidence <= 1:
             raise ValueError('旁白识别置信度格式无效；原音频已保留')
         if confidence < .5:
-            raise ValueError(f'本地旁白识别置信度不足（第 {offset + 1} 个有效字符，{confidence:.3f} < 0.500）；'
-                             '不能据此判断音频多读或生成字幕时序，请检查本地识别模型；原旁白保留，无需重新生成')
+            if report.get('supplements'):
+                # Retain already valid independent historical evidence. The
+                # current Owner never downloads or invokes a second model.
+                from easel.materials.application.voice_supplement import verify_interval
+                proofs = [p for p in report['supplements'] if p.get('word_index') == word_index]
+                if len(proofs) != 1 or not verify_interval(script, asset, report, word_index, proofs[0]):
+                    raise ValueError('本地旁白识别置信度不足，历史局部声音证据不完整')
+            elif relaxed is None:
+                relaxed = bounded_voice_confidence(script, asset, report)
         if offset + len(text) > len(positions):
             raise ValueError('旁白识别包含脚本之外的多余内容；原音频已保留，不能猜测字幕时序')
         begin, end = positions[offset], positions[offset + len(text) - 1] + 1
@@ -155,7 +210,11 @@ def timing_from_recognition(script: str, asset, report: dict) -> dict:
     sentences, start = [], 0
     for index, cue in enumerate(cues):
         next_begin = cues[index + 1]['start_character'] if index + 1 < len(cues) else len(script)
-        if index + 1 == len(cues) or re.search(r'[。！？.!?；;\n]', script[cue['start_character']:next_begin]):
+        span = script[cues[start]['start_character']:next_begin]
+        # Reading groups end only on measured recognition word boundaries;
+        # punctuation or a long phrase does not fabricate new speech times.
+        if (index + 1 == len(cues) or re.search(r'[。！？.!?；;\n]', script[cue['start_character']:next_begin])
+                or len(span) >= 24 or (len(span) >= 12 and re.search(r'[，,:：]', script[cue['end_character']:next_begin]))):
             first = cues[start]
             sentences.append({'text': script[first['start_character']:cue['end_character']],
                               'start_character': first['start_character'], 'end_character': cue['end_character'],
@@ -164,6 +223,8 @@ def timing_from_recognition(script: str, asset, report: dict) -> dict:
     timing = bind_voice_timing(script, asset, tuple(sentences))
     timing.update(source='local_asr', recognition_sha256=hashlib.sha256(
         json.dumps(report, sort_keys=True, ensure_ascii=False).encode()).hexdigest())
+    if relaxed is not None:
+        timing['confidence_acceptance'] = relaxed
     return timing
 
 
@@ -209,9 +270,12 @@ def voice_content_observed(need, asset) -> bool:
     return any(i.analyzer_id == VOICE_CONTENT_PREFIX + need.need_id
         and i.status is IntelligenceStatus.COMPLETE and any(
             a.field is SemanticField.CAPTION and a.evidence and a.evidence.startswith(binding)
-            and re.fullmatch(r'[0-9a-f]{64}:complete', a.evidence[len(binding):])
+            and re.fullmatch(r'[0-9a-f]{64}:complete(?::independent|:bounded-confidence-v1)?', a.evidence[len(binding):])
             and isinstance(a.value, str) and hashlib.sha256(a.value.encode()).hexdigest() == need.modality_spec.text_sha256
-            and a.confidence is not None and a.confidence >= .5 for a in i.annotations)
+            and (a.confidence is not None and a.confidence >= .5
+                 or a.confidence is None and a.evidence.endswith(':complete:independent')
+                 or a.confidence is not None and VOICE_CONFIDENCE_POLICY['word_floor'] <= a.confidence < .5
+                    and a.evidence.endswith(':complete:bounded-confidence-v1')) for a in i.annotations)
         for i in asset.semantic.inferences)
 
 
@@ -228,8 +292,10 @@ def apply_voice_content(need, asset, script: str, report: dict):
     inference = SemanticInference(analyzer_id=VOICE_CONTENT_PREFIX + need.need_id,
         status=IntelligenceStatus.COMPLETE, observed_at=datetime.now(timezone.utc),
         annotations=(SemanticAnnotation(field=SemanticField.CAPTION, value=script,
-            confidence=min(w['probability'] for w in report['words']),
-            evidence=_voice_content_binding(need, asset) + timing['recognition_sha256'] + ':complete'),))
+            confidence=None if report.get('supplements') else min(w['probability'] for w in report['words']),
+            evidence=_voice_content_binding(need, asset) + timing['recognition_sha256'] + ':complete'
+                + (':independent' if report.get('supplements') else ':bounded-confidence-v1'
+                   if timing.get('confidence_acceptance') else '')),))
     retained = tuple(i for i in asset.semantic.inferences if i.analyzer_id != inference.analyzer_id)
     return asset.model_copy(update={'semantic': asset.semantic.model_copy(update={'inferences': retained + (inference,)})})
 
@@ -330,6 +396,11 @@ def authoring_voice_timings(plan, bundle, store, script: str) -> dict:
                         if checked != timing:
                             continue
                         current = checked
+                    recognized = _recognized_timing(record, need, asset, script)
+                    if recognized and len(recognized['cues']) > len(current['cues']):
+                        # Reuse already verified full-audio content observation;
+                        # retain provider timing in its original record.
+                        current = recognized
                     # Only punctuation/whitespace may lie between validated
                     # ranges. Keep every source character exactly once, with
                     # trailing punctuation on the preceding sentence.
@@ -347,3 +418,37 @@ def authoring_voice_timings(plan, bundle, store, script: str) -> dict:
         if not found:
             unavailable.append(need.need_id)
     return {"schema": "easel-production-voice-timing@1", "assets": rows, "unavailable_need_ids": unavailable}
+
+
+def voice_recovery_identity(binding, verification):
+    # Admission changes invalidate an old failure, not the recognizer cache.
+    # The primary identity remains the same so original observations are reused.
+    return 'voice-asr-' + recognition_digest({**binding, 'verification': verification,
+                                            'confidence_policy': VOICE_CONFIDENCE_POLICY})
+
+
+def recognition_uncertain_positions(script, asset, report):
+    """Check full content/time shape before spending on isolated uncertainty.
+
+    This returns positions only, never an accepted timing or modified confidence.
+    Independent evidence must still pass the normal voice admission below.
+    """
+    rows = report.get('words')
+    if not isinstance(rows, list) or not rows or len(rows) > 20000:
+        raise ValueError('完整声音证据无效，不能直接转局部补证')
+    actual, last, low = [], 0., []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict) or not isinstance(row.get('text'), str) or not _spoken(row['text']):
+            raise ValueError('完整声音证据条目无效')
+        p, begin, end = row.get('probability'), row.get('start_seconds'), row.get('end_seconds')
+        if (any(type(v) not in (int, float) or not math.isfinite(v) for v in (p, begin, end))
+                or not 0 <= p <= 1 or not last <= begin < end <= asset.technical.duration_seconds + .1):
+            raise ValueError('完整声音概率或实测时间无效')
+        actual.append(_spoken(row['text']))
+        last = end
+        if p < .5:
+            low.append(index)
+    convert = _asr_script_converter().convert
+    if convert(''.join(actual)) != convert(_spoken(script)):
+        raise ValueError('完整声音内容仍有错配/增删缺口，不能把它当作单纯低置信补证')
+    return low

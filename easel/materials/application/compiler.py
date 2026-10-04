@@ -44,6 +44,18 @@ class NeedCompiler:
         for key, value in need.constraints.items():
             if not isinstance(key, str) or not key.strip():
                 raise NeedCompilationError("Need constraint keys must be non-empty strings")
+            if key == 'search_query_variants_en':
+                if (not isinstance(value, dict) or set(value) != {'primary', 'alternate', 'relaxed'}
+                        or any(not isinstance(q, str) or not q.strip() or len(q) > 100
+                               or not re.fullmatch(r'[\x20-\x7e]+', q) or not re.search(r'[a-zA-Z]', q) for q in value.values())
+                        or len({self._normalize(q).casefold() for q in value.values()}) != 3):
+                    raise NeedCompilationError('英文查询变体须为三个不同的短查询')
+                continue
+            if key == 'search_query_en':
+                if (not isinstance(value, str) or not value.strip() or len(value) > 100
+                        or not re.fullmatch(r'[\x20-\x7e]+', value) or not re.search(r'[a-zA-Z]', value)):
+                    raise NeedCompilationError('search_query_en 须为不超过 100 字符的英文短查询')
+                continue  # Discovery wording never changes the original meaning/filter.
             if key == "preferred_visual_details":
                 if need.media_type.value not in {"image", "video"} or not isinstance(value, str) or not value.strip():
                     raise NeedCompilationError("preferred_visual_details 须为视觉 Need 的非空偏好说明")
@@ -68,7 +80,16 @@ class NeedCompiler:
             filters[key] = value
 
         role = need.role.replace("_", " ").strip()
-        query_candidates = [description, f"{role} {description}".strip()]
+        # Whole sentences/shot instructions remain on the Need. Prefer its first
+        # complete clause for discovery; never cut through a word/subject.
+        clauses = [v.strip() for v in re.split(r"[。；;\n]|(?<=[.!?])\s+", description) if v.strip()]
+        retrieval = clauses[0] if len(description) > 100 and clauses and len(clauses[0]) <= 100 else description
+        query_candidates = [retrieval, f"{role} {retrieval}".strip()]
+        if need.constraints.get('search_query_variants_en'):
+            variants = need.constraints['search_query_variants_en']
+            query_candidates[:0] = [variants[k] for k in ('primary', 'alternate', 'relaxed')]
+        elif need.constraints.get('search_query_en'):
+            query_candidates.insert(0, need.constraints['search_query_en'])
         if need.need_id in self.search_terms:
             terms = self._normalize_terms(self.search_terms[need.need_id], "search_terms")
             if not terms or len(terms) > 4 or any(len(term) > 120 for term in terms):
@@ -86,7 +107,11 @@ class NeedCompiler:
             if spec.tempo_bpm:
                 sound.append(f'{spec.tempo_bpm[0]}-{spec.tempo_bpm[1]} bpm')
             if sound:
-                query_candidates.insert(0, ' '.join((*sound, 'background music')))
+                # Initial discovery uses the Director's sound preferences.
+                # Explicit recovery must reach a different actual first-page
+                # query, retaining those preferences in another bounded slot.
+                query_candidates.insert(1 if need.need_id in self.search_terms else 0,
+                                        ' '.join((*sound, 'background music')))
             if spec.instruments and need.need_id not in self.search_terms:
                 instrument = self._normalize(spec.instruments[0])
                 if instrument:
@@ -99,7 +124,10 @@ class NeedCompiler:
         if mode_terms:
             # Reserve a real query for style. Appending after four explicit
             # search hints silently dropped Mode at the Provider boundary.
-            query_candidates.insert(0, f"{query_candidates[0]} {' '.join(mode_terms)}")
+            styled = f"{query_candidates[0]} {' '.join(mode_terms)}"
+            # Explicit recovery must remain the actual first query. Long style
+            # prose cannot displace a valid subject query at stock boundaries.
+            query_candidates.insert(1, styled)
         if need.intent.function:
             query_candidates.append(f"{description} {need.intent.function}")
         queries: list[str] = []
@@ -119,6 +147,11 @@ class NeedCompiler:
         if not queries:
             raise NeedCompilationError(f"Need {need.need_id!r} produced no search queries")
 
+        # Prefer complete short English phrases when provided by Planning or
+        # recovery. Never invent a translation from a lossy word dictionary.
+        queries.sort(key=lambda q: not (len(q) <= 100 and re.fullmatch(r'[\x20-\x7e]+', q)
+                                       and re.search(r'[a-zA-Z]', q)))
+
         negative_terms = tuple(
             key.replace("_", " ").strip()
             for key, value in need.constraints.items()
@@ -126,7 +159,7 @@ class NeedCompiler:
         )
         if isinstance(need.modality_spec, BgmNeedSpec) and not need.modality_spec.vocals_allowed:
             negative_terms = tuple(dict.fromkeys((*negative_terms, 'vocals')))
-        ranking_hints: dict[str, str | int | float | bool] = {"role": role}
+        ranking_hints: dict[str, str | int | float | bool] = {"role": role, "intent_description": description}
         if "preferred_visual_details" in need.constraints:
             ranking_hints["preferred_visual_details"] = need.constraints["preferred_visual_details"]
         if need.intent.function:

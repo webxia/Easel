@@ -148,11 +148,21 @@ def visual_supply_recovery_state(attempt: dict) -> str | None:
     from easel.materials.application.visual_observation import observed_match
     store = AttemptMaterialStore(attempt['workspace']['path'])
     plan, bundle = store.read_plan(), store.read_bundle()
-    missing = [n for n in plan.needs if n.need_id in gate.get('blocking_needs', [])]
-    if not missing or any(n.media_type.value not in {'image', 'video'} for n in missing):
+    missing = [n for n in plan.needs if n.need_id in gate.get('blocking_needs', [])
+               and n.media_type.value in {'image', 'video'}]
+    if not missing:
         return None
-    # An otherwise suitable candidate blocked by Rights remains a distinct task.
-    if any(observed_match(n, asset) is True for n in missing for asset in bundle.assets):
+    outcomes = attempt.get('material_observation', {}).get('outcomes', [])
+    eligible = []
+    for need in missing:
+        if any(observed_match(need, asset) is True for asset in bundle.assets):
+            continue  # A Rights gap in this Need doesn't block other Needs.
+        rows = [r for r in outcomes if r.get('need_id') == need.need_id]
+        hard_missing = any(r.get('verdict') == 'unsuitable' or r.get('failure_kind') in {'content_mismatch', 'hard_constraint'} for r in rows)
+        if any(r.get('verdict') == 'uncertain' for r in rows) and not hard_missing:
+            continue
+        eligible.append(need)
+    if not eligible:
         return None
     return 'available' if len(record.get('previous_rounds', [])) < 1 else 'exhausted'
 
@@ -192,6 +202,11 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
             need_ids = quality_visual_replacement_gaps(attempt)
         else:
             need_ids = gate['blocking_needs']
+            uncertain = {r['need_id'] for r in attempt.get('material_observation', {}).get('outcomes', [])
+                         if r.get('verdict') == 'uncertain'}
+            hard_missing = {r['need_id'] for r in attempt.get('material_observation', {}).get('outcomes', [])
+                            if r.get('verdict') == 'unsuitable' or r.get('failure_kind') in {'content_mismatch', 'hard_constraint'}}
+            need_ids = [nid for nid in need_ids if nid not in uncertain or nid in hard_missing]
         needs = [n.model_dump(mode='json') for n in planning['plan'].needs
                  if n.need_id in need_ids and getattr(n.modality_spec, 'kind', None) != 'voice']
         identity = hashlib.sha256((attempt_id + gate['plan_revision'] + gate['bundle_revision']
@@ -212,6 +227,33 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
             raise MaterialIntegrationError('补料期间素材依据已变化，原结果已保留')
         request_id = record['request_id'] + '-queries'
         cached = store.read_recovery_record(request_id)
+        if cached is None and not record.get('quality_report_sha256'):
+            # Use compiled alternatives first. Only a new/uncovered reason
+            # requires another model-authored recovery plan.
+            prepared = {}
+            for raw in record['needs']:
+                need = next(n for n in planning['plan'].needs if n.need_id == raw['need_id'])
+                variants = need.constraints.get('search_query_variants_en', {})
+                alternatives = [variants[k] for k in ('alternate', 'relaxed') if variants.get(k)]
+                if not alternatives:
+                    for path in sorted((store.materials_root / 'recoveries').glob('requirements-*.json')):
+                        if path.is_symlink():
+                            raise MaterialIntegrationError('要求合同路径无效')
+                        contract = json.loads(path.read_text()).get('contract', {})
+                        from easel.materials.application.visual_observation import need_identity
+                        if contract.get('need_sha256') == need_identity(need) and contract.get('queries'):
+                            alternatives = contract['queries'][1:]
+                            break
+                tried = {q.casefold() for r in record.get('previous_rounds', [])
+                         for q in r.get('search_terms', {}).get(need.need_id, [])}
+                primary = need.constraints.get('search_query_en', '')
+                alternatives = [q for q in alternatives if q.casefold() not in tried and q != primary]
+                if alternatives:
+                    prepared[need.need_id] = alternatives[:1]
+            if set(prepared) == {n['need_id'] for n in record['needs']} and prepared:
+                record = {**record, 'shot_choice_need_ids': []}
+                cached = {'request_id': record['request_id'], 'search_terms': prepared}
+                attempt = update_film_attempt(attempt_id, event='compiled_queries_reused', autonomous_material_recovery=record)
         if cached is None:
             cached = executor(attempt, record)
             validate_recovery_queries(record, cached)
@@ -255,7 +297,13 @@ def validate_recovery_queries(record: dict, report: dict) -> None:
                 for term in previous.get('search_terms', {}).get(raw['need_id'], [])}
         if any(' '.join(term.casefold().split()) in used for term in value):
             raise MaterialIntegrationError('补料检索建议重复了已尝试的短语，须根据观察证据调整')
-        NeedCompiler(search_terms={raw['need_id']: tuple(value)}).compile(MaterialNeed.model_validate_json(json.dumps(raw)))
+        need = MaterialNeed.model_validate_json(json.dumps(raw))
+        compiled = NeedCompiler(search_terms={raw['need_id']: tuple(value)}).compile(need)
+        if need.constraints.get('search_query_en'):
+            query = compiled.semantic_queries[0]
+            if (query != NeedCompiler._normalize(value[0]) or len(query) > 100
+                    or query.casefold() == NeedCompiler._normalize(need.constraints['search_query_en']).casefold()):
+                raise MaterialIntegrationError('补料须提供实质变化的英文优先短查询，不能回退到原主查询')
 
 
 def director_shot_choices(attempt: dict, plan: MaterialPlan) -> dict:
