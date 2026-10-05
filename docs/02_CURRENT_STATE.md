@@ -3,6 +3,12 @@
 Last audited: 2026-10-05. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
 
 
+## 已确认创作方案的规划恢复修复（2026-10-05，软件验证）
+
+Planning 模型曾将已确认声音段从 TREATMENT 移到 SCENES；原确认校验准确，但四文件写入提示与只读要求冲突，且 write-if-missing 不能恢复错误草稿。现在确认三文件由程序单一 canonical 映射原样提供，未提交差异先以内容 hash 原子归档再原子恢复；首次输出、一次 repair 和中断重入共用恢复。初始/repair 只要求素材 JSON，不让模型重写确认文案。冻结规划差异、异常文件类型/目录 symlink 及历史字节不符仍拒绝，文件系统错误不触发新模型修复。
+
+已有 Planning 集成场景扩展覆盖两轮移动声音、错误草稿归档/重复去重、有效 Plan 重入零模型调用、冻结拒绝、文件/模型返回后目录 symlink 拒绝；原无确认作品仍正常四文件交付。Astra 最终 CONTINUE。未改实际作品文件、未重启服务、未调用真实模型或恢复制作。最终验证及现场根因见[具名记录](acceptance/confirmed-planning-recovery-2026-10-05.md)。
+
 ## v0.5 当前素材恢复（2026-10-05，PARTIAL / 8 of 9 / 音频验证未确认）
 
 七项视觉及旁白均已普通准入，唯一缺口BGM；尚未MATERIAL_READY，原Owner无可继续策略后停止。R14揭示Top3获取HTTP403；补真实User-Agent后R15取得1音频/20候选，其余获取失败，不认领DNS或UA为全部失败唯一根因。R16修复Openverse单曲许可/署名事实丢失及Commons查询身份脱敏；同asset/SHA刷新元数据，不重搜/下载、不写人工reviewed_at，普通CC BY条件保留。

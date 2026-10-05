@@ -1181,20 +1181,70 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
     for path in planning_dir.iterdir():
         if path.name in {"SCRIPT.md", "SCENES.md", "TREATMENT.md", "MATERIAL_PLAN.json"}:
             path.unlink()
+    attempt = {**attempt, 'material_planning': {'status': 'DRAFT'}}
+    requests = []
     def material_only(prompt, *_):
+        requests.append(prompt)
+        assert '四个文件' not in prompt and '写入 SCENES' not in prompt
+        assert '在 TREATMENT 说明' not in prompt and '放在 TREATMENT/SCENES' not in prompt
         assert (planning_dir / "SCRIPT.md").read_text() == confirmed["script"]
         assert (planning_dir / "SCENES.md").read_text() == confirmed["scenes"]
-        (planning_dir / "MATERIAL_PLAN.json").write_text(plan.model_dump_json())
+        (planning_dir / "MATERIAL_PLAN.json").write_text('{}' if len(requests) == 1 else plan.model_dump_json())
+        # Both the first turn and bounded repair attempt to move sound prose.
+        (planning_dir / 'TREATMENT.md').write_text('错误导演稿-' + str(len(requests)))
+        (planning_dir / 'SCENES.md').write_text('错误分镜-' + str(len(requests)))
         return "完成素材需求"
     monkeypatch.setattr(web, "run_agent_sync", material_only)
     result = web._material_planning_executor(attempt, {"context_refs": refs})
+    assert len(requests) == 2
     assert result["script"] == confirmed["script"]
     assert result["scenes"] == confirmed["scenes"]
+    assert result['treatment'] == confirmed['treatment'] + '\n\n## 声音设计\n' + confirmed['sound']
+    archive = planning_dir / 'rejected-confirmed-drafts'
+    assert len(list(archive.glob('*.md'))) == 4
+    # A persisted valid plan plus interrupted prose mutation recovers locally,
+    # preserving the rejected bytes, without buying another model call.
     (planning_dir / "SCRIPT.md").write_text("擅自重写")
-    monkeypatch.setattr(web, "run_agent_sync", lambda *_: "不修复")
-    with pytest.raises(prep.PreparationError, match="改变了已确认"):
+    monkeypatch.setattr(web, "run_agent_sync", lambda *_: pytest.fail('valid Plan must be reused'))
+    restored = web._material_planning_executor(attempt, {"context_refs": refs})
+    assert restored['script'] == confirmed['script']
+    copies = list(archive.glob('*.md'))
+    (planning_dir / "SCRIPT.md").write_text("擅自重写")
+    web._material_planning_executor(attempt, {"context_refs": refs})
+    assert list(archive.glob('*.md')) == copies
+    # Frozen output is never rewritten; invalid path types remain failures.
+    (planning_dir / 'SCENES.md').write_text('冻结后变更')
+    frozen = {**attempt, 'material_planning': {'status': 'PLANNING_READY'}}
+    with pytest.raises(prep.PreparationError, match='已冻结规划'):
+        web._material_planning_executor(frozen, {"context_refs": refs})
+    assert (planning_dir / 'SCENES.md').read_text() == '冻结后变更'
+    (planning_dir / 'SCENES.md').unlink()
+    external = planning_dir.parent / 'external-scenes.md'
+    external.write_text('外部不可覆盖')
+    (planning_dir / 'SCENES.md').symlink_to(external)
+    with pytest.raises(prep.PreparationError, match='路径无效'):
         web._material_planning_executor(attempt, {"context_refs": refs})
+    assert external.read_text() == '外部不可覆盖'
+    (planning_dir / 'SCENES.md').unlink()
+    # Recheck the directory after a model turn replaces it with a symlink.
+    original = planning_dir.with_name('planning-original')
+    outside = planning_dir.with_name('outside-planning')
+    outside.mkdir()
+    (planning_dir / 'MATERIAL_PLAN.json').unlink()
+    def swap_directory(*_):
+        planning_dir.rename(original)
+        planning_dir.symlink_to(outside, target_is_directory=True)
+        return 'invalid directory mutation'
+    monkeypatch.setattr(web, 'run_agent_sync', swap_directory)
+    try:
+        with pytest.raises(prep.PreparationError, match='symlink'):
+            web._material_planning_executor(attempt, {'context_refs': refs})
+        assert list(outside.iterdir()) == []
+    finally:
+        planning_dir.unlink()
+        original.rename(planning_dir)
     with pytest.raises(prep.PreparationError, match="回到方案讨论"):
+
         web._material_planning_executor(attempt, {"context_refs": refs, "quality_repair": feedback})
 
 

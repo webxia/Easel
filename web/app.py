@@ -3016,6 +3016,61 @@ def _review_output_frames(attempt: dict, manifest: dict, attachments: list[dict]
     raise PreparationError('系统审片报告未通过合同校验：' + failure)
 
 
+def _restore_confirmed_planning(planning_dir, canonical, *, frozen):
+    """Program owns confirmed prose; preserve rejected drafts before restoring."""
+    import tempfile
+    if planning_dir.is_symlink() or not planning_dir.is_dir():
+        raise PreparationError('Planning directory must be a real directory, not a symlink')
+    changes = []
+    for name, content in canonical.items():
+        path = planning_dir / name
+        if path.is_symlink() or path.exists() and not path.is_file():
+            raise PreparationError('已确认方案文件路径无效')
+        if path.exists() and path.stat().st_size > 128 * 1024:
+            raise PreparationError('已确认方案草稿超出容量；未覆盖')
+        old = path.read_bytes() if path.exists() else None
+        wanted = content.encode('utf-8')
+        if old != wanted:
+            changes.append((path, old, wanted))
+    if frozen and changes:
+        raise PreparationError('已冻结规划与确认版本不同；不得覆盖，需核对冻结产物')
+    archive = planning_dir / 'rejected-confirmed-drafts'
+    for path, old, wanted in changes:
+        if old is not None:
+            if archive.is_symlink() or archive.exists() and not archive.is_dir():
+                raise PreparationError('确认方案草稿历史路径无效')
+            archive.mkdir(exist_ok=True)
+            target = archive / (hashlib.sha256(old).hexdigest() + '-' + path.name)
+            if target.is_symlink() or target.exists() and not target.is_file():
+                raise PreparationError('确认方案草稿历史文件无效')
+            if target.exists():
+                if target.read_bytes() != old:
+                    raise PreparationError('确认方案草稿历史校验失败；未覆盖')
+            else:
+                fd, temporary = tempfile.mkstemp(dir=archive, prefix='.draft-')
+                try:
+                    with os.fdopen(fd, 'wb') as stream:
+                        stream.write(old)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    if target.is_symlink() or target.exists():
+                        raise PreparationError('确认方案草稿历史保存期间变化；未覆盖')
+                    os.replace(temporary, target)
+                finally:
+                    Path(temporary).unlink(missing_ok=True)
+        fd, temporary = tempfile.mkstemp(dir=planning_dir, prefix='.confirmed-')
+        try:
+            with os.fdopen(fd, 'wb') as stream:
+                stream.write(wanted)
+                stream.flush()
+                os.fsync(stream.fileno())
+            if path.is_symlink() or (path.read_bytes() if path.exists() else None) != old:
+                raise PreparationError('确认方案文件恢复期间变化；未覆盖')
+            os.replace(temporary, path)
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+
+
 def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
     """Ask the Director to plan from the frozen upstream snapshots before supply."""
     root = Path(attempt["workspace"]["path"]).resolve()
@@ -3029,6 +3084,18 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
     if planning_dir.is_symlink():
         raise PreparationError("Planning directory must not be a symlink")
     planning_dir.mkdir(parents=True, exist_ok=True)
+    confirmed_plan = (get_creation(attempt['creation_id']).get('delivery') or {}).get('video_plan')
+    if confirmed_plan and planning_context.get('quality_repair'):
+        raise PreparationError('本次质量问题需要改变已确认视频方案，请回到方案讨论；当前方案与产物已保留')
+    canonical = ({'SCRIPT.md': confirmed_plan['script'], 'SCENES.md': confirmed_plan['scenes'],
+                  'TREATMENT.md': confirmed_plan['treatment'] + '\n\n## 声音设计\n' + confirmed_plan['sound']}
+                 if confirmed_plan else {})
+    def draft_only(text):
+        return '' if confirmed_plan else text
+    def restore_confirmed():
+        if canonical:
+            _restore_confirmed_planning(planning_dir, canonical,
+                frozen=attempt.get('material_planning', {}).get('status') == 'PLANNING_READY')
     # The current Domain owns every nested field. A prose subset left video
     # planning to guess duration_seconds and failed both initial and repair turns.
     planning_contract = (
@@ -3046,7 +3113,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         + "\n〔正式合同结束〕\n"
         "严格按此当前 Domain 合同填写所有嵌套字段；不得从其他素材或 Provider 格式猜字段。"
         "视频目标时长属于 Need.duration_hint.target_seconds，不属于 modality_spec.video；"
-        "镜头实际时间线仍写 SCENES，由 Production 使用实际素材安排。\n"
+        f"{draft_only('镜头实际时间线仍写 SCENES，由 Production 使用实际素材安排。\n')}"
     )
     prompt = (
         "〔Easel Material Creative Planning V1〕\n"
@@ -3062,24 +3129,25 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "Creative Mode / Director 是唯一创作依据。不要读取其他项目、历史产物或重复计算 SHA-256。\n"
         "mode.json 的 visual_material_style 是视觉素材软偏好，会进入检索、排序与图片/视频生成请求。"
         "默认由 Easel 绑定到视觉 Need.constraints.preferred_style；"
-        "若具体镜头有不同表达需要，可在该字段明确替换，并在 TREATMENT 说明理由。"
+        f"{draft_only('若具体镜头有不同表达需要，可在该字段明确替换，并在 TREATMENT 说明理由。')}"
         "同一 Need 的有效风格以 constraints.preferred_style 为准；未填写时继承 ImageNeedSpec.visual_style，再继承 Mode。"
         "它不限制主题、场景数量，也不能改变事实材料的原貌或作为许可依据。\n"
-        "视觉 Need.intent.description 首句用简短可检索主体/必要动作（不超过 80 字符），后续写核心用途和不可违反要求；长叙事、风格和拍摄推演放在 TREATMENT/SCENES，不把它们拼成检索词。"
+        "视觉 Need.intent.description 首句用简短可检索主体/必要动作（不超过 80 字符），后续写核心用途和不可违反要求；"
+        f"{('长叙事、风格和拍摄推演从只读确认稿读取，不把它们拼成检索词。' if confirmed_plan else '长叙事、风格和拍摄推演放在 TREATMENT/SCENES，不把它们拼成检索词。')}"
         "将你作为 Director 允许取舍的景别、背景陈设、环境细节放入 constraints.preferred_visual_details（可选非空字符串），"
         "不要把一个示意镜头的全部细节都写成必须同时满足的清单。该字段是软偏好，不是供应硬过滤。"
         "用户明确指定的事实、身份、禁止事项和不可替换的画面要求不得降为偏好；"
-        "保持已确认 SCRIPT/SCENES 原样，在 TREATMENT 说明可替代表达与理由。\n"
-        "TREATMENT 区分用户硬要求、必要表达、Mode 稳定表达和一般偏好，注明来源和适用范围。"
-        "用具体安排说明当前 Mode 如何影响选材、旁白、BGM、字幕和剪辑，生产与既有审片会核对实际效果；"
-        "传递文件或哈希不能证明风格落实，不新增一套重复模型审核。"
+        f"{draft_only('保持已确认 SCRIPT/SCENES 原样，在 TREATMENT 说明可替代表达与理由。\n')}"
+        f"{draft_only('TREATMENT 区分用户硬要求、必要表达、Mode 稳定表达和一般偏好，注明来源和适用范围。')}"
+        f"{draft_only('用具体安排说明当前 Mode 如何影响选材、旁白、BGM、字幕和剪辑，生产与既有审片会核对实际效果；')}"
+        f"{draft_only('传递文件或哈希不能证明风格落实，不新增一套重复模型审核。')}"
         "库素材不承诺相同人物/房间的连续动作；在获准来源内规划可实现的核心画面，"
         "无生成许可不得承诺只能生成的画面，不删必要内容或放宽硬要求来凑齐。\n"
-        "读取后立即写出以下四个绝对路径的文件，写完再回复；只回复文字不算完成：\n"
-        f"{planning_dir / 'MATERIAL_PLAN.json'}\n"
-        f"{planning_dir / 'TREATMENT.md'}\n"
-        f"{planning_dir / 'SCRIPT.md'}\n"
-        f"{planning_dir / 'SCENES.md'}\n"
+        "读取后立即写出以下绝对路径的文件，写完再回复；只回复文字不算完成：\n"
+        + ''.join(str(planning_dir / name) + '\n' for name in
+                  (('MATERIAL_PLAN.json', 'MATERIAL_REQUIREMENTS.json') if confirmed_plan
+                   else ('MATERIAL_PLAN.json', 'TREATMENT.md', 'SCRIPT.md', 'SCENES.md')))
+        +
         "MaterialPlan JSON 顶层只允许 plan_id、creation_id、attempt_id、context_refs、policy、needs；"
         "不得添加 schema、version 或其他包装字段。必须有 plan_id、creation_id、attempt_id、context_refs、needs。"
         "每个 Need 必须有 need_id、scope:{type,ref}、media_type、role、"
@@ -3106,9 +3174,10 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "BgmNeedSpec 只允许 kind、mood、genre、instruments、vocals_allowed、energy、tempo_bpm；"
         "其中 instruments 是字符串数组（例如 [\"piano\"]），tempo_bpm 是两个递增整数的数组"
         "（例如 [60,80]）；不确定时省略，不能写字符串或单个数字。"
-        "配乐如何压低和淡出写入 SCENES/TREATMENT，不写进 BgmNeedSpec。"
+        f"{draft_only('配乐如何压低和淡出写入 SCENES/TREATMENT，不写进 BgmNeedSpec。')}"
         "BGM Need.intent.description 写可检索的简短英文音乐描述（例如 gentle piano instrumental），"
-        "不要把压低音量、淡出或时间线指令混入搜索词；这些仍写入 SCENES/TREATMENT。"
+        "不要把压低音量、淡出或时间线指令混入搜索词；"
+        f"{draft_only('这些仍写入 SCENES/TREATMENT。')}"
         "明确要求 AI 生成的 Image/Voice Need 在 constraints 中写 allow_generation=true；BGM 不得写该许可。"
         "用户允许图库不足时生图补位，也应在冻结 Brief 允许范围内为可静态表达的 Image Need 写 allow_generation=true，"
         "不是只有要求必须生成才传递许可；预算不代替内容许可。"
@@ -3122,8 +3191,9 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "若用户明确禁止本地样本满足某 Need，写 constraints.forbidden_source_kind=\"local\"；"
         "它只排除本地原始素材，仍允许正式 Library 或 External 资产。"
         "Required Voice Need 必须提供 provider-neutral identity；其 text_ref/text_sha256 由 Easel 在 SCRIPT 冻结后绑定，"
-        "不得填写 provider_voice_id。若有 Voice Need，SCRIPT.md 只写需要合成的逐字旁白文本，"
-        "不写标题、说明、表格、引号或时间线；节奏和画面安排写入 SCENES.md/TREATMENT.md。"
+        "不得填写 provider_voice_id。"
+        f"{draft_only('若有 Voice Need，SCRIPT.md 只写需要合成的逐字旁白文本，')}"
+        f"{draft_only('不写标题、说明、表格、引号或时间线；节奏和画面安排写入 SCENES.md/TREATMENT.md。')}"
         "不要编造素材存在、Rights 许可或引用素材 ID。\n"
         f"plan_id: plan-{attempt['attempt_id'][-20:]}\n"
         f"context_refs: {json.dumps(refs, ensure_ascii=False, sort_keys=True)}\n"
@@ -3142,7 +3212,6 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "不调用 Provider、Hypit、媒体生成、Plan、Pricing 或 Build。后端会严格校验 Domain 合同和冻结身份。"
         + planning_contract
     )
-    confirmed_plan = (get_creation(attempt["creation_id"]).get("delivery") or {}).get("video_plan")
     if confirmed_plan:
         revision = (get_creation(attempt["creation_id"]).get("delivery") or {}).get("proposal_revision")
         if revision:
@@ -3164,16 +3233,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
                         source.rename(target)
                 marker.write_text(confirmed_plan["sha256"], encoding="utf-8")
         prompt += "\n本作品已有 Creator 确认的文案与分镜。下列三份文件由 Easel 原样提供，只读，不得重写；只细化 MATERIAL_PLAN.json 的素材需求。\n"
-        for name, content in {
-            "SCRIPT.md": confirmed_plan["script"],
-            "SCENES.md": confirmed_plan["scenes"],
-            "TREATMENT.md": confirmed_plan["treatment"] + "\n\n## 声音设计\n" + confirmed_plan["sound"],
-        }.items():
-            path = planning_dir / name
-            if path.is_symlink():
-                raise PreparationError("已确认方案文件不能是符号链接")
-            if not path.exists():
-                path.write_text(content, encoding="utf-8")
+        restore_confirmed()
         prompt += json.dumps(confirmed_plan, ensure_ascii=False)
 
     files = {
@@ -3184,16 +3244,15 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
     }
 
     def validate_artifacts() -> dict:
+        restore_confirmed()
         values = {}
         for key, path in files.items():
             if (path.is_symlink() or not path.is_file()
                     or path.stat().st_size > (256 * 1024 if key == "plan" else 128 * 1024)):
                 raise PreparationError(f"Creative Planning artifact {path.name} is missing or invalid")
             values[key] = path.read_text(encoding="utf-8")
-        if confirmed_plan and (values["script"].strip() != confirmed_plan["script"].strip()
-                               or values["scenes"].strip() != confirmed_plan["scenes"].strip()
-                               or values["treatment"].strip() != (confirmed_plan["treatment"] + "\n\n## 声音设计\n" + confirmed_plan["sound"]).strip()):
-            raise PreparationError("制作规划改变了已确认文案或分镜；请恢复确认版本，不得静默重写")
+        if canonical and any(values[key] != canonical[files[key].name] for key in ('script', 'scenes', 'treatment')):
+            raise PreparationError('确认方案恢复后仍不一致；未接受规划')
         try:
             plan = MaterialPlan.model_validate_json(values["plan"])
         except ValidationError as exc:
@@ -3236,8 +3295,6 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
 
     session_id = f"material-planning-{attempt['attempt_id']}"
     quality_repair = planning_context.get('quality_repair')
-    if quality_repair and confirmed_plan:
-        raise PreparationError("本次质量问题需要改变已确认视频方案，请回到方案讨论；当前方案与产物已保留")
     if quality_repair:
         prompt += (
             '\n〔修正系统审片发现的内容问题〕\n'
@@ -3258,6 +3315,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
     try:
         result = validate_artifacts()
     except PreparationError as first_error:
+        # Filesystem/frozen-prose faults cannot authorize another model turn.
+        restore_confirmed()
         repair = (
             "〔Easel Creative Planning 单次合同修正〕\n"
             f"Attempt workspace: {root}\n"
@@ -3266,8 +3325,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             +
             f"当前冻结 context_refs（必须逐字复制，不要自己重算）：{json.dumps(refs, ensure_ascii=False, sort_keys=True)}\n"
             "已冻结的 Content Core、Truth Packet、Creator Context、Creative Mode 和身份不得改动。"
-            "读取现有 planning 文件，只修正缺失或无效的 planning/MATERIAL_PLAN.json、"
-            "TREATMENT.md、SCRIPT.md、SCENES.md；已有效的文件保持原样。"
+            f"{('只修正 planning/MATERIAL_PLAN.json 和 MATERIAL_REQUIREMENTS.json；确认三文件由程序原样提供，只读。' if confirmed_plan else '读取现有 planning 文件，只修正缺失或无效的 planning/MATERIAL_PLAN.json、TREATMENT.md、SCRIPT.md、SCENES.md；已有效的文件保持原样。')}"
             "MaterialPlan JSON 顶层只允许 plan_id、creation_id、attempt_id、context_refs、policy、needs；"
             "schema:extra_forbidden 表示必须删除顶层 schema 字段，不是修改它的值。不得添加 version 或包装对象。"
             "检索 constraints 只能使用字符串、数字或布尔值。只有明确用户图库限定才用 required_source_kind=stock；合法授权或真实素材不代表图库限定，未指定来源不要猜测；禁用生成用 allow_generation=false；"
@@ -3288,18 +3346,18 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             "请同时省略这两个字段，不得只写 text_ref，也不得填写 provider_voice_id。"
             "若用户要求旁白必须在本作品真实 AI 生成，该 Voice Need 同样设置"
             "constraints.required_source_kind=\"generative\"。"
-            "若有 Voice Need，SCRIPT.md 只写需要合成的逐字旁白文本，"
-            "不写标题、解释、表格、引号或时间线；其他编排写入 SCENES.md/TREATMENT.md。"
+            f"{draft_only('若有 Voice Need，SCRIPT.md 只写需要合成的逐字旁白文本，')}"
+            f"{draft_only('不写标题、解释、表格、引号或时间线；其他编排写入 SCENES.md/TREATMENT.md。')}"
             "重点：Need.intent 只保留 description/function；移除 source_ref、SHA、License、Rights 等"
             "供应事实。图像 modality_spec 只保留 kind=image、可选 aspect_ratio=9:16；"
             "删除 orientation、source_dimensions、treatment 等字段。不需要时可省略 modality_spec。"
             "删除 subtitle_overlay 等字幕/时间线 Need，字幕属于 Production Authoring。"
             "Script 的全部文本会进入逐句 Truth/创作声明审阅。不得添加未获 Truth Packet 支持的个人经历；"
             "创作假设须在句首清楚标记；系统将区分事实改写、创作表达和真实信息缺口。"
-            "四个文件都实际写入后再回复。不调用 Provider、Hypit 或付费 Build。"
+            f"{('两个素材JSON交付后再回复；不写任何确认文案文件。' if confirmed_plan else '四个文件都实际写入后再回复。')}不调用 Provider、Hypit 或付费 Build。"
         )
         if confirmed_plan:
-            repair += "\n已确认的 SCRIPT/SCENES/TREATMENT 不得改写，必须恢复为以下当前确认版本：\n" + json.dumps(confirmed_plan, ensure_ascii=False)
+            repair += "\n已确认的 SCRIPT/SCENES/TREATMENT 由程序恢复，只读；以下仅作素材需求依据：\n" + json.dumps(confirmed_plan, ensure_ascii=False)
         _run_timed_creation_agent("structure_repair", attempt['attempt_id'], repair, TIMEOUT_PRODUCE, session_id)
         result = validate_artifacts()
 
