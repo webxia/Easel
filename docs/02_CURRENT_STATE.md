@@ -3,6 +3,24 @@
 Last audited: 2026-10-05. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
 
 
+## v0.5 当前素材恢复（2026-10-05，PARTIAL / 8 of 9 / 音频验证未确认）
+
+七项视觉及旁白均已普通准入，唯一缺口BGM；尚未MATERIAL_READY，原Owner无可继续策略后停止。R14揭示Top3获取HTTP403；补真实User-Agent后R15取得1音频/20候选，其余获取失败，不认领DNS或UA为全部失败唯一根因。R16修复Openverse单曲许可/署名事实丢失及Commons查询身份脱敏；同asset/SHA刷新元数据，不重搜/下载、不写人工reviewed_at，普通CC BY条件保留。
+
+R16原Owner观察动作24.773932秒；新增仅元数据1+本地音乐观察1。50窗音乐最低0.526289、均值0.75490602，34窗低于当前每窗0.8；人声最大0.001171。普通报告unknown/PARTIAL，**音频验证未确认**，不是报告/搜索/权利失败。没有凭标题或低人声放行，也没有把unknown当不适合盲重试。当前material_supply_exhausted指无已获批新策略，不等于模型已确认素材不适合。下一缺口是音乐性验证与其证据校准，不能仅为齐备放宽准入；已批准旁白有限放宽不转授BGM。
+
+全量701 passed、5 skipped（47.75秒），compileall、115合同、diff check及Astra CONTINUE；成功事实落盘前持久观察PENDING，保证中断后音乐/Gate接续且不重取metadata。MATERIAL_READY终点禁止普通重评提前prepare Authoring。最终Prepare7/24、Material148/1840、五项生成complete、占额0.1798/10保持，实际总账单unknown；18项冻结输入不变、请求已终态释放、Owner空闲、网关active0/queued0。仅Web加载修复，网关/Hypit未重启，没有Authoring/Build/视频结果。整个诊断AUTONOMOUS=NO，8/9不算验收成功，不承诺提速比例。[唯一恢复记录](acceptance/creation-latency-v05-material-resume-2026-10-05.md)保留R1–R16失败与实际效果；以下旧分段为历史。
+
+## v0.5 报告合同根因修复（2026-10-05，R11 FAILED / 6 of 9）
+
+R3的三次“视觉派发”实际停在要求编译，未看图：MiniMax-M3 OpenAI原生thinking默认开启，通用off未映射原生参数，输出额度被占而length无正文。官方合同、安装wire模拟及两项计量能力验证核实，M3专用幂等配置脚本修复原生thinking.disabled并热加载，网关未重启。随后R4旧会话NO_REPLY，增加失败会话策略身份及原一次报告修复，有效缓存不丢弃。
+
+R5完整JSON仍因模型计数偏移错误及围栏拒绝；改为逐段引用、程序绑定真实位置。R6又暴露编译输入重复完整Need和sources、编号未显式：模型重复列段及从1编号，完整覆盖校验拒绝。现最小修复只传带0基编号的单份原文，完整冻结身份仍绑定；原分类、偏好、Rights/Match/Readiness不放宽。报告故障不得当缺素材转生图。R7编号及引用已正确，提示的裸kind形状示例又导致null/非法JSON；已改合法JSON对象示例，不猜无效分类。
+
+R8已真实看图但模型把偏好列入checks及partly_met，R9把重复主体的显式偏好升级/误判歧义。现观察名单显式、偏好无检查编号；显式preferred由程序原文登记，模型只解释混合intent，完整校验保持。叙事/剪辑职责不编造源动态，真实动作与证据仍必要。
+
+R10 C普通准入通过；最新真实Gate为6/9，D/F+BGM未覆盖，Material128/1840、Prepare7/24；5项生成complete及占额0.1798/10保留，18冻结输入不变。R4–R9报告失败、R10部分成功、R11报告失败均保留，没有Authoring/Build；整个诊断不能认领自主完成或提速比例。多补位排队的进度/Owner旧投影曾漏接续，已统一真实待准入判断，旧stock账本不增加。D逐字复制仍不可靠，最终改为程序无损切分/固定id，模型只分类及短query，全文/必要边界严格校验。用户已授权修复后继续，下一段在确定性验证及原请求/账本对账后正式恢复同作品R12，终点MATERIAL_READY。[唯一恢复记录](acceptance/creation-latency-v05-material-resume-2026-10-05.md)保存各段失败及根因，旧记录不改写。
+
 ## v0.5 调度修复与素材恢复（2026-10-05，软件通过 / R3 FAILED / 5 of 9）
 
 用户批准空观察循环和旁白误入BGM修复并恢复原作品。已共用重评集合、跳过已覆盖及当前版本完成重评，既有关联重评不占新候选额度，不能执行明确失败；已知旁白从音乐候选排除。R2暴露绑定新生成准入仍被旧图库额度阻挡，保留C/D/F三张完成图及原在途补料请求后监护停止，补齐原Need绑定generated_intakes，不增/清零图库associations，普通准入与累计授权边界保持。全量682 passed、5 skipped（41.29秒），compileall/115合同/diff check通过。

@@ -289,14 +289,7 @@ class MaterialAcquirer:
             extension = self._extension(mime)
             locator = self._store.write_asset_bytes(asset_id, f"original{extension}", body)
             digest = hashlib.sha256(body).hexdigest()
-            rights = RightsInfo(
-                status=candidate.rights_hint.status,
-                license_name=candidate.rights_hint.license_name,
-                license_url=self._url_policy.redact(candidate.rights_hint.license_url),
-                attribution_required=candidate.rights_hint.attribution_required is True,
-                usage_constraints=candidate.rights_hint.usage_constraints,
-                evidence=self._rights_evidence(candidate),
-            )
+            rights = self.rights_for_candidate(candidate)
             source = candidate.source.model_copy(
                 update={"source_page": self._url_policy.redact(candidate.source.source_page)}
             )
@@ -333,6 +326,18 @@ class MaterialAcquirer:
             self._store.discard_uncommitted_asset(asset_id)
             raise
 
+    def rights_for_candidate(self, candidate: SupplyCandidate) -> RightsInfo:
+        from easel.materials.application.rights import RightsService
+        return RightsInfo(
+            status=candidate.rights_hint.status,
+            license_name=candidate.rights_hint.license_name,
+            license_url=self._url_policy.redact(candidate.rights_hint.license_url),
+            attribution_required=candidate.rights_hint.attribution_required is True,
+            attribution_text=RightsService()._sanitize_text(candidate.metadata.get('attribution_text')),
+            usage_constraints=candidate.rights_hint.usage_constraints,
+            evidence=self._rights_evidence(candidate),
+        )
+
     @staticmethod
     def _descriptor(candidate: SupplyCandidate) -> AcquireDescriptor:
         acquisition = candidate.acquisition
@@ -353,7 +358,7 @@ class MaterialAcquirer:
         hint = candidate.rights_hint
         source_page = self._url_policy.redact(candidate.source.source_page)
         license_url = self._url_policy.redact(hint.license_url)
-        if hint.status is not RightsStatus.KNOWN or not source_page or not license_url or not hint.license_name:
+        if hint.status not in {RightsStatus.KNOWN, RightsStatus.PUBLIC_DOMAIN, RightsStatus.ATTRIBUTION_REQUIRED} or not source_page or not license_url or not hint.license_name:
             return ()
         return (
             RightsEvidence(
@@ -380,7 +385,8 @@ class MaterialAcquirer:
             addresses = self._url_policy.validate(current, descriptor.provider)
             response = self._transport.get(
                 current,
-                headers={"Accept": self._accept_header(descriptor.media_type)},
+                headers={"Accept": self._accept_header(descriptor.media_type),
+                         "User-Agent": "Easel/1.3 (https://github.com/webxia/Easel; material acquisition)"},
                 timeout=self._timeout,
                 max_bytes=self._max_bytes,
                 addresses=addresses,

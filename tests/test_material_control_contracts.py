@@ -9,9 +9,9 @@ from easel.materials.domain import (
     RightsStatus, RightsEvidence, VoiceNeedSpec, VoiceIdentityRef, VoiceIdentitySource,
 )
 from easel.materials.application.visual_contract import (
-    compilation_input, validate_compilation, batches, assemble_report,
+    compilation_input, validate_compilation, classification_units, bind_classifications, batches, assemble_report,
 )
-from easel.materials.application.visual_observation import apply_observation, need_identity
+from easel.materials.application.visual_observation import apply_observation, need_identity, requires_reassessment
 from easel.materials.providers.minimax_speech import MiniMaxSpeechAdapter
 
 
@@ -22,12 +22,41 @@ def visual_need():
         constraints={'preferred_visual_details': 'low angle'})
 
 
-@pytest.mark.parametrize('fault', [None, 'missing', 'unknown_status', 'duplicated', 'wrong_need', 'preference_promoted'])
+@pytest.mark.parametrize('fault', [None, 'missing', 'unknown_status', 'duplicated', 'wrong_need', 'preference_promoted', 'quoted', 'quote_gap', 'units', 'unit_missing', 'unit_duplicate', 'long_fields', 'oversize_report', 'old_camera'])
 def test_required_paper_and_optional_angle_have_distinct_admission_contracts(fault):
     need = visual_need()
+    if fault in {'units', 'unit_missing', 'unit_duplicate'}:
+        need = need.model_copy(update={'intent': NeedIntent(description='two visible paper sheets, no hand; no logo',
+                                                               function='Hold the idea that pages remain, not removed.')})
     frozen = compilation_input(need, {'brief_sha256': 'a' * 64}, {})
     response = {'clauses': [[0, 0, len(frozen['sources'][0]['text']), 'required', None],
                              [1, 0, len(frozen['sources'][1]['text']), 'preference', None]]}
+    if fault in {'quoted', 'quote_gap'}:
+        canonical = validate_compilation(frozen, response)
+        response['clauses'] = [[i, row['text'], 'preference' if row['preference'] else 'required', None]
+                               for i, row in enumerate(frozen['sources'])]
+        if fault == 'quote_gap':
+            response['clauses'][0][1] = response['clauses'][0][1].replace(' ', '', 1)
+            with pytest.raises(ValueError, match='逐段逐字'):
+                validate_compilation(frozen, response)
+            return
+        assert validate_compilation(frozen, response) == canonical
+        fault = None
+    if fault in {'units', 'unit_missing', 'unit_duplicate'}:
+        units = classification_units(frozen)
+        assert ''.join(u['text'] for u in units if u['source'] == 0) == frozen['sources'][0]['text']
+        assert len([u for u in units if u['source'] == 1]) == 1
+        labels = {'classifications': [{'id': u['id'], 'kind': 'postproduction' if u['source'] == 1 else 'required', 'preference_source': None} for u in units]}
+        if fault == 'unit_missing':
+            labels['classifications'].pop()
+        elif fault == 'unit_duplicate':
+            labels['classifications'][-1]['id'] = 0
+        if fault != 'units':
+            with pytest.raises(ValueError, match='unit编号'):
+                bind_classifications(frozen, labels)
+            return
+        response = bind_classifications(frozen, labels)
+        fault = None
     if fault == 'preference_promoted':
         response['clauses'][1][3] = 'required'
         with pytest.raises(ValueError, match='显式偏好'):
@@ -41,8 +70,25 @@ def test_required_paper_and_optional_angle_have_distinct_admission_contracts(fau
                 'input_sha256': 'c' * 64, 'media_type': 'image', 'frames': [{'index': 0, 'sha256': 'd' * 64}]}
     result = {'frame': 0, 'observed': True, 'description': 'two sheets, frontal', 'style': 'daylight',
               'logo': False, 'text': False, 'preference_notes': 'angle differs',
-              'checks': [{'id': 0, 'status': 'met', 'basis': 'two sheets visibly distinct'}]}
+              'checks': [{'id': c['id'], 'status': 'met', 'basis': 'actual visible sheets, no hand or logo'}
+                         for c in contract['clauses'] if c['kind'] == 'required']}
+    if fault in {'long_fields', 'oversize_report'}:
+        result['preference_notes'] = '偏好记录较长但不构成必要检查。' * (4 if fault == 'long_fields' else 300)
+        if fault == 'oversize_report':
+            with pytest.raises(ValueError, match='总容量'):
+                assemble_report(manifest, contract, [result])
+            return
+        fault = None
     good = assemble_report(manifest, contract, [result])
+    if fault == 'old_camera':
+        old = deepcopy(good)
+        old['assessment_revision'] = 'requirements-v1'
+        old['verdict'] = 'unsuitable'
+        old['compact_results'][0]['checks'][0].update(status='not_met', basis='缺少向上揭示镜头运动')
+        assert requires_reassessment(need, old, MediaType.IMAGE)
+        assert not requires_reassessment(need.model_copy(update={'constraints': {'requires_dynamic_action': True}}), old, MediaType.IMAGE)
+        assert not requires_reassessment(need, {**old, 'assessment_revision': good['assessment_revision']}, MediaType.IMAGE)
+        fault = None
     assert good['verdict'] == 'suitable'  # The explicit angle preference cannot refuse it.
     apply_observation(need, asset, manifest, good)
     missing_paper = deepcopy(result)

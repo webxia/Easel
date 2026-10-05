@@ -29,13 +29,22 @@ MAX_VISUAL_CANDIDATES = 9
 GROUP_SCHEMA = 'easel-shared-visual-observation@1'
 MAX_SHARED_NEEDS = 4
 NOMINATION_REVISION = 'need-origin-single-batch-v5'
-ASSESSMENT_REVISION = 'requirements-v1'
+ASSESSMENT_REVISION = 'requirements-v2-static-camera'
 MAX_PRIMARY_VISUAL_CANDIDATES = 2
 MAX_EXPLORATORY_VISUAL_CANDIDATES = 1
 
 
 def requires_reassessment(need: MaterialNeed, report: dict, media_type: MediaType) -> bool:
     """Only identifiable obsolete preference/postproduction refusals are retried."""
+    if (media_type is MediaType.IMAGE and need.constraints.get('requires_dynamic_action') is not True
+            and report.get('assessment_revision') != ASSESSMENT_REVISION
+            and report.get('verdict') in {'partial', 'unsuitable'} and report.get('compact_results')):
+        negatives = [r for part in report['compact_results'] for r in part.get('checks', [])
+                     if r.get('status') != 'met']
+        camera = r'微推|镜头.*运动|揭示镜头|camera movement|camera motion|upward reveal'
+        if negatives and all(r.get('status') == 'not_met' and re.search(camera, r.get('basis', ''), re.I)
+                             for r in negatives):
+            return True  # Re-observe once; never convert the old negative to pass.
     if ('requirements_contract' in report or report.get('assessment_revision') == ASSESSMENT_REVISION
             or report.get('verdict') not in {'partial', 'unsuitable'}):
         return False
@@ -81,6 +90,21 @@ def visual_reassessment_pairs(attempt: dict) -> set[tuple[str, str]]:
 def pending_visual_reassessment(attempt: dict) -> bool:
     return bool(visual_reassessment_pairs(attempt))
 
+
+
+def pending_generated_visual_intake(attempt: dict) -> bool:
+    """Paid static fallbacks await ordinary admission even after stock exhaustion."""
+    from easel.materials.store import AttemptMaterialStore
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    needs = {n.need_id: n for n in store.read_plan().needs
+             if n.media_type is MediaType.IMAGE}
+    blocking = set(attempt.get('material_gate', {}).get('blocking_needs', []))
+    assets = {a.asset_id: store.read_asset(a.asset_id) for a in store.read_bundle().assets}
+    return any(r.get('status') == 'COMPLETE' and r.get('modality') == 'image' and r.get('need_id') in blocking
+               and r.get('need_id') in needs and r.get('asset_id') in assets
+               and not any(scoped_inference(needs[r['need_id']], assets[r['asset_id']], i)
+                           for i in assets[r['asset_id']].semantic.inferences)
+               for r in store.list_generation_records())
 
 def nominate_visual_candidates(need, assets, matcher, *, origin_ranks=None, allow_exploration=True):
     """Bound scene/asset associations, not eligibility or visual verdicts.

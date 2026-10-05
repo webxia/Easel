@@ -137,6 +137,35 @@ def repair_managed_planning(attempt_id: str, *, executor) -> dict:
             if readiness.status is ReadinessStatus.READY else 'MATERIAL_NOT_READY')
 
 
+
+def unused_compiled_bgm_queries(attempt, plan, record=None):
+    """One new short audio strategy, sharing the original cumulative budget."""
+    record = record if record is not None else attempt.get('autonomous_material_recovery', {})
+    rounds = [*record.get('previous_rounds', []), record]
+    used = {nid for r in rounds for nid in r.get('compiled_audio_fallback_need_ids', [])}
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    path = store.materials_root / 'product-supply.json'
+    if path.is_symlink() or not path.is_file():
+        return {}
+    evidence = json.loads(path.read_text())
+    if (evidence.get('attempt_id') != attempt['attempt_id']
+            or evidence.get('plan_revision') != attempt.get('material_gate', {}).get('plan_revision')):
+        return {}
+    queries = {}
+    for need in plan.needs:
+        if (getattr(need.modality_spec, 'kind', None) != 'bgm' or need.need_id in used
+                or need.need_id not in attempt.get('material_gate', {}).get('blocking_needs', [])):
+            continue
+        trace = next((r for r in evidence.get('routing', []) if r.get('need_id') == need.need_id), {})
+        if 'openverse_audio' not in trace.get('attempted_sources', []) or trace.get('failures'):
+            continue  # A missing/broken channel is not a successful empty search.
+        tried = {q.casefold() for r in rounds for q in r.get('search_terms', {}).get(need.need_id, [])}
+        alternatives = [q for q in NeedCompiler().compile(need).semantic_queries[1:]
+                        if len(q) <= 60 and len(q.split()) <= 8 and q.casefold() not in tried]
+        if alternatives:
+            queries[need.need_id] = alternatives[0]
+    return queries
+
 def visual_supply_recovery_state(attempt: dict) -> str | None:
     """A bounded second search is system work, not a Creator evidence task."""
     record = attempt.get('autonomous_material_recovery') or {}
@@ -148,10 +177,16 @@ def visual_supply_recovery_state(attempt: dict) -> str | None:
     from easel.materials.application.visual_observation import observed_match
     store = AttemptMaterialStore(attempt['workspace']['path'])
     plan, bundle = store.read_plan(), store.read_bundle()
+    if unused_compiled_bgm_queries(attempt, plan):
+        return 'available'
+    audio_used = {nid for r in [*record.get('previous_rounds', []), record]
+                  for nid in r.get('compiled_audio_fallback_need_ids', [])}
+    audio_exhausted = any(n.need_id in audio_used and n.need_id in gate.get('blocking_needs', [])
+                          for n in plan.needs if getattr(n.modality_spec, 'kind', None) == 'bgm')
     missing = [n for n in plan.needs if n.need_id in gate.get('blocking_needs', [])
                and n.media_type.value in {'image', 'video'}]
     if not missing:
-        return None
+        return 'exhausted' if audio_exhausted else None
     outcomes = attempt.get('material_observation', {}).get('outcomes', [])
     eligible = []
     for need in missing:
@@ -163,7 +198,7 @@ def visual_supply_recovery_state(attempt: dict) -> str | None:
             continue
         eligible.append(need)
     if not eligible:
-        return None
+        return 'exhausted' if audio_exhausted else None
     return 'available' if len(record.get('previous_rounds', [])) < 1 else 'exhausted'
 
 
@@ -207,6 +242,13 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
             hard_missing = {r['need_id'] for r in attempt.get('material_observation', {}).get('outcomes', [])
                             if r.get('verdict') == 'unsuitable' or r.get('failure_kind') in {'content_mismatch', 'hard_constraint'}}
             need_ids = [nid for nid in need_ids if nid not in uncertain or nid in hard_missing]
+            audio_used = {nid for r in previous_rounds
+                          for nid in r.get('compiled_audio_fallback_need_ids', [])}
+            need_ids = [nid for nid in need_ids if nid not in audio_used]
+        if len(previous_rounds) >= 2:
+            # Keep exhausted visual waves exhausted; this action is audio-only.
+            audio_choices = unused_compiled_bgm_queries(attempt, planning['plan'])
+            need_ids = [nid for nid in need_ids if nid in audio_choices]
         needs = [n.model_dump(mode='json') for n in planning['plan'].needs
                  if n.need_id in need_ids and getattr(n.modality_spec, 'kind', None) != 'voice']
         identity = hashlib.sha256((attempt_id + gate['plan_revision'] + gate['bundle_revision']
@@ -231,10 +273,12 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
             # Use compiled alternatives first. Only a new/uncovered reason
             # requires another model-authored recovery plan.
             prepared = {}
+            audio_choices = unused_compiled_bgm_queries(attempt, planning['plan'], record)
             for raw in record['needs']:
                 need = next(n for n in planning['plan'].needs if n.need_id == raw['need_id'])
                 variants = need.constraints.get('search_query_variants_en', {})
-                alternatives = [variants[k] for k in ('alternate', 'relaxed') if variants.get(k)]
+                alternatives = ([audio_choices[need.need_id]] if need.need_id in audio_choices else
+                                [variants[k] for k in ('alternate', 'relaxed') if variants.get(k)])
                 if not alternatives:
                     for path in sorted((store.materials_root / 'recoveries').glob('requirements-*.json')):
                         if path.is_symlink():
@@ -251,7 +295,9 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
                 if alternatives:
                     prepared[need.need_id] = alternatives[:1]
             if set(prepared) == {n['need_id'] for n in record['needs']} and prepared:
-                record = {**record, 'shot_choice_need_ids': []}
+                record = {**record, 'shot_choice_need_ids': [],
+                          **({'compiled_audio_fallback_need_ids': [nid for nid in prepared if nid in audio_choices]}
+                             if audio_choices else {})}
                 cached = {'request_id': record['request_id'], 'search_terms': prepared}
                 attempt = update_film_attempt(attempt_id, event='compiled_queries_reused', autonomous_material_recovery=record)
         if cached is None:

@@ -7,7 +7,8 @@ import re
 import time
 from datetime import datetime, timezone
 from threading import Lock
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, parse_qs, quote
+from uuid import UUID
 
 from easel.materials.domain import (
     Availability,
@@ -292,6 +293,14 @@ class OpenverseProvider:
         media_url = safe_https_url(item.get("url"))
         thumbnail = safe_https_url(item.get("thumbnail"))
         landing_url = safe_https_url(item.get("foreign_landing_url")) or safe_https_url(item.get("detail_url"))
+        if getattr(self, '_acquirable_audio', False) and landing_url:
+            parsed = urlsplit(landing_url)
+            fields = parse_qs(parsed.query, keep_blank_values=True)
+            if parsed.hostname == 'commons.wikimedia.org' and parsed.path == '/w/index.php' and not parsed.fragment:
+                if set(fields) == {'curid'} and len(fields['curid']) == 1 and re.fullmatch(r'[1-9][0-9]*', fields['curid'][0]):
+                    landing_url = 'https://commons.wikimedia.org/wiki/Special:Redirect/page/' + fields['curid'][0]
+                elif set(fields) == {'title'} and len(fields['title']) == 1 and fields['title'][0].startswith('File:'):
+                    landing_url = 'https://commons.wikimedia.org/wiki/' + quote(fields['title'][0].replace(' ', '_'), safe=':')
         creator = item.get("creator")
         license_id = item.get("license")
         license_version = item.get("license_version")
@@ -300,6 +309,11 @@ class OpenverseProvider:
         if license_id is not None and not isinstance(license_id, str):
             raise ProviderInvalidResponseError(self.provider_id, "Openverse item license value is malformed")
         status, attribution_required = self._rights_hint(license_id)
+        if getattr(self, '_acquirable_audio', False):
+            expected_license = {'by': ('4.0', 'https://creativecommons.org/licenses/by/4.0/'),
+                                'cc0': ('1.0', 'https://creativecommons.org/publicdomain/zero/1.0/')}
+            if (license_id or '').casefold() in expected_license and (license_version, license_url) != expected_license[license_id.casefold()]:
+                status, attribution_required = RightsStatus.UNKNOWN, None
         tags = item.get("tags")
         if tags is not None and (not isinstance(tags, list) or any(not isinstance(tag, dict) for tag in tags)):
             raise ProviderInvalidResponseError(self.provider_id, "Openverse item tags are malformed")
@@ -315,6 +329,12 @@ class OpenverseProvider:
         title = item.get("title")
         if isinstance(title, str) and title.strip():
             metadata["title"] = title.strip()
+        if (getattr(self, '_acquirable_audio', False) and (license_id or '').casefold() == 'by'
+                and license_version == '4.0' and license_url == 'https://creativecommons.org/licenses/by/4.0/'
+                and isinstance(attribution, str) and attribution.strip() and not re.search(r'[<>]', attribution)
+                and isinstance(creator, str) and creator.strip() and isinstance(title, str) and title.strip()
+                and landing_url and not urlsplit(landing_url).query and creator.casefold() in attribution.casefold()):
+            metadata['attribution_text'] = attribution.strip() + ' Source: ' + landing_url
         if isinstance(creator, str) and creator.strip():
             metadata["creator_name"] = creator.strip()
         creator_url = safe_https_url(item.get("creator_url"))
@@ -410,6 +430,17 @@ class OpenverseAudioProvider(OpenverseProvider):
 
     provider_id = "openverse_audio"
     _acquirable_audio = True
+
+    def fetch_candidate(self, asset_id: str, need_id: str) -> SupplyCandidate:
+        try:
+            UUID(asset_id)
+        except ValueError as exc:
+            raise ProviderInvalidResponseError(self.provider_id, 'Openverse audio identity is invalid') from exc
+        response = self._get(f'{_API_ROOT}/audio/{asset_id}/')
+        candidate = self._candidate(self._object(response), need_id, MediaType.AUDIO)
+        if candidate.source.provider_asset_id != asset_id:
+            raise ProviderInvalidResponseError(self.provider_id, 'Openverse audio identity changed')
+        return candidate
 
     def search(self, intent: RetrievalIntent, continuation: ProviderContinuation | None = None) -> ProviderPage:
         # This route has acquisition support only for licenses the current

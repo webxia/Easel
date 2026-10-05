@@ -2242,7 +2242,7 @@ def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
 @pytest.mark.parametrize(('second_verdict', 'known_rights', 'report_fault'), [
     ('unsuitable', True, 'syntax'), ('suitable', True, 'missing'),
     ('suitable', False, None), ('uncertain', True, 'duplicate'),
-    ('unsuitable', True, 'persistent'),
+    ('unsuitable', True, 'persistent'), ('suitable', True, 'silent_compile'),
 ])
 def test_system_visual_observation_is_per_need_and_resumes_without_supply(
         material_integration_env, monkeypatch, second_verdict, known_rights, report_fault):
@@ -2286,11 +2286,24 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
             return replies[session_id]
         if payload.get('revision') == 'visual-requirements@1':
             compilations.append(payload['need_sha256'])
-            result = {'clauses': [[i, 0, len(row['text']), 'preference' if row['preference'] else 'required', None]
-                                  for i, row in enumerate(payload['sources'])]}
+            assert 'need' not in payload
+            assert [u['id'] for u in payload['units']] == list(range(len(payload['units'])))
+            assert payload['preference_context']
+            if report_fault == 'silent_compile' and len(compilations) == 1:
+                assert session_id.startswith('material-result-')
+                raise ValueError('原运行回复为 silent，不能作审核结果')
+            if report_fault == 'silent_compile' and payload.get('repair'):
+                assert payload['original_result'] == {'_invalid_json': None}
+                assert payload['failure']
+            result = {'classifications': [{'id': u['id'], 'kind': 'required', 'preference_source': None}
+                                           for u in payload['units']]}
             replies[session_id] = json.dumps(result)
+            if report_fault == 'silent_compile' and payload.get('repair'):
+                replies[session_id] = '```json\n' + replies[session_id] + '\n```'
             return replies[session_id]
         assert len(attachments) == 1
+        assert payload['check_ids'] == [c['id'] for c in payload['clauses']]
+        assert 'preferences' not in payload
         raw = base64.b64decode(attachments[0]['content'])
         assert hashlib.sha256(raw).hexdigest() == payload['frame']['sha256']
         with Image.open(io.BytesIO(raw)) as decoded:
@@ -2341,7 +2354,7 @@ def test_system_visual_observation_is_per_need_and_resumes_without_supply(
         assert calls == before
         assert observed_match(plan.needs[0], store.read_asset(asset.asset_id)) is True
         assert observed_match(plan.needs[1], store.read_asset(asset.asset_id)) is (second_verdict == 'suitable')
-    assert len(compilations) == 2
+    assert len(compilations) == (3 if report_fault == 'silent_compile' else 2)
     assert len([c for c in calls if c[0] == first_identity]) == 1  # Valid first child survived the other child's repair.
     assert store.read_asset(asset.asset_id).rights == asset.rights
 
@@ -2552,7 +2565,7 @@ def test_sparse_shared_observation_explores_unknown_metadata_and_skips_covered_s
     assert store.read_bundle() == before
 
 
-@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'video_failed', 'video_intake_resume', 'voice_preflight', 'terms_resume', 'image_ready'])
+@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'video_failed', 'video_intake_resume', 'voice_preflight', 'terms_resume', 'image_ready', 'image_backlog'])
 def test_commission_generation_reserves_before_submit_and_survives_restart(material_integration_env, monkeypatch, outcome):
     import asyncio
     from io import BytesIO
@@ -2615,13 +2628,15 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
         work['origin'] = {'type': 'chat'}
         work['chat_workflow'] = {'proposal_status': 'READY_FOR_CONFIRMATION'}
     preview = commissioned.generation_budget_preview()
-    budget = {'maxCostCny': 2 if is_video else 0.03, 'scopeSha256': preview['scope_sha256']}
+    budget = {'maxCostCny': 2 if is_video else 0.06 if outcome == 'image_backlog' else 0.03, 'scopeSha256': preview['scope_sha256']}
     work = creation.confirm_chat_proposal(attempt['creation_id'], 'fixture-confirm',
         delivery_proposal=proposal, proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), generation_budget=budget,
         input_use_statement_sha256=creation.input_use_preview()['statement_sha256'])
-    if outcome == 'image_ready':
+    if outcome in {'image_ready', 'image_backlog'}:
         from easel.creation_delivery import set_material_endpoint
         set_material_endpoint(work['id'])
+        monkeypatch.setattr(ProductionAuthoringIntegration, 'prepare',
+                            lambda *a, **kw: pytest.fail('material endpoint must not prepare Authoring'))
         from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
         monkeypatch.setattr(commissioned, 'MINIMAX_INTERNAL_TERMS_SHA256', minimax_pricing.usage_terms_evidence(quote_document)['sha256'])
     # Replayed confirmation cannot increase or retrofit an authorization.
@@ -2639,6 +2654,10 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
         try:
             with pytest.raises(ValueError, match='本地语音识别模型未就绪'):
                 commissioned.generate_for_commission(attempt['attempt_id'])
+                latest_gate = service.get_film_attempt(attempt['attempt_id'])['material_gate']
+                service.update_film_attempt(attempt['attempt_id'], event='fixture_queued_receipt',
+                    material_observation={'status': 'COMPLETE', 'plan_revision': latest_gate['plan_revision'],
+                                          'bundle_revision': latest_gate['bundle_revision']})
         finally:
             active_delivery.reset(token)
         assert not quote_reads and not creation.get_creation(work['id'])['delivery'].get('material_generations')
@@ -2653,11 +2672,15 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
             pass
         def generate(self, prompt, **kwargs):
             snapshot = creation.get_creation(work['id'])['delivery']
-            reservation = list(snapshot['material_generations'].values())[0]
+            reservation = list(snapshot['material_generations'].values())[-1]
             assert reservation['status'] == 'reserved' and reservation['quote']['upper_estimate'] == '0.025000'
             calls.append(prompt)
             if outcome == 'uncertain':
                 raise TimeoutError('fixture lost synchronous response')
+            if outcome == 'image_backlog':
+                raw = BytesIO()
+                Image.new('RGB', (64, 64), (0, len(calls) * 70, 70)).save(raw, format='PNG')
+                return MiniMaxImageResult(self.model, raw.getvalue())
             return MiniMaxImageResult(self.model, media.getvalue())
     monkeypatch.setattr(providers, 'MiniMaxImageAdapter', FakeImage)
     if is_video:
@@ -2752,20 +2775,22 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
         elif operation == 'observe_material':
             if not is_video and not is_voice:
                 from easel.materials.application.visual_observation import SCHEMA
-                if outcome == 'image_ready':
+                if outcome in {'image_ready', 'image_backlog'}:
                     # Old, unobserved stock remains in the pool after fallback;
                     # its sort order must not delay the newly paid asset intake.
                     intake_store = AttemptMaterialStore(attempt['workspace']['path'])
                     bundle = intake_store.read_bundle()
-                    generated = bundle.assets[0]
+                    generated = next(a for a in bundle.assets if not a.semantic.inferences and a.source.kind == 'generative')
                     # Historical stock spending cannot strand a paid fallback.
                     budget_key = 'visual-budget-' + MaterialReadinessCalculator.plan_revision(
                         PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan'])
                     spent = [f'old-stock-{i}:sha' for i in range(23)]
-                    intake_store.write_recovery_record(budget_key, {'associations': {PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan'].needs[0].need_id: spent}})
-                    old_locator = intake_store.write_asset_bytes('asset-000-old-stock', 'fixture.png',
+                    if not intake_store.read_recovery_record(budget_key):
+                        intake_store.write_recovery_record(budget_key, {'associations': {n.need_id: list(spent) for n in plan.needs}})
+                    old_id = 'asset-000-old-stock' + ('-' + generated.asset_id if outcome == 'image_backlog' else '')
+                    old_locator = intake_store.write_asset_bytes(old_id, 'fixture.png',
                         intake_store.resolve_asset_locator(generated.file.path).read_bytes())
-                    old_stock = generated.model_copy(update={'asset_id': 'asset-000-old-stock',
+                    old_stock = generated.model_copy(update={'asset_id': old_id,
                         'file': generated.file.model_copy(update={'path': old_locator}),
                         'source': generated.source.model_copy(update={
                             'kind': type(generated.source.kind)('stock'), 'provider': 'fixture-stock',
@@ -2773,18 +2798,18 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
                     intake_store.write_asset(old_stock)
                     intake_store.write_bundle(bundle.model_copy(update={'assets': (*bundle.assets, old_stock)}))
                 def rejected_scene(current, manifest, attachments):
-                    if outcome == 'image_ready':
+                    if outcome in {'image_ready', 'image_backlog'}:
                         assert manifest['asset_id'] == generated.asset_id
                     return {'schema': SCHEMA, 'input_sha256': manifest['input_sha256'],
-                        'verdict': 'suitable' if outcome == 'image_ready' else 'unsuitable',
+                        'verdict': 'suitable' if outcome in {'image_ready', 'image_backlog'} else 'unsuitable',
                         'caption': manifest['need']['intent']['description'], 'style': 'teal',
                         'reason': 'fixture actual scene subject assessment',
-                        'frames': [{'index': r['index'], 'observed': True, 'related': outcome == 'image_ready',
+                        'frames': [{'index': r['index'], 'observed': True, 'related': outcome in {'image_ready', 'image_backlog'},
                                     'description': 'teal field'} for r in manifest['frames']]}
                 MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=rejected_scene)
-                if outcome == 'image_ready':
+                if outcome in {'image_ready', 'image_backlog'}:
                     spending = intake_store.read_recovery_record(budget_key)
-                    nid = PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan'].needs[0].need_id
+                    nid = next(r['need_id'] for r in intake_store.list_generation_records() if r['asset_id'] == generated.asset_id)
                     assert spending['associations'][nid] == spent
                     assert spending['generated_intakes'][nid] == [generated.asset_id + ':' + generated.file.sha256]
                 return
@@ -2793,6 +2818,14 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
                 material_observation={'status': 'COMPLETE', 'plan_revision': latest['plan_revision'], 'bundle_revision': latest['bundle_revision']})
         else:
             pytest.fail(operation)
+    if outcome == 'image_backlog':
+        from easel.creation_delivery import active_delivery
+        token = active_delivery.set(work['id'])
+        try:
+            for _ in range(2):
+                commissioned.generate_for_commission(attempt['attempt_id'])
+        finally:
+            active_delivery.reset(token)
     for step in range(10):
         asyncio.run(advance_creation(work['id'], execute))
         if outcome == 'terms_resume' and step == 0:
@@ -2809,9 +2842,18 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
             assert all(row['status'] == 'reserved' for row in progress['material_generations'].values())
     current = creation.get_creation(work['id'])
     ledger = list(current['delivery']['material_generations'].values())
-    assert sum(float(r['quote']['upper_estimate']) for r in ledger if r.get('quote')) == float(expected_cost)
-    if outcome == 'image_ready':
+    assert sum(float(r['quote']['upper_estimate']) for r in ledger if r.get('quote')) == float(expected_cost) * (2 if outcome == 'image_backlog' else 1)
+    if outcome in {'image_ready', 'image_backlog'}:
         assert not current['delivery'].get('last_error'), current['delivery'].get('last_error')
+        if outcome == 'image_backlog':
+            assert len(calls) == 2 and {r['status'] for r in ledger} == {'complete'}
+            assert next_operation(current) == (None, 'material_ready')
+            spending = AttemptMaterialStore(attempt['workspace']['path']).read_recovery_record(
+                'visual-budget-' + MaterialReadinessCalculator.plan_revision(
+                    PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan']))
+            assert all(entries == [f'old-stock-{i}:sha' for i in range(23)]
+                       for entries in spending['associations'].values())
+            return
         assert len(calls) == 1
         assert {r['status'] for r in ledger} == {'complete', 'budget_exceeded'}
         assert next_operation(current) == (None, 'needs_generation_approval')
@@ -3137,15 +3179,29 @@ def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(materia
         assert not voice_delivery.pending_voice_timing_recovery(plan, store.read_bundle(), store, script, require_content=True)
 
 
-@pytest.mark.parametrize('optional_shot', [False, True])
+@pytest.mark.parametrize('optional_shot', [False, True, 'audio', 'audio_used_visual'])
 def test_visual_supply_continues_once_after_rejection_and_stops_as_system_gap(material_integration_env, monkeypatch, optional_shot):
     from easel.creation_delivery import SCHEMA, next_operation
     from easel.integrations import material_recovery as recovery
     attempt = material_integration_env
     planning = _planning(attempt)
     plan = planning['plan']
-    if optional_shot:
+    if optional_shot is True:
         need = plan.needs[0].model_copy(update={'constraints': {'preferred_visual_details': '远景与背景灯光可取舍'}})
+        plan = plan.model_copy(update={'needs': (need,)})
+        PlanningIntegration().persist(attempt, plan, treatment='T', script='假设脚本内容。\n', scenes='S')
+    if optional_shot == 'audio_used_visual':
+        from easel.materials.domain import BgmNeedSpec
+        bgm = plan.needs[0].model_copy(update={'need_id': 'bgm-used', 'media_type': MediaType.AUDIO,
+            'constraints': {}, 'modality_spec': BgmNeedSpec(instruments=('piano',), vocals_allowed=False),
+            'intent': NeedIntent(description='gentle piano instrumental')})
+        plan = plan.model_copy(update={'needs': (*plan.needs, bgm)})
+        PlanningIntegration().persist(attempt, plan, treatment='T', script='假设脚本内容。\n', scenes='S')
+    if optional_shot == 'audio':
+        from easel.materials.domain import BgmNeedSpec
+        need = plan.needs[0].model_copy(update={'media_type': MediaType.AUDIO, 'constraints': {},
+            'modality_spec': BgmNeedSpec(instruments=('piano',), vocals_allowed=False),
+            'intent': NeedIntent(description='gentle piano instrumental')})
         plan = plan.model_copy(update={'needs': (need,)})
         PlanningIntegration().persist(attempt, plan, treatment='T', script='假设脚本内容。\n', scenes='S')
     store = AttemptMaterialStore(attempt['workspace']['path'])
@@ -3156,6 +3212,12 @@ def test_visual_supply_continues_once_after_rejection_and_stops_as_system_gap(ma
     attempt = MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)['attempt']
     prior = {'status': 'COMPLETE', 'request_id': 'first-search', 'plan_revision': readiness.plan_revision,
              'bundle_revision': bundle.revision, 'search_terms': {'need-main': ['dark parking']}}
+    if optional_shot == 'audio_used_visual':
+        prior['compiled_audio_fallback_need_ids'] = ['bgm-used']
+    if optional_shot == 'audio':
+        prior['previous_rounds'] = [{'status': 'COMPLETE', 'search_terms': {'need-main': ['long piano background phrase']}}]
+        (store.materials_root / 'product-supply.json').write_text(json.dumps({'attempt_id': attempt['attempt_id'], 'plan_revision': readiness.plan_revision,
+            'routing': [{'need_id': 'need-main', 'attempted_sources': ['openverse_audio'], 'failures': []}]}))
     service.update_film_attempt(attempt['attempt_id'], event='fixture_first_search_complete',
         autonomous_material_recovery=prior,
         material_observation={'status': 'COMPLETE', 'plan_revision': readiness.plan_revision,
@@ -3170,12 +3232,14 @@ def test_visual_supply_continues_once_after_rejection_and_stops_as_system_gap(ma
     def queries(current, record):
         query_calls.append(record['request_id'])
         assert record['previous_rounds'] == [prior]
-        extra = {'shot_choices': {'need-main': choice}} if optional_shot else {}
+        if optional_shot == 'audio_used_visual':
+            assert [n['need_id'] for n in record['needs']] == ['need-main']
+        extra = {'shot_choices': {'need-main': choice}} if optional_shot is True else {}
         with pytest.raises(MaterialIntegrationError, match='重复'):
             recovery.validate_recovery_queries(record, {'request_id': record['request_id'],
                 'search_terms': {'need-main': [' DARK  parking ']}, **extra})
         report = {'request_id': record['request_id'], 'search_terms': {'need-main': ['visible charging connector lit pavement']}, **extra}
-        if optional_shot:
+        if optional_shot is True:
             for wrong in ({}, {'other-need': choice}, {'need-main': {**choice, 'rewrite_script': True}}):
                 with pytest.raises(MaterialIntegrationError, match='镜头取舍'):
                     recovery.validate_recovery_queries(record, {**report, 'shot_choices': wrong})
@@ -3201,11 +3265,16 @@ def test_visual_supply_continues_once_after_rejection_and_stops_as_system_gap(ma
         recovery.recover_managed_materials(attempt['attempt_id'], executor=queries)
     monkeypatch.setattr(recovery.MaterialGateIntegration, 'record', actual_record)
     updated = recovery.recover_managed_materials(attempt['attempt_id'], executor=queries)
-    assert len(query_calls) == len(supply_calls) == 1
+    assert len(query_calls) == (0 if optional_shot == 'audio' else 1)
+    assert len(supply_calls) == 1
+    if optional_shot == 'audio':
+        assert supply_calls[0]['search_terms'] == {'need-main': ('piano instrumental',)}
+        assert updated['autonomous_material_recovery']['compiled_audio_fallback_need_ids'] == ['need-main']
+        assert len(updated['autonomous_material_recovery']['previous_rounds']) == 2
     assert PlanningIntegration().load(updated)['plan'] == plan
     assert PlanningIntegration().load(updated)['script'] == '假设脚本内容。\n'
     choices = recovery.director_shot_choices(updated, plan)
-    if optional_shot:
+    if optional_shot is True:
         assert choices['need-main']['expression'] == choice['expression']
         assert choices['need-main']['core_requirement'] == plan.needs[0].intent.description
         changed = plan.model_copy(update={'needs': (plan.needs[0].model_copy(update={'intent': NeedIntent(description='新主体')}),)})
@@ -3681,3 +3750,80 @@ def test_source_rejection_is_scoped_to_need_and_current_query(material_integrati
     supply = material_supply_module.ProductMaterialSupply(registry=registry, library_root=tmp_path / 'empty-library')
     supply.run(plan, attempt, local_roots=(), supply_run_id='scope-check', bundle_id='scope-result')
     assert calls == [('a', 'pixabay'), ('b', 'pexels')]
+
+@pytest.mark.parametrize('fault', ['none', 'bytes', 'locator', 'license', 'credit'])
+def test_openverse_rights_refresh_reuses_bytes_and_keeps_admission_boundaries(material_integration_env, monkeypatch, fault):
+    from easel.materials.providers.openverse import OpenverseAudioProvider
+    from easel.materials.providers.http_support import HttpResponse
+    from easel.materials.application.acquisition import MaterialAcquirer, DownloadResponse, RemoteURLPolicy
+    from easel.materials.application.rights import RightsService, RightsAdmissionStatus
+    from easel.creation_delivery import active_delivery, SCHEMA, next_operation
+    from easel.materials.domain import BgmNeedSpec
+    attempt = material_integration_env
+    p = _planning(attempt)['plan']
+    need = p.needs[0].model_copy(update={'media_type': MediaType.AUDIO,
+        'modality_spec': BgmNeedSpec(instruments=('piano',), vocals_allowed=False),
+        'intent': NeedIntent(description='piano music')})
+    p = p.model_copy(update={'needs': (need,)})
+    PlanningIntegration().persist(attempt, p, treatment='T', script='假设脚本内容。\n', scenes='S')
+    item = {'id': '7b77669a-afee-440c-b5d3-dd3dc71bb4cc', 'title': 'Fixture Piano',
+        'creator': 'Fixture Composer', 'foreign_landing_url': 'https://commons.wikimedia.org/w/index.php?curid=123',
+        'url': 'https://upload.wikimedia.org/fixture.ogg', 'license': 'by', 'license_version': '4.0',
+        'license_url': 'https://creativecommons.org/licenses/by/4.0/',
+        'attribution': 'Fixture Piano by Fixture Composer is licensed under CC BY 4.0.'}
+    calls = []
+    class Download:
+        def get(self, *args, **kwargs):
+            calls.append('download')
+            return DownloadResponse(200, {'content-type': 'audio/ogg'}, b'fixture audio')
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    provider = OpenverseAudioProvider()
+    candidate = provider._candidate(item, need.need_id, MediaType.AUDIO)
+    acquired = MaterialAcquirer(store, transport=Download(), url_policy=RemoteURLPolicy(lambda *_: ('93.184.216.34',))).acquire(candidate)
+    # New acquisition propagates conditional CC BY evidence and exact credit.
+    assert RightsService().evaluate(acquired, need, attribution=RightsService.attribution_condition_for(acquired)).status is RightsAdmissionStatus.CONDITIONAL
+    assert acquired.source.source_page.endswith('/wiki/Special:Redirect/page/123')
+    old = acquired.model_copy(update={'rights': acquired.rights.model_copy(update={'evidence': (), 'attribution_text': None})})
+    store.write_asset(old)
+    now = datetime.now(timezone.utc)
+    run = SupplyRun(supply_run_id='old-openverse', plan_id=p.plan_id, started_at=now, finished_at=now, result_bundle_id='old-bundle')
+    bundle = MaterialBundleAssembler().assemble(p, run, (old,), (), bundle_id='old-bundle')
+    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(p, bundle)
+    attempt = MaterialGateIntegration().record(attempt, p, bundle, run, readiness, gaps)['attempt']
+    service.update_film_attempt(attempt['attempt_id'], event='fixture_old_observation',
+        material_observation={'status': 'COMPLETE', 'plan_revision': readiness.plan_revision,
+                              'bundle_revision': bundle.revision})
+    with creation.edit_creation(attempt['creation_id']) as work:
+        work['delivery'] = {'schema': SCHEMA, 'proposal': 'fixture', 'proposal_sha256': hashlib.sha256(b'fixture').hexdigest()}
+        work['chat_workflow'] = {'proposal_status': 'CONFIRMED', 'proposal_sha256': hashlib.sha256(b'fixture').hexdigest()}
+    changed = dict(item)
+    if fault == 'bytes': store.resolve_asset_locator(old.file.path).write_bytes(b'changed audio')
+    if fault == 'locator': changed['url'] = 'https://upload.wikimedia.org/different.ogg'
+    if fault == 'license': changed['license_url'] = 'https://creativecommons.org/licenses/by/3.0/'
+    if fault == 'credit': changed['attribution'] = ''
+    class Metadata:
+        def get(self, url, **kwargs):
+            calls.append('metadata')
+            return HttpResponse(200, {}, json.dumps(changed).encode())
+    provider = OpenverseAudioProvider(transport=Metadata())
+    owner = MaterialProductOrchestrator()
+    token = active_delivery.set(attempt['creation_id'])
+    try:
+        if fault in {'bytes', 'locator', 'license'}:
+            with pytest.raises(MaterialIntegrationError): owner.refresh_openverse_rights(attempt['attempt_id'], provider=provider)
+        else:
+            owner.refresh_openverse_rights(attempt['attempt_id'], provider=provider)
+            refreshed = store.read_asset(old.asset_id)
+            assert refreshed.file == old.file and refreshed.technical == old.technical
+            assert refreshed.rights.reviewed_at is None
+            decision = RightsService().evaluate(refreshed, need, attribution=RightsService.attribution_condition_for(refreshed))
+            assert decision.status is (RightsAdmissionStatus.CONDITIONAL if fault == 'none' else RightsAdmissionStatus.BLOCKED)
+            owner.refresh_openverse_rights(attempt['attempt_id'], provider=provider)
+            assert calls.count('metadata') == 1
+            # An interruption after facts are saved still dispatches ordinary
+            # listening/Gate work and never re-fetches metadata.
+            assert next_operation(creation.get_creation(attempt['creation_id'])) == ('observe_material', 'observing_material')
+            assert store.read_bundle().matches == ()  # Facts alone are not a listening result.
+        assert calls.count('download') == 1
+    finally:
+        active_delivery.reset(token)

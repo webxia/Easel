@@ -76,6 +76,8 @@ def test_remote_acquisition_stages_hashed_asset_and_redacted_sidecar(tmp_path) -
     assert asset.rights.status is RightsStatus.UNKNOWN
     assert len(transport.calls) == 1
     assert transport.calls[0][2] == ("93.184.216.34",)
+    assert transport.calls[0][1]['User-Agent'] == 'Easel/1.3 (https://github.com/webxia/Easel; material acquisition)'
+    assert set(transport.calls[0][1]) == {'Accept', 'User-Agent'}
     sidecar_path = tmp_path / "materials" / "assets" / asset.asset_id / "acquisition.json"
     sidecar = sidecar_path.read_text()
     assert "secret-token" not in sidecar
@@ -213,6 +215,7 @@ def test_redirect_to_private_or_other_provider_host_is_rejected_before_request(t
 @pytest.mark.parametrize(
     ("response", "max_bytes", "message"),
     [
+        (DownloadResponse(403, {}, b"denied"), 100, "HTTP 403"),
         (DownloadResponse(404, {}, b"not found"), 100, "HTTP 404"),
         (DownloadResponse(200, {"content-type": "image/jpeg"}, b"not-video"), 100, "does not match"),
         (DownloadResponse(200, {"content-type": "video/mp4"}, b""), 100, "empty"),

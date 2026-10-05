@@ -359,11 +359,20 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     if gate.get("bundle_revision") and gate.get("status") in {"MATERIAL_READY", "MATERIAL_NOT_READY"}:
         observed = attempt.get("material_observation") or {}
         if observed.get('status') == 'COMPLETE' and accepted.get('status') != 'COMPLETE':
-            from easel.materials.application.visual_observation import pending_visual_reassessment
+            from easel.materials.application.visual_observation import pending_visual_reassessment, pending_generated_visual_intake
             try:
                 reassessment = pending_visual_reassessment(attempt)
+                if (not reassessment and gate.get('status') == 'MATERIAL_NOT_READY'
+                        and any(r.get('status') == 'complete' and r.get('need_id') in gate.get('blocking_needs', [])
+                                for r in delivery.get('material_generations', {}).values())):
+                    reassessment = pending_generated_visual_intake(attempt)
             except (ValueError, OSError):
                 reassessment = True
+            audio_recovery = attempt.get('autonomous_material_recovery', {}).get('compiled_audio_fallback_need_ids', [])
+            if (not reassessment and gate.get('status') == 'MATERIAL_NOT_READY'
+                    and set(audio_recovery) & set(gate.get('blocking_needs', []))):
+                from easel.integrations.material_layer import MaterialProductOrchestrator
+                reassessment = bool(MaterialProductOrchestrator.pending_openverse_rights_refresh(attempt))
             if reassessment:
                 return 'observe_material', 'observing_material'
         revision = attempt.get('revision_feedback', {})

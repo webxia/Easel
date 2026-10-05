@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 
 from easel.materials.application.visual_observation import SCHEMA, ASSESSMENT_REVISION, need_identity
 
@@ -45,13 +46,59 @@ def compilation_input(need, context_refs, mode):
             'need': need.model_dump(mode='json')}
 
 
+
+def classification_units(input_data):
+    """Program owns exact punctuation/space boundaries; model owns meaning."""
+    units = []
+    for source, row in enumerate(input_data['sources']):
+        if row['preference']:
+            continue
+        pattern = r'.+\Z' if row['path'] == 'intent/function' else r'.*?(?:[,;，；。]|\Z)'
+        for match in re.finditer(pattern, row['text'], re.DOTALL):
+            if match.start() == match.end():
+                continue
+            units.append({'id': len(units), 'source': source, 'start': match.start(),
+                          'end': match.end(), 'text': match.group()})
+    if not 1 <= len(units) + sum(r['preference'] for r in input_data['sources']) <= 40:
+        raise ValueError('原文分类单元超出有界合同；未派发或删减要求')
+    return units
+
+
+def bind_classifications(input_data, response):
+    units = classification_units(input_data)
+    rows = response.get('classifications') if isinstance(response, dict) else None
+    if (not isinstance(rows, list) or len(rows) != len(units)
+            or any(not isinstance(r, dict) or set(r) != {'id', 'kind', 'preference_source'} for r in rows)
+            or any(type(r['id']) is not int for r in rows)
+            or [r['id'] for r in rows] != [u['id'] for u in units]):
+        raise ValueError('分类须按实际unit编号完整返回一次；不能漏报、重复或自行新增原文')
+    clauses = [[u['source'], u['start'], u['end'], r['kind'], r['preference_source']]
+               for u, r in zip(units, rows)]
+    clauses.extend([i, 0, len(row['text']), 'preference', i]
+                   for i, row in enumerate(input_data['sources']) if row['preference'])
+    result = {'clauses': clauses, 'queries': response.get('queries', [])}
+    validate_compilation(input_data, result)
+    return result
+
 def validate_compilation(input_data, response):
     rows = response.get('clauses') if isinstance(response, dict) else None
     if not isinstance(rows, list) or not 1 <= len(rows) <= 40:
         raise ValueError('审核要求须有完整且有界的原文条款')
     coverage = {i: [] for i in range(len(input_data['sources']))}
     clauses = []
+    quote_cursors = {i: 0 for i in coverage}
     for index, row in enumerate(rows):
+        if isinstance(row, list) and len(row) == 4 and isinstance(row[1], str):
+            row = dict(zip(('source', 'text', 'kind', 'preference_source'), row))
+        if isinstance(row, dict) and set(row) == {'source', 'text', 'kind', 'preference_source'}:
+            source, text = row['source'], row['text']
+            if (type(source) is not int or source not in coverage or not isinstance(text, str) or not text
+                    or not input_data['sources'][source]['text'].startswith(text, quote_cursors[source])):
+                raise ValueError('条款须逐段逐字引用冻结原文，不能改写、遗漏或重排')
+            begin = quote_cursors[source]
+            quote_cursors[source] += len(text)
+            row = {'source': source, 'start': begin, 'end': quote_cursors[source],
+                   'kind': row['kind'], 'preference_source': row['preference_source']}
         if isinstance(row, list) and len(row) == 5:
             row = dict(zip(('source', 'start', 'end', 'kind', 'preference_source'), row))
         if not isinstance(row, dict) or set(row) != {'source', 'start', 'end', 'kind', 'preference_source'}:
@@ -98,8 +145,8 @@ def batches(manifest, contract):
     required = [c for c in contract['clauses'] if c['kind'] == 'required']
     if any(c['kind'] == 'unresolved' for c in contract['clauses']):
         raise ValueError('审核要求仍有歧义，先由 Planning 澄清，未提交观察')
-    # Budget the maximum escaped representation, including supplementary Unicode.
-    # A single frame/short requirement remains below the gateway cap. Split
+    # Plan a concise escaped representation, including supplementary Unicode.
+    # Actual results still have the strict total gateway cap. Split
     # before dispatch; never drop a requirement to make a reply fit.
     result = []
     for frame in manifest['frames']:
@@ -128,9 +175,11 @@ def validate_result(batch, response):
             or type(response['frame']) is not int or response['frame'] != batch['frame']['index']
             or type(response['observed']) is not bool):
         raise ValueError('观察结果帧编号或字段无效')
-    for key, limit in [('description', 64), ('style', 32), ('preference_notes', 32)]:
-        if not isinstance(response[key], str) or not response[key].strip() or len(response[key].encode('utf-16-le')) // 2 > limit:
-            raise ValueError('观察事实缺失或超出容量')
+    if len(json.dumps(response, ensure_ascii=False, separators=(',', ':')).encode('utf-16-le')) // 2 > RESULT_LIMIT:
+        raise ValueError('观察报告超出总容量')
+    for key in ('description', 'style', 'preference_notes'):
+        if not isinstance(response[key], str) or not response[key].strip():
+            raise ValueError('观察事实缺失')
     if any(response[k] is not None and type(response[k]) is not bool for k in ('logo', 'text')):
         raise ValueError('实际文字/标志须为布尔或未知')
     rows = response['checks']
@@ -139,7 +188,7 @@ def validate_result(batch, response):
     for row in rows:
         if (set(row) != {'id', 'status', 'basis'} or type(row['id']) is not int
                 or row['status'] not in {'met', 'not_met', 'unknown'}
-                or not isinstance(row['basis'], str) or not row['basis'].strip() or len(row['basis'].encode('utf-16-le')) // 2 > 48
+                or not isinstance(row['basis'], str) or not row['basis'].strip()
                 or not response['observed'] and row['status'] != 'unknown'):
             raise ValueError('必要项缺少实际依据或与观察状态矛盾')
     return response

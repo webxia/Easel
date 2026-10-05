@@ -1929,8 +1929,10 @@ class MaterialProductOrchestrator:
         if choices:
             gate['attempt'] = _update_attempt(gate['attempt'],
                 material_combination_review={**marker, 'blocking_needs': blocked})
+        material_only = (readiness.status is ReadinessStatus.READY
+                         and creation.get_creation(attempt['creation_id']).get('delivery', {}).get('endpoint') == 'MATERIAL_READY')
         authoring = (ProductionAuthoringIntegration().prepare(gate["attempt"], selected_asset_ids=())
-                     if readiness.status is ReadinessStatus.READY and not blocked else None)
+                     if readiness.status is ReadinessStatus.READY and not blocked and not material_only else None)
         updated = authoring["attempt"] if authoring else gate["attempt"]
         return {"material_status": gate["status"], "attempt": updated,
                 "readiness": readiness.model_dump(mode="json")}
@@ -1962,6 +1964,90 @@ class MaterialProductOrchestrator:
             matches.extend(shortlist)
         return tuple(matches)
 
+    @staticmethod
+    def pending_openverse_rights_refresh(attempt):
+        store = AttemptMaterialStore(_workspace(attempt))
+        blocking = set(attempt.get('material_gate', {}).get('blocking_needs', []))
+        needs = {n.need_id for n in store.read_plan().needs
+                 if n.need_id in blocking and getattr(n.modality_spec, 'kind', None) == 'bgm'}
+        result = []
+        for asset in store.read_bundle().assets:
+            current = store.read_asset(asset.asset_id)
+            if (current.media_type is not MediaType.AUDIO or current.source.provider != 'openverse_audio'
+                    or current.rights.evidence or current.rights.reviewed_at is not None
+                    or current.rights.status not in {RightsStatus.PUBLIC_DOMAIN, RightsStatus.ATTRIBUTION_REQUIRED}):
+                continue
+            path = store.materials_root / 'assets' / asset.asset_id / 'acquisition.json'
+            if path.is_symlink() or not path.is_file():
+                continue
+            evidence = json.loads(path.read_text())
+            key = 'openverse-rights-' + hashlib.sha256(('v1:' + asset.asset_id + ':' + asset.file.sha256).encode()).hexdigest()
+            if evidence.get('need_id') in needs and store.read_recovery_record(key) is None:
+                result.append((current, evidence, key))
+        return result
+
+    def refresh_openverse_rights(self, attempt_id, *, provider=None):
+        """One item fact refresh for old bytes, never a new search or review."""
+        from easel.integrations.hypit.service import get_film_attempt
+        from easel.integrations.material_supply import product_provider_registry
+        from easel.materials.application.acquisition import RemoteURLPolicy
+        from easel.creation_delivery import active_delivery, reserve_delivery_call
+        attempt = get_film_attempt(attempt_id)
+        if active_delivery.get() != attempt['creation_id']:
+            raise MaterialIntegrationError('来源事实恢复只能由当前委托Owner执行')
+        store = AttemptMaterialStore(_workspace(attempt))
+        gate = attempt['material_gate']
+        plan, bundle = store.read_plan(), store.read_bundle()
+        if (MaterialReadinessCalculator.plan_revision(plan) != gate['plan_revision']
+                or bundle.revision != gate['bundle_revision'] or bundle.bundle_id != gate['bundle_id']
+                or bundle.plan_id != plan.plan_id):
+            raise MaterialIntegrationError('来源事实恢复Plan/Bundle身份不一致')
+        for asset, evidence, key in self.pending_openverse_rights_refresh(attempt):
+            path = store.resolve_asset_locator(asset.file.path)
+            if (evidence.get('provider') != 'openverse_audio'
+                    or evidence.get('provider_asset_id') != asset.source.provider_asset_id
+                    or evidence.get('sha256') != asset.file.sha256
+                    or asset not in bundle.assets
+                    or path.stat().st_size != asset.file.size
+                    or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
+                raise MaterialIntegrationError('来源事实恢复字节或身份不一致')
+            journal = {'status': 'REQUESTED', 'asset_id': asset.asset_id, 'sha256': asset.file.sha256,
+                       'plan_revision': gate['plan_revision'], 'bundle_revision': gate['bundle_revision'],
+                       'requested_at': creation._now()}
+            store.write_recovery_record(key, journal)
+            with creation.edit_creation(attempt['creation_id']) as work:
+                reserve_delivery_call(work, category='provider_rights_metadata', stage_override='material')
+            try:
+                if provider is None:
+                    provider = product_provider_registry(())[0].get('openverse_audio')
+                candidate = provider.fetch_candidate(asset.source.provider_asset_id, evidence['need_id'])
+                if (candidate.source.provider != 'openverse_audio' or candidate.media_type is not asset.media_type
+                        or candidate.acquisition is None
+                        or RemoteURLPolicy.redact(candidate.acquisition.locator) != evidence.get('requested_url')
+                        or get_film_attempt(attempt_id)['material_gate'] != gate
+                        or store.read_asset(asset.asset_id) != asset
+                        or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
+                    raise MaterialIntegrationError('来源事实恢复合同或媒体身份变化')
+                rights = MaterialAcquirer(store).rights_for_candidate(candidate)
+                if (not rights.evidence or rights.status != asset.rights.status
+                        or rights.license_url != asset.rights.license_url):
+                    raise MaterialIntegrationError('来源许可缺失或改变；保留原缺口')
+                # Persist continuation before changing the asset. A crash after
+                # facts land must still reach ordinary listening and Gate checks.
+                _update_attempt(get_film_attempt(attempt_id), material_observation={
+                    **attempt.get('material_observation', {}), 'status': 'PENDING',
+                    'plan_revision': gate['plan_revision'], 'bundle_revision': gate['bundle_revision']})
+                RightsService(store).record(asset, rights, source_creator=candidate.source.creator,
+                                           source_page=candidate.source.source_page)
+                journal.update(status='COMPLETE', received_at=creation._now(),
+                               source_page=RemoteURLPolicy.redact(candidate.source.source_page),
+                               rights=rights.model_dump(mode='json'))
+            except Exception:
+                journal.update(status='FAILED', received_at=creation._now())
+                store.write_recovery_record(key, journal)
+                raise
+            store.write_recovery_record(key, journal)
+
     def observe_visual_materials(self, attempt_id: str, *, executor, group_executor=None) -> dict[str, Any]:
         """Observe current candidates and admit evidenced commissioned usage."""
         from easel.integrations.hypit.service import get_film_attempt
@@ -1981,6 +2067,9 @@ class MaterialProductOrchestrator:
         bundle = store.read_bundle()
         candidates = self.material_rights_candidates(attempt_id)
         verified = {c["asset_id"] for c in candidates}
+        from easel.creation_delivery import active_delivery
+        if active_delivery.get() == attempt['creation_id']:
+            self.refresh_openverse_rights(attempt_id)
         if bundle.assets and not verified:
             raise MaterialIntegrationError("当前 Bundle 没有可访问且字节有效的素材；原观察不能复用，请先恢复正式来源文件，不再无变化重评")
         revision = attempt.get('revision_feedback', {})
@@ -2101,7 +2190,8 @@ class MaterialProductOrchestrator:
         ledger_key = 'visual-budget-' + MaterialReadinessCalculator.plan_revision(plan)
         ledger = store.read_recovery_record(ledger_key) or {'associations': {}}
         for row in attempt.get('material_observation', {}).get('outcomes', []):
-            if row.get('need_id') in needs and row.get('need_sha256') == need_identity(needs[row['need_id']]):
+            if (row.get('need_id') in needs and row.get('asset_id') not in generated_records
+                    and row.get('need_sha256') == need_identity(needs[row['need_id']])):
                 token = row.get('asset_id', '') + ':' + row.get('asset_sha256', '')
                 entries = ledger['associations'].setdefault(row['need_id'], [])
                 if token not in entries:
@@ -2183,7 +2273,8 @@ class MaterialProductOrchestrator:
                         targeted = [a.asset_id for a in pool if (need.need_id, a.asset_id) in reassess]
                         # Recheck an existing association once under the cumulative call
                         # budget; it does not buy a new candidate slot.
-                        bound_generated = [a.asset_id for a in pool if a.asset_id in generated_intake
+                        bound_generated = [a.asset_id for a in pool if a.asset_id in generated_records
+                            and generated_records[a.asset_id]['status'] == 'COMPLETE'
                             and generated_records[a.asset_id]['need_id'] == need.need_id]
                         ids = (bound_generated[:MAX_PRIMARY_VISUAL_CANDIDATES] if bound_generated else
                                targeted[:MAX_PRIMARY_VISUAL_CANDIDATES] if targeted else related[:max(0, budget)])
@@ -2222,7 +2313,7 @@ class MaterialProductOrchestrator:
                 entries = ledger['associations'].setdefault(need.need_id, [])
                 for asset_id in selected:
                     token = asset_id + ':' + current_assets[asset_id].file.sha256
-                    if asset_id in generated_intake:
+                    if asset_id in generated_records:
                         # A commissioned fallback has its own paid/call bounds.
                         # Stock nomination exhaustion must not strand its admission.
                         intake_entries = ledger.setdefault('generated_intakes', {}).setdefault(need.need_id, [])
@@ -2345,6 +2436,10 @@ class MaterialProductOrchestrator:
         # another batch; hard mismatch is a strategy change, not more of the same.
         explored = set().union(*nominated.values())
         def pending_candidates(need):
+            commissioned = [a.asset_id for a in remaining(need) if a.asset_id in generated_intake
+                            and generated_records[a.asset_id]['need_id'] == need.need_id]
+            if commissioned:
+                return commissioned
             if any(row.get('need_id') == need.need_id and row.get('asset_id') in current_pairs.get(need.need_id, []) and row.get('failure_kind') in {'content_mismatch', 'hard_constraint'}
                    and row.get('verdict') in {'partial', 'unsuitable'} for row in outcomes):
                 return []
@@ -2369,6 +2464,7 @@ class MaterialProductOrchestrator:
                 "remaining_unobserved": [a.asset_id for a in remaining(n)],
                 "next_candidates": pending_candidates(n),
                 "stop_reason": "covered" if covered(n) else
+                    "batch_complete" if any(a in generated_intake for a in pending_candidates(n)) else
                     "budget_exhausted" if len(ledger['associations'].get(n.need_id, [])) >= MAX_VISUAL_CANDIDATES
                     else "batch_complete" if pending_candidates(n) else "candidates_exhausted",
             } for n in visual_needs},

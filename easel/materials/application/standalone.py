@@ -6,6 +6,7 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 
 from easel.materials.application.acquisition import AcquisitionError, MaterialAcquirer
 from easel.materials.application.assembly import MaterialBundleAssembler
@@ -148,7 +149,11 @@ class StandaloneMaterialFlow:
                 assets.append(enriched)
                 stats[provider]["acquired"] = int(stats[provider]["acquired"]) + 1
             except (AcquisitionError, OSError, ValueError) as exc:
-                stats[provider]["failed"].append(type(exc).__name__)
+                # Only our fixed HTTP status message is safe to retain. Other
+                # exception text can contain signed URLs or local paths.
+                http = re.fullmatch(r"Remote download failed with HTTP ([0-9]{3})", str(exc)) if isinstance(exc, AcquisitionError) else None
+                reason = f"AcquisitionError: HTTP {http[1]}" if http else type(exc).__name__
+                stats[provider]["failed"].append(reason)
 
         assets_tuple = tuple(assets)
         matches: list[MaterialMatch] = []
