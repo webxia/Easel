@@ -468,7 +468,7 @@ def test_required_voice_need_without_provider_neutral_identity_is_rejected(mater
         )
 
 
-def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_integration_env):
+def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_integration_env, monkeypatch):
     attempt = material_integration_env
     root = Path(attempt["workspace"]["path"])
     task_text = (root / "AUTHORING_TASK.md").read_text(encoding="utf-8")
@@ -555,6 +555,31 @@ def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_inte
     recorded = MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)
     attempt = recorded["attempt"]
     assert attempt["material_audio_policy"]["requires_audio"] is True
+    # A known narration is never music-classified while an unresolved BGM is observed.
+    from easel.materials.application import music_observation
+    from easel.creation_delivery import active_delivery
+    bgm_asset = store.read_asset('bgm-asset')
+    store.write_asset(bgm_asset.model_copy(update={'semantic': _observed_semantic('Quiet restrained music')}))
+    observed_audio = []
+    def music_read(path):
+        observed_audio.append(path)
+        from tests.test_material_audio_supply import acoustic_fixture
+        return acoustic_fixture(store.read_asset('bgm-asset').file.sha256, 5)
+    monkeypatch.setattr(music_observation, 'read_local_music', music_read)
+    monkeypatch.setattr(MaterialProductOrchestrator, 'material_rights_candidates',
+                        lambda *_: [{'asset_id': a.asset_id} for a in assets])
+    with creation.edit_creation(attempt['creation_id']) as work:
+        work['delivery'] = {'operation': 'observe_material'}
+    token = active_delivery.set(attempt['creation_id'])
+    try:
+        refreshed = MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'],
+            executor=lambda *_: pytest.fail('audio cannot dispatch visual observation'))
+    finally:
+        active_delivery.reset(token)
+    assert observed_audio == [store.resolve_asset_locator(bgm_asset.file.path)]
+    assert refreshed['material_status'] == 'MATERIAL_READY'
+    store.write_asset(bgm_asset)
+    attempt = MaterialGateIntegration().record(refreshed['attempt'], plan, bundle, run, readiness, gaps)['attempt']
     prepared = ProductionAuthoringIntegration().prepare(attempt, selected_asset_ids=("voice-asset", "bgm-asset"))
     attempt = prepared["attempt"]
     author = root / "productions/easel-authoring/authors/main.svml"
@@ -2733,6 +2758,11 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
                     intake_store = AttemptMaterialStore(attempt['workspace']['path'])
                     bundle = intake_store.read_bundle()
                     generated = bundle.assets[0]
+                    # Historical stock spending cannot strand a paid fallback.
+                    budget_key = 'visual-budget-' + MaterialReadinessCalculator.plan_revision(
+                        PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan'])
+                    spent = [f'old-stock-{i}:sha' for i in range(23)]
+                    intake_store.write_recovery_record(budget_key, {'associations': {PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan'].needs[0].need_id: spent}})
                     old_locator = intake_store.write_asset_bytes('asset-000-old-stock', 'fixture.png',
                         intake_store.resolve_asset_locator(generated.file.path).read_bytes())
                     old_stock = generated.model_copy(update={'asset_id': 'asset-000-old-stock',
@@ -2752,6 +2782,11 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
                         'frames': [{'index': r['index'], 'observed': True, 'related': outcome == 'image_ready',
                                     'description': 'teal field'} for r in manifest['frames']]}
                 MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=rejected_scene)
+                if outcome == 'image_ready':
+                    spending = intake_store.read_recovery_record(budget_key)
+                    nid = PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan'].needs[0].need_id
+                    assert spending['associations'][nid] == spent
+                    assert spending['generated_intakes'][nid] == [generated.asset_id + ':' + generated.file.sha256]
                 return
             latest = service.get_film_attempt(attempt['attempt_id'])['material_gate']
             service.update_film_attempt(attempt['attempt_id'], event='fixture_observation',
@@ -2776,6 +2811,7 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     ledger = list(current['delivery']['material_generations'].values())
     assert sum(float(r['quote']['upper_estimate']) for r in ledger if r.get('quote')) == float(expected_cost)
     if outcome == 'image_ready':
+        assert not current['delivery'].get('last_error'), current['delivery'].get('last_error')
         assert len(calls) == 1
         assert {r['status'] for r in ledger} == {'complete', 'budget_exceeded'}
         assert next_operation(current) == (None, 'needs_generation_approval')
@@ -3487,6 +3523,13 @@ def test_only_obsolete_preference_refusal_is_reassessed(material_integration_env
     ready, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
     attempt = MaterialGateIntegration().record(planning['attempt'], plan, bundle, run, ready, gaps)['attempt']
     service.update_film_attempt(attempt['attempt_id'], event='legacy_fixture', material_observation={'outcomes': outcomes})
+    # Real regression: a legacy plan already spent more than the new cap.
+    # Rechecking its existing association must preserve all historic slots.
+    ledger_key = 'visual-budget-' + MaterialReadinessCalculator.plan_revision(plan)
+    entries = [asset.asset_id + ':' + asset.file.sha256] + [f'old-{i}:sha' for i in range(22)]
+    store.write_recovery_record(ledger_key, {'associations': {second.need_id: entries}})
+    from easel.materials.application.visual_observation import pending_visual_reassessment
+    assert pending_visual_reassessment(service.get_film_attempt(attempt['attempt_id']))
     called = []
     def reassess(current, manifest, attachments):
         called.append(manifest['need']['need_id'])
@@ -3496,6 +3539,8 @@ def test_only_obsolete_preference_refusal_is_reassessed(material_integration_env
             'frames': [{'index': 0, 'observed': True, 'related': True, 'meets_requirements': True, 'description': 'red image'}]}
     result = MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=reassess)
     assert called == [second.need_id] and result['material_status'] == 'MATERIAL_READY'
+    assert store.read_recovery_record(ledger_key)['associations'][second.need_id] == entries
+    assert not pending_visual_reassessment(result['attempt'])
     for identity, report in history.items():
         assert json.loads((store.materials_root / 'observations' / (identity + '.json')).read_text()) == report
     MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=lambda *_: pytest.fail('valid reports must be reused'))

@@ -1967,11 +1967,11 @@ class MaterialProductOrchestrator:
         from easel.integrations.hypit.service import get_film_attempt
         from easel.materials.application.matching import MaterialMatcher
         from easel.materials.application.visual_observation import (
-            MAX_VISUAL_CANDIDATES, apply_observation, observed_match, prepare_observation, scoped_inference,
+            MAX_VISUAL_CANDIDATES, MAX_PRIMARY_VISUAL_CANDIDATES, apply_observation, observed_match, prepare_observation, scoped_inference,
             read_observation_report, observe_shared_asset,
             nominate_visual_candidates, NOMINATION_REVISION,
             observation_for_need, need_identity,
-            requires_reassessment, ASSESSMENT_REVISION,
+            visual_reassessment_pairs, ASSESSMENT_REVISION,
         )
 
         attempt = get_film_attempt(attempt_id)
@@ -2040,13 +2040,7 @@ class MaterialProductOrchestrator:
                     if row.get('need_id') in needs and row.get('asset_id') in current_assets
                     and row.get('need_sha256') == need_identity(needs[row['need_id']])
                     and row.get('asset_sha256') == current_assets[row['asset_id']].file.sha256]
-        reassess = set()
-        for row in outcomes:
-            saved = store.materials_root / 'observations' / (row['input_sha256'] + '.json')
-            if saved.is_file() and not saved.is_symlink():
-                report = json.loads(saved.read_text())
-                if requires_reassessment(needs[row['need_id']], report, current_assets[row['asset_id']].media_type):
-                    reassess.add((row['need_id'], row['asset_id']))
+        reassess = visual_reassessment_pairs(attempt)
         if reassess:
             batch_key = hashlib.sha256((batch_key + ASSESSMENT_REVISION + json.dumps(sorted(reassess))).encode()).hexdigest()
         reports = [f"materials/observations/{row['input_sha256']}.json" for row in outcomes
@@ -2155,7 +2149,7 @@ class MaterialProductOrchestrator:
             rejected = rejected_strategies(need)
             return [a for a in eligible_assets(need) if (a.asset_id not in nominated[need.need_id] or (need.need_id, a.asset_id) in reassess)
                     and not matcher._creator_match_review(need, a)
-                    and (not strategy_keys(need, a.asset_id) or not strategy_keys(need, a.asset_id) <= rejected)
+                    and ((need.need_id, a.asset_id) in reassess or not strategy_keys(need, a.asset_id) or not strategy_keys(need, a.asset_id) <= rejected)
                     and (not any(scoped_inference(need, a, i) for i in a.semantic.inferences)
                          or (need.need_id, a.asset_id) in reassess)]
 
@@ -2180,15 +2174,20 @@ class MaterialProductOrchestrator:
                 explored_ids = set().union(*nominated.values())
                 for need in visual_needs:
                     budget = MAX_VISUAL_CANDIDATES - len(ledger['associations'].get(need.need_id, []))
-                    if budget > 0 and not covered(need):
+                    if not covered(need):
                         pool = remaining(need)
                         ranks = origin_ranks(need)
                         # Unrelated files get a single exploration association in
                         # the whole action, never the same batch for every Need.
                         related = nominate_visual_candidates(need, pool, matcher, origin_ranks=ranks, allow_exploration=False)
                         targeted = [a.asset_id for a in pool if (need.need_id, a.asset_id) in reassess]
-                        ids = (targeted or related)[:budget]
-                        if not ids and not exploration_taken and not has_content_gap(need):
+                        # Recheck an existing association once under the cumulative call
+                        # budget; it does not buy a new candidate slot.
+                        bound_generated = [a.asset_id for a in pool if a.asset_id in generated_intake
+                            and generated_records[a.asset_id]['need_id'] == need.need_id]
+                        ids = (bound_generated[:MAX_PRIMARY_VISUAL_CANDIDATES] if bound_generated else
+                               targeted[:MAX_PRIMARY_VISUAL_CANDIDATES] if targeted else related[:max(0, budget)])
+                        if budget > 0 and not ids and not exploration_taken and not has_content_gap(need):
                             ids = nominate_visual_candidates(need, [a for a in pool if a.asset_id not in explored_ids],
                                 matcher, origin_ranks=ranks)[:1]
                             exploration_taken = bool(ids)
@@ -2223,9 +2222,17 @@ class MaterialProductOrchestrator:
                 entries = ledger['associations'].setdefault(need.need_id, [])
                 for asset_id in selected:
                     token = asset_id + ':' + current_assets[asset_id].file.sha256
-                    if token not in entries:
+                    if asset_id in generated_intake:
+                        # A commissioned fallback has its own paid/call bounds.
+                        # Stock nomination exhaustion must not strand its admission.
+                        intake_entries = ledger.setdefault('generated_intakes', {}).setdefault(need.need_id, [])
+                        if token not in intake_entries:
+                            intake_entries.append(token)
+                    elif token not in entries:
                         entries.append(token)
-                if len(entries) > MAX_VISUAL_CANDIDATES:
+                if len(entries) > MAX_VISUAL_CANDIDATES and any(
+                        (need.need_id, asset_id) not in reassess and asset_id not in generated_intake
+                        for asset_id in selected):
                     raise MaterialIntegrationError('累计观察关联预算已用尽，不能换池归零')
             store.write_recovery_record(ledger_key, ledger)
             current_pairs = pairs
@@ -2293,10 +2300,16 @@ class MaterialProductOrchestrator:
             from easel.materials.application.music_observation import (
                 MODEL_REVISION, SCHEMA as MUSIC_SCHEMA, apply_music_observation, read_local_music, file_digest,
             )
+            from easel.materials.application.voice_delivery import voice_content_observed
+            voice_ids = {r['asset_id'] for r in store.list_generation_records()
+                         if r.get('modality') == 'voice' and r.get('asset_id')}
+            voice_ids.update(a.asset_id for a in bundle.assets for n in plan.needs
+                             if getattr(n.modality_spec, 'kind', None) == 'voice'
+                             and voice_content_observed(n, store.read_asset(a.asset_id)))
             for need in plan.needs:
                 if getattr(need.modality_spec, 'kind', None) != 'bgm':
                     continue
-                candidates = [a for a in bundle.assets if a.asset_id in verified and a.media_type is MediaType.AUDIO
+                candidates = [a for a in bundle.assets if a.asset_id in verified and a.asset_id not in voice_ids and a.media_type is MediaType.AUDIO
                               and a.technical.duration_seconds is not None and 1 <= a.technical.duration_seconds <= 300]
                 candidates.sort(key=lambda a: (-matcher._soft_scores(need, a)[1], a.asset_id))
                 for candidate in candidates[:MAX_VISUAL_CANDIDATES]:
@@ -2338,6 +2351,8 @@ class MaterialProductOrchestrator:
             pool = remaining(need)
             related = nominate_visual_candidates(need, pool, matcher, origin_ranks=origin_ranks(need), allow_exploration=False)
             return related or ([] if has_content_gap(need) else [a.asset_id for a in pool if a.asset_id not in explored][:1])
+        if reassess and not current_pairs:
+            raise MaterialIntegrationError("旧观察待重评但没有可执行候选；保留证据并停止无变化调度")
         current_plan = PlanningIntegration().load(current_attempt)["plan"]
         if current_plan != plan or store.read_bundle() != bundle:
             raise MaterialIntegrationError("素材观察期间方案或候选发生变化；保留证据并重新核对")

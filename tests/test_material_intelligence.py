@@ -63,6 +63,9 @@ def test_related_subject_with_hard_conflict_is_durable_negative_evidence(tmp_pat
     assert observed_match(need, apply_observation(need, asset, manifest, report)) is False
     assert not requires_reassessment(need, report, asset.media_type)
     assert requires_reassessment(need, {**report, 'failure_kind': 'preference_only', 'reason': '仅色调不符'}, asset.media_type)
+    from easel.materials.application.visual_observation import ASSESSMENT_REVISION
+    assert not requires_reassessment(need, {**report, 'failure_kind': 'none',
+        'assessment_revision': ASSESSMENT_REVISION}, asset.media_type)
     with pytest.raises(ValueError, match='逐帧证据矛盾'):
         apply_observation(need, asset, manifest, {**report, 'frames': [{**report['frames'][0], 'meets_requirements': None}]})
     with pytest.raises(ValueError, match='一般偏好'):

@@ -36,7 +36,8 @@ MAX_EXPLORATORY_VISUAL_CANDIDATES = 1
 
 def requires_reassessment(need: MaterialNeed, report: dict, media_type: MediaType) -> bool:
     """Only identifiable obsolete preference/postproduction refusals are retried."""
-    if 'requirements_contract' in report or report.get('verdict') not in {'partial', 'unsuitable'}:
+    if ('requirements_contract' in report or report.get('assessment_revision') == ASSESSMENT_REVISION
+            or report.get('verdict') not in {'partial', 'unsuitable'}):
         return False
     if report.get('failure_kind') in {'hard_constraint', 'content_mismatch', 'evidence_insufficient'}:
         return False
@@ -48,18 +49,24 @@ def requires_reassessment(need: MaterialNeed, report: dict, media_type: MediaTyp
             and bool(re.search(r'(?:无法|不能|缺少|没有).*(?:微推|镜头运动|景别切换)|(?:lacks|missing).*(?:camera movement|zoom)', reason, re.I)))
 
 
-def pending_visual_reassessment(attempt: dict) -> bool:
+def visual_reassessment_pairs(attempt: dict) -> set[tuple[str, str]]:
     from easel.materials.store import AttemptMaterialStore
     rows = attempt.get('material_observation', {}).get('outcomes', [])
     if not rows:
-        return False
+        return set()
     store = AttemptMaterialStore(attempt['workspace']['path'])
     needs = {n.need_id: n for n in store.read_plan().needs}
-    assets = {a.asset_id: a for a in store.read_bundle().assets}
+    assets = {a.asset_id: store.read_asset(a.asset_id) for a in store.read_bundle().assets}
+    from easel.materials.application.matching import MaterialMatcher
+    matcher = MaterialMatcher()
+    covered = {n.need_id for n in needs.values() if matcher.match(n, tuple(
+        a for a in assets.values() if observed_match(n, a) is True
+        or matcher._creator_match_review(n, a))).matches}
+    pairs = set()
     for row in rows:
         need, asset = needs.get(row.get('need_id')), assets.get(row.get('asset_id'))
         identity = row.get('input_sha256', '')
-        if (need is None or asset is None or row.get('need_sha256') != need_identity(need)
+        if (row.get('need_id') in covered or need is None or asset is None or row.get('need_sha256') != need_identity(need)
                 or row.get('asset_sha256') != asset.file.sha256 or not isinstance(identity, str)
                 or not re.fullmatch(r'[0-9a-f]{64}', identity)):
             continue
@@ -67,8 +74,12 @@ def pending_visual_reassessment(attempt: dict) -> bool:
         if path.is_symlink() or not path.is_file() or path.stat().st_size > 128 * 1024:
             raise ValueError('当前素材观察证据缺失，先恢复报告')
         if requires_reassessment(need, json.loads(path.read_text()), asset.media_type):
-            return True
-    return False
+            pairs.add((need.need_id, asset.asset_id))
+    return pairs
+
+
+def pending_visual_reassessment(attempt: dict) -> bool:
+    return bool(visual_reassessment_pairs(attempt))
 
 
 def nominate_visual_candidates(need, assets, matcher, *, origin_ranks=None, allow_exploration=True):

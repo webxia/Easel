@@ -3,6 +3,22 @@
 Last audited: 2026-10-05. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
 
 
+## v0.5 调度修复与素材恢复（2026-10-05，软件通过 / R3 FAILED / 5 of 9）
+
+用户批准空观察循环和旁白误入BGM修复并恢复原作品。已共用重评集合、跳过已覆盖及当前版本完成重评，既有关联重评不占新候选额度，不能执行明确失败；已知旁白从音乐候选排除。R2暴露绑定新生成准入仍被旧图库额度阻挡，保留C/D/F三张完成图及原在途补料请求后监护停止，补齐原Need绑定generated_intakes，不增/清零图库associations，普通准入与累计授权边界保持。全量682 passed、5 skipped（41.29秒），compileall/115合同/diff check通过。
+
+R3于08:22:20恢复，08:27:04达到3次真实视觉失败上限自动停止，墙钟约4分44秒，仍5/9 / MATERIAL_NOT_READY。C补位图已进入普通观察，但MiniMax-M3三次均stopReason=length、payloads=0，没有有效新报告；D/F未完成观察，BGM无正式合格。新增来源适配8+视觉3，Material107/1840，Prepare7/24；视觉运行总251.432秒含模型/网关等待。没有新增生图、ASR/TTS或音乐观察，旁白误派已消除。占额仍¥0.1798，余额¥9.8202，实际账单unknown。不是搜索不到视觉或生图失败；报告交付是当前主阻塞。
+
+源码SHA `1d5b2af35441892ab9671542b59d37f837efcf3b1ac07d56505dd223c2ef4443`、18冻结输入保持；仅Web加载修复，网关/Hypit未重启，最终网关active0/queued0、请求已终态释放，Owner保存exhausted_operation。R3无现场工程救场且自主有界停止，但未自主完成；整个R1–R3诊断不认领AUTONOMOUS或提速成功。没有Authoring/Build；原Task §12.11及[统一恢复记录](acceptance/creation-latency-v05-material-resume-2026-10-05.md)保留各段证据。下一范围为真实报告输出容量/截断与交付合同定位及有限能力验证，当前不扩大修改或继续retry。
+
+## v0.5 素材正式恢复（2026-10-05，FAILED / 5 of 9 / 已监护停止）
+
+用户授权沿真实Planning和原Delivery Owner继续独立素材验收，终点仅MATERIAL_READY。本次使用提交964104fe，确认无活动/未知提交后仅Web加载已提交版本；网关/Hypit未重启。同Creation/Attempt及冻结Plan保留，07:57:18恢复，08:00:10因无进展循环请求监护停止，08:00:15确认stopped。详见[恢复验收记录](acceptance/creation-latency-v05-material-resume-2026-10-05.md)。
+
+旁白复用原识别/字幕完成普通准入，required从4/9到5/9；C/D/F及BGM仍缺，Gate MATERIAL_NOT_READY。Owner新增55次observe（累计31.983872秒，主要空观察）和1次声音恢复（0.214511秒）；新增计量只有本地音乐观察1次，Material89/1840，Prepare7/24。新搜索/云端视觉/ASR/TTS/生图提交均0，占额仍¥0.1048，余额¥9.8952，实际账单unknown。
+
+根因已定位：待重评优先调度不校验可执行性，并包含已覆盖Need旧负面报告；执行器又让重评受耗尽的历史新候选关联额度约束，空批返回COMPLETE而pending不变，故无限重派且阻挡补料/生成。另有已知旁白误入BGM观察的用途过滤缺口。监护只设置停止控制位，无运行中代码救场或改审核，但AUTONOMOUS=NO；2分52秒停止不是齐备或提速，报告/搜索/生图真实效果未验证。18项冻结文件及源码SHA不变，没有Authoring/Build。下一步最小修复及回归范围已记原Task §12.11，当前未实施，不自动恢复。
+
 ## v0.5 实测根因修复（2026-10-05，软件通过 / 真实能力未验收）
 
 用户要求设定目标并按收敛方案修复，已实施[原 Task §12.10.9](tasks/creation-latency-2026-10-02.md#12109-2026-10-05-获批软件修复验证与剩余能力门)。历史 84 分 38 秒中，51 次视觉请求累计约 66 分 09 秒，来源适配自身累计约 17 秒；主要是无关联候选跨 Need 提名、批后切换迟滞、偏好误拒、partial 阻止合法补位及报告交付故障，不能只归因模型慢。真实结果仍为 4/9 / PARTIAL / 已停止，不能认领素材齐备或提速。
