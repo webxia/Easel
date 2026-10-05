@@ -22,7 +22,7 @@ def visual_need():
         constraints={'preferred_visual_details': 'low angle'})
 
 
-@pytest.mark.parametrize('fault', [None, 'missing', 'unknown_status', 'duplicated', 'wrong_need', 'preference_promoted', 'quoted', 'quote_gap', 'units', 'unit_missing', 'unit_duplicate', 'long_fields', 'oversize_report', 'old_camera'])
+@pytest.mark.parametrize('fault', [None, 'missing', 'unknown_status', 'duplicated', 'wrong_need', 'preference_promoted', 'quoted', 'quote_gap', 'units', 'unit_missing', 'unit_duplicate', 'long_fields', 'oversize_report', 'old_camera', 'source_action', 'unresolved'])
 def test_required_paper_and_optional_angle_have_distinct_admission_contracts(fault):
     need = visual_need()
     if fault in {'units', 'unit_missing', 'unit_duplicate'}:
@@ -31,6 +31,21 @@ def test_required_paper_and_optional_angle_have_distinct_admission_contracts(fau
     frozen = compilation_input(need, {'brief_sha256': 'a' * 64}, {})
     response = {'clauses': [[0, 0, len(frozen['sources'][0]['text']), 'required', None],
                              [1, 0, len(frozen['sources'][1]['text']), 'preference', None]]}
+    if fault == 'source_action':
+        need = need.model_copy(update={'intent': NeedIntent(description='two sheets', function='a hand removes one sheet'),
+                                      'constraints': {'requires_dynamic_action': True}})
+        frozen = compilation_input(need, {}, {})
+        response = {'clauses': [[i, 0, len(r['text']), 'postproduction' if r['path'] == 'intent/function'
+                                else 'required', None] for i, r in enumerate(frozen['sources'])]}
+        with pytest.raises(ValueError, match='必要源动作'):
+            validate_compilation(frozen, response)
+        return
+    if fault == 'unresolved':
+        response['clauses'][1][3] = 'unresolved'
+        contract = validate_compilation(frozen, response)
+        with pytest.raises(ValueError, match='仍有歧义'):
+            batches({'frames': [{'index': 0}]}, contract)
+        return
     if fault in {'quoted', 'quote_gap'}:
         canonical = validate_compilation(frozen, response)
         response['clauses'] = [[i, row['text'], 'preference' if row['preference'] else 'required', None]

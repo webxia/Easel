@@ -125,11 +125,16 @@ def test_authoring_policy_has_only_workspace_text_tools(tmp_path):
 
 
 def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_path):
+    from easel.integrations.openclaw_authoring import postproduction_authoring_instruction
     attempt = _seed_attempt(tmp_path / "attempt")
+    relative = 'productions/easel-authoring/POSTPRODUCTION_REQUIREMENTS.json'
+    (attempt / relative).write_text('{"status":"PENDING_AUTHORING"}', encoding='utf-8')
+    instruction = postproduction_authoring_instruction(attempt)
     stage_parent = tmp_path / "openclaw" / "authoring-staging"
     config = {}
     agent_workspace = None
     calls = []
+    mutate_postproduction = False
 
     def runner(cmd, **kwargs):
         nonlocal config, agent_workspace
@@ -155,6 +160,7 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
             message = cmd[cmd.index("--message") + 1]
             assert str(attempt) not in message
             assert str(agent_workspace) in message
+            assert (agent_workspace / relative).read_bytes() == (attempt / relative).read_bytes()
             (agent_workspace / "productions/easel-authoring/authors").mkdir(parents=True, exist_ok=True)
             (agent_workspace / "productions/easel-authoring/runs").mkdir(parents=True, exist_ok=True)
             (agent_workspace / "productions/easel-authoring/material-selection.json").write_text(
@@ -167,6 +173,8 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
             (agent_workspace / "productions/easel-authoring/runs/main.svrun").write_text(
                 "<svrun/>", encoding="utf-8")
             (agent_workspace / "outside.txt").write_text("must not promote", encoding="utf-8")
+            if mutate_postproduction:
+                (agent_workspace / relative).write_text('{}')
             return subprocess.CompletedProcess(cmd, 0, "done", "")
         raise AssertionError(f"unexpected OpenClaw command: {cmd}")
 
@@ -178,7 +186,7 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
     result = run_attempt_scoped_authoring(
         attempt_id=ATTEMPT_ID,
         attempt_workspace=attempt,
-        message=f"workspace={attempt}",
+        message=f"workspace={attempt}" + instruction,
         command_prefix=["openclaw"],
         profile="easel",
         staging_parent=stage_parent,
@@ -205,6 +213,17 @@ def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_pa
 
     trusted = attempt / "productions/easel-authoring/authors/main.svml"
     trusted.write_text("trusted previous source", encoding="utf-8")
+    mutate_postproduction = True
+    with pytest.raises(OpenClawAuthoringBoundaryError, match='后期表达输入已变化'):
+        run_attempt_scoped_authoring(
+            attempt_id=ATTEMPT_ID, attempt_workspace=attempt, message=f'workspace={attempt}' + instruction,
+            command_prefix=['openclaw'], profile='easel', staging_parent=stage_parent,
+            timeout=5, thinking='off', cwd=tmp_path, env={}, runner=runner,
+            prepare_workspace=prepare_contracts,
+        )
+    assert trusted.read_text() == 'trusted previous source'
+    assert (attempt / relative).read_text() == '{"status":"PENDING_AUTHORING"}'
+    mutate_postproduction = False
     def reject_invalid(_staged: Path) -> None:
         raise HypitIntegrationError("Hypit check 失败：无效结构")
     with pytest.raises(HypitIntegrationError, match="无效结构"):

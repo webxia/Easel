@@ -30,8 +30,38 @@ _OPTIONAL_PROMOTED_ARTIFACTS = (
 _INPUT_DIRS = ("handoff", "planning", "references", "productions/easel-authoring")
 _INPUT_FILES = ("AUTHORING_TASK.md", "package.json", "materials/plan.json",
                 "materials/bundle.json", "materials/readiness.json")
+_POSTPRODUCTION_INPUT = 'productions/easel-authoring/POSTPRODUCTION_REQUIREMENTS.json'
+_POSTPRODUCTION_MARKER = '〔Easel 后期表达输入 SHA256〕'
 
 CommandRunner = Callable[..., subprocess.CompletedProcess[str]]
+
+
+def postproduction_authoring_instruction(workspace: str | Path) -> str:
+    root = Path(workspace)
+    _assert_source_components(root, Path(_POSTPRODUCTION_INPUT))
+    path = root / _POSTPRODUCTION_INPUT
+    if not path.exists():
+        return ''
+    if not path.is_file():
+        raise OpenClawAuthoringBoundaryError('后期表达输入必须是普通文件')
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    return ('\n' + _POSTPRODUCTION_MARKER + digest + '\n'
+            '读取 ' + _POSTPRODUCTION_INPUT + '，按 Need 与原文落实待编排的镜头运动、字幕或叙事表达。'
+            '这是服务端只读输入；不得把后期条款重新当作源素材缺失，也不得将待编排视为已完成。'
+            '原主体、真实源动作、冻结文案和硬要求仍必须保留；未知分类以原 Planning 为准。')
+
+
+def _assert_postproduction_input(root: Path, message: str) -> str | None:
+    matches = re.findall(re.escape(_POSTPRODUCTION_MARKER) + r'([0-9a-f]{64})(?:\n|$)', message)
+    if not matches and _POSTPRODUCTION_MARKER not in message:
+        return None  # Retain the exact semantics of an already-dispatched legacy turn.
+    if len(matches) != 1:
+        raise OpenClawAuthoringBoundaryError('后期表达输入摘要无效')
+    _assert_source_components(root, Path(_POSTPRODUCTION_INPUT))
+    path = root / _POSTPRODUCTION_INPUT
+    if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != matches[0]:
+        raise OpenClawAuthoringBoundaryError('后期表达输入已变化，不能认领原编排执行')
+    return matches[0]
 
 
 def _agent_result(runner: CommandRunner, cmd: Sequence[str], *, phase: str, **kwargs):
@@ -68,14 +98,17 @@ def _delivery_stage(source: Path, parent: Path, attempt_id: str, message: str, p
         stages = work["delivery"].setdefault("authoring_stages", {})
         record = stages.get(key)
         if record is None:
+            postproduction_sha256 = _assert_postproduction_input(source, message)
             agent_id = f"easel-author-{attempt_id[-8:]}-{uuid.uuid4().hex[:12]}"
             stage_root = Path(tempfile.mkdtemp(prefix=f"{agent_id}-", dir=parent))
             instruction = stage_root / "instruction.txt"
             instruction.write_text(message, encoding="utf-8")
             instruction.chmod(0o600)
             record = {"attempt_id": attempt_id, "source": str(source), "profile": profile,
-                      "stage_root": str(stage_root), "agent_id": agent_id, "inputs_ready": False}
+                      "stage_root": str(stage_root), "agent_id": agent_id, "inputs_ready": False,
+                      'postproduction_input_sha256': postproduction_sha256}
             stages[key] = record
+        record.setdefault('postproduction_input_sha256', None)
         root = Path(record["stage_root"])
         if (record["source"] != str(source) or record["profile"] != profile
                 or root.is_symlink() or root.parent != parent or not root.is_dir()
@@ -213,6 +246,19 @@ def run_attempt_scoped_authoring(
     agent_dir = stage_root / "agent-state"
     configured = False
     preserve = False
+
+    def verify_postproduction_inputs():
+        nonlocal preserve
+        try:
+            binding = _assert_postproduction_input(source, message)
+            if retained and binding != retained.get('postproduction_input_sha256'):
+                raise OpenClawAuthoringBoundaryError('后期表达输入不属于已保留的编排阶段')
+            _assert_postproduction_input(staged_workspace, message)
+        except OpenClawAuthoringBoundaryError:
+            # A changed input proves nothing about a previously dispatched run.
+            # Keep its stage and outputs for reconciliation, never delete it.
+            preserve = bool(retained)
+            raise
     try:
         if not retained or not retained["inputs_ready"]:
             # No Agent is dispatched before inputs_ready is committed. An
@@ -227,6 +273,7 @@ def run_attempt_scoped_authoring(
                 from easel.creation_delivery import active_delivery
                 with creation.edit_creation(active_delivery.get()) as work:
                     work["delivery"]["authoring_stages"][stage_key]["inputs_ready"] = True
+        verify_postproduction_inputs()
         policy = authoring_agent_policy(staged_workspace, agent_dir)
         configured = True
         _patch_profile(command_prefix, profile, {
@@ -271,6 +318,7 @@ def run_attempt_scoped_authoring(
                 raise OpenClawAuthoringBoundaryError(
                     "视频编排补齐后仍缺少必需的普通文件；已保留原内容和素材，未提交视频合成"
                 )
+        verify_postproduction_inputs()
         if validate_artifacts is not None:
             from easel.integrations.hypit.errors import HypitIntegrationError
 
@@ -291,6 +339,7 @@ def run_attempt_scoped_authoring(
                     cwd=str(cwd), timeout=timeout + 30, env=env,
                 )
                 validate_artifacts(staged_workspace)
+        verify_postproduction_inputs()
         _promote_authoring_artifacts(staged_workspace, source)
         preserve = bool(retained)  # outer selection/checkpoint still has to commit
         return result.stdout or ""

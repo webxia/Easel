@@ -444,9 +444,9 @@ def test_gateway_submission_timeout_reconciles_same_run_without_resubmitting(pre
         active_delivery.reset(token)
 
 
-@pytest.mark.parametrize('reply_kind', ['complete', 'length', 'capacity', 'other_run'])
-def test_material_result_is_received_from_same_run_and_reused_without_dispatch(prep_env, reply_kind):
-    from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain
+@pytest.mark.parametrize('reply_kind', ['complete', 'length', 'capacity', 'other_run', 'missing'])
+def test_material_result_is_received_from_same_run_and_reused_without_dispatch(prep_env, monkeypatch, reply_kind):
+    from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain, DeliveryReportError, advance_creation
     from easel.integrations.openclaw_delivery import run_delivery_agent
     work = _confirmed_delivery()
     methods, run_id = [], None
@@ -469,6 +469,8 @@ def test_material_result_is_received_from_same_run_and_reused_without_dispatch(p
                        'stopReason': 'length' if reply_kind == 'length' else 'stop',
                        'terminalReply': {'disposition': 'visible', 'text':
                            '界' * 3001 if reply_kind == 'capacity' else result_text}}
+            if reply_kind == 'missing':
+                payload.pop('terminalReply')
         return subprocess.CompletedProcess(command, 0, json.dumps(payload), '')
 
     command = ['openclaw', '--profile', 'fixture', 'agent', '--agent', 'main',
@@ -480,10 +482,34 @@ def test_material_result_is_received_from_same_run_and_reused_without_dispatch(p
         if reply_kind == 'other_run':
             with pytest.raises(DeliveryExecutionUncertain, match='另一项执行'):
                 run_delivery_agent(command, runner=gateway, capture_reply=True)
+        elif reply_kind == 'missing':
+            with pytest.raises(DeliveryReportError) as error:
+                run_delivery_agent(command, runner=gateway, capture_reply=True)
+            assert error.value.failure_kind == 'output_missing'
+            (prep_env['tmp'] / 'report').mkdir()
+            monkeypatch.setattr(web, 'run_agent_sync', lambda *a, **k: run_delivery_agent(
+                command, runner=gateway, capture_reply=True).stdout)
+            assert web._material_compact_result({'workspace': {'path': str(prep_env['tmp'] / 'report')}},
+                                                {'protocol': 'fixture'}, 'report') == {'_invalid_json': None}
         elif reply_kind != 'complete':
             for _ in range(2):
-                with pytest.raises(ValueError, match='截断|容量'):
+                with pytest.raises(DeliveryReportError, match='截断|容量') as error:
                     run_delivery_agent(command, runner=gateway, capture_reply=True)
+                assert error.value.failure_kind == ('output_incomplete' if reply_kind == 'length' else 'output_capacity')
+            def captured(*args, **kwargs):
+                return run_delivery_agent(command, runner=gateway, capture_reply=True).stdout
+            monkeypatch.setattr(web, 'run_agent_sync', captured)
+            (prep_env['tmp'] / 'report').mkdir()
+            operations = []
+            async def execute(operation, current):
+                operations.append(operation)
+                web._material_compact_result({'workspace': {'path': str(prep_env['tmp'] / 'report')}},
+                                             {'protocol': 'fixture'}, 'compact report')
+            asyncio.run(advance_creation(work['id'], execute))
+            asyncio.run(advance_creation(work['id'], execute))
+            assert operations == ['prepare']  # No format repair or unchanged automatic retry.
+            saved = creation.get_creation(work['id'])['delivery']
+            assert saved['last_failure_kind'] == error.value.failure_kind
         else:
             assert run_delivery_agent(command, runner=gateway, capture_reply=True).stdout == result_text
             before = list(methods)
@@ -592,16 +618,22 @@ def test_visual_gateway_rejection_does_not_become_phantom_pending(prep_env, fail
         active_delivery.reset(token)
 
 
-def test_delivery_authoring_keeps_live_stage_and_recovers_completed_files(prep_env):
+@pytest.mark.parametrize('bound_postproduction', [False, True])
+def test_delivery_authoring_keeps_live_stage_and_recovers_completed_files(prep_env, bound_postproduction):
     from easel.creation_delivery import advance_creation
     from easel.integrations.openclaw_delivery import reconcile_agent_calls
     from easel.integrations.openclaw_authoring import (
         run_attempt_scoped_authoring, release_delivery_authoring, retained_authoring_message,
+        postproduction_authoring_instruction,
     )
     from tests.test_openclaw_authoring_boundary import _seed_attempt, ATTEMPT_ID
 
     work = _confirmed_delivery()
     source = _seed_attempt(prep_env["tmp"] / "durable-authoring")
+    post_path = source / 'productions/easel-authoring/POSTPRODUCTION_REQUIREMENTS.json'
+    if bound_postproduction:
+        post_path.write_text('{"status":"PENDING_AUTHORING"}')
+    original_message = f'Author only in {source}' + postproduction_authoring_instruction(source)
     parent = prep_env["tmp"] / "isolated" / "authoring-staging"
     with creation.edit_creation(work["id"]) as current:
         current["hypit_attempts"] = [{"attempt_id": ATTEMPT_ID,
@@ -649,7 +681,6 @@ def test_delivery_authoring_keeps_live_stage_and_recovers_completed_files(prep_e
         assert operation == "author"
         # Rebuilt status/error context is different after a restart; it must
         # resume the original instruction and run instead of dispatching again.
-        original_message = f"Author only in {source}"
         rebuilt_message = "状态变化后的阶段恢复提示" if terminal else original_message
         message = retained_authoring_message(ATTEMPT_ID, profile="fixture") or rebuilt_message
         assert message == original_message
@@ -667,6 +698,9 @@ def test_delivery_authoring_keeps_live_stage_and_recovers_completed_files(prep_e
     assert staged.is_dir() and "delete" not in calls
     asyncio.run(advance_creation(work["id"], execute))
     assert staged.is_dir() and calls.count("agent") == 1
+    retained = next(iter(creation.get_creation(work['id'])['delivery']['authoring_stages'].values()))
+    assert retained['postproduction_input_sha256'] == (
+        hashlib.sha256(post_path.read_bytes()).hexdigest() if bound_postproduction else None)
     # The independent fake gateway finishes while no Easel task is running.
     for path, value in {
         "productions/easel-authoring/material-selection.json": "{}",
@@ -678,6 +712,13 @@ def test_delivery_authoring_keeps_live_stage_and_recovers_completed_files(prep_e
         target.write_text(value)
     terminal = True
     asyncio.run(advance_creation(work["id"], execute))
+    if bound_postproduction:
+        original = post_path.read_bytes()
+        post_path.write_text('{"status":"changed"}')
+        asyncio.run(advance_creation(work['id'], execute))
+        assert staged.is_dir() and calls.count('agent') == 1 and 'delete' not in calls
+        assert creation.get_creation(work['id'])['delivery']['authoring_stages']
+        post_path.write_bytes(original)
     asyncio.run(advance_creation(work["id"], execute))
     assert calls.count("agent") == 1 and calls.count("delete") == 1
     assert (source / "productions/easel-authoring/authors/main.svml").read_text() == "<svml/>"
@@ -689,6 +730,7 @@ def test_delivery_authoring_keeps_live_stage_and_recovers_completed_files(prep_e
 
 @pytest.fixture
 def prep_env(tmp_path, monkeypatch):
+    from easel import persona
     from easel.runtime_config import EaselRuntimeConfig
     from easel.integrations import material_supply
     from easel.materials.providers import LocalProvider, ProviderRegistry
@@ -707,6 +749,12 @@ def prep_env(tmp_path, monkeypatch):
         return registry, ()
 
     monkeypatch.setattr(material_supply, "product_provider_registry", local_registry)
+    profiles = tmp_path / 'profiles'
+    profile = profiles / '个人经营实践'
+    profile.mkdir(parents=True)
+    (profile / 'identity.md').write_text('隔离测试创作者，平等克制地记录观察。', encoding='utf-8')
+    monkeypatch.setattr(persona, 'PROFILES_DIR', profiles)
+    monkeypatch.setattr(web, 'PROFILES_DIR', profiles)
     outputs = tmp_path / "outputs"
     monkeypatch.setattr(creation, "OUTPUTS_DIR", outputs)
     monkeypatch.setattr(creation, "CREATIONS_DIR", outputs / "_creations")
@@ -1139,6 +1187,11 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
         (planning_dir / "TREATMENT.md").write_text("Treatment", encoding="utf-8")
         (planning_dir / "SCRIPT.md").write_text("Script", encoding="utf-8")
         (planning_dir / "SCENES.md").write_text("Scenes", encoding="utf-8")
+        (planning_dir / 'MATERIAL_REQUIREMENTS.json').write_text(json.dumps({plan.needs[0].need_id: {
+            'clauses': [{'path': 'intent/description', 'text': plan.needs[0].intent.description,
+                         'kind': 'required', 'preference_path': None}],
+            'queries': ['documentary main shot', 'documentary subject scene', 'subject scene'],
+        }}), encoding='utf-8')
         return "planned"
 
     monkeypatch.setattr(web, "run_agent_sync", fake_agent)
@@ -1162,6 +1215,13 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
     assert "target_seconds" in contract["$defs"]["DurationHint"]["properties"]
     assert result["plan"].needs[0].media_type is MediaType.VIDEO
     assert result["plan"].context_refs == refs
+    from easel.materials.store import AttemptMaterialStore
+    from easel.materials.application.visual_contract import (
+        planning_contracts, read_requirements_contract,
+    )
+    saved = planning_contracts(result['plan'], handoff.load_frozen_creative_mode(attempt)[0],
+                               json.loads((planning_dir / 'MATERIAL_REQUIREMENTS.json').read_text()))[0][1]
+    assert read_requirements_contract(AttemptMaterialStore(attempt['workspace']['path']), saved['input']) == saved['contract']
 
     # A copied, valid plan must not short-circuit an output-bound rewrite.
     # It uses the same executor and frozen references, with explicit scope.

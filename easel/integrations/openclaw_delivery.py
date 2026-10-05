@@ -13,7 +13,7 @@ import uuid
 from typing import Any, Callable, Sequence
 
 from easel import creation
-from easel.creation_delivery import DeliveryExecutionUncertain, active_delivery, reserve_delivery_call
+from easel.creation_delivery import DeliveryExecutionUncertain, DeliveryReportError, active_delivery, reserve_delivery_call
 
 
 class DeliveryAgentPending(DeliveryExecutionUncertain):
@@ -71,9 +71,9 @@ def _observe_payload(creation_id: str, key: str, payload: dict) -> None:
         if (status in {"ok", "error"} and type(ended) in (int, float) and ended > 0
                 and not payload.get("yielded")):
             call.update(status=status, ended_at=ended, observed_at=creation._now())
-            if call.get('capture_reply') and 'terminalReply' in payload:
+            if call.get('capture_reply'):
                 from easel.integrations.hypit.secrets import SecretRedactor
-                reply = payload['terminalReply']
+                reply = payload.get('terminalReply')
                 text = reply.get('text') if isinstance(reply, dict) and reply.get('disposition') == 'visible' else None
                 valid = (status == 'ok' and payload.get('stopReason') != 'length'
                          and isinstance(text, str) and bool(text.strip())
@@ -86,6 +86,13 @@ def _observe_payload(creation_id: str, key: str, payload: dict) -> None:
                         raise DeliveryExecutionUncertain('同一运行的终态结果发生变化，不能覆盖已保存证据')
                     call['terminal_reply'] = {'sha256': digest, 'text': text}
                 else:
+                    call['reply_failure_kind'] = (
+                        'output_incomplete' if payload.get('stopReason') == 'length'
+                        or isinstance(text, str) and text.rstrip().endswith('…') else
+                        'output_missing' if not isinstance(text, str) or not text.strip() else
+                        'output_capacity' if len(text.encode('utf-16-le')) // 2 > 3000 else
+                        'sensitive_output'
+                    )
                     call['reply_error'] = '运行结果缺失、截断、超出协议容量或包含敏感内容；保留原运行，不重新派发'
             if call.get("session_key") and call.get("runtime_release") != "released":
                 call["runtime_release"] = "pending"
@@ -280,5 +287,6 @@ def _completed_reply(args, call):
     reply = call.get('terminal_reply')
     if (call.get('status') != 'ok' or not isinstance(reply, dict)
             or hashlib.sha256(str(reply.get('text', '')).encode()).hexdigest() != reply.get('sha256')):
-        raise ValueError(call.get('reply_error') or '原运行没有可核实的完整结果；不重复派发模型')
+        raise DeliveryReportError(call.get('reply_error') or '原运行没有可核实的完整结果；不重复派发模型',
+                                  failure_kind=call.get('reply_failure_kind', 'report_invalid'))
     return subprocess.CompletedProcess(args, 0, reply['text'], '')

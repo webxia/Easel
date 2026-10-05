@@ -12,8 +12,13 @@ import re
 from easel.materials.application.visual_observation import SCHEMA, ASSESSMENT_REVISION, need_identity
 
 REVISION = 'visual-requirements@1'
+COMPILER_POLICY = 'indexed-unit-classification@7'
 RESULT_LIMIT = 3000
 KINDS = {'required', 'preference', 'postproduction', 'unresolved'}
+
+
+class UnresolvedRequirementsError(ValueError):
+    """A semantic ambiguity needs Planning evidence, not report formatting."""
 
 
 def digest(value):
@@ -45,6 +50,35 @@ def compilation_input(need, context_refs, mode):
             'context_refs': context_refs, 'mode': mode, 'sources': sources_for(need),
             'need': need.model_dump(mode='json')}
 
+
+
+def requirements_key(input_data):
+    return 'requirements-' + digest({'compiler_policy': COMPILER_POLICY, 'input': input_data})
+
+
+def read_requirements_contract(store, input_data):
+    """Prefer same-turn Planning; only missing records permit classification.
+
+    The original Planning key is intentionally retained. A damaged or stale
+    record is a contract fault, never permission to replace its meaning.
+    """
+    for key in ('requirements-' + digest(input_data), requirements_key(input_data)):
+        saved = store.read_recovery_record(key)
+        if saved is None:
+            continue
+        if saved.get('input') != input_data:
+            raise ValueError('要求合同冻结依据已变化')
+        contract = validate_compilation(input_data, saved.get('response'))
+        if contract != saved.get('contract'):
+            raise ValueError('要求合同保存结果不一致')
+        return contract
+    return None
+
+
+def assert_report_requirements(report, contract):
+    if contract is not None and (report.get('requirements_contract') != contract
+                                 or report.get('requirements_sha256') != digest(contract)):
+        raise ValueError('观察报告与当前 Planning 要求合同不一致；保留原报告，须按当前合同重评')
 
 
 def classification_units(input_data):
@@ -144,7 +178,7 @@ def validate_compilation(input_data, response):
 def batches(manifest, contract):
     required = [c for c in contract['clauses'] if c['kind'] == 'required']
     if any(c['kind'] == 'unresolved' for c in contract['clauses']):
-        raise ValueError('审核要求仍有歧义，先由 Planning 澄清，未提交观察')
+        raise UnresolvedRequirementsError('审核要求仍有歧义，先由 Planning 澄清，未提交观察')
     # Plan a concise escaped representation, including supplementary Unicode.
     # Actual results still have the strict total gateway cap. Split
     # before dispatch; never drop a requirement to make a reply fit.

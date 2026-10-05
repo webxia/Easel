@@ -170,6 +170,40 @@ def _workspace(attempt: dict[str, Any]) -> Path:
     return path
 
 
+def _assert_report_requirements(report, contract):
+    from easel.materials.application.visual_contract import assert_report_requirements
+    from easel.creation_delivery import DeliveryReportError
+    try:
+        assert_report_requirements(report, contract)
+    except ValueError as exc:
+        raise DeliveryReportError(str(exc), failure_kind='requirements_invalid') from exc
+
+
+def _assert_observed_requirements(store, need, assets, contract):
+    """Check the actual scoped evidence even when an asset is already READY."""
+    if contract is None:
+        return
+    from easel.materials.application.visual_observation import scoped_inference, observation_identity, SCHEMA
+    from easel.creation_delivery import DeliveryReportError
+    for asset in assets:
+        prefix = observation_identity(need, asset)
+        identities = {a.evidence[len(prefix):].split(':', 1)[0]
+                      for i in asset.semantic.inferences if scoped_inference(need, asset, i)
+                      for a in i.annotations}
+        for identity in identities:
+            path = store.materials_root / 'observations' / (identity + '.json')
+            if (not re.fullmatch(r'[0-9a-f]{64}', identity) or _has_symlink_components(store.attempt_root, path)
+                    or not path.is_file() or path.stat().st_size > 128 * 1024):
+                raise DeliveryReportError('当前要求合同的素材观察证据缺失或无效', failure_kind='requirements_invalid')
+            try:
+                report = json.loads(path.read_text(encoding='utf-8'))
+            except (OSError, ValueError) as exc:
+                raise DeliveryReportError('当前要求合同的素材观察报告无效', failure_kind='requirements_invalid') from exc
+            if not isinstance(report, dict) or report.get('input_sha256') != identity or report.get('schema') != SCHEMA:
+                raise DeliveryReportError('素材观察报告身份不一致', failure_kind='requirements_invalid')
+            _assert_report_requirements(report, contract)
+
+
 def _write_text(root: Path, relative: str, value: str) -> Path:
     if not isinstance(value, str) or not value.strip() or "\x00" in value:
         raise MaterialIntegrationError(f"Planning artifact {relative} 不能为空")
@@ -723,6 +757,33 @@ class ProductionAuthoringIntegration:
         if _has_symlink_components(root, output_dir):
             raise MaterialIntegrationError("Production Authoring directory must not contain symlinks")
         output_dir.mkdir(parents=True, exist_ok=True)
+        from easel.materials.application.visual_contract import compilation_input, read_requirements_contract, digest
+        from easel.integrations.hypit.handoff import load_frozen_creative_mode
+        mode, _ = load_frozen_creative_mode(attempt)
+        postproduction, unclassified = [], []
+        for need in plan.needs:
+            if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
+                continue
+            try:
+                contract = read_requirements_contract(store, compilation_input(need, plan.context_refs, mode))
+            except (ValueError, TypeError, AttributeError) as exc:
+                raise MaterialIntegrationError('后期表达要求合同无效：' + str(exc)) from exc
+            if contract is None:
+                unclassified.append(need.need_id)
+                continue
+            _assert_observed_requirements(store, need,
+                [a for a in bundle.assets if need.need_id in self._qualified_need_ids(plan, bundle, a)], contract)
+            clauses = [{'id': c['id'], 'path': contract['source_data']['sources'][c['source']]['path'],
+                        'start': c['start'], 'end': c['end'], 'text': c['text']}
+                       for c in contract['clauses'] if c['kind'] == 'postproduction']
+            if clauses:
+                postproduction.append({'need_id': need.need_id, 'scope': need.scope.model_dump(mode='json'),
+                                       'contract_sha256': digest(contract), 'clauses': clauses})
+        _write_text(root, 'productions/easel-authoring/POSTPRODUCTION_REQUIREMENTS.json', json.dumps({
+            'schema': 'easel-postproduction-requirements@1', 'creation_id': attempt['creation_id'],
+            'attempt_id': attempt['attempt_id'], 'plan_id': plan.plan_id, 'plan_revision': readiness.plan_revision,
+            'status': 'PENDING_AUTHORING', 'requirements': postproduction, 'unclassified_need_ids': unclassified,
+        }, ensure_ascii=False, sort_keys=True) + '\n')
         from easel.materials.application.voice_delivery import authoring_voice_timings
         _write_text(root, "productions/easel-authoring/VOICE_TIMING.json", json.dumps(
             authoring_voice_timings(plan, bundle, store, planning["script"]), ensure_ascii=False,
@@ -2119,6 +2180,20 @@ class MaterialProductOrchestrator:
         for asset_id in generated_records:
             admit_generated(asset_id)
         matcher = MaterialMatcher()
+        from easel.materials.application.visual_contract import compilation_input, read_requirements_contract
+        from easel.integrations.hypit.handoff import load_frozen_creative_mode
+        from easel.creation_delivery import DeliveryReportError
+        mode, _ = load_frozen_creative_mode(attempt)
+        try:
+            requirements = {n.need_id: read_requirements_contract(store, compilation_input(n, plan.context_refs, mode))
+                            for n in plan.needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise DeliveryReportError('审核要求合同无效：' + str(exc), failure_kind='requirements_invalid') from exc
+        for need in plan.needs:
+            if need.need_id in requirements:
+                qualified = {m.asset_id for m in matcher.match(need, tuple(store.read_asset(a.asset_id) for a in bundle.assets)).matches}
+                _assert_observed_requirements(store, need,
+                    [store.read_asset(a.asset_id) for a in bundle.assets if a.asset_id in qualified], requirements[need.need_id])
         # Pool identity stays stable while each bounded round has its own
         # immutable nominations. Replaying completed rounds cannot reshuffle
         # an uncertain dispatch or strand the remaining candidates.
@@ -2358,6 +2433,8 @@ class MaterialProductOrchestrator:
                             # A completed model run may have written invalid JSON or
                             # stale evidence. Resume its bounded report repair below.
                             pass
+                        else:
+                            _assert_report_requirements(report, requirements[need.need_id])
                     if report is None:
                         # Pending gateway calls escape to the durable owner. Never
                         # turn an uncertain model run into a failed observation.
@@ -2383,6 +2460,7 @@ class MaterialProductOrchestrator:
                                 other_report = read_observation_report(other_path, other, asset, other_manifest)
                             except (OSError, ValueError, TypeError, AttributeError):
                                 continue  # Missing/invalid children aren't evidence and don't trigger new calls here.
+                            _assert_report_requirements(other_report, requirements[other.need_id])
                             register(other, asset, other_manifest, other_report)
             store.write_recovery_record('visual-done-' + round_key, {'completed_at': creation._now()})
             break  # One frozen batch per Owner action, then recompute the Gate.
