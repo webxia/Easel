@@ -2823,7 +2823,7 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
         GROUP_SCHEMA, read_observation_report, validate_shared_report,
     )
     from easel.materials.application.visual_contract import (
-        compilation_input, validate_compilation, classification_units, bind_classifications, batches, validate_result, assemble_report, digest,
+        compilation_input, validate_compilation, classification_units, bind_classifications, batches, validate_result, assemble_report, digest, requirements_cache_key,
     )
     from easel.materials.domain import MaterialNeed
     from easel.materials.store import AttemptMaterialStore
@@ -2845,8 +2845,12 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
             except (ValueError, OSError, TypeError, AttributeError):
                 pass
         frozen = compilation_input(need, plan.context_refs, mode)
-        contract_key = 'requirements-' + digest({'compiler_policy': 'indexed-unit-classification@7', 'input': frozen})
+        contract_key = requirements_cache_key(frozen)
         cached = store.read_recovery_record(contract_key)
+        if cached is None:
+            # Older same-turn Planning records used the raw input digest.
+            # Never bypass an invalid new-key record by falling back.
+            cached = store.read_recovery_record('requirements-' + digest(frozen))
         if cached is None:
             units = classification_units(frozen)
             compile_prompt = (
@@ -3098,6 +3102,25 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
                 frozen=attempt.get('material_planning', {}).get('status') == 'PLANNING_READY')
     # The current Domain owns every nested field. A prose subset left video
     # planning to guess duration_seconds and failed both initial and repair turns.
+    from easel.materials.application.visual_contract import PlanningRequirements
+    requirements_contract = (
+        "\n〔MATERIAL_REQUIREMENTS 正式 JSON Schema〕\n"
+        + json.dumps(PlanningRequirements.model_json_schema(), ensure_ascii=False, separators=(",", ":"))
+        + "\n〔要求正式合同结束〕\n"
+        "MATERIAL_REQUIREMENTS.json 根对象仅按所有 image/video Need 的 need_id 作键，含 required 和 optional；"
+        "不添加 plan_id/creation_id/attempt_id/context_refs/visual_requirements 包装，也不加入任何 audio Need。"
+        "每项仅 clauses/queries；clauses 按原文顺序完整覆盖 intent/description、非空 intent/function、"
+        "约束中的文本项和 modality/visual_style。path 使用 intent/description、constraints/preferred_visual_details、"
+        "modality/visual_style 等原文来源路径，不用 modality_spec/visual_style。"
+        "search_query_en/search_query_variants_en 和 search_query_variants_primary/alternate/relaxed、"
+        "voice_delivery、required_source_kind、usage 为供应元数据，不作为视觉条款。"
+        "text 逐字引用连续原文，不复制 SHA 或计算位置；kind 仅 required/preference/postproduction/unresolved。"
+        "preference_path 没有显式偏好引用时必须为 null；有引用时为原文显式软偏好路径。"
+        "preferred_visual_details/preferred_style/modality/visual_style 为软偏好，不能升级为 required；"
+        "主体、源动作、数量状态、明确禁令不得降低，有歧义保留 unresolved。"
+        "queries 给三个不同的英文短查询 primary/alternate/relaxed，各不超过100字符。"
+        "隐式继承 Mode 软偏好由程序绑定。声音 Need 仍完整保留在 MATERIAL_PLAN.json，按声音合同供应。\n"
+    )
     planning_contract = (
         "\n〔规划文件交付约束〕\n"
         "只使用本回合实际可用的工具。若 write 工具未提供或返回 Tool write not found，"
@@ -3114,6 +3137,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "严格按此当前 Domain 合同填写所有嵌套字段；不得从其他素材或 Provider 格式猜字段。"
         "视频目标时长属于 Need.duration_hint.target_seconds，不属于 modality_spec.video；"
         f"{draft_only('镜头实际时间线仍写 SCENES，由 Production 使用实际素材安排。\n')}"
+        + requirements_contract
     )
     prompt = (
         "〔Easel Material Creative Planning V1〕\n"
@@ -3199,13 +3223,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         f"context_refs: {json.dumps(refs, ensure_ascii=False, sort_keys=True)}\n"
         "MaterialPlan 必须根据当前叙事、受众、语气和导演语言提出真实 Need；"
         "禁止套用固定 IMAGE Need、固定场景数或固定媒体类型。"
-        "同轮另写 planning/MATERIAL_REQUIREMENTS.json，按视觉need_id给{clauses:[{path,text,kind,preference_path}],queries:[primary,alternate,relaxed]}。"
-        "clauses完整按原文顺序覆盖 intent/description、非空intent/function、约束中的文本项及modality/visual_style；"
-        "search_query_en/search_query_variants_en、required_source_kind、usage不作为视觉条款。"
-        "path例如intent/description、constraints/preferred_visual_details；text为连续原文片段，不复制SHA、不手算位置。"
-        "kind仅required/preference/postproduction/unresolved，重复的已允许偏好引用preference_path，其他为null；"
-        "不可降低主体/动作/数量状态/明确禁令，有歧义保留unresolved。queries三个英文短语，各100字符以内。"
-        "已隐式继承的Mode软偏好由系统绑定，不把它升级为硬要求。完整Planning仍用文件工具交付，不在聊天长文输出。"
+        "同轮另写 planning/MATERIAL_REQUIREMENTS.json，遵守下方要求正式合同。"
+        "完整 Planning 用文件工具交付，不在聊天长文输出。"
         "SCRIPT/SCENES 必须符合 Content Core 与 Truth Packet，不改写事实、隐私边界或 Director 意图。"
         "第一人称只能表达观点与反思；不得凭空写我曾做过、看过、按过、说过等已发生动作。"
         "如需创作假设，须在同一句明确写“假设”或“如果”，不得伪装成真实经历。"
@@ -3281,15 +3300,15 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         if requirements_path.exists():
             if requirements_path.is_symlink() or not requirements_path.is_file() or requirements_path.stat().st_size > 256 * 1024:
                 raise PreparationError('Planning 要求文件路径或容量无效')
-            from easel.materials.application.visual_contract import planning_contracts
+            from easel.materials.application.visual_contract import planning_contracts, read_planning_requirements
             from easel.integrations.hypit.handoff import load_frozen_creative_mode
             from easel.materials.store import AttemptMaterialStore
             try:
-                contracts = planning_contracts(plan, load_frozen_creative_mode(attempt)[0], json.loads(requirements_path.read_text(encoding='utf-8')))
+                contracts = planning_contracts(plan, load_frozen_creative_mode(attempt)[0], read_planning_requirements(requirements_path.read_text(encoding='utf-8')))
             except (ValueError, TypeError, AttributeError) as exc:
                 raise PreparationError('Planning 要求合同无效：' + str(exc)) from exc
             for identity, contract in contracts:
-                AttemptMaterialStore(root).write_recovery_record('requirements-' + identity, contract)
+                AttemptMaterialStore(root).write_recovery_record(identity, contract)
         return {"plan": plan, "context_refs": refs, "treatment": values["treatment"],
                 "script": values["script"], "scenes": values["scenes"]}
 

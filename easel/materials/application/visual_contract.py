@@ -8,12 +8,116 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from copy import deepcopy
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 from easel.materials.application.visual_observation import SCHEMA, ASSESSMENT_REVISION, need_identity
 
 REVISION = 'visual-requirements@1'
 RESULT_LIMIT = 3000
 KINDS = {'required', 'preference', 'postproduction', 'unresolved'}
+QUERY_FIELDS = {'search_query_en', 'search_query_variants_en',
+                'search_query_variants_primary', 'search_query_variants_alternate', 'search_query_variants_relaxed'}
+
+
+class PlanningClause(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    path: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    kind: Literal['required', 'preference', 'postproduction', 'unresolved']
+    preference_path: str | None
+
+
+class PlanningRequirement(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    clauses: list[PlanningClause] = Field(min_length=1, max_length=40)
+    queries: list[str] = Field(max_length=3)
+
+
+class PlanningRequirements(RootModel[dict[str, PlanningRequirement]]):
+    """Canonical sidecar: visual Need ID -> literal clauses and queries."""
+    model_config = ConfigDict(strict=True)
+
+
+def read_planning_requirements(text):
+    def unique_object(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Planning 要求 JSON 对象键重复：' + key)
+            result[key] = value
+        return result
+    return json.loads(text, object_pairs_hook=unique_object)
+
+
+def requirements_cache_key(frozen):
+    return 'requirements-' + digest({'compiler_policy': 'indexed-unit-classification@7', 'input': frozen})
+
+
+def normalize_planning_requirements(plan, response):
+    """Convert the observed transport shape, never infer a missing hard clause.
+
+    The original sidecar and Plan are untouched. Audio belongs to its own
+    contracts; only known current audio IDs may be excluded from the wrapper.
+    """
+    visual = {n.need_id: n for n in plan.needs if n.media_type.value in {'image', 'video'}}
+    data = deepcopy(response)
+    if isinstance(data, dict) and set(data) == {'plan_id', 'creation_id', 'attempt_id', 'context_refs', 'visual_requirements'}:
+        if any(data[key] != getattr(plan, key) for key in ('plan_id', 'creation_id', 'attempt_id', 'context_refs')):
+            raise ValueError('Planning 要求包装身份与当前 Plan 不一致')
+        rows = data['visual_requirements']
+        if not isinstance(rows, list):
+            raise ValueError('Planning 要求包装须为列表')
+        known = {n.need_id for n in plan.needs}
+        seen, converted = set(), {}
+        for row in rows:
+            if not isinstance(row, dict) or set(row) != {'need_id', 'clauses', 'queries'}:
+                raise ValueError('Planning 要求包装行字段无效')
+            need_id = row['need_id']
+            if not isinstance(need_id, str) or need_id not in known or need_id in seen:
+                raise ValueError('Planning 要求 Need ID 未知或重复')
+            seen.add(need_id)
+            raw = {key: row[key] for key in ('clauses', 'queries')}
+            # Even excluded audio rows must obey the observed row schema.
+            PlanningRequirement.model_validate(raw)
+            if need_id not in visual:
+                continue
+            sources = {s['path']: s['text'] for s in sources_for(visual[need_id])}
+            cursors = {path: 0 for path in sources}
+            for clause in raw['clauses']:
+                for key in ('path', 'preference_path'):
+                    if clause[key] == 'modality_spec/visual_style':
+                        clause[key] = 'modality/visual_style'
+                if clause['preference_path'] == '':
+                    clause['preference_path'] = None
+                path, text = clause['path'], clause['text']
+                if path in sources:
+                    begin = cursors[path]
+                    literal = sources[path][begin:begin + len(text)]
+                    # The observed wrapper copied curved single quotes as
+                    # ASCII. Bind only this same-position, same-length drift
+                    # back to the source; canonical maps remain verbatim.
+                    if len(literal) == len(text) and all(
+                            a == b or a in '\u2018\u2019' and b == "'"
+                            for a, b in zip(literal, text)):
+                        clause['text'] = literal
+                    cursors[path] += len(text)
+            converted[need_id] = raw
+        data = converted
+    if not isinstance(data, dict) or set(data) != set(visual):
+        raise ValueError('Planning 要求根对象须仅以全部视觉 Need ID 作键（含 optional）')
+    PlanningRequirements.model_validate(data)
+    for need_id, raw in data.items():
+        present = {c['path'] for c in raw['clauses']}
+        for source in sources_for(visual[need_id]):
+            # A whole explicit soft source has no classification ambiguity.
+            # Partial coverage or promotion is left to the strict validator.
+            if source['preference'] and source['path'] not in present:
+                raw['clauses'].append({'path': source['path'], 'text': source['text'],
+                                      'kind': 'preference', 'preference_path': None})
+    return PlanningRequirements.model_validate(data).model_dump(mode='json')
 
 
 def digest(value):
@@ -31,7 +135,7 @@ def sources_for(need):
     for key, value in need.intent.model_dump(mode='json').items():
         append('intent/' + key, value)
     for key, value in need.constraints.items():
-        if key not in {'search_query_en', 'search_query_variants_en', 'voice_delivery', 'required_source_kind', 'usage'}:
+        if key not in QUERY_FIELDS | {'voice_delivery', 'required_source_kind', 'usage'}:
             append('constraints/' + key, value, key in {'preferred_visual_details', 'preferred_style'})
     if need.modality_spec:
         for key, value in need.modality_spec.model_dump(mode='json').items():
@@ -246,8 +350,7 @@ def planning_contracts(plan, mode, response):
     character offsets. No accepted Plan or original text is rewritten here.
     """
     visual = [n for n in plan.needs if n.media_type.value in {'image', 'video'}]
-    if not isinstance(response, dict) or set(response) != {n.need_id for n in visual}:
-        raise ValueError('Planning 要求文件须覆盖全部视觉 Need')
+    response = normalize_planning_requirements(plan, response)
     bound = []
     for need in visual:
         raw = response[need.need_id]
@@ -285,5 +388,5 @@ def planning_contracts(plan, mode, response):
         frozen = compilation_input(need, plan.context_refs, mode)
         compiled = {'clauses': rows, 'queries': raw['queries']}
         contract = validate_compilation(frozen, compiled)
-        bound.append((digest(frozen), {'input': frozen, 'response': compiled, 'contract': contract}))
+        bound.append((requirements_cache_key(frozen), {'input': frozen, 'response': compiled, 'contract': contract}))
     return bound

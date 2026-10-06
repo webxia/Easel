@@ -1158,6 +1158,9 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
     assert "不能写 orientation" in prompt_seen[0]
     contract = json.loads(prompt_seen[0].split("〔MaterialPlan 正式 JSON Schema〕\n")[1].split("\n〔正式合同结束〕")[0])
     assert contract == MaterialPlan.model_json_schema()
+    from easel.materials.application.visual_contract import PlanningRequirements
+    requirements_schema = json.loads(prompt_seen[0].split("〔MATERIAL_REQUIREMENTS 正式 JSON Schema〕\n")[1].split("\n〔要求正式合同结束〕")[0])
+    assert requirements_schema == PlanningRequirements.model_json_schema()
     assert "duration_seconds" not in contract["$defs"]["VideoNeedSpec"]["properties"]
     assert "target_seconds" in contract["$defs"]["DurationHint"]["properties"]
     assert result["plan"].needs[0].media_type is MediaType.VIDEO
@@ -1197,6 +1200,8 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
     monkeypatch.setattr(web, "run_agent_sync", material_only)
     result = web._material_planning_executor(attempt, {"context_refs": refs})
     assert len(requests) == 2
+    for request in requests:
+        assert json.loads(request.split("〔MATERIAL_REQUIREMENTS 正式 JSON Schema〕\n")[1].split("\n〔要求正式合同结束〕")[0]) == PlanningRequirements.model_json_schema()
     assert result["script"] == confirmed["script"]
     assert result["scenes"] == confirmed["scenes"]
     assert result['treatment'] == confirmed['treatment'] + '\n\n## 声音设计\n' + confirmed['sound']
@@ -2162,3 +2167,87 @@ def test_quality_saved_report_is_reused_and_invalid_draft_gets_only_local_repair
     path.write_text('{invalid')
     assert web._review_output_frames(attempt, manifest, []) == report
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize('cache_state', ['current', 'legacy', 'corrupt_current'])
+def test_real_planning_contract_reaches_visual_consumer_without_reclassification(tmp_path, monkeypatch, cache_state):
+    from easel.materials.application.visual_contract import (
+        compilation_input, digest, requirements_cache_key, validate_compilation,
+    )
+    from easel.materials.application.visual_observation import prepare_observation
+    from easel.materials.domain import (
+        MaterialAsset, CandidateSource, FileInfo, TechnicalInfo, TechnicalStatus, RightsInfo, RightsStatus,
+    )
+    from easel.materials.store import AttemptMaterialStore
+    fixture = Path(__file__).parent / 'fixtures/planning-material-contract-2026-10-06'
+    plan = MaterialPlan.model_validate_json((fixture / 'MATERIAL_PLAN.json').read_bytes())
+    root = tmp_path / 'attempt'
+    planning_dir = root / 'planning'
+    planning_dir.mkdir(parents=True)
+    for name in ('MATERIAL_PLAN.json', 'MATERIAL_REQUIREMENTS.json'):
+        (planning_dir / name).write_bytes((fixture / name).read_bytes())
+    for name in ('TREATMENT.md', 'SCRIPT.md', 'SCENES.md'):
+        (planning_dir / name).write_text('隔离合同回放，不是生产输入。')
+    attempt = {'creation_id': plan.creation_id, 'attempt_id': plan.attempt_id, 'workspace': {'path': str(root)}}
+    monkeypatch.setattr(web, 'get_creation', lambda *_: {})
+    # A scene-specific style overrides the frozen Mode default exactly as
+    # PlanningIntegration.persist does; the Plan/sidecar bytes stay original.
+    mode = {'visual_material_style': 'fixture mode fallback'}
+    monkeypatch.setattr(handoff, 'load_frozen_creative_mode', lambda *_: (mode, plan.context_refs['creative_mode_sha256']))
+    monkeypatch.setattr(web, 'run_agent_sync', lambda *_a, **_k: pytest.fail('valid real draft needs no Planning or repair call'))
+    before = {p.name: p.read_bytes() for p in planning_dir.iterdir()}
+    planned = web._material_planning_executor(attempt, {'context_refs': plan.context_refs})
+    assert planned['plan'] == plan
+    assert {p.name: p.read_bytes() for p in planning_dir.iterdir()} == before
+    store = AttemptMaterialStore(root)
+    bound_needs = tuple(n.model_copy(update={'constraints': {**n.constraints, 'preferred_style': n.modality_spec.visual_style}})
+                        if n.media_type in {MediaType.IMAGE, MediaType.VIDEO} else n for n in plan.needs)
+    bound_plan = plan.model_copy(update={'needs': bound_needs})
+    store.write_plan(bound_plan)
+    asset_path = root / 'materials/assets/paper/original.png'
+    asset_path.parent.mkdir(parents=True)
+    Image.new('RGB', (12, 12), color='white').save(asset_path)
+    raw = asset_path.read_bytes()
+    asset = MaterialAsset(asset_id='paper', media_type=MediaType.IMAGE,
+        file=FileInfo(path='materials/assets/paper/original.png', sha256=hashlib.sha256(raw).hexdigest(), size=len(raw), mime='image/png'),
+        source=CandidateSource(kind='fixture'), rights=RightsInfo(status=RightsStatus.UNKNOWN),
+        technical=TechnicalInfo(status=TechnicalStatus.PASSED))
+    store.write_asset(asset)
+    calls = []
+    def observed(_attempt, payload, _prompt, *, attachments=None):
+        # Any fallback classification would fail this protocol assertion.
+        assert payload['protocol'] == 'material-compact-observation@4'
+        assert attachments
+        calls.append(payload)
+        return {'frame': payload['frame']['index'], 'observed': True,
+            'description': 'deterministic fixture pixels', 'style': 'white fixture', 'logo': None, 'text': None,
+            'checks': [{'id': c['id'], 'status': 'unknown', 'basis': 'fixture cannot establish creative suitability'} for c in payload['clauses']],
+            'preference_notes': 'not a real material evaluation'}
+    monkeypatch.setattr(web, '_material_compact_result', observed)
+    visual = [n for n in bound_needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}]
+    assert len(list((store.materials_root / 'recoveries').glob('requirements-*.json'))) == 7
+    for need in visual:
+        frozen = compilation_input(need, bound_plan.context_refs, mode)
+        key = requirements_cache_key(frozen)
+        saved = store.read_recovery_record(key)
+        assert saved['input'] == frozen
+        assert validate_compilation(frozen, saved['response']) == saved['contract']
+        if cache_state != 'current':
+            store.write_recovery_record('requirements-' + digest(frozen), saved)
+            if cache_state == 'legacy':
+                (store.materials_root / 'recoveries' / (key + '.json')).unlink()
+            else:
+                broken = {**saved, 'contract': {**saved['contract'], 'queries': []}}
+                store.write_recovery_record(key, broken)
+        manifest, attachments = prepare_observation(need, asset, asset_path)
+        if cache_state == 'corrupt_current':
+            with pytest.raises(prep.PreparationError, match='保存结果不一致'):
+                web._observe_material_frames(attempt, manifest, attachments)
+            assert not calls
+        else:
+            report = web._observe_material_frames(attempt, manifest, attachments)
+            assert report['verdict'] == 'uncertain'
+            assert report['requirements_contract'] == saved['contract']
+    assert len(calls) == (0 if cache_state == 'corrupt_current' else 7)
+    assert [n.model_dump(mode='json') for n in bound_needs if n.media_type is MediaType.AUDIO] == [n.model_dump(mode='json') for n in plan.needs if n.media_type is MediaType.AUDIO]
+    assert (planning_dir / 'MATERIAL_REQUIREMENTS.json').read_bytes() == before['MATERIAL_REQUIREMENTS.json']

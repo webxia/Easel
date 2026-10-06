@@ -195,7 +195,7 @@ def test_independent_interval_closes_low_confidence_without_rewriting_probabilit
 
 def test_same_planning_turn_binds_requirements_and_queries_to_the_canonical_need():
     from easel.materials.domain import MaterialPlan
-    from easel.materials.application.visual_contract import planning_contracts, digest
+    from easel.materials.application.visual_contract import planning_contracts, requirements_cache_key
     need = visual_need()
     mode = {'visual_material_style': 'restrained daylight'}
     plan = MaterialPlan(plan_id='plan', creation_id='creation', attempt_id='attempt', needs=(need,))
@@ -204,7 +204,7 @@ def test_same_planning_turn_binds_requirements_and_queries_to_the_canonical_need
         {'path': 'constraints/preferred_visual_details', 'text': 'low angle', 'kind': 'preference', 'preference_path': None}],
         'queries': ['two paper sheets', 'paper pages on desk', 'paper documents']}}
     identity, saved = planning_contracts(plan, mode, response)[0]
-    assert identity == digest(saved['input'])
+    assert identity == requirements_cache_key(saved['input'])
     assert saved['contract']['queries'][0] == 'two paper sheets'
     assert saved['input']['need']['constraints']['preferred_style'] == mode['visual_material_style']
     assert saved['contract']['clauses'][-1]['kind'] == 'preference'
@@ -262,3 +262,67 @@ def test_sparse_voice_uncertainty_keeps_exact_text_time_and_rights_boundaries(fa
         unbound = observed.model_copy(update={'file': observed.file.model_copy(update={'sha256': 'b' * 64})})
         assert not voice_content_observed(need, unbound)
     assert report == original  # Scores, text and times are evidence, not editable gates.
+
+
+@pytest.mark.parametrize('fault', [None, 'missing_visual', 'duplicate', 'unknown_need',
+    'wrong_identity', 'wrong_context', 'missing_required', 'wrong_text', 'unknown_path', 'preference_promoted',
+    'partial_preference', 'missing_quote'])
+def test_real_failed_planning_sidecar_is_bound_without_changing_needs(fault):
+    import json
+    from pathlib import Path
+    from easel.materials.domain import MaterialPlan
+    from easel.materials.application.visual_contract import planning_contracts, normalize_planning_requirements, sources_for, requirements_cache_key
+    fixture = Path(__file__).parent / 'fixtures/planning-material-contract-2026-10-06'
+    raw_plan = (fixture / 'MATERIAL_PLAN.json').read_bytes()
+    raw_response = (fixture / 'MATERIAL_REQUIREMENTS.json').read_bytes()
+    assert hashlib.sha256(raw_plan).hexdigest() == '13085a5d247f4a7f128abdfdf813201016d070e96e08c5b43fa370067a3b1516'
+    assert hashlib.sha256(raw_response).hexdigest() == 'c40e165d0c30d9177dcaa8fe08552e4d2b74b91dfde9b4a8ebe2c81e4c402f59'
+    plan = MaterialPlan.model_validate_json(raw_plan)
+    response = json.loads(raw_response)
+    before = plan.model_dump(mode='json')
+    if fault == 'missing_visual': response['visual_requirements'].pop(6)  # optional still mandatory in contract
+    elif fault == 'duplicate': response['visual_requirements'].append(deepcopy(response['visual_requirements'][0]))
+    elif fault == 'unknown_need': response['visual_requirements'][-1]['need_id'] = 'unknown'
+    elif fault == 'wrong_identity': response['attempt_id'] = 'other-attempt'
+    elif fault == 'wrong_context': response['context_refs']['production_brief_sha256'] = 'other'
+    elif fault == 'missing_required': response['visual_requirements'][0]['clauses'].pop(0)
+    elif fault == 'wrong_text': response['visual_requirements'][0]['clauses'][0]['text'] = response['visual_requirements'][0]['clauses'][0]['text'].replace('quiet desk', 'quiet disk')
+    elif fault == 'unknown_path': response['visual_requirements'][0]['clauses'][0]['path'] = 'intent/unknown'
+    elif fault == 'preference_promoted': response['visual_requirements'][0]['clauses'][-1]['kind'] = 'required'
+    elif fault == 'partial_preference': response['visual_requirements'][0]['clauses'].append({
+        'path': 'constraints/preferred_visual_details', 'text': 'warm', 'kind': 'preference', 'preference_path': ''})
+    elif fault == 'missing_quote': response['visual_requirements'][2]['clauses'][0]['text'] = response['visual_requirements'][2]['clauses'][0]['text'].replace("'", '', 1)
+    original = deepcopy(response)
+    if fault:
+        with pytest.raises(ValueError): planning_contracts(plan, {}, response)
+    else:
+        canonical = normalize_planning_requirements(plan, response)
+        visual = [n for n in plan.needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}]
+        assert set(canonical) == {n.need_id for n in visual}
+        assert len(visual) == 7
+        assert [n.importance.value for n in plan.needs] == ['required'] * 6 + ['optional', 'required', 'required', 'optional', 'optional']
+        contracts = planning_contracts(plan, {}, response)
+        assert contracts == planning_contracts(plan, {}, canonical)
+        quoted = deepcopy(canonical)
+        need_id = visual[2].need_id
+        quoted[need_id]['clauses'][0]['text'] = quoted[need_id]['clauses'][0]['text'].replace('\u2018', "'").replace('\u2019', "'")
+        with pytest.raises(ValueError, match='引用不等于原文'):
+            planning_contracts(plan, {}, quoted)
+        assert len(contracts) == 7
+        for need, (key, saved) in zip(visual, contracts):
+            assert key == requirements_cache_key(saved['input'])
+            assert validate_compilation(saved['input'], saved['response']) == saved['contract']
+            assert saved['input']['need']['importance'] == need.importance.value
+            clauses = saved['contract']['clauses']
+            for source in sources_for(need):
+                assert ''.join(c['text'] for c in clauses if saved['input']['sources'][c['source']]['path'] == source['path']) == source['text']
+            assert all(c['kind'] == 'preference' for c in clauses if c['text'] == need.constraints['preferred_visual_details'])
+            assert not any(c['text'] in [need.constraints[k] for k in ('search_query_variants_primary', 'search_query_variants_alternate', 'search_query_variants_relaxed')] for c in clauses)
+        # Canonical map never accepts audio IDs or extra wrappers.
+        canonical[plan.needs[-1].need_id] = {'clauses': [], 'queries': []}
+        with pytest.raises(ValueError): planning_contracts(plan, {}, canonical)
+        from easel.materials.application.visual_contract import read_planning_requirements
+        with pytest.raises(ValueError, match='对象键重复'):
+            read_planning_requirements('{"visual":{},"visual":{}}')
+    assert plan.model_dump(mode='json') == before
+    assert response == original

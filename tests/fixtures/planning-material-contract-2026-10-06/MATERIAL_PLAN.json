@@ -1,0 +1,439 @@
+{
+  "plan_id": "plan-c017098064d189ce84e4",
+  "creation_id": "cr_94b5d27f5fb140de85981cecba009a9d",
+  "attempt_id": "fa_2368857a95b3c017098064d189ce84e4",
+  "context_refs": {
+    "content_core_sha256": "sha256:2a3b91da631d61dbe3c94684591fff3f1677abf03b3a729d8a49405bc6c58309",
+    "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+    "creator_context_sha256": "sha256:ccc5441480f24d9656eb2d035371ec2f5cf34bdacd51886c9ccdf4d5d7dac4f3",
+    "production_brief_sha256": "sha256:67d1177a417bb9e14ca4a2e00145cfd1511154ac1966ee3e60a858297326dded",
+    "truth_packet_sha256": "sha256:e59e4b3e6b61024e1c06d5ad6bc781752bc566ce0e75e06185c70779c25747b4"
+  },
+  "needs": [
+    {
+      "need_id": "V01_desk_overhead_paper_list_with_pen",
+      "scope": {
+        "type": "scene",
+        "ref": "B-01"
+      },
+      "media_type": "image",
+      "role": "establishing_shot",
+      "intent": {
+        "description": "Top-down view of a quiet desk with one paper to-do list and one pen resting beside it; the list shows several handwritten or printed line items. No circling. Must not show a human face, company logo, tool watermark, or CTA. Must not fabricate a real person, a real drawing action, or a specific readable Chinese list.",
+        "function": "Establish the 'list as object' presence and the quiet everyday setting before the question is asked."
+      },
+      "duration_hint": {
+        "target_seconds": 6
+      },
+      "constraints": {
+        "search_query_en": "overhead paper to-do list pen on quiet wooden desk",
+        "search_query_variants_primary": "overhead paper to-do list pen on quiet wooden desk",
+        "search_query_variants_alternate": "top-down flat lay notepad with checklist and pen",
+        "search_query_variants_relaxed": "desk still life paper list writing tools",
+        "preferred_visual_details": "warm low-saturation natural light, paper occupies center, pen resting untouched, soft shallow depth",
+        "allow_generation": true
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "B-01"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "V02_flat_lay_list_multiple_items_visible",
+      "scope": {
+        "type": "scene",
+        "ref": "B-02"
+      },
+      "media_type": "image",
+      "role": "evidence_shot",
+      "intent": {
+        "description": "Flat-lay or slowly pushed-in close shot of the same paper list where multiple items are still visible with no deletion marks, no strikethrough, no checkmarks. The list is the main subject; nothing is crossed out. Must not show a human face, company logo, tool watermark, or CTA. Must not fabricate a real hand marking the page or a specific Chinese sentence.",
+        "function": "Prove visually that 'all items are still on the paper' before the circling beat, so the later 'kept, not deleted' message has a visual anchor."
+      },
+      "duration_hint": {
+        "target_seconds": 6
+      },
+      "constraints": {
+        "search_query_en": "flat lay paper checklist several items no strikethrough",
+        "search_query_variants_primary": "flat lay paper checklist several items no strikethrough",
+        "search_query_variants_alternate": "close-up handwritten to-do list items still visible",
+        "search_query_variants_relaxed": "notepad page with several handwritten lines untouched",
+        "preferred_visual_details": "gentle Ken Burns push-in, items visibly untouched, no annotation marks added",
+        "allow_generation": true
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "B-02"
+        },
+        {
+          "kind": "scene",
+          "ref": "B-01"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "V03_blank_paper_area_for_question_overlay",
+      "scope": {
+        "type": "scene",
+        "ref": "B-03"
+      },
+      "media_type": "image",
+      "role": "subtitle_backdrop",
+      "intent": {
+        "description": "A quiet frame of paper negative space (blank or lightly textured paper area) with enough empty room to host a single line of simplified Chinese subtitle text ‘如果今天只完成一件，哪一件最值得？’. Must not show a human face, company logo, tool watermark, or CTA. The image itself must not contain fabricated brand text or fake UI.",
+        "function": "Provide the calm visual base for the independent on-screen subtitle that, together with the same-spoken narration line, carries the 'different question' visual weight."
+      },
+      "duration_hint": {
+        "target_seconds": 8
+      },
+      "constraints": {
+        "search_query_en": "blank paper with generous empty space for subtitle",
+        "search_query_variants_primary": "blank paper with generous empty space for subtitle",
+        "search_query_variants_alternate": "soft textured paper background negative space",
+        "search_query_variants_relaxed": "minimalist paper surface calm daylight",
+        "preferred_visual_details": "centered negative space, low contrast, no sharp shadows, no pre-existing words",
+        "allow_generation": true
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "B-03"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "V04_list_with_one_item_circled_others_kept",
+      "scope": {
+        "type": "scene",
+        "ref": "B-04"
+      },
+      "media_type": "image",
+      "role": "core_evidence_shot",
+      "intent": {
+        "description": "Paper list back in frame: exactly one item is enclosed by a single light thin hand-drawn style circle (presented as an editing reveal, not a live drawing action), while all other items keep their original writing untouched — no strikethrough, no cross-out, no checkmark, no smudge, no deletion. The on-screen subtitle ‘其它项目仍保留在纸上。’ must co-exist with this frame. Must not show a human face, company logo, tool watermark, or CTA. Must not fabricate a real drawing process, a specific hand, or readable Chinese items.",
+        "function": "Carry the 'one item highlighted, the others kept, nothing deleted' meaning jointly with the on-screen subtitle; this is the mandatory visual half of the dual carrier the Brief requires."
+      },
+      "duration_hint": {
+        "target_seconds": 8
+      },
+      "constraints": {
+        "search_query_en": "to-do list one item circled others kept untouched",
+        "search_query_variants_primary": "to-do list one item circled others kept untouched",
+        "search_query_variants_alternate": "checklist single item circled by pen no marks on other lines",
+        "search_query_variants_relaxed": "handwritten list with one circled entry others pristine",
+        "preferred_visual_details": "single thin circle, other items visually intact, no added annotations",
+        "allow_generation": true
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "B-04"
+        },
+        {
+          "kind": "scene",
+          "ref": "B-01"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "V05_pan_across_undeleted_items",
+      "scope": {
+        "type": "scene",
+        "ref": "B-05"
+      },
+      "media_type": "image",
+      "role": "supporting_evidence_shot",
+      "intent": {
+        "description": "Frame composed to allow a slow lateral or fading pan across several items of the list that are visibly NOT crossed out and NOT checked off, with the circled item as one anchor. The on-screen subtitle ‘没有删除 · 仅做优先级。’ must co-exist with this frame. Must not show a human face, company logo, tool watermark, or CTA. Must not fabricate a real hand moving across the paper or readable Chinese items.",
+        "function": "Visually prove 'no deletion, only priority' — the second half of the dual carrier, complementing the circled-item frame."
+      },
+      "duration_hint": {
+        "target_seconds": 8
+      },
+      "constraints": {
+        "search_query_en": "list of items none crossed out calm close-up",
+        "search_query_variants_primary": "list of items none crossed out calm close-up",
+        "search_query_variants_alternate": "handwritten to-do lines intact no deletion marks",
+        "search_query_variants_relaxed": "notepad page multiple entries pristine",
+        "preferred_visual_details": "composition supports gentle lateral pan, items visibly untouched",
+        "allow_generation": true
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "B-05"
+        },
+        {
+          "kind": "scene",
+          "ref": "B-04"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "V06_circled_item_close_with_pen_at_edge",
+      "scope": {
+        "type": "scene",
+        "ref": "B-06"
+      },
+      "media_type": "image",
+      "role": "return_shot",
+      "intent": {
+        "description": "Frame returns to the circled item on the list, with the pen resting at the edge of the paper, not picked up, not in motion. The circled item is the visual focus; nothing else is added. Must not show a human face, company logo, tool watermark, or CTA. Must not fabricate a real hand reaching for the pen.",
+        "function": "Close the loop on 'one item, the list is still here' without suggesting any 'efficient execution' next step."
+      },
+      "duration_hint": {
+        "target_seconds": 7
+      },
+      "constraints": {
+        "search_query_en": "circled to-do item pen resting at paper edge",
+        "search_query_variants_primary": "circled to-do item pen resting at paper edge",
+        "search_query_variants_alternate": "close-up one circled list entry pen still on desk",
+        "search_query_variants_relaxed": "notepad close-up single circled line",
+        "preferred_visual_details": "pen visibly still at edge, no reaching hand",
+        "allow_generation": true
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "B-06"
+        },
+        {
+          "kind": "scene",
+          "ref": "B-04"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "V07_static_list_edge_for_pause",
+      "scope": {
+        "type": "scene",
+        "ref": "B-07"
+      },
+      "media_type": "image",
+      "role": "closing_still",
+      "intent": {
+        "description": "A still frame on the edge of the paper list, low-saturation, minimal detail, used as a 2-second quiet pause before fade-out. No additional annotations. Must not show a human face, company logo, tool watermark, or CTA.",
+        "function": "Provide the unresolved, no-CTA, no-solution landing frame that the Director Treatment requires."
+      },
+      "duration_hint": {
+        "target_seconds": 2
+      },
+      "constraints": {
+        "search_query_en": "paper edge close-up calm minimal low saturation",
+        "search_query_variants_primary": "paper edge close-up calm minimal low saturation",
+        "search_query_variants_alternate": "notepad corner still life soft light",
+        "search_query_variants_relaxed": "blank paper edge texture soft daylight",
+        "preferred_visual_details": "static, no annotation, gentle light",
+        "allow_generation": true
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "B-07"
+        }
+      ],
+      "importance": "optional",
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "A01_voice_narration_seven_lines",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "media_type": "audio",
+      "role": "primary_narration",
+      "intent": {
+        "description": "Real, audible Mandarin narration reading the seven-line script verbatim, in the existing preset account voice. Tone is light memo reading: not a broadcast, not a coach, no deliberate emphasis, no fake intimacy.",
+        "function": "Carry the work's spoken content as the unchanged seven-line script; the runtime audio identity of the account."
+      },
+      "duration_hint": {
+        "target_seconds": 43
+      },
+      "constraints": {
+        "voice_delivery_pace_ratio": 0.92,
+        "voice_delivery_pitch_semitones": 0,
+        "voice_delivery_tone": "neutral",
+        "language": "zh-CN"
+      },
+      "continuity_refs": [
+        {
+          "kind": "global",
+          "ref": "global"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "voice",
+        "identity": {
+          "source": "creator_context",
+          "reference": "preset_account_voice_id_runtime"
+        },
+        "delivery_description": "轻声读备忘录的口吻；不挑口播、不上励、不点重音、不刻意降低；语速中等，停顿自然；与旁观者视角一致，不假装亲历成功。"
+      }
+    },
+    {
+      "need_id": "A02_bgm_low_instrumental_under_narration",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "media_type": "audio",
+      "role": "supporting_music",
+      "intent": {
+        "description": "Calm, restrained instrumental BGM that sits below the narration throughout, gently fading in before B-03 and fading out at the end. No synthesized beat, no motivational pulse, no vocals, no unlicensed material. Must be drawn from the compliant instrumental library, never AI-generated music.",
+        "function": "Provide a low emotional floor for the memo-style narration without competing with it, while satisfying the hard requirement that legal instrumental BGM be present."
+      },
+      "duration_hint": {
+        "target_seconds": 45
+      },
+      "constraints": {
+        "ducking_gain_ratio": 0.25,
+        "ducking_attack_seconds": 0.12,
+        "ducking_release_seconds": 0.45
+      },
+      "continuity_refs": [
+        {
+          "kind": "global",
+          "ref": "global"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "bgm",
+        "mood": "calm restrained reflective",
+        "genre": "ambient instrumental",
+        "instruments": [
+          "piano"
+        ],
+        "vocals_allowed": false,
+        "energy": "low",
+        "tempo_bpm": [
+          60,
+          80
+        ]
+      }
+    },
+    {
+      "need_id": "A03_sfx_pen_on_paper",
+      "scope": {
+        "type": "event",
+        "ref": "sfx_pen_paper"
+      },
+      "media_type": "audio",
+      "role": "subtle_action_sfx",
+      "intent": {
+        "description": "A very light, occasional sound of a pen resting or lightly touching paper, used sparingly only in BGM gaps if at all. Must not be used as a substitute for BGM, must not include whoosh, impact or notification-style sound design.",
+        "function": "Add a faint everyday physical cue that supports the 'pen + paper' visual without becoming a sound effect layer in itself."
+      },
+      "constraints": {},
+      "continuity_refs": [
+        {
+          "kind": "event",
+          "ref": "sfx_pen_paper"
+        }
+      ],
+      "importance": "optional",
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "sfx",
+        "event_description": "pen lightly resting or barely touching paper",
+        "sound_character": "soft, low-volume, dry",
+        "intensity": "very low",
+        "environment": "quiet indoor desk"
+      }
+    },
+    {
+      "need_id": "A04_sfx_paper_rustle",
+      "scope": {
+        "type": "event",
+        "ref": "sfx_paper_rustle"
+      },
+      "media_type": "audio",
+      "role": "subtle_action_sfx",
+      "intent": {
+        "description": "A very light, occasional paper rustle used sparingly only in BGM gaps if at all. Must not be used as a substitute for BGM, must not include whoosh, impact or notification-style sound design.",
+        "function": "Add a faint everyday physical cue that supports the paper-list visual without becoming a sound effect layer in itself."
+      },
+      "constraints": {},
+      "continuity_refs": [
+        {
+          "kind": "event",
+          "ref": "sfx_paper_rustle"
+        }
+      ],
+      "importance": "optional",
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "sfx",
+        "event_description": "soft paper page rustle",
+        "sound_character": "soft, low-volume, dry",
+        "intensity": "very low",
+        "environment": "quiet indoor desk"
+      }
+    }
+  ]
+}
