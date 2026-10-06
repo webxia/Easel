@@ -6,7 +6,7 @@ import re
 from collections.abc import Iterable
 
 from easel.materials.domain import BgmNeedSpec, MaterialNeed, RetrievalIntent, VoiceNeedSpec
-from easel.materials.application.voice_delivery import validate_voice_delivery
+from easel.materials.application.need_constraints import validate_modality_constraints
 
 
 class NeedCompilationError(ValueError):
@@ -32,6 +32,10 @@ class NeedCompiler:
         creator_context_terms: Iterable[str] = (),
         creative_mode_terms: Iterable[str] = (),
     ) -> RetrievalIntent:
+        try:
+            validate_modality_constraints((need,))
+        except ValueError as exc:
+            raise NeedCompilationError(str(exc)) from exc
         description = self._normalize(need.intent.description)
         if not description:
             raise NeedCompilationError(f"Need {need.need_id!r} has an empty intent description")
@@ -57,8 +61,6 @@ class NeedCompiler:
                     raise NeedCompilationError('search_query_en 须为不超过 100 字符的英文短查询')
                 continue  # Discovery wording never changes the original meaning/filter.
             if key == "preferred_visual_details":
-                if need.media_type.value not in {"image", "video"} or not isinstance(value, str) or not value.strip():
-                    raise NeedCompilationError("preferred_visual_details 须为视觉 Need 的非空偏好说明")
                 # Director discretion is not a stock Provider hard filter.
                 continue
             if key == "voice_delivery" and isinstance(need.modality_spec, VoiceNeedSpec):
@@ -66,14 +68,10 @@ class NeedCompiler:
                 # generation. They cannot be represented as stock-search filters.
                 # Validate the known contract rather than discarding arbitrary
                 # structured constraints (which must still fail below).
-                try:
-                    validate_voice_delivery(value)
-                except ValueError as exc:
-                    raise NeedCompilationError(str(exc)) from exc
                 continue
             if not isinstance(value, self._FILTER_VALUE_TYPES):
                 raise NeedCompilationError(
-                    f"Constraint {key!r} is not representable as a scalar retrieval filter"
+                    f"Need {need.need_id!r} constraints.{key} is not representable as a scalar retrieval filter"
                 )
             if key in filters and filters[key] != value:
                 raise NeedCompilationError(f"Constraint {key!r} conflicts with a canonical Need filter")

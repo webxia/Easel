@@ -90,6 +90,8 @@ class MiniMaxImageSpeechGeneration:
             raise ValueError("Generation request id is invalid")
         if need not in plan.needs or need.media_type not in {MediaType.IMAGE, MediaType.AUDIO}:
             raise ValueError("MiniMax image/speech generation requires a matching Need in the supplied plan")
+        from easel.materials.application.need_constraints import validate_modality_constraints
+        validate_modality_constraints((need,))
 
         is_voice = need.media_type is MediaType.AUDIO
         spec = need.modality_spec

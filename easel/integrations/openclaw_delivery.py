@@ -155,7 +155,8 @@ def reconcile_agent_calls(creation_id: str, *, command_prefix: Sequence[str], pr
 
 
 def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.run,
-                       attachments: list[dict] | None = None, capture_reply: bool = False, **kwargs):
+                       attachments: list[dict] | None = None, capture_reply: bool = False,
+                       retry_failed: bool = True, **kwargs):
     """Replacement for an agent CLI call, retaining the existing file executor."""
     creation_id = active_delivery.get()
     if not creation_id:
@@ -192,12 +193,12 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
         _release_call_runtime(creation_id, digest, command_prefix=prefix, profile=profile,
                               runner=runner, kwargs=kwargs)
     visual_model = None
-    if attachments and (existing is None or (existing.get("status") == "error" and existing.get("failure_observed"))):
+    if attachments and (existing is None or (retry_failed and existing.get("status") == "error" and existing.get("failure_observed"))):
         visual_model = _visual_model(prefix, profile, request["agentId"], runner, kwargs)
     with creation.edit_creation(creation_id) as work:
         calls = work["delivery"].setdefault("agent_calls", {})
         call = calls.get(digest)
-        if call is None or (call.get("status") == "error" and call.get("failure_observed")):
+        if call is None or (retry_failed and call.get("status") == "error" and call.get("failure_observed")):
             if any(c.get("status") in {"submitting", "pending"}
                    for c in calls.values()):
                 raise DeliveryExecutionUncertain("已有未知提交，先核对原执行，不派发不同请求")

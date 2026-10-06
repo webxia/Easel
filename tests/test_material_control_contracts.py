@@ -326,3 +326,34 @@ def test_real_failed_planning_sidecar_is_bound_without_changing_needs(fault):
             read_planning_requirements('{"visual":{},"visual":{}}')
     assert plan.model_dump(mode='json') == before
     assert response == original
+
+
+@pytest.mark.parametrize('filename', ['MATERIAL_PLAN_OBJECT.json', 'MATERIAL_PLAN.json'])
+def test_real_second_failure_rejects_misplaced_sound_without_mutating_needs(filename):
+    from pathlib import Path
+    from easel.materials.domain import MaterialPlan
+    from easel.materials.application.compiler import NeedCompiler, NeedCompilationError
+    from easel.materials.application.need_constraints import validate_modality_constraints
+    from easel.materials.application.visual_contract import sources_for
+    folder = Path(__file__).parent / 'fixtures/planning-modality-contract-2026-10-06'
+    raw = (folder / filename).read_bytes()
+    expected = {'MATERIAL_PLAN_OBJECT.json': 'b347ba43209dafb9b04b0420aae4317dac04cca1a5b27739f6f70b730b102b3e',
+                'MATERIAL_PLAN.json': 'eacacfca9ed6a8d68f470f48c5812b0c32960cbb4bcce39174561f649432fd8f'}
+    assert hashlib.sha256(raw).hexdigest() == expected[filename]
+    plan = MaterialPlan.model_validate_json(raw)
+    before = plan.to_json()
+    assert len(plan.needs) == 10
+    assert sum(n.importance is NeedImportance.REQUIRED for n in plan.needs) == 9
+    with pytest.raises(ValueError, match='constraints.voice_'):
+        validate_modality_constraints(plan.needs)
+    for need in plan.needs:
+        if filename.endswith('OBJECT.json') and isinstance(need.modality_spec, VoiceNeedSpec):
+            intent = NeedCompiler().compile(need)
+            assert not {'voice_delivery', 'voice_pace_ratio', 'voice_pitch_semitones', 'voice_tone'}.intersection(intent.filters)
+        else:
+            with pytest.raises(NeedCompilationError, match=need.need_id):
+                NeedCompiler().compile(need)
+        if need.media_type in {MediaType.IMAGE, MediaType.VIDEO}:
+            with pytest.raises(ValueError, match=need.need_id):
+                sources_for(need)
+    assert plan.to_json() == before

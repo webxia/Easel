@@ -280,6 +280,11 @@ class PlanningIntegration:
     ) -> dict[str, Any]:
         if plan.creation_id != attempt.get("creation_id") or plan.attempt_id != attempt.get("attempt_id"):
             raise MaterialIntegrationError("MaterialPlan identity does not match Attempt")
+        from easel.materials.application.need_constraints import validate_modality_constraints
+        try:
+            validate_modality_constraints(plan.needs)
+        except ValueError as exc:
+            raise MaterialIntegrationError(str(exc)) from exc
         for name, value in (("TREATMENT.md", treatment), ("SCRIPT.md", script), ("SCENES.md", scenes)):
             if not isinstance(value, str) or not value.strip() or "\x00" in value:
                 raise MaterialIntegrationError(f"Planning artifact {name} 不能为空")

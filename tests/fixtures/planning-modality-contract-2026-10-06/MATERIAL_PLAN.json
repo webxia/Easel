@@ -1,0 +1,328 @@
+{
+  "plan_id": "plan-224b82f5347174850a1b",
+  "creation_id": "cr_223021d92de643f0a35faea2907de7ed",
+  "attempt_id": "fa_d5e99b227faa224b82f5347174850a1b",
+  "context_refs": {
+    "content_core_sha256": "sha256:8548e416934a463a8c6d7642b89293f60539208f9f98428e20f23766438fb388",
+    "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+    "creator_context_sha256": "sha256:f0561846c248039e084c1f5c08fbe8355246f96f2a34cfa112e9d4d3a229fda4",
+    "production_brief_sha256": "sha256:1147dc680ab952a9feed6d269ef8e088193c76131da847ec606a370e9d8cc5bb",
+    "truth_packet_sha256": "sha256:304e7a6bc1e6ee4973b86f74ea4d3176cf3c74856444bc310ac96175e8e6a278"
+  },
+  "policy": {
+    "background_music_local_priority": "lowest_local_first",
+    "background_music_honor_license_attribution": "true",
+    "background_music_no_synth_or_fake_ambience": "true",
+    "background_music_no_ai_music_request": "true",
+    "voice_inherit_mode_defaults": "true",
+    "subtitle_track_split_from_visual_caption": "true",
+    "no_face_logo_watermark_cta": "true",
+    "no_expert_or_assertion_framing": "true",
+    "inter_shot_no_continuous_desk_or_hand": "true",
+    "list_items_need_not_be_readable_chinese_or_count_n": "true",
+    "ai_video_or_ai_music_disallowed": "true",
+    "timeline_follows_full_voice_no_empty_tail": "true"
+  },
+  "needs": [
+    {
+      "need_id": "img-b01",
+      "scope": {
+        "type": "scene",
+        "ref": "B-01"
+      },
+      "media_type": "image",
+      "role": "opening_beats",
+      "intent": {
+        "description": "俯拍日常桌面，一份纸质待办清单与一支笔静置；清单可见若干手写/打印条目（不要求字句可读、不要求中文、不要求≥5项），不画圈。建立现实感与选择负担。",
+        "function": "建立现实感与选择负担；清单作为主体可见"
+      },
+      "constraints": {
+        "preferred_visual_details": "轻微俯拍；纸笔低饱和；清单可呈现若干条目但字句不必可读；笔静置、不画圈",
+        "voice_pace_ratio": 0.95,
+        "voice_pitch_semitones": 0,
+        "voice_tone": "neutral"
+      },
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "img-b02",
+      "scope": {
+        "type": "scene",
+        "ref": "B-02"
+      },
+      "media_type": "image",
+      "role": "context_continuation",
+      "intent": {
+        "description": "清单平铺镜头；多项目仍可见，无删除痕迹；轻微 Ken Burns 推近或横移。用全部仍在的视觉事实为后面保留做铺垫。",
+        "function": "用全部仍在的视觉事实为后面保留做铺垫"
+      },
+      "constraints": {
+        "preferred_visual_details": "清单平铺；多项目可见、无划线无涂抹；纸面温和",
+        "voice_pace_ratio": 0.95,
+        "voice_pitch_semitones": 0,
+        "voice_tone": "neutral"
+      },
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "img-b03",
+      "scope": {
+        "type": "scene",
+        "ref": "B-03"
+      },
+      "media_type": "image",
+      "role": "transition_anchor",
+      "intent": {
+        "description": "纸面留白处镜头；让独立大字简体字幕「如果今天只完成一件，哪一件最值得？」缓缓打出。独立文字与旁白同句承担问法的视觉重量。",
+        "function": "独立文字与旁白同句承担问法的视觉重量"
+      },
+      "constraints": {
+        "preferred_visual_details": "纸面留白处构图；为简体大字字幕留出可读空间；不堆杂物",
+        "voice_pace_ratio": 0.95,
+        "voice_pitch_semitones": 0,
+        "voice_tone": "neutral"
+      },
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "img-b04",
+      "scope": {
+        "type": "scene",
+        "ref": "B-04"
+      },
+      "media_type": "image",
+      "role": "key_visual",
+      "intent": {
+        "description": "清单回到画面；其中一项被一个轻细线圈住（剪辑呈现，非真实画圈过程），其余项目字迹不变、不划线、不涂抹。画面（圈）与独立文字（保留）共同承担一项突出、其他仍留、不删除；旁白不单独承担。",
+        "function": "画面（圈） + 独立文字（保留）共同承担「一项突出、其他仍留、不删除」"
+      },
+      "constraints": {
+        "preferred_visual_details": "清单上有一项被轻细线圈住；其余项目字迹不变、不划线不涂抹；构图克制",
+        "voice_pace_ratio": 0.95,
+        "voice_pitch_semitones": 0,
+        "voice_tone": "neutral"
+      },
+      "importance": "required",
+      "desired_options": 3,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "img-b05",
+      "scope": {
+        "type": "scene",
+        "ref": "B-05"
+      },
+      "media_type": "image",
+      "role": "context_continuation",
+      "intent": {
+        "description": "从被圈项平滑扫过其余未划掉的项目；可见多项目未被删除；用无划线/无涂抹的视觉证据，承担未删除。",
+        "function": "用无划线/无涂抹的视觉证据，承担未删除"
+      },
+      "constraints": {
+        "preferred_visual_details": "可见多项目未被删除；构图收尾停在被圈项边缘；笔在画面外或边缘",
+        "voice_pace_ratio": 0.95,
+        "voice_pitch_semitones": 0,
+        "voice_tone": "neutral"
+      },
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "img-b06",
+      "scope": {
+        "type": "scene",
+        "ref": "B-06"
+      },
+      "media_type": "image",
+      "role": "closing_anchor",
+      "intent": {
+        "description": "镜头收回到被圈的那一项；笔仍在画面边缘，未拿起。收束到这一项，避免任何高效执行暗示。",
+        "function": "收束到这一项，避免任何高效执行暗示"
+      },
+      "constraints": {
+        "preferred_visual_details": "镜头收回到被圈那一项；笔静置在画面边缘、未被拿起；柔和自然光",
+        "voice_pace_ratio": 0.95,
+        "voice_pitch_semitones": 0,
+        "voice_tone": "neutral"
+      },
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "img-b07",
+      "scope": {
+        "type": "scene",
+        "ref": "B-07"
+      },
+      "media_type": "image",
+      "role": "rest",
+      "intent": {
+        "description": "镜头静止在清单边缘；字幕淡出；留白，不下结论、不提示接下来去执行。",
+        "function": "留白，不下结论、不提示接下来去执行"
+      },
+      "constraints": {
+        "preferred_visual_details": "清单边缘；字幕留有可淡出空间；构图静默；不加 CTA 不加元素",
+        "voice_pace_ratio": 0.95,
+        "voice_pitch_semitones": 0,
+        "voice_tone": "neutral"
+      },
+      "importance": "required",
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      }
+    },
+    {
+      "need_id": "voice-narration",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "media_type": "audio",
+      "role": "narration",
+      "intent": {
+        "description": "七句朗读正文，一字不改、完整原旁白；轻声、不挑口播、不点重音、不上励、不刻意降低；语速中等偏慢；读备忘录的姿态；输出分句 SRT 字幕，与镜头独立字幕分轨显示。",
+        "function": "承载全部旁白；与画面 + 独立文字联合承担表达"
+      },
+      "constraints": {
+        "voice_pace_ratio": 0.95,
+        "voice_pitch_semitones": 0,
+        "voice_tone": "neutral",
+        "use_preset_account_voice": true,
+        "no_clone_or_repick_voice": true,
+        "no_expert_or_assertion_framing": true,
+        "subtitles_split_track_from_visual_caption": true,
+        "voice_inherits_mode_defaults": true,
+        "script_text": "一张清单上，每一项都像是今天该做的事。可摆在一起，反而不知道从哪里开始。我想先换一个问法：如果今天只完成一件，哪一件最值得？把它圈出来，其他事先留在纸上。它们可以继续重要，但不必都挤在今天。清单还在，先从这一项开始。"
+      },
+      "importance": "required",
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "voice",
+        "identity": {
+          "source": "creator_context",
+          "reference": "creator_context.voice.account_voice_neutral_ref"
+        },
+        "delivery_description": "轻声读备忘录；克制、中性偏暖；不挑口播、不上励、不刻意降低；语速中等偏慢",
+        "text_ref": null,
+        "text_sha256": null
+      }
+    },
+    {
+      "need_id": "bgm-low-instrumental",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "media_type": "audio",
+      "role": "background_music",
+      "intent": {
+        "description": "gentle piano instrumental soft low volume reflective memo",
+        "function": "低声部器乐 BGM，全程 ducking 让位旁白；不发起付费 AI 音乐请求"
+      },
+      "constraints": {
+        "voice_pace_ratio": 0.95,
+        "voice_pitch_semitones": 0,
+        "voice_tone": "neutral",
+        "ducking_gain_ratio": 0.25,
+        "ducking_attack_seconds": 0.12,
+        "ducking_release_seconds": 0.45,
+        "music_entry_before_b03": true,
+        "music_fade_out_at_end": true,
+        "no_synth_or_heartbeat_rhythm": true,
+        "no_ai_music_request": true,
+        "no_unlicensed_music": true,
+        "honor_license_attribution_when_local_track_used": true
+      },
+      "importance": "required",
+      "desired_options": 3,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "bgm",
+        "mood": "calm, restrained, reflective",
+        "genre": "instrumental",
+        "instruments": [
+          "piano"
+        ],
+        "vocals_allowed": false,
+        "energy": "low",
+        "tempo_bpm": [
+          60,
+          80
+        ]
+      }
+    },
+    {
+      "need_id": "sfx-b04-pen-on-paper",
+      "scope": {
+        "type": "event",
+        "ref": "B-04"
+      },
+      "media_type": "audio",
+      "role": "action_sfx",
+      "intent": {
+        "description": "极轻动作 SFX；笔在纸上轻点；仅作画面点缀，不替代 BGM；不增加撞击 / whoosh / 通知提示音。",
+        "function": "仅作画面点缀，不替代 BGM"
+      },
+      "constraints": {
+        "voice_pace_ratio": 0.95,
+        "voice_pitch_semitones": 0,
+        "voice_tone": "neutral",
+        "no_whoosh_or_impact_or_notification_sfx": true,
+        "no_replacement_for_bgm": true
+      },
+      "importance": "optional",
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "sfx",
+        "event_description": "笔轻点纸面",
+        "sound_character": "soft paper contact",
+        "intensity": "very_low",
+        "environment": "quiet desk"
+      }
+    }
+  ]
+}

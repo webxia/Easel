@@ -942,7 +942,8 @@ def _api_spec_status(skill: str, env: dict[str, str]) -> dict:
 
 
 def run_agent_sync(msg: str, timeout: int = TIMEOUT_DIRECT, session_id: str | None = None,
-                   *, attachments: list[dict] | None = None, capture_reply: bool = False) -> str:
+                   *, attachments: list[dict] | None = None, capture_reply: bool = False,
+                   retry_failed: bool = True) -> str:
     sk = session_id or f'web-{int(time.time() * 1000)}'
     _heal_openclaw_session(sk)   # 清洗历史里无签名 thinking 块，防回放失效
     # 钉死 --session-id 让 OpenClaw 每轮续同一 transcript（防跨天空闲后新起空会话丢历史，见 _openclaw_session_id）
@@ -953,6 +954,7 @@ def run_agent_sync(msg: str, timeout: int = TIMEOUT_DIRECT, session_id: str | No
     if active_delivery.get():
         from easel.integrations.openclaw_delivery import run_delivery_agent
         return run_delivery_agent(cmd, attachments=attachments, capture_reply=capture_reply,
+                                  retry_failed=retry_failed,
                                   cwd=str(PROJECT_ROOT), env=_proxy_env()).stdout
     if capture_reply:
         raise ValueError('结构化素材结果必须绑定当前委托和网关运行身份')
@@ -977,10 +979,11 @@ def run_agent_sync(msg: str, timeout: int = TIMEOUT_DIRECT, session_id: str | No
         xlock.release()
 
 
-def _run_timed_creation_agent(phase, attempt_id, message, timeout, session_id):
+def _run_timed_creation_agent(phase, attempt_id, message, timeout, session_id, *, retry_failed=True):
     from easel.creation_delivery import measure_delivery_phase
     with measure_delivery_phase(phase, attempt_id):
-        return run_agent_sync(message, timeout, session_id)
+        options = {} if retry_failed else {'retry_failed': False}
+        return run_agent_sync(message, timeout, session_id, **options)
 
 
 def check_gateway() -> bool:
@@ -3103,6 +3106,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
     # The current Domain owns every nested field. A prose subset left video
     # planning to guess duration_seconds and failed both initial and repair turns.
     from easel.materials.application.visual_contract import PlanningRequirements
+    from easel.materials.application.need_constraints import PLANNING_CONSTRAINT_CONTRACT, validate_modality_constraints
     requirements_contract = (
         "\n〔MATERIAL_REQUIREMENTS 正式 JSON Schema〕\n"
         + json.dumps(PlanningRequirements.model_json_schema(), ensure_ascii=False, separators=(",", ":"))
@@ -3113,7 +3117,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "约束中的文本项和 modality/visual_style。path 使用 intent/description、constraints/preferred_visual_details、"
         "modality/visual_style 等原文来源路径，不用 modality_spec/visual_style。"
         "search_query_en/search_query_variants_en 和 search_query_variants_primary/alternate/relaxed、"
-        "voice_delivery、required_source_kind、usage 为供应元数据，不作为视觉条款。"
+        "required_source_kind、usage 为供应元数据，不作为视觉条款。视觉Need禁止声音参数。"
         "text 逐字引用连续原文，不复制 SHA 或计算位置；kind 仅 required/preference/postproduction/unresolved。"
         "preference_path 没有显式偏好引用时必须为 null；有引用时为原文显式软偏好路径。"
         "preferred_visual_details/preferred_style/modality/visual_style 为软偏好，不能升级为 required；"
@@ -3138,6 +3142,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "视频目标时长属于 Need.duration_hint.target_seconds，不属于 modality_spec.video；"
         f"{draft_only('镜头实际时间线仍写 SCENES，由 Production 使用实际素材安排。\n')}"
         + requirements_contract
+        + PLANNING_CONSTRAINT_CONTRACT
     )
     prompt = (
         "〔Easel Material Creative Planning V1〕\n"
@@ -3182,7 +3187,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         "ImageNeedSpec 只允许 kind/aspect_ratio/visual_style/reference_asset_ids；也可省略 modality_spec。"
         "字幕、标题、转场与画面裁切由 Hypit Production Authoring 负责，不能伪装成 MaterialNeed。"
         "policy 可以省略；若填写，只能是字符串到字符串的映射，不能放布尔值或数组。"
-        "Need.constraints 的检索条件只用字符串、数字或布尔值；不得写 allowed_source_kinds 或 must_not_contain 数组。"
+        "Need.constraints 遵守上方模态边界及两个结构化例外；不得写 allowed_source_kinds 或 must_not_contain 数组。"
         "只有用户明确限定图库来源时才写 required_source_kind=stock；合法授权或真实素材不等于图库限定。未指定来源时不要猜测此约束；禁用生成写 allow_generation=false。"
         "排除人物、地标等画面条件写在 intent.description 中，必须在素材核对中验证；不能删除创作边界。"
         "scope.type 仅用 scene、event、global 或 segment；media_type 仅用 image、video、audio。"
@@ -3290,9 +3295,10 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             raise PreparationError("Creative Planning MaterialPlan requires at least one required Need")
         from easel.materials.application.compiler import NeedCompiler, NeedCompilationError
         try:
+            validate_modality_constraints(plan.needs)
             for need in plan.needs:
                 NeedCompiler().compile(need)
-        except NeedCompilationError as exc:
+        except (NeedCompilationError, ValueError) as exc:
             raise PreparationError(f"Creative Planning retrieval validation failed: {exc}") from exc
         if any(not values[key].strip() for key in ("treatment", "script", "scenes")):
             raise PreparationError("Creative Planning TREATMENT/SCRIPT/SCENES must all be non-empty")
@@ -3313,6 +3319,47 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
                 "script": values["script"], "scenes": values["scenes"]}
 
     session_id = f"material-planning-{attempt['attempt_id']}"
+    # One structure repair per frozen commission, across async re-entry.
+    # Neither changing error text nor edited draft bytes creates new allowance.
+    from easel.materials.store import AttemptMaterialStore
+    from easel.materials.application.visual_contract import digest
+    repair_scope = {'attempt_id': attempt['attempt_id'], 'creation_id': attempt['creation_id'],
+                    'context_refs': refs, 'proposal_sha256': (confirmed_plan or {}).get('sha256'),
+                    'phase': 'structure_repair'}
+    repair_key = 'planning-structure-repair-' + digest(repair_scope)
+    repair_store = AttemptMaterialStore(root)
+    repair_record = repair_store.read_recovery_record(repair_key)
+    route = {'session_id': session_id, 'profile': OPENCLAW_PROFILE,
+             'thinking': THINKING_LEVEL, 'timeout': TIMEOUT_PRODUCE}
+    if repair_record is not None and (
+            repair_record.get('schema') != 'planning-structure-repair@1'
+            or repair_record.get('scope') != repair_scope or repair_record.get('route') != route
+            or repair_record.get('status') not in {'pending', 'complete', 'failed'}
+            or not isinstance(repair_record.get('message'), str)
+            or repair_record.get('message_sha256') != digest(repair_record['message'])):
+        raise PreparationError('Planning 单次修复凭据或执行配置不一致；保留原记录，不新增请求')
+
+    def resume_structure_repair():
+        if repair_record['status'] == 'failed':
+            raise PreparationError('Planning 单次合同修正执行已失败；不重复派发')
+        if repair_record['status'] == 'complete':
+            return
+        try:
+            _run_timed_creation_agent('structure_repair', attempt['attempt_id'], repair_record['message'],
+                                      route['timeout'], session_id, retry_failed=False)
+        except (DeliveryExecutionUncertain, subprocess.TimeoutExpired):
+            # The durable adapter observes the exact original request/run.
+            raise
+        except Exception:
+            repair_record['status'] = 'failed'
+            repair_store.write_recovery_record(repair_key, repair_record)
+            raise
+        repair_record['status'] = 'complete'
+        repair_store.write_recovery_record(repair_key, repair_record)
+
+    if repair_record is not None:
+        # Even apparently valid draft files cannot bypass an unknown writer.
+        resume_structure_repair()
     quality_repair = planning_context.get('quality_repair')
     if quality_repair:
         prompt += (
@@ -3329,13 +3376,15 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         # The durable gateway reuses a completed call; copied source files
         # alone are never evidence that the requested repair was executed.
         _run_timed_creation_agent("planning", attempt['attempt_id'], prompt, TIMEOUT_PRODUCE, session_id)
-    elif not all(path.is_file() for path in files.values()):
+    elif repair_record is None and not all(path.is_file() for path in files.values()):
         _run_timed_creation_agent("planning", attempt['attempt_id'], prompt, TIMEOUT_PRODUCE, session_id)
     try:
         result = validate_artifacts()
     except PreparationError as first_error:
         # Filesystem/frozen-prose faults cannot authorize another model turn.
         restore_confirmed()
+        if repair_record is not None:
+            raise PreparationError('Planning 单次合同修正后仍无效：' + str(first_error)) from first_error
         repair = (
             "〔Easel Creative Planning 单次合同修正〕\n"
             f"Attempt workspace: {root}\n"
@@ -3347,7 +3396,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             f"{('只修正 planning/MATERIAL_PLAN.json 和 MATERIAL_REQUIREMENTS.json；确认三文件由程序原样提供，只读。' if confirmed_plan else '读取现有 planning 文件，只修正缺失或无效的 planning/MATERIAL_PLAN.json、TREATMENT.md、SCRIPT.md、SCENES.md；已有效的文件保持原样。')}"
             "MaterialPlan JSON 顶层只允许 plan_id、creation_id、attempt_id、context_refs、policy、needs；"
             "schema:extra_forbidden 表示必须删除顶层 schema 字段，不是修改它的值。不得添加 version 或包装对象。"
-            "检索 constraints 只能使用字符串、数字或布尔值。只有明确用户图库限定才用 required_source_kind=stock；合法授权或真实素材不代表图库限定，未指定来源不要猜测；禁用生成用 allow_generation=false；"
+            "检索 constraints 遵守上方模态边界及两个结构化例外。只有明确用户图库限定才用 required_source_kind=stock；合法授权或真实素材不代表图库限定，未指定来源不要猜测；禁用生成用 allow_generation=false；"
             "不要使用 allowed_source_kinds/must_not_contain 数组。排除人物、地标等画面条件完整转写为 intent.description，保留原创作边界并由素材核对验证。"
             "每个 Need.scope 都必须同时有 type 与非空 ref；global scope 写"
             "{\"type\":\"global\",\"ref\":\"global\"}。"
@@ -3377,7 +3426,10 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         )
         if confirmed_plan:
             repair += "\n已确认的 SCRIPT/SCENES/TREATMENT 由程序恢复，只读；以下仅作素材需求依据：\n" + json.dumps(confirmed_plan, ensure_ascii=False)
-        _run_timed_creation_agent("structure_repair", attempt['attempt_id'], repair, TIMEOUT_PRODUCE, session_id)
+        repair_record = {'schema': 'planning-structure-repair@1', 'scope': repair_scope, 'route': route,
+                         'message': repair, 'message_sha256': digest(repair), 'status': 'pending'}
+        repair_store.write_recovery_record(repair_key, repair_record)
+        resume_structure_repair()
         result = validate_artifacts()
 
     if is_managed(get_creation(attempt["creation_id"])):

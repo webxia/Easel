@@ -1469,6 +1469,10 @@ def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_conten
             reference="已批准的预置声音"), delivery_description="自然平静，稍加快以保持短句的连贯性"),
         constraints={"voice_delivery": {"pace_ratio": 1.05}}, importance=NeedImportance.REQUIRED)
     voice_plan = plan.model_copy(update={"needs": (voice,)})
+    aliased_voice = voice.model_copy(update={'constraints': {'voice_tone': 'neutral'}})
+    with pytest.raises(MaterialIntegrationError, match='constraints.voice_tone'):
+        PlanningIntegration().persist(attempt, voice_plan.model_copy(update={'needs': (aliased_voice,)}),
+                                      treatment='自然讲述', script='隔离无效输入', scenes='站台观察')
     persisted_voice = PlanningIntegration().persist(attempt, voice_plan, treatment="自然讲述",
                                                    script="假设站在夜班公交站。", scenes="站台观察")
     assert persisted_voice["plan"].needs[0].constraints["voice_delivery"] == {

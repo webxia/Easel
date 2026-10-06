@@ -1186,7 +1186,7 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
             path.unlink()
     attempt = {**attempt, 'material_planning': {'status': 'DRAFT'}}
     requests = []
-    def material_only(prompt, *_):
+    def material_only(prompt, *_, **options):
         requests.append(prompt)
         assert '四个文件' not in prompt and '写入 SCENES' not in prompt
         assert '在 TREATMENT 说明' not in prompt and '放在 TREATMENT/SCENES' not in prompt
@@ -1231,7 +1231,8 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
         web._material_planning_executor(attempt, {"context_refs": refs})
     assert external.read_text() == '外部不可覆盖'
     (planning_dir / 'SCENES.md').unlink()
-    # Recheck the directory after a model turn replaces it with a symlink.
+    # Recheck the directory on a fresh isolated attempt after a model turn.
+    attempt = {**attempt, 'attempt_id': attempt['attempt_id'] + '-path-check'}
     original = planning_dir.with_name('planning-original')
     outside = planning_dir.with_name('outside-planning')
     outside.mkdir()
@@ -1298,7 +1299,8 @@ def test_planning_resume_repairs_invalid_domain_file_once(prep_env, monkeypatch,
     planning_file.write_text(json.dumps(invalid), encoding="utf-8")
     prompts = []
 
-    def repair_agent(message, _timeout, _session_id):
+    def repair_agent(message, _timeout, _session_id, **options):
+        assert options == {"retry_failed": False}
         prompts.append(message)
         planning_file.write_text(valid_json, encoding="utf-8")
         return "corrected"
@@ -2112,9 +2114,13 @@ def test_delivery_stage_budget_counts_nested_calls_and_survives_digest_retry(pre
     try:
         with creation.edit_creation(cid) as current:
             current['delivery']['call_budgets'] = {'quality': {'used': 0, 'limit': 2, 'categories': {}}}
-        for _ in range(2):
+        for ordinal in range(2):
             with pytest.raises(RuntimeError, match='执行失败'):
                 run_delivery_agent(command, runner=gateway)
+            # Planning's one-shot policy observes terminal failure without resubmission.
+            with pytest.raises(RuntimeError, match='执行失败'):
+                run_delivery_agent(command, runner=gateway, retry_failed=False)
+            assert len(submitted) == ordinal + 1
         call = next(iter(creation.get_creation(cid)['delivery']['agent_calls'].values()))
         assert len(call['history']) == 1 and call['history'][0]['run_id'] == submitted[0]
         assert call['stage_ordinal'] == 2 and submitted[0] != submitted[1]
@@ -2251,3 +2257,82 @@ def test_real_planning_contract_reaches_visual_consumer_without_reclassification
     assert len(calls) == (0 if cache_state == 'corrupt_current' else 7)
     assert [n.model_dump(mode='json') for n in bound_needs if n.media_type is MediaType.AUDIO] == [n.model_dump(mode='json') for n in plan.needs if n.media_type is MediaType.AUDIO]
     assert (planning_dir / 'MATERIAL_REQUIREMENTS.json').read_bytes() == before['MATERIAL_REQUIREMENTS.json']
+
+
+@pytest.mark.parametrize('outcome', ['valid', 'invalid', 'pending_valid', 'timeout', 'failed'])
+def test_planning_structure_repair_reentry_uses_one_durable_request(tmp_path, monkeypatch, outcome):
+    from easel.integrations.openclaw_delivery import DeliveryAgentPending
+    from easel.materials.application.need_constraints import VOICE_ALIASES, PLANNING_CONSTRAINT_CONTRACT
+    from easel.materials.application.compiler import NeedCompiler
+    from easel.materials.application.visual_contract import planning_contracts, read_planning_requirements
+    folder = Path(__file__).parent / 'fixtures/planning-modality-contract-2026-10-06'
+    raw = (folder / 'MATERIAL_PLAN.json').read_bytes()
+    failed = MaterialPlan.model_validate_json(raw)
+    # Explicit test-only legal control, never a runtime normalization or rewrite.
+    needs = []
+    for n in failed.needs:
+        constraints = {k: v for k, v in n.constraints.items() if k not in VOICE_ALIASES}
+        if getattr(n.modality_spec, 'kind', None) == 'voice':
+            constraints['voice_delivery'] = {'pace_ratio': n.constraints['voice_pace_ratio'],
+                'pitch_semitones': n.constraints['voice_pitch_semitones'], 'tone': n.constraints['voice_tone']}
+        needs.append(n.model_copy(update={'constraints': constraints}))
+    legal = failed.model_copy(update={'needs': tuple(needs)})
+    assert [(n.need_id, n.importance) for n in legal.needs] == [(n.need_id, n.importance) for n in failed.needs]
+    directory = tmp_path / 'planning'
+    directory.mkdir()
+    plan_path = directory / 'MATERIAL_PLAN.json'
+    plan_path.write_bytes(raw)
+    requirements = (folder / 'MATERIAL_REQUIREMENTS.json').read_bytes()
+    (directory / 'MATERIAL_REQUIREMENTS.json').write_bytes(requirements)
+    for name in ('TREATMENT.md', 'SCRIPT.md', 'SCENES.md'):
+        (directory / name).write_text('隔离测试，不是生产输入。')
+    attempt = {'creation_id': legal.creation_id, 'attempt_id': legal.attempt_id, 'workspace': {'path': str(tmp_path)}}
+    monkeypatch.setattr(web, 'get_creation', lambda *_: {})
+    monkeypatch.setattr(handoff, 'load_frozen_creative_mode', lambda *_: ({}, legal.context_refs['creative_mode_sha256']))
+    calls = []
+    def repair(message, timeout, session_id, **options):
+        assert options == {'retry_failed': False}
+        assert PLANNING_CONSTRAINT_CONTRACT in message
+        calls.append((message, timeout, session_id))
+        if len(calls) == 1:
+            # A changed error or an apparently valid draft cannot mint a request.
+            plan_path.write_text(legal.model_dump_json() if outcome == 'pending_valid' else '{}')
+            if outcome == 'timeout':
+                raise subprocess.TimeoutExpired('fixture', 1)
+            raise DeliveryAgentPending('fixture pending')
+        if outcome == 'failed':
+            raise RuntimeError('fixture terminal failure')
+        plan_path.write_text('{}' if outcome == 'invalid' else legal.model_dump_json())
+        return 'fixture terminal'
+    monkeypatch.setattr(web, 'run_agent_sync', repair)
+    first_error = subprocess.TimeoutExpired if outcome == 'timeout' else DeliveryAgentPending
+    with pytest.raises(first_error):
+        web._material_planning_executor(attempt, {'context_refs': legal.context_refs})
+    if outcome == 'failed':
+        with pytest.raises(RuntimeError, match='fixture terminal failure'):
+            web._material_planning_executor(attempt, {'context_refs': legal.context_refs})
+        with pytest.raises(prep.PreparationError, match='已失败；不重复派发'):
+            web._material_planning_executor(attempt, {'context_refs': legal.context_refs})
+    elif outcome == 'invalid':
+        with pytest.raises(prep.PreparationError):
+            web._material_planning_executor(attempt, {'context_refs': legal.context_refs})
+        with pytest.raises(prep.PreparationError, match='单次合同修正后仍无效'):
+            web._material_planning_executor(attempt, {'context_refs': legal.context_refs})
+    else:
+        assert web._material_planning_executor(attempt, {'context_refs': legal.context_refs})['plan'] == legal
+        monkeypatch.setattr(web, 'run_agent_sync', lambda *a, **k: pytest.fail('completed request must not dispatch'))
+        assert web._material_planning_executor(attempt, {'context_refs': legal.context_refs})['plan'] == legal
+        for need in legal.needs:
+            intent = NeedCompiler().compile(need)
+            assert not {'voice_delivery', 'voice_pace_ratio', 'voice_pitch_semitones', 'voice_tone'}.intersection(intent.filters)
+        contracts = planning_contracts(legal, {}, read_planning_requirements(requirements.decode()))
+        assert {record['input']['need']['need_id'] for _, record in contracts} == {
+            n.need_id for n in legal.needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}
+        from easel.materials.store import AttemptMaterialStore
+        store = AttemptMaterialStore(tmp_path)
+        for key, record in contracts:
+            assert store.read_recovery_record(key) == record
+        assert len(contracts) == 7
+    assert len(calls) == 2 and calls[0] == calls[1]
+    assert (directory / 'MATERIAL_REQUIREMENTS.json').read_bytes() == requirements
+    assert (folder / 'MATERIAL_PLAN.json').read_bytes() == raw

@@ -1,0 +1,233 @@
+{
+  "img-b01": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "俯拍日常桌面，一份纸质待办清单与一支笔静置；清单可见若干手写/打印条目（不要求字句可读、不要求中文、不要求≥5项），不画圈。建立现实感与选择负担。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "建立现实感与选择负担；清单作为主体可见",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "轻微俯拍；纸笔低饱和；清单可呈现若干条目但字句不必可读；笔静置、不画圈",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "top down view desk paper checklist with pen",
+      "flat lay paper to-do list on wooden desk",
+      "everyday paper notes on simple desk"
+    ]
+  },
+  "img-b02": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "清单平铺镜头；多项目仍可见，无删除痕迹；轻微 Ken Burns 推近或横移。用全部仍在的视觉事实为后面保留做铺垫。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "用全部仍在的视觉事实为后面保留做铺垫",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "清单平铺；多项目可见、无划线无涂抹；纸面温和",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "flat paper to-do list many entries plain desk",
+      "paper list items kept visible calm overhead",
+      "simple notes on paper calm flat view"
+    ]
+  },
+  "img-b03": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "纸面留白处镜头；让独立大字简体字幕「如果今天只完成一件，哪一件最值得？」缓缓打出。独立文字与旁白同句承担问法的视觉重量。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "独立文字与旁白同句承担问法的视觉重量",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "纸面留白处构图；为简体大字字幕留出可读空间；不堆杂物",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "empty paper edge desk overhead soft light",
+      "plain paper sheet on desk quiet composition",
+      "minimal paper background calm warm"
+    ]
+  },
+  "img-b04": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "清单回到画面；其中一项被一个轻细线圈住（剪辑呈现，非真实画圈过程），其余项目字迹不变、不划线、不涂抹。画面（圈）与独立文字（保留）共同承担一项突出、其他仍留、不删除；旁白不单独承担。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "画面（圈） + 独立文字（保留）共同承担「一项突出、其他仍留、不删除」",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "清单上有一项被轻细线圈住；其余项目字迹不变、不划线不涂抹；构图克制",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "paper list one entry circled others untouched",
+      "handwritten checklist single item circled clean",
+      "paper note circled entry calm flat view"
+    ]
+  },
+  "img-b05": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "从被圈项平滑扫过其余未划掉的项目；可见多项目未被删除；用无划线/无涂抹的视觉证据，承担未删除。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "用无划线/无涂抹的视觉证据，承担未删除",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "可见多项目未被删除；构图收尾停在被圈项边缘；笔在画面外或边缘",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "paper list untouched entries calm overhead",
+      "clean paper to-do items no strike through",
+      "simple notes kept intact on paper"
+    ]
+  },
+  "img-b06": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "镜头收回到被圈的那一项；笔仍在画面边缘，未拿起。收束到这一项，避免任何高效执行暗示。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "收束到这一项，避免任何高效执行暗示",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "镜头收回到被圈那一项；笔静置在画面边缘、未被拿起；柔和自然光",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "circled item on paper list pen at edge",
+      "paper checklist one circled entry pen aside",
+      "paper note with circle pen beside"
+    ]
+  },
+  "img-b07": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "镜头静止在清单边缘；字幕淡出；留白，不下结论、不提示接下来去执行。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "留白，不下结论、不提示接下来去执行",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "清单边缘；字幕留有可淡出空间；构图静默；不加 CTA 不加元素",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "edge of paper list calm still life",
+      "paper checklist corner quiet empty space",
+      "simple paper corner still life soft light"
+    ]
+  }
+}

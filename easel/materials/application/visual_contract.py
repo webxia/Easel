@@ -125,6 +125,8 @@ def digest(value):
 
 
 def sources_for(need):
+    from easel.materials.application.need_constraints import validate_modality_constraints
+    validate_modality_constraints((need,))
     rows = []
     def append(path, value, explicit_preference=False):
         if isinstance(value, str) and value.strip():

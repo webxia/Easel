@@ -211,6 +211,12 @@ def test_voice_generation_is_bound_to_frozen_script_digest(tmp_path, monkeypatch
     monkeypatch.setattr(generation_module, "TechnicalInspector", FakeInspector)
     speech = FakeSpeech()
     service = MiniMaxImageSpeechGeneration(speech_adapter=speech)
+    # Legacy flattened settings must fail before Provider/default fallback.
+    flattened = need.model_copy(update={'constraints': {'voice_tone': 'neutral'}})
+    with pytest.raises(ValueError, match='constraints.voice_tone'):
+        service.generate(plan.model_copy(update={'needs': (flattened,)}), flattened,
+                         store, request_id='voice-alias', confirmed_paid=True, speech_text=script)
+    assert speech.calls == 0
     with pytest.raises(ValueError, match="hash-bound"):
         service.generate(plan, need, store, request_id="voice-bad", confirmed_paid=True, speech_text="改过的脚本")
     scene_need = need.model_copy(update={"scope": NeedScope(type=NeedScopeType.SCENE, ref="scene-1")})
