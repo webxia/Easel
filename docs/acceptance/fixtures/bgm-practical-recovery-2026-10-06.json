@@ -1,0 +1,194 @@
+{
+  "status": "ORIGINAL_MATERIAL_READY_GENERAL_CAPABILITY_HOLDOUT_FAILED",
+  "user_change": "放宽审核标准，不然一直推进不下去",
+  "separation_models": "DECLINED_NOT_INSTALLED_NOT_EXECUTED",
+  "archive_root": "/Users/xgx/Library/Application Support/Easel/acceptance/bgm-practical-2026-10-06",
+  "archive_manifest_sha256": "db765394d47cbf26adc11ad9223128f8a3f15e3373bb87910dde391a48c7d95e",
+  "runs": {
+    "easel-bgm-practical-20261006/calibration": {
+      "positive_qualified": 5,
+      "positive_total": 6,
+      "false_admissions": 0,
+      "normal_negative_total": 18,
+      "gate_passed": true,
+      "elapsed_seconds": 3.008812916930765,
+      "windows": 277,
+      "new_inference_count": 0,
+      "pressure": {
+        "sample_count": 8,
+        "false_admissions": 5
+      },
+      "result_sha256": "97c16630115fdd39af2a729516d9cde2144a8eb693aa356dbf65e16ac23c886e",
+      "policy_digest": "511da1165f299469181436131fe77c8602a99d450748c39e2e835c6595f2522f"
+    },
+    "easel-bgm-practical-20261006/holdout": {
+      "positive_qualified": 3,
+      "positive_total": 6,
+      "false_admissions": 0,
+      "normal_negative_total": 18,
+      "gate_passed": false,
+      "elapsed_seconds": 126.42746141599491,
+      "windows": 355,
+      "new_inference_count": 32,
+      "pressure": {
+        "sample_count": 8,
+        "false_admissions": 0
+      },
+      "result_sha256": "83a0afae6451b8ab30af5b1c4590eb8576a21864f954c3ab4097860ad6a0838a",
+      "policy_digest": "511da1165f299469181436131fe77c8602a99d450748c39e2e835c6595f2522f"
+    },
+    "easel-bgm-practical-v4-20261006/calibration": {
+      "positive_qualified": 10,
+      "positive_total": 12,
+      "false_admissions": 0,
+      "normal_negative_total": 36,
+      "gate_passed": true,
+      "elapsed_seconds": 3.107370541081764,
+      "windows": 632,
+      "new_inference_count": 0,
+      "pressure": {
+        "sample_count": 16,
+        "false_admissions": 6
+      },
+      "result_sha256": "a7fd6d1797cd281295bb228dfbf0fd6fc1c1f771df64582fce9ad402be323d87",
+      "policy_digest": "fe54ccc1a7be4cc1491101da524c02ce4512c7c7573e2b6fcbbe7b8c2f629e88"
+    },
+    "easel-bgm-practical-v4-20261006/holdout": {
+      "positive_qualified": 3,
+      "positive_total": 6,
+      "false_admissions": 0,
+      "normal_negative_total": 10,
+      "gate_passed": false,
+      "elapsed_seconds": 141.3427801670041,
+      "windows": 405,
+      "new_inference_count": 16,
+      "pressure": {
+        "sample_count": 0,
+        "false_admissions": 0
+      },
+      "result_sha256": "d7ef6b395e56f01a52114edd5a22774dfe19e28e3a3ce6879edf63c1dd39d560",
+      "policy_digest": "fe54ccc1a7be4cc1491101da524c02ce4512c7c7573e2b6fcbbe7b8c2f629e88"
+    }
+  },
+  "software": {
+    "passed": 709,
+    "skipped": 5,
+    "elapsed_seconds": 43.18,
+    "synthetic_profile": true,
+    "contracts": 115
+  },
+  "original_result": {
+    "status": "MATERIAL_READY",
+    "required": 9,
+    "covered": 9,
+    "creation_id": "cr_77175a2271bf4e408a359884efc438e6",
+    "attempt_id": "fa_22f91d9f97ab6e7c355d46ba87bb478b",
+    "recorded_at": "2026-10-06T00:47:33.058261+00:00",
+    "plan_revision": "5e83f86c1486cfe88030ef5be47d35683a43e1faad3037e416ebe30b98593846",
+    "bundle_revision": "cfb5d6fb92094c95208a4fa2106764c22cebbde1e803312ceaf8e6a1dad7dcb8",
+    "policy": {
+      "revision": "bgm-practical@4",
+      "vocal_labels": [
+        "A capella",
+        "Chant",
+        "Child singing",
+        "Child speech, kid speaking",
+        "Choir",
+        "Female singing",
+        "Female speech, woman speaking",
+        "Hubbub, speech noise, speech babble",
+        "Humming",
+        "Male singing",
+        "Male speech, man speaking",
+        "Mantra",
+        "Rapping",
+        "Singing",
+        "Speech",
+        "Speech synthesizer",
+        "Synthetic singing",
+        "Vocal music",
+        "Yodeling"
+      ],
+      "music_min": 0.5,
+      "music_floor": 0.2,
+      "music_coverage_min": 0.9,
+      "music_unknown_max_seconds": 5.0,
+      "instrumental_vocal_max": 0.02,
+      "vocal_detected_min": 0.2,
+      "tag_min": 0.2,
+      "silence_rms_min": 0.0001
+    },
+    "policy_digest": "fe54ccc1a7be4cc1491101da524c02ce4512c7c7573e2b6fcbbe7b8c2f629e88",
+    "journal_status": "COMPLETE",
+    "bgm": {
+      "asset_id": "asset-ec9765907bcd4f14aec09b0177b3ade6",
+      "audio_sha256": "531ebe4ef5a843c5cd98cf4b56b917898907785276506a7f896270853dc93f03",
+      "duration_seconds": 253.75,
+      "verdict": "instrumental_music",
+      "music_min": 0.526289,
+      "vocal_max": 0.00136,
+      "windows": 50,
+      "rights_status": "ATTRIBUTION_REQUIRED",
+      "reviewed_at": null
+    },
+    "timing": {
+      "calls": 181,
+      "elapsed_seconds": 279.628343,
+      "first_started_at": "2026-10-04T13:44:01+00:00",
+      "last_elapsed_seconds": 0.59242,
+      "last_outcome": "completed",
+      "last_started_at": "2026-10-06T00:46:16+00:00",
+      "last_finished_at": "2026-10-06T00:46:17+00:00"
+    },
+    "unchanged": {
+      "frozen_inputs": 18,
+      "assets": 46,
+      "rights": true,
+      "raw_reports": true,
+      "budget": true,
+      "history": true,
+      "generated_records": true,
+      "agent_ids": true
+    },
+    "new_downloads": 0,
+    "new_model_inferences": 0,
+    "new_provider_calls": 0,
+    "calls": {
+      "prepare": {
+        "used": 7,
+        "limit": 24,
+        "categories": {
+          "initial": 7
+        }
+      },
+      "material": {
+        "used": 148,
+        "limit": 1840,
+        "categories": {
+          "provider_search": 39,
+          "initial": 87,
+          "local_music_observation": 3,
+          "generation_quote": 5,
+          "generation_submit": 5,
+          "report_repair": 1,
+          "local_voice_observation": 3,
+          "capability_probe": 1,
+          "provider_acquisition_probe": 1,
+          "provider_rights_metadata": 2,
+          "provider_rights_source_verification": 1
+        }
+      }
+    },
+    "new_budget_reservation_cny": 0,
+    "authoring_dispatched": false,
+    "build_dispatched": false,
+    "outputs": 0,
+    "source_commit": "43d2eb56",
+    "source_sha256": "d1ed4ec4c2944b4f488cbeecc07208696ece0a176405393fe5c97f1a296ba016",
+    "endpoint": "MATERIAL_READY",
+    "general_capability_holdout": "FAILED_NOT_REWRITTEN",
+    "autonomous": "NO_ENGINEERING_RECOVERY"
+  },
+  "original_result_sha256": "d52bcc92a6abb685507e903984d5d5a244670183a26e5f152d8083a84f11db02",
+  "recovery_manifest_sha256": "56843d17e640f1f960e90239ad8644f271d8016c5e809825f3a580d15f8cf89d"
+}

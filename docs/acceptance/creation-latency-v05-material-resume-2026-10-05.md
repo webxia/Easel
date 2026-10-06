@@ -462,3 +462,21 @@ R16正式Owner观察动作耗时 **24.773932秒**，新增Material146→148：�
 真实音乐报告50个重叠窗口、完整253.75秒。最大人声分数0.001171，音乐最低0.526289、均值0.75490602，34/50窗低于当前0.8门槛；规则要求每窗Music≥0.8且所有人声≤0.01，故普通推断 **unknown/PARTIAL**，不能以标题“instrumental”或低人声直接放行。报告 `materials/observations/music-76b34c34c830ac39eb13fe2a5cadfb72115af746eecc18cfac70233165ef3eb9.json`。这不是报告故障/权利缺失/没有候选，归类为**音频验证未确认**；当前Owner状态material_supply_exhausted是无剩余已获批供料策略，不能替代具体失败原因。没有将unknown作为硬不适合去无变化重搜或新生成。
 
 最终仍 **8/9 / MATERIAL_NOT_READY / AUTONOMOUS=NO**，尚未证明独立素材自主完成或提速成功，未执行Authoring prepare/Build/成片审阅，outputs空。Prepare7/24、Material148/1840、五项已完成生成及占额0.1798/10保留；剩余额度足够不是继续无变化重试的理由，实际总账单unknown。18冻结Planning输入全部保持，请求终态释放、Owner锁空闲，网关active0/queued0。下一真实缺口是现模型对该BGM音乐性的确认；须校准验证证据或采用能正式合格的候选，不能仅为达到9/9降低门槛。此前“声音有限放宽”只落实旁白规则，不转授BGM任意放行。
+
+
+## R17 用户放宽 BGM 审核后的原作品受限恢复（MATERIAL_READY / 9 of 9）
+
+用户明确要求“放宽审核标准，不然一直推进不下去”，继续拒绝分离模型。v3/v4预登记留出均器乐3/6，广泛能力门FAILED保留；本次仅原作品一次普通准入恢复，固定bgm-practical@4，Music0.5、声乐上限0.02，必要身份/有限值/完整覆盖/Rights不放宽，unknown不能直接准入。
+
+- 2026-10-06T00:46:16.168985+00:00 全量709 passed、5 skipped（43.18秒，独立合成画像）；115合同、compileall、diff check及Astra CONTINUE。主工作区迁移回归8项通过，18冻结输入与46份实际素材SHA一致，所有agent终态/runtime释放，五项生成complete，网关active0/queued0，Owner锁可用。Prepare7/24、Material148/1840与生成账本保留。仅重载Web沿原Owner接续，网关/Hypit未重启；终点MATERIAL_READY，不进入Authoring/Build。源码commit43d2eb56，集合SHA d1ed4ec4c2944b4f488cbeecc07208696ece0a176405393fe5c97f1a296ba016。
+
+
+R17原Owner于 **2026-10-06T00:46:16Z→00:46:17Z** 完成一次本地重评，正式观察动作 **0.592420秒**。50个既有AST窗口覆盖253.75秒，Music最低0.526289；扩充19个声乐类别后最大0.001360（此前15类历史最大0.001171不改写），满足固定v4音乐/声乐规则。正式派生为instrumental_music，之后经普通Rights/Match/Readiness达到 **9/9 required / MATERIAL_READY**，blocking为空，Delivery保存素材终点结果，journal与projection均COMPLETE。
+
+Plan revision继续为 `5e83f86c1486cfe88030ef5be47d35683a43e1faad3037e416ebe30b98593846`；结果Bundle revision `cfb5d6fb92094c95208a4fa2106764c22cebbde1e803312ceaf8e6a1dad7dcb8`。普通Gate.assert_ready独立重新计算通过。原BGM asset及SHA不变，CC BY4.0、来源/作者/导出署名条件原样保留，Rights仍ATTRIBUTION_REQUIRED，reviewed_at为空；未以人工review替代观察。
+
+完成后逐项对账：18冻结输入、46份素材实际SHA及大小、全部Rights、原始报告、五份生成记录和生成账本不变；原Creation历史完整作为前缀保留并新增生命周期投影记录，失败历史不删除。Prepare7/24、Material148/1840，正式生成占额0.1798/10不变，新增预留0；实际总账单仍unknown。新搜索/下载/模型推理/Provider调用/生成提交均0，网关active0/queued0。Web已加载commit43d2eb56的新规则；网关/Hypit未重启。Authoring/Build未派发，execution仍NOT_SUBMITTED，outputs为空；已有READY_FOR_EXTERNAL_AUTHORING默认标记不是Authoring执行证明。
+
+**本轮仅认领原作品素材齐备恢复成功，AUTONOMOUS=NO（工程介入及标准调整）。** 0.592420秒是此次复用报告的局部动作耗时，不是从确认到齐备的耗时，也不能据此认领视频交付、端到端提速或广泛检测能力通过。v3/v4预登记留出FAILED不改写，稀疏/边界误拒及短人声压力漏检仍保留。后续视频流程软件整合、窄路线Authoring/Build需按总Task另行启动；本轮不自动进入下一阶段。
+
+证据摘要与持久归档索引：[固定策略、两轮失败及原作品最终对账](fixtures/bgm-practical-recovery-2026-10-06.json)。本机归档 `~/Library/Application Support/Easel/acceptance/bgm-practical-2026-10-06/` 保存预登记、manifest、逐项原始报告、音频、脚本、运行前后摘要和SHA；素材、模型、runtime状态不进入Git。

@@ -1,6 +1,17 @@
 # Easel Current State
 
-Last audited: 2026-10-05. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
+Last audited: 2026-10-06. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
+
+
+## BGM 放宽后的原作品素材齐备（2026-10-06，MATERIAL_READY / 9 of 9）
+
+按用户“放宽审核标准，不然一直推进不下去”的授权，固定现有AST与bgm-practical@4（Music0.5、19类声乐上限0.02；低音乐/静音/实际时间覆盖及身份合同仍检查）。原Owner重评既有报告后，经普通Rights/Match/Readiness达到 **9/9 required、MATERIAL_READY**；Delivery为material_ready，blocking为空，恢复journal/projection均COMPLETE。只认领该原作品一次受限恢复，不宣称通用声音能力合格。
+
+v3/v4预登记独立留出均器乐3/6，广泛能力验收FAILED保留。v4已观察校准10/12、正常负例0/36，新来源留出正常0/10；0.5秒混入校准漏检6/16。当前10秒AST窗口不构成5秒过渡定位能力。全量709 passed、5 skipped（43.18秒，独立worktree合成画像）、115合同/compileall/diff及Astra CONTINUE；主工作区8个恢复场景复验通过。正常FirstCut链插队曾在全量发现，已修正并复跑通过。
+
+原作品 `cr_77175a2271bf4e408a359884efc438e6` / Attempt `fa_22f91d9f97ab6e7c355d46ba87bb478b`，Plan revision不变，Bundle更新为 `cfb5d6fb92094c95208a4fa2106764c22cebbde1e803312ceaf8e6a1dad7dcb8`。BGM SHA/原50窗报告/CC BY4.0署名条件保留，19类最大声乐0.001360、Music最低0.526289。R17动作0.592420秒，仅本地复用报告；18冻结输入、46份素材字节/Rights、生成记录/预算、原失败及历史保留，Prepare7/24、Material148/1840、生成占额0.1798/10不变。零新搜索/下载/推理/Provider/生成调用。无分离模型安装或使用。
+
+Web已加载主工作区commit43d2eb56；未派发Authoring/Build，execution=NOT_SUBMITTED，outputs为空，网关/Hypit未重启。**AUTONOMOUS=NO**，工程恢复不等于首版视频交付或端到端提速。下一顺序为视频流程软件整合与另行启动窄路线视频阶段。详见[原恢复记录R17](acceptance/creation-latency-v05-material-resume-2026-10-05.md#r17-用户放宽-bgm-审核后的原作品受限恢复material_ready--9-of-9)及[策略/失败/最终对账](acceptance/fixtures/bgm-practical-recovery-2026-10-06.json)。以下旧分段均保留当时状态，不覆盖本节。
 
 
 ## 已确认创作方案的规划恢复修复（2026-10-05，软件验证）

@@ -4,14 +4,14 @@ This document records workstream order, not task-level status. [`02_CURRENT_STAT
 
 ## 当前 Workstream 与下一步
 
-当前唯一方案为[素材层可靠供给与耗时优化](tasks/creation-latency-2026-10-02.md) v0.5。软件验证通过后，同作品恢复最新为 **8 of 9 / R16 PARTIAL / 音频验证未确认 / 未自主完成**，只缺BGM；既有失败与历史4/9、v0.4 FAILED不改写。具体状态以[Current State](02_CURRENT_STATE.md)和[恢复验收记录](acceptance/creation-latency-v05-material-resume-2026-10-05.md)为准。
+当前唯一方案为[素材层可靠供给与耗时优化](tasks/creation-latency-2026-10-02.md) v0.6。同作品已按用户放宽BGM标准完成 **9 of 9 / R17 MATERIAL_READY / 工程恢复**，广泛声音能力留出仍FAILED，视频制作未启动。具体状态见[Current State](02_CURRENT_STATE.md)、[BGM Task](tasks/creation-bgm-readiness-2026-10-05.md)和[恢复验收](acceptance/creation-latency-v05-material-resume-2026-10-05.md)。
 
 ## 当前顺序
 
-1. 按原Task §12.11–§12.12收敛调度、旁白用途、已购补位准入及报告合同。当前修复确定性通过并经Astra复核，七视觉及旁白已有真实合格；BGM已取得真实音频并完成许可/署名事实恢复，R16普通音乐报告unknown；当前需解决音乐性验证证据，不能放行或无变化重试。只复用A1/A2/A3/B1/B2，不另建Task或素材链。
-2. 组合确定性回归通过后，复核实际加载版本、未知提交、冻结输入、原作品累计授权及剩余额度，再沿原正式素材入口真实复验。用户已取消备用声音模型，旁白现规则已正式通过；BGM规则和Rights不放宽。当前停止状态不授权盲目重试。
-3. 独立素材验收终点仍为全部required正式覆盖且MATERIAL_READY，必须验证自主完成及实际齐备耗时；空调用减少或提前停止不算交付成功。生成结果须普通准入，历史调用/费用不清零，旧作品预算不转授。
-4. Authoring / Build / Quality及完整视频验收继续后置，不创建第二制作链。离线OpenClaw补丁落盘不认领网关已加载。
+1. 原作品已按用户2026-10-06放宽BGM要求完成G1/G2受限恢复：9/9 MATERIAL_READY。v3/v4广泛能力留出FAILED及短人声漏检保留，不将通用声音能力标为通过；下一步汇合视频流程软件成果。
+2. 视频阶段启动前完成分支整合和组合回归，重新核对实际加载版本、未知提交、冻结输入、预算与费用授权；原素材终点不自动升级为完整视频交付授权。Rights必要合同继续保持。
+3. 后续视频验收以R17的9/9素材基线继续，记录工程介入和真实耗时；不能把此次报告复用耗时当作整链提速或自主完成。历史调用/费用不清零，旧作品预算不转授。
+4. G2 MATERIAL_READY 后，G3 窄路线首版与 G4 三个新 Content 的重复交付另行启动；按真实能力和介入次数评估继续 Easel 或局部替换，不因方案完成自动进入 Authoring / Build / Quality，不创建第二制作链。离线OpenClaw补丁落盘不认领网关已加载。
 
 ## Existing Foundations
 

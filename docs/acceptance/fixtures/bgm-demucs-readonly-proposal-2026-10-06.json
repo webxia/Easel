@@ -1,0 +1,82 @@
+{
+  "status": "DECLINED_BY_USER_NOT_INSTALLED_NOT_EXECUTED",
+  "source": {
+    "repo": "facebookresearch/demucs",
+    "commit": "e976d93ecc3865e5757426930257e200846a520a",
+    "files": [
+      {
+        "file": "README.md",
+        "sha256": "b2156a62247dae102c6ca3b000022d67f512743bd919523df320780120a329be",
+        "bytes": 18462
+      },
+      {
+        "file": "LICENSE",
+        "sha256": "cf9b17822d1fcd4ff32ccbe14183386fb3adf6f2ff92dc184130823f7fc28173",
+        "bytes": 1087
+      },
+      {
+        "file": "demucs/pretrained.py",
+        "sha256": "d8e67706c5723496230f4eda350742babc6adca829a444b16593771ffce17316",
+        "bytes": 3280
+      },
+      {
+        "file": "demucs/htdemucs.py",
+        "sha256": "3404ed68d35b946f9c54b54201851bb4171dd7861a498945ce53b1df1144b034",
+        "bytes": 26577
+      },
+      {
+        "file": "demucs/apply.py",
+        "sha256": "b626af3b659a91aaa8386550690e0795c314e90ff64dee7a73deeaaee1275840",
+        "bytes": 12944
+      },
+      {
+        "file": "requirements.txt",
+        "sha256": "01fac39875a4a2de0aff4c8820c85c24b43d85751e05e5cb3ca54419260b5744",
+        "bytes": 314
+      },
+      {
+        "file": "demucs/remote/files.txt",
+        "sha256": "7258eee911e5963e6270983d7072832e90e1ed96b25bb26aadf12f9867109bf9",
+        "bytes": 682
+      },
+      {
+        "file": "demucs/remote/htdemucs.yaml",
+        "sha256": "239c445d0b14454d541ad8bd9bb271c9e536d267e8a4625208744cbb2e7bb66c",
+        "bytes": 21
+      },
+      {
+        "file": "demucs/states.py",
+        "sha256": "37375543dad61a7dc549caf6f165c0500d903313159c70cf893d47718194b865",
+        "bytes": 4835
+      }
+    ]
+  },
+  "model_name": "htdemucs",
+  "signature": "955717e8",
+  "model_url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th",
+  "purpose": "evaluate whether vocal separation yields positive risk evidence for music-masked short speech; empty stem is never absence proof",
+  "facts": {
+    "repository_unmaintained": true,
+    "training": "MUSDB HQ plus800songs; music vocals, no direct .5s Chinese speech guarantee",
+    "code_license": "MIT",
+    "weight_license": "not separately resolved; isolated evaluation only, production rights unresolved",
+    "native_audio": "stereo44.1k; existing fixtures16k must be clearly labelled bandlimited resampling",
+    "compatibility": "upstream torchaudio<2.1 vs existing torch2.14.1; no direct install in production",
+    "loader": "upstream loads serialized klass/args/kwargs; require strict tensor loading with only vetted source classes, never generic unsafe loading"
+  },
+  "proposed_limits": {
+    "stage0": "license/config/strict-loader/frontend readiness before scoring; compatibility failure stops",
+    "probe": "existing11 necessary samples, fixed single model/shifts0/deterministic split/overlap; vocal stem at restored original amplitude then existing BEATs for risk veto, original full-track Music remains",
+    "probe_seconds_hard_limit": 1200,
+    "full_calibration_seconds_hard_limit": 2700,
+    "cost_expectation": "upstream CPU estimate1.5x audio duration suggests about8-10min probe, must measure locally, not guaranteed",
+    "gate": "existing>=5/6positive3layers and zero negative; no holdout afterfailedcalibration, no residual-empty shortcut",
+    "production": "no service/Owner/Domain changes without calibration+holdout+review",
+    "current_authorization_boundary": "Task §2 says 不自动安装 ina/Silero/分离模型; seek explicit inclusion before download/install/inference"
+  },
+  "historical_proposal_status": "READ_ONLY_PROPOSAL_NOT_APPROVED_NOT_INSTALLED",
+  "user_decision": {
+    "quote": "维持不使用分离模型的范围",
+    "date": "2026-10-06"
+  }
+}
