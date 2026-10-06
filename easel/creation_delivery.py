@@ -343,6 +343,14 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
             except (ValueError, OSError, TypeError):
                 pass  # Diagnose an invalid projection through the existing Owner.
             return 'recover_voice_timing', 'recovering_material'
+    if gate.get('bundle_revision') and attempt.get('workspace', {}).get('path'):
+        from easel.materials.application.music_reassessment import pending_music_reassessment
+        try:
+            cached_music = pending_music_reassessment(attempt)
+        except (ValueError, OSError, TypeError, KeyError):
+            cached_music = True  # Diagnose invalid evidence through the bounded Owner action.
+        if cached_music:
+            return 'observe_material', 'observing_material'
     accepted = attempt.get('material_combination_review', {})
     if accepted.get('status') == 'COMPLETE':
         from easel.integrations.material_layer import ProductionAuthoringIntegration

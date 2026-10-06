@@ -143,7 +143,7 @@ def test_bgm_search_uses_openverse_audio_and_preserves_item_rights():
     assert not hasattr(result, "track") and not hasattr(result, "placement")
 
 
-def test_bgm_matching_reuses_material_matcher_without_timeline_decisions():
+def test_bgm_matching_reuses_material_matcher_without_timeline_decisions(monkeypatch):
     need = _audio_need(
         role="bgm", description="calm piano under narration", function="background music",
         scope=NeedScopeType.GLOBAL,
@@ -208,6 +208,36 @@ def test_bgm_matching_reuses_material_matcher_without_timeline_decisions():
             vocal_score=vocal, music_score=music))
         assert not BgmMaterialSupply().match(need, [unfit]).matches
         assert unfit.rights == calm.rights and unfit.file == calm.file
+    # The practical policy permits modest music evidence and a small vocal
+    # classifier response; detected speech and clearly nonmusic still veto.
+    practical = apply_music_observation(need, calm, acoustic_fixture(calm.file.sha256, 30,
+        music_score=.55, vocal_score=.015))
+    assert BgmMaterialSupply().match(need, [practical]).matches
+    long_asset = calm.model_copy(update={'technical': calm.technical.model_copy(update={'duration_seconds': 100})})
+    long_report = acoustic_fixture(calm.file.sha256, 100)
+    # A manually bounded transition protects time integration, not a claim
+    # that the actual ten-second AST observer localizes five-second events.
+    template = deepcopy(long_report['windows'][0])
+    for gap, score, rms, vocal, accepted in ((5, .4, .1, .001, True), (7, .4, .1, .001, False),
+            (5, .19, .1, .001, False), (5, .4, 0., .001, False), (5, .4, .1, .9, False)):
+        transition = deepcopy(long_report)
+        transition['windows'] = []
+        for start in range(0, 90, 10):
+            row = deepcopy(template)
+            row.update(start_seconds=start, end_seconds=start + 10)
+            transition['windows'].append(row)
+        for start, stop, uncertain in ((90, 100-gap, False), (100-gap, 100, True)):
+            row = deepcopy(template)
+            row.update(start_seconds=start, end_seconds=stop)
+            if uncertain:
+                row['rms'] = rms
+                row['scores'].update(Music=score, Speech=vocal)
+            transition['windows'].append(row)
+        assessed = apply_music_observation(need, long_asset, transition)
+        assert bool(BgmMaterialSupply().match(need, [assessed]).matches) is accepted
+    overlapping = deepcopy(long_report)
+    overlapping['windows'][0]['scores']['Music'] = .4
+    assert not BgmMaterialSupply().match(need, [apply_music_observation(need, long_asset, overlapping)]).matches
     import pytest
     from copy import deepcopy
     missing_tail = deepcopy(report)
@@ -216,6 +246,55 @@ def test_bgm_matching_reuses_material_matcher_without_timeline_decisions():
         apply_music_observation(need, calm, missing_tail)
     with pytest.raises(ValueError, match='身份'):
         apply_music_observation(need, calm, {**report, 'audio_sha256': '0' * 64})
+    # Malformed persisted evidence must fail before deriving a usable inference.
+    for invalid_duration in (float('nan'), float('inf'), -float('inf'), True, None, 10**400):
+        with pytest.raises(ValueError, match='身份'):
+            apply_music_observation(need, calm, {**report, 'duration_seconds': invalid_duration})
+    with pytest.raises(ValueError, match='窗口'):
+        apply_music_observation(need, calm, {**report, 'windows': [None]})
+    # The model's vocal subcategories are hard evidence, not soft preferences.
+    # Singing bowl remains an instrument and must not veto instrumental music.
+    for label in ('Choir', 'A capella', 'Yodeling', 'Mantra'):
+        vocal_report = deepcopy(report)
+        vocal_report['windows'][0]['scores'][label] = .99
+        unfit = apply_music_observation(need, calm, vocal_report)
+        assert not BgmMaterialSupply().match(need, [unfit]).matches
+        missing_label = deepcopy(report)
+        del missing_label['windows'][0]['scores'][label]
+        with pytest.raises(ValueError, match='分类分数'):
+            apply_music_observation(need, calm, missing_label)
+    bowl_report = deepcopy(report)
+    bowl_report['windows'][0]['scores']['Singing bowl'] = .99
+    assert BgmMaterialSupply().match(need, [apply_music_observation(need, calm, bowl_report)]).matches
+    # A persisted legacy verdict must not bypass the current policy. Keep it
+    # available for audit while deriving the current result from the same raw.
+    from easel.materials.application import music_observation as observation
+    legacy = calm.semantic.inferences[0].model_copy(update={'analyzer_id': observation.PREFIX + need.need_id,
+        'annotations': tuple(a.model_copy(update={'evidence': observation.PREFIX + 'legacy:'})
+                             for a in calm.semantic.inferences[0].annotations)})
+    old = calm.model_copy(update={'semantic': calm.semantic.model_copy(update={'inferences': (legacy,)})})
+    assert not BgmMaterialSupply().match(need, [old]).matches
+    migrated = apply_music_observation(need, old, report)
+    assert migrated.semantic.inferences[0] == legacy
+    assert BgmMaterialSupply().match(need, [migrated]).matches
+    assert MaterialAsset.model_validate_json(migrated.to_json()) == migrated
+    prior_policy = observation.POLICY_DIGEST
+    # Simulate a future policy's unknown conclusion for the exact same raw
+    # report: idempotency must not reuse the preceding policy's pass.
+    with monkeypatch.context() as patch:
+        patch.setattr(observation, 'POLICY_DIGEST', 'f' * 64)
+        patch.setattr(observation, 'assess_music', lambda asset, raw: ('unknown', []))
+        assert not BgmMaterialSupply().match(need, [migrated]).matches
+        upgraded = apply_music_observation(need, migrated, report)
+        assert not BgmMaterialSupply().match(need, [upgraded]).matches
+        assert len(upgraded.semantic.inferences) == 3
+        assert MaterialAsset.model_validate_json(upgraded.to_json()) == upgraded
+        assert apply_music_observation(need, upgraded, report) == upgraded
+    assert observation.POLICY_DIGEST == prior_policy
+    assert BgmMaterialSupply().match(need, [upgraded]).matches  # Explicit rollback uses its own record.
+    rejected = apply_music_observation(need, upgraded, acoustic_fixture(calm.file.sha256, 30, vocal_score=.9))
+    assert not BgmMaterialSupply().match(need, [rejected]).matches  # Latest same-policy failure supersedes pass.
+    assert len(rejected.semantic.inferences) == 3
 
 
 def test_sfx_discovery_compiles_event_semantics_and_retains_license_facts():

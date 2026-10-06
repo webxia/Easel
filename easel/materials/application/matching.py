@@ -11,7 +11,9 @@ from easel.materials.application.intelligence import IntelligenceStatus
 from easel.materials.application.rights import RightsAdmissionStatus, RightsService
 from easel.materials.application.visual_observation import PREFIX, observed_interval, observed_match, scoped_inference, need_identity
 from easel.materials.application.voice_delivery import VOICE_CONTENT_PREFIX, voice_content_observed
-from easel.materials.application.music_observation import PREFIX as MUSIC_PREFIX, binding as music_binding, music_observed
+from easel.materials.application.music_observation import (
+    PREFIX as MUSIC_PREFIX, analyzer_id as music_analyzer_id, binding as music_binding, music_observed,
+)
 from easel.materials.domain import (
     BgmNeedSpec,
     MaterialAsset,
@@ -287,7 +289,7 @@ class MaterialMatcher:
         spec = need.modality_spec
         if not isinstance(spec, BgmNeedSpec):
             return None
-        acoustic = [a for i in asset.semantic.inferences if i.analyzer_id == MUSIC_PREFIX + need.need_id
+        acoustic = [a for i in asset.semantic.inferences if i.analyzer_id == music_analyzer_id(need)
                     for a in i.annotations if a.field is SemanticField.TAGS
                     and a.evidence and a.evidence.startswith(music_binding(need, asset))]
         acoustic_corpus = self._tokens(' '.join(text for a in acoustic for text in self._as_text(a.value)))

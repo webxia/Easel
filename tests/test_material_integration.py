@@ -3827,3 +3827,144 @@ def test_openverse_rights_refresh_reuses_bytes_and_keeps_admission_boundaries(ma
         assert calls.count('download') == 1
     finally:
         active_delivery.reset(token)
+
+
+@pytest.mark.parametrize('fault,vocal_score', [
+    ('none', .015), ('requested', .015), ('pending', .015), ('asset', .015),
+    ('bundle', .015), ('gate', .015), ('journal', .015), ('none', .05),
+])
+def test_cached_bgm_policy_migration_resumes_without_external_calls(material_integration_env, monkeypatch, fault, vocal_score):
+    from easel.creation_delivery import SCHEMA as DELIVERY_SCHEMA, active_delivery, next_operation
+    from easel.materials.application import music_observation as music
+    from easel.materials.application.music_reassessment import pending_music_reassessment, cached_music_reassessment
+    from easel.integrations import material_layer
+
+    attempt = material_integration_env
+    root = Path(attempt['workspace']['path'])
+    _planning(attempt)
+    plan, asset, run, _, _, _ = _contracts(attempt, root)
+    need = plan.needs[0].model_copy(update={'media_type': MediaType.AUDIO, 'duration_hint': DurationHint(target_seconds=30),
+        'role': 'bgm', 'intent': NeedIntent(description='piano music'), 'modality_spec': BgmNeedSpec(vocals_allowed=False)})
+    plan = plan.model_copy(update={'needs': (need,)})
+    PlanningIntegration().persist(attempt, plan, treatment='T', script='假设脚本内容。\n', scenes='S')
+    store = AttemptMaterialStore(root)
+    body = b'byte-bound already observed audio fixture'
+    asset = asset.model_copy(update={'media_type': MediaType.AUDIO,
+        'file': FileInfo(path=store.write_asset_bytes(asset.asset_id, 'music.wav', body),
+            sha256=hashlib.sha256(body).hexdigest(), size=len(body), mime='audio/wav'),
+        'technical': TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=30, mime='audio/wav'),
+        'semantic': SemanticInfo()})
+    store.write_asset(asset)
+    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), (), bundle_id=run.result_bundle_id)
+    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
+    attempt = MaterialGateIntegration().record(service.get_film_attempt(attempt['attempt_id']), plan, bundle, run, readiness, gaps)['attempt']
+    report = {'schema': music.SCHEMA, 'model': music.MODEL_ID, 'model_revision': music.MODEL_REVISION,
+        'model_sha256': music.MODEL_FILES['model.safetensors'], 'audio_sha256': asset.file.sha256,
+        'duration_seconds': 30., 'windows': [{'start_seconds': start, 'end_seconds': start+10, 'rms': .1,
+            'scores': {'Music': .55, **{l: vocal_score for l in music.VOCAL_LABELS}}} for start in (0, 5, 10, 15, 20)]}
+    identity = 'music-' + hashlib.sha256((music.SCHEMA+music.MODEL_REVISION+asset.file.sha256).encode()).hexdigest()
+    locator = store.write_observation_record(identity, report)
+    original_raw = (root/locator).read_bytes()
+    proposal = 'approved material endpoint fixture'
+    digest = hashlib.sha256(proposal.encode()).hexdigest()
+    with creation.edit_creation(attempt['creation_id']) as work:
+        work['chat_workflow'] = {'proposal_status': 'CONFIRMED', 'proposal_sha256': digest}
+        work['delivery'] = {'schema': DELIVERY_SCHEMA, 'proposal': proposal, 'proposal_sha256': digest,
+            'endpoint': 'MATERIAL_READY', 'failures': {'historical': 1}, 'generated_reserved_cny': .1798}
+    attempt = material_layer._update_attempt(attempt, material_observation={'status': 'COMPLETE',
+        'plan_revision': attempt['material_gate']['plan_revision'], 'bundle_revision': bundle.revision})
+    owner = MaterialProductOrchestrator()
+    def forbidden(*args, **kwargs):
+        pytest.fail('cached policy migration must not call Providers, models, visual observation or Authoring')
+    monkeypatch.setattr(owner, 'refresh_openverse_rights', forbidden)
+    monkeypatch.setattr(owner, 'material_rights_candidates', forbidden)
+    monkeypatch.setattr(music, 'read_local_music', forbidden)
+    monkeypatch.setattr(ProductionAuthoringIntegration, 'prepare', forbidden)
+    assert pending_music_reassessment(attempt)
+    assert next_operation(creation.get_creation(attempt['creation_id'])) == ('observe_material', 'observing_material')
+    request = cached_music_reassessment(attempt)
+    token = active_delivery.set(attempt['creation_id'])
+    try:
+        with creation.edit_creation(attempt['creation_id']) as work:
+            work['delivery']['endpoint'] = 'FIRST_CUT'
+        with pytest.raises(ValueError, match='MATERIAL_READY 终点'):
+            owner._reassess_cached_music(attempt, plan, store, request)
+        assert store.read_recovery_record('music-reassessment-'+music.POLICY_DIGEST) is None
+        with creation.edit_creation(attempt['creation_id']) as work:
+            work['delivery']['endpoint'] = 'MATERIAL_READY'
+        if fault != 'none':
+            with monkeypatch.context() as interruption:
+                if fault in {'requested', 'journal'}:
+                    native = AttemptMaterialStore.write_recovery_record
+                    def interrupt_record(self, key, record):
+                        native(self, key, record)
+                        if key.startswith('music-reassessment-') and record['status'] == ('REQUESTED' if fault == 'requested' else 'COMPLETE'):
+                            raise OSError('fixture interruption '+fault)
+                    interruption.setattr(AttemptMaterialStore, 'write_recovery_record', interrupt_record)
+                elif fault == 'asset':
+                    native = AttemptMaterialStore.write_asset
+                    def interrupt_asset(self, value):
+                        result = native(self, value)
+                        raise OSError('fixture interruption asset')
+                    interruption.setattr(AttemptMaterialStore, 'write_asset', interrupt_asset)
+                elif fault == 'bundle':
+                    native = AttemptMaterialStore.write_bundle
+                    def interrupt_bundle(self, value):
+                        native(self, value)
+                        raise OSError('fixture interruption bundle')
+                    interruption.setattr(AttemptMaterialStore, 'write_bundle', interrupt_bundle)
+                elif fault == 'gate':
+                    native = MaterialGateIntegration.record
+                    def interrupt_gate(self, *args, **kwargs):
+                        native(self, *args, **kwargs)
+                        raise OSError('fixture interruption gate')
+                    interruption.setattr(MaterialGateIntegration, 'record', interrupt_gate)
+                else:
+                    native = material_layer._update_attempt
+                    def interrupt_pending(current, **changes):
+                        result = native(current, **changes)
+                        if changes.get('material_observation', {}).get('status') == 'PENDING':
+                            raise OSError('fixture interruption pending')
+                        return result
+                    interruption.setattr(material_layer, '_update_attempt', interrupt_pending)
+                with pytest.raises(OSError, match='fixture interruption'):
+                    owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
+            assert next_operation(creation.get_creation(attempt['creation_id'])) == ('observe_material', 'observing_material')
+            if fault in {'requested', 'gate', 'journal'}:
+                frozen_bundle = store.read_bundle()
+                store.write_bundle(frozen_bundle.model_copy(update={'bundle_id': 'unrelated-bundle'}))
+                with pytest.raises(ValueError, match='Bundle变化'):
+                    owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
+                store.write_bundle(frozen_bundle)
+            if fault == 'journal':
+                audio_path = store.resolve_asset_locator(asset.file.path)
+                audio_path.write_bytes(b'changed audio')
+                with pytest.raises(ValueError, match='素材字节变化'):
+                    owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
+                audio_path.write_bytes(body)
+            if fault in {'requested', 'journal'}:
+                altered = {**report, 'audio_sha256': '0'*64}
+                (root/locator).write_text(json.dumps(altered))
+                with pytest.raises(ValueError, match='身份变化'):
+                    owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
+                if fault == 'requested':
+                    assert store.read_asset(asset.asset_id) == asset
+                else:
+                    assert service.get_film_attempt(attempt['attempt_id'])['material_observation']['status'] == 'PENDING'
+                (root/locator).write_bytes(original_raw)
+        result = owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
+    finally:
+        active_delivery.reset(token)
+    expected = 'MATERIAL_READY' if vocal_score == .015 else 'MATERIAL_NOT_READY'
+    assert result['material_status'] == expected
+    final = service.get_film_attempt(attempt['attempt_id'])
+    assert final['material_observation']['status'] == 'COMPLETE'
+    assert store.read_recovery_record('music-reassessment-'+music.POLICY_DIGEST)['status'] == 'COMPLETE'
+    assert not pending_music_reassessment(final)
+    assert next_operation(creation.get_creation(attempt['creation_id']))[0] != 'observe_material'
+    assert (root/locator).read_bytes() == original_raw
+    observed = store.read_asset(asset.asset_id)
+    assert observed.file == asset.file and observed.rights == asset.rights and observed.rights.reviewed_at is None
+    assert creation.get_creation(attempt['creation_id'])['delivery']['failures'] == {'historical': 1}
+    assert creation.get_creation(attempt['creation_id'])['delivery']['generated_reserved_cny'] == .1798
+    assert not final.get('production_authoring')

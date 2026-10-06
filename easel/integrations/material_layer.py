@@ -2048,6 +2048,116 @@ class MaterialProductOrchestrator:
                 raise
             store.write_recovery_record(key, journal)
 
+    def _reassess_cached_music(self, attempt, plan, store, request):
+        """Resume a frozen, local-only evidence migration under the same Owner."""
+        from easel.creation_delivery import active_delivery
+        from easel.integrations.hypit.service import get_film_attempt
+        from easel.integrations.material_recovery import _production_started
+        from easel.materials.application.music_observation import POLICY_DIGEST, apply_music_observation, file_digest
+        from easel.materials.application.music_reassessment import read_cached_music_report, report_digest
+
+        if active_delivery.get() != attempt['creation_id'] or _production_started(attempt):
+            raise MaterialIntegrationError('已有配乐报告重评只能由制作前的当前委托Owner执行')
+        def require_material_endpoint():
+            if creation.get_creation(attempt['creation_id']).get('delivery', {}).get('endpoint') != 'MATERIAL_READY':
+                raise MaterialIntegrationError('本次配乐重评限定 MATERIAL_READY 终点')
+        require_material_endpoint()
+        key = request['request_id']
+        journal = request.get('journal')
+        if journal is None:
+            bundle = store.read_bundle()
+            originals = {a.asset_id: store.read_asset(a.asset_id) for a in bundle.assets}
+            reviewed = dict(originals)
+            needs = {n.need_id: n for n in plan.needs}
+            for pair in request['pairs']:
+                asset = reviewed[pair['asset_id']]
+                report = read_cached_music_report(store, pair['report_locator'])
+                if report_digest(report) != pair['raw_digest']:
+                    raise MaterialIntegrationError('配乐原始观察已变化，未沿用旧派生')
+                reviewed[asset.asset_id] = apply_music_observation(needs[pair['need_id']], asset, report)
+            from easel.materials.application.assembly import MaterialBundleAssembler
+            assets = tuple(reviewed[a.asset_id] for a in bundle.assets)
+            matches = self._rank_reviewed_materials(attempt, plan, assets, store, require_scoped_visual=True)
+            old_run = store.read_supply_run(bundle.supply_run_id)
+            assembler = MaterialBundleAssembler()
+            expected_bundle = assembler.assemble(plan, old_run, assets, matches, bundle_id=bundle.bundle_id)
+            if expected_bundle != bundle:
+                digest = hashlib.sha256('\n'.join(a.to_json() for a in assets).encode()).hexdigest()[:16]
+                reviewed_run = old_run.model_copy(update={
+                    'supply_run_id': f'match-{bundle.supply_run_id[-40:]}-{digest}'})
+                expected_bundle = assembler.assemble(plan, reviewed_run, assets, matches, bundle_id=bundle.bundle_id)
+            journal = {'status': 'REQUESTED', 'policy_digest': POLICY_DIGEST,
+                       'plan_revision': MaterialReadinessCalculator.plan_revision(plan), 'plan': plan.to_json(),
+                       'original_bundle': bundle.to_json(), 'expected_bundle': expected_bundle.to_json(),
+                       'pairs': request['pairs'],
+                       'original_assets': {k: a.to_json() for k, a in originals.items()},
+                       'reviewed_assets': {k: a.to_json() for k, a in reviewed.items()},
+                       'requested_at': creation._now()}
+            store.write_recovery_record(key, journal)
+        if (journal['policy_digest'] != POLICY_DIGEST or journal['plan'] != plan.to_json()
+                or store.read_plan() != plan):
+            raise MaterialIntegrationError('配乐重评期间策略或方案变化，不能继续旧请求')
+        original_bundle = MaterialBundle.model_validate_json(journal['original_bundle'])
+        expected_bundle = MaterialBundle.model_validate_json(journal['expected_bundle'])
+        current_bundle = store.read_bundle()
+        complete = journal['status'] == 'COMPLETE'
+        allowed = (expected_bundle,) if complete else (original_bundle, expected_bundle)
+        allowed_gate_revisions = {expected_bundle.revision} if complete else {original_bundle.revision}
+        if current_bundle == expected_bundle:
+            allowed_gate_revisions.add(expected_bundle.revision)
+        if (current_bundle not in allowed
+                or attempt['material_gate']['bundle_revision'] not in allowed_gate_revisions
+                or attempt['material_gate']['plan_revision'] != journal['plan_revision']):
+            raise MaterialIntegrationError('配乐重评期间Bundle变化')
+        for asset_id, original in journal['original_assets'].items():
+            current = store.read_asset(asset_id)
+            allowed_assets = (journal['reviewed_assets'][asset_id],) if complete else (original, journal['reviewed_assets'][asset_id])
+            if current.to_json() not in allowed_assets:
+                raise MaterialIntegrationError('配乐重评期间素材证据变化，未覆盖新记录')
+            path = store.resolve_asset_locator(current.file.path)
+            if path.stat().st_size != current.file.size or file_digest(path) != current.file.sha256:
+                raise MaterialIntegrationError('配乐重评期间素材字节变化')
+        needs = {n.need_id: n for n in plan.needs}
+        for pair in journal['pairs']:
+            need, asset = needs[pair['need_id']], store.read_asset(pair['asset_id'])
+            report = read_cached_music_report(store, pair['report_locator'])
+            if (hashlib.sha256(need.to_json().encode()).hexdigest() != pair['need_sha256']
+                    or asset.file.sha256 != pair['audio_sha256'] or report_digest(report) != pair['raw_digest']):
+                raise MaterialIntegrationError('配乐重评Need、音频或原始观察身份变化')
+            from easel.materials.application.music_observation import assess_music
+            assess_music(asset, report)
+        if complete:
+            gate = attempt['material_gate']
+            if gate['bundle_revision'] != journal['result_bundle_revision']:
+                raise MaterialIntegrationError('配乐重评收尾期间Bundle变化')
+            if gate['status'] == 'MATERIAL_READY':
+                MaterialGateIntegration().assert_ready(attempt)
+            updated = _update_attempt(attempt, material_observation={**attempt.get('material_observation', {}),
+                'status': 'COMPLETE', 'plan_revision': gate['plan_revision'], 'bundle_revision': gate['bundle_revision']})
+            return {'material_status': gate['status'], 'attempt': updated}
+        attempt = _update_attempt(attempt, material_observation={**attempt.get('material_observation', {}),
+            'status': 'PENDING', 'music_reassessment_key': key})
+        for asset_id, raw in journal['reviewed_assets'].items():
+            target = MaterialAsset.model_validate_json(raw)
+            if store.read_asset(asset_id) != target:
+                store.write_asset(target)
+        if store.read_plan() != plan:
+            raise MaterialIntegrationError('配乐重评期间方案变化，未重算Gate')
+        require_material_endpoint()
+        if store.read_bundle() not in allowed:
+            raise MaterialIntegrationError('配乐重评期间Bundle变化')
+        result = self._recalculate_observed_materials(get_film_attempt(attempt['attempt_id']), plan,
+            original_bundle, store, require_scoped_visual=True)
+        gate = result['attempt']['material_gate']
+        if store.read_bundle() != expected_bundle or gate['bundle_revision'] != expected_bundle.revision:
+            raise MaterialIntegrationError('配乐重评结果与冻结结果不一致')
+        store.write_recovery_record(key, {**journal, 'status': 'COMPLETE',
+            'result_bundle_revision': gate['bundle_revision'], 'completed_at': creation._now()})
+        result['attempt'] = _update_attempt(result['attempt'], material_observation={
+            **result['attempt'].get('material_observation', {}), 'status': 'COMPLETE',
+            'plan_revision': gate['plan_revision'], 'bundle_revision': gate['bundle_revision']})
+        return result
+
     def observe_visual_materials(self, attempt_id: str, *, executor, group_executor=None) -> dict[str, Any]:
         """Observe current candidates and admit evidenced commissioned usage."""
         from easel.integrations.hypit.service import get_film_attempt
@@ -2064,6 +2174,10 @@ class MaterialProductOrchestrator:
         planning = PlanningIntegration().load(attempt)
         plan = planning['plan']
         store = AttemptMaterialStore(_workspace(attempt))
+        from easel.materials.application.music_reassessment import cached_music_reassessment
+        cached_music = cached_music_reassessment(attempt)
+        if cached_music is not None:
+            return self._reassess_cached_music(attempt, plan, store, cached_music)
         bundle = store.read_bundle()
         candidates = self.material_rights_candidates(attempt_id)
         verified = {c["asset_id"] for c in candidates}
