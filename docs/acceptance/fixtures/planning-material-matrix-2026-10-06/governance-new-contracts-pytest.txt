@@ -1,0 +1,35 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+__ test_proposal_container_preserves_literal_and_rejects_real_instruction_mix __
+
+    def test_proposal_container_preserves_literal_and_rejects_real_instruction_mix():
+        for script, sound in [(' \n先看问题，\n## 文案\n再做决定。\n ', '旁白 + BGM'),
+                              ('请说明你的选择，配音也可以表达停顿。', '旁白'),
+                              ('停下来。', '无旁白 + BGM'), ('无文案', '无旁白 + BGM')]:
+            parsed = parse_video_plan(proposal(script, sound))
+>           assert parsed is not None and parsed['schema'] == 'easel-video-proposal@2'
+E           assert (None is not None)
+
+tests/test_model_output_contracts.py:26: AssertionError
+____ test_query_metadata_is_discovery_only_and_legacy_priority_is_explicit _____
+
+    def test_query_metadata_is_discovery_only_and_legacy_priority_is_explicit():
+        legacy = {'search_query_variants_primary': 'paper desk', 'search_query_variants_alternate': 'pages room',
+                  'search_query_variants_relaxed': 'documents indoors'}
+        canonical = {'search_query_variants_en': {'primary': 'paper daylight', 'alternate': 'pages table', 'relaxed': 'documents room'}}
+        for constraints, first in [(legacy, 'paper desk'), ({'search_query_variants_alternate': 'paper desk'}, 'paper desk'),
+                                   ({**legacy, **canonical, 'search_query_en': 'not selected'}, 'paper daylight'),
+                                   ({'search_query_en': 'single query'}, 'single query')]:
+            n = query_need(constraints); before = n.model_dump(mode='json')
+            compiled = NeedCompiler().compile(n)
+>           assert compiled.semantic_queries[0] == first
+E           AssertionError: assert '两张纸放在桌上。' == 'paper desk'
+E             
+E             - paper desk
+E             + 两张纸放在桌上。
+
+tests/test_model_output_contracts.py:57: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_model_output_contracts.py::test_proposal_container_preserves_literal_and_rejects_real_instruction_mix
+FAILED tests/test_model_output_contracts.py::test_query_metadata_is_discovery_only_and_legacy_priority_is_explicit
+2 failed in 0.13s

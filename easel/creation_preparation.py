@@ -10,6 +10,7 @@ import re
 import shutil
 import uuid
 from pathlib import Path
+from easel.output_contract import output_decision
 from typing import Any, Callable
 
 if os.name == "nt":
@@ -552,7 +553,8 @@ def mark_preparation_failed(creation_id: str, message: str) -> None:
         current = work.get("preparation", {})
         if current.get("status") in _TERMINAL_PREPARATION or current.get("attempt_id"):
             return
-        _update_preparation(creation_id, status="FAILED", last_error=safe, owner_pid=None)
+        _update_preparation(creation_id, status="FAILED", last_error=safe, owner_pid=None,
+                            output_decision=output_decision('preparation', 'REJECT', 'invalid_preparation'))
     except Exception:
         return
 
@@ -617,6 +619,7 @@ def _prepare_creation_for_hypit_locked(
             )
         preparation = _update_preparation(
             creation_id, status="CONTENT_READY", snapshot_hashes=snapshot["hashes"],
+            output_decision=output_decision("preparation", "ACCEPT", "validated_snapshot"),
             snapshot_artifacts=artifacts,
         )
         work = creation.get_creation(creation_id)
@@ -697,9 +700,9 @@ def _prepare_creation_for_hypit_locked(
                     for need in planning["plan"].needs:
                         NeedCompiler().compile(need)
                 except NeedCompilationError:
-                    # A structurally valid but non-retrievable plan is not a
-                    # trusted supply checkpoint. Repair it via the same Director.
-                    planning = None
+                    # Invalid frozen checkpoints require explicit revision,
+                    # never another implicit Planning call on re-entry.
+                    raise MaterialIntegrationError("冻结Planning已无法检索；请通过显式修订处理，不重新派发")
         if planning is None:
             if planning_executor is None:
                 raise MaterialIntegrationError("Production Planning executor is required; Material Gate cannot be bypassed")
@@ -721,7 +724,20 @@ def _prepare_creation_for_hypit_locked(
                 "creative_mode_sha256": mode.get("hash", ""),
                 },
             }
+            version = attempt.get('planning_contract_version')
+            if version not in {None, 2}: raise MaterialIntegrationError('Planning合同版本冲突')
+            pending = any(call.get('status') in {'submitting', 'pending'}
+                          for call in (work.get('delivery') or {}).get('agent_calls', {}).values()
+                          if call.get('session_key') == 'agent:main:material-planning-' + attempt['attempt_id'])
+            if version is None and not pending:
+                attempt = service.update_film_attempt(attempt['attempt_id'], event='planning_contract_registered',
+                                                      planning_contract_version=2)
             planning = planning_executor(attempt, planning_context)
+            # The product executor reconciles a legacy writer before registering
+            # v2. Never advance a custom executor that left its original run unknown.
+            attempt = service.get_film_attempt(attempt['attempt_id'])
+            if pending and attempt.get('planning_contract_version') != 2:
+                raise MaterialIntegrationError('旧Planning原请求尚未核实，不能推进素材')
         active_stage = "material"
         _update_preparation(creation_id, active_stage=active_stage)
         material_result = MaterialProductOrchestrator().run_with_planning(
@@ -739,6 +755,8 @@ def _prepare_creation_for_hypit_locked(
             attempt_id=attempt["attempt_id"],
             attempt_number=attempt["attempt_number"],
             last_error=safe_error,
+            output_decision=output_decision(
+                active_stage, "REJECT", "invalid_stage_output"),
         )
         raise PreparationError(safe_error) from exc
     material_status = material_result["status"]

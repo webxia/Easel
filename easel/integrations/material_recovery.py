@@ -276,9 +276,9 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
             audio_choices = unused_compiled_bgm_queries(attempt, planning['plan'], record)
             for raw in record['needs']:
                 need = next(n for n in planning['plan'].needs if n.need_id == raw['need_id'])
-                variants = need.constraints.get('search_query_variants_en', {})
+                from easel.materials.application.query_hints import query_hints
                 alternatives = ([audio_choices[need.need_id]] if need.need_id in audio_choices else
-                                [variants[k] for k in ('alternate', 'relaxed') if variants.get(k)])
+                                query_hints(need.constraints)[1:])
                 if not alternatives:
                     for path in sorted((store.materials_root / 'recoveries').glob('requirements-*.json')):
                         if path.is_symlink():

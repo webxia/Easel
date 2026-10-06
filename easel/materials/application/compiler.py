@@ -7,6 +7,7 @@ from collections.abc import Iterable
 
 from easel.materials.domain import BgmNeedSpec, MaterialNeed, RetrievalIntent, VoiceNeedSpec
 from easel.materials.application.need_constraints import validate_modality_constraints
+from easel.materials.application.query_hints import QUERY_FIELDS, query_hints
 
 
 class NeedCompilationError(ValueError):
@@ -42,24 +43,18 @@ class NeedCompiler:
         creator_terms = self._normalize_terms(creator_context_terms, "creator_context_terms")
         mode_terms = self._normalize_terms(creative_mode_terms, "creative_mode_terms")
 
+        try:
+            hints = query_hints(need.constraints)
+        except ValueError as exc:
+            raise NeedCompilationError(str(exc)) from exc
         filters: dict[str, str | int | float | bool] = {"media_type": need.media_type.value}
         if need.duration_hint is not None:
             filters["min_duration"] = need.duration_hint.target_seconds
         for key, value in need.constraints.items():
             if not isinstance(key, str) or not key.strip():
                 raise NeedCompilationError("Need constraint keys must be non-empty strings")
-            if key == 'search_query_variants_en':
-                if (not isinstance(value, dict) or set(value) != {'primary', 'alternate', 'relaxed'}
-                        or any(not isinstance(q, str) or not q.strip() or len(q) > 100
-                               or not re.fullmatch(r'[\x20-\x7e]+', q) or not re.search(r'[a-zA-Z]', q) for q in value.values())
-                        or len({self._normalize(q).casefold() for q in value.values()}) != 3):
-                    raise NeedCompilationError('英文查询变体须为三个不同的短查询')
-                continue
-            if key == 'search_query_en':
-                if (not isinstance(value, str) or not value.strip() or len(value) > 100
-                        or not re.fullmatch(r'[\x20-\x7e]+', value) or not re.search(r'[a-zA-Z]', value)):
-                    raise NeedCompilationError('search_query_en 须为不超过 100 字符的英文短查询')
-                continue  # Discovery wording never changes the original meaning/filter.
+            if key in QUERY_FIELDS:
+                continue  # Discovery wording never becomes a hard filter.
             if key == "preferred_visual_details":
                 # Director discretion is not a stock Provider hard filter.
                 continue
@@ -83,11 +78,7 @@ class NeedCompiler:
         clauses = [v.strip() for v in re.split(r"[。；;\n]|(?<=[.!?])\s+", description) if v.strip()]
         retrieval = clauses[0] if len(description) > 100 and clauses and len(clauses[0]) <= 100 else description
         query_candidates = [retrieval, f"{role} {retrieval}".strip()]
-        if need.constraints.get('search_query_variants_en'):
-            variants = need.constraints['search_query_variants_en']
-            query_candidates[:0] = [variants[k] for k in ('primary', 'alternate', 'relaxed')]
-        elif need.constraints.get('search_query_en'):
-            query_candidates.insert(0, need.constraints['search_query_en'])
+        query_candidates[:0] = list(hints)
         if need.need_id in self.search_terms:
             terms = self._normalize_terms(self.search_terms[need.need_id], "search_terms")
             if not terms or len(terms) > 4 or any(len(term) > 120 for term in terms):
@@ -153,7 +144,7 @@ class NeedCompiler:
         negative_terms = tuple(
             key.replace("_", " ").strip()
             for key, value in need.constraints.items()
-            if value is False and key.strip()
+            if value is False and key.strip() and key not in QUERY_FIELDS
         )
         if isinstance(need.modality_spec, BgmNeedSpec) and not need.modality_spec.vocals_allowed:
             negative_terms = tuple(dict.fromkeys((*negative_terms, 'vocals')))

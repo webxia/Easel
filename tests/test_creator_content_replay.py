@@ -167,6 +167,14 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 for name, value in {'MATERIAL_PLAN.json': drafted.model_dump_json(), 'SCRIPT.md': script,
                     'TREATMENT.md': f'通过{len(subjects)}个观察表达{topic}', 'SCENES.md': ' → '.join(subjects)}.items():
                     (root / 'planning' / name).write_text(value)
+                from tests.test_model_output_contracts import write_fixture_requirements
+                write_fixture_requirements(root / 'planning', drafted)
+                if index == 0:
+                    req_path = root / 'planning/MATERIAL_REQUIREMENTS.json'
+                    canonical = json.loads(req_path.read_text())
+                    req_path.write_text(json.dumps({'plan_id': drafted.plan_id, 'creation_id': drafted.creation_id,
+                        'attempt_id': drafted.attempt_id, 'context_refs': drafted.context_refs,
+                        'visual_requirements': [{'need_id': key, **value} for key, value in canonical.items()]}))
             elif message.startswith('〔Easel Script 系统审阅〕'):
                 preparation_calls.append('truth')
                 path = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
@@ -683,6 +691,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         repair_start = len(operations)
         copy_file = service._copy_retry_checkpoint_file
         interrupted = []
+        sidecar_interrupted = []
         from easel.integrations import material_layer
         update_attempt = material_layer._update_attempt
         observation_interrupted = []
@@ -704,6 +713,12 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         supply_calls = len(requests)
         def copy_checkpoint(source_root, target_root, relative):
             copy_file(source_root, target_root, relative)
+            if index == 1 and relative == Path('planning/MATERIAL_REQUIREMENTS.json') and not sidecar_interrupted:
+                sidecar_interrupted.append(str(target_root))
+                # Equivalent-looking changed bytes cannot replace frozen source
+                # evidence. The real copier must stop before target persist/Gate.
+                target_sidecar = target_root / relative
+                target_sidecar.write_bytes(target_sidecar.read_bytes() + b' ')
             if index == 1 and not interrupted and relative.parts[:2] == ('materials', 'assets'):
                 interrupted.append(str(target_root))
                 raise OSError('fixture interrupted after durable asset copy')
@@ -716,7 +731,8 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
                 assert target['cost']['approved'] is False and target['cost']['status'] == 'not_estimated'
                 assert target['outputs'] == {}
                 if current['delivery']['status'] == 'retrying':
-                    assert index == 1 and interrupted == [target['workspace']['path']]
+                    assert index == 1 and (interrupted == [target['workspace']['path']]
+                        or sidecar_interrupted == [target['workspace']['path']] and '冻结摘要' in current['delivery']['last_error'])
                     assert current['delivery']['recovering_quality_from'] == attempt['attempt_id']
                     assert target['retry_source']['status'] == 'COPYING'
             if next_operation(current) == (None, 'first_cut_ready'):
@@ -728,7 +744,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         repaired = current['hypit_attempts'][-1]
         assert repaired['attempt_id'] != attempt['attempt_id']
         assert len(current['hypit_attempts']) == 2
-        repair_operations = ['repair_quality'] * (2 if index == 1 else 1)
+        repair_operations = ['repair_quality'] * (3 if index == 1 else 1)
         if index == 0:
             repair_operations.extend(['observe_material', 'observe_material'])
         elif index == 1:
@@ -736,7 +752,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
         suffix = ['author', 'validate', 'price', 'approve_free', 'submit', 'refresh', 'export', 'quality']
         assert operations[-len(suffix):] == suffix
         material_prefix = operations[repair_start:-len(suffix)]
-        assert material_prefix[:2 if index == 1 else 1] == ['repair_quality'] * (2 if index == 1 else 1)
+        assert material_prefix[:3 if index == 1 else 1] == ['repair_quality'] * (3 if index == 1 else 1)
         assert material_prefix.count('recover_material') == (2 if index == 1 else 0)
         assert material_prefix.count('observe_material') >= repair_operations.count('observe_material')
         assert set(material_prefix) <= {'repair_quality', 'observe_material', 'recover_material'}
@@ -750,6 +766,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
             assert len(observations) == before_calls[2] + int(index == 0)
             assert len(requests) == supply_calls and not recovery_queries
         else:
+            assert sidecar_interrupted == [repaired['workspace']['path']]
             assert len(recovery_queries) == 1
             assert len(requests) > supply_calls and all(r.need_id.startswith('visual-') for r in requests[supply_calls:])
             assert supply_interrupted == [(repaired['attempt_id'], len(requests))]

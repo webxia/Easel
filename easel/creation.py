@@ -351,6 +351,7 @@ def begin_video_proposal(creation_id: str, turn_id: str) -> dict[str, Any]:
 def save_video_proposal(creation_id: str, turn_id: str, response: str) -> dict[str, Any]:
     from easel.creator_proposal import parse_video_plan
     plan = parse_video_plan(response)
+    from easel.output_contract import output_decision
     with edit_creation(creation_id) as data:
         workflow = data["chat_workflow"]
         if workflow.get("confirmed_at") or workflow.get("proposal_turn_id") != turn_id:
@@ -359,6 +360,10 @@ def save_video_proposal(creation_id: str, turn_id: str, response: str) -> dict[s
             previous = workflow.get("video_plan") or {}
             revision = previous.get("revision", 0) + (previous.get("sha256") != plan["sha256"])
             workflow["video_plan"] = {**plan, "revision": revision, "updated_at": _now()}
+        workflow["output_decision"] = output_decision("proposal", "ACCEPT" if plan else "REJECT",
+            "valid_proposal" if plan else "invalid_script_container", text=response,
+            field_path="script", policy_revision="easel-video-proposal@2")
+        workflow["proposal_error"] = None if plan else "正文与说明需要分开，请更新完整方案后确认"
         workflow["proposal_status"] = ("READY_FOR_CONFIRMATION"
             if plan and all(value is not None for value in plan["specs"].values()) else "DISCUSSING")
     return get_creation(creation_id)
@@ -425,6 +430,9 @@ def confirm_chat_proposal(
                 raise CreationError("确认方案摘要无效")
             if workflow.get("video_plan_required"):
                 plan = workflow.get("video_plan") or {}
+                from easel.creator_proposal import validate_video_plan
+                if not validate_video_plan(plan):
+                    raise CreationError("当前方案需更新为正文与说明分开的完整版本后确认")
                 if (not video_plan_sha256 or plan.get("sha256") != video_plan_sha256
                         or production_specs != plan.get("specs")
                         or any(plan.get("specs", {}).get(key) is None for key in

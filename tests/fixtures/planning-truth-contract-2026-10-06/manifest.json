@@ -1,0 +1,47 @@
+{
+  "SCRIPT.md": {
+    "sha256": "52b996379bc43c4550807ab7376501b2ab29d33e9337a068cfa7d623e3fc3804",
+    "source": "planning/SCRIPT.md",
+    "copy": "original bytes verified against third-run archive"
+  },
+  "SCENES.md": {
+    "sha256": "e35c252a4dbfd0604d5c7c85e8a9a73bb3ef87dc24c536de2f274af87b5767ff",
+    "source": "planning/SCENES.md",
+    "copy": "original bytes verified against third-run archive"
+  },
+  "TREATMENT.md": {
+    "sha256": "ef995cf56dcc8df8f551424b3d5b96ebfc07f8769904b9721f34e2cf110d9dec",
+    "source": "planning/TREATMENT.md",
+    "copy": "original bytes verified against third-run archive"
+  },
+  "MATERIAL_PLAN.json": {
+    "sha256": "0c4942330dc2e92f52605d59340af1787f9298ada98e19494ed31acf6318a8cd",
+    "source": "planning/MATERIAL_PLAN.json",
+    "copy": "original bytes verified against third-run archive"
+  },
+  "MATERIAL_REQUIREMENTS.json": {
+    "sha256": "f05fbdc54bb2c91cbaf3fa163c3d318d968e782e37172ee2c2459a01d3d7bd0f",
+    "source": "planning/MATERIAL_REQUIREMENTS.json",
+    "copy": "original bytes verified against third-run archive"
+  },
+  "script-assessment-57baa41e7265ea94c1862f7d858296064db6e7b68481fe9ed0fc44a3ba6958d6.json": {
+    "sha256": "e0149b43402b545efb468dd820751d362fc51e4d2be4741c2abcc103664d5a3e",
+    "source": "planning/script-assessment-57baa41e7265ea94c1862f7d858296064db6e7b68481fe9ed0fc44a3ba6958d6.json",
+    "copy": "original bytes verified against third-run archive"
+  },
+  "truth-packet.json": {
+    "sha256": "0753bc180da348b954247921b412b2d0c87d4e8772e9442de293ddee2a16ca15",
+    "source": "handoff/truth-packet.json",
+    "copy": "original bytes verified against third-run archive"
+  },
+  "proposal.md": {
+    "sha256": "beb7c6b7c99f4a9e31977ae7da2a7868e4a72cfbf2a3c7c30ce0066bb4717bbb",
+    "source": "archived creation.delivery.proposal: last assistant turn",
+    "copy": "exact field extraction; JSON serialization for video_plan"
+  },
+  "confirmed-video-plan.json": {
+    "sha256": "4bb3ae6483baf7990268b80e4627b89994f88b60a4e572793b471d5cb2a68772",
+    "source": "archived creation.delivery.video_plan",
+    "copy": "exact field extraction; JSON serialization for video_plan"
+  }
+}

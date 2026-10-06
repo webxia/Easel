@@ -1,0 +1,55 @@
+...................ss.sss............................................... [  9%]
+........................................................................ [ 19%]
+........................................................................ [ 29%]
+........................................................................ [ 39%]
+........................................................................ [ 48%]
+........................................................................ [ 58%]
+........................................................................ [ 68%]
+........................................................................ [ 78%]
+...............FF....................................................... [ 87%]
+........................................................................ [ 97%]
+..................                                                       [100%]
+=================================== FAILURES ===================================
+__ test_proposal_container_preserves_literal_and_rejects_real_instruction_mix __
+
+    def test_proposal_container_preserves_literal_and_rejects_real_instruction_mix():
+        for script, sound in [(' \n先看问题，\n## 文案\n再做决定。\n ', '旁白 + BGM'),
+                              ('请说明你的选择，配音也可以表达停顿。', '旁白'),
+                              ('停下来。', '无旁白 + BGM'), ('无文案', '无旁白 + BGM')]:
+            parsed = parse_video_plan(proposal(script, sound))
+>           assert parsed is not None and parsed['schema'] == 'easel-video-proposal@2'
+E           assert (None is not None)
+
+tests/test_model_output_contracts.py:26: AssertionError
+____ test_query_metadata_is_discovery_only_and_legacy_priority_is_explicit _____
+
+    def test_query_metadata_is_discovery_only_and_legacy_priority_is_explicit():
+        legacy = {'search_query_variants_primary': 'paper desk', 'search_query_variants_alternate': 'pages room',
+                  'search_query_variants_relaxed': 'documents indoors'}
+        canonical = {'search_query_variants_en': {'primary': 'paper daylight', 'alternate': 'pages table', 'relaxed': 'documents room'}}
+        for constraints, first in [(legacy, 'paper desk'), ({'search_query_variants_alternate': 'paper desk'}, 'paper desk'),
+                                   ({**legacy, **canonical, 'search_query_en': 'not selected'}, 'paper daylight'),
+                                   ({'search_query_en': 'single query'}, 'single query')]:
+            n = query_need(constraints); before = n.model_dump(mode='json')
+            compiled = NeedCompiler().compile(n)
+>           assert compiled.semantic_queries[0] == first
+E           AssertionError: assert '两张纸放在桌上。' == 'paper desk'
+E             
+E             - paper desk
+E             + 两张纸放在桌上。
+
+tests/test_model_output_contracts.py:57: AssertionError
+=============================== warnings summary ===============================
+tests/test_chat_capability.py::test_chat_api_initializes_creation_before_agent_dispatch
+  /Users/xgx/Projects/Easel/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_chat_capability.py::test_chat_api_initializes_creation_before_agent_dispatch
+  /Users/xgx/Projects/Easel/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_model_output_contracts.py::test_proposal_container_preserves_literal_and_rejects_real_instruction_mix
+FAILED tests/test_model_output_contracts.py::test_query_metadata_is_discovery_only_and_legacy_priority_is_explicit
+2 failed, 731 passed, 5 skipped, 2 warnings in 45.18s

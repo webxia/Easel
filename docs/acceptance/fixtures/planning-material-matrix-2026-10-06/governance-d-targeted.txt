@@ -1,0 +1,41 @@
+...F.F.................................................................. [ 40%]
+........................................................................ [ 80%]
+...................................                                      [100%]
+=================================== FAILURES ===================================
+_____ test_legacy_pending_planning_observes_original_run_before_validation _____
+tests/test_model_output_contracts.py:101: in test_legacy_pending_planning_observes_original_run_before_validation
+    attempt = service.update_film_attempt(attempt['attempt_id'], planning_contract_version=None)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: update_film_attempt() missing 1 required keyword-only argument: 'event'
+_______ test_same_creator_mode_three_contents_reach_reviewable_first_cut _______
+easel/integrations/material_layer.py:504: in load
+    verify_requirements(attempt, plan, manifest, load_frozen_creative_mode(attempt)[0])
+easel/integrations/planning_contract.py:47: in verify_requirements
+    actual, records = bind_requirements(plan, mode, raw, stored.get('source_needs'))
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+easel/integrations/planning_contract.py:34: in bind_requirements
+    if len(matches) != 1: raise ValueError('Planning要求与最终Need/Mode身份不一致')
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   ValueError: Planning要求与最终Need/Mode身份不一致
+
+The above exception was the direct cause of the following exception:
+tests/test_creator_content_replay.py:207: in test_same_creator_mode_three_contents_reach_reviewable_first_cut
+    planned = PlanningIntegration().load(attempt)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+easel/integrations/material_layer.py:506: in load
+    raise MaterialIntegrationError('Planning要求合同完整性无效：' + str(exc)) from exc
+E   easel.integrations.material_layer.MaterialIntegrationError: Planning要求合同完整性无效：Planning要求与最终Need/Mode身份不一致
+=============================== warnings summary ===============================
+tests/test_creation_preparation.py::test_script_truth_operator_api_is_protected_hash_bound_and_resumes
+  /Users/xgx/Projects/Easel/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_creation_preparation.py::test_script_truth_operator_api_is_protected_hash_bound_and_resumes
+  /Users/xgx/Projects/Easel/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_model_output_contracts.py::test_legacy_pending_planning_observes_original_run_before_validation
+FAILED tests/test_creator_content_replay.py::test_same_creator_mode_three_contents_reach_reviewable_first_cut
+2 failed, 177 passed, 2 warnings in 15.89s

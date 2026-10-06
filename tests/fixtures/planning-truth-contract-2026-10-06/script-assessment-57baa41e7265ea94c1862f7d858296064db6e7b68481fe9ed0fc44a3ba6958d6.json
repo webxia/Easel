@@ -1,0 +1,61 @@
+{
+  "schema": "easel-script-assessment@1",
+  "script_sha256": "52b996379bc43c4550807ab7376501b2ab29d33e9337a068cfa7d623e3fc3804",
+  "truth_packet_sha256": "0753bc180da348b954247921b412b2d0c87d4e8772e9442de293ddee2a16ca15",
+  "decisions": [
+    {
+      "claim_id": "claim-0001",
+      "kind": "creative_expression",
+      "reason": "「忙完一段，先把手机扣过去」属于推荐式生活建议的创作表达，无可验证事实、无第一人称经历、无身份或成效承诺；truth-packet `first_person_allowed` 为空且 `personal_facts` 为空，本句不触及任何被禁编造项，与 content-core 的 core_idea 与 creator-context 的 voice.avoid 一致。",
+      "sources": []
+    },
+    {
+      "claim_id": "claim-0002",
+      "kind": "creative_expression",
+      "reason": "「暂时不刷，也不急着回复」是延续上一句的推荐性表达，建议语气而非承诺，无可验证事实、不含「一定/必须」绝对化词、未承诺效率或心理收益；属创作表达范畴。",
+      "sources": []
+    },
+    {
+      "claim_id": "claim-0003",
+      "kind": "creative_expression",
+      "reason": "「起身倒杯水，走到窗边站一会儿」是面向普通人的场景化建议，与 truth-packet `public_allowed` 中「手机、桌面、空杯、水面、窗、光斑」作为普通生活场景的呈现一致；无身份、无工作内容、无数据承诺，属创作表达。",
+      "sources": []
+    },
+    {
+      "claim_id": "claim-0004",
+      "kind": "creative_expression",
+      "reason": "「什么都不做，大概也就一两分钟」是主观感受与时长范围的轻量表达，「什么都不做」匹配 truth-packet 中「'什么都不做'对不同的人有不同的感受」的 observation；未给出医学/心理/效率量化承诺，时长以「大概」「也就」保留不确定性，不构成事实主张。",
+      "sources": []
+    },
+    {
+      "claim_id": "claim-0005",
+      "kind": "creative_expression",
+      "reason": "「这一天如果能留一点空白」使用「如果」条件式，未把 hypothesis 升格为事实，与 forbidden_inventions 中「不得把模型推理的'可能''也许'改写成确定结论」一致；属条件式创作表达。",
+      "sources": []
+    },
+    {
+      "claim_id": "claim-0006",
+      "kind": "creative_expression",
+      "reason": "「后面也许会更像在过日子」使用「也许」保留不确定性，是末句感受而非承诺，与 content-core boundaries 中「末句只表达感受」及 truth-packet forbidden_inventions 末条一致；属主观判断式创作表达。",
+      "sources": []
+    },
+    {
+      "claim_id": "claim-0007",
+      "kind": "rewrite_required",
+      "reason": "该句是 Planning 对脚本自身属性的元描述（句数/字数/人称/末句性质/不出现某词），并非可由 truth-packet 支持的事实，也非作品的创作表达；属于 Planning 自行引入且可删除或重写的元说明，不应由 Creator 背书。",
+      "sources": []
+    },
+    {
+      "claim_id": "claim-0008",
+      "kind": "unresolved",
+      "reason": "「普通话男声自然语速朗读预计 30–34 秒，配合画面留白压到 36 秒内」是关于未来 TTS 输出的时长预测，依赖具体男声模型/语速/分句气口的实际合成结果；truth-packet 中无任何来源事实支持此数值（model_inference 不构成来源事实），且本轮不运行 Provider/Hypit，无法在审阅阶段验证。建议执行 TTS 后以实测时长校准，留白上限的 36 秒属下游编排决定。",
+      "sources": []
+    },
+    {
+      "claim_id": "claim-0009",
+      "kind": "rewrite_required",
+      "reason": "「旁白不授权压缩或截断最后一句字尾」及起末拍静音/黑场秒数上限属于 Planning 自行引入的下游编排指令，并非由 truth-packet 或 content-core 支撑的事实，也非作品创作表达；其作为约束条款不在本次审阅的事实/表达分类内，应由下游编排 Agent 按实际成片决定而非由 Planning 文本背书。",
+      "sources": []
+    }
+  ]
+}

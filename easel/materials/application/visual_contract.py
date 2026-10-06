@@ -18,8 +18,7 @@ from easel.materials.application.visual_observation import SCHEMA, ASSESSMENT_RE
 REVISION = 'visual-requirements@1'
 RESULT_LIMIT = 3000
 KINDS = {'required', 'preference', 'postproduction', 'unresolved'}
-QUERY_FIELDS = {'search_query_en', 'search_query_variants_en',
-                'search_query_variants_primary', 'search_query_variants_alternate', 'search_query_variants_relaxed'}
+from easel.materials.application.query_hints import QUERY_FIELDS
 
 
 class PlanningClause(BaseModel):

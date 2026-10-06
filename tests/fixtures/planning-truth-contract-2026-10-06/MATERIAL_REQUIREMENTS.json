@@ -1,0 +1,200 @@
+{
+  "img_beat1_phone_screen_down": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "一只手把手机屏幕朝下，轻轻放在浅木纹桌面上；用于建立放下手机的物理动作与起拍静音的呼吸感。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "在片头前 3 秒建立\"放下\"的具体动作，作为第一个观察锚点。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "特写构图，单手，手机轻微倾斜扣下，桌面木纹可见，无品牌标志；低饱和、柔光、留白多。",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "hand placing smartphone face-down on wooden desk close-up",
+      "empty hand putting phone screen down on wood table",
+      "minimal desk hand phone screen down soft light"
+    ]
+  },
+  "img_beat2_stand_up_leave": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "人物从中景书桌前站起、暂离画面；用于承接\"放下\"动作并过渡到倒水。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "表达主体开始移动，从静态走向下一个动作。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "中景构图，人物背影或侧面轮廓，模糊动作感，自然窗光，色调低饱和。",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "person standing up from desk leaving frame medium shot",
+      "figure rises from home desk in daylight medium shot",
+      "casual workspace person stands up soft window light"
+    ]
+  },
+  "img_beat3_pick_up_empty_cup": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "手拿起一个空的玻璃或陶瓷杯子，走近饮水机；用于承接\"暂时不刷\"的停顿。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "展示\"倒水\"动作的起点，延续克制的日常感。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "特写构图，空杯子质感清晰，背景轻微虚化的厨房或客厅场景，无品牌。",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "hand picking up empty glass cup near water dispenser close-up",
+      "empty cup lifted by hand near kitchen water cooler",
+      "minimal still life empty cup counter soft daylight"
+    ]
+  },
+  "img_beat4_pour_water_walk_to_window": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "中景倒水后端起杯子走向窗边；用于建立\"起身 → 窗边\"的空间动线。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "把动作从厨房/桌面过渡到窗边空间。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "中景构图，杯子在水流或刚离壶的瞬间，自然光从窗侧射入，画面不出现正面人脸。",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "person pouring water then carrying cup toward a window",
+      "figure walks with filled cup to a sunlit window medium shot",
+      "soft daylight interior carrying a cup toward glass window"
+    ]
+  },
+  "img_beat5_water_ripple_light": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "杯中水面轻晃一下，窗外光斑落在木桌或墙面上；用于\"日常被重新看到\"的识别瞬间。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "画面最安静的一拍，是观众识别主题的瞬间，配合轻水声音效。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "特写构图，水面涟漪清晰，光斑形状柔和落在木质表面，画面极简且留白多。",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "water surface gentle ripple inside cup with sunlight on table",
+      "still life cup of water sunlit wood desktop close-up",
+      "calm window light pool on table near a cup of water"
+    ]
+  },
+  "img_beat6_back_to_window": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "人物背对镜头站在窗前，望向窗外自然光；用于最末一句旁白的视觉收尾。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "留一拍的呼吸空间，承接\"更像在过日子\"的尾句。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "中景构图，背影或侧背影占画面下方三分之一以上，窗光为主光源，留白多。",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "modality/visual_style",
+        "text": "restrained low saturation everyday",
+        "kind": "preference",
+        "preference_path": "modality/visual_style"
+      }
+    ],
+    "queries": [
+      "person silhouette standing by window looking outside soft daylight",
+      "back view of figure at sunlit window quiet interior",
+      "minimal silhouette against window daylight still and quiet"
+    ]
+  }
+}

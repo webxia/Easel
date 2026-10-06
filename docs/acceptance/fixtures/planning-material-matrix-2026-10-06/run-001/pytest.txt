@@ -1,0 +1,25 @@
+....................F..FF                                                [100%]
+=================================== FAILURES ===================================
+_________________________ test_21_third_proposal_parse _________________________
+tests/planning_material_matrix/cases.py:343: in test_21_third_proposal_parse
+    assert parsed is None, '第三轮原始正常方案被接受；文案字段包含制作说明、TTS预测和编排指令'
+E   AssertionError: 第三轮原始正常方案被接受；文案字段包含制作说明、TTS预测和编排指令
+E   assert {'schema': 'easel-video-proposal@1', 'treatment': '**Content Core**\n- 此刻动作（普适建议）——忙完一段后，先放下手机，起身倒杯水，走到窗边站一会儿。\n- 具体观察... = 6 个 beats，落在 6–9 拍范围；总时长 36 秒。节奏从静 → 微动 → 再静。所有画面不出现人脸正面特写，符合"不塑造我的真实经历"。画面尽量采用空杯子 + 空桌面 + 背影 + 手部动作，避免面孔与指纹。', ...} is None
+_______________________ test_24_owner_supply_observation _______________________
+tests/planning_material_matrix/cases.py:448: in test_24_owner_supply_observation
+    assert operation in {'prepare', 'observe_material'}, f'expected material boundary, got {operation}'
+E   AssertionError: expected material boundary, got ('prepare', 'preparing')
+E   assert ('prepare', 'preparing') in {'observe_material', 'prepare'}
+__________________________ test_25_structure_reentry ___________________________
+tests/planning_material_matrix/cases.py:471: in test_25_structure_reentry
+    previous.test_planning_structure_repair_reentry_uses_one_durable_request(tmp_path / outcome, scoped, outcome)
+tests/test_creation_preparation.py:2282: in test_planning_structure_repair_reentry_uses_one_durable_request
+    directory.mkdir()
+../../.homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/pathlib.py:1311: in mkdir
+    os.mkdir(self, mode)
+E   FileNotFoundError: [Errno 2] No such file or directory: '/private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/pytest-of-xgx/pytest-1143/test_25_structure_reentry0/valid/planning'
+=========================== short test summary info ============================
+FAILED tests/planning_material_matrix/cases.py::test_21_third_proposal_parse
+FAILED tests/planning_material_matrix/cases.py::test_24_owner_supply_observation
+FAILED tests/planning_material_matrix/cases.py::test_25_structure_reentry - F...
+3 failed, 22 passed in 0.67s

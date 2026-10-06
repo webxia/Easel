@@ -1,0 +1,31 @@
+{
+  "audited_at": "2026-10-06T14:13:10.837060+00:00",
+  "objective": "合同测试、集成测试、结果记录与根因聚类；不修生产，不启动真实E2E",
+  "requirements": {
+    "25_risk_rows_executed_and_reported": true,
+    "real_owner_preparation_planning_persist_supply_observation_exercised": true,
+    "historical_three_runs_fixture_provenance_preserved": true,
+    "reverse_contract_protection_exercised": true,
+    "unknown_contracts_separate_not_counted_pass": true,
+    "independent_runner_retains_failure_without_xfail_skip": true,
+    "failure_clustering_and_minimum_recommendations_written": true,
+    "production_and_live_records_unchanged": true,
+    "default_collection_isolated_736": true,
+    "no_unmocked_external_calls_or_video_stages": true,
+    "final_source_snapshot_and_current_harness_hashes_equal": true,
+    "documentation_routes_reconciled": true
+  },
+  "counts": {
+    "PASS": 22,
+    "FAIL": 1,
+    "CONTRACT_GAP": 2,
+    "NOT_EXECUTED": 0
+  },
+  "production_sha256": "5f6e21a2fb301358c906291bbf4a811fa44ac986ace214a1c7ef687c10b0aede",
+  "real_creation_count": 16,
+  "protected_file_count": 223,
+  "secret_scan_files": 73,
+  "secret_findings": 0,
+  "git_diff_check": "passed",
+  "all_requirements_proven": true
+}

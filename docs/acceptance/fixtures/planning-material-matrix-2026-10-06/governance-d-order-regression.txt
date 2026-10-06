@@ -1,0 +1,9 @@
+.....F                                                                   [100%]
+=================================== FAILURES ===================================
+_______ test_same_creator_mode_three_contents_reach_reviewable_first_cut _______
+tests/test_creator_content_replay.py:721: in test_same_creator_mode_three_contents_reach_reviewable_first_cut
+    assert index == 1 and interrupted == [target['workspace']['path']]
+E   assert (0 == 1)
+=========================== short test summary info ============================
+FAILED tests/test_creator_content_replay.py::test_same_creator_mode_three_contents_reach_reviewable_first_cut
+1 failed, 5 passed in 5.07s

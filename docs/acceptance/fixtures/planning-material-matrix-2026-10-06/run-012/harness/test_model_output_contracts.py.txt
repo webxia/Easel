@@ -1,0 +1,157 @@
+"""Accepted governance contracts; shared by normal regression and the matrix."""
+from __future__ import annotations
+from pathlib import Path
+import hashlib
+import json
+import pytest
+from easel.creator_proposal import parse_video_plan
+from easel.materials.application.compiler import NeedCompiler
+from easel.materials.application.visual_contract import QUERY_FIELDS, sources_for
+from easel.materials.domain import MaterialNeed, MediaType, NeedIntent, NeedScope, NeedScopeType, NeedImportance
+
+THIRD = Path(__file__).parent / 'fixtures/planning-truth-contract-2026-10-06'
+
+
+def proposal(script, audio='旁白 + BGM'):
+    return ('## 创作表达\n提出一个问题。\n## 文案\n```text\n' + script + '\n```\n'
+            '## 分镜与节奏\n纸放在桌上。\n## 声音设计\n' + audio + '\n'
+            '## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：' + audio + '\n语言：简体中文')
+
+
+def test_proposal_container_preserves_literal_and_rejects_real_instruction_mix():
+    for script, sound in [(' \n先看问题，\n## 文案\n再做决定。\n ', '旁白 + BGM'),
+                          ('请说明你的选择，配音也可以表达停顿。', '旁白'),
+                          ('停下来。', '无旁白 + BGM'), ('无文案', '无旁白 + BGM')]:
+        parsed = parse_video_plan(proposal(script, sound))
+        assert parsed is not None and parsed['schema'] == 'easel-video-proposal@2'
+        assert parsed['script'] == script
+    historical = (THIRD / 'proposal.md').read_text()
+    script = (THIRD / 'SCRIPT.md').read_text()
+    assert parse_video_plan(historical) is None
+    for label in ('说明', '制作备注', '配音说明'):
+        mixed = script.replace('**说明**：6 句', '**' + label + '**：6 句', 1)
+        assert parse_video_plan(proposal(mixed)) is None, 'legal container cannot launder the historical failure'
+    for draft in (proposal(''), proposal('正文。').replace('\n```\n## 分镜', '\n```\n**说明**：不要朗读。\n## 分镜'),
+                  proposal('正文。').replace('```text', '```'),
+                  proposal('正文。').replace('\n```\n## 分镜', '\n## 分镜'),
+                  proposal('正文。').replace('\n```\n## 分镜', '\n```\n```text\n其他\n```\n## 分镜')):
+        assert parse_video_plan(draft) is None
+    assert parse_video_plan(proposal('  第一行。\n\n第二行。  ').replace('\n', '\r\n'))['script'] == '  第一行。\r\n\r\n第二行。  '
+
+
+def query_need(constraints):
+    return MaterialNeed(need_id='paper', media_type=MediaType.IMAGE, role='visual',
+        scope=NeedScope(type=NeedScopeType.SCENE, ref='s1'), importance=NeedImportance.REQUIRED,
+        intent=NeedIntent(description='两张纸放在桌上。'), constraints=constraints)
+
+
+def test_query_metadata_is_discovery_only_and_legacy_priority_is_explicit():
+    legacy = {'search_query_variants_primary': 'paper desk', 'search_query_variants_alternate': 'pages room',
+              'search_query_variants_relaxed': 'documents indoors'}
+    canonical = {'search_query_variants_en': {'primary': 'paper daylight', 'alternate': 'pages table', 'relaxed': 'documents room'}}
+    for constraints, first in [(legacy, 'paper desk'), ({'search_query_variants_alternate': 'paper desk'}, 'paper desk'),
+                               ({**legacy, **canonical, 'search_query_en': 'not selected'}, 'paper daylight'),
+                               ({'search_query_en': 'single query'}, 'single query')]:
+        n = query_need(constraints); before = n.model_dump(mode='json')
+        compiled = NeedCompiler().compile(n)
+        assert compiled.semantic_queries[0] == first
+        assert not QUERY_FIELDS.intersection(compiled.filters)
+        assert all(s['path'].split('/')[-1] not in QUERY_FIELDS for s in sources_for(n))
+        assert n.model_dump(mode='json') == before
+    for value in (False, '', '中文', 'x' * 101, {}):
+        with pytest.raises(ValueError): NeedCompiler().compile(query_need({**canonical, 'search_query_variants_primary': value}))
+    duplicate = NeedCompiler().compile(query_need({**legacy, 'search_query_variants_alternate': ' PAPER   DESK '}))
+    assert duplicate.semantic_queries.count('paper desk') == 1
+    for recovery in ('different paper', '另一个查询'):
+        result = NeedCompiler(search_terms={'paper': (recovery,)}).compile(query_need(legacy))
+        assert result.semantic_queries[0] == ('different paper' if recovery.isascii() else 'paper desk')
+
+
+def write_fixture_requirements(directory, plan):
+    """Explicit deterministic external Planning response, not production evidence."""
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / 'MATERIAL_REQUIREMENTS.json').write_text(json.dumps({n.need_id: {
+        'clauses': [{'path': row['path'], 'text': row['text'],
+                     'kind': 'preference' if row['preference'] else 'postproduction' if row['path'] == 'intent/function' else 'required',
+                     'preference_path': None} for row in sources_for(n)], 'queries': []}
+        for n in plan.needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}, ensure_ascii=False))
+
+
+# Reuse the same Owner scenario in normal pytest and the opt-in matrix.
+from tests.test_creation_preparation import prep_env
+
+
+def test_product_owner_governed_supply_boundary(prep_env, tmp_path, monkeypatch):
+    from tests.planning_material_matrix.cases import test_24_owner_supply_observation
+    from tests.planning_material_matrix.conftest import Trace
+    from tests.test_creation_preparation import web
+    monkeypatch.setattr(web, '_hypit_runtime_profile', lambda: None)
+    test_24_owner_supply_observation(prep_env, tmp_path, monkeypatch, Trace())
+
+
+def test_legacy_pending_planning_observes_original_run_before_validation(prep_env, monkeypatch):
+    from tests.test_creation_preparation import _prepare_creation, creation, service, web
+    from easel.materials.store import AttemptMaterialStore
+    from easel.integrations import openclaw_delivery as gateway
+    from easel.creation_delivery import DeliveryExecutionUncertain
+    work = prep_env['work']
+    result = _prepare_creation(work['id'], runtime_profile=None)
+    attempt = service.get_film_attempt(result['attempt_id'])
+    plan = AttemptMaterialStore(attempt['workspace']['path']).read_plan()
+    original = {'status': 'pending', 'run_id': 'historical-planning-run', 'request_sha256': 'c' * 64,
+                'profile': 'original-fixture-route', 'agent_id': 'main',
+                'session_key': 'agent:main:material-planning-' + attempt['attempt_id']}
+    with creation.edit_creation(work['id']) as current:
+        current['delivery'] = {'agent_calls': {'c' * 64: original.copy()}}
+    calls = []
+    state = {'response': 'pending'}
+    def rpc(prefix, profile, method, params, runner, kwargs):
+        calls.append({'profile': profile, 'method': method, 'params': params})
+        assert profile == original['profile']
+        if method == 'agent.wait':
+            assert params == {'runId': original['run_id'], 'timeoutMs': 0}
+            return {'runId': original['run_id'], 'status': state['response'], 'endedAt': 123 if state['response'] == 'ok' else None}
+        assert method == 'sessions.abort'
+        return {'ok': True, 'status': 'no-active-run'}
+    monkeypatch.setattr(gateway, '_rpc', rpc)  # external transport only
+    monkeypatch.setattr(web, 'run_agent_sync', lambda *_a, **_k: pytest.fail('old pending must not submit a new prompt'))
+    for _ in range(2):
+        with pytest.raises(DeliveryExecutionUncertain):
+            web._material_planning_executor(attempt, {'context_refs': plan.context_refs})
+    state['response'] = 'ok'
+    accepted = web._material_planning_executor(attempt, {'context_refs': plan.context_refs})
+    assert accepted['plan'].plan_id == plan.plan_id
+    assert [c['method'] for c in calls] == ['agent.wait', 'agent.wait', 'agent.wait', 'sessions.abort']
+    retained = creation.get_creation(work['id'])['delivery']['agent_calls']['c' * 64]
+    assert retained['run_id'] == original['run_id'] and retained['request_sha256'] == original['request_sha256']
+    assert retained['runtime_release'] == 'released'
+    web._material_planning_executor(attempt, {'context_refs': plan.context_refs})
+    assert len(calls) == 4
+
+
+def test_legacy_proposal_requires_revision_only_before_confirmation(prep_env):
+    from tests.test_creation_preparation import creation
+    from easel.creator_proposal import video_proposal_preview
+    work = creation.create_creation('旧未确认稿兼容对照', creative_mode='clear_memo_video', route='hypit_video',
+                                    origin={'type': 'chat', 'session_hash': 'f' * 64})
+    creation.begin_video_proposal(work['id'], 'new')
+    creation.save_video_proposal(work['id'], 'new', proposal('无文案', '无旁白 + BGM'))
+    plan = creation.get_creation(work['id'])['chat_workflow']['video_plan']
+    legacy = {k: v for k, v in plan.items() if k not in {'sha256', 'revision', 'updated_at'}}
+    legacy['schema'] = 'easel-video-proposal@1'
+    legacy['sha256'] = hashlib.sha256(json.dumps(legacy, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    with creation.edit_creation(work['id']) as current:
+        current['chat_workflow']['video_plan'] = legacy
+    with pytest.raises(creation.CreationError):
+        creation.confirm_chat_proposal(work['id'], 'invalid-confirm', video_plan_sha256=legacy['sha256'], production_specs=legacy['specs'])
+    creation.save_video_proposal(work['id'], 'revision', proposal('无文案', '无旁白 + BGM'))
+    revised = creation.get_creation(work['id'])['chat_workflow']['video_plan']
+    assert video_proposal_preview(creation.get_creation(work['id']), [])['script'] == revised['script']
+    creation.confirm_chat_proposal(work['id'], 'confirm', video_plan_sha256=revised['sha256'], production_specs=revised['specs'])
+    # Synthetic already-confirmed v1 record remains readable/replayable; no migration.
+    with creation.edit_creation(work['id']) as current:
+        current['chat_workflow']['video_plan'] = legacy
+    before = creation.get_creation(work['id'])['chat_workflow']['video_plan']
+    creation.confirm_chat_proposal(work['id'], 'replay')
+    assert creation.get_creation(work['id'])['chat_workflow']['video_plan'] == before

@@ -1,0 +1,14 @@
+Astra复核记录（Main整理；非逐字会话转储）
+
+B前置：CONTINUE。必要约束：旧ready坏检索不自动重规划；旧pending核实原身份；Mode最终Need/cache一致；报告早返前检查合同。
+
+D副本补充：MODIFY。复制后核对已冻结源sidecar SHA；保留source_needs；身份wrapper必须先核对来源、再内存绑定目标。已落实并在既有三内容隔离集成验证。
+
+D首次冻结：MODIFY。原pending repair不能因current route变化跳过核对；v2 load须共同核验Attempt状态/Plan ID/revision；逐字SCRIPT的CRLF须贯穿确认与load/Truth/Voice。已落实于run-015及最终全量。
+
+最终：CONTINUE。仅同意冻结当前软件合同版本，不认领A–D无例外整体验收通过。
+SOFTWARE_CONTRACTS=PASS
+SCENE_PROTECTION=FAIL
+两份真实Creation元数据保持事故后状态，未恢复。run-015的protected_unchanged仅表示该次前后相等；不覆盖与A基线的差异。Python写入保护器不是完整系统沙箱。部署加载和E批未启动。
+
+所有复核只读；未自行运行测试、修改文件或核验真实作品内容。实际测试及现场读数由Main记录。

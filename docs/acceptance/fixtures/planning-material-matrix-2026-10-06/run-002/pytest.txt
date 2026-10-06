@@ -1,0 +1,18 @@
+....................F..F.                                                [100%]
+=================================== FAILURES ===================================
+_________________________ test_21_third_proposal_parse _________________________
+tests/planning_material_matrix/cases.py:343: in test_21_third_proposal_parse
+    assert parsed is None, '第三轮原始正常方案被接受；文案字段包含制作说明、TTS预测和编排指令'
+E   AssertionError: 第三轮原始正常方案被接受；文案字段包含制作说明、TTS预测和编排指令
+E   assert {'schema': 'easel-video-proposal@1', 'treatment': '**Content Core**\n- 此刻动作（普适建议）——忙完一段后，先放下手机，起身倒杯水，走到窗边站一会儿。\n- 具体观察... = 6 个 beats，落在 6–9 拍范围；总时长 36 秒。节奏从静 → 微动 → 再静。所有画面不出现人脸正面特写，符合"不塑造我的真实经历"。画面尽量采用空杯子 + 空桌面 + 背影 + 手部动作，避免面孔与指纹。', ...} is None
+_______________________ test_24_owner_supply_observation _______________________
+tests/planning_material_matrix/cases.py:464: in test_24_owner_supply_observation
+    assert gateway_calls == ['preparation', 'planning', 'truth'] and len(supply_calls) == 1
+E   AssertionError: assert (['preparation...ing', 'truth'] == ['preparation...ing', 'truth']
+E     
+E     Use -v to get more diff and 2 == 1)
+E    +  where 2 = len(['plan-ad5b73a3e9e6d7891e32', 'plan-ad5b73a3e9e6d7891e32'])
+=========================== short test summary info ============================
+FAILED tests/planning_material_matrix/cases.py::test_21_third_proposal_parse
+FAILED tests/planning_material_matrix/cases.py::test_24_owner_supply_observation
+2 failed, 23 passed in 1.78s

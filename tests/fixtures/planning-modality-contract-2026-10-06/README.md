@@ -12,4 +12,6 @@
 
 初始版本另有Voice文稿引用/摘要配对错误，未冒充本目录的中间版本。完整版本序列保留在原本机归档。
 
+2026-10-06 边界矩阵另补 `MATERIAL_PLAN_INITIAL.json`，保存初始 `text_ref` 非空而 `text_sha256` 为 null 的实际事故。来源为受保护归档 `material-independent-2-2026-10-06/versions/32ab9fc18ec8d2e32dfc3792594654296ad8e9b2606ef1afff8cafff45731d71.json`；该归档重新序列化，文件内容未人工修正。复制件字节 SHA 为 `5de346684687fd007b0ea7ec4d4c5c41d8dc8adfe63834e4b70420e91c6db096`，版本名称记载原运行 SHA `32ab9fc18ec8d2e32dfc3792594654296ad8e9b2606ef1afff8cafff45731d71`，两者不能混称。矩阵通过真实 JSON Domain 校验回放配对拒绝。
+
 负例要求确定性拒绝污染，不删除要求、不降级importance。合法混合对照只在测试内显式构造：移除错误跨模态副本、将Voice上的三个值放回既有canonical对象；仅证明校验/consumer职责与异步单次修复身份，不构成对真实产物的自动修正，也不宣称真实MATERIAL_READY。真实JSON字节不改动。

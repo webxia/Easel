@@ -1,0 +1,43 @@
+{
+  "claims": [
+    {
+      "claim": "放下手机、倒杯水、走到窗边站一会儿，是普通人在忙碌间隙常做的一类小动作。",
+      "confidence": "low",
+      "kind": "observation",
+      "source": "model_inference"
+    },
+    {
+      "claim": "一天被一件接一件的事情填满时，留出一两分钟不做具体事，可能让后面的时间显得更接近日常节奏。",
+      "confidence": "low",
+      "kind": "hypothesis",
+      "source": "model_inference"
+    },
+    {
+      "claim": "“什么都不做”对不同的人有不同的感受，这种感受是否成立取决于个人状态，无法普适证明。",
+      "confidence": "low",
+      "kind": "observation",
+      "source": "model_inference"
+    }
+  ],
+  "first_person_allowed": [],
+  "forbidden_inventions": [
+    "不得编造创作者本人或任何人的真实工作场景、对话、日期、岗位、公司或结果。",
+    "不得编造第一人称疲惫经历或“习惯”作为既成事实。",
+    "不得编造医学、心理或效率层面的具体效果数据（如血压下降、专注度提升、焦虑缓解等）。",
+    "不得引入未明确许可的具体人物形象、姓名、声音或可识别身份。",
+    "不得为了贴合风格补造私人日常细节（家庭、财务、关系、居住地等）。",
+    "不得把模型推理的“可能”“也许”改写成确定结论；末句必须保留感受语气。"
+  ],
+  "personal_facts": [],
+  "public_allowed": [
+    "把“忙完留一点空白”作为面向普通人的生活建议本身。",
+    "对画面中出现的物体（手机、桌面、空杯、水面、窗、光斑）作为普通生活场景的呈现。",
+    "把第三方公开的、无版权风险的预置男声或无歌词轻音乐用作本作品音轨（在用户授权范围内）。"
+  ],
+  "schema": "easel-truth-packet@2",
+  "uncertainty_policy": {
+    "learning_is_not_proven_capability": true,
+    "plan_is_not_experience": true,
+    "unknown_claims": "label_uncertain"
+  }
+}

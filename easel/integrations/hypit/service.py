@@ -704,9 +704,22 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
             "plan_id": f"plan-{target['attempt_id'][-20:]}",
             "attempt_id": target["attempt_id"],
         })
+        requirements_source = None
+        if source.get('planning_contract_version') == 2:
+            # The source was fully validated above. Preserve its sidecar and
+            # default provenance, but bind this new checkpoint to its own v2 SHA.
+            requirements_source = {**planning['requirements'], 'origin':
+                planning['requirements'].get('origin') or {
+                    'creation_id': plan.creation_id, 'attempt_id': plan.attempt_id, 'plan_id': plan.plan_id}}
+            _copy_retry_checkpoint_file(source_root, target_root, Path('planning/MATERIAL_REQUIREMENTS.json'))
+            copied = target_root / 'planning/MATERIAL_REQUIREMENTS.json'
+            if hashlib.sha256(copied.read_bytes()).hexdigest() != requirements_source['sha256']:
+                raise HypitIntegrationError('Planning要求复制期间与源冻结摘要发生变化')
+            target = update_film_attempt(target['attempt_id'], event='planning_contract_copied', planning_contract_version=2)
         persisted = PlanningIntegration().persist(
             target, new_plan, treatment=planning["treatment"],
             script=planning["script"], scenes=planning["scenes"],
+            requirements_source=requirements_source,
         )
         target = persisted["attempt"]
         if planning["truth_ledger"]["status"] != "PASSED":

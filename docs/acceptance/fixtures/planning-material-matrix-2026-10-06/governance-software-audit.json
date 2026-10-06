@@ -1,0 +1,49 @@
+{
+  "schema": "easel-output-governance-software@1",
+  "commit": "36ead76beaeed02ce53d1580dc4f0fb56ddcd88e",
+  "branch": "easel-studio",
+  "original_source_sha256": "5f6e21a2fb301358c906291bbf4a811fa44ac986ace214a1c7ef687c10b0aede",
+  "final_source_sha256": "cd314b19e591a302657c4762508ac42b0df422139d8ebe44a89b86991c45aecc",
+  "final_tracked_only_sha256": "f69d959fd4d14dcc13a6b9695ba44147a3f6e08b712219b42c5f3788647bcb38",
+  "source_algorithm": "git ls-files --cached --others --exclude-standard easel web scripts + byte SHA map + sorted compact JSON SHA",
+  "final_source_files": 201,
+  "protected_file_count": 223,
+  "fixture_file_count": 19,
+  "protected_unchanged_from_A": false,
+  "protected_changed_paths": [
+    "/Users/xgx/Projects/Easel/outputs/_creations/cr_223021d92de643f0a35faea2907de7ed/creation.json",
+    "/Users/xgx/Projects/Easel/outputs/_creations/cr_94b5d27f5fb140de85981cecba009a9d/creation.json"
+  ],
+  "protected_unchanged_during_final_D": true,
+  "fixtures_unchanged_from_A": true,
+  "final_tested_source_unchanged": true,
+  "matrix": {
+    "PASS": 25,
+    "FAIL": 0,
+    "CONTRACT_GAP": 0,
+    "NOT_EXECUTED": 0
+  },
+  "software_contracts": "PASS",
+  "scene_protection": "FAIL",
+  "overall_exception_free_acceptance": "NO",
+  "checks": {
+    "pytest": "738 passed / 5 existing skipped (bun unavailable), 49.41s",
+    "skills": "115 conform",
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "frontend": "NOT_APPLICABLE: no frontend source edits"
+  },
+  "real_e2e": "NOT_STARTED",
+  "service_reload": "NOT_PERFORMED",
+  "paid_calls": 0,
+  "paid_cost": 0,
+  "commit_push": "NOT_PERFORMED",
+  "historical_e2e_results": [
+    "FAIL",
+    "FAIL",
+    "FAIL"
+  ],
+  "real_material_ready": "NOT_CLAIMED",
+  "incident": "governance-runtime-integrity-incident.json",
+  "remaining_action": "仅用户另行决定现场元数据处置和E批；不自动恢复或继续真实执行"
+}

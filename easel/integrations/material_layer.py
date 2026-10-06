@@ -277,6 +277,7 @@ class PlanningIntegration:
         script: str,
         scenes: str,
         script_assessment: dict[str, Any] | None = None,
+        requirements_source: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if plan.creation_id != attempt.get("creation_id") or plan.attempt_id != attempt.get("attempt_id"):
             raise MaterialIntegrationError("MaterialPlan identity does not match Attempt")
@@ -288,6 +289,7 @@ class PlanningIntegration:
         for name, value in (("TREATMENT.md", treatment), ("SCRIPT.md", script), ("SCENES.md", scenes)):
             if not isinstance(value, str) or not value.strip() or "\x00" in value:
                 raise MaterialIntegrationError(f"Planning artifact {name} 不能为空")
+        source_plan = plan
         script_digest = hashlib.sha256(script.encode("utf-8")).hexdigest()
         work = creation.get_creation(attempt['creation_id'])
         if work.get('preparation', {}).get('snapshot_hashes'):
@@ -336,7 +338,32 @@ class PlanningIntegration:
                 need = need.model_copy(update={"modality_spec": spec})
             bound_needs.append(need)
         plan = plan.model_copy(update={"needs": tuple(bound_needs)})
+        # Contracts refer to the representation read back from the canonical
+        # Plan file, including its stable JSON object order.
+        plan = MaterialPlan.model_validate_json(plan.to_json())
         root = _workspace(attempt)
+        product = bool(work.get('preparation', {}).get('snapshot_hashes')) or (
+            (work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@2')
+        version = attempt.get('planning_contract_version')
+        if product and version != 2:
+            raise MaterialIntegrationError('新产品Planning缺少程序登记的v2合同；已完成旧记录只能load恢复')
+        if version not in {None, 2}:
+            raise MaterialIntegrationError('Planning合同版本不支持，不能降级')
+        requirements, records, requirements_raw = None, {}, None
+        if version == 2:
+            from easel.integrations.planning_contract import requirements_bytes, bind_requirements
+            try:
+                requirements_raw = requirements_bytes(root)
+                sources = {n.need_id: n.model_dump(mode='json') for n in source_plan.needs
+                           if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}
+                if requirements_source is not None:
+                    if hashlib.sha256(requirements_raw).hexdigest() != requirements_source.get('sha256'):
+                        raise ValueError('Planning要求复制字节与源冻结摘要不一致')
+                    sources = requirements_source['source_needs']
+                requirements, records = bind_requirements(plan, mode, requirements_raw, sources,
+                    requirements_source.get('origin') if requirements_source else None)
+            except (OSError, ValueError, TypeError) as exc:
+                raise MaterialIntegrationError('Planning要求合同无效：' + str(exc)) from exc
         truth_path = root / "handoff" / "truth-packet.json"
         try:
             review = create_script_claim_ledger(script, truth_path)
@@ -369,7 +396,7 @@ class PlanningIntegration:
         }
         plan_revision = MaterialReadinessCalculator.plan_revision(plan)
         manifest = {
-            "schema": "easel-material-planning@1",
+            "schema": "easel-material-planning@2" if version == 2 else "easel-material-planning@1",
             "status": "PLANNING_READY",
             "plan_id": plan.plan_id,
             "plan_revision": plan_revision,
@@ -382,14 +409,25 @@ class PlanningIntegration:
                 for key, path in artifact_paths.items()
             },
         }
+        if version == 2:
+            from easel.integrations.planning_contract import requirements_bytes
+            if requirements_bytes(root) != requirements_raw:
+                raise MaterialIntegrationError('Planning要求文件在冻结期间变化')
+            manifest['requirements'] = requirements
+            for key, record in records.items(): store.write_recovery_record(key, record)
         manifest_path = root / "planning" / "manifest.json"
         if _has_symlink_components(root, manifest_path):
             raise MaterialIntegrationError("Planning manifest path must not contain symlinks")
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        from easel.output_contract import output_decision
         updated = _update_attempt(
             attempt,
             material_planning={
                 "status": "PLANNING_READY",
+                **({'contract_version': 2, 'manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest()}
+                   if version == 2 else {}),
+                "output_decision": output_decision(
+                    'material', 'ACCEPT', 'validated_planning', policy_revision=manifest['schema']),
                 "plan_id": plan.plan_id,
                 "plan_revision": plan_revision,
                 "manifest": "planning/manifest.json",
@@ -411,6 +449,8 @@ class PlanningIntegration:
         try:
             plan = store.read_plan()
             manifest_path = root / "planning" / "manifest.json"
+            if _has_symlink_components(root, manifest_path):
+                raise ValueError('Planning manifest路径无效')
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             raise MaterialIntegrationError("Persisted Creative Planning evidence is unavailable") from exc
@@ -420,18 +460,38 @@ class PlanningIntegration:
                 or manifest.get("plan_id") != plan.plan_id
                 or manifest.get("plan_revision") != MaterialReadinessCalculator.plan_revision(plan)):
             raise MaterialIntegrationError("Persisted Creative Planning identity or revision is stale")
+        stored = attempt.get('material_planning', {})
+        if (stored.get('status') != 'PLANNING_READY' or stored.get('plan_id') != plan.plan_id
+                or stored.get('plan_revision') != manifest['plan_revision']):
+            raise MaterialIntegrationError('Attempt Planning状态或Plan身份不一致')
+        schema = manifest.get('schema')
+        owner = creation.get_creation(plan.creation_id)
+        owner_attempt = next((item for item in owner.get('hypit_attempts', [])
+                              if item.get('attempt_id') == plan.attempt_id), {})
+        current_contract = ((owner.get('delivery') or {}).get('video_plan') or {}).get('schema') == 'easel-video-proposal@2'
+        v2 = (attempt.get('planning_contract_version') is not None or stored.get('contract_version') is not None
+              or schema == 'easel-material-planning@2' or 'requirements' in manifest
+              or current_contract or owner_attempt.get('planning_contract_version') is not None)
+        if v2:
+            if (attempt.get('planning_contract_version') != 2 or stored.get('contract_version') != 2
+                    or schema != 'easel-material-planning@2'
+                    or stored.get('manifest_sha256') != hashlib.sha256(manifest_path.read_bytes()).hexdigest()):
+                raise MaterialIntegrationError('Planning v2版本或manifest摘要不一致，不能降级')
+        elif (schema != 'easel-material-planning@1' or stored.get('status') != 'PLANNING_READY'
+              or stored.get('plan_id') != plan.plan_id or stored.get('plan_revision') != manifest['plan_revision']):
+            raise MaterialIntegrationError('旧Planning不是有效的冻结检查点')
         artifacts: dict[str, str] = {}
         for key in ("treatment", "script", "scenes"):
             item = manifest.get("artifacts", {}).get(key)
             if not isinstance(item, dict) or not isinstance(item.get("path"), str):
                 raise MaterialIntegrationError("Persisted Planning manifest is incomplete")
             lexical_path = root / item["path"]
-            if lexical_path.is_symlink():
+            if _has_symlink_components(root, lexical_path):
                 raise MaterialIntegrationError("Persisted Planning artifact path is invalid")
             path = lexical_path.resolve()
             if root not in path.parents or not path.is_file():
                 raise MaterialIntegrationError("Persisted Planning artifact path is invalid")
-            content = path.read_text(encoding="utf-8")
+            content = path.read_bytes().decode("utf-8")
             if hashlib.sha256(path.read_bytes()).hexdigest() != item.get("sha256"):
                 raise MaterialIntegrationError("Persisted Planning artifact digest is stale")
             artifacts[key] = content
@@ -449,8 +509,15 @@ class PlanningIntegration:
                 or stored.get("script_sha256") != ledger.get("script_sha256")
                 or stored.get("truth_packet_sha256") != ledger.get("truth_packet_sha256")):
             raise MaterialIntegrationError("Attempt Script review record does not match persisted claim ledger")
+        if v2:
+            from easel.integrations.hypit.handoff import load_frozen_creative_mode
+            from easel.integrations.planning_contract import verify_requirements
+            try:
+                verify_requirements(attempt, plan, manifest, load_frozen_creative_mode(attempt)[0])
+            except (OSError, ValueError, TypeError) as exc:
+                raise MaterialIntegrationError('Planning要求合同完整性无效：' + str(exc)) from exc
         return {"plan": plan, **artifacts, "context_refs": plan.context_refs,
-                "truth_ledger": ledger, "attempt": attempt}
+                "truth_ledger": ledger, "attempt": attempt, 'requirements': manifest.get('requirements')}
 
     def review_script(
         self,

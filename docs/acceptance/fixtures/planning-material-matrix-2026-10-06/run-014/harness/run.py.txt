@@ -1,0 +1,89 @@
+"""Run the opt-in matrix and reconcile immutable production/live evidence."""
+from __future__ import annotations
+import argparse
+from datetime import datetime, timezone
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_OUTPUT = ROOT / 'docs/acceptance/fixtures/planning-material-matrix-2026-10-06'
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def production():
+    names = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', 'easel', 'web', 'scripts'], cwd=ROOT, text=True).splitlines()
+    files = {name: sha(ROOT / name) for name in names if (ROOT / name).is_file()}
+    return {'files': files, 'sha256': hashlib.sha256(json.dumps(files, sort_keys=True,
+        ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()}
+
+
+def protected():
+    files = list((ROOT / 'outputs/_creations').rglob('*.json'))
+    # Read bytes only for integrity. Runtime content, credentials and DB are
+    # never copied into the report or available to the test process.
+    for cid, aid in [('cr_94b5d27f5fb140de85981cecba009a9d', 'fa_2368857a95b3c017098064d189ce84e4'),
+                     ('cr_223021d92de643f0a35faea2907de7ed', 'fa_d5e99b227faa224b82f5347174850a1b'),
+                     ('cr_7e2e84a687d9493095ff371425d7e930', 'fa_f0ff6daa752e339819a677b2d893a6fc')]:
+        workspace = Path.home() / '.easel/hypit/workspaces' / cid / aid
+        files.extend(p for p in workspace.rglob('*') if p.is_file())
+    return {str(p): sha(p) for p in sorted(set(files))}
+
+
+def fixture_files():
+    return {str(p.relative_to(ROOT)): sha(p) for folder in [
+        'planning-material-contract-2026-10-06', 'planning-modality-contract-2026-10-06',
+        'planning-truth-contract-2026-10-06'] for p in sorted((ROOT / 'tests/fixtures' / folder).rglob('*')) if p.is_file()}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output', type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument('--case', help='Optional pytest -k filter; not a full matrix result')
+    args = parser.parse_args()
+    output = args.output.resolve()
+    output.mkdir(parents=True, exist_ok=True)
+    number = 1 + len(list(output.glob('run-[0-9][0-9][0-9]')))
+    run = output / f'run-{number:03}'
+    run.mkdir()
+    before = {'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
+              'branch': subprocess.check_output(['git', 'branch', '--show-current'], cwd=ROOT, text=True).strip(),
+              'production': production(), 'protected_files': protected(), 'historical_fixtures': fixture_files(),
+              'started_at': datetime.now(timezone.utc).isoformat(), 'selection': args.case or 'all 25 risk rows'}
+    harness = run / 'harness'
+    harness.mkdir()
+    before['test_harness_files'] = {}
+    for name in ('cases.py', 'conftest.py', 'run.py', '../test_model_output_contracts.py'):
+        source = Path(__file__).parent / name
+        # A copied conftest.py would be auto-loaded by default pytest discovery.
+        # Store source snapshots as text while preserving their exact bytes/SHA.
+        (harness / (Path(name).name + '.txt')).write_bytes(source.read_bytes())
+        before['test_harness_files'][name] = sha(source)
+    (run / 'baseline.json').write_text(json.dumps(before, ensure_ascii=False, indent=2) + '\n')
+    command = [sys.executable, '-m', 'pytest', 'tests/planning_material_matrix/cases.py', '-q', '--tb=short',
+        '-o', 'addopts=', '--matrix-output', str(run / 'results.json'), '--junitxml', str(run / 'junit.xml')]
+    if args.case:
+        command.extend(['-k', args.case])
+    proc = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    (run / 'pytest.txt').write_text(proc.stdout + proc.stderr)
+    after_production, after_protected, after_fixtures = production(), protected(), fixture_files()
+    reconciliation = {'finished_at': datetime.now(timezone.utc).isoformat(), 'pytest_exit_status': proc.returncode,
+        'production_sha256': after_production['sha256'], 'production_unchanged': before['production'] == after_production,
+        'protected_unchanged': before['protected_files'] == after_protected,
+        'fixtures_unchanged': before['historical_fixtures'] == after_fixtures,
+        'protected_file_count': len(after_protected), 'fixture_file_count': len(after_fixtures)}
+    (run / 'reconciliation.json').write_text(json.dumps(reconciliation, ensure_ascii=False, indent=2) + '\n')
+    print(proc.stdout + proc.stderr)
+    print(json.dumps({'run': str(run), **reconciliation}, ensure_ascii=False))
+    if not all(reconciliation[k] for k in ('production_unchanged', 'protected_unchanged', 'fixtures_unchanged')):
+        return 2
+    return proc.returncode
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

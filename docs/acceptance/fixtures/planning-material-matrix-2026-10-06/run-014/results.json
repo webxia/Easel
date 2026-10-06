@@ -1,0 +1,846 @@
+{
+  "schema": "easel-planning-material-matrix@1",
+  "pytest_exit_status": 0,
+  "case_count": 25,
+  "counts": {
+    "PASS": 25,
+    "FAIL": 0,
+    "CONTRACT_GAP": 0,
+    "NOT_EXECUTED": 0
+  },
+  "cases": [
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_01_canonical_wrapper",
+      "duration_seconds": 0.01097687496803701,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "历史 wrapper 与 canonical 合同等价；7视觉与4声音完整保留",
+      "basis": "第一轮原字节 fixture；正式 visual sidecar 合同",
+      "actual": [
+        {
+          "label": "contracts / all needs",
+          "actual": {
+            "visual": 7,
+            "all": 11
+          }
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_02_missing_visual_clause",
+      "duration_seconds": 0.013601916958577931,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "required 原文漏项与 optional 视觉 ID 漏项均拒绝",
+      "basis": "全部视觉 ID 与原文完整覆盖，不降低 required",
+      "actual": [
+        {
+          "label": "missing_visual",
+          "actual": "rejected; source unchanged"
+        },
+        {
+          "label": "missing_required",
+          "actual": "rejected; source unchanged"
+        },
+        {
+          "label": "partial_preference",
+          "actual": "rejected; source unchanged"
+        },
+        {
+          "label": "whole required visual ID missing",
+          "actual": "rejected"
+        },
+        {
+          "label": "no required Need in Plan",
+          "actual": "rejected after one bounded fixture repair"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_03_duplicate_unknown",
+      "duration_seconds": 0.002070459071546793,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "重复/未知 Need ID、重复 JSON 键、重复 Plan ID 拒绝",
+      "basis": "MaterialPlan.unique_need_ids；sidecar exact ID set",
+      "actual": [
+        {
+          "label": "duplicate",
+          "actual": "rejected"
+        },
+        {
+          "label": "unknown_need",
+          "actual": "rejected"
+        },
+        {
+          "label": "duplicate JSON / Plan ID",
+          "actual": "rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_04_source_binding",
+      "duration_seconds": 0.0022451678523793817,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "错误 Attempt/冻结 refs/source path 拒绝",
+      "basis": "wrapper identity equality；literal source binding",
+      "actual": [
+        {
+          "label": "wrong_identity",
+          "actual": "rejected"
+        },
+        {
+          "label": "wrong_context",
+          "actual": "rejected"
+        },
+        {
+          "label": "unknown_path",
+          "actual": "rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_05_unicode_literal",
+      "duration_seconds": 0.006008458090946078,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "中文标点逐字绑定；兼容具名引号漂移不允许真实改词或漏引号",
+      "basis": "第一轮 wrapper 单向等长兼容；canonical literal spans",
+      "actual": [
+        {
+          "label": "need types / importance",
+          "actual": [
+            [
+              "image",
+              "image",
+              "required"
+            ]
+          ]
+        },
+        {
+          "label": "visual contracts",
+          "actual": 1
+        },
+        {
+          "label": "canonical punctuation mutation",
+          "actual": "rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_06_path_alias_null",
+      "duration_seconds": 0.015059708966873586,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "已定义 wrapper path/空引用适配；canonical 非法 alias、空/未知引用拒绝",
+      "basis": "normalize_planning_requirements 的具名兼容范围",
+      "actual": [
+        {
+          "label": "path:modality_spec/visual_style",
+          "actual": "rejected canonical variant"
+        },
+        {
+          "label": "preference_path:",
+          "actual": "rejected canonical variant"
+        },
+        {
+          "label": "preference_path:unknown",
+          "actual": "rejected canonical variant"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_07_visual_only",
+      "duration_seconds": 0.0008580000139772892,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "纯视觉 Plan 可编译，原 Need 不变",
+      "basis": "MaterialPlan / NeedCompiler / planning_contracts",
+      "actual": [
+        {
+          "label": "need types / importance",
+          "actual": [
+            [
+              "image",
+              "image",
+              "required"
+            ]
+          ]
+        },
+        {
+          "label": "visual contracts",
+          "actual": 1
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_08_visual_voice",
+      "duration_seconds": 0.0007312500383704901,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "visual + Voice 合法；Voice 参数不进入检索 filter 或 visual sidecar",
+      "basis": "canonical voice_delivery；模态职责",
+      "actual": [
+        {
+          "label": "need types / importance",
+          "actual": [
+            [
+              "image",
+              "image",
+              "required"
+            ],
+            [
+              "voice",
+              "audio",
+              "required"
+            ]
+          ]
+        },
+        {
+          "label": "visual contracts",
+          "actual": 1
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_09_visual_bgm",
+      "duration_seconds": 0.0007398328743875027,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "visual + BGM 合法；BGM 保留自身偏好及 no-vocals 检索语义",
+      "basis": "BgmNeedSpec / NeedCompiler",
+      "actual": [
+        {
+          "label": "need types / importance",
+          "actual": [
+            [
+              "image",
+              "image",
+              "required"
+            ],
+            [
+              "bgm",
+              "audio",
+              "required"
+            ]
+          ]
+        },
+        {
+          "label": "visual contracts",
+          "actual": 1
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_10_mixed_modalities",
+      "duration_seconds": 0.0009192511206492782,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "image/video/Voice/BGM/SFX 与 required/optional 完整保留；audio 不进 canonical visual map",
+      "basis": "Material V1.3 模态边界；optional 不删除",
+      "actual": [
+        {
+          "label": "need types / importance",
+          "actual": [
+            [
+              "image",
+              "image",
+              "required"
+            ],
+            [
+              "video",
+              "video",
+              "optional"
+            ],
+            [
+              "voice",
+              "audio",
+              "required"
+            ],
+            [
+              "bgm",
+              "audio",
+              "required"
+            ],
+            [
+              "sfx",
+              "audio",
+              "required"
+            ]
+          ]
+        },
+        {
+          "label": "visual contracts",
+          "actual": 2
+        },
+        {
+          "label": "audio ID in canonical visual map",
+          "actual": "rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_11_clause_kinds",
+      "duration_seconds": 0.0017642899183556437,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "四类职责分离；明确源动作不得交后期；unresolved 不提交观察",
+      "basis": "visual_contract.validate_compilation / batches",
+      "actual": [
+        {
+          "label": "explicit preference promoted to required",
+          "actual": "rejected"
+        },
+        {
+          "label": "unresolved / dynamic action",
+          "actual": "blocked before observation"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_12_query_metadata",
+      "duration_seconds": 0.032292083953507245,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "查询元数据不进入视觉原文；已定义查询对象不进入硬 filters；未知 provider/ranking 协议单列",
+      "basis": "QUERY_FIELDS / canonical retrieval metadata contract",
+      "actual": [
+        {
+          "label": "retrieval filters",
+          "actual": {
+            "media_type": "image",
+            "required_source_kind": "stock",
+            "usage": "internal"
+          }
+        },
+        {
+          "label": "actual source receipt reuse",
+          "actual": "old query-as-filter receipt not selected; one native Supply search; valid new receipt reuses with zero extra Provider calls"
+        },
+        {
+          "label": "legacy query compatibility",
+          "actual": "discovery only; priority, invalid values and final sorting checked"
+        },
+        {
+          "label": "top-level provider/ranking",
+          "actual": "rejected; structured unknown constraints rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_13_mode_defaults",
+      "duration_seconds": 0.010473832953721285,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "仅视觉/仅声音/混合 Mode 的默认值在真实 persist 后按模态保留，与 producer cache 一致",
+      "basis": "PlanningIntegration.persist 的冻结 Mode 绑定",
+      "actual": [
+        {
+          "label": "mode 0",
+          "actual": {
+            "need_ids": [
+              "image",
+              "voice",
+              "bgm",
+              "sfx"
+            ],
+            "producer_consumer_key_equal": true
+          }
+        },
+        {
+          "label": "mode 1",
+          "actual": {
+            "need_ids": [
+              "image",
+              "voice",
+              "bgm",
+              "sfx"
+            ],
+            "producer_consumer_key_equal": true
+          }
+        },
+        {
+          "label": "mode 2",
+          "actual": {
+            "need_ids": [
+              "image",
+              "voice",
+              "bgm",
+              "sfx"
+            ],
+            "producer_consumer_key_equal": true
+          }
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_14_cache_consumer",
+      "duration_seconds": 0.16406741691753268,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "同轮合同零额外分类；legacy 重验可用；坏新 cache 不绕过",
+      "basis": "第一轮真实产物 producer→实际 observation consumer",
+      "actual": [
+        {
+          "label": "current",
+          "actual": "7 visual consumer checked; corrupt new cache rejected"
+        },
+        {
+          "label": "legacy",
+          "actual": "7 visual consumer checked; corrupt new cache rejected"
+        },
+        {
+          "label": "corrupt_current",
+          "actual": "7 visual consumer checked; corrupt new cache rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_15_revision_identity",
+      "duration_seconds": 0.00781924999319017,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "相关 Need/refs/Mode 输入变化使 cache 与正式 Plan revision 失效；不强制无关局部缓存失效",
+      "basis": "compilation_input / requirements_cache_key / plan_revision",
+      "actual": [
+        {
+          "label": "Need",
+          "actual": "new cache identity; old key not selected"
+        },
+        {
+          "label": "refs",
+          "actual": "new cache identity; old key not selected"
+        },
+        {
+          "label": "Mode",
+          "actual": "new cache identity; old key not selected"
+        },
+        {
+          "label": "policy-only revision",
+          "actual": "formal revision changes; unchanged local source contract may reuse"
+        },
+        {
+          "label": "actual persisted Planning load",
+          "actual": "changed Plan revision and changed SCRIPT bytes both rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_16_schema_modality",
+      "duration_seconds": 0.0005952509818598628,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "未知 modality、类型错配与额外 schema 包装拒绝",
+      "basis": "MaterialPlan / MaterialNeed canonical schema",
+      "actual": [
+        {
+          "label": "unknown / mismatch / wrapper",
+          "actual": "all rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_17_historical_voice_object",
+      "duration_seconds": 0.0011756670428439975,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "第二轮真实跨模态对象提前拒绝，原件不变；合法 Voice 独立编译",
+      "basis": "第二轮 object 原字节及 canonical voice_delivery",
+      "actual": [
+        {
+          "label": "historical object plan",
+          "actual": "rejected before visual contract; canonical Voice accepted"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_18_historical_voice_alias",
+      "duration_seconds": 0.0010859990725293756,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "第二轮真实扁平别名全模态拒绝，原件不变",
+      "basis": "第二轮 final 原字节及 VOICE_ALIASES",
+      "actual": [
+        {
+          "label": "historical alias plan",
+          "actual": "rejected before consumer"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_19_voice_script_binding",
+      "duration_seconds": 0.0038673749659210443,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "Voice 文稿引用/摘要必须配对；persist 绑定当前 SCRIPT、保持声音身份",
+      "basis": "VoiceNeedSpec pair validator / PlanningIntegration.persist",
+      "actual": [
+        {
+          "label": "second-run initial Planning archived JSON (serialized representation)",
+          "actual": "Voice text_ref without text_sha256 rejected by actual JSON Domain validator"
+        },
+        {
+          "label": "frozen Voice binding",
+          "actual": {
+            "kind": "voice",
+            "identity": {
+              "source": "director_intent",
+              "reference": "测试预置声音，不是实际调用",
+              "reference_asset_ids": [],
+              "consent_ref": null
+            },
+            "delivery_description": null,
+            "text_ref": "planning/SCRIPT.md",
+            "text_sha256": "e4087309e730e039ef304b11a459ff5164cb529472982dc4001405f48888feb4"
+          }
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_20_missing_sidecar",
+      "duration_seconds": 0.015739542082883418,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "新Planning缺sidecar单次修复，耗尽停止，不进入Supply",
+      "basis": "approved G2 product contract; old frozen compatibility covered by load",
+      "actual": [
+        {
+          "label": "missing sidecar",
+          "actual": "one durable repair; re-entry stops without another call; no supply"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_21_third_proposal_parse",
+      "duration_seconds": 0.00993349903728813,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "合法容器保留逐字正文，历史混排在容器内外均拒绝，合法台词不误拒",
+      "basis": "approved F1 @2 container and unchanged confirmed legacy contract",
+      "actual": [
+        {
+          "label": "proposal controls",
+          "actual": "voice/screen/no-copy/Unicode/CRLF and historical instruction variants checked"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_22_third_truth_freeze",
+      "duration_seconds": 0.01900954090524465,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "原 Truth 报告仅绑定原脚本，冻结稿需重写时停止；不冒充人工放行",
+      "basis": "第三轮真实 SHA-bound report / confirmed-plan protection",
+      "actual": [
+        {
+          "label": "actual stop",
+          "actual": {
+            "rewrite_required": 2,
+            "unresolved": 1,
+            "supply_calls": 0,
+            "fixture_gateway_calls": 1
+          }
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_23_frozen_prose",
+      "duration_seconds": 0.0018071250524371862,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "未冻结错误草稿可归档恢复；冻结后任何真实改字必须拒绝，不覆盖现场",
+      "basis": "_restore_confirmed_planning frozen flag and atomic archive",
+      "actual": [
+        {
+          "label": "unfrozen restore / frozen tamper",
+          "actual": "archived then restored / rejected without overwrite"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_24_owner_supply_observation",
+      "duration_seconds": 0.30617112398613244,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "正常新测试 Creation 经真实确认、Owner、Preparation、Planning、persist、Supply、首轮 observation；无 Authoring",
+      "basis": "实际 web delivery dispatcher 与 MaterialProductOrchestrator；仅外部结果为 fixture",
+      "actual": [
+        {
+          "label": "v2 integrity and recovery",
+          "actual": "sidecar missing/tampered, downgrade and corrupt cache reject; missing cache rebuilds without model"
+        },
+        {
+          "label": "actual pipeline",
+          "actual": {
+            "operations": [
+              "prepare",
+              "observe_material"
+            ],
+            "gateway_fixture_calls": [
+              "preparation",
+              "planning",
+              "truth"
+            ],
+            "supply_calls": 1,
+            "observation_calls": 1,
+            "planning": {
+              "status": "PLANNING_READY",
+              "contract_version": 2,
+              "manifest_sha256": "fed302ac61c12e29c0d1e51829c276c158c987023f0309b89ffef4a7fb061480",
+              "output_decision": {
+                "outcome": "ACCEPT",
+                "stage": "material",
+                "code": "validated_planning",
+                "field_path": null,
+                "input_sha256": null,
+                "policy_revision": "easel-material-planning@2"
+              },
+              "plan_id": "plan-4c47af235ff9f24697f9",
+              "plan_revision": "31892ad753a7fe81d6191d8616804e00aeef45b458ff7748dc62bc89e56f6259",
+              "manifest": "planning/manifest.json",
+              "truth_review_status": "PASSED",
+              "truth_ledger_locator": "planning/script-claims.json",
+              "truth_ledger_sha256": "9fa196d0f2f155dd6c54874eeb139e3209e5494f4fbf8854f04934bbd0c91cde",
+              "script_sha256": "e13544b58e1148dc4b5a891821c07353a310ea9f8e9540cd583a28145d498b53",
+              "truth_packet_sha256": "ce8b9df3c787bf6ffe009ab421b36fe6ac63dfa7bd9f5e99f3bd90c9ea12a737",
+              "truth_claim_count": 1
+            },
+            "gate": "MATERIAL_NOT_READY"
+          }
+        },
+        {
+          "label": "completed prepare re-entry",
+          "actual": {
+            "supply_service_entries": 2,
+            "provider_searches_before_after": [
+              1,
+              1
+            ],
+            "acquisitions_before_after": [
+              1,
+              1
+            ],
+            "gateway_fixture_calls": [
+              "preparation",
+              "planning",
+              "truth"
+            ]
+          }
+        },
+        {
+          "label": "actual Provider query/filter boundary",
+          "actual": [
+            {
+              "need_id": "paper",
+              "semantic_queries": [
+                "paper",
+                "paper restrained low saturation everyday",
+                "white paper",
+                "paper desk"
+              ],
+              "filters": {
+                "media_type": "image",
+                "preferred_style": "restrained low saturation everyday"
+              },
+              "negative_terms": [],
+              "ranking_hints": {
+                "role": "visual",
+                "intent_description": "white paper"
+              },
+              "query_context": {
+                "scope_type": "scene",
+                "scope_ref": "scene-1",
+                "creative_mode_terms": "restrained low saturation everyday"
+              }
+            }
+          ]
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_25_structure_reentry",
+      "duration_seconds": 0.2791485000634566,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "pending/timeout/complete/failed 重入只恢复原请求；错误或草稿变化不新增额度",
+      "basis": "第二轮持久单次结构修复；同 run 对账边界",
+      "actual": [
+        {
+          "label": "valid",
+          "actual": "same durable request observed twice; complete/failed do not redispatch"
+        },
+        {
+          "label": "invalid",
+          "actual": "same durable request observed twice; complete/failed do not redispatch"
+        },
+        {
+          "label": "pending_valid",
+          "actual": "same durable request observed twice; complete/failed do not redispatch"
+        },
+        {
+          "label": "timeout",
+          "actual": "same durable request observed twice; complete/failed do not redispatch"
+        },
+        {
+          "label": "failed",
+          "actual": "same durable request observed twice; complete/failed do not redispatch"
+        },
+        {
+          "label": "native durable Gateway adapter + Owner next_operation",
+          "actual": "one agent submit; same-run waits; unrelated run/profile rejected; completed result reused; runtime released"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    }
+  ]
+}

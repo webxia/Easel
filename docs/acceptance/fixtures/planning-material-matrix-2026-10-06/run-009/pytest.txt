@@ -1,0 +1,11 @@
+....................F....                                                [100%]
+=================================== FAILURES ===================================
+_________________________ test_21_third_proposal_parse _________________________
+tests/planning_material_matrix/cases.py:396: in test_21_third_proposal_parse
+    assert not any(value is not None for value in variants.values()), '第三轮原始方案及等价说明标题变体被接受；文案包含制作说明、TTS预测和编排指令'
+E   AssertionError: 第三轮原始方案及等价说明标题变体被接受；文案包含制作说明、TTS预测和编排指令
+E   assert not True
+E    +  where True = any(<generator object test_21_third_proposal_parse.<locals>.<genexpr> at 0x10d195b10>)
+=========================== short test summary info ============================
+FAILED tests/planning_material_matrix/cases.py::test_21_third_proposal_parse
+1 failed, 24 passed in 1.11s

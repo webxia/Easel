@@ -1,0 +1,30 @@
+...........F.......FF..F.                                                [100%]
+=================================== FAILURES ===================================
+____________________________ test_12_query_metadata ____________________________
+tests/planning_material_matrix/cases.py:218: in test_12_query_metadata
+    assert not QUERY_FIELDS & set(filters)
+E   AssertionError: assert not ({'search_query_en', 'search_query_variants_alternate', 'search_query_variants_en', 'search_query_variants_primary', 'search_query_variants_relaxed'} & {'media_type', 'required_source_kind', 'search_query_variants_alternate', 'search_query_variants_primary', 'search_query_variants_relaxed', 'usage'})
+E    +  where {'media_type', 'required_source_kind', 'search_query_variants_alternate', 'search_query_variants_primary', 'search_query_variants_relaxed', 'usage'} = set({'media_type': 'image', 'search_query_variants_primary': 'paper daylight', 'search_query_variants_alternate': 'pages room', 'search_query_variants_relaxed': 'documents indoors', ...})
+___________________________ test_20_missing_sidecar ____________________________
+tests/planning_material_matrix/cases.py:379: in test_20_missing_sidecar
+    with pytest.raises(prep.PreparationError):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE PreparationError
+_________________________ test_21_third_proposal_parse _________________________
+tests/planning_material_matrix/cases.py:391: in test_21_third_proposal_parse
+    test_proposal_container_preserves_literal_and_rejects_real_instruction_mix()
+tests/test_model_output_contracts.py:26: in test_proposal_container_preserves_literal_and_rejects_real_instruction_mix
+    assert parsed is not None and parsed['schema'] == 'easel-video-proposal@2'
+E   assert (None is not None)
+_______________________ test_24_owner_supply_observation _______________________
+tests/planning_material_matrix/cases.py:515: in test_24_owner_supply_observation
+    assert current_attempt.get('planning_contract_version') == 2
+E   AssertionError: assert None == 2
+E    +  where None = <built-in method get of dict object at 0x10d668700>('planning_contract_version')
+E    +    where <built-in method get of dict object at 0x10d668700> = {'schema': 'easel-film-build-attempt@1', 'attempt_id': 'fa_66056c247beccfe1d8a78dee24e68c5a', 'creation_id': 'cr_d3983c866fcb4ee1a33838942792cf96', 'attempt_number': 1, ...}.get
+=========================== short test summary info ============================
+FAILED tests/planning_material_matrix/cases.py::test_12_query_metadata - Asse...
+FAILED tests/planning_material_matrix/cases.py::test_20_missing_sidecar - Fai...
+FAILED tests/planning_material_matrix/cases.py::test_21_third_proposal_parse
+FAILED tests/planning_material_matrix/cases.py::test_24_owner_supply_observation
+4 failed, 21 passed in 0.95s

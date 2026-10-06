@@ -69,40 +69,72 @@ def proposal_specs(turns: list[dict]) -> dict:
 PLAN_SECTIONS = {"创作表达": "treatment", "文案": "script", "分镜与节奏": "scenes", "声音设计": "sound"}
 
 
-def parse_video_plan(response: str) -> dict | None:
-    """Extract the visible, complete discussion draft; never infer missing copy."""
+def _mixed_script(script: str) -> bool:
+    # Labels are structural instructions, not arbitrary words in a spoken line.
+    labels = r"(?:逐字旁白|旁白说明|屏幕(?:文字|说明|文案)|画面说明|字幕说明|朗读说明|说明|制作备注|配音说明)"
+    return bool(re.search(r"(?m)^[ \t]*(?:#{1,6}[ \t]+|[-*][ \t]+)?(?:\*\*)?" + labels
+                         + r"(?:\*\*)?(?:[ \t]*[：:]|[ \t]*[（(]|[ \t]*$)", script))
+
+
+def _plan_payload(plan: dict) -> dict:
+    keys = ('schema', 'treatment', 'script', 'scenes', 'sound', 'specs', 'specification_notes')
+    return {key: plan[key] for key in keys if key in plan}
+
+
+def validate_video_plan(plan: dict, *, require_current: bool = True) -> bool:
     import hashlib
     import json
     from easel.integrations.hypit.secrets import SecretRedactor
+    if not isinstance(plan, dict) or plan.get('schema') not in ({'easel-video-proposal@2'} if require_current
+                                                              else {'easel-video-proposal@1', 'easel-video-proposal@2'}):
+        return False
+    if any(not isinstance(plan.get(k), str) or not plan[k].strip() for k in PLAN_SECTIONS.values()):
+        return False
+    if not isinstance(plan.get('specs'), dict) or set(plan['specs']) != set(SPEC_LABELS):
+        return False
+    if require_current and (_mixed_script(plan['script']) or '\x00' in plan['script']):
+        return False
+    if SecretRedactor.contains_secret(plan):
+        return False
+    encoded = json.dumps(_plan_payload(plan), ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    return plan.get('sha256') == hashlib.sha256(encoded.encode()).hexdigest()
 
-    if not response or len(response) > 32_000 or SecretRedactor.contains_secret(response):
+
+def parse_video_plan(response: str) -> dict | None:
+    """Parse a new proposal with a literal script container, without guessing prose."""
+    import hashlib
+    import json
+    from easel.integrations.hypit.secrets import SecretRedactor
+    if not isinstance(response, str) or not response or len(response) > 32_000 or SecretRedactor.contains_secret(response):
         return None
-    parts = re.split(r"(?m)^## (创作表达|文案|分镜与节奏|声音设计|制作规格)\s*$", response)
-    sections = {}
-    settings = None
-    for index in range(1, len(parts), 2):
-        heading, body = parts[index], parts[index + 1].strip()
-        if heading == "制作规格":
-            if settings is not None:
-                return None
-            settings = body
-        if heading in PLAN_SECTIONS:
-            key = PLAN_SECTIONS[heading]
-            if key in sections or not body or body in {"待确认", "待补充", "待生成"}:
-                return None
-            sections[key] = body
-    if set(sections) != set(PLAN_SECTIONS.values()):
-        return None
-    # Reject mixed narration/instructions before approval. No post-confirmation
-    # normalization can safely guess which words the Creator approved to speak.
-    if re.search(r"(?m)^\s*(?:#{1,6}\s*|[-*]\s*)?(?:\*\*)?(?:逐字旁白|旁白说明|屏幕(?:文字|说明|文案)|画面说明|字幕说明|朗读说明)", sections["script"]):
-        return None
-    payload = {"schema": "easel-video-proposal@1", **sections,
-               "specs": proposal_specs([{"role": "assistant", "content": settings or ""}])["specs"]}
-    if settings:
-        payload["specification_notes"] = settings
-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return {**payload, "sha256": hashlib.sha256(encoded.encode()).hexdigest()}
+    sections, heading, lines, fenced = {}, None, [], False
+    for line in response.splitlines(keepends=True):
+        literal = line.rstrip('\r\n')
+        match = re.fullmatch(r'## (创作表达|文案|分镜与节奏|声音设计|制作规格)[ \t]*', literal)
+        if match and not fenced:
+            if heading is not None:
+                if heading in sections: return None
+                sections[heading] = ''.join(lines)
+            heading, lines = match[1], []
+            continue
+        if literal.startswith('```'):
+            fenced = not fenced
+        if heading is not None: lines.append(line)
+    if fenced or heading is None or heading in sections: return None
+    sections[heading] = ''.join(lines)
+    if not set(PLAN_SECTIONS) <= set(sections): return None
+    container = re.fullmatch(r'[ \t\r\n]*```text(?:\r\n|\n)([\s\S]*?)(?:\r\n|\n)```[ \t]*[ \t\r\n]*', sections['文案'])
+    if container is None: return None
+    script = container[1]
+    if not script.strip() or '\x00' in script or re.search(r'(?m)^```', script) or _mixed_script(script): return None
+    payload = {'schema': 'easel-video-proposal@2', **{key: sections[name].strip() for name, key in PLAN_SECTIONS.items()}}
+    payload['script'] = script
+    if any(not payload[k] or payload[k] in {'待确认', '待补充', '待生成'} for k in PLAN_SECTIONS.values()): return None
+    settings = sections.get('制作规格', '').strip()
+    payload['specs'] = proposal_specs([{'role': 'assistant', 'content': settings}])['specs']
+    if settings: payload['specification_notes'] = settings
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    return {**payload, 'sha256': hashlib.sha256(encoded.encode()).hexdigest()}
 
 
 def video_proposal_preview(work: dict, turns: list[dict]) -> dict:
@@ -114,6 +146,8 @@ def video_proposal_preview(work: dict, turns: list[dict]) -> dict:
     missing = [label for key, label in SPEC_LABELS.items() if specs.get(key) is None]
     if not plan:
         missing.append("完整视频方案（文案、分镜与声音设计）")
+    elif plan.get('schema') != 'easel-video-proposal@2' and workflow.get('proposal_status') != 'CONFIRMED':
+        missing.append('旧方案需要正常修订正文格式后再确认')
     elif workflow.get("proposal_status") not in {"READY_FOR_CONFIRMATION", "CONFIRMED"} and not missing:
-        missing.append("当前方案尚未完成更新")
+        missing.append(workflow.get("proposal_error") or "当前方案尚未完成更新")
     return {"specs": specs, "missing": missing}

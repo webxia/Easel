@@ -1243,7 +1243,7 @@ async def api_creation_proposal_reopen(creation_id: str, _operator: None = Depen
                         values[key] = path.read_text(encoding="utf-8")
                 if len(values) == 3:
                     seed = parse_video_plan("## 创作表达\n" + values["treatment"] + "\n## 文案\n"
-                        + values["script"] + "\n## 分镜与节奏\n" + values["scenes"]
+                        + "```text\n" + values["script"] + "\n```\n## 分镜与节奏\n" + values["scenes"]
                         + "\n## 声音设计\n沿用原方案声音要求，请在对话中明确修改后的声音设计。")
                     if seed:
                         seed.update(revision=0)
@@ -2152,7 +2152,9 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
             "不要使用“已确认事实”“截面事实”等容易误导的标题或结论。"
             "方向尚不清晰时最多问一个关键问题；方向明确后不要反复只给方向。"
             "以这些二级标题输出完整当前版本：## 创作表达、## 文案、## 分镜与节奏、## 声音设计、## 制作规格。"
-            "每个标题独占一行。文案部分只放将实际使用的逐字旁白；无旁白时写逐字屏幕文案，纯无字作品明确写无文案。"
+            "每个标题独占一行。文案栏目必须且只能有一个text代码块（开始行为三个反引号加text，结束行为三个反引号）。"
+            "块内只放实际使用的逐字旁白；无旁白时放逐字屏幕文案，纯无字作品放无文案。"
+            "文案代码块外不得加说明；字数、配音预测、制作备注全部放入声音设计或制作规格。"
             "分镜与节奏逐段写画面、对应文案和时长（总时长未知则不编造秒数）；声音设计写旁白气质、配乐与留白。"
             "制作规格用前述独立标签。用户修改时返回整份更新后的方案，不只回复改动片段。"
             "方案中不伪造事实或经历；缺少关键信息就明确询问，不用待生成占位冒充完成。"
@@ -2835,10 +2837,17 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
     shared = manifest.get('schema') == GROUP_SCHEMA
     inputs = manifest['observations'] if shared else [manifest]
     plan = store.read_plan()
+    if (attempt.get('planning_contract_version') is not None
+            or attempt.get('material_planning', {}).get('contract_version') is not None
+            or (Path(attempt['workspace']['path']) / 'planning/manifest.json').exists()):
+        from easel.integrations.material_layer import PlanningIntegration
+        plan = PlanningIntegration().load(attempt)['plan']
     mode, _ = load_frozen_creative_mode(attempt)
     reports = {}
     for item in inputs:
         need = MaterialNeed.model_validate_json(json.dumps(item['need']))
+        if attempt.get('planning_contract_version') == 2 and need not in plan.needs:
+            raise PreparationError('观察Need不属于当前冻结Planning')
         asset = store.read_asset(item['asset_id'])
         path = store.materials_root / 'observations' / (item['input_sha256'] + '.json')
         if path.is_file():
@@ -3274,7 +3283,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             if (path.is_symlink() or not path.is_file()
                     or path.stat().st_size > (256 * 1024 if key == "plan" else 128 * 1024)):
                 raise PreparationError(f"Creative Planning artifact {path.name} is missing or invalid")
-            values[key] = path.read_text(encoding="utf-8")
+            values[key] = path.read_bytes().decode("utf-8")
         if canonical and any(values[key] != canonical[files[key].name] for key in ('script', 'scenes', 'treatment')):
             raise PreparationError('确认方案恢复后仍不一致；未接受规划')
         try:
@@ -3303,6 +3312,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         if any(not values[key].strip() for key in ("treatment", "script", "scenes")):
             raise PreparationError("Creative Planning TREATMENT/SCRIPT/SCENES must all be non-empty")
         requirements_path = planning_dir / 'MATERIAL_REQUIREMENTS.json'
+        if not requirements_path.exists():
+            raise PreparationError('Planning要求文件MATERIAL_REQUIREMENTS.json缺失')
         if requirements_path.exists():
             if requirements_path.is_symlink() or not requirements_path.is_file() or requirements_path.stat().st_size > 256 * 1024:
                 raise PreparationError('Planning 要求文件路径或容量无效')
@@ -3315,8 +3326,11 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
                 raise PreparationError('Planning 要求合同无效：' + str(exc)) from exc
             for identity, contract in contracts:
                 AttemptMaterialStore(root).write_recovery_record(identity, contract)
+        from easel.output_contract import output_decision
         return {"plan": plan, "context_refs": refs, "treatment": values["treatment"],
-                "script": values["script"], "scenes": values["scenes"]}
+                "script": values["script"], "scenes": values["scenes"],
+                "output_decision": output_decision('planning', 'NORMALIZE' if 'visual_requirements' in read_planning_requirements(requirements_path.read_text(encoding='utf-8')) else 'ACCEPT', 'validated_artifacts',
+                    text=values['plan'], policy_revision='product-planning@2')}
 
     session_id = f"material-planning-{attempt['attempt_id']}"
     # One structure repair per frozen commission, across async re-entry.
@@ -3333,7 +3347,13 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
              'thinking': THINKING_LEVEL, 'timeout': TIMEOUT_PRODUCE}
     if repair_record is not None and (
             repair_record.get('schema') != 'planning-structure-repair@1'
-            or repair_record.get('scope') != repair_scope or repair_record.get('route') != route
+            or repair_record.get('scope') != repair_scope
+            or not isinstance(repair_record.get('route'), dict)
+            or set(repair_record['route']) != set(route)
+            or repair_record['route'].get('session_id') != session_id
+            or any(not isinstance(repair_record['route'].get(key), str) or not repair_record['route'][key]
+                   for key in ('profile', 'thinking'))
+            or type(repair_record['route'].get('timeout')) is not int or repair_record['route']['timeout'] <= 0
             or repair_record.get('status') not in {'pending', 'complete', 'failed'}
             or not isinstance(repair_record.get('message'), str)
             or repair_record.get('message_sha256') != digest(repair_record['message'])):
@@ -3357,6 +3377,32 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         repair_record['status'] = 'complete'
         repair_store.write_recovery_record(repair_key, repair_record)
 
+    planning_owner = get_creation(attempt['creation_id'])
+    commission = planning_owner.get('delivery') or {}
+    prior_calls = [call for call in commission.get('agent_calls', {}).values()
+                   if call.get('session_key') == f'agent:main:{session_id}']
+    if any(call.get('status') in {'submitting', 'pending'} for call in prior_calls):
+        from easel.integrations.openclaw_delivery import reconcile_agent_calls, DeliveryAgentPending
+        profiles = {call.get('profile') for call in prior_calls if call.get('status') in {'submitting', 'pending'}}
+        if len(profiles) != 1 or not next(iter(profiles)):
+            raise DeliveryExecutionUncertain('旧Planning原route尚未核实，不重新派发')
+        reconcile_agent_calls(attempt['creation_id'], command_prefix=openclaw_base_cmd(), profile=next(iter(profiles)),
+                              cwd=str(PROJECT_ROOT), env=_proxy_env())
+        refreshed = get_creation(attempt['creation_id'])['delivery'].get('agent_calls', {})
+        if any(call.get('status') in {'submitting', 'pending'} for call in refreshed.values()):
+            raise DeliveryAgentPending('旧Planning原运行仍未结束')
+        prior_calls = [c for c in refreshed.values() if c.get('session_key') == f'agent:main:{session_id}']
+    if repair_record is not None and repair_record['route'] != route:
+        # A configuration change cannot cancel observing the original run or
+        # authorize a different request. After terminal reconciliation, stop.
+        raise PreparationError('Planning原运行已核对，但当前执行配置不同；保留原修复额度，不新增请求')
+    if prior_calls and repair_record is None and any(c.get('status') == 'error' for c in prior_calls):
+        raise PreparationError('旧Planning原运行已失败，不因合同升级重派')
+    if attempt.get('planning_contract_version') is None and (
+            planning_owner.get('preparation', {}).get('snapshot_hashes')
+            or (commission.get('video_plan') or {}).get('schema') == 'easel-video-proposal@2'):
+        from easel.integrations.hypit.service import update_film_attempt
+        attempt = update_film_attempt(attempt['attempt_id'], event='planning_contract_registered', planning_contract_version=2)
     if repair_record is not None:
         # Even apparently valid draft files cannot bypass an unknown writer.
         resume_structure_repair()
@@ -3371,12 +3417,12 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
               '可改视觉 Need.intent；声音 Need 保持原样，Voice text_ref/text_sha256 由后端随新 SCRIPT 重新绑定。'
               '不得增加或删除 Need、降低约束或用假事实解决问题。无关脚本和场景保持原样。'
               '旧素材会重新核对并尽量复用；不要声称旧旁白能用于变化后的文稿。'
-              '完成上述四文件后停止；沿用同一 Truth、素材、核价与制作流程。'
+              '完成上述五文件后停止；沿用同一 Truth、素材、核价与制作流程。'
         )
         # The durable gateway reuses a completed call; copied source files
         # alone are never evidence that the requested repair was executed.
         _run_timed_creation_agent("planning", attempt['attempt_id'], prompt, TIMEOUT_PRODUCE, session_id)
-    elif repair_record is None and not all(path.is_file() for path in files.values()):
+    elif repair_record is None and not prior_calls and not all(path.is_file() for path in files.values()):
         _run_timed_creation_agent("planning", attempt['attempt_id'], prompt, TIMEOUT_PRODUCE, session_id)
     try:
         result = validate_artifacts()
@@ -3393,7 +3439,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             +
             f"当前冻结 context_refs（必须逐字复制，不要自己重算）：{json.dumps(refs, ensure_ascii=False, sort_keys=True)}\n"
             "已冻结的 Content Core、Truth Packet、Creator Context、Creative Mode 和身份不得改动。"
-            f"{('只修正 planning/MATERIAL_PLAN.json 和 MATERIAL_REQUIREMENTS.json；确认三文件由程序原样提供，只读。' if confirmed_plan else '读取现有 planning 文件，只修正缺失或无效的 planning/MATERIAL_PLAN.json、TREATMENT.md、SCRIPT.md、SCENES.md；已有效的文件保持原样。')}"
+            f"{('只修正 planning/MATERIAL_PLAN.json 和 MATERIAL_REQUIREMENTS.json；确认三文件由程序原样提供，只读。' if confirmed_plan else '读取现有 planning 文件，只修正缺失或无效的 planning/MATERIAL_PLAN.json、MATERIAL_REQUIREMENTS.json、TREATMENT.md、SCRIPT.md、SCENES.md；已有效的文件保持原样。')}"
             "MaterialPlan JSON 顶层只允许 plan_id、creation_id、attempt_id、context_refs、policy、needs；"
             "schema:extra_forbidden 表示必须删除顶层 schema 字段，不是修改它的值。不得添加 version 或包装对象。"
             "检索 constraints 遵守上方模态边界及两个结构化例外。只有明确用户图库限定才用 required_source_kind=stock；合法授权或真实素材不代表图库限定，未指定来源不要猜测；禁用生成用 allow_generation=false；"
@@ -3422,11 +3468,13 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             "删除 subtitle_overlay 等字幕/时间线 Need，字幕属于 Production Authoring。"
             "Script 的全部文本会进入逐句 Truth/创作声明审阅。不得添加未获 Truth Packet 支持的个人经历；"
             "创作假设须在句首清楚标记；系统将区分事实改写、创作表达和真实信息缺口。"
-            f"{('两个素材JSON交付后再回复；不写任何确认文案文件。' if confirmed_plan else '四个文件都实际写入后再回复。')}不调用 Provider、Hypit 或付费 Build。"
+            f"{('两个素材JSON交付后再回复；不写任何确认文案文件。' if confirmed_plan else '五个文件都实际写入后再回复。')}不调用 Provider、Hypit 或付费 Build。"
         )
         if confirmed_plan:
             repair += "\n已确认的 SCRIPT/SCENES/TREATMENT 由程序恢复，只读；以下仅作素材需求依据：\n" + json.dumps(confirmed_plan, ensure_ascii=False)
-        repair_record = {'schema': 'planning-structure-repair@1', 'scope': repair_scope, 'route': route,
+        from easel.output_contract import output_decision
+        repair_record = {'output_decision': output_decision('planning', 'BOUNDED_REPAIR', 'structure_invalid'),
+                         'schema': 'planning-structure-repair@1', 'scope': repair_scope, 'route': route,
                          'message': repair, 'message_sha256': digest(repair), 'status': 'pending'}
         repair_store.write_recovery_record(repair_key, repair_record)
         resume_structure_repair()
@@ -3437,6 +3485,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         for revision in range(2):
             assessment = _assess_planning_script(attempt, result["script"])
             result["script_assessment"] = assessment
+            from easel.output_contract import output_decision
+            result["truth_output_decision"] = output_decision("truth", "ACCEPT", "validated_report", text=result["script"])
             repairs = [item for item in (assessment or {}).get("decisions", [])
                        if item["kind"] == "rewrite_required"]
             if not repairs:
@@ -3464,7 +3514,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
                 f"需要修正：{json.dumps(repairs, ensure_ascii=False)}\n"
                 "重读冻结委托和 Truth Packet，只删除或修正上述无依据表达；"
                 "可明确写成假设，不得改变委托核心、用户原话、身份、规格或任何冻结输入。"
-                "只调整 planning/SCRIPT.md 及因此必须同步的 TREATMENT.md、SCENES.md、MATERIAL_PLAN.json。"
+                "只调整 planning/SCRIPT.md 及因此必须同步的 TREATMENT.md、SCENES.md、MATERIAL_PLAN.json、MATERIAL_REQUIREMENTS.json。"
                 "保留其他有效内容和现有身份，MaterialPlan 仍遵循同一 Domain 合同。"
                 "不得生成素材、调用 Provider/Hypit 或替用户补造事实。写入后停止，Easel 会重新审阅。\n"
                 + planning_contract

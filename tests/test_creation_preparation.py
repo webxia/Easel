@@ -31,7 +31,9 @@ import app as web  # noqa: E402
 VIDEO_PROPOSAL = """## 创作表达
 从日常选择的变化切入，不把结论当成普遍规律。不露脸。
 ## 文案
+```text
 先看问题，再做决定。
+```
 ## 分镜与节奏
 0–15 秒：桌面笔记，呈现屏幕文案「先看问题，再做决定。」。
 ## 声音设计
@@ -790,6 +792,8 @@ def _test_planning_executor(attempt, context):
             importance=NeedImportance.REQUIRED,
         ),),
     )
+    from tests.test_model_output_contracts import write_fixture_requirements
+    write_fixture_requirements(Path(attempt['workspace']['path']) / 'planning', plan)
     return {"plan": plan, "context_refs": context["context_refs"],
             "treatment": "Treatment", "script": "假设脚本内容。", "scenes": "Scenes"}
 
@@ -1001,7 +1005,7 @@ def test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_re
             root = Path(re.search(r"^Attempt workspace: (.+)$", message, re.MULTILINE)[1])
             attempt_id = re.search(r"^Attempt ID: (.+)$", message, re.MULTILINE)[1]
             refs = json.loads(re.search(r"^context_refs: (.+)$", message, re.MULTILINE)[1])
-            planning = _test_planning_executor({"attempt_id": attempt_id, "creation_id": work["id"]},
+            planning = _test_planning_executor({"attempt_id": attempt_id, "creation_id": work["id"], "workspace": {"path": str(root)}},
                                                {"context_refs": refs})
             for name, value in {"MATERIAL_PLAN.json": planning["plan"].model_dump_json(),
                                 "TREATMENT.md": planning["treatment"], "SCENES.md": planning["scenes"],
@@ -1136,6 +1140,8 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
     def fake_agent(prompt, timeout, session_id=None):
         prompt_seen.append(prompt)
         (planning_dir / "MATERIAL_PLAN.json").write_text(plan.model_dump_json(), encoding="utf-8")
+        from tests.test_model_output_contracts import write_fixture_requirements
+        write_fixture_requirements(planning_dir, plan)
         (planning_dir / "TREATMENT.md").write_text("Treatment", encoding="utf-8")
         (planning_dir / "SCRIPT.md").write_text("Script", encoding="utf-8")
         (planning_dir / "SCENES.md").write_text("Scenes", encoding="utf-8")

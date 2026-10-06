@@ -1,0 +1,327 @@
+{
+  "plan_id": "plan-339819a677b2d893a6fc",
+  "creation_id": "cr_7e2e84a687d9493095ff371425d7e930",
+  "attempt_id": "fa_f0ff6daa752e339819a677b2d893a6fc",
+  "context_refs": {
+    "content_core_sha256": "sha256:cb40da918619c707fd423e0b3b22a5ed15cd7336beb1dd719db66a95bb15e35f",
+    "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+    "creator_context_sha256": "sha256:b580494de75518ebeaf9661c74a62e08e935d91a49727895933d2069f3441768",
+    "production_brief_sha256": "sha256:ce0a7c081c73ced6eca3876ab8002646151754c0d3c68bd50239d4aa515168da",
+    "truth_packet_sha256": "sha256:0753bc180da348b954247921b412b2d0c87d4e8772e9442de293ddee2a16ca15"
+  },
+  "needs": [
+    {
+      "need_id": "img_beat1_phone_screen_down",
+      "scope": {
+        "type": "scene",
+        "ref": "beat1"
+      },
+      "media_type": "image",
+      "role": "opening_tension_anchor",
+      "intent": {
+        "description": "一只手把手机屏幕朝下，轻轻放在浅木纹桌面上；用于建立放下手机的物理动作与起拍静音的呼吸感。",
+        "function": "在片头前 3 秒建立\"放下\"的具体动作，作为第一个观察锚点。"
+      },
+      "importance": "required",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      },
+      "constraints": {
+        "search_query_en": "hand placing smartphone face-down on wooden desk close-up",
+        "search_query_variants_en": {
+          "primary": "hand placing smartphone face-down on wooden desk close-up",
+          "alternate": "empty hand putting phone screen down on wood table",
+          "relaxed": "minimal desk hand phone screen down soft light"
+        },
+        "preferred_visual_details": "特写构图，单手，手机轻微倾斜扣下，桌面木纹可见，无品牌标志；低饱和、柔光、留白多。",
+        "allow_generation": true,
+        "no_face_visible": true
+      },
+      "duration_hint": {
+        "target_seconds": 3.0
+      },
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "continuity_refs": []
+    },
+    {
+      "need_id": "img_beat2_stand_up_leave",
+      "scope": {
+        "type": "scene",
+        "ref": "beat2"
+      },
+      "media_type": "image",
+      "role": "movement_beat",
+      "intent": {
+        "description": "人物从中景书桌前站起、暂离画面；用于承接\"放下\"动作并过渡到倒水。",
+        "function": "表达主体开始移动，从静态走向下一个动作。"
+      },
+      "importance": "required",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      },
+      "constraints": {
+        "search_query_en": "person standing up from desk leaving frame medium shot",
+        "search_query_variants_en": {
+          "primary": "person standing up from desk leaving frame medium shot",
+          "alternate": "figure rises from home desk in daylight medium shot",
+          "relaxed": "casual workspace person stands up soft window light"
+        },
+        "preferred_visual_details": "中景构图，人物背影或侧面轮廓，模糊动作感，自然窗光，色调低饱和。",
+        "allow_generation": true,
+        "no_face_visible": true
+      },
+      "duration_hint": {
+        "target_seconds": 4.0
+      },
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "continuity_refs": []
+    },
+    {
+      "need_id": "img_beat3_pick_up_empty_cup",
+      "scope": {
+        "type": "scene",
+        "ref": "beat3"
+      },
+      "media_type": "image",
+      "role": "second_observation",
+      "intent": {
+        "description": "手拿起一个空的玻璃或陶瓷杯子，走近饮水机；用于承接\"暂时不刷\"的停顿。",
+        "function": "展示\"倒水\"动作的起点，延续克制的日常感。"
+      },
+      "importance": "required",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      },
+      "constraints": {
+        "search_query_en": "hand picking up empty glass cup near water dispenser close-up",
+        "search_query_variants_en": {
+          "primary": "hand picking up empty glass cup near water dispenser close-up",
+          "alternate": "empty cup lifted by hand near kitchen water cooler",
+          "relaxed": "minimal still life empty cup counter soft daylight"
+        },
+        "preferred_visual_details": "特写构图，空杯子质感清晰，背景轻微虚化的厨房或客厅场景，无品牌。",
+        "allow_generation": true,
+        "no_face_visible": true
+      },
+      "duration_hint": {
+        "target_seconds": 5.0
+      },
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "continuity_refs": []
+    },
+    {
+      "need_id": "img_beat4_pour_water_walk_to_window",
+      "scope": {
+        "type": "scene",
+        "ref": "beat4"
+      },
+      "media_type": "image",
+      "role": "transition_to_window",
+      "intent": {
+        "description": "中景倒水后端起杯子走向窗边；用于建立\"起身 → 窗边\"的空间动线。",
+        "function": "把动作从厨房/桌面过渡到窗边空间。"
+      },
+      "importance": "required",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      },
+      "constraints": {
+        "search_query_en": "person pouring water then carrying cup toward a window",
+        "search_query_variants_en": {
+          "primary": "person pouring water then carrying cup toward a window",
+          "alternate": "figure walks with filled cup to a sunlit window medium shot",
+          "relaxed": "soft daylight interior carrying a cup toward glass window"
+        },
+        "preferred_visual_details": "中景构图，杯子在水流或刚离壶的瞬间，自然光从窗侧射入，画面不出现正面人脸。",
+        "allow_generation": true,
+        "no_face_visible": true
+      },
+      "duration_hint": {
+        "target_seconds": 6.0
+      },
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "continuity_refs": []
+    },
+    {
+      "need_id": "img_beat5_water_ripple_light",
+      "scope": {
+        "type": "scene",
+        "ref": "beat5"
+      },
+      "media_type": "image",
+      "role": "recognition_moment",
+      "intent": {
+        "description": "杯中水面轻晃一下，窗外光斑落在木桌或墙面上；用于\"日常被重新看到\"的识别瞬间。",
+        "function": "画面最安静的一拍，是观众识别主题的瞬间，配合轻水声音效。"
+      },
+      "importance": "required",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      },
+      "constraints": {
+        "search_query_en": "water surface gentle ripple inside cup with sunlight on table",
+        "search_query_variants_en": {
+          "primary": "water surface gentle ripple inside cup with sunlight on table",
+          "alternate": "still life cup of water sunlit wood desktop close-up",
+          "relaxed": "calm window light pool on table near a cup of water"
+        },
+        "preferred_visual_details": "特写构图，水面涟漪清晰，光斑形状柔和落在木质表面，画面极简且留白多。",
+        "allow_generation": true,
+        "no_face_visible": true
+      },
+      "duration_hint": {
+        "target_seconds": 6.0
+      },
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "continuity_refs": []
+    },
+    {
+      "need_id": "img_beat6_back_to_window",
+      "scope": {
+        "type": "scene",
+        "ref": "beat6"
+      },
+      "media_type": "image",
+      "role": "closing_breath",
+      "intent": {
+        "description": "人物背对镜头站在窗前，望向窗外自然光；用于最末一句旁白的视觉收尾。",
+        "function": "留一拍的呼吸空间，承接\"更像在过日子\"的尾句。"
+      },
+      "importance": "required",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday"
+      },
+      "constraints": {
+        "search_query_en": "person silhouette standing by window looking outside soft daylight",
+        "search_query_variants_en": {
+          "primary": "person silhouette standing by window looking outside soft daylight",
+          "alternate": "back view of figure at sunlit window quiet interior",
+          "relaxed": "minimal silhouette against window daylight still and quiet"
+        },
+        "preferred_visual_details": "中景构图，背影或侧背影占画面下方三分之一以上，窗光为主光源，留白多。",
+        "allow_generation": true,
+        "no_face_visible": true
+      },
+      "duration_hint": {
+        "target_seconds": 10.0
+      },
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "continuity_refs": []
+    },
+    {
+      "need_id": "voice_narration_full",
+      "scope": {
+        "type": "global",
+        "ref": "narration_track"
+      },
+      "media_type": "audio",
+      "role": "primary_narration",
+      "intent": {
+        "description": "整段旁白的普通话男声朗读；平稳、偏低、像对自己说话；不播音腔、不激昂。",
+        "function": "承载 6 句 / 88 字旁白文本，配合画面让出 0.5–1 秒律；不授权压缩或截断末句字尾。"
+      },
+      "importance": "required",
+      "modality_spec": {
+        "kind": "voice",
+        "identity": {
+          "source": "explicit_user",
+          "reference": "preset Mandarin male narration voice — calm, low, conversational, not broadcast"
+        },
+        "delivery_description": "普通话男声；平稳偏低；像对自己说话；句间留半拍到一拍气口；末句稍慢，给呼吸留余地。"
+      },
+      "constraints": {
+        "voice_delivery": {
+          "pace_ratio": 0.95,
+          "pitch_semitones": 0,
+          "tone": "neutral"
+        },
+        "text_ref": "planning/SCRIPT.md",
+        "no_first_person_experience_invention": true
+      },
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "continuity_refs": []
+    },
+    {
+      "need_id": "bgm_instrumental_bed",
+      "scope": {
+        "type": "global",
+        "ref": "bgm_track"
+      },
+      "media_type": "audio",
+      "role": "subordinate_bed",
+      "intent": {
+        "description": "gentle piano or guitar ambient instrumental, no vocals, low energy",
+        "function": "全程低声铺底，人声时压低让位，停顿恢复，形成克制节奏。"
+      },
+      "importance": "required",
+      "modality_spec": {
+        "kind": "bgm",
+        "mood": "calm",
+        "genre": "ambient",
+        "instruments": [
+          "piano"
+        ],
+        "vocals_allowed": false,
+        "energy": "low",
+        "tempo_bpm": [
+          60,
+          80
+        ]
+      },
+      "constraints": {
+        "vocals_allowed": false,
+        "duck_under_voice": true
+      },
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "continuity_refs": []
+    },
+    {
+      "need_id": "sfx_cup_water_ripple",
+      "scope": {
+        "type": "event",
+        "ref": "beat5_water_ripple"
+      },
+      "media_type": "audio",
+      "role": "single_action_sfx",
+      "intent": {
+        "description": "杯中水面轻晃一下的水声，短促、安静、不夸张；仅用于第 5 拍水面涟漪。",
+        "function": "为\"识别瞬间\"提供唯一的动作音效，强化日常被重新看到的感受。"
+      },
+      "importance": "required",
+      "modality_spec": {
+        "kind": "sfx",
+        "event_description": "gentle water ripple inside a cup, single short instance",
+        "sound_character": "soft liquid",
+        "intensity": "low",
+        "environment": "quiet indoor"
+      },
+      "constraints": {
+        "no_decorative_sfx": true,
+        "no_whoosh_or_notification_sound": true
+      },
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "continuity_refs": []
+    }
+  ]
+}

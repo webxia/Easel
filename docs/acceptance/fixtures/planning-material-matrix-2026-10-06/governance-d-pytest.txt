@@ -1,0 +1,219 @@
+...................ss.sss............................................... [  9%]
+........................................................................ [ 19%]
+...................................................................F.... [ 29%]
+........................................................................ [ 38%]
+........................................................................ [ 48%]
+........................................................................ [ 58%]
+........................................................................ [ 68%]
+........................................................................ [ 77%]
+...................F.................................................... [ 87%]
+........................................................................ [ 97%]
+.....................                                                    [100%]
+=================================== FAILURES ===================================
+_______ test_same_creator_mode_three_contents_reach_reviewable_first_cut _______
+
+material_integration_env = {'schema': 'easel-film-build-attempt@1', 'attempt_id': 'fa_ec65438d8afc0a3120a94ebe75eed978', 'creation_id': 'cr_1e044d5a01d749cd90b1501155db5610', 'attempt_number': 1, ...}
+tmp_path = PosixPath('/private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/pytest-of-xgx/pytest-1159/test_same_creator_mode_three_c0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10e209df0>
+
+    def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_integration_env, tmp_path, monkeypatch):
+        if not shutil.which('ffmpeg'):
+            pytest.skip('Local deterministic audio fixture requires ffmpeg')
+        source_mode = Path(__file__).resolve().parents[1] / 'creative_modes/clear_memo_video'
+        for source in source_mode.iterdir():
+            if source.is_file():
+                shutil.copyfile(source, creative_mode.CREATIVE_MODES_DIR / 'clear_memo_video' / source.name)
+        previous = Path(material_integration_env['workspace']['path']) / 'handoff'
+        creator = json.loads((previous / 'creator-context.json').read_text())
+        truth = json.loads((previous / 'truth-packet.json').read_text())
+        profiles = tmp_path / 'profiles'
+        (profiles / '测试').mkdir(parents=True)
+        (profiles / '测试' / 'identity.md').write_text('测试创作者：记录日常观察，不编造亲身经历。')
+        (profiles / '测试' / 'style.md').write_text('克制、平等地提出问题，保留不确定性。')
+        monkeypatch.setattr(persona, 'PROFILES_DIR', profiles)
+        cases = [
+            ('通勤等待', ('假设站在公交站。', '此刻可以先观察。'), ('bus stop',)),
+            ('学习新工具', ('假设尝试新工具。', '也许先记录问题。', '再决定下一步。'), ('notebook', 'keyboard')),
+            ('安排工作间歇', ('假设暂停手头工作。', '看看窗外。', '也许不必立刻回答。', '再回到当前任务。'), ('desk', 'window', 'clock')),
+        ]
+        mode_hashes, creator_hashes, script_hashes, native_sources = set(), set(), set(), []
+        output_hashes, quality_hashes, profile_hashes, content_hashes = set(), set(), set(), set()
+        runtime = tmp_path / 'fixture-runtime.json'
+        runtime.write_text(json.dumps({'format': 'hypit.runtime-local@1', 'dataRoot': '.fixture-runtime'}))
+        prior_voice = None
+        base_settings = EaselRuntimeConfig.load()
+        base_settings = replace(base_settings, minimax=replace(base_settings.minimax,
+            [REDACTED]', speech_voice_id='fixture-stable-preset'))
+        monkeypatch.setattr(EaselRuntimeConfig, 'load', lambda: base_settings)
+        for index, (topic, sentences, subjects) in enumerate(cases):
+            script = ''.join(sentences)
+            work = creation.create_creation(topic, profile='测试', creative_mode='clear_memo_video',
+                route='hypit_video', origin={'type': 'chat', 'session_hash': hashlib.sha256(topic.encode()).hexdigest()})
+            creation.mark_chat_proposal_ready(work['id'])
+            proposal = topic + '；30 秒，9:16，普通话旁白与配乐。'
+            creation.confirm_chat_proposal(work['id'], 'fixture-confirm', delivery_proposal=proposal,
+                proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), production_specs={
+                    'duration_seconds': 30, 'aspect_ratio': '9:16', 'language': 'zh-CN', 'audio_mode': 'mixed'},
+                generation_budget={'maxCostCny': 1, 'scopeSha256': generation_budget_preview()['scope_sha256']},
+                input_use_statement_sha256=creation.input_use_preview()['statement_sha256'])
+            voice_need = MaterialNeed(need_id='narration', scope=NeedScope(type=NeedScopeType.GLOBAL, ref='film'),
+                media_type=MediaType.AUDIO, role='旁白', importance=NeedImportance.REQUIRED,
+                intent=NeedIntent(description='克制的观察旁白'), constraints={'allow_generation': True},
+                modality_spec=VoiceNeedSpec(identity=VoiceIdentityRef(source=VoiceIdentitySource.DIRECTOR_INTENT,
+                    reference='同一预置普通话声音'), delivery_description='自然、平静'))
+            visuals = tuple(MaterialNeed(need_id=f'visual-{n}', scope=NeedScope(type=NeedScopeType.SCENE, ref=f'scene-{n}'),
+                media_type=MediaType.IMAGE, role='主视觉', intent=NeedIntent(description=subject),
+                importance=NeedImportance.REQUIRED,
+                constraints={'preferred_visual_details': '安静的环境细节与低饱和背景'}) for n, subject in enumerate(subjects))
+            music_need = MaterialNeed(need_id='music', scope=NeedScope(type=NeedScopeType.GLOBAL, ref='film'),
+                media_type=MediaType.AUDIO, role='bgm', importance=NeedImportance.REQUIRED,
+                intent=NeedIntent(description='calm background music'), modality_spec=BgmNeedSpec(mood='calm'))
+            local = tmp_path / f'sources-{index}'
+            local.mkdir()
+            for n, subject in enumerate(subjects):
+                Image.new('RGB', (64, 96), (55 + index * 20, 60 + n * 25, 80)).save(local / f'{subject}.png')
+            if index == 0:
+                alternative = Image.new('RGB', (64, 96), (95, 60, 80))
+                ImageDraw.Draw(alternative).rectangle((20, 20, 50, 80), fill=(110, 80, 120))
+                alternative.save(local / f'{subjects[0]} alternative.png')
+            music_file = local / 'calm background music.wav'
+            music_duration = 11 + index * 7
+            playback = ('loop-start', 'loop-end', 'once-end')[index]
+            subprocess.run(['ffmpeg', '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i',
+                f'aevalsrc=0.1*sin(2*PI*({170 + index * 40}*t+0.6*t*t)):s=16000:d={music_duration}', str(music_file)],
+                check=True, capture_output=True, timeout=20)
+            rights = RightsInfo(status=RightsStatus.KNOWN, license_name='Owned deterministic test fixture',
+                evidence=(RightsEvidence(kind='asset_license', reference='fixture://owned-replay-media'),))
+            provider = LocalProvider((local,))
+            search, requests = provider.search, []
+            def observe_search(intent, continuation=None):
+                requests.append(intent)
+                return search(intent, continuation)
+            monkeypatch.setattr(provider, 'search', observe_search)
+            registry = ProviderRegistry()
+            registry.register(provider)
+            for path in tuple(local.iterdir()):
+                path.with_name(path.name + '.rights.json').write_text(json.dumps({
+                    'schema': 'easel-local-rights@1', 'asset_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+                    'rights': rights.model_dump(mode='json')}))
+            settings = replace(base_settings, material=replace(base_settings.material,
+                local_roots=(str(local),), library_root=tmp_path / 'shared-library'))
+            monkeypatch.setattr(EaselRuntimeConfig, 'load', lambda: settings)
+            monkeypatch.setattr(material_supply, 'product_provider_registry', lambda roots: (registry, ()))
+            monkeypatch.setattr(web, '_hypit_runtime_profile', lambda: None)
+            preparation_calls = []
+            recovery_queries = []
+            root = None
+            def agent(message, *args):
+                nonlocal root
+                if message.startswith('〔Easel 自动补料〕'):
+                    assert index == 1 and '首版画面错配后的备选补充' in message
+                    path = Path(re.search(r'仅写 (.+\.json)，格式：', message)[1])
+                    answer = json.loads(message.split('，格式：', 1)[1].split('\n', 1)[0])
+                    recovery_queries.append(answer['request_id'])
+                    for need_id in answer['search_terms']:
+                        n = int(need_id.split('-')[-1])
+                        answer['search_terms'][need_id] = [subjects[n] + ' alternative']
+                        if need_id in answer.get('shot_choices', {}):
+                            answer['shot_choices'][need_id] = {
+                                'expression': subjects[n] + '主体可辨，背景细节可替代',
+                                'reason': '已有画面观察不适配，保留主体并取舍环境细节'}
+                        # Newly available, licensed local source stands in for a
+                        # retrieval response. Supply/receipt/observation remain real.
+                        picture = Image.new('RGB', (64, 96), (120, 60 + n * 25, 80))
+                        ImageDraw.Draw(picture).rectangle((20, 20, 50, 80), fill=(110, 130, 120))
+                        media = local / (subjects[n] + ' alternative.png')
+                        picture.save(media)
+                        media.with_name(media.name + '.rights.json').write_text(json.dumps({
+                            'schema': 'easel-local-rights@1', 'asset_sha256': hashlib.sha256(media.read_bytes()).hexdigest(),
+                            'rights': rights.model_dump(mode='json')}))
+                    path.write_text(json.dumps(answer))
+                elif message.startswith('〔Easel Material Creative Planning V1〕'):
+                    preparation_calls.append('planning')
+                    root = Path(re.search(r'^Attempt workspace: (.+)$', message, re.MULTILINE)[1])
+                    identity = re.search(r'^Attempt ID: (.+)$', message, re.MULTILINE)[1]
+                    refs = json.loads(re.search(r'^context_refs: (.+)$', message, re.MULTILINE)[1])
+                    drafted = MaterialPlan(plan_id='plan-' + identity[-20:], creation_id=work['id'], attempt_id=identity,
+                        context_refs=refs, needs=(*visuals, music_need, voice_need))
+                    for name, value in {'MATERIAL_PLAN.json': drafted.model_dump_json(), 'SCRIPT.md': script,
+                        'TREATMENT.md': f'通过{len(subjects)}个观察表达{topic}', 'SCENES.md': ' → '.join(subjects)}.items():
+                        (root / 'planning' / name).write_text(value)
+                elif message.startswith('〔Easel Script 系统审阅〕'):
+                    preparation_calls.append('truth')
+                    path = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
+                    assessment = json.loads(message.split('（逐项替换判断，不增加字段）：\n', 1)[1].split('\n写入后停止。', 1)[0])
+                    for decision in assessment['decisions']:
+                        decision.update(kind='creative_expression', reason='假设情境与保留疑问，不声称实际经历或效果。', sources=[])
+                    path.write_text(json.dumps(assessment))
+                else:
+                    preparation_calls.append('prepare')
+                    assert len(preparation_calls) == 1 and 'CONFIRMED_PROPOSAL_SHA256' in message
+                    current = creation.get_creation(work['id'])
+                    draft = prep.preparation_paths(work['id'], current['preparation']['operation_key'])['draft']
+                    draft.mkdir(parents=True, exist_ok=True)
+                    core = {'schema': 'easel-content-core@1', 'topic': topic, 'core_idea': script,
+                        'tension': '日常节奏与观察之间的选择。', 'why_worth_telling': '给当前日常场景一个观察角度。',
+                        'audience': '测试观众', 'intended_takeaway': '先观察再决定。', 'claim_types': ['hypothesis'],
+                        'boundaries': ['假设场景不写成亲身经历。']}
+                    brief = {'schema': 'easel-production-brief@1', 'language': 'zh-CN', 'duration_seconds': 30,
+                        'aspect_ratio': '9:16', 'audio_mode': 'mixed', 'beats': [], 'text_overlays': [],
+                        'visual_constraints': [], 'material_sources': [], 'ai_generation_allowed': True,
+                        'publication_allowed': False}
+                    for name, value in {'content-core.json': core, 'truth-packet.json': truth,
+                        'creator-context.json': creator, 'production-brief.json': brief}.items():
+                        (draft / name).write_text(json.dumps(value, ensure_ascii=False))
+                return ''
+            monkeypatch.setattr(web, 'run_agent_sync', agent)
+            from easel.creation_delivery import advance_creation, next_operation
+>           assert asyncio.run(advance_creation(work['id'], web._execute_creation_delivery)), creation.get_creation(work['id'])['delivery'].get('last_error')
+E           AssertionError: test_same_creator_mode_three_contents_reach_reviewable_first_cut.<locals>.agent() got an unexpected keyword argument 'retry_failed'
+E           assert False
+E            +  where False = <function run at 0x10a9d2160>(<coroutine object advance_creation at 0x10e193560>)
+E            +    where <function run at 0x10a9d2160> = asyncio.run
+E            +    and   <coroutine object advance_creation at 0x10e193560> = <function advance_creation at 0x10c82d080>('cr_382dcad274a1488bbfdbe2753b0d1160', <function _execute_creation_delivery at 0x10cbfba60>)
+E            +      where <function _execute_creation_delivery at 0x10cbfba60> = web._execute_creation_delivery
+
+tests/test_creator_content_replay.py:197: AssertionError
+_______ test_legacy_proposal_requires_revision_only_before_confirmation ________
+
+prep_env = {'tmp': PosixPath('/private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/pytest-of-xgx/pytest-1159/test_legacy_prop...G', 'operation_key': '1a072ed587906b731d41d8198bfda9c09531783d11db2ed7944db8664b7207c4', 'owner_pid': 56859, ...}, ...}
+
+    def test_legacy_proposal_requires_revision_only_before_confirmation(prep_env):
+        from tests.test_creation_preparation import creation
+        from easel.creator_proposal import video_proposal_preview
+        work = creation.create_creation('旧未确认稿兼容对照', creative_mode='clear_memo_video', route='hypit_video',
+                                        origin={'type': 'chat', 'session_hash': 'f' * 64})
+        creation.begin_video_proposal(work['id'], 'new')
+        creation.save_video_proposal(work['id'], 'new', proposal('无文案', '无旁白 + BGM'))
+        plan = creation.get_creation(work['id'])['chat_workflow']['video_plan']
+        legacy = {k: v for k, v in plan.items() if k not in {'sha256', 'revision', 'updated_at'}}
+        legacy['schema'] = 'easel-video-proposal@1'
+        legacy['sha256'] = hashlib.sha256(json.dumps(legacy, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        with creation.edit_creation(work['id']) as current:
+            current['chat_workflow']['video_plan'] = legacy
+        with pytest.raises(creation.CreationError):
+            creation.confirm_chat_proposal(work['id'], 'invalid-confirm', video_plan_sha256=legacy['sha256'], production_specs=legacy['specs'])
+        creation.save_video_proposal(work['id'], 'revision', proposal('无文案', '无旁白 + BGM'))
+        revised = creation.get_creation(work['id'])['chat_workflow']['video_plan']
+>       assert video_proposal_preview(creation.get_creation(work['id']), [])['missing'] == []
+E       AssertionError: assert ['旧方案需要正常修订正文格式后再确认'] == []
+E         
+E         Left contains one more item: '旧方案需要正常修订正文格式后再确认'
+E         Use -v to get more diff
+
+tests/test_model_output_contracts.py:150: AssertionError
+=============================== warnings summary ===============================
+tests/test_chat_capability.py::test_chat_api_initializes_creation_before_agent_dispatch
+  /Users/xgx/Projects/Easel/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_chat_capability.py::test_chat_api_initializes_creation_before_agent_dispatch
+  /Users/xgx/Projects/Easel/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] skills/openclaw/skill-wechat-publisher/tests/test_config_integration.py:122: bun is not installed
+SKIPPED [1] skills/openclaw/skill-wechat-publisher/tests/test_config_integration.py:172: bun is not installed
+SKIPPED [3] skills/openclaw/skill-wechat-publisher/tests/test_config_integration.py:273: bun is not installed
+2 failed, 734 passed, 5 skipped, 2 warnings in 31.34s

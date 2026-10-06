@@ -1,0 +1,27 @@
+{
+  "validated_at": "2026-10-06T14:08:47.213075+00:00",
+  "final_run": "run-009",
+  "risk_rows": 25,
+  "counts": {
+    "PASS": 22,
+    "FAIL": 1,
+    "CONTRACT_GAP": 2,
+    "NOT_EXECUTED": 0
+  },
+  "pytest": "24 passed / 1 failed; retained product defect; nonzero exit",
+  "default_collection": 736,
+  "matrix_in_default_collection": false,
+  "compileall": "passed for matrix test files",
+  "secret_scan_files": 27,
+  "secret_findings": 0,
+  "unmocked_external_or_protected_attempts": 0,
+  "production_unchanged": true,
+  "production_source_sha256": "5f6e21a2fb301358c906291bbf4a811fa44ac986ace214a1c7ef687c10b0aede",
+  "protected_files_unchanged": 223,
+  "historical_fixtures_unchanged_in_final_run": 19,
+  "production_api_changes": 0,
+  "service_restart": false,
+  "real_e2e_started": false,
+  "git_diff_check": "passed after documentation changes",
+  "completion_audit": "completion-audit.json"
+}

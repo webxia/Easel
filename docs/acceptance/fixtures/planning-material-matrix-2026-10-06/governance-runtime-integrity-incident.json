@@ -1,0 +1,42 @@
+{
+  "schema": "easel-runtime-integrity-incident@1",
+  "status": "FAIL",
+  "cause": "首次全量测试导入了尚未限制产品范围的v2登记分支；历史fixture真实ID通过service.update_film_attempt写入正式Creation元数据。",
+  "correction": "产品登记限真实产品范围；所有常规测试增加真实runtime写入禁止。未恢复旧Creation。",
+  "cases": [
+    {
+      "creation_id": "cr_94b5d27f5fb140de85981cecba009a9d",
+      "baseline_sha256": "8f79e14c44e7e0963592c4ed47c13f71e0937e02d17a80f3388dbad31fd1f1cf",
+      "current_sha256": "4ca398823e9dee9c4623550acdce26885a07179826769a843e90987bfe97ff8f",
+      "known_write_time": "2026-10-06T15:01:30+00:00",
+      "registration_events": 3,
+      "fields_written": [
+        "hypit_attempts[0].planning_contract_version",
+        "hypit_attempts[0].history",
+        "hypit_attempts[0].updated_at",
+        "updated_at"
+      ],
+      "counterfactual_baseline_exact": true,
+      "archive_reference": "/Users/xgx/Library/Application Support/Easel/acceptance/material-independent-2026-10-06/creation-final.json",
+      "delivery_status": "failed",
+      "recovery_performed": false
+    },
+    {
+      "creation_id": "cr_223021d92de643f0a35faea2907de7ed",
+      "baseline_sha256": "7cef8f74b8893568cd29e1ab56889c87c2ee14c3d0f2f304d85b8b16100d09be",
+      "current_sha256": "b5eb33f3f759fc0b6ccdb8fc556f940484171b4fb5e91124b8a87420061aff28",
+      "known_write_time": "2026-10-06T15:01:30+00:00",
+      "registration_events": 15,
+      "fields_written": [
+        "hypit_attempts[0].planning_contract_version",
+        "hypit_attempts[0].history",
+        "hypit_attempts[0].updated_at",
+        "updated_at"
+      ],
+      "counterfactual_baseline_exact": true,
+      "archive_reference": "/Users/xgx/Library/Application Support/Easel/acceptance/material-independent-2-2026-10-06/creation-final.json",
+      "delivery_status": "failed",
+      "recovery_performed": false
+    }
+  ]
+}

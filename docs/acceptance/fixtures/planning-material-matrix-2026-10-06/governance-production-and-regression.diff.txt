@@ -1,0 +1,795 @@
+diff --git a/easel/creation.py b/easel/creation.py
+index 47c2214e..c1ef4616 100644
+--- a/easel/creation.py
++++ b/easel/creation.py
+@@ -351,6 +351,7 @@ def begin_video_proposal(creation_id: str, turn_id: str) -> dict[str, Any]:
+ def save_video_proposal(creation_id: str, turn_id: str, response: str) -> dict[str, Any]:
+     from easel.creator_proposal import parse_video_plan
+     plan = parse_video_plan(response)
++    from easel.output_contract import output_decision
+     with edit_creation(creation_id) as data:
+         workflow = data["chat_workflow"]
+         if workflow.get("confirmed_at") or workflow.get("proposal_turn_id") != turn_id:
+@@ -359,6 +360,10 @@ def save_video_proposal(creation_id: str, turn_id: str, response: str) -> dict[s
+             previous = workflow.get("video_plan") or {}
+             revision = previous.get("revision", 0) + (previous.get("sha256") != plan["sha256"])
+             workflow["video_plan"] = {**plan, "revision": revision, "updated_at": _now()}
++        workflow["output_decision"] = output_decision("proposal", "ACCEPT" if plan else "REJECT",
++            "valid_proposal" if plan else "invalid_script_container", text=response,
++            field_path="script", policy_revision="easel-video-proposal@2")
++        workflow["proposal_error"] = None if plan else "正文与说明需要分开，请更新完整方案后确认"
+         workflow["proposal_status"] = ("READY_FOR_CONFIRMATION"
+             if plan and all(value is not None for value in plan["specs"].values()) else "DISCUSSING")
+     return get_creation(creation_id)
+@@ -425,6 +430,9 @@ def confirm_chat_proposal(
+                 raise CreationError("确认方案摘要无效")
+             if workflow.get("video_plan_required"):
+                 plan = workflow.get("video_plan") or {}
++                from easel.creator_proposal import validate_video_plan
++                if not validate_video_plan(plan):
++                    raise CreationError("当前方案需更新为正文与说明分开的完整版本后确认")
+                 if (not video_plan_sha256 or plan.get("sha256") != video_plan_sha256
+                         or production_specs != plan.get("specs")
+                         or any(plan.get("specs", {}).get(key) is None for key in
+diff --git a/easel/creation_preparation.py b/easel/creation_preparation.py
+index 9724279d..79e9381e 100644
+--- a/easel/creation_preparation.py
++++ b/easel/creation_preparation.py
+@@ -10,6 +10,7 @@ import re
+ import shutil
+ import uuid
+ from pathlib import Path
++from easel.output_contract import output_decision
+ from typing import Any, Callable
+ 
+ if os.name == "nt":
+@@ -552,7 +553,8 @@ def mark_preparation_failed(creation_id: str, message: str) -> None:
+         current = work.get("preparation", {})
+         if current.get("status") in _TERMINAL_PREPARATION or current.get("attempt_id"):
+             return
+-        _update_preparation(creation_id, status="FAILED", last_error=safe, owner_pid=None)
++        _update_preparation(creation_id, status="FAILED", last_error=safe, owner_pid=None,
++                            output_decision=output_decision('preparation', 'REJECT', 'invalid_preparation'))
+     except Exception:
+         return
+ 
+@@ -617,6 +619,7 @@ def _prepare_creation_for_hypit_locked(
+             )
+         preparation = _update_preparation(
+             creation_id, status="CONTENT_READY", snapshot_hashes=snapshot["hashes"],
++            output_decision=output_decision("preparation", "ACCEPT", "validated_snapshot"),
+             snapshot_artifacts=artifacts,
+         )
+         work = creation.get_creation(creation_id)
+@@ -697,9 +700,9 @@ def _prepare_creation_for_hypit_locked(
+                     for need in planning["plan"].needs:
+                         NeedCompiler().compile(need)
+                 except NeedCompilationError:
+-                    # A structurally valid but non-retrievable plan is not a
+-                    # trusted supply checkpoint. Repair it via the same Director.
+-                    planning = None
++                    # Invalid frozen checkpoints require explicit revision,
++                    # never another implicit Planning call on re-entry.
++                    raise MaterialIntegrationError("冻结Planning已无法检索；请通过显式修订处理，不重新派发")
+         if planning is None:
+             if planning_executor is None:
+                 raise MaterialIntegrationError("Production Planning executor is required; Material Gate cannot be bypassed")
+@@ -721,7 +724,20 @@ def _prepare_creation_for_hypit_locked(
+                 "creative_mode_sha256": mode.get("hash", ""),
+                 },
+             }
++            version = attempt.get('planning_contract_version')
++            if version not in {None, 2}: raise MaterialIntegrationError('Planning合同版本冲突')
++            pending = any(call.get('status') in {'submitting', 'pending'}
++                          for call in (work.get('delivery') or {}).get('agent_calls', {}).values()
++                          if call.get('session_key') == 'agent:main:material-planning-' + attempt['attempt_id'])
++            if version is None and not pending:
++                attempt = service.update_film_attempt(attempt['attempt_id'], event='planning_contract_registered',
++                                                      planning_contract_version=2)
+             planning = planning_executor(attempt, planning_context)
++            # The product executor reconciles a legacy writer before registering
++            # v2. Never advance a custom executor that left its original run unknown.
++            attempt = service.get_film_attempt(attempt['attempt_id'])
++            if pending and attempt.get('planning_contract_version') != 2:
++                raise MaterialIntegrationError('旧Planning原请求尚未核实，不能推进素材')
+         active_stage = "material"
+         _update_preparation(creation_id, active_stage=active_stage)
+         material_result = MaterialProductOrchestrator().run_with_planning(
+@@ -739,6 +755,8 @@ def _prepare_creation_for_hypit_locked(
+             attempt_id=attempt["attempt_id"],
+             attempt_number=attempt["attempt_number"],
+             last_error=safe_error,
++            output_decision=output_decision(
++                active_stage, "REJECT", "invalid_stage_output"),
+         )
+         raise PreparationError(safe_error) from exc
+     material_status = material_result["status"]
+diff --git a/easel/creator_proposal.py b/easel/creator_proposal.py
+index 8627ce8a..093db1b4 100644
+--- a/easel/creator_proposal.py
++++ b/easel/creator_proposal.py
+@@ -69,40 +69,72 @@ def proposal_specs(turns: list[dict]) -> dict:
+ PLAN_SECTIONS = {"创作表达": "treatment", "文案": "script", "分镜与节奏": "scenes", "声音设计": "sound"}
+ 
+ 
+-def parse_video_plan(response: str) -> dict | None:
+-    """Extract the visible, complete discussion draft; never infer missing copy."""
++def _mixed_script(script: str) -> bool:
++    # Labels are structural instructions, not arbitrary words in a spoken line.
++    labels = r"(?:逐字旁白|旁白说明|屏幕(?:文字|说明|文案)|画面说明|字幕说明|朗读说明|说明|制作备注|配音说明)"
++    return bool(re.search(r"(?m)^[ \t]*(?:#{1,6}[ \t]+|[-*][ \t]+)?(?:\*\*)?" + labels
++                         + r"(?:\*\*)?(?:[ \t]*[：:]|[ \t]*[（(]|[ \t]*$)", script))
++
++
++def _plan_payload(plan: dict) -> dict:
++    keys = ('schema', 'treatment', 'script', 'scenes', 'sound', 'specs', 'specification_notes')
++    return {key: plan[key] for key in keys if key in plan}
++
++
++def validate_video_plan(plan: dict, *, require_current: bool = True) -> bool:
+     import hashlib
+     import json
+     from easel.integrations.hypit.secrets import SecretRedactor
++    if not isinstance(plan, dict) or plan.get('schema') not in ({'easel-video-proposal@2'} if require_current
++                                                              else {'easel-video-proposal@1', 'easel-video-proposal@2'}):
++        return False
++    if any(not isinstance(plan.get(k), str) or not plan[k].strip() for k in PLAN_SECTIONS.values()):
++        return False
++    if not isinstance(plan.get('specs'), dict) or set(plan['specs']) != set(SPEC_LABELS):
++        return False
++    if require_current and (_mixed_script(plan['script']) or '\x00' in plan['script']):
++        return False
++    if SecretRedactor.contains_secret(plan):
++        return False
++    encoded = json.dumps(_plan_payload(plan), ensure_ascii=False, sort_keys=True, separators=(',', ':'))
++    return plan.get('sha256') == hashlib.sha256(encoded.encode()).hexdigest()
+ 
+-    if not response or len(response) > 32_000 or SecretRedactor.contains_secret(response):
+-        return None
+-    parts = re.split(r"(?m)^## (创作表达|文案|分镜与节奏|声音设计|制作规格)\s*$", response)
+-    sections = {}
+-    settings = None
+-    for index in range(1, len(parts), 2):
+-        heading, body = parts[index], parts[index + 1].strip()
+-        if heading == "制作规格":
+-            if settings is not None:
+-                return None
+-            settings = body
+-        if heading in PLAN_SECTIONS:
+-            key = PLAN_SECTIONS[heading]
+-            if key in sections or not body or body in {"待确认", "待补充", "待生成"}:
+-                return None
+-            sections[key] = body
+-    if set(sections) != set(PLAN_SECTIONS.values()):
+-        return None
+-    # Reject mixed narration/instructions before approval. No post-confirmation
+-    # normalization can safely guess which words the Creator approved to speak.
+-    if re.search(r"(?m)^\s*(?:#{1,6}\s*|[-*]\s*)?(?:\*\*)?(?:逐字旁白|旁白说明|屏幕(?:文字|说明|文案)|画面说明|字幕说明|朗读说明)", sections["script"]):
++
++def parse_video_plan(response: str) -> dict | None:
++    """Parse a new proposal with a literal script container, without guessing prose."""
++    import hashlib
++    import json
++    from easel.integrations.hypit.secrets import SecretRedactor
++    if not isinstance(response, str) or not response or len(response) > 32_000 or SecretRedactor.contains_secret(response):
+         return None
+-    payload = {"schema": "easel-video-proposal@1", **sections,
+-               "specs": proposal_specs([{"role": "assistant", "content": settings or ""}])["specs"]}
+-    if settings:
+-        payload["specification_notes"] = settings
+-    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+-    return {**payload, "sha256": hashlib.sha256(encoded.encode()).hexdigest()}
++    sections, heading, lines, fenced = {}, None, [], False
++    for line in response.splitlines(keepends=True):
++        literal = line.rstrip('\r\n')
++        match = re.fullmatch(r'## (创作表达|文案|分镜与节奏|声音设计|制作规格)[ \t]*', literal)
++        if match and not fenced:
++            if heading is not None:
++                if heading in sections: return None
++                sections[heading] = ''.join(lines)
++            heading, lines = match[1], []
++            continue
++        if literal.startswith('```'):
++            fenced = not fenced
++        if heading is not None: lines.append(line)
++    if fenced or heading is None or heading in sections: return None
++    sections[heading] = ''.join(lines)
++    if not set(PLAN_SECTIONS) <= set(sections): return None
++    container = re.fullmatch(r'[ \t\r\n]*```text(?:\r\n|\n)([\s\S]*?)(?:\r\n|\n)```[ \t]*[ \t\r\n]*', sections['文案'])
++    if container is None: return None
++    script = container[1]
++    if not script.strip() or '\x00' in script or re.search(r'(?m)^```', script) or _mixed_script(script): return None
++    payload = {'schema': 'easel-video-proposal@2', **{key: sections[name].strip() for name, key in PLAN_SECTIONS.items()}}
++    payload['script'] = script
++    if any(not payload[k] or payload[k] in {'待确认', '待补充', '待生成'} for k in PLAN_SECTIONS.values()): return None
++    settings = sections.get('制作规格', '').strip()
++    payload['specs'] = proposal_specs([{'role': 'assistant', 'content': settings}])['specs']
++    if settings: payload['specification_notes'] = settings
++    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
++    return {**payload, 'sha256': hashlib.sha256(encoded.encode()).hexdigest()}
+ 
+ 
+ def video_proposal_preview(work: dict, turns: list[dict]) -> dict:
+@@ -114,6 +146,8 @@ def video_proposal_preview(work: dict, turns: list[dict]) -> dict:
+     missing = [label for key, label in SPEC_LABELS.items() if specs.get(key) is None]
+     if not plan:
+         missing.append("完整视频方案（文案、分镜与声音设计）")
++    elif plan.get('schema') != 'easel-video-proposal@2' and workflow.get('proposal_status') != 'CONFIRMED':
++        missing.append('旧方案需要正常修订正文格式后再确认')
+     elif workflow.get("proposal_status") not in {"READY_FOR_CONFIRMATION", "CONFIRMED"} and not missing:
+-        missing.append("当前方案尚未完成更新")
++        missing.append(workflow.get("proposal_error") or "当前方案尚未完成更新")
+     return {"specs": specs, "missing": missing}
+diff --git a/easel/integrations/hypit/service.py b/easel/integrations/hypit/service.py
+index 217d0407..79fa93b5 100644
+--- a/easel/integrations/hypit/service.py
++++ b/easel/integrations/hypit/service.py
+@@ -704,9 +704,22 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
+             "plan_id": f"plan-{target['attempt_id'][-20:]}",
+             "attempt_id": target["attempt_id"],
+         })
++        requirements_source = None
++        if source.get('planning_contract_version') == 2:
++            # The source was fully validated above. Preserve its sidecar and
++            # default provenance, but bind this new checkpoint to its own v2 SHA.
++            requirements_source = {**planning['requirements'], 'origin':
++                planning['requirements'].get('origin') or {
++                    'creation_id': plan.creation_id, 'attempt_id': plan.attempt_id, 'plan_id': plan.plan_id}}
++            _copy_retry_checkpoint_file(source_root, target_root, Path('planning/MATERIAL_REQUIREMENTS.json'))
++            copied = target_root / 'planning/MATERIAL_REQUIREMENTS.json'
++            if hashlib.sha256(copied.read_bytes()).hexdigest() != requirements_source['sha256']:
++                raise HypitIntegrationError('Planning要求复制期间与源冻结摘要发生变化')
++            target = update_film_attempt(target['attempt_id'], event='planning_contract_copied', planning_contract_version=2)
+         persisted = PlanningIntegration().persist(
+             target, new_plan, treatment=planning["treatment"],
+             script=planning["script"], scenes=planning["scenes"],
++            requirements_source=requirements_source,
+         )
+         target = persisted["attempt"]
+         if planning["truth_ledger"]["status"] != "PASSED":
+diff --git a/easel/integrations/material_layer.py b/easel/integrations/material_layer.py
+index 1265edd1..7185cafa 100644
+--- a/easel/integrations/material_layer.py
++++ b/easel/integrations/material_layer.py
+@@ -277,6 +277,7 @@ class PlanningIntegration:
+         script: str,
+         scenes: str,
+         script_assessment: dict[str, Any] | None = None,
++        requirements_source: dict[str, Any] | None = None,
+     ) -> dict[str, Any]:
+         if plan.creation_id != attempt.get("creation_id") or plan.attempt_id != attempt.get("attempt_id"):
+             raise MaterialIntegrationError("MaterialPlan identity does not match Attempt")
+@@ -288,6 +289,7 @@ class PlanningIntegration:
+         for name, value in (("TREATMENT.md", treatment), ("SCRIPT.md", script), ("SCENES.md", scenes)):
+             if not isinstance(value, str) or not value.strip() or "\x00" in value:
+                 raise MaterialIntegrationError(f"Planning artifact {name} 不能为空")
++        source_plan = plan
+         script_digest = hashlib.sha256(script.encode("utf-8")).hexdigest()
+         work = creation.get_creation(attempt['creation_id'])
+         if work.get('preparation', {}).get('snapshot_hashes'):
+@@ -336,7 +338,32 @@ class PlanningIntegration:
+                 need = need.model_copy(update={"modality_spec": spec})
+             bound_needs.append(need)
+         plan = plan.model_copy(update={"needs": tuple(bound_needs)})
++        # Contracts refer to the representation read back from the canonical
++        # Plan file, including its stable JSON object order.
++        plan = MaterialPlan.model_validate_json(plan.to_json())
+         root = _workspace(attempt)
++        product = bool(work.get('preparation', {}).get('snapshot_hashes')) or (
++            (work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@2')
++        version = attempt.get('planning_contract_version')
++        if product and version != 2:
++            raise MaterialIntegrationError('新产品Planning缺少程序登记的v2合同；已完成旧记录只能load恢复')
++        if version not in {None, 2}:
++            raise MaterialIntegrationError('Planning合同版本不支持，不能降级')
++        requirements, records, requirements_raw = None, {}, None
++        if version == 2:
++            from easel.integrations.planning_contract import requirements_bytes, bind_requirements
++            try:
++                requirements_raw = requirements_bytes(root)
++                sources = {n.need_id: n.model_dump(mode='json') for n in source_plan.needs
++                           if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}
++                if requirements_source is not None:
++                    if hashlib.sha256(requirements_raw).hexdigest() != requirements_source.get('sha256'):
++                        raise ValueError('Planning要求复制字节与源冻结摘要不一致')
++                    sources = requirements_source['source_needs']
++                requirements, records = bind_requirements(plan, mode, requirements_raw, sources,
++                    requirements_source.get('origin') if requirements_source else None)
++            except (OSError, ValueError, TypeError) as exc:
++                raise MaterialIntegrationError('Planning要求合同无效：' + str(exc)) from exc
+         truth_path = root / "handoff" / "truth-packet.json"
+         try:
+             review = create_script_claim_ledger(script, truth_path)
+@@ -369,7 +396,7 @@ class PlanningIntegration:
+         }
+         plan_revision = MaterialReadinessCalculator.plan_revision(plan)
+         manifest = {
+-            "schema": "easel-material-planning@1",
++            "schema": "easel-material-planning@2" if version == 2 else "easel-material-planning@1",
+             "status": "PLANNING_READY",
+             "plan_id": plan.plan_id,
+             "plan_revision": plan_revision,
+@@ -382,14 +409,25 @@ class PlanningIntegration:
+                 for key, path in artifact_paths.items()
+             },
+         }
++        if version == 2:
++            from easel.integrations.planning_contract import requirements_bytes
++            if requirements_bytes(root) != requirements_raw:
++                raise MaterialIntegrationError('Planning要求文件在冻结期间变化')
++            manifest['requirements'] = requirements
++            for key, record in records.items(): store.write_recovery_record(key, record)
+         manifest_path = root / "planning" / "manifest.json"
+         if _has_symlink_components(root, manifest_path):
+             raise MaterialIntegrationError("Planning manifest path must not contain symlinks")
+         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
++        from easel.output_contract import output_decision
+         updated = _update_attempt(
+             attempt,
+             material_planning={
+                 "status": "PLANNING_READY",
++                **({'contract_version': 2, 'manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest()}
++                   if version == 2 else {}),
++                "output_decision": output_decision(
++                    'material', 'ACCEPT', 'validated_planning', policy_revision=manifest['schema']),
+                 "plan_id": plan.plan_id,
+                 "plan_revision": plan_revision,
+                 "manifest": "planning/manifest.json",
+@@ -411,6 +449,8 @@ class PlanningIntegration:
+         try:
+             plan = store.read_plan()
+             manifest_path = root / "planning" / "manifest.json"
++            if _has_symlink_components(root, manifest_path):
++                raise ValueError('Planning manifest路径无效')
+             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+         except (OSError, ValueError, json.JSONDecodeError) as exc:
+             raise MaterialIntegrationError("Persisted Creative Planning evidence is unavailable") from exc
+@@ -420,18 +460,38 @@ class PlanningIntegration:
+                 or manifest.get("plan_id") != plan.plan_id
+                 or manifest.get("plan_revision") != MaterialReadinessCalculator.plan_revision(plan)):
+             raise MaterialIntegrationError("Persisted Creative Planning identity or revision is stale")
++        stored = attempt.get('material_planning', {})
++        if (stored.get('status') != 'PLANNING_READY' or stored.get('plan_id') != plan.plan_id
++                or stored.get('plan_revision') != manifest['plan_revision']):
++            raise MaterialIntegrationError('Attempt Planning状态或Plan身份不一致')
++        schema = manifest.get('schema')
++        owner = creation.get_creation(plan.creation_id)
++        owner_attempt = next((item for item in owner.get('hypit_attempts', [])
++                              if item.get('attempt_id') == plan.attempt_id), {})
++        current_contract = ((owner.get('delivery') or {}).get('video_plan') or {}).get('schema') == 'easel-video-proposal@2'
++        v2 = (attempt.get('planning_contract_version') is not None or stored.get('contract_version') is not None
++              or schema == 'easel-material-planning@2' or 'requirements' in manifest
++              or current_contract or owner_attempt.get('planning_contract_version') is not None)
++        if v2:
++            if (attempt.get('planning_contract_version') != 2 or stored.get('contract_version') != 2
++                    or schema != 'easel-material-planning@2'
++                    or stored.get('manifest_sha256') != hashlib.sha256(manifest_path.read_bytes()).hexdigest()):
++                raise MaterialIntegrationError('Planning v2版本或manifest摘要不一致，不能降级')
++        elif (schema != 'easel-material-planning@1' or stored.get('status') != 'PLANNING_READY'
++              or stored.get('plan_id') != plan.plan_id or stored.get('plan_revision') != manifest['plan_revision']):
++            raise MaterialIntegrationError('旧Planning不是有效的冻结检查点')
+         artifacts: dict[str, str] = {}
+         for key in ("treatment", "script", "scenes"):
+             item = manifest.get("artifacts", {}).get(key)
+             if not isinstance(item, dict) or not isinstance(item.get("path"), str):
+                 raise MaterialIntegrationError("Persisted Planning manifest is incomplete")
+             lexical_path = root / item["path"]
+-            if lexical_path.is_symlink():
++            if _has_symlink_components(root, lexical_path):
+                 raise MaterialIntegrationError("Persisted Planning artifact path is invalid")
+             path = lexical_path.resolve()
+             if root not in path.parents or not path.is_file():
+                 raise MaterialIntegrationError("Persisted Planning artifact path is invalid")
+-            content = path.read_text(encoding="utf-8")
++            content = path.read_bytes().decode("utf-8")
+             if hashlib.sha256(path.read_bytes()).hexdigest() != item.get("sha256"):
+                 raise MaterialIntegrationError("Persisted Planning artifact digest is stale")
+             artifacts[key] = content
+@@ -449,8 +509,15 @@ class PlanningIntegration:
+                 or stored.get("script_sha256") != ledger.get("script_sha256")
+                 or stored.get("truth_packet_sha256") != ledger.get("truth_packet_sha256")):
+             raise MaterialIntegrationError("Attempt Script review record does not match persisted claim ledger")
++        if v2:
++            from easel.integrations.hypit.handoff import load_frozen_creative_mode
++            from easel.integrations.planning_contract import verify_requirements
++            try:
++                verify_requirements(attempt, plan, manifest, load_frozen_creative_mode(attempt)[0])
++            except (OSError, ValueError, TypeError) as exc:
++                raise MaterialIntegrationError('Planning要求合同完整性无效：' + str(exc)) from exc
+         return {"plan": plan, **artifacts, "context_refs": plan.context_refs,
+-                "truth_ledger": ledger, "attempt": attempt}
++                "truth_ledger": ledger, "attempt": attempt, 'requirements': manifest.get('requirements')}
+ 
+     def review_script(
+         self,
+diff --git a/easel/integrations/material_recovery.py b/easel/integrations/material_recovery.py
+index 9145d331..017aa150 100644
+--- a/easel/integrations/material_recovery.py
++++ b/easel/integrations/material_recovery.py
+@@ -276,9 +276,9 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
+             audio_choices = unused_compiled_bgm_queries(attempt, planning['plan'], record)
+             for raw in record['needs']:
+                 need = next(n for n in planning['plan'].needs if n.need_id == raw['need_id'])
+-                variants = need.constraints.get('search_query_variants_en', {})
++                from easel.materials.application.query_hints import query_hints
+                 alternatives = ([audio_choices[need.need_id]] if need.need_id in audio_choices else
+-                                [variants[k] for k in ('alternate', 'relaxed') if variants.get(k)])
++                                query_hints(need.constraints)[1:])
+                 if not alternatives:
+                     for path in sorted((store.materials_root / 'recoveries').glob('requirements-*.json')):
+                         if path.is_symlink():
+diff --git a/easel/materials/application/compiler.py b/easel/materials/application/compiler.py
+index 7aae066f..046ca493 100644
+--- a/easel/materials/application/compiler.py
++++ b/easel/materials/application/compiler.py
+@@ -7,6 +7,7 @@ from collections.abc import Iterable
+ 
+ from easel.materials.domain import BgmNeedSpec, MaterialNeed, RetrievalIntent, VoiceNeedSpec
+ from easel.materials.application.need_constraints import validate_modality_constraints
++from easel.materials.application.query_hints import QUERY_FIELDS, query_hints
+ 
+ 
+ class NeedCompilationError(ValueError):
+@@ -42,24 +43,18 @@ class NeedCompiler:
+         creator_terms = self._normalize_terms(creator_context_terms, "creator_context_terms")
+         mode_terms = self._normalize_terms(creative_mode_terms, "creative_mode_terms")
+ 
++        try:
++            hints = query_hints(need.constraints)
++        except ValueError as exc:
++            raise NeedCompilationError(str(exc)) from exc
+         filters: dict[str, str | int | float | bool] = {"media_type": need.media_type.value}
+         if need.duration_hint is not None:
+             filters["min_duration"] = need.duration_hint.target_seconds
+         for key, value in need.constraints.items():
+             if not isinstance(key, str) or not key.strip():
+                 raise NeedCompilationError("Need constraint keys must be non-empty strings")
+-            if key == 'search_query_variants_en':
+-                if (not isinstance(value, dict) or set(value) != {'primary', 'alternate', 'relaxed'}
+-                        or any(not isinstance(q, str) or not q.strip() or len(q) > 100
+-                               or not re.fullmatch(r'[\x20-\x7e]+', q) or not re.search(r'[a-zA-Z]', q) for q in value.values())
+-                        or len({self._normalize(q).casefold() for q in value.values()}) != 3):
+-                    raise NeedCompilationError('英文查询变体须为三个不同的短查询')
+-                continue
+-            if key == 'search_query_en':
+-                if (not isinstance(value, str) or not value.strip() or len(value) > 100
+-                        or not re.fullmatch(r'[\x20-\x7e]+', value) or not re.search(r'[a-zA-Z]', value)):
+-                    raise NeedCompilationError('search_query_en 须为不超过 100 字符的英文短查询')
+-                continue  # Discovery wording never changes the original meaning/filter.
++            if key in QUERY_FIELDS:
++                continue  # Discovery wording never becomes a hard filter.
+             if key == "preferred_visual_details":
+                 # Director discretion is not a stock Provider hard filter.
+                 continue
+@@ -83,11 +78,7 @@ class NeedCompiler:
+         clauses = [v.strip() for v in re.split(r"[。；;\n]|(?<=[.!?])\s+", description) if v.strip()]
+         retrieval = clauses[0] if len(description) > 100 and clauses and len(clauses[0]) <= 100 else description
+         query_candidates = [retrieval, f"{role} {retrieval}".strip()]
+-        if need.constraints.get('search_query_variants_en'):
+-            variants = need.constraints['search_query_variants_en']
+-            query_candidates[:0] = [variants[k] for k in ('primary', 'alternate', 'relaxed')]
+-        elif need.constraints.get('search_query_en'):
+-            query_candidates.insert(0, need.constraints['search_query_en'])
++        query_candidates[:0] = list(hints)
+         if need.need_id in self.search_terms:
+             terms = self._normalize_terms(self.search_terms[need.need_id], "search_terms")
+             if not terms or len(terms) > 4 or any(len(term) > 120 for term in terms):
+@@ -153,7 +144,7 @@ class NeedCompiler:
+         negative_terms = tuple(
+             key.replace("_", " ").strip()
+             for key, value in need.constraints.items()
+-            if value is False and key.strip()
++            if value is False and key.strip() and key not in QUERY_FIELDS
+         )
+         if isinstance(need.modality_spec, BgmNeedSpec) and not need.modality_spec.vocals_allowed:
+             negative_terms = tuple(dict.fromkeys((*negative_terms, 'vocals')))
+diff --git a/easel/materials/application/visual_contract.py b/easel/materials/application/visual_contract.py
+index 284f777d..87664ddd 100644
+--- a/easel/materials/application/visual_contract.py
++++ b/easel/materials/application/visual_contract.py
+@@ -18,8 +18,7 @@ from easel.materials.application.visual_observation import SCHEMA, ASSESSMENT_RE
+ REVISION = 'visual-requirements@1'
+ RESULT_LIMIT = 3000
+ KINDS = {'required', 'preference', 'postproduction', 'unresolved'}
+-QUERY_FIELDS = {'search_query_en', 'search_query_variants_en',
+-                'search_query_variants_primary', 'search_query_variants_alternate', 'search_query_variants_relaxed'}
++from easel.materials.application.query_hints import QUERY_FIELDS
+ 
+ 
+ class PlanningClause(BaseModel):
+diff --git a/tests/test_creation_preparation.py b/tests/test_creation_preparation.py
+index 1cc4979d..51bc595b 100644
+--- a/tests/test_creation_preparation.py
++++ b/tests/test_creation_preparation.py
+@@ -31,7 +31,9 @@ import app as web  # noqa: E402
+ VIDEO_PROPOSAL = """## 创作表达
+ 从日常选择的变化切入，不把结论当成普遍规律。不露脸。
+ ## 文案
++```text
+ 先看问题，再做决定。
++```
+ ## 分镜与节奏
+ 0–15 秒：桌面笔记，呈现屏幕文案「先看问题，再做决定。」。
+ ## 声音设计
+@@ -790,6 +792,8 @@ def _test_planning_executor(attempt, context):
+             importance=NeedImportance.REQUIRED,
+         ),),
+     )
++    from tests.test_model_output_contracts import write_fixture_requirements
++    write_fixture_requirements(Path(attempt['workspace']['path']) / 'planning', plan)
+     return {"plan": plan, "context_refs": context["context_refs"],
+             "treatment": "Treatment", "script": "假设脚本内容。", "scenes": "Scenes"}
+ 
+@@ -1001,7 +1005,7 @@ def test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_re
+             root = Path(re.search(r"^Attempt workspace: (.+)$", message, re.MULTILINE)[1])
+             attempt_id = re.search(r"^Attempt ID: (.+)$", message, re.MULTILINE)[1]
+             refs = json.loads(re.search(r"^context_refs: (.+)$", message, re.MULTILINE)[1])
+-            planning = _test_planning_executor({"attempt_id": attempt_id, "creation_id": work["id"]},
++            planning = _test_planning_executor({"attempt_id": attempt_id, "creation_id": work["id"], "workspace": {"path": str(root)}},
+                                                {"context_refs": refs})
+             for name, value in {"MATERIAL_PLAN.json": planning["plan"].model_dump_json(),
+                                 "TREATMENT.md": planning["treatment"], "SCENES.md": planning["scenes"],
+@@ -1136,6 +1140,8 @@ def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(pre
+     def fake_agent(prompt, timeout, session_id=None):
+         prompt_seen.append(prompt)
+         (planning_dir / "MATERIAL_PLAN.json").write_text(plan.model_dump_json(), encoding="utf-8")
++        from tests.test_model_output_contracts import write_fixture_requirements
++        write_fixture_requirements(planning_dir, plan)
+         (planning_dir / "TREATMENT.md").write_text("Treatment", encoding="utf-8")
+         (planning_dir / "SCRIPT.md").write_text("Script", encoding="utf-8")
+         (planning_dir / "SCENES.md").write_text("Scenes", encoding="utf-8")
+diff --git a/tests/test_creator_content_replay.py b/tests/test_creator_content_replay.py
+index 21108f7b..6987fa4d 100644
+--- a/tests/test_creator_content_replay.py
++++ b/tests/test_creator_content_replay.py
+@@ -167,6 +167,14 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
+                 for name, value in {'MATERIAL_PLAN.json': drafted.model_dump_json(), 'SCRIPT.md': script,
+                     'TREATMENT.md': f'通过{len(subjects)}个观察表达{topic}', 'SCENES.md': ' → '.join(subjects)}.items():
+                     (root / 'planning' / name).write_text(value)
++                from tests.test_model_output_contracts import write_fixture_requirements
++                write_fixture_requirements(root / 'planning', drafted)
++                if index == 0:
++                    req_path = root / 'planning/MATERIAL_REQUIREMENTS.json'
++                    canonical = json.loads(req_path.read_text())
++                    req_path.write_text(json.dumps({'plan_id': drafted.plan_id, 'creation_id': drafted.creation_id,
++                        'attempt_id': drafted.attempt_id, 'context_refs': drafted.context_refs,
++                        'visual_requirements': [{'need_id': key, **value} for key, value in canonical.items()]}))
+             elif message.startswith('〔Easel Script 系统审阅〕'):
+                 preparation_calls.append('truth')
+                 path = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
+@@ -683,6 +691,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
+         repair_start = len(operations)
+         copy_file = service._copy_retry_checkpoint_file
+         interrupted = []
++        sidecar_interrupted = []
+         from easel.integrations import material_layer
+         update_attempt = material_layer._update_attempt
+         observation_interrupted = []
+@@ -704,6 +713,12 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
+         supply_calls = len(requests)
+         def copy_checkpoint(source_root, target_root, relative):
+             copy_file(source_root, target_root, relative)
++            if index == 1 and relative == Path('planning/MATERIAL_REQUIREMENTS.json') and not sidecar_interrupted:
++                sidecar_interrupted.append(str(target_root))
++                # Equivalent-looking changed bytes cannot replace frozen source
++                # evidence. The real copier must stop before target persist/Gate.
++                target_sidecar = target_root / relative
++                target_sidecar.write_bytes(target_sidecar.read_bytes() + b' ')
+             if index == 1 and not interrupted and relative.parts[:2] == ('materials', 'assets'):
+                 interrupted.append(str(target_root))
+                 raise OSError('fixture interrupted after durable asset copy')
+@@ -716,7 +731,8 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
+                 assert target['cost']['approved'] is False and target['cost']['status'] == 'not_estimated'
+                 assert target['outputs'] == {}
+                 if current['delivery']['status'] == 'retrying':
+-                    assert index == 1 and interrupted == [target['workspace']['path']]
++                    assert index == 1 and (interrupted == [target['workspace']['path']]
++                        or sidecar_interrupted == [target['workspace']['path']] and '冻结摘要' in current['delivery']['last_error'])
+                     assert current['delivery']['recovering_quality_from'] == attempt['attempt_id']
+                     assert target['retry_source']['status'] == 'COPYING'
+             if next_operation(current) == (None, 'first_cut_ready'):
+@@ -728,7 +744,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
+         repaired = current['hypit_attempts'][-1]
+         assert repaired['attempt_id'] != attempt['attempt_id']
+         assert len(current['hypit_attempts']) == 2
+-        repair_operations = ['repair_quality'] * (2 if index == 1 else 1)
++        repair_operations = ['repair_quality'] * (3 if index == 1 else 1)
+         if index == 0:
+             repair_operations.extend(['observe_material', 'observe_material'])
+         elif index == 1:
+@@ -736,7 +752,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
+         suffix = ['author', 'validate', 'price', 'approve_free', 'submit', 'refresh', 'export', 'quality']
+         assert operations[-len(suffix):] == suffix
+         material_prefix = operations[repair_start:-len(suffix)]
+-        assert material_prefix[:2 if index == 1 else 1] == ['repair_quality'] * (2 if index == 1 else 1)
++        assert material_prefix[:3 if index == 1 else 1] == ['repair_quality'] * (3 if index == 1 else 1)
+         assert material_prefix.count('recover_material') == (2 if index == 1 else 0)
+         assert material_prefix.count('observe_material') >= repair_operations.count('observe_material')
+         assert set(material_prefix) <= {'repair_quality', 'observe_material', 'recover_material'}
+@@ -750,6 +766,7 @@ def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_in
+             assert len(observations) == before_calls[2] + int(index == 0)
+             assert len(requests) == supply_calls and not recovery_queries
+         else:
++            assert sidecar_interrupted == [repaired['workspace']['path']]
+             assert len(recovery_queries) == 1
+             assert len(requests) > supply_calls and all(r.need_id.startswith('visual-') for r in requests[supply_calls:])
+             assert supply_interrupted == [(repaired['attempt_id'], len(requests))]
+diff --git a/web/app.py b/web/app.py
+index b15970a3..e804d384 100644
+--- a/web/app.py
++++ b/web/app.py
+@@ -1243,7 +1243,7 @@ async def api_creation_proposal_reopen(creation_id: str, _operator: None = Depen
+                         values[key] = path.read_text(encoding="utf-8")
+                 if len(values) == 3:
+                     seed = parse_video_plan("## 创作表达\n" + values["treatment"] + "\n## 文案\n"
+-                        + values["script"] + "\n## 分镜与节奏\n" + values["scenes"]
++                        + "```text\n" + values["script"] + "\n```\n## 分镜与节奏\n" + values["scenes"]
+                         + "\n## 声音设计\n沿用原方案声音要求，请在对话中明确修改后的声音设计。")
+                     if seed:
+                         seed.update(revision=0)
+@@ -2152,7 +2152,9 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
+             "不要使用“已确认事实”“截面事实”等容易误导的标题或结论。"
+             "方向尚不清晰时最多问一个关键问题；方向明确后不要反复只给方向。"
+             "以这些二级标题输出完整当前版本：## 创作表达、## 文案、## 分镜与节奏、## 声音设计、## 制作规格。"
+-            "每个标题独占一行。文案部分只放将实际使用的逐字旁白；无旁白时写逐字屏幕文案，纯无字作品明确写无文案。"
++            "每个标题独占一行。文案栏目必须且只能有一个text代码块（开始行为三个反引号加text，结束行为三个反引号）。"
++            "块内只放实际使用的逐字旁白；无旁白时放逐字屏幕文案，纯无字作品放无文案。"
++            "文案代码块外不得加说明；字数、配音预测、制作备注全部放入声音设计或制作规格。"
+             "分镜与节奏逐段写画面、对应文案和时长（总时长未知则不编造秒数）；声音设计写旁白气质、配乐与留白。"
+             "制作规格用前述独立标签。用户修改时返回整份更新后的方案，不只回复改动片段。"
+             "方案中不伪造事实或经历；缺少关键信息就明确询问，不用待生成占位冒充完成。"
+@@ -2835,10 +2837,17 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
+     shared = manifest.get('schema') == GROUP_SCHEMA
+     inputs = manifest['observations'] if shared else [manifest]
+     plan = store.read_plan()
++    if (attempt.get('planning_contract_version') is not None
++            or attempt.get('material_planning', {}).get('contract_version') is not None
++            or (Path(attempt['workspace']['path']) / 'planning/manifest.json').exists()):
++        from easel.integrations.material_layer import PlanningIntegration
++        plan = PlanningIntegration().load(attempt)['plan']
+     mode, _ = load_frozen_creative_mode(attempt)
+     reports = {}
+     for item in inputs:
+         need = MaterialNeed.model_validate_json(json.dumps(item['need']))
++        if attempt.get('planning_contract_version') == 2 and need not in plan.needs:
++            raise PreparationError('观察Need不属于当前冻结Planning')
+         asset = store.read_asset(item['asset_id'])
+         path = store.materials_root / 'observations' / (item['input_sha256'] + '.json')
+         if path.is_file():
+@@ -3274,7 +3283,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+             if (path.is_symlink() or not path.is_file()
+                     or path.stat().st_size > (256 * 1024 if key == "plan" else 128 * 1024)):
+                 raise PreparationError(f"Creative Planning artifact {path.name} is missing or invalid")
+-            values[key] = path.read_text(encoding="utf-8")
++            values[key] = path.read_bytes().decode("utf-8")
+         if canonical and any(values[key] != canonical[files[key].name] for key in ('script', 'scenes', 'treatment')):
+             raise PreparationError('确认方案恢复后仍不一致；未接受规划')
+         try:
+@@ -3303,6 +3312,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+         if any(not values[key].strip() for key in ("treatment", "script", "scenes")):
+             raise PreparationError("Creative Planning TREATMENT/SCRIPT/SCENES must all be non-empty")
+         requirements_path = planning_dir / 'MATERIAL_REQUIREMENTS.json'
++        if not requirements_path.exists():
++            raise PreparationError('Planning要求文件MATERIAL_REQUIREMENTS.json缺失')
+         if requirements_path.exists():
+             if requirements_path.is_symlink() or not requirements_path.is_file() or requirements_path.stat().st_size > 256 * 1024:
+                 raise PreparationError('Planning 要求文件路径或容量无效')
+@@ -3315,8 +3326,11 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+                 raise PreparationError('Planning 要求合同无效：' + str(exc)) from exc
+             for identity, contract in contracts:
+                 AttemptMaterialStore(root).write_recovery_record(identity, contract)
++        from easel.output_contract import output_decision
+         return {"plan": plan, "context_refs": refs, "treatment": values["treatment"],
+-                "script": values["script"], "scenes": values["scenes"]}
++                "script": values["script"], "scenes": values["scenes"],
++                "output_decision": output_decision('planning', 'NORMALIZE' if 'visual_requirements' in read_planning_requirements(requirements_path.read_text(encoding='utf-8')) else 'ACCEPT', 'validated_artifacts',
++                    text=values['plan'], policy_revision='product-planning@2')}
+ 
+     session_id = f"material-planning-{attempt['attempt_id']}"
+     # One structure repair per frozen commission, across async re-entry.
+@@ -3333,7 +3347,13 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+              'thinking': THINKING_LEVEL, 'timeout': TIMEOUT_PRODUCE}
+     if repair_record is not None and (
+             repair_record.get('schema') != 'planning-structure-repair@1'
+-            or repair_record.get('scope') != repair_scope or repair_record.get('route') != route
++            or repair_record.get('scope') != repair_scope
++            or not isinstance(repair_record.get('route'), dict)
++            or set(repair_record['route']) != set(route)
++            or repair_record['route'].get('session_id') != session_id
++            or any(not isinstance(repair_record['route'].get(key), str) or not repair_record['route'][key]
++                   for key in ('profile', 'thinking'))
++            or type(repair_record['route'].get('timeout')) is not int or repair_record['route']['timeout'] <= 0
+             or repair_record.get('status') not in {'pending', 'complete', 'failed'}
+             or not isinstance(repair_record.get('message'), str)
+             or repair_record.get('message_sha256') != digest(repair_record['message'])):
+@@ -3357,6 +3377,32 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+         repair_record['status'] = 'complete'
+         repair_store.write_recovery_record(repair_key, repair_record)
+ 
++    planning_owner = get_creation(attempt['creation_id'])
++    commission = planning_owner.get('delivery') or {}
++    prior_calls = [call for call in commission.get('agent_calls', {}).values()
++                   if call.get('session_key') == f'agent:main:{session_id}']
++    if any(call.get('status') in {'submitting', 'pending'} for call in prior_calls):
++        from easel.integrations.openclaw_delivery import reconcile_agent_calls, DeliveryAgentPending
++        profiles = {call.get('profile') for call in prior_calls if call.get('status') in {'submitting', 'pending'}}
++        if len(profiles) != 1 or not next(iter(profiles)):
++            raise DeliveryExecutionUncertain('旧Planning原route尚未核实，不重新派发')
++        reconcile_agent_calls(attempt['creation_id'], command_prefix=openclaw_base_cmd(), profile=next(iter(profiles)),
++                              cwd=str(PROJECT_ROOT), env=_proxy_env())
++        refreshed = get_creation(attempt['creation_id'])['delivery'].get('agent_calls', {})
++        if any(call.get('status') in {'submitting', 'pending'} for call in refreshed.values()):
++            raise DeliveryAgentPending('旧Planning原运行仍未结束')
++        prior_calls = [c for c in refreshed.values() if c.get('session_key') == f'agent:main:{session_id}']
++    if repair_record is not None and repair_record['route'] != route:
++        # A configuration change cannot cancel observing the original run or
++        # authorize a different request. After terminal reconciliation, stop.
++        raise PreparationError('Planning原运行已核对，但当前执行配置不同；保留原修复额度，不新增请求')
++    if prior_calls and repair_record is None and any(c.get('status') == 'error' for c in prior_calls):
++        raise PreparationError('旧Planning原运行已失败，不因合同升级重派')
++    if attempt.get('planning_contract_version') is None and (
++            planning_owner.get('preparation', {}).get('snapshot_hashes')
++            or (commission.get('video_plan') or {}).get('schema') == 'easel-video-proposal@2'):
++        from easel.integrations.hypit.service import update_film_attempt
++        attempt = update_film_attempt(attempt['attempt_id'], event='planning_contract_registered', planning_contract_version=2)
+     if repair_record is not None:
+         # Even apparently valid draft files cannot bypass an unknown writer.
+         resume_structure_repair()
+@@ -3371,12 +3417,12 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+               '可改视觉 Need.intent；声音 Need 保持原样，Voice text_ref/text_sha256 由后端随新 SCRIPT 重新绑定。'
+               '不得增加或删除 Need、降低约束或用假事实解决问题。无关脚本和场景保持原样。'
+               '旧素材会重新核对并尽量复用；不要声称旧旁白能用于变化后的文稿。'
+-              '完成上述四文件后停止；沿用同一 Truth、素材、核价与制作流程。'
++              '完成上述五文件后停止；沿用同一 Truth、素材、核价与制作流程。'
+         )
+         # The durable gateway reuses a completed call; copied source files
+         # alone are never evidence that the requested repair was executed.
+         _run_timed_creation_agent("planning", attempt['attempt_id'], prompt, TIMEOUT_PRODUCE, session_id)
+-    elif repair_record is None and not all(path.is_file() for path in files.values()):
++    elif repair_record is None and not prior_calls and not all(path.is_file() for path in files.values()):
+         _run_timed_creation_agent("planning", attempt['attempt_id'], prompt, TIMEOUT_PRODUCE, session_id)
+     try:
+         result = validate_artifacts()
+@@ -3393,7 +3439,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+             +
+             f"当前冻结 context_refs（必须逐字复制，不要自己重算）：{json.dumps(refs, ensure_ascii=False, sort_keys=True)}\n"
+             "已冻结的 Content Core、Truth Packet、Creator Context、Creative Mode 和身份不得改动。"
+-            f"{('只修正 planning/MATERIAL_PLAN.json 和 MATERIAL_REQUIREMENTS.json；确认三文件由程序原样提供，只读。' if confirmed_plan else '读取现有 planning 文件，只修正缺失或无效的 planning/MATERIAL_PLAN.json、TREATMENT.md、SCRIPT.md、SCENES.md；已有效的文件保持原样。')}"
++            f"{('只修正 planning/MATERIAL_PLAN.json 和 MATERIAL_REQUIREMENTS.json；确认三文件由程序原样提供，只读。' if confirmed_plan else '读取现有 planning 文件，只修正缺失或无效的 planning/MATERIAL_PLAN.json、MATERIAL_REQUIREMENTS.json、TREATMENT.md、SCRIPT.md、SCENES.md；已有效的文件保持原样。')}"
+             "MaterialPlan JSON 顶层只允许 plan_id、creation_id、attempt_id、context_refs、policy、needs；"
+             "schema:extra_forbidden 表示必须删除顶层 schema 字段，不是修改它的值。不得添加 version 或包装对象。"
+             "检索 constraints 遵守上方模态边界及两个结构化例外。只有明确用户图库限定才用 required_source_kind=stock；合法授权或真实素材不代表图库限定，未指定来源不要猜测；禁用生成用 allow_generation=false；"
+@@ -3422,11 +3468,13 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+             "删除 subtitle_overlay 等字幕/时间线 Need，字幕属于 Production Authoring。"
+             "Script 的全部文本会进入逐句 Truth/创作声明审阅。不得添加未获 Truth Packet 支持的个人经历；"
+             "创作假设须在句首清楚标记；系统将区分事实改写、创作表达和真实信息缺口。"
+-            f"{('两个素材JSON交付后再回复；不写任何确认文案文件。' if confirmed_plan else '四个文件都实际写入后再回复。')}不调用 Provider、Hypit 或付费 Build。"
++            f"{('两个素材JSON交付后再回复；不写任何确认文案文件。' if confirmed_plan else '五个文件都实际写入后再回复。')}不调用 Provider、Hypit 或付费 Build。"
+         )
+         if confirmed_plan:
+             repair += "\n已确认的 SCRIPT/SCENES/TREATMENT 由程序恢复，只读；以下仅作素材需求依据：\n" + json.dumps(confirmed_plan, ensure_ascii=False)
+-        repair_record = {'schema': 'planning-structure-repair@1', 'scope': repair_scope, 'route': route,
++        from easel.output_contract import output_decision
++        repair_record = {'output_decision': output_decision('planning', 'BOUNDED_REPAIR', 'structure_invalid'),
++                         'schema': 'planning-structure-repair@1', 'scope': repair_scope, 'route': route,
+                          'message': repair, 'message_sha256': digest(repair), 'status': 'pending'}
+         repair_store.write_recovery_record(repair_key, repair_record)
+         resume_structure_repair()
+@@ -3437,6 +3485,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+         for revision in range(2):
+             assessment = _assess_planning_script(attempt, result["script"])
+             result["script_assessment"] = assessment
++            from easel.output_contract import output_decision
++            result["truth_output_decision"] = output_decision("truth", "ACCEPT", "validated_report", text=result["script"])
+             repairs = [item for item in (assessment or {}).get("decisions", [])
+                        if item["kind"] == "rewrite_required"]
+             if not repairs:
+@@ -3464,7 +3514,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+                 f"需要修正：{json.dumps(repairs, ensure_ascii=False)}\n"
+                 "重读冻结委托和 Truth Packet，只删除或修正上述无依据表达；"
+                 "可明确写成假设，不得改变委托核心、用户原话、身份、规格或任何冻结输入。"
+-                "只调整 planning/SCRIPT.md 及因此必须同步的 TREATMENT.md、SCENES.md、MATERIAL_PLAN.json。"
++                "只调整 planning/SCRIPT.md 及因此必须同步的 TREATMENT.md、SCENES.md、MATERIAL_PLAN.json、MATERIAL_REQUIREMENTS.json。"
+                 "保留其他有效内容和现有身份，MaterialPlan 仍遵循同一 Domain 合同。"
+                 "不得生成素材、调用 Provider/Hypit 或替用户补造事实。写入后停止，Easel 会重新审阅。\n"
+                 + planning_contract
