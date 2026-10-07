@@ -654,11 +654,17 @@ def _preserve_repair_semantics(before, after, catalog=None):
 
 
 def run_semantic_planning(attempt, planning_context, canonical, mode, route, dispatch, *, compiler_policy=None):
+    from easel.integrations.semantic_boundary import POLICY as boundary_policy
+    if compiler_policy == boundary_policy:
+        from easel.integrations.semantic_boundary_run import run
+        return run(attempt, planning_context, canonical, mode, route, dispatch)
     from easel.materials.store import AttemptMaterialStore
     from easel.output_contract import output_decision
     root = Path(attempt['workspace']['path'])
     store = AttemptMaterialStore(root)
     root = store.attempt_root
+    if store.read_recovery_record('semantic-planning-vnext') is not None:
+        raise SemanticPlanningError('A', [problem('version', '新版原请求必须按新版身份恢复，不能降级或刷新修复额度')])
     policy = _compiler_policy(POLICY if compiler_policy is None else compiler_policy)
     authority_inputs = None
     if policy == AUTHORITY_POLICY:
@@ -943,6 +949,10 @@ def _merge_repaired(responses, repaired, indexes, *, batches=None):
 
 
 def verify_semantic_checkpoint(root, plan, mode, script, origin=None, *, canonical=None, attempt=None):
+    from easel.integrations.semantic_boundary import POLICY as boundary_policy
+    if plan.policy.get('semantic_compiler') == boundary_policy:
+        from easel.integrations.semantic_boundary_run import verify
+        return verify(root, plan, mode, script, origin, canonical=canonical, attempt=attempt)
     raw=read_file(root,'SEMANTIC_CHECKPOINT.json')
     checkpoint=read_planning_requirements(raw.decode())
     policy = _compiler_policy(checkpoint.get('policy'))

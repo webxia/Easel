@@ -4,10 +4,7 @@
 
 连续Goal进行中，S1已通过；S2完整transport实现及容量Gate通过。4096 terminalReply仅展示摘要，旧Material3000协议保持；新planning-result-v2从原session/run的active最终assistant只读捕获，可信终态、stopReason与完整UTF8/SHA同时核对。安装OpenClaw2026.9.4隔离回放合法A/B及8MiB envelope无损，新进程读前后SQLite/WAL未变；Runtime/profile/phase实现钉SHA。Astra先MODIFY指出argv及转义Secret缺口，最小修复后CONTINUE。
 
-最终run-023矩阵159 PASS、capture20 PASS、常规897 passed/5既有skip，257现场文件/117fixture未变。S2仅软件冻结，S3 carrier/projector局部Gate已通过（run-026矩阵165/常规903通过、5既有skip），新A产品接入及B/S5仍待完成，产品默认仍@7，不能认领发布；Development Eval前仍须核对真实Gateway与本地DB同源、加载版本、套餐、隔离。模型调用/服务操作0，历史10批FAIL/12执行/held-out0保持，Formal R4/Supply/Smoke/E2E未启动。详见[同一Task的完整transport调查与最终Gate](tasks/planning-semantic-boundary-vnext-2026-10-07.md)。下方旧R4进度为历史，当前正式R4为PAUSED/FAIL。
-
-Last audited: 2026-10-06. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
-
+最终run-023矩阵159 PASS、capture20 PASS、常规897 passed/5既有skip；S3局部Gate为run-026矩阵165/常规903。S4有界B/一次局部patch及新检查点persist/load/副本已局部通过：run-028矩阵180、常规918、5既有skip，257现场文件/117fixture未变；新合法patch以8MiB实际Runtime隔离回放无损。视频入口A全audio仍查冻结视觉遗漏，旧B0保持；软件不能证明错误B ACCEPT的语义正确。产品默认仍@7，S5新入口及连续组合验收待完成，不能认领发布；Development Eval前仍须核对真实Gateway与本地DB同源、加载版本、套餐、隔离。模型调用/服务操作0，历史10批FAIL/12执行/held-out0保持，Formal R4/Supply/Smoke/E2E未启动。详见[同一Task的完整transport调查与阶段Gate](tasks/planning-semantic-boundary-vnext-2026-10-07.md)。下方旧R4进度为历史，当前正式R4为PAUSED/FAIL。
 
 ## BGM 放宽后的原作品素材齐备（2026-10-06，MATERIAL_READY / 9 of 9）
 

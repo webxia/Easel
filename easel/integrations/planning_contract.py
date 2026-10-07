@@ -10,10 +10,13 @@ from easel.materials.application.visual_contract import (
 from easel.materials.store import AttemptMaterialStore
 
 
-def requirements_bytes(root: Path) -> bytes:
+def requirements_bytes(root: Path, plan=None) -> bytes:
+    from easel.integrations.semantic_boundary import POLICY
+    from easel.integrations.planning_result_contract import MAX_RESULT_BYTES
+    limit = MAX_RESULT_BYTES if plan is not None and plan.policy.get('semantic_compiler') == POLICY else 256 * 1024
     path = root / 'planning/MATERIAL_REQUIREMENTS.json'
     if (path.is_symlink() or path.parent.is_symlink() or not path.is_file()
-            or path.stat().st_size > 256 * 1024):
+            or path.stat().st_size > limit):
         raise ValueError('Planning要求文件缺失、路径或容量无效')
     return path.read_bytes()
 
@@ -58,7 +61,7 @@ def verify_requirements(attempt, plan, manifest, mode):
     stored = manifest.get('requirements')
     if not isinstance(stored, dict) or stored.get('path') != 'planning/MATERIAL_REQUIREMENTS.json':
         raise ValueError('Planning要求冻结记录缺失')
-    raw = requirements_bytes(root)
+    raw = requirements_bytes(root, plan)
     actual, records = bind_requirements(plan, mode, raw, stored.get('source_needs'), stored.get('origin'))
     if actual != stored: raise ValueError('Planning要求文件或身份摘要不一致')
     store = AttemptMaterialStore(root)

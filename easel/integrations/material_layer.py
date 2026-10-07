@@ -318,6 +318,9 @@ class PlanningIntegration:
         product = bool(work.get('preparation', {}).get('snapshot_hashes')) or (
             (work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@2')
         version = attempt.get('planning_contract_version')
+        from easel.integrations.semantic_boundary import POLICY as boundary_policy
+        if plan.policy.get('semantic_compiler') == boundary_policy and version != 3:
+            raise MaterialIntegrationError('vNext需要完整语义合同，不能降级绕过复核')
         if product and version not in {2, 3}:
             raise MaterialIntegrationError('新产品Planning缺少程序登记的合同；已完成旧记录只能load恢复')
         if version not in {None, 2, 3}:
@@ -326,7 +329,7 @@ class PlanningIntegration:
         if version in {2, 3}:
             from easel.integrations.planning_contract import requirements_bytes, bind_requirements
             try:
-                requirements_raw = requirements_bytes(root)
+                requirements_raw = requirements_bytes(root, plan)
                 sources = {n.need_id: n.model_dump(mode='json') for n in source_plan.needs
                            if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}
                 if requirements_source is not None:
@@ -393,7 +396,7 @@ class PlanningIntegration:
         }
         if version in {2, 3}:
             from easel.integrations.planning_contract import requirements_bytes
-            if requirements_bytes(root) != requirements_raw:
+            if requirements_bytes(root, plan) != requirements_raw:
                 raise MaterialIntegrationError('Planning要求文件在冻结期间变化')
             manifest['requirements'] = requirements
             if semantic is not None: manifest['semantic'] = semantic
@@ -448,6 +451,9 @@ class PlanningIntegration:
                 or stored.get('plan_revision') != manifest['plan_revision']):
             raise MaterialIntegrationError('Attempt Planning状态或Plan身份不一致')
         schema = manifest.get('schema')
+        from easel.integrations.semantic_boundary import POLICY as boundary_policy
+        if plan.policy.get('semantic_compiler') == boundary_policy and schema != 'easel-material-planning@3':
+            raise MaterialIntegrationError('vNext冻结合同不能降级恢复')
         owner = creation.get_creation(plan.creation_id)
         owner_attempt = next((item for item in owner.get('hypit_attempts', [])
                               if item.get('attempt_id') == plan.attempt_id), {})

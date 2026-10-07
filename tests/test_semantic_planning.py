@@ -2328,3 +2328,208 @@ def test_vnext_historical_projection(origin):
         # Unknown continuity cannot be erased while converting a whole proposal.
         unresolved={**item,'continuity_choices':['not-in-frozen-catalog']}
         with pytest.raises(ValueError,match='continuity'): parse_proposal({'needs':[item,unresolved]},scope['catalog'])
+
+
+def vnext_proposal():
+    return {'needs': [{'scope': 'scene-1', 'role': '背景', 'modality': 'image', 'necessity': 'required',
+        'conditions': [{'text': '两张白纸放在桌上。', 'strength': 'required', 'responsibility': 'material'},
+                       {'text': '让观众先看问题。', 'strength': 'required', 'responsibility': 'narrative'}]}]}
+
+
+@pytest.mark.parametrize('risk', ['reentry', 'audio_omission', 'structural_repair', 'semantic_repair',
+    'exhausted', 'answer_repair', 'pending', 'persist_failure', 'tamper', 'unknown_question', 'multibatch'])
+def test_vnext_bounded_review_runtime(authority_runtime, monkeypatch, risk):
+    from copy import deepcopy
+    import jsonschema
+    from easel.integrations import semantic_boundary_run as boundary
+    from easel.integrations import planning_semantic_review as review
+    from easel.integrations.openclaw_delivery import PlanningResultError
+    from easel.creation_delivery import DeliveryExecutionUncertain
+    rt = authority_runtime
+    initial = vnext_proposal()
+    if risk in {'structural_repair', 'exhausted'}: initial['needs'][0]['necessity'] = 'NECESSARY'
+    if risk == 'semantic_repair':
+        initial['needs'][0]['conditions'].append({'text': '不许出现手部。', 'strength': 'required', 'responsibility': 'material'})
+    if risk == 'audio_omission':
+        initial = {'needs': [{'scope': 'global', 'role': '配乐', 'modality': 'bgm', 'necessity': 'required',
+            'sound': {'mood': '安静'}, 'conditions': [{'text': '安静配乐。', 'strength': 'required', 'responsibility': 'material'}]}]}
+    if risk == 'multibatch':
+        initial['needs'] = [deepcopy(initial['needs'][0]) for _ in range(16)]
+        for item in initial['needs']:
+            item['conditions'] = deepcopy(item['conditions']) * 4
+    calls, pending = [], [risk == 'pending']
+    accepted_initial = {}
+    def execute(stage, message, session):
+        calls.append((session, message))
+        payload = json.loads(message.splitlines()[-1])
+        if message.startswith('〔Easel Semantic Planning vNext〕'):
+            return json.dumps(initial, ensure_ascii=False)
+        if '单次局部修复' in message:
+            patches = []
+            for index, target in enumerate(payload['targets']):
+                kind = target['kind']
+                if kind == 'structural_leaf': value = 'required'
+                elif kind == 'frozen_visual_coverage': value = vnext_proposal()['needs'][0]
+                elif kind == 'complete_obligation':
+                    value = {'text': '手部可不出现。', 'strength': 'preference', 'responsibility': 'material'}
+                elif kind == 'answer':
+                    value = {**payload['original']['answers'][target['path'][0]], 'decision': 'ACCEPT'}
+                else: raise AssertionError('unexpected target')
+                patches.append({'target': index, 'value': value})
+            result = {'patches': patches}
+            jsonschema.validate(result, payload['schema'])
+            return json.dumps(result, ensure_ascii=False)
+        assert '有界视觉复核' in message
+        # Full frozen originals and upstream context are present in each batch.
+        assert payload['evidence'][0]['value'] == rt['canonical']
+        assert 'query' not in review.compact(payload['questions'])
+        assert all(q['kind'] != 'audio_semantics' for q in payload['questions'])
+        if pending[0]:
+            pending[0] = False
+            raise DeliveryExecutionUncertain('original fake run still pending')
+        if risk == 'multibatch' and session.endswith('B-001'):
+            raise PlanningResultError('MODEL_TRUNCATED')
+        answers = [{'question': q['question'], 'decision': 'ACCEPT', 'evidence': [0],
+                    'reason': '固定独立对照：忠实承接桌上两纸及叙事用途。'} for q in payload['questions']]
+        if 'recheck' not in session:
+            if risk == 'audio_omission':
+                assert not payload['visual_candidates']
+                assert all(q['kind'] == 'frozen_visual_coverage' for q in payload['questions'])
+                # One independent complete-scope failure, not A's self-assessment.
+                answers[-1].update(decision='CHALLENGE', reason='冻结场景要求两纸背景，A遗漏全部视觉素材。')
+            elif risk == 'semantic_repair':
+                answers[3].update(decision='CHALLENGE', reason='无冻结硬依据的手部禁令。')
+            elif risk == 'exhausted': answers[1].update(decision='UNRESOLVED', reason='语义未决。')
+            elif risk == 'answer_repair': answers[1]['decision'] = 'YES'
+            elif risk == 'unknown_question': answers[1]['question'] = 999
+            accepted_initial.update({a['question']: a for a in answers if a['decision'] == 'ACCEPT'})
+        elif risk == 'semantic_repair':
+            # Previously accepted header/two-paper/narrative judgments are NOT
+            # re-dispatched or replaceable; only the changed condition/coverage.
+            assert {q['kind'] for q in payload['questions']} == {'complete_obligation', 'frozen_visual_coverage'}
+            assert not any(q['candidate'].get('text') == '两张白纸放在桌上。' for q in payload['questions'])
+        return json.dumps({'answers': answers}, ensure_ascii=False)
+    def run(): return boundary.run(rt['attempt'], rt['context'], rt['canonical'], rt['mode'],
+        {'profile': 'fixture-only', 'thinking': 'off', 'timeout': 60}, execute)
+    if risk in {'exhausted', 'unknown_question', 'multibatch'}:
+        with pytest.raises(ValueError): run()
+        before = len(calls)
+        with pytest.raises(ValueError): run()
+        assert len(calls) == before
+        assert not (rt['root'] / 'planning/MATERIAL_PLAN.json').exists()
+        assert sum('单次局部修复' in m for _, m in calls) == (1 if risk == 'exhausted' else 0)
+        return
+    if risk == 'pending':
+        with pytest.raises(DeliveryExecutionUncertain): run()
+    if risk == 'persist_failure':
+        real_write = boundary.write_file
+        fail = [True]
+        def write(root, name, raw, **kwargs):
+            if name == 'SEMANTIC_CHECKPOINT.json' and fail[0]:
+                fail[0] = False
+                raise OSError('isolated disk failure')
+            return real_write(root, name, raw, **kwargs)
+        monkeypatch.setattr(boundary, 'write_file', write)
+        with pytest.raises(OSError): run()
+        before = len(calls)
+    result = run()
+    plan = result['plan']
+    verified = boundary.verify(rt['root'], plan, rt['mode'], rt['canonical']['SCRIPT.md'],
+                               canonical=rt['canonical'], attempt=rt['attempt'])
+    assert verified['policy'] == 'planning-semantic-boundary@1'
+    assert plan.needs[0].importance.value == 'required'
+    if risk == 'audio_omission':
+        assert [n.modality_spec.kind for n in plan.needs] == ['bgm', 'image']
+    if risk == 'semantic_repair':
+        assert plan.needs[0].intent.description == '两张白纸放在桌上。'
+        assert plan.needs[0].constraints['preferred_visual_details'] == '手部可不出现。'
+    if risk == 'reentry':
+        from easel.integrations.material_layer import PlanningIntegration
+        integration = PlanningIntegration()
+        formal = {key: result[key] for key in ('plan', 'script', 'scenes', 'treatment')}
+        frozen = integration.persist(rt['attempt'], **formal)
+        assert integration.load(frozen['attempt'])['plan'] == plan
+        downgraded = {**rt['attempt'], 'planning_contract_version': 2}
+        with pytest.raises(ValueError, match='不能降级'): integration.persist(downgraded, **formal)
+        # Exact existing frozen-copy path, no model rerun or reinterpretation.
+        from easel.integrations.hypit import service
+        source = integration.load(frozen['attempt'])
+        target = service.create_film_attempt(plan.creation_id, rt['attempt']['handoff']['handoff_id'],
+                                            preparation_key='e' * 64, runtime_status='NOT_CONFIGURED')
+        target = service.update_film_attempt(target['attempt_id'], event='test_vnext_copy', planning_contract_version=3)
+        targetroot = Path(target['workspace']['path'])
+        for name in ('MATERIAL_REQUIREMENTS.json', 'SEMANTIC_PLAN.json', 'SEMANTIC_CHECKPOINT.json', 'SEMANTIC_A_RESULT.json'):
+            service._copy_retry_checkpoint_file(rt['root'], targetroot, Path('planning') / name)
+        copied = plan.model_copy(update={'attempt_id': target['attempt_id'], 'plan_id': 'vnext-frozen-copy'})
+        origin = {'creation_id': plan.creation_id, 'attempt_id': plan.attempt_id, 'plan_id': plan.plan_id}
+        copied_result = integration.persist(target, copied, script=result['script'], scenes=result['scenes'],
+            treatment=result['treatment'], requirements_source={**source['requirements'], 'origin': origin})
+        assert integration.load(copied_result['attempt'])['plan'] == copied
+    before = len(calls)
+    assert run()['plan'] == plan and len(calls) == before
+    state = __import__('easel.materials.store', fromlist=['AttemptMaterialStore']).AttemptMaterialStore(rt['root']).read_recovery_record(boundary.STATE_KEY)
+    assert sum(key == 'repair' for key in state['calls']) <= 1
+    with pytest.raises(ValueError, match='不能降级'):
+        run_semantic_planning(rt['attempt'], rt['context'], rt['canonical'], rt['mode'],
+            {'profile': 'fixture-only', 'thinking': 'off', 'timeout': 60}, execute,
+            compiler_policy='semantic-planning-compiler@7')
+    assert len(calls) == before
+    if risk == 'tamper':
+        checkpoint = rt['root'] / 'planning/SEMANTIC_CHECKPOINT.json'
+        value = json.loads(checkpoint.read_text()); value['proposal']['needs'][0]['necessity'] = 'optional'
+        checkpoint.write_text(json.dumps(value))
+        with pytest.raises(ValueError): boundary.verify(rt['root'], plan, rt['mode'], rt['canonical']['SCRIPT.md'], attempt=rt['attempt'])
+
+
+@pytest.mark.parametrize('risk', ['immutable_patch', 'whole_context', 'capacity', 'false_accept_risk'])
+def test_vnext_review_contract_protection(risk):
+    from easel.integrations import planning_semantic_review as review
+    from easel.integrations.semantic_boundary import parse_proposal, project_proposal
+    from easel.integrations.planning_result_contract import MAX_REQUEST_BYTES
+    data = json.loads((Path(__file__).resolve().parents[1] / 'docs/acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/batch10-projection-input.json').read_text())
+    scope = data['scope']; inputs = scope['authority_inputs']
+    value = vnext_proposal()
+    value['needs'][0]['queries'] = ['white paper desk', 'two blank sheets table', 'paper room still life']
+    proposal = parse_proposal(value, scope['catalog'])
+    normalized = proposal.model_dump(mode='json')
+    directory = review.questions(proposal, inputs, scope['catalog'])
+    if risk == 'immutable_patch':
+        target = [{'kind': 'visual_choices', 'path': [0], 'issue': 'unaccepted framing'}]
+        for field, replacement in [('necessity', 'optional'), ('conditions', []), ('queries', [])]:
+            changed = {**normalized['needs'][0], field: replacement}
+            with pytest.raises(ValueError): review.apply_patches(normalized, {'patches': [{'target': 0, 'value': changed}]}, target)
+        with pytest.raises(ValueError): review.apply_patches(normalized, {'patches': [{'target': 99, 'value': normalized['needs'][0]}]}, target)
+        response = {'answers': [{'question': q['question'], 'decision': 'ACCEPT', 'evidence': [], 'reason': '猜测'} for q in directory['questions']]}
+        with pytest.raises(ValueError, match='evidence'): review.validate_answers(response, review.review_batches(directory)[0])
+    elif risk == 'whole_context':
+        for batch in review.review_batches(directory):
+            assert batch['evidence'][0]['value'] == inputs['confirmed']
+            assert batch['evidence'][2]['value'] == inputs['mode_documents']
+            assert batch['evidence'][4]['value'] == inputs['truth_packet']
+            assert 'white paper desk' not in review.compact(batch)
+        # Candidate punctuation and source text are not re-split into units.
+        quoted = '正文「先看问题，再做决定。」不在图中；由后期叠加。'
+        normalized['needs'][0]['conditions'][1]['text'] = quoted
+        changed = review.questions(parse_proposal(normalized, scope['catalog']), inputs, scope['catalog'])
+        assert any(q['candidate'].get('text') == quoted for q in changed['questions'])
+    elif risk == 'capacity':
+        with pytest.raises(ValueError, match='no clipping'): review.checked_message('语' * MAX_REQUEST_BYTES)
+        from easel.integrations.planning_result_contract import maximum_compact_bytes, MAX_RESULT_BYTES
+        schema = review.patch_schema([{'kind': 'complete_obligation', 'path': [0, 0], 'issue': 'unaccepted'}])
+        assert maximum_compact_bytes(schema) < MAX_RESULT_BYTES
+    else:
+        # Explicit residual risk: valid provenance + incorrect B ACCEPT is not
+        # a semantic theorem. Software cannot invent a lexical entailment Gate.
+        normalized['needs'][0]['conditions'].append({'text': '禁止任何手部。', 'strength': 'required',
+                                                      'responsibility': 'material', 'meaning': 'observable'})
+        proposal = parse_proposal(normalized, scope['catalog'])
+        directory = review.questions(proposal, inputs, scope['catalog'])
+        responses = [review.validate_answers({'answers': [
+            {'question': q['question'], 'decision': 'ACCEPT', 'evidence': [0], 'reason': '故意错误的外部判断对照。'}
+            for q in b['questions']]}, b) for b in review.review_batches(directory)]
+        assert not review.semantic_targets(directory, responses)
+        plan, _, _ = project_proposal(proposal, inputs=inputs, catalog=scope['catalog'],
+            creation_id=scope['creation_id'], attempt_id=scope['attempt_id'], refs=scope['context_refs'], mode=scope['mode'])
+        assert '禁止任何手部。' in plan.needs[0].intent.description
+        independent_expected = 'FAIL: no frozen hard prohibition of every hand'
+        assert independent_expected.startswith('FAIL')  # Never report this as semantic success.

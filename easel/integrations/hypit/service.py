@@ -716,7 +716,11 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
             if hashlib.sha256(copied.read_bytes()).hexdigest() != requirements_source['sha256']:
                 raise HypitIntegrationError('Planning要求复制期间与源冻结摘要发生变化')
             if source.get('planning_contract_version') == 3:
-                for name in ('SEMANTIC_PLAN.json', 'SEMANTIC_CHECKPOINT.json'):
+                from easel.integrations.semantic_boundary import POLICY as boundary_policy
+                names = ['SEMANTIC_PLAN.json', 'SEMANTIC_CHECKPOINT.json']
+                if plan.policy.get('semantic_compiler') == boundary_policy:
+                    names.append('SEMANTIC_A_RESULT.json')
+                for name in names:
                     _copy_retry_checkpoint_file(source_root, target_root, Path('planning') / name)
                 checkpoint = target_root / 'planning/SEMANTIC_CHECKPOINT.json'
                 if hashlib.sha256(checkpoint.read_bytes()).hexdigest() != planning['semantic']['sha256']:

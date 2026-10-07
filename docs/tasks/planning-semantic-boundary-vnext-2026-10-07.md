@@ -937,3 +937,17 @@ Astra只读复核`STOP`仅针对纯音频豁免判据，S3投影允许继续。�
 判据示例：“SCENES明确两张白纸 + A只有Voice/BGM”必须收到完整scope覆盖复核，不能直接新版正式接受；真正的无视觉义务由冻结语境进行有界语义复核，不能由A自述免审。调用仍计入已授权总32/轮的budget与一次repair，不扩大真实调用额度。
 
 用户已明确回复“确认澄清，按此继续S4”。本项优先于上方设计阶段的无条件B0描述；无需再次审批。实现与反向测试完成前不冻结S4，不启动Development Eval；仍不新增非视觉确认字段或音频Gate。
+
+### S4 有界复核与局部修复：局部软件Gate（2026-10-07）
+
+已按用户确认的范围实施：视频入口的A全audio仍生成独立于A的global/scene视觉覆盖题，不审核音频声音语义。视觉选择和每个完整Condition分别复核；query排除在视觉义务之外。每个批次保留完整确认三文件、Mode文档、Creator/Truth/Content边界及Preparation，来源资格不冒充蕴含，Preparation不创造新授权。最多48问题/批，超出完整上下文容量明确停止，不裁剪否定或义务。
+
+共享repair返回程序分配整数target的局部patch，不返回整个Plan。可定位Schema叶错误只改该叶；无法无损定位、未知/缺失/重复question身份拒绝。未接受视觉header不能改conditions、queries或必要性；条件patch不改兄弟条件；视觉遗漏只能补冻结依据支持的视觉Need，不能删除原Need。所有改变再次复核，未变且已接受答案保留，覆盖关系重新审核。整次Planning仅一个repair请求，派发前持久消耗标记；重入不刷新。固定技术调用范围最多30，预留必要重审后才开始B；该数不是费用授权，真实Eval32/轮及时间/套餐账本另行约束。
+
+同一AttemptMaterialStore及Planning capture承载新政策，完整原A先捕获，正式文件由程序在全部复核通过后原子生成；保存失败标为PERSIST_FAILED且重入无新请求。新semantic-planning-frozen@2检查点可从真实冻结原件、原A、局部patch和完整复核复算正式Plan/sidecar；实际persist/load与原有冻结副本路径已验证。新政策要求外部Planning v3完整合同，不能降级绕过；新journal不能交旧政策刷新额度，旧@1–7及B0回归保持。新原A副本随既有checkpoint复制，不改Hypit职责。新版sidecar有界8MiB，旧256KiB读取限制不变。
+
+**最终局部Gate：** run-028矩阵180 PASS，15项具名S4风险场景PASS，常规918 passed/5既有skip；115技能/compileall/选定diff通过。source SHA=`9474436fb70a71a8a77dc9adb2afea1b8ff0202b51d796df75e9cf47f5091b9e`，257现场文件/117历史fixture不变。更早run-027同为180 PASS但未含最后的跨政策/调用范围保护，以run-028为本阶段依据。多批fixture最初共享对象导致指数膨胀，停止隔离测试、改为独立副本后重新执行；首批Schema父tuple诊断与正式Plan保存格式缺口已最小修正，未降低合同。
+
+新合法patch结果以完整8MiB envelope在实际安装OpenClaw2026.9.4隔离SQLite回放，原text/bytes/SHA相同，新进程只读前后DB/WAL不变；A/B既有合法大结果同批复跑。[S4容量证据](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s4-runtime-capacity.json)、[局部Gate](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s4-gate.json)及JUnit保留。
+
+**边界：** `S4=LOCAL_SOFTWARE_PASS; PRODUCT_DEFAULT_CHANGED=NO; S5=PENDING`。产品默认仍旧@7，下一步S5接新请求入口及完整确认/Owner/Preparation/A/B/Truth/persist/load连续集成，再最终Astra与Development Eval预检。特意保留错误B ACCEPT的独立FAIL对照：合法出处不能证明语义正确，软件PASS不证明真实模型成功率。模型/Provider/Supply调用0，服务操作0，费用0，R4/Smoke/E2E/Build未启动，历史FAIL不改。

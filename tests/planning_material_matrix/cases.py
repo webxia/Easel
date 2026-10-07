@@ -891,3 +891,21 @@ def test_53_vnext_historical_projection(trace, origin):
                  'batch03真实A/catalog和batch10真实scope/A提取；仅首Need结构风险验证，不冒充原全Plan覆盖或B语义通过')
     semantic.test_vnext_historical_projection(origin)
     trace.note('real model / Supply',0)
+
+
+@pytest.mark.parametrize('risk', ['reentry', 'audio_omission', 'structural_repair', 'semantic_repair',
+    'exhausted', 'answer_repair', 'pending', 'persist_failure', 'tamper', 'unknown_question', 'multibatch'])
+def test_54_vnext_bounded_review(authority_runtime, monkeypatch, trace, risk):
+    trace.define('新视频入口全audio仍查冻结视觉遗漏；有界B保留完整义务和原件，局部patch不改已接受语义；一次额度重入不刷新',
+                 '真实Handoff、Harness capture、问题/修复、正式合同persist/load；仅模型执行边界返回明确固定判断')
+    semantic.test_vnext_bounded_review_runtime(authority_runtime, monkeypatch, risk)
+    trace.note('real model / Supply / service operations', 0)
+
+
+@pytest.mark.parametrize('risk', ['immutable_patch', 'whole_context', 'capacity', 'false_accept_risk'])
+def test_55_vnext_review_protection(trace, risk):
+    trace.define('query不当视觉义务；完整原文/上下文不裁剪；已接受部分不可改，非法证据拒绝；错误ACCEPT仍由独立语义预期检出',
+                 'batch10冻结输入的离线派生对照；实际问题构造、patch合同、formal projection，不冒充模型能力')
+    semantic.test_vnext_review_contract_protection(risk)
+    trace.note('semantic guarantee', 'NOT_CLAIMED: incorrect B ACCEPT remains model risk')
+    trace.note('real model / Supply', 0)
