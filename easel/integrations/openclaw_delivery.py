@@ -24,6 +24,13 @@ class DeliveryAgentRejected(RuntimeError):
     """Gateway explicitly rejected the request before accepting execution."""
 
 
+class PlanningResultError(ValueError):
+    """A terminal capture failure never authorizes semantic repair/resubmit."""
+    def __init__(self, result):
+        self.result = result
+        super().__init__(result + '：Planning原运行结果不可用；不重复派发')
+
+
 def _rpc(prefix: Sequence[str], profile: str, method: str, params: dict,
          runner: Callable, kwargs: dict) -> dict:
     command = [*prefix, "--profile", profile, "gateway", "call", method,
@@ -71,6 +78,15 @@ def _observe_payload(creation_id: str, key: str, payload: dict) -> None:
         if (status in {"ok", "error"} and type(ended) in (int, float) and ended > 0
                 and not payload.get("yielded")):
             call.update(status=status, ended_at=ended, observed_at=creation._now())
+            planning_reply = call.get('reply_contract') == 'planning-result-v1'
+            if planning_reply:
+                reply = payload.get('terminalReply')
+                text = reply.get('text') if isinstance(reply, dict) and reply.get('disposition') == 'visible' else None
+                call['stop_reason'] = payload.get('stopReason')
+                call['result'] = ('MODEL_TRUNCATED' if payload.get('stopReason') == 'length'
+                    else 'MODEL_NO_RESULT' if not isinstance(text, str) or not text.strip()
+                    else 'MODEL_TRUNCATED' if len(text.encode('utf-16-le')) // 2 > 3000 or text.rstrip().endswith('…')
+                    else 'MODEL_COMPLETED')
             if call.get('capture_reply') and 'terminalReply' in payload:
                 from easel.integrations.hypit.secrets import SecretRedactor
                 reply = payload['terminalReply']
@@ -87,6 +103,8 @@ def _observe_payload(creation_id: str, key: str, payload: dict) -> None:
                     call['terminal_reply'] = {'sha256': digest, 'text': text}
                 else:
                     call['reply_error'] = '运行结果缺失、截断、超出协议容量或包含敏感内容；保留原运行，不重新派发'
+                    if planning_reply and call['result'] == 'MODEL_COMPLETED':
+                        call['result'] = 'STRUCTURED_OUTPUT_INVALID'
             if call.get("session_key") and call.get("runtime_release") != "released":
                 call["runtime_release"] = "pending"
             if status == "error":
@@ -156,9 +174,13 @@ def reconcile_agent_calls(creation_id: str, *, command_prefix: Sequence[str], pr
 
 def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.run,
                        attachments: list[dict] | None = None, capture_reply: bool = False,
-                       retry_failed: bool = True, **kwargs):
+                       retry_failed: bool = True, reply_contract: str = 'material-result-v1', **kwargs):
     """Replacement for an agent CLI call, retaining the existing file executor."""
     creation_id = active_delivery.get()
+    if reply_contract not in {'material-result-v1', 'planning-result-v1'}:
+        raise ValueError('Unknown internal reply contract')
+    if reply_contract == 'planning-result-v1' and (not capture_reply or not creation_id):
+        raise ValueError('Planning capture must belong to its original Delivery run')
     if not creation_id:
         if attachments:
             raise ValueError("视觉观察必须属于已确认的持续交付委托")
@@ -185,7 +207,7 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
     if flag("--session-id"):
         request["sessionId"] = flag("--session-id")
     digest = hashlib.sha256(json.dumps({"profile": profile, **request,
-                                      **({'reply_contract': 'material-result-v1'} if capture_reply else {})}, sort_keys=True,
+                                      **({'reply_contract': reply_contract} if capture_reply else {})}, sort_keys=True,
                                       ensure_ascii=False).encode()).hexdigest()
     submit = False
     existing = creation.get_creation(creation_id)["delivery"].get("agent_calls", {}).get(digest)
@@ -220,6 +242,8 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
                     "profile": profile, "status": "submitting", "created_at": creation._now()}
             if capture_reply:
                 call['capture_reply'] = True
+                if reply_contract == 'planning-result-v1':
+                    call['reply_contract'] = reply_contract
             if request["sessionKey"]:
                 call.update(session_key=request["sessionKey"], agent_id=request["agentId"])
             call.update(stage=stage, stage_ordinal=ordinal, category=category, history=history)
@@ -278,6 +302,8 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
 
 
 def _completed_reply(args, call):
+    if call.get('reply_contract') == 'planning-result-v1' and call.get('result') != 'MODEL_COMPLETED':
+        raise PlanningResultError(call.get('result', 'MODEL_NO_RESULT'))
     reply = call.get('terminal_reply')
     if (call.get('status') != 'ok' or not isinstance(reply, dict)
             or hashlib.sha256(str(reply.get('text', '')).encode()).hexdigest() != reply.get('sha256')):

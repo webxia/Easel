@@ -943,7 +943,7 @@ def _api_spec_status(skill: str, env: dict[str, str]) -> dict:
 
 def run_agent_sync(msg: str, timeout: int = TIMEOUT_DIRECT, session_id: str | None = None,
                    *, attachments: list[dict] | None = None, capture_reply: bool = False,
-                   retry_failed: bool = True) -> str:
+                   retry_failed: bool = True, reply_contract: str = 'material-result-v1') -> str:
     sk = session_id or f'web-{int(time.time() * 1000)}'
     _heal_openclaw_session(sk)   # 清洗历史里无签名 thinking 块，防回放失效
     # 钉死 --session-id 让 OpenClaw 每轮续同一 transcript（防跨天空闲后新起空会话丢历史，见 _openclaw_session_id）
@@ -954,7 +954,7 @@ def run_agent_sync(msg: str, timeout: int = TIMEOUT_DIRECT, session_id: str | No
     if active_delivery.get():
         from easel.integrations.openclaw_delivery import run_delivery_agent
         return run_delivery_agent(cmd, attachments=attachments, capture_reply=capture_reply,
-                                  retry_failed=retry_failed,
+                                  retry_failed=retry_failed, reply_contract=reply_contract,
                                   cwd=str(PROJECT_ROOT), env=_proxy_env()).stdout
     if capture_reply:
         raise ValueError('结构化素材结果必须绑定当前委托和网关运行身份')
@@ -979,10 +979,13 @@ def run_agent_sync(msg: str, timeout: int = TIMEOUT_DIRECT, session_id: str | No
         xlock.release()
 
 
-def _run_timed_creation_agent(phase, attempt_id, message, timeout, session_id, *, retry_failed=True):
+def _run_timed_creation_agent(phase, attempt_id, message, timeout, session_id, *, retry_failed=True,
+                              capture_reply=False, reply_contract='material-result-v1'):
     from easel.creation_delivery import measure_delivery_phase
     with measure_delivery_phase(phase, attempt_id):
         options = {} if retry_failed else {'retry_failed': False}
+        if capture_reply:
+            options.update(capture_reply=True, reply_contract=reply_contract)
         return run_agent_sync(message, timeout, session_id, **options)
 
 

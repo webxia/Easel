@@ -855,3 +855,12 @@ def test_49_vnext_canonical_facts(trace, risk):
     semantic.test_vnext_canonical_facts(risk)
     trace.note('proof scope', 'DETERMINISTIC_CONTRACT / REJECTION')
     trace.note('real model / Supply', 0)
+
+
+@pytest.mark.parametrize('risk', ['complete', 'length', 'no_result', 'invalid', 'persist_failure', 'pending'])
+def test_50_vnext_capture_transport(prep_env, tmp_path, trace, risk):
+    trace.define('原Gateway run捕获；截断/无结果不误算语义repair，本地保存失败不重派',
+                 '真实Delivery适配器及Harness，仅Gateway RPC固定替身；无文件工具代写结果')
+    semantic.test_vnext_capture_transport(prep_env, tmp_path, risk)
+    trace.note('proof scope', 'ARTIFACT_TRANSPORT / REJECTION')
+    trace.note('real model / Supply', 0)

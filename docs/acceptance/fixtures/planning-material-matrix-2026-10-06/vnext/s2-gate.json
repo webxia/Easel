@@ -1,0 +1,19 @@
+{
+  "stage": "S2",
+  "result": "PASS",
+  "targeted": 6,
+  "regression": 318,
+  "matrix": 145,
+  "matrix_run": "run-020",
+  "protected": 257,
+  "fixtures": 117,
+  "model_calls": 0,
+  "proof_scope": [
+    "ARTIFACT_TRANSPORT",
+    "REJECTION"
+  ],
+  "gateway_snapshot_utf16_limit": 4096,
+  "planning_capture_utf16_limit": 3000,
+  "runtime_upgraded": false,
+  "product_vnext_wired": false
+}

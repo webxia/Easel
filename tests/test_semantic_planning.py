@@ -1816,6 +1816,76 @@ def test_asset_versus_use_task(semantic_runtime, risk, evidence=None):
         assert not rt['calls'] and store.read_recovery_record('semantic-planning-v3')==state
 
 
+@pytest.mark.parametrize('risk', ['complete', 'length', 'no_result', 'invalid', 'persist_failure', 'pending'])
+def test_vnext_capture_transport(prep_env, tmp_path, risk):
+    import subprocess
+    from tests.test_creation_preparation import _confirmed_delivery
+    from easel import creation
+    from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain
+    from easel.integrations.openclaw_delivery import run_delivery_agent, PlanningResultError
+    from easel.integrations.planning_capture import capture, persist_captured
+    work = _confirmed_delivery()
+    methods, run_id, calls = [], None, {}
+    reply = '{"decision":"ACCEPT"}' if risk != 'invalid' else '{'
+    pending = risk == 'pending'
+
+    def gateway(command, **kwargs):
+        nonlocal run_id, pending
+        method = command[command.index('call')+1]
+        params = json.loads(command[command.index('--params')+1]); methods.append(method)
+        if method == 'agent':
+            run_id = params['idempotencyKey']; payload = {'runId': run_id, 'status': 'accepted'}
+        elif method == 'sessions.abort':
+            payload = {'ok': True, 'status': 'no-active-run', 'abortedRunId': None}
+        elif pending:
+            pending = False; payload = {'runId': run_id, 'status': 'pending'}
+        else:
+            payload = {'runId': run_id, 'status': 'ok', 'endedAt': 1000,
+                       'stopReason': 'length' if risk == 'length' else 'stop'}
+            if risk != 'no_result': payload['terminalReply'] = {'disposition': 'visible', 'text': reply}
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), '')
+
+    def dispatch(key, message, session):
+        cmd = ['openclaw', '--profile', 'fixture', 'agent', '--agent', 'main',
+               '--session-key', session, '--message', message]
+        return run_delivery_agent(cmd, runner=gateway, capture_reply=True,
+                                  reply_contract='planning-result-v1', retry_failed=False).stdout
+
+    saves = []
+    save = lambda: saves.append(json.loads(json.dumps(calls)))
+    token = active_delivery.set(work['id'])
+    try:
+        with pytest.raises(DeliveryExecutionUncertain):
+            capture(calls, 'A', 'compact', 'vnext', dispatch, save)
+        if risk == 'pending':
+            with pytest.raises(DeliveryExecutionUncertain): capture(calls, 'A', 'compact', 'vnext', dispatch, save)
+            assert calls['A']['result'] == 'TRANSPORT_FAILED'
+        if risk in {'length', 'no_result', 'invalid'}:
+            expected = {'length': 'MODEL_TRUNCATED', 'no_result': 'MODEL_NO_RESULT',
+                        'invalid': 'STRUCTURED_OUTPUT_INVALID'}[risk]
+            for _ in range(2):
+                with pytest.raises(PlanningResultError, match=expected):
+                    capture(calls, 'A', 'compact', 'vnext', dispatch, save)
+            assert calls['A']['result'] == expected
+        else:
+            assert capture(calls, 'A', 'compact', 'vnext', dispatch, save) == {'decision': 'ACCEPT'}
+            assert calls['A']['result'] == 'MODEL_COMPLETED'
+            if risk == 'persist_failure':
+                def broken(raw): raise OSError('disk full')
+                with pytest.raises(OSError): persist_captured(calls, 'A', broken, save)
+                assert calls['A']['result'] == 'PERSIST_FAILED'
+            output = tmp_path/'captured.json'
+            persist_captured(calls, 'A', output.write_bytes, save)
+            assert output.read_text() == reply and calls['A']['result'] == 'ACCEPTED'
+            assert capture(calls, 'A', 'compact', 'vnext', dispatch, save) == {'decision': 'ACCEPT'}
+        assert methods.count('agent') == 1
+        native = next(iter(creation.get_creation(work['id'])['delivery']['agent_calls'].values()))
+        assert native['reply_contract'] == 'planning-result-v1'
+        assert 'compact' not in native.values()
+    finally:
+        active_delivery.reset(token)
+
+
 @pytest.mark.parametrize('risk', ['entities', 'aliases', 'duration', 'scope_integrity'])
 def test_vnext_canonical_facts(risk):
     from easel.integrations.planning_facts import bind_facts, fact_value, project_asset

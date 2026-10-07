@@ -812,3 +812,9 @@ REAL_EXECUTION_AUTHORIZED = NO
 - S1：Planning局部事实绑定与单一投影实现；139矩阵PASS（run-019）、139语义回归PASS，257正式现场/117历史fixture保持。成片与源比例、时长、静音与模态分别保护。只证明确定性投影，不代表产品新版已接入。首次新增测试装饰器收集错误已修正并重跑；未影响生产或历史成绩。
 - S2–S5：NOT_EXECUTED。Development Eval：NOT_EXECUTED；R4 PAUSED/FAIL。
 - 完整git diff --check的两项EOF空行来自既有用户Task/Acceptance修改，本任务选定路径diff检查通过；不清理无关改动。
+
+### S2 Gate
+
+Planning内部reply_contract=planning-result-v1复用原Gateway运行；Material默认协议/hash保持。原终态length在空JSON前标记MODEL_TRUNCATED，无结果、结构错误和本地保存失败明确区分；完整回复先进入原请求/检查点，保存重试不重派。现安装2026.9.4的run-wait与terminal snapshot源码确认接口存在、服务端4096 UTF16上限；Planning保持3000保守上限，未升级Runtime。
+
+6项真实内部Gateway适配器+Harness集成PASS；矩阵run-020 145PASS，Planning/Preparation/Material相关回归318PASS，257现场/117fixture保持。外部RPC固定替身，不证明真实模型可用；S2极小真实diagnostic可选，本阶段未调用，后续Dev记录真实capture。首次测试替身未模拟accepted异步及release终态，经校正后完整重跑；未放宽生产约束。S3–S5未执行。
