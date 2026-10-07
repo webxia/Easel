@@ -3312,7 +3312,7 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         try:
             validate_modality_constraints(plan.needs)
             for need in plan.needs:
-                NeedCompiler().compile(need)
+                NeedCompiler.for_plan(plan).compile(need)
         except (NeedCompilationError, ValueError) as exc:
             raise PreparationError(f"Creative Planning retrieval validation failed: {exc}") from exc
         if any(not values[key].strip() for key in ("treatment", "script", "scenes")):

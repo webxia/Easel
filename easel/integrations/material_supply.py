@@ -202,7 +202,7 @@ class ProductMaterialSupply:
             # A rejected batch can continue at an untried capable source. Keep
             # one external source per pass, rather than fan-out on every retry.
             from easel.materials.application.visual_observation import scoped_inference
-            current_intent = hashlib.sha256(NeedCompiler(search_terms=search_terms).compile(need, creative_mode_terms=style_terms).to_json().encode()).hexdigest()
+            current_intent = hashlib.sha256(NeedCompiler.for_plan(plan, search_terms=search_terms).compile(need, creative_mode_terms=style_terms).to_json().encode()).hexdigest()
             current_links = (store.read_recovery_record('candidate-links') or {}).get('assets', {})
             rejected_sources = {a.source.provider for a in assets.values()
                 if any(r.get('need_id') == need.need_id and r.get('compiled_intent_sha256') == current_intent
@@ -262,7 +262,7 @@ class ProductMaterialSupply:
                 input_sha256 = hashlib.sha256(json.dumps({
                     'plan': subset.model_dump(mode='json'), 'style': style_terms,
                     'search_terms': (search_terms or {}).get(requested_need.need_id), 'top_n': top_n,
-                    'compiled_intent': NeedCompiler(search_terms=search_terms).compile(requested_need,
+                    'compiled_intent': NeedCompiler.for_plan(plan, search_terms=search_terms).compile(requested_need,
                         creative_mode_terms=style_terms).model_dump(mode='json'),
                     'provider_contract': provider.info().model_dump(mode='json'),
                     'local_roots': [str(Path(p).resolve()) for p in local_roots], 'local_revision': local_revision,
@@ -294,7 +294,7 @@ class ProductMaterialSupply:
                     store,
                     acquirer=MaterialAcquirer(store, local_roots=local_roots),
                     rights_facts=self.rights_facts,
-                    compiler=NeedCompiler(search_terms=search_terms),
+                    compiler=NeedCompiler.for_plan(plan, search_terms=search_terms),
                 )
                 if restored is None:
                     result = flow.run(
@@ -340,7 +340,7 @@ class ProductMaterialSupply:
                            'need_sha256': hashlib.sha256(requested_need.to_json().encode()).hexdigest(),
                            'asset_sha256': asset.file.sha256, 'source_id': source_id, 'rank': rank,
                            'queries': wire_queries, 'input_sha256': input_sha256,
-                           'compiled_intent_sha256': hashlib.sha256(NeedCompiler(search_terms=search_terms).compile(requested_need,
+                           'compiled_intent_sha256': hashlib.sha256(NeedCompiler.for_plan(plan, search_terms=search_terms).compile(requested_need,
                                creative_mode_terms=style_terms).to_json().encode()).hexdigest()}
                     entries = links['assets'].setdefault(asset.asset_id, [])
                     if row not in entries:

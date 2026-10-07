@@ -2205,3 +2205,126 @@ def test_batch09_hard_authority_baseline(semantic_runtime, risk, evidence=None):
             'scalar false reaches retrieval filters without being a classified source'
     else:
         raise AssertionError('unknown authority baseline risk')
+
+
+@pytest.mark.parametrize('risk', ['mixed_projection', 'source_frame', 'identity_cache', 'forbidden_aliases'])
+def test_vnext_semantic_projection(risk):
+    from easel.integrations.semantic_boundary import parse_proposal, project_proposal
+    from easel.materials.application.compiler import NeedCompiler
+    from easel.materials.application.visual_contract import planning_contracts
+    from easel.integrations.planning_result_contract import maximum_compact_bytes, result_schema, MAX_RESULT_BYTES
+    scope=json.loads((FIXTURE/'batch09/scope-original.json').read_text())
+    brief=json.loads((FIXTURE/'batch09/production-brief-original.json').read_text())
+    inputs={'schema':'planning-authority-inputs@1','confirmed':scope['canonical'],
+        'proposal':{'specs':{key:value for key,value in brief.items()
+            if key in {'aspect_ratio','duration_seconds','audio_mode','language'}}},
+        'mode_documents':{'mode.json':json.dumps(scope['mode'])}}
+    item={'scope':'scene-1','role':'背景','modality':'image','necessity':'required',
+        'conditions':[{'text':'桌上有两张白纸。','strength':'required','responsibility':'material'},
+            {'text':'留白，以便后期叠字。','strength':'preference','responsibility':'material'},
+            {'text':'后期叠加正文。','strength':'required','responsibility':'postproduction'},
+            {'text':'不虚构两张纸的来由。','strength':'required','responsibility':'narrative'}]}
+    value={'needs':[item]}
+    def compile(value, **overrides):
+        proposal=parse_proposal(value,scope['catalog'])
+        return project_proposal(proposal,inputs=inputs,catalog=scope['catalog'],
+            creation_id=scope['creation_id'],attempt_id=overrides.get('attempt_id',scope['attempt_id']),
+            refs=scope['context_refs'],mode=scope['mode'])
+    if risk=='forbidden_aliases':
+        for key in ('need_id','source_path','constraints','modality_spec','hash','policy'):
+            with pytest.raises(ValueError): compile({'needs':[{**item,key:'invented'}]})
+        with pytest.raises(ValueError,match='scope'): compile({'needs':[{**item,'scope':'unknown'}]})
+        with pytest.raises(ValueError,match='Unresolved'): compile({'needs':[item],'unresolved':['源条件未知']})
+        return
+    if risk=='mixed_projection':
+        value['needs'] += [
+            {**item,'modality':'video','necessity':'optional','source_seconds':3,
+                'conditions':[{'text':'原视频连续倒水。','strength':'required','responsibility':'material','meaning':'dynamic_action'}]},
+            {'scope':'global','role':'旁白','modality':'voice','necessity':'required','voice_choice':'creator_context.voice',
+                'voice_expression':'克制。','conditions':[{'text':'朗读已确认正文。','strength':'required','responsibility':'material'}]},
+            {'scope':'global','role':'配乐','modality':'bgm','necessity':'required','sound':{'mood':'安静'},
+                'conditions':[{'text':'轻柔器乐。','strength':'required','responsibility':'material'}]},
+            {'scope':'event-1','role':'声音事件','modality':'sfx','necessity':'optional','sound':{'event_description':'水声'},
+                'conditions':[{'text':'真实倒水声音。','strength':'required','responsibility':'material'}]}]
+    elif risk=='source_frame':
+        item.update(frame='native',native_ratio='4:5')
+    plan,requirements,proof=compile(value)
+    contracts=planning_contracts(plan,scope['mode'],requirements)
+    assert len(requirements)==len(contracts)==(2 if risk=='mixed_projection' else 1)
+    first=plan.needs[0]
+    assert first.intent.description=='桌上有两张白纸。'
+    assert first.intent.function=='后期叠加正文。\n不虚构两张纸的来由。'
+    kinds={(c['text'],c['kind']) for c in requirements[first.need_id]['clauses']}
+    assert ('桌上有两张白纸。','required') in kinds
+    assert ('留白，以便后期叠字。','preference') in kinds
+    assert ('后期叠加正文。\n不虚构两张纸的来由。','postproduction') in kinds
+    intent=NeedCompiler.for_plan(plan).compile(first)
+    assert 'preferred_style' not in intent.filters and 'preferred_visual_details' not in intent.filters
+    assert not {'query','media_type','visual_style'} & set(first.constraints)
+    assert first.duration_hint is None
+    if risk=='source_frame':
+        assert first.modality_spec.aspect_ratio==first.constraints['aspect_ratio']=='4:5'
+        assert ('4:5','required') in kinds  # Formal observation cannot lose source framing.
+    else:
+        assert first.modality_spec.aspect_ratio is None and 'aspect_ratio' not in first.constraints
+    if risk=='mixed_projection':
+        assert [n.modality_spec.kind for n in plan.needs]==['image','video','voice','bgm','sfx']
+        assert plan.needs[1].importance.value=='optional' and plan.needs[1].constraints['requires_dynamic_action']
+        assert plan.needs[1].duration_hint.target_seconds==3
+        assert plan.needs[2].modality_spec.text_sha256==__import__('hashlib').sha256(scope['canonical']['SCRIPT.md'].encode()).hexdigest()
+        assert all('search_query_variants_en' not in n.constraints for n in plan.needs[2:])
+    if risk=='identity_cache':
+        same=compile(value); assert same[0]==plan and same[1]==requirements
+        changed=compile(value,attempt_id='fresh-attempt')[0]; assert changed.plan_id!=plan.plan_id
+        assert changed.needs[0].need_id!=first.need_id
+        legacy=plan.model_copy(update={'policy':{'strategy':'bulk_first'}})
+        assert 'preferred_style' in NeedCompiler.for_plan(legacy).compile(first).filters
+    assert proof['identity'] and maximum_compact_bytes(result_schema('A')) < MAX_RESULT_BYTES
+
+
+@pytest.mark.parametrize('origin', ['batch03', 'batch10'])
+def test_vnext_historical_projection(origin):
+    from easel.integrations.semantic_boundary import parse_proposal, project_proposal
+    from easel.materials.application.visual_contract import planning_contracts
+    from easel.materials.application.compiler import NeedCompiler
+    if origin=='batch10':
+        data=json.loads((Path(__file__).resolve().parents[1]/'docs/acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/batch10-projection-input.json').read_text())
+        source=data['A']; scope=data['scope']; inputs=scope['authority_inputs']
+        assert data['provenance']['historical_result']=='FAIL'
+    else:
+        source=json.loads((FIXTURE/'batch03/A-original.json').read_text())
+        catalog=json.loads((FIXTURE/'batch03/catalog.json').read_text())
+        # Only the structural regression has originals here; the context is
+        # explicitly a derived counterfactual, not a historical successful Plan.
+        scope={'catalog':catalog,'creation_id':'derived-batch03','attempt_id':'derived-batch03-a',
+               'context_refs':{},'mode':{},'canonical':{'SCRIPT.md':'先看问题，再做决定。','SCENES.md':catalog['global']['global'],'TREATMENT.md':'静态背景。'}}
+        inputs={'schema':'planning-authority-inputs@1','confirmed':scope['canonical'],
+                'proposal':{'specs':{'aspect_ratio':'9:16'}},'mode_documents':{'mode.json':'{}'}}
+    original=source['needs'][0]
+    body=original['intent']['description']
+    conditions=[{'text':body,'strength':'required','responsibility':'material'}]
+    if origin=='batch03':
+        for key in ('must_contain','must_not_contain'):
+            for text in original['constraints'][key]:
+                conditions.append({'text':text,'strength':'required','responsibility':'material'})
+    item={'scope':original['scope']['ref'],'role':original['role'],'modality':original['modality_spec']['kind'],
+          'necessity':original['importance'],'conditions':conditions,'purpose':original['intent'].get('function'),
+          'frame':'match_output'}
+    if origin=='batch10': item['visual_preference']=original['constraints']['visual_style']
+    proposal=parse_proposal({'needs':[item]},scope['catalog'])
+    plan,requirements,_=project_proposal(proposal,inputs=inputs,catalog=scope['catalog'],
+        creation_id=scope['creation_id'],attempt_id=scope['attempt_id'],refs=scope['context_refs'],mode=scope['mode'])
+    assert plan.policy=={'strategy':'bulk_first','semantic_compiler':'planning-semantic-boundary@1'}
+    need=plan.needs[0]
+    assert need.media_type.value==need.modality_spec.kind=='image'
+    assert need.modality_spec.aspect_ratio==need.constraints['aspect_ratio']=='9:16'
+    assert need.duration_hint is None
+    assert need.intent.description=='\n'.join(c['text'] for c in conditions)
+    assert not {'must_contain','must_not_contain','static','media_type','visual_style'} & need.constraints.keys()
+    planning_contracts(plan,scope['mode'],requirements)
+    assert 'preferred_style' not in NeedCompiler.for_plan(plan).compile(need).filters
+    with pytest.raises(ValueError): parse_proposal(source,scope['catalog'])  # No old-shape migration/normalization.
+    if origin=='batch03':
+        # Unknown continuity cannot be erased while converting a whole proposal.
+        unresolved={**item,'continuity_choices':['not-in-frozen-catalog']}
+        with pytest.raises(ValueError,match='continuity'): parse_proposal({'needs':[item,unresolved]},scope['catalog'])

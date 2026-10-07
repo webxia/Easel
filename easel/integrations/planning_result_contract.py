@@ -49,7 +49,7 @@ class NeedProposal(Carrier):
     conditions: Annotated[tuple[Condition, ...], Field(min_length=1, max_length=12)]
     purpose: Text | None = None
     frame: Literal['unconstrained', 'match_output', 'native'] = 'unconstrained'
-    native_ratio: Annotated[str, Field(pattern=r'^(?:16:9|9:16|1:1|4:3|3:4|21:9)$')] | None = None
+    native_ratio: Annotated[str, Field(max_length=9, pattern=r'^[1-9][0-9]{0,3}:[1-9][0-9]{0,3}$')] | None = None
     visual_preference: ShortText | None = None
     source_seconds: Annotated[float, Field(gt=0, le=3600)] | None = None
     continuity_choices: Annotated[tuple[Handle, ...], Field(max_length=16)] = ()
@@ -61,9 +61,9 @@ class NeedProposal(Carrier):
     @model_validator(mode='after')
     def semantic_shape(self):
         visual = self.modality in {'image', 'video'}
-        if visual and (len(self.queries) != 3 or any(not q.strip() or not q.isascii()
+        if visual and self.queries and (len(self.queries) != 3 or any(not q.strip() or not q.isascii()
                 for q in self.queries) or len({q.strip().casefold() for q in self.queries}) != 3):
-            raise ValueError('Visual proposal requires three distinct short English query phrases')
+            raise ValueError('Visual query candidates require three distinct short English phrases')
         if not visual and self.queries:
             raise ValueError('Visual retrieval queries cannot enter audio')
         if self.modality == 'image' and self.source_seconds is not None:

@@ -82,7 +82,7 @@ def repair_managed_planning(attempt_id: str, *, executor) -> dict:
         visual = old.media_type.value in {'image', 'video'}
         if (old.model_copy(update={'intent': new.intent}) if visual else old) != new:
             raise MaterialIntegrationError('内容修正仅可调整需求表达，不得改变用途、来源约束或声音身份')
-        NeedCompiler().compile(new)
+        NeedCompiler.for_plan(plan).compile(new)
     if any(not isinstance(cached.get(key), str) or not cached[key].strip()
            for key in ('treatment', 'script', 'scenes')):
         raise MaterialIntegrationError('内容修正缺少完整规划稿')
@@ -160,7 +160,7 @@ def unused_compiled_bgm_queries(attempt, plan, record=None):
         if 'openverse_audio' not in trace.get('attempted_sources', []) or trace.get('failures'):
             continue  # A missing/broken channel is not a successful empty search.
         tried = {q.casefold() for r in rounds for q in r.get('search_terms', {}).get(need.need_id, [])}
-        alternatives = [q for q in NeedCompiler().compile(need).semantic_queries[1:]
+        alternatives = [q for q in NeedCompiler.for_plan(plan).compile(need).semantic_queries[1:]
                         if len(q) <= 60 and len(q.split()) <= 8 and q.casefold() not in tried]
         if alternatives:
             queries[need.need_id] = alternatives[0]
@@ -302,9 +302,9 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
                 attempt = update_film_attempt(attempt_id, event='compiled_queries_reused', autonomous_material_recovery=record)
         if cached is None:
             cached = executor(attempt, record)
-            validate_recovery_queries(record, cached)
+            validate_recovery_queries(record, cached, plan=planning['plan'])
             store.write_recovery_record(request_id, cached)
-        validate_recovery_queries(record, cached)
+        validate_recovery_queries(record, cached, plan=planning['plan'])
         record = {**record, 'status': 'SUPPLYING', 'search_terms': cached['search_terms'],
                   **({'shot_choices': cached['shot_choices']} if record.get('shot_choice_need_ids') else {})}
         attempt = update_film_attempt(attempt_id, event='automatic_material_recovery_queries_ready',
@@ -318,7 +318,7 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
                                      'result_bundle_revision': result['attempt']['material_gate']['bundle_revision']})
 
 
-def validate_recovery_queries(record: dict, report: dict) -> None:
+def validate_recovery_queries(record: dict, report: dict, *, plan: MaterialPlan | None = None) -> None:
     """Delegate optional shot details, never mutation of the frozen Need."""
     from easel.materials.domain import MaterialNeed
     terms = report.get('search_terms')
@@ -344,7 +344,8 @@ def validate_recovery_queries(record: dict, report: dict) -> None:
         if any(' '.join(term.casefold().split()) in used for term in value):
             raise MaterialIntegrationError('补料检索建议重复了已尝试的短语，须根据观察证据调整')
         need = MaterialNeed.model_validate_json(json.dumps(raw))
-        compiled = NeedCompiler(search_terms={raw['need_id']: tuple(value)}).compile(need)
+        compiler = NeedCompiler.for_plan(plan, search_terms={raw['need_id']: tuple(value)}) if plan else NeedCompiler(search_terms={raw['need_id']: tuple(value)})
+        compiled = compiler.compile(need)
         if need.constraints.get('search_query_en'):
             query = compiled.semantic_queries[0]
             if (query != NeedCompiler._normalize(value[0]) or len(query) > 100
@@ -376,7 +377,7 @@ def director_shot_choices(attempt: dict, plan: MaterialPlan) -> dict:
             raise MaterialIntegrationError('镜头取舍与当前素材规划不一致，不能沿用')
         report = {'request_id': record['request_id'], 'search_terms': record['search_terms'],
                   'shot_choices': record['shot_choices']}
-        validate_recovery_queries(record, report)
+        validate_recovery_queries(record, report, plan=plan)
         for need_id, choice in record['shot_choices'].items():
             result[need_id] = {**choice, 'request_id': record['request_id'],
                                'core_requirement': needs[need_id]['intent']['description'],
@@ -487,7 +488,7 @@ def _recover_locked(attempt_id, store, request_id, expected_plan_revision,
             del constraints["required_source_kind"]
             constraints["allow_generation"] = False
             need = need.model_copy(update={"constraints": constraints})
-        NeedCompiler(search_terms=search_terms).compile(need)
+        NeedCompiler.for_plan(source_plan, search_terms=search_terms).compile(need)
         needs.append(need)
     target_plan = source_plan.model_copy(update={"needs": tuple(needs)})
     record["target_plan_revision"] = MaterialReadinessCalculator.plan_revision(target_plan)

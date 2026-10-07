@@ -874,3 +874,20 @@ def test_51_vnext_full_capture(prep_env, tmp_path, trace, risk):
     semantic.test_vnext_full_capture(prep_env, tmp_path, risk)
     trace.note('proof scope', 'FULL_RESULT_TRANSPORT / IDENTITY / RECOVERY')
     trace.note('real model / Supply', 0)
+
+
+@pytest.mark.parametrize('risk', ['mixed_projection', 'source_frame', 'identity_cache', 'forbidden_aliases'])
+def test_52_vnext_semantic_projection(trace, risk):
+    trace.define('窄A不维护正式ID/别名/sidecar；确定派生保留素材required、偏好、后期/叙事及音频隔离，旧策略无回归',
+                 'batch09脱敏冻结输入的具名派生对照；真实MaterialNeed/NeedCompiler/visual contract模块')
+    semantic.test_vnext_semantic_projection(risk)
+    trace.note('proof scope', 'SEMANTIC_PROJECTION / CANONICAL_CONTRACT / CACHE_IDENTITY')
+    trace.note('real model / Supply', 0)
+
+
+@pytest.mark.parametrize('origin', ['batch03', 'batch10'])
+def test_53_vnext_historical_projection(trace, origin):
+    trace.define('历史混合输出保持FAIL；脱敏原语义的显式派生对照消除policy/array/alias重复，未知连续性整轮拒绝',
+                 'batch03真实A/catalog和batch10真实scope/A提取；仅首Need结构风险验证，不冒充原全Plan覆盖或B语义通过')
+    semantic.test_vnext_historical_projection(origin)
+    trace.note('real model / Supply',0)

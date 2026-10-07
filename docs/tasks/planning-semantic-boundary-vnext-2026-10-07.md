@@ -915,3 +915,25 @@ Astra初审`MODIFY`发现两处真实软件缺口：1MiB原message经JSON转义�
 Astra增量只读复核`CONTINUE`，未扩大范围。最终run-023 **159 PASS**、capture **20 PASS**、常规 **897 passed / 5既有skip**；常规收集后仅修正测试fixture，最终targeted/matrix已执行真实转义场景，生产未变。source SHA=`0fd790511f3b20b51b925cac4e8cbf3786ebe941b9e25be1182696c6e6f28455`，含未验收S3工作树草稿，不构成发布版本。257现场文件、117fixture无变化。skills115/compileall/本Task scoped diff通过，全工作区两个旧文档EOF告警保留。
 
 **`S2=PASS / SOFTWARE_FROZEN; A_B_LEGAL_CAPACITY=PASS; REAL_DEPLOYMENT_READY=NO`**。冻结的是本安装版本的完整结果软件承载与恢复边界，不是当前服务已加载或模型已通过。后续S3/S4调整carrier须重开容量Gate；Development Eval前必须验证实际Gateway/CLI/DB路由同源及有效文字套餐。无真实模型、Provider、Supply或服务操作，S3–S5尚待完成。
+
+### S3 窄语义carrier及确定性投影（2026-10-07）
+
+新增semantic_boundary：A只输出有限语义条件、强度/责任/模态/用途/受控选择；任意constraints、NeedID/source_path/hash/policy等拒绝。程序由冻结事实与单次选择生成正式MaterialNeed、身份、Voice正文绑定、模态结构、检索对象、Required/Preference/Postproduction侧件。首次草稿遇到Domain严格enum/tuple输入错误，采用原model_validate_json合法边界修正，未放松Domain验证。无模型调用或人工正式产物补写。
+
+来源画幅必须保留正式Observation义务：S1 minimal projection中的modality ratio由S3进一步生成既有constraints.aspect_ratio别名和required clause，A不重复填写，B不审核两个技术别名。Mode/资产软风格保留现有字段，新增policy通过NeedCompiler.for_plan仅排除软style硬filters，已知Plan的Supply/恢复/缓存/Preparation消费者使用同一policy。旧policy默认行为不改；没有更改Provider/Match/Rights/Readiness。
+
+对齐原设计：query候选允许0或3（缺省依原NeedCompiler生成检索语义），不把MAY误升级必填；原生ratio允许有界数值比例，包括4:5，不偷收紧既有合法源规格。容量重新审计A4,399,213/B606,015 bytes，仍在已实测8MiB承载内。旧未知continuity整份候选拒绝，不能删项；image不借用成片时长；Required动态源动作才产生hard control。
+
+S3新增真实内部投影/contract风险保护与batch03、09、10原件结构回放。batch10只抽取经secret检查的A与scope并记原记录SHA，历史FAIL保持。batch03新表示为明确离线派生对照；首Need结构保护不冒充原全Plan覆盖，完整带未知连续性候选仍拒绝。混合音频case仅结构隔离对照，不宣称冻结silent场景可增加声音，B语义准入尚未实施。
+
+run-026矩阵165 PASS；related340 PASS；常规903 passed/5既有skip；257现场/117fixture保持。source SHA=`0da430d7a17fbb3a339413030ee6c69c474d724a34f04e1aeae29862f0cb3951`。S3 carrier/projector局部Gate通过，产品默认仍@7；新A实际Harness orchestrator及正式B之后落盘在S4/S5接入，不能提前宣称整个新版Planning已工作。软件记录：[s3-gate.json](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s3-gate.json)。
+
+### S4 前置：纯音频豁免范围澄清（用户已确认，2026-10-07）
+
+Astra只读复核`STOP`仅针对纯音频豁免判据，S3投影允许继续。本设计§5写“纯音频保持现有路径及B=0”；同时§5/§6要求每个视觉scope的冻结义务完整复核，不能由A选覆盖语境。源码没有独立于A的frozen nonvisual路径标记；现有pure_audio回归实际冻结SCENES仍为“两张白纸”，只是A改成audio Draft。该测试保护旧行为，不能授权新版自动豁免。
+
+**已确认澄清（实现待完成）：** 当前正常视频Creation入口，即使A全audio，仍由同一个有界B复核冻结语境是否遗漏视觉素材义务；不审核音频Need的声音语义，不增加音频Gate、不增加第二个Reviewer/状态机。B=0只适用于独立于A、事先明确冻结的非视觉路径；本仓库当前无可核实的新入口判据，不能假装自动识别，也不在本期新增上游确认字段。旧@1–7的B0冻结/pending回放保留原合同。
+
+判据示例：“SCENES明确两张白纸 + A只有Voice/BGM”必须收到完整scope覆盖复核，不能直接新版正式接受；真正的无视觉义务由冻结语境进行有界语义复核，不能由A自述免审。调用仍计入已授权总32/轮的budget与一次repair，不扩大真实调用额度。
+
+用户已明确回复“确认澄清，按此继续S4”。本项优先于上方设计阶段的无条件B0描述；无需再次审批。实现与反向测试完成前不冻结S4，不启动Development Eval；仍不新增非视觉确认字段或音频Gate。

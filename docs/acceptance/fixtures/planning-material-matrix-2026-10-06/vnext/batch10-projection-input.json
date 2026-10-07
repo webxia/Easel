@@ -1,0 +1,255 @@
+{
+  "provenance": {
+    "classification": "REAL_HISTORICAL_INPUT_EXTRACT; not vNext model output",
+    "source_sha256": "07e35fe729cd015b9c6fd75705f654610dd07a54621aca2d39fc06d00c8c272f",
+    "historical_result": "FAIL"
+  },
+  "A": {
+    "schema": "semantic-planning-draft@1",
+    "needs": [
+      {
+        "role": "primary_still",
+        "scope": {
+          "type": "scene",
+          "ref": "scene-1"
+        },
+        "importance": "required",
+        "modality_spec": {
+          "kind": "image",
+          "aspect_ratio": "9:16",
+          "visual_style": "restrained low saturation everyday"
+        },
+        "intent": {
+          "description": "Static desktop photograph showing a plain desktop surface with exactly two blank white papers lying on it; the papers must be visible in the frame with no printed text, handwriting, marks or symbols on them; no identifiable people or recognizable faces appear; the surrounding objects are ordinary everyday desk items kept visually quiet so the two papers remain the clear visual subject.",
+          "function": "Serves as the single still image held across the full 15-second silent shot; subtitle text is composited on top in post-production over this still, while the original image itself contains no screen text."
+        },
+        "constraints": {
+          "aspect_ratio": "9:16",
+          "visual_style": "restrained low saturation everyday",
+          "media_type": "image"
+        },
+        "queries": [
+          "minimalist desk top down two blank white papers no text",
+          "still life overhead photo plain desktop two sheets of paper everyday",
+          "quiet desk flat lay two white sheets restrained muted color"
+        ],
+        "desired_options": 1,
+        "duration_hint": {
+          "target_seconds": 15
+        },
+        "continuity_refs": []
+      }
+    ]
+  },
+  "scope": {
+    "attempt_id": "fa_aab801a4ae4d538a5c801f4510d14538",
+    "authority_inputs": {
+      "confirmed": {
+        "SCENES.md": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。",
+        "SCRIPT.md": "先看问题，再做决定。",
+        "TREATMENT.md": "用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n\n## 声音设计\n无旁白，无音乐。"
+      },
+      "content_core": {
+        "audience": "关注个人经营实践、习惯用短内容做自我复盘的创作者读者。",
+        "boundaries": [
+          "不补造第一人称经历、具体公司事件、对话、日期、金额或结果",
+          "不声称两张纸代表真实的咨询、合同或工作成果",
+          "不写旁白脚本、不展开具体决策方法论",
+          "不引入与桌面物件无关的人物、家庭、财务或求职隐私"
+        ],
+        "claim_types": [
+          "observation",
+          "opinion"
+        ],
+        "core_idea": "用一张静止的桌面画面，把「先看问题，再做决定」这句短判断交还给观众自己看。",
+        "intended_takeaway": "观众看完应理解：做决定之前，可以先把问题看清楚——画面里只有两张纸，判断留给看的人。",
+        "schema": "easel-content-core@1",
+        "tension": "画面只是两张纸与一句短文案，没有旁白替观众解释；观众需要自己从静止物件里感受判断的重量。",
+        "topic": "桌上的两张纸",
+        "why_worth_telling": "在信息噪音里，留出一小段只让眼睛和大脑对空的桌面物件停留的空间，比把话说满更能让人停下来想一想。"
+      },
+      "creator_context": {
+        "audience": "关注个人经营实践、习惯用短内容做自我复盘的创作者读者。",
+        "identity": {
+          "public_description": "个人经营实践方向的创作者，把日常物件和工作场景当作表达载体。"
+        },
+        "privacy_policy": {
+          "do_not_infer_private_facts": true
+        },
+        "relevant_context": [
+          "作品绑定风格：clear_memo_video（克制第一人称观察风格，本素材只保留视觉留白，不引入旁白）",
+          "本作品为静音短视频，画面与屏幕文字承担全部表达",
+          "画幅 9:16，时长 15 秒，后期叠加屏幕文字"
+        ],
+        "schema": "easel-creator-context@1",
+        "voice": {
+          "avoid": [
+            "不要出现旁白语气或第一人称解说",
+            "不要堆砌方法论术语",
+            "不要替观众解释两张纸的含义",
+            "不要使用绝对化或可证伪的现实主张"
+          ],
+          "tone": "克制、平视、留白"
+        }
+      },
+      "handoff_sha256": "sha256:0505c06cbfdd0ad17cac93ff65f6a78e46991ae638f3e8b83bcc6e2ed315da07",
+      "mode_documents": {
+        "audio-bible.md": "# Audio Bible\n\nNarration should feel like a person thinking aloud after the fact: calm, conversational and precise. It must not become a speech, a sales pitch, a coach's lecture or a solemn trailer voice.\n\n- Let the selected runtime voice and approved voice ID carry the account identity; this Mode never selects a provider or invents a voice clone.\n- Translate the supported delivery choices into the existing Voice Need constraints.voice_delivery (pace_ratio, pitch_semitones, tone), inheriting the frozen mode defaults where no content-specific choice is needed. A description alone is not an executed speech parameter.\n- Generate narration before locking shot durations. Use actual audio timings, not character-count estimates, to pace visual beats.\n- BGM is optional. When an approved track exists, it should support the emotional movement at a low level and duck under narration. No BGM is better than unlicensed, distracting or fake ambience.\n- The frozen music_ducking parameters lower the authored music level during measured speech, with a smooth attack and release. Short breaths remain ducked; longer pauses restore the authored level. This envelope preserves source position and looping. It is not loudness normalization or proof of intelligibility: choose the base music gain against actual audio and verify the finished mix.\n- Use SFX only when they belong to a specific visual action. Do not add whooshes, impacts or notification sounds as decoration.\n",
+        "director-treatment.md": "# Director Treatment\n\n`clear_memo_video` is a film-language mode, not a writing formula. Keep the topic, argument and story structure open.\n\nBefore writing shots, make two compact decisions:\n\n1. **Content Core**: classify each important statement as real experience, current action, learning, public fact, or unverified thought. State the one tension the viewer should recognise.\n2. **Director Treatment**: decide the viewer's emotional path, the first concrete image or line, the moment of recognition, and where the work should stop without forcing a solution.\n\nThe preferred posture is an ordinary person noticing something specific, not an expert delivering a lesson. Open from a lived detail, a calculation, a small contradiction, or a changed understanding. Do not manufacture hardship, dialogue, professional incidents, family scenes, or outcomes to make the narrative complete.\n\nDo not force a hook type, three-act structure, CTA, or conclusion. A quiet ending, an unresolved question, or one next action is valid when it fits the material.\n",
+        "editing-bible.md": "# Editing Bible\n\nThe default rhythm is unhurried but never static: each visual beat earns its screen time, and each cut changes the viewer's understanding, setting or emotional distance.\n\n- Prefer 25-60 seconds and roughly 6-9 visual beats as a starting range, not a fixed template.\n- Establish the concrete tension in the first three seconds. Do not spend the opening on a channel ident, abstract slogan or generic setup.\n- Avoid rapid montage, decorative transitions, bouncing captions and repeated near-identical images.\n- Keep subtitles concise, readable and inside the 9:16 safe area. The subtitle pace follows speech, not an arbitrary visual beat grid.\n- Let the last image and last sentence have room to land. Do not force a call to action, a solution or an optimistic moral.\n",
+        "mode.json": "{\n  \"id\": \"clear_memo_video\",\n  \"version\": \"1.3\",\n  \"name\": \"清醒备忘录 · 视频\",\n  \"summary\": \"以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。\",\n  \"status\": \"active\",\n  \"visual_material_style\": \"restrained low saturation everyday\",\n  \"voice_delivery\": {\"pace_ratio\": 0.95, \"pitch_semitones\": 0, \"tone\": \"neutral\"},\n  \"music_ducking\": {\"gain_ratio\": 0.25, \"attack_seconds\": 0.12, \"release_seconds\": 0.45},\n  \"defaults\": {\n    \"duration_seconds\": {\"preferred\": [30, 45], \"allowed\": [25, 60]},\n    \"visual_beats\": {\"preferred\": [6, 9]},\n    \"orientation\": \"9:16\",\n    \"narration\": \"reflective-first-person\",\n    \"bgm\": \"optional-and-subordinate\"\n  },\n  \"boundaries\": {\n    \"content\": \"Director decides the topic, argument, structure, and whether a video is worthwhile.\",\n    \"profile\": \"Profile remains the source of identity, factual boundaries, audience, and public scope.\",\n    \"runtime\": \"Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns.\"\n  }\n}\n",
+        "qc-rubric.md": "# Director QC Rubric\n\nTechnical QC is necessary but insufficient. Before a work is marked ready, review it against these questions:\n\n1. **Recognition**: does the first three seconds contain a concrete, understandable tension?\n2. **Observation**: is there one genuine observation, with fact and interpretation kept distinct?\n3. **Narrative movement**: does each beat advance the thought, rather than repeat the same sentence over another image?\n4. **Visual honesty**: are real assets identified honestly, and are illustrations clearly expressive rather than fake evidence?\n5. **Rhythm**: do voice duration, cuts, subtitles and pauses feel intentionally aligned?\n6. **Identity**: would the work still feel like this account without its logo or title?\n7. **Anti-template check**: does it avoid PPT, generic AI image carousel, lecture tone and motivational-content shortcuts?\n\nIf a work fails Recognition, Observation, Visual honesty, or Identity, it is `NOT_READY` even when the MP4 is technically valid. Record concise reasons and rework only the failing layer.\n",
+        "visual-bible.md": "# Visual Bible\n\nThe visual world is restrained, human-scale and daily: desks, commutes, screens, notebooks, windows, kitchens, clocks, rooms, pauses and small gestures. A picture must advance the observation; it must not merely decorate narration.\n\n- Prefer supplied or approved real evidence for real claims: screenshots, recording excerpts, notes, data or personal material. Never fabricate a screenshot or pass an AI illustration off as evidence.\n- When no real material is needed, use low-saturation illustration or quiet photographic B-roll with generous negative space. Avoid glossy AI spectacle, generic cyberpunk, floating dashboards and motivational-poster compositions.\n- An illustration may use a recurring symbolic narrator rather than a synthetic portrait. Keep it visually consistent only after a reviewed reference asset exists; otherwise use scene-led imagery and do not pretend there is a locked character.\n- Use motion sparingly: slow camera drift, gentle Ken Burns, a short purposeful transition, or one dynamic insert at an emotional turn. Do not animate every still simply to prove that it is video.\n- Text belongs in the subtitle and deliberate cover system, not inside generated imagery.\n"
+      },
+      "preparation": {
+        "ai_generation_allowed": false,
+        "aspect_ratio": "9:16",
+        "audio_mode": "silent",
+        "beats": [],
+        "duration_seconds": 15,
+        "language": "zh-CN",
+        "material_sources": [],
+        "publication_allowed": false,
+        "schema": "easel-production-brief@1",
+        "text_overlays": [
+          "先看问题，再做决定。"
+        ],
+        "visual_constraints": [
+          "一张静态桌面图，桌上必须有两张白纸",
+          "画幅 9:16，时长 15 秒",
+          "无旁白，无背景音乐",
+          "屏幕文字在后期叠加，画面保持克制低饱和的日常风格"
+        ]
+      },
+      "proposal": {
+        "revision": 1,
+        "scenes": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。",
+        "schema": "easel-video-proposal@2",
+        "script": "先看问题，再做决定。",
+        "sha256": "a686bea64e95e7498877a28e909e9ffa78a7ac3def6d89a4a5b176dab5b29a06",
+        "sound": "无旁白，无音乐。",
+        "specification_notes": "时长：15 秒\n画幅：9:16\n音轨：静音\n语言：简体中文",
+        "specs": {
+          "aspect_ratio": "9:16",
+          "audio_mode": "silent",
+          "duration_seconds": 15,
+          "language": "zh-CN"
+        },
+        "treatment": "用日常物件表达主观创作意图，不声称事实、效果或个人经历。",
+        "updated_at": "2026-10-07T07:00:42+00:00"
+      },
+      "schema": "planning-authority-inputs@1",
+      "truth_packet": {
+        "claims": [],
+        "first_person_allowed": [],
+        "forbidden_inventions": [
+          "禁止补造第一人称经历、真实会议、对话、日期、金额或结果",
+          "禁止声称两张纸对应任何真实的合同、咨询或工作产出",
+          "禁止把短文案改写为已验证的可证伪判断",
+          "禁止引入与桌面物件无关的创作者私人信息"
+        ],
+        "personal_facts": [],
+        "public_allowed": [
+          "画面视觉：一张静止桌面图，桌上有两张白纸",
+          "屏幕文字：「先看问题，再做决定。」",
+          "以克制留白方式呈现，不替观众做判断"
+        ],
+        "schema": "easel-truth-packet@2",
+        "uncertainty_policy": {
+          "learning_is_not_proven_capability": true,
+          "plan_is_not_experience": true,
+          "unknown_claims": "label_uncertain"
+        }
+      }
+    },
+    "canonical": {
+      "SCENES.md": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。",
+      "SCRIPT.md": "先看问题，再做决定。",
+      "TREATMENT.md": "用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n\n## 声音设计\n无旁白，无音乐。"
+    },
+    "catalog": {
+      "continuity": {},
+      "event": {
+        "event-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "global": {
+        "global": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "scene": {
+        "scene-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "segment": {
+        "segment-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "voice": {
+        "creator_context.voice": {
+          "consent_ref": null,
+          "context": {
+            "avoid": [
+              "不要出现旁白语气或第一人称解说",
+              "不要堆砌方法论术语",
+              "不要替观众解释两张纸的含义",
+              "不要使用绝对化或可证伪的现实主张"
+            ],
+            "tone": "克制、平视、留白"
+          },
+          "reference_asset_ids": [],
+          "source": "creator_context"
+        }
+      }
+    },
+    "context_refs": {
+      "content_core_sha256": "sha256:5f987a32cfb7d3b31b512e435879f132ecf6571c631a8354de9a5f320643bac1",
+      "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+      "creator_context_sha256": "sha256:8f61a105aa7d8176a002bdf038f43178295f9ba9f7302f5dffb04abed2adebc2",
+      "production_brief_sha256": "sha256:8adcc1ddd278c61e176de91e792fcefd1aeac4d8ba6be26daaec6521b0dc9c0c",
+      "truth_packet_sha256": "sha256:8294e496f44b78909ed1f99026d1b9b83a972224bade5b902ca3a1741a6ddf82"
+    },
+    "creation_id": "cr_e7d3bf9008bd40b186538502fd24e5cf",
+    "mode": {
+      "boundaries": {
+        "content": "Director decides the topic, argument, structure, and whether a video is worthwhile.",
+        "profile": "Profile remains the source of identity, factual boundaries, audience, and public scope.",
+        "runtime": "Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns."
+      },
+      "defaults": {
+        "bgm": "optional-and-subordinate",
+        "duration_seconds": {
+          "allowed": [
+            25,
+            60
+          ],
+          "preferred": [
+            30,
+            45
+          ]
+        },
+        "narration": "reflective-first-person",
+        "orientation": "9:16",
+        "visual_beats": {
+          "preferred": [
+            6,
+            9
+          ]
+        }
+      },
+      "id": "clear_memo_video",
+      "music_ducking": {
+        "attack_seconds": 0.12,
+        "gain_ratio": 0.25,
+        "release_seconds": 0.45
+      },
+      "name": "清醒备忘录 · 视频",
+      "status": "active",
+      "summary": "以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。",
+      "version": "1.3",
+      "visual_material_style": "restrained low saturation everyday",
+      "voice_delivery": {
+        "pace_ratio": 0.95,
+        "pitch_semitones": 0,
+        "tone": "neutral"
+      }
+    },
+    "policy": "semantic-planning-compiler@7"
+  }
+}

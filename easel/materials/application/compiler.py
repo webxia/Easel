@@ -23,8 +23,15 @@ class NeedCompiler:
 
     _FILTER_VALUE_TYPES = (str, int, float, bool)
 
-    def __init__(self, *, search_terms: dict[str, tuple[str, ...]] | None = None):
+    def __init__(self, *, search_terms: dict[str, tuple[str, ...]] | None = None,
+                 canonical_soft_style: bool = False):
         self.search_terms = search_terms or {}
+        self.canonical_soft_style = canonical_soft_style
+
+    @classmethod
+    def for_plan(cls, plan, *, search_terms=None):
+        return cls(search_terms=search_terms, canonical_soft_style=
+                   plan.policy.get('semantic_compiler') == 'planning-semantic-boundary@1')
 
     def compile(
         self,
@@ -55,7 +62,7 @@ class NeedCompiler:
                 raise NeedCompilationError("Need constraint keys must be non-empty strings")
             if key in QUERY_FIELDS:
                 continue  # Discovery wording never becomes a hard filter.
-            if key == "preferred_visual_details":
+            if key == "preferred_visual_details" or key == 'preferred_style' and self.canonical_soft_style:
                 # Director discretion is not a stock Provider hard filter.
                 continue
             if key == "voice_delivery" and isinstance(need.modality_spec, VoiceNeedSpec):

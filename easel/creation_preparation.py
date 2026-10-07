@@ -698,7 +698,7 @@ def _prepare_creation_for_hypit_locked(
                 from easel.materials.application.compiler import NeedCompiler, NeedCompilationError
                 try:
                     for need in planning["plan"].needs:
-                        NeedCompiler().compile(need)
+                        NeedCompiler.for_plan(planning["plan"]).compile(need)
                 except NeedCompilationError:
                     # Invalid frozen checkpoints require explicit revision,
                     # never another implicit Planning call on re-entry.
