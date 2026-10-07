@@ -799,3 +799,12 @@ def test_43_semantic_review_target(semantic_runtime, trace, risk):
                  'batch05原件及独立反事实；真实compile/原生A/B/persist/load/reentry，仅模型外部响应替身')
     semantic.test_semantic_review_target_contract(semantic_runtime, risk, evidence=trace)
     trace.note('real Supply / Provider / generation / Build', 0)
+
+
+@pytest.mark.parametrize('risk', ['history_purpose', 'purpose_contrasts', 'native_purpose',
+                                  'purpose_repair', 'old_v3_checkpoint', 'purpose_identity', 'old_v3_pending'])
+def test_44_semantic_predicate_purpose(semantic_runtime, trace, risk):
+    trace.define('原素材属性不因制作用途整体变后期；明确soft/hard及源动作职责保持；旧@3原批次精确恢复，新@4隔离',
+                 'batch06真实原件/实际请求/独立语义oracle；真实compile/A/B/persist/load/reentry，仅模型外部替身')
+    semantic.test_semantic_predicate_purpose_contract(semantic_runtime, risk, evidence=trace)
+    trace.note('real Supply / Provider / generation / Build', 0)

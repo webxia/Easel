@@ -586,3 +586,49 @@ Astra前置CONTINUE已落实：审核对象反事实仅用于视觉内容条款�
 生产SHA `f01fe3317b4aa223caddea08ee0ee86cf5d3347944dc9698fd997c7a00e66005`；软件JUnit/源码及旧现场hash保存在受保护batch06预提交目录。当前等待实际diff的Astra最终冻结结论；只有CONTINUE与完整对账成立才提交、实际raw-stream精确备份安全加载，并另起完整32项R4。固定commit/加载及真实成绩由唯一验收另记。
 
 Astra实际diff最终CONTINUE（run023及834全量检查完成后）：无新增必要修订；源/工具/257旧现场/59fixture对账一致可固定新commit、安全加载，随后新32项R4逐项独立语义核定。新说明传递不等于真实模型通过，旧batch05 FAIL及所有历史FAIL不改，Smoke仍未放行。
+
+§13.13软件已固定commit0b176a2a8fa30b01c652aa044f176feb93c2639e，source f01fe3317b4aa223caddea08ee0ee86cf5d3347944dc9698fd997c7a00e66005。实际日志停服精确备份后12:19:50安全加载Web/Gateway，空闲及原件对账PASS；新batch06冻结原16主题的32独立正常Creation，开始第0项，尚无真实成绩。具体加载记录由唯一验收保留，不覆盖batch05 FAIL，不启动Smoke。
+
+### 13.14 batch06：素材属性与后期用途混合分类仍语义FAIL（2026-10-07，STOP）
+
+固定0b176a2a/sourcef01fe331，以32个全新正常Creation执行第0项。Preparation/A/一次共享A repair/B0/Truth五原run全部ok/released；初始一个query超过100字符，既有Schema已明确maxLength100，系统仅修查询且有效语义不变，不存在查询长度Schema缺口。正式合同/Truth及持久重载PASS，原生Supply import前停止。
+
+独立Main审核与Astra STOP：“整体构图留出较充足的负空间以便后期叠加一行文字;”被整句编为postproduction。源图构图是素材可观察属性，“以便后期叠加”是用途修饰，不能将前者整体变成编辑操作。本次显式preferred_visual_details另有generous negative space around the two sheets，且无确认/Preparation硬负空间来源，因此应沿该来源为preference；确实无法无损判断则unresolved。明确负空间偏好已保留，不能报告遗漏、required降级或升级；但另处正确preference不能抵消错误kind。前次作者经历义务本次正确postproduction，证明改善而非整个语义通过。
+
+原两张白纸required/image/9:16/silent/SCRIPT保留。本批1项语义FAIL、31未执行、held-out0/16；初始无需repair合同0/1，最终正式合同1/1执行项（1/32计划），独立语义0/1。墙钟211.901秒、Planning含Truth150.381秒；5原提交/36assistant/34工具/17原请求pending观察，9应用callback含4缓存原请求重入，重复提交0。NORMALIZE/report repair/补证/实际Supply/Provider/生成/TTS/Build/状态越界/工程介入0。共享套餐5小时95→94%、周98→98%，实际账单未知。
+
+评分仅诊断，不修改正式Plan/Requirements/Truth；固定HEAD/source/tool/sample/SCRIPT、257旧正式现场/59fixture和全部5旧批原件SHA保持。五原run全部释放，各批pending/submitting/release待办0，Gatewayactive/lost/audit0。完整原始日志与脱敏会话、请求身份、原件/独立反事实评分和固定版本保存受保护batch06目录。本批FAIL/STOP永久保留，不追加repair、不启动后31项、不恢复计分，Smoke=NO。
+
+后续独立治理先区分素材属性主谓与制作目的/用途修饰，并同时保护纯后期操作、作者义务、明确hard/soft来源及源视频动作；不按“后期/负空间”等关键词决定kind，不增加修复额度或生产语义Gate。新设计须保留@1/@2/@3原输入及缓存身份，前置Astra复核、实际失败回放和完整不回归后才能固定另一版本、新32项R4；本节不认领修复或模型通过。
+
+[完整指标](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch06-actual-run-summary.json)、[独立评分](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch06-independent-semantic-review.json)、[Astra STOP](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch06-astra-review.txt)。
+
+### 13.15 主体条件与用途关系治理设计（2026-10-07，实施前）
+
+batch06保持FAIL/STOP，真实原件16份及独立Expected/来源2份归档为fixture，不改正式产物或评分。当前只设计和固定离线期望，不运行新模型。
+
+本项明确软件与模型的不同责任：程序可证明完整原文、版本、身份及显式来源绑定，无法凭Schema证明自然语言kind正确。继续保留独立语义发布验收；不以替身返回正确kind认领语义可靠性。问题不是查询Schema缺项（已有100字符上限），也不是负空间偏好遗漏，而是B把用途修饰当成整句审核对象。
+
+拟保持A/B两阶段及四kind，更新程序固定的审核任务为`material-review-target@2`、compiler@4/units@8：
+
+1. A将原素材条件及明确soft来源写在已有字段，制作目的/作者叙事由function及冻结SCENES/TREATMENT保留。描述源属性时不得因附带制作用途而改变其职责；不能借此删除必要主体、动作、禁止条件或创作边界。
+2. B对所有候选kind先辨识完整语义单元的主谓条件和目的/用途修饰，再确定审核对象与hard/soft。postproduction只适用于叙事义务、编辑动作或表达用途本身；源属性附带“为了某种后期用途”仍沿源属性来源处理。明确soft属性沿所属Need的既有preference_source，真实hard源主体/数量/源动作仍required。并列且不可无损分类的不同职责返回unresolved，不用截字或猜测让整个单元通过。
+3. 成对关系不限于事故词面：冷色源图用于疏离表达是软源属性；原图必须两张纸用于旁边叠字是必要源属性；实际后期叠字是编辑动作；原视频杯子落下用于慢放仍是源动作；作者经历义务仍由叙事/Truth承载。无新增模型输出字段/rationale、第三Gate、调用或repair额度。
+4. 固定映射显式保留compiler@1→units@7、@2→units@8无review_target、@3→原review_target@1、@4→review_target@2。旧@3真实checkpoint及批次digest按原说明精确复算，不因更新全局常量污染旧输入；旧pending只按原身份核对、不派发新请求或刷新额度。新说明参与有效A/B/repair输入、批次及Plan/Need/request身份。
+5. 先运行同一矩阵：真实旧wrong-kind及新政策同形wrong-kind仍结构PASS/独立语义FAIL；关系成对正确对照；实际A/B和共享repair传递同一任务；旧@3完整持久恢复/复制、坏canonical/digest拒绝；新旧身份隔离。沿用已有完整异步Owner/Truth/Supply切点组合，不复制另一执行器或保护性测试集。
+
+前置Astra复核后才最小实施，完整不回归、固定新版本/安全加载后才另起原16主题的32独立R4。该修正只能证明任务定义与控制面无回归，模型语义改善须由新真实评测证明；所有旧FAIL和原门槛不变，Smoke未放行。
+
+Astra前置CONTINUE：关系解释不能实现为词序/关键词；补用途前置软属性与后期裁切形成留白对照。新target@2实际携带关系规则，@3原target@1固定完整保存，不从新对象删字段模拟。独立编辑义务不可整体跟随源属性，无法无损分类仍unresolved。修前默认目录run-018保留2PASS/5FAIL，其中旧批次比较遗漏JSON整数key编码为测试缺陷；只修测试比较为规范JSON，后续恢复同一r4-preflight输出入口，生产不变。
+
+修前r4-preflight/run-024为3PASS/4FAIL，生产sourcef01不变；修后run-025为13PASS/2FAIL，外部正确对照误将真实Mode的preference id=1硬编码到隔离Mode（只有id=0），属于测试缺陷。仅从实际B请求的明确原preference文本取得程序id，未修改原件或生产宽限，完整run-026为103PASS/0FAIL/0GAP/0未执行，257旧现场/77fixture不变。既有native默认版本期望随正式@4更新，旧@3独立原件/批次精确复算保留。
+
+### 13.16 主体条件与用途关系软件验收完成（2026-10-07，未执行新真实模型）
+
+按§13.15及Astra前置CONTINUE完成compiler@4/target@2：实际任务携带主谓/用途、审核对象、强度/kind关系规则，A/B及共享repair一致使用。旧@3完整原target@1独立保存，原真实B payload/digest/checkpoint/复制精确恢复；@1/@2及standalone不变，旧pending不新派发或刷新额度。源属性不因用途整体变后期，独立混合义务无法无损分类仍unresolved，无词面算法、新模型Gate/输出字段/调用/额度，Material V1.3职责保持。
+
+用途前置软源属性、明确hard主体＋用途、纯后期叠字、后期裁切留白、源动作＋用途及作者事实义务对照均通过正式内部编译。真实旧和新政策错误kind仍结构PASS/独立语义FAIL，正确替身仅证明合同可表达，不认领真实模型改善。
+
+最终同一入口run-027 **103 PASS/0 FAIL/0 GAP/0未执行**，全量 **841 PASS/5既有skip**（60.44秒）、115技能/compileall/diff通过，Astra实际diffCONTINUE，无新增必要修订。首个全量834PASS/5skip/1ERROR因新增helper遗漏parametrize，原JUnit保留，仅补测试参数化后完整重跑；run018/024/025及测试缺陷不删除。257旧正式现场/原59fixture未改，新增18后77fixture前后保持，六旧批完整原件保存。生产SHA `71e5ecbbafdfd7104b835a5b6b2a3071a2132e291d31d5134dab9281547e99e4`，软件真实调用及Supply下游0。
+
+软件冻结条件成立，后续仅按已授权范围窄提交、本轮实际日志停服精确备份、安全加载/实时空闲/套餐预检后，用原16主题及独立oracle另建32个全新正常Creation进行R4；旧batch06及全部历史FAIL不恢复不倒算。软件通过不放行Smoke，真实成绩另记唯一验收。

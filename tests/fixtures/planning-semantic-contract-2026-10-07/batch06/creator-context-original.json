@@ -1,0 +1,23 @@
+{
+  "audience": "关注个人经营、复盘与决策习惯的创作者与从业者",
+  "identity": {
+    "public_description": "公开身份信息暂无可用画像数据,描述留空"
+  },
+  "privacy_policy": {
+    "do_not_infer_private_facts": true
+  },
+  "relevant_context": [
+    "本作品以日常物件(桌上的两张纸)表达主观创作意图,不绑定具体公司、事件或日期",
+    "使用画面加一行文字的方式呈现主张,不依赖旁白或音乐"
+  ],
+  "schema": "easel-creator-context@1",
+  "voice": {
+    "avoid": [
+      "避免说教式语气",
+      "避免渲染情绪或戏剧化",
+      "避免补造个人经历或工作细节",
+      "避免工具自曝与品牌痕迹"
+    ],
+    "tone": "克制、克制观察,第一人称但不渲染个人经历"
+  }
+}

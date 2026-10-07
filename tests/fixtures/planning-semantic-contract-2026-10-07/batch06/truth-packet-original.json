@@ -1,0 +1,22 @@
+{
+  "claims": [],
+  "first_person_allowed": [],
+  "forbidden_inventions": [
+    "不得补造真实桌面、真实纸张、真实人物或真实工作场景",
+    "不得声称这是创作者亲历的某次具体事件",
+    "不得补造对话、日期、金额、公司或项目结果",
+    "不得加入旁白、口播或背景音乐",
+    "不得把制作规格(15 秒、9:16、静音)改写为用户事实"
+  ],
+  "personal_facts": [],
+  "public_allowed": [
+    "用日常物件表达主观创作意图,不声称事实、效果或个人经历",
+    "以一行屏幕文字呈现\"先看问题,再做决定\"的主张"
+  ],
+  "schema": "easel-truth-packet@2",
+  "uncertainty_policy": {
+    "learning_is_not_proven_capability": true,
+    "plan_is_not_experience": true,
+    "unknown_claims": "label_uncertain"
+  }
+}

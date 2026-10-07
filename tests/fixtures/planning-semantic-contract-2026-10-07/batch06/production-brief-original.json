@@ -1,0 +1,19 @@
+{
+  "ai_generation_allowed": false,
+  "aspect_ratio": "9:16",
+  "audio_mode": "silent",
+  "beats": [],
+  "duration_seconds": 15,
+  "language": "zh-CN",
+  "material_sources": [],
+  "publication_allowed": false,
+  "schema": "easel-production-brief@1",
+  "text_overlays": [
+    "先看问题，再做决定。"
+  ],
+  "visual_constraints": [
+    "画面为一张静态桌面图",
+    "桌面上必须有两张白纸",
+    "正文在后期叠加到画面上"
+  ]
+}

@@ -27,14 +27,27 @@ from easel.integrations.hypit.secrets import SecretRedactor
 
 LEGACY_POLICY = 'semantic-planning-compiler@1'
 CANONICAL_POLICY = 'semantic-planning-compiler@2'
-POLICY = 'semantic-planning-compiler@3'
+REVIEW_POLICY = 'semantic-planning-compiler@3'
+POLICY = 'semantic-planning-compiler@4'
 UNIT_POLICIES = {LEGACY_POLICY: 'indexed-unit-classification@7',
                  CANONICAL_POLICY: 'indexed-unit-classification@8',
+                 REVIEW_POLICY: 'indexed-unit-classification@8',
                  POLICY: 'indexed-unit-classification@8'}
-REVIEW_TARGET = {'schema': 'material-review-target@1', 'scope': 'original_asset',
+LEGACY_REVIEW_TARGET = {'schema': 'material-review-target@1', 'scope': 'original_asset',
                 'required_evidence': 'observable_in_asset',
                 'non_asset_obligation': 'narrative_or_postproduction',
                 'uncertain': 'unresolved', 'precedence': ['target', 'strength', 'kind']}
+REVIEW_TARGET = {'schema': 'material-review-target@2', 'scope': 'original_asset',
+                'required_evidence': 'observable_in_asset',
+                'non_asset_obligation': 'narrative_or_postproduction',
+                'uncertain': 'unresolved',
+                'precedence': ['predicate_and_purpose', 'target', 'strength', 'kind'],
+                'relation_rules': {
+                    'asset_property_with_purpose': 'classify_asset_property_by_source_strength',
+                    'pure_postproduction': 'actual_editing_or_narrative_obligation',
+                    'mixed_independent_obligations': 'unresolved_if_not_losslessly_classifiable',
+                    'interpretation': 'semantic_relation_not_word_order_or_keywords'}}
+REVIEW_TARGETS = {REVIEW_POLICY: LEGACY_REVIEW_TARGET, POLICY: REVIEW_TARGET}
 MAX_FILE_BYTES = 256 * 1024
 MAX_BATCH_UNITS = 40
 
@@ -299,9 +312,9 @@ def classification_batches(plan, mode, *, canonical=None, compiler_policy=None):
             data.update(compiler_policy=policy, unit_policy=UNIT_POLICIES[policy])
             if canonical is not None:
                 data['confirmed'] = dict(canonical)
-        if policy == POLICY:
+        if policy in REVIEW_TARGETS:
             # Program-owned task contract, not another model-authored answer.
-            data['review_target'] = json.loads(encode(REVIEW_TARGET))
+            data['review_target'] = json.loads(encode(REVIEW_TARGETS[policy]))
         # Bound the entire context without truncating required content.
         if len(json.dumps(data, ensure_ascii=False).encode()) > MAX_FILE_BYTES:
             raise SemanticPlanningError('B', [problem('contexts', '单批完整上下文超过有界容量，未截断或提交')])
@@ -603,6 +616,10 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
         'queries交三个不同英文短语；正文/场景/声音保持确认原意，required不能遗漏或降级；'
         '素材description写原素材可观察条件；构图与风格软偏好仅放明确preferred字段，不在description重复硬化。'
         '先确定要求约束谁，再区分必要/偏好；有创作来源不代表它能成为素材采购条件。'
+        '辨识素材属性主谓与制作目的/用途的语义关系，不按词序或连接词分类。'
+        '原图色调/构图用于某种成片表达，仍是源属性；软属性保留于preferred字段，'
+        '制作目的可在function及冻结SCENES/TREATMENT承载；真正要求原主体数量或原视频动作的条件不能删改。'
+        '后期裁切/排版形成留白是编辑操作，与原图具有留白不同。'
         '作者不虚构来历、不声称亲历等叙事/事实义务保留于已有confirmed/handoff/Truth或叙事function，'
         '不能复制进原素材description，也不能删除这些创作边界。'
         '原画面不出现可识别文字或人物是可观察素材条件；原视频必须发生的动态动作仍完整保留。'
@@ -644,10 +661,17 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
         name=f'CLASSIFICATIONS-{index:03}.json'
         bmessage=('〔Easel Planning V3 单元分类〕\n'
             '只分类程序提供的unit ID，完整按序各一次，不返回path/text/offset/Need映射/query。'
-            '先确定审核对象，再判断硬软强度，最后选kind；不能把所有禁令默认required。'
+            '先辨识完整单元的主谓条件和目的/用途修饰，再确定审核对象、硬软强度，最后选kind；不能把所有禁令默认required。'
             '原素材可观察的必要主体/数量/禁令/源动作保持required；明确软偏好不能升级，叙事用途/后期为postproduction；'
             '有歧义返回unresolved。偏好引用只能用所属context.preferences中的id。'
             'required审核对象是原始素材自身，不是成片或后期执行。引用的SCRIPT不是背景图必须包含的文字；'
+            '对拟postproduction也核对是否存在可观察的源属性；附带后期用途不把该属性整体变为编辑动作。'
+            '用途在句首、句末或没有连接词都按实际关系判断，不按后期/为了等关键词处理。'
+            '例如显式cool color palette软偏好支持的「原图偏冷色调用于疏离表达」或「为疏离表达选择偏冷原图」'
+            '沿同一preference来源；「原图必须有两张纸用于旁边叠字」仍required；'
+            '「后期在纸旁叠字」及「后期裁切和排版形成留白」才是编辑动作本身；'
+            '「原视频杯子连续落下用于慢放」仍是源动作，不改后期。'
+            '若同一单元还要求独立编辑动作而无法无损表达不同职责，返回unresolved，不截字、删义务或整体跟随其中一项。'
             '对每个拟required单元，先在内部判断能从原素材观察到什么来验证，不能只因有来源或语气强硬就当必要素材条件。'
             '反事实检查：同一素材字节不变，只改作者叙述或后期行为就能违反的叙事/事实义务，不是素材required。'
             '例如「原图片不出现可识别公司文字」可由图片观察并保持required；「不虚构作者在这家公司工作过」'

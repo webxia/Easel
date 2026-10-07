@@ -1,0 +1,28 @@
+{
+  "schema": "historical-fixture-provenance@1",
+  "source_commit": "0b176a2a8fa30b01c652aa044f176feb93c2639e",
+  "source_sha256": "f01fe3317b4aa223caddea08ee0ee86cf5d3347944dc9698fd997c7a00e66005",
+  "source_batch": "batch06",
+  "native_contract": "PASS",
+  "independent_semantics": "FAIL",
+  "originals_sha256": {
+    "A-original.json": "6b0936a4212e9b78dffc0c230e774964de94c3ae41b46a86bd82c386b3e25e65",
+    "B-original.json": "dd0913ebaf0cb810dc59bc707f31e1170e28a483010a669cc4757f9337100312",
+    "Plan-original.json": "8af2a91ccb343b7c2bd885708aee2f3ec530fdd5abef624409f8eb1071ebbb6f",
+    "Requirements-original.json": "a44ac27edfba62adbb852e5255ead9cefde977e435879c20d1a530a712790388",
+    "SCRIPT-original.md": "e13544b58e1148dc4b5a891821c07353a310ea9f8e9540cd583a28145d498b53",
+    "SCENES-original.md": "837e6acf752f4cecda69ea4061c2752298cc5450651acabb31898510a55541f1",
+    "TREATMENT-original.md": "f41a10c50d4150abfdf88d663806589f4bb62d868fc0f3b8e57ae4a44ec4c12f",
+    "checkpoint-original.json": "8f11cbaab6721a84b5e76ba9416824a40f5db4f8fdafd338799af77ae7746e6b",
+    "content-core-original.json": "45a7eef876907f9909b42cc5ed9bc70a4abf1677715361c10cd19f476aec29e3",
+    "truth-packet-original.json": "4bf811f751a11d664e70dfe171c6e952adc0b45df59f2475c9f69b7498f610c6",
+    "creator-context-original.json": "d50051162e09fe7868a822331583ecb1646a738a914b50d0bb59b23d5ec0594c",
+    "production-brief-original.json": "9791732046b221214796e678133134ac96901fff834a3693af8b0aab8fb5fc23",
+    "mode-original.json": "02157cf07b1aa3ca05c800776106779582f5bb5534bb90291262073785ea6002",
+    "B-request-original.txt": "7f320db7d04088092d1b09e6d6431abd141290d0449c60a39143062695a978d2",
+    "A-initial-original.json": "3dc7ae6ce16f44994a6cdf4933e172e1a96a3138483812156e977f1824e6b55a",
+    "A-repair-request-original.txt": "a9fb6c6123220545a204888bd6c6751a85872d01806ac51adc5abb7694463754"
+  },
+  "credential_copied": false,
+  "note": "Exact formal A after system query repair, initial A, repair request, actual B request and frozen sources; synthetic normal theme. Read-only replay only, no historical recovery."
+}

@@ -1,0 +1,206 @@
+{
+  "batches_sha256": "f2f6efba622baaec336ee96fd6c47607e9172239125e3a0565ea7ee3c79d7143",
+  "draft": "{\n  \"schema\": \"semantic-planning-draft@1\",\n  \"needs\": [\n    {\n      \"role\": \"desk_with_two_papers_establishing_shot\",\n      \"scope\": {\n        \"type\": \"scene\",\n        \"ref\": \"scene-1\"\n      },\n      \"importance\": \"required\",\n      \"modality_spec\": {\n        \"kind\": \"image\",\n        \"aspect_ratio\": \"9:16\",\n        \"reference_asset_ids\": [],\n        \"visual_style\": null\n      },\n      \"intent\": {\n        \"description\": \"一张静态桌面俯拍或近景平视画面:一张日常桌面占据画面主体,桌面上并列放置两张白纸(两张均为可见的、未印字的空白白纸,数量为两张,位置关系清楚可辨),纸张之间保留可被肉眼分辨的间距;桌面之外没有可见的可识别真人面孔、人物主体,纸面上没有任何印刷字、印章、表格、屏幕内容或图文痕迹;整体构图留出较充足的负空间以便后期叠加一行文字;画面呈现的是一段可观察的物理静物,不声称、也不暗示某次真实经历、某段亲历工作或某个具体场景归属。\",\n        \"function\": \"scene-1 establishing visual for 0-15s static shot; on-screen text is layered in post-production and is not part of this asset\"\n      },\n      \"duration_hint\": null,\n      \"desired_options\": 1,\n      \"constraints\": {\n        \"media_type\": \"image\",\n        \"preferred_visual_details\": \"restrained low-saturation everyday lighting; plain desktop surface; generous negative space around the two sheets; no decorative props that introduce unrelated narrative; no glossy or synthetic-looking finish\"\n      },\n      \"queries\": [\n        \"overhead photo of two blank white papers side by side on plain desk\",\n        \"top-down still life of simple desk with two unmarked white papers\",\n        \"minimal flat lay of two empty white A4 papers on neutral tabletop\"\n      ],\n      \"continuity_refs\": []\n    }\n  ]\n}",
+  "draft_sha256": "6b0936a4212e9b78dffc0c230e774964de94c3ae41b46a86bd82c386b3e25e65",
+  "plan": {
+    "attempt_id": "fa_efad6282a96c33d0c3061e112142f725",
+    "context_refs": {
+      "content_core_sha256": "sha256:45a7eef876907f9909b42cc5ed9bc70a4abf1677715361c10cd19f476aec29e3",
+      "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+      "creator_context_sha256": "sha256:d50051162e09fe7868a822331583ecb1646a738a914b50d0bb59b23d5ec0594c",
+      "production_brief_sha256": "sha256:9791732046b221214796e678133134ac96901fff834a3693af8b0aab8fb5fc23",
+      "truth_packet_sha256": "sha256:4bf811f751a11d664e70dfe171c6e952adc0b45df59f2475c9f69b7498f610c6"
+    },
+    "creation_id": "cr_92c1843e2ff4460c8b4a755ee0caac53",
+    "needs": [
+      {
+        "constraints": {
+          "media_type": "image",
+          "preferred_style": "restrained low saturation everyday",
+          "preferred_visual_details": "restrained low-saturation everyday lighting; plain desktop surface; generous negative space around the two sheets; no decorative props that introduce unrelated narrative; no glossy or synthetic-looking finish",
+          "search_query_variants_en": {
+            "alternate": "top-down still life of simple desk with two unmarked white papers",
+            "primary": "overhead photo of two blank white papers side by side on plain desk",
+            "relaxed": "minimal flat lay of two empty white A4 papers on neutral tabletop"
+          }
+        },
+        "continuity_refs": [],
+        "contract_version": "material_need@1",
+        "desired_options": 1,
+        "duration_hint": null,
+        "importance": "required",
+        "intent": {
+          "description": "一张静态桌面俯拍或近景平视画面:一张日常桌面占据画面主体,桌面上并列放置两张白纸(两张均为可见的、未印字的空白白纸,数量为两张,位置关系清楚可辨),纸张之间保留可被肉眼分辨的间距;桌面之外没有可见的可识别真人面孔、人物主体,纸面上没有任何印刷字、印章、表格、屏幕内容或图文痕迹;整体构图留出较充足的负空间以便后期叠加一行文字;画面呈现的是一段可观察的物理静物,不声称、也不暗示某次真实经历、某段亲历工作或某个具体场景归属。",
+          "function": "scene-1 establishing visual for 0-15s static shot; on-screen text is layered in post-production and is not part of this asset"
+        },
+        "media_type": "image",
+        "modality_spec": {
+          "aspect_ratio": "9:16",
+          "kind": "image",
+          "reference_asset_ids": [],
+          "visual_style": null
+        },
+        "need_id": "need-5c8b9e1a58048b35e0c43dc8-000",
+        "role": "desk_with_two_papers_establishing_shot",
+        "scope": {
+          "ref": "scene-1",
+          "type": "scene"
+        }
+      }
+    ],
+    "plan_id": "plan-5c8b9e1a58048b35e0c43dc8e4060471",
+    "policy": {
+      "strategy": "bulk_first"
+    }
+  },
+  "policy": "semantic-planning-compiler@3",
+  "responses": [
+    {
+      "classifications": [
+        {
+          "id": 0,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 1,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 2,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 3,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 4,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 5,
+          "kind": "postproduction",
+          "preference_source": null
+        },
+        {
+          "id": 6,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 7,
+          "kind": "postproduction",
+          "preference_source": null
+        },
+        {
+          "id": 8,
+          "kind": "postproduction",
+          "preference_source": null
+        },
+        {
+          "id": 9,
+          "kind": "required",
+          "preference_source": null
+        }
+      ]
+    }
+  ],
+  "schema": "semantic-planning-frozen@1",
+  "scope": {
+    "attempt_id": "fa_efad6282a96c33d0c3061e112142f725",
+    "canonical": {
+      "SCENES.md": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。",
+      "SCRIPT.md": "先看问题，再做决定。",
+      "TREATMENT.md": "用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n\n## 声音设计\n无旁白，无音乐。"
+    },
+    "catalog": {
+      "continuity": {},
+      "event": {
+        "event-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "global": {
+        "global": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "scene": {
+        "scene-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "segment": {
+        "segment-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "voice": {
+        "creator_context.voice": {
+          "consent_ref": null,
+          "context": {
+            "avoid": [
+              "避免说教式语气",
+              "避免渲染情绪或戏剧化",
+              "避免补造个人经历或工作细节",
+              "避免工具自曝与品牌痕迹"
+            ],
+            "tone": "克制、克制观察,第一人称但不渲染个人经历"
+          },
+          "reference_asset_ids": [],
+          "source": "creator_context"
+        }
+      }
+    },
+    "context_refs": {
+      "content_core_sha256": "sha256:45a7eef876907f9909b42cc5ed9bc70a4abf1677715361c10cd19f476aec29e3",
+      "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+      "creator_context_sha256": "sha256:d50051162e09fe7868a822331583ecb1646a738a914b50d0bb59b23d5ec0594c",
+      "production_brief_sha256": "sha256:9791732046b221214796e678133134ac96901fff834a3693af8b0aab8fb5fc23",
+      "truth_packet_sha256": "sha256:4bf811f751a11d664e70dfe171c6e952adc0b45df59f2475c9f69b7498f610c6"
+    },
+    "creation_id": "cr_92c1843e2ff4460c8b4a755ee0caac53",
+    "mode": {
+      "boundaries": {
+        "content": "Director decides the topic, argument, structure, and whether a video is worthwhile.",
+        "profile": "Profile remains the source of identity, factual boundaries, audience, and public scope.",
+        "runtime": "Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns."
+      },
+      "defaults": {
+        "bgm": "optional-and-subordinate",
+        "duration_seconds": {
+          "allowed": [
+            25,
+            60
+          ],
+          "preferred": [
+            30,
+            45
+          ]
+        },
+        "narration": "reflective-first-person",
+        "orientation": "9:16",
+        "visual_beats": {
+          "preferred": [
+            6,
+            9
+          ]
+        }
+      },
+      "id": "clear_memo_video",
+      "music_ducking": {
+        "attack_seconds": 0.12,
+        "gain_ratio": 0.25,
+        "release_seconds": 0.45
+      },
+      "name": "清醒备忘录 · 视频",
+      "status": "active",
+      "summary": "以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。",
+      "version": "1.3",
+      "visual_material_style": "restrained low saturation everyday",
+      "voice_delivery": {
+        "pace_ratio": 0.95,
+        "pitch_semitones": 0,
+        "tone": "neutral"
+      }
+    },
+    "policy": "semantic-planning-compiler@3"
+  }
+}

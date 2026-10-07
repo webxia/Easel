@@ -1,0 +1,83 @@
+{
+  "need-5c8b9e1a58048b35e0c43dc8-000": {
+    "clauses": [
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "一张静态桌面俯拍或近景平视画面:一张日常桌面占据画面主体,"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "桌面上并列放置两张白纸(两张均为可见的、未印字的空白白纸,数量为两张,位置关系清楚可辨),"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "纸张之间保留可被肉眼分辨的间距;"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "桌面之外没有可见的可识别真人面孔、人物主体,"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "纸面上没有任何印刷字、印章、表格、屏幕内容或图文痕迹;"
+      },
+      {
+        "kind": "postproduction",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "整体构图留出较充足的负空间以便后期叠加一行文字;"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "画面呈现的是一段可观察的物理静物,"
+      },
+      {
+        "kind": "postproduction",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "不声称、也不暗示某次真实经历、某段亲历工作或某个具体场景归属。"
+      },
+      {
+        "kind": "postproduction",
+        "path": "intent/function",
+        "preference_path": null,
+        "text": "scene-1 establishing visual for 0-15s static shot; on-screen text is layered in post-production and is not part of this asset"
+      },
+      {
+        "kind": "required",
+        "path": "constraints/media_type",
+        "preference_path": null,
+        "text": "image"
+      },
+      {
+        "kind": "preference",
+        "path": "constraints/preferred_style",
+        "preference_path": "constraints/preferred_style",
+        "text": "restrained low saturation everyday"
+      },
+      {
+        "kind": "preference",
+        "path": "constraints/preferred_visual_details",
+        "preference_path": "constraints/preferred_visual_details",
+        "text": "restrained low-saturation everyday lighting; plain desktop surface; generous negative space around the two sheets; no decorative props that introduce unrelated narrative; no glossy or synthetic-looking finish"
+      }
+    ],
+    "queries": [
+      "overhead photo of two blank white papers side by side on plain desk",
+      "top-down still life of simple desk with two unmarked white papers",
+      "minimal flat lay of two empty white A4 papers on neutral tabletop"
+    ]
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "plan_id": "plan-5c8b9e1a58048b35e0c43dc8e4060471",
+  "creation_id": "cr_92c1843e2ff4460c8b4a755ee0caac53",
+  "attempt_id": "fa_efad6282a96c33d0c3061e112142f725",
+  "context_refs": {
+    "content_core_sha256": "sha256:45a7eef876907f9909b42cc5ed9bc70a4abf1677715361c10cd19f476aec29e3",
+    "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+    "creator_context_sha256": "sha256:d50051162e09fe7868a822331583ecb1646a738a914b50d0bb59b23d5ec0594c",
+    "production_brief_sha256": "sha256:9791732046b221214796e678133134ac96901fff834a3693af8b0aab8fb5fc23",
+    "truth_packet_sha256": "sha256:4bf811f751a11d664e70dfe171c6e952adc0b45df59f2475c9f69b7498f610c6"
+  },
+  "policy": {
+    "strategy": "bulk_first"
+  },
+  "needs": [
+    {
+      "need_id": "need-5c8b9e1a58048b35e0c43dc8-000",
+      "scope": {
+        "type": "scene",
+        "ref": "scene-1"
+      },
+      "media_type": "image",
+      "role": "desk_with_two_papers_establishing_shot",
+      "intent": {
+        "description": "一张静态桌面俯拍或近景平视画面:一张日常桌面占据画面主体,桌面上并列放置两张白纸(两张均为可见的、未印字的空白白纸,数量为两张,位置关系清楚可辨),纸张之间保留可被肉眼分辨的间距;桌面之外没有可见的可识别真人面孔、人物主体,纸面上没有任何印刷字、印章、表格、屏幕内容或图文痕迹;整体构图留出较充足的负空间以便后期叠加一行文字;画面呈现的是一段可观察的物理静物,不声称、也不暗示某次真实经历、某段亲历工作或某个具体场景归属。",
+        "function": "scene-1 establishing visual for 0-15s static shot; on-screen text is layered in post-production and is not part of this asset"
+      },
+      "duration_hint": null,
+      "constraints": {
+        "media_type": "image",
+        "preferred_style": "restrained low saturation everyday",
+        "preferred_visual_details": "restrained low-saturation everyday lighting; plain desktop surface; generous negative space around the two sheets; no decorative props that introduce unrelated narrative; no glossy or synthetic-looking finish",
+        "search_query_variants_en": {
+          "alternate": "top-down still life of simple desk with two unmarked white papers",
+          "primary": "overhead photo of two blank white papers side by side on plain desk",
+          "relaxed": "minimal flat lay of two empty white A4 papers on neutral tabletop"
+        }
+      },
+      "continuity_refs": [],
+      "importance": "required",
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": null,
+        "reference_asset_ids": []
+      }
+    }
+  ]
+}
