@@ -1,0 +1,68 @@
+{
+  "status": "FAIL",
+  "at": 1791352506.778352,
+  "reviewer": "Main independent review plus Astra STOP",
+  "index": 0,
+  "sample_id": "d01",
+  "formal_contract": "PASS",
+  "truth": "PASSED after one formal report repair",
+  "initial_planning_repair": false,
+  "required_semantics": {
+    "桌面上有两张白纸": "PRESERVED required"
+  },
+  "required_coverage": "1/1 original required semantics; not overall semantic PASS",
+  "required_omissions": 0,
+  "required_downgrades": 0,
+  "unauthorized_hard_requirements": [
+    "禁止任何屏幕（确定无冻结硬来源且自身soft no screens被硬化）",
+    "禁止可识别手部（未找到冻结硬来源）"
+  ],
+  "actual_failed_clauses": [
+    {
+      "kind": "required",
+      "path": "intent/description",
+      "preference_path": null,
+      "text": "不出现任何屏幕、招牌、品牌包装或带印刷字的实物；"
+    },
+    {
+      "kind": "required",
+      "path": "intent/description",
+      "preference_path": null,
+      "text": "画面中不出现可识别的人物面部或手部；"
+    }
+  ],
+  "explicit_soft_source": {
+    "kind": "preference",
+    "path": "constraints/preferred_visual_details",
+    "preference_path": "constraints/preferred_visual_details",
+    "text": "restrained low saturation, generous negative space, quiet everyday desk, soft natural light, no people, no logos, no screens, no printed text on objects"
+  },
+  "upstream_source_summary": "Confirmed and Prep only static two papers/15s/9:16/silent/overlay; privacy forbids inventing facts, not all source objects; Mode allows screens as daily imagery",
+  "disputed_constraints_not_needed_for_verdict": [
+    "所有实物印字/品牌包装/招牌范围不打包定罪；有部分Mode文字依据但非无条件禁令"
+  ],
+  "improvements_preserved": [
+    "15秒保持图像为postproduction",
+    "整段function使用/叠字/作者来源义务为postproduction",
+    "两白纸/image required、Mode风格/留白为preference",
+    "无Voice/BGM/SFX新增"
+  ],
+  "modalities": {
+    "expected": [
+      "image"
+    ],
+    "actual": [
+      "image"
+    ],
+    "aspect_ratio": "9:16",
+    "silent": "PASS"
+  },
+  "script_unchanged": true,
+  "script_sha256": "e13544b58e1148dc4b5a891821c07353a310ea9f8e9540cd583a28145d498b53",
+  "Supply": 0,
+  "state_violations": 0,
+  "engineering_intervention": 0,
+  "not_a_formal_repair_or_override": true,
+  "historical_failures_preserved": true,
+  "ready_for_material_smoke": false
+}

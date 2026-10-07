@@ -1,0 +1,32 @@
+{
+  "schema": "semantic-planning-draft@1",
+  "needs": [
+    {
+      "role": "still_desktop_with_two_papers",
+      "importance": "required",
+      "scope": { "type": "scene", "ref": "scene-1" },
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "reference_asset_ids": [],
+        "visual_style": null
+      },
+      "intent": {
+        "description": "一张静态的桌面照片，画面中明确可见两张白纸并置在桌面上；纸张为空白的、未写任何可识别文字、未印任何商标或来源标记；画面中不出现可识别的人物面部或手部；不出现任何屏幕、招牌、品牌包装或带印刷字的实物；整张图作为 0–15 秒全程保持不变的单一桌面画面。",
+        "function": "作为 15 秒竖版静片的唯一视觉基底，用桌面与两张白纸承载后期间叠加的中文短句，本身不说明任何事、不暗示来源或经历。"
+      },
+      "duration_hint": { "target_seconds": 15 },
+      "desired_options": 1,
+      "continuity_refs": [],
+      "queries": [
+        "static desk still life two blank white papers overhead",
+        "minimalist desktop photo with two plain white sheets of paper",
+        "everyday wooden desk surface with two empty white papers"
+      ],
+      "constraints": {
+        "media_type": "image",
+        "preferred_visual_details": "restrained low saturation, generous negative space, quiet everyday desk, soft natural light, no people, no logos, no screens, no printed text on objects"
+      }
+    }
+  ]
+}

@@ -103,7 +103,9 @@ def test_r4_runner_preflight_refuses_unsafe_submission(prep_env, tmp_path, monke
         if message.startswith('〔Easel Semantic Planning V3〕'):
             Path(re.search(r'只写 (.+\.json)', message)[1]).write_text(json.dumps(semantic_draft()))
         elif message.startswith('〔Easel Planning V3 单元分类〕'):
-            Path(re.search(r'只写 (.+\.json)', message)[1]).write_text(json.dumps(labels()))
+            request=json.loads(message.splitlines()[-1])
+            value=_authority_fixed_response(request) if 'controls' in request else labels()
+            Path(re.search(r'只写 (.+\.json)', message)[1]).write_text(json.dumps(value))
         elif message.startswith('〔Easel Script 系统审阅〕'):
             target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
             response = json.loads(message.split('（逐项替换判断，不增加字段）：\n', 1)[1].split('\n写入后停止。', 1)[0])
@@ -157,7 +159,9 @@ def test_r4_native_eval_stops_before_supply(prep_env, monkeypatch, risk):
         elif message.startswith('〔Easel Planning V3 单元分类〕'):
             calls.append(('B', session))
             target = Path(re.search(r'只写 (.+\.json)', message)[1])
-            target.write_text(json.dumps(labels()))
+            request=json.loads(message.splitlines()[-1])
+            value=_authority_fixed_response(request) if 'controls' in request else labels()
+            target.write_text(json.dumps(value))
         elif message.startswith('〔Easel Planning V3 单次语义合同修正〕'):
             calls.append(('repair', session))
             request = json.loads(message.splitlines()[-1])
@@ -261,7 +265,7 @@ def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence
         elif message.startswith('〔Easel Planning V3 单元分类〕'):
             target = Path(re.search(r'只写 (.+\.json)', message)[1])
             request = json.loads(message.splitlines()[-1])
-            value = _classification_fixture_from_schema(request['output_schema'])
+            value = _authority_fixed_response(request) if 'controls' in request else _classification_fixture_from_schema(request['output_schema'])
             if risk == 'repair_B': value['classifications'][0]['kind'] = 'narrative_or_postproduction'
             target.write_text(json.dumps(value)); output_paths.append(target)
         elif message.startswith('〔Easel Planning V3 单次语义合同修正〕'):
@@ -271,7 +275,9 @@ def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence
             name = request['targets'][0]
             target = Path(request.get('output_paths', {}).get(name, name))
             if not target.is_absolute(): target = default_cwd / target
-            value = semantic_draft() if risk == 'repair_A' else _classification_fixture_from_schema(request['context']['response_schema'])
+            value = semantic_draft() if risk == 'repair_A' else (
+                {'batches':[{'index':b['index'],**_authority_fixed_response(b)} for b in request['context']['batches']]}
+                if 'controls' in request['context']['batches'][0] else _classification_fixture_from_schema(request['context']['response_schema']))
             target.write_text(json.dumps(value)); output_paths.append(target)
         elif message.startswith('〔Easel Script 系统审阅〕'):
             target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
@@ -489,7 +495,7 @@ def test_semantic_relation_units_and_independent_failure(semantic_runtime, risk,
         with pytest.raises(ValueError): verify_semantic_checkpoint(root, original, scope['mode'], scope['canonical']['SCRIPT.md'])
         if evidence: evidence.note('real @1 policy replay / copy', 'original Plan identity exactly preserved; conflict rejects')
     elif risk == 'policy_identity_caps':
-        from easel.integrations.semantic_planning import LEGACY_POLICY, POLICY
+        from easel.integrations.semantic_planning import LEGACY_POLICY, BASE_POLICY as POLICY
         from easel.materials.application.visual_contract import requirements_cache_key, classification_units
         old = compile_input(compiler_policy=LEGACY_POLICY); new = compile_input()
         assert old.plan_id != new.plan_id and old.needs[0].need_id != new.needs[0].need_id
@@ -546,7 +552,7 @@ def test_semantic_relation_units_and_independent_failure(semantic_runtime, risk,
                                   'repair_target', 'repair_A_target', 'old_v2_checkpoint', 'target_identity', 'old_v2_pending'])
 def test_semantic_review_target_contract(semantic_runtime, risk, evidence=None):
     """Explicit target provenance; offline labels never count as model accuracy."""
-    from easel.integrations.semantic_planning import digest, source_catalog, POLICY, REVIEW_TARGET
+    from easel.integrations.semantic_planning import digest, source_catalog, BASE_POLICY as POLICY, REVIEW_TARGET
     from easel.integrations.material_layer import PlanningIntegration
     from easel.materials.store import AttemptMaterialStore
     folder = FIXTURE / 'batch05'
@@ -814,7 +820,7 @@ def test_semantic_predicate_purpose_contract(semantic_runtime, risk, evidence=No
         found = next(c for c in clauses if c['text'] == expected['real_failure']['text'])
         assert found['kind'] == expected['real_failure']['expected_kind'] and found['preference_path'] == 'constraints/preferred_visual_details'
         assert rt['run'](execute)['plan'] == first['plan'] and len(messages) == (3 if risk == 'purpose_repair' else 2)
-        from easel.integrations.semantic_planning import POLICY
+        from easel.integrations.semantic_planning import BASE_POLICY as POLICY
         assert json.loads(read_file(rt['root'], 'SEMANTIC_CHECKPOINT.json'))['policy'] == POLICY
         if evidence: evidence.note('real native persistence / reload / reentry',
             {'external_response': 'independent fixed labels, not model proof', 'submissions': len(messages), 'Supply': 0})
@@ -947,9 +953,205 @@ def semantic_runtime(material_integration_env, tmp_path, monkeypatch):
         target = Path(data['output_paths'][name]) if '单次语义合同修正' in message else root/'planning'/name
         target.write_bytes(encode(out))
     def run(dispatch=None):return run_semantic_planning(attempt,context,canonical,mode,
-                     {'profile':'fixture-only','thinking':'off','timeout':60},dispatch or execute)
+                     {'profile':'fixture-only','thinking':'off','timeout':60},dispatch or execute,
+                     compiler_policy='semantic-planning-compiler@6')
     return {'attempt':attempt,'root':root,'mode':mode,'canonical':canonical,'context':context,
             'calls':calls,'execute':execute,'run':run}
+
+
+def _authority_fixed_response(batch, *, kinds=None):
+    """Declared external fixture judgments, not a production semantic oracle.
+
+    The desk fixture keeps the two-paper obligation and narrative purpose.
+    Other tests supply their own frozen kind list; no lexical auto-classifier.
+    """
+    kinds = kinds if kinds is not None else ['required', 'postproduction']
+    assert len(kinds) == len(batch['units'])
+    sources = batch['authority_catalog']['sources']
+    scene = next(s['id'] for s in sources if s['origin'] == 'confirmed_scene' and s['primary'])
+    rows = []
+    for unit, kind in zip(batch['units'], kinds):
+        relation = {'required':'upstream_obligation', 'postproduction':'postproduction',
+                    'preference':'preference', 'unresolved':'unresolved'}[kind]
+        rows.append({'id':unit['id'],'kind':kind,'preference_source':None,
+                     'basis':{'relation':relation,'source_ids':[scene] if kind=='required' else []}})
+    controls=[]
+    for control in batch['controls']:
+        operations=[s for s in sources if s.get('operation',{}).get('need_index')==control['need_index']
+                    and s.get('operation',{}).get('path')==control['path']]
+        if operations: relation, ids='operational',[operations[0]['id']]
+        elif control['soft']: relation,ids='preference',[]
+        else: relation,ids='upstream_obligation',[scene]
+        controls.append({'id':control['id'],'status':'ACCEPT','basis':{'relation':relation,'source_ids':ids}})
+    return {'classifications':rows,'controls':controls}
+
+
+@pytest.fixture
+def authority_runtime(semantic_runtime):
+    from easel.integrations.semantic_planning import AUTHORITY_POLICY
+    rt=semantic_runtime
+    context={'context_refs':rt['context']['context_refs'],
+        **{key:json.loads((rt['root']/'handoff'/name).read_text()) for key,name in
+           [('creator_context','creator-context.json'),('truth_packet','truth-packet.json'),('content_core','content-core.json')]}}
+    def execute(stage,message,session):
+        import re, jsonschema
+        data=json.loads(message.splitlines()[-1]);rt['calls'].append({'stage':stage,'message':message,'session':session})
+        if message.startswith('〔Easel Semantic'):
+            out=semantic_draft();target=Path(re.search(r'只写 (.+\.json)',message)[1])
+        elif '单元分类' in message:
+            out=_authority_fixed_response(data);target=Path(re.search(r'只写 (.+\.json)',message)[1])
+            jsonschema.Draft202012Validator.check_schema(data['output_schema'])
+            jsonschema.validate(out,data['output_schema'])
+        else:
+            target=Path(data['output_paths'][data['targets'][0]])
+            if data['targets'][0]=='SEMANTIC_PLAN.json':out=semantic_draft()
+            else:
+                out={'batches':[{'index':b['index'],**_authority_fixed_response(b)} for b in data['context']['batches']]}
+                jsonschema.validate(out,data['context']['response_schema'])
+        target.write_bytes(encode(out))
+    def run(dispatch=None):return run_semantic_planning(rt['attempt'],context,rt['canonical'],rt['mode'],
+        {'profile':'fixture-only','thinking':'off','timeout':60},dispatch or execute,compiler_policy=AUTHORITY_POLICY)
+    return {**rt,'context':context,'execute':execute,'run':run}
+
+
+@pytest.mark.parametrize('risk',['persist_reentry','repair','pending','source_tamper','catalog_tamper','missing_basis','control_missing','copy',
+                                'multibatch','pure_audio','mixed_audio','capacity'])
+def test_native_authority_contract(authority_runtime,risk):
+    from easel.integrations.material_layer import PlanningIntegration,MaterialIntegrationError
+    from easel.materials.store import AttemptMaterialStore
+    from easel.integrations.hypit import service
+    rt=authority_runtime
+    if risk=='capacity':
+        from easel.integrations import planning_authority as authority
+        from easel.integrations.semantic_planning import AUTHORITY_POLICY,source_catalog,parse_draft
+        inputs=authority.load_inputs(rt['attempt'],rt['canonical'],rt['context'],rt['mode'])
+        def compiled(d):return compile_draft(d,creation_id=rt['attempt']['creation_id'],attempt_id=rt['attempt']['attempt_id'],
+            refs=rt['context']['context_refs'],mode=rt['mode'],script=rt['canonical']['SCRIPT.md'],
+            allowed_refs=source_catalog(rt['canonical'],rt['context']),compiler_policy=AUTHORITY_POLICY,authority_inputs=inputs)
+        def batched(d):
+            p=compiled(d);directory=authority.catalog(inputs,authority.applied_operations(parse_draft(d),p,rt['mode']))
+            return classification_batches(p,rt['mode'],canonical=rt['canonical'],compiler_policy=AUTHORITY_POLICY,authority_catalog=directory)
+        d=semantic_draft();d['needs'][0]['constraints']={f'flag_{i}':True for i in range(33)}
+        with pytest.raises(SemanticPlanningError,match='32'):batched(d)
+        d=semantic_draft();d['needs'][0]['constraints']={f'flag_{i}':True for i in range(12)};d['needs']*=10
+        with pytest.raises(SemanticPlanningError,match='128'):batched(d)
+        inputs['mode_documents']['oversized.md']='bounded context '*25000
+        with pytest.raises(SemanticPlanningError,match='容量'):batched(semantic_draft())
+        assert not rt['calls'] and not (rt['root']/'planning/MATERIAL_PLAN.json').exists()
+        # Actual invocation: JSON fits, but the full B instruction does not.
+        from unittest.mock import patch
+        rt['run']()
+        bmessage=next(c['message'] for c in rt['calls'] if '单元分类' in c['message'])
+        limit=len(json.dumps(json.loads(bmessage.splitlines()[-1]),ensure_ascii=False).encode())+1
+        assert len(bmessage.encode())>limit and len(rt['calls'][0]['message'].encode())<limit
+        target=service.create_film_attempt(rt['attempt']['creation_id'],rt['attempt']['handoff']['handoff_id'],
+            preparation_key='e'*64,runtime_status='NOT_CONFIGURED')
+        target=service.update_film_attempt(target['attempt_id'],event='fixture_message_capacity',planning_contract_version=3)
+        targetroot=Path(target['workspace']['path'])
+        for name,text in rt['canonical'].items():write_file(targetroot,name,text.encode())
+        with patch('easel.integrations.semantic_planning.MAX_FILE_BYTES',limit):
+            with pytest.raises(SemanticPlanningError,match='完整B消息'):
+                run_semantic_planning(target,rt['context'],rt['canonical'],rt['mode'],
+                    {'profile':'fixture-only','thinking':'off','timeout':60},rt['execute'],compiler_policy=AUTHORITY_POLICY)
+        state=AttemptMaterialStore(targetroot).read_recovery_record('semantic-planning-v3')
+        assert set(state['calls'])=={'A'} and not state['repair_used']
+        assert len(rt['calls'])==3 and not (targetroot/'planning/MATERIAL_PLAN.json').exists()
+        return
+    if risk in {'multibatch','pure_audio','mixed_audio'}:
+        import re
+        d=audio_draft() if risk=='pure_audio' else semantic_draft()
+        if risk=='mixed_audio':d['needs'].extend(audio_draft()['needs'])
+        if risk=='multibatch':
+            d['needs'][0]['intent']={'description':'纸。'*38,'function':'后期字幕。'}
+            second=deepcopy(d['needs'][0]);second.update(importance='optional',intent={'description':'杯子。茶。'})
+            d['needs'].append(second)
+        batches_seen=[]
+        def fixed(batch):
+            # Explicit fixture expected labels for repeated paper / two cup units.
+            kinds=['postproduction' if u['text']=='后期字幕。' else 'required' for u in batch['units']] if risk=='multibatch' else None
+            return _authority_fixed_response(batch,kinds=kinds)
+        def execute(stage,message,session):
+            import jsonschema
+            data=json.loads(message.splitlines()[-1]);rt['calls'].append({'stage':stage,'message':message,'session':session})
+            if message.startswith('〔Easel Semantic'):
+                out=d;target=Path(re.search(r'只写 (.+\.json)',message)[1])
+            elif '单元分类' in message:
+                batches_seen.append(data);out=fixed(data);target=Path(re.search(r'只写 (.+\.json)',message)[1])
+                jsonschema.Draft202012Validator.check_schema(data['output_schema'])
+                jsonschema.validate(out,data['output_schema'])
+                if risk=='multibatch' and session.endswith('B1'):out['classifications'][0]['id']=99999
+            else:
+                assert [b['index'] for b in data['context']['batches']]==[1]
+                out={'batches':[{'index':1,**fixed(data['context']['batches'][0])}]}
+                jsonschema.Draft202012Validator.check_schema(data['context']['response_schema'])
+                jsonschema.validate(out,data['context']['response_schema'])
+                target=Path(data['output_paths'][data['targets'][0]])
+            target.write_bytes(encode(out))
+        result=rt['run'](execute)
+        assert len(rt['calls'])=={'multibatch':4,'pure_audio':1,'mixed_audio':2}[risk]
+        if risk=='multibatch':
+            ids=[c['id'] for b in batches_seen for c in b['controls']]
+            assert len(ids)==len(set(ids)) and batches_seen[1]['controls']==[]
+            first=read_file(rt['root'],'CLASSIFICATIONS-000.json')
+            assert rt['run'](execute)['plan']==result['plan'] and len(rt['calls'])==4
+            assert read_file(rt['root'],'CLASSIFICATIONS-000.json')==first
+        else:
+            import hashlib
+            voice=next(n.modality_spec for n in result['plan'].needs if n.role=='voice')
+            assert voice.text_sha256==hashlib.sha256(rt['canonical']['SCRIPT.md'].encode()).hexdigest()
+            assert [n.role for n in result['plan'].needs if n.media_type.value=='audio']==['voice','bgm','sfx']
+    elif risk=='pending':
+        from easel.creation_delivery import DeliveryObservationPending
+        pending=[]
+        def execute(stage,message,session):
+            if '单元分类' in message and not pending:
+                pending.append((message,session));raise DeliveryObservationPending('same original run',disconnected=False)
+            if '单元分类' in message:assert (message,session)==pending[0]
+            rt['execute'](stage,message,session)
+        with pytest.raises(DeliveryObservationPending):rt['run'](execute)
+        result=rt['run'](execute)
+        assert len(rt['calls'])==2
+        assert not AttemptMaterialStore(rt['root']).read_recovery_record('semantic-planning-v3')['repair_used']
+    elif risk in {'repair','missing_basis','control_missing'}:
+        def execute(stage,message,session):
+            rt['execute'](stage,message,session)
+            if '单元分类' in message:
+                target=rt['root']/'planning/CLASSIFICATIONS-000.json';out=json.loads(target.read_text())
+                if risk=='control_missing':out['controls'].pop()
+                elif risk=='missing_basis':out['classifications'][0].pop('basis')
+                else:out['classifications'][0]['basis']['source_ids']=[99999]
+                target.write_bytes(encode(out))
+        result=rt['run'](execute)
+        assert len(rt['calls'])==3 and sum(c['stage']=='structure_repair' for c in rt['calls'])==1
+        assert rt['run'](execute)['plan']==result['plan'] and len(rt['calls'])==3
+    else:result=rt['run']()
+    saved=PlanningIntegration().persist(rt['attempt'],**{k:result[k] for k in ('plan','script','scenes','treatment')})
+    assert PlanningIntegration().load(saved['attempt'])['plan']==result['plan']
+    if risk=='source_tamper':
+        path=rt['root']/'handoff/creative-mode/visual-bible.md';path.chmod(0o600);path.write_bytes(path.read_bytes()+b'changed')
+        with pytest.raises(MaterialIntegrationError):PlanningIntegration().load(saved['attempt'])
+    elif risk=='catalog_tamper':
+        path=rt['root']/'planning/SEMANTIC_CHECKPOINT.json';cp=json.loads(path.read_text())
+        cp['authority_catalog']['sources'][0]['relations'].append('operational');path.write_bytes(encode(cp))
+        with pytest.raises(MaterialIntegrationError):PlanningIntegration().load(saved['attempt'])
+        # Bypass manifest hash alone is insufficient: the real verifier rebuilds origins.
+        with pytest.raises(ValueError,match='目录'):
+            verify_semantic_checkpoint(rt['root'],result['plan'],rt['mode'],result['script'],attempt=rt['attempt'])
+    elif risk=='copy':
+        source=PlanningIntegration().load(saved['attempt']);original=source['plan']
+        target=service.create_film_attempt(original.creation_id,saved['attempt']['handoff']['handoff_id'],
+            preparation_key='d'*64,runtime_status='NOT_CONFIGURED')
+        target=service.update_film_attempt(target['attempt_id'],event='fixture_authority_copy',planning_contract_version=3)
+        targetroot=Path(target['workspace']['path'])
+        for name in ('MATERIAL_REQUIREMENTS.json','SEMANTIC_PLAN.json','SEMANTIC_CHECKPOINT.json'):
+            service._copy_retry_checkpoint_file(rt['root'],targetroot,Path('planning')/name)
+        copied=original.model_copy(update={'attempt_id':target['attempt_id'],'plan_id':'fixture-authority-copy'})
+        origin={k:getattr(original,k) for k in ('creation_id','attempt_id','plan_id')}
+        persisted=PlanningIntegration().persist(target,copied,script=result['script'],scenes=result['scenes'],treatment=result['treatment'],
+            requirements_source={**source['requirements'],'origin':origin})
+        assert PlanningIntegration().load(persisted['attempt'])['plan']==copied
+    else:
+        count=len(rt['calls']);assert rt['run']()['plan']==result['plan'] and len(rt['calls'])==count
 
 
 def test_native_semantic_checkpoint_persistence_reentry_and_tamper(semantic_runtime):
@@ -1414,7 +1616,7 @@ def _classification_fixture_from_schema(schema):
 @pytest.mark.parametrize('risk', ['history_diagnostic', 'bad_shapes', 'schema_and_preferences',
                                   'native_schema_repair', 'old_v4_checkpoint', 'output_identity', 'old_v4_pending'])
 def test_b_output_contract(semantic_runtime, risk, evidence=None):
-    from easel.integrations.semantic_planning import _merge_repaired, POLICY, digest
+    from easel.integrations.semantic_planning import _merge_repaired, BASE_POLICY as POLICY, digest
     from easel.integrations.material_layer import PlanningIntegration
     from easel.materials.store import AttemptMaterialStore
     import jsonschema
@@ -1534,7 +1736,7 @@ def test_b_output_contract(semantic_runtime, risk, evidence=None):
 @pytest.mark.parametrize('risk', ['history_use', 'use_contrasts', 'native_use_repair',
                                   'old_v5_checkpoint', 'use_identity_pending'])
 def test_asset_versus_use_task(semantic_runtime, risk, evidence=None):
-    from easel.integrations.semantic_planning import POLICY, digest, source_catalog
+    from easel.integrations.semantic_planning import BASE_POLICY as POLICY, digest, source_catalog
     from easel.integrations.material_layer import PlanningIntegration
     from easel.materials.store import AttemptMaterialStore
     folder = FIXTURE/'batch08'; rt = semantic_runtime
@@ -1612,3 +1814,176 @@ def test_asset_versus_use_task(semantic_runtime, risk, evidence=None):
         store=AttemptMaterialStore(rt['root']);store.write_recovery_record('semantic-planning-v3',state)
         with pytest.raises(SemanticPlanningError,match='版本'):rt['run']()
         assert not rt['calls'] and store.read_recovery_record('semantic-planning-v3')==state
+
+
+@pytest.mark.parametrize('risk', ['history', 'basis_transport', 'scalar_controls', 'catalog_eligibility',
+                                'operational_origin', 'control_guard', 'creative_contrast', 'verified_loader'])
+def test_batch09_hard_authority_baseline(semantic_runtime, risk, evidence=None):
+    """Actual source integrity and formal admission are not semantic authority.
+
+    The two new guard expectations intentionally expose the pre-change gap.
+    They do not rewrite the old @6 contract or rescore its historical FAIL.
+    """
+    folder = FIXTURE / 'batch09'
+    scope = json.loads((folder / 'scope-original.json').read_text())
+    raw = (folder / 'A-original.json').read_bytes()
+    response = json.loads((folder / 'B-original.json').read_text())
+    plan = compile_draft(raw, creation_id=scope['creation_id'], attempt_id=scope['attempt_id'],
+        refs=scope['context_refs'], mode=scope['mode'], script=scope['canonical']['SCRIPT.md'],
+        allowed_refs=scope['catalog'], compiler_policy=scope['policy'])
+    requirements = assemble_requirements(plan, scope['mode'], [response],
+        canonical=scope['canonical'], compiler_policy=scope['policy'])
+    expected = json.loads((folder / 'expected.json').read_text())
+    bad_text = {row['text'] for row in expected['actual_failed_clauses']}
+    if risk == 'history':
+        assert plan == MaterialPlan.model_validate_json((folder / 'Plan-original.json').read_bytes())
+        assert requirements == json.loads((folder / 'Requirements-original.json').read_text())
+        assert len(planning_contracts(plan, scope['mode'], requirements)) == 1
+        hard = {clause['text'] for row in requirements.values() for clause in row['clauses']
+                if clause['kind'] == 'required'}
+        assert bad_text <= hard and expected['status'] == 'FAIL'
+        assert expected['required_omissions'] == expected['required_downgrades'] == 0
+        assert all(text not in ''.join(scope['canonical'].values()) for text in bad_text)
+        for name, meta in json.loads((folder / 'provenance.json').read_text())['files'].items():
+            import hashlib
+            assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == meta['sha256']
+        if evidence: evidence.note('historical formal / independent semantic', 'PASS / FAIL; original bytes unchanged')
+        return
+    if risk in {'catalog_eligibility', 'operational_origin', 'control_guard', 'creative_contrast', 'verified_loader'}:
+        from easel.integrations import planning_authority as authority
+        from easel.integrations.semantic_planning import parse_draft
+        import jsonschema
+        inputs = {'schema': 'planning-authority-inputs@1', 'handoff_sha256': 'offline-fixture-only',
+            'confirmed': scope['canonical'], 'proposal': None,
+            'preparation': json.loads((folder / 'production-brief-original.json').read_text()),
+            'creator_context': json.loads((folder / 'creator-context-original.json').read_text()),
+            'truth_packet': json.loads((folder / 'truth-packet-original.json').read_text()),
+            'mode_documents': {'mode.json': (folder / 'mode-original.json').read_text(),
+                'visual-bible.md': (folder / 'visual-bible-original.md').read_text(),
+                'director-treatment.md': (folder / 'director-treatment-original.md').read_text()}}
+        directory = authority.catalog(inputs)
+        scene = next(s['id'] for s in directory['sources'] if s['origin'] == 'confirmed_scene')
+        style = next(s['id'] for s in directory['sources'] if s['origin'] == 'mode_soft')
+        private = next(s['id'] for s in directory['sources'] if s['origin'] == 'derived_creator_context')
+        preparation = next(s['id'] for s in directory['sources'] if s['origin'] == 'derived_preparation')
+        def basis(relation, ids): return {'relation': relation, 'source_ids': ids}
+        if risk == 'catalog_eligibility':
+            assert directory == authority.catalog(inputs)
+            assert not any(s['origin'] == 'candidate' for s in directory['sources'])
+            for ids in ([], [style], [private], [preparation], [scene, private], [scene, preparation],
+                        [scene, scene], [99999], [True]):
+                with pytest.raises(ValueError): authority.validate_basis(basis('upstream_obligation', ids), directory,
+                    'scene-1', kind='required')
+            with pytest.raises(ValueError): authority.validate_basis(basis('upstream_obligation', [scene]),
+                directory, 'scene-2', kind='required')
+            authority.validate_basis(basis('upstream_obligation', [scene]), directory, 'scene-1', kind='required')
+            authority.validate_basis(basis('preference', []), directory, 'scene-1', kind='preference')
+            jsonschema.Draft202012Validator.check_schema(authority.basis_schema(directory, 'scene-1'))
+        elif risk == 'operational_origin':
+            explicit = semantic_draft()
+            explicit['needs'][0]['desired_options'] = 1
+            omitted = deepcopy(explicit); omitted['needs'][0].pop('desired_options')
+            a = parse_draft(explicit); b = parse_draft(omitted)
+            p = compile_input(explicit)
+            assert not any(op['path'] == 'desired_options' for op in authority.applied_operations(a, p, {}))
+            operations = authority.applied_operations(b, p, {})
+            record = next(op for op in operations if op['path'] == 'desired_options')
+            assert record['input'] == {'field_absent': True} and record['value'] == 1
+            traced = authority.catalog(inputs, operations)
+            source = next(s['id'] for s in traced['sources'] if s.get('operation', {}).get('path') == 'desired_options')
+            control = next(c for c in authority.control_rows(p.needs[0], 0) if c['path'] == 'desired_options')
+            authority.validate_basis(basis('operational', [source]), traced, 'scene-1', kind='ACCEPT', control=control)
+            for wrong in (dict(control, path='constraints/screens'), dict(control, need_index=1),
+                          dict(control, value=1.0, value_sha256=authority.digest(1.0))):
+                with pytest.raises(ValueError): authority.validate_basis(basis('operational', [source]), traced,
+                    'scene-1', kind='ACCEPT', control=wrong)
+            with pytest.raises(ValueError): authority.validate_basis(basis('operational', [source]),
+                traced, 'scene-1', kind='required')
+        elif risk == 'control_guard':
+            candidate = json.loads(raw); candidate['needs'][0]['constraints']['screens'] = False
+            p = compile_draft(candidate, creation_id='control', attempt_id='control-a', refs={},
+                mode=scope['mode'], script=scope['canonical']['SCRIPT.md'], allowed_refs=scope['catalog'])
+            control = next(c for c in authority.control_rows(p.needs[0], 0) if c['path'] == 'constraints/screens')
+            from easel.materials.application.compiler import NeedCompiler
+            assert NeedCompiler().compile(p.needs[0]).filters['screens'] is False
+            for relation, ids in [('preference', [style]), ('postproduction', []),
+                                  ('operational', []), ('upstream_obligation', [private])]:
+                with pytest.raises(ValueError): authority.validate_basis(basis(relation, ids), directory,
+                    'scene-1', kind='ACCEPT', control=control)
+            with pytest.raises(ValueError): authority.validate_basis(basis('unresolved', []), directory,
+                'scene-1', kind='UNRESOLVED', control=control)
+            for path in ('importance', 'desired_options', 'modality/kind', 'modality/aspect_ratio'):
+                assert any(c['path'] == path for c in authority.control_rows(p.needs[0], 0))
+            assert p.needs[0].constraints['screens'] is False, 'rejection does not delete the hard filter'
+        elif risk == 'creative_contrast':
+            goal = next(s['id'] for s in directory['sources'] if s['origin'] == 'confirmed_treatment'
+                        and '主观创作意图' in s['text'])
+            authority.validate_basis(basis('director_realization', [goal]), directory, 'scene-1', kind='required')
+            # Both the legitimate cup choice and the unsupported screen ban can
+            # have a structurally legal goal reference. This is not an oracle.
+            legitimate = semantic_draft(); legitimate['needs'][0]['intent']['description'] = '桌上一只空杯表达停顿。'
+            assert compile_input(legitimate).needs[0].importance.value == 'required'
+            assert '杯' not in scope['canonical']['SCENES.md']
+            assert expected['status'] == 'FAIL' and bad_text
+            if evidence: evidence.note('semantic boundary', 'legal goal ID is not proof; actual banned-screen realization remains FAIL')
+        else:
+            rt = semantic_runtime
+            package = rt['root'] / 'handoff'
+            actual = {'context_refs': rt['context']['context_refs'],
+                'creator_context': json.loads((package / 'creator-context.json').read_text()),
+                'truth_packet': json.loads((package / 'truth-packet.json').read_text()),
+                'content_core': json.loads((package / 'content-core.json').read_text())}
+            loaded = authority.load_inputs(rt['attempt'], rt['canonical'], actual, rt['mode'])
+            assert loaded['creator_context'] == actual['creator_context']
+            assert loaded['mode_documents']['mode.json'] == (package / 'creative-mode/mode.json').read_text()
+            for changed_context in (dict(actual, creator_context={}),
+                    dict(actual, context_refs={**actual['context_refs'], 'production_brief_sha256': 'bare-sha'})):
+                with pytest.raises(ValueError): authority.load_inputs(rt['attempt'], rt['canonical'], changed_context, rt['mode'])
+            with pytest.raises(ValueError): authority.load_inputs(rt['attempt'], rt['canonical'], actual, {**rt['mode'], 'name': 'global-current-version'})
+            with pytest.raises(ValueError): authority.load_inputs(rt['attempt'],
+                {**rt['canonical'], 'SCENES.md': 'new unconfirmed scene'}, actual, rt['mode'])
+            from easel.integrations.hypit.errors import HypitIntegrationError
+            with pytest.raises(HypitIntegrationError): authority.load_inputs(
+                {**rt['attempt'], 'handoff': {**rt['attempt']['handoff'], 'hash': 'wrong-hash'}},
+                rt['canonical'], actual, rt['mode'])
+            target = package / 'creative-mode/visual-bible.md'
+            original = target.read_bytes()
+            target.chmod(0o600)
+            target.write_bytes(original + b'\nchanged')
+            with pytest.raises(HypitIntegrationError): authority.load_inputs(rt['attempt'], rt['canonical'], actual, rt['mode'])
+            target.write_bytes(original); target.chmod(0o444)
+        if evidence: evidence.note(risk, 'authority component invariants executed; product wiring not yet accepted')
+        return
+    # Explicit @7 offline contract projection; never rescore the actual @6 run.
+    from easel.integrations import planning_authority as authority
+    from easel.integrations.semantic_planning import AUTHORITY_POLICY, parse_draft
+    inputs = {'schema':'planning-authority-inputs@1', 'handoff_sha256':'offline-fixture-only',
+        'confirmed':scope['canonical'], 'proposal':None, 'preparation':None,
+        'mode_documents':{'mode.json':json.dumps(scope['mode'])}}
+    current = compile_draft(raw, creation_id='synthetic-authority', attempt_id='synthetic-authority-a',
+        refs=scope['context_refs'], mode=scope['mode'], script=scope['canonical']['SCRIPT.md'],
+        allowed_refs=scope['catalog'], compiler_policy=AUTHORITY_POLICY, authority_inputs=inputs)
+    directory=authority.catalog(inputs,authority.applied_operations(parse_draft(raw),current,scope['mode']))
+    batch = classification_batches(current, scope['mode'], canonical=scope['canonical'],
+        compiler_policy=AUTHORITY_POLICY,authority_catalog=directory)[0]
+    if risk == 'basis_transport':
+        row = batch['output_schema']['properties']['classifications']['prefixItems'][0]
+        assert 'basis' in row['required'], 'current B wire contract has no independent upstream basis'
+        assert batch.get('authority_catalog'), 'A frozen candidate is not its own upstream authority'
+    elif risk == 'scalar_controls':
+        changed = json.loads(raw)
+        changed['needs'][0]['constraints']['screens'] = False
+        controlled = compile_draft(changed, creation_id='synthetic-controls', attempt_id='synthetic-controls-a',
+            refs=scope['context_refs'], mode=scope['mode'], script=scope['canonical']['SCRIPT.md'],
+            allowed_refs=scope['catalog'],compiler_policy=AUTHORITY_POLICY,authority_inputs=inputs)
+        from easel.materials.application.compiler import NeedCompiler
+        assert NeedCompiler().compile(controlled.needs[0]).filters['screens'] is False
+        if evidence: evidence.note('actual retrieval side effect', 'constraints/screens=false is a hard filter')
+        directory=authority.catalog(inputs,authority.applied_operations(parse_draft(changed),controlled,scope['mode']))
+        batches = classification_batches(controlled, scope['mode'], canonical=scope['canonical'],
+            compiler_policy=AUTHORITY_POLICY,authority_catalog=directory)
+        reviewed = [control for b in batches for control in b.get('controls', [])]
+        assert any(unit.get('path') == 'constraints/screens' for unit in reviewed), \
+            'scalar false reaches retrieval filters without being a classified source'
+    else:
+        raise AssertionError('unknown authority baseline risk')

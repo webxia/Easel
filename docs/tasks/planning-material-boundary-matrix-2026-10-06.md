@@ -705,3 +705,134 @@ Astra前置CONTINUE：关系解释不能实现为词序/关键词；补用途前
 修前run0323PASS/2FAIL，暴露新任务传递/身份未实现，不是宣称已证实消费者故障；生产仍b646不变。修后同一完整run033 **115PASS/0FAIL/0GAP/0未执行**，全量 **853PASS/5既有skip**（63.20秒），115技能/compileall/diff PASS，Astra实际diff无必要修订。257旧正式现场/100fixture保持，软件实际模型及Supply下游0，source `aff2ed40dd85dbec74f9a8a894b1688626116e6b2de5b145d8e0443597f7ea53`。
 
 软件证明任务说明/身份/合同传递，不证明模型语义改善，更不承诺根治。本次新真实证据须在另一固定版本及全新32项batch09中取得；旧batch08与全部历史FAIL保留、不倒算、不放行Smoke。按既有授权窄提交、安全加载/套餐/实时空闲检查后继续原16主题和原门槛。
+
+§13.22后续 R4 batch09 固定版本与安全加载（2026-10-07，真实结果未定）
+
+§13.21/13.22固定commit89bc154d228f443e784632cd74386c54d2558ab9/sourceaff2ed40dd85dbec74f9a8a894b1688626116e6b2de5b145d8e0443597f7ea53，仅14获批源码/测试/fixture/Task文件，凭证/运行产物0，无push，用户其余工作树保留。run033115矩阵PASS/853全量PASS/5既有skip、115技能/compileall/diff及AstraCONTINUE。
+
+实时8旧Owner有效操作0，各批unknown/pending/submitting/release待办0，Gatewayactive/lost/audit0；同Key文字套餐90%/98%，无fallback，实际账单UNKNOWN。257旧正式现场/100fixture及全部八旧批原件SHA保持。实际raw-stream停服后精确备份130,268字节、SHA537989e82995f296b765a2674e19cae31e2f822275a00b37de39310e6706217f核验，13:41:53 Web/Gateway新PID4791/4789安全加载，HTTP200/Gateway空闲。无进程内SHA端点，证据为新PID/时间/执行文件/cwd与固定源。
+
+原16主题和独立oracle不变，冻结32全新独立正常确认Creation，真实成绩尚未产生；逐项实际Prep/A/B/Truth与独立语义评分，正式双PASS才继续。实际Supply/Provider/生成/TTS/Build禁止，全部历史FAIL保留，Smoke=NO。[加载记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch09-release-loaded.json)。
+
+### 13.23 batch09：正式合同PASS，屏幕/手部无来源硬化语义FAIL（2026-10-07，STOP）
+
+固定89bc154d/sourceaff2的新32项首项《桌上的两张纸》，正常Prep/A/B0/Truth初次及一次Truth报告修复五原run全部ok/released。A/B正式合同无Planning repair；Truth初次误将创作短句作为supported_paraphrase，沿原有一次报告修复改为creative_expression/sources[]，正式Truth/Persist/Load及原生Supply前切点通过。
+
+独立Main及Astra STOP：正式required“**不出现任何屏幕**”无冻结硬来源。确认稿和Preparation仅静态桌面两张白纸/15秒/9:16/silent/后期正文，Mode Visual Bible还列screens为日常素材；同Need明确soft preferred_visual_details包含no screens，不能以A自行写入description的禁令自证新增授权。禁止可识别手部也未查到冻结hard来源；禁止编造私人事实/画外人物不是禁止所有画内对象。纸空白有依据不计失败；全部实物印字/品牌包装/招牌存在部分Mode文字边界，不打包定罪，本次无需依赖范围争议即可FAIL。
+
+本次15秒保持画面及整个function使用/叠字/作者来源义务正确postproduction；两张白纸/image/9:16/silent/SCRIPT和Mode风格/留白preference保持，说明改善而非整体语义通过。原required语义1/1保留，无遗漏/降级，但无来源hard至少2项使独立语义FAIL；正式合同/TruthPASSED不能抵消。评分不改正式产物、不降级救场。
+
+本批1项语义FAIL/31未执行、held-out0/16。A/B初始无需Planning repair1/1；含Truth首次无报告修复0/1；最终正式合同1/1执行项（计划1/32），独立语义0/1。Planning repair0/N/A，Truth report repair1/1，NORMALIZE0。281.806秒、Planning含Truth219.945秒；5实际提交/30assistant/29工具/23原请求pending观察，9应用callback含4缓存原请求重入，重复实际提交0。两Truth请求共享同session、request hash与run独立，审计按一个实际transcript window计数一次，不把两run的同一会话重复累计。套餐90→89%/周98→98%，实际账单UNKNOWN。
+
+Supply/Provider/生成/TTS/Build/状态越界/工程介入0。固定源/工具/原16主题/SCRIPT、257旧正式现场/100fixture及全部八旧批原件保持；五原run已释放，各批pending/submitting/release0，Gatewayactive/lost/audit0。正式原件SHA评分前后不变，raw精确归档/脱敏会话/完整请求/独立评分保存batch09受保护根。后31项不启动、历史FAIL不恢复不倒算，Smoke=NO。[完整指标](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch09-actual-run-summary.json)、[独立语义FAIL](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch09-independent-failed-review.json)、[Astra](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch09-astra-review.txt)。
+
+后续不只增加相同语义提示。本例暴露A生成的描述被当成自身硬来源，而B的target/strength说明未能阻止无来源属性进入required。下一步先调查正式硬条款能否只由程序投影冻结Creator/Director原句、将模型创意描述/检索意图与硬来源分开；保留独立语义审核，不假装引用存在就证明含义正确。涉及新输入协议/责任边界须先单一Task设计及Astra前置复核，未完成离线证明前不另起真实批。
+
+### 13.24 硬条款来源调查与设计约束（2026-10-07，调查中，未实施）
+
+本节沿用当前R4 Goal及同一Task，不启动batch10、不修改batch09正式产物或成绩。实际源码仍89bc154d/sourceaff2；853 PASS/5既有skip是此前软件证据，不能认领本节方案已通过。2026-10-07 14:02核对Goal自09:35开始约4小时26分，活跃执行约4小时10分；此前“剩余2–3小时”仅适用于后续32项全部顺利的评测，不包含新增根因治理，现已失效。
+
+**已证实的来源链缺口。** `semantic_planning._compile_need`将A的自由`intent.description/function`传入正式Need；`visual_contract.sources_for`再将它们作为需完整绑定的原文。程序证明的是“条款忠于A”，没有证明“A忠于确认要求”。B虽收到确认稿并有审核对象说明，仍将自行新增的屏幕/手部禁令标required。`constraints`中除查询、voice_delivery、required_source_kind、usage等既有例外之外的字段也进入来源候选；`NeedCompiler`还将多数标量constraints直接编译为检索filters。只改intent会留下跨字段入口。
+
+**实际上游权威不能按冻结一刀切。**
+
+| 输入 | 已有约束与证据 | 本次不得误认 |
+| --- | --- | --- |
+| 确认SCRIPT/SCENES/TREATMENT | 正常确认产生，Planning逐字节保护；SCENES含真实源条件与后期义务，TREATMENT含表达/声音 | 逐字存在不等于适用于原素材，也不等于required |
+| Preparation Production Brief | `creation_preparation`已核对handoff中的brief及其冻结hash；本轮Planning context只有brief hash，没有brief正文 | 模型整理后被冻结，不自动获得新增Creator硬授权 |
+| Creator Context / Truth | 含身份、隐私、事实与叙事边界，当前均为冻结快照 | 不编造人物事实不能变成禁止画面出现手部 |
+| Creative Mode | `load_frozen_creative_mode`核验handoff；现有visual_material_style是软偏好，Director有镜头、素材与表达判断权 | Mode中的偏好、示例物件或表达说明不能批量硬化 |
+| A语义草稿 | Director可规划合法新Need，但不获得新增身份、事实或预算；Task§11.3已明确 | 自己写一句禁令并不能自证为Creator要求；也不能因为没有逐字原句就误拒全部创意Need |
+
+**前置复核结果：MODIFY。** Astra认可程序拥有上游来源目录、模型只选择已有ID的方向，但不认可“所有硬条件只能复制既有原句”作为直接实施方案。出处存在不能证明适用模态、强度或语义蕴含；Preparation不是新增授权入口；新创意Need不能静默删除或全部降软。复核要求先明确来源资格、完整消费者入口、合法Director具体化的承载及反向保护，再复核具体实现。
+
+**下一软件批次的设计出口。** 在生产修改前，完成以下同一份合同方案与真实离线反例：
+
+1. 程序目录逐项绑定实际原件、字段/范围、版本与上下文；模型不填path/hash/已授权标签。区分“证明出处”和“有资格施加该类约束”，不按来源文件或必须/不要关键词授予hard。
+2. 明确上游义务、Director创意解法、软偏好及叙事/后期的承载；程序能投影的明确条件才由程序投影。没有原句的合法具体化不能由A自证授权，也不能一律拒绝或降软。该项仍待完成可实施定义，尚无合同变更通过结论。
+3. 逐条核对intent、constraints、模态/时长/数量、默认值、检索过滤、生成输入和Match消费者。新增来源保护不得被其他字段绕过，也不得通过降低required来通过。
+4. 同一矩阵固定batch09真实回放与反向预期：无来源禁屏/禁手与soft升级失败；用户明确禁屏、两纸数量、真实源动作保持；隐私叙事不转素材禁令；后期正文不转背景图文字；合法Director新Need保持；错误scene/模态、漏选与跨字段绕过不放行。原件回放仍记录历史FAIL，不用派生正例重计真实成功。
+5. 新草稿/投影政策单独版本化，纳入请求/快照/批次身份；旧@1–6精确复算与pending原身份保持，未知不重派，不刷新repair。保留独立语义检查，不能以ID存在或引用完整宣称语义覆盖成立。
+
+实现仍限定Planning应用层及必要的已有上下文传递；不改变Material V1.3 Domain、Rights、Match、Readiness或四方职责，不增加Gate、模型调用、状态机、公开路由或修复额度。上述未决合同解决、先失败证据与Astra前置复核通过后，才开始软件实现；软件验收后才另固定版本并重开32项真实Eval。当前Smoke=NO。
+
+### 13.25 上游出处与B语义依据绑定的最小实施合同（候选，未实施）
+
+采用§13.24复核后的选项一：不把所有hard强制投影为上游逐字原句，不删除合法创意Need，也不再只增加自然语言例子。A运输仍是一份语义草稿；B在同一次既有分类调用中，必须对正式条件给出程序可核验的上游依据绑定。引用存在只证明出处；语义适用、蕴含、强度及Director具体化仍是B的语义责任，并由独立Eval验收。这里不宣称程序能确定性消除所有无来源hard。
+
+**修前证据。** 脱敏batch09保存14份逐字实际原件、原scope、独立Expected及来源SHA，共17文件，旧100fixture未改。同一矩阵新增第47行，run034实际1 PASS/2 FAIL：旧@6实际Plan/Requirements精确回放仍正式PASS、语义FAIL；当前B输出Schema没有依据字段；标量`constraints/screens=false`确实进入NeedCompiler硬filters，却不在分类单元中。后两项是本节新增保护未实现的FAIL，不冒充旧合同要求或被测模型语义已修复。生产sourceaff2、257旧现场及117fixture在该执行前后均保持。
+
+**程序目录与资格。** 新应用层政策`semantic-planning-compiler@7`使用程序生成的`planning-authority-catalog@1`，与原scope/voice目录分开。条目包含程序ID、实际原件类别、字段/原文范围、原字节与摘要、适用scope、已知字段强度及可引用用途。确认SCENES、TREATMENT、经原handoff完整性验证的Mode文件、Creator/Truth和Preparation分别标来源；A只属于candidate，不进入上游目录。Preparation明标derived，不能单独支持新增Creator义务；隐私/事实字段不提供视觉物件禁令资格；既有Mode视觉风格明确soft，不可作为required依据。未知自由文本只作为待语义解释的上下文，不按文件名或必须/不要关键词授予hard。出处和上下文都进入固定请求及快照摘要，不让模型填path/hash/authority标签。
+
+**A职责保持。** 继续规划Need、scope、模态、用途、importance和具体素材候选，允许服务既定表达目标的合法新增创意Need；不新增第二份正式合同，不让A再填写一套派生来源表。它不能自称用户新增硬授权、身份事实或预算；把自身自由描述放入草稿不等于已获准入。模型的自由检索短语和明确软偏好保持既有角色。初稿、修复与消费者使用同一A Schema。
+
+**B运输合同。** 程序为每个视觉单元保留现有id/kind/preference_source，同时要求`basis`：
+
+- `relation`为有限的`upstream_obligation / director_realization / preference / postproduction / unresolved`；`source_ids`为有界、唯一且实际目录中的ID，不返回路径、复制原文或“已授权”布尔值。
+- required只允许前两种relation，必须引用实际可用于该目的且适用当前scope的上游依据；A候选、自身软字段、derived Preparation或隐私事实不能独立充当视觉hard来源。引用语义是否足够由B判断，程序不以ID存在断言充分。
+- `director_realization`必须服务已接受目标且符合当前scope，不改变确认的对象/数量/源动作，不增加身份事实/授权/预算，不把既有soft或叙事边界改成素材禁令。“没有明显冲突”不是充分依据。合法新物件表达仍可存在；没有足够依据则unresolved，不删除或自动降软。
+- preference沿既有显式偏好引用及已知soft强度；postproduction仍需按实际审核对象处理，不能吞掉真实源动作。无法确认对象、强度或依据则unresolved，沿原修复/拒绝流程，不产生新调用。
+
+**完整视觉入口。** 除现有原文单元外，程序给本次B提供`review_type=control`的类型化候选控制单元，覆盖视觉Need的importance、duration_hint、desired_options、非查询constraints和模态参数。它们不能因不是字符串绕过检查。每个control的ID、path、值和已有消费者作用由程序生成；B同一次返回ACCEPT或UNRESOLVED及basis，不把控制项伪造为Material视觉原文条款。程序默认/已知派生值独立标明，只有与实际默认/冻结输入相符才能引用为operational依据。未知/不适用控制不进入filters、生成或Match，也不通过删字段救场。查询继续按G1处理；Voice身份/冻结SCRIPT/音色参数及Rights/授权/预算沿原确定性校验。纯声音B=0的既有合同保持，本节不新增音频模型审核；声音语义完整性继续由独立R4逐项证明，不能把此视觉来源修复扩大宣传为所有模态语义已确定性验证。
+
+**编译、修复与恢复。** 所有视觉原文及control完整返回，结果先汇合，再验证当前目录/范围/强度/关系枚举及来源资格；不会因为basis存在直接推进。原文仍使用现有bind/validate，controls及依据只保存现有应用层checkpoint，不变更正式MaterialPlan/Requirements或另建权威sidecar。依据或control错误使用原单次共享repair，成功批次不改、不重派，未知按原run观察。@7目录/输入/单元/依据进入Plan身份、批次及checkpoint指纹；@1–6显式旧映射、原件复算和pending身份保持，禁止用缺少新证据降级绕过@7。
+
+**实施前必须补齐并由Astra核对的细节。** 目录条目资格依据要落到实际字段/producer；Mode文档和Preparation读取必须复用handoff验证，不接受模型传入的替代原件；control的操作默认、创意选择和硬条件不能混同；现有单元/消息容量及完整覆盖上限不得靠截断或删项通过。新增运输Schema精确投影所有实际ID、关系/引用资格和control输出形状，初B与B repair相同约束。先增加独立正反对照及真实内部连续链，再实施生产；当前本节仍是候选合同，尚无@7实现或Astra通过结论。
+
+验收必须包括：batch09无来源禁屏/禁手不能自证；用户明确禁屏、两纸数量、视频连续动作保留；合法Director新物件Need不误拒；隐私/事实/soft/derived Preparation不能充当硬授权；错误scene/模态、未知/重复/遗漏来源、缺basis及scalar/filter绕过拒绝；旧@6真实原件精确恢复与新身份不认领旧缓存；pending不重派、额度不刷新；原生确认→Preparation→A/B→Truth→persist/load→Supply前切点及全部不回归。固定正确外部回复只证明软件合同，错误但Schema合法的语义仍应在独立Expected中FAIL，不包装成软件可自动判定所有含义。
+
+#### 13.25.1 实施前复核MODIFY的合同闭合
+
+以下补充落实Astra的六项最小修订，仍需复核后才改生产。
+
+**来源资格是引用用途，不是hard认证。** 目录按程序实际字段建立：
+
+| 原件/字段类别 | 可作主要依据的relation | 已知限制 |
+| --- | --- | --- |
+| 确认SCENES正文 | upstream_obligation、director_realization、preference、postproduction | 行/单元绑定真实scene/segment/event；B仍判断对象、强度和蕴含，整行不自动hard |
+| 确认TREATMENT的表达与声音原件 | 同上 | 全局表达可支持具体化；声音不能错绑视觉，叙事禁令不是像素禁令，均由B语义判断 |
+| 确认SCRIPT | 非独立上下文依据、postproduction | 单独SCRIPT不能支持背景素材必须含字；有明确SCENES/TREATMENT印刷/屏幕要求时可作为被引用正文，与该主要依据共同引用 |
+| 经验证video_plan.specs的duration/aspect/audio/language | upstream_obligation，限对应技术/音轨控制 | 用已有validate_video_plan及其SHA核验，canonical三文件必须一致；不能从15秒总片长直接证明静态源图有15秒素材时长 |
+| Mode JSON的visual_material_style和现有明确软字段 | preference | 不提供hard或身份/预算依据；程序实际应用该默认另留操作记录 |
+| 冻结Mode directing文档、表达目标 | director_realization、preference、postproduction；明确政策可待解释为upstream_obligation | 原条目保留完整上下文；示例物件不自动必需；JSON runtime/身份边界不成为视觉条件资格 |
+| Creator身份/隐私/Voice、Truth事实/叙事、Content Core | postproduction及事实/身份上下文 | 当前已定义字段不提供视觉物件hard资格；素材参考/Voice身份沿已有类型化真实目录验证，不把公开事实投影成画面禁令 |
+| Preparation自由文本/visual_constraints | 非主要派生上下文、postproduction | derived不能单独或加一个无关ID就充当硬授权；有合法主要依据仍须B判断相关性，程序不声称证明蕴含 |
+| 本次真实程序默认/派生记录 | operational，仅对应记录的control或显式soft来源 | 记录规则版本、实际输入、输出path/值；A显式输入恰与默认相同也不获得此资格 |
+
+Mode文档的“待解释资格”不等于强度证明；非主要条目只能伴随合法主要条目进入相应basis，不能靠数量拼凑资格。所有source_id必须已存在、唯一、数量0–4且范围合适。表中主来源资格由真实类型决定；缺少主来源时相关required/control不能ACCEPT。sourceID可选集合由程序按当前Need/scope和relation投影到Schema，程序消费者再校验同一规则。
+
+**basis精确组合。** `basis`仅relation/source_ids，relation增加`operational`以闭合control合同。原文required仅upstream_obligation/director_realization且非空；preference仅preference，引用既有合法preference_source时允许source_ids为空（自由A软偏好本来就是合法偏好），否则须实际soft依据；postproduction仅postproduction，允许空依据但保留完整原句/对象上下文；unresolved仅unresolved且不用于推进。原文不接受operational。control输出只含id/status/basis，status为ACCEPT/UNRESOLVED；UNRESOLVED对应unresolved。ACCEPT按control真实消费者作用限定relation：硬过滤/源条件仅upstream_obligation/director_realization，程序实际默认/派生值可operational；既有明确soft只可preference或相符的soft操作记录；不能用postproduction/preference放行硬filter后继续保留它。非空依据及操作记录须与该control对应，缺失/错误即阻断整个Planning，不改原值。
+
+**操作记录必须可复算。** 在parse及apply_defaults时由程序记录这一次实际执行的默认/派生：例如草稿确未填写desired_options而Pydantic应用1，或确缺preferred_style而Mode绑定既有soft默认。规则/输入/输出与原草稿字段存在性一并冻结。A明确写desired_options=1不是程序默认；media_type从模态kind派生只证明字段一致性，不证明模态语义选择正确；无操作记录不提供operational入口。身份纳入上述实际来源差异，不能把“缺省”和“显式自填常见值”混同以绕过审核。
+
+**control作用与完整性。** importance影响required覆盖，duration_hint影响检索min_duration及生成时长，desired_options影响发现/候选数量；spec.kind/aspect_ratio/resolution/generate_audio/reference_asset_ids影响模态/生成参数与来源；constraints的orientation、尺寸/时长、source kind、allow_generation、logo/text_in_frame、identity及动态动作可影响检索/生成/Match。其他标量同样保留真实检索控制作用，不因未出现在已知Matcher表就被忽略。preferred_visual_details、preferred_style、visual_style按现有soft语义，不新增硬门槛。全部受审核值与同一最终Need快照/hash绑定，persist/load/缓存复算再次核验；不接受仅保存“审过”标签却读取另一份值。本文不改任何Provider映射或Matcher规则。
+
+**无新增B请求的分批方式。** 原canonical单元仍按原40项/Need及40全局单元/批限制生成，原分批数量和映射不变；control单独有界，每视觉Need最多32项，全部放在该Need首次出现的既有B批次的controls数组，仅审核一次。一个批次含多个Need时controls汇总最多128项；超过或完整消息超过256 KiB时在提交前明确拒绝，不创建额外B批，不截断、不删要求。B输出classifications与controls分别严格完整/按序，修复Schema复用两组同样约束；repair仍只汇合受影响的既有批次。容量不用于宣称所有主题均能容纳；新合法样本若真实触界即保持FAIL并按证据处理。
+
+**受验证的实际装载。** 从Attempt workspace/handoff调用已有verify_handoff_directory，核验manifest/hash及Creation/Handoff身份后读取其Creator/Truth/content/Mode files和production_request。Mode只用这个冻结目录及entries，不读全局当前Mode；brief同时核对manifest生产请求原件及planning_context既有brief SHA；video_plan按已有确认Schema/SHA与canonical一致性验证。只拿到hash而无真实正文时不建立可用条目，不允许A或评测替身补造正文。旧@1–6不装载或回填新目录；@7恢复使用同一真实原件重新建立目录并核对固定scope/hash。
+
+**语义反例必须单列。** 引用A自证、未知ID、已知soft/隐私/derived单独硬化等属于程序应拒绝的结构/资格缺陷；B引用合法确认目标却错误把禁屏标director_realization，可以Schema合法、程序仍无法证明错误，独立语义Expected必须FAIL。本节不能把这个后者写成确定性程序必拒绝，也不能因允许这种受检验风险而改变R4零语义错误门槛。
+
+### 13.26 来源组件实施进度（2026-10-07，未完成软件验收）
+
+§13.25.1已获Astra前置CONTINUE，仅认可软件批实施；[复核记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch09-authority-design-review.txt)保留此前MODIFY闭合要求。未启动新真实R4、未加载新服务，也未改旧批成绩。
+
+已新增应用层`planning_authority.py`：从实际已验证Attempt handoff读取确认/Mode/Creator/Truth/brief，构造有出处、范围和已知字段资格的目录；记录实际缺省与Mode绑定操作，枚举最终视觉控制值，校验basis资格及硬control不能由soft/postproduction放行。Mode名称属于元数据，不列为创作目标主要依据。operational核对typed值摘要，不能用False/0或1/1.0混同。
+
+完整修前run036为116PASS/2新保护FAIL，旧115项无新增回归，sourceaff2与257现场/117fixture保持。组件run037为5PASS/2尚未接入FAIL；run038为6PASS/2尚未接入FAIL：实际历史原件、来源资格/scope、真默认与显式同值、硬filter控制、合法创意/错误realization语义边界、真实Handoff装载与篡改/伪上下文/孤立brief hash保护均已执行。每次均117fixture和257旧正式现场保持；最新工作树source `b878b38ba671a6e3a3acc2e4c2ae65b63666b2478613229c0f2c7e9b57c92898`只是未提交组件指纹，不是固定或已加载版本。
+
+**未完成部分：** 新目录及controls尚未接入现有A/B运输、共享repair、请求/Plan身份、checkpoint复算和persist/load；第47行basis_transport/scalar_controls仍实际FAIL，不能认领0FAIL软件出口。下一步接入@7并补新原生连续链与旧@1–6恢复/跨批/容量保护，完成完整矩阵与全量回归后再固定版本、服务加载、新32项真实Eval。当前产品默认与服务仍旧固定89bc；未commit/push/restart，Smoke=NO。
+
+### 13.27 @7 正式链集成及冻结前修订（2026-10-07，最终验收进行中）
+
+在§13.25.1范围内已接入A/B、同一次共享repair、请求/Plan身份和checkpoint、正式persist/load。新产品工作树默认@7；没有版本参数的纯编译库API保留BASE@6兼容，产品执行及@7复算显式使用实际政策，不以缺依据切回旧版本。旧@1–6原件回放和旧pending不重派测试保留。现有旧风险fixture明确以@6执行；正常Owner/Gateway异步、repair及Supply/Observation连续集成采用产品默认@7。
+
+@7来源装载核验实际Attempt/Handoff及冻结文件，scope/voice目录使用已验证Creator原件；正式恢复重新读取同一冻结来源、复算操作目录、Plan和全部B产物，不信任保存目录自证。复制仍在同一Creation/Handoff内，保留原origin且不重新Planning；persist之前尚未落盘的复制三文件仅允许使用与冻结scope/确认方案一致的参数，随后load核验实际文件。
+
+第47行新依据运输及标量入口保护已通过；第48行执行真实内部保存/恢复/重入、单次repair、原pending身份、原件/目录篡改、漏basis/漏control、复制、跨批唯一control及受影响批次repair、纯声音B=0、混合模态/Voice字节绑定、每Need32/每批128/完整消息容量。无新模型调用、额度、Gate或Material Domain字段。fixture语义答案明确是外部固定回复，不证明真实模型改善；合法ID下错误realization独立FAIL仍保留。
+
+run039因本次测试文件缩进错误未收集，失败原样保留；修正后run040为131PASS、run041为135PASS，257旧正式现场/117fixture均保持。首次全项目873PASS/5既有skip、115技能/compileall/diff通过，但不直接冻结该中间版本。Astra冻结前MODIFY指出：空controls的prefixItems不得为空数组、@7诊断必须列明controls/basis、完整B消息不能只检查JSON data容量。已最小修正，跨批初B/repair实际check_schema与validate，完整消息超限的真实内部调用证明所有B零提交；正在重新执行最终矩阵和全项目回归。
+
+本节没有提交、加载服务或新真实R4。服务仍89bc；batch09及全部历史FAIL不变，Smoke=NO。最终软件通过及Astra结论、固定commit/source和真实新批结果分别登记，不把本节中间PASS当作真实发布成功。
+
+**最终软件出口：** 修订后run042实际135PASS/0FAIL/0CONTRACT_GAP/0未执行；完整pytest873PASS/5既有skip，115技能、compileall、diff检查通过，未涉及前端。源203文件SHA`bf527ce1b565409817a5c21e0dc8029e6ca3ad73681bd619493fc4bd17be9caf`、257旧正式现场/117fixture在矩阵前后不变；Astra最终CONTINUE，无新增必修项。完整JUnit/stdout/source清单及结论见[单一软件记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch09-authority-software/software-summary.json)。此前run039/组件FAIL及batch09真实FAIL保留。下一步依既有授权窄提交、固定及安全加载，再以原16主题/原oracle另起全新32项，未完成真实成绩不得Smoke。

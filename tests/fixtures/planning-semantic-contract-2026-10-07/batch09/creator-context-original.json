@@ -1,0 +1,20 @@
+{
+  "audience": "把一句中文短句当作提醒的观众；不需要故事或结论的人。",
+  "identity": {
+    "public_description": "一名公开以「个人经营实践」进行表达的创作者，本作只以其整体表达气质出现，不代入具体职业身份。"
+  },
+  "privacy_policy": {
+    "do_not_infer_private_facts": true
+  },
+  "relevant_context": [],
+  "schema": "easel-creator-context@1",
+  "voice": {
+    "avoid": [
+      "断言式结论",
+      "强情绪与口号",
+      "第一人称口吻",
+      "任何带'我曾经''我决定过'含义的旁白或字幕"
+    ],
+    "tone": "克制、留白、不说教"
+  }
+}

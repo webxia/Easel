@@ -1,0 +1,22 @@
+{
+  "claims": [],
+  "first_person_allowed": [],
+  "forbidden_inventions": [
+    "任何第一人称经历或自传式细节",
+    "具体的工作决策故事、家庭场景、财务/创业事件",
+    "桌面的品牌、纸张的来源、拍摄地点",
+    "出现在画面之外、但暗示存在的对话、人物或时间"
+  ],
+  "personal_facts": [],
+  "public_allowed": [
+    "一张静态桌面画面，桌面包含两张白纸",
+    "画面上叠加一行中文屏幕文字：先看问题，再做决定。",
+    "作品整体作为一句主观表达，不主张任何具体事实"
+  ],
+  "schema": "easel-truth-packet@2",
+  "uncertainty_policy": {
+    "learning_is_not_proven_capability": true,
+    "plan_is_not_experience": true,
+    "unknown_claims": "label_uncertain"
+  }
+}

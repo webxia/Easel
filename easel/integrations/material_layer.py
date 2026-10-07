@@ -343,7 +343,7 @@ class PlanningIntegration:
             try:
                 semantic = verify_semantic_checkpoint(root, plan, mode, script,
                     requirements_source.get('origin') if requirements_source else None,
-                    canonical={'SCRIPT.md': script, 'SCENES.md': scenes, 'TREATMENT.md': treatment})
+                    canonical={'SCRIPT.md': script, 'SCENES.md': scenes, 'TREATMENT.md': treatment}, attempt=attempt)
             except (OSError, ValueError, TypeError, KeyError) as exc:
                 raise MaterialIntegrationError('Planning语义编译完整性无效：' + str(exc)) from exc
         truth_path = root / "handoff" / "truth-packet.json"
@@ -505,7 +505,7 @@ class PlanningIntegration:
                     actual = verify_semantic_checkpoint(root, plan, mode, artifacts['script'],
                         manifest.get('semantic',{}).get('origin'),
                         canonical={'SCRIPT.md': artifacts['script'], 'SCENES.md': artifacts['scenes'],
-                                   'TREATMENT.md': artifacts['treatment']})
+                                   'TREATMENT.md': artifacts['treatment']}, attempt=attempt)
                     if actual != manifest.get('semantic'):
                         raise ValueError('语义编译冻结摘要不一致')
             except (OSError, ValueError, TypeError, KeyError) as exc:

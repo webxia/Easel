@@ -1,0 +1,96 @@
+{
+  "schema": "planning-incident-fixture@1",
+  "batch": "batch09",
+  "commit": "89bc154d228f443e784632cd74386c54d2558ab9",
+  "production_source_sha256": "aff2ed40dd85dbec74f9a8a894b1688626116e6b2de5b145d8e0443597f7ea53",
+  "formal_contract": "PASS",
+  "independent_semantics": "FAIL",
+  "real_source_protected_not_modified": true,
+  "files": {
+    "A-original.json": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/planning/SEMANTIC_PLAN.json",
+      "sha256": "2ef09781ddcd0cd6d63bbee9e1e524fdb617794c9296e83067219a1b878df4c9",
+      "bytes": 1563,
+      "unchanged_source_bytes": true
+    },
+    "B-original.json": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/planning/CLASSIFICATIONS-000.json",
+      "sha256": "64b2c8ed635143bd67904a39d3be06ce8c88e40b135ee66ae5377038558fd46b",
+      "bytes": 730,
+      "unchanged_source_bytes": true
+    },
+    "checkpoint-original.json": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/planning/SEMANTIC_CHECKPOINT.json",
+      "sha256": "7466f30242c704ef7cae97582337534edce102e2d62c6d5c61d07e8e786cefed",
+      "bytes": 9098,
+      "unchanged_source_bytes": true
+    },
+    "Plan-original.json": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/planning/MATERIAL_PLAN.json",
+      "sha256": "9e4c76433a17c2e6924b0d1aa8238861efa3239999e2050609d3779594befbd1",
+      "bytes": 2570,
+      "unchanged_source_bytes": true
+    },
+    "Requirements-original.json": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/planning/MATERIAL_REQUIREMENTS.json",
+      "sha256": "a16c67cf6b6ba523c50d857dd5207a810324111ccf27319f270dee5ef50f855a",
+      "bytes": 2470,
+      "unchanged_source_bytes": true
+    },
+    "SCRIPT-original.md": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/planning/SCRIPT.md",
+      "sha256": "e13544b58e1148dc4b5a891821c07353a310ea9f8e9540cd583a28145d498b53",
+      "bytes": 30,
+      "unchanged_source_bytes": true
+    },
+    "SCENES-original.md": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/planning/SCENES.md",
+      "sha256": "837e6acf752f4cecda69ea4061c2752298cc5450651acabb31898510a55541f1",
+      "bytes": 91,
+      "unchanged_source_bytes": true
+    },
+    "TREATMENT-original.md": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/planning/TREATMENT.md",
+      "sha256": "f41a10c50d4150abfdf88d663806589f4bb62d868fc0f3b8e57ae4a44ec4c12f",
+      "bytes": 126,
+      "unchanged_source_bytes": true
+    },
+    "creator-context-original.json": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/handoff/creator-context.json",
+      "sha256": "c66672dd3e8dfeef47e7975015713546b18482bbae8b848b3dfe4223df1264bf",
+      "bytes": 648,
+      "unchanged_source_bytes": true
+    },
+    "truth-packet-original.json": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/handoff/truth-packet.json",
+      "sha256": "6cf075528c14d1852ce731f57db55ab93f8c28fd39a58d917fefde38aa094e41",
+      "bytes": 786,
+      "unchanged_source_bytes": true
+    },
+    "mode-original.json": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/handoff/creative-mode/mode.json",
+      "sha256": "02157cf07b1aa3ca05c800776106779582f5bb5534bb90291262073785ea6002",
+      "bytes": 1050,
+      "unchanged_source_bytes": true
+    },
+    "visual-bible-original.md": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/handoff/creative-mode/visual-bible.md",
+      "sha256": "c61edaa020ce09aecb108d8af5f18814aeef2dcf62ab19c42002a576675b1368",
+      "bytes": 1211,
+      "unchanged_source_bytes": true
+    },
+    "director-treatment-original.md": {
+      "source": "eval-runtime/hypit/workspaces/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/fa_04200575cf73608f43b317ff073fb0e3/handoff/creative-mode/director-treatment.md",
+      "sha256": "796aa34907633ec6527cecbda508979048c2f688fd7442ff27477f2862b17f65",
+      "bytes": 1049,
+      "unchanged_source_bytes": true
+    },
+    "production-brief-original.json": {
+      "source": "eval-runtime/outputs/_creations/cr_9fd40ef18cba4e5597c2ae5e8db8d6a0/preparations/f8aa9c140eff70cf81b31030a4f7970ae253944773e0bc92ba23ac8081322fbc/draft/production-brief.json",
+      "sha256": "64a2779193fad065f0cdfa7b82dfb388783107863647a8ad2fb4acd31a9fdf52",
+      "bytes": 540,
+      "unchanged_source_bytes": true
+    }
+  },
+  "scope": "exact actual artificial development sample; no runtime credentials, logs or DB"
+}

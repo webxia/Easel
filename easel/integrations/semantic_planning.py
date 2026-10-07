@@ -30,13 +30,16 @@ CANONICAL_POLICY = 'semantic-planning-compiler@2'
 REVIEW_POLICY = 'semantic-planning-compiler@3'
 PURPOSE_POLICY = 'semantic-planning-compiler@4'
 OUTPUT_POLICY = 'semantic-planning-compiler@5'
-POLICY = 'semantic-planning-compiler@6'
+BASE_POLICY = 'semantic-planning-compiler@6'
+AUTHORITY_POLICY = 'semantic-planning-compiler@7'
+POLICY = AUTHORITY_POLICY
 UNIT_POLICIES = {LEGACY_POLICY: 'indexed-unit-classification@7',
                  CANONICAL_POLICY: 'indexed-unit-classification@8',
                  REVIEW_POLICY: 'indexed-unit-classification@8',
                  PURPOSE_POLICY: 'indexed-unit-classification@8',
                  OUTPUT_POLICY: 'indexed-unit-classification@8',
-                 POLICY: 'indexed-unit-classification@8'}
+                 BASE_POLICY: 'indexed-unit-classification@8',
+                 AUTHORITY_POLICY: 'indexed-unit-classification@8'}
 LEGACY_REVIEW_TARGET = {'schema': 'material-review-target@1', 'scope': 'original_asset',
                 'required_evidence': 'observable_in_asset',
                 'non_asset_obligation': 'narrative_or_postproduction',
@@ -62,14 +65,19 @@ REVIEW_TARGET = {**PURPOSE_REVIEW_TARGET, 'schema': 'material-review-target@3',
         'independent_mixed': 'preserve_unresolved_when_not_losslessly_classifiable'}}
 REVIEW_TARGETS = {REVIEW_POLICY: LEGACY_REVIEW_TARGET, PURPOSE_POLICY: PURPOSE_REVIEW_TARGET,
                  OUTPUT_POLICY: PURPOSE_REVIEW_TARGET,
-                 POLICY: REVIEW_TARGET}
-OUTPUT_SCHEMA_POLICIES = frozenset({OUTPUT_POLICY, POLICY})
+                 BASE_POLICY: REVIEW_TARGET,
+                 AUTHORITY_POLICY: {**REVIEW_TARGET, 'schema': 'material-review-target@4',
+                    'authority': 'upstream_eligibility_is_not_entailment',
+                    'candidate_is_not_own_authority': True}}
+OUTPUT_SCHEMA_POLICIES = frozenset({OUTPUT_POLICY, BASE_POLICY, AUTHORITY_POLICY})
 MAX_FILE_BYTES = 256 * 1024
 MAX_BATCH_UNITS = 40
 
 
 def _compiler_policy(value):
-    policy = POLICY if value is None else value
+    # Unversioned pure compiler callers retain the established @6 API. Product
+    # orchestration always passes its explicit policy; @7 never falls back.
+    policy = BASE_POLICY if value is None else value
     if not isinstance(policy, str) or policy not in UNIT_POLICIES:
         raise ValueError('语义编译政策未知，不能降级')
     return policy
@@ -257,10 +265,15 @@ def _compile_need(item, *, index, identity, allowed_refs):
     return (None, issues) if issues else (need, [])
 
 
-def compile_draft(value, *, creation_id, attempt_id, refs, mode, script, allowed_refs=None, compiler_policy=None):
+def compile_draft(value, *, creation_id, attempt_id, refs, mode, script, allowed_refs=None,
+                  compiler_policy=None, authority_inputs=None):
     # Inspect only structurally valid independent Needs when another field is
     # invalid. Never substitute defaults for bad input to produce a Plan.
     policy = _compiler_policy(compiler_policy)
+    if policy == AUTHORITY_POLICY:
+        from easel.integrations import planning_authority as authority
+        if not isinstance(authority_inputs, dict) or authority_inputs.get('schema') != 'planning-authority-inputs@1':
+            raise SemanticPlanningError('A', [problem('authority', '@7不能缺少实际上游来源输入或降级编译')])
     if isinstance(value, (str, bytes)):
         try: value = read_planning_requirements(value.decode('utf-8') if isinstance(value,bytes) else value)
         except (ValueError, UnicodeError) as exc:
@@ -282,7 +295,11 @@ def compile_draft(value, *, creation_id, attempt_id, refs, mode, script, allowed
     else:
         identity = digest({'policy': policy, 'draft': draft.model_dump(mode='json', by_alias=True),
                            'creation_id': creation_id, 'attempt_id': attempt_id, 'refs': refs,
-                           'mode': mode, 'script_sha256': hashlib.sha256(script.encode()).hexdigest()})
+                           'mode': mode, 'script_sha256': hashlib.sha256(script.encode()).hexdigest(),
+                           **({'authority_sha256': authority.digest(authority_inputs),
+                               'field_presence': [sorted(item.model_fields_set) for item in draft.needs],
+                               'modality_field_presence': [sorted(item.modality_spec.model_fields_set) for item in draft.needs]}
+                              if policy == AUTHORITY_POLICY else {})})
         items = list(enumerate(draft.needs))
     needs = []
     for index, item in items:
@@ -308,32 +325,64 @@ def classification_output_schema(batch):
                 'kind': {'type': 'string', 'enum': sorted(KINDS)},
                 'preference_source': {'type': ['integer', 'null'],
                     'enum': [None, *[p['id'] for p in context['preferences']]]}}})
-    return {'$schema': 'https://json-schema.org/draft/2020-12/schema',
+        if batch.get('compiler_policy') == AUTHORITY_POLICY:
+            from easel.integrations import planning_authority as authority
+            rows[-1]['required'].append('basis')
+            rows[-1]['properties']['basis'] = authority.basis_schema(batch['authority_catalog'],
+                context['input']['need']['scope']['ref'])
+            rows[-1]['allOf'] = [{'if': {'properties': {'kind': {'const': kind}}},
+                'then': {'properties': {'basis': {'properties': {'relation': {'enum': relations}}}}}}
+                for kind, relations in [('required', ['upstream_obligation', 'director_realization']),
+                    ('preference', ['preference']), ('postproduction', ['postproduction']), ('unresolved', ['unresolved'])]]
+    schema = {'$schema': 'https://json-schema.org/draft/2020-12/schema',
         'type': 'object', 'additionalProperties': False, 'required': ['classifications'],
         'properties': {'classifications': {'type': 'array', 'minItems': len(rows),
             'maxItems': len(rows), 'prefixItems': rows, 'items': False}}}
+    if batch.get('compiler_policy') == AUTHORITY_POLICY:
+        controls = []
+        for control in batch['controls']:
+            controls.append({'type': 'object', 'additionalProperties': False,
+                'required': ['id', 'status', 'basis'], 'properties': {
+                    'id': {'type': 'integer', 'const': control['id']},
+                    'status': {'enum': ['ACCEPT', 'UNRESOLVED']},
+                    'basis': authority.basis_schema(batch['authority_catalog'], control['scope_ref'], control=control)},
+                'allOf': [{'if': {'properties': {'status': {'const': status}}},
+                    'then': {'properties': {'basis': {'properties': {'relation': {'enum': relations}}}}}}
+                    for status, relations in [('UNRESOLVED', ['unresolved']),
+                        ('ACCEPT', ['preference', 'operational'] if control['soft'] else
+                         ['upstream_obligation', 'director_realization', 'operational'])]]})
+        schema['required'].append('controls')
+        schema['properties']['controls'] = {'type': 'array', 'minItems': len(controls), 'maxItems': len(controls),
+                                           **({'prefixItems': controls} if controls else {}), 'items': False}
+    return schema
 
 
 def classification_repair_schema(batches, indexes):
-    rows = [{'type': 'object', 'additionalProperties': False,
-        'required': ['index', 'classifications'], 'properties': {
-            'index': {'type': 'integer', 'const': index},
-            'classifications': classification_output_schema(batches[index])['properties']['classifications']}}
-        for index in indexes]
+    rows = []
+    for index in indexes:
+        schema = classification_output_schema(batches[index])
+        rows.append({'type': 'object', 'additionalProperties': False,
+            'required': ['index', *schema['required']],
+            'properties': {'index': {'type': 'integer', 'const': index}, **schema['properties']}})
     return {'$schema': 'https://json-schema.org/draft/2020-12/schema',
         'type': 'object', 'additionalProperties': False, 'required': ['batches'],
         'properties': {'batches': {'type': 'array', 'minItems': len(rows),
             'maxItems': len(rows), 'prefixItems': rows, 'items': False}}}
 
 
-def classification_batches(plan, mode, *, canonical=None, compiler_policy=None):
+def classification_batches(plan, mode, *, canonical=None, compiler_policy=None, authority_catalog=None):
     policy = _compiler_policy(compiler_policy)
+    if policy == AUTHORITY_POLICY:
+        from easel.integrations import planning_authority as authority
+        if not isinstance(authority_catalog, dict) or authority_catalog.get('schema') != authority.REVISION:
+            raise SemanticPlanningError('B', [problem('authority', '@7必须绑定实际上游目录，不降级原分类')])
     if canonical is not None and (not isinstance(canonical, dict)
         or set(canonical) != {'SCRIPT.md', 'SCENES.md', 'TREATMENT.md'}
         or any(not isinstance(v, str) for v in canonical.values())):
         raise SemanticPlanningError('B', [problem('confirmed', '确认依据须为完整冻结三文件')])
     units, contexts, preference_id = [], {}, 0
-    for need in plan.needs:
+    controls_by_need = {}
+    for need_index, need in enumerate(plan.needs):
         if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
             continue
         frozen = compilation_input(need, plan.context_refs, mode)
@@ -345,14 +394,27 @@ def classification_batches(plan, mode, *, canonical=None, compiler_policy=None):
                 preferences.append({'id': preference_id, 'source': source, 'text': row['text']})
                 preference_id += 1
         contexts[need.need_id] = {'input': frozen, 'preferences': preferences, 'pref_map': pref_map}
+        if policy == AUTHORITY_POLICY:
+            try: controls_by_need[need.need_id] = authority.control_rows(need, need_index)
+            except ValueError as exc: raise SemanticPlanningError('B', [problem(need.need_id, str(exc))]) from exc
         for unit in classification_units(frozen, unit_policy=UNIT_POLICIES[policy]):
             units.append({'id': len(units), 'need': need.need_id, 'local_id': unit['id'],
                           'text': unit['text'], 'source': unit['source']})
-    result = []
+    result, seen_controls, control_id = [], set(), 0
     for start in range(0, len(units), MAX_BATCH_UNITS):
         chunk = units[start:start + MAX_BATCH_UNITS]
         names = list(dict.fromkeys(u['need'] for u in chunk))
         data = {'units': chunk, 'contexts': {k:contexts[k] for k in names}}
+        if policy == AUTHORITY_POLICY:
+            controls = []
+            for name in names:
+                if name not in seen_controls:
+                    for control in controls_by_need[name]:
+                        controls.append({'id': control_id, **control}); control_id += 1
+                    seen_controls.add(name)
+            if len(controls) > authority.MAX_CONTROLS_PER_BATCH:
+                raise SemanticPlanningError('B', [problem('controls', '单批控制项超出128项；不增批、不截断')])
+            data.update(authority_catalog=authority_catalog, controls=controls)
         if policy != LEGACY_POLICY:
             data.update(compiler_policy=policy, unit_policy=UNIT_POLICIES[policy])
             if canonical is not None:
@@ -370,22 +432,30 @@ def classification_batches(plan, mode, *, canonical=None, compiler_policy=None):
     return result
 
 
-def assemble_requirements(plan, mode, responses, *, canonical=None, compiler_policy=None):
+def assemble_requirements(plan, mode, responses, *, canonical=None, compiler_policy=None, authority_catalog=None):
     policy = _compiler_policy(compiler_policy)
-    batches = classification_batches(plan, mode, canonical=canonical, compiler_policy=policy)
+    batches = classification_batches(plan, mode, canonical=canonical, compiler_policy=policy,
+                                    authority_catalog=authority_catalog)
+    if policy == AUTHORITY_POLICY:
+        from easel.integrations import planning_authority as authority
     if len(responses) != len(batches):
         raise SemanticPlanningError('B', [problem('batches', '分类批次不完整')])
     per_need = {n.need_id: [] for n in plan.needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}
     issues = []
     for index, (batch, response) in enumerate(zip(batches, responses)):
         expected = [u['id'] for u in batch['units']]
-        if not isinstance(response, dict) or set(response) != {'classifications'}:
-            issues.append(problem(f'batches.{index}.wrapper', 'B输出顶层仅允许classifications，不回传输入或metadata'));continue
+        wrapper = {'classifications', 'controls'} if policy == AUTHORITY_POLICY else {'classifications'}
+        if not isinstance(response, dict) or set(response) != wrapper:
+            issues.append(problem(f'batches.{index}.wrapper',
+                'B输出顶层须完整classifications/controls，不回传输入或metadata' if policy == AUTHORITY_POLICY else
+                'B输出顶层仅允许classifications，不回传输入或metadata'));continue
         rows = response['classifications']
         if (not isinstance(rows, list) or len(rows)!=len(expected)
-            or any(not isinstance(r,dict) or set(r)!={'id','kind','preference_source'} or type(r['id']) is not int for r in rows)
+            or any(not isinstance(r,dict) or set(r)!=({'id','kind','preference_source','basis'} if policy == AUTHORITY_POLICY else {'id','kind','preference_source'})
+                   or type(r['id']) is not int for r in rows)
             or [r['id'] for r in rows]!=expected):
-            issues.append(problem(f'batches.{index}.ids', f'分类字段须为id/kind/preference_source；整数ID完整按序且仅一次：{expected}'));continue
+            fields='id/kind/preference_source/basis' if policy == AUTHORITY_POLICY else 'id/kind/preference_source'
+            issues.append(problem(f'batches.{index}.ids', f'分类字段须为{fields}；整数ID完整按序且仅一次：{expected}'));continue
         for unit, row in zip(batch['units'], rows):
             if not isinstance(row['kind'], str) or row['kind'] not in KINDS:
                 issues.append(problem(f'unit.{unit["id"]}.kind', f'kind须为合法枚举{sorted(KINDS)}；任务说明标签不是kind'));continue
@@ -393,8 +463,25 @@ def assemble_requirements(plan, mode, responses, *, canonical=None, compiler_pol
             inverse = {v:k for k,v in context['pref_map'].items()}
             if pref is not None and (type(pref) is not int or pref not in inverse):
                 issues.append(problem(f'unit.{unit["id"]}.preference_source', '偏好引用须为null或该Need显式软偏好的整数ID'));continue
+            if policy == AUTHORITY_POLICY:
+                try:
+                    authority.validate_basis(row['basis'], authority_catalog, context['input']['need']['scope']['ref'], kind=row['kind'])
+                except ValueError as exc:
+                    issues.append(problem(f'unit.{unit["id"]}.basis', str(exc)));continue
             per_need[unit['need']].append({'id':unit['local_id'], 'kind':row['kind'],
                                           'preference_source':inverse[pref] if pref is not None else None})
+        if policy == AUTHORITY_POLICY:
+            controls = response['controls']
+            expected_controls = batch['controls']
+            if (not isinstance(controls, list) or len(controls) != len(expected_controls)
+                    or any(not isinstance(row, dict) or set(row) != {'id','status','basis'} or type(row['id']) is not int for row in controls)
+                    or [row['id'] for row in controls] != [control['id'] for control in expected_controls]):
+                issues.append(problem(f'batches.{index}.controls', '全部control须按程序整数ID完整返回一次，不能漏审或增项'))
+            else:
+                for control, row in zip(expected_controls, controls):
+                    try: authority.validate_basis(row['basis'], authority_catalog, control['scope_ref'],
+                                                   kind=row['status'], control=control)
+                    except ValueError as exc: issues.append(problem(f'batches.{index}.controls.{control["id"]}', str(exc)))
     if issues:raise SemanticPlanningError('B',issues)
     result = {}
     for need in plan.needs:
@@ -566,15 +653,23 @@ def _preserve_repair_semantics(before, after, catalog=None):
             preserve(original,repaired,SemanticNeed.model_fields[key].annotation,path)
 
 
-def run_semantic_planning(attempt, planning_context, canonical, mode, route, dispatch):
+def run_semantic_planning(attempt, planning_context, canonical, mode, route, dispatch, *, compiler_policy=None):
     from easel.materials.store import AttemptMaterialStore
     from easel.output_contract import output_decision
     root = Path(attempt['workspace']['path'])
     store = AttemptMaterialStore(root)
     root = store.attempt_root
-    catalog = source_catalog(canonical,planning_context)
-    scope = {'policy':POLICY,'attempt_id':attempt['attempt_id'],'creation_id':attempt['creation_id'],
-             'context_refs':planning_context['context_refs'],'canonical':canonical,'mode':mode,'catalog':catalog}
+    policy = _compiler_policy(POLICY if compiler_policy is None else compiler_policy)
+    authority_inputs = None
+    if policy == AUTHORITY_POLICY:
+        from easel.integrations import planning_authority as authority
+        try: authority_inputs = authority.load_inputs(attempt, canonical, planning_context, mode)
+        except ValueError as exc: raise SemanticPlanningError('A', [problem('authority', str(exc))]) from exc
+    catalog_context = {**planning_context,'creator_context':authority_inputs['creator_context']} if policy == AUTHORITY_POLICY else planning_context
+    catalog = source_catalog(canonical,catalog_context)
+    scope = {'policy':policy,'attempt_id':attempt['attempt_id'],'creation_id':attempt['creation_id'],
+             'context_refs':planning_context['context_refs'],'canonical':canonical,'mode':mode,'catalog':catalog,
+             **({'authority_inputs':authority_inputs} if policy == AUTHORITY_POLICY else {})}
     state_key = 'semantic-planning-v3'
     state = store.read_recovery_record(state_key)
     if state is None:
@@ -649,12 +744,16 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
             '仅写output_paths提供的绝对路径；不猜测当前目录，不依赖其他会话。'
             '不写正式Plan/sidecar，不调用供应/生成/Hypit。\n'
             +('B输出严格遵循context.response_schema，顶层仅batches；不回传context、responses、notes或任务标签。\n' if stage=='B' else '')
+            +('每个B批次完整保留classifications和controls及各自basis。A候选不是上游授权，目录ID存在不证明语义蕴含；'
+              '硬filter不可用preference/postproduction放行，operational只认实际程序操作的path/typed value。'
+              '不能改控制值、删项或新增授权来修复；不足依据返回unresolved/UNRESOLVED。\n'
+              if policy == AUTHORITY_POLICY else '')
             +'按要求约束的对象判断，不因function复述主体/静态就新增原素材义务。'
             '成片如何保持/使用原图、表达象征或叠字属于使用/表达/后期；真正的原主体、数量、源动作仍保留。'
             '后期可以裁掉原主体不代表原素材主体条件消失，不按字段或重复自动分类。\n'
             +json.dumps({'attempt_workspace':str(root),'output_paths':output_paths,
                         'issues':issues,'targets':targets,'context':context,
-                        'review_target':REVIEW_TARGET},ensure_ascii=False,sort_keys=True))
+                        'review_target':REVIEW_TARGETS.get(policy, REVIEW_TARGET)},ensure_ascii=False,sort_keys=True))
         if state['repair_used'] and (key not in state['calls'] or state['calls'][key]['message']!=message):
             raise SemanticPlanningError(stage,[problem('repair','整次Planning共享单次修复额度已用完')])
         state['repair_used']=True;save()
@@ -686,7 +785,10 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
         '不调用供应/生成/Hypit。只写 '+str(root/'planning'/a_name)+'\n' + PLANNING_INPUT_RULES
         +json.dumps({'schema':planning_input_schema(catalog),'confirmed':canonical,
                     'catalog':catalog,'context_refs':planning_context['context_refs'],
-                    'review_target':REVIEW_TARGET},ensure_ascii=False,sort_keys=True))
+                    'review_target':REVIEW_TARGETS.get(policy, REVIEW_TARGET),
+                    **({'authority_inputs':authority_inputs,
+                        'candidate_authority':'A候选不是上游授权；B须绑定实际来源和真实控制值'}
+                       if policy == AUTHORITY_POLICY else {})},ensure_ascii=False,sort_keys=True))
     if len(message.encode())>MAX_FILE_BYTES:
         raise SemanticPlanningError('A',[problem('input','完整输入超过有界容量，未派发')])
     raw=invoke('A','planning',message,a_name)
@@ -698,22 +800,29 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
     try:
         plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
             refs=planning_context['context_refs'],mode=mode,script=canonical['SCRIPT.md'],
-            allowed_refs=catalog)
+            allowed_refs=catalog, compiler_policy=policy, authority_inputs=authority_inputs)
     except SemanticPlanningError as exc:
         state['repair_stage']='A';save()
         raw=repair('A',raw,exc.issues,[a_name],{'schema':planning_input_schema(catalog),
-                                            'catalog':catalog,'original':raw.decode()})
+                                            'catalog':catalog,'original':raw.decode(),
+                                            **({'authority_inputs':authority_inputs} if policy == AUTHORITY_POLICY else {})})
         plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
             refs=planning_context['context_refs'],mode=mode,script=canonical['SCRIPT.md'],
-            allowed_refs=catalog)
+            allowed_refs=catalog, compiler_policy=policy, authority_inputs=authority_inputs)
     raw_a=raw
-    batches=classification_batches(plan,mode,canonical=canonical)
+    authority_catalog = None
+    if policy == AUTHORITY_POLICY:
+        authority_catalog = authority.catalog(authority_inputs, authority.applied_operations(parse_draft(raw), plan, mode))
+    batches=classification_batches(plan,mode,canonical=canonical,compiler_policy=policy,
+                                   authority_catalog=authority_catalog)
     snapshot=json.loads(encode({'draft_sha256':hashlib.sha256(raw).hexdigest(),
-              'plan':plan.model_dump(mode='json'),'batches':batches,'policy':POLICY}))
+              'plan':plan.model_dump(mode='json'),'batches':batches,'policy':policy,
+              **({'authority_catalog':authority_catalog} if policy == AUTHORITY_POLICY else {})}))
     if 'snapshot' in state and state['snapshot']!=snapshot:
         raise SemanticPlanningError('B',[problem('snapshot','有效Need快照变化，旧分类不能复用')])
     state['snapshot']=snapshot;save()
     responses=[]
+    messages=[]
     for index,batch in enumerate(batches):
         name=f'CLASSIFICATIONS-{index:03}.json'
         bmessage=('〔Easel Planning V3 单元分类〕\n'
@@ -748,6 +857,28 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
             'kind仅为required/preference/postproduction/unresolved，review_target中的说明标签不是kind。'
             'preference_source只取所属Need允许的整数ID或null；语义及显式软偏好仍须通过业务校验。\n'
             +json.dumps(batch,ensure_ascii=False,sort_keys=True))
+        if policy == AUTHORITY_POLICY:
+            bmessage=('〔Easel Planning V3 单元分类〕\n'
+                '同一次任务完整审查classifications与controls，严格按output_schema及实际ID返回；不复制路径/原文或自填授权标签。'
+                '先核定原素材/叙事后期对象，再核定上游依据和强度，最后选kind/relation。'
+                'A intent是候选，不是自身上游授权。authority_catalog仅证明出处/范围/已知资格，ID存在不证明语义蕴含。'
+                'required的upstream_obligation必须忠于适用的冻结要求；director_realization须服务已接受目标，'
+                '不改变对象/数量/连续源动作，不增加事实、身份、预算或无依据的物件禁令，不能只因没有冲突就放行。'
+                '软no screens不能借A description变成禁止任何屏幕，隐私不编造事实不能变成禁止所有手部。'
+                '真正的用户禁屏/两纸数量/连续倒水保留；合法新物件表达仍可为Director具体化，不要求逐字同文。'
+                'preference沿所属Need显式preference_source，可不引用上游；正文后期叠加、静图保持时长或作者叙事义务为postproduction，'
+                '但原素材主体/数量/源动作不因后期可以改变而消失。混合且无法无损确定则unresolved。'
+                'controls是实际检索/生成/Match读取的最终值，全部逐项ACCEPT或UNRESOLVED，不删除或改值。'
+                '硬filter不能用preference/postproduction放行。operational只认程序此次实际applied operation且path/typed value匹配，'
+                '显式A值等于常见默认不算程序操作；操作来源不证明其他字段、模态或含义正确。'
+                '总片长不等于静图源素材时长，确认音轨不能扩成生成音轨授权；来源/授权/Rights仍沿已有独立合同。'
+                '未知或不足依据用unresolved/UNRESOLVED，不能为成功猜测、缩水或放宽。source_ids仅取当前目录实际可用ID。'
+                '不调用供应/生成/Hypit。只写 '+str(root/'planning'/name)+'\n'
+                +json.dumps(batch,ensure_ascii=False,sort_keys=True))
+        if policy == AUTHORITY_POLICY and len(bmessage.encode()) > MAX_FILE_BYTES:
+            raise SemanticPlanningError('B',[problem(f'batches.{index}.capacity','完整B消息超过有界容量，未提交任何B批次')])
+        messages.append((name,bmessage))
+    for index,(name,bmessage) in enumerate(messages):
         raw_b=invoke(f'B{index}','planning',bmessage,name)
         try:response=read_planning_requirements(raw_b.decode())
         except (ValueError,UnicodeError):response=None
@@ -755,8 +886,9 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
     if state.get('repair_stage')=='B':
         rec=state['calls'].get('repair',{})
         repaired=read_planning_requirements(invoke('repair','structure_repair',rec.get('message',''),'CLASSIFICATIONS-REPAIR.json').decode())
-        responses=_merge_repaired(responses,repaired,state['repair_indexes'])
-    try:requirements=assemble_requirements(plan,mode,responses,canonical=canonical)
+        responses=_merge_repaired(responses,repaired,state['repair_indexes'],batches=batches)
+    try:requirements=assemble_requirements(plan,mode,responses,canonical=canonical,compiler_policy=policy,
+                                         authority_catalog=authority_catalog)
     except SemanticPlanningError as exc:
         # Diagnose each complete Need only after collecting every batch.
         # Repair can address several batches in one response, never new budgets.
@@ -777,11 +909,13 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
             {'batches':[{**batches[i],'index':i} for i in indexes],
              'responses':[responses[i] for i in indexes],
              'response_schema':classification_repair_schema(batches,indexes)})
-        responses=_merge_repaired(responses,read_planning_requirements(repaired.decode()),indexes)
-        requirements=assemble_requirements(plan,mode,responses,canonical=canonical)
+        responses=_merge_repaired(responses,read_planning_requirements(repaired.decode()),indexes,batches=batches)
+        requirements=assemble_requirements(plan,mode,responses,canonical=canonical,compiler_policy=policy,
+                                          authority_catalog=authority_catalog)
     checkpoint={'schema':'semantic-planning-frozen@1','scope':scope,'draft':raw.decode(),
                 'draft_sha256':hashlib.sha256(raw).hexdigest(),'plan':plan.model_dump(mode='json'),
-                'responses':responses,'policy':POLICY,'batches_sha256':digest(batches)}
+                'responses':responses,'policy':policy,'batches_sha256':digest(batches),
+                **({'authority_catalog':authority_catalog} if policy == AUTHORITY_POLICY else {})}
     checkpoint_raw=encode(checkpoint)
     write_file(root,'SEMANTIC_CHECKPOINT.json',checkpoint_raw)
     write_file(root,'SEMANTIC_PLAN.json',raw,replace=True)
@@ -789,23 +923,26 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
     write_file(root,'MATERIAL_REQUIREMENTS.json',encode(requirements))
     return {'plan':plan,'context_refs':plan.context_refs,'script':canonical['SCRIPT.md'],
             'scenes':canonical['SCENES.md'],'treatment':canonical['TREATMENT.md'],
-            'output_decision':output_decision('planning','ACCEPT','semantic_compiled',policy_revision=POLICY)}
+            'output_decision':output_decision('planning','ACCEPT','semantic_compiled',policy_revision=policy)}
 
 
-def _merge_repaired(responses, repaired, indexes):
+def _merge_repaired(responses, repaired, indexes, *, batches=None):
     if not isinstance(repaired,dict) or set(repaired) != {'batches'}:
         raise SemanticPlanningError('B',[problem('repair.wrapper','修复输出顶层仅允许batches，不回传输入/metadata/responses')])
     rows=repaired['batches']
     if (not isinstance(rows,list) or len(rows)!=len(indexes)
-        or any(not isinstance(r,dict) or set(r)!={'index','classifications'} or type(r['index']) is not int for r in rows)
+        or any(not isinstance(r,dict) or type(r.get('index')) is not int or set(r) !=
+            ({'index','classifications','controls'} if batches is not None and batches[indexes[i]].get('compiler_policy') == AUTHORITY_POLICY
+             else {'index','classifications'}) for i,r in enumerate(rows))
         or [r['index'] for r in rows]!=indexes):
-        raise SemanticPlanningError('B',[problem('repair.indexes','修复每项仅index/classifications；整数index须按序覆盖全部且仅受影响批次')])
+        fields='index/classifications/controls' if batches is not None and any(batches[i].get('compiler_policy')==AUTHORITY_POLICY for i in indexes) else 'index/classifications'
+        raise SemanticPlanningError('B',[problem('repair.indexes',f'修复每项仅{fields}；整数index须按序覆盖全部且仅受影响批次')])
     result=list(responses)
-    for r in rows:result[r['index']]={'classifications':r['classifications']}
+    for r in rows:result[r['index']]={key:value for key,value in r.items() if key != 'index'}
     return result
 
 
-def verify_semantic_checkpoint(root, plan, mode, script, origin=None, *, canonical=None):
+def verify_semantic_checkpoint(root, plan, mode, script, origin=None, *, canonical=None, attempt=None):
     raw=read_file(root,'SEMANTIC_CHECKPOINT.json')
     checkpoint=read_planning_requirements(raw.decode())
     policy = _compiler_policy(checkpoint.get('policy'))
@@ -826,16 +963,38 @@ def verify_semantic_checkpoint(root, plan, mode, script, origin=None, *, canonic
     if hashlib.sha256(draft).hexdigest()!=checkpoint['draft_sha256']:
         raise ValueError('语义草稿摘要无效')
     if read_file(root,'SEMANTIC_PLAN.json')!=draft:raise ValueError('语义草稿原件变化')
+    authority_inputs, authority_catalog = None, None
+    if policy == AUTHORITY_POLICY:
+        from easel.integrations import planning_authority as authority
+        if attempt is None or Path(attempt['workspace']['path']).resolve() != Path(root).resolve():
+            raise ValueError('新语义合同必须使用实际Attempt验证冻结来源')
+        if attempt['creation_id'] != plan.creation_id or attempt['attempt_id'] != plan.attempt_id:
+            raise ValueError('新语义合同Attempt身份不符')
+        authority_inputs = authority.load_inputs(attempt, actual_canonical,
+            {'context_refs':scope['context_refs']}, mode, allow_missing_canonical=origin is not None)
+        if scope.get('authority_inputs') != authority_inputs:
+            raise ValueError('实际冻结来源与语义快照不一致')
+        actual_catalog = source_catalog(actual_canonical, {'creator_context':authority_inputs['creator_context']})
+        if scope['catalog'] != actual_catalog:
+            raise ValueError('scope及声音身份目录与实际冻结来源不一致')
     original=compile_draft(draft,creation_id=scope['creation_id'],attempt_id=scope['attempt_id'],
-        refs=scope['context_refs'],mode=mode,script=script,allowed_refs=scope['catalog'],compiler_policy=policy)
+        refs=scope['context_refs'],mode=mode,script=script,allowed_refs=scope['catalog'],compiler_policy=policy,
+        authority_inputs=authority_inputs)
     if original.model_dump(mode='json')!=checkpoint['plan'] or original.plan_id!=identities['plan_id']:
         raise ValueError('语义快照不能导出Plan')
     expected=original.model_copy(update={'creation_id':plan.creation_id,'attempt_id':plan.attempt_id,'plan_id':plan.plan_id})
     if expected!=plan:raise ValueError('正式Plan与语义快照不一致')
+    if policy == AUTHORITY_POLICY:
+        authority_catalog = authority.catalog(authority_inputs,
+            authority.applied_operations(parse_draft(draft), original, mode))
+        if checkpoint.get('authority_catalog') != authority_catalog:
+            raise ValueError('来源资格或实际操作目录不能从冻结原件复算')
     if policy != LEGACY_POLICY and checkpoint.get('batches_sha256') != digest(
-            classification_batches(original,mode,canonical=scope['canonical'],compiler_policy=policy)):
+            classification_batches(original,mode,canonical=scope['canonical'],compiler_policy=policy,
+                                   authority_catalog=authority_catalog)):
         raise ValueError('分类政策、确认依据或单元摘要变化')
-    requirements=assemble_requirements(original,mode,checkpoint['responses'],canonical=scope['canonical'],compiler_policy=policy)
+    requirements=assemble_requirements(original,mode,checkpoint['responses'],canonical=scope['canonical'],compiler_policy=policy,
+                                       authority_catalog=authority_catalog)
     if read_planning_requirements(read_file(root,'MATERIAL_REQUIREMENTS.json').decode())!=requirements:
         raise ValueError('正式sidecar与语义编译结果不一致')
     return {'path':'planning/SEMANTIC_CHECKPOINT.json','sha256':hashlib.sha256(raw).hexdigest(),

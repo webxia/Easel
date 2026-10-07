@@ -1,0 +1,18 @@
+{
+  "schema": "easel-production-brief@1",
+  "language": "zh-CN",
+  "duration_seconds": 15,
+  "aspect_ratio": "9:16",
+  "audio_mode": "silent",
+  "beats": [],
+  "text_overlays": ["先看问题，再做决定。"],
+  "visual_constraints": [
+    "整片是一张静态桌面画面",
+    "画面中必须出现两张白纸",
+    "竖版 9:16，15 秒全程保持同一画面",
+    "中文屏幕文字在后期叠加，不出现在实拍物体上"
+  ],
+  "material_sources": [],
+  "ai_generation_allowed": false,
+  "publication_allowed": false
+}

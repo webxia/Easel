@@ -485,8 +485,9 @@ def test_24_owner_supply_observation(prep_env, tmp_path, monkeypatch, trace, pla
             data = json.loads(message.splitlines()[-1])
             assert [u['text'] for u in data['units']] == ['white paper']
             target = Path(re.search(r'只写 (.+\.json)', message)[1])
-            target.write_text(json.dumps({'classifications':[{'id':data['units'][0]['id'],
-                'kind':'required','preference_source':None}]}))
+            response=semantic._authority_fixed_response(data,kinds=['required']) if 'controls' in data else {
+                'classifications':[{'id':data['units'][0]['id'],'kind':'required','preference_source':None}]}
+            target.write_text(json.dumps(response))
         elif message.startswith('〔Easel Material Creative Planning V1〕'):
             gateway_calls.append('planning')
             root = Path(re.search(r'^Attempt workspace: (.+)$', message, re.M)[1])
@@ -651,7 +652,7 @@ def test_26_semantic_owner_supply(prep_env, tmp_path, monkeypatch, trace):
 
 
 from tests import test_semantic_planning as semantic
-from tests.test_semantic_planning import semantic_runtime, material_integration_env
+from tests.test_semantic_planning import semantic_runtime, authority_runtime, material_integration_env
 
 
 def test_27_semantic_independent_oracle_and_history(trace):
@@ -826,3 +827,22 @@ def test_46_asset_versus_use(semantic_runtime, trace, risk):
                  'batch08实际合法结构但unresolved回复及独立用途反事实；真实内部编译/持久重载，仅外部固定语义回答')
     semantic.test_asset_versus_use_task(semantic_runtime, risk, evidence=trace)
     trace.note('real Supply / Provider / generation / Build', 0)
+
+
+@pytest.mark.parametrize('risk', ['history', 'basis_transport', 'scalar_controls', 'catalog_eligibility',
+                                'operational_origin', 'control_guard', 'creative_contrast', 'verified_loader'])
+def test_47_hard_authority_baseline(semantic_runtime, trace, risk):
+    trace.define('A候选不是自身上游授权；B依据绑定与标量硬过滤入口必须完整审查，旧@6实际原件仍精确回放且语义FAIL保留',
+                 'batch09真实A/B/正式Plan/Requirements/确认/Preparation/Creator/Truth/Mode原件与独立预期；新保护修前应失败')
+    semantic.test_batch09_hard_authority_baseline(semantic_runtime, risk, evidence=trace)
+    trace.note('real Supply / Provider / generation / Build', 0)
+
+
+@pytest.mark.parametrize('risk',['persist_reentry','repair','pending','source_tamper','catalog_tamper','missing_basis','control_missing','copy',
+                                'multibatch','pure_audio','mixed_audio','capacity'])
+def test_48_native_authority_contract(authority_runtime,trace,risk):
+    trace.define('新@7合同使用实际冻结来源；完整审查basis和control，重入/修复/复制不刷新身份额度',
+                 '真实Handoff/编译/单次修复/正式persist-load；只在外部模型边界提供声明固定回复')
+    semantic.test_native_authority_contract(authority_runtime,risk)
+    trace.note('external fixture calls',len(authority_runtime['calls']))
+    trace.note('real Supply / Provider / generation / Build',0)
