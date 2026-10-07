@@ -443,3 +443,52 @@ Voice v3实际采用程序枚举的 `creator_context.voice` 或具名上下文id
 新增A/B原生异步repair只解析实际请求，默认cwd不同，不能从Creation或闭包补路径。修前run-007 **6 PASS/2 FAIL**复现真实根因，源码/现场不变；修后同一完整矩阵run-008 **72 PASS/0 FAIL/0 GAP/0未执行**。正式消费者读到修复输出、独立run恢复、共享额度一次、Supply=0；另有root/planning/target symlink拒绝派发保护。全量 **810 PASS/5既有skip**（59.88秒），语义针对性72 PASS、115技能、compileall/diff通过，257旧现场和25fixture未变。Astra前置MODIFY已落实，最终CONTINUE允许完成检查后固定新版本/安全加载/另起32项R4，不代表真实PASS或Smoke许可。
 
 batch03沿用原16主题和独立oracle，但全部Creation/Attempt/请求重新建立。预算仅已购文字套餐，无现金/API余额/超额/付费fallback；先实时idle对账，再停止服务并精确备份实际raw-stream路径后加载。旧批证据追加摘要和新软件JUnit均保留；新固定SHA/加载/真实成绩由唯一验收另记。本节记录软件阶段完成，真实评测尚未开始。
+
+
+### 13.5 batch03：路径修复有效，但A→Compiler合同仍失败（2026-10-07，STOP）
+
+固定commit `63da1b009bf349d82315acc180c9d33dc4d8b86b` /生产SHA `61b6a75e65b214e61d0fa6da693cb97ed4dd722c667fe3becd9f760945ff807b`，安全加载后另起32个新Creation，原16主题和oracle未改。第0项 `cr_c7e2a3b69b7c4d0fb2edea1a1581791a` / `fa_7a3298e7723034c95a855e9e5b020c90` 正常Preparation成功，A policy含对象/布尔而Schema要求字符串，触发一次repair。真实write确已写入本Attempt绝对输出路径，正式消费者读取新的policy字符串结果，证明§13.4路径修复起效。
+
+随后仍FAIL；A Schema允许任意constraints值，但NeedCompiler把非具名例外作为标量检索filter：`constraints.must_contain`数组被拒绝；另一Need的 `continuity_refs.ref=production_brief.text_overlays` 不存在于冻结catalog（continuity为空）。初始policy Schema错误使compile检查未执行，repair只收到policy问题；一次额度耗尽是最终停点，不是根因。纯只读离线compile复现这两项错误，未改正式文件、Schema或额度，未触发新模型调用。文字叠加被列为required image亦属后期污染素材风险；未到B/Truth/正式语义评分，不宣称完整语义结论。Astra STOP；不得增加repair、删除约束/required或迁移本批请求。
+
+本批 **1 FAIL /31未执行**，held-out0/16，最终合同0/1执行项（0/32计划项）；墙钟205.748秒，Planning约156.954秒。Prep/A/repair真实run各1、全部ok/released；创建至模型终态分别46.722/117.166/25.444秒（created_at秒精度）；B/Truth0。24模型assistant响应、25工具、17次原run观察/17pending检查点；5应用callback包含2次缓存原请求恢复，不是5次付费派发。Supply/Provider/生成/TTS/Build0，state violations0、ENGINEERING_INTERVENTION0。文字套餐5小时98→97%、周99→98%是共享账号比例；实际账单未知，不能把Gateway零usage/cost当作免费证明。
+
+257旧现场、25fixture、batch02所有原件、固定source/tool/HEAD及本次SCRIPT均不变。重启前386041字节raw精确备份，停止后52235字节完整保护归档及脱敏副本；3段真实会话、原A/repair原件、请求账本、故障现场及各SHA保留。实时对账无pending/submitting/runtime-release pending，Gateway active/lost/audit0。本批立即停止，未执行第1项，未改生产代码/产物、不认领Smoke。
+
+后续独立软件批次的统一对齐范围（当前只规划，未实施新的合同变化）：
+
+1. **一个输入合同覆盖整个编译链。** 盘点A Schema、compile_draft、NeedCompiler、modality约束、continuity catalog及visual clause compiler；给每个字段固定生产者、消费者、合法表示与拒绝理由。不能仅用Pydantic通过替代完整编译可接受性。
+2. **语义与检索控制分开。** 列表主体/数量/禁令须有明确语义承载及可追溯正式clauses；不能丢弃列表、未经等价证明拼成Provider硬filter或通过删除required换取合法。优先采用有限语义字段与程序派生结构；若涉及Semantic Draft合同变化，先形成版本、兼容范围、边界和语义保真验收再复核，不改变Material V1.3。
+3. **引用由冻结来源绑定。** 模型仅选择实际提供的语义来源token，程序构造正式引用。continuity catalog为空时不能交付引用；unknown引用保持拒绝。不得虚构catalog条目来接受当前错误。
+4. **后期要求保留原归属。** 正文叠加等要求保留可追溯后期义务，不制造额外素材采购Need，也不能静默删除创作要求。没有正式语义评分的当前raw风险只能作为fixture和预期对齐素材。
+5. **一次repair包含完整安全诊断。** 尽可能分别汇总可以独立核查的Schema及跨字段错误，避免policy首层遮蔽其他问题；无法安全分析的范围须明示。保持共享一次额度、未知请求只观察、冻结正文及有效语义保护。特别补dict/list有效要求的保护，不能利用旧保护跳过容器值来删除要求。
+6. **先离线真实证据，后原生异步链。** 复用本批初始A、repair与冻结catalog建立脱敏fixture，扩展同一矩阵，覆盖多层同时错误、列表要求无丢失/不误升filters、unknown引用拒绝、后期保留且不采购、合法路径不误杀；先固定Expected/Actual再修改实现。完整回归/Astra复核/固定版本/安全加载后，才重新独立32项R4。旧FAIL全部保留。
+
+[结构化真实记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch03-actual-run-summary.json)与[Astra STOP](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch03-astra-review.txt)。当前目标32项完整真实Planning Eval仍未达成，READY_FOR_MATERIAL_SMOKE=NO。
+
+### 13.6 A输入边界统一最小对齐设计（独立软件批，2026-10-07）
+
+本阶段不恢复batch03，不改变Material Domain、canonical Requirements或Hypit职责。以当前已有消费者合同为准，收紧新请求的**发布Schema和说明**，不新增运行框架、HTTP或状态机，不把未知structured constraints兼容为filters。
+
+- **新请求的发布Schema。** 使用现有SemanticPlanningDraft/NeedSpec模型构建请求Schema，但constraints只能表达现有标量检索控制、合法voice_delivery和显式视觉偏好；按模态限定例外。主体/数量/禁令写入唯一intent描述，不能复制成未知列表filter。scope/continuity/voice引用仅限本轮实际catalog。明确后期字幕/布局留在冻结SCENES/TREATMENT及已有intent.function/后期clauses，不额外产生采购Need。保留现有可选policy字符串Schema，通常省略以使用程序默认strategy；不得用policy制造授权/预算。实际合法policy仍进入原身份计算和保护，已冻结v3按原合同校验，不迁移产物。
+- **完整且不伪造的诊断。** 顶层Schema错误时仍独立检查结构已合法的各Need；同Need的来源/模态/检索检查能安全独立进行时一并收集。不能为了诊断把坏字段默认化后产出正式Plan。最终仍只有全部Schema、来源、编译检查通过才生成Plan；已有合法草稿ID/字节/派生逻辑不改变。原始JSON不能解析的项只报解析问题，并明确不能检查其余层。
+- **修复语义保护。** policy部分错误不能允许修改其合法字符串子项；未知dict/list约束也不能通过删除/改写让repair变绿。没有定义安全等价转换时保留原语义容器并拒绝，不能自动转filter或散装拼句。具名voice控制等已有修复例外沿原验证器处理；unknown来源仍拒绝，scope/route/hash/一次额度不变。
+- **测试与实施。** 保存batch03真实初始A/repair/catalog原件及来源；先运行发布Schema不一致、多层错误聚合、容器要求删改、policy合法子项篡改的独立风险回归。已有后期/源动作/Voice/BGM/SFX/异步保护仍完整回归。前置Astra复核设计后才改生产；每一变体记录Expected/Actual，完整集成矩阵与项目检查后再冻结新软件。实时评测仍新批32Creation，历史FAIL不改。
+
+这里对齐的是现有合同在模型入口的可表达范围与诊断/保护，不授权扩展Material canonical字段或改变required/Rights/Match/Readiness。若实施发现必须新增语义承载/新正式引用合同，停止该项另行设计与评审；不得靠隐藏缺口宣称全部解决。
+
+
+前置Astra结论MODIFY已落实到本设计：不删除合法可选policy，不新增标量constraints键名白名单；A的queries是唯一查询入口，不能原样引用允许constraints查询对象的通用说明；不把intent.function自动判为后期。当前测试仅新增离线真实fixture和8个同矩阵风险变体，生产代码仍未修改；先取得现状失败证据。
+
+
+### 13.7 A边界对齐软件完成（2026-10-07，真实新批尚未执行）
+
+落实§13.6及Astra前置MODIFY：发布Schema保留可选字符串policy/普通标量constraints，限定既有模态例外及本轮来源引用；A queries为每条Need与constraints并列的唯一入口。语义主体/数量/禁令仍由Director写完整intent，不接收未知列表filter；后期归属仅明确责任，不自动删除Need或分类function。Voice Schema/消费者共用原范围常量，未变准入。
+
+完整Draft Schema报错时，对结构已合法的Need执行独立来源和实际Domain/NeedCompiler检查；同Need来源错误不遮蔽可独立检查的filter错误。坏输入不会通过默认化生成Plan。repair保护合法policy子项、原未知dict/list约束，无法安全转换的容器只可拒绝；没有增加额度、放宽未知引用或自动搬移语义。原POLICY、合法Plan/Need身份/字段和旧冻结v3复算保持；旧pending字节不迁移、不恢复。
+
+batch03原A/repair/catalog脱敏原件4份纳入原fixture目录；新增8个独立风险变体同矩阵。修前run-009 **3 PASS/5 FAIL**，生产/257现场不变；修后run-010 **8 PASS**。澄清queries层级后最终run-013 **80 PASS/0 FAIL/0 GAP/0未执行**，全量 **818 PASS/5既有skip**（62.31秒）、115技能/compileall/diff通过。覆盖历史多层错误、同Need来源/约束组合、列表删改拒绝、policy合法子项保护、发布Schema非法输入拒绝、合法policy/非空引用/Voice+BGM+SFX对照，原生异步A/B repair和全部旧基线仍通过。
+
+Main只读加载旧63da编译器，与当前4类合法对照的完整Plan字段/ID相等；Astra另对image/video/Voice/BGM/SFX及Voice资产/consent、视觉偏好和continuity复核，Schema接受且Plan序列化逐字节相等，最终CONTINUE。模型入口Schema仍不能替代完整编译或独立语义验收，未知容器也不保证可repair。
+
+257旧现场、原25fixture、batch02/03失败原件不变；新增4fixture后当前总29。此软件批新模型/Supply/Provider/生成/TTS/Build调用0，未恢复本批FAIL。生产SHA `79e580c163c77cafc47d4056c910e1aaf5bcc49419be31e78497d08588a54825`；后续固定commit、安全加载和batch04重新32个Creation，由唯一验收/当前状态具名补记。当前R4目标仍未完成，不认领Smoke。

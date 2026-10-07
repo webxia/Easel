@@ -1,0 +1,18 @@
+{
+  "source": "R4 batch03 real model outputs, immutable FAIL",
+  "commit": "63da1b009bf349d82315acc180c9d33dc4d8b86b",
+  "kind": "redacted original bytes (not corrected expected output)",
+  "raw_sha256": {
+    "A-original.json": "b710024d290ca772f1aa7249e55c2f9680aa909b070133bd040a89fd383fdc89",
+    "repair-original.json": "86af98fbb8b4653dc51b14fc29fde86b835c13f9054dce94cb6ad09c5d347284"
+  },
+  "historical_result": "FAIL / STOP",
+  "old_attempt_not_restored": true,
+  "frozen_source_catalog_preserved": true,
+  "expected_rejection": [
+    "policy non-string",
+    "must_contain non-scalar filter",
+    "unknown continuity reference"
+  ],
+  "independent_expected": "all independently inspectable errors reported; no asset procurement or deletion of requirements"
+}

@@ -66,6 +66,67 @@ class SemanticPlanningError(ValueError):
         super().__init__(json.dumps({'stage': stage, 'issues': issues}, ensure_ascii=False))
 
 
+def planning_input_schema(catalog):
+    """Project existing consumer constraints; schema never replaces compilation."""
+    from easel.materials.application.voice_delivery import voice_delivery_schema
+    from easel.materials.application.need_constraints import VOICE_ALIASES
+    schema = SemanticPlanningDraft.model_json_schema()
+    definitions = schema['$defs']
+    need = definitions['SemanticNeed']
+    scalar = {'type':[{str:'string',int:'integer',float:'number',bool:'boolean'}[t]
+                      for t in NeedCompiler._FILTER_VALUE_TYPES]}
+    constraints = {'type':'object','propertyNames':{'pattern':r'\S'},
+        'additionalProperties':scalar,'properties':{
+            **{key:False for key in sorted(QUERY_FIELDS | VOICE_ALIASES)},
+            'voice_delivery':False,'preferred_visual_details':False}}
+    need['properties']['constraints'] = constraints
+    need['properties']['scope'] = {'allOf':[{'$ref':'#/$defs/NeedScope'}, {'oneOf':[
+        {'properties':{'type':{'const':kind},'ref':{'enum':sorted(catalog[kind])}}}
+        for kind in ('global','scene','segment','event') if catalog.get(kind)]}]}
+    continuity = need['properties']['continuity_refs']
+    if catalog.get('continuity'):
+        continuity['items'] = {'allOf':[{'$ref':'#/$defs/ContinuityRef'},
+            {'properties':{'ref':{'enum':sorted(catalog['continuity'])}}}]}
+    else: continuity['maxItems'] = 0
+    need['allOf'] = []
+    for kind in ('image','video','voice','bgm','sfx'):
+        properties = dict(constraints['properties'])
+        if kind in {'image','video'}:
+            properties['preferred_visual_details'] = {'type':'string','pattern':r'\S'}
+        if kind == 'voice': properties['voice_delivery'] = voice_delivery_schema()
+        properties['media_type'] = {'const':kind if kind in {'image','video'} else 'audio'}
+        query = {'type':'array','items':{'type':'string','maxLength':100},
+                 'minItems':3,'maxItems':3,'uniqueItems':True}
+        if kind not in {'image','video'}:query = {'anyOf':[query,{'type':'array','maxItems':0}]}
+        need['allOf'].append({'if':{'properties':{'modality_spec':{'properties':{'kind':{'const':kind}}}}},
+            'then':{'properties':{'constraints':{**constraints,'properties':properties},'queries':query},
+                    **({'required':['queries']} if kind in {'image','video'} else {})}})
+    # Base properties must allow the conditional, modality-owned exceptions.
+    constraints['properties']['voice_delivery'] = voice_delivery_schema()
+    constraints['properties']['preferred_visual_details'] = {'type':'string','pattern':r'\S'}
+    identities = []
+    for ref, row in sorted(catalog.get('voice',{}).items()):
+        assets = row.get('reference_asset_ids',[])
+        identities.append({'properties':{'source':{'const':row['source']},'reference':{'const':ref},
+            'reference_asset_ids':{'type':'array',**({'items':{'enum':assets}} if assets else {'maxItems':0})},
+            'consent_ref':{'enum':list(dict.fromkeys([None,row.get('consent_ref')]))}}})
+    definitions['SemanticVoiceSpec']['properties']['identity'] = {'allOf':[
+        {'$ref':'#/$defs/VoiceIdentityRef'}, {'anyOf':identities} if identities else False]}
+    return schema
+
+
+PLANNING_INPUT_RULES = (
+    '\nA只声明实际需要获取的素材；正文叠加、字幕布局等后期义务留在冻结SCENES/TREATMENT，'
+    '相关语义可保留于intent但不得额外建立采购Need；不能把所有function默认为后期。'
+    '主体、数量、源动作、禁令写入完整intent描述，不复制成must_contain等列表filter。'
+    'constraints仅为已有标量检索控制、显式视觉软偏好或Voice专属voice_delivery；'
+    '每条Need的queries字段与constraints并列，交三个不同英文短语，不在constraints重复任何查询字段。'
+    '引用只能选本轮catalog；continuity为空则不交引用。'
+    'policy可省略使用程序默认strategy；若提供则值全部为字符串，不能制造事实、授权或预算。'
+    'Schema描述结构，完整程序编译仍会检查跨字段、查询及来源合法性。\n'
+)
+
+
 def problem(field, message, code='contract_invalid'):
     return {'field': field, 'code': code, 'message': SecretRedactor.redact_text(message)}
 
@@ -108,56 +169,83 @@ def apply_defaults(plan, mode, script):
     return MaterialPlan.model_validate_json(plan.model_copy(update={'needs': tuple(bound)}).to_json())
 
 
-def compile_draft(value, *, creation_id, attempt_id, refs, mode, script, allowed_refs=None):
-    draft = parse_draft(value)
-    identity = digest({'policy': POLICY, 'draft': draft.model_dump(mode='json', by_alias=True),
-                       'creation_id': creation_id, 'attempt_id': attempt_id, 'refs': refs,
-                       'mode': mode, 'script_sha256': hashlib.sha256(script.encode()).hexdigest()})
-    needs, issues = [], []
-    for index, item in enumerate(draft.needs):
-        prefix = f'needs.{index}'
+def _compile_need(item, *, index, identity, allowed_refs):
+    prefix = f'needs.{index}'
+    issues = []
+    if allowed_refs is not None:
+        if item.scope.ref not in allowed_refs.get(item.scope.type.value, set()):
+            issues.append(problem(prefix, 'scope.ref不存在于冻结来源；允许集合：' + repr(sorted(allowed_refs.get(item.scope.type.value, set())))))
+        for ref in item.continuity_refs:
+            if ref.ref not in allowed_refs.get('continuity', set()):
+                issues.append(problem(prefix, 'continuity引用不存在于冻结来源'))
+        if item.modality_spec.kind == 'voice' and 'voice' in allowed_refs:
+            voice = item.modality_spec.identity
+            entry = allowed_refs['voice'].get(voice.reference)
+            if (not entry or entry['source'] != voice.source.value
+                or not set(voice.reference_asset_ids).issubset(entry.get('reference_asset_ids', []))
+                or voice.consent_ref not in {None, entry.get('consent_ref')}):
+                issues.append(problem(prefix, 'Voice identity/素材/consent必须绑定冻结上下文中实际存在的来源'))
+    if QUERY_FIELDS.intersection(item.constraints):
+        issues.append(problem(prefix, 'query仅交付在queries，constraints不重复维护query'))
+    constraints = dict(item.constraints)
+    if item.queries:
         try:
-            if allowed_refs is not None and item.scope.ref not in allowed_refs.get(item.scope.type.value, set()):
-                raise ValueError('scope.ref不存在于冻结来源；允许集合：' + repr(sorted(allowed_refs.get(item.scope.type.value, set()))))
-            if item.continuity_refs and allowed_refs is not None:
-                for ref in item.continuity_refs:
-                    if ref.ref not in allowed_refs.get('continuity', set()):
-                        raise ValueError('continuity引用不存在于冻结来源')
-            if item.modality_spec.kind == 'voice' and allowed_refs is not None and 'voice' in allowed_refs:
-                voice_identity = item.modality_spec.identity
-                entry = allowed_refs['voice'].get(voice_identity.reference)
-                if (not entry or entry['source'] != voice_identity.source.value
-                    or not set(voice_identity.reference_asset_ids).issubset(entry.get('reference_asset_ids', []))
-                    or voice_identity.consent_ref not in {None, entry.get('consent_ref')}):
-                    raise ValueError('Voice identity/素材/consent必须绑定冻结上下文中实际存在的来源')
-            if QUERY_FIELDS.intersection(item.constraints):
-                raise ValueError('query仅交付在queries，constraints不重复维护query')
-            constraints = dict(item.constraints)
-            if item.queries:
-                if len(item.queries) != 3:
-                    raise ValueError('queries须为三个不同英文短查询')
-                controls = {'search_query_variants_en': dict(zip(('primary','alternate','relaxed'), item.queries))}
-                query_hints(controls)
-                constraints.update(controls)
-            elif item.modality_spec.kind in {'image', 'video'}:
-                raise ValueError('视觉Need须交付三个检索短语')
-            data = item.model_dump(mode='json', exclude={'queries'})
-            spec = data['modality_spec']
-            need = MaterialNeed.model_validate_json(json.dumps({**data, 'need_id': f'need-{identity[:24]}-{index:03}',
-                'media_type': spec['kind'] if spec['kind'] in {'image','video'} else 'audio',
-                'constraints': constraints}, ensure_ascii=False))
-            validate_modality_constraints((need,))
-            NeedCompiler().compile(need)
-            needs.append(need)
-        except ValidationError as exc:
-            issues.extend(problem(prefix+'.'+'.'.join(map(str,e['loc'])),e['msg'],e['type'])
-                          for e in exc.errors(include_input=False,include_context=False))
-        except (ValueError, TypeError) as exc:
-            issues.append(problem(prefix, str(exc)))
+            if len(item.queries) != 3: raise ValueError('queries须为三个不同英文短查询')
+            controls = {'search_query_variants_en': dict(zip(('primary','alternate','relaxed'), item.queries))}
+            query_hints(controls)
+            constraints.update(controls)
+        except (ValueError, TypeError) as exc: issues.append(problem(prefix, str(exc)))
+    elif item.modality_spec.kind in {'image', 'video'}:
+        issues.append(problem(prefix, '视觉Need须交付三个检索短语'))
+    try:
+        data = item.model_dump(mode='json', exclude={'queries'})
+        spec = data['modality_spec']
+        need = MaterialNeed.model_validate_json(json.dumps({**data, 'need_id': f'need-{identity[:24]}-{index:03}',
+            'media_type': spec['kind'] if spec['kind'] in {'image','video'} else 'audio',
+            'constraints': constraints}, ensure_ascii=False))
+        validate_modality_constraints((need,))
+        NeedCompiler().compile(need)
+    except ValidationError as exc:
+        issues.extend(problem(prefix+'.'+'.'.join(map(str,e['loc'])),e['msg'],e['type'])
+                      for e in exc.errors(include_input=False,include_context=False))
+    except (ValueError, TypeError) as exc: issues.append(problem(prefix, str(exc)))
+    return (None, issues) if issues else (need, [])
+
+
+def compile_draft(value, *, creation_id, attempt_id, refs, mode, script, allowed_refs=None):
+    # Inspect only structurally valid independent Needs when another field is
+    # invalid. Never substitute defaults for bad input to produce a Plan.
+    if isinstance(value, (str, bytes)):
+        try: value = read_planning_requirements(value.decode('utf-8') if isinstance(value,bytes) else value)
+        except (ValueError, UnicodeError) as exc:
+            raise SemanticPlanningError('A',[problem('$',str(exc),'json_invalid')]) from exc
+    issues = []
+    try: draft = parse_draft(value)
+    except SemanticPlanningError as exc:
+        draft = None
+        issues.extend(exc.issues)
+    if draft is None:
+        items = []
+        candidates = value.get('needs', []) if isinstance(value,dict) else []
+        if isinstance(candidates,list):
+            for index, row in enumerate(candidates):
+                try: item = SemanticNeed.model_validate_json(json.dumps(row,ensure_ascii=False))
+                except (ValueError,TypeError): continue  # Schema diagnostics already identify invalid structure.
+                items.append((index,item))
+        identity = 'diagnostic-only'  # No formal identity exists for an invalid draft.
+    else:
+        identity = digest({'policy': POLICY, 'draft': draft.model_dump(mode='json', by_alias=True),
+                           'creation_id': creation_id, 'attempt_id': attempt_id, 'refs': refs,
+                           'mode': mode, 'script_sha256': hashlib.sha256(script.encode()).hexdigest()})
+        items = list(enumerate(draft.needs))
+    needs = []
+    for index, item in items:
+        need, problems = _compile_need(item,index=index,identity=identity,allowed_refs=allowed_refs)
+        issues.extend(problems)
+        if need is not None: needs.append(need)
     if not issues and not any(n.importance is NeedImportance.REQUIRED for n in needs):
         issues.append(problem('needs', '至少一个required Need；不把上游无效项算作通过'))
-    if issues:
-        raise SemanticPlanningError('A', issues)
+    if issues: raise SemanticPlanningError('A', issues)
     plan = MaterialPlan(plan_id=f'plan-{identity[:32]}', creation_id=creation_id, attempt_id=attempt_id,
                         context_refs=refs, policy=draft.policy, needs=tuple(needs))
     return apply_defaults(plan, mode, script)
@@ -294,6 +382,10 @@ def _preserve_repair_semantics(before, after, catalog=None):
     if not isinstance(a,list):return
     if not isinstance(b,list) or len(a)!=len(b):
         raise SemanticPlanningError('A',[problem('needs','修复不能删除或新增需求')])
+    if isinstance(old.get('policy'),dict):
+        for key,value in old['policy'].items():
+            if isinstance(value,str) and (not isinstance(new.get('policy'),dict) or new['policy'].get(key)!=value):
+                raise SemanticPlanningError('A',[problem('policy.'+key,'结构修复不能改写有效规划策略子项')])
     if 'policy' in old:
         from pydantic import TypeAdapter
         try:TypeAdapter(SemanticPlanningDraft.model_fields['policy'].annotation).validate_json(json.dumps(old['policy']))
@@ -355,7 +447,10 @@ def _preserve_repair_semantics(before, after, catalog=None):
                         continue
                     elif field=='preferred_visual_details':
                         if kind not in {'image','video'} or not isinstance(value,str) or not value.strip():continue
-                    elif isinstance(value,(dict,list)):continue
+                    elif isinstance(value,(dict,list)):
+                        if not isinstance(repaired,dict) or field not in repaired or value!=repaired[field]:
+                            raise SemanticPlanningError('A',[problem(path+'.'+field,'未定义容器语义不能删改来通过修复')])
+                        continue
                     if not isinstance(repaired,dict) or field not in repaired or value!=repaired[field]:
                         raise SemanticPlanningError('A',[problem(path+'.'+field,'结构修复不能改写有效需求语义')])
                 continue
@@ -475,8 +570,8 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
         '只交一份语义草稿，程序负责正式Plan/NeedID/身份/来源/sidecar；不输出派生字段。'
         '读取本工作区冻结handoff及Creator/Director依据；scope仅选择下列catalog。'
         'queries交三个不同英文短语；正文/场景/声音保持确认原意，required不能遗漏或降级；'
-        '不调用供应/生成/Hypit。只写 '+str(root/'planning'/a_name)+'\n'
-        +json.dumps({'schema':SemanticPlanningDraft.model_json_schema(),'confirmed':canonical,
+        '不调用供应/生成/Hypit。只写 '+str(root/'planning'/a_name)+'\n' + PLANNING_INPUT_RULES
+        +json.dumps({'schema':planning_input_schema(catalog),'confirmed':canonical,
                     'catalog':catalog,'context_refs':planning_context['context_refs']},ensure_ascii=False,sort_keys=True))
     if len(message.encode())>MAX_FILE_BYTES:
         raise SemanticPlanningError('A',[problem('input','完整输入超过有界容量，未派发')])
@@ -492,7 +587,7 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
             allowed_refs=catalog)
     except SemanticPlanningError as exc:
         state['repair_stage']='A';save()
-        raw=repair('A',raw,exc.issues,[a_name],{'schema':SemanticPlanningDraft.model_json_schema(),
+        raw=repair('A',raw,exc.issues,[a_name],{'schema':planning_input_schema(catalog),
                                             'catalog':catalog,'original':raw.decode()})
         plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
             refs=planning_context['context_refs'],mode=mode,script=canonical['SCRIPT.md'],

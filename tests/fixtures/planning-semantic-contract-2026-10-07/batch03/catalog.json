@@ -1,0 +1,31 @@
+{
+  "continuity": {},
+  "event": {
+    "event-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+  },
+  "global": {
+    "global": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+  },
+  "scene": {
+    "scene-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+  },
+  "segment": {
+    "segment-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+  },
+  "voice": {
+    "creator_context.voice": {
+      "consent_ref": null,
+      "context": {
+        "avoid": [
+          "说教式口号",
+          "过度情绪化表达",
+          "暴露工具或内部制作痕迹",
+          "第一人称亲历叙事"
+        ],
+        "tone": "克制、清醒、低饱和的日常观察口吻"
+      },
+      "reference_asset_ids": [],
+      "source": "creator_context"
+    }
+  }
+}

@@ -771,3 +771,12 @@ def test_40_r4_native_async_lifecycle(prep_env, monkeypatch, trace, risk):
     semantic.test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence=trace)
     trace.note('lifecycle', risk)
     trace.note('Supply / generation / Build calls', 0)
+
+
+@pytest.mark.parametrize('risk', ['aggregate_history', 'constraint_erasure', 'policy_child',
+    'schema_constraints', 'schema_continuity', 'legal_policy', 'legal_reference', 'legal_audio'])
+def test_41_a_compiler_contract_alignment(semantic_runtime, trace, risk):
+    trace.define('真实A多层错误完整诊断；容器/合法policy子项不能删改；发布Schema与实际编译接受条件一致',
+                 'batch03真实原件；真实两阶段持久编译；仅模型边界响应替身；不调用Supply')
+    semantic.test_a_compiler_contract_alignment(semantic_runtime, risk, evidence=trace)
+    trace.note('real Provider / generation / Supply', 0)

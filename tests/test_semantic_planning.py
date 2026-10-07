@@ -880,3 +880,86 @@ def test_native_repair_valid_children_remain_protected_after_reentry(semantic_ru
     for _ in range(2):
         with pytest.raises(SemanticPlanningError,match=location):rt['run'](dispatch)
     assert len(rt['calls'])==2 and not (rt['root']/'planning/MATERIAL_PLAN.json').exists()
+
+
+@pytest.mark.parametrize('risk', ['aggregate_history', 'constraint_erasure', 'policy_child',
+    'schema_constraints', 'schema_continuity', 'legal_policy', 'legal_reference', 'legal_audio'])
+def test_a_compiler_contract_alignment(semantic_runtime, risk, evidence=None):
+    rt = semantic_runtime
+    if risk == 'aggregate_history':
+        raw = (FIXTURE / 'batch03/A-original.json').read_bytes()
+        catalog = json.loads((FIXTURE / 'batch03/catalog.json').read_text())
+        with pytest.raises(SemanticPlanningError) as caught:
+            compile_draft(raw, creation_id='synthetic-history', attempt_id='synthetic-history-a',
+                refs={}, mode={}, script='先看问题，再做决定。', allowed_refs=catalog)
+        issues = caught.value.issues
+        if evidence: evidence.note('all independent actual issues', issues)
+        assert any(i['field'].startswith('policy.') for i in issues)
+        assert any(i['field'] == 'needs.0' and 'scalar retrieval filter' in i['message'] for i in issues)
+        assert any(i['field'] == 'needs.1' and 'continuity' in i['message'] for i in issues)
+        combined = json.loads(raw)
+        combined['needs'][0]['scope']['ref'] = 'unknown'
+        combined['needs'][0]['continuity_refs'] = [{'kind':'image','ref':'unknown'}]
+        with pytest.raises(SemanticPlanningError) as combined_error:
+            compile_draft(combined, creation_id='synthetic-history', attempt_id='synthetic-history-a',
+                refs={}, mode={}, script='先看问题，再做决定。', allowed_refs=catalog)
+        assert sum(i['field'] == 'needs.0' for i in combined_error.value.issues) == 3
+        return
+    if risk in {'constraint_erasure', 'policy_child'}:
+        original = semantic_draft()
+        if risk == 'constraint_erasure':
+            original['needs'][0]['constraints']['must_contain'] = ['不可丢失的角标']
+            fixed = deepcopy(original); fixed['needs'][0]['constraints'].pop('must_contain')
+        else:
+            original['policy'] = {'language': 'zh-CN', 'broken': True}
+            fixed = deepcopy(original); fixed['policy'] = {'language': 'en', 'broken': 'true'}
+        def dispatch(stage, message, session):
+            if '单元分类' in message: return rt['execute'](stage, message, session)
+            rt['calls'].append({'stage':stage, 'session':session})
+            target = rt['root'] / 'planning/SEMANTIC_PLAN.json'
+            target.write_bytes(encode(fixed if stage == 'structure_repair' else original))
+        for _ in range(2):
+            with pytest.raises(SemanticPlanningError): rt['run'](dispatch)
+        assert len(rt['calls']) == 2 and not (rt['root'] / 'planning/MATERIAL_PLAN.json').exists()
+        if evidence: evidence.note('rejected erasure without formal Plan', {'risk':risk,'calls':2})
+        return
+    import jsonschema
+    candidate = semantic_draft()
+    if risk == 'schema_constraints': candidate['needs'][0]['constraints']['must_contain'] = ['两张白纸']
+    elif risk == 'schema_continuity': candidate['needs'][0]['continuity_refs'] = [{'kind':'image','ref':'unknown'}]
+    elif risk == 'legal_policy': candidate['policy'] = {'strategy':'bulk_first','language':'zh-CN'}
+    elif risk == 'legal_reference':
+        rt['context']['creator_context'] = {'asset':{'id':'asset-one'}}
+        candidate['needs'][0]['continuity_refs'] = [{'kind':'image','ref':'asset-one'}]
+    elif risk == 'legal_audio':
+        rt['context']['creator_context'] = {'voice':{'tone':'克制'}}
+        candidate = audio_draft(); candidate['needs'][0]['constraints'] = {'voice_delivery':{'tone':'neutral'}}
+    messages = []
+    def dispatch(stage, message, session):
+        if message.startswith('〔Easel Semantic'):
+            messages.append(message)
+            rt['calls'].append({'stage':stage,'session':session})
+            # Legal baseline traverses the actual compiler/classifier before
+            # testing the published Schema against independent variants.
+            out = candidate if risk.startswith('legal_') else semantic_draft()
+            (rt['root'] / 'planning/SEMANTIC_PLAN.json').write_bytes(encode(out))
+        else: rt['execute'](stage, message, session)
+    result = rt['run'](dispatch)
+    schema = json.loads(messages[0].splitlines()[-1])['schema']
+    errors = list(jsonschema.Draft202012Validator(schema).iter_errors(candidate))
+    if evidence: evidence.note('published Schema validation', {'risk':risk,'errors':[e.message for e in errors]})
+    if risk.startswith('schema_'):
+        assert errors, 'published Schema accepts a downstream-invalid structure'
+        if risk == 'schema_constraints':
+            variants = [semantic_draft() for _ in range(4)]
+            variants[0]['needs'][0].pop('queries')
+            variants[1]['needs'][0]['constraints']['voice_delivery'] = {'tone':'neutral'}
+            variants[2]['needs'][0]['constraints']['search_query_en'] = 'paper'
+            variants[3]['needs'][0]['constraints']['voice_tone'] = 'neutral'
+            assert all(list(jsonschema.Draft202012Validator(schema).iter_errors(v)) for v in variants)
+    else:
+        assert not errors and all(n.importance.value == 'required' for n in result['plan'].needs)
+        if risk == 'legal_audio':
+            for invalid in ({'pace_ratio':0.4}, {'pitch_semitones':True}, {'tone':'invented'}, {'unknown':1}):
+                bad = deepcopy(candidate);bad['needs'][0]['constraints']['voice_delivery'] = invalid
+                assert list(jsonschema.Draft202012Validator(schema).iter_errors(bad))

@@ -1,0 +1,87 @@
+{
+  "schema": "semantic-planning-draft@1",
+  "needs": [
+    {
+      "role": "background_plate",
+      "importance": "required",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "intent": {
+        "description": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。",
+        "function": "承载整支成片的桌面场景：一张静帧桌面照,桌上必须有两张空白纸,作为整支画面的视觉底版,正文以后期叠加方式出现"
+      },
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "restrained low saturation everyday, low-saturation still life with generous negative space; quiet photographic or low-saturation illustration, no glossy AI spectacle, no decorative clutter",
+        "reference_asset_ids": []
+      },
+      "queries": [
+        "two blank sheets of paper on a minimalist desk top down",
+        "two white papers side by side on a calm wooden desk still life",
+        "overhead photo of two plain white A4 papers on a low saturation desk"
+      ],
+      "duration_hint": {
+        "target_seconds": 15
+      },
+      "continuity_refs": [],
+      "constraints": {
+        "must_contain": ["两张白纸", "桌面"],
+        "must_not_contain": ["文字", "人物", "品牌标识", "工具痕迹", "AI 生成风格炫光", "第一人称叙事线索"],
+        "aspect_ratio": "9:16",
+        "static": true
+      },
+      "desired_options": 3
+    },
+    {
+      "role": "text_overlay",
+      "importance": "required",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "intent": {
+        "description": "把单句主张「先看问题，再做决定。」以后期叠加方式落在画面上,作为整支作品的唯一文字层,只在桌面图之上叠加,不参与图像生成",
+        "function": "承载作品的核心主观创作主张,以文字层方式叠加在背景之上,字幕语气保持克制、清醒、低饱和的日常观察口吻"
+      },
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "concise subtitle placed inside the 9:16 safe area, neutral sans-serif, low-saturation tone matching the desk plate",
+        "reference_asset_ids": []
+      },
+      "queries": [
+        "minimal subtitle text overlay on a low saturation desk still life",
+        "two line Chinese subtitle card with generous negative space 9:16",
+        "quiet caption typography over a calm everyday photograph"
+      ],
+      "duration_hint": {
+        "target_seconds": 15
+      },
+      "continuity_refs": [
+        {
+          "kind": "production_brief.text_overlays",
+          "ref": "production_brief.text_overlays"
+        }
+      ],
+      "constraints": {
+        "text": ["先看问题，再做决定。"],
+        "language": "zh-CN",
+        "safe_area": "9:16 subtitle safe area",
+        "must_not_be": ["说教式口号", "过度情绪化表达", "暴露工具或内部制作痕迹", "第一人称亲历叙事"],
+        "placement": "后期叠加,不在生成的桌面图内"
+      },
+      "desired_options": 1
+    }
+  ],
+  "policy": {
+    "voice": "none | reason: production_brief.audio_mode = silent, treatment confirms no narration, content core excludes voice/bgm elements",
+    "bgm": "exclude | reason: treatment confirms 无音乐, production_brief.audio_mode = silent, audio bible permits no BGM when unlicensed or distracting",
+    "sfx": "exclude | reason: no visual action or environment cue in the brief; static still with no action to attach SFX to",
+    "facts_boundary": "must_not_invent[第一人称的工作经历或真实决策案例, 具体的人物、对话、日期、金额或结果, 伪造的工作场景截图或文件影像, 把意见主张改写为事实声明] | may_express[以意见形式表达「先看问题，再做决定」的创作主张, 用两张白纸的视觉象征表达主观意图]",
+    "ai_generation_allowed": "false",
+    "language": "zh-CN"
+  }
+}

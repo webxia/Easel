@@ -313,6 +313,16 @@ def _recognized_timing(record, need, asset, script):
 
 TONES = frozenset({"neutral", "happy", "sad", "angry", "afraid", "disgusted", "surprised"})
 DEFAULT_DELIVERY = {"pace_ratio": 1.0, "pitch_semitones": 0, "tone": None}
+PACE_RANGE = (0.5, 2)
+PITCH_RANGE = (-12, 12)
+
+
+def voice_delivery_schema():
+    """Publish the same controls/ranges used by the existing consumer."""
+    return {'type':'object', 'additionalProperties':False, 'properties':{
+        'pace_ratio':{'type':'number','minimum':PACE_RANGE[0],'maximum':PACE_RANGE[1]},
+        'pitch_semitones':{'type':'integer','minimum':PITCH_RANGE[0],'maximum':PITCH_RANGE[1]},
+        'tone':{'enum':[None,*sorted(TONES)]}}}
 
 
 def validate_voice_delivery(value: object) -> dict:
@@ -320,9 +330,9 @@ def validate_voice_delivery(value: object) -> dict:
         raise ValueError("旁白执行要求仅支持 pace_ratio、pitch_semitones、tone")
     result = {**DEFAULT_DELIVERY, **value}
     pace, pitch, tone = result["pace_ratio"], result["pitch_semitones"], result["tone"]
-    if type(pace) not in (int, float) or not math.isfinite(pace) or not 0.5 <= pace <= 2:
+    if type(pace) not in (int, float) or not math.isfinite(pace) or not PACE_RANGE[0] <= pace <= PACE_RANGE[1]:
         raise ValueError("旁白语速倍率必须在 0.5 至 2 之间")
-    if type(pitch) is not int or not -12 <= pitch <= 12:
+    if type(pitch) is not int or not PITCH_RANGE[0] <= pitch <= PITCH_RANGE[1]:
         raise ValueError("旁白音高调整必须为 -12 至 12 的整数半音")
     if tone is not None and (not isinstance(tone, str) or tone not in TONES):
         raise ValueError("当前旁白执行器不支持该情绪要求")
