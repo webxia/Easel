@@ -1,0 +1,61 @@
+{
+  "timestamp_utc": "2026-10-07T08:37:24.564047+00:00",
+  "repo_head": "7e36cbe2a5690408bb208b4df844a99ddf190bcf",
+  "runtime_version": "2026.9.4",
+  "node_version": "24.21.0",
+  "runtime_files_sha256": {
+    "openclaw-state-db-DoQEJuhr.mjs": "d3a52e65d0bca8993cbb6d48ae5d51e475e3aced8c7b9e15da77733f4fc8abcf",
+    "agent-CX9n8ax-.mjs": "e2f75b03ff872bde313492e82e3122e371aa93a8e7456583571f6add0472634c",
+    "principal-CweFVZNq.mjs": "bfc14ec79a60aef407c94b1679e6b4d87f7ebefbad7d68e45c5c32e5c52e02f9",
+    "server-constants-BrVEC7RW.mjs": "67bd2f9fd3aca9672fe9a6c7e03162f4fadfaec1d26aab3812736777b9879065",
+    "client-ebDOtCHS.mjs": "600f220158a7772f6c6c6b734c63ccd50ee0e3df6ca7ef67284bda577ec9d4ec",
+    "transcript-events-DKy5FIiI.mjs": "2848f8475d3bab64d570c60e076d4e4d583e4cb076eba2ebcacef6b9b298cf00",
+    "session-store-runtime-BGrEZWPo.mjs": "84858d16018671e8beb845aa5be7955a7057a90bb06394fd4adc057e9bd95e7e",
+    "session-transcript-runtime-BnDGzmzJ.mjs": "0c2975888855ba1f7a835535864396e9a1ac4dbaa0a0f3c6cee9c60e8de3fc42",
+    "session-transcript-readers-BZjuw2hz.mjs": "799a71b9b95715ec03d74b543fd1b5c43c8b4374a840d64079db5e82db4e394c",
+    "session-accessor-BxcCxteu.mjs": "f59cc36b974aa4ada62a700be36499c5e33e16676d8ba0b1a6bec3518e8ebbe5",
+    "session-accessor.sqlite-transcript-store-BczH1lRJ.mjs": "3530fa169bac8712ed16532adf0ffc118d1af19feb4a18a30284693f2618e325",
+    "chat-abort-ops-DW4M4Ye3.mjs": "dc55fc617fd68680fb377a3638681da3baeea2b9016da095c80fb17f8463c2fc",
+    "chat-DcR7SKaZ.mjs": "c88d5b46332a80ed538aba040b29b09b40128ca968e95a8ec54d102e69956c5d",
+    "chat-history-handler-DpOELHcj.mjs": "96b59d169f7c1eff4960b93f1bcbddfeaf89cb9edae153f89d2ce37b00aaebc9",
+    "sessions-read-CmsoQhMB.mjs": "b261ab9a9abe6838bd2d9296d9b00483c1c62695a35cd076264c0d1264f39121",
+    "sessions-rlbLHLas.mjs": "c8ec93251876cbb36f527153128b8e5647487399762a222f5fd4f85239dbbd9e",
+    "builtin-openclaw-B-H-7lKk.mjs": "654bb2d9753e0a354320a70bdb96a120e9d5c0780e3d76f0e69bf08f4e2dd6d6",
+    "embedded-agent-tool-results-D4WOhN8P.mjs": "54b5e0558c3628f28e65edaf97d92c351da3a322bbd0facda23a982fa2707014",
+    "server-chat-state-CztWapVM.mjs": "eed1d348d0e1767e025453ac66e4bc78437ff2f8d85bb185cc074a440fbcf6e8",
+    "agent-command-CHGsr0QY.mjs": "23811eeac59841186db94505f3675d327aa55f7721ddc48a22bd34d422770ed2",
+    "plugin-sdk/session-store-runtime.js": "d9e819bfaaf5811f406440e2faa052fd64f36e078f863a415d2769db841d820e",
+    "plugin-sdk/session-transcript-runtime.js": "d8876ceafafef8cc2841c1dcb6ccace66c99aa90f98c87816d139182a946de59"
+  },
+  "package_sha256": "a234b616a049b4dedaad49ba0e95ff31afd3f19935e446199e75f78b589d1c21",
+  "evidence_sha256": {
+    "probe.mjs": "def589b5d1a159381b2c2f5220cfbcf07070ffbee5c02bc8ae51a117b828ab65",
+    "recover.mjs": "a3d5810a392c85a28493aea481f5db0d2198c434cb819f4016b7b5321ca2ca19",
+    "offline-runtime-result.json": "dffecec64d5b537553edac4c5399504f67818673e5dc2703fd2e37e5c5c83575"
+  },
+  "preservation": {
+    "protected": {
+      "count": 257,
+      "unchanged": true,
+      "changed_count": 0
+    },
+    "fixtures": {
+      "count": 117,
+      "unchanged": true,
+      "changed_count": 0
+    }
+  },
+  "production_edited_during_investigation": false,
+  "model_calls": 0,
+  "service_operations": 0,
+  "s2": "TRANSPORT_CLOSURE_PENDING",
+  "legal_a_b_capacity": "PENDING",
+  "raw_capacity_replay": "PASS",
+  "first_probe_failure": {
+    "expected": "branch cursor immediately reset",
+    "actual": "unavailable/projection_rebuilding",
+    "category": "diagnostic expectation timing error",
+    "runtime_modified": false,
+    "followup_contract": "reset or explicit unavailable; never old result page"
+  }
+}

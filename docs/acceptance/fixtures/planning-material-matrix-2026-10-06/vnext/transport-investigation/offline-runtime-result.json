@@ -1,0 +1,83 @@
+{
+  "runtime": "2026.9.4",
+  "isolated": true,
+  "model_calls": 0,
+  "scope": {
+    "sessionId": "26937682-d3a9-4235-b933-dc2af1631a42",
+    "runId": "easel-probe-619a86df-027d-4f1d-b277-5fa30af0bbd9"
+  },
+  "rows": [
+    {
+      "utf8_bytes": 11119,
+      "utf16_chars": 4559,
+      "stored_sha256": "c22df0c951a95bdd55553e509296ee57c4697931baaed54a9ebb0f6f32526c51",
+      "gateway_sha256": "c22df0c951a95bdd55553e509296ee57c4697931baaed54a9ebb0f6f32526c51",
+      "byte_equal": true,
+      "snapshot_truncated": true,
+      "raw_events": 2,
+      "active_messages": 1
+    },
+    {
+      "utf8_bytes": 88528,
+      "utf16_chars": 36096,
+      "stored_sha256": "4b3509809ff1ec13ae32a9619069eafa00ac6aa94e1e369227e6a131c00dc61a",
+      "gateway_sha256": "4b3509809ff1ec13ae32a9619069eafa00ac6aa94e1e369227e6a131c00dc61a",
+      "byte_equal": true,
+      "snapshot_truncated": true,
+      "raw_events": 3,
+      "active_messages": 2
+    },
+    {
+      "utf8_bytes": 353965,
+      "utf16_chars": 144237,
+      "stored_sha256": "1c4d64cce1da5c0aa8dea27fdc3b824120f89f3ddb481cab012f6734eab95315",
+      "gateway_sha256": "1c4d64cce1da5c0aa8dea27fdc3b824120f89f3ddb481cab012f6734eab95315",
+      "byte_equal": true,
+      "snapshot_truncated": true,
+      "raw_events": 4,
+      "active_messages": 3
+    },
+    {
+      "utf8_bytes": 1415632,
+      "utf16_chars": 576768,
+      "stored_sha256": "d12e9af7776d995e5956d8d93e47c618ac815fae7e76c04e4f237ea8f8244ff4",
+      "gateway_sha256": "d12e9af7776d995e5956d8d93e47c618ac815fae7e76c04e4f237ea8f8244ff4",
+      "byte_equal": true,
+      "snapshot_truncated": true,
+      "raw_events": 5,
+      "active_messages": 4
+    },
+    {
+      "utf8_bytes": 2160049,
+      "utf16_chars": 880049,
+      "stored_sha256": "0f9dc4c0aeb76a8311db9eba5b9a601a2d9978097a697037fb013a4ba2869049",
+      "gateway_sha256": "0f9dc4c0aeb76a8311db9eba5b9a601a2d9978097a697037fb013a4ba2869049",
+      "byte_equal": true,
+      "snapshot_truncated": true,
+      "raw_events": 6,
+      "active_messages": 5
+    }
+  ],
+  "tool_arguments_bytes": 520022,
+  "tool_arguments_equal": true,
+  "raw_delta": {
+    "hasMore": true,
+    "full_events": 7,
+    "scope_mismatch": "missing"
+  },
+  "visible_delta": {
+    "requiredBytes": 11844,
+    "pages": 3,
+    "entries": 6,
+    "branch_state": "unavailable",
+    "branch_reason": "projection_rebuilding"
+  },
+  "recovery": {
+    "fresh_process": true,
+    "exact_session_id": "26937682-d3a9-4235-b933-dc2af1631a42",
+    "run_id": "easel-probe-619a86df-027d-4f1d-b277-5fa30af0bbd9",
+    "full_text_sha256": "0f9dc4c0aeb76a8311db9eba5b9a601a2d9978097a697037fb013a4ba2869049",
+    "entries": 6
+  },
+  "temporary_state_dir": "/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/easel-transport-fixture-PQuBLR"
+}

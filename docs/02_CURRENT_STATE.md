@@ -1,5 +1,11 @@
 # Easel Current State
 
+## Planning Semantic Boundary vNext：S2 transport 调查，暂不冻结（2026-10-07）
+
+连续vNext Goal进行中，S1已有确定性证据；S2此前仅验证终态快照适配器，其阶段通过判断已撤回。4096 terminalReply是展示摘要上限，3000是旧Material协议上限，两者均不是模型输出上限。现安装OpenClaw2026.9.4存在完整agent result/stream、原始transcript和正式SDK branch-safe分页读取；已在隔离SQLite及新恢复进程实际验证11KB至2.16MB Unicode JSON字节/SHA一致、520KB tool arguments、分页超预算标记及分支重建保护。
+
+`S2=TRANSPORT_CLOSURE_PENDING / NOT_FROZEN`：A/B最终合法响应集合、实际最大边界及生产profile/session精确恢复仍待闭合，任意大JSON回放不能替代这些证据。优先候选为精确sessionId的SDK branch-safe raw读取；wait缓存TTL/重启丢失及同run多attempt不能冒充最终结果。未推进未验收S3草稿、未调用模型、未加载服务，历史10批FAIL/12执行/held-out0保留，Formal R4/Supply/Smoke/E2E未启动。详见[同一Task的transport调查](tasks/planning-semantic-boundary-vnext-2026-10-07.md)及其隔离诊断证据。下方batch10进行中记录为历史，当前正式R4为PAUSED/FAIL。
+
 Last audited: 2026-10-06. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
 
 

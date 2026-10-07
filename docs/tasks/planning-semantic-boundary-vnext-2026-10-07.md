@@ -818,3 +818,70 @@ REAL_EXECUTION_AUTHORIZED = NO
 Planning内部reply_contract=planning-result-v1复用原Gateway运行；Material默认协议/hash保持。原终态length在空JSON前标记MODEL_TRUNCATED，无结果、结构错误和本地保存失败明确区分；完整回复先进入原请求/检查点，保存重试不重派。现安装2026.9.4的run-wait与terminal snapshot源码确认接口存在、服务端4096 UTF16上限；Planning保持3000保守上限，未升级Runtime。
 
 6项真实内部Gateway适配器+Harness集成PASS；矩阵run-020 145PASS，Planning/Preparation/Material相关回归318PASS，257现场/117fixture保持。外部RPC固定替身，不证明真实模型可用；S2极小真实diagnostic可选，本阶段未调用，后续Dev记录真实capture。首次测试替身未模拟accepted异步及release终态，经校正后完整重跑；未放宽生产约束。S3–S5未执行。
+
+### S2用户纠正：完整transport尚未闭合（2026-10-07）
+
+用户指出4096 terminalReply是快照上限，不是模型输出上限，要求调查tool-call arguments、full assistant result/stream、transcript retrieval完整通道。S2此前PASS仅指快照适配器测试，阶段冻结判断撤回：S2=TRANSPORT_CLOSURE_PENDING，真实调用0；7e36cbe2保留为可审计实验checkpoint，不认领最终S2。未完成/未提交S3草稿保持WIP，暂停后续推进，完整合法结果无损承载证据成立后才冻结S2。旧设计原文不改、历史FAIL不改。
+
+### S2 完整 transport 调查结论（2026-10-07）
+
+**S2 = TRANSPORT_CLOSURE_PENDING；未冻结。** 4096 是 OpenClaw 终态展示摘要的 UTF-16 上限；3000 是 Easel 原 Material 回复协议的应用上限。两者都不是模型输出上限，不能用来约束 vNext A/B 的完整结果。上方实验 S2 Gate 不再构成实施阶段准入证据；历史测试结果保留。
+
+调查对象为本机实际安装 OpenClaw `2026.9.4` / Node `24.21.0`。没有升级 Runtime、调用模型、操作服务、读取真实 transcript 或凭证。新增内容仅为此 Task 的调查记录及隔离诊断证据；S3 生产草稿保持原状。
+
+#### 通道比较
+
+下列源码位于 `/Users/xgx/.local/node-v24.21.0-darwin-arm64/lib/node_modules/openclaw/dist`，行号对应本轮固定安装文件，指纹保存在同目录证据中。
+
+| 通道 | 容量及内容 | 终态 / 身份 | 截断与恢复 | 判断 |
+|---|---|---|---|---|
+| `agent.wait.terminalReply` | 最多4096 UTF-16单元；超限生成省略号；经过展示 metadata 清理 | 原 runId 的终态摘要 | wait job cache为内存，TTL10分钟、最多5000，生命周期重置清空 | 只用于观察摘要，禁止作为 vNext 正式结果 |
+| `agent` 完整最终响应 | `--expect-final` / `expectFinal:true` 跳过 accepted，接收 `{runId,status,result}`；result包含完整结果及meta，不受4096摘要上限；Gateway WS单帧25MiB，缓冲50MiB | 当前RPC请求关联runId；meta含终态receipt/sessionId/模型归属 | 连接丢失不代表运行失败；最终response/dedupe不是持久结果恢复契约。payload可能经过delivery整理，不能假定provider wire字节一致 | 可作即时capture，仍须独立持久恢复及内容完整性校验 |
+| assistant live stream | assistant事件带text/delta/replace/itemId；累计输出不受4096限制，仍有单帧和缓冲边界 | 事件带runId、seq及agent/session相关字段；中间文本不是最终产物 | 必须正确处理replace与多attempt，丢帧、断线、sequence gap不得拼出正式结果；progress snapshot只保留50事件/128KiB/单事件64KiB | 用于即时观察；不能用progress snapshot恢复完整输出 |
+| tool-call arguments | raw assistant toolCall.arguments完整存储；live tool start含经脱敏args，没有终态摘要的4096限制 | runId + toolCallId；`stopReason:toolUse`是工具阶段，不能当成最终assistant成功 | 工具执行、工具结果及运行终态必须分别核验。工具结果文本的8000字符裁剪、malformed-tool repair的64k缓冲均不等同于合法arguments容量 | 有容量，但本期不增新工具/插件、也不让模型工具写正式产物；不选为默认通道 |
+| `chat.history` | 默认200/最多1000条；默认文本8000，maxChars最多500000；总messages6MiB；单消息>128KiB为占位 | offset/nextOffset/hasMore、messageId、deltaCursor；不是runId结果检索 | 展示projection会改写或裁剪；delta最多200events/1MB并可reset | 只能用于发现消息/观察，不直接承载正式结果 |
+| `chat.message.get` | 默认1M/最多2M字符；仍经过display projection，没有文本分片offset | sessionKey/agentId/messageId，检查可见性及归档 | not_found/not_visible/oversized明确；仍可能文本裁剪；无expectedSessionId参数 | 比history完整，但不是raw无损接口 |
+| `sessions.get` | 原始message内容+metadata，保留text/stopReason/runId；默认200条，tail预算8MiB；首条可oversized，无单文本4096裁剪 | 当前session active path；读前后检查binding，变化返回空messages；没有跨调用expectedSessionId | 返回messages，不给tail截断/分页标记；旧run消息可能不在tail。空消息不能证明未执行 | 已实测长JSON无损；不能单独承担严格旧session恢复 |
+| SDK `loadTranscriptEventsSync` / `readSessionTranscriptEvents` | 精确sessionId的raw additive event集合，无display字符cap | 保留message.stopReason与`__openclaw.runId` | 可跨进程重读，但raw含DAG分支，不能直接选最后一行；SDK数据库打开会加入可写生命周期 | 完整原件通道；默认优先用branch-safe读接口 |
+| SDK `readVisibleSessionTranscriptMessageEntries` | 精确session身份、完整branch-safe raw messages，无display裁剪 | 保留entryId/parentId/seq/message/runId；seq仅为排序，不是恢复cursor | 选当前活动路径；按同一sessionId恢复，不随sessionKey reset改读新session | **优先候选：Harness正式恢复来源** |
+| SDK `readSessionTranscriptVisibleMessageDelta` | branch-safe原消息分页，max64MiB/10000条；`requiredBytes`明确整条超页预算，不拆消息 | cursor绑定agentId/sessionId/generation/anchor | append稳定；branch/rewrite返回reset，projection_rebuilding返回unavailable；hasMore明确 | **优先候选：有界分页及恢复控制** |
+| SDK `readSessionTranscriptRawDelta` | raw分页，max64MiB/10000events；整event，不切文本 | cursor绑定agentId/sessionId/generation/seq | hasMore/requiredBytes/reset明确；raw不是活动分支 | 原件审计、诊断，不作为最终assistant选择器 |
+
+模型实际输出token上限依赖有效模型与Provider契约，此次没有调用或加载凭证核验，记为 UNKNOWN；不能从任何上述preview上限推导。Gateway的25MiB是WS帧限制，也不是模型能生成25MiB的承诺。
+
+#### 已执行的隔离证据
+
+使用正式 SDK `upsertSessionEntry` / `appendSessionTranscriptMessageByIdentityStrict` 写入临时SQLite synthetic session，再执行真实存储读、SDK branch-safe读以及真实 `sessionReadHandlers['sessions.get']`。所有state/config/store都在新临时目录，主流程与恢复子进程分开，没有真实Gateway/model/Provider调用。
+
+证据：[离线执行结果](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/transport-investigation/offline-runtime-result.json)、[诊断源码](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/transport-investigation/probe.mjs)、[新进程恢复](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/transport-investigation/recover.mjs)。这些是具名Runtime隔离诊断，未替代同一矩阵的S2正式集成Gate。
+
+| 场景 | 实际结果 |
+|---|---|
+| Unicode JSON，UTF-8为11,119 / 88,528 / 353,965 / 1,415,632 / 2,160,049 bytes | 全部存储/SDK/Gateway handler与原text字节、SHA一致；相同内容的4096摘要均截断 |
+| 520,022 bytes tool-call arguments | 原arguments深度相等；仍为toolUse，未当正式终态 |
+| active-path分页 | 3页完整读取6消息；低页预算返回requiredBytes，未静默截断 |
+| DAG换分支 | 完整branch-safe读取排除旧分支；visible delta明确unavailable/projection_rebuilding，没有返回旧page |
+| 新Node进程恢复 | 精确sessionId/runId重读完整text，SHA与原件一致 |
+
+初次branch诊断预期立即reset，实际返回unavailable/projection_rebuilding，断言FAIL。这是测试对Runtime时序的错误假设；修正为“明确reset或重建不可用，禁止返回旧page”，保留初次失败记录；没有修改Runtime或放宽结果准入。
+
+#### 终态与恢复的必要规则
+
+1. 同时固定原request/runId/agentId/sessionId；不能用“当前session最后回复”认领结果。terminalReceipt.turnId不保证是transcript eventId。
+2. `agent.wait`只提供运行终态，不能代替structured完整性；CLI/ACP存在transcript persistence失败后仍结束的分支。成功终态与完整持久结果必须同时成立。
+3. 同run的error/length/toolUse和后续成功可能共存；选择活动路径最终assistant，核对最终stopReason及成功receipt。不能选第一段合法JSON、忽略更晚错误或混合attempt。
+4. Provider stopReason=length是模型已截断；无论JSON是否碰巧可parse均拒绝。transport超限、缺页、projection unavailable和模型length分别记录，禁止通过repair重派掩盖。
+5. timeout/accepted/pending/stream gap/empty/read failure只允许核对原执行；不得创建新run，不刷新repair额度。
+6. 取得完整原结果后先由Harness持久保存原text/hash/运行身份，再parse/validate/compile/write正式产物；保存失败重用已capture结果。
+7. Gateway重启前若Harness已记录可信终态，可从精确transcript恢复；若终态尚未捕获且wait内存缓存丢失，单凭存在JSON不能补造成功终态，应保持uncertain/STOP，除非另有正式可核实终态证据。
+8. SDK loader没有readOnly参数，可能注册可写数据库生命周期或schema convergence；只能使用固定已安装Runtime/已存在身份，禁止创建生产DB或升级schema。引入production bridge前须证明profile/state/agent/session路由及打开行为，不盲用默认profile。
+
+#### 冻结条件及当前缺口
+
+**调查证明存在高容量原始结果通道；尚未证明最终 vNext A/B 合法集合的完整承载。** 当前S3草稿虽然限制16 Need、每Need12个500字符condition，但role、voice_expression、SoundIntent列表等仍无完整上界，B正式响应Schema尚未落地。2.16MB任意JSON回放PASS不能冒充A/B合法完整结果PASS。
+
+下一步先在同一Task内补齐A/B响应合同的完整有界定义，分别量化：语义项数量/原文引用长度/UTF-8序列化最坏值/输入token/输出token/transport帧与capture预算。不得为适配4096而删义务、缩原文或改变required语义。单个完整scope无法承载时明确停止，不能偷偷切碎或追加调用。
+
+然后对选定SDK branch-safe transport执行**真实合法A最大边界 + 合法B最大批次 + repair结果**的原文与SHA相等回放，并补原session/run错误、终态丢失、length、多attempt、branch reset、恢复与保存中断的真实内部集成。仅当上述证据全部成立、生产读取无未知副作用时，撤销实验planning-result-v1的3000限制方案、用独立版本新合同实施并冻结S2；Material默认协议与旧请求身份不改。
+
+当前记录：`TRANSPORT_INVENTORY=COMPLETE; RAW_CAPACITY_REPLAY=PASS; A_B_LEGAL_CAPACITY=PENDING; S2=NOT_FROZEN; REAL_MODEL_CALLS=0; SERVICE_OPERATIONS=0`。本节不认领Development Eval/R4/Material准入。
