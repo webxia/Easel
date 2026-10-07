@@ -1,0 +1,89 @@
+{
+  "need-9401f5be1808608a8f5a835d-000": {
+    "clauses": [
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "0–15 秒整段使用的单张静态桌面俯拍或近距桌面图：自然光、桌面留白、干净无杂物，"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "桌面上必须出现两张白纸（两张纸并置或略有错位），"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "纸面空白、不出现文字或图案、不出现书写动作或人物痕迹；"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "不出现人脸、手部、笔、笔记本电脑或任何办公人物线索；"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "正文「先看问题，"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "再做决定。"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "」不在图中，"
+      },
+      {
+        "kind": "required",
+        "path": "intent/description",
+        "preference_path": null,
+        "text": "由后期叠加。"
+      },
+      {
+        "kind": "postproduction",
+        "path": "intent/function",
+        "preference_path": null,
+        "text": "primary_visual"
+      },
+      {
+        "kind": "required",
+        "path": "constraints/media_type",
+        "preference_path": null,
+        "text": "image"
+      },
+      {
+        "kind": "preference",
+        "path": "constraints/preferred_style",
+        "preference_path": "constraints/preferred_style",
+        "text": "minimal still-life photography, soft natural daylight, neutral desk surface"
+      },
+      {
+        "kind": "preference",
+        "path": "constraints/preferred_visual_details",
+        "preference_path": "constraints/preferred_visual_details",
+        "text": "9:16 vertical framing, static composition, soft daylight, two blank white sheets on a neutral desk, no people, no writing, no objects other than the two papers, no text inside the image"
+      },
+      {
+        "kind": "preference",
+        "path": "modality/visual_style",
+        "preference_path": "modality/visual_style",
+        "text": "minimal still-life photography, soft natural daylight, neutral desk surface"
+      }
+    ],
+    "queries": [
+      "minimal desk still life two blank white papers on wooden surface overhead daylight",
+      "clean desk flat lay two sheets of white paper no writing natural soft light",
+      "vertical 9:16 minimalist desktop photo two empty white papers top-down soft shadow"
+    ]
+  }
+}

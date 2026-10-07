@@ -1,0 +1,23 @@
+{
+  "audience": "对个人经营实践中决策方法、暂停-决定类短内容感兴趣的观看者。",
+  "identity": {
+    "public_description": "个人经营实践创作者，以克制的方式记录日常决策与工作片段。"
+  },
+  "privacy_policy": {
+    "do_not_infer_private_facts": true
+  },
+  "relevant_context": [
+    "作品主张是创作意图表达，不等同于个人工作方法或可证明经验",
+    "作品形态为静音画面+屏幕文字，全程不出现旁白或人物"
+  ],
+  "schema": "easel-creator-context@1",
+  "voice": {
+    "avoid": [
+      "以过来人身份给具体建议",
+      "用成功案例背书",
+      "高强度情绪或励志腔",
+      "暴露个人生活细节或身份信息"
+    ],
+    "tone": "克制、观察式、不带说教"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "schema": "offline-independent-semantic-oracle@1",
+  "sample_id": "d01",
+  "source": "prefrozen confirmed proposal/oracle, independently reviewed; not inferred from compiler",
+  "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n先看问题，再做决定。\n```\n## 分镜与节奏\n0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。\n## 声音设计\n无旁白，无音乐。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：静音\n语言：简体中文\n",
+  "oracle": {
+    "required_modalities": [
+      "image"
+    ],
+    "required_semantics": [
+      "桌面上有两张白纸"
+    ],
+    "preference": [],
+    "postproduction": [
+      "叠加正文"
+    ],
+    "optional": [],
+    "forbidden": [
+      "正文改字",
+      "新增无来源硬要求",
+      "required降级",
+      "偏好升级为required"
+    ],
+    "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+  },
+  "required_preserved": "桌面上有两张白纸",
+  "postproduction": "叠加正文",
+  "real_incorrect_kind": {
+    "text": "由后期叠加。",
+    "actual": "required",
+    "expected": "postproduction"
+  },
+  "quoted_reference": "先看问题，再做决定。",
+  "quoted_reference_is_not_a_standalone_asset_subject": true,
+  "allowed_director_choices_not_automatically_invalid": true,
+  "existing_intent_function_postproduction_valid": true,
+  "semantics_fail_after_schema_pass": true,
+  "semantic_limits": "A/B still model-owned semantics; quote-safe unit binding alone does not prove interpretation; do not label all unrequested details invented hard requirements"
+}

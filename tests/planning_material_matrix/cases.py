@@ -780,3 +780,13 @@ def test_41_a_compiler_contract_alignment(semantic_runtime, trace, risk):
                  'batch03真实原件；真实两阶段持久编译；仅模型边界响应替身；不调用Supply')
     semantic.test_a_compiler_contract_alignment(semantic_runtime, risk, evidence=trace)
     trace.note('real Provider / generation / Supply', 0)
+
+
+@pytest.mark.parametrize('risk', ['history_quotes', 'nested_quotes', 'unclosed_quote',
+                                  'apostrophe_dimensions', 'semantic_limit', 'native_confirmed_basis',
+                                  'legacy_policy', 'policy_identity_caps'])
+def test_42_semantic_relation_boundary(semantic_runtime, trace, risk):
+    trace.define('完整引用/嵌套关系无损；普通apostrophe/尺寸合法；B收到冻结确认依据且稳定重入；历史结构PASS不冒充语义PASS',
+                 'batch04真实原A/B/请求/冻结文本及独立oracle；真实内部编译/persist/load；仅模型响应替身')
+    semantic.test_semantic_relation_units_and_independent_failure(semantic_runtime, risk, evidence=trace)
+    trace.note('real Provider / generation / Supply', 0)

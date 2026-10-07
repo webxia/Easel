@@ -1,0 +1,205 @@
+{
+  "draft": "{\n  \"schema\": \"semantic-planning-draft@1\",\n  \"needs\": [\n    {\n      \"role\": \"primary_static_frame\",\n      \"scope\": {\n        \"type\": \"global\",\n        \"ref\": \"global\"\n      },\n      \"importance\": \"required\",\n      \"intent\": {\n        \"function\": \"primary_visual\",\n        \"description\": \"0–15 秒整段使用的单张静态桌面俯拍或近距桌面图：自然光、桌面留白、干净无杂物，桌面上必须出现两张白纸（两张纸并置或略有错位），纸面空白、不出现文字或图案、不出现书写动作或人物痕迹；不出现人脸、手部、笔、笔记本电脑或任何办公人物线索；正文「先看问题，再做决定。」不在图中，由后期叠加。\"\n      },\n      \"modality_spec\": {\n        \"kind\": \"image\",\n        \"visual_style\": \"minimal still-life photography, soft natural daylight, neutral desk surface\",\n        \"aspect_ratio\": \"9:16\",\n        \"reference_asset_ids\": []\n      },\n      \"queries\": [\n        \"minimal desk still life two blank white papers on wooden surface overhead daylight\",\n        \"clean desk flat lay two sheets of white paper no writing natural soft light\",\n        \"vertical 9:16 minimalist desktop photo two empty white papers top-down soft shadow\"\n      ],\n      \"constraints\": {\n        \"media_type\": \"image\",\n        \"preferred_visual_details\": \"9:16 vertical framing, static composition, soft daylight, two blank white sheets on a neutral desk, no people, no writing, no objects other than the two papers, no text inside the image\"\n      }\n    }\n  ]\n}\n",
+  "draft_sha256": "5adcbf7eea777b2673d0d0a27f204ceaed547c436066eebacebeec7002863ab5",
+  "plan": {
+    "attempt_id": "fa_1bbb0bd32f282011db2ef4cb7bf03047",
+    "context_refs": {
+      "content_core_sha256": "sha256:0d3c9a57e4d5a3d6bd1d5d8f11b890bfd9fec317971c3d120da3dd31f98bf482",
+      "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+      "creator_context_sha256": "sha256:76d970ae226374517191ab364a3da0bb04b3067d147b5956dbfd32857039c526",
+      "production_brief_sha256": "sha256:54e5d1818a341b5d548f50e51a1c9fc6f8de8bb5ce559be19a04279fbd1cfd06",
+      "truth_packet_sha256": "sha256:5c9b4478e25b744120b9a34cea9355c3c7ec96464ef272dd1bb47dfde09dada9"
+    },
+    "creation_id": "cr_84d61116682f460aac89817994c5f7ed",
+    "needs": [
+      {
+        "constraints": {
+          "media_type": "image",
+          "preferred_style": "minimal still-life photography, soft natural daylight, neutral desk surface",
+          "preferred_visual_details": "9:16 vertical framing, static composition, soft daylight, two blank white sheets on a neutral desk, no people, no writing, no objects other than the two papers, no text inside the image",
+          "search_query_variants_en": {
+            "alternate": "clean desk flat lay two sheets of white paper no writing natural soft light",
+            "primary": "minimal desk still life two blank white papers on wooden surface overhead daylight",
+            "relaxed": "vertical 9:16 minimalist desktop photo two empty white papers top-down soft shadow"
+          }
+        },
+        "continuity_refs": [],
+        "contract_version": "material_need@1",
+        "desired_options": 1,
+        "duration_hint": null,
+        "importance": "required",
+        "intent": {
+          "description": "0–15 秒整段使用的单张静态桌面俯拍或近距桌面图：自然光、桌面留白、干净无杂物，桌面上必须出现两张白纸（两张纸并置或略有错位），纸面空白、不出现文字或图案、不出现书写动作或人物痕迹；不出现人脸、手部、笔、笔记本电脑或任何办公人物线索；正文「先看问题，再做决定。」不在图中，由后期叠加。",
+          "function": "primary_visual"
+        },
+        "media_type": "image",
+        "modality_spec": {
+          "aspect_ratio": "9:16",
+          "kind": "image",
+          "reference_asset_ids": [],
+          "visual_style": "minimal still-life photography, soft natural daylight, neutral desk surface"
+        },
+        "need_id": "need-9401f5be1808608a8f5a835d-000",
+        "role": "primary_static_frame",
+        "scope": {
+          "ref": "global",
+          "type": "global"
+        }
+      }
+    ],
+    "plan_id": "plan-9401f5be1808608a8f5a835d12bd464c",
+    "policy": {
+      "strategy": "bulk_first"
+    }
+  },
+  "policy": "semantic-planning-compiler@1",
+  "responses": [
+    {
+      "classifications": [
+        {
+          "id": 0,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 1,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 2,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 3,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 4,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 5,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 6,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 7,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 8,
+          "kind": "postproduction",
+          "preference_source": null
+        },
+        {
+          "id": 9,
+          "kind": "required",
+          "preference_source": null
+        }
+      ]
+    }
+  ],
+  "schema": "semantic-planning-frozen@1",
+  "scope": {
+    "attempt_id": "fa_1bbb0bd32f282011db2ef4cb7bf03047",
+    "canonical": {
+      "SCENES.md": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。",
+      "SCRIPT.md": "先看问题，再做决定。",
+      "TREATMENT.md": "用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n\n## 声音设计\n无旁白，无音乐。"
+    },
+    "catalog": {
+      "continuity": {},
+      "event": {
+        "event-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "global": {
+        "global": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "scene": {
+        "scene-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "segment": {
+        "segment-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "voice": {
+        "creator_context.voice": {
+          "consent_ref": null,
+          "context": {
+            "avoid": [
+              "以过来人身份给具体建议",
+              "用成功案例背书",
+              "高强度情绪或励志腔",
+              "暴露个人生活细节或身份信息"
+            ],
+            "tone": "克制、观察式、不带说教"
+          },
+          "reference_asset_ids": [],
+          "source": "creator_context"
+        }
+      }
+    },
+    "context_refs": {
+      "content_core_sha256": "sha256:0d3c9a57e4d5a3d6bd1d5d8f11b890bfd9fec317971c3d120da3dd31f98bf482",
+      "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+      "creator_context_sha256": "sha256:76d970ae226374517191ab364a3da0bb04b3067d147b5956dbfd32857039c526",
+      "production_brief_sha256": "sha256:54e5d1818a341b5d548f50e51a1c9fc6f8de8bb5ce559be19a04279fbd1cfd06",
+      "truth_packet_sha256": "sha256:5c9b4478e25b744120b9a34cea9355c3c7ec96464ef272dd1bb47dfde09dada9"
+    },
+    "creation_id": "cr_84d61116682f460aac89817994c5f7ed",
+    "mode": {
+      "boundaries": {
+        "content": "Director decides the topic, argument, structure, and whether a video is worthwhile.",
+        "profile": "Profile remains the source of identity, factual boundaries, audience, and public scope.",
+        "runtime": "Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns."
+      },
+      "defaults": {
+        "bgm": "optional-and-subordinate",
+        "duration_seconds": {
+          "allowed": [
+            25,
+            60
+          ],
+          "preferred": [
+            30,
+            45
+          ]
+        },
+        "narration": "reflective-first-person",
+        "orientation": "9:16",
+        "visual_beats": {
+          "preferred": [
+            6,
+            9
+          ]
+        }
+      },
+      "id": "clear_memo_video",
+      "music_ducking": {
+        "attack_seconds": 0.12,
+        "gain_ratio": 0.25,
+        "release_seconds": 0.45
+      },
+      "name": "清醒备忘录 · 视频",
+      "status": "active",
+      "summary": "以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。",
+      "version": "1.3",
+      "visual_material_style": "restrained low saturation everyday",
+      "voice_delivery": {
+        "pace_ratio": 0.95,
+        "pitch_semitones": 0,
+        "tone": "neutral"
+      }
+    },
+    "policy": "semantic-planning-compiler@1"
+  }
+}

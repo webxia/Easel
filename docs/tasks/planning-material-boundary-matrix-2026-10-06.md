@@ -492,3 +492,56 @@ batch03原A/repair/catalog脱敏原件4份纳入原fixture目录；新增8个独
 Main只读加载旧63da编译器，与当前4类合法对照的完整Plan字段/ID相等；Astra另对image/video/Voice/BGM/SFX及Voice资产/consent、视觉偏好和continuity复核，Schema接受且Plan序列化逐字节相等，最终CONTINUE。模型入口Schema仍不能替代完整编译或独立语义验收，未知容器也不保证可repair。
 
 257旧现场、原25fixture、batch02/03失败原件不变；新增4fixture后当前总29。此软件批新模型/Supply/Provider/生成/TTS/Build调用0，未恢复本批FAIL。生产SHA `79e580c163c77cafc47d4056c910e1aaf5bcc49419be31e78497d08588a54825`；后续固定commit、安全加载和batch04重新32个Creation，由唯一验收/当前状态具名补记。当前R4目标仍未完成，不认领Smoke。
+
+### 13.8 batch04：结构通过，独立语义FAIL（2026-10-07，STOP）
+
+§13.7软件固定commit `b819d2877c65d2c10836d076415a0cc47690377b` / source `79e580c163c77cafc47d4056c910e1aaf5bcc49419be31e78497d08588a54825`，完成既定安全加载/日志精确备份/实时空闲及套餐检查，再独立冻结32正常Creation。第0项正常Preparation/A/B0/Truth四原run全部ok/released，无repair，首次正式合同通过及原生持久重载一致，停在Supply import前。首个真实A的旧结构问题未重现；这不等于R4整体通过。
+
+独立语义验收发现：冻结SCENES明确“在后期叠加正文”，B却把“由后期叠加。”及引用SCRIPT碎片列成视觉required。两张白纸/静态图/静音/冻结正文保留，但后期职责被送到素材硬审核。Astra STOP支持。primary_visual的postproduction符合当前合同，不列失败；无人脸/人物在Prep有来源，不称A凭空新增。自然光/干净桌面等可属Director构图，但同时进入preferred字段和description required，记为强度混合风险；失败不依赖争议项。
+
+软件证明编号/原文覆盖/源绑定，并不证明模型分类正确。`visual_contract.classification_units`按标点切出被引号割开的正文碎片；B拥有完整Need/source/preference上下文，仍可给出Schema合法而关系错误的kind；`validate_compilation`接受完整合法kind时没有独立后期语义证据。Truth仅复核正文事实/创作表达，不承担Material分类证明。事实与推断分别保存，不将所有错误归咎信息缺失或制作模型能力。
+
+**本批STOP：**1项语义FAIL、31未执行、held-out0/16；合同1/1执行项（1/32计划），语义0/1。墙钟257.450秒、Planning含Truth至切点173.171秒；4原提交、36assistant/32工具、21原请求观察，7callback含3缓存重入，实际重复提交0。Supply/Provider/生成/TTS/Build/repair/工程介入0。文字套餐5小时97→96%、周98→98%，账单未知。旧257正式现场/29fixture/batch02/03原件、固定版本/工具/样本/SCRIPT未变；独立评分不改正式产物。本Task的历史FAIL均保留。
+
+**后续独立软件阶段的设计输入（本节不认领已实施）：**
+
+1. 保留该真实A、B输入/分类/Plan/Requirements、正常确认/Preparation及Truth为事故fixture，并从原方案独立固定Expected。原文既不删除也不手工改成成功产物。
+2. 先扩同一矩阵的关系风险：素材自身属性、图中禁止文字、引用正文、后期叠加义务、明确soft与hard强度分别核对；包含真实错误分类通过Schema的反例，不以self-consistency给自己出答案。
+3. 源引用链核对到确认方案/Mode，不能只因上游模型文字冻结就当成新增硬限制授权；保留合法Director构图与可证明的源动作，不无差别收紧创作自由。
+4. 统一评审完整语义单元/引号和否定关系、A硬软重复及B错误kind的停止路径。简单加关键词/把全部正文片段统一改postproduction/默认required/增加repair额度均不作为默认方案。产品期望无法确定时明确CONTRACT_GAP，不能改基线假装修好。
+5. 涉及单元政策、跨阶段语义合同或缓存身份变更先Astra设计复核；离线真实内部集成先证明原事故与反向保护，再整体不回归。保持Material V1.3 canonical及Creator/Director/Truth/Hypit职责，不顺手加入Provider/Matcher/新框架或第二状态机。
+6. 软件通过后新固定版本/安全加载/独立新批R4，仍用完整32项门槛；本批不得重计成功。当前停止真实模型，Smoke/E2E后置。
+
+[独立语义评分](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch04-independent-semantic-review.json)、[结构化运行](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch04-actual-run-summary.json)、[Astra STOP](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch04-astra-review.txt)。
+
+### 13.9 独立语义关系修正设计（2026-10-07，实施前）
+
+以§13.8真实事故为输入，当前仅保存13份原件/来源/独立预期，不改生产。本设计仍采用§11两阶段，不把自由语义改造成由分类原子重建整个Plan，不增加独立生产模型Gate或请求。模型继续负责语义；程序收回可确定的语法边界、同一确认依据的传递、版本与身份。
+
+**修改范围和可证实出口：**
+
+1. **完整引用边界。** 为新产品编译政策增加一个无损、引号/括号感知的单元切分策略：仍以原标点分边，配对引用或括号内部标点不截断；保留所有空白、Unicode、字符位置及原字节，单元并列顺序不变。英语单词中的apostrophe不视为引号。只做语法关系，不看“后期/叠加/字幕”等关键词，更不据此选择kind。未闭合或错误嵌套的明确配对语法拒绝派发B，不默认required。引用只保护完整性，不把整个含否定/后期的段落一律postproduction。40单元及容量限额不扩大，不删除需求来满足限额。
+2. **同一确认语义依据。** 新B实际请求提供程序拥有且已冻结的SCRIPT/SCENES/TREATMENT原件，与完整Need、source、Mode及偏好引用一同进入确定批次摘要。不是模型返回另一份正文，也不依赖其他会话或从自然语言中的路径读取。验证与重入使用同一冻结依据；不把A/Preparation自行写出的限制自动当成Creator授权。
+3. **语义任务明确到审核对象。** A明确区分原素材可观察条件、显式创作软偏好和后期工作，后期计划继续留在确认SCENES/TREATMENT；只有原素材本身必须包含的字/图案才保留为素材条件，不禁止合法的印刷字、屏幕内容或动态源动作。B明确required审的是原素材可观察性，引用正文内容不自动成为背景图硬条件；“图中不含字”与“后期叠加字”分别处理。显式soft与description重复表达须沿偏好来源判断，确实混合且无法无损区分时unresolved，不默认required；叙事function仍按语义判断，非全部默认后期。已有共享一次repair不加额。
+4. **版本及原件。** 新产品采用新的内部编译政策（拟`semantic-planning-compiler@2` / 引用单元策略@8）；既有@1有效v3冻结记录按原身份、原切分政策加载，@1/@2未知/冲突拒绝，不通过更改旧checkpoint或重编译修复历史。新政策参与Plan/Need identity、snapshot/batch和请求身份，修复额度不重置。既有standalone Material分类/缓存保持@7行为；canonical MaterialNeed@1、Requirements、V1.3及Material观察/Gate不改。旧pending只允许原身份对账，不套用新message重新提交。
+5. **先证据后生产。** 同一矩阵新增真实引用回放、嵌套Unicode/括号、apostrophe合法对照、明确未闭合引用、source action/soft/postproduction对照、旧政策加载、新政策错误复用及原生持久链。Expected由独立原件/oracle固定，不由被测切分器生成；优先扩现有连续集成。先运行现状记录FAIL，再Astra前置复核、最小实施，完整不回归后才能固定下一软件版本。
+
+**保留的语义边界：** 此修正可证明引用不破碎、确认依据真实传递、身份及完整覆盖可靠；不能声称程序已理解任意自然语言，不能声称合法kind必然正确。历史B错误kind的离线回放应明确区分结构PASS与独立语义FAIL；仅引号切分变化让旧ID不适用不能被包装成“已修复所有语义错误”。生产仍不添加一个模型自称覆盖就放行的Gate，真实独立32项R4继续承担语义发布验收。若Astra核查认为还需新语义承载/职责合同，先记录缺口，不用字词黑白名单或修改oracle掩盖。
+
+上述为Main提出的最小方案，尚待Astra前置设计复核；本批不启动服务/模型/Supply，也不恢复batch04。
+
+Astra前置MODIFY已落实（§13.9补充）：程序固定映射`compiler@1→units@7`、`compiler@2→units@8`，未知或冲突拒绝；政策参数贯穿身份/批次/bind/repair/verify，不依赖全局默认复算旧记录。旧有效@1的只读复算/复制保留原件；旧pending只对账不重新派发。原始B unit响应与compiled canonical缓存区分：前者由政策/冻结文本/units/request隔离，后者沿既有缓存键且新Need身份使其不可误复用旧输入。每Need包括显式preference的40项上限及完整确认上下文单批容量同时保留。
+
+切分语法限定：支持`「」/『』/“”/‘’/ASCII双引号`与`()/（）/[]/【】/{}`的配对/嵌套；引号内容中括号作为字面内容，括号内可以包含引号；奇数反斜线转义的引号保留为字面内容。ASCII单引号不做分组，英语apostrophe/所有格不误判；curly apostrophe在词中为普通字符，数字后无配对开启的双引号/右弯引号为尺寸符号。没有已开启配对的独立右括号可作为列表编号普通文本；明确开启而未闭合或错嵌套拒绝，不补字。支持范围写入实际新B说明，不声称识别所有自然语言语法。
+
+验收三类证据独立：旧@1实际事故仍结构PASS/语义FAIL；新@2相同文本引用完整、字节覆盖无损、真实canonical进入B并可稳定重入；新ID/新形状的故意错误kind仍可结构PASS但必须独立语义FAIL。正确kind离线fixture只证可表达正确合同，不认领真实模型改善。实际SEMANTIC_CHECKPOINT原件追加后此事故fixture共14份。以上修订后Astra允许实施；先跑固定现状失败测试，再改生产。
+
+### 13.10 引用关系软件修正完成（2026-10-07，真实新批未执行）
+
+按§13.9及Astra前置MODIFY实施compiler@2/units@8：无损配对语法切分、实际冻结三文件与完整上下文进入B及批次摘要，明确原素材/软偏好/引用正文/后期职责。@1→@7在旧身份、bind、verify及副本显式穿透；未知/冲突政策拒绝，旧pending不重发。新政策隔离Plan/Need/请求身份，standalone及compiled canonical cache仍沿原@7合同；共享repair额度不增加，Material V1.3未改。
+
+先保留修前run-014测试缺陷与生产FAIL，纠正测试读取方式后run-015为2 PASS/4 FAIL。修后局部run-016/017通过，但完整run-018为87 PASS/1 FAIL：副本持久化在SCENES落盘前读取文件。没有改期望或跳过；persist核验实际待写入三文件、load核验已做manifest摘要检查的三文件后，完整run-019为**88 PASS/0 FAIL/0 GAP/0未执行**。全量**826 PASS/5既有skip**（59.06秒）、115技能/compileall/diff通过，Astra最终CONTINUE。run-018原FAIL永久保留。
+
+三类证据分别保留：真实旧B仍结构PASS/独立语义FAIL；新unit引用完整且真实canonical进入原生A/B→Truth→persist/load/reentry；新ID/新形状的错误kind仍结构PASS但独立语义FAIL。正确kind替身仅证明合同可表达，不认领真实模型改善或普遍语义理解。257旧现场、原29fixture保持；新增14原件/独立预期后43fixture前后不变。软件新模型/Supply/Provider/生成/TTS/Build调用0，未修改正式历史产物或评分。
+
+生产SHA `0657a8c27e3cf6ef2ace05ed8a8c00c15cb7604ff28dcd1d3ac28863e7fcfa48`，软件JUnit/Astra/原件指纹保存受保护batch05预提交目录。下一步仅提交本软件范围、实时空闲/套餐预检、实际raw-stream精确备份及安全加载，再用原16主题/oracle建立32个全新Creation独立R4。batch04及所有旧FAIL不恢复、不倒算；Smoke=NO。固定commit/服务与真实成绩另记唯一验收。

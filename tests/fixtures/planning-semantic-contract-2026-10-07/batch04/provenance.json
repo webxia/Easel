@@ -1,0 +1,83 @@
+{
+  "source_batch": "R4 batch04 FAIL/STOP",
+  "source_commit": "b819d2877c65d2c10836d076415a0cc47690377b",
+  "source_sha256": "79e580c163c77cafc47d4056c910e1aaf5bcc49419be31e78497d08588a54825",
+  "originals": [
+    {
+      "fixture": "A-original.json",
+      "source": "planning/SEMANTIC_PLAN.json",
+      "sha256": "5adcbf7eea777b2673d0d0a27f204ceaed547c436066eebacebeec7002863ab5",
+      "kind": "sanitized authorized real original bytes; no production storage locator during replay"
+    },
+    {
+      "fixture": "B-original.json",
+      "source": "planning/CLASSIFICATIONS-000.json",
+      "sha256": "4861cc8a0393da3ffd0062d2c956cf2aacf478dd25a72513805d316494852ec5",
+      "kind": "sanitized authorized real original bytes; no production storage locator during replay"
+    },
+    {
+      "fixture": "Plan-original.json",
+      "source": "planning/MATERIAL_PLAN.json",
+      "sha256": "8bd5ac837b2e13fb1a2bf2d9f92d433b6da11d5d9d2853d8aec7a9ca1f4e6e14",
+      "kind": "sanitized authorized real original bytes; no production storage locator during replay"
+    },
+    {
+      "fixture": "Requirements-original.json",
+      "source": "planning/MATERIAL_REQUIREMENTS.json",
+      "sha256": "5f2ceccc98fad0286451254c497b08a5dbcfba83c44e814a02a7f681bd05282f",
+      "kind": "sanitized authorized real original bytes; no production storage locator during replay"
+    },
+    {
+      "fixture": "SCRIPT-original.md",
+      "source": "planning/SCRIPT.md",
+      "sha256": "e13544b58e1148dc4b5a891821c07353a310ea9f8e9540cd583a28145d498b53",
+      "kind": "sanitized authorized real original bytes; no production storage locator during replay"
+    },
+    {
+      "fixture": "SCENES-original.md",
+      "source": "planning/SCENES.md",
+      "sha256": "837e6acf752f4cecda69ea4061c2752298cc5450651acabb31898510a55541f1",
+      "kind": "sanitized authorized real original bytes; no production storage locator during replay"
+    },
+    {
+      "fixture": "TREATMENT-original.md",
+      "source": "planning/TREATMENT.md",
+      "sha256": "f41a10c50d4150abfdf88d663806589f4bb62d868fc0f3b8e57ae4a44ec4c12f",
+      "kind": "sanitized authorized real original bytes; no production storage locator during replay"
+    },
+    {
+      "fixture": "content-core-original.json",
+      "source": "handoff/content-core.json",
+      "sha256": "0d3c9a57e4d5a3d6bd1d5d8f11b890bfd9fec317971c3d120da3dd31f98bf482",
+      "kind": "sanitized authorized real original bytes; no production storage locator during replay"
+    },
+    {
+      "fixture": "creator-context-original.json",
+      "source": "handoff/creator-context.json",
+      "sha256": "76d970ae226374517191ab364a3da0bb04b3067d147b5956dbfd32857039c526",
+      "kind": "sanitized authorized real original bytes; no production storage locator during replay"
+    },
+    {
+      "fixture": "mode-original.json",
+      "source": "handoff/creative-mode/mode.json",
+      "sha256": "02157cf07b1aa3ca05c800776106779582f5bb5534bb90291262073785ea6002",
+      "kind": "sanitized authorized real original bytes; no production storage locator during replay"
+    },
+    {
+      "fixture": "B-request-original.txt",
+      "source": "semantic recovery calls.B0.message",
+      "sha256": "81ae055f4a08323acded3e53e0b7b9d3f69843385c1b2d8bba3a974fae6f9b86",
+      "kind": "actual submitted request bytes, not reconstructed from current compiler"
+    },
+    {
+      "fixture": "checkpoint-original.json",
+      "source": "planning/SEMANTIC_CHECKPOINT.json",
+      "sha256": "1af5ec6a8b6bb73ac35f88d26adac3f27b4b5d68fbc3eecef2cfac9cff23ba36",
+      "kind": "real @1 frozen structural checkpoint; semanticFAIL never rescored or restored"
+    }
+  ],
+  "original_creation_and_attempt_ids_are_evidence_only": true,
+  "real_credentials_copied": false,
+  "historical_result_unchanged": true,
+  "independent_review": "Main + Astra STOP, confirmed postproduction misclassification; no formal artifact edit"
+}

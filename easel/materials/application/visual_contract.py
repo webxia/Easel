@@ -152,25 +152,84 @@ def compilation_input(need, context_refs, mode):
 
 
 
-def classification_units(input_data):
+def _paired_spans(text):
+    """Literal syntax only: quoted/bracketed punctuation is not a boundary.
+
+    ASCII single quotes remain ordinary text. Word apostrophes, unpaired inch
+    marks and list-closing brackets do not start a paired expression. No NLP,
+    keyword classification, repair, whitespace or Unicode normalization.
+    """
+    quotes = {'「': '」', '『': '』', '“': '”', '‘': '’', '"': '"'}
+    brackets = {'(': ')', '（': '）', '[': ']', '【': '】', '{': '}'}
+    stack, start, spans = [], 0, []
+    escaped = False
+    for index, char in enumerate(text):
+        if char == '\\':
+            escaped = not escaped
+            continue
+        literal, escaped = escaped, False
+        previous = text[index - 1] if index else ''
+        following = text[index + 1] if index + 1 < len(text) else ''
+        apostrophe = char in {'‘', '’'} and previous.isalnum() and following.isalnum()
+        if literal or apostrophe:
+            continue
+        if stack and stack[-1][0] == 'quote':
+            if char == stack[-1][1]:
+                stack.pop()
+            elif char in quotes:
+                if char != '"' or not previous.isdigit():
+                    stack.append(('quote', quotes[char]))
+            elif char in {'」', '』', '”'} and not (char == '”' and previous.isdigit()):
+                raise ValueError('引用配对或嵌套无效；未补写原文')
+            # Brackets inside a quoted literal are ordinary quoted content.
+            continue
+        if char in quotes:
+            if char != '"' or not previous.isdigit():
+                stack.append(('quote', quotes[char]))
+        elif char in {'」', '』', '”'}:
+            if not (char == '”' and previous.isdigit()):
+                raise ValueError('引用配对无效；未补写原文')
+        elif char in brackets:
+            stack.append(('bracket', brackets[char]))
+        elif char in brackets.values() and stack:
+            if stack[-1] != ('bracket', char):
+                raise ValueError('括号配对或嵌套无效；未补写原文')
+            stack.pop()
+        elif char in ',;，；。' and not stack:
+            spans.append((start, index + 1)); start = index + 1
+    if stack:
+        raise ValueError('引用或括号配对未闭合；未补写原文')
+    if start < len(text):
+        spans.append((start, len(text)))
+    return spans
+
+
+def classification_units(input_data, *, unit_policy='indexed-unit-classification@7'):
     """Program owns exact punctuation/space boundaries; model owns meaning."""
+    if unit_policy not in {'indexed-unit-classification@7', 'indexed-unit-classification@8'}:
+        raise ValueError('分类单元政策未知，不能降级')
     units = []
     for source, row in enumerate(input_data['sources']):
         if row['preference']:
             continue
-        pattern = r'.+\Z' if row['path'] == 'intent/function' else r'.*?(?:[,;，；。]|\Z)'
-        for match in re.finditer(pattern, row['text'], re.DOTALL):
-            if match.start() == match.end():
-                continue
-            units.append({'id': len(units), 'source': source, 'start': match.start(),
-                          'end': match.end(), 'text': match.group()})
+        if unit_policy == 'indexed-unit-classification@7':
+            pattern = r'.+\Z' if row['path'] == 'intent/function' else r'.*?(?:[,;，；。]|\Z)'
+            spans = [(m.start(), m.end()) for m in re.finditer(pattern, row['text'], re.DOTALL)
+                     if m.start() != m.end()]
+        else:
+            spans = _paired_spans(row['text'])
+            if row['path'] == 'intent/function':
+                spans = [(0, len(row['text']))]
+        for begin, end in spans:
+            units.append({'id': len(units), 'source': source, 'start': begin,
+                          'end': end, 'text': row['text'][begin:end]})
     if not 1 <= len(units) + sum(r['preference'] for r in input_data['sources']) <= 40:
         raise ValueError('原文分类单元超出有界合同；未派发或删减要求')
     return units
 
 
-def bind_classifications(input_data, response):
-    units = classification_units(input_data)
+def bind_classifications(input_data, response, *, unit_policy='indexed-unit-classification@7'):
+    units = classification_units(input_data, unit_policy=unit_policy)
     rows = response.get('classifications') if isinstance(response, dict) else None
     if (not isinstance(rows, list) or len(rows) != len(units)
             or any(not isinstance(r, dict) or set(r) != {'id', 'kind', 'preference_source'} for r in rows)

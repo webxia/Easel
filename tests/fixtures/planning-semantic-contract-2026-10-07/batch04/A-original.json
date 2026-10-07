@@ -1,0 +1,32 @@
+{
+  "schema": "semantic-planning-draft@1",
+  "needs": [
+    {
+      "role": "primary_static_frame",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "importance": "required",
+      "intent": {
+        "function": "primary_visual",
+        "description": "0–15 秒整段使用的单张静态桌面俯拍或近距桌面图：自然光、桌面留白、干净无杂物，桌面上必须出现两张白纸（两张纸并置或略有错位），纸面空白、不出现文字或图案、不出现书写动作或人物痕迹；不出现人脸、手部、笔、笔记本电脑或任何办公人物线索；正文「先看问题，再做决定。」不在图中，由后期叠加。"
+      },
+      "modality_spec": {
+        "kind": "image",
+        "visual_style": "minimal still-life photography, soft natural daylight, neutral desk surface",
+        "aspect_ratio": "9:16",
+        "reference_asset_ids": []
+      },
+      "queries": [
+        "minimal desk still life two blank white papers on wooden surface overhead daylight",
+        "clean desk flat lay two sheets of white paper no writing natural soft light",
+        "vertical 9:16 minimalist desktop photo two empty white papers top-down soft shadow"
+      ],
+      "constraints": {
+        "media_type": "image",
+        "preferred_visual_details": "9:16 vertical framing, static composition, soft daylight, two blank white sheets on a neutral desk, no people, no writing, no objects other than the two papers, no text inside the image"
+      }
+    }
+  ]
+}
