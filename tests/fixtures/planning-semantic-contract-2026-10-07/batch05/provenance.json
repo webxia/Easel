@@ -1,0 +1,26 @@
+{
+  "schema": "historical-fixture-provenance@1",
+  "source_commit": "59bd7d857c6d955761a0d7fc217c713477b02762",
+  "source_sha256": "0657a8c27e3cf6ef2ace05ed8a8c00c15cb7604ff28dcd1d3ac28863e7fcfa48",
+  "source_batch": "batch05",
+  "native_contract": "PASS",
+  "independent_semantics": "FAIL",
+  "originals_sha256": {
+    "A-original.json": "fa5e64ce899adff693086417af492aa0dde79a6ce96ebe4c28e603d3c71cd21a",
+    "B-original.json": "bc779aebdd0f2a206b794482a9cc5cd8029eaedefb875f9ccd8dc6c0a28e3545",
+    "Plan-original.json": "1b816b576531a37d48dd51d7f2ec52e4d6667939d8eb09254667a7e26dc6a12a",
+    "Requirements-original.json": "7edeb437d005db280dcab555458725703e8d55a6d9d9c221a9698d5bc4a86563",
+    "SCRIPT-original.md": "e13544b58e1148dc4b5a891821c07353a310ea9f8e9540cd583a28145d498b53",
+    "SCENES-original.md": "837e6acf752f4cecda69ea4061c2752298cc5450651acabb31898510a55541f1",
+    "TREATMENT-original.md": "f41a10c50d4150abfdf88d663806589f4bb62d868fc0f3b8e57ae4a44ec4c12f",
+    "checkpoint-original.json": "6ef2868c35f641bb573716379938725cac7ab7a9bbece36a9a6f6851a963babe",
+    "content-core-original.json": "7cd48f2b98e50be5bd3f02e9514c2c6ed2dd66e0912eda3d4fe732783aa93f54",
+    "truth-packet-original.json": "8ce316df0a996682962c2999bb478c1325cf608650ead85bc14d485951cfc92c",
+    "creator-context-original.json": "63788a099230eacafa93d5e956a14a901ab14acb67a9d8b009c9b6008a6c9cce",
+    "production-brief-original.json": "e100647368b7880ecb58abdccd19af50c19740d94e1b69a40653d315a2190c56",
+    "mode-original.json": "02157cf07b1aa3ca05c800776106779582f5bb5534bb90291262073785ea6002",
+    "B-request-original.txt": "a69857177d2e4360d7f44ae9f382f382c86bf045a623cbf2dc9593b5708fa81c"
+  },
+  "credential_copied": false,
+  "note": "Exact raw artifacts and actual durable B request; synthetic normal theme. Source IDs are evidence only, never resumed."
+}

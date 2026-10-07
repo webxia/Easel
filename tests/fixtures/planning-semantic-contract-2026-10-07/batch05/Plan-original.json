@@ -1,0 +1,51 @@
+{
+  "plan_id": "plan-4ffd86afbc09fa4113d6cbcfbe191cbd",
+  "creation_id": "cr_d5f751bb08874761ade57d08563da9dc",
+  "attempt_id": "fa_2bf0f2ae21664119ddd7ec17145e6ed6",
+  "context_refs": {
+    "content_core_sha256": "sha256:7cd48f2b98e50be5bd3f02e9514c2c6ed2dd66e0912eda3d4fe732783aa93f54",
+    "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+    "creator_context_sha256": "sha256:63788a099230eacafa93d5e956a14a901ab14acb67a9d8b009c9b6008a6c9cce",
+    "production_brief_sha256": "sha256:e100647368b7880ecb58abdccd19af50c19740d94e1b69a40653d315a2190c56",
+    "truth_packet_sha256": "sha256:8ce316df0a996682962c2999bb478c1325cf608650ead85bc14d485951cfc92c"
+  },
+  "policy": {
+    "strategy": "bulk_first"
+  },
+  "needs": [
+    {
+      "need_id": "need-4ffd86afbc09fa4113d6cbcf-000",
+      "scope": {
+        "type": "scene",
+        "ref": "scene-1"
+      },
+      "media_type": "image",
+      "role": "primary_visual",
+      "intent": {
+        "description": "0–15 秒主画面：一幅静态桌面图。主体是一张日常桌面，桌面上明确放有两张空白白纸，两张纸并置可见、彼此可分辨；画面保持静止，无人物、无对话、无场景切换。画面本身不携带任何印刷字、屏幕文字或字幕。视频短句「先看问题，再做决定。」作为整条作品唯一文字，由后期叠加在该素材之上，本 Need 不为此再生成独立素材；其他后期字幕、布局与叠加工作仍由原 SCENES/TREATMENT 承担。两张纸上不要预写任何具体内容、不要绑定具体公司/项目/人物，不要替读者补完两张纸的来由。",
+        "function": "承载整条 15 秒作品的唯一静态画面，并在其上由后期叠加唯一一行文字"
+      },
+      "duration_hint": null,
+      "constraints": {
+        "media_type": "image",
+        "preferred_style": "low-saturation everyday still life, restrained and quiet",
+        "preferred_visual_details": "restrained low-saturation everyday composition with generous negative space; no people, no printed text, no screen content in the source image",
+        "search_query_variants_en": {
+          "alternate": "top-down minimalist still life of empty A4 paper on a simple wooden desktop, low saturation",
+          "primary": "overhead photograph of plain desk with two blank white sheets of paper side by side",
+          "relaxed": "flat lay image of two untouched white papers on an uncluttered everyday desk"
+        }
+      },
+      "continuity_refs": [],
+      "importance": "required",
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "low-saturation everyday still life, restrained and quiet",
+        "reference_asset_ids": []
+      }
+    }
+  ]
+}

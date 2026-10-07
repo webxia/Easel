@@ -545,3 +545,44 @@ Astra前置MODIFY已落实（§13.9补充）：程序固定映射`compiler@1→u
 三类证据分别保留：真实旧B仍结构PASS/独立语义FAIL；新unit引用完整且真实canonical进入原生A/B→Truth→persist/load/reentry；新ID/新形状的错误kind仍结构PASS但独立语义FAIL。正确kind替身仅证明合同可表达，不认领真实模型改善或普遍语义理解。257旧现场、原29fixture保持；新增14原件/独立预期后43fixture前后不变。软件新模型/Supply/Provider/生成/TTS/Build调用0，未修改正式历史产物或评分。
 
 生产SHA `0657a8c27e3cf6ef2ace05ed8a8c00c15cb7604ff28dcd1d3ac28863e7fcfa48`，软件JUnit/Astra/原件指纹保存受保护batch05预提交目录。下一步仅提交本软件范围、实时空闲/套餐预检、实际raw-stream精确备份及安全加载，再用原16主题/oracle建立32个全新Creation独立R4。batch04及所有旧FAIL不恢复、不倒算；Smoke=NO。固定commit/服务与真实成绩另记唯一验收。
+
+### 13.11 batch05：引用改善，但叙事义务仍错误进入required（2026-10-07，FAIL / STOP）
+
+固定§13.10的软件commit `59bd7d857c6d955761a0d7fc217c713477b02762` / source `0657a8c27e3cf6ef2ace05ed8a8c00c15cb7604ff28dcd1d3ac28863e7fcfa48`，安全加载/完整实际日志备份、实时空闲和套餐授权检查后，新建32正常确认Creation。第0项 `cr_d5f751bb08874761ade57d08563da9dc` / `fa_2bf0f2ae21664119ddd7ec17145e6ed6` 正常Preparation、A、B0、Truth四run全部ok/released，无repair；正式合同/持久重载通过，停在原生Supply import前。引用正文完整且正文/后期叠加/不为此制造额外Need等均正确postproduction，前次故障确有改善，但不能因此算语义PASS。
+
+独立语义FAIL及Astra STOP：正式required“不要替读者补完两张纸的来由。”属于作者叙事/事实边界。它有content-core/Truth及Director来源，不是凭空新增；**同一素材不变，仅作者叙事改变即可违反**，原图片自身不能核验。应现有叙事用途/postproduction承载，无法确定则unresolved。No people/no printed text有本次上游硬来源，preferred字段重复不足以单独证明升级；失败不依赖这项。两张白纸required/image/9:16/silent/SCRIPT均保留，明确required语义1/1不能抵消额外错误审核目标。Truth只证明正文，不证明素材kind。
+
+本批立即STOP，**1项语义FAIL/31未执行**，held-out0/16；初始及最终正式合同1/1执行项（1/32计划），独立语义0/1。墙钟277.094秒、Planning含Truth至切点193.519秒；4原提交、33assistant/41工具、23原请求pending观察，7应用callback含3缓存原请求重入，重复实际提交0。NORMALIZE/repair/report repair/补证/工程介入0；Supply/Provider/生成/TTS/Build0，state violations0。套餐5小时96→95%、周98→98%，是共享账号比例，实际账单未知。
+
+257旧正式现场、43fixture、4旧批全部原文件（原批120、02批135、03批137、04批147）、source/tool/HEAD/samples/SCRIPT均未变。所有批无pending/submitting/runtime-release待办，Gateway active/lost/audit0。评分只更新诊断记录，正式Plan/Requirements/Truth完整hash保持，完整原日志/脱敏会话/请求/时间/来源/独立反事实评分保存受保护batch05目录。旧FAIL不恢复、不倒算，不启动后31项或Smoke。
+
+后续独立治理输入：把此实际A/B/正式clauses/冻结来源保留为fixture，与“画面不出现可识别公司文字”等真正素材可观察条件作关系对照；先固定Expected/Actual和软件风险分布。对同一素材保持而改变叙事的反事实，说明分类审核对象而非词面，禁止按“不要/来由”等关键词或全function默认处理。不追加修复额度，不把正确替身kind当真实模型改善；经必要设计复核、完整离线回归、另固定版本及安全加载后，才另起完整32项R4。此处不授权手工救场或放宽原门槛。
+
+[完整结构化记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch05-actual-run-summary.json)、[独立语义评分](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch05-independent-semantic-review.json)、[Astra STOP](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch05-astra-review.txt)。R4整体目标未达成，READY_FOR_MATERIAL_SMOKE=NO。
+
+### 13.12 审核对象关系对齐设计（2026-10-07，独立软件阶段）
+
+batch05正式原件/实际B请求/真实冻结来源14份及独立Expected/来源2份（共16）保存为事故fixture；旧FAIL不改。当前生产仍59bd7d85，只改测试/文档先固定Expected/Actual。此项保留§11 A/B两阶段及既有四kind，不引入模型复核Gate、第三次调用、自由rationale、第二状态机或新Domain字段。
+
+**根因及范围：** 当前B把“必要主体/数量/禁令保持required”列在审核对象规则之前；“禁令”包括素材可观察禁令及作者叙事/事实禁令，有来源不代表可由素材满足。拟将“先确定对象→再确定是否硬要求→最后选择kind”作为程序拥有、版本化的分类任务说明（`material-review-target@1`）。模型继续理解语义并返回原id/kind/preference_source，程序不按关键词推断kind，也不把错误Schema合法响应自动改为成功。
+
+- A的现有intent.description描述原素材可观察性；作者叙事/事实义务由已有confirmed/handoff/Truth及叙事function保留，不复制成采购条件，不丢弃创作要求。动态动作若要求原视频实际发生，仍保留原素材条件，不按function字段默认后期。软偏好沿已有preferred字段。
+- B先判断原素材观察能否核验。对候选required运用反事实：同一素材字节不变、只改作者叙述或后期行为就可违反的义务，不是素材required；按既有postproduction职责承载，无法确定则unresolved。反事实仅说明required审核对象，不将所有观众效果、偏好或未知表达统一改后期。真正可见公司文字/主体数量/源动作禁令保持，明确软偏好不升级。提供对象不同但形式相似的成对示例，不按“不要/来由”等词或字段名分类。
+- 程序固定的review_target说明随新A/B输入及新B批次摘要提供；不接受模型编辑/返回另一个说明。新compiler政策@3映射units@8，review_target参与有效输入/批次/请求身份。有效旧@1→@7、@2→@8按原算法/原字节加载与复制；旧pending先原身份对账，不重新提交新说明或刷新额度。@2的完整canonical/batches校验不因POLICY默认升至@3而弱化。standalone/Material缓存算法、canonical Requirements、V1.3及Truth职责不变。
+- 同一矩阵增加真实旧结果结构PASS/独立语义FAIL、正反关系对照、实际原生A/B请求目标说明传递、旧@2恢复/副本、政策/批次身份和B repair原目标保持。Expected固定于原proposal/oracle及人工反事实，不由被测分类器生成。正确外部响应替身只证内部合同能表达与无回归；不证明模型会作正确语义判断。
+
+先运行现状并保留PASS/FAIL；Astra前置关键复核后最小实施，再完整回归。软件通过只允许另固定版本/安全加载/完整新32项R4，batch05仍停止，留出门槛不改。若复核认为必须新增语义承载或变更冻结职责，先记录具体依赖，不通过新字段或Gate掩盖。
+
+Astra前置CONTINUE已落实：审核对象反事实仅用于视觉内容条款，不替代Rights/授权/来源真实性/技术准入；明确@1/@2/@3能力分派而非默认POLICY误降级。新A/B及共享A/B修复同用程序固定说明，B完整批次摘要绑定该说明，旧@2批次不注入新字段。保留新政策下结构合法错误kind的独立FAIL反例，不能将说明传递或替身正确分类当真实改善。现状run-020保留测试期望漏显式暖光偏好及生产FAIL；只纠正这项测试后run-021为3 PASS/4 FAIL，生产/257现场/59fixture不变，再修改生产。
+
+### 13.13 审核对象说明软件回归完成（2026-10-07，真实新批未执行）
+
+按§13.12前置CONTINUE最小实施：新@3→units@8加入程序固定review_target，先审核对象再强度/kind；A不把作者义务复制为asset条件，B解释同素材/不同叙事反事实及成对可观察禁令，Rights/授权/来源真实性/技术准入原合同明确保持。说明进入实际A/B和共享A/B repair，新B批次摘要包含说明；没有模型rationale、新调用、新kind、第二Gate或修复额度。有效@2的canonical/batches校验显式保留，旧批次不注入新说明，@1及standalone不变，旧pending不派发/不改记录。
+
+修前run-021 **3 PASS/4 FAIL**，修后局部run-022 **7 PASS**；再补独立A repair目标和新政策错误kind反例后完整run-023 **96 PASS/0 FAIL/0 GAP/0未执行**。全量**834 PASS/5既有skip**（61.09秒）、115技能/compileall/diff通过。旧@2真实checkpoint/Plan及副本精确复算、SCENES改字及batches摘要坏拒绝；正反条件分别保留素材公司文字禁令required、作者经历禁令post、function原视频源动作required。原生A/B→Truth→persist/load/reentry以及A/B共享一次repair说明不漂移。
+
+保留旧@2与新@3相同错误kind的结构PASS/独立语义FAIL；正确外部fixture仅证正式合同可表达，不算模型语义成绩。257旧正式现场和原43fixture未改；新增16原件/Expected/来源后59fixture前后保持，全部5旧批原件hash保留。软件真实模型/Provider/Supply/生成/TTS/Build调用0，batch05 FAIL不恢复、不倒算，当前Smoke=NO。
+
+生产SHA `f01fe3317b4aa223caddea08ee0ee86cf5d3347944dc9698fd997c7a00e66005`；软件JUnit/源码及旧现场hash保存在受保护batch06预提交目录。当前等待实际diff的Astra最终冻结结论；只有CONTINUE与完整对账成立才提交、实际raw-stream精确备份安全加载，并另起完整32项R4。固定commit/加载及真实成绩由唯一验收另记。
+
+Astra实际diff最终CONTINUE（run023及834全量检查完成后）：无新增必要修订；源/工具/257旧现场/59fixture对账一致可固定新commit、安全加载，随后新32项R4逐项独立语义核定。新说明传递不等于真实模型通过，旧batch05 FAIL及所有历史FAIL不改，Smoke仍未放行。

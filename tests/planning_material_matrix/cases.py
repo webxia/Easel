@@ -790,3 +790,12 @@ def test_42_semantic_relation_boundary(semantic_runtime, trace, risk):
                  'batch04真实原A/B/请求/冻结文本及独立oracle；真实内部编译/persist/load；仅模型响应替身')
     semantic.test_semantic_relation_units_and_independent_failure(semantic_runtime, risk, evidence=trace)
     trace.note('real Provider / generation / Supply', 0)
+
+
+@pytest.mark.parametrize('risk', ['history_review_target', 'observable_contrasts', 'native_target',
+                                  'repair_target', 'repair_A_target', 'old_v2_checkpoint', 'target_identity', 'old_v2_pending'])
+def test_43_semantic_review_target(semantic_runtime, trace, risk):
+    trace.define('素材可观察条件与叙事/事实义务分开；真实wrong-kind不冒充PASS；旧@2按原身份和校验恢复，新目标进入真实请求/修复/批次',
+                 'batch05原件及独立反事实；真实compile/原生A/B/persist/load/reentry，仅模型外部响应替身')
+    semantic.test_semantic_review_target_contract(semantic_runtime, risk, evidence=trace)
+    trace.note('real Supply / Provider / generation / Build', 0)

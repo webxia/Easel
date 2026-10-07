@@ -1,0 +1,52 @@
+{
+  "schema": "offline-independent-review-target-oracle@1",
+  "sample_id": "d01",
+  "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n先看问题，再做决定。\n```\n## 分镜与节奏\n0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。\n## 声音设计\n无旁白，无音乐。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：静音\n语言：简体中文\n",
+  "oracle": {
+    "required_modalities": [
+      "image"
+    ],
+    "required_semantics": [
+      "桌面上有两张白纸"
+    ],
+    "preference": [],
+    "postproduction": [
+      "叠加正文"
+    ],
+    "optional": [],
+    "forbidden": [
+      "正文改字",
+      "新增无来源硬要求",
+      "required降级",
+      "偏好升级为required"
+    ],
+    "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+  },
+  "real_failure": {
+    "text": "不要替读者补完两张纸的来由。",
+    "actual_kind": "required",
+    "expected_kind": "postproduction",
+    "source_exists": true,
+    "counterfactual": "同一张无字无人两张白纸照片不变，叙事可虚构来由或不解释；义务约束作者而非素材。"
+  },
+  "contrasts": [
+    {
+      "text": "原图片中不出现可识别公司文字。",
+      "expected_kind": "required",
+      "reason": "可直接从图片观察，不得按禁止句一律转后期。"
+    },
+    {
+      "text": "不虚构作者在这家公司工作过。",
+      "expected_kind": "postproduction",
+      "reason": "有无虚构取决于作者叙事/事实授权。"
+    },
+    {
+      "text": "杯子在原视频中连续落下。",
+      "expected_kind": "required",
+      "reason": "源素材动态动作，不得转成后期。"
+    }
+  ],
+  "structure_only_is_not_semantic_pass": true,
+  "old_live_failure_must_remain": true,
+  "correct_response_fixture_is_not_live_model_pass": true
+}

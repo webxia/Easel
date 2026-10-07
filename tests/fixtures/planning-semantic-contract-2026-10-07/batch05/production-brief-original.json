@@ -1,0 +1,19 @@
+{
+  "ai_generation_allowed": false,
+  "aspect_ratio": "9:16",
+  "audio_mode": "silent",
+  "beats": [],
+  "duration_seconds": 15,
+  "language": "zh-CN",
+  "material_sources": [],
+  "publication_allowed": false,
+  "schema": "easel-production-brief@1",
+  "text_overlays": [
+    "先看问题，再做决定。"
+  ],
+  "visual_constraints": [
+    "整条作品只有一个静态画面：一张桌面，桌面上有两张白纸",
+    "画面主体保持静止，不出现人物、对话或场景切换",
+    "正文「先看问题，再做决定。」在后期叠加在画面上，作为唯一文字"
+  ]
+}

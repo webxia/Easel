@@ -1,0 +1,21 @@
+{
+  "claims": [],
+  "first_person_allowed": [],
+  "forbidden_inventions": [
+    "虚构两张纸上具体写了什么",
+    "把作品说成「我曾经遇到/处理过」的亲历事件",
+    "为画面编造公司、项目、时间或人物",
+    "在没有用户授权的情况下添加第二句字幕、旁白或音效"
+  ],
+  "personal_facts": [],
+  "public_allowed": [
+    "把「先看问题，再做决定」这一行短句作为整条作品的唯一文字",
+    "用一张静态桌面与两张并置白纸作为画面主体"
+  ],
+  "schema": "easel-truth-packet@2",
+  "uncertainty_policy": {
+    "learning_is_not_proven_capability": true,
+    "plan_is_not_experience": true,
+    "unknown_claims": "omit"
+  }
+}

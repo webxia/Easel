@@ -26,9 +26,15 @@ from easel.materials.application.voice_delivery import validate_voice_delivery
 from easel.integrations.hypit.secrets import SecretRedactor
 
 LEGACY_POLICY = 'semantic-planning-compiler@1'
-POLICY = 'semantic-planning-compiler@2'
+CANONICAL_POLICY = 'semantic-planning-compiler@2'
+POLICY = 'semantic-planning-compiler@3'
 UNIT_POLICIES = {LEGACY_POLICY: 'indexed-unit-classification@7',
+                 CANONICAL_POLICY: 'indexed-unit-classification@8',
                  POLICY: 'indexed-unit-classification@8'}
+REVIEW_TARGET = {'schema': 'material-review-target@1', 'scope': 'original_asset',
+                'required_evidence': 'observable_in_asset',
+                'non_asset_obligation': 'narrative_or_postproduction',
+                'uncertain': 'unresolved', 'precedence': ['target', 'strength', 'kind']}
 MAX_FILE_BYTES = 256 * 1024
 MAX_BATCH_UNITS = 40
 
@@ -289,10 +295,13 @@ def classification_batches(plan, mode, *, canonical=None, compiler_policy=None):
         chunk = units[start:start + MAX_BATCH_UNITS]
         names = list(dict.fromkeys(u['need'] for u in chunk))
         data = {'units': chunk, 'contexts': {k:contexts[k] for k in names}}
-        if policy == POLICY:
+        if policy != LEGACY_POLICY:
             data.update(compiler_policy=policy, unit_policy=UNIT_POLICIES[policy])
             if canonical is not None:
                 data['confirmed'] = dict(canonical)
+        if policy == POLICY:
+            # Program-owned task contract, not another model-authored answer.
+            data['review_target'] = json.loads(encode(REVIEW_TARGET))
         # Bound the entire context without truncating required content.
         if len(json.dumps(data, ensure_ascii=False).encode()) > MAX_FILE_BYTES:
             raise SemanticPlanningError('B', [problem('contexts', '单批完整上下文超过有界容量，未截断或提交')])
@@ -576,7 +585,8 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
             '仅写output_paths提供的绝对路径；不猜测当前目录，不依赖其他会话。'
             '不写正式Plan/sidecar，不调用供应/生成/Hypit。\n'
             +json.dumps({'attempt_workspace':str(root),'output_paths':output_paths,
-                        'issues':issues,'targets':targets,'context':context},ensure_ascii=False,sort_keys=True))
+                        'issues':issues,'targets':targets,'context':context,
+                        'review_target':REVIEW_TARGET},ensure_ascii=False,sort_keys=True))
         if state['repair_used'] and (key not in state['calls'] or state['calls'][key]['message']!=message):
             raise SemanticPlanningError(stage,[problem('repair','整次Planning共享单次修复额度已用完')])
         state['repair_used']=True;save()
@@ -592,11 +602,17 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
         '读取本工作区冻结handoff及Creator/Director依据；scope仅选择下列catalog。'
         'queries交三个不同英文短语；正文/场景/声音保持确认原意，required不能遗漏或降级；'
         '素材description写原素材可观察条件；构图与风格软偏好仅放明确preferred字段，不在description重复硬化。'
+        '先确定要求约束谁，再区分必要/偏好；有创作来源不代表它能成为素材采购条件。'
+        '作者不虚构来历、不声称亲历等叙事/事实义务保留于已有confirmed/handoff/Truth或叙事function，'
+        '不能复制进原素材description，也不能删除这些创作边界。'
+        '原画面不出现可识别文字或人物是可观察素材条件；原视频必须发生的动态动作仍完整保留。'
+        '不要仅因是否定句或位于function就决定归属。'
         '确认稿中的后期字幕/叠加工作由原SCENES/TREATMENT保留，不复制屏幕正文进背景素材需求。'
         '若原素材本身必须有印刷字/屏幕内容，仍完整保留；不把这些误删成后期。'
         '不调用供应/生成/Hypit。只写 '+str(root/'planning'/a_name)+'\n' + PLANNING_INPUT_RULES
         +json.dumps({'schema':planning_input_schema(catalog),'confirmed':canonical,
-                    'catalog':catalog,'context_refs':planning_context['context_refs']},ensure_ascii=False,sort_keys=True))
+                    'catalog':catalog,'context_refs':planning_context['context_refs'],
+                    'review_target':REVIEW_TARGET},ensure_ascii=False,sort_keys=True))
     if len(message.encode())>MAX_FILE_BYTES:
         raise SemanticPlanningError('A',[problem('input','完整输入超过有界容量，未派发')])
     raw=invoke('A','planning',message,a_name)
@@ -628,9 +644,16 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
         name=f'CLASSIFICATIONS-{index:03}.json'
         bmessage=('〔Easel Planning V3 单元分类〕\n'
             '只分类程序提供的unit ID，完整按序各一次，不返回path/text/offset/Need映射/query。'
-            '必要主体/数量/禁令/源动作保持required；明确软偏好不能升级，叙事用途/后期为postproduction；'
+            '先确定审核对象，再判断硬软强度，最后选kind；不能把所有禁令默认required。'
+            '原素材可观察的必要主体/数量/禁令/源动作保持required；明确软偏好不能升级，叙事用途/后期为postproduction；'
             '有歧义返回unresolved。偏好引用只能用所属context.preferences中的id。'
             'required审核对象是原始素材自身，不是成片或后期执行。引用的SCRIPT不是背景图必须包含的文字；'
+            '对每个拟required单元，先在内部判断能从原素材观察到什么来验证，不能只因有来源或语气强硬就当必要素材条件。'
+            '反事实检查：同一素材字节不变，只改作者叙述或后期行为就能违反的叙事/事实义务，不是素材required。'
+            '例如「原图片不出现可识别公司文字」可由图片观察并保持required；「不虚构作者在这家公司工作过」'
+            '及「不要替读者补完物件的来由」约束作者叙事，归现有postproduction职责，无法确定则unresolved。'
+            '该检查不把观众效果/未知表达/软偏好统一转后期，也不按不要/来由等关键词分类。'
+            '只用于视觉内容条款；Rights/授权/来源真实性/技术准入沿已有独立合同，不能因不是像素证据就改后期或忽略。'
             '例如「图中不含文字」可为素材required，「正文由后期叠加」为postproduction，不能连同引号内容一律required。'
             '同一描述含明确soft细节时沿显式preference来源判断，不能因位于description就硬化；'
             '叙事function按实际关系判断，不按字段名默认分类。混合关系在本轮单元内无法无损区分时unresolved。'
@@ -703,7 +726,7 @@ def verify_semantic_checkpoint(root, plan, mode, script, origin=None, *, canonic
     scope=checkpoint['scope']
     if scope['policy']!=policy or scope['context_refs']!=plan.context_refs or scope['mode']!=mode or scope['canonical']['SCRIPT.md']!=script:
         raise ValueError('语义冻结输入变化')
-    if policy == POLICY:
+    if policy != LEGACY_POLICY:
         actual_canonical = canonical if canonical is not None else {
             name: read_file(root, name).decode() for name in ('SCRIPT.md', 'SCENES.md', 'TREATMENT.md')}
         if actual_canonical != scope['canonical']:
@@ -721,7 +744,7 @@ def verify_semantic_checkpoint(root, plan, mode, script, origin=None, *, canonic
         raise ValueError('语义快照不能导出Plan')
     expected=original.model_copy(update={'creation_id':plan.creation_id,'attempt_id':plan.attempt_id,'plan_id':plan.plan_id})
     if expected!=plan:raise ValueError('正式Plan与语义快照不一致')
-    if policy == POLICY and checkpoint.get('batches_sha256') != digest(
+    if policy != LEGACY_POLICY and checkpoint.get('batches_sha256') != digest(
             classification_batches(original,mode,canonical=scope['canonical'],compiler_policy=policy)):
         raise ValueError('分类政策、确认依据或单元摘要变化')
     requirements=assemble_requirements(original,mode,checkpoint['responses'],canonical=scope['canonical'],compiler_policy=policy)

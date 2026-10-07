@@ -542,6 +542,148 @@ def test_semantic_relation_units_and_independent_failure(semantic_runtime, risk,
         if evidence: evidence.note('native frozen basis / persist / load / reentry', 'one A + one B, no Supply')
 
 
+@pytest.mark.parametrize('risk', ['history_review_target', 'observable_contrasts', 'native_target',
+                                  'repair_target', 'repair_A_target', 'old_v2_checkpoint', 'target_identity', 'old_v2_pending'])
+def test_semantic_review_target_contract(semantic_runtime, risk, evidence=None):
+    """Explicit target provenance; offline labels never count as model accuracy."""
+    from easel.integrations.semantic_planning import digest, source_catalog
+    from easel.integrations.material_layer import PlanningIntegration
+    from easel.materials.store import AttemptMaterialStore
+    folder = FIXTURE / 'batch05'
+    checkpoint = json.loads((folder / 'checkpoint-original.json').read_text())
+    scope = checkpoint['scope']; policy2 = 'semantic-planning-compiler@2'
+    draft = (folder / 'A-original.json').read_bytes()
+    response = json.loads((folder / 'B-original.json').read_text())
+    expected = json.loads((folder / 'expected.json').read_text())
+    rt = semantic_runtime
+    if risk == 'history_review_target':
+        original = MaterialPlan.model_validate_json((folder / 'Plan-original.json').read_bytes())
+        bound = assemble_requirements(original, scope['mode'], [response],
+            canonical=scope['canonical'], compiler_policy=policy2)
+        wrong = next(c for c in bound[original.needs[0].need_id]['clauses']
+                     if c['text'] == expected['real_failure']['text'])
+        assert wrong['kind'] == expected['real_failure']['actual_kind'] != expected['real_failure']['expected_kind']
+        assert bound == json.loads((folder / 'Requirements-original.json').read_text())
+        new = compile_draft(draft, creation_id='synthetic', attempt_id='new-target', refs={},
+            mode=scope['mode'], script=scope['canonical']['SCRIPT.md'], allowed_refs=scope['catalog'])
+        new_bound = assemble_requirements(new, scope['mode'], [response], canonical=scope['canonical'])
+        assert next(c['kind'] for c in new_bound[new.needs[0].need_id]['clauses']
+                    if c['text'] == expected['real_failure']['text']) != expected['real_failure']['expected_kind']
+        if evidence: evidence.note('same-asset/different-narrative counterfactual',
+            {'source_exists': True, 'old_and_new_structure': 'PASS', 'independent_semantics': 'FAIL'})
+    elif risk == 'observable_contrasts':
+        # Same prohibition form, independent hard observable and narrative targets.
+        d = semantic_draft(); d['needs'][0]['intent'] = {
+            'description': '原图片中不出现可识别公司文字。不虚构作者在这家公司工作过。',
+            'function': '承载克制的主观表达。'}
+        plan = compile_input(d)
+        labels_fixed = {'classifications': [{'id': 0, 'kind': 'required', 'preference_source': None},
+            {'id': 1, 'kind': 'postproduction', 'preference_source': None},
+            {'id': 2, 'kind': 'postproduction', 'preference_source': None}]}
+        clauses = assemble_requirements(plan, {}, [labels_fixed])[plan.needs[0].need_id]['clauses']
+        assert [(c['text'], c['kind']) for c in clauses] == [
+            ('原图片中不出现可识别公司文字。', 'required'),
+            ('不虚构作者在这家公司工作过。', 'postproduction'), ('承载克制的主观表达。', 'postproduction'),
+            ('暖光。', 'preference')]
+        action = semantic_draft(); action['needs'][0]['intent'] = {
+            'description': '白色杯子。', 'function': '杯子在原视频中连续落下。'}
+        action['needs'][0]['modality_spec'] = {'kind': 'video'}
+        action['needs'][0]['constraints'] = {'requires_dynamic_action': True}
+        video = compile_input(action)
+        exact = {'classifications': [{'id': 0, 'kind': 'required', 'preference_source': None},
+                                     {'id': 1, 'kind': 'required', 'preference_source': None}]}
+        c = assemble_requirements(video, {}, [exact])[video.needs[0].need_id]['clauses']
+        assert c[1]['text'] == expected['contrasts'][2]['text'] and c[1]['kind'] == 'required'
+        bad = deepcopy(exact); bad['classifications'][1]['kind'] = 'postproduction'
+        with pytest.raises(SemanticPlanningError, match='源动作'): assemble_requirements(video, {}, [bad])
+        if evidence: evidence.note('independent contrast', 'asset text ban required, narrative obligation post; source action in function required')
+    elif risk == 'old_v2_checkpoint':
+        root = rt['root'] / 'v2-replay'; (root / 'planning').mkdir(parents=True)
+        for name, fixture in [('SEMANTIC_CHECKPOINT.json', 'checkpoint-original.json'),
+            ('SEMANTIC_PLAN.json', 'A-original.json'), ('MATERIAL_REQUIREMENTS.json', 'Requirements-original.json')]:
+            (root / 'planning' / name).write_bytes((folder / fixture).read_bytes())
+        for name, text in scope['canonical'].items(): (root / 'planning' / name).write_bytes(text.encode())
+        original = MaterialPlan.model_validate_json((folder / 'Plan-original.json').read_bytes())
+        assert compile_draft(draft, creation_id=scope['creation_id'], attempt_id=scope['attempt_id'],
+            refs=scope['context_refs'], mode=scope['mode'], script=scope['canonical']['SCRIPT.md'],
+            allowed_refs=scope['catalog'], compiler_policy=policy2) == original
+        assert verify_semantic_checkpoint(root, original, scope['mode'], scope['canonical']['SCRIPT.md'])['policy'] == policy2
+        copied = original.model_copy(update={'creation_id': 'synthetic', 'attempt_id': 'copy-v2', 'plan_id': 'copy-plan'})
+        origin = {k: getattr(original, k) for k in ('creation_id', 'attempt_id', 'plan_id')}
+        assert verify_semantic_checkpoint(root, copied, scope['mode'], scope['canonical']['SCRIPT.md'], origin)['origin'] == origin
+        (root / 'planning/SCENES.md').write_text(scope['canonical']['SCENES.md'] + '改')
+        with pytest.raises(ValueError, match='确认原件'): verify_semantic_checkpoint(root, original, scope['mode'], scope['canonical']['SCRIPT.md'])
+        (root / 'planning/SCENES.md').write_text(scope['canonical']['SCENES.md'])
+        wrong = deepcopy(checkpoint); wrong['batches_sha256'] = '0' * 64
+        (root / 'planning/SEMANTIC_CHECKPOINT.json').write_bytes(encode(wrong))
+        with pytest.raises(ValueError, match='单元摘要'): verify_semantic_checkpoint(root, original, scope['mode'], scope['canonical']['SCRIPT.md'])
+    elif risk == 'target_identity':
+        old = compile_input(compiler_policy=policy2)
+        new = compile_input(compiler_policy='semantic-planning-compiler@3')
+        assert old.plan_id != new.plan_id and old.needs[0].need_id != new.needs[0].need_id
+        before = classification_batches(old, {}, canonical=rt['canonical'], compiler_policy=policy2)[0]
+        after = classification_batches(new, {}, canonical=rt['canonical'], compiler_policy='semantic-planning-compiler@3')[0]
+        assert 'review_target' not in before and after['review_target']['scope'] == 'original_asset'
+        assert before['batch_id'] != after['batch_id'] and after['unit_policy'] == 'indexed-unit-classification@8'
+    elif risk == 'old_v2_pending':
+        state = {'schema': 'semantic-planning-checkpoint@1', 'scope': {
+            'policy': policy2, 'attempt_id': rt['attempt']['attempt_id'], 'creation_id': rt['attempt']['creation_id'],
+            'context_refs': rt['context']['context_refs'], 'canonical': rt['canonical'], 'mode': rt['mode'],
+            'catalog': source_catalog(rt['canonical'], rt['context'])},
+            'route': {'profile': 'fixture-only', 'thinking': 'off', 'timeout': 60},
+            'calls': {'B0': {'status': 'pending', 'message': 'original v2 request'}}, 'repair_used': True}
+        store = AttemptMaterialStore(rt['root']); store.write_recovery_record('semantic-planning-v3', state)
+        with pytest.raises(SemanticPlanningError, match='版本'): rt['run']()
+        assert not rt['calls'] and store.read_recovery_record('semantic-planning-v3') == state
+    else:
+        # Real orchestrator receives the historical semantic draft through the
+        # external boundary, including the wrong-target sentence unchanged.
+        for name, text in scope['canonical'].items():
+            rt['canonical'][name] = text; write_file(rt['root'], name, text.encode(), replace=True)
+        original = json.loads(draft); fixed = deepcopy(response)
+        fixed['classifications'][12]['kind'] = expected['real_failure']['expected_kind']
+        requests = []; repairs = []
+        def execute(stage, message, session):
+            rt['calls'].append({'stage': stage, 'session': session, 'message': message})
+            data = json.loads(message.splitlines()[-1])
+            if message.startswith('〔Easel Semantic'):
+                assert data['review_target']['scope'] == 'original_asset'
+                name = 'SEMANTIC_PLAN.json'; out = deepcopy(original)
+                if risk == 'repair_A_target': out['unknown'] = 'transport-error'
+            elif '单元分类' in message:
+                assert data['confirmed'] == rt['canonical']
+                assert data['review_target'] == {'schema': 'material-review-target@1', 'scope': 'original_asset',
+                    'required_evidence': 'observable_in_asset', 'non_asset_obligation': 'narrative_or_postproduction',
+                    'uncertain': 'unresolved', 'precedence': ['target', 'strength', 'kind']}
+                requests.append(data); name = 'CLASSIFICATIONS-000.json'; out = deepcopy(fixed)
+                if risk == 'repair_target': out['classifications'][0]['id'] = 99
+            else:
+                assert data['review_target']['scope'] == 'original_asset'
+                repairs.append(session)
+                if risk == 'repair_A_target': name = 'SEMANTIC_PLAN.json'; out = original
+                else:
+                    assert data['context']['batches'][0]['review_target'] == requests[0]['review_target']
+                    name = 'CLASSIFICATIONS-REPAIR.json'; out = {'batches': [{'index': 0, **fixed}]}
+            target = Path(data['output_paths'][name]) if stage == 'structure_repair' else rt['root'] / 'planning' / name
+            target.write_bytes(encode(out))
+        first = rt['run'](execute)
+        saved = PlanningIntegration().persist(rt['attempt'], **{k: first[k] for k in ('plan', 'script', 'scenes', 'treatment')})
+        assert PlanningIntegration().load(saved['attempt'])['plan'] == first['plan']
+        contracts = json.loads(read_file(rt['root'], 'MATERIAL_REQUIREMENTS.json'))
+        found = next(c for c in contracts[first['plan'].needs[0].need_id]['clauses'] if c['text'] == expected['real_failure']['text'])
+        assert found['kind'] == expected['real_failure']['expected_kind']
+        assert rt['run'](execute)['plan'] == first['plan'] and len(requests) == 1
+        assert len(repairs) == (risk in {'repair_target', 'repair_A_target'})
+        checkpoint_new = json.loads(read_file(rt['root'], 'SEMANTIC_CHECKPOINT.json'))
+        assert checkpoint_new['policy'] == 'semantic-planning-compiler@3'
+        bad_checkpoint = deepcopy(checkpoint_new); bad_checkpoint['batches_sha256'] = '0' * 64
+        write_file(rt['root'], 'SEMANTIC_CHECKPOINT.json', encode(bad_checkpoint), replace=True)
+        with pytest.raises(ValueError, match='单元摘要'):
+            verify_semantic_checkpoint(rt['root'], first['plan'], rt['mode'], rt['canonical']['SCRIPT.md'])
+        if evidence: evidence.note('native target/persist/reentry',
+            {'model_boundary': 'fixed independent response, not live model', 'requests': len(rt['calls']), 'Supply': 0})
+
+
 def test_semantic_draft_compiles_identity_and_lossless_independent_contract():
     from easel.integrations.semantic_planning import compile_draft, classification_batches, assemble_requirements
     refs = {'creative_mode_sha256': 'm'}
