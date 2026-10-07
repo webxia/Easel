@@ -4,7 +4,7 @@
 
 连续Goal进行中，S1已通过；S2完整transport实现及容量Gate通过。4096 terminalReply仅展示摘要，旧Material3000协议保持；新planning-result-v2从原session/run的active最终assistant只读捕获，可信终态、stopReason与完整UTF8/SHA同时核对。安装OpenClaw2026.9.4隔离回放合法A/B及8MiB envelope无损，新进程读前后SQLite/WAL未变；Runtime/profile/phase实现钉SHA。Astra先MODIFY指出argv及转义Secret缺口，最小修复后CONTINUE。
 
-S5最终run-032矩阵196 PASS、针对31 PASS、常规934 passed/5项既有skip；技能115、compileall及本期diff通过。实际确认/Owner/Preparation/A完整capture/有界B/Truth/persist-load连续集成到Supply前切点，旧journal按原policy，新请求默认vNext；最终Astra六项恢复/复核/预算修正后CONTINUE。十批1550原件及257现场/117fixture指纹不变。production SHA `ffac01cc608caf72790d2a71d5bdf813657bc7ade24be09f31c4347ea651c74d`。尚未加载实际Web服务；Development Eval前仍须证明Gateway/CLI/DB同源、套餐和隔离，软件不证明模型语义能力。真实模型/服务操作/费用0，Formal R4 PAUSED，Supply/Smoke/E2E未启动。详见[同一Task的S5验收](tasks/planning-semantic-boundary-vnext-2026-10-07.md)。下方R4进度保留历史。
+S5软件run-032矩阵196 PASS、针对31 PASS、全量934 passed/5既有skip；AstraCONTINUE。固定`aa0ab42a`/source`ffac01cc…51c74d`后真实Development首轮第0项失败并停止：Preparation通过，A原结果7,849字节无损，但fenced JSON且条件/身份/源时长/未决语义多项不合规；132秒、2个RPC，B/Truth/Supply0。无安全充分的局部修复，第二轮不执行，`PLANNING_VNEXT_IMPLEMENTATION=FAIL（软件PASS、真实Development FAIL）; READY_FOR_FORMAL_R4=NO`。真实固定轮次内工程介入0，历史十批1550及257/117指纹保持，原请求已终态/清理，Gateway active/lost/audit0。套餐窗口100→99%、周97→97%，现金账单/token UNKNOWN。不push、不重启、不启动正式R4/Smoke/E2E。详见[最终验收与停止判断](acceptance/planning-semantic-boundary-vnext-development-2026-10-08.md)。下方R4记录保留历史。
 
 Last audited: 2026-10-06. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
 

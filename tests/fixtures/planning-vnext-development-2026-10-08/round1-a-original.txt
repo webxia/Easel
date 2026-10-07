@@ -1,0 +1,223 @@
+```json
+{
+  "needs": [
+    {
+      "conditions": [
+        {
+          "strength": "required",
+          "responsibility": "material",
+          "meaning": "observable",
+          "text": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+        },
+        {
+          "strength": "required",
+          "responsibility": "material",
+          "meaning": "observable",
+          "text": "两张白纸同处一桌，但只承载一句话；观众要在没有声音和情节的提示下，把视线从物件落到文字上。"
+        },
+        {
+          "strength": "required",
+          "responsibility": "material",
+          "meaning": "observable",
+          "text": "无人物、无可识别的真实办公场景"
+        },
+        {
+          "strength": "required",
+          "responsibility": "material",
+          "meaning": "observable",
+          "text": "全片为一张静态桌面图"
+        },
+        {
+          "strength": "required",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "唯一的屏幕文字叠加在静态画面上"
+        },
+        {
+          "strength": "required",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "屏幕文字必须是已确认的一句短文本：先看问题，再做决定。"
+        },
+        {
+          "strength": "required",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "不得把桌面塑造成某公司、某事件或某项目的真实记录"
+        },
+        {
+          "strength": "required",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "不要把两张纸扩写为具体工作场景或行业案例"
+        },
+        {
+          "strength": "required",
+          "responsibility": "narrative",
+          "meaning": "observable",
+          "text": "不要补造决策结果、对话、人物或时间线"
+        },
+        {
+          "strength": "required",
+          "responsibility": "narrative",
+          "meaning": "observable",
+          "text": "不要补造两张纸上的具体内容（除已确认的一句屏幕文字外）"
+        },
+        {
+          "strength": "required",
+          "responsibility": "narrative",
+          "meaning": "observable",
+          "text": "不声称事实、效果或个人经历"
+        },
+        {
+          "strength": "required",
+          "responsibility": "narrative",
+          "meaning": "observable",
+          "text": "不要在视频里加入旁白、解说或音乐"
+        },
+        {
+          "strength": "preference",
+          "responsibility": "material",
+          "meaning": "observable",
+          "text": "视觉世界克制、人尺度、日常"
+        },
+        {
+          "strength": "preference",
+          "responsibility": "material",
+          "meaning": "observable",
+          "text": "低饱和日常画面"
+        },
+        {
+          "strength": "preference",
+          "responsibility": "material",
+          "meaning": "observable",
+          "text": "留白与负空间"
+        },
+        {
+          "strength": "preference",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "字幕简洁、可读、在 9:16 安全区内"
+        },
+        {
+          "strength": "preference",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "画面节奏不静止，也不使用装饰性转场"
+        },
+        {
+          "strength": "preference",
+          "responsibility": "narrative",
+          "meaning": "observable",
+          "text": "从一件日常细节出发，不补造冲突或转折"
+        }
+      ],
+      "continuity_choices": [
+        "outputs/_creations/<id>/assets/",
+        "outputs/_creations/<id>/renders/",
+        "outputs/_creations/<id>/exports/"
+      ],
+      "frame": "native",
+      "modality": "image",
+      "native_ratio": "9:16",
+      "necessity": "required",
+      "purpose": "提供全片唯一的静态桌面底图（桌上有两张白纸），供后期叠加一句屏幕文字",
+      "queries": [
+        "desktop two sheets of paper",
+        "minimal desk still life",
+        "9:16 low saturation daily object"
+      ],
+      "role": "整片唯一静态桌面底图（含两张白纸）",
+      "scope": "outputs/_creations/<id>/",
+      "source_seconds": 15,
+      "visual_preference": "克制、低饱和、留白、桌面静物"
+    },
+    {
+      "conditions": [
+        {
+          "strength": "required",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "唯一的屏幕文字叠加在静态画面上"
+        },
+        {
+          "strength": "required",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "屏幕文字必须是已确认的一句短文本：先看问题，再做决定。"
+        },
+        {
+          "strength": "required",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "字幕在 9:16 安全区内"
+        },
+        {
+          "strength": "required",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "时长：15 秒"
+        },
+        {
+          "strength": "required",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "9:16 竖版画幅"
+        },
+        {
+          "strength": "required",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "音频模式：静音（无旁白、无音乐、无音效）"
+        },
+        {
+          "strength": "required",
+          "responsibility": "narrative",
+          "meaning": "observable",
+          "text": "画面里不出现第二句文字或额外文案"
+        },
+        {
+          "strength": "preference",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "字幕节奏留出整句呼吸，不做快速闪现"
+        },
+        {
+          "strength": "preference",
+          "responsibility": "postproduction",
+          "meaning": "observable",
+          "text": "字体克制、无装饰性特效"
+        }
+      ],
+      "continuity_choices": [
+        "outputs/_creations/<id>/renders/",
+        "outputs/_creations/<id>/exports/"
+      ],
+      "frame": "match_output",
+      "modality": "video",
+      "native_ratio": "9:16",
+      "necessity": "required",
+      "purpose": "把静态桌面底图与一句屏幕文字合成 15 秒 9:16 静音成片",
+      "queries": [
+        "still image to short video",
+        "silent text overlay",
+        "ffmpeg concat single image + text"
+      ],
+      "role": "成片主体（静态画面 + 唯一文字叠加）",
+      "scope": "outputs/_creations/<id>/",
+      "source_seconds": 15,
+      "visual_preference": "静帧 + 简洁文字叠加，无装饰转场"
+    }
+  ],
+  "unresolved": [
+    "桌面背景具体物件（笔、灯、笔记本等）是否需要出现：unresolved",
+    "两张白纸在画面中的相对位置与朝向：unresolved",
+    "白纸是否有折痕、阴影或纹理：unresolved",
+    "屏幕文字在画面中的位置（居中、上方、下方）与字号：unresolved",
+    "是否使用浅色或深色桌面：unresolved",
+    "字幕字体是否指定品牌字体或使用通用克制字体：unresolved",
+    "Preparation 禁止 ai_generation_allowed：素材来源限定为真人/已授权实拍或图库；具体授权曲目/图源是否提供：unresolved",
+    "素材授权记录与署名要求由运行程序读取：unresolved"
+  ]
+}
+```

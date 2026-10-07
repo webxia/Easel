@@ -1,0 +1,84 @@
+{
+  "kind": "real_development_failure_fixture",
+  "source": "fresh d01 round1 Creation; original active transcript final assistant",
+  "creation_id": "cr_b3d85aa2eb6240e593bc8e869ec0c87b",
+  "attempt_id": "fa_d6003032e09f1f6090fb055b9655eb98",
+  "run_id": "easel-e24ba54fb09046eabca936b8c87b0fa2",
+  "commit": "aa0ab42ac86305d818613bc4a078469eb2042918",
+  "production_sha256": "ffac01cc608caf72790d2a71d5bdf813657bc7ade24be09f31c4347ea651c74d",
+  "bytes": 7849,
+  "sha256": "ae7a790e686b1d6b7d4aa2004497e3aeb194a7d7a282681304d18d4645e2d7b8",
+  "stop_reason": "stop",
+  "contains_real_credentials": false,
+  "normalized_for_formal_use": false,
+  "expected": "REJECT; never normalize or rewrite this fixture to become a passed real run",
+  "diagnosis": {
+    "root_cause": "MODEL_SEMANTIC_CARRIER_NONCONFORMANCE",
+    "first_blocker": "STRUCTURED_OUTPUT_INVALID: fenced JSON instead of object",
+    "original_complete": true,
+    "original_bytes": 7849,
+    "original_sha256": "ae7a790e686b1d6b7d4aa2004497e3aeb194a7d7a282681304d18d4645e2d7b8",
+    "stop_reason": "stop",
+    "structural_errors_after_diagnostic_fence_peel": [
+      {
+        "path": [
+          "needs",
+          0,
+          "conditions"
+        ],
+        "type": "too_long",
+        "message": "Tuple should have at most 12 items after validation, not 18"
+      },
+      {
+        "path": [
+          "needs",
+          1
+        ],
+        "type": "value_error",
+        "message": "Value error, Native ratio is not an independent aspect alias"
+      },
+      {
+        "path": [
+          "needs"
+        ],
+        "type": "too_short",
+        "message": "Tuple should have at least 1 item after validation, not 0"
+      }
+    ],
+    "localized_repair": {
+      "decision": "REJECT",
+      "reason": "Whole condition fault cannot replace valid siblings"
+    },
+    "declared_scope_choices": {
+      "continuity": [],
+      "event": [
+        "event-1"
+      ],
+      "global": [
+        "global"
+      ],
+      "scene": [
+        "scene-1"
+      ],
+      "segment": [
+        "segment-1"
+      ],
+      "voice": [
+        "creator_context.voice"
+      ]
+    },
+    "actual_scope": [
+      "outputs/_creations/<id>/",
+      "outputs/_creations/<id>/"
+    ],
+    "actual_condition_counts": [
+      18,
+      9
+    ],
+    "unresolved_count": 8,
+    "evidence_policy": "diagnostic representation only; no formal artifact, input, Need, source or result changed",
+    "targeted_fix": "NOT_APPLIED: fence normalization cannot cure unknown scope, excessive conditions, image source duration, invented continuity and unresolved planning; whole-object rewrite or relaxing carrier prohibited",
+    "round2": "NOT_EXECUTED",
+    "ready_for_formal_r4": false
+  }
+}

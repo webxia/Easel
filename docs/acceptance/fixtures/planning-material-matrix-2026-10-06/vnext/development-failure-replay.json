@@ -1,0 +1,8 @@
+{
+  "raw_immutable": "PASS",
+  "exact_fenced_result_reject": "PASS",
+  "diagnostic_inner_nonlocalizable_reject": "PASS",
+  "formal_artifact_changes": 0,
+  "model_calls": 0,
+  "production_unchanged": true
+}

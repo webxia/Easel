@@ -1,0 +1,143 @@
+{
+  "report": {
+    "stage": "Development Eval round1 final stop",
+    "commit": "aa0ab42ac86305d818613bc4a078469eb2042918",
+    "production_sha256": "ffac01cc608caf72790d2a71d5bdf813657bc7ade24be09f31c4347ea651c74d",
+    "dev_eval": "FAIL / STOP_NEW_DISPATCH",
+    "dev_rounds": 1,
+    "runs_executed": 1,
+    "final_success": 0,
+    "remaining_roster": "5 NOT_EXECUTED after first FAIL",
+    "contract_failures": 1,
+    "semantic_fidelity": "NOT_FORMALLY_EVALUATED: A failed before B and formal compilation",
+    "artifact_failures": {
+      "structured_output_invalid": 1,
+      "transport_loss": 0,
+      "truncated": 0,
+      "missing": 0
+    },
+    "repair_calls": 0,
+    "calls": {
+      "preparation_rpc": 1,
+      "A_rpc": 1,
+      "B_rpc": 0,
+      "truth_rpc": 0,
+      "repair_rpc": 0,
+      "total_rpc": 2,
+      "phase_invocations": 3,
+      "assistant_messages": 18,
+      "provider_http_submissions": "NOT_INDEPENDENTLY_MEASURED",
+      "token_usage": "UNKNOWN: installed transcript reports only zeros"
+    },
+    "elapsed_seconds": 132.0,
+    "max_A_input_bytes": 16680,
+    "A_raw_output_bytes": 7849,
+    "max_B_input_bytes": 0,
+    "max_repair_input_bytes": 0,
+    "original_A_sha256": "ae7a790e686b1d6b7d4aa2004497e3aeb194a7d7a282681304d18d4645e2d7b8",
+    "engineering_intervention_during_frozen_round": 0,
+    "targeted_fix_after_round": "NOT_APPLIED: no safely localized sufficient correction",
+    "state_violations": 0,
+    "supply_calls": 0,
+    "model_generation_tts_build_calls": 0,
+    "terminal_reconciliation": {
+      "pending_submitting": 0,
+      "release_pending": 0,
+      "gateway_active": 0,
+      "gateway_lost": 0,
+      "gateway_audit_errors": 0
+    },
+    "quota_after": [
+      {
+        "model_name": "general",
+        "current_interval_remaining_percent": 99,
+        "current_weekly_remaining_percent": 97,
+        "current_interval_usage_count": 0,
+        "current_weekly_usage_count": 0
+      }
+    ],
+    "cash_actual_invoice": "UNKNOWN",
+    "currency_estimate": "NOT_PROVIDED: purchased text quota only",
+    "history": {
+      "all_10_batches_unchanged": true,
+      "files": 1550,
+      "protected_257_unchanged": true,
+      "fixtures_117_unchanged": true
+    },
+    "root_cause": "MODEL_SEMANTIC_CARRIER_NONCONFORMANCE",
+    "ready_for_formal_r4": false,
+    "formal_r4": "NOT_STARTED / historical FAIL unchanged",
+    "material_ready": false,
+    "second_round": "NOT_EXECUTED"
+  },
+  "diagnosis": {
+    "root_cause": "MODEL_SEMANTIC_CARRIER_NONCONFORMANCE",
+    "first_blocker": "STRUCTURED_OUTPUT_INVALID: fenced JSON instead of object",
+    "original_complete": true,
+    "original_bytes": 7849,
+    "original_sha256": "ae7a790e686b1d6b7d4aa2004497e3aeb194a7d7a282681304d18d4645e2d7b8",
+    "stop_reason": "stop",
+    "structural_errors_after_diagnostic_fence_peel": [
+      {
+        "path": [
+          "needs",
+          0,
+          "conditions"
+        ],
+        "type": "too_long",
+        "message": "Tuple should have at most 12 items after validation, not 18"
+      },
+      {
+        "path": [
+          "needs",
+          1
+        ],
+        "type": "value_error",
+        "message": "Value error, Native ratio is not an independent aspect alias"
+      },
+      {
+        "path": [
+          "needs"
+        ],
+        "type": "too_short",
+        "message": "Tuple should have at least 1 item after validation, not 0"
+      }
+    ],
+    "localized_repair": {
+      "decision": "REJECT",
+      "reason": "Whole condition fault cannot replace valid siblings"
+    },
+    "declared_scope_choices": {
+      "continuity": [],
+      "event": [
+        "event-1"
+      ],
+      "global": [
+        "global"
+      ],
+      "scene": [
+        "scene-1"
+      ],
+      "segment": [
+        "segment-1"
+      ],
+      "voice": [
+        "creator_context.voice"
+      ]
+    },
+    "actual_scope": [
+      "outputs/_creations/<id>/",
+      "outputs/_creations/<id>/"
+    ],
+    "actual_condition_counts": [
+      18,
+      9
+    ],
+    "unresolved_count": 8,
+    "evidence_policy": "diagnostic representation only; no formal artifact, input, Need, source or result changed",
+    "targeted_fix": "NOT_APPLIED: fence normalization cannot cure unknown scope, excessive conditions, image source duration, invented continuity and unresolved planning; whole-object rewrite or relaxing carrier prohibited",
+    "round2": "NOT_EXECUTED",
+    "ready_for_formal_r4": false
+  },
+  "protected_record_root": "/Users/xgx/Library/Application Support/Easel/acceptance/planning-vnext-development-2026-10-08-aa0ab42a"
+}

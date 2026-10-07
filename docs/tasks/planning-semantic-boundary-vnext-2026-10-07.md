@@ -961,3 +961,9 @@ Astra只读复核`STOP`仅针对纯音频豁免判据，S3投影允许继续。�
 具名软件结果：run-032 **196 PASS / 0 FAIL / 0 CONTRACT_GAP / 0未执行**；针对31 PASS；常规934 passed/5项既有skip；115技能、compileall及本期diff通过。十批1550文件以原始32字节digest算法对账全部一致，257现场/117fixture保持。production SHA=`ffac01cc608caf72790d2a71d5bdf813657bc7ade24be09f31c4347ea651c74d`。前端未改；无push、服务重启、Runtime升级或历史产物迁移。
 
 证据：[S5 gate](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s5-gate.json)、[最终Astra](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s5-astra-review.md)、[十批对账](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s5-history-fingerprints.json)。软件PASS不证明B语义正确或真实模型成功。本阶段模型/Provider/Supply/TTS/Build调用0，费用0；Development Eval尚未执行，正式R4仍PAUSED。下一步固定窄commit，核对实际Gateway/CLI/DB同源、套餐与隔离后，才进入已授权最多两轮的有界Development；不启动Formal R4。
+
+### Development 最终停止与R4资格判定（2026-10-08）
+
+固定软件`aa0ab42a`/source`ffac01cc…51c74d`、AstraCONTINUE及实时同源/套餐/隔离预检后，已执行第1轮第0项正常新d01。Preparation通过，A真实7,849字节完整结果在结构入口拒绝，132秒，2个正式RPC。首个错误为fenced JSON，但剥开只作诊断后仍存在超长条件、未知目录scope/continuity、图片源时长与frame冲突、8项unresolved，不能由安全的单一局部patch修好。停批，不为通过做整对象重写、提高carrier限制或手改正式产物；可选第二轮不执行。B/Truth/Supply/生成/TTS/Build0；实际token及现金账单UNKNOWN，套餐窗口100→99%、周97→97%。原句柄全部终态且release完成，Gateway active/lost/audit0。历史十批1550与257/117指纹仍未变，历史FAIL不改。
+
+最终`PLANNING_VNEXT_IMPLEMENTATION=FAIL（软件PASS、Development FAIL）; READY_FOR_FORMAL_R4=NO; FORMAL_R4=NOT_STARTED; ENGINEERING_INTERVENTION_IN_FROZEN_ROUND=0`。本连续Goal完成软件实施、实际有界评测及资格判定后停止，不认领MATERIAL_READY。[完整验收与根因](../acceptance/planning-semantic-boundary-vnext-development-2026-10-08.md)。后续若评审受约束输出/输入边界，另开授权范围；不自动重新发批次。
