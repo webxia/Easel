@@ -1,0 +1,36 @@
+{
+  "schema": "semantic-planning-draft@1",
+  "needs": [
+    {
+      "role": "desk_with_two_papers_still",
+      "importance": "required",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "intent": {
+        "description": "A static top-down or slightly angled photograph-style image of an empty desk surface on which exactly two blank white sheets of paper are placed. The composition must remain still across the 0–15 second window and must not contain any recognisable real people, recognisable real-world location identifiers, recognisable real branded objects, or any pre-existing visible text or printed words inside the image; the on-screen line \"先看问题，再做决定。\" is added later in post-production and is not part of this asset.",
+        "function": "Carries the entire 0–15 second visual in a single static frame; the two blank papers on the desk embody the unspoken subject, while the spoken line is layered on top in post-production by the SCENES / TREATMENT workflow."
+      },
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": "still, restrained everyday still-life with generous negative space"
+      },
+      "constraints": {
+        "media_type": "image",
+        "preferred_visual_details": "low saturation, soft natural light, generous negative space around the papers, no logos or branding visible in frame"
+      },
+      "queries": [
+        "minimal still life two blank white sheets of paper on empty wooden desk overhead view",
+        "top-down quiet desk surface with exactly two plain white papers soft daylight",
+        "low saturation everyday overhead photo of two white papers on bare table no text"
+      ],
+      "desired_options": 1,
+      "duration_hint": {
+        "target_seconds": 15
+      },
+      "continuity_refs": []
+    }
+  ]
+}

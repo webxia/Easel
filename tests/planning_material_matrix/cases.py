@@ -817,3 +817,12 @@ def test_45_b_output_contract(semantic_runtime, trace, risk):
                  'batch07实际错误A/B/repair请求与回复、合法@4原checkpoint；真实内部编译/持久/重入，仅外部模型替身')
     semantic.test_b_output_contract(semantic_runtime, risk, evidence=trace)
     trace.note('real Supply / Provider / generation / Build', 0)
+
+
+@pytest.mark.parametrize('risk', ['history_use', 'use_contrasts', 'native_use_repair',
+                                  'old_v5_checkpoint', 'use_identity_pending'])
+def test_46_asset_versus_use(semantic_runtime, trace, risk):
+    trace.define('成片使用/表达不因复述素材主体而变硬采购条件；真正源条件不因后期可改变而消失；旧@5完整Schema身份保持',
+                 'batch08实际合法结构但unresolved回复及独立用途反事实；真实内部编译/持久重载，仅外部固定语义回答')
+    semantic.test_asset_versus_use_task(semantic_runtime, risk, evidence=trace)
+    trace.note('real Supply / Provider / generation / Build', 0)

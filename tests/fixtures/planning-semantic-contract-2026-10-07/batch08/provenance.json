@@ -1,0 +1,21 @@
+{
+  "schema": "historical-fixture-provenance@1",
+  "source_commit": "4614db7142ab6e189dde49fefd7356eafbb2cf74",
+  "source_sha256": "b64681a0c8b650d509824e4cb376fc6dfb05d0c0fc6a5d3a8850a812f1f4e548",
+  "source_batch": "batch08",
+  "formal_contract": "FAIL",
+  "wire_schema": "PASS",
+  "formal_semantics": "UNVERIFIED",
+  "originals_sha256": {
+    "A-original.json": "994cb220a807f616b97e45469c2421f64d54f5a5ec0a5d3749b4051d47ce706c",
+    "B-original.json": "292353b99922f66015bee8053143964c2682d99025d136faab187ab7ee3fd5a8",
+    "B-repair-original.json": "a25e01a98d8fc27c2488d47299710911d4ad0bf372194853cc7386c04dc5daed",
+    "A-request-original.txt": "8dbd902f110a822ab69aca67c070a7722d999798846d3b61c3e7b520fa9bb980",
+    "B-request-original.txt": "f981a544752f991729e9e8d25a8ec7dc44ea8aea42af28cb7aa60aa07e4d3f4c",
+    "B-repair-request-original.txt": "40bd00dd643b23248d24ba5c4f3f389925511bdb5675c842931f7d410e92998e",
+    "scope-original.json": "fc4b51a22ecde719e21919218a1d2bd3818cb8c90a8b17c2d00b754bb70909a2",
+    "partial-snapshot-original.json": "17791332c5304be1215d73d443dfa694e965cbcc820c8cc6ce241dc5b9ba15d1"
+  },
+  "credential_copied": false,
+  "note": "Actual failed original with independently assessed usage counterexample. Partial snapshot is not formal Plan; whole postproduction is reasonable, not historical rescue."
+}

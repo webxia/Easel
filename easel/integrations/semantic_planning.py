@@ -29,17 +29,19 @@ LEGACY_POLICY = 'semantic-planning-compiler@1'
 CANONICAL_POLICY = 'semantic-planning-compiler@2'
 REVIEW_POLICY = 'semantic-planning-compiler@3'
 PURPOSE_POLICY = 'semantic-planning-compiler@4'
-POLICY = 'semantic-planning-compiler@5'
+OUTPUT_POLICY = 'semantic-planning-compiler@5'
+POLICY = 'semantic-planning-compiler@6'
 UNIT_POLICIES = {LEGACY_POLICY: 'indexed-unit-classification@7',
                  CANONICAL_POLICY: 'indexed-unit-classification@8',
                  REVIEW_POLICY: 'indexed-unit-classification@8',
                  PURPOSE_POLICY: 'indexed-unit-classification@8',
+                 OUTPUT_POLICY: 'indexed-unit-classification@8',
                  POLICY: 'indexed-unit-classification@8'}
 LEGACY_REVIEW_TARGET = {'schema': 'material-review-target@1', 'scope': 'original_asset',
                 'required_evidence': 'observable_in_asset',
                 'non_asset_obligation': 'narrative_or_postproduction',
                 'uncertain': 'unresolved', 'precedence': ['target', 'strength', 'kind']}
-REVIEW_TARGET = {'schema': 'material-review-target@2', 'scope': 'original_asset',
+PURPOSE_REVIEW_TARGET = {'schema': 'material-review-target@2', 'scope': 'original_asset',
                 'required_evidence': 'observable_in_asset',
                 'non_asset_obligation': 'narrative_or_postproduction',
                 'uncertain': 'unresolved',
@@ -49,8 +51,19 @@ REVIEW_TARGET = {'schema': 'material-review-target@2', 'scope': 'original_asset'
                     'pure_postproduction': 'actual_editing_or_narrative_obligation',
                     'mixed_independent_obligations': 'unresolved_if_not_losslessly_classifiable',
                     'interpretation': 'semantic_relation_not_word_order_or_keywords'}}
-REVIEW_TARGETS = {REVIEW_POLICY: LEGACY_REVIEW_TARGET, PURPOSE_POLICY: REVIEW_TARGET,
+REVIEW_TARGET = {**PURPOSE_REVIEW_TARGET, 'schema': 'material-review-target@3',
+    'relation_rules': {**PURPOSE_REVIEW_TARGET['relation_rules'],
+        'asset_intrinsic_vs_timeline_use': 'classify_obligation_target_not_repeated_subject_or_field'},
+    'counterfactual': {
+        'scope': 'obligation_target_not_editability',
+        'source_condition': 'remains_about_original_asset_even_if_later_edit_can_remove_it',
+        'timeline_or_expression': 'same_asset_can_be_used_differently_without_new_intrinsic_condition',
+        'repeated_subject': 'repetition_in_usage_does_not_create_or_erase_source_obligation',
+        'independent_mixed': 'preserve_unresolved_when_not_losslessly_classifiable'}}
+REVIEW_TARGETS = {REVIEW_POLICY: LEGACY_REVIEW_TARGET, PURPOSE_POLICY: PURPOSE_REVIEW_TARGET,
+                 OUTPUT_POLICY: PURPOSE_REVIEW_TARGET,
                  POLICY: REVIEW_TARGET}
+OUTPUT_SCHEMA_POLICIES = frozenset({OUTPUT_POLICY, POLICY})
 MAX_FILE_BYTES = 256 * 1024
 MAX_BATCH_UNITS = 40
 
@@ -347,7 +360,7 @@ def classification_batches(plan, mode, *, canonical=None, compiler_policy=None):
         if policy in REVIEW_TARGETS:
             # Program-owned task contract, not another model-authored answer.
             data['review_target'] = json.loads(encode(REVIEW_TARGETS[policy]))
-        if policy == POLICY:
+        if policy in OUTPUT_SCHEMA_POLICIES:
             data['output_schema'] = classification_output_schema(data)
         # Bound the entire context without truncating required content.
         if len(json.dumps(data, ensure_ascii=False).encode()) > MAX_FILE_BYTES:
@@ -636,6 +649,9 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
             '仅写output_paths提供的绝对路径；不猜测当前目录，不依赖其他会话。'
             '不写正式Plan/sidecar，不调用供应/生成/Hypit。\n'
             +('B输出严格遵循context.response_schema，顶层仅batches；不回传context、responses、notes或任务标签。\n' if stage=='B' else '')
+            +'按要求约束的对象判断，不因function复述主体/静态就新增原素材义务。'
+            '成片如何保持/使用原图、表达象征或叠字属于使用/表达/后期；真正的原主体、数量、源动作仍保留。'
+            '后期可以裁掉原主体不代表原素材主体条件消失，不按字段或重复自动分类。\n'
             +json.dumps({'attempt_workspace':str(root),'output_paths':output_paths,
                         'issues':issues,'targets':targets,'context':context,
                         'review_target':REVIEW_TARGET},ensure_ascii=False,sort_keys=True))
@@ -658,6 +674,8 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
         '辨识素材属性主谓与制作目的/用途的语义关系，不按词序或连接词分类。'
         '原图色调/构图用于某种成片表达，仍是源属性；软属性保留于preferred字段，'
         '制作目的可在function及冻结SCENES/TREATMENT承载；真正要求原主体数量或原视频动作的条件不能删改。'
+        'function应解释素材在成片中的表达用途，不重复把使用时长/保持方式写成原素材固有条件。'
+        '同一原图保持15秒、不切换或象征某种表达是成片使用；原图两张纸条件仍完整保留。'
         '后期裁切/排版形成留白是编辑操作，与原图具有留白不同。'
         '作者不虚构来历、不声称亲历等叙事/事实义务保留于已有confirmed/handoff/Truth或叙事function，'
         '不能复制进原素材description，也不能删除这些创作边界。'
@@ -701,6 +719,9 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
         bmessage=('〔Easel Planning V3 单元分类〕\n'
             '只分类程序提供的unit ID，完整按序各一次，不返回path/text/offset/Need映射/query。'
             '先辨识完整单元的主谓条件和目的/用途修饰，再确定审核对象、硬软强度，最后选kind；不能把所有禁令默认required。'
+            '先核定义务约束原素材还是成片使用：同一原图保持15秒、担当表达或后期叠字是使用/表达/后期。'
+            '用途复述两张纸或静态不自动新增采购义务；真正原图两纸或原视频源动作也不因重复/字段而删除。'
+            '反事实仅辅助核定对象：原图两张纸条件在后期裁掉一张后仍约束原图，不能以可编辑为由降级。'
             '原素材可观察的必要主体/数量/禁令/源动作保持required；明确软偏好不能升级，叙事用途/后期为postproduction；'
             '有歧义返回unresolved。偏好引用只能用所属context.preferences中的id。'
             'required审核对象是原始素材自身，不是成片或后期执行。引用的SCRIPT不是背景图必须包含的文字；'

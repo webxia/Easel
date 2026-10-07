@@ -1,0 +1,44 @@
+{
+  "batches": [
+    {
+      "index": 0,
+      "classifications": [
+        {
+          "id": 0,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 1,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 2,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 3,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 4,
+          "kind": "postproduction",
+          "preference_source": null
+        },
+        {
+          "id": 5,
+          "kind": "unresolved",
+          "preference_source": null
+        },
+        {
+          "id": 6,
+          "kind": "required",
+          "preference_source": null
+        }
+      ]
+    }
+  ]
+}

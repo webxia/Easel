@@ -1,0 +1,92 @@
+{
+  "attempt_id": "fa_96e89a1e53f787c16de8f1ffb187cd22",
+  "canonical": {
+    "SCENES.md": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。",
+    "SCRIPT.md": "先看问题，再做决定。",
+    "TREATMENT.md": "用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n\n## 声音设计\n无旁白，无音乐。"
+  },
+  "catalog": {
+    "continuity": {},
+    "event": {
+      "event-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+    },
+    "global": {
+      "global": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+    },
+    "scene": {
+      "scene-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+    },
+    "segment": {
+      "segment-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+    },
+    "voice": {
+      "creator_context.voice": {
+        "consent_ref": null,
+        "context": {
+          "avoid": [
+            "不要声称真实工作成果或案例",
+            "不要使用绝对化承诺式表达",
+            "不要添加旁白或背景音乐",
+            "不要补造真实人物、地点或对话"
+          ],
+          "tone": "克制、低饱和、留白，不主张个人经历"
+        },
+        "reference_asset_ids": [],
+        "source": "creator_context"
+      }
+    }
+  },
+  "context_refs": {
+    "content_core_sha256": "sha256:7744f3f4ac0de40214007e32143f7b9bf6fb8f109c88579de5b058271e14d427",
+    "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+    "creator_context_sha256": "sha256:11f8a8b6a7bf500809428c7a53a8764216075e7189fd5492b8016c9a00c7de76",
+    "production_brief_sha256": "sha256:059e0b1de29684a70248f395d1da336bb25ea012eb284a91d5baac47fa588df6",
+    "truth_packet_sha256": "sha256:135e969ad8da228d339d51c912f4a16d8afb797a22a80ff3943b86c5e734ef49"
+  },
+  "creation_id": "cr_c1482d750006455eb469643cf0804d2f",
+  "mode": {
+    "boundaries": {
+      "content": "Director decides the topic, argument, structure, and whether a video is worthwhile.",
+      "profile": "Profile remains the source of identity, factual boundaries, audience, and public scope.",
+      "runtime": "Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns."
+    },
+    "defaults": {
+      "bgm": "optional-and-subordinate",
+      "duration_seconds": {
+        "allowed": [
+          25,
+          60
+        ],
+        "preferred": [
+          30,
+          45
+        ]
+      },
+      "narration": "reflective-first-person",
+      "orientation": "9:16",
+      "visual_beats": {
+        "preferred": [
+          6,
+          9
+        ]
+      }
+    },
+    "id": "clear_memo_video",
+    "music_ducking": {
+      "attack_seconds": 0.12,
+      "gain_ratio": 0.25,
+      "release_seconds": 0.45
+    },
+    "name": "清醒备忘录 · 视频",
+    "status": "active",
+    "summary": "以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。",
+    "version": "1.3",
+    "visual_material_style": "restrained low saturation everyday",
+    "voice_delivery": {
+      "pace_ratio": 0.95,
+      "pitch_semitones": 0,
+      "tone": "neutral"
+    }
+  },
+  "policy": "semantic-planning-compiler@5"
+}

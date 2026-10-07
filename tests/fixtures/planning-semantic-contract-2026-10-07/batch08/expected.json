@@ -1,0 +1,76 @@
+{
+  "schema": "independent-asset-versus-use-oracle@1",
+  "formal_contract": "FAIL",
+  "initial_and_repair_wire_schema": "PASS",
+  "actual_initial_and_repair_kind": "unresolved",
+  "independent_reasonable_counterfactual_kind": "postproduction",
+  "actual_semantics": "UNVERIFIED formal Requirements absent",
+  "unit_granularity_defect_proven": false,
+  "contrasts": [
+    {
+      "name": "whole_actual_use",
+      "text": "Carries the entire 0–15 second visual in a single static frame; the two blank papers on the desk embody the unspoken subject, while the spoken line is layered on top in post-production by the SCENES / TREATMENT workflow.",
+      "kind": "postproduction"
+    },
+    {
+      "name": "timeline_hold",
+      "text": "同一张静态图在成片0–15秒保持不切换。",
+      "kind": "postproduction"
+    },
+    {
+      "name": "symbolic_papers",
+      "text": "让两张白纸象征尚未做出的决定，作为这一句话的视觉支点。",
+      "kind": "postproduction"
+    },
+    {
+      "name": "source_count",
+      "text": "原始图片必须同时完整呈现两张白纸。",
+      "kind": "required"
+    },
+    {
+      "name": "source_even_if_edited",
+      "text": "原图必须同时可见两张纸，允许成片后期裁掉一张。",
+      "kind": "required"
+    },
+    {
+      "name": "actual_crop",
+      "text": "成片后期裁掉一张纸并叠加正文。",
+      "kind": "postproduction"
+    },
+    {
+      "name": "source_action",
+      "text": "原始视频必须拍到杯子连续落到桌面。",
+      "kind": "required",
+      "modality": "video"
+    },
+    {
+      "name": "playback_direction",
+      "text": "成片将同一段视频倒放并慢放。",
+      "kind": "postproduction",
+      "modality": "video"
+    },
+    {
+      "name": "source_print",
+      "text": "原始图片必须同时可见两张白纸且白纸上已经印有“暂停”。",
+      "kind": "required"
+    },
+    {
+      "name": "overlay_print",
+      "text": "在成片后期叠加“暂停”，不要求原素材印字。",
+      "kind": "postproduction"
+    },
+    {
+      "name": "actual_mixed",
+      "text": "原始照片必须有两张纸，同时成片必须裁掉一张并叠字。",
+      "kind": "unresolved"
+    },
+    {
+      "name": "soft_asset",
+      "text": "原图冷色调用于疏离感表达。",
+      "kind": "preference",
+      "soft_source": "原图冷色调仅为软偏好。"
+    }
+  ],
+  "counterfactual_scope": "判断要求约束谁；后期能裁掉纸不改变原图两纸条件。不能按字段/重复/关键词决定kind。",
+  "real_model_improvement_proven": false
+}

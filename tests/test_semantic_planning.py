@@ -785,9 +785,10 @@ def test_semantic_predicate_purpose_contract(semantic_runtime, risk, evidence=No
         def execute(stage, message, session):
             rt['calls'].append({'stage': stage, 'session': session, 'message': message})
             data = json.loads(message.splitlines()[-1]); messages.append(data)
-            assert data['review_target']['schema'] == 'material-review-target@2'
+            from easel.integrations.semantic_planning import REVIEW_TARGET
+            assert data['review_target'] == REVIEW_TARGET
             assert data['review_target']['precedence'] == ['predicate_and_purpose', 'target', 'strength', 'kind']
-            assert data['review_target']['relation_rules'] == {
+            assert {k: data['review_target']['relation_rules'][k] for k in ('asset_property_with_purpose', 'pure_postproduction', 'mixed_independent_obligations', 'interpretation')} == {
                 'asset_property_with_purpose': 'classify_asset_property_by_source_strength',
                 'pure_postproduction': 'actual_editing_or_narrative_obligation',
                 'mixed_independent_obligations': 'unresolved_if_not_losslessly_classifiable',
@@ -1512,11 +1513,13 @@ def test_b_output_contract(semantic_runtime, risk, evidence=None):
         assert verify_semantic_checkpoint(root, original, old_scope['mode'], old_scope['canonical']['SCRIPT.md'])['policy'] == 'semantic-planning-compiler@4'
     elif risk == 'output_identity':
         old = compile_input(compiler_policy='semantic-planning-compiler@4'); new = compile_input()
-        assert POLICY == 'semantic-planning-compiler@5' and old.plan_id != new.plan_id
+        assert POLICY != 'semantic-planning-compiler@4' and old.plan_id != new.plan_id
         old_batch = classification_batches(old, {}, compiler_policy='semantic-planning-compiler@4')[0]
         new_batch = classification_batches(new, {})[0]
         assert 'output_schema' not in old_batch and 'output_schema' in new_batch
-        assert old_batch['review_target'] == new_batch['review_target']
+        assert old_batch['review_target']['schema'] == 'material-review-target@2'
+        from easel.integrations.semantic_planning import REVIEW_TARGET
+        assert new_batch['review_target'] == REVIEW_TARGET
         assert old_batch['batch_id'] != new_batch['batch_id']
     else:
         state = {'schema':'semantic-planning-checkpoint@1','scope': {
@@ -1526,3 +1529,86 @@ def test_b_output_contract(semantic_runtime, risk, evidence=None):
         store = AttemptMaterialStore(rt['root']); store.write_recovery_record('semantic-planning-v3', state)
         with pytest.raises(SemanticPlanningError, match='版本'): rt['run']()
         assert not rt['calls'] and store.read_recovery_record('semantic-planning-v3') == state
+
+
+@pytest.mark.parametrize('risk', ['history_use', 'use_contrasts', 'native_use_repair',
+                                  'old_v5_checkpoint', 'use_identity_pending'])
+def test_asset_versus_use_task(semantic_runtime, risk, evidence=None):
+    from easel.integrations.semantic_planning import POLICY, digest, source_catalog
+    from easel.integrations.material_layer import PlanningIntegration
+    from easel.materials.store import AttemptMaterialStore
+    folder = FIXTURE/'batch08'; rt = semantic_runtime
+    scope = json.loads((folder/'scope-original.json').read_text())
+    original = MaterialPlan.model_validate_json(json.dumps(json.loads((folder/'partial-snapshot-original.json').read_text())['plan']))
+    response = json.loads((folder/'B-original.json').read_text())
+    expected = json.loads((folder/'expected.json').read_text())
+    if risk == 'history_use':
+        for policy in ['semantic-planning-compiler@5', POLICY]:
+            with pytest.raises(SemanticPlanningError, match='分类仍有歧义'):
+                assemble_requirements(original, scope['mode'], [response], canonical=scope['canonical'], compiler_policy=policy)
+            fixed = deepcopy(response); fixed['classifications'][5]['kind'] = expected['independent_reasonable_counterfactual_kind']
+            bound = assemble_requirements(original, scope['mode'], [fixed], canonical=scope['canonical'], compiler_policy=policy)
+            function = [c for c in bound[original.needs[0].need_id]['clauses'] if c['path']=='intent/function']
+            assert len(function)==1 and function[0]['kind']=='postproduction'
+        if evidence: evidence.note('actual vs independent reasonable contrast', {'wire':'PASS','actual usable contract':'FAIL unresolved','independent fixed use kind':'postproduction','granularity defect proven':False})
+    elif risk == 'use_contrasts':
+        for row in expected['contrasts']:
+            d = semantic_draft(); n=d['needs'][0]; n['intent']={'description':'原素材中有两张白纸。','function':row['text']}
+            if row.get('modality'):n['modality_spec']={'kind':row['modality']}
+            if row['kind']=='preference':n['constraints']={'preferred_visual_details':row['soft_source']}
+            plan=compile_input(d);batch=classification_batches(plan,{})[0]
+            fixed={'classifications':[{'id':u['id'],'kind':row['kind'] if batch['contexts'][u['need']]['input']['sources'][u['source']]['path']=='intent/function' else 'required',
+                'preference_source':0 if row['kind']=='preference' and batch['contexts'][u['need']]['input']['sources'][u['source']]['path']=='intent/function' else None} for u in batch['units']]}
+            if row['kind']=='unresolved':
+                with pytest.raises(SemanticPlanningError,match='歧义'):assemble_requirements(plan,{},[fixed])
+            else:
+                bound=assemble_requirements(plan,{},[fixed])[plan.needs[0].need_id]['clauses']
+                assert next(c['kind'] for c in bound if c['path']=='intent/function')==row['kind']
+        if evidence:evidence.note('independent obligation-target contrasts',expected['contrasts'])
+    elif risk == 'native_use_repair':
+        for name,text in scope['canonical'].items():rt['canonical'][name]=text;write_file(rt['root'],name,text.encode(),replace=True)
+        fixed=deepcopy(response);fixed['classifications'][5]['kind']='postproduction'
+        def execute(stage,message,session):
+            import re
+            data=json.loads(message.splitlines()[-1]);rt['calls'].append({'stage':stage,'session':session,'message':message})
+            assert data['review_target']['schema']=='material-review-target@3'
+            assert data['review_target']['relation_rules']['asset_intrinsic_vs_timeline_use']=='classify_obligation_target_not_repeated_subject_or_field'
+            assert data['review_target']['counterfactual']['scope']=='obligation_target_not_editability'
+            if message.startswith('〔Easel Semantic'):
+                out=json.loads((folder/'A-original.json').read_text());target=Path(re.search(r'只写 (.+\.json)',message)[1])
+            elif '单元分类' in message:
+                assert 'output_schema' in data;out=response;target=Path(re.search(r'只写 (.+\.json)',message)[1])
+            else:
+                out={'batches':[{'index':0,**fixed}]};target=Path(data['output_paths'][data['targets'][0]])
+                assert data['context']['batches'][0]['review_target']==data['review_target']
+            target.write_bytes(encode(out))
+        result=rt['run'](execute);saved=PlanningIntegration().persist(rt['attempt'],**{k:result[k] for k in ('plan','script','scenes','treatment')})
+        assert PlanningIntegration().load(saved['attempt'])['plan']==result['plan']
+        assert rt['run'](execute)['plan']==result['plan'] and len(rt['calls'])==3
+        if evidence:evidence.note('fixed external answers',{'persist/reload/reentry':'PASS','model semantics proven':False,'Supply':0})
+    elif risk == 'old_v5_checkpoint':
+        batches=classification_batches(original,scope['mode'],canonical=scope['canonical'],compiler_policy='semantic-planning-compiler@5')
+        actual=json.loads((folder/'B-request-original.txt').read_text().splitlines()[-1])
+        assert json.loads(encode(batches))==[actual] and 'output_schema' in batches[0]
+        # No successful real @5 freeze exists. Derive a clearly offline legal
+        # @5 freeze with real internals from the independent genuine @4 inputs.
+        oldfolder=FIXTURE/'batch07';cp=json.loads((oldfolder/'legal-checkpoint-original.json').read_text());sc=deepcopy(cp['scope']);sc['policy']='semantic-planning-compiler@5'
+        raw=(oldfolder/'legal-A-original.json').read_bytes()
+        plan=compile_draft(raw,creation_id=sc['creation_id'],attempt_id=sc['attempt_id'],refs=sc['context_refs'],mode=sc['mode'],script=sc['canonical']['SCRIPT.md'],allowed_refs=sc['catalog'],compiler_policy=sc['policy'])
+        bs=classification_batches(plan,sc['mode'],canonical=sc['canonical'],compiler_policy=sc['policy']);req=assemble_requirements(plan,sc['mode'],cp['responses'],canonical=sc['canonical'],compiler_policy=sc['policy'])
+        cp.update(scope=sc,plan=plan.model_dump(mode='json'),policy=sc['policy'],batches_sha256=digest(bs))
+        root=rt['root']/'old-v5';(root/'planning').mkdir(parents=True)
+        for name,raw in [('SEMANTIC_CHECKPOINT.json',encode(cp)),('SEMANTIC_PLAN.json',raw),('MATERIAL_REQUIREMENTS.json',encode(req))]:write_file(root,name,raw)
+        for name,text in sc['canonical'].items():write_file(root,name,text.encode())
+        assert verify_semantic_checkpoint(root,plan,sc['mode'],sc['canonical']['SCRIPT.md'])['policy']==sc['policy']
+        if evidence:evidence.note('old @5 evidence types',{'exact_actual_batch':'PASS','valid_checkpoint':'offline derived, not real historical PASS'})
+    else:
+        assert POLICY=='semantic-planning-compiler@6'
+        old=compile_input(compiler_policy='semantic-planning-compiler@5');new=compile_input()
+        before=classification_batches(old,{},compiler_policy='semantic-planning-compiler@5')[0];after=classification_batches(new,{})[0]
+        assert before['review_target']['schema']=='material-review-target@2' and after['review_target']['schema']=='material-review-target@3'
+        assert 'output_schema' in before and 'output_schema' in after and old.plan_id!=new.plan_id and before['batch_id']!=after['batch_id']
+        state={'schema':'semantic-planning-checkpoint@1','scope':{'policy':'semantic-planning-compiler@5','creation_id':rt['attempt']['creation_id'],'attempt_id':rt['attempt']['attempt_id']},'route':{'profile':'fixture-only','thinking':'off','timeout':60},'calls':{'B0':{'status':'pending','message':'original v5 request'}},'repair_used':True}
+        store=AttemptMaterialStore(rt['root']);store.write_recovery_record('semantic-planning-v3',state)
+        with pytest.raises(SemanticPlanningError,match='版本'):rt['run']()
+        assert not rt['calls'] and store.read_recovery_record('semantic-planning-v3')==state
