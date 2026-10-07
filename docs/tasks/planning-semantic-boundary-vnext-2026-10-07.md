@@ -885,3 +885,33 @@ Planning内部reply_contract=planning-result-v1复用原Gateway运行；Material
 然后对选定SDK branch-safe transport执行**真实合法A最大边界 + 合法B最大批次 + repair结果**的原文与SHA相等回放，并补原session/run错误、终态丢失、length、多attempt、branch reset、恢复与保存中断的真实内部集成。仅当上述证据全部成立、生产读取无未知副作用时，撤销实验planning-result-v1的3000限制方案、用独立版本新合同实施并冻结S2；Material默认协议与旧请求身份不改。
 
 当前记录：`TRANSPORT_INVENTORY=COMPLETE; RAW_CAPACITY_REPLAY=PASS; A_B_LEGAL_CAPACITY=PENDING; S2=NOT_FROZEN; REAL_MODEL_CALLS=0; SERVICE_OPERATIONS=0`。本节不认领Development Eval/R4/Material准入。
+
+### S2 完整结果实现及容量证据（2026-10-07，冻结复核中）
+
+`A_B_LEGAL_CAPACITY=PASS; S2=FREEZE_REVIEW_PENDING`。此记录替代上节的容量待核查状态，不抹去初次snapshot判断撤回及历史FAIL。
+
+应用层新增 `planning-result-v2`：4096 preview只观察；Harness保存完整原结果，再parse/validate及由程序写文件。旧Material默认3000协议、旧Planning v1身份和恢复行为保持；没有升级Runtime、新增工具、HTTP路由或修改生产存储。
+
+**容量合同：** A每组最多16个Need，每Need最多12完整condition；condition/purpose/voice表达最多2000 Unicode codepoints、scope/continuity/voice选择最多512、角色/声音字符串200、每Need最多16 continuity选项、12 instruments及3个100字符query。B每批最多48完整问题响应，每响应最多16证据选择、2000字符理由。所有对象禁止未知字段，数值、集合均有界；这限制载荷，不证明模型输出token能力。未知完整scope不能删义务或偷切碎来适配，后续S3/S4必须按既定整体语义/调用预算分组；无法承载明确停止。
+
+`maximum_compact_bytes`按Schema审计所有字段，按每字符6字节转义保守计入，A紧凑JSON上界4,398,733 bytes、B606,015 bytes；原结果envelope预算8,388,608 bytes、单请求1,048,576 bytes（含JSON whitespace按总字节核验）。这是独立应用容量合同，与terminalReply和模型token上限无关。超限=`CONTRACT_REJECTED`，不会伪记model length；实际Provider length仍=`MODEL_TRUNCATED`，parse合法也拒绝。carrier变化须重跑容量Gate。
+
+**实际已执行：** 安装OpenClaw2026.9.4 SDK写入新的隔离SQLite，正式只读bridge在新进程读取同一session/run；合法A1,331,979 bytes、B304,755 bytes，以及有效A JSON加whitespace的8MiB完整repair envelope，text/UTF8 bytes/SHA均等。更早error/length不能替代更晚成功；SQLite/WAL读取前后SHA不变。顶层/块签名commentary、混合phase和tool arguments正式返回NONTERMINAL，不进入capture。完整文件：[隔离结果](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/transport-investigation/semantic-runtime-result.json)。
+
+**生产读取选择：** 使用SDK readonly DB入口及安装Runtime纯active-path selector；后者非公开SDK导出，因此版本及文件SHA钉住，变化在模型提交前停止。CLI profile投影和assistant phase函数也使用当前安装实现并钉SHA，不猜`~/.openclaw-<profile>`，自定义state/config/home依实际CLI规则保留。不调用SDK可写transcript loader。只读取事前绑定agent/sessionId/runId的active最终assistant，并核对可信terminalReceipt、成功stopReason及字节/hash；先持久capture后parse。原结果读取暂不可用只核对同run，缺失观察计数持久，第三次无结果为MODEL_NO_RESULT；不会刷新repair或重派。已capture后不读后来变化的transcript，保存失败沿原capture恢复。duplicate JSON key/非有限数拒绝。
+
+**仍须部署预检：** 本机profile不能证明远端Gateway同源；此次没有读取实际Gateway配置或真实DB。Development Eval前须验证实际进程/Gateway/CLI投影的存储归属，同源未证实停止。本实现不提供远程raw transcript恢复。若Gateway重启前可信终态未落盘且wait缓存丢失，transcript单独不能补认成功，保持uncertain；这属于有意停止边界，不通过重派掩盖。
+
+同一矩阵run-021：156 PASS，生产文件运行前后相同，257现场文件/117历史fixture相同。具名capture17 PASS；相关旧/新回归333 PASS；常规894 passed/5既有skip（不以skip代替必测）；技能115 PASS、compileall PASS、当前改动diff检查PASS。全工作区diff检查仍报告两个既有旧文档EOF空行，保留用户工作树，不把它记作PASS。软件Gate及源码指纹：[s2-full-transport-gate.json](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s2-full-transport-gate.json)。
+
+S3 projector/compiler为未验收WIP，虽记录于测试时完整source SHA，但不纳入本次S2冻结或可发布声明。本轮模型/Provider调用0、服务操作0、费用0；未进入R4/Supply/Smoke/E2E/MATERIAL_READY。冻结前Astra只读复核待返回。
+
+#### S2 冻结复核与最终Gate
+
+Astra初审`MODIFY`发现两处真实软件缺口：1MiB原message经JSON转义后可能超过exec argv/env系统上限；raw扫描可能漏掉敏感JSON键和Unicode转义Secret。没有启动真实执行。已最小修正：按实际argv/env、指针及16KiB余量核验SC_ARG_MAX，Linux额外核对单参数32pages；在新run的reserve/submitting之前明确CONTRACT_REJECTED，已有run恢复不受新提交容量判断阻断。1MiB是应用ceiling，不是可提交容量保证。没有新增stdin或Runtime接口。
+
+持久化前做仅用于存储安全的JSON解码，逐个object pair检查，重复键不能覆盖隐藏Secret，递归检查decoded字符串；无效JSON、非finite、重复键、不可编码Unicode或Secret只保存失败分类，禁止保存原raw。不把此安全扫描当语义准入。扩展同一集成场景，零提交/零预留/无悬挂run、敏感内容无native/Harness原文持久化、失败重入无重派。初次escaped测试错误地用了已解码sk前缀，旧扫描也能拒绝；修正为真正\u0073\u006b转义并断言旧扫描漏检，原run-022证据保留，由run-023替代其不足的回归证明。
+
+Astra增量只读复核`CONTINUE`，未扩大范围。最终run-023 **159 PASS**、capture **20 PASS**、常规 **897 passed / 5既有skip**；常规收集后仅修正测试fixture，最终targeted/matrix已执行真实转义场景，生产未变。source SHA=`0fd790511f3b20b51b925cac4e8cbf3786ebe941b9e25be1182696c6e6f28455`，含未验收S3工作树草稿，不构成发布版本。257现场文件、117fixture无变化。skills115/compileall/本Task scoped diff通过，全工作区两个旧文档EOF告警保留。
+
+**`S2=PASS / SOFTWARE_FROZEN; A_B_LEGAL_CAPACITY=PASS; REAL_DEPLOYMENT_READY=NO`**。冻结的是本安装版本的完整结果软件承载与恢复边界，不是当前服务已加载或模型已通过。后续S3/S4调整carrier须重开容量Gate；Development Eval前必须验证实际Gateway/CLI/DB路由同源及有效文字套餐。无真实模型、Provider、Supply或服务操作，S3–S5尚待完成。

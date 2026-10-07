@@ -1,10 +1,10 @@
 # Easel Current State
 
-## Planning Semantic Boundary vNext：S2 transport 调查，暂不冻结（2026-10-07）
+## Planning Semantic Boundary vNext：S2 完整结果软件冻结（2026-10-07）
 
-连续vNext Goal进行中，S1已有确定性证据；S2此前仅验证终态快照适配器，其阶段通过判断已撤回。4096 terminalReply是展示摘要上限，3000是旧Material协议上限，两者均不是模型输出上限。现安装OpenClaw2026.9.4存在完整agent result/stream、原始transcript和正式SDK branch-safe分页读取；已在隔离SQLite及新恢复进程实际验证11KB至2.16MB Unicode JSON字节/SHA一致、520KB tool arguments、分页超预算标记及分支重建保护。
+连续Goal进行中，S1已通过；S2完整transport实现及容量Gate通过。4096 terminalReply仅展示摘要，旧Material3000协议保持；新planning-result-v2从原session/run的active最终assistant只读捕获，可信终态、stopReason与完整UTF8/SHA同时核对。安装OpenClaw2026.9.4隔离回放合法A/B及8MiB envelope无损，新进程读前后SQLite/WAL未变；Runtime/profile/phase实现钉SHA。Astra先MODIFY指出argv及转义Secret缺口，最小修复后CONTINUE。
 
-`S2=TRANSPORT_CLOSURE_PENDING / NOT_FROZEN`：A/B最终合法响应集合、实际最大边界及生产profile/session精确恢复仍待闭合，任意大JSON回放不能替代这些证据。优先候选为精确sessionId的SDK branch-safe raw读取；wait缓存TTL/重启丢失及同run多attempt不能冒充最终结果。未推进未验收S3草稿、未调用模型、未加载服务，历史10批FAIL/12执行/held-out0保留，Formal R4/Supply/Smoke/E2E未启动。详见[同一Task的transport调查](tasks/planning-semantic-boundary-vnext-2026-10-07.md)及其隔离诊断证据。下方batch10进行中记录为历史，当前正式R4为PAUSED/FAIL。
+最终run-023矩阵159 PASS、capture20 PASS、常规897 passed/5既有skip，257现场文件/117fixture未变。S2仅软件冻结，S3 projector/compiler仍未验收，完整source SHA含草稿不能认领发布；Development Eval前仍须核对真实Gateway与本地DB同源、加载版本、套餐、隔离。模型调用/服务操作0，历史10批FAIL/12执行/held-out0保持，Formal R4/Supply/Smoke/E2E未启动。详见[同一Task的完整transport调查与最终Gate](tasks/planning-semantic-boundary-vnext-2026-10-07.md)。下方旧R4进度为历史，当前正式R4为PAUSED/FAIL。
 
 Last audited: 2026-10-06. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
 

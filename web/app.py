@@ -945,7 +945,8 @@ def run_agent_sync(msg: str, timeout: int = TIMEOUT_DIRECT, session_id: str | No
                    *, attachments: list[dict] | None = None, capture_reply: bool = False,
                    retry_failed: bool = True, reply_contract: str = 'material-result-v1') -> str:
     sk = session_id or f'web-{int(time.time() * 1000)}'
-    _heal_openclaw_session(sk)   # 清洗历史里无签名 thinking 块，防回放失效
+    if reply_contract != 'planning-result-v2':
+        _heal_openclaw_session(sk)   # 保留旧路径；新Harness不人工改写原transcript
     # 钉死 --session-id 让 OpenClaw 每轮续同一 transcript（防跨天空闲后新起空会话丢历史，见 _openclaw_session_id）
     cmd = openclaw_base_cmd() + ['--profile', OPENCLAW_PROFILE, 'agent', '--agent', 'main',
            '--session-key', f'agent:main:{sk}', '--session-id', _openclaw_session_id(sk),

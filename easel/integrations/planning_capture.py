@@ -12,13 +12,13 @@ from easel.creation_delivery import DeliveryExecutionUncertain
 from easel.integrations.openclaw_delivery import PlanningResultError
 from easel.integrations.hypit.secrets import SecretRedactor
 
-MAX_REPLY_UTF16 = 3000
-MAX_INPUT_BYTES = 64 * 1024
+from easel.integrations.planning_result_contract import MAX_RESULT_BYTES, MAX_REQUEST_BYTES
+from easel.integrations.planning_reply_safety import safe_structured_text
 
 
 def capture(calls, key, message, session, dispatch, save):
     identity = hashlib.sha256(message.encode()).hexdigest()
-    if len(message.encode()) > MAX_INPUT_BYTES:
+    if len(message.encode()) > MAX_REQUEST_BYTES:
         raise PlanningResultError('CONTRACT_REJECTED')
     record = calls.get(key)
     if record is not None and (record['request_sha256'] != identity or record['session'] != session):
@@ -47,11 +47,17 @@ def capture(calls, key, message, session, dispatch, save):
             record['result'] = 'MODEL_NO_RESULT'
             save()
             raise PlanningResultError(record['result'])
-        if len(reply.encode('utf-16-le')) // 2 > MAX_REPLY_UTF16 or reply.rstrip().endswith('…'):
-            record['result'] = 'MODEL_TRUNCATED'
+        try:
+            reply_bytes = reply.encode()
+        except UnicodeError:
+            record['result'] = 'STRUCTURED_OUTPUT_INVALID'
+            save()
+            raise PlanningResultError(record['result']) from None
+        if len(reply_bytes) > MAX_RESULT_BYTES:
+            record['result'] = 'CONTRACT_REJECTED'
             save()
             raise PlanningResultError(record['result'])
-        if SecretRedactor.contains_secret(reply):
+        if not safe_structured_text(reply):
             record['result'] = 'STRUCTURED_OUTPUT_INVALID'
             save()
             raise PlanningResultError(record['result'])
@@ -62,7 +68,14 @@ def capture(calls, key, message, session, dispatch, save):
     if hashlib.sha256(record['reply'].encode()).hexdigest() != record['reply_sha256']:
         raise ValueError('Planning captured result changed')
     try:
-        value = json.loads(record['reply'])
+        def unique(pairs):
+            value = {}
+            for k,v in pairs:
+                if k in value: raise ValueError('Duplicate semantic response key')
+                value[k] = v
+            return value
+        def invalid_constant(_): raise ValueError('Non-finite JSON number')
+        value = json.loads(record['reply'], object_pairs_hook=unique, parse_constant=invalid_constant)
         if not isinstance(value, dict):
             raise ValueError('Structured result must be an object')
     except (ValueError, UnicodeError):

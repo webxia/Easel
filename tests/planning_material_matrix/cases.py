@@ -864,3 +864,13 @@ def test_50_vnext_capture_transport(prep_env, tmp_path, trace, risk):
     semantic.test_vnext_capture_transport(prep_env, tmp_path, risk)
     trace.note('proof scope', 'ARTIFACT_TRANSPORT / REJECTION')
     trace.note('real model / Supply', 0)
+
+
+@pytest.mark.parametrize('risk', ['A', 'B', 'repair_capacity', 'preview', 'length',
+    'identity', 'late', 'missing', 'lost_terminal', 'duplicate_json', 'persist_failure', 'input_os_capacity', 'escaped_secret', 'sensitive_key'])
+def test_51_vnext_full_capture(prep_env, tmp_path, trace, risk):
+    trace.define('完整合法A/B及repair envelope无损捕获；不认领preview/别的run/未知终态；同原请求恢复',
+                 '真实Delivery/Harness/有界响应Schema；仅Gateway和Runtime外部边界固定替身，安装Runtime另有具名离线回放')
+    semantic.test_vnext_full_capture(prep_env, tmp_path, risk)
+    trace.note('proof scope', 'FULL_RESULT_TRANSPORT / IDENTITY / RECOVERY')
+    trace.note('real model / Supply', 0)

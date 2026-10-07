@@ -1886,6 +1886,118 @@ def test_vnext_capture_transport(prep_env, tmp_path, risk):
         active_delivery.reset(token)
 
 
+def vnext_capacity_payload(stage):
+    from easel.integrations.planning_result_contract import SemanticProposal, ReviewResponse
+    text = ('画面与留白🖼️。' * 500)[:2000]
+    if stage == 'A':
+        value = {'needs':[{'scope':'scene-1','role':'背景','modality':'video',
+            'necessity':'required','conditions':[{'text':text,'strength':'required',
+                'responsibility':'material'} for _ in range(12)],
+            'queries':['white paper table','blank page desk','empty document closeup'],
+            'frame':'match_output','purpose':text,'visual_preference':text[:200],
+            'source_seconds':3600} for _ in range(16)]}
+        return SemanticProposal.model_validate(value).model_dump_json()
+    return ReviewResponse.model_validate({'answers':[{'question':i,'decision':'ACCEPT',
+        'evidence':list(range(16)),'reason':text} for i in range(48)]}).model_dump_json()
+
+
+@pytest.mark.parametrize('risk', ['A', 'B', 'repair_capacity', 'preview', 'length',
+    'identity', 'late', 'missing', 'lost_terminal', 'duplicate_json', 'persist_failure',
+    'input_os_capacity', 'escaped_secret', 'sensitive_key'])
+def test_vnext_full_capture(prep_env, tmp_path, risk):
+    import hashlib
+    import subprocess
+    from tests.test_creation_preparation import _confirmed_delivery
+    from easel import creation
+    from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain
+    from easel.integrations.openclaw_delivery import run_delivery_agent, PlanningResultError
+    from easel.integrations.planning_capture import capture, persist_captured
+    from easel.integrations.planning_result_contract import MAX_RESULT_BYTES, maximum_compact_bytes, result_schema
+    for stage in ('A','B'):
+        assert maximum_compact_bytes(result_schema(stage)) < MAX_RESULT_BYTES
+    reply = vnext_capacity_payload('B' if risk == 'B' else 'A')
+    if risk == 'repair_capacity': reply += ' ' * (MAX_RESULT_BYTES-len(reply.encode()))
+    if risk == 'duplicate_json': reply = '{"needs":[],"needs":[]}'
+    if risk == 'sensitive_key': reply = json.dumps({'api_key':'synthetic-credential-value'})
+    if risk == 'escaped_secret':
+        reply = '{"purpose":"' + r'\u0073\u006b-' + 'x'*16 + '"}'
+        from easel.integrations.hypit.secrets import SecretRedactor
+        assert not SecretRedactor.contains_secret(reply)  # Old raw scan misses it.
+        assert SecretRedactor.contains_secret(json.loads(reply))
+    methods, read_count, run_id, saved = [], 0, None, {}
+    session_id = 'fixture-session'
+    work = _confirmed_delivery()
+    def gateway(command, **kwargs):
+        nonlocal run_id
+        method=command[command.index('call')+1]; methods.append(method)
+        params=json.loads(command[command.index('--params')+1])
+        if method=='agent':
+            run_id=params['idempotencyKey']; result={'runId':run_id,'status':'accepted'}
+        elif method=='sessions.abort': result={'ok':True,'status':'no-active-run'}
+        else:
+            result={'runId':run_id,'status':'ok','endedAt':1000,'stopReason':'stop',
+                'terminalReply':{'disposition':'visible','text':'preview…'}}
+            if risk != 'lost_terminal': result['terminalReceipt']={
+                'runId':run_id,'sessionId':session_id,'turnId':run_id,
+                'effective':{'provider':'offline','model':'fixture'}}
+        return subprocess.CompletedProcess(command,0,json.dumps(result),'')
+    def transcript(*args, **kwargs):
+        nonlocal read_count
+        read_count+=1
+        if risk == 'late' and read_count==1 or risk=='missing': return {'state':'MISSING'}
+        return {'state':'FOUND','runId':run_id if risk!='identity' else 'another-run',
+            'sessionId':session_id,'text':reply,'sha256':hashlib.sha256(reply.encode()).hexdigest(),
+            'bytes':len(reply.encode()),'stopReason':'length' if risk=='length' else 'stop',
+            'messageId':'original-message','sequence':10,'runtimeVersion':'2026.9.4'}
+    def dispatch(key,message,session):
+        return run_delivery_agent(['openclaw','--profile','fixture','agent','--agent','main',
+            '--session-key','agent:main:'+session,'--session-id',session_id,'--message',message],
+            runner=gateway,capture_reply=True,reply_contract='planning-result-v2',
+            transcript_reader=transcript,retry_failed=False).stdout
+    token=active_delivery.set(work['id'])
+    try:
+        if risk == 'input_os_capacity':
+            # Within raw input budget, but escaped JSON exceeds the real argv budget.
+            before=creation.get_creation(work['id'])['delivery']
+            with pytest.raises(PlanningResultError,match='CONTRACT_REJECTED'):
+                capture(saved,'A','\"'*600000,'new-vnext',dispatch,lambda:None)
+            assert creation.get_creation(work['id'])['delivery']==before
+            assert not methods
+            return
+        for _ in range(1+(risk=='late')):
+            with pytest.raises(DeliveryExecutionUncertain): capture(saved,'A','frozen input','new-vnext',dispatch,lambda:None)
+        if risk in {'identity','lost_terminal'}:
+            for _ in range(2):
+                with pytest.raises(DeliveryExecutionUncertain): capture(saved,'A','frozen input','new-vnext',dispatch,lambda:None)
+        elif risk in {'length','duplicate_json','missing','escaped_secret','sensitive_key'}:
+            if risk=='missing':
+                for _ in range(2):
+                    with pytest.raises(DeliveryExecutionUncertain): capture(saved,'A','frozen input','new-vnext',dispatch,lambda:None)
+            expected={'length':'MODEL_TRUNCATED','duplicate_json':'STRUCTURED_OUTPUT_INVALID','missing':'MODEL_NO_RESULT','escaped_secret':'STRUCTURED_OUTPUT_INVALID','sensitive_key':'STRUCTURED_OUTPUT_INVALID'}[risk]
+            with pytest.raises(PlanningResultError,match=expected): capture(saved,'A','frozen input','new-vnext',dispatch,lambda:None)
+            if risk in {'escaped_secret','sensitive_key','duplicate_json'}:
+                assert 'reply' not in saved['A']
+                native=next(iter(creation.get_creation(work['id'])['delivery']['agent_calls'].values()))
+                assert 'terminal_reply' not in native
+                with pytest.raises(PlanningResultError,match=expected): capture(saved,'A','frozen input','new-vnext',dispatch,lambda:None)
+        else:
+            value=capture(saved,'A','frozen input','new-vnext',dispatch,lambda:None)
+            assert value==json.loads(reply) and saved['A']['reply']==reply
+            if risk=='persist_failure':
+                def broken(raw): raise OSError('isolated disk failure')
+                with pytest.raises(OSError): persist_captured(saved,'A',broken,lambda:None)
+            output=tmp_path/'program-result.json'
+            persist_captured(saved,'A',output.write_bytes,lambda:None)
+            before=read_count
+            assert capture(saved,'A','frozen input','new-vnext',dispatch,lambda:None)==value
+            assert output.read_bytes()==reply.encode() and read_count==before
+            native=next(iter(creation.get_creation(work['id'])['delivery']['agent_calls'].values()))
+            assert native['result_source']['kind']=='readonly-active-transcript'
+            assert native['terminal_reply']['text']==reply
+        assert methods.count('agent')==1
+    finally: active_delivery.reset(token)
+
+
 @pytest.mark.parametrize('risk', ['entities', 'aliases', 'duration', 'scope_integrity'])
 def test_vnext_canonical_facts(risk):
     from easel.integrations.planning_facts import bind_facts, fact_value, project_asset

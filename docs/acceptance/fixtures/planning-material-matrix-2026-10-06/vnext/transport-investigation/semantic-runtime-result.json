@@ -1,0 +1,55 @@
+{
+  "guards": [
+    {
+      "kind": "commentary_signature",
+      "state": "NONTERMINAL",
+      "pass": true
+    },
+    {
+      "kind": "mixed_phase",
+      "state": "NONTERMINAL",
+      "pass": true
+    },
+    {
+      "kind": "tool_arguments",
+      "state": "NONTERMINAL",
+      "pass": true
+    }
+  ],
+  "custom_state_profile_preserved": true,
+  "runtime": "2026.9.4",
+  "model_calls": 0,
+  "isolated": true,
+  "rows": [
+    {
+      "kind": "A",
+      "bytes": 1331979,
+      "sha256": "b60829dc15006decda3f4ed0cd5550bbe850cab3552e7cc0252daea7b7fdfb10",
+      "original_equal": true,
+      "readonly_database_unchanged": true,
+      "fresh_process": true,
+      "prior_error_length_ignored": true,
+      "messageId": "b0855753-6405-49c5-a10d-d8fc8c905a60"
+    },
+    {
+      "kind": "B",
+      "bytes": 304755,
+      "sha256": "7193ac4863cc833f6d0b0075bbf74baf4de7ebe4045caa7d07ee10952e817603",
+      "original_equal": true,
+      "readonly_database_unchanged": true,
+      "fresh_process": true,
+      "prior_error_length_ignored": true,
+      "messageId": "5a01b529-47ad-4380-bbe8-ad2f8310765b"
+    },
+    {
+      "kind": "REPAIR",
+      "bytes": 8388608,
+      "sha256": "952ecd2641a4794f36d0eb14e2bcb7ce2860deb62149d3abc9244bceed76f30b",
+      "original_equal": true,
+      "readonly_database_unchanged": true,
+      "fresh_process": true,
+      "prior_error_length_ignored": true,
+      "messageId": "52706682-3fb7-4e6e-aa67-0b6768336aac"
+    }
+  ]
+}
