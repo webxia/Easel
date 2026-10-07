@@ -1,0 +1,529 @@
+{
+  "plan_id": "plan-6d294b2a6837c930fd5b",
+  "creation_id": "cr_bbe0db97318f45aea09dc839f3d9c916",
+  "attempt_id": "fa_44695adb79746d294b2a6837c930fd5b",
+  "context_refs": {
+    "content_core_sha256": "sha256:c9a8e5a4d4080384541ccdf755972b017fbe615087ff147b9e6a41f58e8dd6cb",
+    "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+    "creator_context_sha256": "sha256:88aa737047f370da7d6f214332019a5b41dd4525ef25e94a8938c701bf05f4f0",
+    "production_brief_sha256": "sha256:725a52ef2d9832963318db73e41246554b32d4248c1c645e7008819e608ef071",
+    "truth_packet_sha256": "sha256:ddd15b9d4eb0cb7afcbd1f861f7275d1a7f483af954cb82422ff155aa5c436f7"
+  },
+  "policy": {
+    "budget_total_cap_rmb": "10",
+    "ai_video_ai_music_build_publish": "not_authorized",
+    "image_generation_authorization": "limited_to_real_unfillable_visuals_only",
+    "narration_voice_source": "provider_preset_voice_no_clone_no_in_field_change",
+    "bgm_source_constraint": "rights_verifiable_library_provider_or_local_authorized_only_block_on_gap",
+    "laptop_screen_visual_constraint": "no_readable_text_no_brand_no_notification_no_pii",
+    "human_face_constraint": "hands_shoulders_desktop_only_no_recognisable_face"
+  },
+  "needs": [
+    {
+      "need_id": "image_seg01_desktop_overhead",
+      "scope": {
+        "type": "segment",
+        "ref": "01"
+      },
+      "media_type": "image",
+      "role": "opening_overhead_still_of_evening_desk",
+      "intent": {
+        "description": "入夜桌面俯拍静帧：合上的笔电、半满水杯、散落纸笔、暖色台灯余光。",
+        "function": "establish scene boundary with transparent clock energy"
+      },
+      "duration_hint": {
+        "target_seconds": 4
+      },
+      "constraints": {
+        "preferred_visual_details": "low angle overhead, dim warm lamp spill, no readable screen",
+        "search_query_en": "overhead night desk laptop cup pen warm lamp",
+        "search_query_variants_en": {
+          "primary": "overhead night desk laptop cup pen warm lamp",
+          "alternate": "dim warm desk overhead close work items low saturation",
+          "relaxed": "still life desk lamp dim overhead low saturation evening"
+        },
+        "allow_generation": true,
+        "laptop_screen_rule": "closed or blank, no text, no brand, no notification, no PII"
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "01"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 3,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16"
+      }
+    },
+    {
+      "need_id": "image_seg02_cup_low_angle",
+      "scope": {
+        "type": "segment",
+        "ref": "02"
+      },
+      "media_type": "image",
+      "role": "low_angle_cup_water_level_still",
+      "intent": {
+        "description": "同桌面低机位：杯沿与水位特写，笔电屏幕微泛光，不出现文字、UI、通知。",
+        "function": "support first voice line about screen still lit and half cup left"
+      },
+      "duration_hint": {
+        "target_seconds": 4
+      },
+      "constraints": {
+        "preferred_visual_details": "low angle near water surface, soft screen glow on cup, no text",
+        "search_query_en": "low angle cup water surface laptop glow no text",
+        "search_query_variants_en": {
+          "primary": "cup rim low angle water level warm lamp",
+          "alternate": "glass cup half full table close low saturation",
+          "relaxed": "cup on desk low angle still life quiet"
+        },
+        "allow_generation": true,
+        "laptop_screen_rule": "screen may softly glow but no readable text, no UI, no brand, no notification, no PII"
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "02"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 3,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16"
+      }
+    },
+    {
+      "need_id": "image_seg03_breath_shoulders",
+      "scope": {
+        "type": "segment",
+        "ref": "03"
+      },
+      "media_type": "image",
+      "role": "mid_shot_breath_shoulders_and_table_only",
+      "intent": {
+        "description": "中近景：肩部轮廓可见的轻微吸气动作，只拍手、桌面、肩线，不出现可识别脸部。",
+        "function": "carry the breath beat with no narration"
+      },
+      "duration_hint": {
+        "target_seconds": 2
+      },
+      "constraints": {
+        "preferred_visual_details": "mid shot shoulders hands table only, no face, no frontal portrait",
+        "search_query_en": "mid shot shoulders hands table no face",
+        "search_query_variants_en": {
+          "primary": "person shoulders hands table mid shot low saturation",
+          "alternate": "anonymous hands shoulders desk quiet close up",
+          "relaxed": "soft shoulders desk close still life"
+        },
+        "allow_generation": true,
+        "human_face_rule": "no recognisable face, only shoulders and hands and desktop"
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "03"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16"
+      }
+    },
+    {
+      "need_id": "image_seg04_cup_at_sink",
+      "scope": {
+        "type": "segment",
+        "ref": "04"
+      },
+      "media_type": "image",
+      "role": "kitchen_sink_low_saturation_still",
+      "intent": {
+        "description": "厨房水池边：杯被轻轻放下，水池、龙头、墙面低饱和。",
+        "function": "support the cup to sink line and pair with cup touch SFX"
+      },
+      "duration_hint": {
+        "target_seconds": 4
+      },
+      "constraints": {
+        "preferred_visual_details": "kitchen sink low saturation, faucet and wall neutral, no person face",
+        "search_query_en": "kitchen sink cup placed low saturation",
+        "search_query_variants_en": {
+          "primary": "kitchen sink cup placed low saturation still",
+          "alternate": "cup near faucet neutral kitchen quiet close",
+          "relaxed": "kitchen sink still life dim low saturation"
+        },
+        "allow_generation": true,
+        "human_face_rule": "no recognisable face"
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "04"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 3,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16"
+      }
+    },
+    {
+      "need_id": "image_seg05_papers_stacked",
+      "scope": {
+        "type": "segment",
+        "ref": "05"
+      },
+      "media_type": "image",
+      "role": "desk_hands_stacking_papers",
+      "intent": {
+        "description": "回桌面：手把散纸对齐叠好，纸面只见笔道、不出现可读段落或个人信息。",
+        "function": "support the stacking papers line"
+      },
+      "duration_hint": {
+        "target_seconds": 4
+      },
+      "constraints": {
+        "preferred_visual_details": "desk overhead close, only pen strokes on paper, no readable paragraph, no PII",
+        "search_query_en": "hands stacking papers desk pen strokes",
+        "search_query_variants_en": {
+          "primary": "hands stacking papers overhead desk close",
+          "alternate": "paper stack aligning overhead desk low saturation",
+          "relaxed": "desk papers close still life quiet overhead"
+        },
+        "allow_generation": true,
+        "paper_rule": "only pen strokes visible, no readable paragraph, no PII"
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "05"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 3,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16"
+      }
+    },
+    {
+      "need_id": "image_seg06_chair_under_desk",
+      "scope": {
+        "type": "segment",
+        "ref": "06"
+      },
+      "media_type": "image",
+      "role": "chair_pushed_under_desk_action",
+      "intent": {
+        "description": "椅子被轻推进桌下的动作，椅腿触地。",
+        "function": "support the chair push back line and pair with chair touch SFX"
+      },
+      "duration_hint": {
+        "target_seconds": 4
+      },
+      "constraints": {
+        "preferred_visual_details": "desk low angle, chair slid under, no person face, low saturation",
+        "search_query_en": "chair pushed under desk low saturation",
+        "search_query_variants_en": {
+          "primary": "chair pushed under desk low angle low saturation",
+          "alternate": "desk chair legs over floor close low saturation",
+          "relaxed": "desk chair low angle still life quiet"
+        },
+        "allow_generation": true,
+        "human_face_rule": "no recognisable face"
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "06"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16"
+      }
+    },
+    {
+      "need_id": "image_seg07_lamp_on_blank_page",
+      "scope": {
+        "type": "segment",
+        "ref": "07"
+      },
+      "media_type": "image",
+      "role": "lamp_warm_and_hand_turning_blank_page",
+      "intent": {
+        "description": "台灯暖光加重；手翻到笔记本空白页，只看翻页动作与空白页，不出现写过字的页面。",
+        "function": "support the lamp on and turning blank page line, pair with paper SFX"
+      },
+      "duration_hint": {
+        "target_seconds": 4
+      },
+      "constraints": {
+        "preferred_visual_details": "warm desk lamp close, hand turning a blank page, no written page visible",
+        "search_query_en": "warm desk lamp hand turning blank page",
+        "search_query_variants_en": {
+          "primary": "warm desk lamp hand blank notebook page close",
+          "alternate": "warm lamp notebook blank page close low saturation",
+          "relaxed": "desk lamp close warm still life blank page"
+        },
+        "allow_generation": true,
+        "paper_rule": "only blank page visible, no written content, no PII"
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "07"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 3,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16"
+      }
+    },
+    {
+      "need_id": "image_seg08_desk_pan_down",
+      "scope": {
+        "type": "segment",
+        "ref": "08"
+      },
+      "media_type": "image",
+      "role": "wide_desk_settle_silence_still",
+      "intent": {
+        "description": "桌面全景轻微下摇，房间整体静下来，旁白留白。",
+        "function": "carry the silence beat and let the room slow down"
+      },
+      "duration_hint": {
+        "target_seconds": 4
+      },
+      "constraints": {
+        "preferred_visual_details": "wide desk calm, soft warm lamp, empty or near empty surface",
+        "search_query_en": "wide desk calm evening quiet empty surface",
+        "search_query_variants_en": {
+          "primary": "wide desk calm warm lamp empty surface quiet",
+          "alternate": "evening desk wide shot low saturation settled",
+          "relaxed": "desk wide still life low saturation evening"
+        },
+        "allow_generation": true
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "08"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16"
+      }
+    },
+    {
+      "need_id": "image_seg09_lamp_remainder",
+      "scope": {
+        "type": "segment",
+        "ref": "09"
+      },
+      "media_type": "image",
+      "role": "closing_desk_lamp_glow_remainder",
+      "intent": {
+        "description": "桌面留白，仅台灯一盏微光，底部一行小字幕走尾句并淡出。",
+        "function": "hold the closing image under the last subtitle line"
+      },
+      "duration_hint": {
+        "target_seconds": 6
+      },
+      "constraints": {
+        "preferred_visual_details": "desk rest with only one warm lamp glow, empty, calm",
+        "search_query_en": "desk one warm lamp glow empty quiet close",
+        "search_query_variants_en": {
+          "primary": "desk only one warm lamp glow empty quiet",
+          "alternate": "warm lamp on empty desk close low saturation",
+          "relaxed": "single lamp close quiet desk still life"
+        },
+        "allow_generation": true
+      },
+      "continuity_refs": [
+        {
+          "kind": "scene",
+          "ref": "09"
+        }
+      ],
+      "importance": "required",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16"
+      }
+    },
+    {
+      "need_id": "voice_full_narration",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "media_type": "audio",
+      "role": "mandarin_male_narration_voice",
+      "intent": {
+        "description": "普通话男声旁白全文，按 240 到 260 字每分钟节奏读出现有逐字脚本，并在 01 段尾、03 段、08 段、09 段前留出气口。",
+        "function": "carry the only narrator voice of the work"
+      },
+      "constraints": {
+        "voice_delivery": {
+          "pace_ratio": 0.95,
+          "pitch_semitones": 0,
+          "tone": "neutral"
+        },
+        "delivery_description": "post event in mind replay tone, calm and slightly slow, not evarration not lecter, not solemn",
+        "narration_speed_rule": "240 到 260 字每分钟",
+        "breath_positions": "01 段尾 3.5 到 4.0 秒 0.5 秒入口气口；03 段 8.0 到 10.0 秒 2 秒深呼吸独立段；08 段 26.0 到 30.0 秒 4 秒静默；09 段 30.0 到 36.0 秒尾句 5 到 6 秒落地，前 1 秒自然停顿。",
+        "tone_rule": "克制、平稳、稍慢，像事后在心里过一遍；不演播、不讲师、不悲壮；不喊口号、不落金句。"
+      },
+      "importance": "required",
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "voice",
+        "identity": {
+          "source": "explicit_user",
+          "reference": "preset mandarin male voice per Creator hard requirement, no clone, no in field change"
+        },
+        "delivery_description": "post event in mind replay tone, calm and slightly slow, not evarration not lecter, not solemn"
+      }
+    },
+    {
+      "need_id": "bgm_full_bed",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "media_type": "audio",
+      "role": "soft_instrumental_bgm_bed",
+      "intent": {
+        "description": "轻柔无歌词低饱和情绪曲，全程垫底，遇旁白处自动压低，不抢人声。",
+        "function": "carry the soft instrumented bed and duck under narration"
+      },
+      "constraints": {
+        "source_rule": "only rights verifiable Library, Provider, or local authorized sources; gap that cannot be closed stays blocked, no silent swap",
+        "vocals_rule": "no vocals"
+      },
+      "importance": "required",
+      "desired_options": 3,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "bgm",
+        "mood": "restrained low saturation everyday",
+        "genre": "ambient electronic or slow strings pad",
+        "instruments": [
+          "piano",
+          "soft pad"
+        ],
+        "vocals_allowed": false,
+        "energy": "low",
+        "tempo_bpm": [
+          60,
+          80
+        ]
+      }
+    },
+    {
+      "need_id": "sfx_seg04_cup_set_down",
+      "scope": {
+        "type": "event",
+        "ref": "04"
+      },
+      "media_type": "audio",
+      "role": "seg04_cup_set_down",
+      "intent": {
+        "description": "soft cup set down on kitchen counter near sink",
+        "function": "support the segment 04 action with a soft object touch"
+      },
+      "constraints": {
+        "intensity_rule": "below narration, no rhythmic beat, no decorative flourish"
+      },
+      "importance": "optional",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "sfx",
+        "event_description": "soft cup set down on kitchen counter near sink",
+        "sound_character": "soft ceramic touch on stone",
+        "intensity": "low",
+        "environment": "quiet kitchen low saturation"
+      }
+    },
+    {
+      "need_id": "sfx_seg06_chair_push",
+      "scope": {
+        "type": "event",
+        "ref": "06"
+      },
+      "media_type": "audio",
+      "role": "seg06_chair_push",
+      "intent": {
+        "description": "chair legs softly touch floor as chair pushed under desk",
+        "function": "support the segment 06 action with a soft object touch"
+      },
+      "constraints": {
+        "intensity_rule": "below narration, no rhythmic beat, no decorative flourish"
+      },
+      "importance": "optional",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "sfx",
+        "event_description": "chair legs softly touch floor as chair pushed under desk",
+        "sound_character": "soft wood on floor light friction",
+        "intensity": "low",
+        "environment": "quiet room low saturation"
+      }
+    },
+    {
+      "need_id": "sfx_seg07_page_turn",
+      "scope": {
+        "type": "event",
+        "ref": "07"
+      },
+      "media_type": "audio",
+      "role": "seg07_page_turn",
+      "intent": {
+        "description": "soft paper page turning on a desk under warm lamp",
+        "function": "support the segment 07 action with a soft object touch"
+      },
+      "constraints": {
+        "intensity_rule": "below narration, no rhythmic beat, no decorative flourish"
+      },
+      "importance": "optional",
+      "desired_options": 2,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "sfx",
+        "event_description": "soft paper page turning on a desk under warm lamp",
+        "sound_character": "soft paper rustle light tap",
+        "intensity": "low",
+        "environment": "quiet desk warm lamp"
+      }
+    }
+  ]
+}

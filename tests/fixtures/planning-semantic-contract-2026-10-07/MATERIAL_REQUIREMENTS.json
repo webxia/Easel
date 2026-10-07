@@ -1,0 +1,293 @@
+{
+  "image_seg01_desktop_overhead": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "入夜桌面俯拍静帧：合上的笔电、半满水杯、散落纸笔、暖色台灯余光。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "establish scene boundary with transparent clock energy",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "low angle overhead, dim warm lamp spill, no readable screen",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "constraints/laptop_screen_rule",
+        "text": "closed or blank, no text, no brand, no notification, no PII",
+        "kind": "required",
+        "preference_path": null
+      }
+    ],
+    "queries": [
+      "overhead night desk laptop cup pen warm lamp",
+      "dim warm desk overhead close work items low saturation",
+      "still life desk lamp dim overhead low saturation evening"
+    ]
+  },
+  "image_seg02_cup_low_angle": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "同桌面低机位：杯沿与水位特写，笔电屏幕微泛光，不出现文字、UI、通知。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "support first voice line about screen still lit and half cup left",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "low angle near water surface, soft screen glow on cup, no text",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "constraints/laptop_screen_rule",
+        "text": "screen may softly glow but no readable text, no UI, no brand, no notification, no PII",
+        "kind": "required",
+        "preference_path": null
+      }
+    ],
+    "queries": [
+      "cup rim low angle water level warm lamp",
+      "glass cup half full table close low saturation",
+      "cup on desk low angle still life quiet"
+    ]
+  },
+  "image_seg03_breath_shoulders": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "中近景：肩部轮廓可见的轻微吸气动作，只拍手、桌面、肩线，不出现可识别脸部。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "carry the breath beat with no narration",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "mid shot shoulders hands table only, no face, no frontal portrait",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "constraints/human_face_rule",
+        "text": "no recognisable face, only shoulders and hands and desktop",
+        "kind": "required",
+        "preference_path": null
+      }
+    ],
+    "queries": [
+      "person shoulders hands table mid shot low saturation",
+      "anonymous hands shoulders desk quiet close up",
+      "soft shoulders desk close still life"
+    ]
+  },
+  "image_seg04_cup_at_sink": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "厨房水池边：杯被轻轻放下，水池、龙头、墙面低饱和。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "support the cup to sink line and pair with cup touch SFX",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "kitchen sink low saturation, faucet and wall neutral, no person face",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "constraints/human_face_rule",
+        "text": "no recognisable face",
+        "kind": "required",
+        "preference_path": null
+      }
+    ],
+    "queries": [
+      "kitchen sink cup placed low saturation still",
+      "cup near faucet neutral kitchen quiet close",
+      "kitchen sink still life dim low saturation"
+    ]
+  },
+  "image_seg05_papers_stacked": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "回桌面：手把散纸对齐叠好，纸面只见笔道、不出现可读段落或个人信息。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "support the stacking papers line",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "desk overhead close, only pen strokes on paper, no readable paragraph, no PII",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "constraints/paper_rule",
+        "text": "only pen strokes visible, no readable paragraph, no PII",
+        "kind": "required",
+        "preference_path": null
+      }
+    ],
+    "queries": [
+      "hands stacking papers overhead desk close",
+      "paper stack aligning overhead desk low saturation",
+      "desk papers close still life quiet overhead"
+    ]
+  },
+  "image_seg06_chair_under_desk": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "椅子被轻推进桌下的动作，椅腿触地。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "support the chair push back line and pair with chair touch SFX",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "desk low angle, chair slid under, no person face, low saturation",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "constraints/human_face_rule",
+        "text": "no recognisable face",
+        "kind": "required",
+        "preference_path": null
+      }
+    ],
+    "queries": [
+      "chair pushed under desk low angle low saturation",
+      "desk chair legs over floor close low saturation",
+      "desk chair low angle still life quiet"
+    ]
+  },
+  "image_seg07_lamp_on_blank_page": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "台灯暖光加重；手翻到笔记本空白页，只看翻页动作与空白页，不出现写过字的页面。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "support the lamp on and turning blank page line, pair with paper SFX",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "warm desk lamp close, hand turning a blank page, no written page visible",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "constraints/paper_rule",
+        "text": "only blank page visible, no written content, no PII",
+        "kind": "required",
+        "preference_path": null
+      }
+    ],
+    "queries": [
+      "warm desk lamp hand blank notebook page close",
+      "warm lamp notebook blank page close low saturation",
+      "desk lamp close warm still life blank page"
+    ]
+  },
+  "image_seg08_desk_pan_down": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "桌面全景轻微下摇，房间整体静下来，旁白留白。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "carry the silence beat and let the room slow down",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "wide desk calm, soft warm lamp, empty or near empty surface",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      }
+    ],
+    "queries": [
+      "wide desk calm warm lamp empty surface quiet",
+      "evening desk wide shot low saturation settled",
+      "desk wide still life low saturation evening"
+    ]
+  },
+  "image_seg09_lamp_remainder": {
+    "clauses": [
+      {
+        "path": "intent/description",
+        "text": "桌面留白，仅台灯一盏微光，底部一行小字幕走尾句并淡出。",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "intent/function",
+        "text": "hold the closing image under the last subtitle line",
+        "kind": "required",
+        "preference_path": null
+      },
+      {
+        "path": "constraints/preferred_visual_details",
+        "text": "desk rest with only one warm lamp glow, empty, calm",
+        "kind": "preference",
+        "preference_path": "constraints/preferred_visual_details"
+      },
+      {
+        "path": "constraints/subtitle_overlay_only",
+        "text": "true, no readable image content, no brand, no PII",
+        "kind": "required",
+        "preference_path": null
+      }
+    ],
+    "queries": [
+      "desk only one warm lamp glow empty quiet",
+      "warm lamp on empty desk close low saturation",
+      "single lamp close quiet desk still life"
+    ]
+  }
+}

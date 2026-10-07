@@ -2846,7 +2846,7 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
     reports = {}
     for item in inputs:
         need = MaterialNeed.model_validate_json(json.dumps(item['need']))
-        if attempt.get('planning_contract_version') == 2 and need not in plan.needs:
+        if attempt.get('planning_contract_version') in {2,3} and need not in plan.needs:
             raise PreparationError('观察Need不属于当前冻结Planning')
         asset = store.read_asset(item['asset_id'])
         path = store.materials_root / 'observations' / (item['input_sha256'] + '.json')
@@ -3112,6 +3112,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
         if canonical:
             _restore_confirmed_planning(planning_dir, canonical,
                 frozen=attempt.get('material_planning', {}).get('status') == 'PLANNING_READY')
+    if attempt.get('planning_contract_version') == 3:
+        return _semantic_material_planning_executor(attempt, planning_context, canonical, restore_confirmed)
     # The current Domain owns every nested field. A prose subset left video
     # planning to guess duration_seconds and failed both initial and repair turns.
     from easel.materials.application.visual_contract import PlanningRequirements
@@ -3381,15 +3383,16 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
     commission = planning_owner.get('delivery') or {}
     prior_calls = [call for call in commission.get('agent_calls', {}).values()
                    if call.get('session_key') == f'agent:main:{session_id}']
-    if any(call.get('status') in {'submitting', 'pending'} for call in prior_calls):
+    if any(call.get('status') in {'submitting', 'pending'} or call.get('runtime_release')=='pending' for call in prior_calls):
         from easel.integrations.openclaw_delivery import reconcile_agent_calls, DeliveryAgentPending
-        profiles = {call.get('profile') for call in prior_calls if call.get('status') in {'submitting', 'pending'}}
+        profiles = {call.get('profile') for call in prior_calls
+                    if call.get('status') in {'submitting', 'pending'} or call.get('runtime_release')=='pending'}
         if len(profiles) != 1 or not next(iter(profiles)):
             raise DeliveryExecutionUncertain('旧Planning原route尚未核实，不重新派发')
         reconcile_agent_calls(attempt['creation_id'], command_prefix=openclaw_base_cmd(), profile=next(iter(profiles)),
                               cwd=str(PROJECT_ROOT), env=_proxy_env())
         refreshed = get_creation(attempt['creation_id'])['delivery'].get('agent_calls', {})
-        if any(call.get('status') in {'submitting', 'pending'} for call in refreshed.values()):
+        if any(call.get('status') in {'submitting', 'pending'} or call.get('runtime_release')=='pending' for call in refreshed.values()):
             raise DeliveryAgentPending('旧Planning原运行仍未结束')
         prior_calls = [c for c in refreshed.values() if c.get('session_key') == f'agent:main:{session_id}']
     if repair_record is not None and repair_record['route'] != route:
@@ -3521,6 +3524,49 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
             )
             _run_timed_creation_agent("truth_repair", attempt['attempt_id'], message, TIMEOUT_PRODUCE, session_id)
             result = validate_artifacts()
+    return result
+
+
+# Preparation chooses v3 for new product work; legacy ready/pending versions
+# are selected from their authoritative persisted marker, never this default.
+_material_planning_executor.planning_contract_version = 3
+
+
+def _semantic_material_planning_executor(attempt, planning_context, canonical, restore_confirmed):
+    from easel.integrations.semantic_planning import run_semantic_planning, SemanticPlanningError
+    from easel.integrations.hypit.handoff import load_frozen_creative_mode
+    if not canonical:
+        raise PreparationError('Planning v3需要已确认正文/场景；不猜测或重写确认稿')
+    restore_confirmed()
+    work = get_creation(attempt['creation_id'])
+    calls = [call for call in (work.get('delivery') or {}).get('agent_calls',{}).values()
+             if str(call.get('session_key','')).startswith('agent:main:semantic-' + attempt['attempt_id'])
+             and (call.get('status') in {'submitting','pending'} or call.get('runtime_release') == 'pending')]
+    if calls:
+        from easel.integrations.openclaw_delivery import reconcile_agent_calls
+        profiles = {call.get('profile') for call in calls}
+        if len(profiles)!=1 or not next(iter(profiles)):
+            raise DeliveryExecutionUncertain('Planning v3原执行route不明确')
+        reconcile_agent_calls(attempt['creation_id'], command_prefix=openclaw_base_cmd(),
+            profile=next(iter(profiles)), cwd=str(PROJECT_ROOT), env=_proxy_env())
+        refreshed = (get_creation(attempt['creation_id']).get('delivery') or {}).get('agent_calls',{})
+        if any(c.get('status') in {'pending','submitting'} or c.get('runtime_release')=='pending'
+               for c in refreshed.values()):
+            raise DeliveryExecutionUncertain('Planning v3原执行尚未核实')
+    route = {'profile':OPENCLAW_PROFILE,'thinking':THINKING_LEVEL,'timeout':TIMEOUT_PRODUCE}
+    def dispatch(stage, message, session):
+        return _run_timed_creation_agent(stage, attempt['attempt_id'], message, TIMEOUT_PRODUCE,
+                                         session, retry_failed=False)
+    try:
+        result = run_semantic_planning(attempt, planning_context, canonical,
+                                      load_frozen_creative_mode(attempt)[0], route, dispatch)
+    except (ValueError, OSError) as exc:
+        raise PreparationError('Planning v3合同无效：' + str(exc)) from exc
+    if is_managed(get_creation(attempt['creation_id'])):
+        assessment = _assess_planning_script(attempt, result['script'])
+        result['script_assessment'] = assessment
+        if any(item['kind']=='rewrite_required' for item in (assessment or {}).get('decisions',[])):
+            raise PreparationError('已确认文案存在待核实事实，请回到方案讨论处理；系统不会擅自改写')
     return result
 
 

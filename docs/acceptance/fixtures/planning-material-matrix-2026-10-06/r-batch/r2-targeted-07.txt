@@ -1,0 +1,31 @@
+.................................FF...........                           [100%]
+=================================== FAILURES ===================================
+_ test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding _
+easel/integrations/semantic_planning.py:413: in run_semantic_planning
+    plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
+easel/integrations/semantic_planning.py:157: in compile_draft
+    raise SemanticPlanningError('A', issues)
+E   easel.integrations.semantic_planning.SemanticPlanningError: {"stage": "A", "issues": [{"field": "needs.2", "code": "contract_invalid", "message": "1 validation error for MaterialNeed\n  Value error, SFX Need must use event scope [type=value_error, input_value={'scope': {'type': 'globa..., 'media_type': 'audio'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"}]}
+
+During handling of the above exception, another exception occurred:
+tests/test_semantic_planning.py:276: in test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding
+    result=rt['run'](dispatch);plan=result['plan']
+           ^^^^^^^^^^^^^^^^^^^
+tests/test_semantic_planning.py:156: in run
+    def run(dispatch=None):return run_semantic_planning(attempt,context,canonical,mode,
+easel/integrations/semantic_planning.py:420: in run_semantic_planning
+    plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
+easel/integrations/semantic_planning.py:157: in compile_draft
+    raise SemanticPlanningError('A', issues)
+E   easel.integrations.semantic_planning.SemanticPlanningError: {"stage": "A", "issues": [{"field": "needs.2", "code": "contract_invalid", "message": "1 validation error for MaterialNeed\n  Value error, SFX Need must use event scope [type=value_error, input_value={'scope': {'type': 'globa..., 'media_type': 'audio'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"}]}
+_ test_native_classifier_tamper_freezes_failure_and_partial_outputs_never_commit _
+tests/test_semantic_planning.py:302: in test_native_classifier_tamper_freezes_failure_and_partial_outputs_never_commit
+    with pytest.raises(SemanticPlanningError,match='原执行已失败'):rt['run'](dispatch)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: '原执行已失败'
+E     Actual message: '{"stage": "A", "issues": [{"field": "snapshot", "code": "contract_invalid", "message": "有效语义草稿原件变化，不能恢复或覆盖"}]}'
+=========================== short test summary info ============================
+FAILED tests/test_semantic_planning.py::test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding
+FAILED tests/test_semantic_planning.py::test_native_classifier_tamper_freezes_failure_and_partial_outputs_never_commit
+2 failed, 44 passed in 1.97s

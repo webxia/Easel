@@ -1,0 +1,900 @@
+diff --git a/easel/creation_preparation.py b/easel/creation_preparation.py
+index 79e9381e..638c648a 100644
+--- a/easel/creation_preparation.py
++++ b/easel/creation_preparation.py
+@@ -725,18 +725,27 @@ def _prepare_creation_for_hypit_locked(
+                 },
+             }
+             version = attempt.get('planning_contract_version')
+-            if version not in {None, 2}: raise MaterialIntegrationError('Planning合同版本冲突')
+-            pending = any(call.get('status') in {'submitting', 'pending'}
+-                          for call in (work.get('delivery') or {}).get('agent_calls', {}).values()
+-                          if call.get('session_key') == 'agent:main:material-planning-' + attempt['attempt_id'])
+-            if version is None and not pending:
++            if version not in {None, 2, 3}: raise MaterialIntegrationError('Planning合同版本冲突')
++            legacy_calls = [call for call in (work.get('delivery') or {}).get('agent_calls', {}).values()
++                            if call.get('session_key') == 'agent:main:material-planning-' + attempt['attempt_id']]
++            pending = any(call.get('status') in {'submitting','pending'} or call.get('runtime_release')=='pending'
++                          for call in legacy_calls)
++            legacy_root = Path(attempt['workspace']['path'])
++            legacy_evidence = (legacy_calls or any((legacy_root/'planning'/name).exists()
++                for name in ('MATERIAL_PLAN.json','MATERIAL_REQUIREMENTS.json'))
++                or list((legacy_root/'materials/recoveries').glob('planning-structure-repair-*.json')))
++            if version is None and not legacy_evidence:
++                requested_version = getattr(planning_executor, 'planning_contract_version', 2)
++                if requested_version == 3 and ((work.get('delivery') or {}).get('video_plan') or {}).get('schema') != 'easel-video-proposal@2':
++                    # A frozen legacy confirmation stays on its original writer.
++                    requested_version = 2
+                 attempt = service.update_film_attempt(attempt['attempt_id'], event='planning_contract_registered',
+-                                                      planning_contract_version=2)
++                                                      planning_contract_version=requested_version)
+             planning = planning_executor(attempt, planning_context)
+             # The product executor reconciles a legacy writer before registering
+             # v2. Never advance a custom executor that left its original run unknown.
+             attempt = service.get_film_attempt(attempt['attempt_id'])
+-            if pending and attempt.get('planning_contract_version') != 2:
++            if pending and attempt.get('planning_contract_version') not in {2,3}:
+                 raise MaterialIntegrationError('旧Planning原请求尚未核实，不能推进素材')
+         active_stage = "material"
+         _update_preparation(creation_id, active_stage=active_stage)
+diff --git a/easel/integrations/hypit/service.py b/easel/integrations/hypit/service.py
+index 79fa93b5..7bf3c653 100644
+--- a/easel/integrations/hypit/service.py
++++ b/easel/integrations/hypit/service.py
+@@ -705,7 +705,7 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
+             "attempt_id": target["attempt_id"],
+         })
+         requirements_source = None
+-        if source.get('planning_contract_version') == 2:
++        if source.get('planning_contract_version') in {2,3}:
+             # The source was fully validated above. Preserve its sidecar and
+             # default provenance, but bind this new checkpoint to its own v2 SHA.
+             requirements_source = {**planning['requirements'], 'origin':
+@@ -715,7 +715,14 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
+             copied = target_root / 'planning/MATERIAL_REQUIREMENTS.json'
+             if hashlib.sha256(copied.read_bytes()).hexdigest() != requirements_source['sha256']:
+                 raise HypitIntegrationError('Planning要求复制期间与源冻结摘要发生变化')
+-            target = update_film_attempt(target['attempt_id'], event='planning_contract_copied', planning_contract_version=2)
++            if source.get('planning_contract_version') == 3:
++                for name in ('SEMANTIC_PLAN.json', 'SEMANTIC_CHECKPOINT.json'):
++                    _copy_retry_checkpoint_file(source_root, target_root, Path('planning') / name)
++                checkpoint = target_root / 'planning/SEMANTIC_CHECKPOINT.json'
++                if hashlib.sha256(checkpoint.read_bytes()).hexdigest() != planning['semantic']['sha256']:
++                    raise HypitIntegrationError('语义快照复制期间变化')
++            target = update_film_attempt(target['attempt_id'], event='planning_contract_copied',
++                                         planning_contract_version=source['planning_contract_version'])
+         persisted = PlanningIntegration().persist(
+             target, new_plan, treatment=planning["treatment"],
+             script=planning["script"], scenes=planning["scenes"],
+diff --git a/easel/integrations/material_layer.py b/easel/integrations/material_layer.py
+index 7185cafa..91bf3420 100644
+--- a/easel/integrations/material_layer.py
++++ b/easel/integrations/material_layer.py
+@@ -309,48 +309,21 @@ class PlanningIntegration:
+         voice_delivery = mode.get("voice_delivery")
+         if (style or voice_delivery) and plan.context_refs.get("creative_mode_sha256") != mode_hash:
+             raise MaterialIntegrationError("Planning 风格来源与冻结 Creative Mode 不一致")
+-        bound_needs = []
+-        for need in plan.needs:
+-            spec = need.modality_spec
+-            scene_style = getattr(spec, 'visual_style', None) or style
+-            if (scene_style and need.media_type in {MediaType.IMAGE, MediaType.VIDEO}
+-                    and not need.constraints.get("preferred_style")):
+-                # A soft default on existing Need semantics; no subject,
+-                # narrative, source restriction or readiness rule is invented.
+-                need = need.model_copy(update={"constraints": {**need.constraints, "preferred_style": scene_style}})
+-            if getattr(spec, "kind", None) == "voice":
+-                from easel.materials.application.voice_delivery import validate_voice_delivery
+-                controls = need.constraints.get("voice_delivery", {})
+-                if not isinstance(controls, dict):
+-                    raise MaterialIntegrationError("Voice Need 的 voice_delivery 必须为参数对象")
+-                if voice_delivery or controls:
+-                    controls = validate_voice_delivery({**(voice_delivery or {}), **controls})
+-                    need = need.model_copy(update={"constraints": {**need.constraints, "voice_delivery": controls}})
+-            if (need.importance is NeedImportance.REQUIRED and need.media_type is MediaType.AUDIO
+-                    and getattr(spec, "kind", None) == "voice"):
+-                if spec.identity is None or spec.text_ref not in {None, "planning/SCRIPT.md"}:
+-                    raise MaterialIntegrationError(
+-                        "Required Voice Need must declare provider-neutral identity and reference the frozen SCRIPT"
+-                    )
+-                spec = spec.model_copy(update={
+-                    "text_ref": "planning/SCRIPT.md", "text_sha256": script_digest,
+-                })
+-                need = need.model_copy(update={"modality_spec": spec})
+-            bound_needs.append(need)
+-        plan = plan.model_copy(update={"needs": tuple(bound_needs)})
+-        # Contracts refer to the representation read back from the canonical
+-        # Plan file, including its stable JSON object order.
+-        plan = MaterialPlan.model_validate_json(plan.to_json())
++        from easel.integrations.semantic_planning import apply_defaults
++        try:
++            plan = apply_defaults(plan, mode, script)
++        except ValueError as exc:
++            raise MaterialIntegrationError(str(exc)) from exc
+         root = _workspace(attempt)
+         product = bool(work.get('preparation', {}).get('snapshot_hashes')) or (
+             (work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@2')
+         version = attempt.get('planning_contract_version')
+-        if product and version != 2:
+-            raise MaterialIntegrationError('新产品Planning缺少程序登记的v2合同；已完成旧记录只能load恢复')
+-        if version not in {None, 2}:
++        if product and version not in {2, 3}:
++            raise MaterialIntegrationError('新产品Planning缺少程序登记的合同；已完成旧记录只能load恢复')
++        if version not in {None, 2, 3}:
+             raise MaterialIntegrationError('Planning合同版本不支持，不能降级')
+         requirements, records, requirements_raw = None, {}, None
+-        if version == 2:
++        if version in {2, 3}:
+             from easel.integrations.planning_contract import requirements_bytes, bind_requirements
+             try:
+                 requirements_raw = requirements_bytes(root)
+@@ -364,6 +337,14 @@ class PlanningIntegration:
+                     requirements_source.get('origin') if requirements_source else None)
+             except (OSError, ValueError, TypeError) as exc:
+                 raise MaterialIntegrationError('Planning要求合同无效：' + str(exc)) from exc
++        semantic = None
++        if version == 3:
++            from easel.integrations.semantic_planning import verify_semantic_checkpoint
++            try:
++                semantic = verify_semantic_checkpoint(root, plan, mode, script,
++                    requirements_source.get('origin') if requirements_source else None)
++            except (OSError, ValueError, TypeError, KeyError) as exc:
++                raise MaterialIntegrationError('Planning语义编译完整性无效：' + str(exc)) from exc
+         truth_path = root / "handoff" / "truth-packet.json"
+         try:
+             review = create_script_claim_ledger(script, truth_path)
+@@ -396,7 +377,7 @@ class PlanningIntegration:
+         }
+         plan_revision = MaterialReadinessCalculator.plan_revision(plan)
+         manifest = {
+-            "schema": "easel-material-planning@2" if version == 2 else "easel-material-planning@1",
++            "schema": f"easel-material-planning@{version or 1}",
+             "status": "PLANNING_READY",
+             "plan_id": plan.plan_id,
+             "plan_revision": plan_revision,
+@@ -409,11 +390,12 @@ class PlanningIntegration:
+                 for key, path in artifact_paths.items()
+             },
+         }
+-        if version == 2:
++        if version in {2, 3}:
+             from easel.integrations.planning_contract import requirements_bytes
+             if requirements_bytes(root) != requirements_raw:
+                 raise MaterialIntegrationError('Planning要求文件在冻结期间变化')
+             manifest['requirements'] = requirements
++            if semantic is not None: manifest['semantic'] = semantic
+             for key, record in records.items(): store.write_recovery_record(key, record)
+         manifest_path = root / "planning" / "manifest.json"
+         if _has_symlink_components(root, manifest_path):
+@@ -424,8 +406,8 @@ class PlanningIntegration:
+             attempt,
+             material_planning={
+                 "status": "PLANNING_READY",
+-                **({'contract_version': 2, 'manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest()}
+-                   if version == 2 else {}),
++                **({'contract_version': version, 'manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest()}
++                   if version in {2, 3} else {}),
+                 "output_decision": output_decision(
+                     'material', 'ACCEPT', 'validated_planning', policy_revision=manifest['schema']),
+                 "plan_id": plan.plan_id,
+@@ -470,11 +452,13 @@ class PlanningIntegration:
+                               if item.get('attempt_id') == plan.attempt_id), {})
+         current_contract = ((owner.get('delivery') or {}).get('video_plan') or {}).get('schema') == 'easel-video-proposal@2'
+         v2 = (attempt.get('planning_contract_version') is not None or stored.get('contract_version') is not None
+-              or schema == 'easel-material-planning@2' or 'requirements' in manifest
++              or schema in {'easel-material-planning@2', 'easel-material-planning@3'} or 'requirements' in manifest
+               or current_contract or owner_attempt.get('planning_contract_version') is not None)
+         if v2:
+-            if (attempt.get('planning_contract_version') != 2 or stored.get('contract_version') != 2
+-                    or schema != 'easel-material-planning@2'
++            version = attempt.get('planning_contract_version')
++            if (version not in {2,3} or stored.get('contract_version') != version
++                    or owner_attempt.get('planning_contract_version',version) != version
++                    or schema != f'easel-material-planning@{version}'
+                     or stored.get('manifest_sha256') != hashlib.sha256(manifest_path.read_bytes()).hexdigest()):
+                 raise MaterialIntegrationError('Planning v2版本或manifest摘要不一致，不能降级')
+         elif (schema != 'easel-material-planning@1' or stored.get('status') != 'PLANNING_READY'
+@@ -513,11 +497,18 @@ class PlanningIntegration:
+             from easel.integrations.hypit.handoff import load_frozen_creative_mode
+             from easel.integrations.planning_contract import verify_requirements
+             try:
+-                verify_requirements(attempt, plan, manifest, load_frozen_creative_mode(attempt)[0])
+-            except (OSError, ValueError, TypeError) as exc:
++                mode = load_frozen_creative_mode(attempt)[0]
++                verify_requirements(attempt, plan, manifest, mode)
++                if version == 3:
++                    from easel.integrations.semantic_planning import verify_semantic_checkpoint
++                    actual = verify_semantic_checkpoint(root, plan, mode, artifacts['script'],
++                        manifest.get('semantic',{}).get('origin'))
++                    if actual != manifest.get('semantic'):
++                        raise ValueError('语义编译冻结摘要不一致')
++            except (OSError, ValueError, TypeError, KeyError) as exc:
+                 raise MaterialIntegrationError('Planning要求合同完整性无效：' + str(exc)) from exc
+         return {"plan": plan, **artifacts, "context_refs": plan.context_refs,
+-                "truth_ledger": ledger, "attempt": attempt, 'requirements': manifest.get('requirements')}
++                "truth_ledger": ledger, "attempt": attempt, 'requirements': manifest.get('requirements'), 'semantic': manifest.get('semantic')}
+ 
+     def review_script(
+         self,
+diff --git a/web/app.py b/web/app.py
+index e804d384..bfcfde47 100644
+--- a/web/app.py
++++ b/web/app.py
+@@ -2846,7 +2846,7 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
+     reports = {}
+     for item in inputs:
+         need = MaterialNeed.model_validate_json(json.dumps(item['need']))
+-        if attempt.get('planning_contract_version') == 2 and need not in plan.needs:
++        if attempt.get('planning_contract_version') in {2,3} and need not in plan.needs:
+             raise PreparationError('观察Need不属于当前冻结Planning')
+         asset = store.read_asset(item['asset_id'])
+         path = store.materials_root / 'observations' / (item['input_sha256'] + '.json')
+@@ -3112,6 +3112,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+         if canonical:
+             _restore_confirmed_planning(planning_dir, canonical,
+                 frozen=attempt.get('material_planning', {}).get('status') == 'PLANNING_READY')
++    if attempt.get('planning_contract_version') == 3:
++        return _semantic_material_planning_executor(attempt, planning_context, canonical, restore_confirmed)
+     # The current Domain owns every nested field. A prose subset left video
+     # planning to guess duration_seconds and failed both initial and repair turns.
+     from easel.materials.application.visual_contract import PlanningRequirements
+@@ -3381,15 +3383,16 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+     commission = planning_owner.get('delivery') or {}
+     prior_calls = [call for call in commission.get('agent_calls', {}).values()
+                    if call.get('session_key') == f'agent:main:{session_id}']
+-    if any(call.get('status') in {'submitting', 'pending'} for call in prior_calls):
++    if any(call.get('status') in {'submitting', 'pending'} or call.get('runtime_release')=='pending' for call in prior_calls):
+         from easel.integrations.openclaw_delivery import reconcile_agent_calls, DeliveryAgentPending
+-        profiles = {call.get('profile') for call in prior_calls if call.get('status') in {'submitting', 'pending'}}
++        profiles = {call.get('profile') for call in prior_calls
++                    if call.get('status') in {'submitting', 'pending'} or call.get('runtime_release')=='pending'}
+         if len(profiles) != 1 or not next(iter(profiles)):
+             raise DeliveryExecutionUncertain('旧Planning原route尚未核实，不重新派发')
+         reconcile_agent_calls(attempt['creation_id'], command_prefix=openclaw_base_cmd(), profile=next(iter(profiles)),
+                               cwd=str(PROJECT_ROOT), env=_proxy_env())
+         refreshed = get_creation(attempt['creation_id'])['delivery'].get('agent_calls', {})
+-        if any(call.get('status') in {'submitting', 'pending'} for call in refreshed.values()):
++        if any(call.get('status') in {'submitting', 'pending'} or call.get('runtime_release')=='pending' for call in refreshed.values()):
+             raise DeliveryAgentPending('旧Planning原运行仍未结束')
+         prior_calls = [c for c in refreshed.values() if c.get('session_key') == f'agent:main:{session_id}']
+     if repair_record is not None and repair_record['route'] != route:
+@@ -3524,6 +3527,49 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
+     return result
+ 
+ 
++# Preparation chooses v3 for new product work; legacy ready/pending versions
++# are selected from their authoritative persisted marker, never this default.
++_material_planning_executor.planning_contract_version = 3
++
++
++def _semantic_material_planning_executor(attempt, planning_context, canonical, restore_confirmed):
++    from easel.integrations.semantic_planning import run_semantic_planning, SemanticPlanningError
++    from easel.integrations.hypit.handoff import load_frozen_creative_mode
++    if not canonical:
++        raise PreparationError('Planning v3需要已确认正文/场景；不猜测或重写确认稿')
++    restore_confirmed()
++    work = get_creation(attempt['creation_id'])
++    calls = [call for call in (work.get('delivery') or {}).get('agent_calls',{}).values()
++             if str(call.get('session_key','')).startswith('agent:main:semantic-' + attempt['attempt_id'])
++             and (call.get('status') in {'submitting','pending'} or call.get('runtime_release') == 'pending')]
++    if calls:
++        from easel.integrations.openclaw_delivery import reconcile_agent_calls
++        profiles = {call.get('profile') for call in calls}
++        if len(profiles)!=1 or not next(iter(profiles)):
++            raise DeliveryExecutionUncertain('Planning v3原执行route不明确')
++        reconcile_agent_calls(attempt['creation_id'], command_prefix=openclaw_base_cmd(),
++            profile=next(iter(profiles)), cwd=str(PROJECT_ROOT), env=_proxy_env())
++        refreshed = (get_creation(attempt['creation_id']).get('delivery') or {}).get('agent_calls',{})
++        if any(c.get('status') in {'pending','submitting'} or c.get('runtime_release')=='pending'
++               for c in refreshed.values()):
++            raise DeliveryExecutionUncertain('Planning v3原执行尚未核实')
++    route = {'profile':OPENCLAW_PROFILE,'thinking':THINKING_LEVEL,'timeout':TIMEOUT_PRODUCE}
++    def dispatch(stage, message, session):
++        return _run_timed_creation_agent(stage, attempt['attempt_id'], message, TIMEOUT_PRODUCE,
++                                         session, retry_failed=False)
++    try:
++        result = run_semantic_planning(attempt, planning_context, canonical,
++                                      load_frozen_creative_mode(attempt)[0], route, dispatch)
++    except (ValueError, OSError) as exc:
++        raise PreparationError('Planning v3合同无效：' + str(exc)) from exc
++    if is_managed(get_creation(attempt['creation_id'])):
++        assessment = _assess_planning_script(attempt, result['script'])
++        result['script_assessment'] = assessment
++        if any(item['kind']=='rewrite_required' for item in (assessment or {}).get('decisions',[])):
++            raise PreparationError('已确认文案存在待核实事实，请回到方案讨论处理；系统不会擅自改写')
++    return result
++
++
+ async def _run_film_authoring(attempt_id: str) -> dict:
+     """Dispatch one durable no-media Authoring job through the existing Agent."""
+     before = get_film_attempt(attempt_id)
+diff --git a/easel/integrations/semantic_planning.py b/easel/integrations/semantic_planning.py
+new file mode 100644
+index 00000000..cba28a44
+--- /dev/null
++++ b/easel/integrations/semantic_planning.py
+@@ -0,0 +1,584 @@
++"""Product Planning v3: one semantic draft, program-owned identity and references.
++
++Pure compilation and durable application orchestration. Material Domain and its
++admission rules remain authoritative; model labels never authorize progression.
++"""
++from __future__ import annotations
++import hashlib
++import json
++import os
++from pathlib import Path
++from typing import Annotated, Any, Literal, get_args
++from pydantic import BaseModel, ConfigDict, Field, ValidationError
++from easel.materials.domain import (
++    MaterialPlan, MaterialNeed, MediaType, NeedImportance, NeedScope, NeedIntent,
++    DurationHint, ImageNeedSpec, VideoNeedSpec, BgmNeedSpec, SfxNeedSpec,
++    VoiceNeedSpec, VoiceIdentityRef, ContinuityRef,
++)
++from easel.materials.application.visual_contract import (
++    digest, sources_for, classification_units, compilation_input, bind_classifications,
++    validate_compilation, read_planning_requirements,
++)
++from easel.materials.application.query_hints import query_hints, QUERY_FIELDS
++from easel.materials.application.need_constraints import validate_modality_constraints
++from easel.materials.application.compiler import NeedCompiler
++from easel.materials.application.voice_delivery import validate_voice_delivery
++from easel.integrations.hypit.secrets import SecretRedactor
++
++POLICY = 'semantic-planning-compiler@1'
++MAX_FILE_BYTES = 256 * 1024
++MAX_BATCH_UNITS = 40
++
++
++class SemanticVoiceSpec(BaseModel):
++    model_config = ConfigDict(extra='forbid')
++    kind: Literal['voice'] = 'voice'
++    identity: VoiceIdentityRef
++    delivery_description: str | None = None
++
++
++class SemanticNeed(BaseModel):
++    model_config = ConfigDict(extra='forbid')
++    scope: NeedScope
++    role: str = Field(min_length=1)
++    intent: NeedIntent
++    importance: NeedImportance
++    duration_hint: DurationHint | None = None
++    desired_options: int = Field(default=1, ge=1)
++    continuity_refs: tuple[ContinuityRef, ...] = ()
++    constraints: dict[str, Any] = Field(default_factory=dict)
++    queries: list[str] = Field(default_factory=list)
++    modality_spec: Annotated[ImageNeedSpec | VideoNeedSpec | SemanticVoiceSpec | BgmNeedSpec | SfxNeedSpec,
++                             Field(discriminator='kind')]
++
++
++class SemanticPlanningDraft(BaseModel):
++    model_config = ConfigDict(extra='forbid')
++    schema_: Literal['semantic-planning-draft@1'] = Field(alias='schema')
++    policy: dict[str, str] = Field(default_factory=lambda: {'strategy': 'bulk_first'})
++    needs: tuple[SemanticNeed, ...] = Field(min_length=1)
++
++
++class SemanticPlanningError(ValueError):
++    def __init__(self, stage, issues):
++        self.stage = stage
++        self.issues = issues
++        super().__init__(json.dumps({'stage': stage, 'issues': issues}, ensure_ascii=False))
++
++
++def problem(field, message, code='contract_invalid'):
++    return {'field': field, 'code': code, 'message': SecretRedactor.redact_text(message)}
++
++
++def parse_draft(value):
++    try:
++        if isinstance(value, (str, bytes)):
++            value = read_planning_requirements(value.decode('utf-8') if isinstance(value, bytes) else value)
++        return SemanticPlanningDraft.model_validate_json(json.dumps(value, ensure_ascii=False))
++    except ValidationError as exc:
++        raise SemanticPlanningError('A', [problem('.'.join(map(str, e['loc'])), e['msg'], e['type'])
++                                          for e in exc.errors(include_input=False, include_context=False)]) from exc
++    except (ValueError, UnicodeError) as exc:
++        raise SemanticPlanningError('A', [problem('$', str(exc), 'json_invalid')]) from exc
++
++
++def apply_defaults(plan, mode, script):
++    """The existing soft Mode/Voice binding, shared with formal persistence."""
++    bound = []
++    for need in plan.needs:
++        spec = need.modality_spec
++        style = getattr(spec, 'visual_style', None) or mode.get('visual_material_style')
++        if style and need.media_type in {MediaType.IMAGE, MediaType.VIDEO} and not need.constraints.get('preferred_style'):
++            need = need.model_copy(update={'constraints': {**need.constraints, 'preferred_style': style}})
++        if getattr(spec, 'kind', None) == 'voice':
++            controls = need.constraints.get('voice_delivery', {})
++            if not isinstance(controls, dict):
++                raise ValueError('Voice Need的voice_delivery必须为参数对象')
++            defaults = mode.get('voice_delivery') or {}
++            if defaults or controls:
++                controls = validate_voice_delivery({**defaults, **controls})
++                need = need.model_copy(update={'constraints': {**need.constraints, 'voice_delivery': controls}})
++            if need.importance is NeedImportance.REQUIRED:
++                if spec.identity is None or spec.text_ref not in {None, 'planning/SCRIPT.md'}:
++                    raise ValueError('Required Voice Need must declare provider-neutral identity and reference the frozen SCRIPT')
++                spec = spec.model_copy(update={'text_ref': 'planning/SCRIPT.md',
++                                               'text_sha256': hashlib.sha256(script.encode()).hexdigest()})
++                need = need.model_copy(update={'modality_spec': spec})
++        bound.append(need)
++    return MaterialPlan.model_validate_json(plan.model_copy(update={'needs': tuple(bound)}).to_json())
++
++
++def compile_draft(value, *, creation_id, attempt_id, refs, mode, script, allowed_refs=None):
++    draft = parse_draft(value)
++    identity = digest({'policy': POLICY, 'draft': draft.model_dump(mode='json', by_alias=True),
++                       'creation_id': creation_id, 'attempt_id': attempt_id, 'refs': refs,
++                       'mode': mode, 'script_sha256': hashlib.sha256(script.encode()).hexdigest()})
++    needs, issues = [], []
++    for index, item in enumerate(draft.needs):
++        prefix = f'needs.{index}'
++        try:
++            if allowed_refs is not None and item.scope.ref not in allowed_refs.get(item.scope.type.value, set()):
++                raise ValueError('scope.ref不存在于冻结来源；允许集合：' + repr(sorted(allowed_refs.get(item.scope.type.value, set()))))
++            if item.continuity_refs and allowed_refs is not None:
++                for ref in item.continuity_refs:
++                    if ref.ref not in allowed_refs.get('continuity', set()):
++                        raise ValueError('continuity引用不存在于冻结来源')
++            if item.modality_spec.kind == 'voice' and allowed_refs is not None and 'voice' in allowed_refs:
++                voice_identity = item.modality_spec.identity
++                entry = allowed_refs['voice'].get(voice_identity.reference)
++                if (not entry or entry['source'] != voice_identity.source.value
++                    or not set(voice_identity.reference_asset_ids).issubset(entry.get('reference_asset_ids', []))
++                    or voice_identity.consent_ref not in {None, entry.get('consent_ref')}):
++                    raise ValueError('Voice identity/素材/consent必须绑定冻结上下文中实际存在的来源')
++            if QUERY_FIELDS.intersection(item.constraints):
++                raise ValueError('query仅交付在queries，constraints不重复维护query')
++            constraints = dict(item.constraints)
++            if item.queries:
++                if len(item.queries) != 3:
++                    raise ValueError('queries须为三个不同英文短查询')
++                controls = {'search_query_variants_en': dict(zip(('primary','alternate','relaxed'), item.queries))}
++                query_hints(controls)
++                constraints.update(controls)
++            elif item.modality_spec.kind in {'image', 'video'}:
++                raise ValueError('视觉Need须交付三个检索短语')
++            data = item.model_dump(mode='json', exclude={'queries'})
++            spec = data['modality_spec']
++            need = MaterialNeed.model_validate_json(json.dumps({**data, 'need_id': f'need-{identity[:24]}-{index:03}',
++                'media_type': spec['kind'] if spec['kind'] in {'image','video'} else 'audio',
++                'constraints': constraints}, ensure_ascii=False))
++            validate_modality_constraints((need,))
++            NeedCompiler().compile(need)
++            needs.append(need)
++        except ValidationError as exc:
++            issues.extend(problem(prefix+'.'+'.'.join(map(str,e['loc'])),e['msg'],e['type'])
++                          for e in exc.errors(include_input=False,include_context=False))
++        except (ValueError, TypeError) as exc:
++            issues.append(problem(prefix, str(exc)))
++    if not issues and not any(n.importance is NeedImportance.REQUIRED for n in needs):
++        issues.append(problem('needs', '至少一个required Need；不把上游无效项算作通过'))
++    if issues:
++        raise SemanticPlanningError('A', issues)
++    plan = MaterialPlan(plan_id=f'plan-{identity[:32]}', creation_id=creation_id, attempt_id=attempt_id,
++                        context_refs=refs, policy=draft.policy, needs=tuple(needs))
++    return apply_defaults(plan, mode, script)
++
++
++def classification_batches(plan, mode):
++    units, contexts, preference_id = [], {}, 0
++    for need in plan.needs:
++        if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
++            continue
++        frozen = compilation_input(need, plan.context_refs, mode)
++        preferences = []
++        pref_map = {}
++        for source, row in enumerate(frozen['sources']):
++            if row['preference']:
++                pref_map[source] = preference_id
++                preferences.append({'id': preference_id, 'source': source, 'text': row['text']})
++                preference_id += 1
++        contexts[need.need_id] = {'input': frozen, 'preferences': preferences, 'pref_map': pref_map}
++        for unit in classification_units(frozen):
++            units.append({'id': len(units), 'need': need.need_id, 'local_id': unit['id'],
++                          'text': unit['text'], 'source': unit['source']})
++    result = []
++    for start in range(0, len(units), MAX_BATCH_UNITS):
++        chunk = units[start:start + MAX_BATCH_UNITS]
++        names = list(dict.fromkeys(u['need'] for u in chunk))
++        data = {'units': chunk, 'contexts': {k:contexts[k] for k in names}}
++        # Bound the entire context without truncating required content.
++        if len(json.dumps(data, ensure_ascii=False).encode()) > MAX_FILE_BYTES:
++            raise SemanticPlanningError('B', [problem('contexts', '单批完整上下文超过有界容量，未截断或提交')])
++        data['batch_id'] = digest({'policy': POLICY, 'plan': plan.model_dump(mode='json'), 'data': data})
++        result.append(data)
++    return result
++
++
++def assemble_requirements(plan, mode, responses):
++    batches = classification_batches(plan, mode)
++    if len(responses) != len(batches):
++        raise SemanticPlanningError('B', [problem('batches', '分类批次不完整')])
++    per_need = {n.need_id: [] for n in plan.needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}
++    issues = []
++    for index, (batch, response) in enumerate(zip(batches, responses)):
++        expected = [u['id'] for u in batch['units']]
++        rows = response.get('classifications') if isinstance(response, dict) and set(response)=={'classifications'} else None
++        if (not isinstance(rows, list) or len(rows)!=len(expected)
++            or any(not isinstance(r,dict) or set(r)!={'id','kind','preference_source'} or type(r['id']) is not int for r in rows)
++            or [r['id'] for r in rows]!=expected):
++            issues.append(problem(f'batches.{index}', f'分类ID须完整按序且仅一次：{expected}'));continue
++        for unit, row in zip(batch['units'], rows):
++            pref = row['preference_source'];context = batch['contexts'][unit['need']]
++            inverse = {v:k for k,v in context['pref_map'].items()}
++            if pref is not None and (type(pref) is not int or pref not in inverse):
++                issues.append(problem(f'unit.{unit["id"]}', '偏好引用不属于该Need显式软偏好'));continue
++            per_need[unit['need']].append({'id':unit['local_id'], 'kind':row['kind'],
++                                          'preference_source':inverse[pref] if pref is not None else None})
++    if issues:raise SemanticPlanningError('B',issues)
++    result = {}
++    for need in plan.needs:
++        if need.need_id not in per_need:continue
++        frozen = compilation_input(need, plan.context_refs, mode)
++        try:
++            labels = {'classifications':per_need[need.need_id], 'queries':list(query_hints(need.constraints))}
++            bound = bind_classifications(frozen,labels)
++            contract = validate_compilation(frozen,bound)
++            if any(r['kind']=='unresolved' for r in contract['clauses']):
++                raise ValueError('分类仍有歧义，不进入Supply')
++            result[need.need_id] = {'clauses':[{'path':frozen['sources'][r['source']]['path'],
++                'text':r['text'], 'kind':r['kind'],
++                'preference_path':frozen['sources'][r['preference_source']]['path'] if r['preference_source'] is not None else None}
++                for r in contract['clauses']], 'queries':contract['queries']}
++        except (ValueError,TypeError) as exc:issues.append(problem(need.need_id,str(exc)))
++    if issues:raise SemanticPlanningError('B',issues)
++    return result
++
++
++def read_file(root, name):
++    path = root / 'planning' / name
++    if path.parent.is_symlink() or path.is_symlink() or not path.is_file() or path.stat().st_size>MAX_FILE_BYTES:
++        raise ValueError('Planning文件缺失、路径或容量无效：'+name)
++    return path.read_bytes()
++
++
++def write_file(root, name, raw, *, replace=False):
++    path = root / 'planning' / name
++    if path.parent.is_symlink() or path.is_symlink():raise ValueError('Planning文件不能是symlink')
++    path.parent.mkdir(parents=True,exist_ok=True)
++    if path.exists() and path.read_bytes()!=raw and not replace:
++        raise ValueError('已有派生产物与有效快照冲突，不能覆盖：'+name)
++    temp = path.with_name('.' + path.name + '.tmp')
++    if temp.is_symlink():raise ValueError('Planning临时文件路径无效')
++    with open(temp,'wb') as f:
++        f.write(raw);f.flush();os.fsync(f.fileno())
++    os.replace(temp,path)
++
++
++def encode(value):return (json.dumps(value,ensure_ascii=False,sort_keys=True,indent=2)+'\n').encode()
++
++
++def source_catalog(canonical, planning_context):
++    """Program-owned scope tokens bound to literal confirmed scene lines."""
++    lines = [s for s in canonical['SCENES.md'].splitlines() if s.strip()]
++    catalog = {'global': {'global': canonical['SCENES.md']}}
++    for kind in ('scene','segment','event'):
++        catalog[kind] = {f'{kind}-{i+1}': text for i,text in enumerate(lines)}
++    known = {}
++    def refs(v):
++        if isinstance(v,dict):
++            if isinstance(v.get('id'),str):known[v['id']] = v
++            for x in v.values():refs(x)
++        elif isinstance(v,list):
++            for x in v:refs(x)
++    refs(planning_context.get('creator_context',{}))
++    catalog['continuity'] = known
++    creator = planning_context.get('creator_context',{})
++    voice = creator.get('voice',{})
++    catalog['voice'] = {}
++    if isinstance(voice,dict) and any(v for k,v in voice.items() if k not in {'avoid'}):
++        catalog['voice']['creator_context.voice'] = {'source':'creator_context','context':voice,
++            'reference_asset_ids':voice.get('reference_asset_ids',[]),'consent_ref':voice.get('consent_ref')}
++    for reference, record in known.items():
++        identity = record.get('voice_identity')
++        if isinstance(identity,dict) and identity.get('source') in {'creator_context','director_intent','explicit_user'}:
++            catalog['voice'][reference] = {**identity,'context':record}
++    return catalog
++
++
++def _preserve_repair_semantics(before, after, catalog=None):
++    """Repair cannot buy success by dropping/reclassifying valid draft needs."""
++    try:old = read_planning_requirements(before.decode())
++    except (ValueError,UnicodeError):return
++    new = read_planning_requirements(after.decode())
++    if not isinstance(old,dict):return
++    a,b = old.get('needs'),new.get('needs') if isinstance(new,dict) else None
++    if not isinstance(a,list):return
++    if not isinstance(b,list) or len(a)!=len(b):
++        raise SemanticPlanningError('A',[problem('needs','修复不能删除或新增需求')])
++    if 'policy' in old:
++        from pydantic import TypeAdapter
++        try:TypeAdapter(SemanticPlanningDraft.model_fields['policy'].annotation).validate_json(json.dumps(old['policy']))
++        except (ValueError,TypeError):pass
++        else:
++            if old['policy']!=new.get('policy'):
++                raise SemanticPlanningError('A',[problem('policy','结构修复不能改写有效规划策略')])
++    for index,(x,y) in enumerate(zip(a,b)):
++        if not isinstance(x,dict) or not isinstance(y,dict):continue
++        from pydantic import TypeAdapter
++
++        def preserve(original, repaired, annotation, path):
++            try:
++                TypeAdapter(annotation).validate_json(json.dumps(original))
++            except (ValueError, TypeError):
++                # Protect valid children even when a sibling is malformed.
++                candidates = [annotation, *get_args(annotation)]
++                model = next((v for v in candidates if isinstance(v,type) and issubclass(v,BaseModel)),None)
++                if model is not None and isinstance(original,dict):
++                    for child, field in model.model_fields.items():
++                        if child in original:
++                            preserve(original[child], repaired.get(child) if isinstance(repaired,dict) else None,
++                                     field.annotation, path+'.'+child)
++                return
++            if original != repaired:
++                raise SemanticPlanningError('A',[problem(path,'结构修复不能改写有效需求语义')])
++
++        for key in ('intent','importance','scope','role','constraints','continuity_refs',
++                    'modality_spec','queries','duration_hint','desired_options'):
++            if key not in x:continue
++            original,repaired=x[key],y.get(key)
++            path=f'needs.{index}.{key}'
++            if key=='queries':
++                try:
++                    if len(original)!=3:continue
++                    query_hints({'search_query_variants_en':dict(zip(('primary','alternate','relaxed'),original))})
++                except (ValueError,TypeError):continue
++            elif key=='scope' and catalog is not None:
++                if isinstance(original,dict) and original.get('ref') not in catalog.get(original.get('type'),{}):continue
++            elif key=='continuity_refs' and isinstance(original,list) and catalog is not None:
++                valid=[ref for ref in original if isinstance(ref,dict) and ref.get('ref') in catalog.get('continuity',{})]
++                if any(ref not in (repaired or []) for ref in valid):
++                    raise SemanticPlanningError('A',[problem(path,'结构修复不能删除有效连续性引用')])
++                continue
++            elif key=='constraints' and isinstance(original,dict):
++                from easel.materials.application.need_constraints import VOICE_ALIASES
++                kind=(x.get('modality_spec') or {}).get('kind') if isinstance(x.get('modality_spec'),dict) else None
++                for field,value in original.items():
++                    if field in QUERY_FIELDS or field in VOICE_ALIASES:continue
++                    if field=='voice_delivery':
++                        if kind!='voice':continue
++                        if not isinstance(value,dict):continue
++                        for control,setting in value.items():
++                            try:validate_voice_delivery({control:setting})
++                            except ValueError:continue
++                            controls=repaired.get(field) if isinstance(repaired,dict) else None
++                            if not isinstance(controls,dict) or control not in controls or controls[control]!=setting:
++                                raise SemanticPlanningError('A',[problem(path+'.'+field+'.'+control,'结构修复不能改写有效声音参数')])
++                        continue
++                    elif field=='preferred_visual_details':
++                        if kind not in {'image','video'} or not isinstance(value,str) or not value.strip():continue
++                    elif isinstance(value,(dict,list)):continue
++                    if not isinstance(repaired,dict) or field not in repaired or value!=repaired[field]:
++                        raise SemanticPlanningError('A',[problem(path+'.'+field,'结构修复不能改写有效需求语义')])
++                continue
++            elif key=='modality_spec' and isinstance(original,dict):
++                spec_type={'image':ImageNeedSpec,'video':VideoNeedSpec,'voice':SemanticVoiceSpec,
++                           'bgm':BgmNeedSpec,'sfx':SfxNeedSpec}.get(original.get('kind'))
++                if spec_type is None:continue
++                if spec_type is SemanticVoiceSpec and catalog is not None:
++                    old_identity=original.get('identity')
++                    entry=catalog.get('voice',{}).get(old_identity.get('reference')) if isinstance(old_identity,dict) else None
++                    if not entry or entry['source']!=old_identity.get('source'):
++                        for field,info in spec_type.model_fields.items():
++                            if field!='identity' and field in original:
++                                preserve(original[field], repaired.get(field) if isinstance(repaired,dict) else None,
++                                         info.annotation,path+'.'+field)
++                        continue
++                preserve(original,repaired,spec_type,path)
++                continue
++            preserve(original,repaired,SemanticNeed.model_fields[key].annotation,path)
++
++
++def run_semantic_planning(attempt, planning_context, canonical, mode, route, dispatch):
++    from easel.materials.store import AttemptMaterialStore
++    from easel.output_contract import output_decision
++    root = Path(attempt['workspace']['path'])
++    store = AttemptMaterialStore(root)
++    catalog = source_catalog(canonical,planning_context)
++    scope = {'policy':POLICY,'attempt_id':attempt['attempt_id'],'creation_id':attempt['creation_id'],
++             'context_refs':planning_context['context_refs'],'canonical':canonical,'mode':mode,'catalog':catalog}
++    state_key = 'semantic-planning-v3'
++    state = store.read_recovery_record(state_key)
++    if state is None:
++        # Existing legacy repair is never new repair allowance.
++        if list((root/'materials/recoveries').glob('planning-structure-repair-*.json')):
++            raise SemanticPlanningError('A',[problem('version','旧协议修复记录不能升级为新额度')])
++        state = {'schema':'semantic-planning-checkpoint@1','scope':scope,'route':route,
++                 'calls':{},'repair_used':False}
++        store.write_recovery_record(state_key,state)
++    elif (state.get('schema')!='semantic-planning-checkpoint@1' or state.get('scope')!=scope
++          or state.get('route')!=route):
++        raise SemanticPlanningError('A',[problem('checkpoint','输入、版本或执行route变化；不重置额度')])
++    for name,text in canonical.items():
++        if read_file(root,name)!=text.encode():
++            raise SemanticPlanningError('A',[problem(name,'确认冻结原文变化，不能复用响应')])
++    if state.get('snapshot') and hashlib.sha256(read_file(root,'SEMANTIC_PLAN.json')).hexdigest()!=state['snapshot']['draft_sha256']:
++        raise SemanticPlanningError('A',[problem('snapshot','有效语义草稿原件变化，不能恢复或覆盖')])
++
++    def save():store.write_recovery_record(state_key,state)
++    def invoke(key, stage, message, name):
++        record = state['calls'].get(key)
++        if record is None:
++            record={'status':'pending','message':message,'message_sha256':digest(message),'name':name}
++            state['calls'][key]=record;save()
++        if (record.get('message')!=message or record.get('message_sha256')!=digest(message)
++            or record.get('name')!=name or record.get('status') not in {'pending','complete','failed'}):
++            raise SemanticPlanningError(stage,[problem('request','原请求或记录无效；不重新派发')])
++        if record['status']=='failed':raise SemanticPlanningError(stage,[problem('request','原执行已失败，不重派')])
++        if record['status']=='pending':
++            try:
++                dispatch(stage,message,f"semantic-{attempt['attempt_id']}-{key}")
++            except Exception as exc:
++                from easel.creation_delivery import DeliveryExecutionUncertain, DeliveryObservationPending
++                from easel.integrations.openclaw_delivery import DeliveryAgentPending
++                import subprocess
++                if isinstance(exc,(DeliveryExecutionUncertain,DeliveryObservationPending,DeliveryAgentPending,subprocess.TimeoutExpired)):
++                    raise
++                record['status']='failed';save();raise
++            try:
++                for name_,text_ in canonical.items():
++                    if read_file(root,name_)!=text_.encode():
++                        raise SemanticPlanningError(stage,[problem(name_,'模型修改了确认冻结原文')])
++                if (key.startswith('B') or key=='repair' and state.get('repair_stage')=='B') and read_file(root,a_name)!=raw_a:
++                    raise SemanticPlanningError(stage,[problem(a_name,'分类阶段改写了有效语义草稿')])
++            except ValueError:
++                record['status']='failed';save();raise
++            try:
++                raw = read_file(root,name)
++            except ValueError:
++                raw = b''  # Known terminal output fault can use shared repair, not resubmit.
++            record.update(status='complete',raw=raw.decode('utf-8'),sha256=hashlib.sha256(raw).hexdigest());save()
++        raw = record.get('raw','').encode('utf-8')
++        if hashlib.sha256(raw).hexdigest()!=record.get('sha256'):
++            raise SemanticPlanningError(stage,[problem('response','已完成响应摘要损坏')])
++        return raw
++
++    def repair(stage, initial, issues, targets, context):
++        key='repair'
++        message=('〔Easel Planning V3 单次语义合同修正〕\n阶段：'+stage+'\n'
++            '保留全部有效Need语义、模态、importance与冻结正文；只修下列错误；不能删除要求。'
++            '只写指定输出，不写正式Plan/sidecar，不调用供应/生成/Hypit。\n'
++            +json.dumps({'issues':issues,'targets':targets,'context':context},ensure_ascii=False))
++        if state['repair_used'] and (key not in state['calls'] or state['calls'][key]['message']!=message):
++            raise SemanticPlanningError(stage,[problem('repair','整次Planning共享单次修复额度已用完')])
++        state['repair_used']=True;save()
++        if len(message.encode())>MAX_FILE_BYTES:
++            raise SemanticPlanningError(stage,[problem('repair','合并修复上下文超过有界容量，未提交')])
++        raw=invoke(key,'structure_repair',message,targets[0])
++        if stage=='A':_preserve_repair_semantics(initial,raw,catalog)
++        return raw
++
++    a_name='SEMANTIC_PLAN.json'
++    message=('〔Easel Semantic Planning V3〕\nAttempt workspace: '+str(root)+'\n'
++        '只交一份语义草稿，程序负责正式Plan/NeedID/身份/来源/sidecar；不输出派生字段。'
++        '读取本工作区冻结handoff及Creator/Director依据；scope仅选择下列catalog。'
++        'queries交三个不同英文短语；正文/场景/声音保持确认原意，required不能遗漏或降级；'
++        '不调用供应/生成/Hypit。只写 '+str(root/'planning'/a_name)+'\n'
++        +json.dumps({'schema':SemanticPlanningDraft.model_json_schema(),'confirmed':canonical,
++                    'catalog':catalog,'context_refs':planning_context['context_refs']},ensure_ascii=False))
++    if len(message.encode())>MAX_FILE_BYTES:
++        raise SemanticPlanningError('A',[problem('input','完整输入超过有界容量，未派发')])
++    raw=invoke('A','planning',message,a_name)
++    initial_a=raw
++    if state.get('repair_stage')=='A':
++        repair_call=state['calls'].get('repair',{})
++        raw=invoke('repair','structure_repair',repair_call.get('message',''),a_name)
++        _preserve_repair_semantics(initial_a,raw,catalog)
++    try:
++        plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
++            refs=planning_context['context_refs'],mode=mode,script=canonical['SCRIPT.md'],
++            allowed_refs=catalog)
++    except SemanticPlanningError as exc:
++        state['repair_stage']='A';save()
++        raw=repair('A',raw,exc.issues,[a_name],{'schema':SemanticPlanningDraft.model_json_schema(),
++                                            'catalog':catalog,'original':raw.decode()})
++        plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
++            refs=planning_context['context_refs'],mode=mode,script=canonical['SCRIPT.md'],
++            allowed_refs=catalog)
++    raw_a=raw
++    batches=classification_batches(plan,mode)
++    snapshot=json.loads(encode({'draft_sha256':hashlib.sha256(raw).hexdigest(),
++              'plan':plan.model_dump(mode='json'),'batches':batches,'policy':POLICY}))
++    if 'snapshot' in state and state['snapshot']!=snapshot:
++        raise SemanticPlanningError('B',[problem('snapshot','有效Need快照变化，旧分类不能复用')])
++    state['snapshot']=snapshot;save()
++    responses=[]
++    for index,batch in enumerate(batches):
++        name=f'CLASSIFICATIONS-{index:03}.json'
++        bmessage=('〔Easel Planning V3 单元分类〕\n'
++            '只分类程序提供的unit ID，完整按序各一次，不返回path/text/offset/Need映射/query。'
++            '必要主体/数量/禁令/源动作保持required；明确软偏好不能升级，叙事用途/后期为postproduction；'
++            '有歧义返回unresolved。偏好引用只能用所属context.preferences中的id。'
++            '只写 '+str(root/'planning'/name)+'\n'
++            'JSON:{"classifications":[{"id":0,"kind":"required","preference_source":null}]}\n'
++            +json.dumps(batch,ensure_ascii=False))
++        raw_b=invoke(f'B{index}','planning',bmessage,name)
++        try:response=read_planning_requirements(raw_b.decode())
++        except (ValueError,UnicodeError):response=None
++        responses.append(response)
++    if state.get('repair_stage')=='B':
++        rec=state['calls'].get('repair',{})
++        repaired=read_planning_requirements(invoke('repair','structure_repair',rec.get('message',''),'CLASSIFICATIONS-REPAIR.json').decode())
++        responses=_merge_repaired(responses,repaired,state['repair_indexes'])
++    try:requirements=assemble_requirements(plan,mode,responses)
++    except SemanticPlanningError as exc:
++        # Diagnose each complete Need only after collecting every batch.
++        # Repair can address several batches in one response, never new budgets.
++        affected=set()
++        for issue in exc.issues:
++            field=issue['field']
++            if field.startswith('batches.'):
++                affected.add(int(field.split('.')[1]))
++            elif field.startswith('unit.'):
++                unit_id=int(field.split('.')[1])
++                affected.update(i for i,b in enumerate(batches) if any(u['id']==unit_id for u in b['units']))
++            else:
++                affected.update(i for i,b in enumerate(batches) if any(u['need']==field for u in b['units']))
++        indexes=sorted(affected)
++        if not indexes:raise
++        state.update(repair_stage='B',repair_indexes=indexes);save()
++        repaired=repair('B',b'',exc.issues,['CLASSIFICATIONS-REPAIR.json'],
++            {'batches':[{**batches[i],'index':i} for i in indexes],
++             'responses':[responses[i] for i in indexes],'response_schema':{'batches':[
++                {'index':i,'classifications':'same schema/IDs as the original batch'} for i in indexes]}})
++        responses=_merge_repaired(responses,read_planning_requirements(repaired.decode()),indexes)
++        requirements=assemble_requirements(plan,mode,responses)
++    checkpoint={'schema':'semantic-planning-frozen@1','scope':scope,'draft':raw.decode(),
++                'draft_sha256':hashlib.sha256(raw).hexdigest(),'plan':plan.model_dump(mode='json'),
++                'responses':responses,'policy':POLICY}
++    checkpoint_raw=encode(checkpoint)
++    write_file(root,'SEMANTIC_CHECKPOINT.json',checkpoint_raw)
++    write_file(root,'SEMANTIC_PLAN.json',raw,replace=True)
++    write_file(root,'MATERIAL_PLAN.json',(plan.model_dump_json(indent=2)+'\n').encode())
++    write_file(root,'MATERIAL_REQUIREMENTS.json',encode(requirements))
++    return {'plan':plan,'context_refs':plan.context_refs,'script':canonical['SCRIPT.md'],
++            'scenes':canonical['SCENES.md'],'treatment':canonical['TREATMENT.md'],
++            'output_decision':output_decision('planning','ACCEPT','semantic_compiled',policy_revision=POLICY)}
++
++
++def _merge_repaired(responses, repaired, indexes):
++    rows=repaired.get('batches') if isinstance(repaired,dict) and set(repaired)=={'batches'} else None
++    if (not isinstance(rows,list) or len(rows)!=len(indexes)
++        or any(not isinstance(r,dict) or set(r)!={'index','classifications'} or type(r['index']) is not int for r in rows)
++        or [r['index'] for r in rows]!=indexes):
++        raise SemanticPlanningError('B',[problem('repair','合并修复须覆盖全部实际批次')])
++    result=list(responses)
++    for r in rows:result[r['index']]={'classifications':r['classifications']}
++    return result
++
++
++def verify_semantic_checkpoint(root, plan, mode, script, origin=None):
++    raw=read_file(root,'SEMANTIC_CHECKPOINT.json')
++    checkpoint=read_planning_requirements(raw.decode())
++    if checkpoint.get('schema')!='semantic-planning-frozen@1' or checkpoint.get('policy')!=POLICY:
++        raise ValueError('语义编译版本无效')
++    scope=checkpoint['scope']
++    if scope['policy']!=POLICY or scope['context_refs']!=plan.context_refs or scope['mode']!=mode or scope['canonical']['SCRIPT.md']!=script:
++        raise ValueError('语义冻结输入变化')
++    identities=origin or {'creation_id':plan.creation_id,'attempt_id':plan.attempt_id,'plan_id':plan.plan_id}
++    if scope['creation_id']!=identities['creation_id'] or scope['attempt_id']!=identities['attempt_id']:
++        raise ValueError('语义编译身份无效')
++    draft=checkpoint['draft'].encode()
++    if hashlib.sha256(draft).hexdigest()!=checkpoint['draft_sha256']:
++        raise ValueError('语义草稿摘要无效')
++    if read_file(root,'SEMANTIC_PLAN.json')!=draft:raise ValueError('语义草稿原件变化')
++    original=compile_draft(draft,creation_id=scope['creation_id'],attempt_id=scope['attempt_id'],
++        refs=scope['context_refs'],mode=mode,script=script,allowed_refs=scope['catalog'])
++    if original.model_dump(mode='json')!=checkpoint['plan'] or original.plan_id!=identities['plan_id']:
++        raise ValueError('语义快照不能导出Plan')
++    expected=original.model_copy(update={'creation_id':plan.creation_id,'attempt_id':plan.attempt_id,'plan_id':plan.plan_id})
++    if expected!=plan:raise ValueError('正式Plan与语义快照不一致')
++    requirements=assemble_requirements(original,mode,checkpoint['responses'])
++    if read_planning_requirements(read_file(root,'MATERIAL_REQUIREMENTS.json').decode())!=requirements:
++        raise ValueError('正式sidecar与语义编译结果不一致')
++    return {'path':'planning/SEMANTIC_CHECKPOINT.json','sha256':hashlib.sha256(raw).hexdigest(),
++            'draft_sha256':checkpoint['draft_sha256'],'policy':POLICY,
++            **({'origin':origin} if origin else {})}

@@ -6,7 +6,7 @@
 .venv/bin/python tests/planning_material_matrix/run.py
 ```
 
-当前25风险案例结果22 PASS / 1 FAIL / 2 CONTRACT_GAP。pytest24 passed/1 failed，返回1；已知失败不 xfail、不跳过。默认pytest不收集cases.py。局部诊断可用 `--case test_21`，仅局部结果不能认领完整矩阵。
+初始25风险案例结果22 PASS / 1 FAIL / 2 CONTRACT_GAP保留。A–D为run-015的25 PASS；R0–R3沿用同一执行器扩展36风险组/53参数化场景，run-017为53 PASS/0 FAIL/0 GAP/0未执行；已知失败不 xfail、不跳过。默认pytest不收集cases.py。局部诊断可用 `--case test_21`，仅局部结果不能认领完整矩阵。
 
 `--output` 可指定独立记录根目录。每次创建 run-NNN，保存生产与真实现场完整性摘要、fixture摘要、Expected/Actual、异常栈、pytest/JUnit及对账。最终测试源码快照以 .py.txt 保存，避免历史 conftest 自动进入默认pytest；源字节/SHA保持。
 

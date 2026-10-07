@@ -1,0 +1,12 @@
+........................................................F...             [100%]
+=================================== FAILURES ===================================
+_________________ test_product_owner_governed_supply_boundary __________________
+tests/test_model_output_contracts.py:126: in test_product_owner_governed_supply_boundary
+    test_24_owner_supply_observation(prep_env, tmp_path, monkeypatch, Trace())
+tests/planning_material_matrix/cases.py:524: in test_24_owner_supply_observation
+    assert asyncio.run(advance_creation(work['id'], execute))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_model_output_contracts.py::test_product_owner_governed_supply_boundary
+1 failed, 59 passed in 0.74s

@@ -1,0 +1,23 @@
+.................................F.........                              [100%]
+=================================== FAILURES ===================================
+_ test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding _
+easel/integrations/semantic_planning.py:407: in run_semantic_planning
+    plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
+easel/integrations/semantic_planning.py:157: in compile_draft
+    raise SemanticPlanningError('A', issues)
+E   easel.integrations.semantic_planning.SemanticPlanningError: {"stage": "A", "issues": [{"field": "needs.0", "code": "contract_invalid", "message": "'VoiceIdentityRef' object is not subscriptable"}, {"field": "needs.1", "code": "contract_invalid", "message": "'VoiceIdentityRef' object is not subscriptable"}, {"field": "needs.2", "code": "contract_invalid", "message": "'VoiceIdentityRef' object is not subscriptable"}, {"field": "needs", "code": "contract_invalid", "message": "至少一个required Need；不把上游无效项算作通过"}]}
+
+During handling of the above exception, another exception occurred:
+tests/test_semantic_planning.py:276: in test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding
+    result=rt['run'](dispatch);plan=result['plan']
+           ^^^^^^^^^^^^^^^^^^^
+tests/test_semantic_planning.py:156: in run
+    def run(dispatch=None):return run_semantic_planning(attempt,context,canonical,mode,
+easel/integrations/semantic_planning.py:414: in run_semantic_planning
+    plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
+easel/integrations/semantic_planning.py:157: in compile_draft
+    raise SemanticPlanningError('A', issues)
+E   easel.integrations.semantic_planning.SemanticPlanningError: {"stage": "A", "issues": [{"field": "needs.0", "code": "contract_invalid", "message": "'VoiceIdentityRef' object is not subscriptable"}, {"field": "needs.1", "code": "contract_invalid", "message": "'VoiceIdentityRef' object is not subscriptable"}, {"field": "needs.2", "code": "contract_invalid", "message": "'VoiceIdentityRef' object is not subscriptable"}, {"field": "needs", "code": "contract_invalid", "message": "至少一个required Need；不把上游无效项算作通过"}]}
+=========================== short test summary info ============================
+FAILED tests/test_semantic_planning.py::test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding
+1 failed, 42 passed in 1.84s

@@ -309,48 +309,21 @@ class PlanningIntegration:
         voice_delivery = mode.get("voice_delivery")
         if (style or voice_delivery) and plan.context_refs.get("creative_mode_sha256") != mode_hash:
             raise MaterialIntegrationError("Planning 风格来源与冻结 Creative Mode 不一致")
-        bound_needs = []
-        for need in plan.needs:
-            spec = need.modality_spec
-            scene_style = getattr(spec, 'visual_style', None) or style
-            if (scene_style and need.media_type in {MediaType.IMAGE, MediaType.VIDEO}
-                    and not need.constraints.get("preferred_style")):
-                # A soft default on existing Need semantics; no subject,
-                # narrative, source restriction or readiness rule is invented.
-                need = need.model_copy(update={"constraints": {**need.constraints, "preferred_style": scene_style}})
-            if getattr(spec, "kind", None) == "voice":
-                from easel.materials.application.voice_delivery import validate_voice_delivery
-                controls = need.constraints.get("voice_delivery", {})
-                if not isinstance(controls, dict):
-                    raise MaterialIntegrationError("Voice Need 的 voice_delivery 必须为参数对象")
-                if voice_delivery or controls:
-                    controls = validate_voice_delivery({**(voice_delivery or {}), **controls})
-                    need = need.model_copy(update={"constraints": {**need.constraints, "voice_delivery": controls}})
-            if (need.importance is NeedImportance.REQUIRED and need.media_type is MediaType.AUDIO
-                    and getattr(spec, "kind", None) == "voice"):
-                if spec.identity is None or spec.text_ref not in {None, "planning/SCRIPT.md"}:
-                    raise MaterialIntegrationError(
-                        "Required Voice Need must declare provider-neutral identity and reference the frozen SCRIPT"
-                    )
-                spec = spec.model_copy(update={
-                    "text_ref": "planning/SCRIPT.md", "text_sha256": script_digest,
-                })
-                need = need.model_copy(update={"modality_spec": spec})
-            bound_needs.append(need)
-        plan = plan.model_copy(update={"needs": tuple(bound_needs)})
-        # Contracts refer to the representation read back from the canonical
-        # Plan file, including its stable JSON object order.
-        plan = MaterialPlan.model_validate_json(plan.to_json())
+        from easel.integrations.semantic_planning import apply_defaults
+        try:
+            plan = apply_defaults(plan, mode, script)
+        except ValueError as exc:
+            raise MaterialIntegrationError(str(exc)) from exc
         root = _workspace(attempt)
         product = bool(work.get('preparation', {}).get('snapshot_hashes')) or (
             (work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@2')
         version = attempt.get('planning_contract_version')
-        if product and version != 2:
-            raise MaterialIntegrationError('新产品Planning缺少程序登记的v2合同；已完成旧记录只能load恢复')
-        if version not in {None, 2}:
+        if product and version not in {2, 3}:
+            raise MaterialIntegrationError('新产品Planning缺少程序登记的合同；已完成旧记录只能load恢复')
+        if version not in {None, 2, 3}:
             raise MaterialIntegrationError('Planning合同版本不支持，不能降级')
         requirements, records, requirements_raw = None, {}, None
-        if version == 2:
+        if version in {2, 3}:
             from easel.integrations.planning_contract import requirements_bytes, bind_requirements
             try:
                 requirements_raw = requirements_bytes(root)
@@ -364,6 +337,14 @@ class PlanningIntegration:
                     requirements_source.get('origin') if requirements_source else None)
             except (OSError, ValueError, TypeError) as exc:
                 raise MaterialIntegrationError('Planning要求合同无效：' + str(exc)) from exc
+        semantic = None
+        if version == 3:
+            from easel.integrations.semantic_planning import verify_semantic_checkpoint
+            try:
+                semantic = verify_semantic_checkpoint(root, plan, mode, script,
+                    requirements_source.get('origin') if requirements_source else None)
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                raise MaterialIntegrationError('Planning语义编译完整性无效：' + str(exc)) from exc
         truth_path = root / "handoff" / "truth-packet.json"
         try:
             review = create_script_claim_ledger(script, truth_path)
@@ -396,7 +377,7 @@ class PlanningIntegration:
         }
         plan_revision = MaterialReadinessCalculator.plan_revision(plan)
         manifest = {
-            "schema": "easel-material-planning@2" if version == 2 else "easel-material-planning@1",
+            "schema": f"easel-material-planning@{version or 1}",
             "status": "PLANNING_READY",
             "plan_id": plan.plan_id,
             "plan_revision": plan_revision,
@@ -409,11 +390,12 @@ class PlanningIntegration:
                 for key, path in artifact_paths.items()
             },
         }
-        if version == 2:
+        if version in {2, 3}:
             from easel.integrations.planning_contract import requirements_bytes
             if requirements_bytes(root) != requirements_raw:
                 raise MaterialIntegrationError('Planning要求文件在冻结期间变化')
             manifest['requirements'] = requirements
+            if semantic is not None: manifest['semantic'] = semantic
             for key, record in records.items(): store.write_recovery_record(key, record)
         manifest_path = root / "planning" / "manifest.json"
         if _has_symlink_components(root, manifest_path):
@@ -424,8 +406,8 @@ class PlanningIntegration:
             attempt,
             material_planning={
                 "status": "PLANNING_READY",
-                **({'contract_version': 2, 'manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest()}
-                   if version == 2 else {}),
+                **({'contract_version': version, 'manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest()}
+                   if version in {2, 3} else {}),
                 "output_decision": output_decision(
                     'material', 'ACCEPT', 'validated_planning', policy_revision=manifest['schema']),
                 "plan_id": plan.plan_id,
@@ -470,11 +452,13 @@ class PlanningIntegration:
                               if item.get('attempt_id') == plan.attempt_id), {})
         current_contract = ((owner.get('delivery') or {}).get('video_plan') or {}).get('schema') == 'easel-video-proposal@2'
         v2 = (attempt.get('planning_contract_version') is not None or stored.get('contract_version') is not None
-              or schema == 'easel-material-planning@2' or 'requirements' in manifest
+              or schema in {'easel-material-planning@2', 'easel-material-planning@3'} or 'requirements' in manifest
               or current_contract or owner_attempt.get('planning_contract_version') is not None)
         if v2:
-            if (attempt.get('planning_contract_version') != 2 or stored.get('contract_version') != 2
-                    or schema != 'easel-material-planning@2'
+            version = attempt.get('planning_contract_version')
+            if (version not in {2,3} or stored.get('contract_version') != version
+                    or owner_attempt.get('planning_contract_version',version) != version
+                    or schema != f'easel-material-planning@{version}'
                     or stored.get('manifest_sha256') != hashlib.sha256(manifest_path.read_bytes()).hexdigest()):
                 raise MaterialIntegrationError('Planning v2版本或manifest摘要不一致，不能降级')
         elif (schema != 'easel-material-planning@1' or stored.get('status') != 'PLANNING_READY'
@@ -513,11 +497,18 @@ class PlanningIntegration:
             from easel.integrations.hypit.handoff import load_frozen_creative_mode
             from easel.integrations.planning_contract import verify_requirements
             try:
-                verify_requirements(attempt, plan, manifest, load_frozen_creative_mode(attempt)[0])
-            except (OSError, ValueError, TypeError) as exc:
+                mode = load_frozen_creative_mode(attempt)[0]
+                verify_requirements(attempt, plan, manifest, mode)
+                if version == 3:
+                    from easel.integrations.semantic_planning import verify_semantic_checkpoint
+                    actual = verify_semantic_checkpoint(root, plan, mode, artifacts['script'],
+                        manifest.get('semantic',{}).get('origin'))
+                    if actual != manifest.get('semantic'):
+                        raise ValueError('语义编译冻结摘要不一致')
+            except (OSError, ValueError, TypeError, KeyError) as exc:
                 raise MaterialIntegrationError('Planning要求合同完整性无效：' + str(exc)) from exc
         return {"plan": plan, **artifacts, "context_refs": plan.context_refs,
-                "truth_ledger": ledger, "attempt": attempt, 'requirements': manifest.get('requirements')}
+                "truth_ledger": ledger, "attempt": attempt, 'requirements': manifest.get('requirements'), 'semantic': manifest.get('semantic')}
 
     def review_script(
         self,

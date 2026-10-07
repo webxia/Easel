@@ -1,0 +1,85 @@
+{
+  "schema": "easel-semantic-planning-software-acceptance@1",
+  "date": "2026-10-07",
+  "scope": "R0–R3",
+  "software_result": "PASS",
+  "matrix": {
+    "run": "run-017",
+    "counts": {
+      "PASS": 53,
+      "FAIL": 0,
+      "CONTRACT_GAP": 0,
+      "NOT_EXECUTED": 0
+    },
+    "required_skips": 0
+  },
+  "pytest": {
+    "passed": 787,
+    "failed": 0,
+    "existing_skips": [
+      {
+        "name": "test_bun_load_env_uses_skill_root_yaml_only",
+        "reason": "bun is not installed"
+      },
+      {
+        "name": "test_bun_load_env_prefers_canonical_yaml_over_ambient_provider_env",
+        "reason": "bun is not installed"
+      },
+      {
+        "name": "test_bun_load_env_does_not_mask_invalid_skill_root_yaml[default: [broken\\naccounts:\\n  main: {}\\n]",
+        "reason": "bun is not installed"
+      },
+      {
+        "name": "test_bun_load_env_does_not_mask_invalid_skill_root_yaml[]",
+        "reason": "bun is not installed"
+      },
+      {
+        "name": "test_bun_load_env_does_not_mask_invalid_skill_root_yaml[{}\\n]",
+        "reason": "bun is not installed"
+      }
+    ],
+    "elapsed_seconds": 55.98
+  },
+  "skills": {
+    "passed": 115
+  },
+  "compileall": "PASS",
+  "diff_check": "PASS",
+  "astra": "CONTINUE",
+  "head": "55af28fb62bf4bd0d194b372101a55b05a48a051",
+  "production_sha256": "0907c35cf4ee98254ac0a598f924d7b757b4aaf29cc24d1ac1d3f234d5e65217",
+  "protected_file_count": 257,
+  "protected_unchanged_since_r0": true,
+  "historical_fixtures_unchanged": true,
+  "historical_scene_protection_fail": "RETAINED_EXCEPTION",
+  "new_scene_intervention": 0,
+  "new_product_fixture_gateway_calls": [
+    "preparation",
+    "planning",
+    "classification",
+    "truth"
+  ],
+  "native_supply_fixture_search_acquire_observation": [
+    1,
+    1,
+    1
+  ],
+  "reentry_search_acquire": [
+    1,
+    1
+  ],
+  "pure_audio_planning_fixture_calls": 1,
+  "two_batch_with_repair_planning_fixture_calls": 4,
+  "shared_semantic_repair_limit": 1,
+  "real_planning_eval": "NOT_EXECUTED",
+  "material_smoke": "NOT_EXECUTED",
+  "material_e2e": "NOT_EXECUTED",
+  "real_material_ready": "NOT_VERIFIED",
+  "paid_external_calls": 0,
+  "cost_new_paid_external": 0,
+  "service_reload": "NOT_EXECUTED",
+  "runtime_version": "NOT_RECHECKED",
+  "git_commit": "NOT_CREATED",
+  "git_push": "NOT_EXECUTED",
+  "source_freeze": "HEAD + exact production-diff.patch + full source map, uncommitted"
+}

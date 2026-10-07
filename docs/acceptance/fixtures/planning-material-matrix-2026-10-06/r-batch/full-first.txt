@@ -1,0 +1,139 @@
+...................ss.sss............................................... [  9%]
+........................................................................ [ 18%]
+.............FF....................................................F.... [ 27%]
+........................................................................ [ 36%]
+........................................................................ [ 46%]
+........................................................................ [ 55%]
+........................................................................ [ 64%]
+........................................................................ [ 73%]
+........................................................................ [ 82%]
+........................................................................ [ 92%]
+................................................FF............           [100%]
+=================================== FAILURES ===================================
+_ test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_review[True] _
+easel/creation_preparation.py:740: in _prepare_creation_for_hypit_locked
+    planning = planning_executor(attempt, planning_context)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+web/app.py:3116: in _material_planning_executor
+    return _semantic_material_planning_executor(attempt, planning_context, canonical, restore_confirmed)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+web/app.py:3539: in _semantic_material_planning_executor
+    raise PreparationError('Planning v3需要已确认正文/场景；不猜测或重写确认稿')
+E   easel.creation_preparation.PreparationError: Planning v3需要已确认正文/场景；不猜测或重写确认稿
+
+The above exception was the direct cause of the following exception:
+tests/test_creation_preparation.py:1058: in test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_review
+    asyncio.run(execute(creation.get_creation(work["id"])))
+../../.homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py:195: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_creation_preparation.py:1053: in execute
+    await web._execute_creation_delivery("prepare", current)
+web/app.py:2244: in _execute_creation_delivery
+    result = await asyncio.to_thread(
+../../.homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/threads.py:25: in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/thread.py:59: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+easel/creation_preparation.py:589: in prepare_creation_for_hypit
+    return _prepare_creation_for_hypit_locked(
+easel/creation_preparation.py:766: in _prepare_creation_for_hypit_locked
+    raise PreparationError(safe_error) from exc
+E   easel.creation_preparation.PreparationError: Planning v3需要已确认正文/场景；不猜测或重写确认稿
+_ test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_review[False] _
+easel/creation_preparation.py:740: in _prepare_creation_for_hypit_locked
+    planning = planning_executor(attempt, planning_context)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+web/app.py:3116: in _material_planning_executor
+    return _semantic_material_planning_executor(attempt, planning_context, canonical, restore_confirmed)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+web/app.py:3539: in _semantic_material_planning_executor
+    raise PreparationError('Planning v3需要已确认正文/场景；不猜测或重写确认稿')
+E   easel.creation_preparation.PreparationError: Planning v3需要已确认正文/场景；不猜测或重写确认稿
+
+The above exception was the direct cause of the following exception:
+tests/test_creation_preparation.py:1058: in test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_review
+    asyncio.run(execute(creation.get_creation(work["id"])))
+../../.homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py:195: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+../../.homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/base_events.py:691: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests/test_creation_preparation.py:1053: in execute
+    await web._execute_creation_delivery("prepare", current)
+web/app.py:2244: in _execute_creation_delivery
+    result = await asyncio.to_thread(
+../../.homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/threads.py:25: in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+../../.homebrew/Cellar/python@3.12/3.12.13_2/Frameworks/Python.framework/Versions/3.12/lib/python3.12/concurrent/futures/thread.py:59: in run
+    result = self.fn(*self.args, **self.kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+easel/creation_preparation.py:589: in prepare_creation_for_hypit
+    return _prepare_creation_for_hypit_locked(
+easel/creation_preparation.py:766: in _prepare_creation_for_hypit_locked
+    raise PreparationError(safe_error) from exc
+E   easel.creation_preparation.PreparationError: Planning v3需要已确认正文/场景；不猜测或重写确认稿
+_______ test_same_creator_mode_three_contents_reach_reviewable_first_cut _______
+tests/test_creator_content_replay.py:205: in test_same_creator_mode_three_contents_reach_reviewable_first_cut
+    assert asyncio.run(advance_creation(work['id'], web._execute_creation_delivery)), creation.get_creation(work['id'])['delivery'].get('last_error')
+E   AssertionError: Planning v3需要已确认正文/场景；不猜测或重写确认稿
+E   assert False
+E    +  where False = <function run at 0x10638e160>(<coroutine object advance_creation at 0x109a13240>)
+E    +    where <function run at 0x10638e160> = asyncio.run
+E    +    and   <coroutine object advance_creation at 0x109a13240> = <function advance_creation at 0x1083f9e40>('cr_203047565a474126ae9359edec76ab5f', <function _execute_creation_delivery at 0x108628d60>)
+E    +      where <function _execute_creation_delivery at 0x108628d60> = web._execute_creation_delivery
+_ test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding _
+easel/integrations/semantic_planning.py:413: in run_semantic_planning
+    plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
+easel/integrations/semantic_planning.py:157: in compile_draft
+    raise SemanticPlanningError('A', issues)
+E   easel.integrations.semantic_planning.SemanticPlanningError: {"stage": "A", "issues": [{"field": "needs.2", "code": "contract_invalid", "message": "1 validation error for MaterialNeed\n  Value error, SFX Need must use event scope [type=value_error, input_value={'scope': {'type': 'globa..., 'media_type': 'audio'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"}]}
+
+During handling of the above exception, another exception occurred:
+tests/test_semantic_planning.py:276: in test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding
+    result=rt['run'](dispatch);plan=result['plan']
+           ^^^^^^^^^^^^^^^^^^^
+tests/test_semantic_planning.py:156: in run
+    def run(dispatch=None):return run_semantic_planning(attempt,context,canonical,mode,
+easel/integrations/semantic_planning.py:420: in run_semantic_planning
+    plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
+easel/integrations/semantic_planning.py:157: in compile_draft
+    raise SemanticPlanningError('A', issues)
+E   easel.integrations.semantic_planning.SemanticPlanningError: {"stage": "A", "issues": [{"field": "needs.2", "code": "contract_invalid", "message": "1 validation error for MaterialNeed\n  Value error, SFX Need must use event scope [type=value_error, input_value={'scope': {'type': 'globa..., 'media_type': 'audio'}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.13/v/value_error"}]}
+_ test_native_classifier_tamper_freezes_failure_and_partial_outputs_never_commit _
+tests/test_semantic_planning.py:302: in test_native_classifier_tamper_freezes_failure_and_partial_outputs_never_commit
+    with pytest.raises(SemanticPlanningError,match='原执行已失败'):rt['run'](dispatch)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: '原执行已失败'
+E     Actual message: '{"stage": "A", "issues": [{"field": "snapshot", "code": "contract_invalid", "message": "有效语义草稿原件变化，不能恢复或覆盖"}]}'
+=============================== warnings summary ===============================
+tests/test_chat_capability.py::test_chat_api_initializes_creation_before_agent_dispatch
+  /Users/xgx/Projects/Easel/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_chat_capability.py::test_chat_api_initializes_creation_before_agent_dispatch
+  /Users/xgx/Projects/Easel/.venv/lib/python3.12/site-packages/starlette/testclient.py:53: DeprecationWarning: The anyio.abc.BlockingPortal alias is deprecated, use anyio.from_thread.BlockingPortal instead.
+    _PortalFactoryType = Callable[[], AbstractContextManager[anyio.abc.BlockingPortal]]
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_creation_preparation.py::test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_review[True]
+FAILED tests/test_creation_preparation.py::test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_review[False]
+FAILED tests/test_creator_content_replay.py::test_same_creator_mode_three_contents_reach_reviewable_first_cut
+FAILED tests/test_semantic_planning.py::test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding
+FAILED tests/test_semantic_planning.py::test_native_classifier_tamper_freezes_failure_and_partial_outputs_never_commit
+5 failed, 772 passed, 5 skipped, 2 warnings in 34.66s

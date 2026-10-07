@@ -1,0 +1,18 @@
+{
+  "role": "Astra Reviewer",
+  "scope": "R0–R3实际实现及关键合同冻结复核",
+  "decision": "CONTINUE",
+  "history": [
+    "MODIFY: A语义保护重入绕过/有效字段保护不全/旧合同登记/Gateway证据缺失",
+    "MODIFY: Optional/Union及voice_delivery合法子字段保护",
+    "CONTINUE: 已具名修正，无新增代码要求；最终回归及现场对账由Main负责"
+  ],
+  "risks": [
+    "只认可确定性软件合同，不代表真实模型语义能力、服务加载或E2E",
+    "历史FAIL保留；新现场变化不适用旧例外"
+  ],
+  "final_targeted_evidence": "r2-targeted-12.txt",
+  "targeted_passed": 49,
+  "production_sha256": "0907c35cf4ee98254ac0a598f924d7b757b4aaf29cc24d1ac1d3f234d5e65217",
+  "final_decision_text": "DECISION = CONTINUE\n\nRISKS =\n\n1. 已关闭本轮已识别的冻结阻塞：Optional模型合法子字段与声音参数现在分别保护；首次及恢复均拒绝连带篡改，未新增修复提交或生成正式Plan。\n2. 已核对新增回归及49 PASS记录。本结论仅认可确定性软件合同，不代表真实模型语义可靠性、服务加载或E2E通过。\n3. 最近修改后的全量回归及现场摘要对账仍须由Main完成；既有历史FAIL继续保留。\n\nMINIMUM_CORRECTION =\n\n无新增代码修正要求。完成最新版本全量回归和现场对账，结果通过后可按授权冻结R批软件版本。"
+}

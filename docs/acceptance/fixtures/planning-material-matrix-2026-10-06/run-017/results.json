@@ -1,0 +1,1526 @@
+{
+  "schema": "easel-planning-material-matrix@1",
+  "pytest_exit_status": 0,
+  "case_count": 53,
+  "counts": {
+    "PASS": 53,
+    "FAIL": 0,
+    "CONTRACT_GAP": 0,
+    "NOT_EXECUTED": 0
+  },
+  "cases": [
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_01_canonical_wrapper",
+      "duration_seconds": 0.011620416189543903,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "历史 wrapper 与 canonical 合同等价；7视觉与4声音完整保留",
+      "basis": "第一轮原字节 fixture；正式 visual sidecar 合同",
+      "actual": [
+        {
+          "label": "contracts / all needs",
+          "actual": {
+            "visual": 7,
+            "all": 11
+          }
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_02_missing_visual_clause",
+      "duration_seconds": 0.015373915899544954,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "required 原文漏项与 optional 视觉 ID 漏项均拒绝",
+      "basis": "全部视觉 ID 与原文完整覆盖，不降低 required",
+      "actual": [
+        {
+          "label": "missing_visual",
+          "actual": "rejected; source unchanged"
+        },
+        {
+          "label": "missing_required",
+          "actual": "rejected; source unchanged"
+        },
+        {
+          "label": "partial_preference",
+          "actual": "rejected; source unchanged"
+        },
+        {
+          "label": "whole required visual ID missing",
+          "actual": "rejected"
+        },
+        {
+          "label": "no required Need in Plan",
+          "actual": "rejected after one bounded fixture repair"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_03_duplicate_unknown",
+      "duration_seconds": 0.0024090000661090016,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "重复/未知 Need ID、重复 JSON 键、重复 Plan ID 拒绝",
+      "basis": "MaterialPlan.unique_need_ids；sidecar exact ID set",
+      "actual": [
+        {
+          "label": "duplicate",
+          "actual": "rejected"
+        },
+        {
+          "label": "unknown_need",
+          "actual": "rejected"
+        },
+        {
+          "label": "duplicate JSON / Plan ID",
+          "actual": "rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_04_source_binding",
+      "duration_seconds": 0.002534208004362881,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "错误 Attempt/冻结 refs/source path 拒绝",
+      "basis": "wrapper identity equality；literal source binding",
+      "actual": [
+        {
+          "label": "wrong_identity",
+          "actual": "rejected"
+        },
+        {
+          "label": "wrong_context",
+          "actual": "rejected"
+        },
+        {
+          "label": "unknown_path",
+          "actual": "rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_05_unicode_literal",
+      "duration_seconds": 0.022363040945492685,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "中文标点逐字绑定；兼容具名引号漂移不允许真实改词或漏引号",
+      "basis": "第一轮 wrapper 单向等长兼容；canonical literal spans",
+      "actual": [
+        {
+          "label": "need types / importance",
+          "actual": [
+            [
+              "image",
+              "image",
+              "required"
+            ]
+          ]
+        },
+        {
+          "label": "visual contracts",
+          "actual": 1
+        },
+        {
+          "label": "canonical punctuation mutation",
+          "actual": "rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_06_path_alias_null",
+      "duration_seconds": 0.0024722079979255795,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "已定义 wrapper path/空引用适配；canonical 非法 alias、空/未知引用拒绝",
+      "basis": "normalize_planning_requirements 的具名兼容范围",
+      "actual": [
+        {
+          "label": "path:modality_spec/visual_style",
+          "actual": "rejected canonical variant"
+        },
+        {
+          "label": "preference_path:",
+          "actual": "rejected canonical variant"
+        },
+        {
+          "label": "preference_path:unknown",
+          "actual": "rejected canonical variant"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_07_visual_only",
+      "duration_seconds": 0.000887123984284699,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "纯视觉 Plan 可编译，原 Need 不变",
+      "basis": "MaterialPlan / NeedCompiler / planning_contracts",
+      "actual": [
+        {
+          "label": "need types / importance",
+          "actual": [
+            [
+              "image",
+              "image",
+              "required"
+            ]
+          ]
+        },
+        {
+          "label": "visual contracts",
+          "actual": 1
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_08_visual_voice",
+      "duration_seconds": 0.0007925849640741944,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "visual + Voice 合法；Voice 参数不进入检索 filter 或 visual sidecar",
+      "basis": "canonical voice_delivery；模态职责",
+      "actual": [
+        {
+          "label": "need types / importance",
+          "actual": [
+            [
+              "image",
+              "image",
+              "required"
+            ],
+            [
+              "voice",
+              "audio",
+              "required"
+            ]
+          ]
+        },
+        {
+          "label": "visual contracts",
+          "actual": 1
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_09_visual_bgm",
+      "duration_seconds": 0.0007960419170558453,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "visual + BGM 合法；BGM 保留自身偏好及 no-vocals 检索语义",
+      "basis": "BgmNeedSpec / NeedCompiler",
+      "actual": [
+        {
+          "label": "need types / importance",
+          "actual": [
+            [
+              "image",
+              "image",
+              "required"
+            ],
+            [
+              "bgm",
+              "audio",
+              "required"
+            ]
+          ]
+        },
+        {
+          "label": "visual contracts",
+          "actual": 1
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_10_mixed_modalities",
+      "duration_seconds": 0.00100883306004107,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "image/video/Voice/BGM/SFX 与 required/optional 完整保留；audio 不进 canonical visual map",
+      "basis": "Material V1.3 模态边界；optional 不删除",
+      "actual": [
+        {
+          "label": "need types / importance",
+          "actual": [
+            [
+              "image",
+              "image",
+              "required"
+            ],
+            [
+              "video",
+              "video",
+              "optional"
+            ],
+            [
+              "voice",
+              "audio",
+              "required"
+            ],
+            [
+              "bgm",
+              "audio",
+              "required"
+            ],
+            [
+              "sfx",
+              "audio",
+              "required"
+            ]
+          ]
+        },
+        {
+          "label": "visual contracts",
+          "actual": 2
+        },
+        {
+          "label": "audio ID in canonical visual map",
+          "actual": "rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_11_clause_kinds",
+      "duration_seconds": 0.001808792818337679,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "四类职责分离；明确源动作不得交后期；unresolved 不提交观察",
+      "basis": "visual_contract.validate_compilation / batches",
+      "actual": [
+        {
+          "label": "explicit preference promoted to required",
+          "actual": "rejected"
+        },
+        {
+          "label": "unresolved / dynamic action",
+          "actual": "blocked before observation"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_12_query_metadata",
+      "duration_seconds": 0.03850483393762261,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "查询元数据不进入视觉原文；已定义查询对象不进入硬 filters；未知 provider/ranking 协议单列",
+      "basis": "QUERY_FIELDS / canonical retrieval metadata contract",
+      "actual": [
+        {
+          "label": "retrieval filters",
+          "actual": {
+            "media_type": "image",
+            "required_source_kind": "stock",
+            "usage": "internal"
+          }
+        },
+        {
+          "label": "actual source receipt reuse",
+          "actual": "old query-as-filter receipt not selected; one native Supply search; valid new receipt reuses with zero extra Provider calls"
+        },
+        {
+          "label": "legacy query compatibility",
+          "actual": "discovery only; priority, invalid values and final sorting checked"
+        },
+        {
+          "label": "top-level provider/ranking",
+          "actual": "rejected; structured unknown constraints rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_13_mode_defaults",
+      "duration_seconds": 0.011870834045112133,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "仅视觉/仅声音/混合 Mode 的默认值在真实 persist 后按模态保留，与 producer cache 一致",
+      "basis": "PlanningIntegration.persist 的冻结 Mode 绑定",
+      "actual": [
+        {
+          "label": "mode 0",
+          "actual": {
+            "need_ids": [
+              "image",
+              "voice",
+              "bgm",
+              "sfx"
+            ],
+            "producer_consumer_key_equal": true
+          }
+        },
+        {
+          "label": "mode 1",
+          "actual": {
+            "need_ids": [
+              "image",
+              "voice",
+              "bgm",
+              "sfx"
+            ],
+            "producer_consumer_key_equal": true
+          }
+        },
+        {
+          "label": "mode 2",
+          "actual": {
+            "need_ids": [
+              "image",
+              "voice",
+              "bgm",
+              "sfx"
+            ],
+            "producer_consumer_key_equal": true
+          }
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_14_cache_consumer",
+      "duration_seconds": 0.18967845907900482,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "同轮合同零额外分类；legacy 重验可用；坏新 cache 不绕过",
+      "basis": "第一轮真实产物 producer→实际 observation consumer",
+      "actual": [
+        {
+          "label": "current",
+          "actual": "7 visual consumer checked; corrupt new cache rejected"
+        },
+        {
+          "label": "legacy",
+          "actual": "7 visual consumer checked; corrupt new cache rejected"
+        },
+        {
+          "label": "corrupt_current",
+          "actual": "7 visual consumer checked; corrupt new cache rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_15_revision_identity",
+      "duration_seconds": 0.009036624920554459,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "相关 Need/refs/Mode 输入变化使 cache 与正式 Plan revision 失效；不强制无关局部缓存失效",
+      "basis": "compilation_input / requirements_cache_key / plan_revision",
+      "actual": [
+        {
+          "label": "Need",
+          "actual": "new cache identity; old key not selected"
+        },
+        {
+          "label": "refs",
+          "actual": "new cache identity; old key not selected"
+        },
+        {
+          "label": "Mode",
+          "actual": "new cache identity; old key not selected"
+        },
+        {
+          "label": "policy-only revision",
+          "actual": "formal revision changes; unchanged local source contract may reuse"
+        },
+        {
+          "label": "actual persisted Planning load",
+          "actual": "changed Plan revision and changed SCRIPT bytes both rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_16_schema_modality",
+      "duration_seconds": 0.0006642909720540047,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "未知 modality、类型错配与额外 schema 包装拒绝",
+      "basis": "MaterialPlan / MaterialNeed canonical schema",
+      "actual": [
+        {
+          "label": "unknown / mismatch / wrapper",
+          "actual": "all rejected"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_17_historical_voice_object",
+      "duration_seconds": 0.0011604578467085958,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "第二轮真实跨模态对象提前拒绝，原件不变；合法 Voice 独立编译",
+      "basis": "第二轮 object 原字节及 canonical voice_delivery",
+      "actual": [
+        {
+          "label": "historical object plan",
+          "actual": "rejected before visual contract; canonical Voice accepted"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_18_historical_voice_alias",
+      "duration_seconds": 0.0009134580614045262,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "第二轮真实扁平别名全模态拒绝，原件不变",
+      "basis": "第二轮 final 原字节及 VOICE_ALIASES",
+      "actual": [
+        {
+          "label": "historical alias plan",
+          "actual": "rejected before consumer"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_19_voice_script_binding",
+      "duration_seconds": 0.005785499815829098,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "Voice 文稿引用/摘要必须配对；persist 绑定当前 SCRIPT、保持声音身份",
+      "basis": "VoiceNeedSpec pair validator / PlanningIntegration.persist",
+      "actual": [
+        {
+          "label": "second-run initial Planning archived JSON (serialized representation)",
+          "actual": "Voice text_ref without text_sha256 rejected by actual JSON Domain validator"
+        },
+        {
+          "label": "frozen Voice binding",
+          "actual": {
+            "kind": "voice",
+            "identity": {
+              "source": "director_intent",
+              "reference": "测试预置声音，不是实际调用",
+              "reference_asset_ids": [],
+              "consent_ref": null
+            },
+            "delivery_description": null,
+            "text_ref": "planning/SCRIPT.md",
+            "text_sha256": "cec48b31f9d9606dd1277e36ae015e375ce69810678766c0b3a3b4fae861eec2"
+          }
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_20_missing_sidecar",
+      "duration_seconds": 0.01748554199002683,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "新Planning缺sidecar单次修复，耗尽停止，不进入Supply",
+      "basis": "approved G2 product contract; old frozen compatibility covered by load",
+      "actual": [
+        {
+          "label": "missing sidecar",
+          "actual": "one durable repair; re-entry stops without another call; no supply"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_21_third_proposal_parse",
+      "duration_seconds": 0.016666667070239782,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "合法容器保留逐字正文，历史混排在容器内外均拒绝，合法台词不误拒",
+      "basis": "approved F1 @2 container and unchanged confirmed legacy contract",
+      "actual": [
+        {
+          "label": "proposal controls",
+          "actual": "voice/screen/no-copy/Unicode/CRLF and historical instruction variants checked"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_22_third_truth_freeze",
+      "duration_seconds": 0.023930124938488007,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "原 Truth 报告仅绑定原脚本，冻结稿需重写时停止；不冒充人工放行",
+      "basis": "第三轮真实 SHA-bound report / confirmed-plan protection",
+      "actual": [
+        {
+          "label": "actual stop",
+          "actual": {
+            "rewrite_required": 2,
+            "unresolved": 1,
+            "supply_calls": 0,
+            "fixture_gateway_calls": 1
+          }
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_23_frozen_prose",
+      "duration_seconds": 0.00205904187168926,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "未冻结错误草稿可归档恢复；冻结后任何真实改字必须拒绝，不覆盖现场",
+      "basis": "_restore_confirmed_planning frozen flag and atomic archive",
+      "actual": [
+        {
+          "label": "unfrozen restore / frozen tamper",
+          "actual": "archived then restored / rejected without overwrite"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_24_owner_supply_observation",
+      "duration_seconds": 0.45693250093609095,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "正常新测试 Creation 经真实确认、Owner、Preparation、Planning、persist、Supply、首轮 observation；无 Authoring",
+      "basis": "实际 web delivery dispatcher 与 MaterialProductOrchestrator；仅外部结果为 fixture",
+      "actual": [
+        {
+          "label": "v2 integrity and recovery",
+          "actual": "sidecar missing/tampered, downgrade and corrupt cache reject; missing cache rebuilds without model"
+        },
+        {
+          "label": "actual pipeline",
+          "actual": {
+            "operations": [
+              "prepare",
+              "observe_material"
+            ],
+            "gateway_fixture_calls": [
+              "preparation",
+              "planning",
+              "truth"
+            ],
+            "supply_calls": 1,
+            "observation_calls": 1,
+            "planning": {
+              "status": "PLANNING_READY",
+              "contract_version": 2,
+              "manifest_sha256": "dc88988db2b8ad7cd6d3acec4bb8a75136081726d991bdbb0025cc71e9b9c706",
+              "output_decision": {
+                "outcome": "ACCEPT",
+                "stage": "material",
+                "code": "validated_planning",
+                "field_path": null,
+                "input_sha256": null,
+                "policy_revision": "easel-material-planning@2"
+              },
+              "plan_id": "plan-7e82e2da99184af3ab95",
+              "plan_revision": "3892c6fd83ca21f6cac3859dd0e4f72462c567b3e6e8dff598903a28dfb1421d",
+              "manifest": "planning/manifest.json",
+              "truth_review_status": "PASSED",
+              "truth_ledger_locator": "planning/script-claims.json",
+              "truth_ledger_sha256": "6d44419b7884f463bf9ee796b0dd5267b05357b41e543343582ca51d13f0365a",
+              "script_sha256": "4c15097a8fe8c76344c44edba8cb78ebdfeb528bd9deb830701ba408616367a7",
+              "truth_packet_sha256": "ce8b9df3c787bf6ffe009ab421b36fe6ac63dfa7bd9f5e99f3bd90c9ea12a737",
+              "truth_claim_count": 2
+            },
+            "gate": "MATERIAL_NOT_READY"
+          }
+        },
+        {
+          "label": "completed prepare re-entry",
+          "actual": {
+            "supply_service_entries": 2,
+            "provider_searches_before_after": [
+              1,
+              1
+            ],
+            "acquisitions_before_after": [
+              1,
+              1
+            ],
+            "gateway_fixture_calls": [
+              "preparation",
+              "planning",
+              "truth"
+            ]
+          }
+        },
+        {
+          "label": "actual Provider query/filter boundary",
+          "actual": [
+            {
+              "need_id": "paper",
+              "semantic_queries": [
+                "paper",
+                "paper restrained low saturation everyday",
+                "white paper",
+                "paper desk"
+              ],
+              "filters": {
+                "media_type": "image",
+                "preferred_style": "restrained low saturation everyday"
+              },
+              "negative_terms": [],
+              "ranking_hints": {
+                "role": "visual",
+                "intent_description": "white paper"
+              },
+              "query_context": {
+                "scope_type": "scene",
+                "scope_ref": "scene-1",
+                "creative_mode_terms": "restrained low saturation everyday"
+              }
+            }
+          ]
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_25_structure_reentry",
+      "duration_seconds": 0.33606500003952533,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "pending/timeout/complete/failed 重入只恢复原请求；错误或草稿变化不新增额度",
+      "basis": "第二轮持久单次结构修复；同 run 对账边界",
+      "actual": [
+        {
+          "label": "valid",
+          "actual": "same durable request observed twice; complete/failed do not redispatch"
+        },
+        {
+          "label": "invalid",
+          "actual": "same durable request observed twice; complete/failed do not redispatch"
+        },
+        {
+          "label": "pending_valid",
+          "actual": "same durable request observed twice; complete/failed do not redispatch"
+        },
+        {
+          "label": "timeout",
+          "actual": "same durable request observed twice; complete/failed do not redispatch"
+        },
+        {
+          "label": "failed",
+          "actual": "same durable request observed twice; complete/failed do not redispatch"
+        },
+        {
+          "label": "native durable Gateway adapter + Owner next_operation",
+          "actual": "one agent submit; same-run waits; unrelated run/profile rejected; completed result reused; runtime released"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_26_semantic_owner_supply",
+      "duration_seconds": 0.33953470911365,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "正常新测试 Creation 经真实确认、Owner、Preparation、Planning、persist、Supply、首轮 observation；无 Authoring",
+      "basis": "实际 web delivery dispatcher 与 MaterialProductOrchestrator；仅外部结果为 fixture",
+      "actual": [
+        {
+          "label": "v2 integrity and recovery",
+          "actual": "sidecar missing/tampered, downgrade and corrupt cache reject; missing cache rebuilds without model"
+        },
+        {
+          "label": "actual pipeline",
+          "actual": {
+            "operations": [
+              "prepare",
+              "observe_material"
+            ],
+            "gateway_fixture_calls": [
+              "preparation",
+              "planning",
+              "classification",
+              "truth"
+            ],
+            "supply_calls": 1,
+            "observation_calls": 1,
+            "planning": {
+              "status": "PLANNING_READY",
+              "contract_version": 3,
+              "manifest_sha256": "cb5c6524d7711aeab5bb1883713719b5297c0ebe8c17bffd92e808ab9ea6245d",
+              "output_decision": {
+                "outcome": "ACCEPT",
+                "stage": "material",
+                "code": "validated_planning",
+                "field_path": null,
+                "input_sha256": null,
+                "policy_revision": "easel-material-planning@3"
+              },
+              "plan_id": "plan-1d2f9ad95a11129cc32be85b401d5eb5",
+              "plan_revision": "686bc47553ce1b1ae75dd34ed7e67dfe599fc5305e8150c3db4f5103fd44c9cf",
+              "manifest": "planning/manifest.json",
+              "truth_review_status": "PASSED",
+              "truth_ledger_locator": "planning/script-claims.json",
+              "truth_ledger_sha256": "c10fb0afa674a49b7706dfaf3b9ede5ec5b13a68ea9a226ceb5abbcd3069ee92",
+              "script_sha256": "4c15097a8fe8c76344c44edba8cb78ebdfeb528bd9deb830701ba408616367a7",
+              "truth_packet_sha256": "ce8b9df3c787bf6ffe009ab421b36fe6ac63dfa7bd9f5e99f3bd90c9ea12a737",
+              "truth_claim_count": 2
+            },
+            "gate": "MATERIAL_NOT_READY"
+          }
+        },
+        {
+          "label": "completed prepare re-entry",
+          "actual": {
+            "supply_service_entries": 2,
+            "provider_searches_before_after": [
+              1,
+              1
+            ],
+            "acquisitions_before_after": [
+              1,
+              1
+            ],
+            "gateway_fixture_calls": [
+              "preparation",
+              "planning",
+              "classification",
+              "truth"
+            ]
+          }
+        },
+        {
+          "label": "actual Provider query/filter boundary",
+          "actual": [
+            {
+              "need_id": "need-1d2f9ad95a11129cc32be85b-000",
+              "semantic_queries": [
+                "paper",
+                "paper restrained low saturation everyday",
+                "white paper",
+                "paper desk"
+              ],
+              "filters": {
+                "media_type": "image",
+                "preferred_style": "restrained low saturation everyday"
+              },
+              "negative_terms": [],
+              "ranking_hints": {
+                "role": "visual",
+                "intent_description": "white paper"
+              },
+              "query_context": {
+                "scope_type": "scene",
+                "scope_ref": "scene-1",
+                "creative_mode_terms": "restrained low saturation everyday"
+              }
+            }
+          ]
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_27_semantic_independent_oracle_and_history",
+      "duration_seconds": 0.006606748909689486,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "四轮历史错误保留；新协议无损来源及分类由独立答案核对",
+      "basis": "R0真实失败原件及人工固定预期，不由sources_for生成答案",
+      "actual": [
+        {
+          "label": "independent oracle",
+          "actual": "原文/required/preference/postproduction固定核对；16运输/关系负例拒绝，无供应副作用"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_28_semantic_native_commit_and_copy",
+      "duration_seconds": 0.11701649997849017,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "v3正式持久化/load、重入零调用、草稿/快照损坏拒绝、副本绑定新身份",
+      "basis": "真实PlanningIntegration与checkpoint复制工具",
+      "actual": [
+        {
+          "label": "model boundary calls",
+          "actual": 2
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_29_semantic_one_shared_repair[A]",
+      "duration_seconds": 0.04919849906582385,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "A或B单次修复；完成响应重入不新增请求",
+      "basis": "同一Attempt共享持久修复预算",
+      "actual": [
+        {
+          "label": "stage/session identities",
+          "actual": [
+            {
+              "stage": "planning",
+              "session": "semantic-fa_651c3c73ad35992c0ce3552fbf72287e-A",
+              "message": "〔Easel Semantic Planning V3〕\nAttempt workspace: /private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/pytest-of-xgx/pytest-1193/test_29_semantic_one_shared_re0/hypit/workspaces/cr_5774303e13a94112aa8156e0e4b99c63/fa_651c3c73ad35992c0ce3552fbf72287e\n只交一份语义草稿，程序负责正式Plan/NeedID/身份/来源/sidecar；不输出派生字段。读取本工作区冻结handoff及Creator/Director依据；scope仅选择下列catalog。queries交三个不同英文短语；正文/场景/声音保持确认原意，required不能遗漏或降级；不调用供应/生成/Hypit。只写 /private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/pytest-of-xgx/pytest-1193/test_29_semantic_one_shared_re0/hypit/workspaces/cr_5774303e13a94112aa8156e0e4b99c63/fa_651c3c73ad35992c0ce3552fbf72287e/planning/SEMANTIC_PLAN.json\n{\"schema\": {\"$defs\": {\"BgmNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"bgm\", \"default\": \"bgm\", \"title\": \"Kind\", \"type\": \"string\"}, \"mood\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Mood\"}, \"genre\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Genre\"}, \"instruments\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Instruments\", \"type\": \"array\"}, \"vocals_allowed\": {\"default\": false, \"title\": \"Vocals Allowed\", \"type\": \"boolean\"}, \"energy\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Energy\"}, \"tempo_bpm\": {\"anyOf\": [{\"maxItems\": 2, \"minItems\": 2, \"prefixItems\": [{\"type\": \"integer\"}, {\"type\": \"integer\"}], \"type\": \"array\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Tempo Bpm\"}}, \"title\": \"BgmNeedSpec\", \"type\": \"object\"}, \"ContinuityRef\": {\"additionalProperties\": false, \"description\": \"A stable upstream identity consumed by matching, not created here.\", \"properties\": {\"kind\": {\"minLength\": 1, \"title\": \"Kind\", \"type\": \"string\"}, \"ref\": {\"minLength\": 1, \"title\": \"Ref\", \"type\": \"string\"}}, \"required\": [\"kind\", \"ref\"], \"title\": \"ContinuityRef\", \"type\": \"object\"}, \"DurationHint\": {\"additionalProperties\": false, \"properties\": {\"target_seconds\": {\"exclusiveMinimum\": 0, \"title\": \"Target Seconds\", \"type\": \"number\"}}, \"required\": [\"target_seconds\"], \"title\": \"DurationHint\", \"type\": \"object\"}, \"ImageNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"image\", \"default\": \"image\", \"title\": \"Kind\", \"type\": \"string\"}, \"aspect_ratio\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Aspect Ratio\"}, \"visual_style\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Visual Style\"}, \"reference_asset_ids\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Reference Asset Ids\", \"type\": \"array\"}}, \"title\": \"ImageNeedSpec\", \"type\": \"object\"}, \"NeedImportance\": {\"enum\": [\"required\", \"optional\"], \"title\": \"NeedImportance\", \"type\": \"string\"}, \"NeedIntent\": {\"additionalProperties\": false, \"properties\": {\"description\": {\"minLength\": 1, \"title\": \"Description\", \"type\": \"string\"}, \"function\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Function\"}}, \"required\": [\"description\"], \"title\": \"NeedIntent\", \"type\": \"object\"}, \"NeedScope\": {\"additionalProperties\": false, \"properties\": {\"type\": {\"$ref\": \"#/$defs/NeedScopeType\"}, \"ref\": {\"minLength\": 1, \"title\": \"Ref\", \"type\": \"string\"}}, \"required\": [\"type\", \"ref\"], \"title\": \"NeedScope\", \"type\": \"object\"}, \"NeedScopeType\": {\"enum\": [\"global\", \"scene\", \"segment\", \"event\"], \"title\": \"NeedScopeType\", \"type\": \"string\"}, \"SemanticNeed\": {\"additionalProperties\": false, \"properties\": {\"scope\": {\"$ref\": \"#/$defs/NeedScope\"}, \"role\": {\"minLength\": 1, \"title\": \"Role\", \"type\": \"string\"}, \"intent\": {\"$ref\": \"#/$defs/NeedIntent\"}, \"importance\": {\"$ref\": \"#/$defs/NeedImportance\"}, \"duration_hint\": {\"anyOf\": [{\"$ref\": \"#/$defs/DurationHint\"}, {\"type\": \"null\"}], \"default\": null}, \"desired_options\": {\"default\": 1, \"minimum\": 1, \"title\": \"Desired Options\", \"type\": \"integer\"}, \"continuity_refs\": {\"default\": [], \"items\": {\"$ref\": \"#/$defs/ContinuityRef\"}, \"title\": \"Continuity Refs\", \"type\": \"array\"}, \"constraints\": {\"additionalProperties\": true, \"title\": \"Constraints\", \"type\": \"object\"}, \"queries\": {\"items\": {\"type\": \"string\"}, \"title\": \"Queries\", \"type\": \"array\"}, \"modality_spec\": {\"discriminator\": {\"mapping\": {\"bgm\": \"#/$defs/BgmNeedSpec\", \"image\": \"#/$defs/ImageNeedSpec\", \"sfx\": \"#/$defs/SfxNeedSpec\", \"video\": \"#/$defs/VideoNeedSpec\", \"voice\": \"#/$defs/SemanticVoiceSpec\"}, \"propertyName\": \"kind\"}, \"oneOf\": [{\"$ref\": \"#/$defs/ImageNeedSpec\"}, {\"$ref\": \"#/$defs/VideoNeedSpec\"}, {\"$ref\": \"#/$defs/SemanticVoiceSpec\"}, {\"$ref\": \"#/$defs/BgmNeedSpec\"}, {\"$ref\": \"#/$defs/SfxNeedSpec\"}], \"title\": \"Modality Spec\"}}, \"required\": [\"scope\", \"role\", \"intent\", \"importance\", \"modality_spec\"], \"title\": \"SemanticNeed\", \"type\": \"object\"}, \"SemanticVoiceSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"voice\", \"default\": \"voice\", \"title\": \"Kind\", \"type\": \"string\"}, \"identity\": {\"$ref\": \"#/$defs/VoiceIdentityRef\"}, \"delivery_description\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Delivery Description\"}}, \"required\": [\"identity\"], \"title\": \"SemanticVoiceSpec\", \"type\": \"object\"}, \"SfxNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"sfx\", \"default\": \"sfx\", \"title\": \"Kind\", \"type\": \"string\"}, \"event_description\": {\"minLength\": 1, \"title\": \"Event Description\", \"type\": \"string\"}, \"sound_character\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Sound Character\"}, \"intensity\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Intensity\"}, \"environment\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Environment\"}}, \"required\": [\"event_description\"], \"title\": \"SfxNeedSpec\", \"type\": \"object\"}, \"VideoNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"video\", \"default\": \"video\", \"title\": \"Kind\", \"type\": \"string\"}, \"aspect_ratio\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Aspect Ratio\"}, \"resolution\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Resolution\"}, \"generate_audio\": {\"default\": false, \"title\": \"Generate Audio\", \"type\": \"boolean\"}, \"reference_asset_ids\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Reference Asset Ids\", \"type\": \"array\"}}, \"title\": \"VideoNeedSpec\", \"type\": \"object\"}, \"VoiceIdentityRef\": {\"additionalProperties\": false, \"properties\": {\"source\": {\"$ref\": \"#/$defs/VoiceIdentitySource\"}, \"reference\": {\"minLength\": 1, \"title\": \"Reference\", \"type\": \"string\"}, \"reference_asset_ids\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Reference Asset Ids\", \"type\": \"array\"}, \"consent_ref\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Consent Ref\"}}, \"required\": [\"source\", \"reference\"], \"title\": \"VoiceIdentityRef\", \"type\": \"object\"}, \"VoiceIdentitySource\": {\"enum\": [\"creator_context\", \"director_intent\", \"explicit_user\"], \"title\": \"VoiceIdentitySource\", \"type\": \"string\"}}, \"additionalProperties\": false, \"properties\": {\"schema\": {\"const\": \"semantic-planning-draft@1\", \"title\": \"Schema\", \"type\": \"string\"}, \"policy\": {\"additionalProperties\": {\"type\": \"string\"}, \"title\": \"Policy\", \"type\": \"object\"}, \"needs\": {\"items\": {\"$ref\": \"#/$defs/SemanticNeed\"}, \"minItems\": 1, \"title\": \"Needs\", \"type\": \"array\"}}, \"required\": [\"schema\", \"needs\"], \"title\": \"SemanticPlanningDraft\", \"type\": \"object\"}, \"confirmed\": {\"SCRIPT.md\": \"先看问题。\\r\\n再做决定。\", \"SCENES.md\": \"桌上的两张白纸。\", \"TREATMENT.md\": \"暂停观察。\"}, \"catalog\": {\"global\": {\"global\": \"桌上的两张白纸。\"}, \"scene\": {\"scene-1\": \"桌上的两张白纸。\"}, \"segment\": {\"segment-1\": \"桌上的两张白纸。\"}, \"event\": {\"event-1\": \"桌上的两张白纸。\"}, \"continuity\": {}, \"voice\": {}}, \"context_refs\": {\"creative_mode_sha256\": \"sha256:fc20df4d08611497bf9bf7af5c67172241b7c1848cb90a7ebd576a3dabef01e7\"}}"
+            },
+            {
+              "stage": "structure_repair",
+              "session": "semantic-fa_651c3c73ad35992c0ce3552fbf72287e-repair",
+              "message": "〔Easel Planning V3 单次语义合同修正〕\n阶段：A\n保留全部有效Need语义、模态、importance与冻结正文；只修下列错误；不能删除要求。只写指定输出，不写正式Plan/sidecar，不调用供应/生成/Hypit。\n{\"issues\": [{\"field\": \"invented_id\", \"code\": \"extra_forbidden\", \"message\": \"Extra inputs are not permitted\"}], \"targets\": [\"SEMANTIC_PLAN.json\"], \"context\": {\"schema\": {\"$defs\": {\"BgmNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"bgm\", \"default\": \"bgm\", \"title\": \"Kind\", \"type\": \"string\"}, \"mood\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Mood\"}, \"genre\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Genre\"}, \"instruments\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Instruments\", \"type\": \"array\"}, \"vocals_allowed\": {\"default\": false, \"title\": \"Vocals Allowed\", \"type\": \"boolean\"}, \"energy\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Energy\"}, \"tempo_bpm\": {\"anyOf\": [{\"maxItems\": 2, \"minItems\": 2, \"prefixItems\": [{\"type\": \"integer\"}, {\"type\": \"integer\"}], \"type\": \"array\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Tempo Bpm\"}}, \"title\": \"BgmNeedSpec\", \"type\": \"object\"}, \"ContinuityRef\": {\"additionalProperties\": false, \"description\": \"A stable upstream identity consumed by matching, not created here.\", \"properties\": {\"kind\": {\"minLength\": 1, \"title\": \"Kind\", \"type\": \"string\"}, \"ref\": {\"minLength\": 1, \"title\": \"Ref\", \"type\": \"string\"}}, \"required\": [\"kind\", \"ref\"], \"title\": \"ContinuityRef\", \"type\": \"object\"}, \"DurationHint\": {\"additionalProperties\": false, \"properties\": {\"target_seconds\": {\"exclusiveMinimum\": 0, \"title\": \"Target Seconds\", \"type\": \"number\"}}, \"required\": [\"target_seconds\"], \"title\": \"DurationHint\", \"type\": \"object\"}, \"ImageNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"image\", \"default\": \"image\", \"title\": \"Kind\", \"type\": \"string\"}, \"aspect_ratio\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Aspect Ratio\"}, \"visual_style\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Visual Style\"}, \"reference_asset_ids\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Reference Asset Ids\", \"type\": \"array\"}}, \"title\": \"ImageNeedSpec\", \"type\": \"object\"}, \"NeedImportance\": {\"enum\": [\"required\", \"optional\"], \"title\": \"NeedImportance\", \"type\": \"string\"}, \"NeedIntent\": {\"additionalProperties\": false, \"properties\": {\"description\": {\"minLength\": 1, \"title\": \"Description\", \"type\": \"string\"}, \"function\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Function\"}}, \"required\": [\"description\"], \"title\": \"NeedIntent\", \"type\": \"object\"}, \"NeedScope\": {\"additionalProperties\": false, \"properties\": {\"type\": {\"$ref\": \"#/$defs/NeedScopeType\"}, \"ref\": {\"minLength\": 1, \"title\": \"Ref\", \"type\": \"string\"}}, \"required\": [\"type\", \"ref\"], \"title\": \"NeedScope\", \"type\": \"object\"}, \"NeedScopeType\": {\"enum\": [\"global\", \"scene\", \"segment\", \"event\"], \"title\": \"NeedScopeType\", \"type\": \"string\"}, \"SemanticNeed\": {\"additionalProperties\": false, \"properties\": {\"scope\": {\"$ref\": \"#/$defs/NeedScope\"}, \"role\": {\"minLength\": 1, \"title\": \"Role\", \"type\": \"string\"}, \"intent\": {\"$ref\": \"#/$defs/NeedIntent\"}, \"importance\": {\"$ref\": \"#/$defs/NeedImportance\"}, \"duration_hint\": {\"anyOf\": [{\"$ref\": \"#/$defs/DurationHint\"}, {\"type\": \"null\"}], \"default\": null}, \"desired_options\": {\"default\": 1, \"minimum\": 1, \"title\": \"Desired Options\", \"type\": \"integer\"}, \"continuity_refs\": {\"default\": [], \"items\": {\"$ref\": \"#/$defs/ContinuityRef\"}, \"title\": \"Continuity Refs\", \"type\": \"array\"}, \"constraints\": {\"additionalProperties\": true, \"title\": \"Constraints\", \"type\": \"object\"}, \"queries\": {\"items\": {\"type\": \"string\"}, \"title\": \"Queries\", \"type\": \"array\"}, \"modality_spec\": {\"discriminator\": {\"mapping\": {\"bgm\": \"#/$defs/BgmNeedSpec\", \"image\": \"#/$defs/ImageNeedSpec\", \"sfx\": \"#/$defs/SfxNeedSpec\", \"video\": \"#/$defs/VideoNeedSpec\", \"voice\": \"#/$defs/SemanticVoiceSpec\"}, \"propertyName\": \"kind\"}, \"oneOf\": [{\"$ref\": \"#/$defs/ImageNeedSpec\"}, {\"$ref\": \"#/$defs/VideoNeedSpec\"}, {\"$ref\": \"#/$defs/SemanticVoiceSpec\"}, {\"$ref\": \"#/$defs/BgmNeedSpec\"}, {\"$ref\": \"#/$defs/SfxNeedSpec\"}], \"title\": \"Modality Spec\"}}, \"required\": [\"scope\", \"role\", \"intent\", \"importance\", \"modality_spec\"], \"title\": \"SemanticNeed\", \"type\": \"object\"}, \"SemanticVoiceSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"voice\", \"default\": \"voice\", \"title\": \"Kind\", \"type\": \"string\"}, \"identity\": {\"$ref\": \"#/$defs/VoiceIdentityRef\"}, \"delivery_description\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Delivery Description\"}}, \"required\": [\"identity\"], \"title\": \"SemanticVoiceSpec\", \"type\": \"object\"}, \"SfxNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"sfx\", \"default\": \"sfx\", \"title\": \"Kind\", \"type\": \"string\"}, \"event_description\": {\"minLength\": 1, \"title\": \"Event Description\", \"type\": \"string\"}, \"sound_character\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Sound Character\"}, \"intensity\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Intensity\"}, \"environment\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Environment\"}}, \"required\": [\"event_description\"], \"title\": \"SfxNeedSpec\", \"type\": \"object\"}, \"VideoNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"video\", \"default\": \"video\", \"title\": \"Kind\", \"type\": \"string\"}, \"aspect_ratio\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Aspect Ratio\"}, \"resolution\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Resolution\"}, \"generate_audio\": {\"default\": false, \"title\": \"Generate Audio\", \"type\": \"boolean\"}, \"reference_asset_ids\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Reference Asset Ids\", \"type\": \"array\"}}, \"title\": \"VideoNeedSpec\", \"type\": \"object\"}, \"VoiceIdentityRef\": {\"additionalProperties\": false, \"properties\": {\"source\": {\"$ref\": \"#/$defs/VoiceIdentitySource\"}, \"reference\": {\"minLength\": 1, \"title\": \"Reference\", \"type\": \"string\"}, \"reference_asset_ids\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Reference Asset Ids\", \"type\": \"array\"}, \"consent_ref\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Consent Ref\"}}, \"required\": [\"source\", \"reference\"], \"title\": \"VoiceIdentityRef\", \"type\": \"object\"}, \"VoiceIdentitySource\": {\"enum\": [\"creator_context\", \"director_intent\", \"explicit_user\"], \"title\": \"VoiceIdentitySource\", \"type\": \"string\"}}, \"additionalProperties\": false, \"properties\": {\"schema\": {\"const\": \"semantic-planning-draft@1\", \"title\": \"Schema\", \"type\": \"string\"}, \"policy\": {\"additionalProperties\": {\"type\": \"string\"}, \"title\": \"Policy\", \"type\": \"object\"}, \"needs\": {\"items\": {\"$ref\": \"#/$defs/SemanticNeed\"}, \"minItems\": 1, \"title\": \"Needs\", \"type\": \"array\"}}, \"required\": [\"schema\", \"needs\"], \"title\": \"SemanticPlanningDraft\", \"type\": \"object\"}, \"catalog\": {\"global\": {\"global\": \"桌上的两张白纸。\"}, \"scene\": {\"scene-1\": \"桌上的两张白纸。\"}, \"segment\": {\"segment-1\": \"桌上的两张白纸。\"}, \"event\": {\"event-1\": \"桌上的两张白纸。\"}, \"continuity\": {}, \"voice\": {}}, \"original\": \"{\\n  \\\"invented_id\\\": \\\"not-allowed\\\",\\n  \\\"needs\\\": [\\n    {\\n      \\\"constraints\\\": {\\n        \\\"preferred_visual_details\\\": \\\"暖光。\\\"\\n      },\\n      \\\"importance\\\": \\\"required\\\",\\n      \\\"intent\\\": {\\n        \\\"description\\\": \\\"两张白纸放在桌上。\\\",\\n        \\\"function\\\": \\\"让观众先看问题。\\\"\\n      },\\n      \\\"modality_spec\\\": {\\n        \\\"kind\\\": \\\"image\\\"\\n      },\\n      \\\"queries\\\": [\\n        \\\"white paper desk\\\",\\n        \\\"two sheets table\\\",\\n        \\\"paper documents room\\\"\\n      ],\\n      \\\"role\\\": \\\"visual\\\",\\n      \\\"scope\\\": {\\n        \\\"ref\\\": \\\"scene-1\\\",\\n        \\\"type\\\": \\\"scene\\\"\\n      }\\n    }\\n  ],\\n  \\\"schema\\\": \\\"semantic-planning-draft@1\\\"\\n}\\n\"}}"
+            },
+            {
+              "stage": "planning",
+              "session": "semantic-fa_651c3c73ad35992c0ce3552fbf72287e-B0",
+              "message": "〔Easel Planning V3 单元分类〕\n只分类程序提供的unit ID，完整按序各一次，不返回path/text/offset/Need映射/query。必要主体/数量/禁令/源动作保持required；明确软偏好不能升级，叙事用途/后期为postproduction；有歧义返回unresolved。偏好引用只能用所属context.preferences中的id。只写 /private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/pytest-of-xgx/pytest-1193/test_29_semantic_one_shared_re0/hypit/workspaces/cr_5774303e13a94112aa8156e0e4b99c63/fa_651c3c73ad35992c0ce3552fbf72287e/planning/CLASSIFICATIONS-000.json\nJSON:{\"classifications\":[{\"id\":0,\"kind\":\"required\",\"preference_source\":null}]}\n{\"units\": [{\"id\": 0, \"need\": \"need-5f7f5fe9dd92af9d0ab376c2-000\", \"local_id\": 0, \"text\": \"两张白纸放在桌上。\", \"source\": 0}, {\"id\": 1, \"need\": \"need-5f7f5fe9dd92af9d0ab376c2-000\", \"local_id\": 1, \"text\": \"让观众先看问题。\", \"source\": 1}], \"contexts\": {\"need-5f7f5fe9dd92af9d0ab376c2-000\": {\"input\": {\"revision\": \"visual-requirements@1\", \"need_sha256\": \"ae1eb1295fab32113c6dd2ec93eabdad7ea44214562cd530f3fd314ab56a7d1d\", \"context_refs\": {\"creative_mode_sha256\": \"sha256:fc20df4d08611497bf9bf7af5c67172241b7c1848cb90a7ebd576a3dabef01e7\"}, \"mode\": {\"id\": \"clear_memo_video\", \"name\": \"清醒备忘录\", \"version\": \"1.0\", \"music_ducking\": {\"gain_ratio\": 0.25, \"attack_seconds\": 0.12, \"release_seconds\": 0.45}, \"routes\": [\"douyin-video\"]}, \"sources\": [{\"path\": \"intent/description\", \"text\": \"两张白纸放在桌上。\", \"preference\": false}, {\"path\": \"intent/function\", \"text\": \"让观众先看问题。\", \"preference\": false}, {\"path\": \"constraints/preferred_visual_details\", \"text\": \"暖光。\", \"preference\": true}], \"need\": {\"need_id\": \"need-5f7f5fe9dd92af9d0ab376c2-000\", \"scope\": {\"type\": \"scene\", \"ref\": \"scene-1\"}, \"media_type\": \"image\", \"role\": \"visual\", \"intent\": {\"description\": \"两张白纸放在桌上。\", \"function\": \"让观众先看问题。\"}, \"duration_hint\": null, \"constraints\": {\"preferred_visual_details\": \"暖光。\", \"search_query_variants_en\": {\"alternate\": \"two sheets table\", \"primary\": \"white paper desk\", \"relaxed\": \"paper documents room\"}}, \"continuity_refs\": [], \"importance\": \"required\", \"desired_options\": 1, \"contract_version\": \"material_need@1\", \"modality_spec\": {\"kind\": \"image\", \"aspect_ratio\": null, \"visual_style\": null, \"reference_asset_ids\": []}}}, \"preferences\": [{\"id\": 0, \"source\": 2, \"text\": \"暖光。\"}], \"pref_map\": {\"2\": 0}}}, \"batch_id\": \"5fd97b35f18df7c7473b61520ba358e7c7d9b48e702c02e4863fc33703e12817\"}"
+            }
+          ]
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_29_semantic_one_shared_repair[B]",
+      "duration_seconds": 0.04631220898590982,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "A或B单次修复；完成响应重入不新增请求",
+      "basis": "同一Attempt共享持久修复预算",
+      "actual": [
+        {
+          "label": "stage/session identities",
+          "actual": [
+            {
+              "stage": "planning",
+              "session": "semantic-fa_bb04f41cbba2d3070e3025da5dcf86b1-A",
+              "message": "〔Easel Semantic Planning V3〕\nAttempt workspace: /private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/pytest-of-xgx/pytest-1193/test_29_semantic_one_shared_re1/hypit/workspaces/cr_6dfb86bd242a42d6bbaf52353450f5ad/fa_bb04f41cbba2d3070e3025da5dcf86b1\n只交一份语义草稿，程序负责正式Plan/NeedID/身份/来源/sidecar；不输出派生字段。读取本工作区冻结handoff及Creator/Director依据；scope仅选择下列catalog。queries交三个不同英文短语；正文/场景/声音保持确认原意，required不能遗漏或降级；不调用供应/生成/Hypit。只写 /private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/pytest-of-xgx/pytest-1193/test_29_semantic_one_shared_re1/hypit/workspaces/cr_6dfb86bd242a42d6bbaf52353450f5ad/fa_bb04f41cbba2d3070e3025da5dcf86b1/planning/SEMANTIC_PLAN.json\n{\"schema\": {\"$defs\": {\"BgmNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"bgm\", \"default\": \"bgm\", \"title\": \"Kind\", \"type\": \"string\"}, \"mood\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Mood\"}, \"genre\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Genre\"}, \"instruments\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Instruments\", \"type\": \"array\"}, \"vocals_allowed\": {\"default\": false, \"title\": \"Vocals Allowed\", \"type\": \"boolean\"}, \"energy\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Energy\"}, \"tempo_bpm\": {\"anyOf\": [{\"maxItems\": 2, \"minItems\": 2, \"prefixItems\": [{\"type\": \"integer\"}, {\"type\": \"integer\"}], \"type\": \"array\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Tempo Bpm\"}}, \"title\": \"BgmNeedSpec\", \"type\": \"object\"}, \"ContinuityRef\": {\"additionalProperties\": false, \"description\": \"A stable upstream identity consumed by matching, not created here.\", \"properties\": {\"kind\": {\"minLength\": 1, \"title\": \"Kind\", \"type\": \"string\"}, \"ref\": {\"minLength\": 1, \"title\": \"Ref\", \"type\": \"string\"}}, \"required\": [\"kind\", \"ref\"], \"title\": \"ContinuityRef\", \"type\": \"object\"}, \"DurationHint\": {\"additionalProperties\": false, \"properties\": {\"target_seconds\": {\"exclusiveMinimum\": 0, \"title\": \"Target Seconds\", \"type\": \"number\"}}, \"required\": [\"target_seconds\"], \"title\": \"DurationHint\", \"type\": \"object\"}, \"ImageNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"image\", \"default\": \"image\", \"title\": \"Kind\", \"type\": \"string\"}, \"aspect_ratio\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Aspect Ratio\"}, \"visual_style\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Visual Style\"}, \"reference_asset_ids\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Reference Asset Ids\", \"type\": \"array\"}}, \"title\": \"ImageNeedSpec\", \"type\": \"object\"}, \"NeedImportance\": {\"enum\": [\"required\", \"optional\"], \"title\": \"NeedImportance\", \"type\": \"string\"}, \"NeedIntent\": {\"additionalProperties\": false, \"properties\": {\"description\": {\"minLength\": 1, \"title\": \"Description\", \"type\": \"string\"}, \"function\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Function\"}}, \"required\": [\"description\"], \"title\": \"NeedIntent\", \"type\": \"object\"}, \"NeedScope\": {\"additionalProperties\": false, \"properties\": {\"type\": {\"$ref\": \"#/$defs/NeedScopeType\"}, \"ref\": {\"minLength\": 1, \"title\": \"Ref\", \"type\": \"string\"}}, \"required\": [\"type\", \"ref\"], \"title\": \"NeedScope\", \"type\": \"object\"}, \"NeedScopeType\": {\"enum\": [\"global\", \"scene\", \"segment\", \"event\"], \"title\": \"NeedScopeType\", \"type\": \"string\"}, \"SemanticNeed\": {\"additionalProperties\": false, \"properties\": {\"scope\": {\"$ref\": \"#/$defs/NeedScope\"}, \"role\": {\"minLength\": 1, \"title\": \"Role\", \"type\": \"string\"}, \"intent\": {\"$ref\": \"#/$defs/NeedIntent\"}, \"importance\": {\"$ref\": \"#/$defs/NeedImportance\"}, \"duration_hint\": {\"anyOf\": [{\"$ref\": \"#/$defs/DurationHint\"}, {\"type\": \"null\"}], \"default\": null}, \"desired_options\": {\"default\": 1, \"minimum\": 1, \"title\": \"Desired Options\", \"type\": \"integer\"}, \"continuity_refs\": {\"default\": [], \"items\": {\"$ref\": \"#/$defs/ContinuityRef\"}, \"title\": \"Continuity Refs\", \"type\": \"array\"}, \"constraints\": {\"additionalProperties\": true, \"title\": \"Constraints\", \"type\": \"object\"}, \"queries\": {\"items\": {\"type\": \"string\"}, \"title\": \"Queries\", \"type\": \"array\"}, \"modality_spec\": {\"discriminator\": {\"mapping\": {\"bgm\": \"#/$defs/BgmNeedSpec\", \"image\": \"#/$defs/ImageNeedSpec\", \"sfx\": \"#/$defs/SfxNeedSpec\", \"video\": \"#/$defs/VideoNeedSpec\", \"voice\": \"#/$defs/SemanticVoiceSpec\"}, \"propertyName\": \"kind\"}, \"oneOf\": [{\"$ref\": \"#/$defs/ImageNeedSpec\"}, {\"$ref\": \"#/$defs/VideoNeedSpec\"}, {\"$ref\": \"#/$defs/SemanticVoiceSpec\"}, {\"$ref\": \"#/$defs/BgmNeedSpec\"}, {\"$ref\": \"#/$defs/SfxNeedSpec\"}], \"title\": \"Modality Spec\"}}, \"required\": [\"scope\", \"role\", \"intent\", \"importance\", \"modality_spec\"], \"title\": \"SemanticNeed\", \"type\": \"object\"}, \"SemanticVoiceSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"voice\", \"default\": \"voice\", \"title\": \"Kind\", \"type\": \"string\"}, \"identity\": {\"$ref\": \"#/$defs/VoiceIdentityRef\"}, \"delivery_description\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Delivery Description\"}}, \"required\": [\"identity\"], \"title\": \"SemanticVoiceSpec\", \"type\": \"object\"}, \"SfxNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"sfx\", \"default\": \"sfx\", \"title\": \"Kind\", \"type\": \"string\"}, \"event_description\": {\"minLength\": 1, \"title\": \"Event Description\", \"type\": \"string\"}, \"sound_character\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Sound Character\"}, \"intensity\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Intensity\"}, \"environment\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Environment\"}}, \"required\": [\"event_description\"], \"title\": \"SfxNeedSpec\", \"type\": \"object\"}, \"VideoNeedSpec\": {\"additionalProperties\": false, \"properties\": {\"kind\": {\"const\": \"video\", \"default\": \"video\", \"title\": \"Kind\", \"type\": \"string\"}, \"aspect_ratio\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Aspect Ratio\"}, \"resolution\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Resolution\"}, \"generate_audio\": {\"default\": false, \"title\": \"Generate Audio\", \"type\": \"boolean\"}, \"reference_asset_ids\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Reference Asset Ids\", \"type\": \"array\"}}, \"title\": \"VideoNeedSpec\", \"type\": \"object\"}, \"VoiceIdentityRef\": {\"additionalProperties\": false, \"properties\": {\"source\": {\"$ref\": \"#/$defs/VoiceIdentitySource\"}, \"reference\": {\"minLength\": 1, \"title\": \"Reference\", \"type\": \"string\"}, \"reference_asset_ids\": {\"default\": [], \"items\": {\"type\": \"string\"}, \"title\": \"Reference Asset Ids\", \"type\": \"array\"}, \"consent_ref\": {\"anyOf\": [{\"type\": \"string\"}, {\"type\": \"null\"}], \"default\": null, \"title\": \"Consent Ref\"}}, \"required\": [\"source\", \"reference\"], \"title\": \"VoiceIdentityRef\", \"type\": \"object\"}, \"VoiceIdentitySource\": {\"enum\": [\"creator_context\", \"director_intent\", \"explicit_user\"], \"title\": \"VoiceIdentitySource\", \"type\": \"string\"}}, \"additionalProperties\": false, \"properties\": {\"schema\": {\"const\": \"semantic-planning-draft@1\", \"title\": \"Schema\", \"type\": \"string\"}, \"policy\": {\"additionalProperties\": {\"type\": \"string\"}, \"title\": \"Policy\", \"type\": \"object\"}, \"needs\": {\"items\": {\"$ref\": \"#/$defs/SemanticNeed\"}, \"minItems\": 1, \"title\": \"Needs\", \"type\": \"array\"}}, \"required\": [\"schema\", \"needs\"], \"title\": \"SemanticPlanningDraft\", \"type\": \"object\"}, \"confirmed\": {\"SCRIPT.md\": \"先看问题。\\r\\n再做决定。\", \"SCENES.md\": \"桌上的两张白纸。\", \"TREATMENT.md\": \"暂停观察。\"}, \"catalog\": {\"global\": {\"global\": \"桌上的两张白纸。\"}, \"scene\": {\"scene-1\": \"桌上的两张白纸。\"}, \"segment\": {\"segment-1\": \"桌上的两张白纸。\"}, \"event\": {\"event-1\": \"桌上的两张白纸。\"}, \"continuity\": {}, \"voice\": {}}, \"context_refs\": {\"creative_mode_sha256\": \"sha256:fc20df4d08611497bf9bf7af5c67172241b7c1848cb90a7ebd576a3dabef01e7\"}}"
+            },
+            {
+              "stage": "planning",
+              "session": "semantic-fa_bb04f41cbba2d3070e3025da5dcf86b1-B0",
+              "message": "〔Easel Planning V3 单元分类〕\n只分类程序提供的unit ID，完整按序各一次，不返回path/text/offset/Need映射/query。必要主体/数量/禁令/源动作保持required；明确软偏好不能升级，叙事用途/后期为postproduction；有歧义返回unresolved。偏好引用只能用所属context.preferences中的id。只写 /private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/pytest-of-xgx/pytest-1193/test_29_semantic_one_shared_re1/hypit/workspaces/cr_6dfb86bd242a42d6bbaf52353450f5ad/fa_bb04f41cbba2d3070e3025da5dcf86b1/planning/CLASSIFICATIONS-000.json\nJSON:{\"classifications\":[{\"id\":0,\"kind\":\"required\",\"preference_source\":null}]}\n{\"units\": [{\"id\": 0, \"need\": \"need-ac9bdf6f8a017a169f14e556-000\", \"local_id\": 0, \"text\": \"两张白纸放在桌上。\", \"source\": 0}, {\"id\": 1, \"need\": \"need-ac9bdf6f8a017a169f14e556-000\", \"local_id\": 1, \"text\": \"让观众先看问题。\", \"source\": 1}], \"contexts\": {\"need-ac9bdf6f8a017a169f14e556-000\": {\"input\": {\"revision\": \"visual-requirements@1\", \"need_sha256\": \"38a45462e37e9a5695c1edd52640aac3ab6152a8adeb5b1f1d59ee36ad12f584\", \"context_refs\": {\"creative_mode_sha256\": \"sha256:fc20df4d08611497bf9bf7af5c67172241b7c1848cb90a7ebd576a3dabef01e7\"}, \"mode\": {\"id\": \"clear_memo_video\", \"name\": \"清醒备忘录\", \"version\": \"1.0\", \"music_ducking\": {\"gain_ratio\": 0.25, \"attack_seconds\": 0.12, \"release_seconds\": 0.45}, \"routes\": [\"douyin-video\"]}, \"sources\": [{\"path\": \"intent/description\", \"text\": \"两张白纸放在桌上。\", \"preference\": false}, {\"path\": \"intent/function\", \"text\": \"让观众先看问题。\", \"preference\": false}, {\"path\": \"constraints/preferred_visual_details\", \"text\": \"暖光。\", \"preference\": true}], \"need\": {\"need_id\": \"need-ac9bdf6f8a017a169f14e556-000\", \"scope\": {\"type\": \"scene\", \"ref\": \"scene-1\"}, \"media_type\": \"image\", \"role\": \"visual\", \"intent\": {\"description\": \"两张白纸放在桌上。\", \"function\": \"让观众先看问题。\"}, \"duration_hint\": null, \"constraints\": {\"preferred_visual_details\": \"暖光。\", \"search_query_variants_en\": {\"alternate\": \"two sheets table\", \"primary\": \"white paper desk\", \"relaxed\": \"paper documents room\"}}, \"continuity_refs\": [], \"importance\": \"required\", \"desired_options\": 1, \"contract_version\": \"material_need@1\", \"modality_spec\": {\"kind\": \"image\", \"aspect_ratio\": null, \"visual_style\": null, \"reference_asset_ids\": []}}}, \"preferences\": [{\"id\": 0, \"source\": 2, \"text\": \"暖光。\"}], \"pref_map\": {\"2\": 0}}}, \"batch_id\": \"43370d1acd1c97d65f9baf64eaf8dea1cf658a444e778aca4769f2033462481f\"}"
+            },
+            {
+              "stage": "structure_repair",
+              "session": "semantic-fa_bb04f41cbba2d3070e3025da5dcf86b1-repair",
+              "message": "〔Easel Planning V3 单次语义合同修正〕\n阶段：B\n保留全部有效Need语义、模态、importance与冻结正文；只修下列错误；不能删除要求。只写指定输出，不写正式Plan/sidecar，不调用供应/生成/Hypit。\n{\"issues\": [{\"field\": \"batches.0\", \"code\": \"contract_invalid\", \"message\": \"分类ID须完整按序且仅一次：[0, 1]\"}], \"targets\": [\"CLASSIFICATIONS-REPAIR.json\"], \"context\": {\"batches\": [{\"units\": [{\"id\": 0, \"need\": \"need-ac9bdf6f8a017a169f14e556-000\", \"local_id\": 0, \"text\": \"两张白纸放在桌上。\", \"source\": 0}, {\"id\": 1, \"need\": \"need-ac9bdf6f8a017a169f14e556-000\", \"local_id\": 1, \"text\": \"让观众先看问题。\", \"source\": 1}], \"contexts\": {\"need-ac9bdf6f8a017a169f14e556-000\": {\"input\": {\"revision\": \"visual-requirements@1\", \"need_sha256\": \"38a45462e37e9a5695c1edd52640aac3ab6152a8adeb5b1f1d59ee36ad12f584\", \"context_refs\": {\"creative_mode_sha256\": \"sha256:fc20df4d08611497bf9bf7af5c67172241b7c1848cb90a7ebd576a3dabef01e7\"}, \"mode\": {\"id\": \"clear_memo_video\", \"name\": \"清醒备忘录\", \"version\": \"1.0\", \"music_ducking\": {\"gain_ratio\": 0.25, \"attack_seconds\": 0.12, \"release_seconds\": 0.45}, \"routes\": [\"douyin-video\"]}, \"sources\": [{\"path\": \"intent/description\", \"text\": \"两张白纸放在桌上。\", \"preference\": false}, {\"path\": \"intent/function\", \"text\": \"让观众先看问题。\", \"preference\": false}, {\"path\": \"constraints/preferred_visual_details\", \"text\": \"暖光。\", \"preference\": true}], \"need\": {\"need_id\": \"need-ac9bdf6f8a017a169f14e556-000\", \"scope\": {\"type\": \"scene\", \"ref\": \"scene-1\"}, \"media_type\": \"image\", \"role\": \"visual\", \"intent\": {\"description\": \"两张白纸放在桌上。\", \"function\": \"让观众先看问题。\"}, \"duration_hint\": null, \"constraints\": {\"preferred_visual_details\": \"暖光。\", \"search_query_variants_en\": {\"alternate\": \"two sheets table\", \"primary\": \"white paper desk\", \"relaxed\": \"paper documents room\"}}, \"continuity_refs\": [], \"importance\": \"required\", \"desired_options\": 1, \"contract_version\": \"material_need@1\", \"modality_spec\": {\"kind\": \"image\", \"aspect_ratio\": null, \"visual_style\": null, \"reference_asset_ids\": []}}}, \"preferences\": [{\"id\": 0, \"source\": 2, \"text\": \"暖光。\"}], \"pref_map\": {\"2\": 0}}}, \"batch_id\": \"43370d1acd1c97d65f9baf64eaf8dea1cf658a444e778aca4769f2033462481f\", \"index\": 0}], \"responses\": [{\"classifications\": [{\"id\": 99, \"kind\": \"required\", \"preference_source\": null}, {\"id\": 1, \"kind\": \"postproduction\", \"preference_source\": null}]}], \"response_schema\": {\"batches\": [{\"index\": 0, \"classifications\": \"same schema/IDs as the original batch\"}]}}}"
+            }
+          ]
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_30_semantic_repair_cannot_rewrite[intent]",
+      "duration_seconds": 0.03969370911363512,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复不能改写有效语义，首次和重入持续拒绝",
+      "basis": "Astra具名重入绕过回归；独立合法字段对照",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 2
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_30_semantic_repair_cannot_rewrite[importance]",
+      "duration_seconds": 0.05156941700261086,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复不能改写有效语义，首次和重入持续拒绝",
+      "basis": "Astra具名重入绕过回归；独立合法字段对照",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 2
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_30_semantic_repair_cannot_rewrite[constraints]",
+      "duration_seconds": 0.039106707903556526,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复不能改写有效语义，首次和重入持续拒绝",
+      "basis": "Astra具名重入绕过回归；独立合法字段对照",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 2
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_30_semantic_repair_cannot_rewrite[modality_spec]",
+      "duration_seconds": 0.040061750914901495,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复不能改写有效语义，首次和重入持续拒绝",
+      "basis": "Astra具名重入绕过回归；独立合法字段对照",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 2
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_30_semantic_repair_cannot_rewrite[queries]",
+      "duration_seconds": 0.038717750110663474,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复不能改写有效语义，首次和重入持续拒绝",
+      "basis": "Astra具名重入绕过回归；独立合法字段对照",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 2
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_30_semantic_repair_cannot_rewrite[duration_hint]",
+      "duration_seconds": 0.03910700115375221,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复不能改写有效语义，首次和重入持续拒绝",
+      "basis": "Astra具名重入绕过回归；独立合法字段对照",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 2
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_31_semantic_pure_audio_and_mixed",
+      "duration_seconds": 0.05149749992415309,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "Voice/BGM/SFX正式持久化；纯声音B=0；混合保留模态且仅视觉sidecar",
+      "basis": "真实编译/默认绑定/persist/load；Voice来源与原字节摘要保护",
+      "actual": [
+        {
+          "label": "pure audio calls",
+          "actual": 1
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_32_semantic_exhausted_repair",
+      "duration_seconds": 0.05454575002659112,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "A已修复后B失败，不允许二次repair或半产物准入",
+      "basis": "整次Planning唯一持久额度，重入不刷新",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 3
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_33_semantic_durable_gateway[timeout]",
+      "duration_seconds": 0.06030687608290464,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "v3实际Gateway适配器中断保留原run/request，终态释放恢复；提交不重复",
+      "basis": "仅RPC边界替身，内部幂等/调用账本真实",
+      "actual": [
+        {
+          "label": "boundary",
+          "actual": "timeout recovered with exactly A/B two submits, same run SHA, runtime released"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_33_semantic_durable_gateway[release_pending]",
+      "duration_seconds": 0.0535156661644578,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "v3实际Gateway适配器中断保留原run/request，终态释放恢复；提交不重复",
+      "basis": "仅RPC边界替身，内部幂等/调用账本真实",
+      "actual": [
+        {
+          "label": "boundary",
+          "actual": "release_pending recovered with exactly A/B two submits, same run SHA, runtime released"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_34_semantic_multibatch",
+      "duration_seconds": 0.05419616703875363,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "跨批先完整汇合，optional保留；仅修失败批，成功批不改不重派",
+      "basis": "40+1固定原文单元，完整Need上下文及既有bind/validate",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 4
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_35_semantic_legacy_registration[ok]",
+      "duration_seconds": 0.06675012595951557,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "已有旧执行/产物/repair不登记v3，不刷新额度或认领旧结果",
+      "basis": "真实Preparation版本登记和旧Attempt隔离状态",
+      "actual": [
+        {
+          "label": "legacy preserved",
+          "actual": "ok"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_35_semantic_legacy_registration[error]",
+      "duration_seconds": 0.06558383291121572,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "已有旧执行/产物/repair不登记v3，不刷新额度或认领旧结果",
+      "basis": "真实Preparation版本登记和旧Attempt隔离状态",
+      "actual": [
+        {
+          "label": "legacy preserved",
+          "actual": "error"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_35_semantic_legacy_registration[release_pending]",
+      "duration_seconds": 0.06100137601606548,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "已有旧执行/产物/repair不登记v3，不刷新额度或认领旧结果",
+      "basis": "真实Preparation版本登记和旧Attempt隔离状态",
+      "actual": [
+        {
+          "label": "legacy preserved",
+          "actual": "release_pending"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_35_semantic_legacy_registration[artifact]",
+      "duration_seconds": 0.07870133500546217,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "已有旧执行/产物/repair不登记v3，不刷新额度或认领旧结果",
+      "basis": "真实Preparation版本登记和旧Attempt隔离状态",
+      "actual": [
+        {
+          "label": "legacy preserved",
+          "actual": "artifact"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_35_semantic_legacy_registration[repair]",
+      "duration_seconds": 0.07732641696929932,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "已有旧执行/产物/repair不登记v3，不刷新额度或认领旧结果",
+      "basis": "真实Preparation版本登记和旧Attempt隔离状态",
+      "actual": [
+        {
+          "label": "legacy preserved",
+          "actual": "repair"
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_36_semantic_repair_and_snapshot_protection[valid_child]",
+      "duration_seconds": 0.04704833391588181,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复合法子字段受保护，坏字段可修；冻结篡改和输入变化不复用旧响应",
+      "basis": "真实持久两阶段规划，修复与重入组合",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 2
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_36_semantic_repair_and_snapshot_protection[misplaced_audio]",
+      "duration_seconds": 0.050743874977342784,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复合法子字段受保护，坏字段可修；冻结篡改和输入变化不复用旧响应",
+      "basis": "真实持久两阶段规划，修复与重入组合",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 3
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_36_semantic_repair_and_snapshot_protection[invalid_importance]",
+      "duration_seconds": 0.04815449903253466,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复合法子字段受保护，坏字段可修；冻结篡改和输入变化不复用旧响应",
+      "basis": "真实持久两阶段规划，修复与重入组合",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 3
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_36_semantic_repair_and_snapshot_protection[tamper]",
+      "duration_seconds": 0.046147541026584804,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复合法子字段受保护，坏字段可修；冻结篡改和输入变化不复用旧响应",
+      "basis": "真实持久两阶段规划，修复与重入组合",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 2
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_36_semantic_repair_and_snapshot_protection[unknown]",
+      "duration_seconds": 0.05217741697560996,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复合法子字段受保护，坏字段可修；冻结篡改和输入变化不复用旧响应",
+      "basis": "真实持久两阶段规划，修复与重入组合",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 3
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_36_semantic_repair_and_snapshot_protection[optional_duration]",
+      "duration_seconds": 0.0399307090556249,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复合法子字段受保护，坏字段可修；冻结篡改和输入变化不复用旧响应",
+      "basis": "真实持久两阶段规划，修复与重入组合",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 2
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    },
+    {
+      "nodeid": "tests/planning_material_matrix/cases.py::test_36_semantic_repair_and_snapshot_protection[voice_parameter]",
+      "duration_seconds": 0.04099066602066159,
+      "phases": {
+        "setup": "passed",
+        "call": "passed",
+        "teardown": "passed"
+      },
+      "expected": "修复合法子字段受保护，坏字段可修；冻结篡改和输入变化不复用旧响应",
+      "basis": "真实持久两阶段规划，修复与重入组合",
+      "actual": [
+        {
+          "label": "calls",
+          "actual": 2
+        }
+      ],
+      "contract_gaps": [],
+      "forbidden_attempts": [],
+      "result": "PASS"
+    }
+  ]
+}

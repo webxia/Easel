@@ -725,18 +725,27 @@ def _prepare_creation_for_hypit_locked(
                 },
             }
             version = attempt.get('planning_contract_version')
-            if version not in {None, 2}: raise MaterialIntegrationError('Planning合同版本冲突')
-            pending = any(call.get('status') in {'submitting', 'pending'}
-                          for call in (work.get('delivery') or {}).get('agent_calls', {}).values()
-                          if call.get('session_key') == 'agent:main:material-planning-' + attempt['attempt_id'])
-            if version is None and not pending:
+            if version not in {None, 2, 3}: raise MaterialIntegrationError('Planning合同版本冲突')
+            legacy_calls = [call for call in (work.get('delivery') or {}).get('agent_calls', {}).values()
+                            if call.get('session_key') == 'agent:main:material-planning-' + attempt['attempt_id']]
+            pending = any(call.get('status') in {'submitting','pending'} or call.get('runtime_release')=='pending'
+                          for call in legacy_calls)
+            legacy_root = Path(attempt['workspace']['path'])
+            legacy_evidence = (legacy_calls or any((legacy_root/'planning'/name).exists()
+                for name in ('MATERIAL_PLAN.json','MATERIAL_REQUIREMENTS.json'))
+                or list((legacy_root/'materials/recoveries').glob('planning-structure-repair-*.json')))
+            if version is None and not legacy_evidence:
+                requested_version = getattr(planning_executor, 'planning_contract_version', 2)
+                if requested_version == 3 and ((work.get('delivery') or {}).get('video_plan') or {}).get('schema') != 'easel-video-proposal@2':
+                    # A frozen legacy confirmation stays on its original writer.
+                    requested_version = 2
                 attempt = service.update_film_attempt(attempt['attempt_id'], event='planning_contract_registered',
-                                                      planning_contract_version=2)
+                                                      planning_contract_version=requested_version)
             planning = planning_executor(attempt, planning_context)
             # The product executor reconciles a legacy writer before registering
             # v2. Never advance a custom executor that left its original run unknown.
             attempt = service.get_film_attempt(attempt['attempt_id'])
-            if pending and attempt.get('planning_contract_version') != 2:
+            if pending and attempt.get('planning_contract_version') not in {2,3}:
                 raise MaterialIntegrationError('旧Planning原请求尚未核实，不能推进素材')
         active_stage = "material"
         _update_preparation(creation_id, active_stage=active_stage)

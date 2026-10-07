@@ -1,0 +1,63 @@
+....................FFFFFF                                               [100%]
+=================================== FAILURES ===================================
+_ test_semantic_multibatch_merges_whole_need_and_optional_without_dropping_units _
+tests/test_semantic_planning.py:124: in test_semantic_multibatch_merges_whole_need_and_optional_without_dropping_units
+    plan=compile_input(d);batches=classification_batches(plan,{})
+                                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+easel/integrations/semantic_planning.py:170: in classification_batches
+    for unit in classification_units(frozen):
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+easel/materials/application/visual_contract.py:168: in classification_units
+    raise ValueError('原文分类单元超出有界合同；未派发或删减要求')
+E   ValueError: 原文分类单元超出有界合同；未派发或删减要求
+________ test_native_semantic_checkpoint_persistence_reentry_and_tamper ________
+tests/test_semantic_planning.py:165: in test_native_semantic_checkpoint_persistence_reentry_and_tamper
+    expected=result['plan'];assert rt['run']()['plan']==expected and len(rt['calls'])==2
+                                   ^^^^^^^^^^^
+tests/test_semantic_planning.py:156: in run
+    def run(dispatch=None):return run_semantic_planning(attempt,context,canonical,mode,
+easel/integrations/semantic_planning.py:385: in run_semantic_planning
+    raise SemanticPlanningError('B',[problem('snapshot','有效Need快照变化，旧分类不能复用')])
+E   easel.integrations.semantic_planning.SemanticPlanningError: {"stage": "B", "issues": [{"field": "snapshot", "code": "contract_invalid", "message": "有效Need快照变化，旧分类不能复用"}]}
+_ test_native_semantic_shared_repair_once_and_repeat_uses_original_request[A] __
+tests/test_semantic_planning.py:189: in test_native_semantic_shared_repair_once_and_repeat_uses_original_request
+    assert rt['run'](dispatch)['plan']==first['plan'] and len(rt['calls'])==3
+           ^^^^^^^^^^^^^^^^^^^
+tests/test_semantic_planning.py:156: in run
+    def run(dispatch=None):return run_semantic_planning(attempt,context,canonical,mode,
+easel/integrations/semantic_planning.py:385: in run_semantic_planning
+    raise SemanticPlanningError('B',[problem('snapshot','有效Need快照变化，旧分类不能复用')])
+E   easel.integrations.semantic_planning.SemanticPlanningError: {"stage": "B", "issues": [{"field": "snapshot", "code": "contract_invalid", "message": "有效Need快照变化，旧分类不能复用"}]}
+_ test_native_semantic_shared_repair_once_and_repeat_uses_original_request[B] __
+tests/test_semantic_planning.py:189: in test_native_semantic_shared_repair_once_and_repeat_uses_original_request
+    assert rt['run'](dispatch)['plan']==first['plan'] and len(rt['calls'])==3
+           ^^^^^^^^^^^^^^^^^^^
+tests/test_semantic_planning.py:156: in run
+    def run(dispatch=None):return run_semantic_planning(attempt,context,canonical,mode,
+easel/integrations/semantic_planning.py:385: in run_semantic_planning
+    raise SemanticPlanningError('B',[problem('snapshot','有效Need快照变化，旧分类不能复用')])
+E   easel.integrations.semantic_planning.SemanticPlanningError: {"stage": "B", "issues": [{"field": "snapshot", "code": "contract_invalid", "message": "有效Need快照变化，旧分类不能复用"}]}
+____ test_native_semantic_a_repair_then_b_error_does_not_buy_second_repair _____
+tests/test_semantic_planning.py:201: in test_native_semantic_a_repair_then_b_error_does_not_buy_second_repair
+    with pytest.raises(SemanticPlanningError,match='额度已用完'):rt['run'](dispatch)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: '额度已用完'
+E     Actual message: '{"stage": "B", "issues": [{"field": "snapshot", "code": "contract_invalid", "message": "有效Need快照变化，旧分类不能复用"}]}'
+_ test_native_semantic_unknown_execution_recovers_same_stage_and_snapshot_change_stops _
+tests/test_semantic_planning.py:217: in test_native_semantic_unknown_execution_recovers_same_stage_and_snapshot_change_stops
+    result=rt['run'](dispatch)
+           ^^^^^^^^^^^^^^^^^^^
+tests/test_semantic_planning.py:156: in run
+    def run(dispatch=None):return run_semantic_planning(attempt,context,canonical,mode,
+easel/integrations/semantic_planning.py:385: in run_semantic_planning
+    raise SemanticPlanningError('B',[problem('snapshot','有效Need快照变化，旧分类不能复用')])
+E   easel.integrations.semantic_planning.SemanticPlanningError: {"stage": "B", "issues": [{"field": "snapshot", "code": "contract_invalid", "message": "有效Need快照变化，旧分类不能复用"}]}
+=========================== short test summary info ============================
+FAILED tests/test_semantic_planning.py::test_semantic_multibatch_merges_whole_need_and_optional_without_dropping_units
+FAILED tests/test_semantic_planning.py::test_native_semantic_checkpoint_persistence_reentry_and_tamper
+FAILED tests/test_semantic_planning.py::test_native_semantic_shared_repair_once_and_repeat_uses_original_request[A]
+FAILED tests/test_semantic_planning.py::test_native_semantic_shared_repair_once_and_repeat_uses_original_request[B]
+FAILED tests/test_semantic_planning.py::test_native_semantic_a_repair_then_b_error_does_not_buy_second_repair
+FAILED tests/test_semantic_planning.py::test_native_semantic_unknown_execution_recovers_same_stage_and_snapshot_change_stops
+6 failed, 20 passed in 0.96s

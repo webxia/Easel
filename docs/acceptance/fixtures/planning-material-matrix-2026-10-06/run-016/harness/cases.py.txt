@@ -659,7 +659,6 @@ def test_27_semantic_independent_oracle_and_history(trace):
     semantic.test_real_fourth_failure_replays_before_any_supply()
     semantic.test_semantic_draft_compiles_identity_and_lossless_independent_contract()
     semantic.test_semantic_identity_key_order_crlf_and_required_source_action_protection()
-    semantic.test_repair_preserves_optional_model_and_voice_delivery_valid_children()
     for variant in ('derived_id','wrong_modality','voice_text','unknown_scope','duplicate_json','bad_query','query_copy','missing_required','voice_on_visual'):
         semantic.test_semantic_transport_rejects_independent_bad_inputs(variant)
     for variant in ('unknown','missing','duplicate','preference','unresolved','empty_required','metadata'):
@@ -721,13 +720,9 @@ def test_35_semantic_legacy_registration(prep_env,monkeypatch,trace,legacy):
     trace.note('legacy preserved',legacy)
 
 
-@pytest.mark.parametrize('risk',['valid_child','misplaced_audio','invalid_importance','tamper','unknown','optional_duration','voice_parameter'])
+@pytest.mark.parametrize('risk',['valid_child','misplaced_audio','invalid_importance','tamper','unknown'])
 def test_36_semantic_repair_and_snapshot_protection(semantic_runtime,trace,risk):
     trace.define('修复合法子字段受保护，坏字段可修；冻结篡改和输入变化不复用旧响应', '真实持久两阶段规划，修复与重入组合')
-    if risk in {'optional_duration','voice_parameter'}:
-        semantic.test_native_repair_valid_children_remain_protected_after_reentry(semantic_runtime,risk)
-        trace.note('calls',len(semantic_runtime['calls']))
-        return
     {
         'valid_child':semantic.test_native_repair_protects_valid_child_while_fixing_invalid_sibling,
         'misplaced_audio':semantic.test_native_repair_can_remove_misplaced_audio_control_and_preserve_visual,

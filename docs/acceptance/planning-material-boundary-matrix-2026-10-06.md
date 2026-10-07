@@ -178,3 +178,63 @@ COMMIT_PUSH_SERVICE_RELOAD = NOT_PERFORMED
 ### 停点
 
 完成软件实现、回归、冻结复核与事故审计后停止。未commit/push、加载/重启Web或Gateway、真实评测、Smoke、独立E2E、素材采购/生成或真实Authoring/Build/Quality/Selected Output。三个原E2E保持FAIL；真实MATERIAL_READY与自主交付仍未验收。E批和服务加载不因软件合同PASS自动启动。
+
+## 固定版本与服务加载（2026-10-06，用户另行授权）
+
+事故处置结论为 `CLOSED_WITH_RETAINED_EXCEPTION`：保留两份旧Creation事故后元数据，不恢复、不Retry、不复用；历史 `SCENE_PROTECTION=FAIL`、A–D无例外整体验收NO及三轮真实E2E FAIL不改写。只读核对7个已登记Delivery，按next_operation与advance_creation持久失败额度推导均无新操作、无状态改写；pending/submitting及runtime_release=pending均为0。未登记作品不由Owner自动推进。
+
+代码固定提交为 `55af28fb62bf4bd0d194b372101a55b05a48a051`（easel-studio，未push），201份production source集合SHA仍为 `cd314b19e591a302657c4762508ac42b0df422139d8ebe44a89b86991c45aecc`，与run-015完全一致，production工作树干净。仅提交本Task源码、测试、fixture和脱敏证据，其他既有文档修改保持。已知本地凭证比对扫描164份文件0命中、无凭证/数据库/生成媒体/cache纳入；源码/测试/说明diff检查通过，历史pytest/XML/diff捕获件保留原始尾部空格，不改验收原件。
+
+Astra只读CONTINUE，落实Owner推导、待释放运行检查、日志保护及源指纹条件。沿用现有 `ai.openclaw.easel` / `com.easel.web` LaunchAgent，通过launchctl kickstart加载，不改配置。原始Gateway/Web/raw-stream日志在仓库外700目录/600文件备份并核对SHA，未进入Git。Gateway PID61470（23:35:16），Web PID61558（23:35:27）；Web执行路径与cwd为本仓库，Gateway版本2026.9.4。Gateway是OpenClaw运行时，并不直接加载Easel Python模块；其wrapper指纹另记。无进程内源码SHA接口，以新进程、LaunchAgent路径及加载前后源码指纹提供加载证据。
+
+23:36加载后健康检查通过，7秒Owner循环观察无推进；Gateway 669任务均终态，active/queued/lost=0，审计warnings/errors=0。加载前当前registry为671，历史终态计数存在变化，不把注册表总量当永久调用账本；本轮不发起模型任务。223份受保护文件全部保持事故后加载基线，19份历史fixture不变；不将本轮不变解释为A–D现场从未改变。真实评测/Smoke/E2E/采购/生成/视频均未启动，新增付费调用0。
+
+[脱敏加载记录](fixtures/planning-material-matrix-2026-10-06/governance-release-loaded.json)。完整本地preflight/loaded及日志备份在 `/Users/xgx/Library/Application Support/Easel/acceptance/output-governance-release-2026-10-06`。版本加载前置检查PASS；下一步制定真实模型评测样本、预期、调用上限/预算及停止条件，另行启动，不认领真实MATERIAL_READY。
+
+## R0–R3 单一语义源软件验收（2026-10-07）
+
+用户“设定目标并且按照文档进行实施”授权本Task第十一节R0–R3。**SOFTWARE_ACCEPTED=YES；真实模型可靠性、服务加载及MATERIAL_READY未认领。** 使用同一Task、同一矩阵执行器和本验收入口；前三轮E2E FAIL、第四轮Planning失败及历史现场保护FAIL例外全部保留。
+
+### 基线、先失败证据和根因
+
+R0固定HEAD `55af28fb62bf4bd0d194b372101a55b05a48a051`、201文件源码SHA `cd314b19e591a302657c4762508ac42b0df422139d8ebe44a89b86991c45aecc`，只读纳入第四轮原Plan、要求文件和持久repair。脱敏fixture在 `tests/fixtures/planning-semantic-contract-2026-10-07`，manifest区分原件SHA/fixture SHA；初始输出缺失，未虚构。旧合同回放仍拒绝不存在的 `constraints/subtitle_overlay_only`；真实repair消息先报Voice schema，不能说同一path曾反复修复。R0原始测试 **1 PASS/1 FAIL（新协议未实现）** 保留于 [r0-first.txt](fixtures/planning-material-matrix-2026-10-06/r-batch/r0-first.txt)，之后才修改生产。
+
+原25风险行和历史run-009/run-015未替换。针对性日志记录了检查点JSON元组/列表比较导致重入误判，以及人工正确对照错用SFX global scope等测试缺陷；都保留首轮失败记录，按正式合同修正，不修改历史预期。
+
+### 实现与合法路径保护
+
+产品v3执行：**A单份语义草稿 → 程序绑定身份/模态/默认值/Voice正文摘要与来源快照 → B只分类程序unit ID → 程序完整汇合并复用bind/validate → canonical Plan/Requirements/cache/manifest → Truth及现有Delivery判断。** 模型不再交付正式Need ID、source_path、原文副本或正式sidecar。B每批最多40单元，保留相关Need完整上下文，256 KiB应用层有界容量，不能截断要求；純声音B=0。总Planning最多 `1+B批数+1共享repair`，Truth单列；有界额度不是实际网关通用容量保证，真实Eval仍要核实模型/网关行为。
+
+Voice只选择可信Creator Context voice或具名上下文的既有identity来源；reference/参考素材/consent核验，不从任意非空Treatment制造授权。旧v1/v2已冻结/旧确认路径继续按原合同，已有旧terminal/error/release pending/Plan/sidecar/repair不登记v3。新正常@2方案登记v3；失败不降级。v3已有报告/缓存早返仍先校验完整合同，checkpoint副本显式验证源身份后绑定新Attempt；不迁移历史产物。
+
+修复共享原Attempt账本与单次额度，未知先核对原请求。保护完整Need数量/顺序及原有效语义，包括嵌套Optional模型、策略、声音有效子参数；只允许纠正无效字段。A修复首次与恢复执行相同保护；B及其修复不能修改有效草稿。损坏原件/冲突摘要不能覆盖；半产物不提交ready。没有新增公开路由、框架、状态机，Material V1.3/required/Rights/Match/Readiness及预算语义保持。
+
+独立答案包含两张白纸、叙事用途与暖光软偏好、动态源动作反例、Voice/BGM/SFX及混合模态。不能用编译器枚举的source再自产expected来证明语义正确；旧装配型测试仍保留其原范围。
+
+### 最终实际执行
+
+| 验证 | 最终结果 | 证据 |
+| --- | --- | --- |
+| 唯一完整矩阵 | **53 PASS / 0 FAIL / 0 CONTRACT_GAP / 0 NOT_EXECUTED**，36风险组含参数化；原25组保留 | [run-017结果](fixtures/planning-material-matrix-2026-10-06/run-017/results.json)、同目录pytest/JUnit/harness/baseline/reconciliation |
+| 常规pytest | **787 passed / 0 failed / 5既有skip**，55.98秒 | [原始日志](fixtures/planning-material-matrix-2026-10-06/r-batch/full-validated.txt)、[JUnit](fixtures/planning-material-matrix-2026-10-06/r-batch/full-validated-junit.xml) |
+| 新协议针对性回归 | **49 PASS**，2.19秒 | [r2-targeted-12.txt](fixtures/planning-material-matrix-2026-10-06/r-batch/r2-targeted-12.txt) |
+| 技能合同 | 115 PASS | [skills.txt](fixtures/planning-material-matrix-2026-10-06/r-batch/skills.txt) |
+| compileall / diff检查 | PASS；未改前端，不需要新增lint/build | r-batch/compileall-final.txt；最终diff检查退出0 |
+| Astra实际实现复核 | 两轮MODIFY修正后 **CONTINUE** | [复核摘要](fixtures/planning-material-matrix-2026-10-06/r-batch/astra-review.json) |
+| R0至最终现场对账 | **257/257文件未变**；原19历史fixture未变，新增后24fixture矩阵前后不变 | [reconciliation.json](fixtures/planning-material-matrix-2026-10-06/r-batch/reconciliation.json) |
+
+5项skip均为既有publisher `bun is not installed` 场景，不属于R批必验合同/集成场景；矩阵无skip/xfail。保留2项既有FastAPI/Starlette弃用warning。没有用单测或构建替代连续集成。
+
+v3连续集成实际执行正常方案确认、Owner、Preparation、A、B、Truth、persist/load、Supply、首轮Observation；仅外部Gateway/模型/观察响应替身，Local Provider搜索与接收及内部校验真实。Gateway fixture四次为Preparation/A/B/Truth各1；实际检索/接收/观察各1。完成prepare重入可再次进入供料服务，但搜索/接收保持1→1；Gate仍MATERIAL_NOT_READY、Rights UNKNOWN，不伪造素材准入。
+
+另通过真实内部 `run_delivery_agent`、仅替换RPC的提交超时与终态release超时：A/B共两次agent提交，重入只核对原run/request SHA，全部runtime released，不重新提交。原始直接dispatch恢复测试与该实际适配器证据分别保留。40+1单元跨批Plan保留required/optional，失败只修受影响批次、正确响应字节不变；A+两批B+repair共4次，完成重入0新增。纯声音A一次，正式Voice/BGM/SFX仍各自保留。
+
+Astra具名发现并要求修正：A语义保护重入绕过、有效字段/嵌套子字段保护不全、旧执行误登记v3及真实适配器证据缺口。已加入首次拒绝/恢复仍拒绝与合法修复正例，不用删除测试或放宽合同消除FAIL。最终CONTINUE只允许软件冻结，不授权真实执行。
+
+### 源码指纹与停点
+
+软件验收source集合：**202文件 SHA `0907c35cf4ee98254ac0a598f924d7b757b4aaf29cc24d1ac1d3f234d5e65217`**。HEAD仍为55af28fb，新实现处于未提交工作树；[完整源码清单](fixtures/planning-material-matrix-2026-10-06/r-batch/reconciliation.json)与[确切生产差异](fixtures/planning-material-matrix-2026-10-06/r-batch/production-diff.patch)形成可回查软件指纹，**不是新的已提交发布版本**。没有commit/push或主动重启/加载服务，实际运行版本未重新核验。新文件模式扫描35文件0凭证模式命中，未读凭证配置；这是模式检查，不等同于真实凭证值比对。用户其他既有工作树修改保留。
+
+[机器验收汇总](fixtures/planning-material-matrix-2026-10-06/r-batch/software-acceptance.json)。本轮真实模型/Provider/采购/生成调用0，新增付费外部费用0，新真实Creation 0；旧作品未恢复/Retry/补证。历史现场保护FAIL保留例外，本轮现场不变不能倒算历史无事故。
+
+**停止于R0–R3软件验收。** 下一步另行固定提交与检查服务加载，再按Task §11.8冻结16主题/32次独立Planning Eval及预算；Eval不搜索/生成/TTS，通过后才启动Material Smoke，再独立Material E2E。当前真实Eval/Smoke/E2E=NOT_EXECUTED，AUTONOMOUS_DELIVERY/MATERIAL_READY未验收；Creator意图的模型泛化仍须独立留出检查。

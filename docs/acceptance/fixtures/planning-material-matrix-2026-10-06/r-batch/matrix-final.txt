@@ -1,0 +1,4 @@
+.....................................................                    [100%]
+53 passed in 4.99s
+
+{"run": "/Users/xgx/Projects/Easel/docs/acceptance/fixtures/planning-material-matrix-2026-10-06/run-017", "finished_at": "2026-10-07T01:28:43.166852+00:00", "pytest_exit_status": 0, "production_sha256": "0907c35cf4ee98254ac0a598f924d7b757b4aaf29cc24d1ac1d3f234d5e65217", "production_unchanged": true, "protected_unchanged": true, "fixtures_unchanged": true, "protected_file_count": 257, "fixture_file_count": 24}

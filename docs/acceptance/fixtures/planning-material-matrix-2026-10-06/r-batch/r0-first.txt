@@ -1,0 +1,9 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+___ test_semantic_draft_compiles_identity_and_lossless_independent_contract ____
+tests/test_semantic_planning.py:32: in test_semantic_draft_compiles_identity_and_lossless_independent_contract
+    from easel.integrations.semantic_planning import compile_draft, classification_batches, assemble_requirements
+E   ModuleNotFoundError: No module named 'easel.integrations.semantic_planning'
+=========================== short test summary info ============================
+FAILED tests/test_semantic_planning.py::test_semantic_draft_compiles_identity_and_lossless_independent_contract
+1 failed, 1 passed in 0.15s

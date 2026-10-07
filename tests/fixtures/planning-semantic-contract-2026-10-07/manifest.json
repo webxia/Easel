@@ -1,0 +1,20 @@
+{
+  "MATERIAL_PLAN.json": {
+    "original_sha256": "a9c8bf4a6ec46d1f774a176a51cc95a8e9c9270dea3b6d850f3de103cd6137a7",
+    "fixture_sha256": "a9c8bf4a6ec46d1f774a176a51cc95a8e9c9270dea3b6d850f3de103cd6137a7",
+    "kind": "real-final-output",
+    "initial_output_available": false
+  },
+  "MATERIAL_REQUIREMENTS.json": {
+    "original_sha256": "64b6517918cff7170933a8f7fff7e93efda26642410f65f9b6d4e4bd3b0d3031",
+    "fixture_sha256": "64b6517918cff7170933a8f7fff7e93efda26642410f65f9b6d4e4bd3b0d3031",
+    "kind": "real-final-output",
+    "initial_output_available": false
+  },
+  "repair.json": {
+    "original_sha256": "ac416a305113f43350021a3d7b7219265342c6332578ac3f24eda1e994d58b95",
+    "fixture_sha256": "ac416a305113f43350021a3d7b7219265342c6332578ac3f24eda1e994d58b95",
+    "kind": "real-durable-repair",
+    "initial_output_available": false
+  }
+}

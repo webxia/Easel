@@ -1,0 +1,36 @@
+...............................F.F..                                     [100%]
+=================================== FAILURES ===================================
+_ test_native_repair_cannot_change_valid_semantics_on_first_or_resumed_run[duration_hint] _
+tests/test_semantic_planning.py:240: in test_native_repair_cannot_change_valid_semantics_on_first_or_resumed_run
+    with pytest.raises(SemanticPlanningError,match='有效需求语义'):rt['run'](dispatch)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: Regex pattern did not match.
+E     Expected regex: '有效需求语义'
+E     Actual message: '{"stage": "A", "issues": [{"field": "needs.0.duration_hint.max_seconds", "code": "extra_forbidden", "message": "Extra inputs are not permitted"}, {"field": "needs.0.duration_hint.min_seconds", "code": "extra_forbidden", "message": "Extra inputs are not permitted"}, {"field": "needs.0.duration_hint.target_seconds", "code": "missing", "message": "Field required"}, {"field": "needs", "code": "too_short", "message": "Tuple should have at least 1 item after validation, not 0"}]}'
+_ test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding _
+easel/integrations/semantic_planning.py:77: in parse_draft
+    return SemanticPlanningDraft.model_validate_json(json.dumps(value, ensure_ascii=False))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for SemanticPlanningDraft
+E   needs.2.modality_spec.sfx.event_description
+E     Field required [type=missing, input_value={'kind': 'sfx'}, input_type=dict]
+E       For further information visit https://errors.pydantic.dev/2.13/v/missing
+
+The above exception was the direct cause of the following exception:
+tests/test_semantic_planning.py:275: in test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding
+    result=rt['run'](dispatch);plan=result['plan']
+           ^^^^^^^^^^^^^^^^^^^
+tests/test_semantic_planning.py:156: in run
+    def run(dispatch=None):return run_semantic_planning(attempt,context,canonical,mode,
+easel/integrations/semantic_planning.py:414: in run_semantic_planning
+    plan=compile_draft(raw,creation_id=attempt['creation_id'],attempt_id=attempt['attempt_id'],
+easel/integrations/semantic_planning.py:112: in compile_draft
+    draft = parse_draft(value)
+            ^^^^^^^^^^^^^^^^^^
+easel/integrations/semantic_planning.py:79: in parse_draft
+    raise SemanticPlanningError('A', [problem('.'.join(map(str, e['loc'])), e['msg'], e['type'])
+E   easel.integrations.semantic_planning.SemanticPlanningError: {"stage": "A", "issues": [{"field": "needs.2.modality_spec.sfx.event_description", "code": "missing", "message": "Field required"}]}
+=========================== short test summary info ============================
+FAILED tests/test_semantic_planning.py::test_native_repair_cannot_change_valid_semantics_on_first_or_resumed_run[duration_hint]
+FAILED tests/test_semantic_planning.py::test_native_pure_audio_and_mixed_plan_keep_all_modalities_and_voice_byte_binding
+2 failed, 34 passed in 1.50s

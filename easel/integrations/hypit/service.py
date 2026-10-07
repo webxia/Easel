@@ -705,7 +705,7 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
             "attempt_id": target["attempt_id"],
         })
         requirements_source = None
-        if source.get('planning_contract_version') == 2:
+        if source.get('planning_contract_version') in {2,3}:
             # The source was fully validated above. Preserve its sidecar and
             # default provenance, but bind this new checkpoint to its own v2 SHA.
             requirements_source = {**planning['requirements'], 'origin':
@@ -715,7 +715,14 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
             copied = target_root / 'planning/MATERIAL_REQUIREMENTS.json'
             if hashlib.sha256(copied.read_bytes()).hexdigest() != requirements_source['sha256']:
                 raise HypitIntegrationError('Planning要求复制期间与源冻结摘要发生变化')
-            target = update_film_attempt(target['attempt_id'], event='planning_contract_copied', planning_contract_version=2)
+            if source.get('planning_contract_version') == 3:
+                for name in ('SEMANTIC_PLAN.json', 'SEMANTIC_CHECKPOINT.json'):
+                    _copy_retry_checkpoint_file(source_root, target_root, Path('planning') / name)
+                checkpoint = target_root / 'planning/SEMANTIC_CHECKPOINT.json'
+                if hashlib.sha256(checkpoint.read_bytes()).hexdigest() != planning['semantic']['sha256']:
+                    raise HypitIntegrationError('语义快照复制期间变化')
+            target = update_film_attempt(target['attempt_id'], event='planning_contract_copied',
+                                         planning_contract_version=source['planning_contract_version'])
         persisted = PlanningIntegration().persist(
             target, new_plan, treatment=planning["treatment"],
             script=planning["script"], scenes=planning["scenes"],
