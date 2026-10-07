@@ -382,6 +382,7 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
     from easel.output_contract import output_decision
     root = Path(attempt['workspace']['path'])
     store = AttemptMaterialStore(root)
+    root = store.attempt_root
     catalog = source_catalog(canonical,planning_context)
     scope = {'policy':POLICY,'attempt_id':attempt['attempt_id'],'creation_id':attempt['creation_id'],
              'context_refs':planning_context['context_refs'],'canonical':canonical,'mode':mode,'catalog':catalog}
@@ -443,10 +444,23 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
 
     def repair(stage, initial, issues, targets, context):
         key='repair'
+        planning = root / 'planning'
+        if planning.is_symlink() or not planning.is_dir():
+            raise SemanticPlanningError(stage,[problem('repair','Planning输出目录无效，未派发')])
+        output_paths = {}
+        for name in targets:
+            if name not in {'SEMANTIC_PLAN.json','CLASSIFICATIONS-REPAIR.json'}:
+                raise SemanticPlanningError(stage,[problem('repair','修复输出目标无效，未派发')])
+            target = planning / name
+            if target.is_symlink() or (target.exists() and not target.is_file()) or target.resolve().parent != planning:
+                raise SemanticPlanningError(stage,[problem('repair','修复输出路径无效，未派发')])
+            output_paths[name] = str(target)
         message=('〔Easel Planning V3 单次语义合同修正〕\n阶段：'+stage+'\n'
             '保留全部有效Need语义、模态、importance与冻结正文；只修下列错误；不能删除要求。'
-            '只写指定输出，不写正式Plan/sidecar，不调用供应/生成/Hypit。\n'
-            +json.dumps({'issues':issues,'targets':targets,'context':context},ensure_ascii=False,sort_keys=True))
+            '仅写output_paths提供的绝对路径；不猜测当前目录，不依赖其他会话。'
+            '不写正式Plan/sidecar，不调用供应/生成/Hypit。\n'
+            +json.dumps({'attempt_workspace':str(root),'output_paths':output_paths,
+                        'issues':issues,'targets':targets,'context':context},ensure_ascii=False,sort_keys=True))
         if state['repair_used'] and (key not in state['calls'] or state['calls'][key]['message']!=message):
             raise SemanticPlanningError(stage,[problem('repair','整次Planning共享单次修复额度已用完')])
         state['repair_used']=True;save()

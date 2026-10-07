@@ -416,3 +416,30 @@ Voice v3实际采用程序枚举的 `creator_context.voice` 或具名上下文id
 同一矩阵run-006 **70 PASS / 0 FAIL / 0 GAP / 0未执行**；全量 **805 PASS / 5既有skip**（58.20秒），29项针对性回归通过，115技能/compileall/diff通过。原生异步Preparation/A/B/Truth各提交1次，超时/release未知/客户端重启均原run恢复，lost保持未知、terminal error停止，Supply=0。257旧现场和25fixture未变。Astra复核CONTINUE，无新增必要修正；仅允许固定新软件后受限R4，不授权Smoke。
 
 评测器版本从显式--fixed-commit/--fixed-source绑定，已有roster不能换版本；保留四类结果、持久检查点和独立语义审核前序门槛。新批使用独立目录及32个新Creation，预算仍只用已购文字套餐，unknown及25%保守余量以下停止，无付费回退。真实运行前另核实际加载、实时任务/账本与raw-stream原路径备份。此处只记录软件通过；新commit/加载及真实结果以唯一Acceptance和当前状态补记。
+
+
+### 13.3 新版本真实第0项失败：repair目标合同缺口（2026-10-07，STOP）
+
+新版本a7f7ccfe/source327842已提交并安全加载，原16主题及oracle未改，batch02以32个全新Creation独立冻结。实际第0项完整墙钟202.975秒：Preparation原run成功（102.624秒），A成功交付草稿（64.070秒），Schema因5个policy布尔值不符合dict[str,str]触发唯一repair（22.496秒）。repair网关成功不代表正式交付成功；正式消费者仍读取原A而拒绝，B/Truth未执行。本批立即FAIL并停止，31项未执行。
+
+真实repair独立会话只有一次write，目标为Gateway默认workspace/SEMANTIC_PLAN.json；请求只提供受控basename，没有Attempt workspace或绝对路径。正式Attempt/planning原文件仍含布尔值，A.raw与消费者repair.raw相同；误写文件policy已为字符串。两份原件与各SHA、请求账本和3段脱敏会话完整保存，未搬入正式目录，不作人工救场。错误目录是否原先存在未知，不认领全Gateway workspace无损；257受保护正式旧现场、25fixture、冻结正文和固定源码/工具均未变。
+
+根因分类为MODEL_OUTPUT（初始policy类型错误）+STRUCTURAL_CONTRACT（repair目标身份缺失）。现有fixture从闭包root或Creation中补路径，真实独立会话没有同等信息，故70PASS软件结果未覆盖此风险。Astra复核STOP；STATE_VIOLATIONS=1（repair输出范围越界），WORKFLOW_STATE_VIOLATIONS=0，ENGINEERING_INTERVENTION=0，Supply/Provider/生成/TTS/Build=0。Prep/A/repair各1，共19个模型assistant响应、29工具、17次原请求观察，没有重复付费提交；套餐5小时99→98%、周99→99%，共享账号实际账单未知。
+
+后续最小方案（尚未实施）：
+
+1. A/B repair消息必须包含当前Attempt workspace及程序绑定的全部绝对输出路径；路径对应当前Attempt/planning，内部持久记录仍用受控basename。不能让模型猜cwd、复用A会话或自己建立路径绑定。
+2. 保持request hash、独立请求身份、共享一次repair、scope/route、冻结原文及有效Need语义保护；不放宽policy Schema，不迁移本次请求，不移动误写文件救场。
+3. 扩展同一原生异步集成，A与B repair均为独立会话，默认cwd故意不同；外部fixture只能从实际请求解析写入位置，不能从闭包root或Creation补足信息。覆盖accepted/原run恢复/repair一次/正式消费者取得新产物/Supply0。
+4. 完整回归通过后另固定新版本、新工具与新32项批次；本批FAIL永不覆盖。当前只保留现场与诊断，不启动后续Eval或Smoke。
+
+[新批结构化报告](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch02-actual-run-summary.json)与[Astra复核](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch02-astra-review.txt)。
+
+
+### 13.4 repair路径绑定独立软件修复（2026-10-07）
+
+§13.3旧batch02保持FAIL/STOP，不恢复、不搬移误写原件。后续独立软件修改只收回repair输出路径：原始Attempt先交现有store验证，再取得规范绝对root；派发前检查planning目录和固定A/B目标非symlink、严格位于本Attempt。程序提供attempt_workspace/output_paths，与targets一一对应并纳入原持久message/hash。复用一次修复额度，Schema、身份、有效语义、冻结原文、Material/Gate均未放宽；此检查不构成外部OS沙箱。
+
+新增A/B原生异步repair只解析实际请求，默认cwd不同，不能从Creation或闭包补路径。修前run-007 **6 PASS/2 FAIL**复现真实根因，源码/现场不变；修后同一完整矩阵run-008 **72 PASS/0 FAIL/0 GAP/0未执行**。正式消费者读到修复输出、独立run恢复、共享额度一次、Supply=0；另有root/planning/target symlink拒绝派发保护。全量 **810 PASS/5既有skip**（59.88秒），语义针对性72 PASS、115技能、compileall/diff通过，257旧现场和25fixture未变。Astra前置MODIFY已落实，最终CONTINUE允许完成检查后固定新版本/安全加载/另起32项R4，不代表真实PASS或Smoke许可。
+
+batch03沿用原16主题和独立oracle，但全部Creation/Attempt/请求重新建立。预算仅已购文字套餐，无现金/API余额/超额/付费fallback；先实时idle对账，再停止服务并精确备份实际raw-stream路径后加载。旧批证据追加摘要和新软件JUnit均保留；新固定SHA/加载/真实成绩由唯一验收另记。本节记录软件阶段完成，真实评测尚未开始。

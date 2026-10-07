@@ -764,7 +764,7 @@ def test_39_r4_batch_and_fee_guards(prep_env, tmp_path, monkeypatch, trace, risk
     trace.note('real model / native Supply calls', 0)
 
 
-@pytest.mark.parametrize('risk', ['accepted', 'wait_timeout', 'release_pending', 'restart', 'lost', 'terminal_error'])
+@pytest.mark.parametrize('risk', ['accepted', 'wait_timeout', 'release_pending', 'restart', 'lost', 'terminal_error', 'repair_A', 'repair_B'])
 def test_40_r4_native_async_lifecycle(prep_env, monkeypatch, trace, risk):
     trace.define('原生Owner/Gateway accepted→pending→原run终态→释放→继续Preparation/A/B/Truth；未知不重提交，终态错误停止',
                  'native state and RPC protocol; only external RPC transport uses fixed responses')

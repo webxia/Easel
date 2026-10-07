@@ -161,8 +161,7 @@ def test_r4_native_eval_stops_before_supply(prep_env, monkeypatch, risk):
         elif message.startswith('〔Easel Planning V3 单次语义合同修正〕'):
             calls.append(('repair', session))
             request = json.loads(message.splitlines()[-1])
-            current_attempt = creation.get_creation(work['id'])['hypit_attempts'][-1]
-            target = Path(current_attempt['workspace']['path']) / 'planning' / request['targets'][0]
+            target = Path(request['output_paths'][request['targets'][0]])
             output = semantic_draft(); output['needs'][0]['modality_spec']['kind'] = 'unknown'
             target.write_text(json.dumps(output))
         elif message.startswith('〔Easel Script 系统审阅〕'):
@@ -216,7 +215,7 @@ def test_r4_native_eval_stops_before_supply(prep_env, monkeypatch, risk):
     if risk == 'repair_failed': assert [stage for stage, _ in calls].count('repair') == 1
 
 
-@pytest.mark.parametrize('risk', ['accepted', 'wait_timeout', 'release_pending', 'restart', 'lost', 'terminal_error'])
+@pytest.mark.parametrize('risk', ['accepted', 'wait_timeout', 'release_pending', 'restart', 'lost', 'terminal_error', 'repair_A', 'repair_B'])
 def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence=None):
     import asyncio, re, subprocess
     from tests.test_creation_preparation import web, prep, creation, write_drafts
@@ -226,6 +225,9 @@ def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence
     sample = json.loads((Path(__file__).parent / 'fixtures/planning-eval-r4-2026-10-07/samples.json').read_text())['samples'][0]
     work = confirm_sample(sample)
     runs, methods, snapshots = {}, [], []
+    default_cwd = prep_env['tmp'] / 'gateway-default-workspace'
+    default_cwd.mkdir()
+    output_paths = []
     mismatch = []
     class ObservedBoundary(PlanningEvalBoundary):
         def trace(self, frame, event, arg):
@@ -252,9 +254,25 @@ def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence
     uncertain_once = False
     def write_response(message):
         if message.startswith('〔Easel Semantic Planning V3〕'):
-            Path(re.search(r'只写 (.+\.json)', message)[1]).write_text(json.dumps(semantic_draft()))
+            target = Path(re.search(r'只写 (.+\.json)', message)[1])
+            value = semantic_draft()
+            if risk == 'repair_A': value['policy'] = {'invalid_bool': True}
+            target.write_text(json.dumps(value)); output_paths.append(target)
         elif message.startswith('〔Easel Planning V3 单元分类〕'):
-            Path(re.search(r'只写 (.+\.json)', message)[1]).write_text(json.dumps(labels()))
+            target = Path(re.search(r'只写 (.+\.json)', message)[1])
+            value = labels()
+            if risk == 'repair_B': value['classifications'][0]['id'] = 99
+            target.write_text(json.dumps(value)); output_paths.append(target)
+        elif message.startswith('〔Easel Planning V3 单次语义合同修正〕'):
+            request = json.loads(message.splitlines()[-1])
+            # A fresh external session knows only the actual request and its
+            # default cwd. No Creation lookup or hidden Attempt/root binding.
+            name = request['targets'][0]
+            target = Path(request.get('output_paths', {}).get(name, name))
+            if not target.is_absolute(): target = default_cwd / target
+            value = semantic_draft() if risk == 'repair_A' else {'batches': [
+                {'index': batch['index'], **labels()} for batch in request['context']['batches']]}
+            target.write_text(json.dumps(value)); output_paths.append(target)
         elif message.startswith('〔Easel Script 系统审阅〕'):
             target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
             value = json.loads(message.split('（逐项替换判断，不增加字段）：\n', 1)[1].split('\n写入后停止。', 1)[0])
@@ -324,6 +342,7 @@ def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence
             evidence.note('request identity rejection evidence', mismatch)
             evidence.note('native checkpoints', [item[0] for item in snapshots])
             evidence.note('RPC methods', [method for method, _ in methods])
+            evidence.note('external response destinations', [str(p) for p in output_paths])
         assert boundary.supply_calls == 0 and not boundary.state_violations
         if risk == 'lost':
             assert result == 'INCOMPLETE_RECOVERABLE' and len(runs) == 1
@@ -334,7 +353,8 @@ def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence
             await drain_checkpoints(PlanningEvalBoundary(), work['id'], web, checkpoint, pause=0)
             assert len(methods) == before  # known failure cannot refresh Preparation retry
         else:
-            assert result == 'CONTRACT_VALID_SEMANTICS_PENDING' and len(runs) == 4, (current['delivery'].get('last_error'), mismatch)
+            expected_calls = 5 if risk in {'repair_A', 'repair_B'} else 4
+            assert result == 'CONTRACT_VALID_SEMANTICS_PENDING' and len(runs) == expected_calls, (current['delivery'].get('last_error'), mismatch)
             calls = current['delivery']['agent_calls']
             assert all(c['status'] == 'ok' and c['runtime_release'] == 'released' for c in calls.values())
             assert set(c['run_id'] for c in calls.values()) == set(runs)
@@ -345,7 +365,15 @@ def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence
             attempt = current['hypit_attempts'][-1]
             from easel.materials.store import AttemptMaterialStore
             recovery = AttemptMaterialStore(Path(attempt['workspace']['path'])).read_recovery_record('semantic-planning-v3')
-            assert not recovery.get('repair_used')
+            assert bool(recovery.get('repair_used')) == (risk in {'repair_A', 'repair_B'})
+            assert not list(default_cwd.iterdir())
+            if risk in {'repair_A', 'repair_B'}:
+                repair_request = next(v['request'] for v in runs.values() if '单次语义合同修正' in v['request']['message'])
+                assert repair_request['sessionKey'].endswith('-repair')
+                payload = json.loads(repair_request['message'].splitlines()[-1])
+                assert Path(payload['attempt_workspace']) == Path(attempt['workspace']['path'])
+                assert all(Path(p).parent == Path(attempt['workspace']['path']) / 'planning'
+                           and Path(p).name == name for name, p in payload['output_paths'].items())
         assert sum(method == 'agent' for method, _ in methods) == len(runs)
     asyncio.run(scenario())
 
@@ -484,7 +512,8 @@ def semantic_runtime(material_integration_env, tmp_path, monkeypatch):
         else:
             data=json.loads(message.splitlines()[-1]);name=data['targets'][0]
             out=semantic_draft() if name=='SEMANTIC_PLAN.json' else {'batches':[{'index':0,**labels()}]}
-        (root/'planning'/name).write_bytes(encode(out))
+        target = Path(data['output_paths'][name]) if '单次语义合同修正' in message else root/'planning'/name
+        target.write_bytes(encode(out))
     def run(dispatch=None):return run_semantic_planning(attempt,context,canonical,mode,
                      {'profile':'fixture-only','thinking':'off','timeout':60},dispatch or execute)
     return {'attempt':attempt,'root':root,'mode':mode,'canonical':canonical,'context':context,
@@ -519,6 +548,29 @@ def test_native_semantic_shared_repair_once_and_repeat_uses_original_request(sem
     first=rt['run'](dispatch);assert len(rt['calls'])==3
     assert [c['stage'] for c in rt['calls']].count('structure_repair')==1
     assert rt['run'](dispatch)['plan']==first['plan'] and len(rt['calls'])==3
+
+
+
+@pytest.mark.parametrize('location', ['root', 'planning', 'target'])
+def test_native_semantic_repair_rejects_symlink_before_submission(semantic_runtime, location):
+    rt = semantic_runtime
+    repair_calls = []
+    def link(path):
+        moved = path.with_name(path.name + '-original')
+        path.rename(moved)
+        path.symlink_to(moved, target_is_directory=moved.is_dir())
+    if location == 'root':
+        link(rt['root'])
+    def dispatch(stage, message, session):
+        if stage == 'structure_repair': repair_calls.append(session)
+        rt['execute'](stage, message, session)
+        if message.startswith('〔Easel Semantic'):
+            target = rt['root'] / 'planning/SEMANTIC_PLAN.json'
+            bad = semantic_draft(); bad['policy'] = {'invalid': True}
+            target.write_bytes(encode(bad))
+            link(target.parent if location == 'planning' else target)
+    with pytest.raises(ValueError): rt['run'](dispatch)
+    assert repair_calls == []
 
 
 def test_native_semantic_a_repair_then_b_error_does_not_buy_second_repair(semantic_runtime):
