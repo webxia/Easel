@@ -6,6 +6,9 @@
 
 最终run-023矩阵159 PASS、capture20 PASS、常规897 passed/5既有skip；S3局部Gate为run-026矩阵165/常规903。S4有界B/一次局部patch及新检查点persist/load/副本已局部通过：run-028矩阵180、常规918、5既有skip，257现场文件/117fixture未变；新合法patch以8MiB实际Runtime隔离回放无损。视频入口A全audio仍查冻结视觉遗漏，旧B0保持；软件不能证明错误B ACCEPT的语义正确。产品默认仍@7，S5新入口及连续组合验收待完成，不能认领发布；Development Eval前仍须核对真实Gateway与本地DB同源、加载版本、套餐、隔离。模型调用/服务操作0，历史10批FAIL/12执行/held-out0保持，Formal R4/Supply/Smoke/E2E未启动。详见[同一Task的完整transport调查与阶段Gate](tasks/planning-semantic-boundary-vnext-2026-10-07.md)。下方旧R4进度为历史，当前正式R4为PAUSED/FAIL。
 
+Last audited: 2026-10-06. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
+
+
 ## BGM 放宽后的原作品素材齐备（2026-10-06，MATERIAL_READY / 9 of 9）
 
 按用户“放宽审核标准，不然一直推进不下去”的授权，固定现有AST与bgm-practical@4（Music0.5、19类声乐上限0.02；低音乐/静音/实际时间覆盖及身份合同仍检查）。原Owner重评既有报告后，经普通Rights/Match/Readiness达到 **9/9 required、MATERIAL_READY**；Delivery为material_ready，blocking为空，恢复journal/projection均COMPLETE。只认领该原作品一次受限恢复，不宣称通用声音能力合格。
