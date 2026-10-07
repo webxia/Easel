@@ -370,3 +370,49 @@ Voice v3实际采用程序枚举的 `creator_context.voice` 或具名上下文id
 源HEAD **55af28fb62bf4bd0d194b372101a55b05a48a051**；验收工作树202文件SHA **0907c35cf4ee98254ac0a598f924d7b757b4aaf29cc24d1ac1d3f234d5e65217**，完整文件清单及确切生产diff已保存，未自动提交/推送。R0至最终257现场文件未变、原19历史fixture未变；新增后24fixture矩阵前后不变。历史事故FAIL例外和四轮真实失败不改写。
 
 [唯一验收及完整证据](../acceptance/planning-material-boundary-matrix-2026-10-06.md#r0r3-单一语义源软件验收2026-10-07)。本次不主动重启/加载服务，实际运行版本未重核；真实模型/Provider/采购/生成调用0、费用新增0、新真实Creation 0。停在软件验收，下一步单独固定发布与核验加载，然后冻结独立Planning Eval样本/语义预期/预算并执行R4，合格后才R5 Smoke、R6独立E2E。
+
+
+## 十三、R4 运行处置与评测器缺口（2026-10-07）
+
+用户授权并固定99b3ca83/source0907后，评测工具64项离线矩阵及12项针对性装配通过、Astra CONTINUE。真实第0项Preparation只提交1个run，原生异步观察进入`observing_execution`，冻结runner遗漏该非终态并误记FAIL。保留失败并停止本批；原请求自然ok/runtime released、四草稿原生校验PASS，无Attempt/A/B/Truth/Supply。生产及冻结工具首次真实调用后未改，工程介入0；不能从该结果判断Planning合同稳定性。现场和费用见唯一Acceptance，完整原始记录仅在受保护本机目录。新增raw-stream日志丢失事故已获用户保留例外，历史FAIL不变。
+
+后续最小修正范围仅评测工具，不改Planning、Material或Gate：
+
+1. 用原生持久agent_calls/status/runtime_release与Delivery决策识别非终态，覆盖submitting/pending、observing_execution、execution_uncertain、runtime release pending。原请求未知不得重提交。
+2. 评测器驱动现有Owner的检查点循环；一次observe_agent完成不是评测完成。原run终态后可以沿同一Creation/Attempt/请求账本继续正常下一阶段，直至正式persist+load+TruthPASSED并在Supply入口前停止。恢复轮询不计作第二次独立评测，也不刷新repair额度。
+3. 增加真实内部Owner→原生Gateway adapter（仅RPC响应替身）的异步生命周期回归：accepted/pending→observe仍pending→同run成功→释放→prepare继续A/B/Truth→正式cut；分别包含terminal error、lost、wait超时、release未知、客户端重启。断言各阶段真正agent提交仅1次、ID不变、repair不刷新、Supply恒0。
+4. 墙钟覆盖整个生命周期；阶段调用、Gateway独立run、观察RPC、模型响应、工具次数分开计数，不能将客户端数秒当成模型耗时。
+5. 沿用同一矩阵及验收入口，完整回归后冻结新工具指纹，以独立新批次从32个新Creation重跑。当前失败批次永不修改为PASS；软件/预算/服务范围发生变化时按原规则处理。
+
+本节是失败后的具名处置与最小修正范围记录，**本批没有实施上述修正或启动新真实批次**。真实Planning仍未验证，Smoke/E2E不启动。
+
+### 13.1 异步前置回归发现生产缺陷（2026-10-07，STOP）
+
+上段保留首次失败处置时的状态。后续仅修改评测工具：按持久 `agent_calls/status/runtime_release` 分类，驱动原生Owner检查点循环，客户端超时保留可恢复原请求，归档每次客户端执行和累积墙钟。未修改生产代码、旧批成绩或历史现场，也未启动新真实批次。
+
+新原生异步集成复现了一个生产缺陷：`accepted/pending → Preparation ok/released → A ok/released → prepare重入` 后，A请求因JSON对象键序变化被拒绝。四种正常恢复变体（accepted、wait timeout、release pending、客户端重启）都失败于同一根因；lost保持原请求和terminal error停止两个保护路径通过。
+
+因果链：`creation_preparation._persist_snapshot`把规范排序字节写入冻结快照，却返回原始内存bundle；首次Planning接收voice对象顺序 `tone,avoid`，重入从冻结快照读取为 `avoid,tone`。`source_catalog`原样嵌入该对象，A消息 `json.dumps`未稳定排序；`invoke`逐字节检查持久message及hash。解析后的完整A JSON相等，原始请求文本SHA不同，因此在读取原A终态结果前被拒绝。既定身份校验不能放宽；错误在请求构造不稳定。
+
+同一矩阵run-004 **66 PASS / 4 FAIL / 0 GAP / 0未执行**；run-005仅增加只读诊断证据归档，6项异步场景 **2 PASS / 4 FAIL**。全量 **801 PASS / 4 FAIL / 5既有skip**，四个新增FAIL同根因；115技能、compileall、diff检查通过。生产0907/commit99b3、257旧现场及25fixture均未变。Astra只读复核 **STOP**；不需要再花真实模型费用证明此软件缺陷。新真实调用/供应/生成/TTS/Build/费用=0。
+
+后续统一最小修复方案（本阶段未实施）：
+
+1. 对新请求A以及同类B/repair使用稳定JSON序列化，保留字符串原字节、Unicode内容、数组顺序和既有scope/hash校验；不能通过排序fixture规避。
+2. 核对首次使用与冻结重载是否代表完全相同的对象；优先消除请求构造差异，不修改确认稿、Need、Material合同或Gate。
+3. 既有持久请求message/hash/run identity与repair额度保持原件，不覆盖或迁移，不恢复历史失败作品。需要恢复旧非规范pending时，必须另行定义兼容合同；不能拿重算摘要或新身份冒充原请求。本次旧批不恢复。
+4. 让上述六个异步场景实际通过，并覆盖对象键序等价变化、真实字段/正文/route变化仍拒绝、A/B/repair及跨批重入；每阶段提交一次，未知只观察原run，repair不刷新，Supply恒0。
+5. 完整矩阵和不回归验收无FAIL后，固定新的commit/source/tool指纹、重新检查服务加载与空闲状态，再开新32项独立Eval；旧批FAIL不改，Smoke仍后置。
+
+[完整脱敏证据](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/async-preflight-summary.json)及[唯一验收](../acceptance/planning-material-boundary-matrix-2026-10-06.md)。当前R4停止于前置验证，不认领模型合同失败率或素材就绪；生产修复及新版本真实运行尚未实施。
+
+
+### 13.2 后续独立软件修复与新批冻结（2026-10-07）
+
+旧99b3版本R4已停止，旧批FAIL及§13.1证据保持。按统一治理及“后续修复使用新固定版本重新开始一轮Eval”执行独立软件阶段；不在旧批中救场计分。
+
+生产修改仅semantic_planning.py中A、B、repair三个JSON序列化增加稳定键序。字符串/列表/冻结文件未规范化，invoke原message/hash、scope/route、身份和共享repair保护未放宽。不迁移旧非规范记录，不恢复失败Creation，不声称旧pending兼容已修复。
+
+同一矩阵run-006 **70 PASS / 0 FAIL / 0 GAP / 0未执行**；全量 **805 PASS / 5既有skip**（58.20秒），29项针对性回归通过，115技能/compileall/diff通过。原生异步Preparation/A/B/Truth各提交1次，超时/release未知/客户端重启均原run恢复，lost保持未知、terminal error停止，Supply=0。257旧现场和25fixture未变。Astra复核CONTINUE，无新增必要修正；仅允许固定新软件后受限R4，不授权Smoke。
+
+评测器版本从显式--fixed-commit/--fixed-source绑定，已有roster不能换版本；保留四类结果、持久检查点和独立语义审核前序门槛。新批使用独立目录及32个新Creation，预算仍只用已购文字套餐，unknown及25%保守余量以下停止，无付费回退。真实运行前另核实际加载、实时任务/账本与raw-stream原路径备份。此处只记录软件通过；新commit/加载及真实结果以唯一Acceptance和当前状态补记。

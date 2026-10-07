@@ -39,7 +39,8 @@ def protected():
 def fixture_files():
     return {str(p.relative_to(ROOT)): sha(p) for folder in [
         'planning-material-contract-2026-10-06', 'planning-modality-contract-2026-10-06',
-        'planning-truth-contract-2026-10-06','planning-semantic-contract-2026-10-07'] for p in sorted((ROOT / 'tests/fixtures' / folder).rglob('*')) if p.is_file()}
+        'planning-truth-contract-2026-10-06','planning-semantic-contract-2026-10-07',
+        'planning-eval-r4-2026-10-07'] for p in sorted((ROOT / 'tests/fixtures' / folder).rglob('*')) if p.is_file()}
 
 
 def main():
@@ -59,7 +60,7 @@ def main():
     harness = run / 'harness'
     harness.mkdir()
     before['test_harness_files'] = {}
-    for name in ('cases.py', 'conftest.py', 'run.py', '../test_model_output_contracts.py','../test_semantic_planning.py'):
+    for name in ('cases.py', 'conftest.py', 'run.py', 'planning_eval.py', 'planning_eval_run.py', '../test_model_output_contracts.py','../test_semantic_planning.py'):
         source = Path(__file__).parent / name
         # A copied conftest.py would be auto-loaded by default pytest discovery.
         # Store source snapshots as text while preserving their exact bytes/SHA.

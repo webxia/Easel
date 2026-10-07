@@ -18,6 +18,338 @@ def test_real_fourth_failure_replays_before_any_supply():
     assert 'constraints/subtitle_overlay_only' not in repair['message']
 
 
+def test_r4_frozen_samples_are_legal_normal_proposals(prep_env):
+    from tests.planning_material_matrix.planning_eval import confirm_sample
+    import hashlib
+    payload = json.loads((Path(__file__).parent / 'fixtures/planning-eval-r4-2026-10-07/samples.json').read_text())
+    assert len(payload['samples']) == 16 and payload['runs_per_theme'] == 2
+    assert [s['split'] for s in payload['samples']].count('held_out') == 8
+    identities = []
+    for sample in payload['samples']:
+        for _ in range(2):
+            work = confirm_sample(sample)
+            plan = work['delivery']['video_plan']
+            assert plan['schema'] == 'easel-video-proposal@2'
+            assert hashlib.sha256(plan['script'].encode()).hexdigest() == sample['expected_script_sha256']
+            assert work['chat_workflow']['proposal_status'] == 'CONFIRMED'
+            assert not work.get('hypit_attempts') and not work['delivery'].get('generation_budget')
+            identities.append(work['id'])
+    assert len(set(identities)) == 32
+
+
+def test_r4_validator_child_uses_isolated_root(prep_env, tmp_path):
+    import os, subprocess, sys
+    from tests.test_creation_preparation import web, prep, creation, write_drafts
+    from tests.planning_material_matrix.planning_eval import confirm_sample, isolated_process
+    sample = json.loads((Path(__file__).parent / 'fixtures/planning-eval-r4-2026-10-07/samples.json').read_text())['samples'][0]
+    root = tmp_path / 'eval-storage'
+    with isolated_process(root, web):
+        work = confirm_sample(sample)
+        claim = prep.claim_chat_preparation(work['id'], 'validator-test', 'confirmed')
+        draft = prep.preparation_paths(work['id'], claim['operation_key'])['draft']
+        write_drafts(work, draft)
+        context = web.preparation_agent_context(work, claim)
+        assert 'EASEL_PLANNING_EVAL_ROOT=' in context
+        env = {**os.environ, 'EASEL_PLANNING_EVAL_ROOT': str(root),
+               'PYTHONPATH': str(root / 'validator-bootstrap') + os.pathsep + str(creation.PROJECT_ROOT)}
+        result = subprocess.run([sys.executable, '-m', 'easel.creation_preparation', '--validate-draft',
+            work['id'], claim['operation_key']], cwd=creation.PROJECT_ROOT, env=env,
+            capture_output=True, text=True, timeout=20)
+        assert result.returncode == 0, result.stderr
+        assert not (creation.PROJECT_ROOT / 'outputs/_creations' / work['id']).exists()
+
+
+@pytest.mark.parametrize('risk', ['skip_predecessors', 'tool_drift', 'scene_drift', 'quota_unknown', 'quota_low', 'end_scene_drift'])
+def test_r4_runner_preflight_refuses_unsafe_submission(prep_env, tmp_path, monkeypatch, risk):
+    import hashlib, re, sys, urllib.request
+    from tests.planning_material_matrix import planning_eval_run as runner
+    directory = tmp_path / 'protected-eval'
+    current_scene = {'old-scene': 'original-sha'}
+    current_tools = {'runner': 'frozen-sha'}
+    # Version/scene services and private quota HTTP are external read-only
+    # boundaries. Normal confirmation and Owner/Preparation remain native.
+    monkeypatch.setattr(runner, 'production', lambda: {'sha256': runner.SOURCE})
+    monkeypatch.setattr(runner, 'protected', lambda: dict(current_scene))
+    monkeypatch.setattr(runner, 'tool_hashes', lambda: dict(current_tools))
+    monkeypatch.setattr(runner, 'head', lambda: runner.COMMIT)
+    monkeypatch.setattr(sys, 'argv', ['eval', '--directory', str(directory)])
+    assert runner.main() == 0
+    (directory / 'user-authorization.json').write_text(json.dumps({'raw_stream_exception_accepted': True,
+        'billing_scope': 'existing purchased text subscription quota only'}))
+    if risk == 'tool_drift': current_tools['runner'] = 'changed-sha'
+    if risk == 'scene_drift': current_scene['old-scene'] = 'changed-sha'
+    key = 'fixture-credential-never-real'
+    home = tmp_path / 'quota-home'; (home / '.openclaw-easel').mkdir(parents=True)
+    monkeypatch.setenv('HOME', str(home))
+    (home / '.openclaw-easel/openclaw.json').write_text(json.dumps({'agents': {'defaults': {'model': {
+        'primary': 'minimax/MiniMax-M3', 'fallbacks': []}}}, 'models': {'providers': {'minimax': {
+        'baseUrl': 'https://api.minimax.cn/v1', 'apiKey': key}}}}))
+    (directory / 'subscription-quota-readonly.json').write_text(json.dumps({'credential_fingerprint': hashlib.sha256(key.encode()).hexdigest()}))
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *_): pass
+        def read(self):
+            quota = {} if risk == 'quota_unknown' else {'current_interval_remaining_percent': 100 if risk == 'end_scene_drift' else 24,
+                                                       'current_weekly_remaining_percent': 99}
+            return json.dumps({'base_resp': {'status_code': 0}, 'model_remains': [quota]}).encode()
+    monkeypatch.setattr(urllib.request, 'urlopen', lambda *_args, **_kwargs: Response())
+    submissions = []
+    def forbidden(*args, **kwargs):
+        submissions.append(args)
+        if risk != 'end_scene_drift': raise AssertionError('Precheck allowed an actual model submission')
+        from tests.test_creation_preparation import prep, creation, write_drafts
+        message = args[0]
+        work = creation.get_creation(json.loads((directory / 'roster.json').read_text())['runs'][0]['creation_id'])
+        if message.startswith('〔Easel Semantic Planning V3〕'):
+            Path(re.search(r'只写 (.+\.json)', message)[1]).write_text(json.dumps(semantic_draft()))
+        elif message.startswith('〔Easel Planning V3 单元分类〕'):
+            Path(re.search(r'只写 (.+\.json)', message)[1]).write_text(json.dumps(labels()))
+        elif message.startswith('〔Easel Script 系统审阅〕'):
+            target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
+            response = json.loads(message.split('（逐项替换判断，不增加字段）：\n', 1)[1].split('\n写入后停止。', 1)[0])
+            for row in response['decisions']: row.update(kind='creative_expression', reason='fixed non-factual input')
+            target.write_text(json.dumps(response))
+            # Read-only digest service now reports a changed historical scene.
+            current_scene['old-scene'] = 'changed-after-last-model-call'
+        else:
+            write_drafts(work, prep.preparation_paths(work['id'], work['preparation']['operation_key'])['draft'])
+        return 'external fixture complete'
+    monkeypatch.setattr(runner.web, 'run_agent_sync', forbidden)
+    monkeypatch.setattr(sys, 'argv', ['eval', '--directory', str(directory), '--one', '31' if risk == 'skip_predecessors' else '0'])
+    if risk in {'quota_unknown', 'quota_low', 'end_scene_drift'}:
+        assert runner.main() == 2
+        result = json.loads((directory / 'runs/run-00.json').read_text())
+        assert result['result'] == 'FAIL'
+        if risk == 'end_scene_drift':
+            assert result['boundary_reached'] and result['historical_scene_unchanged'] is False
+            assert result['supply_calls'] == 0
+            monkeypatch.setattr(sys, 'argv', ['eval', '--directory', str(directory), '--one', '1'])
+            with pytest.raises(runner.EvalStateViolation): runner.main()
+        else:
+            assert result['phase_invocations'] == []
+    else:
+        with pytest.raises(runner.EvalStateViolation): runner.main()
+    assert bool(submissions) == (risk == 'end_scene_drift')
+
+
+@pytest.mark.parametrize('risk', ['success', 'truth_reject', 'repair_failed', 'uncertain'])
+def test_r4_native_eval_stops_before_supply(prep_env, monkeypatch, risk):
+    import asyncio, re
+    from tests.test_creation_preparation import web, prep, creation, write_drafts
+    from tests.planning_material_matrix.planning_eval import confirm_sample, PlanningEvalBoundary
+    from easel.creation_delivery import DeliveryExecutionUncertain
+    from easel.integrations.material_layer import PlanningIntegration
+    sample = json.loads((Path(__file__).parent / 'fixtures/planning-eval-r4-2026-10-07/samples.json').read_text())['samples'][0]
+    work = confirm_sample(sample)
+    calls = []
+    injected_uncertain = False
+    def gateway(message, _timeout=None, session=None, **kwargs):
+        nonlocal injected_uncertain
+        if message.startswith('〔Easel Semantic Planning V3〕'):
+            calls.append(('A', session))
+            if risk == 'uncertain' and not injected_uncertain:
+                injected_uncertain = True
+                raise DeliveryExecutionUncertain('fixture transport unknown; original session must resume')
+            target = Path(re.search(r'只写 (.+\.json)', message)[1])
+            output = semantic_draft()
+            if risk == 'repair_failed': output['needs'][0]['modality_spec']['kind'] = 'unknown'
+            target.write_text(json.dumps(output))
+        elif message.startswith('〔Easel Planning V3 单元分类〕'):
+            calls.append(('B', session))
+            target = Path(re.search(r'只写 (.+\.json)', message)[1])
+            target.write_text(json.dumps(labels()))
+        elif message.startswith('〔Easel Planning V3 单次语义合同修正〕'):
+            calls.append(('repair', session))
+            request = json.loads(message.splitlines()[-1])
+            current_attempt = creation.get_creation(work['id'])['hypit_attempts'][-1]
+            target = Path(current_attempt['workspace']['path']) / 'planning' / request['targets'][0]
+            output = semantic_draft(); output['needs'][0]['modality_spec']['kind'] = 'unknown'
+            target.write_text(json.dumps(output))
+        elif message.startswith('〔Easel Script 系统审阅〕'):
+            calls.append(('Truth', session))
+            target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
+            response = json.loads(message.split('（逐项替换判断，不增加字段）：\n', 1)[1].split('\n写入后停止。', 1)[0])
+            for row in response['decisions']:
+                row.update(kind='unresolved' if risk == 'truth_reject' else 'creative_expression',
+                           reason='independent fixture rejection' if risk == 'truth_reject' else 'known creative expression fixture')
+            target.write_text(json.dumps(response))
+        else:
+            calls.append(('Preparation', session))
+            assert 'CONFIRMED_PROPOSAL_SHA256=' in message, message[:80]
+            current = creation.get_creation(work['id'])
+            paths = prep.preparation_paths(work['id'], current['preparation']['operation_key'])
+            write_drafts(current, paths['draft'])
+        return 'fixed external fixture'
+    monkeypatch.setattr(web, 'run_agent_sync', gateway)
+    monkeypatch.setattr(web, '_hypit_runtime_profile', lambda: None)
+    boundary = PlanningEvalBoundary()
+    # The second invocation deliberately reuses the event loop/executor: trace
+    # protection must survive endpoint exception and pool-thread reuse.
+    async def scenario():
+        first = await boundary.advance(work['id'], web)
+        if risk == 'uncertain':
+            assert not first['boundary_reached']
+            second = await boundary.advance(work['id'], web)
+            # This external fixture has no durable Gateway reconciliation
+            # result: Owner must remain unknown rather than resubmit. The
+            # real adapter's same-run RPC recovery is a separate existing test.
+            assert not second['boundary_reached']
+            a_sessions = [sid for stage, sid in calls if stage == 'A']
+            assert len(a_sessions) == 1
+        elif risk == 'success':
+            assert first['boundary_reached'] and first['owner_advanced']
+            assert first['native_next_operation'] == 'prepare'
+            count = len(calls)
+            second = await boundary.advance(work['id'], web)
+            assert second['boundary_reached'] and len(calls) == count
+        else:
+            assert not first['boundary_reached']
+    asyncio.run(scenario())
+    assert boundary.supply_calls == 0 and not boundary.state_violations
+    if risk == 'success':
+        attempt = creation.get_creation(work['id'])['hypit_attempts'][-1]
+        loaded = PlanningIntegration().load(attempt)
+        assert loaded['truth_ledger']['status'] == 'PASSED'
+        assert json.loads((Path(attempt['workspace']['path']) / 'planning/manifest.json').read_text())['schema'] == 'easel-material-planning@3'
+        assert not attempt.get('material_gate') and not attempt.get('production_authoring')
+        assert (Path(attempt['workspace']['path']) / 'planning/SCRIPT.md').read_bytes() == work['delivery']['video_plan']['script'].encode()
+    if risk == 'repair_failed': assert [stage for stage, _ in calls].count('repair') == 1
+
+
+@pytest.mark.parametrize('risk', ['accepted', 'wait_timeout', 'release_pending', 'restart', 'lost', 'terminal_error'])
+def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence=None):
+    import asyncio, re, subprocess
+    from tests.test_creation_preparation import web, prep, creation, write_drafts
+    from tests.planning_material_matrix.planning_eval import confirm_sample, PlanningEvalBoundary
+    from tests.planning_material_matrix.planning_eval_run import drain_checkpoints, classify_checkpoint
+    from easel.integrations import openclaw_delivery as gateway
+    sample = json.loads((Path(__file__).parent / 'fixtures/planning-eval-r4-2026-10-07/samples.json').read_text())['samples'][0]
+    work = confirm_sample(sample)
+    runs, methods, snapshots = {}, [], []
+    mismatch = []
+    class ObservedBoundary(PlanningEvalBoundary):
+        def trace(self, frame, event, arg):
+            # Read-only evidence at the actual native rejection; do not
+            # substitute a validator, request or production function.
+            if (event == 'call' and frame.f_globals.get('__name__') == 'easel.integrations.semantic_planning'
+                    and frame.f_code.co_name == 'problem' and frame.f_locals.get('field') == 'request'):
+                caller = frame.f_back
+                saved = caller.f_locals.get('record', {})
+                incoming = caller.f_locals.get('message', '')
+                if saved.get('message') and incoming:
+                    import hashlib
+                    mismatch.append(('request_text_sha256', hashlib.sha256(saved['message'].encode()).hexdigest(),
+                                     hashlib.sha256(incoming.encode()).hexdigest()))
+                    left, right = json.loads(saved['message'].splitlines()[-1]), json.loads(incoming.splitlines()[-1])
+                    def differences(a, b, path=''):
+                        if isinstance(a, dict) and isinstance(b, dict):
+                            if list(a) != list(b): mismatch.append((path, list(a), list(b)))
+                            for k in a.keys() & b.keys(): differences(a[k], b[k], path + '/' + k)
+                        elif a != b: mismatch.append((path, a, b))
+                    differences(left, right)
+                    mismatch.insert(0, ('semantic_payload_equal', left == right))
+            return super().trace(frame, event, arg)
+    uncertain_once = False
+    def write_response(message):
+        if message.startswith('〔Easel Semantic Planning V3〕'):
+            Path(re.search(r'只写 (.+\.json)', message)[1]).write_text(json.dumps(semantic_draft()))
+        elif message.startswith('〔Easel Planning V3 单元分类〕'):
+            Path(re.search(r'只写 (.+\.json)', message)[1]).write_text(json.dumps(labels()))
+        elif message.startswith('〔Easel Script 系统审阅〕'):
+            target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
+            value = json.loads(message.split('（逐项替换判断，不增加字段）：\n', 1)[1].split('\n写入后停止。', 1)[0])
+            for item in value['decisions']: item.update(kind='creative_expression', reason='known creative fixture')
+            target.write_text(json.dumps(value))
+        else:
+            current = creation.get_creation(work['id'])
+            write_drafts(current, prep.preparation_paths(work['id'], current['preparation']['operation_key'])['draft'])
+    def transport(command, **kwargs):
+        nonlocal uncertain_once
+        method = command[command.index('call') + 1]
+        params = json.loads(command[command.index('--params') + 1])
+        methods.append((method, params))
+        if method == 'agent':
+            run_id = params['idempotencyKey']
+            assert run_id not in runs
+            runs[run_id] = {'request': params, 'waits': 0}
+            payload = {'runId': run_id, 'status': 'accepted'}
+        elif method == 'agent.wait':
+            run_id = params['runId']; original = runs[run_id]; original['waits'] += 1
+            assert params == {'runId': run_id, 'timeoutMs': 0}
+            if risk == 'wait_timeout' and not uncertain_once:
+                uncertain_once = True; raise subprocess.TimeoutExpired(command, 20)
+            if risk == 'lost':
+                payload = {'runId': run_id, 'status': 'lost'}
+            elif original['waits'] == 1:
+                payload = {'runId': run_id, 'status': 'pending'}
+            elif risk == 'terminal_error':
+                payload = {'runId': run_id, 'status': 'error', 'endedAt': 1000, 'error': 'fixture terminal failure'}
+            else:
+                write_response(original['request']['message'])
+                payload = {'runId': run_id, 'status': 'ok', 'endedAt': 1000}
+        else:
+            assert method == 'sessions.abort'
+            assert any(r['request']['sessionKey'] == params['key'] and r['waits'] > 1 for r in runs.values())
+            if risk == 'release_pending' and not uncertain_once:
+                uncertain_once = True; raise subprocess.TimeoutExpired(command, 20)
+            payload = {'ok': True, 'status': 'no-active-run'}
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), '')
+    native_rpc = gateway._rpc
+    monkeypatch.setattr(gateway, '_rpc', lambda prefix, profile, method, params, _runner, kwargs:
+        native_rpc(prefix, profile, method, params, transport, kwargs))
+    def external_agent(message, timeout=None, session_id=None, **kwargs):
+        command = ['openclaw', '--profile', web.OPENCLAW_PROFILE, 'agent', '--agent', 'main',
+                   '--session-key', 'agent:main:' + session_id, '--thinking', 'off',
+                   '--timeout', str(timeout or 60), '--message', message]
+        return gateway.run_delivery_agent(command, retry_failed=kwargs.get('retry_failed', True)).stdout
+    monkeypatch.setattr(web, 'run_agent_sync', external_agent)
+    monkeypatch.setattr(web, '_hypit_runtime_profile', lambda: None)
+    def checkpoint(state, current, result):
+        snapshots.append((result, state, current['delivery'].get('agent_calls', {})))
+        if any(c.get('status') == 'pending' for c in snapshots[-1][2].values()):
+            assert result == 'UNKNOWN_OR_PENDING'
+    async def scenario():
+        boundary = ObservedBoundary()
+        if risk == 'restart':
+            state = await boundary.advance(work['id'], web)
+            current = creation.get_creation(work['id'])
+            assert classify_checkpoint(state, current) == 'UNKNOWN_OR_PENDING'
+            original = {k: (c['run_id'], c['request_sha256']) for k, c in current['delivery']['agent_calls'].items()}
+            boundary = ObservedBoundary()  # new client, durable Owner unchanged
+        state, current, result = await drain_checkpoints(boundary, work['id'], web, checkpoint,
+            pause=0, max_seconds=0 if risk == 'lost' else 5)
+        if evidence:
+            evidence.note('native lifecycle result', result)
+            evidence.note('original model submissions', len(runs))
+            evidence.note('request identity rejection evidence', mismatch)
+            evidence.note('native checkpoints', [item[0] for item in snapshots])
+            evidence.note('RPC methods', [method for method, _ in methods])
+        assert boundary.supply_calls == 0 and not boundary.state_violations
+        if risk == 'lost':
+            assert result == 'INCOMPLETE_RECOVERABLE' and len(runs) == 1
+            assert not any(method == 'sessions.abort' for method, _ in methods)
+        elif risk == 'terminal_error':
+            assert result == 'FAIL' and len(runs) == 1
+            before = len(methods)
+            await drain_checkpoints(PlanningEvalBoundary(), work['id'], web, checkpoint, pause=0)
+            assert len(methods) == before  # known failure cannot refresh Preparation retry
+        else:
+            assert result == 'CONTRACT_VALID_SEMANTICS_PENDING' and len(runs) == 4, (current['delivery'].get('last_error'), mismatch)
+            calls = current['delivery']['agent_calls']
+            assert all(c['status'] == 'ok' and c['runtime_release'] == 'released' for c in calls.values())
+            assert set(c['run_id'] for c in calls.values()) == set(runs)
+            assert all(c['request_sha256'] == key for key, c in calls.items())
+            if risk == 'restart':
+                assert original.items() <= {k: (c['run_id'], c['request_sha256']) for k, c in calls.items()}.items()
+            assert state['boundary_reached']
+            attempt = current['hypit_attempts'][-1]
+            from easel.materials.store import AttemptMaterialStore
+            recovery = AttemptMaterialStore(Path(attempt['workspace']['path'])).read_recovery_record('semantic-planning-v3')
+            assert not recovery.get('repair_used')
+        assert sum(method == 'agent' for method, _ in methods) == len(runs)
+    asyncio.run(scenario())
+
+
 def semantic_draft():
     # Independent fixed input and expected labels, never derived with sources_for.
     return {'schema': 'semantic-planning-draft@1', 'needs': [{

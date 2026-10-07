@@ -736,3 +736,38 @@ def test_36_semantic_repair_and_snapshot_protection(semantic_runtime,trace,risk)
         'unknown':semantic.test_native_semantic_unknown_execution_recovers_same_stage_and_snapshot_change_stops,
     }[risk](semantic_runtime)
     trace.note('calls',len(semantic_runtime['calls']))
+
+
+@pytest.mark.parametrize('risk', ['success', 'truth_reject', 'repair_failed', 'uncertain'])
+def test_37_r4_eval_native_stop_boundary(prep_env, monkeypatch, trace, risk):
+    trace.define('正常确认与真实内部 Preparation/A/B/Truth/persist/load 后在 Supply 构造之前停止；失败不推进，重入无新增调用',
+                 'R4 eval adapter AST-bound native Supply entry; only external model response fixture')
+    semantic.test_r4_native_eval_stops_before_supply(prep_env, monkeypatch, risk)
+    trace.note('scenario', risk)
+    trace.note('Supply / Provider / generation / TTS / Build native entries', 0)
+
+
+def test_38_r4_frozen_legal_samples(prep_env, trace):
+    trace.define('16 份独立正常方案、8/8 划分、各两次独立确认；正文 SHA 保持，未创建 Attempt 或授权生成',
+                 'hand-written normal proposal and independent semantic expectations')
+    semantic.test_r4_frozen_samples_are_legal_normal_proposals(prep_env)
+    trace.note('normal confirmations / independent identities', 32)
+    trace.note('real models / real Eval runs', 0)
+
+
+@pytest.mark.parametrize('risk', ['skip_predecessors', 'tool_drift', 'scene_drift', 'quota_unknown', 'quota_low', 'end_scene_drift'])
+def test_39_r4_batch_and_fee_guards(prep_env, tmp_path, monkeypatch, trace, risk):
+    trace.define('批次基线不可吸收新变化，工具/版本固定，前序语义通过才可推进；套餐未知或不足时不提交模型；收尾变化强制FAIL',
+                 'R4 runner plus native confirmation/Owner; only read-only metadata/HTTP and model results are fixtures')
+    semantic.test_r4_runner_preflight_refuses_unsafe_submission(prep_env, tmp_path, monkeypatch, risk)
+    trace.note('preflight/reconciliation scenario', risk)
+    trace.note('real model / native Supply calls', 0)
+
+
+@pytest.mark.parametrize('risk', ['accepted', 'wait_timeout', 'release_pending', 'restart', 'lost', 'terminal_error'])
+def test_40_r4_native_async_lifecycle(prep_env, monkeypatch, trace, risk):
+    trace.define('原生Owner/Gateway accepted→pending→原run终态→释放→继续Preparation/A/B/Truth；未知不重提交，终态错误停止',
+                 'native state and RPC protocol; only external RPC transport uses fixed responses')
+    semantic.test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence=trace)
+    trace.note('lifecycle', risk)
+    trace.note('Supply / generation / Build calls', 0)

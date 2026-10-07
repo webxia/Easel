@@ -1,0 +1,474 @@
+{
+  "schema": "easel-planning-eval-samples@1",
+  "runs_per_theme": 2,
+  "model_tuning_with_held_out": false,
+  "source": "independent controlled normal creative proposals; no historical outputs reused",
+  "samples": [
+    {
+      "id": "d01",
+      "split": "development",
+      "theme": "桌上的两张纸",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n先看问题，再做决定。\n```\n## 分镜与节奏\n0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。\n## 声音设计\n无旁白，无音乐。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：静音\n语言：简体中文\n",
+      "expected_script_sha256": "e13544b58e1148dc4b5a891821c07353a310ea9f8e9540cd583a28145d498b53",
+      "oracle": {
+        "required_modalities": [
+          "image"
+        ],
+        "required_semantics": [
+          "桌面上有两张白纸"
+        ],
+        "preference": [],
+        "postproduction": [
+          "叠加正文"
+        ],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "d02",
+      "split": "development",
+      "theme": "给绿植留一点时间",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n慢一点，把这杯水留给眼前的绿叶。\n```\n## 分镜与节奏\n0–15 秒：视频必须看到手把水倒入盆栽土中的连续动作。\n## 声音设计\n纯旁白；用中性预置音色逐字读正文，不加音乐。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：voice\n语言：简体中文\n",
+      "expected_script_sha256": "3c464a1decd309625f632faa5e66be9c164f3142b3f432e1222a384734218528",
+      "oracle": {
+        "required_modalities": [
+          "video",
+          "voice"
+        ],
+        "required_semantics": [
+          "手向盆栽土倒水的连续源动作",
+          "正文完整旁白"
+        ],
+        "preference": [],
+        "postproduction": [],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "d03",
+      "split": "development",
+      "theme": "看云影经过",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n给午后留一小段空白。\n```\n## 分镜与节奏\n0–15 秒：图片必须是有云影的草地，后期呈现正文。\n## 声音设计\n纯音乐；必须有安静的纯器乐 BGM，无人声，无旁白。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：music\n语言：简体中文\n",
+      "expected_script_sha256": "2338de437d4e5a9b8097344f51c4a3f251ba339b8c00dd961448bd1df2105487",
+      "oracle": {
+        "required_modalities": [
+          "image",
+          "bgm"
+        ],
+        "required_semantics": [
+          "有云影的草地",
+          "安静纯器乐配乐无人声"
+        ],
+        "preference": [],
+        "postproduction": [
+          "后期呈现正文"
+        ],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "d04",
+      "split": "development",
+      "theme": "骑车前的一声铃",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n出发之前，先给自己一点从容。\n```\n## 分镜与节奏\n0–15 秒：视频必须有自行车车把及按铃动作。\n## 声音设计\n旁白与音乐；中性预置旁白逐字读正文，轻快纯器乐 BGM，必须有一次自行车铃声 SFX。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：mixed\n语言：简体中文\n",
+      "expected_script_sha256": "83c60021f6cb6715170a1218a0c81f48a7a614477df64844e375f49ee0ae6e03",
+      "oracle": {
+        "required_modalities": [
+          "video",
+          "voice",
+          "bgm",
+          "sfx"
+        ],
+        "required_semantics": [
+          "车把和按铃源动作",
+          "完整旁白",
+          "轻快纯器乐BGM",
+          "自行车铃声"
+        ],
+        "preference": [],
+        "postproduction": [],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "d05",
+      "split": "development",
+      "theme": "把桌面空出来",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n给眼前这件事，留一块空地方。\n```\n## 分镜与节奏\n0–15 秒：必须有空出中央区域的木桌图片；暖光只是偏好，可有可无的小台灯只算 optional。正文后期叠加。\n## 声音设计\n无旁白，无音乐。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：静音\n语言：简体中文\n",
+      "expected_script_sha256": "843a7eb310a3085ad498de71437b4df96a6b2c27982ad49ca8fcb8cd5b0d6f6f",
+      "oracle": {
+        "required_modalities": [
+          "image"
+        ],
+        "required_semantics": [
+          "中央空出区域的木桌"
+        ],
+        "preference": [
+          "暖光"
+        ],
+        "postproduction": [
+          "叠加正文"
+        ],
+        "optional": [
+          "小台灯"
+        ],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "d06",
+      "split": "development",
+      "theme": "窗帘和风",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n让风先说完。\n```\n## 分镜与节奏\n0–15 秒：视频必须显示白色窗帘被风吹动的真实连续动作；不能用静态图后期摇动代替。正文后期叠加。\n## 声音设计\n无旁白，无音乐。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：静音\n语言：简体中文\n",
+      "expected_script_sha256": "8a41300820cb4206bded4e57b0436cf7abe24f5641f4b9eccb882e33dbb4c34b",
+      "oracle": {
+        "required_modalities": [
+          "video"
+        ],
+        "required_semantics": [
+          "白色窗帘被风吹动的源动作"
+        ],
+        "preference": [],
+        "postproduction": [
+          "叠加正文"
+        ],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "d07",
+      "split": "development",
+      "theme": "不放文字的灯光",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n无字画面\n```\n## 分镜与节奏\n0–15 秒：图片必须有一盏亮着的桌灯；只呈现画面，正文是无字作品的确认占位，不在画面显示。\n## 声音设计\n无旁白，无音乐，无屏幕文字。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：静音\n语言：简体中文\n",
+      "expected_script_sha256": "35060ba6d9d213b069f16670a85167e5cb461495f87995ae99d97784a828977f",
+      "oracle": {
+        "required_modalities": [
+          "image"
+        ],
+        "required_semantics": [
+          "亮着的桌灯"
+        ],
+        "preference": [],
+        "postproduction": [
+          "不叠加文字"
+        ],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "d08",
+      "split": "development",
+      "theme": "闭眼听雨",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n把注意力，交给这一场雨。\n```\n## 分镜与节奏\n0–15 秒：全程黑色背景由后期生成，不采购任何视觉素材，不显示字幕。\n## 声音设计\n旁白与音乐；中性预置音色完整正文，舒缓纯器乐 BGM，持续轻雨声 SFX 必须存在。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：mixed\n语言：简体中文\n",
+      "expected_script_sha256": "78b2a72272e2f6129ce9aaf0c230494fc8c6f48e956603f71cf84ab623602768",
+      "oracle": {
+        "required_modalities": [
+          "voice",
+          "bgm",
+          "sfx"
+        ],
+        "required_semantics": [
+          "完整旁白",
+          "舒缓纯器乐BGM",
+          "持续轻雨声"
+        ],
+        "preference": [],
+        "postproduction": [
+          "后期黑色背景",
+          "无字幕"
+        ],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "h01",
+      "split": "held_out",
+      "theme": "信封还没有寄出",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n有些话，可以慢慢写。\n```\n## 分镜与节奏\n0–15 秒：必须有桌上的一个信封与一支笔的图片，后期叠加正文。\n## 声音设计\n无旁白，无音乐。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：静音\n语言：简体中文\n",
+      "expected_script_sha256": "4b32441a987826b2419c03c85c2e9cd287a930e567e14e329ae6ce61d2876917",
+      "oracle": {
+        "required_modalities": [
+          "image"
+        ],
+        "required_semantics": [
+          "桌上的一个信封和一支笔"
+        ],
+        "preference": [],
+        "postproduction": [
+          "叠加正文"
+        ],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "h02",
+      "split": "held_out",
+      "theme": "折一架纸飞机",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n从一道折痕开始，给想象留一点空间。\n```\n## 分镜与节奏\n0–15 秒：视频必须看到双手折纸飞机的连续源动作，不能以静态飞机替代。\n## 声音设计\n纯旁白；中性预置音色完整正文，无音乐。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：voice\n语言：简体中文\n",
+      "expected_script_sha256": "efb90e07d7280b7e36baa6becbffe44c0e99721d86307fd755bcbe00d1ef7289",
+      "oracle": {
+        "required_modalities": [
+          "video",
+          "voice"
+        ],
+        "required_semantics": [
+          "双手折纸飞机的源动作",
+          "完整旁白"
+        ],
+        "preference": [],
+        "postproduction": [],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "h03",
+      "split": "held_out",
+      "theme": "翻开这一页",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n先翻开，再慢慢看。\n```\n## 分镜与节奏\n0–15 秒：视频必须看到手翻过一本书的书页；正文后期叠加。\n## 声音设计\n纯音乐；柔和纯器乐 BGM，无旁白。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：music\n语言：简体中文\n",
+      "expected_script_sha256": "de631755ad93d631c43abe23268636ffa66dc9306a5d8c9a64762ac7d0fce612",
+      "oracle": {
+        "required_modalities": [
+          "video",
+          "bgm"
+        ],
+        "required_semantics": [
+          "手翻书页的源动作",
+          "柔和纯器乐BGM"
+        ],
+        "preference": [],
+        "postproduction": [
+          "叠加正文"
+        ],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "h04",
+      "split": "held_out",
+      "theme": "厨房里的十秒钟",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n这一刻，只听时间走过。\n```\n## 分镜与节奏\n0–15 秒：视频必须有厨房台面上的时钟，秒针可见且在移动。\n## 声音设计\n旁白与音乐；中性预置音色完整正文，轻柔纯器乐 BGM，必须有滴答 SFX。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：mixed\n语言：简体中文\n",
+      "expected_script_sha256": "bf97f7d27479de31278b2411dc0fdeefe76157da457d1b9a94b92f2df939c0e2",
+      "oracle": {
+        "required_modalities": [
+          "video",
+          "voice",
+          "bgm",
+          "sfx"
+        ],
+        "required_semantics": [
+          "厨房台面时钟和移动秒针",
+          "完整旁白",
+          "轻柔纯器乐BGM",
+          "时钟滴答声"
+        ],
+        "preference": [],
+        "postproduction": [],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "h05",
+      "split": "held_out",
+      "theme": "绳结也可以慢慢解",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n先松一点，再寻找另一头。\n```\n## 分镜与节奏\n0–15 秒：必须有一根打结棉绳的近景图片；灰蓝色调仅偏好；optional 是画面边缘一段丝带。\n## 声音设计\n纯旁白；中性预置音色完整正文，无音乐。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：voice\n语言：简体中文\n",
+      "expected_script_sha256": "25a32fabbededd45f7fb28a4d76e5ad0f48a4643ec9e610685aa6f32133393fe",
+      "oracle": {
+        "required_modalities": [
+          "image",
+          "voice"
+        ],
+        "required_semantics": [
+          "打结棉绳近景",
+          "完整旁白"
+        ],
+        "preference": [
+          "灰蓝色调"
+        ],
+        "postproduction": [],
+        "optional": [
+          "画面边缘丝带"
+        ],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "h06",
+      "split": "held_out",
+      "theme": "绕过小水洼",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n换一步，也是一种向前。\n```\n## 分镜与节奏\n0–15 秒：视频必须看到鞋子绕过地面水洼的连续动作，不要求特定人或品牌。\n## 声音设计\n纯音乐；轻缓纯器乐 BGM，必须有脚步 SFX，无旁白。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：music\n语言：简体中文\n",
+      "expected_script_sha256": "92a8a640258e9b4ca96e4530d4e648f35d430cd8874dae0951036d1101f1928c",
+      "oracle": {
+        "required_modalities": [
+          "video",
+          "bgm",
+          "sfx"
+        ],
+        "required_semantics": [
+          "鞋子绕过水洼的源动作",
+          "轻缓纯器乐BGM",
+          "脚步声"
+        ],
+        "preference": [],
+        "postproduction": [],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "h07",
+      "split": "held_out",
+      "theme": "先写下三个词",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n停一下。\r\n看一看；再开始。\n```\n## 分镜与节奏\n0–15 秒：图片必须有三张空白便签；完整正文在后期分行显示，标点和 CRLF 保留。构图留白只是偏好。\n## 声音设计\n无旁白，无音乐。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：静音\n语言：简体中文\n",
+      "expected_script_sha256": "f262a0655a51fd34cc3d997b7f631eec8485f45d2d39b3f72a89a66e9e09f310",
+      "oracle": {
+        "required_modalities": [
+          "image"
+        ],
+        "required_semantics": [
+          "三张空白便签"
+        ],
+        "preference": [
+          "构图留白"
+        ],
+        "postproduction": [
+          "正文逐字分行显示"
+        ],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    },
+    {
+      "id": "h08",
+      "split": "held_out",
+      "theme": "听树林醒来",
+      "proposal": "## 创作表达\n用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n## 文案\n```text\n听见风，也听见片刻的安静。\n```\n## 分镜与节奏\n0–15 秒：后期生成纯黑背景，不采购视觉素材，无屏幕文字。\n## 声音设计\n旁白与音乐；中性预置音色完整正文，安静纯器乐 BGM，必须有树林风声 SFX。\n## 制作规格\n时长：15 秒\n画幅：9:16\n音轨：mixed\n语言：简体中文\n",
+      "expected_script_sha256": "31d89d041879a332572c6022f673b109dd5e218bb23fb7b13ce8eafe912fdf50",
+      "oracle": {
+        "required_modalities": [
+          "voice",
+          "bgm",
+          "sfx"
+        ],
+        "required_semantics": [
+          "完整旁白",
+          "安静纯器乐BGM",
+          "树林风声"
+        ],
+        "preference": [],
+        "postproduction": [
+          "黑色背景",
+          "无屏幕文字"
+        ],
+        "optional": [],
+        "forbidden": [
+          "正文改字",
+          "新增无来源硬要求",
+          "required降级",
+          "偏好升级为required"
+        ],
+        "review_method": "独立核定清单；逐项阅读正式 Need/clauses、模态参数与冻结来源；词面命中不能替代语义判定"
+      }
+    }
+  ]
+}

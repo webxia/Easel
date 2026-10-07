@@ -446,7 +446,7 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
         message=('〔Easel Planning V3 单次语义合同修正〕\n阶段：'+stage+'\n'
             '保留全部有效Need语义、模态、importance与冻结正文；只修下列错误；不能删除要求。'
             '只写指定输出，不写正式Plan/sidecar，不调用供应/生成/Hypit。\n'
-            +json.dumps({'issues':issues,'targets':targets,'context':context},ensure_ascii=False))
+            +json.dumps({'issues':issues,'targets':targets,'context':context},ensure_ascii=False,sort_keys=True))
         if state['repair_used'] and (key not in state['calls'] or state['calls'][key]['message']!=message):
             raise SemanticPlanningError(stage,[problem('repair','整次Planning共享单次修复额度已用完')])
         state['repair_used']=True;save()
@@ -463,7 +463,7 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
         'queries交三个不同英文短语；正文/场景/声音保持确认原意，required不能遗漏或降级；'
         '不调用供应/生成/Hypit。只写 '+str(root/'planning'/a_name)+'\n'
         +json.dumps({'schema':SemanticPlanningDraft.model_json_schema(),'confirmed':canonical,
-                    'catalog':catalog,'context_refs':planning_context['context_refs']},ensure_ascii=False))
+                    'catalog':catalog,'context_refs':planning_context['context_refs']},ensure_ascii=False,sort_keys=True))
     if len(message.encode())>MAX_FILE_BYTES:
         raise SemanticPlanningError('A',[problem('input','完整输入超过有界容量，未派发')])
     raw=invoke('A','planning',message,a_name)
@@ -499,7 +499,7 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
             '有歧义返回unresolved。偏好引用只能用所属context.preferences中的id。'
             '只写 '+str(root/'planning'/name)+'\n'
             'JSON:{"classifications":[{"id":0,"kind":"required","preference_source":null}]}\n'
-            +json.dumps(batch,ensure_ascii=False))
+            +json.dumps(batch,ensure_ascii=False,sort_keys=True))
         raw_b=invoke(f'B{index}','planning',bmessage,name)
         try:response=read_planning_requirements(raw_b.decode())
         except (ValueError,UnicodeError):response=None
