@@ -52,6 +52,7 @@
 
 ## Workstreams 与模板
 
+- Planning vNext 当前获批实施入口：[Planning Semantic Boundary vNext](tasks/planning-semantic-boundary-vnext-2026-10-07.md)。冻结设计及一次 Astra CONTINUE，连续执行 S1–S5 与最多两轮有界 Development Eval；沿用既有矩阵及验收入口，Formal R4 保持 PAUSED，禁止 Supply/媒体生成/TTS/Build。设计 PASS 不代表软件或真实评测 PASS。
 - 当前唯一实施方案：[`tasks/creator-autonomous-first-cut-2026-09-30.md`](tasks/creator-autonomous-first-cut-2026-09-30.md)。用户已批准实施自主首版与 Director 全链执行；已有六段主链基础复用；C 镜头替代、B 观察复用、D 例外组合接受及 E 体验/全链局部回放已完成确定性软件收尾；现阶段等待用户另行启动真人验收。
 - 历史已完成的素材阶段恢复：[`tasks/creator-material-recovery-2026-09-30.md`](tasks/creator-material-recovery-2026-09-30.md)。
 - 历史工作区软件验收：[`tasks/creator-workspace-2026-09-30.md`](tasks/creator-workspace-2026-09-30.md)。
