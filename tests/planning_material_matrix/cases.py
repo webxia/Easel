@@ -846,3 +846,12 @@ def test_48_native_authority_contract(authority_runtime,trace,risk):
     semantic.test_native_authority_contract(authority_runtime,risk)
     trace.note('external fixture calls',len(authority_runtime['calls']))
     trace.note('real Supply / Provider / generation / Build',0)
+
+
+@pytest.mark.parametrize('risk', ['entities', 'aliases', 'duration', 'scope_integrity'])
+def test_49_vnext_canonical_facts(trace, risk):
+    trace.define('成片/源素材/展示事实分别建权威；一个语义选择确定派生技术表示，不推断silence=image或静图源时长',
+                 'batch09冻结原件的离线派生输入，历史原件及FAIL不改；只执行程序投影')
+    semantic.test_vnext_canonical_facts(risk)
+    trace.note('proof scope', 'DETERMINISTIC_CONTRACT / REJECTION')
+    trace.note('real model / Supply', 0)

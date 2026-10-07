@@ -1816,6 +1816,42 @@ def test_asset_versus_use_task(semantic_runtime, risk, evidence=None):
         assert not rt['calls'] and store.read_recovery_record('semantic-planning-v3')==state
 
 
+@pytest.mark.parametrize('risk', ['entities', 'aliases', 'duration', 'scope_integrity'])
+def test_vnext_canonical_facts(risk):
+    from easel.integrations.planning_facts import bind_facts, fact_value, project_asset
+    scope = json.loads((FIXTURE / 'batch09/scope-original.json').read_text())
+    inputs = {'schema': 'planning-authority-inputs@1', 'confirmed': scope['canonical'],
+              'proposal': {'specs': {key: value for key, value in json.loads(
+                  (FIXTURE / 'batch09/production-brief-original.json').read_text()).items()
+                  if key in {'aspect_ratio', 'duration_seconds', 'audio_mode', 'language'}}},
+              'mode_documents': {'mode.json': json.dumps(scope['mode'])}}
+    bound = bind_facts(inputs)
+    assert bind_facts(json.loads(json.dumps(inputs))) == bound
+    final_ratio = fact_value(bound, 'final_output', 'frame')
+    assert final_ratio == '9:16'
+    if risk == 'entities':
+        free = project_asset(bound, kind='image')
+        assert 'aspect_ratio' not in free['modality_spec'] and free['duration_hint'] is None
+        assert project_asset(bound, kind='video')['media_type'] == 'video'
+        assert fact_value(bound, 'final_output', 'audio_mode') == 'silent'
+    elif risk == 'aliases':
+        derived = project_asset(bound, kind='image', frame='match_output')
+        assert derived['modality_spec']['aspect_ratio'] == final_ratio
+        assert not {'aspect_ratio', 'media_type', 'visual_style'} & derived['constraints'].keys()
+        assert derived['modality_spec']['visual_style'] == derived['constraints']['preferred_style']
+        with pytest.raises(ValueError, match='alias'):
+            project_asset(bound, kind='image', native_ratio='9:16')
+    elif risk == 'duration':
+        assert project_asset(bound, kind='video', source_seconds=3)['duration_hint'] == {'target_seconds': 3}
+        assert fact_value(bound, 'final_output', 'duration') == 15
+        with pytest.raises(ValueError, match='time-based'):
+            project_asset(bound, kind='image', source_seconds=15)
+    else:
+        changed = deepcopy(inputs); changed['confirmed']['SCENES.md'] += '不得出现文字。'
+        assert bind_facts(changed)['sha256'] != bound['sha256']
+        assert all(row['authority'] != 'candidate' for row in bound['facts'])
+
+
 @pytest.mark.parametrize('risk', ['history', 'basis_transport', 'scalar_controls', 'catalog_eligibility',
                                 'operational_origin', 'control_guard', 'creative_contrast', 'verified_loader'])
 def test_batch09_hard_authority_baseline(semantic_runtime, risk, evidence=None):

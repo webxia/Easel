@@ -1,0 +1,16 @@
+{
+  "stage": "S1",
+  "result": "PASS",
+  "targeted": 4,
+  "regression": 139,
+  "matrix": 139,
+  "matrix_run": "run-019",
+  "protected": 257,
+  "fixtures": 117,
+  "model_calls": 0,
+  "proof_scope": [
+    "DETERMINISTIC_CONTRACT",
+    "REJECTION"
+  ],
+  "production_wired": false
+}
