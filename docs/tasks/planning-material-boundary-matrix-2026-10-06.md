@@ -632,3 +632,40 @@ Astra前置CONTINUE：关系解释不能实现为词序/关键词；补用途前
 最终同一入口run-027 **103 PASS/0 FAIL/0 GAP/0未执行**，全量 **841 PASS/5既有skip**（60.44秒）、115技能/compileall/diff通过，Astra实际diffCONTINUE，无新增必要修订。首个全量834PASS/5skip/1ERROR因新增helper遗漏parametrize，原JUnit保留，仅补测试参数化后完整重跑；run018/024/025及测试缺陷不删除。257旧正式现场/原59fixture未改，新增18后77fixture前后保持，六旧批完整原件保存。生产SHA `71e5ecbbafdfd7104b835a5b6b2a3071a2132e291d31d5134dab9281547e99e4`，软件真实调用及Supply下游0。
 
 软件冻结条件成立，后续仅按已授权范围窄提交、本轮实际日志停服精确备份、安全加载/实时空闲/套餐预检后，用原16主题及独立oracle另建32个全新正常Creation进行R4；旧batch06及全部历史FAIL不恢复不倒算。软件通过不放行Smoke，真实成绩另记唯一验收。
+
+§13.16后续 batch07 固定版本及安全加载（2026-10-07，真实结果未定）
+
+§13.15/13.16软件固定commit7685953c72925b195aa7e882996aca076a2151bb / source71e5ecbbafdfd7104b835a5b6b2a3071a2132e291d31d5134dab9281547e99e4，仅22获批软件/fixture/Task文件，凭证/运行产物0、无push，用户其余工作树保留。run027103矩阵PASS、841全量PASS/5既有skip、115技能/compileall/diff及AstraCONTINUE。
+
+实时8旧Owner有效操作0，unknown/pending/submitting/release待办0，Gatewayactive/lost/audit0；同Key文字套餐94%/98%，无fallback，实际账单未知。257旧正式现场/77fixture及全部六旧批原件SHA一致。实际raw-stream停服后精确备份172336字节、SHA2047330750c5f7c2bfe05910d0aec41c4f6906422aaddd8db8c22f8a95b2b773核验，12:57:24 Web/Gateway新PID99217/99215安全加载，HTTP200/Gateway空闲；无进程内SHA端点，依据为新PID/时间/执行文件/cwd及固定源。
+
+原16主题及独立oracle保持，新32正常确认Creation冻结隔离，请求身份独立，首次真实Prep/A/B/Truth开始；尚无新成绩。每项正式合同与独立语义均PASS才继续；禁止实际Supply/Provider/生成/TTS/Build，所有旧FAIL不恢复不倒算，Smoke=NO。[加载证据](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch07-release-loaded.json)。
+
+### 13.17 batch07：前两项双PASS，第3项分类枚举与repair输出结构FAIL（2026-10-07，STOP）
+
+固定7685953c/source71e5ecbb的新32项：第0/1项《桌上的两张纸》正式合同与独立语义均PASS，无repair，正式原件未改；第1项四相同scope Need的冗余风险保留，V1.3可一Asset多Need，不能事后加“一Need”评分。第2项《给绿植留一点时间》正常Prep/A/B0/唯一B repair四原runok/released，但正式消费者拒绝，Truth未执行；全部立即STOP，后29未执行、held-out0/16。
+
+初始B unit8.kind为`narrative_or_postproduction`，复制了review_target的说明标签，合法四kind不包含该值。程序已拥有正确原文映射，却把非法kind与引用越界合并报“要求引用不属于冻结原文”，repair随后推理不存在的引用问题。实际初B只有required JSON例子；repair response_schema只是“same schema/IDs as original batch”说明字符串。真实repair返回batch_id/compiler_policy/review_target/responses/notes输入式wrapper且保留非法kind，_merge_repaired严格拒绝；不自动映射标签、不剥wrapper或再修。Astra STOP：MODEL_OUTPUT违规＋STRUCTURAL_CONTRACT输出指导/错误诊断缺口，严格拒绝本身正确；误诊干扰修复有支持证据但不认领唯一因果。
+
+3项已执行/29未执行，初始及最终正式合同2/3（计划2/32）；仅两项可正式语义评分，均PASS，失败项无正式Requirements，语义覆盖UNVERIFIED。共享repair1、正式成功0/1、NORMALIZE/report repair0。完成项累计墙钟616.810秒、Planning含Truth/失败边界401.139秒；失败项228.669秒。12实际提交/77assistant/104工具/51原请求观察，21应用callback含9缓存重入，无重复实际提交。Supply/Provider/生成/TTS/Build/状态越界/工程介入0。共享文字套餐94→91%、周98→98%，实际账单UNKNOWN。
+
+257旧正式现场/77fixture/六旧批完整原件及HEAD/source/tool/原16主题/SCRIPT保持。所有12原run释放，所有批无pending/submitting/release待办、Gatewayactive/lost/audit0；完整原日志/脱敏会话/请求身份/原A/B/repair/现场hash保存在batch07受保护根。评分不修改正式产物；失败项无正式Plan/Requirements/Truth，不虚构语义成绩。A的preferred描述夹连续源动作仅记录后续风险，不追加正式评分。本批及历史FAIL永久保留，Smoke=NO，不继续计分或恢复。
+
+[完整指标](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch07-actual-run-summary.json)、[失败边界核定](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch07-independent-failed-review.json)、[Astra STOP](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch07-astra-review.txt)。
+
+### 13.18 B分类输出合同与诊断最小后续方案（未实施）
+
+本批保持FAIL/STOP，先把本次原A/B/repair实际请求、完整回复及冻结来源保存为独立事故fixture。维持A/B两阶段、现有四kind、一次持久repair及Material V1.3，不用更宽兼容救场。
+
+1. 初始B与B repair使用程序统一构造的完整输出Schema，复用现有合法KINDS：精确字段、整数unit ID及顺序/覆盖、所属Need显式preference允许集合。元数据/语义任务标签不是输出枚举；不能回传输入对象。repair顶层仅batches，每项仅index/classifications，index由受影响批次决定，不让模型猜wrapper或扩批。
+2. 程序在绑定原文前检查实际unit的kind类型/枚举与preference引用，分别报告非法kind、wrapper形状、ID覆盖、来源问题；所有严格拒绝保持。wrapper实际不符不能误报仅“覆盖”错误，非法kind不能误报冻结原文错误。新政策显式隔离有效输入/批次/请求身份，旧有效checkpoint精确复算、旧pending不重新提交/刷新额度。
+3. 同一矩阵先真实失败回放固定Expected/Actual，证明初始错误定位及失败wrapper不能准入；原生异步集成的外部替身仅依据实际请求中的完整Schema与绝对输出路径交付正确单次repair，不从闭包补隐含输出合同。保留非法kind/坏wrapper/受影响多批次/已成功批次保护及所有旧合法路径。正确kind替身仍不算真实模型改善。
+4. 跨阶段输入/内部政策变更先Astra设计复核，最小实施后完整矩阵和项目检查，再固定新版本、安全加载、原16主题完整新32项R4。不得沿本批第3项修写后续跑计分；Smoke与完整Material E2E仍后置。重复scope及A软硬混合仅作为独立诊断风险记录，本项不顺手扩为Domain重构或另加语义Gate。
+
+### 13.19 B输出合同软件验收完成（2026-10-07，未执行新真实评测）
+
+§13.18及Astra前置/实际diff CONTINUE后完成compiler@5：初始B与唯一B repair共用程序构造的Draft2020-12逐单元输出Schema，固定排序四kind、整数id及完整按序覆盖、所属Need的显式preference ID/null；repair精确affected indexes，顶层仅batches。运行时独立严格核验wrapper/ID/kind/pref，非法kind先报告unit.<id>.kind，不再误报冻结来源，错误wrapper与index分别报告。未放宽消费者、自动映射说明标签或剥wrapper，无新Gate/模型调用/额度/Domain重构。@4显式保留原target@2及无Schema批次digest，@1–3保持；旧pending不重派、不迁移。
+
+新增batch07实际事故原件、请求与独立Expected，以及另存run00合法@4 checkpoint，共13fixture；失败项partial snapshot不冒充正式Plan。修前run028因测试误用Python严格反序列化7FAIL，原记录保留；仅改为JSON反序列化后run029 **2PASS/5FAIL**，准确暴露诊断/Schema/身份缺口，生产不变。修后完整run030110PASS；补唯一B repair显式Schema说明后最终run031 **110PASS/0FAIL/0GAP/0未执行**。全量 **848PASS/5既有skip**（62.79秒），115技能、compileall、diff PASS。既有原生异步Owner accepted/pending/原run释放/Truth/Supply前切点及多批保护执行，外部B/repair替身从实际提交Schema与绝对path获得形状/ID，只有固定语义答案；不认领真实模型改善。
+
+生产SHA `b64681a0c8b650d509824e4cb376fc6dfb05d0c0fc6a5d3a8850a812f1f4e548`，257旧正式现场/90fixture保持；batch07及全部历史FAIL不改，软件外部模型/Supply下游0。Astra实际diff无需新增修订，软件冻结条件满足。下一步按既有授权窄提交、安全加载/套餐/实时空闲检查，在原16主题/oracle另建全新32项batch08；不能续跑或重计batch07，不放行Smoke。

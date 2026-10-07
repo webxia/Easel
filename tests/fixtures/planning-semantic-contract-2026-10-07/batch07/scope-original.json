@@ -1,0 +1,92 @@
+{
+  "attempt_id": "fa_6ec030e38010fd55d3303f03a6a05073",
+  "canonical": {
+    "SCENES.md": "0–15 秒：视频必须看到手把水倒入盆栽土中的连续动作。",
+    "SCRIPT.md": "慢一点，把这杯水留给眼前的绿叶。",
+    "TREATMENT.md": "用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n\n## 声音设计\n纯旁白；用中性预置音色逐字读正文，不加音乐。"
+  },
+  "catalog": {
+    "continuity": {},
+    "event": {
+      "event-1": "0–15 秒：视频必须看到手把水倒入盆栽土中的连续动作。"
+    },
+    "global": {
+      "global": "0–15 秒：视频必须看到手把水倒入盆栽土中的连续动作。"
+    },
+    "scene": {
+      "scene-1": "0–15 秒：视频必须看到手把水倒入盆栽土中的连续动作。"
+    },
+    "segment": {
+      "segment-1": "0–15 秒：视频必须看到手把水倒入盆栽土中的连续动作。"
+    },
+    "voice": {
+      "creator_context.voice": {
+        "consent_ref": null,
+        "context": {
+          "avoid": [
+            "「我曾……」「那一年……」式的伪亲历口吻",
+            "把倒水写成效率、养生或心理疗愈",
+            "用权威姿态告诉观众该怎样慢",
+            "任何工具、平台、模型或生成方式的自我暴露"
+          ],
+          "tone": "克制、平等、带观察感，不站在终点教成功，不为反转编写情绪。"
+        },
+        "reference_asset_ids": [],
+        "source": "creator_context"
+      }
+    }
+  },
+  "context_refs": {
+    "content_core_sha256": "sha256:da0f51f4214ed0b2df62d7bca8798cf1dc6d34bb24c4cb87cdde14b8d4492bce",
+    "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+    "creator_context_sha256": "sha256:d43e42c288fc9b0a708d327fb31ea197dc9aa061031f7ed3f0b38cab136982fd",
+    "production_brief_sha256": "sha256:aa63e6578019b361a4f8f2ff9a785f73c8db6b45fe648dd554234476cafccdf9",
+    "truth_packet_sha256": "sha256:e1f8711cc4288cc42ed980ce79e37161200debcaa2a80e27f0f81a292e2a7005"
+  },
+  "creation_id": "cr_4469746f160e462896f35b579d9c59ea",
+  "mode": {
+    "boundaries": {
+      "content": "Director decides the topic, argument, structure, and whether a video is worthwhile.",
+      "profile": "Profile remains the source of identity, factual boundaries, audience, and public scope.",
+      "runtime": "Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns."
+    },
+    "defaults": {
+      "bgm": "optional-and-subordinate",
+      "duration_seconds": {
+        "allowed": [
+          25,
+          60
+        ],
+        "preferred": [
+          30,
+          45
+        ]
+      },
+      "narration": "reflective-first-person",
+      "orientation": "9:16",
+      "visual_beats": {
+        "preferred": [
+          6,
+          9
+        ]
+      }
+    },
+    "id": "clear_memo_video",
+    "music_ducking": {
+      "attack_seconds": 0.12,
+      "gain_ratio": 0.25,
+      "release_seconds": 0.45
+    },
+    "name": "清醒备忘录 · 视频",
+    "status": "active",
+    "summary": "以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。",
+    "version": "1.3",
+    "visual_material_style": "restrained low saturation everyday",
+    "voice_delivery": {
+      "pace_ratio": 0.95,
+      "pitch_semitones": 0,
+      "tone": "neutral"
+    }
+  },
+  "policy": "semantic-planning-compiler@4"
+}

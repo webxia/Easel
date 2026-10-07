@@ -17,7 +17,7 @@ from easel.materials.domain import (
 )
 from easel.materials.application.visual_contract import (
     digest, sources_for, classification_units, compilation_input, bind_classifications,
-    validate_compilation, read_planning_requirements,
+    validate_compilation, read_planning_requirements, KINDS,
 )
 from easel.materials.application.query_hints import query_hints, QUERY_FIELDS
 from easel.materials.application.need_constraints import validate_modality_constraints
@@ -28,10 +28,12 @@ from easel.integrations.hypit.secrets import SecretRedactor
 LEGACY_POLICY = 'semantic-planning-compiler@1'
 CANONICAL_POLICY = 'semantic-planning-compiler@2'
 REVIEW_POLICY = 'semantic-planning-compiler@3'
-POLICY = 'semantic-planning-compiler@4'
+PURPOSE_POLICY = 'semantic-planning-compiler@4'
+POLICY = 'semantic-planning-compiler@5'
 UNIT_POLICIES = {LEGACY_POLICY: 'indexed-unit-classification@7',
                  CANONICAL_POLICY: 'indexed-unit-classification@8',
                  REVIEW_POLICY: 'indexed-unit-classification@8',
+                 PURPOSE_POLICY: 'indexed-unit-classification@8',
                  POLICY: 'indexed-unit-classification@8'}
 LEGACY_REVIEW_TARGET = {'schema': 'material-review-target@1', 'scope': 'original_asset',
                 'required_evidence': 'observable_in_asset',
@@ -47,7 +49,8 @@ REVIEW_TARGET = {'schema': 'material-review-target@2', 'scope': 'original_asset'
                     'pure_postproduction': 'actual_editing_or_narrative_obligation',
                     'mixed_independent_obligations': 'unresolved_if_not_losslessly_classifiable',
                     'interpretation': 'semantic_relation_not_word_order_or_keywords'}}
-REVIEW_TARGETS = {REVIEW_POLICY: LEGACY_REVIEW_TARGET, POLICY: REVIEW_TARGET}
+REVIEW_TARGETS = {REVIEW_POLICY: LEGACY_REVIEW_TARGET, PURPOSE_POLICY: REVIEW_TARGET,
+                 POLICY: REVIEW_TARGET}
 MAX_FILE_BYTES = 256 * 1024
 MAX_BATCH_UNITS = 40
 
@@ -281,6 +284,35 @@ def compile_draft(value, *, creation_id, attempt_id, refs, mode, script, allowed
     return apply_defaults(plan, mode, script)
 
 
+def classification_output_schema(batch):
+    """Program-owned wire shape, not a natural-language classification oracle."""
+    rows = []
+    for unit in batch['units']:
+        context = batch['contexts'][unit['need']]
+        rows.append({'type': 'object', 'additionalProperties': False,
+            'required': ['id', 'kind', 'preference_source'], 'properties': {
+                'id': {'type': 'integer', 'const': unit['id']},
+                'kind': {'type': 'string', 'enum': sorted(KINDS)},
+                'preference_source': {'type': ['integer', 'null'],
+                    'enum': [None, *[p['id'] for p in context['preferences']]]}}})
+    return {'$schema': 'https://json-schema.org/draft/2020-12/schema',
+        'type': 'object', 'additionalProperties': False, 'required': ['classifications'],
+        'properties': {'classifications': {'type': 'array', 'minItems': len(rows),
+            'maxItems': len(rows), 'prefixItems': rows, 'items': False}}}
+
+
+def classification_repair_schema(batches, indexes):
+    rows = [{'type': 'object', 'additionalProperties': False,
+        'required': ['index', 'classifications'], 'properties': {
+            'index': {'type': 'integer', 'const': index},
+            'classifications': classification_output_schema(batches[index])['properties']['classifications']}}
+        for index in indexes]
+    return {'$schema': 'https://json-schema.org/draft/2020-12/schema',
+        'type': 'object', 'additionalProperties': False, 'required': ['batches'],
+        'properties': {'batches': {'type': 'array', 'minItems': len(rows),
+            'maxItems': len(rows), 'prefixItems': rows, 'items': False}}}
+
+
 def classification_batches(plan, mode, *, canonical=None, compiler_policy=None):
     policy = _compiler_policy(compiler_policy)
     if canonical is not None and (not isinstance(canonical, dict)
@@ -315,6 +347,8 @@ def classification_batches(plan, mode, *, canonical=None, compiler_policy=None):
         if policy in REVIEW_TARGETS:
             # Program-owned task contract, not another model-authored answer.
             data['review_target'] = json.loads(encode(REVIEW_TARGETS[policy]))
+        if policy == POLICY:
+            data['output_schema'] = classification_output_schema(data)
         # Bound the entire context without truncating required content.
         if len(json.dumps(data, ensure_ascii=False).encode()) > MAX_FILE_BYTES:
             raise SemanticPlanningError('B', [problem('contexts', '单批完整上下文超过有界容量，未截断或提交')])
@@ -332,16 +366,20 @@ def assemble_requirements(plan, mode, responses, *, canonical=None, compiler_pol
     issues = []
     for index, (batch, response) in enumerate(zip(batches, responses)):
         expected = [u['id'] for u in batch['units']]
-        rows = response.get('classifications') if isinstance(response, dict) and set(response)=={'classifications'} else None
+        if not isinstance(response, dict) or set(response) != {'classifications'}:
+            issues.append(problem(f'batches.{index}.wrapper', 'B输出顶层仅允许classifications，不回传输入或metadata'));continue
+        rows = response['classifications']
         if (not isinstance(rows, list) or len(rows)!=len(expected)
             or any(not isinstance(r,dict) or set(r)!={'id','kind','preference_source'} or type(r['id']) is not int for r in rows)
             or [r['id'] for r in rows]!=expected):
-            issues.append(problem(f'batches.{index}', f'分类ID须完整按序且仅一次：{expected}'));continue
+            issues.append(problem(f'batches.{index}.ids', f'分类字段须为id/kind/preference_source；整数ID完整按序且仅一次：{expected}'));continue
         for unit, row in zip(batch['units'], rows):
+            if not isinstance(row['kind'], str) or row['kind'] not in KINDS:
+                issues.append(problem(f'unit.{unit["id"]}.kind', f'kind须为合法枚举{sorted(KINDS)}；任务说明标签不是kind'));continue
             pref = row['preference_source'];context = batch['contexts'][unit['need']]
             inverse = {v:k for k,v in context['pref_map'].items()}
             if pref is not None and (type(pref) is not int or pref not in inverse):
-                issues.append(problem(f'unit.{unit["id"]}', '偏好引用不属于该Need显式软偏好'));continue
+                issues.append(problem(f'unit.{unit["id"]}.preference_source', '偏好引用须为null或该Need显式软偏好的整数ID'));continue
             per_need[unit['need']].append({'id':unit['local_id'], 'kind':row['kind'],
                                           'preference_source':inverse[pref] if pref is not None else None})
     if issues:raise SemanticPlanningError('B',issues)
@@ -597,6 +635,7 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
             '保留全部有效Need语义、模态、importance与冻结正文；只修下列错误；不能删除要求。'
             '仅写output_paths提供的绝对路径；不猜测当前目录，不依赖其他会话。'
             '不写正式Plan/sidecar，不调用供应/生成/Hypit。\n'
+            +('B输出严格遵循context.response_schema，顶层仅batches；不回传context、responses、notes或任务标签。\n' if stage=='B' else '')
             +json.dumps({'attempt_workspace':str(root),'output_paths':output_paths,
                         'issues':issues,'targets':targets,'context':context,
                         'review_target':REVIEW_TARGET},ensure_ascii=False,sort_keys=True))
@@ -684,7 +723,9 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
             '以confirmed原确认稿和Mode为依据，不能只因上游模型文字被冻结就当成用户新增硬授权。'
             '单元保留配对引用/括号内部标点；编号/offset由程序拥有，不自行拆引用或重写原文。'
             '只写 '+str(root/'planning'/name)+'\n'
-            'JSON:{"classifications":[{"id":0,"kind":"required","preference_source":null}]}\n'
+            '严格按output_schema交付JSON，仅返回classifications；完整按序覆盖所有id。'
+            'kind仅为required/preference/postproduction/unresolved，review_target中的说明标签不是kind。'
+            'preference_source只取所属Need允许的整数ID或null；语义及显式软偏好仍须通过业务校验。\n'
             +json.dumps(batch,ensure_ascii=False,sort_keys=True))
         raw_b=invoke(f'B{index}','planning',bmessage,name)
         try:response=read_planning_requirements(raw_b.decode())
@@ -713,8 +754,8 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
         state.update(repair_stage='B',repair_indexes=indexes);save()
         repaired=repair('B',b'',exc.issues,['CLASSIFICATIONS-REPAIR.json'],
             {'batches':[{**batches[i],'index':i} for i in indexes],
-             'responses':[responses[i] for i in indexes],'response_schema':{'batches':[
-                {'index':i,'classifications':'same schema/IDs as the original batch'} for i in indexes]}})
+             'responses':[responses[i] for i in indexes],
+             'response_schema':classification_repair_schema(batches,indexes)})
         responses=_merge_repaired(responses,read_planning_requirements(repaired.decode()),indexes)
         requirements=assemble_requirements(plan,mode,responses,canonical=canonical)
     checkpoint={'schema':'semantic-planning-frozen@1','scope':scope,'draft':raw.decode(),
@@ -731,11 +772,13 @@ def run_semantic_planning(attempt, planning_context, canonical, mode, route, dis
 
 
 def _merge_repaired(responses, repaired, indexes):
-    rows=repaired.get('batches') if isinstance(repaired,dict) and set(repaired)=={'batches'} else None
+    if not isinstance(repaired,dict) or set(repaired) != {'batches'}:
+        raise SemanticPlanningError('B',[problem('repair.wrapper','修复输出顶层仅允许batches，不回传输入/metadata/responses')])
+    rows=repaired['batches']
     if (not isinstance(rows,list) or len(rows)!=len(indexes)
         or any(not isinstance(r,dict) or set(r)!={'index','classifications'} or type(r['index']) is not int for r in rows)
         or [r['index'] for r in rows]!=indexes):
-        raise SemanticPlanningError('B',[problem('repair','合并修复须覆盖全部实际批次')])
+        raise SemanticPlanningError('B',[problem('repair.indexes','修复每项仅index/classifications；整数index须按序覆盖全部且仅受影响批次')])
     result=list(responses)
     for r in rows:result[r['index']]={'classifications':r['classifications']}
     return result

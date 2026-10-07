@@ -1,0 +1,202 @@
+{
+  "batches_sha256": "94df14c107217492635e13278c534601cc2e69a9e7706ea8124345d3ce1b7d63",
+  "draft": "{\n  \"schema\": \"semantic-planning-draft@1\",\n  \"needs\": [\n    {\n      \"role\": \"memo_background_image\",\n      \"importance\": \"required\",\n      \"scope\": {\n        \"type\": \"scene\",\n        \"ref\": \"scene-1\"\n      },\n      \"modality_spec\": {\n        \"kind\": \"image\",\n        \"aspect_ratio\": \"9:16\",\n        \"visual_style\": null,\n        \"reference_asset_ids\": []\n      },\n      \"intent\": {\n        \"description\": \"一张 9:16 静态桌面图，画面本身不含动态动作；桌上必须出现两张白纸，作为本期'先看问题，再做决定'这句方法论的视觉载体；本期正文（先看问题，再做决定。）与字幕布局属于冻结 SCENES/TREATMENT 规定的后期叠加义务，不在本 Need 的素材描述里复制屏幕正文或字幕硬约束。\",\n        \"function\": \"作为本期'先看问题，再做决定'这句方法论的可视载体，把主观判断寄托在日常物件上；正文叠加与字幕排版由冻结 SCENES/TREATMENT 后期完成，本 Need 只声明原图需具备的可观察素材条件。\"\n      },\n      \"constraints\": {\n        \"media_type\": \"image\",\n        \"preferred_visual_details\": \"natural soft daylight, neutral warm-cool desk surface, minimalist composition with strong negative space for later text overlay, no readable printed text, no recognizable person\"\n      },\n      \"queries\": [\n        \"minimalist top-down desk surface with two blank white papers still life\",\n        \"overhead view wooden desk two sheets of plain white paper natural light minimal\",\n        \"flat lay still life two blank white sheets on neutral desk surface negative space\"\n      ],\n      \"continuity_refs\": [],\n      \"desired_options\": 1,\n      \"duration_hint\": {\n        \"target_seconds\": 15\n      }\n    }\n  ]\n}",
+  "draft_sha256": "00427bfe85520a8926df5cda10bdd602257c702a81359f1365211dbf8a2ffadc",
+  "plan": {
+    "attempt_id": "fa_829a19e31c67295caa74f1c12d10e848",
+    "context_refs": {
+      "content_core_sha256": "sha256:5c7767a57a4528c2c38a48f5fdebfae9d2ea8d3cd708a65b3128c841132a44c4",
+      "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+      "creator_context_sha256": "sha256:e803be2242a61fa0a525966c13bb84b18e74d1302b4e79d964171db6eccd6261",
+      "production_brief_sha256": "sha256:329dd6e40c71952f0de93c145db9b4f30a988d01df837f3ce616cca5bf2aa79d",
+      "truth_packet_sha256": "sha256:1194774b86cd49e7e3a3e0593d666d6318738aec98e871524256f6fceed5fd10"
+    },
+    "creation_id": "cr_7bfa4945a2944808883fcc97f635658f",
+    "needs": [
+      {
+        "constraints": {
+          "media_type": "image",
+          "preferred_style": "restrained low saturation everyday",
+          "preferred_visual_details": "natural soft daylight, neutral warm-cool desk surface, minimalist composition with strong negative space for later text overlay, no readable printed text, no recognizable person",
+          "search_query_variants_en": {
+            "alternate": "overhead view wooden desk two sheets of plain white paper natural light minimal",
+            "primary": "minimalist top-down desk surface with two blank white papers still life",
+            "relaxed": "flat lay still life two blank white sheets on neutral desk surface negative space"
+          }
+        },
+        "continuity_refs": [],
+        "contract_version": "material_need@1",
+        "desired_options": 1,
+        "duration_hint": {
+          "target_seconds": 15.0
+        },
+        "importance": "required",
+        "intent": {
+          "description": "一张 9:16 静态桌面图，画面本身不含动态动作；桌上必须出现两张白纸，作为本期'先看问题，再做决定'这句方法论的视觉载体；本期正文（先看问题，再做决定。）与字幕布局属于冻结 SCENES/TREATMENT 规定的后期叠加义务，不在本 Need 的素材描述里复制屏幕正文或字幕硬约束。",
+          "function": "作为本期'先看问题，再做决定'这句方法论的可视载体，把主观判断寄托在日常物件上；正文叠加与字幕排版由冻结 SCENES/TREATMENT 后期完成，本 Need 只声明原图需具备的可观察素材条件。"
+        },
+        "media_type": "image",
+        "modality_spec": {
+          "aspect_ratio": "9:16",
+          "kind": "image",
+          "reference_asset_ids": [],
+          "visual_style": null
+        },
+        "need_id": "need-4e65b0185b6845fcc18acc86-000",
+        "role": "memo_background_image",
+        "scope": {
+          "ref": "scene-1",
+          "type": "scene"
+        }
+      }
+    ],
+    "plan_id": "plan-4e65b0185b6845fcc18acc86f1948b82",
+    "policy": {
+      "strategy": "bulk_first"
+    }
+  },
+  "policy": "semantic-planning-compiler@4",
+  "responses": [
+    {
+      "classifications": [
+        {
+          "id": 0,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 1,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 2,
+          "kind": "required",
+          "preference_source": null
+        },
+        {
+          "id": 3,
+          "kind": "postproduction",
+          "preference_source": null
+        },
+        {
+          "id": 4,
+          "kind": "postproduction",
+          "preference_source": null
+        },
+        {
+          "id": 5,
+          "kind": "postproduction",
+          "preference_source": null
+        },
+        {
+          "id": 6,
+          "kind": "postproduction",
+          "preference_source": null
+        },
+        {
+          "id": 7,
+          "kind": "postproduction",
+          "preference_source": null
+        },
+        {
+          "id": 8,
+          "kind": "required",
+          "preference_source": null
+        }
+      ]
+    }
+  ],
+  "schema": "semantic-planning-frozen@1",
+  "scope": {
+    "attempt_id": "fa_829a19e31c67295caa74f1c12d10e848",
+    "canonical": {
+      "SCENES.md": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。",
+      "SCRIPT.md": "先看问题，再做决定。",
+      "TREATMENT.md": "用日常物件表达主观创作意图，不声称事实、效果或个人经历。\n\n## 声音设计\n无旁白，无音乐。"
+    },
+    "catalog": {
+      "continuity": {},
+      "event": {
+        "event-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "global": {
+        "global": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "scene": {
+        "scene-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "segment": {
+        "segment-1": "0–15 秒：一张静态桌面图，桌上必须有两张白纸；在后期叠加正文。"
+      },
+      "voice": {
+        "creator_context.voice": {
+          "consent_ref": null,
+          "context": {
+            "avoid": [
+              "过度修饰的形容词",
+              "感叹号、强势推销语气",
+              "暴露工具、模型或制作流程的措辞"
+            ],
+            "tone": "克制、留白、第一人称观察"
+          },
+          "reference_asset_ids": [],
+          "source": "creator_context"
+        }
+      }
+    },
+    "context_refs": {
+      "content_core_sha256": "sha256:5c7767a57a4528c2c38a48f5fdebfae9d2ea8d3cd708a65b3128c841132a44c4",
+      "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+      "creator_context_sha256": "sha256:e803be2242a61fa0a525966c13bb84b18e74d1302b4e79d964171db6eccd6261",
+      "production_brief_sha256": "sha256:329dd6e40c71952f0de93c145db9b4f30a988d01df837f3ce616cca5bf2aa79d",
+      "truth_packet_sha256": "sha256:1194774b86cd49e7e3a3e0593d666d6318738aec98e871524256f6fceed5fd10"
+    },
+    "creation_id": "cr_7bfa4945a2944808883fcc97f635658f",
+    "mode": {
+      "boundaries": {
+        "content": "Director decides the topic, argument, structure, and whether a video is worthwhile.",
+        "profile": "Profile remains the source of identity, factual boundaries, audience, and public scope.",
+        "runtime": "Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns."
+      },
+      "defaults": {
+        "bgm": "optional-and-subordinate",
+        "duration_seconds": {
+          "allowed": [
+            25,
+            60
+          ],
+          "preferred": [
+            30,
+            45
+          ]
+        },
+        "narration": "reflective-first-person",
+        "orientation": "9:16",
+        "visual_beats": {
+          "preferred": [
+            6,
+            9
+          ]
+        }
+      },
+      "id": "clear_memo_video",
+      "music_ducking": {
+        "attack_seconds": 0.12,
+        "gain_ratio": 0.25,
+        "release_seconds": 0.45
+      },
+      "name": "清醒备忘录 · 视频",
+      "status": "active",
+      "summary": "以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。",
+      "version": "1.3",
+      "visual_material_style": "restrained low saturation everyday",
+      "voice_delivery": {
+        "pace_ratio": 0.95,
+        "pitch_semitones": 0,
+        "tone": "neutral"
+      }
+    },
+    "policy": "semantic-planning-compiler@4"
+  }
+}

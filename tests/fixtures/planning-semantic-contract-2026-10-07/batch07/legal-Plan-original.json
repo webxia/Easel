@@ -1,0 +1,53 @@
+{
+  "plan_id": "plan-4e65b0185b6845fcc18acc86f1948b82",
+  "creation_id": "cr_7bfa4945a2944808883fcc97f635658f",
+  "attempt_id": "fa_829a19e31c67295caa74f1c12d10e848",
+  "context_refs": {
+    "content_core_sha256": "sha256:5c7767a57a4528c2c38a48f5fdebfae9d2ea8d3cd708a65b3128c841132a44c4",
+    "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+    "creator_context_sha256": "sha256:e803be2242a61fa0a525966c13bb84b18e74d1302b4e79d964171db6eccd6261",
+    "production_brief_sha256": "sha256:329dd6e40c71952f0de93c145db9b4f30a988d01df837f3ce616cca5bf2aa79d",
+    "truth_packet_sha256": "sha256:1194774b86cd49e7e3a3e0593d666d6318738aec98e871524256f6fceed5fd10"
+  },
+  "policy": {
+    "strategy": "bulk_first"
+  },
+  "needs": [
+    {
+      "need_id": "need-4e65b0185b6845fcc18acc86-000",
+      "scope": {
+        "type": "scene",
+        "ref": "scene-1"
+      },
+      "media_type": "image",
+      "role": "memo_background_image",
+      "intent": {
+        "description": "一张 9:16 静态桌面图，画面本身不含动态动作；桌上必须出现两张白纸，作为本期'先看问题，再做决定'这句方法论的视觉载体；本期正文（先看问题，再做决定。）与字幕布局属于冻结 SCENES/TREATMENT 规定的后期叠加义务，不在本 Need 的素材描述里复制屏幕正文或字幕硬约束。",
+        "function": "作为本期'先看问题，再做决定'这句方法论的可视载体，把主观判断寄托在日常物件上；正文叠加与字幕排版由冻结 SCENES/TREATMENT 后期完成，本 Need 只声明原图需具备的可观察素材条件。"
+      },
+      "duration_hint": {
+        "target_seconds": 15.0
+      },
+      "constraints": {
+        "media_type": "image",
+        "preferred_style": "restrained low saturation everyday",
+        "preferred_visual_details": "natural soft daylight, neutral warm-cool desk surface, minimalist composition with strong negative space for later text overlay, no readable printed text, no recognizable person",
+        "search_query_variants_en": {
+          "alternate": "overhead view wooden desk two sheets of plain white paper natural light minimal",
+          "primary": "minimalist top-down desk surface with two blank white papers still life",
+          "relaxed": "flat lay still life two blank white sheets on neutral desk surface negative space"
+        }
+      },
+      "continuity_refs": [],
+      "importance": "required",
+      "desired_options": 1,
+      "contract_version": "material_need@1",
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": null,
+        "reference_asset_ids": []
+      }
+    }
+  ]
+}

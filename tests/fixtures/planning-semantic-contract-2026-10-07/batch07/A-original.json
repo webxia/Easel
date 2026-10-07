@@ -1,0 +1,70 @@
+{
+  "schema": "semantic-planning-draft@1",
+  "needs": [
+    {
+      "role": "primary_pouring_shot",
+      "importance": "required",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "modality_spec": {
+        "kind": "video",
+        "aspect_ratio": "9:16",
+        "reference_asset_ids": []
+      },
+      "intent": {
+        "description": "0–15 秒连续画面：一只手将水倒入盆栽土中，整个片段为同一连续动作，无切镜；画面中可见一只手、倾倒的水流与盆栽土，可见盆栽中的绿叶，但不出现倒水者的面部、特定身份或可识别他人；不出现具体地点、品牌、植物品种或场景外的环境细节；不出现价格、收益、健康数据或可被解读为功效的文字。",
+        "function": "整支作品的唯一画面基底，用于承载旁白『慢一点，把这杯水留给眼前的绿叶。』所指向的日常动作本身；不用于证明功效、效率或心理状态，不构成个人经历的影像证据。"
+      },
+      "duration_hint": {
+        "target_seconds": 15
+      },
+      "desired_options": 1,
+      "queries": [
+        "close-up continuous shot one hand pouring water into potted plant soil no face visible",
+        "hand watering houseplant top-down steady close-up water stream on soil green leaves 15 seconds",
+        "vertical 9:16 single continuous clip hand pouring water onto indoor plant soil no cut no dialogue"
+      ],
+      "constraints": {
+        "media_type": "video",
+        "preferred_visual_details": "low-saturation restrained everyday palette with generous negative space; quiet human-scale framing; subtle slow motion drift on the water stream acceptable but the source action itself is a single continuous pour with no cuts"
+      }
+    },
+    {
+      "role": "narration_voice",
+      "importance": "required",
+      "scope": {
+        "type": "global",
+        "ref": "global"
+      },
+      "modality_spec": {
+        "kind": "voice",
+        "identity": {
+          "reference": "creator_context.voice",
+          "reference_asset_ids": [],
+          "consent_ref": null,
+          "source": "creator_context"
+        },
+        "delivery_description": "克制、平等、带观察感的旁白，逐字读出『慢一点，把这杯水留给眼前的绿叶。』；不采用『我曾……』『那一年……』式的伪亲历口吻；不写成效率、养生或心理疗愈的语气；不站上终点告诉观众该怎样慢；不暴露任何工具、平台、模型或生成方式。"
+      },
+      "intent": {
+        "description": "0–15 秒逐字朗读正文『慢一点，把这杯水留给眼前的绿叶。』，使用中性预置音色，不加音乐；旁白承载作品的全部声音。",
+        "function": "作品的唯一音轨内容；为倒水画面提供同账号的克制观察语态，不构成对功效、效率或个人经历的声明。"
+      },
+      "duration_hint": {
+        "target_seconds": 15
+      },
+      "desired_options": 1,
+      "queries": [],
+      "constraints": {
+        "media_type": "audio",
+        "voice_delivery": {
+          "pace_ratio": 0.95,
+          "pitch_semitones": 0,
+          "tone": "neutral"
+        }
+      }
+    }
+  ]
+}

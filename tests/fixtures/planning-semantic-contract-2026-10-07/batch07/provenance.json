@@ -1,0 +1,23 @@
+{
+  "schema": "historical-fixture-provenance@1",
+  "source_commit": "7685953c72925b195aa7e882996aca076a2151bb",
+  "source_sha256": "71e5ecbbafdfd7104b835a5b6b2a3071a2132e291d31d5134dab9281547e99e4",
+  "source_batch": "batch07",
+  "native_contract": "FAIL",
+  "independent_semantics": "UNVERIFIED",
+  "originals_sha256": {
+    "A-original.json": "aa83eff0161be90ddb10115bda2203ecb868c3e9b08c74bb5a52b9644464471e",
+    "B-original.json": "dd07f63b44b6fe6b43904333e716ee2fd95066df53b2dba501f4bb8f41318652",
+    "B-repair-original.json": "f7f489856989bc4ac6cbb7c5d17f556099cfc6ceff69ddf5df655c052044a5df",
+    "B-request-original.txt": "cae2dd50003d4b52db49d05d722cffc645418502c922bb91434e2b0004ac18c2",
+    "B-repair-request-original.txt": "85375afe7cef390cb3ae5aafed6e20eb2416c269e4e7f9780cde2dc51986beed",
+    "partial-snapshot-original.json": "61f7d02f8d834b3d85ae19ddd50c6a3148df4ed2135b44d88b7d6121afc49a42",
+    "scope-original.json": "67b3c8ba3f05e13e9ff1ced3c9a8731a0dd0eb3db04b1c9b5a84cf9b4d1bfdb1",
+    "legal-checkpoint-original.json": "d2a47b5390784e3c1327a9561e93bfef1c570994a254f803c17698ae8a82036f",
+    "legal-A-original.json": "00427bfe85520a8926df5cda10bdd602257c702a81359f1365211dbf8a2ffadc",
+    "legal-Plan-original.json": "1ae03982f3f372ef83cc92117fa90597b8832cdab5a1b448fd5160e9f3a14e73",
+    "legal-Requirements-original.json": "3b2e2c7c84d0c92ed8dc0e46ee03709b7aa957681c41c5e28a63475f645c4efa"
+  },
+  "credential_copied": false,
+  "note": "Actual failed output and requests; partial snapshot is not a formal Plan. Separate run00 legal @4 original checkpoint protects exact legacy recovery. Historical verdicts remain unchanged."
+}

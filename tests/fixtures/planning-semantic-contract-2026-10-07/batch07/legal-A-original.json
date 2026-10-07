@@ -1,0 +1,37 @@
+{
+  "schema": "semantic-planning-draft@1",
+  "needs": [
+    {
+      "role": "memo_background_image",
+      "importance": "required",
+      "scope": {
+        "type": "scene",
+        "ref": "scene-1"
+      },
+      "modality_spec": {
+        "kind": "image",
+        "aspect_ratio": "9:16",
+        "visual_style": null,
+        "reference_asset_ids": []
+      },
+      "intent": {
+        "description": "一张 9:16 静态桌面图，画面本身不含动态动作；桌上必须出现两张白纸，作为本期'先看问题，再做决定'这句方法论的视觉载体；本期正文（先看问题，再做决定。）与字幕布局属于冻结 SCENES/TREATMENT 规定的后期叠加义务，不在本 Need 的素材描述里复制屏幕正文或字幕硬约束。",
+        "function": "作为本期'先看问题，再做决定'这句方法论的可视载体，把主观判断寄托在日常物件上；正文叠加与字幕排版由冻结 SCENES/TREATMENT 后期完成，本 Need 只声明原图需具备的可观察素材条件。"
+      },
+      "constraints": {
+        "media_type": "image",
+        "preferred_visual_details": "natural soft daylight, neutral warm-cool desk surface, minimalist composition with strong negative space for later text overlay, no readable printed text, no recognizable person"
+      },
+      "queries": [
+        "minimalist top-down desk surface with two blank white papers still life",
+        "overhead view wooden desk two sheets of plain white paper natural light minimal",
+        "flat lay still life two blank white sheets on neutral desk surface negative space"
+      ],
+      "continuity_refs": [],
+      "desired_options": 1,
+      "duration_hint": {
+        "target_seconds": 15
+      }
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+{
+  "batch_id": "abce67a171720264af26431c43856e55ae7ffbb5ca89c726f1a1c0fe7aa27024",
+  "compiler_policy": "semantic-planning-compiler@4",
+  "review_target": {
+    "schema": "material-review-target@2",
+    "scope": "original_asset",
+    "non_asset_obligation": "narrative_or_postproduction",
+    "required_evidence": "observable_in_asset",
+    "relation_rules": {
+      "interpretation": "semantic_relation_not_word_order_or_keywords",
+      "asset_property_with_purpose": "classify_asset_property_by_source_strength",
+      "mixed_independent_obligations": "unresolved_if_not_losslessly_classifiable",
+      "pure_postproduction": "actual_editing_or_narrative_obligation"
+    },
+    "precedence": ["predicate_and_purpose", "target", "strength", "kind"],
+    "uncertain": "unresolved"
+  },
+  "responses": [
+    {
+      "classifications": [
+        {"id": 0, "kind": "required", "preference_source": null},
+        {"id": 1, "kind": "required", "preference_source": null},
+        {"id": 2, "kind": "required", "preference_source": null},
+        {"id": 3, "kind": "required", "preference_source": null},
+        {"id": 4, "kind": "required", "preference_source": null},
+        {"id": 5, "kind": "required", "preference_source": null},
+        {"id": 6, "kind": "required", "preference_source": null},
+        {"id": 7, "kind": "required", "preference_source": null},
+        {"id": 8, "kind": "narrative_or_postproduction", "preference_source": null},
+        {"id": 9, "kind": "required", "preference_source": null}
+      ]
+    }
+  ],
+  "notes": [
+    "本次仅修正单元 8 的语义归属错误；保留全部 Need 语义、模态、importance 与冻结正文，未删除任何要求。",
+    "单元 8 文本：'整支作品的唯一画面基底，用于承载旁白『慢一点，把这杯水留给眼前的绿叶。』所指向的日常动作本身；不用于证明功效、效率或心理状态，不构成个人经历的影像证据。'",
+    "原响应把单元 8 整句挂到 source=1（intent/function），但 '不构成个人经历的影像证据' 这段措辞并未出现在已确认的 4 段冻结原文中（SCENES.md / SCRIPT.md / TREATMENT.md / intent.description），仅出现在 need.intent.function 内，因此 contract_invalid。",
+    "按合同重新映射单元 8 的引用基础：",
+    "  - 主体 '唯一画面基底，用于承载旁白…所指向的日常动作本身；不用于证明功效、效率或心理状态' 字面来自 intent.description，仍是描述性、画面可见边界，可观察但属于创作意图 / 旁白承载关系；不进入资产本身的可核验属性，归 narrative_or_postproduction。",
+    "  - 末句 '不构成个人经历的影像证据' 与 '不用于证明功效、效率或心理状态' 语义同源（皆为对画面功能的限定），未引入新事实/新画面元素；按 relation_rules.semantic_relation_not_word_order_or_keywords，与前段合并处理，整体结论保持 narrative_or_postproduction。",
+    "本轮未触及 units 0–7 与 9 的分类；preference_source 全部保持 null，因为两条偏好文本本身不构成本批单元的可观察资产属性，只是创作方向参考，不参与本次分类归因。",
+    "本轮不调用 Provider / 不生资产 / 不写正式 Plan；本文件仅作为上一份 CLASSIFICATIONS 的语义合同修正版。"
+  ]
+}

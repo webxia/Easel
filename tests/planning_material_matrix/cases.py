@@ -808,3 +808,12 @@ def test_44_semantic_predicate_purpose(semantic_runtime, trace, risk):
                  'batch06真实原件/实际请求/独立语义oracle；真实compile/A/B/persist/load/reentry，仅模型外部替身')
     semantic.test_semantic_predicate_purpose_contract(semantic_runtime, risk, evidence=trace)
     trace.note('real Supply / Provider / generation / Build', 0)
+
+
+@pytest.mark.parametrize('risk', ['history_diagnostic', 'bad_shapes', 'schema_and_preferences',
+                                  'native_schema_repair', 'old_v4_checkpoint', 'output_identity', 'old_v4_pending'])
+def test_45_b_output_contract(semantic_runtime, trace, risk):
+    trace.define('B与唯一repair使用同一完整输出Schema；非法kind精确拒绝，wrapper/ID/偏好不放宽；旧@4精确恢复且pending不重派',
+                 'batch07实际错误A/B/repair请求与回复、合法@4原checkpoint；真实内部编译/持久/重入，仅外部模型替身')
+    semantic.test_b_output_contract(semantic_runtime, risk, evidence=trace)
+    trace.note('real Supply / Provider / generation / Build', 0)

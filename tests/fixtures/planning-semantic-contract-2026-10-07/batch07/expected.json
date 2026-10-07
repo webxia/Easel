@@ -1,0 +1,19 @@
+{
+  "schema": "independent-output-contract-expectations@1",
+  "native_contract": "FAIL",
+  "formal_semantics": "NOT_EXECUTED_CONTRACT_FAIL",
+  "allowed_kinds": [
+    "postproduction",
+    "preference",
+    "required",
+    "unresolved"
+  ],
+  "invalid_unit": 8,
+  "invalid_kind": "narrative_or_postproduction",
+  "expected_issue_field": "unit.8.kind",
+  "expected_issue_message_contains": "kind",
+  "expected_repair_issue_field": "repair.wrapper",
+  "normalization_allowed": false,
+  "old_batch_rescore": false,
+  "new_schema_is_not_semantic_proof": true
+}

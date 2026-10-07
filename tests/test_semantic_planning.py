@@ -260,8 +260,9 @@ def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence
             target.write_text(json.dumps(value)); output_paths.append(target)
         elif message.startswith('〔Easel Planning V3 单元分类〕'):
             target = Path(re.search(r'只写 (.+\.json)', message)[1])
-            value = labels()
-            if risk == 'repair_B': value['classifications'][0]['id'] = 99
+            request = json.loads(message.splitlines()[-1])
+            value = _classification_fixture_from_schema(request['output_schema'])
+            if risk == 'repair_B': value['classifications'][0]['kind'] = 'narrative_or_postproduction'
             target.write_text(json.dumps(value)); output_paths.append(target)
         elif message.startswith('〔Easel Planning V3 单次语义合同修正〕'):
             request = json.loads(message.splitlines()[-1])
@@ -270,8 +271,7 @@ def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence
             name = request['targets'][0]
             target = Path(request.get('output_paths', {}).get(name, name))
             if not target.is_absolute(): target = default_cwd / target
-            value = semantic_draft() if risk == 'repair_A' else {'batches': [
-                {'index': batch['index'], **labels()} for batch in request['context']['batches']]}
+            value = semantic_draft() if risk == 'repair_A' else _classification_fixture_from_schema(request['context']['response_schema'])
             target.write_text(json.dumps(value)); output_paths.append(target)
         elif message.startswith('〔Easel Script 系统审阅〕'):
             target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
@@ -813,7 +813,8 @@ def test_semantic_predicate_purpose_contract(semantic_runtime, risk, evidence=No
         found = next(c for c in clauses if c['text'] == expected['real_failure']['text'])
         assert found['kind'] == expected['real_failure']['expected_kind'] and found['preference_path'] == 'constraints/preferred_visual_details'
         assert rt['run'](execute)['plan'] == first['plan'] and len(messages) == (3 if risk == 'purpose_repair' else 2)
-        assert json.loads(read_file(rt['root'], 'SEMANTIC_CHECKPOINT.json'))['policy'] == 'semantic-planning-compiler@4'
+        from easel.integrations.semantic_planning import POLICY
+        assert json.loads(read_file(rt['root'], 'SEMANTIC_CHECKPOINT.json'))['policy'] == POLICY
         if evidence: evidence.note('real native persistence / reload / reentry',
             {'external_response': 'independent fixed labels, not model proof', 'submissions': len(messages), 'Supply': 0})
 
@@ -1159,6 +1160,8 @@ def test_native_multibatch_repairs_only_affected_batch_and_keeps_successful_resp
         else:
             assert [b['index'] for b in data['context']['batches']]==[1]
             name='CLASSIFICATIONS-REPAIR.json';out={'batches':[{'index':1,**correct(data['context']['batches'][0])}]}
+            import jsonschema
+            assert not list(jsonschema.Draft202012Validator(data['context']['response_schema']).iter_errors(out))
         (rt['root']/'planning'/name).write_bytes(encode(out))
     result=rt['run'](dispatch);assert len(result['plan'].needs)==2
     raw=read_file(rt['root'],'CLASSIFICATIONS-000.json')
@@ -1393,3 +1396,133 @@ def test_a_compiler_contract_alignment(semantic_runtime, risk, evidence=None):
             for invalid in ({'pace_ratio':0.4}, {'pitch_semitones':True}, {'tone':'invented'}, {'unknown':1}):
                 bad = deepcopy(candidate);bad['needs'][0]['constraints']['voice_delivery'] = invalid
                 assert list(jsonschema.Draft202012Validator(schema).iter_errors(bad))
+
+
+def _classification_fixture_from_schema(schema):
+    """External fixed semantic answers; envelope/IDs come only from submitted schema."""
+    properties = schema['properties']
+    if 'batches' in properties:
+        return {'batches': [dict(index=item['properties']['index']['const'],
+            **_classification_fixture_from_schema({'properties': {'classifications': item['properties']['classifications']}}))
+            for item in properties['batches']['prefixItems']]}
+    return {'classifications': [{'id': item['properties']['id']['const'],
+        'kind': 'required', 'preference_source': None}
+        for item in properties['classifications']['prefixItems']]}
+
+
+@pytest.mark.parametrize('risk', ['history_diagnostic', 'bad_shapes', 'schema_and_preferences',
+                                  'native_schema_repair', 'old_v4_checkpoint', 'output_identity', 'old_v4_pending'])
+def test_b_output_contract(semantic_runtime, risk, evidence=None):
+    from easel.integrations.semantic_planning import _merge_repaired, POLICY, digest
+    from easel.integrations.material_layer import PlanningIntegration
+    from easel.materials.store import AttemptMaterialStore
+    import jsonschema
+    folder = FIXTURE / 'batch07'; rt = semantic_runtime
+    scope = json.loads((folder / 'scope-original.json').read_text())
+    partial = json.loads((folder / 'partial-snapshot-original.json').read_text())
+    plan = MaterialPlan.model_validate_json(json.dumps(partial['plan']))
+    bad = json.loads((folder / 'B-original.json').read_text())
+    expected = json.loads((folder / 'expected.json').read_text())
+    if risk == 'history_diagnostic':
+        with pytest.raises(SemanticPlanningError) as caught:
+            assemble_requirements(plan, scope['mode'], [bad], canonical=scope['canonical'], compiler_policy=scope['policy'])
+        assert any(i['field'] == expected['expected_issue_field'] and 'kind' in i['message'] for i in caught.value.issues)
+        assert not any('引用不属于冻结原文' in i['message'] for i in caught.value.issues)
+        repair = json.loads((folder / 'B-repair-original.json').read_text())
+        with pytest.raises(SemanticPlanningError) as caught: _merge_repaired([bad], repair, [0])
+        assert caught.value.issues[0]['field'] == expected['expected_repair_issue_field']
+        if evidence: evidence.note('actual raw replay', {'initial': 'REJECT at unit.8.kind', 'repair': 'REJECT wrapper', 'semantics': 'UNVERIFIED'})
+    elif risk == 'bad_shapes':
+        plan = compile_input(); good = labels()
+        variants = [('batches.0.wrapper', {'responses': good}),
+            ('batches.0.ids', {'classifications': [dict(good['classifications'][0], id=True), good['classifications'][1]]}),
+            ('batches.0.ids', {'classifications': list(reversed(good['classifications']))})]
+        for value in ['narrative_or_postproduction', {}, [], True, None]:
+            v = deepcopy(good); v['classifications'][0]['kind'] = value
+            variants.append(('unit.0.kind', v))
+        v = deepcopy(good); v['classifications'][0]['preference_source'] = True
+        variants.append(('unit.0.preference_source', v))
+        for field, value in variants:
+            with pytest.raises(SemanticPlanningError) as caught: assemble_requirements(plan, {}, [value])
+            assert caught.value.issues[0]['field'] == field
+        for value in [{'responses': []}, {'batches': [{'index': True, **good}]},
+            {'batches': [{'index': 1, **good}, {'index': 0, **good}]},
+            {'batches': [{'index': 0, **good}, {'index': 0, **good}]}, {'batches': []}]:
+            with pytest.raises(SemanticPlanningError): _merge_repaired([good, good], value, [0, 1])
+        assert _merge_repaired([good, None], {'batches': [{'index': 1, **good}]}, [1]) == [good, good]
+    elif risk == 'schema_and_preferences':
+        d = semantic_draft(); d['needs'][0]['constraints'] = {'preferred_visual_details': 'soft light'}
+        other = deepcopy(d['needs'][0]); other['constraints'] = {'preferred_visual_details': 'cool tone'}; d['needs'].append(other)
+        plan = compile_input(d); batch = classification_batches(plan, {})[0]
+        schema = batch['output_schema']; validator = jsonschema.Draft202012Validator(schema)
+        assert schema['$schema'] == 'https://json-schema.org/draft/2020-12/schema'
+        jsonschema.Draft202012Validator.check_schema(schema)
+        fixed = {'classifications': []}
+        for u, item in zip(batch['units'], schema['properties']['classifications']['prefixItems']):
+            context = batch['contexts'][u['need']]
+            own = [p['id'] for p in context['preferences']]
+            assert item['properties']['preference_source']['enum'] == [None, *own]
+            explicit = context['input']['sources'][u['source']]['preference']
+            fixed['classifications'].append({'id': u['id'], 'kind': 'preference' if explicit else 'required',
+                'preference_source': own[0] if explicit else None})
+        assert not list(validator.iter_errors(fixed)); assemble_requirements(plan, {}, [fixed])
+        for alter in ['unknown_kind', 'bool_id', 'wrapper', 'extra_row', 'wrong_preference', 'reorder']:
+            v = deepcopy(fixed)
+            if alter == 'unknown_kind': v['classifications'][0]['kind'] = 'narrative_or_postproduction'
+            elif alter == 'bool_id': v['classifications'][0]['id'] = True
+            elif alter == 'wrapper': v = {'batch_id': batch['batch_id'], **v}
+            elif alter == 'extra_row': v['classifications'].append(v['classifications'][0])
+            elif alter == 'wrong_preference': v['classifications'][0]['preference_source'] = batch['contexts'][plan.needs[1].need_id]['preferences'][0]['id']
+            else: v['classifications'].reverse()
+            assert list(validator.iter_errors(v)), alter
+            with pytest.raises(SemanticPlanningError): assemble_requirements(plan, {}, [v])
+    elif risk == 'native_schema_repair':
+        def execute(stage, message, session):
+            import re
+            rt['calls'].append({'stage': stage, 'message': message, 'session': session})
+            data = json.loads(message.splitlines()[-1])
+            if message.startswith('〔Easel Semantic'):
+                out = semantic_draft(); target = Path(re.search(r'只写 (.+\.json)', message)[1])
+            elif '单元分类' in message:
+                schema = data['output_schema']; out = _classification_fixture_from_schema(schema)
+                assert not list(jsonschema.Draft202012Validator(schema).iter_errors(out))
+                out['classifications'][0]['kind'] = 'narrative_or_postproduction'
+                target = Path(re.search(r'只写 (.+\.json)', message)[1])
+            else:
+                assert data['issues'][0]['field'] == 'unit.0.kind'
+                schema = data['context']['response_schema']; out = _classification_fixture_from_schema(schema)
+                assert not list(jsonschema.Draft202012Validator(schema).iter_errors(out))
+                assert schema['properties']['batches']['prefixItems'][0]['properties']['classifications'] == data['context']['batches'][0]['output_schema']['properties']['classifications']
+                target = Path(data['output_paths'][data['targets'][0]])
+            assert target.is_absolute(); target.write_bytes(encode(out))
+        result = rt['run'](execute)
+        saved = PlanningIntegration().persist(rt['attempt'], **{k: result[k] for k in ('plan','script','scenes','treatment')})
+        assert PlanningIntegration().load(saved['attempt'])['plan'] == result['plan']
+        assert rt['run'](execute)['plan'] == result['plan'] and len(rt['calls']) == 3
+        if evidence: evidence.note('native Schema-guided repair', {'submissions': 3, 'repeat_submissions': 0, 'external_semantics': 'fixed answers, no model accuracy claim'})
+    elif risk == 'old_v4_checkpoint':
+        checkpoint = json.loads((folder / 'legal-checkpoint-original.json').read_text()); old_scope = checkpoint['scope']
+        original = MaterialPlan.model_validate_json((folder / 'legal-Plan-original.json').read_bytes())
+        old_batches = classification_batches(original, old_scope['mode'], canonical=old_scope['canonical'], compiler_policy='semantic-planning-compiler@4')
+        assert all('output_schema' not in b for b in old_batches) and digest(old_batches) == checkpoint['batches_sha256']
+        root = rt['root'] / 'old-v4'; (root / 'planning').mkdir(parents=True)
+        for name, src in [('SEMANTIC_CHECKPOINT.json','legal-checkpoint-original.json'), ('SEMANTIC_PLAN.json','legal-A-original.json'), ('MATERIAL_REQUIREMENTS.json','legal-Requirements-original.json')]:
+            (root/'planning'/name).write_bytes((folder/src).read_bytes())
+        for name, text in old_scope['canonical'].items(): (root/'planning'/name).write_bytes(text.encode())
+        assert verify_semantic_checkpoint(root, original, old_scope['mode'], old_scope['canonical']['SCRIPT.md'])['policy'] == 'semantic-planning-compiler@4'
+    elif risk == 'output_identity':
+        old = compile_input(compiler_policy='semantic-planning-compiler@4'); new = compile_input()
+        assert POLICY == 'semantic-planning-compiler@5' and old.plan_id != new.plan_id
+        old_batch = classification_batches(old, {}, compiler_policy='semantic-planning-compiler@4')[0]
+        new_batch = classification_batches(new, {})[0]
+        assert 'output_schema' not in old_batch and 'output_schema' in new_batch
+        assert old_batch['review_target'] == new_batch['review_target']
+        assert old_batch['batch_id'] != new_batch['batch_id']
+    else:
+        state = {'schema':'semantic-planning-checkpoint@1','scope': {
+            'policy':'semantic-planning-compiler@4','attempt_id':rt['attempt']['attempt_id'],'creation_id':rt['attempt']['creation_id'],
+            'context_refs':rt['context']['context_refs'],'canonical':rt['canonical'],'mode':rt['mode']},
+            'route':{'profile':'fixture-only','thinking':'off','timeout':60},'calls':{'B0':{'status':'pending','message':'original v4 request'}},'repair_used':True}
+        store = AttemptMaterialStore(rt['root']); store.write_recovery_record('semantic-planning-v3', state)
+        with pytest.raises(SemanticPlanningError, match='版本'): rt['run']()
+        assert not rt['calls'] and store.read_recovery_record('semantic-planning-v3') == state
