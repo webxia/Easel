@@ -63,6 +63,8 @@ def test_r4_validator_child_uses_isolated_root(prep_env, tmp_path):
 def test_r4_runner_preflight_refuses_unsafe_submission(prep_env, tmp_path, monkeypatch, risk):
     import hashlib, re, sys, urllib.request
     from tests.planning_material_matrix import planning_eval_run as runner
+    # This archived Formal R4 protocol remains @7, not a vNext evaluation.
+    monkeypatch.setattr(runner.web, 'PLANNING_COMPILER_POLICY', 'semantic-planning-compiler@7')
     directory = tmp_path / 'protected-eval'
     current_scene = {'old-scene': 'original-sha'}
     current_tools = {'runner': 'frozen-sha'}
@@ -138,6 +140,7 @@ def test_r4_runner_preflight_refuses_unsafe_submission(prep_env, tmp_path, monke
 def test_r4_native_eval_stops_before_supply(prep_env, monkeypatch, risk):
     import asyncio, re
     from tests.test_creation_preparation import web, prep, creation, write_drafts
+    monkeypatch.setattr(web, 'PLANNING_COMPILER_POLICY', 'semantic-planning-compiler@7')
     from tests.planning_material_matrix.planning_eval import confirm_sample, PlanningEvalBoundary
     from easel.creation_delivery import DeliveryExecutionUncertain
     from easel.integrations.material_layer import PlanningIntegration
@@ -221,6 +224,8 @@ def test_r4_native_eval_stops_before_supply(prep_env, monkeypatch, risk):
 
 @pytest.mark.parametrize('risk', ['accepted', 'wait_timeout', 'release_pending', 'restart', 'lost', 'terminal_error', 'repair_A', 'repair_B'])
 def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence=None):
+    from tests.test_creation_preparation import web
+    monkeypatch.setattr(web, 'PLANNING_COMPILER_POLICY', 'semantic-planning-compiler@7')
     import asyncio, re, subprocess
     from tests.test_creation_preparation import web, prep, creation, write_drafts
     from tests.planning_material_matrix.planning_eval import confirm_sample, PlanningEvalBoundary
@@ -2337,7 +2342,7 @@ def vnext_proposal():
 
 
 @pytest.mark.parametrize('risk', ['reentry', 'audio_omission', 'structural_repair', 'semantic_repair',
-    'exhausted', 'answer_repair', 'pending', 'persist_failure', 'tamper', 'unknown_question', 'multibatch'])
+    'exhausted', 'answer_repair', 'pending', 'persist_failure', 'tamper', 'unknown_question', 'multibatch', 'legacy_resume'])
 def test_vnext_bounded_review_runtime(authority_runtime, monkeypatch, risk):
     from copy import deepcopy
     import jsonschema
@@ -2346,6 +2351,15 @@ def test_vnext_bounded_review_runtime(authority_runtime, monkeypatch, risk):
     from easel.integrations.openclaw_delivery import PlanningResultError
     from easel.creation_delivery import DeliveryExecutionUncertain
     rt = authority_runtime
+    if risk == 'legacy_resume':
+        first = rt['run']()
+        assert boundary.policy_for(rt['attempt']) == 'semantic-planning-compiler@7'
+        calls = len(rt['calls'])
+        with pytest.raises(ValueError, match='Old Planning journal'):
+            boundary.run(rt['attempt'], rt['context'], rt['canonical'], rt['mode'],
+                {'profile': 'fixture-only', 'thinking': 'off', 'timeout': 60}, lambda *_: pytest.fail('new dispatch'))
+        assert rt['run']()['plan'] == first['plan'] and len(rt['calls']) == calls
+        return
     initial = vnext_proposal()
     if risk in {'structural_repair', 'exhausted'}: initial['needs'][0]['necessity'] = 'NECESSARY'
     if risk == 'semantic_repair':
@@ -2469,6 +2483,7 @@ def test_vnext_bounded_review_runtime(authority_runtime, monkeypatch, risk):
     assert run()['plan'] == plan and len(calls) == before
     state = __import__('easel.materials.store', fromlist=['AttemptMaterialStore']).AttemptMaterialStore(rt['root']).read_recovery_record(boundary.STATE_KEY)
     assert sum(key == 'repair' for key in state['calls']) <= 1
+    assert boundary.policy_for(rt['attempt'], default='semantic-planning-compiler@7') == 'planning-semantic-boundary@1'
     with pytest.raises(ValueError, match='不能降级'):
         run_semantic_planning(rt['attempt'], rt['context'], rt['canonical'], rt['mode'],
             {'profile': 'fixture-only', 'thinking': 'off', 'timeout': 60}, execute,
@@ -2501,6 +2516,19 @@ def test_vnext_review_contract_protection(risk):
         with pytest.raises(ValueError): review.apply_patches(normalized, {'patches': [{'target': 99, 'value': normalized['needs'][0]}]}, target)
         response = {'answers': [{'question': q['question'], 'decision': 'ACCEPT', 'evidence': [], 'reason': '猜测'} for q in directory['questions']]}
         with pytest.raises(ValueError, match='evidence'): review.validate_answers(response, review.review_batches(directory)[0])
+        responses = [review.validate_answers({'answers': [
+            {'question': q['question'], 'decision': 'ACCEPT', 'evidence': [0], 'reason': '原冻结语境支持。'}
+            for q in b['questions']]}, b) for b in review.review_batches(directory)]
+        for field, replacement in [('scope', 'global'), ('purpose', '另一个用途'), ('modality', 'video')]:
+            from copy import deepcopy
+            changed = deepcopy(normalized); changed['needs'][0][field] = replacement
+            if changed == normalized: continue
+            updated = review.questions(parse_proposal(changed, scope['catalog']), inputs, scope['catalog'])
+            kept, pending = review.recheck(directory, responses, updated)
+            required_recheck = [q['question'] for q in updated['questions']
+                               if q['kind'] == 'complete_obligation' and q['target'][0] == 0]
+            assert required_recheck and all(q not in kept for q in required_recheck)
+            assert set(required_recheck) <= {q['question'] for q in pending['questions']}
     elif risk == 'whole_context':
         for batch in review.review_batches(directory):
             assert batch['evidence'][0]['value'] == inputs['confirmed']
@@ -2533,3 +2561,213 @@ def test_vnext_review_contract_protection(risk):
         assert '禁止任何手部。' in plan.needs[0].intent.description
         independent_expected = 'FAIL: no frozen hard prohibition of every hand'
         assert independent_expected.startswith('FAIL')  # Never report this as semantic success.
+
+
+@pytest.mark.parametrize('risk', ['success', 'semantic_reject', 'truth_reject', 'capture_truncated', 'source_tamper', 'async_tamper', 'between_resume'])
+def test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk):
+    import asyncio, re, hashlib
+    from tests.test_creation_preparation import web, prep, creation, write_drafts
+    from tests.planning_material_matrix.planning_eval import confirm_sample, PlanningEvalBoundary
+    from easel.integrations.material_layer import PlanningIntegration
+    from easel.integrations.openclaw_delivery import PlanningResultError
+    # No policy override: this exercises the actual fresh product default.
+    assert web.PLANNING_COMPILER_POLICY == 'planning-semantic-boundary@1'
+    sample = json.loads((Path(__file__).parent / 'fixtures/planning-eval-r4-2026-10-07/samples.json').read_text())['samples'][0]
+    work = confirm_sample(sample)
+    calls = []
+    def external(message, timeout=None, session=None, **options):
+        calls.append((session, message))
+        if message.startswith('〔Easel Semantic Planning vNext〕'):
+            assert options['capture_reply'] and options['reply_contract'] == 'planning-result-v2'
+            assert options['retry_failed'] is False
+            if risk == 'capture_truncated': raise PlanningResultError('MODEL_TRUNCATED')
+            if risk in {'source_tamper', 'async_tamper'}:
+                attempt = creation.get_creation(work['id'])['hypit_attempts'][-1]
+                (Path(attempt['workspace']['path']) / 'planning/SCENES.md').write_text('被外部执行修改的确认稿。')
+                if risk == 'async_tamper':
+                    from easel.creation_delivery import DeliveryExecutionUncertain
+                    raise DeliveryExecutionUncertain('Original external request still pending')
+            value = vnext_proposal()
+            value['needs'][0]['conditions'].append({'text': '在后期叠加正文。', 'strength': 'required', 'responsibility': 'postproduction'})
+            return json.dumps(value, ensure_ascii=False)
+        if '有界视觉复核' in message:
+            if risk == 'between_resume':
+                from easel.creation_delivery import DeliveryExecutionUncertain
+                with creation.edit_creation(work['id']) as current:
+                    attempt_id = current['hypit_attempts'][-1]['attempt_id']
+                    current['delivery'].setdefault('agent_calls', {})['original-B'] = {
+                        'run_id': 'easel-original-B', 'profile': web.OPENCLAW_PROFILE, 'status': 'pending',
+                        'session_key': 'agent:main:semantic-' + attempt_id + '-vnext-B-000'}
+                raise DeliveryExecutionUncertain('Original B still pending')
+            assert options['capture_reply'] and options['reply_contract'] == 'planning-result-v2'
+            payload = json.loads(message.splitlines()[-1])
+            return json.dumps({'answers': [{'question': q['question'],
+                'decision': 'UNRESOLVED' if risk == 'semantic_reject' else 'ACCEPT',
+                'evidence': [0], 'reason': '明确外部对照：冻结两纸条件/后期叠字及正常表达。'} for q in payload['questions']]})
+        if '单次局部修复' in message:
+            # Deliberately invalid local result; no second allowance or Truth.
+            return json.dumps({'patches': []})
+        if message.startswith('〔Easel Script 系统审阅〕'):
+            target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
+            response = json.loads(message.split('（逐项替换判断，不增加字段）：\n', 1)[1].split('\n写入后停止。', 1)[0])
+            for row in response['decisions']:
+                row.update(kind='unresolved' if risk == 'truth_reject' else 'creative_expression', reason='独立固定Truth判断。')
+            target.write_text(json.dumps(response))
+        elif message.startswith('〔Easel Script 审阅报告修正〕'):
+            # Existing bounded report repair stays unresolved; never bypass it.
+            return 'fixed unresolved external report'
+        else:
+            current = creation.get_creation(work['id'])
+            paths = prep.preparation_paths(work['id'], current['preparation']['operation_key'])
+            write_drafts(current, paths['draft'])
+        return 'fixed external boundary complete'
+    monkeypatch.setattr(web, 'run_agent_sync', external)
+    monkeypatch.setattr(web, '_hypit_runtime_profile', lambda: None)
+    if risk == 'between_resume':
+        from easel.integrations import openclaw_delivery
+        def original_terminal(creation_id, **kwargs):
+            with creation.edit_creation(creation_id) as current:
+                assert current['delivery']['agent_calls']['original-B']['run_id'] == 'easel-original-B'
+                current['delivery']['agent_calls']['original-B']['status'] = 'ok'
+        monkeypatch.setattr(openclaw_delivery, 'reconcile_agent_calls', original_terminal)
+    boundary = PlanningEvalBoundary()
+    async def scenario():
+        first = await boundary.advance(work['id'], web)
+        assert first['boundary_reached'] == (risk == 'success')
+        count = len(calls)
+        if risk == 'between_resume':
+            attempt = creation.get_creation(work['id'])['hypit_attempts'][-1]
+            (Path(attempt['workspace']['path']) / 'planning/SCENES.md').write_text('重入前修改的确认稿。')
+        second = await boundary.advance(work['id'], web)
+        if risk == 'between_resume':
+            await boundary.advance(work['id'], web)  # Original observation precedes Planning recovery.
+        assert len(calls) == count
+        if risk == 'success': assert second['boundary_reached']
+    asyncio.run(scenario())
+    assert boundary.supply_calls == 0 and not boundary.state_violations
+    current = creation.get_creation(work['id'])
+    attempt = current['hypit_attempts'][-1]
+    root = Path(attempt['workspace']['path'])
+    assert not attempt.get('material_gate') and not attempt.get('production_authoring')
+    if risk == 'success':
+        loaded = PlanningIntegration().load(attempt)
+        assert loaded['truth_ledger']['status'] == 'PASSED'
+        assert loaded['plan'].policy['semantic_compiler'] == web.PLANNING_COMPILER_POLICY
+        assert loaded['plan'].needs[0].intent.description == '两张白纸放在桌上。'
+        assert '在后期叠加正文。' in loaded['plan'].needs[0].intent.function
+        assert root.joinpath('planning/SCRIPT.md').read_bytes() == current['delivery']['video_plan']['script'].encode()
+        assert hashlib.sha256(root.joinpath('planning/SEMANTIC_A_RESULT.json').read_bytes()).hexdigest()
+    if risk in {'semantic_reject', 'capture_truncated', 'source_tamper', 'async_tamper', 'between_resume'}:
+        assert not root.joinpath('planning/manifest.json').exists()
+    if risk in {'source_tamper', 'async_tamper', 'between_resume'}:
+        from easel.materials.store import AttemptMaterialStore
+        state = AttemptMaterialStore(root).read_recovery_record('semantic-planning-vnext')
+        assert state['terminal_failure'] == 'FROZEN_SOURCE_CHANGED'
+        assert root.joinpath('planning/SCENES.md').read_text() != current['delivery']['video_plan']['scenes']
+    if risk == 'capture_truncated':
+        assert not any('视觉复核' in m or '局部修复' in m for _, m in calls)
+
+
+@pytest.mark.parametrize('risk', ['submissions', 'deadline_observation', 'round2_gate', 'roster'])
+def test_vnext_development_bounds(tmp_path, risk):
+    from tests.planning_material_matrix import planning_eval_run as runner
+    parent, first, second = tmp_path / 'goal', tmp_path / 'round1', tmp_path / 'round2'
+    def phase(index, source='one', started=100):
+        return {'attempt_id': 'isolated', 'session_id': f'isolated-{index}', 'message_sha256': f'message-{index}',
+                'capture_reply': True, 'reply_contract': 'planning-result-v2', 'retry_failed': False,
+                'fixed_commit': 'fixed', 'fixed_source': source, 'sample_started_at': started}
+    if risk == 'roster':
+        rows = json.loads(runner.SAMPLES.read_text())['samples']
+        selected = runner.development_samples(rows)
+        assert len(selected) == 3 and all(s['split'] == 'development' for s in selected)
+        return
+    runner.reserve_development_request(parent, first, 1, 0, phase(0), now=100)
+    if risk == 'submissions':
+        for index in range(1, 32): runner.reserve_development_request(parent, first, 1, 0, phase(index), now=100 + index)
+        with pytest.raises(runner.EvalStateViolation): runner.reserve_development_request(parent, first, 1, 0, phase(32), now=140)
+        assert len(json.loads((parent / 'development-budget.json').read_text())['requests']) == 32
+    elif risk == 'deadline_observation':
+        with pytest.raises(runner.EvalStateViolation): runner.reserve_development_request(parent, first, 1, 0, phase(1), now=581)
+        observed = runner.reserve_development_request(parent, first, 1, 0, phase(0), now=1000)
+        assert observed['existing_request_observation']
+        with pytest.raises(runner.EvalStateViolation, match='new submission forbidden'):
+            runner.authorize_development_submit(parent, first, 1, observed['request_sha256'], 'easel-original', now=1000)
+        outcome = {'index': 0, 'result': 'CONTRACT_VALID_SEMANTICS_PENDING'}
+        runner.finish_development_run(parent, 1, first, outcome, now=590)
+        assert outcome['result'] == 'FAIL'  # A late valid contract is no Eval PASS.
+    else:
+        outcome = {'index': 0, 'result': 'FAIL'}
+        runner.finish_development_run(parent, 1, first, outcome, now=110)
+        sealed = (parent / 'development-budget.json').read_bytes()
+        runner.finish_development_run(parent, 1, first, outcome, now=9000)
+        assert (parent / 'development-budget.json').read_bytes() == sealed
+        with pytest.raises(runner.EvalStateViolation): runner.reserve_development_request(parent, second, 2, 0, phase(100, 'two'), now=200)
+        path = parent / 'development-budget.json'; budget = json.loads(path.read_text())
+        budget['round2_software_gate'] = {'status': 'PASS', 'commit': 'fixed', 'source_sha256': 'two',
+            'root_cause': 'targeted software fault', 'original_execution_reconciled': True, 'historical_unchanged': True}
+        path.write_text(json.dumps(budget))
+        runner.reserve_development_request(parent, second, 2, 0, phase(100, 'two', 200), now=200)
+        final = json.loads(path.read_text())
+        assert len(final['requests']) == 2 and final['rounds']['1']['elapsed_seconds'] == 10
+        with pytest.raises(runner.EvalStateViolation): runner.reserve_development_request(parent, second, 3, 0, phase(101, 'three'), now=201)
+
+
+@pytest.mark.parametrize('risk', ['goal_identity', 'stopped_observation', 'native_submit_cut', 'completed_seal'])
+def test_vnext_development_recovery(prep_env, tmp_path, monkeypatch, risk):
+    import sys
+    from tests.planning_material_matrix import planning_eval_run as runner
+    from tests.planning_material_matrix.planning_eval import PlanningEvalBoundary
+    from easel.creation_delivery import active_delivery
+    from easel.integrations.openclaw_delivery import run_delivery_agent
+    parent, directory = tmp_path / 'goal', tmp_path / 'round1'
+    monkeypatch.setattr(runner, 'production', lambda: {'sha256': runner.SOURCE})
+    monkeypatch.setattr(runner, 'protected', lambda: {})
+    monkeypatch.setattr(runner, 'tool_hashes', lambda: {})
+    monkeypatch.setattr(runner, 'head', lambda: runner.COMMIT)
+    args = ['eval', '--directory', str(directory), '--development', '--goal-directory', str(parent)]
+    monkeypatch.setattr(sys, 'argv', args)
+    assert runner.main() == 0
+    roster = json.loads((directory / 'roster.json').read_text()); row = roster['runs'][0]
+    (directory / 'user-authorization.json').write_text(json.dumps({'raw_stream_exception_accepted': True,
+        'billing_scope': 'existing purchased text subscription quota only'}))
+    phase = {'attempt_id': 'test', 'session_id': 'test', 'message_sha256': 'test',
+             'fixed_commit': runner.COMMIT, 'fixed_source': runner.SOURCE, 'sample_started_at': 100}
+    reserved = runner.reserve_development_request(parent, directory, 1, 0, phase, now=100)
+    results = directory / 'runs'; results.mkdir()
+    if risk == 'goal_identity':
+        monkeypatch.setattr(sys, 'argv', args[:-1] + [str(tmp_path / 'replacement-goal')])
+        with pytest.raises(runner.EvalStateViolation, match='identity changed'): runner.main()
+    elif risk == 'stopped_observation':
+        runner.save(results / 'run-00.json', {'index': 0, 'result': 'FAIL'})
+        observed = []
+        with runner.isolated_process(directory / 'eval-runtime', runner.web):
+            with runner.creation.edit_creation(row['creation_id']) as work:
+                work['delivery']['agent_calls'] = {'original': {'run_id': 'easel-original', 'profile': 'fixture', 'status': 'pending'}}
+        from easel.integrations import openclaw_delivery
+        monkeypatch.setattr(openclaw_delivery, 'reconcile_agent_calls', lambda *a, **k: observed.append(a[0]))
+        monkeypatch.setattr(runner, 'quota_check', lambda *a: pytest.fail('Observation used fee admission'))
+        monkeypatch.setattr(runner.web, 'run_agent_sync', lambda *a, **k: pytest.fail('Observation submitted'))
+        before = (parent / 'development-budget.json').read_bytes()
+        monkeypatch.setattr(sys, 'argv', args + ['--one', '0', '--observe-only'])
+        assert runner.main() == 0 and observed == [row['creation_id']]
+        assert (parent / 'development-budget.json').read_bytes() == before
+    elif risk == 'completed_seal':
+        runner.save(results / 'run-00.json', {'index': 0, 'result': 'CONTRACT_VALID_SEMANTICS_PENDING'})
+        monkeypatch.setattr(runner.time, 'time', lambda: 590)
+        monkeypatch.setattr(sys, 'argv', args + ['--one', '0'])
+        assert runner.main() == 2
+        assert json.loads((results / 'run-00.json').read_text())['result'] == 'FAIL'
+    else:
+        with runner.isolated_process(directory / 'eval-runtime', runner.web):
+            boundary = PlanningEvalBoundary(before_submit=lambda params: runner.authorize_development_submit(
+                parent, directory, 1, reserved['request_sha256'], params['idempotencyKey'], now=1000))
+            token = active_delivery.set(row['creation_id'])
+            try:
+                with boundary.guarded(), pytest.raises(runner.EvalStateViolation, match='new submission forbidden'):
+                    run_delivery_agent([*runner.web.openclaw_base_cmd(), '--profile', 'easel', 'agent', '--agent', 'main',
+                        '--session-key', 'agent:main:isolated-test', '--session-id', 'isolated-test', '--message', '{}'],
+                        capture_reply=True, reply_contract='planning-result-v2',
+                        runner=lambda *a, **k: pytest.fail('RPC escaped expired native submission guard'))
+            finally: active_delivery.reset(token)
+            calls = runner.creation.get_creation(row['creation_id'])['delivery']['agent_calls']
+            assert len(calls) == 1 and next(iter(calls.values()))['status'] == 'submitting'

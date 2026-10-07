@@ -951,3 +951,13 @@ Astra只读复核`STOP`仅针对纯音频豁免判据，S3投影允许继续。�
 新合法patch结果以完整8MiB envelope在实际安装OpenClaw2026.9.4隔离SQLite回放，原text/bytes/SHA相同，新进程只读前后DB/WAL不变；A/B既有合法大结果同批复跑。[S4容量证据](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s4-runtime-capacity.json)、[局部Gate](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s4-gate.json)及JUnit保留。
 
 **边界：** `S4=LOCAL_SOFTWARE_PASS; PRODUCT_DEFAULT_CHANGED=NO; S5=PENDING`。产品默认仍旧@7，下一步S5接新请求入口及完整确认/Owner/Preparation/A/B/Truth/persist/load连续集成，再最终Astra与Development Eval预检。特意保留错误B ACCEPT的独立FAIL对照：合法出处不能证明语义正确，软件PASS不证明真实模型成功率。模型/Provider/Supply调用0，服务操作0，费用0，R4/Smoke/E2E/Build未启动，历史FAIL不改。
+
+### S5 连续软件验收与最终复核（2026-10-08）
+
+新正常视频入口默认 `planning-semantic-boundary@1`；旧 journal 按原 policy 恢复，新 journal 禁止回退。真实内部确认→Owner/Preparation→A完整capture→B有界复核→Truth→正式persist/load→Supply前切点组合成功与拒绝链均已实际执行，外部响应仅固定替身。无需重启，尚未改变实际Web服务加载。
+
+最终Astra先MODIFY，六项最小修正及中断回归闭合后CONTINUE。条件ACCEPT只在Need header不变时复用；异步及重入前原件修改持久拒绝，不能先恢复再放行；原run对账保持。独立评测仍使用同一runner，roster固定Goal绝对账本身份，原预算预留不等于native执行；实际agent RPC前强制时限与一次性run身份。停批用`--observe-only`只wait/release原句柄，不走费用准入，不推进Owner或B/Truth。已封账耗时/分类不被后续观察改写，already_completed保存实际封账结果。
+
+具名软件结果：run-032 **196 PASS / 0 FAIL / 0 CONTRACT_GAP / 0未执行**；针对31 PASS；常规934 passed/5项既有skip；115技能、compileall及本期diff通过。十批1550文件以原始32字节digest算法对账全部一致，257现场/117fixture保持。production SHA=`ffac01cc608caf72790d2a71d5bdf813657bc7ade24be09f31c4347ea651c74d`。前端未改；无push、服务重启、Runtime升级或历史产物迁移。
+
+证据：[S5 gate](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s5-gate.json)、[最终Astra](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s5-astra-review.md)、[十批对账](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/s5-history-fingerprints.json)。软件PASS不证明B语义正确或真实模型成功。本阶段模型/Provider/Supply/TTS/Build调用0，费用0；Development Eval尚未执行，正式R4仍PAUSED。下一步固定窄commit，核对实际Gateway/CLI/DB同源、套餐与隔离后，才进入已授权最多两轮的有界Development；不启动Formal R4。

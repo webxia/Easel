@@ -21,6 +21,47 @@ MAX_CHECKPOINT_BYTES = 32 * MAX_RESULT_BYTES
 MAX_PLANNING_CALLS = 30
 
 
+def check_existing_sources(attempt):
+    """Check a new-policy journal before any legacy restoration can hide edits."""
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    state = store.read_recovery_record(STATE_KEY)
+    if state is None:
+        return
+    if state.get('terminal_failure'):
+        raise ValueError('Original Planning frozen-source violation is reject-only')
+    scope = state['scope']
+    try:
+        if authority.load_inputs(attempt, scope['canonical'],
+                {'context_refs': scope['context_refs']}, scope['mode']) != scope['inputs']:
+            raise ValueError('Frozen Planning sources changed before recovery')
+    except ValueError:
+        state['terminal_failure'] = 'FROZEN_SOURCE_CHANGED'
+        store.write_recovery_record(STATE_KEY, state)
+        raise
+
+
+def policy_for(attempt, *, default=POLICY):
+    """New entrance uses vNext; old pending journals retain their exact policy."""
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    old = store.read_recovery_record('semantic-planning-v3')
+    new = store.read_recovery_record(STATE_KEY)
+    if old is not None and new is not None:
+        raise ValueError('Multiple Planning policies own this Attempt; no dispatch')
+    if old is not None:
+        from easel.integrations.semantic_planning import _compiler_policy
+        policy = old.get('scope', {}).get('policy')
+        if not policy: raise ValueError('Old pending policy missing; never assume the current default')
+        return _compiler_policy(policy)
+    if new is not None:
+        if new.get('scope', {}).get('policy') != POLICY:
+            raise ValueError('Unknown vNext journal policy; no downgrade')
+        return POLICY
+    if default != POLICY:
+        from easel.integrations.semantic_planning import _compiler_policy
+        return _compiler_policy(default)
+    return POLICY
+
+
 def a_message(scope):
     return review.checked_message('〔Easel Semantic Planning vNext〕\n'
         '只提出语义计划；正式ID、路径、hash、技术别名、sidecar、缓存及文件由程序负责。'
@@ -67,18 +108,27 @@ def run(attempt, planning_context, canonical, mode, route, dispatch):
     elif (state.get('schema') != 'semantic-planning-checkpoint@2'
           or state.get('scope') != scope or state.get('route') != route):
         raise ValueError('Frozen vNext input, policy or execution route changed; no refreshed allowance')
+    if state.get('terminal_failure'):
+        raise ValueError('Original Planning frozen-source violation is reject-only; no recovery dispatch')
     def save(): store.write_recovery_record(STATE_KEY, state)
     def frozen():
-        if authority.load_inputs(attempt, canonical, planning_context, mode) != inputs:
-            raise ValueError('Frozen Planning sources changed during execution')
+        try:
+            if authority.load_inputs(attempt, canonical, planning_context, mode) != inputs:
+                raise ValueError('Frozen Planning sources changed during execution')
+        except ValueError:
+            state['terminal_failure'] = 'FROZEN_SOURCE_CHANGED'
+            save()
+            raise
     def invoke(key, message):
         frozen()
         if key not in state['calls'] and len(state['calls']) >= MAX_PLANNING_CALLS:
             raise ValueError('Fixed Planning call range exhausted; no new dispatch')
-        result = capture(state['calls'], key, review.checked_message(message),
-            f"semantic-{attempt['attempt_id']}-vnext-{key}",
-            lambda key, text, session: dispatch('structure_repair' if key == 'repair' else 'planning', text, session), save)
-        frozen()
+        try:
+            result = capture(state['calls'], key, review.checked_message(message),
+                f"semantic-{attempt['attempt_id']}-vnext-{key}",
+                lambda key, text, session: dispatch('structure_repair' if key == 'repair' else 'planning', text, session), save)
+        finally:
+            frozen()  # Async/uncertain results cannot skip source-integrity recording.
         return result
     def repair(stage, original, targets, context=None):
         message = repair_message(scope, original, targets, context)  # Capacity before consuming allowance.

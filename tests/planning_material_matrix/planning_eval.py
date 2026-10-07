@@ -33,7 +33,7 @@ class EvalStateViolation(Exception):
 
 
 class PlanningEvalBoundary:
-    def __init__(self, before_stage=None):
+    def __init__(self, before_stage=None, before_submit=None):
         self.code = MaterialProductOrchestrator._run.__code__
         source, first = inspect.getsourcelines(MaterialProductOrchestrator._run)
         import textwrap
@@ -47,14 +47,19 @@ class PlanningEvalBoundary:
         self.state_violations = []
         self.cuts = []
         self.before_stage = before_stage
+        self.before_submit = before_submit
         self.phase_calls = []
 
     def trace(self, frame, event, arg):
         module = frame.f_globals.get('__name__', '')
         name = frame.f_code.co_name
         if event == 'call':
+            if (module == 'easel.integrations.openclaw_delivery' and name == '_rpc'
+                    and frame.f_locals.get('method') == 'agent' and self.before_submit):
+                self.before_submit(frame.f_locals['params'])
             if module == 'app' and name == '_run_timed_creation_agent':
-                row = {k: frame.f_locals.get(k) for k in ('phase', 'attempt_id', 'session_id', 'timeout')}
+                row = {k: frame.f_locals.get(k) for k in ('phase', 'attempt_id', 'session_id', 'timeout',
+                                                        'capture_reply', 'reply_contract', 'retry_failed')}
                 row['started_monotonic'] = time.monotonic()
                 row['message_sha256'] = hashlib.sha256(frame.f_locals['message'].encode()).hexdigest()
                 if self.before_stage:

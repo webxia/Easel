@@ -1,0 +1,57 @@
+{
+  "algorithm": "sorted relative path + NUL + raw 32-byte file SHA256 digest",
+  "batches": {
+    "planning-eval-r4-2026-10-07": {
+      "count": 120,
+      "sha256": "2481bbc26df5ca9a8fa16e334becbec88331f884e69f81380a47ab749b14a935",
+      "unchanged": true
+    },
+    "planning-eval-r4-2026-10-07-batch02": {
+      "count": 135,
+      "sha256": "46ccbbdb3d4d187f4be257ed1c37294e406a44ce77a7d0ac5625ec833ebfaef0",
+      "unchanged": true
+    },
+    "planning-eval-r4-2026-10-07-batch03": {
+      "count": 137,
+      "sha256": "9f04570e1edd7c460c62055a6b884be5990fc09ce6c6fac4f8a2d30035e7621a",
+      "unchanged": true
+    },
+    "planning-eval-r4-2026-10-07-batch04": {
+      "count": 147,
+      "sha256": "48e5dc735d7b95de91e3259f239fdda67523c6eca3f0457947915087b631fe89",
+      "unchanged": true
+    },
+    "planning-eval-r4-2026-10-07-batch05": {
+      "count": 151,
+      "sha256": "2601de63f61fb70a4445c66930b390d82f8c725bbf408ad8d160d9657d55e5b7",
+      "unchanged": true
+    },
+    "planning-eval-r4-2026-10-07-batch06": {
+      "count": 153,
+      "sha256": "f218ae3f928b7abece69f1801761b55ad960fc7e4d5a49a14c16dc9229df0edd",
+      "unchanged": true
+    },
+    "planning-eval-r4-2026-10-07-batch07": {
+      "count": 273,
+      "sha256": "234da2741fa21d5a071ac549c33a7d27e738132134fefcce9f91483bbc76eeca",
+      "unchanged": true
+    },
+    "planning-eval-r4-2026-10-07-batch08": {
+      "count": 143,
+      "sha256": "3c358c08be471aef91f2c48d4b40d93043e69046e6ab1b209c1e96e5ebe3df58",
+      "unchanged": true
+    },
+    "planning-eval-r4-2026-10-07-batch09": {
+      "count": 153,
+      "sha256": "3cd270cfd0b4308c1448a74fa7372882523bfb05d42a320da302d80024373c44",
+      "unchanged": true
+    },
+    "planning-eval-r4-2026-10-07-batch10": {
+      "count": 138,
+      "sha256": "ad90a8e471c61102928ead7655d335f17d2515415e5281329c774949f55e1641",
+      "unchanged": true
+    }
+  },
+  "total_files": 1550,
+  "all_unchanged": true
+}

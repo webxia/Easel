@@ -646,6 +646,9 @@ def test_25_structure_reentry(prep_env, tmp_path, monkeypatch, trace):
 
 
 def test_26_semantic_owner_supply(prep_env, tmp_path, monkeypatch, trace):
+    from tests.test_creation_preparation import web
+    # Preserve the original @7 Supply/Observation fixture's exact contract.
+    monkeypatch.setattr(web, 'PLANNING_COMPILER_POLICY', 'semantic-planning-compiler@7')
     trace.define('v3真实Owner/确认/Preparation/语义编译/分类/Truth/Supply/Observation及重入',
                  'R批单一语义源；外部响应独立fixture')
     test_24_owner_supply_observation(prep_env, tmp_path, monkeypatch, trace, planning_version=3)
@@ -894,7 +897,7 @@ def test_53_vnext_historical_projection(trace, origin):
 
 
 @pytest.mark.parametrize('risk', ['reentry', 'audio_omission', 'structural_repair', 'semantic_repair',
-    'exhausted', 'answer_repair', 'pending', 'persist_failure', 'tamper', 'unknown_question', 'multibatch'])
+    'exhausted', 'answer_repair', 'pending', 'persist_failure', 'tamper', 'unknown_question', 'multibatch', 'legacy_resume'])
 def test_54_vnext_bounded_review(authority_runtime, monkeypatch, trace, risk):
     trace.define('新视频入口全audio仍查冻结视觉遗漏；有界B保留完整义务和原件，局部patch不改已接受语义；一次额度重入不刷新',
                  '真实Handoff、Harness capture、问题/修复、正式合同persist/load；仅模型执行边界返回明确固定判断')
@@ -909,3 +912,23 @@ def test_55_vnext_review_protection(trace, risk):
     semantic.test_vnext_review_contract_protection(risk)
     trace.note('semantic guarantee', 'NOT_CLAIMED: incorrect B ACCEPT remains model risk')
     trace.note('real model / Supply', 0)
+
+
+@pytest.mark.parametrize('risk', ['success', 'semantic_reject', 'truth_reject', 'capture_truncated', 'source_tamper', 'async_tamper', 'between_resume'])
+def test_56_vnext_continuous_owner(prep_env, monkeypatch, trace, risk):
+    trace.define('正常确认/Owner/Preparation/新A完整capture/有界B/Truth/真实persist-load连续执行；Supply前停止，失败不放行或重派',
+                 '默认新版产品入口，脱敏正常d01固定主题；仅外部模型响应替身，原Eval切点及内部模块真实执行')
+    semantic.test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk)
+    trace.note('real Supply / Provider / generation / Build', 0)
+
+
+@pytest.mark.parametrize('risk', ['submissions', 'deadline_observation', 'round2_gate', 'roster',
+                               'goal_identity', 'stopped_observation', 'native_submit_cut', 'completed_seal'])
+def test_57_vnext_development_bounds(tmp_path, prep_env, monkeypatch, trace, risk):
+    trace.define('Development最多两轮/6样本/32提交/60分钟、单样本8分钟；已知原请求仅观察不重扣，第二轮一次软件Gate且账本不清零',
+                 '同一真实评测器的隔离持久账本；无网络或模型调用，保持held-out不用')
+    if risk in {'submissions', 'deadline_observation', 'round2_gate', 'roster'}:
+        semantic.test_vnext_development_bounds(tmp_path, risk)
+    else:
+        semantic.test_vnext_development_recovery(prep_env, tmp_path, monkeypatch, risk)
+    trace.note('real model / fees', 0)

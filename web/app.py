@@ -3536,12 +3536,20 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
 _material_planning_executor.planning_contract_version = 3
 
 
+PLANNING_COMPILER_POLICY = 'planning-semantic-boundary@1'
+
+
 def _semantic_material_planning_executor(attempt, planning_context, canonical, restore_confirmed):
     from easel.integrations.semantic_planning import run_semantic_planning, SemanticPlanningError
     from easel.integrations.hypit.handoff import load_frozen_creative_mode
     if not canonical:
         raise PreparationError('Planning v3需要已确认正文/场景；不猜测或重写确认稿')
-    restore_confirmed()
+    from easel.integrations.semantic_boundary_run import check_existing_sources
+    source_failure = None
+    try:
+        check_existing_sources(attempt)
+    except ValueError as exc:
+        source_failure = str(exc)  # Keep original native handles available for reconciliation.
     work = get_creation(attempt['creation_id'])
     calls = [call for call in (work.get('delivery') or {}).get('agent_calls',{}).values()
              if str(call.get('session_key','')).startswith('agent:main:semantic-' + attempt['attempt_id'])
@@ -3557,13 +3565,20 @@ def _semantic_material_planning_executor(attempt, planning_context, canonical, r
         if any(c.get('status') in {'pending','submitting'} or c.get('runtime_release')=='pending'
                for c in refreshed.values()):
             raise DeliveryExecutionUncertain('Planning v3原执行尚未核实')
+    if source_failure is not None:
+        raise PreparationError('Planning v3冻结来源无效：' + source_failure)
+    restore_confirmed()
     route = {'profile':OPENCLAW_PROFILE,'thinking':THINKING_LEVEL,'timeout':TIMEOUT_PRODUCE}
+    from easel.integrations.semantic_boundary_run import policy_for
+    from easel.integrations.semantic_boundary import POLICY as boundary_policy
+    policy = policy_for(attempt, default=PLANNING_COMPILER_POLICY)
     def dispatch(stage, message, session):
+        options = {'capture_reply': True, 'reply_contract': 'planning-result-v2'} if policy == boundary_policy else {}
         return _run_timed_creation_agent(stage, attempt['attempt_id'], message, TIMEOUT_PRODUCE,
-                                         session, retry_failed=False)
+                                         session, retry_failed=False, **options)
     try:
         result = run_semantic_planning(attempt, planning_context, canonical,
-                                      load_frozen_creative_mode(attempt)[0], route, dispatch)
+                                      load_frozen_creative_mode(attempt)[0], route, dispatch, compiler_policy=policy)
     except (ValueError, OSError) as exc:
         raise PreparationError('Planning v3合同无效：' + str(exc)) from exc
     if is_managed(get_creation(attempt['creation_id'])):

@@ -47,6 +47,9 @@ def questions(proposal, inputs, catalog):
         add('visual_choices', [index], header)
         for ordinal, condition in enumerate(value['conditions']):
             add('complete_obligation', [index, ordinal], condition)
+            # An unchanged clause is not the same judgment under a changed
+            # scope, modality or purpose. Bind reuse to its semantic header.
+            rows[-1]['need_context'] = header
     candidates = [{'candidate': i, 'scope': n.scope, 'necessity': n.necessity,
                    'conditions': [c.model_dump(mode='json') for c in n.conditions],
                    'purpose': n.purpose, 'modality': n.modality}
