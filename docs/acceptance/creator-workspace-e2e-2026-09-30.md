@@ -97,3 +97,11 @@ CONTENT_LIBRARY = PASS
 CREATOR_VISIBLE=FAIL 是本次整段经历的结论：曾出现内部自述/文件表、阶段误标和内部路径；修复后的展示检查不抹除已发生的问题，历史消息也没有被手工重写。初始自然文字路由、自动命名和素材要求的中文呈现仍有体验改进空间。需用户另行授权的新作品才能证明完全无工程救场；本次按约束停止，不自动开始第二个作品。
 
 验证汇总：Preparation/Material integration 组合 75 passed；Preparation/Hypit/隔离边界组合曾为 80 passed + 1 个旧聊天诊断文案断言失败，该断言按“聊天简短结论、画布保留诊断”更新后定向 4 passed；相关 Authoring/提案与隔离定向 26 passed、正式契约接入后 Authoring 20 passed，最终变更的隔离/修复路径 7 passed，任务书刷新 3 passed。组合有重叠，不相加为唯一测试总数。前端投影、lint、build、compileall、115 项技能契约校验与 diff check 通过；既有 Hook、包体积、Starlette/httpx/anyio warning 保留。没有运行完整 pytest 套件或第二次真实 E2E。
+
+## 前置工作区软件验收（历史任务合并，2026-10-04）
+
+原 `tasks/creator-workspace-2026-09-30.md` 已完成，其独立任务入口删除。以下是当时的软件证据，不改变本记录真实 E2E 的 PARTIAL 结论。
+
+- Conversation / Work Canvas 分离；Creation 只读状态投影支持无 Attempt、早期失败和断连。连接错误独立保留，素材 Match 与 Rights 按场景及身份隔离；输出反馈绑定可信 checkpoint。刷新状态不触发制作。
+- 规格卡与服务端确认共用字面解析，不提取示例或歧义；Preparation 验证同一规格。通用内容、规格、声音、字幕或素材替换需重新确认，正式恢复、费用及最终审片门禁保留。
+- 确定性验证入口为 `node web/frontend/tests/creatorWorkspace.test.mjs`、隔离 Vite/Playwright 的 `web/frontend/tests/workspace-browser.mjs`（接口拦截，媒体在临时目录）及后端 Preparation / Material / Hypit / scoped Authoring 110 项组合；最后相关子集 11 passed，lint/build、compileall、skill 合同及 diff check 通过。当时软件验证未调用付费 AI、真实 Build 或完整 E2E；后续真实运行见本记录正文。

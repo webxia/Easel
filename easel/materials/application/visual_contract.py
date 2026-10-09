@@ -16,6 +16,34 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel
 from easel.materials.application.visual_observation import SCHEMA, ASSESSMENT_REVISION, need_identity
 
 REVISION = 'visual-requirements@1'
+ADVISORY_REVISION = 'visual-requirements@2'
+
+
+def _validated_revision(revision):
+    if not isinstance(revision, str) or revision not in {REVISION, ADVISORY_REVISION}:
+        raise ValueError('未知视觉审核合同版本，不能降级')
+    return revision
+
+
+def requirements_revision(plan):
+    return _validated_revision(plan.policy.get('visual_requirements', REVISION))
+
+
+def _ordered_records(rows, expected, *, reorder):
+    """Order a complete keyed response, never drop or invent an observation."""
+    if (not isinstance(rows, list) or len(rows) != len(expected)
+            or any(type(key) is not int for key in expected)
+            or len(set(expected)) != len(expected)
+            or any(not isinstance(row, dict) or type(row.get('id')) is not int for row in rows)):
+        raise ValueError('审核编号类型或完整性无效')
+    ids = [row['id'] for row in rows]
+    if len(set(ids)) != len(ids) or set(ids) != set(expected):
+        raise ValueError('审核编号缺失、重复或未知')
+    if not reorder and ids != expected:
+        raise ValueError('旧版审核结果次序不一致')
+    by_id = {row['id']: row for row in rows}
+    return [deepcopy(by_id[key]) for key in expected]
+
 RESULT_LIMIT = 3000
 KINDS = {'required', 'preference', 'postproduction', 'unresolved'}
 from easel.materials.application.query_hints import QUERY_FIELDS
@@ -145,8 +173,9 @@ def sources_for(need):
     return rows
 
 
-def compilation_input(need, context_refs, mode):
-    return {'revision': REVISION, 'need_sha256': need_identity(need),
+def compilation_input(need, context_refs, mode, *, plan=None):
+    revision = requirements_revision(plan) if plan is not None else REVISION
+    return {'revision': revision, 'need_sha256': need_identity(need),
             'context_refs': context_refs, 'mode': mode, 'sources': sources_for(need),
             'need': need.model_dump(mode='json')}
 
@@ -231,11 +260,13 @@ def classification_units(input_data, *, unit_policy='indexed-unit-classification
 def bind_classifications(input_data, response, *, unit_policy='indexed-unit-classification@7'):
     units = classification_units(input_data, unit_policy=unit_policy)
     rows = response.get('classifications') if isinstance(response, dict) else None
-    if (not isinstance(rows, list) or len(rows) != len(units)
-            or any(not isinstance(r, dict) or set(r) != {'id', 'kind', 'preference_source'} for r in rows)
-            or any(type(r['id']) is not int for r in rows)
-            or [r['id'] for r in rows] != [u['id'] for u in units]):
-        raise ValueError('分类须按实际unit编号完整返回一次；不能漏报、重复或自行新增原文')
+    revision = _validated_revision(input_data['revision'])
+    try:
+        rows = _ordered_records(rows, [u['id'] for u in units], reorder=revision == ADVISORY_REVISION)
+        if any(set(r) != {'id', 'kind', 'preference_source'} for r in rows):
+            raise ValueError('分类字段无效')
+    except ValueError as exc:
+        raise ValueError('分类须按实际unit编号完整返回一次；不能漏报、重复或自行新增原文') from exc
     clauses = [[u['source'], u['start'], u['end'], r['kind'], r['preference_source']]
                for u, r in zip(units, rows)]
     clauses.extend([i, 0, len(row['text']), 'preference', i]
@@ -245,6 +276,7 @@ def bind_classifications(input_data, response, *, unit_policy='indexed-unit-clas
     return result
 
 def validate_compilation(input_data, response):
+    revision = _validated_revision(input_data['revision'])
     rows = response.get('clauses') if isinstance(response, dict) else None
     if not isinstance(rows, list) or not 1 <= len(rows) <= 40:
         raise ValueError('审核要求须有完整且有界的原文条款')
@@ -296,12 +328,12 @@ def validate_compilation(input_data, response):
     if not any(c['kind'] == 'required' for c in clauses):
         raise ValueError('视觉 Need 缺少必要表达，不得按空要求准入')
     queries = response.get('queries', [])
-    if (not isinstance(queries, list) or len(queries) not in {0, 3}
+    if (not isinstance(queries, list) or len(queries) not in ({0, 1, 2, 3} if revision == ADVISORY_REVISION else {0, 3})
             or any(not isinstance(q, str) or not q.strip() or len(q) > 100
                    or not q.isascii() or not any(c.isalpha() for c in q) for q in queries)
             or len({q.strip().casefold() for q in queries}) != len(queries)):
         raise ValueError('查询编译须为不同的英文主体/动作/场景短语')
-    return {'queries': queries, 'source_data': input_data, 'revision': REVISION, 'input_sha256': digest(input_data),
+    return {'queries': queries, 'source_data': input_data, 'revision': revision, 'input_sha256': digest(input_data),
             'need_sha256': input_data['need_sha256'], 'clauses': clauses}
 
 
@@ -333,7 +365,8 @@ def batches(manifest, contract):
     return result
 
 
-def validate_result(batch, response):
+def validate_result(batch, response, *, revision=REVISION):
+    revision = _validated_revision(revision)
     if (not isinstance(response, dict) or set(response) != {'frame', 'observed', 'description', 'style', 'logo', 'text',
                                                           'checks', 'preference_notes'}
             or type(response['frame']) is not int or response['frame'] != batch['frame']['index']
@@ -342,20 +375,23 @@ def validate_result(batch, response):
     if len(json.dumps(response, ensure_ascii=False, separators=(',', ':')).encode('utf-16-le')) // 2 > RESULT_LIMIT:
         raise ValueError('观察报告超出总容量')
     for key in ('description', 'style', 'preference_notes'):
-        if not isinstance(response[key], str) or not response[key].strip():
+        if (not isinstance(response[key], str)
+                or not response[key].strip() and not (key == 'preference_notes' and revision == ADVISORY_REVISION)):
             raise ValueError('观察事实缺失')
     if any(response[k] is not None and type(response[k]) is not bool for k in ('logo', 'text')):
         raise ValueError('实际文字/标志须为布尔或未知')
-    rows = response['checks']
-    if not isinstance(rows, list) or [r.get('id') for r in rows if isinstance(r, dict)] != [c['id'] for c in batch['clauses']]:
-        raise ValueError('必要项漏报、重复或编号错误')
+    try:
+        rows = _ordered_records(response['checks'], [c['id'] for c in batch['clauses']],
+                                reorder=revision == ADVISORY_REVISION)
+    except ValueError as exc:
+        raise ValueError('必要项漏报、重复或编号错误') from exc
     for row in rows:
         if (set(row) != {'id', 'status', 'basis'} or type(row['id']) is not int
                 or row['status'] not in {'met', 'not_met', 'unknown'}
                 or not isinstance(row['basis'], str) or not row['basis'].strip()
                 or not response['observed'] and row['status'] != 'unknown'):
             raise ValueError('必要项缺少实际依据或与观察状态矛盾')
-    return response
+    return {**deepcopy(response), 'checks': rows}
 
 
 def assemble_report(manifest, contract, results):
@@ -366,8 +402,14 @@ def assemble_report(manifest, contract, results):
     expected_batches = batches(manifest, contract)
     if not isinstance(results, list) or len(results) != len(expected_batches):
         raise ValueError('必要项分组结果未完整交付')
-    for batch, result in zip(expected_batches, results):
-        validate_result(batch, result)
+    original_results = deepcopy(results)
+    revision = _validated_revision(contract['revision'])
+    results = [validate_result(batch, result, revision=revision)
+               for batch, result in zip(expected_batches, results, strict=True)]
+    normalization = ([{'raw_sha256': digest(raw), 'normalized_sha256': digest(normal),
+                       'reordered_checks': raw['checks'] != normal['checks']}
+                      for raw, normal in zip(original_results, results, strict=True)]
+                     if revision == ADVISORY_REVISION else None)
     frames = []
     checks = []
     for frame in manifest['frames']:
@@ -390,7 +432,9 @@ def assemble_report(manifest, contract, results):
     states = [f['meets_requirements'] for f in frames]
     verdict = ('uncertain' if None in states else 'suitable' if all(states) else
                'unsuitable' if not any(states) else 'partial')
-    return {'requirements_contract': contract, 'compact_results': results, 'schema': SCHEMA, 'input_sha256': manifest['input_sha256'], 'assessment_revision': ASSESSMENT_REVISION,
+    return {'requirements_contract': contract, 'compact_results': original_results,
+            **({'result_normalizations': normalization} if normalization is not None else {}),
+            'schema': SCHEMA, 'input_sha256': manifest['input_sha256'], 'assessment_revision': ASSESSMENT_REVISION,
             'requirements_sha256': digest(contract), 'requirement_checks': checks,
             'verdict': verdict, 'failure_kind': 'evidence_insufficient' if verdict == 'uncertain' else
                 'content_mismatch' if verdict != 'suitable' else 'none',
@@ -445,7 +489,7 @@ def planning_contracts(plan, mode, response):
             rows = [[remap[r[0]], r[1], r[2], r[3], remap[r[4]] if r[4] is not None else None] for r in rows]
             index = next(i for i, r in enumerate(current) if r['path'] == 'constraints/preferred_style')
             rows.append([index, 0, len(style), 'preference', None])
-        frozen = compilation_input(need, plan.context_refs, mode)
+        frozen = compilation_input(need, plan.context_refs, mode, plan=plan)
         compiled = {'clauses': rows, 'queries': raw['queries']}
         contract = validate_compilation(frozen, compiled)
         bound.append((requirements_cache_key(frozen), {'input': frozen, 'response': compiled, 'contract': contract}))

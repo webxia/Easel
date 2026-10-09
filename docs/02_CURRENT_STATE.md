@@ -1,13 +1,566 @@
 # Easel Current State
 
+## 2026-10-09：三项机械约束简化完成，相关回归与原生生命周期通过
+
+已完成获批三项：新`intake@6`视觉queries允许0～3条，1/2条由已有标量检索字段无损承载，不补词/删词；英文、长度、唯一性和模态限制保留。新Plan固定`visual-requirements@2`，完整唯一整数ID的classification/checks由程序对齐，空字符串preference_notes允许，无需占位评价。原始compact_results不改，另记可重算规范化摘要；缺项/重复/未知ID/错帧/额外字段/必要依据不足仍拒绝，not_met/unknown不会变成通过。旧intake5与visual1、缓存、原请求保持旧规则。
+
+断线前六个Planning文件核对仍等于partial快照，未重复撤回，保留其成果完成下游。当前source `90ab1935538ab3044c61ae1889392cfc42ae39ebfd26d3a78dc03ea1b1fb0272`/223生产文件（本范围10生产文件变化，HEADdf0d3a30 dirty未提交）。最终相关回归Job `wc_job_rau70u9oykDBj0vX`：168PASS/0FAIL/0skip，822.24秒；当前原生Job `wc_job_ktVJZcoiSk3o457P`：1PASS/38.27秒、5次本地替身HTTP。此前53与20项通过与最终集重叠，不相加；全部外部回复为确定性fixture，不证明实际模型成功率或完整视频。
+
+[具名验收](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-advisory-validation-2026-10-09.json)，私有证据`advisory-validation-20261009T090924Z`含前后快照、两份中间JUnit、最终JUnit、原生报告与源码围栏。源码及测试身份一致，302保护/142fixture/5封存账本保持，语法与范围diff通过。独立Reviewer未取得，不冒称独立批准。无新真实模型/配额/媒体/Build、无部署/提交/推送/发布或MP4；原上游UNKNOWN与未分配授权不改。本单元不再需要重做，真实派发仍先处理原请求未对账阻塞。以下是历史时点。
+
+## 2026-10-09：按用户要求移除自动配额查询，完成非必要校验定向盘点
+
+评测执行器已删除远程quota GET、余额读取失败阻断与25%余量门槛；执行前/逐HTTP/阶段入口改为`check_authorized_route`，仅本地核对既定模型、接口、无fallback与原凭证指纹。旧`subscription-quota-readonly.json`只复用已授权credential_fingerprint，不需要新余额快照；返回NOT_QUERIED，不伪造零账单。Planning/Material/Hypit生产代码未改。相关真实内部runner/恢复/本地HTTP预算回归15PASS，加开发额度边界4PASS；模型回复均替身，无真实模型或配额网络请求。
+
+用户追加要求检查过严校验。定向检查Planning与Material，合成离线对照确认：queries空列表可接受而1/2条拒绝；Material空preference_notes拒绝；完整唯一ID的checks仅顺序改变也拒绝，按ID无损恢复原序后通过。另发现多组同帧description/style逐字相等、B引文512字符截断边界值得替代设计；前者不能简单取第一条掩盖真实矛盾，后者仍有总容量与来源完整性约束。除配额操作外本轮仅盘点，未放宽正式合同、未启用query回退或新增规范化。优先级与证据在原Task的新章节。
+
+本轮19项定向测试不代表全量或真实Planning资格；已有UNKNOWN请求、失败批、父池及剩余授权不修改、不重发。证据保存在私有`remove-automatic-quota-20261009T082246Z`（原件备份、两份JUnit、nonessential-validation-audit.json）。执行器/测试变化使旧真实批工具摘要不再适用于新执行，不能改写旧manifest。下方网络/余额失败为历史现场，不再是自动查配额的理由。
+
+## 2026-10-09：统一接收新资格首例上游响应未知，保留软件结果并停止真实派发
+
+新授权池`output-admission-continuation-80http-v1`已分配第一批（每批40HTTP/2700秒、总2批80HTTP/5400秒），原三主题六载体冻结后真实首例FAIL，后五例未提交。固定source e5cb1c59/223文件；Job `wc_job_fyWdm7hui8zUqGV3` exit2，样本71.890秒、HTTP提交尝试1。未收到任何上游正文/参数/usage/终态：response_bytes=0，账本UNKNOWN/UPSTREAM_UNKNOWN；本地Eval proxy约65秒后返回自身502类别，不能说MiniMax服务器返回502。原Gateway run `easel-6d9cdc9712fe4ec3831117746320db38`已error/released，原结果读取TOOL_REJECTED；模型候选、admission、A-details/B/Truth均未进入，不是已证实的contains或语义回归。[真实结果](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-output-admission-qualification-batch01-2026-10-09.json)。
+
+随后只读quota GET实际TLS握手超时（Job `wc_job_u6KbSyIZw8Ews4xH`），故末次余额及现金账单UNKNOWN；首次预检100/97不能当末次余额。该网络错误不证明POST失败在相同层。现有proxy异常分支未保留具体异常类/远端request id，尚不能证明Provider未接受，原HTTPUNKNOWN不改零消耗。第一批closed、父池dispatch_blocked=UNRECONCILED_UPSTREAM_REQUEST，第二批未分配，剩余授权保留，不重发原样本。
+
+当前源码/302保护/142fixture及绑定旧账本均核验不变。第一单元原生补验与第二单元软件49PASS+原生1PASS保持，但不等于真实Planning可靠；无新媒体/Build、未部署/提交/推送/发布、视频0/3。下一步先原请求及网络证据对账，不盲改规划语义、不通过新Key/Session/批号重提。下方为软件与先前状态。
+
+## 2026-10-09：原生补验通过，Material/Truth接收凭据完成相关软件验证
+
+原受阻的第一单元原生验证经正常原入口获准执行：1PASS/35.39秒。第二单元已在既有Material compact/Truth文件消费点接入`stage-output-receipts@1`：新请求事前固定policy，实际会话身份绑定policy；已有旧缓存/原会话保留旧策略。Material仅沿用完整json围栏，Truth保留strict JSON及合法CONFLICT/UNRESOLVED；raw/候选/凭据独立，保存失败本地重建，凭据损坏不触发模型格式重试；逐原指令保存Truth报告，后次repair文件不能顶替前次原件。冗余claim仍先经原领域检查后记录投影，不改变语义/预算/素材Gate，queries回退未启用。
+
+当前固定工作树source `e5cb1c593e1d743e81c64c0c38f7144c2fac26b7f4712a7f3f34e101975d81aa`/223文件，HEADdf0d3a30。当前组合49PASS/79.13秒，当前原生1PASS/36.44秒（5本地替身HTTP）；源码/测试围栏、302保护/142fixture和范围diff一致。早期广泛运行76PASS但中途源码完善，保留为诊断，不转授当前版本。首次17场景16PASS/1FAIL为legacy测试缺delivery容器，修正后已包含于当前49项。[具名收尾](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-output-consumers-2026-10-09.json)。独立Reviewer仍不可用，Owner复核不等于独立批准。
+
+本条时点真实模型/媒体/Build新增0、未加载线上/提交/推送/发布、视频0/3。用户本轮新授权`output-admission-continuation-80http-v1`两批总80HTTP/5400秒、每批40/2700、各六例；旧池封存。下一步在实时对账与套餐核验后分配首新批，不重复软件实施。下方原生受阻为历史状态。
+
+## 2026-10-09：统一接收第一单元实施及相关软件验证通过，原生验证受平台拦截
+
+已新增`easel/output_admission.py`并接Planning新intake@5：安全完整解析后只规范化明确注册、外层合法且与当前BGM规则完全相同的contains回显；不忽略任意extra，不删真实条件。raw、normalized及正式产物分离；接收凭据在A-details前持久化，details绑定原始/规范化摘要和规则，冷verify从原件重建并拒绝凭据、动作、载荷或policy篡改。原@4及以前保持旧协议；共享repair次数和正式语义准入不变。
+
+最终组合67 PASS/0 FAIL/0 skip（Job `wc_job_8RjVLzueHKjdljuS`，pytest271.64秒），覆盖规则正反例、正常Owner至Planning/Truth/load、联合repair、中断恢复、冷进程、旧协议及相关Material/fork/Rights。外部回复均fixture；前两轮22/2与46/1保留，修复了测试的checkpoint续接及原终态观测模拟，不绕过生产UNKNOWN保护。原2071字节样本离线可NORMALIZE并构造7槽位，旧请求精确重建，原件和旧失败不改分。原生Gateway新测试调用被平台安全检查拦截，无新Job/无结果，未重试/改路；不能把已写测试当作原生通过。
+
+source `8f4743d0afdc5c22ad73c29157a7ca71f4d60fe6c389c66e1fb5407f4e73d0f4`（222生产文件，HEADdf0d3a30 dirty未提交）及两测试文件围栏一致；302保护/142fixture和绑定封存账本均保持。[具名实施结果](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-output-admission-implementation-2026-10-09.json)。状态`FIRST_UNIT_SOFTWARE_VALIDATED_NATIVE_VALIDATION_BLOCKED`，独立Reviewer未取得。第二单元Material/Truth消费者凭据迁移未实施，完整fence/strict profile仅注册测试，queries回退未启用。本轮新真实模型/媒体/Build0、未加载服务/提交/推送/发布、视频0/3。下一步保留现有实现补齐获准的原生验证，再按原计划推进，不重开历史批次。下方为此前时点。
+
+## 2026-10-09：接收问题盘点与统一规范化设计完成，未实施生产变更
+
+按用户要求完成审计与统一设计，方案写入原自主首版Task的“模型结果统一接收方案”章节。重点核对9个具名资格批独立首例（8例有模型run、1例调用前工具误拦）：7例首阻塞属输出合同，2例属实现/评测；7例中仅最新contains已证明可无损解除首结构阻塞，另6例不能只过滤。另复核旧R4十批12次样本汇总及vNext围栏反例；不是全项目失败率或可救回成片比例。
+
+本轮重新用最新2071字节A-selection原件作内存对照：唯一Schema错误是needs[6].contains，精确重复当前数组BGM规则与外层bgm/required；副本去该字段后原Schema通过、可构造7个details槽位。原件/旧FAIL未改，A-details/B/Truth未执行。已确认至少五处有可逆codec/有依据投影；方案复用四分类，分清安全raw、normalized、formal，未知extra与真实语义/身份/授权错误不能静默过滤；可选queries回退单独证明，不冒作无损normalize。
+
+source仍`1dccfb0f1c3a68602a45b4f28240f2eec818e070828a43f6db38d4fa820b630d`/221文件，302保护/142fixture匹配。本轮仅设计/审计文档和私有摘要，无生产改动、新模型/素材/Build或部署提交推送发布；DRAFT_NOT_IMPLEMENTED，不是独立批准或Planning资格，视频0/3。[审计证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-output-admission-audit-design-2026-10-09.json)。下方“根因未知/访问阻塞”为历史时点，后续正常读取已定位contains，不再作为当前根因未知。
+
+## 2026-10-09：关系审核版本已真实执行首例，FAIL后详情读取受平台拦截
+
+承接用户“继续按目标推进，不用每次询问”，按原单新批6例/40实际HTTP/2700秒界限建立`relational-qualification-2026-10-09`，source `1dccfb0f1c3a68602a45b4f28240f2eec818e070828a43f6db38d4fa820b630d`、intake@4/review@2、隔离M2.7未变。派发前221源/302保护/142fixture匹配，125历史隔离Creation无待对账请求，Gateway active/lost/audit0，套餐99/97。
+
+唯一真实Job `wc_job_MC1TtZ_P5MLVuUHA`已exit2，执行器报告首例FAIL、actual_http=1；后五例没有派发。读取原运行结果、账本、journal与候选详情的诊断被平台拦截：`因 OpenAI 无法确定请求的安全状态，已拦截此工具调用。` 未取得执行结果，未换入口/拆分/重试绕过。不能据A-selection的早期pending快照推断最终根因，也不能认领远端原run已释放、封账及末次历史指纹已核验；这些均待原执行对账。[具名断点](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-relational-real-qualification-2026-10-09.json)。
+
+本轮未修改生产源码，未派发媒体/Build、未加载服务或提交推送发布，无新MP4。原Goal继续保留，但当前相关操作停止于平台访问阻塞；恢复时读取原Job/run/账本，不重跑首例、不启动剩余项或擅自新批，不盲改代码。下方为此前时点。
+
+## 2026-10-09：关系审核修复与无损输入去重完成离线验收，真实资格未重开
+
+新候选为`confirmed-planning-intake@4`/`planning-candidate-review@2`：A明确语义Need与实际asset职责；B视觉覆盖须有实际视觉候选承担关系，未决类别与相关Need模态一致；修复反馈保留具体字段/长度/来源错误，512字符及共享一次repair不变。新策略按原文物理行排序，保留旧@3及以前的恢复。续接取回原Job72 PASS/1 FAIL，唯一测试期望未识别@2必要性重审，已修正且原FAIL留存；不重派旧Job、不冒认一次73全绿。
+
+本轮B消息去重仅改变请求投影：逐题coverage_candidates/candidate_context引用同请求共享candidate_bindings，全文候选、全部来源、响应Schema及内部canonical/recheck均保留并校验引用。原七slot/56题同指令离线对照555762→391086字节，减少29.63%；逐题全部值可还原。不是语义裁剪，也不是实际token/费用或真实错误率降低的测量。当前组合30 PASS、原生生命周期1 PASS/5回环替身HTTP、Planning/Truth/Material相关7 PASS，语法与范围diff通过；外部语义回复仅fixture。旧@3实际四阶段请求逐字SHA重建相等，原件不改。[具名收尾](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-relational-review-2026-10-09.json)。
+
+当前221生产文件source `1dccfb0f1c3a68602a45b4f28240f2eec818e070828a43f6db38d4fa820b630d`已记录，后续原生/下游验证围栏至收尾不变；HEAD仍df0d3a30、dirty未提交。302保护/142fixture及本轮绑定的封存资格账本SHA一致。独立Reviewer仍不可用，只有Owner窄复核。所有本轮Job已取终态；新增真实模型/媒体/Build0、未加载服务/提交/推送/发布、视频0/3。下一步是这个固定候选的新有界真实Planning资格，须独立授权；旧批与余额不重开，不再重做本次修复或格式实验。下方保留此前时点。
+
+## 2026-10-09：P3完整真实资格首例FAIL，B及一次修复已执行，批次封存
+
+用户已明确授权新单批6例/40实际文字HTTP/2700秒。按source `49b691720f2a2086773aa6d28df61cac2fff9dfe66aaa7c970a6b51da1e18ff3`及原隔离M2.7候选实际运行第1例；新A-selection/details、B、共享repair各1次，4实际HTTP/214263报告tokens，样本293.964秒。第一例FAIL后封存，后5例未提交，B重审/Truth/Supply/Build未进入。[本轮具名结果](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-p3-real-qualification-2026-10-09.json)。
+
+直接拒绝为repair `target-0000/support/0/quote` 1060字符超过512上限（原B引用980字符）。同时有独立语义反例：A仅提出1个BGM、0视觉候选，却声称图片候选由程序补列；B原始32题均写ACCEPT（12题未通过本地答复校验，并非32题正式通过），global覆盖把来源分镜存在冒作候选已覆盖。未决分类缺related_needs；修复虽补候选handle，却连图片报告也绑定唯一BGM。引用长度放宽或手工裁剪不足以解决这些问题；原候选/回复不改，不认领正式语义通过。
+
+本次4条参数流SHA均与SDK/Easel捕获一致，4原run均ok/released，未观察到传输丢失或截断。新账本closed，旧两池保持封存；收尾Gateway active/lost/audit均0，套餐前后整百分比99%/97%不等于无消耗，实际现金账单UNKNOWN。221生产文件、302保护和142fixture前后逐项一致；本轮未改生产/Runtime、未加载服务或commit/push/publish，新增媒体/Build0、视频0/3。下一步依据本次原件离线定位A视觉承接与B错误放行，不重复封批或仅修引用长度就认领稳定。下方保留此前时点。
+
+## 2026-10-09：P3软件发布前核验通过，待新增真实Planning资格范围
+
+本次正常读取原P3基线成功，未更换入口绕过限制。302份受保护文件、142份历史fixture逐字SHA一致，旧80HTTP总账及节点对照终态报告保持封存不变。当前221个生产文件已固定工作树清单，source `49b691720f2a2086773aa6d28df61cac2fff9dfe66aaa7c970a6b51da1e18ff3`，HEAD仍`df0d3a30`且未提交；不是把旧e6c7基线转授P3。测试前后全source一致，本轮没有新生产代码改动。
+
+绑定该源码的相关收尾回归31 PASS/0 FAIL/0 skip（59.15秒），覆盖P3、语义投影、阶段化/旧版本/冷恢复及Planning/Truth。旧319 PASS/2 FAIL及后续15 PASS保持历史原貌，不声称一次全量全绿。补查原真实七槽位上下文，生成56题、48+8两批；消息245960/137580字节，纯离线RPC容量检查在空环境下为428918/190200字节（本机ARG_MAX1048576），隔离Runtime指纹匹配。此项不代表实际模型已接受请求或语义已通过，真实派发仍须核对实际env/配额/未知请求。原候选optional和4条未决均未被修改或计成功。
+
+Owner范围复核和源码/证据核验完成，独立Reviewer意见未取得。状态为`SOFTWARE_PREFLIGHT_PASS_REAL_SCOPE_REQUIRED`；原真实池不重开。本次新真实模型/媒体/Build0、未加载服务/commit/push/publish，正式视频0/3。下一步只做获明确额度的新六例完整Planning资格，不再重复P3或格式实验。建议单新批3主题×2、最多40实际文字HTTP/2700秒，仅套餐，尚未授权、未建真实Attempt或占额。[具名发布前证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-p3-release-preflight-2026-10-09.json)。
+
+## 2026-10-09：P3实现及离线验证完成，发布前核验与真实资格尚待执行
+
+`confirmed-planning-intake@3`/`planning-candidate-review@1`已实现候选/正式准入分离、冻结来源绑定的optional→required定向纠错、未决/待供给分类、一次共享repair、受影响重审及执行/verify重建。原A-details、Runtime、Material/Truth主链不变。断线原Job11 PASS/1 FAIL已取回；冷进程测试JSON加载修正后1 PASS。续审发现字符串`"false"`可能先转成bool后被接受，反例先FAIL，现于规范化前校验原始非queries合同，未放宽准入。
+
+组合18 PASS；两个相关完整模块首轮319 PASS/2 FAIL（321项），两失败为严格正式出口新增拒绝顺序和P3必要性重审后的旧测试期望。保留原FAIL；测试分开证明optional-only及缺素材义务均拒绝，并让新P3重审必要性、旧协议保留原问题集合。生产代码未再修改，受影响路径补验15 PASS/0 FAIL；未机械重跑全部，不能声称一次321 PASS。原生P3生命周期1 PASS，5次回环替身HTTP经过原Gateway/SDK，完成联合修复/重审/落盘/verify；外部语义仅固定测试回复。语法及范围diff检查通过。[具名软件证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-p3-semantic-correction-2026-10-09.json)。
+
+最终7个源码/测试文件的read_revision全文件快照围栏核对通过；生产SHA尚未重新冻结，不把旧e6c7基线当当前P3版本。本轮P3 baseline元数据读取被平台拦截，未换入口重做，历史全清单未重新指纹对账。独立Astra仍不可用，Owner复核不冒认独立批准。本轮全部Job已获终态，无新增真实模型/媒体/Build，旧池不重开；未加载服务/提交/推送/发布，正式视频0/3。下一步为发布前核验与新具名真实Planning资格，不重新实施P3、不重跑旧失败批。下方保留此前时点。
+
+## 2026-10-09：节点真实对照已执行，保留原表示；浅层首格原生失败停止
+
+用户已确认新增4实际文字HTTP/900秒的节点对照。实际执行原表示1格、浅层1格，共2HTTP/Provider报告47240 tokens；浅层非成功终态后停止，后2格未提交。最后执行收尾距首个真实HTTP475.598秒，未重置原绝对截止或4HTTP总量；旧两批80HTTP池原SHA保持封存。本轮不是完整Development或成片验收。[具名结果](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-planning-node-contrast-2026-10-09.json)。
+
+原表示A-details原run为ok/released；4613字节、slots为object、顶层完整、实际Schema PASS。新观测器此前依赖SSE [DONE]而在HTTP自然EOF/tool_calls时未导出摘要，首格按缺证据停止；原结果随后只读恢复，上游SHA仍记UNKNOWN，不补造或覆盖原测量。仅修评测器区分HTTP EOF与[DONE]并验证缺终态/半帧/冲突/终态后参数仍不完整，相关2 PASS；父账本封存，剩余3预冻结cell用新测量子清单绑定父SHA与同绝对截止，未重复首格。
+
+浅层首格HTTP200/tool_calls、上游44783参数字节/1213片段摘要可用，但原生run error/released，原件读取为TOOL_REJECTED，仅保留STRUCTURED_EXECUTION_FAILED，具体云端或SDK原因仍UNKNOWN。不得将其归结成Schema失败或据此接入生产。当前决策：保留原A-details表示，浅层实验不接入；原表示单样本结构通过不代表可靠或语义通过。P3 necessity来源绑定纠错及未决/待供给分类仍未实施，旧selection中六个optional与两项unresolved没有被自动改正。
+
+生产source仍`e6c7e125…9972b8`，220源码/302保护/142fixture不变，未改Runtime/模型、未加载服务、无commit/push/publish。两原run均released，新增媒体/Build0、正式视频0/3，实际现金账单UNKNOWN、原媒体占额¥15/累计¥30。以下为此前时点。
+
+## 2026-10-09：边界方案已落盘，原生离线定位完成；真实诊断待新增额度
+
+原Task已登记P0–P5执行方案。本轮没有继续补Prompt或改生产解码：原生SDK保存的A-details参数SHA与Easel原件一致，slots已是string；相同实际7-slot Schema的正确控制、未改坏原件、分片以及更大正确载荷共6个本地原生回放，捕获SHA一致，坏原件仍拒绝。旧Provider原SSE未保留，云端内部归因仍UNKNOWN。新评测证据只增加逐工具参数摘要，不存正文，不改变正式准入。
+
+已在test-only producer实验中实现浅层等价表示，并验证不丢槽位/未决项、不改字段Schema、不接纳非法原件；相关合同回归4 PASS，尚未用于生产或真实模型。必要性修复和unresolved前置拒绝限制已离线复现；不能只修结构后宣称语义稳定。生产source仍`e6c7e125…9972b8`，220源码/302保护/142历史fixture保持，未换Runtime/模型、未加载服务、未推送/发布。本轮新增真实文字/媒体/Build均0，视频仍0/3。原两批总池仍关闭，下一步最多4次节点真实对照/900秒的建议额度需明确批准。[具名证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-planning-boundary-replay-2026-10-09.json)。
+
+## 本轮连续开发停止：两批均封存，批次数授权已耗尽，尚未出片
+
+当前source`e6c7e125ab66dc103a3f4fde6a986ce580ab5e174a14cb8812a550391c9972b8`，HEAD仍`df0d3a30`且工作树未提交。@1受影响回归304 PASS（含26定向），@2输入呈现/版本/恢复77 PASS；软件证据不转授真实能力。两批分别首例FAIL，后五例均未执行，总3实际文字HTTP/Provider报告67292 tokens；真实样本墙钟合计290秒（不含开发和软件测试），总账计295.238秒。已到2批上限，未满80HTTP不授权第三批。[具名终态汇总](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-intake-continuous-final.json)。
+
+第二批@2的A-selection引用合法、BGM为1个且未重复旁白，但六个视觉候选全部optional，并把未采购素材列为unresolved；A-details将slots交成字符串，顶层缺unresolved，字符串内部亦非单个合法JSON。结构入口拒绝，B/Truth/repair未进入，不认领正式语义评分。没有手工解码/补项/升级required后认领PASS。来源问题没有在此例复现不代表长期稳定。
+
+三个原run均ok/released，两项真实Job均exit2，原账本永久closed、保留FAIL，新增媒体/Build0，正式视频0/3。220生产文件自冻结不变、302保护现场/142fixture不变；线上未加载、无commit/push/publish。末次全局Gateway/配额刷新遭平台安全拦截，无新结果；最后成功预检0活动/0丢失/0审计、套餐99%/97%仅作此前时点。真实现金账单UNKNOWN，媒体占额仍¥15/累计¥30。后续应先用原件定位嵌套结构转字符串发生层，再独立处理required/未决语义；不得自动重开批次。
+
+## 连续推进：第一真实批封存，声音输入呈现@2通过针对性验证
+
+原新增池allocation1在source`f7d3ddc8…558a`首例FAIL：1真实HTTP/153.776657秒，A-selection完整但scope=`src_830-2051`不在允许集合；其数字与声音原文引用区间一致，另将程序旁白误作BGM。原run已释放、批永久关闭，后五例不执行。未进入details/B/Truth/Supply/Build，不把候选BGM存在认领成语义通过。
+
+继续最小修复后，新`confirmed-planning-intake@2`在source`e6c7e125ab66dc103a3f4fde6a986ce580ab5e174a14cb8812a550391c9972b8`上77 PASS/0 FAIL/0 skip（172.987秒）。程序向A展开冻结声音原文并区分使用scope与出处区间；旧@1真实请求SHA逐字重建，原输入视图快照、输出Schema和非法scope拒绝不变。模型效果尚待第二独立真实批。具名证据[声音输入呈现软件](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-intake-audio-view-software.json)。新增池已用1/2批、实际1HTTP，剩余仅最后一批40HTTP/2700秒；媒体原占额不变，仍0/3视频，线上未加载。
+
+## 连续开发续接：intake组合软件验证通过，准备独立真实资格批
+
+本次原入口执行已获准，未绕过平台限制。`confirmed-planning-intake@1`在source `f7d3ddc805a089218ffa6e3f3b163d6b017e44b7fc49b233a043d8386479558a`上定向26 PASS（44.435秒），两个受影响模块完整回归304 PASS/0 FAIL/0 skip（688.871秒）；26包含于304，不相加。compileall及范围diff检查通过；源码/测试、302保护文件及142fixture运行后不变。旧1034全量不转授本版本。原失败只读重放精确产生6查询leaf和1确认BGM缺项target，无原件改写、无模型调用。[具名软件证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-intake-software.json)。
+
+原80HTTP/5400秒/2批私有总账已独占建立，当前0分配。独立Astra接口未提供，记录当前Owner的代码/证据复核，不冒认独立意见。下一步同原主题/oracle及隔离M2.7候选，固定新清单并实时对账后仅执行第0例。线上未加载，新真实调用/媒体/Build仍0，视频0/3。下方平台阻塞及未验证是此前时点。
+
+## 连续开发：query/BGM入口修复已接入，验证启动受平台安全拦截（2026-10-08）
+
+用户已新增授权后续最多2个文字批、累计80实际HTTP/5400秒，每批40HTTP/2700秒；旧批永久FAIL，媒体累计¥30含历史占额不变。同Session另一续接已明确暂停并交接，本轮继续其query字段定位和JSON化补丁。当前`confirmed-planning-intake@1`已接入新请求的transport、selection Schema、消息、共享一次repair和verify；未标记@9及旧版本保留原入口策略。确认specs.music/mixed要求BGM，缺项由模型在同一次repair提交，程序不生成曲风/轨道/授权；B仍只复核视觉。
+
+新增/扩展现有tests/test_semantic_planning.py的查询字段及确认音乐组合回归、旧行为和标记剥除保护。此前14PASS仅是中间代码，当前完整改动尚未跑完验证。尝试初始化新增私有总账并运行定向pytest的run_script被OpenAI安全检查拦截，未返回Job或执行结果；不得换工具绕过，不认领测试启动/通过或账本已建立。新真实文字批次、媒体、Build均未启动；0/3视频。当前为IMPLEMENTED_UNVERIFIED / PLATFORM_EXECUTION_BLOCKED，生产服务未加载，无commit/push/publish。
+
+接续点：在平台允许执行后，先核被拦调用是否有任何执行记录，再完成原Task的私有总账绑定和组合定向验证；不重跑旧真实批、不复用历史成绩。用户授权已落盘，不重复申请同项预算；最终源码摘要和阶段通过证据尚待执行验证建立。
+
+## @9真实资格首例FAIL，按原规则封批停止（2026-10-08）
+
+接管完成缺失的软件收尾后，在同一source `cc5587a4…4f4e` 上固定新清单`dd184d52…9d3d11`并只执行第0例。沿用原隔离M2.7/65536/adaptive、三主题各两次、40实际HTTP/2700秒、文字仅套餐；线上默认模型与服务未改。**132.958秒、2次实际HTTP后FAIL/closed，后五例未执行。** A-selection完整799字节，wire合法，产生6个image候选；A-details完整6940字节，但每个视觉slot给出一条中文和一条英文query，违反现有三条不同英文词合同。
+
+对未修改原件的离线复现显示：wire已定位六处query的pattern及数量错误；canonical的model_validator将错误挂在Need根，`structural_targets`因路径不足三层拒绝局部修复，最终报“A fault cannot be localized without replacing valid semantics”。repair未调用。A候选另无必需BGM；这是与查询结构独立的覆盖风险，B/Truth/正式独立语义评分均未进入，不能声称只修query就全链成立。[具名失败证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-source-view-real-failure.json)。
+
+两个原run均HTTP200/tool_calls、ok/released，无观察到的截断或传输丢失；收尾Gateway active/lost/audit0，无新pending/unknown。源码220、保护302、fixture142及工具摘要保持。套餐窗口100%→99%、周97%→97%，Provider报告41467 tokens，实际账单UNKNOWN；新增媒体/Build0，原¥15/¥30占额不变。当前仅文档和独立诊断落盘，未修改生产代码、未加载服务、未推送/发布。Goal仍0/3；本批不得恢复或以剩余额度重试。下方“尚未启动”是此前软件收尾时点。
+
+## 接管收尾：@9 软件验收已闭合，真实资格尚未启动（2026-10-08）
+
+用户已明确恢复原稳定自主出片 Goal。接管核对 production source `cc5587a4f6379e541cdec442808166d2041369ea6e320d892fedf4e3e2bb4f4e`，220 生产文件、302 保护现场和142 fixture的集合与摘要完全一致。复用同源码run-053矩阵276 PASS，以及排序修复后4 PASS、六例冷进程回放6/6和30本地替身HTTP。只补缺失全量回归：**1034 passed / 5 existing skips，0失败，723.599秒**；65个Python测试文件及生产/保护/fixture运行后不变。
+
+已补齐[具名软件汇总](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-source-view-software.json)与[交接收尾](acceptance/planning-input-view-handoff-2026-10-08.md)。接管复核为当前助手对@9源码与证据的核对，未冒称另行调用Astra。状态为 `SOFTWARE_ACCEPTED_REAL_UNPROVEN`；未修改生产代码、未提交/推送、未加载Web/Gateway、未调用真实模型/媒体/Build，正式视频仍0/3。下一步按原Task冻结一个独立@9真实资格批及实时预检；旧批FAIL/closed和累计费用账本不重开、不清零。下方“验证中”是此前时点。
+
+## 当前实施：@9可逆输入视图已接入，组合验证进行中（2026-10-08）
+
+经Astra前置CONTINUE，新Planning输入视图已接入同一两阶段流程，原文、来源资格及独立B职责保持；程序负责opaque来源映射、空目录表示、快照和details身份绑定。@8及以前按原合同恢复，不迁移旧产物。完整来源回建已覆盖99条来源的值/SHA/资格/scope/数量/顺序及Unicode、独立原文、非空continuity、无bound Voice路径，之前“尚未完整回建”是历史时点。
+
+请求恢复与原件篡改10 PASS；本地原生Gateway两阶段5 HTTP/1 PASS。集成首次29 FAIL/26 PASS含旧外部夹具读取旧消息；夹具适配后暴露实际键顺序缺陷：JSON持久化排序改变Voice引用lineage摘要，合法恢复被拒绝。现已固定scope/Voice引用遍历顺序，并加入sort_keys持久化不变断言；正常Planning/Truth、冻结复制及完整来源4 PASS/93.61秒。初始失败JUnit保留，未改准入标准。完整矩阵、常规回归和六例冷进程回放进行中，尚未冻结验收。
+
+新增真实调用0、未加载服务、历史FAIL不变，正式视频0/3。用户费用及持续实施授权保持：媒体Goal累计最多¥30、保守占额¥15，文字仅已购套餐；不重复询问同项授权。后续以本次组合证据与固定source复核决定真实验证，不把软件通过当成语义收益。
+
+## 最新进展：输入合同风险已精确定位，离线视图样例完成（2026-10-08）
+
+原@8消息与工具Schema精确重建且身份一致。已证实同包存在确认BGM要求与Mode optional默认、27物理行被三套scene/event/segment编号呈现、空continuity仍让模型填写，以及多处程序哈希上下文；这些与实际错选吻合，但全部语义错误的因果仍未被反事实验证。字幕/旁白作为image违背了原请求已有规则，不能靠删掉提示冲突认领解决。
+
+按Astra MODIFY先做test-only引用codec和实际输入样例：82个kind/位置往返及错误映射保护1PASS，历史坏selection保持拒绝；原文与Mode不删改、默认资格不扩大。第二样例31.9KB，非生产、非模型收益证明；99条资格仅分组字段一致，完整source SHA/scope/order回建待补。Astra CONTINUE完整离线设计，接入新版本/恢复映射前仍需复核。细节及待办见[唯一Task](tasks/creator-autonomous-first-cut-2026-09-30.md#输入合同根因核查与有限离线设计2026-10-08)和[样例记录](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-source-view-design.json)。
+
+生产source仍199fba42…01eaa、302保护文件不变；旧真实批FAIL/closed，新增真实HTTP0，未加载服务，正式视频0/3，目标未完成。
+
+## 最新真实两阶段Planning：首例FAIL，停止真实重试（2026-10-08）
+
+@8新批`970ccb4e…6464f`首例27.749秒/1实际文字HTTP，A-selection完整1732字节且原run成功释放，但非法非空continuity在程序shape的布尔Schema处理上触发AttributeError；details/B/repair/Truth/Supply未进入，后五例未执行，批永久FAIL/closed。原件另有必要BGM降optional、字幕/旁白作为image及下游资源未决问题，两阶段设计的真实收益仍未证实。[失败证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-staged-real-failure.json)。
+
+Astra CONTINUE仅最小异常修复、真实路线STOP。布尔Schema形状检查现保留原坏值交原诊断与严格校验；修前原件1FAIL，修后codec/恢复9PASS＋连续内部修复后拒绝/重入1PASS，compileall/范围diffPASS。没有新增repair、删Need或改原结果；302旧现场保持。[局部软件证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-staged-bool-software.json)。未加载服务、未新增媒体费用；媒体占额¥15/¥30，正式视频0/3，Goal未完成。以下a2源完整软件验收保留为修复前版本证据，不代表当前补丁已跑全量或真实成功。
+
+## A两阶段已接入代码，组合及冷进程软件验收通过（2026-10-08）
+
+fresh Planning采用@8，两份模型原件与程序assembly分开持久化、重建及验证，旧@7以下按原合同恢复；共享repair及Material语义不变。三崩溃切点、UNKNOWN恢复、篡改和正常Owner/Truth/声音/冻结复制49 PASS；原生Gateway五个本地HTTP通过。run-052完整矩阵276 PASS且302现场/139fixture保持；全量1029 PASS/5既有skip，115技能/compileall/范围diff通过。初次旧外部fixture未适配产生的32 FAIL保留，修订只涉及固定响应表示。[证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-staged-software.json)。
+
+生产source已固定为`a2a1818627b816fd030b1c74ae3cc56515d5b454ee1cd72729b49b423db71bfc`并归档完整源码清单，HEAD仍df0d3a30，未提交、未加载服务。六例各新进程原生Planning/Truth回放6/6 PASS，408.98秒、30本地HTTP，重入0新发并封批；首次测试清单选错造成0HTTP拒绝，失败保留后用既有正确输入重跑。Truth逻辑调用对应多次HTTP，原“42次”估算不是HTTP上界，仍由实际Proxy账本硬限制。Astra最终CONTINUE，软件验收状态SOFTWARE_ACCEPTED_REAL_UNPROVEN，可准备新的独立真实清单；不认领模型效果。真实模型/素材/Build新增0，正式视频0/3，Goal未完成；下方原型未接入为先前时点。
+
+## A两阶段候选完成有限离线设计，尚未接入生产（2026-10-08）
+
+已在[原Task](tasks/creator-autonomous-first-cut-2026-09-30.md#a-两阶段候选有限离线设计与后续实现边界2026-10-08)记录selection→程序固定slot→模态details→原canonical/B/共享repair的候选方案。复用109项合法往返、原135行矩阵，14项新增设计边界和两条真实内部修复集成；最终5 PASS/17.70秒，历史失败保持，原型测试中一次默认值比较错误的JUnit保留。生产source复核仍`d24bec047798d3b1f9a80abc05235f1c02f99504fb864a0a820931faf2fb9384`，没有生产实现、服务加载或真实模型调用。[证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-staged-producer-design.json)。
+
+Astra初审要求区分身份拒绝和局部业务诊断；修订及现有集成通过后，最终CONTINUE仅限软件实施。版本化两请求恢复及原件重放仍为必验项，真实两请求生命周期尚未实现。每Planning增加一次请求，六例在一次B/共享repair/重审/Truth修复情况下42次，不能照搬已关闭的40次清单。模型语义改善尚无证据；M3/M2.7批保持FAIL/closed，Supply/生成/Build新增0、正式视频0/3、Goal未完成。下一步限于Task所列机制的离线软件实现与复核，既有费用授权不重复询问。
+
+## M2.7 真实首例 FAIL，当前真实验证路线停止（2026-10-08）
+
+已执行用户授权的`7b9b15b6…36088`批次：48.619秒、1实际文字HTTP，实际模型M2.7/65536/adaptive，HTTP200/tool_calls、原run ok/released，完整7893字节参数。15个Need含6个禁止的重复Voice、6个视觉Need、1个BGM及2个纯后期Image；23处wire错误，另有把镜头运动/混音复制为素材条件及scope错绑。正式A拒绝且不可安全局部修复，B/repair/Truth均0，后五例未执行，批永久FAIL/closed。未进入Supply、生成或Build，工程介入0、正式视频0/3。[具名结果](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-m27-qualification-real-failure.json)。
+
+原件已新增永久fixture，现有结构负例回归1PASS/0.55秒。生产source仍`d24bec…9384`，302现场及冻结工具保持；媒体新增0、全Goal保守占额¥15/¥30，文字报告22449 tokens，结束套餐99%/周97%，实际账单UNKNOWN。未重启或切换线上模型。
+
+精确A正文重建SHA与journal一致，正文明确禁止重复Voice，实际Schema也排除Voice；未发现已保存Skill记录给出相反指令。SQLite副本审计：原会话唯一工具为submit_semantic_plan，技能目录无Hypit及Voice/MaterialNeed专门指令；系统prompt只保存长度20165及hash、无全文，因此不能宣称完全排除系统上下文冲突。混排分镜及通用bootstrap存在复制诱因/噪音，但其因果效果未证实。
+
+Astra STOP当前真实试错路线：两个套餐候选与现有单次A合同组合均未取得合格证据，目前无具名可复现的最小生产补丁。不是费用授权不足，不再要求追加同模式模型批次；若继续研发，应先重审A的任务粒度及程序/模型分工，形成架构方案和离线证据，不能暗中扩repair、删需求或放宽Material准入。当前稳定自主出片目标未完成。以下“已启动”为之前时点。
+
+## M2.7 新固定批已授权并启动（2026-10-08）
+
+用户“额度按照推荐的授权，无需再次确认”已绑定`7b9b15b6…36088`、40实际文字HTTP/2700秒、三主题各两次、仅原套餐、首FAIL/UNKNOWN封批；无需重复申请该项授权。启动实时预检PASS：406份Creation记录、11旧Owner、unknown/pending/submitting及活动0，Gateway active/lost/audit0，固定source/Runtime/工具/302保护文件一致，套餐窗口99%/周97%。开始第0例完整Planning，尚无真实结果；Supply/媒体/Build均禁止，旧M3批FAIL保持。以下待授权为此前时点。
+
+## M2.7 套餐内候选离线核验通过；新真实批待授权（2026-10-08）
+
+同一执行器@2候选已完成：M2.7原生A/B/共享repair/重审4本地HTTP通过；六例冷进程Owner→Planning→Truth→正式持久化→Supply前切点6/6 PASS，24本地HTTP/299.32秒，完成后重入0新发；旧M3 @1六例兼容6/6 PASS，24本地HTTP/297.58秒。5项保护PASS、compileall及本次范围diff PASS；全树两处无关旧文档EOF空行仍保留。首次测试命令传错无probes的清单造成零调用setup FAIL，原JUnit保留，正确清单回归通过。[具名准备证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-m27-qualification-prepared.json)。
+
+新独立清单`7b9b15b61939883300e74ad3f73149ee9be8d85eb04b3ac915c67322a6336088`已冻结六个隔离载体及工具原件。仅M2.7文本Planning、65536/adaptive、40实际HTTP/2700秒；首FAIL/UNKNOWN封批。Astra最终CONTINUE，尚未获得该新批授权，实际模型调用0；不使用旧ec14剩余额度。生产source`d24bec…9384`、302保护文件保持，未切生产模型/重启服务/采购/Build。真实语义未验证，正式视频仍0/3、Goal未完成。
+
+## 独立 Planning 批真实 FAIL；仅继续套餐内替代接入的离线核验（2026-10-08）
+
+清单`ec14e915…de99`第0例已永久FAIL/closed：84.333秒、1次实际HTTP，M3实际收到131072/adaptive，HTTP200、finish=tool_calls、原run ok/released；完整2229字节工具结果有10个额外顶层字段，只表达首个视觉需求，其余五个场景及正式BGM Need缺失。正式合同拒绝，不能通过删字段、搬动item或补写需求放行。B/repair/Truth/Supply/生成/Build均0，后五例未执行；不是本次已证实的输出截断。原始模型XML及在线parser不可见，不能进一步断言是哪一方造成字段错位。[具名失败记录](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-qualification-real-failure.json)。
+
+原件已永久加入fixture，原负例与独立合法parser对照1PASS；生产source仍`d24bec…9384`，302保护文件保持，未加载服务。正式视频0/3、媒体新增0、全Goal保守占额¥15/¥30，文字实际账单UNKNOWN。Astra STOP当前配置真实重试；无证据支持再改生产合同或扩大repair。
+
+只读官方套餐/API及模型元数据核查：M2.7在套餐支持列表且元数据200；M3.1 Flash Preview所查接口404。M2.7仅为候选，未实际生成、未证明任务成功。继续原Task内隔离Gateway/Proxy离线回放，先验证纯文本Planning的A/B/repair/Truth、参数与请求身份；Material/Quality视觉配置保持。旧批不重开，新真实候选批尚未授权。以下“已启动/尚无终态”为此前过程，不能覆盖本段最终结果。
+
+## 修正版独立 Planning 批已授权并启动（2026-10-08）
+
+用户“授权并且执行目标”已绑定清单`ec14e915…de99`，40实际文字HTTP/2700秒、仅已购套餐、首FAIL/UNKNOWN封批。实时预检PASS：400份Creation记录、11旧Owner无unknown/pending/submitting或活动，Gateway active/lost/audit0，源码/工具/Runtime/302保护文件一致；套餐99%/周97%。第0例完整A/B/Truth已启动，尚无终态结论，不进入Supply或媒体/Build，正式视频0/3。下方待授权描述为历史准备时点。
+
+## 冷启动评测器修复完成，新固定批次待授权（2026-10-08）
+
+已将原生资格集成改为冻结及每个运行分别新Python解释器，未修版精确复现0HTTP误拒；修复版六例PASS（304.78秒/24本地HTTP），保护5PASS（16.94秒），禁止生成调用不放宽。修复仅测试评测器，生产source仍`d24bec…9384`、302保护文件保持；compileall/diff及Astra最终CONTINUE。[前后证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-qualification-cold-start-software.json)。
+
+新清单`ec14e915…de99`（qualification-cold-v2）已零调用冻结六载体；仍为三主题各两次、131072/adaptive、40HTTP/2700秒、首FAIL或UNKNOWN封批。旧`843fe2b4…`保留0HTTP/FAIL/closed；新固定批尚待明确授权。实际模型未评测、生产作品/Supply/媒体/Build均0，正式视频0/3。当前Goal不具备完成证据。
+
+## 独立批第0例零提交 FAIL：评测器冷启动缺口已复现（2026-10-08）
+
+已获用户授权的清单`843fe2b4…8992e4`在第0例0.607秒停止，实际模型HTTP0、无agent run；trace把`easel.integrations.material_generation:<module>`首次加载误判为下游生成。批次永久FAIL/closed，后五例未执行，不将其算作模型能力失败。生产作品/Supply/媒体/Build0、正式视频0/3；生产source和302保护文件未变。[失败记录](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-qualification-cold-start-failure.json)。
+
+根因是已有原生集成在同一Python进程内冻结并执行，预加载模块掩盖真实CLI的分进程启动差异。将同一测试改为冻结及每例各新Python进程后，未修代码精确复现同一错误（7.68秒、0HTTP）。最小修复仅评测器在trace前加载两个已允许的纯授权读取函数，禁止调用判定不变；生产/Prompt/Schema/额度未改。该段为验证开始时点；最终冷进程六例及保护结果见顶部。
+
+## 独立 Planning 六例已授权并启动（2026-10-08）
+
+用户已批准清单`843fe2b4…8992e4`对应的新固定批次，40实际文字HTTP/2700秒、仅套餐、首FAIL永久关闭。启动对账PASS：394份Creation记录无unknown/pending/submitting，11旧Owner无活动，Gateway active/lost/audit均0；冻结source、执行器、Runtime及302保护文件一致，官方套餐窗口99%/周97%。临时预检曾因脱敏函数遮盖SHA指纹零提交拒绝；内存核对证实凭证未变，错误原件保留，按既有受保护指纹写入后PASS。
+
+现第0例完整A/B/Truth启动，未取得终态或语义结论；不推进Supply/素材/Build。历史失败保留，正式自主视频仍0/3。下方“待授权”为本次明确授权前状态。
+
+## 下一独立 Planning 批已准备：尚未启动真实调用（2026-10-08）
+
+沿用唯一Task和执行器，新增三个冻结开发主题各两次的完整A/B/Truth qualification模式；候选仅隔离MiniMax-M3的131072/adaptive，线上配置保持。实际原生Gateway＋本地Provider六例PASS（24本地HTTP、305.82秒），候选repair和旧contrast原生2PASS，参数/停止保护5PASS；compileall/diff、Astra冻结复核CONTINUE。没有新增生产源码改动，source仍`d24bec…9384`；302历史文件保持，旧真实四格FAIL/closed不变。
+
+清单SHA`843fe2b4…8992e4`已冻结六个隔离载体；新批上限40实际文字HTTP/2700秒，首个合同/独立语义/运行保护失败永久关闭。当前实际调用0、生产新作品0、媒体费用新增0、正式视频0/3，尚缺这一独立新批的具名授权与实时启动对账。软件替身结果不代表模型或真实Preparation能力；样本一份真实冻结Preparation、两份明确人工派生对照。[实施细节](tasks/creator-autonomous-first-cut-2026-09-30.md)、[脱敏准备记录](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-qualification-prepared.json)。
+
+## 最新软件批：B 所选原文绑定 @7 已实现，真实目标未完成（2026-10-08）
+
+生产候选source `d24bec047798d3b1f9a80abc05235f1c02f99504fb864a0a820931faf2fb9384`；新B题明确绑定选中原文/位置/SHA，global引用同批完整evidence，旧@6及更早按持久版本保留原问题与恢复。未改A/Material合同，不机械决定语义。run-051为269PASS，最终常规1019PASS/5既有skip，115技能/compileall/范围diff通过，302保护文件和135fixture保持。AstraCONTINUE；未提交、未加载服务、无新真实调用。详细实施及局部修正见[原Task](tasks/creator-autonomous-first-cut-2026-09-30.md)。
+
+真实四格仍3HTTP后FAIL/STOP，第四格未执行，正式自主视频0/3。源码修复不能冒认Planning恢复或MATERIAL_READY；下一次真实能力验证须使用独立冻结批次，旧账本不重开。下方较早状态保留为过程记录。
+
+
+## 最新：四格真实诊断 FAIL/STOP，已定位容量与目录表达问题（2026-10-08）
+
+按[唯一Task整体方案](tasks/creator-autonomous-first-cut-2026-09-30.md)先文档、执行器验证与Astra复核，再执行固定四格。current/disabled完整结果合同拒绝；union/disabled wire合法但正式unresolved与语义失败；current/adaptive Provider length、completion8192、工具参数0，原run失败并释放；第四格按约定未执行。共3真实HTTP/340.518秒/Provider报告78646tokens，账本永久关闭，不能补格或恢复计分。生产作品/Supply/媒体/Build0，正式视频0/3；新增媒体费用0、文字仅套餐、实际账单UNKNOWN。
+
+原日志只记录旧max_tokens，不能推断没有输出上限。同版本原生离线回放确认max_completion_tokens8192；诊断工具已补两字段的类型/存在性/值与冲突保护，5PASS及原生runner1PASS（新真实调用0）。另确认目录把27非空行复制为三类编号，模型按六分镜选scope导致错绑；下一步仅离线明确输出配置和来源目录版本化最小方案，不默认union或扩大repair。生产source仍b04cc840…57353，302现场文件保持，服务未加载新版本，所有历史FAIL保留。[具名脱敏结果](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-four-cell-diagnostic.json)。下方“尚未调用/准备启动”为较早过程记录。
+
+
+## 当前 Goal：三个全新主题自主视频交付（2026-10-08，进行中）
+
+**本次执行已获授权，先文档后执行。** 用户明确确认4组/4HTTP/15分钟诊断，并要求先整体方案、确定细节、写文档再执行；已在[原Task统一执行入口](tasks/creator-autonomous-first-cut-2026-09-30.md#本次整体方案与实施细节用户确认后连续执行2026-10-08)落盘P0–P5顺序与具体保护。原稳定自主出片Goal已继续设定；当前P1测试执行器修改收尾，本轮真实HTTP0、生产新作品0、无服务加载。以下“待授权”为此次明确授权前的历史状态。
+
+**最新追加调查：根因报告与离线模态 union 实验完成，未选入生产；真实接入能力仍阻断。** 本次对照官方 MiniMax/Pydantic AI/SGLang 资料，区分“模型输出合同违约”与尚未证实的 Schema 复杂度、推理开关影响。最终实验保留原 Condition/repair，135 项表示、混合列表、默认值和拒绝保护检查 PASS；完整 Schema 反而增大，不能认领模型质量收益。Astra 要求暂缓生产接入，Main 采纳。生产 source `b04cc840…857353`、302 正式文件/133 原fixture/193开发记录保持；本次实际模型 HTTP 0、费用0，无生产代码、Prompt、服务变更。建议一次新授权的4组 Schema×thinking 固定诊断实验，最多4 HTTP/15分钟，仅套餐，无生产作品或材料副作用；未授权、未执行，不重开旧批。[根因、已执行证据与具体后续方案](tasks/creator-autonomous-first-cut-2026-09-30.md#当前根因与可执行收敛方案先判定-planning-接入能力2026-10-08)。
+
+**最新收敛执行：软件交付完成；单次真实文字批首项 A FAIL / 永久 STOP，稳定自主出片 Goal 未完成，正式仍0/3。** 用户授权的完整范围为两件离线成果→4探针及6例Planning（共享最多40实际HTTP/45分钟）→最多1件追加开发→同固定版3件正式视频；媒体累计¥30（历史占额¥15，新增开发¥3，正式各¥4），文字仅套餐，无付费回退，不发布。历史3件开发FAIL不恢复。当前新增开发、完整视频E2E均NOT_EXECUTED；本批其余3探针和6评测未执行，不借剩余调用额开启第二批。
+
+软件成果：最后HTTP出口计数覆盖A/B/repair、普通Truth、框架续轮及报告修复，UNKNOWN不释放，阶段结束核验deadline，任何FAIL永久关闭；冻结Preparation原字节回放，仅新Creation/Attempt测试身份，真实评测停Supply前。run-049为269PASS/0FAIL/0GAP/0未执行，常规1013PASS/5既有skip，HTTP/Authoring22PASS、原生Gateway9PASS；115技能、compileall及范围diff通过，Astra冻结前CONTINUE。新版proposal@3/vNext@6经真实内部Owner/Material/Authoring到Hypit0.2.7免费本地Build及输出绑定Quality的隔离软件链实际产出15秒1080×1920 H264/AAC MP4；外部模型、TTS/ASR/视觉判断是固定fixture，required Voice+optional visual、不含BGM，不能冒认真实自主交付或全面素材能力。[软件证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-convergence-software.json)。
+
+真实固定source `b04cc840189874cdd5d9e29b103af24cd1737948bc53de287866fee76b857353`，HEAD `df0d3a30…`未含工作树修改，隔离候选Runtime `0759643a…4d7e6`；生产服务未加载本候选。第一次零提交Gateway预检因Node --import空格路径退出；原冻结稿/空账本关闭保留。仅测试工具改file URI，带空格路径原生Gateway离线PASS后新冻结v2，语义输入、期望、生产source/Runtime未变。此后授权的首个真实A采用开发3原proposal和四冻结输入，以新隔离身份运行163.506秒、1次实际HTTP、0重发、工程介入0；HTTP200/provider tool_calls，native toolUse、原run ok/released，完整参数13987字节/SHA `3cb39372…46463`无损读回。Provider报告prompt19928/completion6355/total26283 tokens，实际请求max_tokens缺席（不能将配置8192冒认实际发送上限）；没有观察到本次截断或终态拒绝，也不能倒算Dev3旧UNKNOWN根因。
+
+本次已确认是完整A合同违约：6个被禁止的模型Voice Need（已存在program-owned Voice）、82处meaning=allowed违反enum、6个voice source_seconds和BGM sound_character混用。工具调用成功不代表参数被Provider强制Schema；无证据支持通过nullable/数组兼容删除这些义务。Astra STOP。公开XML模板/parser在3个独立合法控制上未复现本次具体异常；optional null省略按既有Schema默认值恢复等价，online parser及原XML仍未知。原A与完整合同永久fixture原字节保留，离线结构合同3PASS保护真实负例、拒绝超出已有repair容量及合法对照；早期测试工具两份失败JUnit也保留。当前没有被证实的最小生产补丁，不能再堆Prompt、扩repair或继续真实试错。后续接入/语义任务拆分须先取得具体合同影响及离线可行证据，再按单批授权边界启动新真实批。
+
+媒体新增费用¥0、保守累计占额仍¥15/¥30；文字实际套餐账单不可得，前97%/周97%、结束窗口重置100%/周97%，不从百分比推算或退款费用。Supply/生成/Build均0、正常生产新作品0。302正式现场、133原fixture、193开发原件全部SHA保持；另新增2份永久业务负例fixture。首原请求已终态并释放，批次已封存。[具名真实失败与固定信息](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-convergence-real-batch.json)。
+
+以下“停止、未授权、未实施”是本轮新授权前的历史时点，不覆盖以上最新状态。
+
+**最新：完整开发3/3 FAIL；开发名额已用尽，正式验收0/3，无可播放MP4。** 第三个正常新作品 `cr_645dc02aa63a49b785753916e9d028c4` / `fa_fcda420330b2c182c5c360b51b6b257c` 在固定source `e2451702…85da52`、Runtime `12b0d561…6c19c5`上运行，确认至Delivery失败385.548秒，Preparation209.610秒成功，Planning A162.291秒后原生保护层报`STRUCTURED_TERMINAL_REJECTED`。一次A Provider提交后3次框架尝试及3次本地重入未重复提交；原run已error/released，B/repair/Truth/Supply/媒体/Authoring/Build/Quality均0，工程介入0。Preparation为16个assistant响应、22个工具调用；HTTP提交数与实际token/套餐账单未知，不能把1个RPC或零usage当作1次模型调用或零费用。原A返回及provider finish reason在保护层拒绝前未留存，持久轨迹只保留首个分类，后续尝试将最终会话错误覆盖成`STRUCTURED_EXECUTION_FAILED`；具体模型/transport根因未确认，不能猜测并放宽终态合同。现场/固定版本/旧FAIL和fixture已对账封存，Gateway active/lost/audit及unknown/pending/submitting均0。累计媒体保守占额¥15/¥30、已知实际媒体费用0。停止新作品真实重试，不以正式验收名额继续开发；Goal未完成，后续只能离线补齐拒绝诊断证据链。[开发3失败证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-full-development3-failure.json)。
+
+已形成[同一Task内的收敛方案](tasks/creator-autonomous-first-cut-2026-09-30.md#收敛方案真实接入能力先闭合再回到完整自主视频2026-10-08待实施)。首轮Astra认可方案约束后，用户要求核实实际可行性；源码复核确认旧Eval按RPC而非HTTP计数、实际创建隔离Creation并执行Preparation、旧三主题回放使用旧Planning和Hypit替身。第二轮Astra为MODIFY，方案已据此修订为先交付两个离线成果：冻结Preparation回放/共同HTTP守卫/早期诊断，以及proposal@3/vNext@6到真实免费Hypit构建和输出Quality的连续场景。完成后才考虑4个文字探针与6例Planning评测；首探针用开发3语义输入及实际Schema以新身份定位当前blocker。上述新能力未实施，真实文字批次和新增开发名额均未授权；本轮仅调查和文档修订，Goal保持BLOCKED，无生产代码、服务或真实运行变化。
+
+以下联合软件与加载叙述为开发3之前的基线；“尚未启动”和两个FAIL是历史时点，不能覆盖上述最终结果。
+
+开发3后的诊断软件已离线收尾，Astra前后CONTINUE：首个完整候选拒绝的封闭元数据原子发布并保留，后错/并发/写失败不改原拒绝或RESERVED，接受谓词与repair不变。相关pytest58PASS、原生transport11PASS、隔离Gateway3PASS及A/B/repair→persist/verify连续集成PASS；115skills、compileall、Node语法和范围diff通过，未新认领全量通过。候选source `ba3426f0…79f6a2` / Runtime `0759643a…4d7e6`只在隔离安装验证，生产Runtime未升级、服务未重启、没有新增真实作品或模型调用。补丁不能补回开发3原响应；具体真实根因仍UNKNOWN，3/3开发上限及正式0/3保持。[诊断软件证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-rejection-diagnostics-software.json)。
+
+**联合软件验收通过并已加载，第3个开发作品尚未启动。** 原子画幅、确认预置身份/程序Voice/独立Truth/正式记录与Gate保护、Truth有效拒绝锁定及既有checkpoint合法继承已完成。run-048完整矩阵269PASS/0FAIL/0GAP/0未执行，常规1012PASS/5既有skip，原生Gateway→Harness→persist/verify全部7PASS；115技能/compileall/本Goal范围diff通过，前端未变沿用原lint/build。287现场/132fixture与两件失败额外34文件保持，旧run-046和常规失败JUnit均保留。全仓diff另有两处历史文档EOF空行，不能写成全仓PASS。Astra最终CONTINUE，冻结工作树source `e2451702c3d5fdb112e93bae8d03280cd8dcb9ae2cf2ad4281f47dc55985da52`；HEAD `df0d3a30…`不含未提交修改，Runtime `12b0d561…6c19c5`保持。Web21631/Gateway21609于11:43:30加载，HTTP200、依赖及进程身份核验通过；357作品/10旧Owner无unknown/pending/submitting/活动任务，实际raw-stream停服后138728字节精确备份SHA293a5523…ac42d。套餐98%/周97%，媒体保守占额¥10/¥30。真实成绩仍两个开发FAIL、正式0/3、MP4零。[联合软件证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-joint-software.json)。
+
+**最新结果：完整开发第2/3作品 FAIL，真实重试停止，Goal 继续离线修复。** 新作品 `cr_a4e881bdb3cd437baeb53c8a929e8c38` / `fa_92fa1595e794621cb276dca79188bf11` 从正常确认至终态678.473秒；Preparation与A各1原RPC、均ok/released。A完整8545字节（SHA `dccd1b54…88788`），数组与布尔传输正常，但6个image同时选择match_output与native_ratio=9:16，正式合同拒绝；两个声音资源unresolved保留。B/repair/Truth/Supply/媒体/Build/Quality均0、工程介入0、无MP4。Preparation原会话14个assistant响应/17个工具调用，不能把1个RPC冒认1次模型调用，HTTP提交数未知。旧现场、固定source与Runtime、开发1失败原件保持；本作品完整失败现场和原A已封存为永久fixture。[失败证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-full-development2-failure.json)。
+
+累计两个完整开发FAIL、正式视频0/3；媒体保守占额¥10/¥30、已确认实际媒体费用0，文字走套餐而实际账单未知。Astra结论STOP仅限制真实重试：先统一离线核对画幅原子选择、声音语义身份与执行资源责任。只读证据确认BGM具体曲目可在Material供给后绑定；当前配置预置音色为male-qn-qingse，但开发2已确认女声要求，现有链没有正式语义身份→preset resolver，不能删除unresolved或任意使用配置音色放行。以下加载与开始描述保留为历史过程，最新状态以本段为准。
+
+**最新统一授权与真实执行：** 用户明确解除旧两轮阶段审批限制；新开发作品最多3个，打通后同固定版另起3主题正式视频验收，累计¥30图片/预置旁白、文字仅套餐、Hypit仅免费本地构建，不发布。之前单次Planning-only追加修改已归档撤回，原两轮FAIL与5请求账本不动。source `4d1a5510…356c68`/Runtime `12b0d561…6c19c5` 已安全加载，Web53245/Gateway53243及HTTP200、实际进程与指纹对账；实际原始流1,729,380字节精确归档，SHA206bc116…5d28022，355旧作品无unknown/pending/submitting、Gateway空闲，套餐窗口100%/周97%。[加载证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-full-service-loaded.json)。
+
+开发第1/3作品 `cr_37a22ea5ef6b4845ba0f1d99a26c78b7` / `fa_12ed8b2fffe0fadfc96ad44660710c0a` 已正式 **FAIL**：正常确认前修订通过，Preparation成功，A完整22137字节原工具结果包含conditions/queries的item包装，正式结构拒绝；147.578秒、Preparation/A各1原RPC、3次本地重入未重发A，B/repair/Truth/Supply/媒体/Build均0，工程介入0，媒体占额¥5/已确认费用0。原件、Preparation会话、失败与累计账本已私有封存；旧257现场仅正常新会话绑定追加，排除该一条后旧绑定精确同SHA，其余旧文件均未变。正式自主视频仍0/3，不恢复计分。
+
+离线原始官方M3 XML模板与公开SGLang parser复现同机制：带$ref的合法混合Schema解析为item包装/数值及布尔字符串，展开引用及明确可空表示可无损恢复。**在线服务使用同parser未证实**，真实A另有素材/后期和未决语义错误，不能由结构修复宣称全部解决。Planning wire投影@5已实施（canonical合同不变），原@4/@3/@2按旧合同恢复；run-043矩阵230PASS、全量973PASS/5既有skip、原生Gateway→Harness五场景5PASS，115技能/compileall/范围diff通过，272正式现场/130fixture保持。Astra发现并闭合enum/not排除null的投影反例；run-042的fixture保护FAIL保留（新增公开.py原件的compileall缓存），改为原字节.py.txt后对账通过。source6f28fbd7…50c5a、Runtime12b0d561…6c19c5不变，工作树未提交，pyproject依赖另行固定。已获Astra最终CONTINUE并安全加载：Web8440/Gateway8438、HTTP200、source/Runtime/依赖一致；加载前356作品/9Owner无活动或unknown/pending/submitting，套餐窗口99%/周97%。实际raw-stream194581字节按原路径精确备份，272正式文件/17个失败Attempt文件/130fixture保持。正常开发第2个新作品已开始方案请求；[软件验收](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-wire-software.json)。
+
+用户已授权必要修复与真实新作品验证，图片/预置旁白全 Goal 累计 ¥30，文字仅已购套餐。沿用[唯一自主首版 Task 新授权章节](tasks/creator-autonomous-first-cut-2026-09-30.md#连续自主出片-goal2026-10-08-用户追加授权进行中)，完成条件为同一固定版本三个全新正常主题连续 `first_cut_ready`、正式素材覆盖100%、实际MP4/Quality绑定、工程介入0；不发布。原 Material-only / A-only 批次的 FAIL 和停止结论均保留。
+
+只读核查已确认 `serve_delivery` / `_execute_creation_delivery` 是已有唯一主链，默认完整 Creation 可从 Material 继续到 Authoring/Build/Quality；`endpoint=MATERIAL_READY` 是显式旧范围终点。当前尚无三个新作品真实成功证据。Astra前置MODIFY四项已纳入Task，开始隔离实现：新增动态机械Schema（冻结目录/既有模态互斥），保留正式消费者校验；新增Runtime兼容支持组件的安全JSON捕获与原子提交占额。修前7项对照为1PASS/6FAIL；新增Schema对照通过，完整semantic测试197PASS；原生支持组件的8MiB/转义与敏感键/并发抢占/恢复拒绝测试1PASS。
+
+Runtime连接与恢复边界已在**隔离安装副本**实施：受限agent RPC→原client-tools→实际managed SDK/fetch→完整工具终态→原生transcript→Easel只读捕获；本机Provider fetch替身，未调用真实模型。原生10个transport场景PASS，实际隔离Gateway完整8MiB恢复PASS，原tool-call ID/字节SHA/Schema一致；每请求重试不增加Provider fetch。增加原session协议绑定，丢失恢复参数或更换run不能退回普通执行。Planning/guard相关202PASS，Preparation/Web相关77PASS；具名证据在[carrier-audit目录](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-gateway-capture.json)。
+
+只读恢复首次创建SQLite SHM与空WAL，数据库与既有WAL字节不变，已保存全目录严格比较失败及具体修正依据，不能宣称整个目录未变。新协议`planning-result-v3`已接入调用/结果适配，正常新Planning默认已接入@3 journal/frozen checkpoint，schema/Runtime身份进入请求与正式Plan identity；旧@2 pending继续v2且不刷新额度。22入口集成、run-035矩阵201PASS及943全量/5既有skip通过，257现场/117fixture保持。冻结前Astra发现HTTP重定向和debug capture保护缺口，已隔离修复并验证一次POST及敏感候选不落盘；转义8MiB暴露原SSE16MiB缓冲不足，隔离修复为新协议64MiB wire（arguments仍8MiB）后完整原tool ID/SHA恢复PASS。最终run-036为201PASS、全量943PASS/5既有skip，115技能/compileall通过，Astra CONTINUE。固定source `761d28ae…dc6d34d`，HEAD `df0d3a30`仍为历史提交，当前测试变更尚未提交；以完整工作树文件清单另行固定，不冒认已在HEAD中。正式服务已安全加载：Web39895/Gateway39893，HTTP200；8旧Owner无有效操作、343旧作品扫描无pending/submitting/unknown，Gateway active/lost0。原raw-stream2,456,422字节按实际路径停服后归档并核SHA，历史现场/fixture保持。窗口套餐99%/周97%；Development round1首项已完成并FAIL，详见下节；Supply/媒体/Build0。正式安装/服务现已加载固定补丁，首轮真实Planning Development已FAIL封存；本Goal尚未取得真实Material或完整视频，媒体新增费用0，Goal保持进行中。
+
+### 当前真实结果：Development round1 FAIL（保留）
+
+d01首项63.909秒，3个原RPC（Preparation/A/B）全部终态并释放；A v3工具成功1548字节，B v2文本3256字节漏题7，正式拒绝，无unknown题号。Supply/媒体/Build0、工程介入0。Scout独立核对又确认B的源/成片授权归因及原文出处有误，因此不能补ID就算通过。真实原件已保存为tests/fixtures/planning-vnext-development-2026-10-08/autonomous-round1-*，具名[失败摘要](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-development-round1-failure.json)。
+
+B/repair固定槽位与冻结支持资格已完成离线修复：新@4合同，原文quote/来源角色校验；合法引用仍不保证完整语义。旧@2/@3保持原合同与修复额度，升级Runtime后旧身份禁止首次提交，仅恢复已有原run。run-038矩阵221PASS、全量959PASS/5既有skip，115技能/compileall/范围diff通过；257历史现场/122fixture及测试工具指纹不变。隔离Gateway的B与repair各一次外部替身请求、原tool ID/SHA无损恢复，Astra CONTINUE。固定工作树source `73e63a66…544ea6`，HEAD仍`df0d3a30`，未提交。安全加载预检349作品、8旧Owner无活动，unknown/pending/submitting及Gateway活动0，套餐98%/周97%；服务已核验Web42755/Gateway42753及HTTP200，完整source/Runtime一致；实际raw-stream87,200字节停服后精确归档。Development round2六个新隔离确认样本已冻结，开始首项真实验证；同一累计账本保持round1三次请求及FAIL。正式自主视频仍0/3。
+
+### 最新真实结果：Development round2 FAIL，两轮真实提交停止
+
+首项70.847秒：Preparation成功，A完整工具参数2600字节但conditions/queries类型错误；原生client-tool业务Schema验证生成工具错误并尝试续轮，原请求提交保护阻止额外Provider提交，最终A原run ERROR。不得从较早候选倒算成功。B/repair/Truth未进入，Supply/媒体/Build0、工程介入0；两个原RPC均已释放。保留[失败证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-development-round2-failure.json)，两轮总5个RPC、媒体累计¥0，套餐98%/周97%，实际账单未知。Gateway active/lost/audit0；固定代码、257现场及既有fixture未变，新增真实A反例；完整原始流1,729,380字节已归档。
+
+已获Astra CONTINUE的下一步仅离线：将唯一structured carrier的本地执行合同改为安全JSON对象，实际Provider仍完整精确业务Schema；完整终态后由Harness正式校验/拒绝/共享一次repair。补真实Gateway Schema非法候选生命周期回放及普通工具保护，不放宽业务合同。两轮Development额度耗尽，不新增真实提交、不重置账本；完成软件修订后再报告下一次真实验证所需范围。此前round2进行中描述为历史过程，最终三作品仍0/3。
+
+### 候选接收职责修正：软件通过，尚未加载 / 不启动第三轮
+
+仅唯一structured clientTool使用安全对象执行参数，实际Provider完整业务Schema/hash不变；业务校验回归Harness。真实round2原件在原生Gateway修前复现error、修后一次POST成功运输原2600字节，Harness仍正式REJECT。现有Harness与原生Gateway连续3场景PASS（原件拒绝、可定位repair成功、repair非法停止）；普通工具原生参数验证保持。
+
+run-039矩阵224PASS、全量962PASS/5既有skip、115技能/compileall/范围diffPASS，Astra CONTINUE；257现场/123fixture及源码/测试工具指纹保持。新source `bbf3e615…9c9c0a2`仅离线，当前服务仍为`73e63a66…544ea6`。两轮真实FAIL不改，未加载新Runtime、未启动第三轮；自主首版0/3、媒体累计¥0。软件记录见[候选接收验收](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-admission-software.json)。
+
+### ¥30 图片/预置旁白授权保护：软件通过，未加载
+
+现有方案确认支持明确模态子集，新 grant 版本与子集进入请求指纹；选择、核价前及最终执行均核对实际 Need。BGM/SFX 不借用 voice 授权，重放不能扩大范围，旧授权和旧请求指纹保持。Astra CONTINUE；既有生成集成扩展16PASS、run-040矩阵224PASS、全量967PASS/5既有skip、115技能/compileall/范围diff及前端lint/build通过（既有hooks/chunk警告保留）。257现场/123fixture保持。
+
+固定工作树source `4d1a55101b61259b125a11f3cd9f18dbdcb9dbd9c00ff98ed20a568fd1356c68`，HEAD仍`df0d3a30`，未提交/未加载；服务仍为此前`73e63a66…544ea6`。本Goal媒体账本已记录用户¥30授权，累计分配/实际媒体花费均¥0；后续逐作品确认前保守占用整个子预算，总和不得超过¥30，失败/未知/未用不回收。两轮Development FAIL不变、第三次真实测试等待追加一次有界授权，无新增真实调用；自主视频仍0/3。[软件证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-budget-software.json)。
+
+本地出片依赖追加核验：当前 `faster-whisper-large-v3-turbo` 已实际以CPU/int8、local_files_only加载成功，OpenCC转换通过，FFmpeg/FFprobe存在；Hypit 0.2.7的Easel指定profile仅含media.local/hyperframes.local，限定这两个端点的doctor通过，当前Chrome Headless Shell可用。已对照安装源码的local pricing与Easel免费Build判定。未执行识别、Plan/Build、生成、TTS或真实模型，源码/257现场/123fixture不变；本地依赖PASS不能替代真实声音准确率与成片证据。[脱敏前置检查](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-local-readiness.json)。
+
+round2参数来源追加核对：原tool参数2600字节/SHA与已解析对象完全一致，错误容器在原参数中已存在；实际安装SDK的modern tool路径透传delta并拼接arguments，不观察到客户端数组→对象转换。错误定位为Provider返回结果不符合Schema；缺少服务端内部证据，不能进一步断定模型本体或Provider服务端格式转换。当前carrier发送完整Schema与指定tool choice，但没有function.strict字段，不声称服务端强制Schema已成立。原件按现有局部repair合同仍REJECT；不得把运输成功算Planning成功。此轮只读调查未新增外部调用或修改生产源码。[来源核对证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-argument-origin-audit.json)。
+
+## Planning A structured carrier：能力审计 BLOCKED，Astra STOP（2026-10-08）
+
+用户授权四项修订后的同一vNext后续Goal，已设定并执行能力审计。固定生产SHA仍`ffac01cc…51c74d`/软件基线`aa0ab42a`，HEAD`df0d3a30`为后续证据文档。当前OpenClaw2026.9.4普通agent RPC拒绝动态tools/toolChoice；底层builder虽能表达指定function，direct/managed工具参数共用256000字节上限，现有结构合法A紧凑1331979字节在原生离线reducer实际拒绝。不是4096 preview问题，不把此容量反例当历史d01根因或真实语义不可表达；MiniMax服务端能力仍UNKNOWN。
+
+Astra前置复核STOP，未发现本范围内保持完整合同的可行接入，已按停止分支结束。生产修改、模型/RPC/Supply/服务操作0，新增费用0；未commit/push。257现场/117fixture/十批1550文件原指纹保持。新协议实现、软件矩阵/全量回归及Development均NOT_EXECUTED，`READY_FOR_FORMAL_R4=NO`；旧软件PASS和真实FAIL不改写。受限于固定Runtime和当前接入，下一阶段需另定Runtime容量/工具接入范围，不继续Prompt或真实d01探索。[能力审计及脱敏执行证据](acceptance/planning-a-structured-carrier-capability-2026-10-08.md)。
+
 ## Planning Semantic Boundary vNext：S5 软件验收通过（2026-10-08）
 
 连续Goal进行中，S1已通过；S2完整transport实现及容量Gate通过。4096 terminalReply仅展示摘要，旧Material3000协议保持；新planning-result-v2从原session/run的active最终assistant只读捕获，可信终态、stopReason与完整UTF8/SHA同时核对。安装OpenClaw2026.9.4隔离回放合法A/B及8MiB envelope无损，新进程读前后SQLite/WAL未变；Runtime/profile/phase实现钉SHA。Astra先MODIFY指出argv及转义Secret缺口，最小修复后CONTINUE。
 
 S5软件run-032矩阵196 PASS、针对31 PASS、全量934 passed/5既有skip；AstraCONTINUE。固定`aa0ab42a`/source`ffac01cc…51c74d`后真实Development首轮第0项失败并停止：Preparation通过，A原结果7,849字节无损，但fenced JSON且条件/身份/源时长/未决语义多项不合规；132秒、2个RPC，B/Truth/Supply0。无安全充分的局部修复，第二轮不执行，`PLANNING_VNEXT_IMPLEMENTATION=FAIL（软件PASS、真实Development FAIL）; READY_FOR_FORMAL_R4=NO`。真实固定轮次内工程介入0，历史十批1550及257/117指纹保持，原请求已终态/清理，Gateway active/lost/audit0。套餐窗口100→99%、周97→97%，现金账单/token UNKNOWN。不push、不重启、不启动正式R4/Smoke/E2E。详见[最终验收与停止判断](acceptance/planning-semantic-boundary-vnext-development-2026-10-08.md)。下方R4记录保留历史。
 
+## R4 batch10：@7固定版本已加载，真实评测进行中（2026-10-07）
+
+固定commit`3be0ff946c29c8871a8f34de015c8b3944316ac7` / production203文件SHA`bf527ce1b565409817a5c21e0dc8029e6ca3ad73681bd619493fc4bd17be9caf`，23个选定源码/测试/fixture/Task文件凭证检查0命中，未push，其他工作树保留。run042135PASS/873全量PASS/5既有skip、115技能/compileall/diff、AstraCONTINUE。15:00:18 Web10168/Gateway10166安全加载，HTTP200/Gateway空闲；实际raw-stream停服后精确备份1,178,673字节、SHAbf6d88c5c98eeffb58971c3bc2ceb0dbf379d105c1dd847f3eab2d6d8dd0f0bf。无进程内SHA端点，版本证据为新PID/时间/执行文件/cwd与固定源核对。
+
+实时8旧Owner有效操作0、各批unknown/pending/submitting/release待办0、Gatewayactive/lost/audit0，257旧正式现场/117fixture和九旧批原件保持。仅已购文字套餐额度89%/周98%，禁止余额/现金/超额/回退，实际账单UNKNOWN。原16主题与独立oracle不变，32新正常Creation隔离冻结，第0项开始真实Prep/A/B/Truth，尚无评分。正式合同与独立语义双PASS才下一项；实际Supply/Provider/生成/TTS/Build禁止，历史FAIL不恢复不倒算，Smoke=NO。[加载记录](acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch10-release-loaded.json)。
+
+## 硬条件来源治理：@7软件验收通过，等待固定及加载（2026-10-07）
+
+同一Task§13.27已接入真实冻结来源、A/B依据及control运输、共享repair、身份/checkpoint与正式persist/load；工作树新产品默认@7，旧@1–6按原合同回放。Astra冻结前修订已闭合，最终run042为135PASS/0FAIL/0GAP/0未执行，全量873PASS/5既有skip，115技能/compileall/diff通过，257旧正式现场/117fixture保持，Astra最终CONTINUE。生产203文件SHA为`bf527ce1b565409817a5c21e0dc8029e6ca3ad73681bd619493fc4bd17be9caf`，尚非已加载版本。[具名软件验收](acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch09-authority-software/software-summary.json)。
+
+未commit/push/restart或启动新真实R4，服务仍89bc旧固定版；最新真实成绩仍batch09 FAIL/STOP。新真实模型/Supply/Provider/生成/TTS/Build调用0，Smoke=NO。下一步最终矩阵/全量回归与复核闭合后固定、加载，再另起原16主题的全新32项真实Eval。
+
+## 硬条件来源治理：组件已实施，产品链尚未接入（2026-10-07）
+
+同一Task§13.25.1经Astra前置CONTINUE后，新增Planning应用层来源目录/实际默认记录/控制值与basis资格校验。batch09真实14原件及独立预期保存17fixture，不改历史FAIL。完整修前run036为116PASS/2新增保护FAIL；组件run038为6PASS/2产品未接入FAIL，257旧正式现场/117fixture保持。组件只验证来源、已知强度及控制保护，不能证明B语义蕴含正确。
+
+新目录/controls尚未接入A/B、共享repair、身份、checkpoint及正式persist/load，软件验收未完成。下一步完成@7同一产品链集成与完整回归，再固定版本和新真实Eval；不另建流程、不放宽Material V1.3。工作树已有未提交组件，服务/产品默认仍89bc旧版；未commit/push/restart，新真实调用0，Smoke=NO。最新真实成绩仍下方batch09 FAIL/STOP。
+
+## R4 batch09：正式合同PASS，无来源屏幕/手部hard语义FAIL / STOP（2026-10-07）
+
+固定89bc154d228f443e784632cd74386c54d2558ab9/sourceaff2ed40dd85dbec74f9a8a894b1688626116e6b2de5b145d8e0443597f7ea53首项Prep/A/B/Truth及一次Truth report repair五原runok/released，正式合同/Truth/Persist/Load/Supply前切点PASS。Planning无repair；15秒保持图像/function用途正确postproduction，原两纸/image/silent/9:16/SCRIPT及Mode soft保持。但required禁止任何屏幕无冻结硬来源且同Need soft no screens被硬化；手部禁令亦未找到硬依据。Main/Astra语义FAIL/STOP，不能以A自己写入description自证授权，不打包定罪有争议的印字/品牌范围。
+
+1项FAIL/31未执行、held-out0/16；A/B初始1/1无Planning repair，含Truth初始0/1无报告repair，最终正式合同1/1但独立语义0/1。原required语义1/1保留，无遗漏/降级；无来源hard至少2。281.806秒、Planning含Truth219.945秒；5实际提交/30assistant/29工具/23原请求观察/4缓存重入，无重复提交。Truth repair1/1，按唯一会话窗口避免两个同session run重复计数。仅文字套餐90→89%/周98%，实际账单未知。
+
+Supply全部下游/状态越界/工程介入0；固定源/工具/样本/SCRIPT、257旧现场/100fixture/八旧批及正式原件SHA保持，五run已释放、无pending/submitting/release/Gateway活动。历史FAIL永久保留、不恢复/重计，Smoke=NO。下一步Task§13.23/13.24先调查硬条款来源权威与程序投影方案，不能继续仅加提示后直接新真实测试。来源目录候选已获Astra MODIFY：不能把冻结Preparation自动当新增授权，也不能以逐字原句限制全部合法Director创意Need；须先明确出处、约束资格和全部消费者入口，尚未修改生产或启动batch10。[完整记录](acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch09-actual-run-summary.json)。
+
+## R4 成片使用与源条件软件已验收，等待新版本加载（2026-10-07）
+
+同一Task§13.21/13.22完成compiler@6/target@3，units@8保持。新审核对象反事实不按可编辑性降级源条件；@5完整Schema、@1–5原映射/digest/身份/旧pending保持。run033115PASS/全量853PASS/5既有skip、115技能/compileall/diff与AstraCONTINUE；生产SHAaff2ed40dd85dbec74f9a8a894b1688626116e6b2de5b145d8e0443597f7ea53，257旧正式现场/100fixture保持。
+
+最新真实batch08 FAIL/STOP不改，正确替身不证明模型改善。下一步按已有授权固定新commit、安全加载/套餐检查后原16主题全新32项batch09；全部Supply下游禁止，Smoke=NO。
+
+## R4 batch08：完整Schema生效，首项unresolved正式FAIL / STOP（2026-10-07）
+
+固定4614db7142ab6e189dde49fefd7356eafbb2cf74/sourceb64681a0c8b650d509824e4cb376fc6dfb05d0c0fc6a5d3a8850a812f1f4e548首项Prep/A/B/唯一repair四原runok/released；初B与repair均完整Schema合法，但整段成片使用/表达/后期function持续unresolved、结果无变化，正式消费者拒绝，Truth未执行。Main/Astra STOP本批；独立整段postproduction是合理可表达对照，不能声称function粒度不足为已证实根因。@5输出合同本次正常，语义判断尚未可靠。
+
+1项FAIL/31未执行、held-out0/16；初始wire合法1/1，可用初始/最终正式合同0/1，repair0/1，正式语义/required覆盖未验证。218.823秒、Planning136.344秒；4原提交/25assistant/41工具/18原观察/3缓存重入，无重复提交。仅文字套餐91→90%/周98%，实际账单未知。Supply全部下游/状态越界/工程介入0，257旧现场/90fixture/七旧批及源码工具样本保持，原run全部释放、无pending/submitting/release/Gateway活动。
+
+本批及历史FAIL永久保留、不恢复/重计，Smoke=NO。下一步同一Task§13.21先补独立语义正反对照、前置复核审核对象任务，未经证据不拆function或放宽unresolved。[完整记录](acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch08-actual-run-summary.json)。
+
+## R4 B输出合同软件已验收，等待新版本加载（2026-10-07）
+
+同一Task§13.18/13.19完成@5完整B/repair输出Schema及精确诊断；Material V1.3、语义任务target@2、一次修复额度保持，旧@1–4版本/身份保护通过。最终run031110PASS/全量848PASS/5既有skip、115技能/compileall/diff及Astra CONTINUE，生产SHAb64681a0c8b650d509824e4cb376fc6dfb05d0c0fc6a5d3a8850a812f1f4e548。257旧正式现场/90fixture保持，正确替身不证明真实模型改善。
+
+最新真实成绩仍batch07 FAIL/STOP，所有历史FAIL保留。下一步按已有授权固定新commit、安全加载/套餐检查后另起原16主题全新32项batch08；Supply及全部下游禁止，Smoke=NO。
+
+## R4 batch07：前2项双PASS，第3项结构合同FAIL / STOP（2026-10-07）
+
+固定7685953c72925b195aa7e882996aca076a2151bb/source71e5ecbbafdfd7104b835a5b6b2a3071a2132e291d31d5134dab9281547e99e4的新批已3/32，前两项无repair且正式+独立语义PASS；连续倒水/Voice主题初B返回非法kind narrative_or_postproduction，程序误报原文引用问题；唯一repair回传输入式wrapper并保留非法kind，正式拒绝，Truth未执行。Main及Astra STOP；后29未执行、held-out0/16，初始/最终合同2/3，repair0/1，失败项正式语义覆盖未验证。严格拒绝正确，但完整B/repair输出Schema和分层诊断存在软件缺口，下一步同一Task§13.18先实际事故回放/最小合同方案及设计复核。
+
+累计616.810秒、Planning401.139秒；12原提交/77assistant/104工具/51原请求观察/9缓存重入，无重复提交。Supply下游/状态越界/工程介入0。套餐94→91%/周98→98%，实际账单未知。257旧现场/77fixture/六旧批原件及固定源/工具/样本/SCRIPT保持；12原run全部释放，各批pending/submitting/release0，Gateway空闲。正式原件不改，不继续/恢复本批，不认领Smoke；所有历史FAIL及第1项冗余scope风险保留。[完整成绩](acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch07-actual-run-summary.json)。
+
+## R4 属性与用途关系软件验收完成（2026-10-07）
+
+Task§13.15/13.16新@4/target@2说明与显式旧@3映射已通过run027 103PASS/841全量PASS/5既有skip、115技能/compileall/diff及AstraCONTINUE。生产SHA71e5ecbbafdfd7104b835a5b6b2a3071a2132e291d31d5134dab9281547e99e4，257旧现场/原59fixture保持，新增18后77fixture稳定。只证明任务定义/版本/身份及正式合同可表达，不保证模型kind正确；旧及新wrong-kind独立FAIL反例保持。下一步窄提交、安全加载/套餐检查后另起32项真实R4。当前最新真实成绩仍batch06 FAIL/STOP，Smoke=NO。
+
+## R4 batch06：正式合同PASS、属性与用途混合语义FAIL / STOP（2026-10-07）
+
+固定0b176a2a/sourcef01fe331的新32项首项正常Preparation/A/一次query repair/B0/Truth，共5原提交、全ok/released。正式合同/Truth/持久重载通过，但源图“负空间构图以便后期叠字”被整句postproduction；源属性不能因用途变成编辑操作。已有显式负空间preference保留，无required遗漏/升级，但错误kind仍构成独立语义FAIL。Main核定FAIL、Astra STOP；本批停止，31未执行、held-out0/16，不追加修复或重计成功。
+
+初始无需repair合同0/1、最终正式合同1/1执行项、独立语义0/1。211.901秒、Planning/Truth150.381秒；5原提交/36assistant/34工具/17原请求观察/4缓存重入，无重复实际提交。实际Supply及下游/状态越界/工程介入0。套餐95→94%/周98→98%，实际账单未知。257旧现场/59fixture/5旧批原件及固定源/工具/样本/SCRIPT保持，无pending/submitting/release，Gateway空闲。完整现场保存并核对；详见同一Task§13.14和唯一验收。当前Smoke=NO，下一步只做独立软件根因治理；下方加载和旧成绩为历史记录。
+
+## R4 batch06：新版本加载，真实评测进行中（2026-10-07）
+
+审核对象说明固定 `0b176a2a8fa30b01c652aa044f176feb93c2639e` / source `f01fe3317b4aa223caddea08ee0ee86cf5d3347944dc9698fd997c7a00e66005`；同矩阵run-023 96 PASS、全量834 PASS/5既有skip、115技能/compileall/diff及Astra CONTINUE。@3/units@8加入program-owned审核对象说明，新A/B及共享repair同用；旧@2完整canonical/batches/身份和@1保持，错误kind仍结构PASS/独立语义FAIL对照保留，软件不是模型语义成绩。
+
+12:19:50 Web/Gateway新PID96725/96723安全加载，HTTP200/Gateway空闲，8旧Owner有效操作0，unknown/pending/submitting/release待办0；实际raw停服后2,328,086字节精确备份并SHA核验。257旧正式现场/59fixture/全部5旧批原件保持。仅已购文字套餐95%/98%、无付费回退，实际账单未知。
+
+原16主题/oracle未改，新32独立正常Creation隔离；第0项真实Preparation/A/B/Truth进行中，尚未评分。每项正式+独立语义双PASS才继续，实际Supply及下游禁止，旧FAIL不恢复不倒算，Smoke=NO。详见同一Task§13.12/13.13与唯一验收。下方batch05及旧批FAIL为保留真实结果。
+
+## R4 batch05：正式合同PASS、叙事义务语义FAIL / STOP（2026-10-07）
+
+固定59bd7d857c6d955761a0d7fc217c713477b02762/source0657a8c27e3cf6ef2ace05ed8a8c00c15cb7604ff28dcd1d3ac28863e7fcfa48，软件88矩阵PASS/826全量PASS及安全加载后，新32正常Creation首项真实Prep/A/B/Truth四run全部ok/released，无repair，正式合同与持久重载通过。引用完整/正文后期职责正确，但asset required“不要替读者补完两张纸的来由。”约束作者叙事而非图片属性：相同素材不变，仅叙事改变即可违反。Main独立语义FAIL及Astra STOP；有真实创作来源也不能交错误审核对象。两张白纸required/静态image/silent/正文不变不能抵消该FAIL。
+
+1项语义FAIL、31未执行、held-out0/16；正式合同1/1执行项、语义0/1。耗时277.094秒、Planning/Truth193.519秒；4原提交/33assistant/41工具/23原请求观察，3缓存原请求重入，无重复提交。NORMALIZE/repair/下游/状态越界/工程介入0。仅已购文字套餐96→95%/周98→98%，实际账单未知。
+
+收尾Gateway空闲，无pending/submitting/release待办；257旧现场/43fixture/所有4旧批原件及源码/工具/样本/SCRIPT保持。正式产物不改，完整受保护现场与脱敏证据保存。下一步按同一Task§13.11建立“素材可观察条件 vs 作者叙事/事实义务”实际关系对照，先离线证据及统一设计复核，再另固定版本、新批32项；本批停止且历史FAIL保留，Smoke=NO。[本批记录](acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch05-actual-run-summary.json)。下方进行中和软件PASS为历史记录，不覆盖本次FAIL。
+
+## R4 batch05 已固定加载，真实评测进行中（2026-10-07）
+
+引用关系软件固定 `59bd7d857c6d955761a0d7fc217c713477b02762` / source `0657a8c27e3cf6ef2ace05ed8a8c00c15cb7604ff28dcd1d3ac28863e7fcfa48`，run-019 88 PASS/全量826 PASS及Astra CONTINUE。Web/Gateway11:59:15新PID94376/94374、HTTP200、Gateway空闲；实际raw-stream停服后1,092,870字节完整备份并核验。8旧Owner有效操作0，各批无unknown/pending/submitting/release待办。仅已购套餐96%/98%且无fallback，实际账单未知。
+
+原16主题/oracle冻结，32全新正常Creation隔离；正在第0项真实Prep/A/B/Truth评测，尚未评分，不认领PASS。257旧正式现场/43fixture及全部旧批原件保持；旧FAIL永久保留。停在Supply之前，Smoke/E2E未启动。详见唯一验收加载记录。
+
+## R4 引用关系软件验收完成（2026-10-07，尚未新真实运行）
+
+Task§13.9/13.10的@2/@8已完成：引用完整、实际确认三文件进入B及批次身份、旧@1/@7显式恢复、旧pending不重发，Material V1.3及修复额度未变。最终run-019 88 PASS/0 FAIL/0 GAP/0未执行，全量826 PASS/5既有skip、115技能/compileall/diff及Astra CONTINUE。run-018副本回归FAIL原样保留，已按实际待写入/已保存三文件修正。生产SHA `0657a8c27e3cf6ef2ace05ed8a8c00c15cb7604ff28dcd1d3ac28863e7fcfa48`。257旧现场/原29fixture不变，新增14后43 fixture保持。
+
+软件仅证明语法/来源/身份及合法路径；新错误kind仍能结构通过，独立语义FAIL反例保留，不认领真实改善。下一步固定提交、安全加载并另起32项R4。最新真实成绩仍是下方batch04 FAIL；不得恢复本批或启动Smoke。
+
+## R4 batch04：结构合同通过、独立语义FAIL / STOP（2026-10-07）
+
+固定commit `b819d2877c65d2c10836d076415a0cc47690377b` / production SHA `79e580c163c77cafc47d4056c910e1aaf5bcc49419be31e78497d08588a54825`。第0项 `cr_84d61116682f460aac89817994c5f7ed` / `fa_1bbb0bd32f282011db2ef4cb7bf03047` 正常Preparation、A、B0、Truth各1原run，全部ok/released；无repair，真实首次正式合同通过、持久重载一致，在原生Supply import前停止。Native Owner仍preparing/next=prepare，评测器仅记录下一子阶段Supply入口，不人工造状态或MATERIAL_READY。
+
+独立语义FAIL：冻结SCENES的“在后期叠加正文”被B编入视觉required；“由后期叠加。”以及引用正文的碎片不是背景图的素材硬条件。两张白纸required/静态图片/静音/正文均保留（明确required语义1/1），但不能因此通过整个语义验收。Astra STOP确认。primary_visual的postproduction分类合法，无人脸/人物有本次Prep来源；不将所有导演构图细节判作凭空新增。自然光等在preferred字段及description hard clauses双重表达另列强度风险，失败不依赖争议项。
+
+本批1项语义FAIL、31未执行、held-out0/16；结构合同1/1执行项（1/32计划），语义总体0/1。墙钟257.450秒、Planning/Truth至切点173.171秒；4真实提交、36assistant响应/32工具、21原请求观察检查点，7应用callback含3原请求缓存重入，重复实际提交0。修复/补证/报告repair0、Supply/Provider/生成/TTS/Build0、state violations0、ENGINEERING_INTERVENTION0。文字套餐5小时97→96%、周98→98%，共享账号比例不是单次费用，实际账单未知。
+
+收尾Gateway active/lost/audit0，无pending/submitting/release待办；257旧正式现场、29fixture、batch02的134原文件与batch03的136原文件、固定代码/工具/样本/SCRIPT不变；语义审核只写独立评分，不改正式Plan/Requirements/Truth。完整脱敏会话、原输入输出/请求身份/计时/原日志/独立评分保存受保护batch04目录；[结构化结果](acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch04-actual-run-summary.json)。Smoke=NO。
+
+下一步仅按[同一Task §13.8](tasks/planning-material-boundary-matrix-2026-10-06.md#138-batch04结构通过独立语义fail2026-10-07stop)建立该真实语义事故fixture/独立反向保护，统一设计“来源与强度/完整语义单元/后期职责”修正，先设计复核和离线集成，再另固定新版本。当前不改生产、不恢复失败批、不继续真实模型或Smoke。下方准备/软件PASS均为历史前置证据，不覆盖本次FAIL。
+
+## R4 batch04 固定版本真实评测准备完成（2026-10-07）
+
+A输入边界对齐固定为 `b819d2877c65d2c10836d076415a0cc47690377b`，202文件 production SHA `79e580c163c77cafc47d4056c910e1aaf5bcc49419be31e78497d08588a54825`。最终同一矩阵run-013 80 PASS/0 FAIL/0 GAP/0未执行，全量818 PASS/5既有skip（62.31秒）、115技能/compileall/diff通过，Astra CONTINUE；未推送，用户其余工作树保留。
+
+Web/Gateway在11:20:21以新PID86940/86938加载；健康200、Gateway active/lost/audit0；8旧Owner有效操作0、持久unknown/pending/submitting/release pending0。实际raw-stream停服后52235字节精确备份，SHA核验，初次Gateway健康检查早于就绪，随后正常，无再次重启。源码/257旧正式现场/29fixture/batch02与03原件保持；个别hash被通用脱敏器隐藏的预提交记录另以总指纹与授权文件逐字节比对核验，原记录不改。
+
+用户已购文字套餐/direct-use授权保持；同Key官方只读余量97%/98%，无fallback，实际账单未知。batch04已冻结32个全新正常确认Creation，原16主题/独立oracle未变；真实评测尚无成绩。正式A/B/Truth与独立语义审核每项均通过才推进下一项；真正Supply/Provider/生成/TTS/Build禁止。旧批FAIL不覆盖，Smoke=NO。
+
+## R4 batch03 真实Planning FAIL / STOP（2026-10-07）
+
+独立路径修复软件固定`63da1b009bf349d82315acc180c9d33dc4d8b86b`/生产SHA`61b6a75e65b214e61d0fa6da693cb97ed4dd722c667fe3becd9f760945ff807b`，run-008矩阵72 PASS、全量810 PASS/5既有skip及Astra CONTINUE；Web/Gateway新PID80112/80110于10:48:53加载。无活动旧任务/未知执行，实际raw-stream386041字节已精确备份。32个新Creation沿用冻结16主题/oracle。
+
+实际第0项FAIL并停止：Preparation、A、单次repair各1且ok/released；repair已正确写入Attempt绝对路径。初始policy类型错误挡住后续检查；修复policy后，constraints.must_contain列表不能作为scalar retrieval filter、continuity_ref不在冻结catalog，共享一次repair耗尽。A Schema比Compiler接受范围宽；Astra STOP，不能再增加修复额度或删required救场。后期overlay被列为required image仅作风险诊断，未到B/Truth/正式语义评分。31项未执行、held-out0/16，最终合同0/1执行项，Smoke=NO。
+
+墙钟205.748秒、Planning约156.954秒；3真实run、24模型响应/25工具、17原请求观察，无重复实际提交；Supply/Provider/生成/TTS/Build0，state violations0、工程介入0。文字套餐5小时98→97%、周99→98%，实际账单未知。257旧现场/25fixture/batch02原件/source/tool/HEAD/SCRIPT未变；完整脱敏会话、原A/repair、原日志与故障现场已归档。后续先按[唯一Task §13.5](tasks/planning-material-boundary-matrix-2026-10-06.md#135-batch03路径修复有效但acompiler合同仍失败2026-10-07stop)统一对齐A输入与完整编译边界及真实离线fixture，此处仅规划，不修改本失败批或启动Smoke。
+
+## R4 batch02真实Planning失败（2026-10-07，FAIL / STOP）
+
+固定a7f7ccfe/source327842新版本及独立32Creation的第0项已实际执行：Preparation→A→唯一repair三个原run均ok/released，完整202.975秒。但A的5个policy bool不符合dict[str,str]；repair请求没有Attempt绝对目标，独立会话写到Gateway默认workspace，正式消费者仍读取错误A而拒绝。B/Truth未执行，1FAIL/31未执行、held-out0/16。Astra确认MODEL_OUTPUT+STRUCTURAL_CONTRACT并STOP；fixture从闭包/Creation补路径掩盖了目标合同缺口。
+
+STATE_VIOLATIONS=1（repair产物越出Attempt），workflow越级0，正式Supply/Provider/生成/TTS/Build0，工程介入0；未搬入误写文件、未修改固定生产/工具救场，未恢复旧作品。19模型assistant响应/29工具/17原请求观察，无重复付费提交；5小时套餐99→98%、周99→99%，账单未知。三个原run无pending/submitting/release，Gatewayactive/lost/audit0；257旧正式现场、25fixture和冻结正文/源码/工具不变。误写路径之前是否存在未知，不宣称全Gateway workspace无损。完整脱敏会话/原稿/错写文件/SHA保存于受保护batch02目录。
+
+本批停止，Smoke=NO。[原Task §13.3](tasks/planning-material-boundary-matrix-2026-10-06.md#133-新版本真实第0项失败repair目标合同缺口2026-10-07stop)已给最小后续路径绑定与无隐含root的集成回归方案，尚未实施；[结构化结果](acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch02-actual-run-summary.json)。旧99b3 FAIL、异步前置FAIL及历史事故例外保持；下文RUNNING为本批开始时历史。
+
+
+## R4 新固定版本独立批次（2026-10-07，RUNNING）
+
+旧99b3/source0907批次STOP/FAIL和后续异步前置FAIL保留。独立软件修复仅A/B/repair三处稳定JSON键序，原身份/hash/scope/route/冻结正文/repair额度保护保持；不迁移旧请求、不恢复旧作品。同一矩阵run-006 **70 PASS**，全量 **805 PASS/5既有skip**，29项针对性/115技能/compileall/diff通过，Astra CONTINUE。
+
+已固定commit **a7f7ccfea07fb7ebb64534267e22959fe948ef72**，202文件production SHA **327842e4e249481f75ffc934c973c1621807e7cc7e3073ab01b1b82b7053a636**，仅8个获批文件commit，无push，用户其他工作树保留。Web PID77120、Gateway PID77118在10:28:16加载；健康200、8旧Owner有效操作0、pending/submitting/release pending0、Gateway active/lost/audit0，257旧现场/25fixture不变。停Gateway后实际raw-stream路径229259字节完整归档、SHA核验后才重启；首个bootstrap瞬态失败，确认服务未加载后对同plist重试成功，无新日志丢失。
+
+套餐只读同Key查询5小时/周余量99%/99%，M3无fallback，仍只授权已购文字套餐。原16主题和独立语义oracle未改，新目录`~/Library/Application Support/Easel/acceptance/planning-eval-r4-2026-10-07-batch02`冻结32个全新Creation和工具/样本/源码/历史基线；正在执行第0项Preparation，尚未认领任何Planning成绩。真正Supply/Provider/生成/TTS/Build禁止；软件通过不替代新批真实结果。每项原生合同与独立语义审核通过后才下一个，生产问题或语义失败即停。本批不认领Smoke/E2E；下文旧版停止状态属于历史。
+
+
+## R4 异步前置回归（2026-10-07，生产恢复缺陷 / STOP）
+
+仅修评测工具并补原生Owner→Gateway异步回归后，在新真实批次开始前发现生产缺陷：首次Preparation交付未排序内存bundle，恢复读已排序冻结快照；A消息包含同值但不同键序的voice.context，重建请求字节/hash变化，被原身份检查拒绝。原A已成功且释放，仍不能进入B/Truth。Astra只读复核STOP；不是模型语义失败，也不能用排序fixture或放宽hash保护规避。
+
+同一矩阵run-004 **66 PASS/4 FAIL/0 GAP/0未执行**；run-005保存完整请求SHA/解析相等/键序差异，6项2PASS/4同根因FAIL。全量 **801 PASS/4 FAIL/5既有skip**，115技能/compileall/diff通过。commit99b3/source0907、257旧现场、25fixture均不变。新真实批次/模型/供应/生成/TTS/Build/费用=0；旧真实批次FAIL及raw-stream例外原样保留。评测工具修正已落工作树，生产修复未实施，未commit/push/重启服务。R4停止，Smoke=NO；下一步按[同一Task §13.1](tasks/planning-material-boundary-matrix-2026-10-06.md#131-异步前置回归发现生产缺陷2026-10-07stop)做稳定请求构造软件修复及回归，再固定新版本/检查加载/新独立Eval。[唯一验收](acceptance/planning-material-boundary-matrix-2026-10-06.md#r4-异步前置验证失败2026-10-07固定版本stop)及[结构化证据](acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/async-preflight-summary.json)。下文旧PASS均不覆盖本次新增异步路径。
+
+## R4 真实 Planning Eval（2026-10-07，评测工具FAIL / 本批停止）
+
+用户授权后，R0–R3 固定为 commit `99b3ca836f7c50f5ecfbea46661f91d4c40c808b`，production SHA `0907c35cf4ee98254ac0a598f924d7b757b4aaf29cc24d1ac1d3f234d5e65217` 与软件验收一致；仅提交获批软件范围，其他文档工作树保留，无 push。Web PID71192、Gateway PID71182（2026.9.4）已加载；8个旧Owner无有效下一步，持久pending/submitting/runtime_release pending=0，Gateway active/queued/running/lost及taskAudit=0；257份旧正式现场和历史fixture未变。
+
+**新增现场保护FAIL保留：** 重启前误备份了 `/tmp` 路径，实际 Gateway raw-stream 在 wrapper 启动时被清空，原长度及损失范围未知；未恢复或冒充重建。五个相关历史会话395条事件仅作补充。用户已明确接受本次新的保留例外，历史四轮 FAIL和原事故不改；已保存事故后实际路径的新基线。不能将本次加载认领为全现场无损。
+
+R4样本16个（8开发/8留出）、32个独立正常确认Creation在隔离根冻结，尚未认领任何成绩。评测专用停止边界复用正式Owner/Preparation/A/B/Truth/persist/load，停在原生Supply import之前；不伪造Material Gate。评测器/实际HEAD/生产SHA/样本/批次现场基线固定，未知或不足额度不提交，跳过前序语义审核拒绝，收尾变化强制整批FAIL。同一矩阵run-002 **64 PASS**，R4针对性 **12 PASS**（含真实只读validator子进程），完整回归具名 **793 PASS/5既有skip**；Astra修订后CONTINUE仅允许R4。
+
+用户仅授权已购文字套餐额度，禁止现金/API余额/超额和付费回退，并明确沿用当前配置。实际同Key官方订阅只读查询成功，5小时剩余100%、周99%，当前MiniMax-M3、fallbacks为空；每阶段提交前保守检查余量。此检查不是原子账号扣额控制，实际账单未知。第一条《桌上的两张纸》提交了1个Preparation原请求，原生Owner先为execution_uncertain，观察后为observing_execution；冻结评测器遗漏后者，错误记FAIL。本批原FAIL保留并停止，未修改冻结工具救场。原请求随后自然正常结束/runtime released，四份准备文件原生只读校验PASS，Attempt=0、A/B/Truth=0。不能把工具失败当作Planning合同失败，也不能认领32次Eval成功。实际模型16个assistant响应、32工具调用（20exec/1次最终validate），无Provider/生成/TTS/Build；Preparation约123.4秒，5小时套餐100→99%、周99→99%，provider用量/成本均报0但不是实际账单。原run已完整脱敏归档，Gatewayactive/queued/running/lost/audit=0，257旧现场/生产/冻结工具仍不变。Smoke=NO；下一步仅修评测器异步观察和检查点循环、补原生agent.wait回归，再以新工具指纹另起独立批次，当前批次不得继续计分。
+
+R4完整本机现场受保护保存于 `~/Library/Application Support/Easel/acceptance/planning-eval-r4-2026-10-07`；脱敏结果沿用[唯一验收](acceptance/planning-material-boundary-matrix-2026-10-06.md)。下方R0–R3的未提交/未加载描述是当时软件阶段历史。
+
+
+## Planning单一语义源软件验收（2026-10-07，R0–R3 PASS / 真实评测未启动）
+
+用户授权[同一Task R批](tasks/planning-material-boundary-matrix-2026-10-06.md)实施后，产品v3已实现：模型一次语义草稿→程序绑定ID/模态/默认值/Voice摘要及来源→模型仅分类程序unit→程序生成正式Plan/sidecar/cache/manifest。复用现有bind/validate、Truth、持久账本和Gate；整次Planning最多一次repair，未知只恢复原身份，纯声音B=0，旧确认/v1/v2按原合同且有旧执行/产物时不升级。独立语义答案与真实失败回放加入同一矩阵，四方职责和Material V1.3未改变。
+
+最终run-017 **53 PASS/0 FAIL/0 GAP/0未执行**（原25组保留、36风险组含参数化）；全量 **787 passed/5既有bun skip**，115技能/compileall/diff通过。Astra实际实现两轮MODIFY已落实，最终CONTINUE。真实内部确认→Owner→Preparation→A/B→Truth→persist/load→Supply/首轮Observation，外部fixture替身；搜索/接收/观察各1，prepare重入搜索/接收保持1→1。原件篡改/坏快照/共享额度/嵌套子字段保护、Gateway原run超时及release恢复、v3副本绑定均已实际回归。软件通过不证明模型对Creator意图的泛化保真或真实素材准入。
+
+HEAD仍55af28fb；新202文件source SHA **0907c35cf4ee98254ac0a598f924d7b757b4aaf29cc24d1ac1d3f234d5e65217**，未提交工作树与确切diff/文件清单形成软件指纹，未commit/push或主动重启/加载服务，运行版本未重核。R0至最终257现场文件、原19历史fixture未变（新增后24fixture也前后不变）。历史现场保护FAIL例外和四轮真实失败永久保留。最新第四轮 cr_bbe0db97318f45aea09dc839f3d9c916 先repair Voice schema，最终sidecar仍引用不存在的constraints/subtitle_overlay_only，未进入Supply；不恢复/Retry、不倒算成功。
+
+详见[唯一验收](acceptance/planning-material-boundary-matrix-2026-10-06.md#r0r3-单一语义源软件验收2026-10-07)。本轮新增真实模型/Provider/采购/生成调用与付费费用0、新真实Creation 0；R4 Eval/R5 Smoke/R6 E2E未启动。下一步另行固定提交与检查服务加载，冻结16主题/32次独立Planning Eval语义预期和预算；Eval通过后才Smoke，再完整Material E2E到MATERIAL_READY。
+
+## 统一治理固定版本已加载（2026-10-06，加载前置PASS）
+
+用户另行授权后固定代码commit `55af28fb62bf4bd0d194b372101a55b05a48a051`，production SHA `cd314b19e591a302657c4762508ac42b0df422139d8ebe44a89b86991c45aecc`与run-015一致，源码干净、无push，其他既有文档工作树保留。事故以保留例外关闭，不恢复/Retry/复用旧作品，历史现场保护FAIL和三轮E2E FAIL不变。既有LaunchAgent加载Web PID61558、Gateway PID61470（2026.9.4）；健康与空闲检查PASS，Owner无旧操作/状态改写、pending/submitting/runtime_release pending=0，223份现场与19fixture加载前后不变。未启动真实模型评测/Smoke/E2E，下一步单独固定评测样本、预算与停止条件。见[加载验收](acceptance/planning-material-boundary-matrix-2026-10-06.md#固定版本与服务加载2026-10-06用户另行授权)。下方未提交/未加载状态保留为软件阶段历史。
+
+
 Last audited: 2026-10-06. This is the single summary of current implementation and verification status. Source and tests establish behavior; dated Acceptance documents provide evidence for named runs. `SOFTWARE_ACCEPTED` never implies `REAL_WORLD_VERIFIED`.
 
+## 模型输出可靠性统一治理（2026-10-06，软件合同PASS / 现场保护FAIL）
+
+用户确认统一[实施Task](tasks/planning-material-boundary-matrix-2026-10-06.md)并授权A–D，F1正文容器、G1查询提示角色、G2产品Planning v2已实现。新正文精确保留且确认重验；旧未确认稿正常修订、已确认旧稿按旧版读取。查询解释共用，旧字段不进入硬filters或视觉required，保持候选/排序和既有cache身份。新产品登记v2并绑定sidecar/manifest/最终Need，原pending先按原route核对；旧有效v1恢复，异常版本/身份/cache/报告复用拒绝。Material V1.3、Rights/Match/Readiness与预算授权未放宽。
+
+最终run-015 **25 PASS/0 FAIL/0 GAP/0未执行**，全量 **738 passed/5既有bun缺失skip（49.41秒）**，115技能、compileall/diff通过，Astra最终CONTINUE仅认可软件合同冻结。真实内部确认→Owner→Preparation→Planning→Truth→Supply→Observation连续集成，外部模型/Provider为隔离fixture；主场景搜索/接收/观察各1，重入不新增搜索/接收；CRLF、旧合同、查询cache、报告早返、副本身份与中断保护均有回归。
+
+**现场保护FAIL，不认领A–D无例外整体通过。** 首轮全量测试中当时未限制产品范围的v2登记分支，因历史fixture使用真实ID误写前两轮Creation的版本、登记历史及更新时间（3/15登记事件）。未回写恢复；内存反事实重建与A基线SHA完全一致，确认变化限于四类元数据路径。221/223受保护文件和全部19历史fixture不变；两份Creation仍failed，三轮真实FAIL不变。修正产品范围并新增Python写入保护后，最终全量及矩阵前后现场无进一步变化；保护器不是完整系统沙箱。完整事故和软件证据见[唯一验收](acceptance/planning-material-boundary-matrix-2026-10-06.md#统一治理ad软件交付2026-10-06)。
+
+当前仍为easel-studio未提交工作树，HEAD36ead76；包含新增源码的集合SHA`cd314b19e591a302657c4762508ac42b0df422139d8ebe44a89b86991c45aecc`。未提交/推送、重启/加载服务、执行付费模型/Provider或真实E批。软件合同PASS不认领素材层独立自主验收；原失败记录保持，现场元数据处置与真实评测/Smoke/E2E另行启动。
+
+## Planning → Material 合同与集成矩阵（2026-10-06，修复前历史调查）
+
+按用户对齐方案固定36ead76beaeed02ce53d1580dc4f0fb56ddcd88e及生产SHA5f6e21a2fb301358c906291bbf4a811fa44ac986ace214a1c7ef687c10b0aede，独立矩阵25风险行：**22 PASS / 1 FAIL / 2 CONTRACT_GAP**；pytest24 passed/1 failed。唯一明确FAIL为第三轮正常确认入口接受含说明/TTS预测/编排的script；缺失同轮sidecar的新旧政策、旧三标量query被留在filters单列合同缺口。历史wrapper、模态污染、原文/身份/cache/持久重入保护通过；不把结构绑定当作模型语义能力证明。
+
+真实Owner/Preparation/Planning/Truth/persist/Supply/Observation的离线交接执行成功，外部语义为确定性fixture；搜索/接收/观察各1，重入服务2次但搜索/接收仍1，Rights UNKNOWN、观察unknown、Gate MATERIAL_NOT_READY。三轮原FAIL保留、223运行文件SHA与集合不变；生产代码/服务不改，无真实模型、Provider、采购、生成或视频执行。矩阵独立入口，默认collection736项不受失败案例影响；compileall/diff/脱敏检查通过，原装配失败日志保留。结果、完整Expected/Actual及聚类见[唯一矩阵验收](acceptance/planning-material-boundary-matrix-2026-10-06.md)，范围见[Task](tasks/planning-material-boundary-matrix-2026-10-06.md)。本节保留修复前调查；后续软件结果与现场异常见顶部统一治理节，真实Smoke/E2E后置，第三轮预算不转授。
+
+## 第三次独立 Material E2E（2026-10-06，FAIL / Truth Gate）
+
+固定`36ead76beaeed02ce53d1580dc4f0fb56ddcd88e`与生产SHA`5f6e21a2fb301358c906291bbf4a811fa44ac986ace214a1c7ef687c10b0aede`，经加载/无活动旧任务核验及Astra CONTINUE，从正常新对话建立《给一天留一点空白》`cr_7e2e84a687d9493095ff371425d7e930` / `fa_f0ff6daa752e339819a677b2d893a6fc`。独立¥10图片/预置旁白预算，确认前正式绑定MATERIAL_READY。Preparation通过，本次真实9个required Need（6视觉、Voice、BGM、SFX）完整保留；Domain/模态/全部视觉要求合同正常通过，无结构修复。正式PLANNING_READY未建立、Material Supply未进入。
+
+确认稿文案段含6句正文及方案元说明，整体进入SCRIPT。Truth将正文6句判creative_expression、2项说明判rewrite_required、TTS时长预测判unresolved；冻结确认稿不能自动改写，后台同错3次后failed停止，无额外模型重派。`MATERIAL_E2E=FAIL / AUTONOMOUS_EXECUTION=YES / AUTONOMOUS_DELIVERY=NO / ENGINEERING_INTERVENTION=0`；供给0/9、无Readiness Gate，确认至终态5分46秒、Planning至终态3分55秒。Agent5、供应/生成/声音验证0，占额¥0，模型真实费用UNKNOWN。没有Authoring/Build/Quality/发布；15个旧作品及生产源码SHA不变，前两轮FAIL保留。只读诊断与完整脱敏现场见[第三轮唯一验收](acceptance/material-independent-e2e-3-2026-10-06.md)。本轮不修复、不恢复，也不认领Material Layer真实自主交付成功。
+
+## 第三次独立 Material E2E 前固定版本与加载（2026-10-06）
+
+用户授权提交已验证改动并重启服务。修复源码、测试、真实回归fixture及必要Task/第二轮验收记录已提交至`easel-studio`：`36ead76beaeed02ce53d1580dc4f0fb56ddcd88e`。生产源码/测试无未提交改动；既有无关文档整理继续保留，未混入此提交。沿用上节731 passed/5 skipped、115合同、compileall/diff及Astra CONTINUE，提交时未改测试过的代码。
+
+北京时间21:04:30通过现有launchd重启Easel Web/Gateway；Web PID45709、cwd为本仓库，Gateway PID45701，实际runtimeVersion=2026.9.4。重启后Web `/api/status`、Gateway健康/状态通过，active=0、queued=0、683任务全部终态、taskAudit warnings/errors=0；Gateway原已安装模块SHA未变。加载前后15个Creation JSON及第二轮workspace18文件SHA不变，两轮FAIL均保留。生产文件集合SHA为`5f6e21a2fb301358c906291bbf4a811fa44ac986ace214a1c7ef687c10b0aede`，本节算法为全部Git跟踪easel/web/scripts文件路径→SHA排序JSON再SHA，不与旧次验收不同清单算法混比。
+
+脱敏预检与加载记录：`/Users/xgx/Library/Application Support/Easel/acceptance/planning-modality-release-2026-10-06`。未启动第三次Creation/E2E、未调用模型/素材生成或视频流程；新作品预算仍须绑定新Creation，前两轮预算不转授。以下“未提交/未加载”为软件修复阶段的历史状态，当前加载版本以本节为准。
+
+## Planning 模态与单次修复边界（2026-10-06，软件前置通过）
+
+第二轮真实失败的更早根因是初始Planning将`voice_delivery`复制到全部10个Need；合法Voice对象原本已受支持，非Voice对象与笼统scalar修复提示冲突，继而被摊成3个非正式别名。共享application校验现于检索、视觉sources、Planning默认合并前及生成入口拒绝错位对象/别名；producer与repair共用对象例外。合法Voice canonical结构、取值范围、visual sidecar及required/optional不变，不自动删移参数或修写真实失败产物。
+
+原“单次结构修复”另被异步重入放大至7次；现持久保存Attempt/冻结refs/确认方案对应的原请求，未知/超时只恢复原身份，complete只验产物、failed不再派发，普通Retry及错误变化不刷新额度。这是明确的恢复行为收紧，未重构Owner。全量**731 passed、5 skipped**，115技能合同、compileall/diff通过，Astra最终CONTINUE。原18份workspace文件、14个旧Creation均未变，两轮FAIL保留；服务未重载、真实模型/Provider调用0。代码仍在工作区未提交，后续新真实E2E须先提交固定并核验加载。详见[目标、根因与方案](tasks/planning-modality-contract-2026-10-06.md)。
+
+## 第二次独立 Material E2E（2026-10-06，FAIL / 新 Planning 边界问题）
+
+固定修复提交 `c9cb4b9c`、生产源码 SHA `de23d0567944e543015f17bd7c425886bb0ed1d0f864ca9efb1fb1aebd4cfdfa`，安全加载 Web/Gateway 并经 Astra 前置 CONTINUE 后，从正常新对话创建 `cr_223021d92de643f0a35faea2907de7ed` / `fa_d5e99b227faa224b82f5347174850a1b`，独立预算¥10、正式终点MATERIAL_READY。Preparation真实通过；真实要求文件已正确以全部7视觉ID作键、没有audio ID混入，但系统声音检索修复把标量voice参数写入全部视觉Need，最终每项漏引`constraints/voice_tone=neutral`，严格原文覆盖校验拒绝。Owner同操作3次失败后于20:30:02自动停止，未进入Material Supply/Rights/Match/Readiness。
+
+**MATERIAL_E2E=FAIL，AUTONOMOUS_EXECUTION=YES，AUTONOMOUS_DELIVERY=NO。** 正式覆盖未建立，草稿9required/1optional、准入0/9仅供参考。Creation入口至停止20分15秒，确认后16分05秒；方案Agent3、Delivery Agent9（Preparation1/Planning1/既有修复7），素材Provider/生成0，占额¥0/¥10，模型及总账单未知。运行中工程干预0，未开发、人工补证/Retry/放行或进入Authoring/Build/Quality。固定源码、11项handoff/4项snapshot/3份确认规划文本与14个旧Creation均不变，原两轮FAIL全部保留；请求终态released、网关active0/queued0。详见[第二次独立验收记录](acceptance/material-independent-e2e-2-2026-10-06.md)。下方软件回归通过不扩大为本轮自主验收成功。
+
+## Planning → Material 合同断口修复（2026-10-06，软件前置通过）
+
+以 cr_94b5d27f5fb140de85981cecba009a9d / fa_2368857a95b3c017098064d189ce84e4 的原始两份 Planning JSON 字节作确定性 fixture。canonical 仍为全部视觉 Need ID → {clauses,queries}：Planning producer 包装数组/音频混入是直接偏离；程序侧另有查询 metadata 误入视觉原文和同轮缓存键不一致。初始与 repair 共用正式 schema；入口严格转换本次具名结构、已知路径/空引用及单向等长引号漂移，绑定冻结原文，只补完整缺失的显式软偏好；必要条款缺失/改词/部分覆盖及偏好升级仍拒绝。producer/consumer 共用缓存键，旧键重验复用，坏新键不得绕过。
+
+**7 visual、8 required / 3 optional、4 audio 全部保留，无额外 Planning/repair/分类调用完成本次结构处理。** 248 项相关回归、115 技能合同、compileall/diff check 通过，Astra 前置及最终 CONTINUE。Material V1.3 语义与 canonical 输出未变，新增严格具名输入适配；READY_FOR_NEW_MATERIAL_E2E=YES 仅指软件前置通过。原失败文件字节、Need/importance/创作语义及 failed 终态保持，未重载服务、恢复 E2E、调用 Provider/生成或进入视频。证据见[原运行记录的后续软件修复节](acceptance/material-independent-e2e-2026-10-06.md#后续-planning--material-合同软件修复2026-10-06)。
+
+## 当前独立 Material E2E（2026-10-06，FAIL / Planning 自动停止）
+
+用户另行启动一次当前版本的新Creation独立素材验收：主工作区easel-studio HEAD5919a9de，生产源码集合SHA d1ed4ec4c2944b4f488cbeecc07208696ece0a176405393fe5c97f1a296ba016；新作品cr_94b5d27f5fb140de85981cecba009a9d / Attempt fa_2368857a95b3c017098064d189ce84e4。在新Creation创建前核对无活动/未知执行并加载现有Web及网关；正常对话与第3版画布确认，独立预算¥10，正式终点MATERIAL_READY。Preparation真实通过；Planning草稿schema经系统结构修复有效，但要求文件使用包装对象/visual_requirements数组，而正式根对象须以全部视觉Need ID作键，连续3次失败后原Owner自动停止。
+
+**MATERIAL_E2E=FAIL，未进入Material Supply、未达到MATERIAL_READY。** 草稿8required（6视觉+旁白+BGM）、3optional，正式Plan/覆盖报告未成立，不将草稿0/8伪装成正式Readiness。正常方案派发3、Delivery Agent4、素材Provider/生成0，占额¥0/¥10，模型实际账单未知。入口至停止12分55秒，确认后10分15秒。正式确认后工程干预0；AUTONOMOUS=YES仅指全程系统执行，不表示自主达到终点。冻结输入/源码/旧作品记录不变；Agent全部终态released、无未知采购；Authoring/Build/Quality未派发。保留失败现场，不修复、不人工Retry，不自动第二次验收。详见[本次独立运行记录](acceptance/material-independent-e2e-2026-10-06.md)。下方原作品工程恢复的9/9历史不被倒算成本次结果。
 
 ## BGM 放宽后的原作品素材齐备（2026-10-06，MATERIAL_READY / 9 of 9）
 
@@ -19,12 +572,34 @@ v3/v4预登记独立留出均器乐3/6，广泛能力验收FAILED保留。v4已�
 
 Web已加载主工作区commit43d2eb56；未派发Authoring/Build，execution=NOT_SUBMITTED，outputs为空，网关/Hypit未重启。**AUTONOMOUS=NO**，工程恢复不等于首版视频交付或端到端提速。下一顺序为视频流程软件整合与另行启动窄路线视频阶段。详见[原恢复记录R17](acceptance/creation-latency-v05-material-resume-2026-10-05.md#r17-用户放宽-bgm-审核后的原作品受限恢复material_ready--9-of-9)及[策略/失败/最终对账](acceptance/fixtures/bgm-practical-recovery-2026-10-06.json)。以下旧分段均保留当时状态，不覆盖本节。
 
-
 ## 已确认创作方案的规划恢复修复（2026-10-05，软件验证）
 
 Planning 模型曾将已确认声音段从 TREATMENT 移到 SCENES；原确认校验准确，但四文件写入提示与只读要求冲突，且 write-if-missing 不能恢复错误草稿。现在确认三文件由程序单一 canonical 映射原样提供，未提交差异先以内容 hash 原子归档再原子恢复；首次输出、一次 repair 和中断重入共用恢复。初始/repair 只要求素材 JSON，不让模型重写确认文案。冻结规划差异、异常文件类型/目录 symlink 及历史字节不符仍拒绝，文件系统错误不触发新模型修复。
 
 已有 Planning 集成场景扩展覆盖两轮移动声音、错误草稿归档/重复去重、有效 Plan 重入零模型调用、冻结拒绝、文件/模型返回后目录 symlink 拒绝；原无确认作品仍正常四文件交付。Astra 最终 CONTINUE。未改实际作品文件、未重启服务、未调用真实模型或恢复制作。最终验证及现场根因见[具名记录](acceptance/confirmed-planning-recovery-2026-10-05.md)。
+
+## 双窗口执行入口（2026-10-05，任务拆分，不是新增验收）
+
+用户要求分别设置两个独立目标，实施入口已拆为 [BGM 验证与素材齐备](tasks/creation-bgm-readiness-2026-10-05.md) 和 [视频流程软件优化](tasks/creation-video-flow-software-2026-10-05.md)；[原方案](tasks/creation-latency-2026-10-02.md)保留总顺序、共同约束和汇合条件。两个目标使用独立 worktree，共同文件在分支整合时合并，主工作区状态统一更新。BGM 目标负责原作品/服务/运行记录；视频目标仅交付软件改动与确定性证据，真实制作仍后置。本次只拆文档，未创建窗口、设置新目标或启动第二执行器；此前声音能力失败和原作品 8/9 保持。
+
+## v0.6 BGM 首轮能力验收（2026-10-05，CALIBRATION_FAILED）
+
+按[后续 Task](tasks/creation-latency-2026-10-02.md)执行 G0，本机模型三个摘要和 527 标签核对一致；建立 32 个来源/标注/许可固定的基础样本与 32 个短语音混音，校准与留出按来源隔离。只观察校准 32 项，原作品音乐未用于调参，留出 32 项保持未观察。
+
+旧规则及仅补标签 A 均为器乐 1/6 合格、负例误放行 5/26；B 可到器乐 5/6，但仍误放行 5/26。文档允许的一项辅助比较复用已安装 faster-whisper 的 Silero VAD：零误放行时最多 4/6 器乐，通过至少 5/6 器乐时误放行至少 4/26。没有可选生产规则，已触发停止条件，G1/G2 未启动。另复现生产报告 NaN 时长未被拒绝，列入后续局部验证范围，当前未改生产模块。
+
+新增单一离线校准/媒体重建工具；64 个媒体重建 SHA 全部一致，两轮数值回放逐项一致，8 项隔离技术反例拒绝、现有声音供给回归 4 passed、脚本 compileall 与 diff check 通过。原作品仍 **8/9 / MATERIAL_NOT_READY**、唯一缺口 bgm_subordinate；Owner 仍 material_supply_exhausted。没有安装模型、恢复服务/作品、修改运行产物/账本、调用付费 Provider 或进入 Authoring/Build。详情与有限样本的适用边界见[唯一能力验收](acceptance/creation-latency-v06-bgm-calibration-2026-10-05.md)。下一步需重新确定声音能力/证据路径，不能仅降低阈值接续。
+
+## v0.6 方案修订与新增风险（2026-10-05，研究/方案，未实施）
+
+本节保留此前方案阶段的记录；当前执行结果以顶部 G0 能力验收为准。
+
+用户要求对照 OpenMontage 并搜索 GitHub 后完善方案，允许合理移植代码；固定提交源码、采用/排除理由及已完成研究现保存在[历史归档](tasks/creation-latency-completed-2026-10-05.md)；[后续 Task](tasks/creation-latency-2026-10-02.md)仅保留 BGM 校准样本与留出门、最小代码落点、规则版本/缓存迁移和 G0–G4 验收顺序。保留现主链，先能力验证再自动化，不新增运行时依赖或并行 Task。
+
+本次源码核对发现当前 `VOCAL_LABELS` 漏掉模型已有的 Choir、A capella、Yodeling、Mantra。隔离合同反例 Music=.95 / Choir=.99 / 现有 vocal=.001 被判 instrumental_music；这是标签覆盖缺口，**不是当前 BGM 有声乐的实测结论**。原始报告与派生准入还须分别绑定模型/输入和 policy revision，避免同报告 digest 阻止新规则重评。以上尚未修复或真实校准，不能直接降低 Music 阈值。
+
+当前作品仍为下述 R16 **8/9 / MATERIAL_NOT_READY**；701/5 为此前验证。本轮仅改方案/状态路由，未改运行代码、装模型、恢复作品、花费预算或启动 Authoring/Build。后续先执行 G0 的标签、预处理、固定正反样本与独立留出验证，再决定 G1 的最小规则调整。
+
 
 ## v0.5 当前素材恢复（2026-10-05，PARTIAL / 8 of 9 / 音频验证未确认）
 
@@ -62,7 +637,7 @@ R3于08:22:20恢复，08:27:04达到3次真实视觉失败上限自动停止，�
 
 ## v0.5 实测根因修复（2026-10-05，软件通过 / 真实能力未验收）
 
-用户要求设定目标并按收敛方案修复，已实施[原 Task §12.10.9](tasks/creation-latency-2026-10-02.md#12109-2026-10-05-获批软件修复验证与剩余能力门)。历史 84 分 38 秒中，51 次视觉请求累计约 66 分 09 秒，来源适配自身累计约 17 秒；主要是无关联候选跨 Need 提名、批后切换迟滞、偏好误拒、partial 阻止合法补位及报告交付故障，不能只归因模型慢。真实结果仍为 4/9 / PARTIAL / 已停止，不能认领素材齐备或提速。
+用户要求设定目标并按收敛方案修复，已实施[原 Task §12.10.9](tasks/creation-latency-completed-2026-10-05.md#12109-2026-10-05-获批软件修复验证与剩余能力门)。历史 84 分 38 秒中，51 次视觉请求累计约 66 分 09 秒，来源适配自身累计约 17 秒；主要是无关联候选跨 Need 提名、批后切换迟滞、偏好误拒、partial 阻止合法补位及报告交付故障，不能只归因模型慢。真实结果仍为 4/9 / PARTIAL / 已停止，不能认领素材齐备或提速。
 
 软件已改：要求合同完整绑定冻结输入，明确必要项/偏好/后期职责；沿原 agent.wait(runId) 接收最多 3000 UTF-16 单位紧凑结果，系统组装保存普通观察，原结果中断可恢复，截断/错 run 不扩搜索或生成。来源/实际 query/排名及字节去重关联持久保存，每次最多两张不同素材后返回原 Owner 重算；仅有依据才跨 Need 提名，一次全计划无语义探索，跨池关联不清零。同 Need/query 的来源收益不污染其他 Need；优先已编译变体，旁白不再搜索图库朗读指令。
 
@@ -70,7 +645,7 @@ R3于08:22:20恢复，08:27:04达到3次真实视觉失败上限自动停止，�
 
 确定性全量 **672 passed、5 skipped（38.75 秒）**；compileall、115 项合同、前端投影、lint/build、diff check 通过，仅既有依赖/hook/包体提示。回放中的模型/Provider/renderer 均为 fake，不是实际素材或成片验收。原 Task/顺序已同步；没有新建平行 Task、接新图库、重启服务、恢复作品、调用真实模型/Provider、使用 10 元授权或执行 E2E/Build；历史 Acceptance 不改写，运行中服务不认领加载新代码。
 
-最新声音规则（用户已批准，[原 Task §12.10.10](tasks/creation-latency-2026-10-02.md#121010-当前声音模型的有限放宽用户已批准2026-10-05)）：不下载/切换模型，不再等待备用资源决定。保留全部词≥0.5原路径；全文逐字一致、无增删且实际时间完整有效时，允许最低词≥0.25、低于0.5的字符≤全文5%且最多3字、按字符加权均值≥0.85的有限路径。普通内容/时序/生成Rights/Match共用规则，保留原概率；失败身份包含新规则，原primary识别缓存仍复用，旧失败不删除，当前Owner不派发备用模型。只读当前保存报告（含脚本/Need/音频SHA核对）95字一致、低置信1字、最低约0.282、加权均值约0.988，满足新规则；只在内存判断，未正式登记或更新Gate，历史4/9不改。BGM许可及音乐/人声规则不放宽。
+最新声音规则（用户已批准，[原 Task §12.10.10](tasks/creation-latency-completed-2026-10-05.md#121010-当前声音模型的有限放宽用户已批准2026-10-05)）：不下载/切换模型，不再等待备用资源决定。保留全部词≥0.5原路径；全文逐字一致、无增删且实际时间完整有效时，允许最低词≥0.25、低于0.5的字符≤全文5%且最多3字、按字符加权均值≥0.85的有限路径。普通内容/时序/生成Rights/Match共用规则，保留原概率；失败身份包含新规则，原primary识别缓存仍复用，旧失败不删除，当前Owner不派发备用模型。只读当前保存报告（含脚本/Need/音频SHA核对）95字一致、低置信1字、最低约0.282、加权均值约0.988，满足新规则；只在内存判断，未正式登记或更新Gate，历史4/9不改。BGM许可及音乐/人声规则不放宽。
 
 本次声音增量全量 **682 passed、5 skipped（42.52秒）**，保护低分/比例/绝对量/均值边界、错字/漏字/增字/时间及旧拒绝+中断恢复零新ASR/TTS；compileall、115项合同及diff check通过，无前端代码修改。没有下载、真实推理、费用、重启、恢复、E2E/Build。不能以保存报告的只读新规则通过认领旁白已正式准入或BGM合格。下一顺序为有限真实报告和声音能力验证 → 另行允许加载及复核 → 同 Attempt 至9/9 MATERIAL_READY；完整视频后置，无同条件提速比例。
 
@@ -100,7 +675,7 @@ R3于08:22:20恢复，08:27:04达到3次真实视觉失败上限自动停止，�
 
 剩余阻塞：报告结论与逐帧字段矛盾仍无法稳定修复；偏好/后期效果仍可能被误设为门槛；预算已授权但冻结 Brief 与画面 Need 不允许生成，权限意图传递待核实，不自行解禁。无首版，Voice/Production/Quality 效果未验收，不再盲重试，不自动第二作品。仅更新原 Task 和 [唯一运行记录](acceptance/creation-latency-v04-e2e-2026-10-03.md)，没有同条件基线或提速比例。
 
-方案衔接（2026-10-04）：用户已批准唯一 [Task §1/§6.1/§12](tasks/creation-latency-2026-10-02.md#12-v05-素材层可靠供给与耗时优化方案) 的 v0.5 软件实施与确定性验证；不重启旧任务，不恢复作品，不进行真实模型、素材采购、Material E2E 或 Build。原作品 10 元授权绑定不变，本轮未使用。以下软件结果不改写上述 FAILED。
+方案衔接（2026-10-04）：用户已批准唯一 [Task §1/§6.1/§12](tasks/creation-latency-completed-2026-10-05.md#12-v05-素材层可靠供给与耗时优化方案) 的 v0.5 软件实施与确定性验证；不重启旧任务，不恢复作品，不进行真实模型、素材采购、Material E2E 或 Build。原作品 10 元授权绑定不变，本轮未使用。以下软件结果不改写上述 FAILED。
 
 ## v0.5 素材可靠供给与耗时优化（2026-10-04，软件收口）
 
@@ -139,11 +714,11 @@ R3于08:22:20恢复，08:27:04达到3次真实视觉失败上限自动停止，�
 
 ## 创作耗时优化：首批（2026-10-02）
 
-- **2026-10-03 v0.4 软件完成：** 用户批准唯一 [Task](tasks/creation-latency-2026-10-02.md) 的软件实施；当前为 **APPROVED / SOFTWARE_ACCEPTED / REAL_WORLD_NOT_VERIFIED**。按 §4.1 分段完成累计派发额度与请求历史、查询/Provider 限制、明确混杂旁白的确认拦截、已观察取片整数边界、初次编排必要表达承担项、已核实识别词边界字幕分组，以及有界 Quality 新时点补证与局部报告恢复。R1/R2 只核实和回归，不重复开发；Material V1.3、Truth/Rights、费用及 Quality 文字/时序/依赖权限未改变。3A/3B 等仍延期。
+- **2026-10-03 v0.4 软件完成：** 用户批准唯一 [历史 Task](tasks/creation-latency-completed-2026-10-05.md) 的软件实施；当前为 **APPROVED / SOFTWARE_ACCEPTED / REAL_WORLD_NOT_VERIFIED**。按 §4.1 分段完成累计派发额度与请求历史、查询/Provider 限制、明确混杂旁白的确认拦截、已观察取片整数边界、初次编排必要表达承担项、已核实识别词边界字幕分组，以及有界 Quality 新时点补证与局部报告恢复。R1/R2 只核实和回归，不重复开发；Material V1.3、Truth/Rights、费用及 Quality 文字/时序/依赖权限未改变。3A/3B 等仍延期。
 - **本批确定性结果：** 全量 **632 passed、5 skipped（39.08s）**，局部六文件 **214 passed**，最后五个关键回归 **5 passed**，最终 Provider 选词记录清理后的局部 **108 passed（8.49s）**；compileall、115 项 skill/publisher 合同及 diff check 通过，既有两项依赖弃用提示。当前安装 Hypit 原生文字 Area 与实测字幕组合的实际静态 check 成功；无 Build/Runtime/真实模型。确认稿/Truth、候选接续、共享观察中断、合格后停止、正式选择/越界、未知提交对账及返修受保护输入继续回归。重复同证据补看、已保存报告重审、错误重派覆盖原 run 历史等具体风险已由局部证据保护，不代表真实误判率或端到端耗时通过。
 - **1A 生效边界：** 原 Creation Delivery 持久阶段额度在派发前预占；网关初次/补证/报告修复/明确故障重派、Provider 适配检索、本地声音新观察及生成报价/新提交累计，轮询/清理/有效结果读取不计。子流程、修复副本与显式 Retry 不清零；额度耗尽保留结果并停止新工作，未知提交先对账，不认领成功。上限及推导见 Task §10.1；适配器记录可能命中既有缓存，不冒充实际 HTTP 数或账单。
 - **实证与未验收：** 只读对应 OpenClaw SQLite 会话确认最终两次 assistant `stopReason=length`，最后文本约 2.87 万字符却未保存报告；本批先校验文件、有限局部修复、要求先实际写入后简短回复。Quality 每组只判断采样所覆盖表达，具体缺证补不同实际时点，保留有效观察/检查和中断 checkpoint；无新采样/容量不足/持续 unknown 保留缺口。真实报告稳定性、召回、语义误拒/误通过、完整动态表达、实际音画与导演语言仍未验证。
-- **审查修正执行：R1/R2 软件完成，R3 本轮实测未通过，整体仍 PARTIAL。** 用户要求设定目标后执行，[Task §9](tasks/creation-latency-2026-10-02.md#9-实施后审查任务清单2026-10-03) 保持唯一任务清单。`related-first-v4` 将同池名单拆为派发前冻结的轮次，每 Need / 计划及素材池最多提名 9 项；先接续未观察关联，再沿原有限补料处理缺口。保存提名数、未观察列表及覆盖/候选耗尽/预算耗尽原因。有效报告结果摘要及时持久保存，恢复不丢掉已覆盖 Need 的判断记录。正式准入、Rights、费用和未知执行对账保持原边界。
+- **审查修正执行：R1/R2 软件完成，R3 本轮实测未通过，整体仍 PARTIAL。** 用户要求设定目标后执行，[Task §9](tasks/creation-latency-completed-2026-10-05.md#9-实施后审查任务清单2026-10-03) 保持唯一任务清单。`related-first-v4` 将同池名单拆为派发前冻结的轮次，每 Need / 计划及素材池最多提名 9 项；先接续未观察关联，再沿原有限补料处理缺口。保存提名数、未观察列表及覆盖/候选耗尽/预算耗尽原因。有效报告结果摘要及时持久保存，恢复不丢掉已覆盖 Need 的判断记录。正式准入、Rights、费用和未知执行对账保持原边界。
 - **本次执行终点：软件及确定性验证后停止。** 没有重启服务、继续旧 Creation、调用真实模型或执行 Build/完整 E2E；运行中服务未加载本批修改。没有已知确定性回归阻塞，具备独立真实验收准备条件；实际启动须另行确认新委托、费用及执行范围并完成版本/环境预检，不自动转授旧 10 元授权，不代用户接受成片。旧 R3 保持失败及工程介入记录。
 - **R3 已核实进展与 2B 修正：** 六视觉 Need 及已生成旁白完成正式覆盖（旁白预算预估上限 0.075600 元，非最终账单），经配乐定向补料及实际公开源页核实，19:09:44 前已 MATERIAL_READY 并自动进入编排，20:17:11 首个真实无 Provider 费用 Build 已提交并完成，45 秒 / 1080×1920 / 24fps MP4 技术 QC pass；实际首屏字幕对比和必要画面关系存在不足，20:47:49 首轮四组 Quality 已为 REPAIR_REQUIRED，关键画面/剪辑表达失败及四处声音遮盖告警；报告另有字幕底色/素材朝向误判。20:53:57 后续复查因报告未落盘而重试耗尽，Delivery failed，所有请求已终态，无第二 Attempt 或新购买；不能宣称可看首版或风格通过。实际补料查询被复杂声音偏好覆盖，当前首个分页查询不变；最小修正保留明确补料词首位、偏好次位，默认初次检索及正式合同不变。全量 627/5 跳过、compileall/115 项合同/diff check 通过。确认无未知运行后重载 Web，正常 BGM-only 恢复不重购旁白；新配乐已通过既有声音证据及真实公开源页权利复核，Production/export 仍必须落实 CC BY 署名，不能据候选返回或文件存在宣称成片通过。19:15:10–19:34:50 发生合盖休眠；恢复后原编排请求明确失败，下一隔离轮自动补齐后仍缺主 SVML，原三次有界编排耗尽后，最小修正补齐指令的样式依赖冲突及缺失文件失败分类，627/5 回归通过；无未知运行时重载 Web 并经原 Delivery 重试入口接续，另已完成仅补充取片失败定位/精确帧界的诊断修正，627/5 回归通过，已核对隔离接续合同及既有测试，平滑加载诊断增强并保留同一 run/stage，未重派或取消；已有真实 MP4，详细阶段与人工救场限制见具名 R3 验收。
 - **R3 真实首个问题：** 17:59:14 正式确认后首次规划因文案字段混入非朗读说明，规划删去说明而被冻结一致性检查阻止；两次合同修正仍失败，尚无生成或 Build。18:14:21 经正常方案编辑整理，18:16:44 同内容同规格、10 元生成额度重新正式确认并接续。此人工恢复意味着初始无需救场自主性未通过；继续运行验证真实素材/制作，不倒算初始自主成功，详见 [本次验收](acceptance/creation-latency-r3-2026-10-03.md)。
@@ -154,7 +729,7 @@ R3于08:22:20恢复，08:27:04达到3次真实视觉失败上限自动停止，�
 - **规划与风格：** 对话/Planning/Authoring 明确区分要求来源、必要表达、Mode 稳定表达和软偏好，在获准能力内提出可制作镜头，并要求五项音画表达实际落实、沿已有 Quality 检查。新增现有 Delivery 内部 Preparation/Planning/结构修正/Truth/事实文稿修正计时。调用计时包含 checkpoint 读取与等待，不等于模型提交；内部时间属于大阶段，不能叠加算端到端。确认稿、有效 Truth、实际抽帧、费用与准入继续复用既有边界，不建设通用缓存/事实/观测层，不新增裁切消硬冲突准入。
 - **此前软件证据与限制：** 全量 **618 passed、5 skipped（37.04s）**，局部 **130 passed（8.77s）**；compileall、115 项 skill/publisher 合同及 diff check 通过，仅既有两项依赖提示，本轮未改前端或重复前端构建。固定三场景/九素材的送审关联 **27 → 12**，两次共享调用达到 MATERIAL_READY，保留未知描述探索且不复审已覆盖场景；全失败首批 **9 → 4** 仍明确 NOT_READY，不能单凭此宣称交付改善。报告一致性检查只能发现自身矛盾，不能自动证明画面语义误判；没有新增补看能力。真实成片风格、自主交付、服务加载和整片提速仍 **NOT_VERIFIED**。本轮未重启服务、调用模型、运行真实 Build/E2E。
 
-- 以下为 2026-10-02 首批独立证据，不能当作本轮真实链路验收。用户新增优先项为缩短创作时间；[Task](tasks/creation-latency-2026-10-02.md) 已记录方案确认、Preparation/Planning/Truth、素材/声音、编排、Build、审片全链瓶颈与后续顺序。真实整片时延仍未测量，不能将局部减少计算等同整体提速比例。
+- 以下为 2026-10-02 首批独立证据，不能当作本轮真实链路验收。用户新增优先项为缩短创作时间；[历史 Task](tasks/creation-latency-completed-2026-10-05.md) 已记录方案确认、Preparation/Planning/Truth、素材/声音、编排、Build、审片全链瓶颈与后续顺序。真实整片时延仍未测量，不能将局部减少计算等同整体提速比例。
 - 原 Delivery Owner 每三秒扫描一次，成功步骤也等待下轮。现在成功且操作/Attempt 已变化时立即接续，每轮最多 32 步；同操作仍等待轮询，失败/不确定执行返回原机制，未改变执行锁、费用批准、对账和停止条件。回放的同一 18 次操作由 18 次调度减少为 6 个连续批次；真实节省取决于原各步骤完成时与轮询时钟的关系，并非固定每步三秒。
 - 同素材视觉预览在单次观察内按版本、字节、媒体类型与时长有限复用，最多缓存九项。每次仍校验实际文件 SHA/大小，并生成独立 Need 输入与判断；不持久化缓存，重启重建。真实短视频的四个 Need 回放从 20 次 ffmpeg 抽帧减少为 5 次，采样时间与帧摘要保持，字节改变拒绝复用。
 - 原 delivery 增加 `operation_timings`，按 Attempt/操作保存次数、累计/最近执行秒数、首次/最近起止时间及最近结果。该执行时间包含单次调用的等待，不包含两次调用之间的远端运行、调度或人工等待；不可直接求和当作端到端时间。网关运行仍使用已有持久身份和时间记录。

@@ -385,7 +385,7 @@ def classification_batches(plan, mode, *, canonical=None, compiler_policy=None, 
     for need_index, need in enumerate(plan.needs):
         if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO}:
             continue
-        frozen = compilation_input(need, plan.context_refs, mode)
+        frozen = compilation_input(need, plan.context_refs, mode, plan=plan)
         preferences = []
         pref_map = {}
         for source, row in enumerate(frozen['sources']):
@@ -486,7 +486,7 @@ def assemble_requirements(plan, mode, responses, *, canonical=None, compiler_pol
     result = {}
     for need in plan.needs:
         if need.need_id not in per_need:continue
-        frozen = compilation_input(need, plan.context_refs, mode)
+        frozen = compilation_input(need, plan.context_refs, mode, plan=plan)
         try:
             labels = {'classifications':per_need[need.need_id], 'queries':list(query_hints(need.constraints))}
             bound = bind_classifications(frozen,labels,unit_policy=UNIT_POLICIES[policy])
@@ -550,6 +550,11 @@ def source_catalog(canonical, planning_context):
         identity = record.get('voice_identity')
         if isinstance(identity,dict) and identity.get('source') in {'creator_context','director_intent','explicit_user'}:
             catalog['voice'][reference] = {**identity,'context':record}
+    from easel.integrations.voice_identity import derived_catalog, REFERENCE
+    derived = derived_catalog(planning_context.get('proposal'), canonical['SCRIPT.md'])
+    if derived is not None:
+        catalog['derived_voice'] = derived
+        catalog['voice'][REFERENCE] = {'source': 'explicit_user', 'context': derived}
     return catalog
 
 

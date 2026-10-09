@@ -1,0 +1,2040 @@
+{
+  "historical_result": "FAIL",
+  "provider_finish": "tool_calls",
+  "native_status": "ok",
+  "runtime_release": "released",
+  "original_sha256": "3497535f58b6c7ca872da8ad07e84561fe818cede98b86ffad403cde6b091574",
+  "original_bytes": 2229,
+  "canonical_schema": {
+    "$defs": {
+      "Condition": {
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "strength": {
+            "enum": [
+              "required",
+              "preference"
+            ],
+            "title": "Strength",
+            "type": "string"
+          },
+          "responsibility": {
+            "enum": [
+              "material",
+              "postproduction",
+              "narrative"
+            ],
+            "title": "Responsibility",
+            "type": "string"
+          },
+          "meaning": {
+            "default": "observable",
+            "enum": [
+              "observable",
+              "dynamic_action"
+            ],
+            "title": "Meaning",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "strength",
+          "responsibility"
+        ],
+        "title": "Condition",
+        "type": "object"
+      },
+      "NeedProposal": {
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Scope",
+            "type": "string",
+            "enum": [
+              "event-1",
+              "event-10",
+              "event-11",
+              "event-12",
+              "event-13",
+              "event-14",
+              "event-15",
+              "event-16",
+              "event-17",
+              "event-18",
+              "event-19",
+              "event-2",
+              "event-20",
+              "event-21",
+              "event-22",
+              "event-23",
+              "event-24",
+              "event-25",
+              "event-26",
+              "event-27",
+              "event-3",
+              "event-4",
+              "event-5",
+              "event-6",
+              "event-7",
+              "event-8",
+              "event-9",
+              "global",
+              "scene-1",
+              "scene-10",
+              "scene-11",
+              "scene-12",
+              "scene-13",
+              "scene-14",
+              "scene-15",
+              "scene-16",
+              "scene-17",
+              "scene-18",
+              "scene-19",
+              "scene-2",
+              "scene-20",
+              "scene-21",
+              "scene-22",
+              "scene-23",
+              "scene-24",
+              "scene-25",
+              "scene-26",
+              "scene-27",
+              "scene-3",
+              "scene-4",
+              "scene-5",
+              "scene-6",
+              "scene-7",
+              "scene-8",
+              "scene-9",
+              "segment-1",
+              "segment-10",
+              "segment-11",
+              "segment-12",
+              "segment-13",
+              "segment-14",
+              "segment-15",
+              "segment-16",
+              "segment-17",
+              "segment-18",
+              "segment-19",
+              "segment-2",
+              "segment-20",
+              "segment-21",
+              "segment-22",
+              "segment-23",
+              "segment-24",
+              "segment-25",
+              "segment-26",
+              "segment-27",
+              "segment-3",
+              "segment-4",
+              "segment-5",
+              "segment-6",
+              "segment-7",
+              "segment-8",
+              "segment-9"
+            ]
+          },
+          "role": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Role",
+            "type": "string"
+          },
+          "modality": {
+            "enum": [
+              "image",
+              "video",
+              "bgm",
+              "sfx"
+            ],
+            "title": "Modality",
+            "type": "string"
+          },
+          "necessity": {
+            "enum": [
+              "required",
+              "optional"
+            ],
+            "title": "Necessity",
+            "type": "string"
+          },
+          "conditions": {
+            "items": {
+              "$ref": "#/$defs/Condition"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Conditions",
+            "type": "array"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Purpose"
+          },
+          "frame": {
+            "default": "unconstrained",
+            "enum": [
+              "unconstrained",
+              "match_output",
+              "native"
+            ],
+            "title": "Frame",
+            "type": "string"
+          },
+          "native_ratio": {
+            "anyOf": [
+              {
+                "maxLength": 9,
+                "pattern": "^[1-9][0-9]{0,3}:[1-9][0-9]{0,3}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Native Ratio"
+          },
+          "visual_preference": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Visual Preference"
+          },
+          "source_seconds": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0,
+                "maximum": 3600,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Seconds"
+          },
+          "continuity_choices": {
+            "default": [],
+            "items": false,
+            "maxItems": 16,
+            "title": "Continuity Choices",
+            "type": "array"
+          },
+          "queries": {
+            "default": [],
+            "items": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Queries",
+            "type": "array"
+          },
+          "voice_choice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "enum": [
+                  "confirmed.voice_profile",
+                  "creator_context.voice"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "voice_expression": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Voice Expression"
+          },
+          "sound": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SoundIntent"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "scope",
+          "role",
+          "modality",
+          "necessity",
+          "conditions"
+        ],
+        "title": "NeedProposal",
+        "type": "object",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "modality": {
+                  "enum": [
+                    "image",
+                    "voice"
+                  ]
+                }
+              },
+              "required": [
+                "modality"
+              ]
+            },
+            "then": {
+              "properties": {
+                "source_seconds": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "modality": {
+                  "enum": [
+                    "voice",
+                    "bgm",
+                    "sfx"
+                  ]
+                }
+              },
+              "required": [
+                "modality"
+              ]
+            },
+            "then": {
+              "properties": {
+                "frame": {
+                  "const": "unconstrained"
+                },
+                "native_ratio": {
+                  "type": "null"
+                },
+                "visual_preference": {
+                  "type": "null"
+                },
+                "queries": {
+                  "maxItems": 0
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "modality": {
+                  "enum": [
+                    "image",
+                    "video",
+                    "bgm",
+                    "sfx"
+                  ]
+                }
+              },
+              "required": [
+                "modality"
+              ]
+            },
+            "then": {
+              "properties": {
+                "voice_choice": {
+                  "type": "null"
+                },
+                "voice_expression": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "modality": {
+                  "enum": [
+                    "image",
+                    "video",
+                    "voice"
+                  ]
+                }
+              },
+              "required": [
+                "modality"
+              ]
+            },
+            "then": {
+              "properties": {
+                "sound": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "modality": {
+                  "enum": [
+                    "voice"
+                  ]
+                }
+              },
+              "required": [
+                "modality"
+              ]
+            },
+            "then": {
+              "required": [
+                "voice_choice"
+              ],
+              "properties": {
+                "voice_choice": {
+                  "type": "string",
+                  "enum": [
+                    "confirmed.voice_profile",
+                    "creator_context.voice"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "modality": {
+                  "enum": [
+                    "bgm",
+                    "sfx"
+                  ]
+                }
+              },
+              "required": [
+                "modality"
+              ]
+            },
+            "then": {
+              "required": [
+                "sound"
+              ],
+              "properties": {
+                "sound": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "modality": {
+                  "enum": [
+                    "bgm"
+                  ]
+                }
+              },
+              "required": [
+                "modality"
+              ]
+            },
+            "then": {
+              "properties": {
+                "sound": {
+                  "properties": {
+                    "event_description": {
+                      "type": "null"
+                    },
+                    "sound_character": {
+                      "type": "null"
+                    },
+                    "intensity": {
+                      "type": "null"
+                    },
+                    "environment": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "modality": {
+                  "enum": [
+                    "sfx"
+                  ]
+                }
+              },
+              "required": [
+                "modality"
+              ]
+            },
+            "then": {
+              "properties": {
+                "sound": {
+                  "required": [
+                    "event_description"
+                  ],
+                  "properties": {
+                    "event_description": {
+                      "type": "string"
+                    },
+                    "mood": {
+                      "type": "null"
+                    },
+                    "genre": {
+                      "type": "null"
+                    },
+                    "instruments": {
+                      "maxItems": 0
+                    },
+                    "vocals_allowed": {
+                      "const": false
+                    },
+                    "energy": {
+                      "type": "null"
+                    },
+                    "tempo_bpm": {
+                      "type": "null"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "frame": {
+                  "const": "native"
+                }
+              },
+              "required": [
+                "frame"
+              ]
+            },
+            "then": {
+              "required": [
+                "native_ratio"
+              ],
+              "properties": {
+                "native_ratio": {
+                  "type": "string"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "native_ratio": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "conditions": {
+                  "contains": {
+                    "properties": {
+                      "meaning": {
+                        "const": "dynamic_action"
+                      },
+                      "strength": {
+                        "const": "required"
+                      },
+                      "responsibility": {
+                        "const": "material"
+                      }
+                    },
+                    "required": [
+                      "meaning",
+                      "strength",
+                      "responsibility"
+                    ]
+                  }
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "modality": {
+                  "const": "video"
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "modality": {
+                  "enum": [
+                    "image",
+                    "video"
+                  ]
+                }
+              },
+              "required": [
+                "modality"
+              ]
+            },
+            "then": {
+              "properties": {
+                "queries": {
+                  "anyOf": [
+                    {
+                      "maxItems": 0
+                    },
+                    {
+                      "minItems": 3,
+                      "maxItems": 3
+                    }
+                  ],
+                  "items": {
+                    "pattern": "^[\\x00-\\x7f]*\\S[\\x00-\\x7f]*$"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "properties": {
+              "conditions": {
+                "contains": {
+                  "properties": {
+                    "strength": {
+                      "const": "required"
+                    },
+                    "responsibility": {
+                      "const": "material"
+                    }
+                  },
+                  "required": [
+                    "strength",
+                    "responsibility"
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "modality": {
+                  "enum": [
+                    "sfx"
+                  ]
+                }
+              },
+              "required": [
+                "modality"
+              ]
+            },
+            "then": {
+              "properties": {
+                "scope": {
+                  "enum": [
+                    "event-1",
+                    "event-10",
+                    "event-11",
+                    "event-12",
+                    "event-13",
+                    "event-14",
+                    "event-15",
+                    "event-16",
+                    "event-17",
+                    "event-18",
+                    "event-19",
+                    "event-2",
+                    "event-20",
+                    "event-21",
+                    "event-22",
+                    "event-23",
+                    "event-24",
+                    "event-25",
+                    "event-26",
+                    "event-27",
+                    "event-3",
+                    "event-4",
+                    "event-5",
+                    "event-6",
+                    "event-7",
+                    "event-8",
+                    "event-9"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      "SoundIntent": {
+        "additionalProperties": false,
+        "properties": {
+          "mood": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Mood"
+          },
+          "genre": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Genre"
+          },
+          "instruments": {
+            "default": [],
+            "items": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 12,
+            "title": "Instruments",
+            "type": "array"
+          },
+          "vocals_allowed": {
+            "default": false,
+            "title": "Vocals Allowed",
+            "type": "boolean"
+          },
+          "energy": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Energy"
+          },
+          "tempo_bpm": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "maximum": 400,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "maximum": 400,
+                    "minimum": 1,
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Tempo Bpm"
+          },
+          "event_description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Event Description"
+          },
+          "sound_character": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sound Character"
+          },
+          "intensity": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Intensity"
+          },
+          "environment": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Environment"
+          }
+        },
+        "title": "SoundIntent",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "needs": {
+        "items": {
+          "$ref": "#/$defs/NeedProposal"
+        },
+        "maxItems": 15,
+        "minItems": 1,
+        "title": "Needs",
+        "type": "array"
+      },
+      "unresolved": {
+        "default": [],
+        "items": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 16,
+        "title": "Unresolved",
+        "type": "array"
+      }
+    },
+    "required": [
+      "needs"
+    ],
+    "title": "SemanticProposal",
+    "type": "object"
+  },
+  "wire_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "needs": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "scope": {
+              "maxLength": 512,
+              "minLength": 1,
+              "title": "Scope",
+              "type": "string",
+              "enum": [
+                "event-1",
+                "event-10",
+                "event-11",
+                "event-12",
+                "event-13",
+                "event-14",
+                "event-15",
+                "event-16",
+                "event-17",
+                "event-18",
+                "event-19",
+                "event-2",
+                "event-20",
+                "event-21",
+                "event-22",
+                "event-23",
+                "event-24",
+                "event-25",
+                "event-26",
+                "event-27",
+                "event-3",
+                "event-4",
+                "event-5",
+                "event-6",
+                "event-7",
+                "event-8",
+                "event-9",
+                "global",
+                "scene-1",
+                "scene-10",
+                "scene-11",
+                "scene-12",
+                "scene-13",
+                "scene-14",
+                "scene-15",
+                "scene-16",
+                "scene-17",
+                "scene-18",
+                "scene-19",
+                "scene-2",
+                "scene-20",
+                "scene-21",
+                "scene-22",
+                "scene-23",
+                "scene-24",
+                "scene-25",
+                "scene-26",
+                "scene-27",
+                "scene-3",
+                "scene-4",
+                "scene-5",
+                "scene-6",
+                "scene-7",
+                "scene-8",
+                "scene-9",
+                "segment-1",
+                "segment-10",
+                "segment-11",
+                "segment-12",
+                "segment-13",
+                "segment-14",
+                "segment-15",
+                "segment-16",
+                "segment-17",
+                "segment-18",
+                "segment-19",
+                "segment-2",
+                "segment-20",
+                "segment-21",
+                "segment-22",
+                "segment-23",
+                "segment-24",
+                "segment-25",
+                "segment-26",
+                "segment-27",
+                "segment-3",
+                "segment-4",
+                "segment-5",
+                "segment-6",
+                "segment-7",
+                "segment-8",
+                "segment-9"
+              ]
+            },
+            "role": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Role",
+              "type": "string"
+            },
+            "modality": {
+              "enum": [
+                "image",
+                "video",
+                "bgm",
+                "sfx"
+              ],
+              "title": "Modality",
+              "type": "string"
+            },
+            "necessity": {
+              "enum": [
+                "required",
+                "optional"
+              ],
+              "title": "Necessity",
+              "type": "string"
+            },
+            "conditions": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "text": {
+                    "maxLength": 2000,
+                    "minLength": 1,
+                    "title": "Text",
+                    "type": "string"
+                  },
+                  "strength": {
+                    "enum": [
+                      "required",
+                      "preference"
+                    ],
+                    "title": "Strength",
+                    "type": "string"
+                  },
+                  "responsibility": {
+                    "enum": [
+                      "material",
+                      "postproduction",
+                      "narrative"
+                    ],
+                    "title": "Responsibility",
+                    "type": "string"
+                  },
+                  "meaning": {
+                    "default": "observable",
+                    "enum": [
+                      "observable",
+                      "dynamic_action"
+                    ],
+                    "title": "Meaning",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "text",
+                  "strength",
+                  "responsibility"
+                ],
+                "title": "Condition",
+                "type": "object"
+              },
+              "maxItems": 12,
+              "minItems": 1,
+              "title": "Conditions",
+              "type": "array"
+            },
+            "purpose": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Purpose"
+            },
+            "visual_preference": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Visual Preference"
+            },
+            "source_seconds": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "maximum": 3600,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Source Seconds",
+              "type": [
+                "null",
+                "number"
+              ]
+            },
+            "continuity_choices": {
+              "default": [],
+              "items": false,
+              "maxItems": 16,
+              "title": "Continuity Choices",
+              "type": "array"
+            },
+            "queries": {
+              "default": [],
+              "items": {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Queries",
+              "type": "array"
+            },
+            "voice_choice": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512,
+                  "enum": [
+                    "confirmed.voice_profile",
+                    "creator_context.voice"
+                  ]
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "voice_expression": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Voice Expression"
+            },
+            "sound": {
+              "anyOf": [
+                {
+                  "additionalProperties": false,
+                  "properties": {
+                    "mood": {
+                      "anyOf": [
+                        {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Mood"
+                    },
+                    "genre": {
+                      "anyOf": [
+                        {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Genre"
+                    },
+                    "instruments": {
+                      "default": [],
+                      "items": {
+                        "maxLength": 200,
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "maxItems": 12,
+                      "title": "Instruments",
+                      "type": "array"
+                    },
+                    "vocals_allowed": {
+                      "default": false,
+                      "title": "Vocals Allowed",
+                      "type": "boolean"
+                    },
+                    "energy": {
+                      "anyOf": [
+                        {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Energy"
+                    },
+                    "tempo_bpm": {
+                      "anyOf": [
+                        {
+                          "maxItems": 2,
+                          "minItems": 2,
+                          "prefixItems": [
+                            {
+                              "maximum": 400,
+                              "minimum": 1,
+                              "type": "integer"
+                            },
+                            {
+                              "maximum": 400,
+                              "minimum": 1,
+                              "type": "integer"
+                            }
+                          ],
+                          "type": "array"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Tempo Bpm",
+                      "type": [
+                        "array",
+                        "null"
+                      ],
+                      "prefixItems": [
+                        {
+                          "maximum": 400,
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        {
+                          "maximum": 400,
+                          "minimum": 1,
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "event_description": {
+                      "anyOf": [
+                        {
+                          "maxLength": 2000,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Event Description"
+                    },
+                    "sound_character": {
+                      "anyOf": [
+                        {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Sound Character"
+                    },
+                    "intensity": {
+                      "anyOf": [
+                        {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Intensity"
+                    },
+                    "environment": {
+                      "anyOf": [
+                        {
+                          "maxLength": 200,
+                          "minLength": 1,
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Environment"
+                    }
+                  },
+                  "title": "SoundIntent",
+                  "type": "object"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "type": [
+                "null",
+                "object"
+              ],
+              "properties": {
+                "mood": {
+                  "anyOf": [
+                    {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Mood"
+                },
+                "genre": {
+                  "anyOf": [
+                    {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Genre"
+                },
+                "instruments": {
+                  "default": [],
+                  "items": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 12,
+                  "title": "Instruments",
+                  "type": "array"
+                },
+                "vocals_allowed": {
+                  "default": false,
+                  "title": "Vocals Allowed",
+                  "type": "boolean"
+                },
+                "energy": {
+                  "anyOf": [
+                    {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Energy"
+                },
+                "tempo_bpm": {
+                  "anyOf": [
+                    {
+                      "maxItems": 2,
+                      "minItems": 2,
+                      "prefixItems": [
+                        {
+                          "maximum": 400,
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        {
+                          "maximum": 400,
+                          "minimum": 1,
+                          "type": "integer"
+                        }
+                      ],
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Tempo Bpm",
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "prefixItems": [
+                    {
+                      "maximum": 400,
+                      "minimum": 1,
+                      "type": "integer"
+                    },
+                    {
+                      "maximum": 400,
+                      "minimum": 1,
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "event_description": {
+                  "anyOf": [
+                    {
+                      "maxLength": 2000,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Event Description"
+                },
+                "sound_character": {
+                  "anyOf": [
+                    {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Sound Character"
+                },
+                "intensity": {
+                  "anyOf": [
+                    {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Intensity"
+                },
+                "environment": {
+                  "anyOf": [
+                    {
+                      "maxLength": 200,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Environment"
+                }
+              }
+            },
+            "framing": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "unconstrained",
+                    "match_output",
+                    "native"
+                  ]
+                },
+                "ratio": {
+                  "maxLength": 9,
+                  "pattern": "^[1-9][0-9]{0,3}:[1-9][0-9]{0,3}$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "mode"
+              ],
+              "default": {
+                "mode": "unconstrained"
+              },
+              "oneOf": [
+                {
+                  "properties": {
+                    "mode": {
+                      "enum": [
+                        "unconstrained",
+                        "match_output"
+                      ]
+                    }
+                  },
+                  "not": {
+                    "required": [
+                      "ratio"
+                    ]
+                  }
+                },
+                {
+                  "properties": {
+                    "mode": {
+                      "const": "native"
+                    }
+                  },
+                  "required": [
+                    "ratio"
+                  ]
+                }
+              ],
+              "description": "One independent source frame choice; output specs do not imply native ratio."
+            }
+          },
+          "required": [
+            "scope",
+            "role",
+            "modality",
+            "necessity",
+            "conditions"
+          ],
+          "title": "NeedProposal",
+          "type": "object",
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "modality": {
+                    "enum": [
+                      "image",
+                      "voice"
+                    ]
+                  }
+                },
+                "required": [
+                  "modality"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "source_seconds": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "modality": {
+                    "enum": [
+                      "voice",
+                      "bgm",
+                      "sfx"
+                    ]
+                  }
+                },
+                "required": [
+                  "modality"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "visual_preference": {
+                    "type": "null"
+                  },
+                  "queries": {
+                    "maxItems": 0
+                  },
+                  "framing": {
+                    "properties": {
+                      "mode": {
+                        "const": "unconstrained"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "modality": {
+                    "enum": [
+                      "image",
+                      "video",
+                      "bgm",
+                      "sfx"
+                    ]
+                  }
+                },
+                "required": [
+                  "modality"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "voice_choice": {
+                    "type": "null"
+                  },
+                  "voice_expression": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "modality": {
+                    "enum": [
+                      "image",
+                      "video",
+                      "voice"
+                    ]
+                  }
+                },
+                "required": [
+                  "modality"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "sound": {
+                    "type": "null"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "modality": {
+                    "enum": [
+                      "voice"
+                    ]
+                  }
+                },
+                "required": [
+                  "modality"
+                ]
+              },
+              "then": {
+                "required": [
+                  "voice_choice"
+                ],
+                "properties": {
+                  "voice_choice": {
+                    "type": "string",
+                    "enum": [
+                      "confirmed.voice_profile",
+                      "creator_context.voice"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "modality": {
+                    "enum": [
+                      "bgm",
+                      "sfx"
+                    ]
+                  }
+                },
+                "required": [
+                  "modality"
+                ]
+              },
+              "then": {
+                "required": [
+                  "sound"
+                ],
+                "properties": {
+                  "sound": {
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "modality": {
+                    "enum": [
+                      "bgm"
+                    ]
+                  }
+                },
+                "required": [
+                  "modality"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "sound": {
+                    "properties": {
+                      "event_description": {
+                        "type": "null"
+                      },
+                      "sound_character": {
+                        "type": "null"
+                      },
+                      "intensity": {
+                        "type": "null"
+                      },
+                      "environment": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "modality": {
+                    "enum": [
+                      "sfx"
+                    ]
+                  }
+                },
+                "required": [
+                  "modality"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "sound": {
+                    "required": [
+                      "event_description"
+                    ],
+                    "properties": {
+                      "event_description": {
+                        "type": "string"
+                      },
+                      "mood": {
+                        "type": "null"
+                      },
+                      "genre": {
+                        "type": "null"
+                      },
+                      "instruments": {
+                        "maxItems": 0
+                      },
+                      "vocals_allowed": {
+                        "const": false
+                      },
+                      "energy": {
+                        "type": "null"
+                      },
+                      "tempo_bpm": {
+                        "type": "null"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "conditions": {
+                    "contains": {
+                      "properties": {
+                        "meaning": {
+                          "const": "dynamic_action"
+                        },
+                        "strength": {
+                          "const": "required"
+                        },
+                        "responsibility": {
+                          "const": "material"
+                        }
+                      },
+                      "required": [
+                        "meaning",
+                        "strength",
+                        "responsibility"
+                      ]
+                    }
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "modality": {
+                    "const": "video"
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "modality": {
+                    "enum": [
+                      "image",
+                      "video"
+                    ]
+                  }
+                },
+                "required": [
+                  "modality"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "queries": {
+                    "anyOf": [
+                      {
+                        "maxItems": 0
+                      },
+                      {
+                        "minItems": 3,
+                        "maxItems": 3
+                      }
+                    ],
+                    "items": {
+                      "pattern": "^[\\x00-\\x7f]*\\S[\\x00-\\x7f]*$"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "properties": {
+                "conditions": {
+                  "contains": {
+                    "properties": {
+                      "strength": {
+                        "const": "required"
+                      },
+                      "responsibility": {
+                        "const": "material"
+                      }
+                    },
+                    "required": [
+                      "strength",
+                      "responsibility"
+                    ]
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "properties": {
+                  "modality": {
+                    "enum": [
+                      "sfx"
+                    ]
+                  }
+                },
+                "required": [
+                  "modality"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "scope": {
+                    "enum": [
+                      "event-1",
+                      "event-10",
+                      "event-11",
+                      "event-12",
+                      "event-13",
+                      "event-14",
+                      "event-15",
+                      "event-16",
+                      "event-17",
+                      "event-18",
+                      "event-19",
+                      "event-2",
+                      "event-20",
+                      "event-21",
+                      "event-22",
+                      "event-23",
+                      "event-24",
+                      "event-25",
+                      "event-26",
+                      "event-27",
+                      "event-3",
+                      "event-4",
+                      "event-5",
+                      "event-6",
+                      "event-7",
+                      "event-8",
+                      "event-9"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "maxItems": 15,
+        "minItems": 1,
+        "title": "Needs",
+        "type": "array"
+      },
+      "unresolved": {
+        "default": [],
+        "items": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "type": "string"
+        },
+        "maxItems": 16,
+        "title": "Unresolved",
+        "type": "array"
+      }
+    },
+    "required": [
+      "needs"
+    ],
+    "title": "SemanticProposal",
+    "type": "object"
+  },
+  "wire_errors": [
+    {
+      "path": [],
+      "keyword": "additionalProperties"
+    }
+  ],
+  "canonical_errors": [
+    {
+      "type": "extra_forbidden",
+      "loc": [
+        "continuity_choices"
+      ],
+      "msg": "Extra inputs are not permitted"
+    },
+    {
+      "type": "extra_forbidden",
+      "loc": [
+        "queries"
+      ],
+      "msg": "Extra inputs are not permitted"
+    },
+    {
+      "type": "extra_forbidden",
+      "loc": [
+        "voice_choice"
+      ],
+      "msg": "Extra inputs are not permitted"
+    },
+    {
+      "type": "extra_forbidden",
+      "loc": [
+        "voice_expression"
+      ],
+      "msg": "Extra inputs are not permitted"
+    },
+    {
+      "type": "extra_forbidden",
+      "loc": [
+        "sound"
+      ],
+      "msg": "Extra inputs are not permitted"
+    },
+    {
+      "type": "extra_forbidden",
+      "loc": [
+        "framing"
+      ],
+      "msg": "Extra inputs are not permitted"
+    },
+    {
+      "type": "extra_forbidden",
+      "loc": [
+        "item"
+      ],
+      "msg": "Extra inputs are not permitted"
+    },
+    {
+      "type": "extra_forbidden",
+      "loc": [
+        "source_seconds"
+      ],
+      "msg": "Extra inputs are not permitted"
+    },
+    {
+      "type": "extra_forbidden",
+      "loc": [
+        "sound_character"
+      ],
+      "msg": "Extra inputs are not permitted"
+    },
+    {
+      "type": "extra_forbidden",
+      "loc": [
+        "environment"
+      ],
+      "msg": "Extra inputs are not permitted"
+    }
+  ],
+  "model": "MiniMax-M3",
+  "thinking": "adaptive",
+  "max_completion_tokens": 131072,
+  "provenance": "ec14e915 fixed qualification real index0; full exact tool arguments; no fixture repair"
+}

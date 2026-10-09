@@ -48,7 +48,7 @@ def bind_requirements(plan, mode, raw: bytes, source_needs=None, origin=None):
     keys = {}
     for key, record in records.items():
         # Match by the entire final input, not a transport ID or counted span.
-        matches = [n.need_id for n in visual.values() if compilation_input(n, plan.context_refs, mode) == record['input']]
+        matches = [n.need_id for n in visual.values() if compilation_input(n, plan.context_refs, mode, plan=plan) == record['input']]
         if len(matches) != 1: raise ValueError('Planning要求与最终Need/Mode身份不一致')
         keys[matches[0]] = key
     if set(keys) != set(visual): raise ValueError('Planning要求未完整覆盖最终视觉Need')

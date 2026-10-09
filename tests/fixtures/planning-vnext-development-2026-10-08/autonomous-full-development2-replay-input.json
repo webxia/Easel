@@ -1,0 +1,295 @@
+{
+  "catalog": {
+    "continuity": {},
+    "event": {
+      "event-1": "- **镜头 1（0:00–0:06）**",
+      "event-10": "  画面：手翻开台历到下一格，写下\"明早：9:00 ……\"。镜头从侧面平移到日历正面。",
+      "event-11": "  文案：「台历翻到明天，写下第一件要做的事。」",
+      "event-12": "  时长：约 7 秒。",
+      "event-13": "- **镜头 4（0:18–0:25）**",
+      "event-14": "  画面：手合上笔记本电脑，屏幕光熄灭，画面变暗到只剩台灯。",
+      "event-15": "  文案：「然后给自己一个信号——合上电脑，」",
+      "event-16": "  时长：约 7 秒。",
+      "event-17": "- **镜头 5（0:25–0:30）**",
+      "event-18": "  画面：空荡一隅的桌面，笔已归位，台灯暖光。缓慢拉远，留白。",
+      "event-19": "  文案：「灯，留给明天的自己。」",
+      "event-2": "  画面：台灯下的桌面一角，键盘、几张纸、一支笔。缓慢从左侧推近。",
+      "event-20": "  时长：约 5 秒。",
+      "event-3": "  文案：「今天结束时，把它收干净。」",
+      "event-4": "  时长：约 6 秒。",
+      "event-5": "- **镜头 2（0:06–0:11）**",
+      "event-6": "  画面：手把笔放进笔筒，把纸张对齐推到桌沿。轻微俯拍。",
+      "event-7": "  文案：「桌面，笔，还有那几张没填完的纸。」",
+      "event-8": "  时长：约 5 秒。",
+      "event-9": "- **镜头 3（0:11–0:18）**"
+    },
+    "global": {
+      "global": "- **镜头 1（0:00–0:06）**\n  画面：台灯下的桌面一角，键盘、几张纸、一支笔。缓慢从左侧推近。\n  文案：「今天结束时，把它收干净。」\n  时长：约 6 秒。\n- **镜头 2（0:06–0:11）**\n  画面：手把笔放进笔筒，把纸张对齐推到桌沿。轻微俯拍。\n  文案：「桌面，笔，还有那几张没填完的纸。」\n  时长：约 5 秒。\n- **镜头 3（0:11–0:18）**\n  画面：手翻开台历到下一格，写下\"明早：9:00 ……\"。镜头从侧面平移到日历正面。\n  文案：「台历翻到明天，写下第一件要做的事。」\n  时长：约 7 秒。\n- **镜头 4（0:18–0:25）**\n  画面：手合上笔记本电脑，屏幕光熄灭，画面变暗到只剩台灯。\n  文案：「然后给自己一个信号——合上电脑，」\n  时长：约 7 秒。\n- **镜头 5（0:25–0:30）**\n  画面：空荡一隅的桌面，笔已归位，台灯暖光。缓慢拉远，留白。\n  文案：「灯，留给明天的自己。」\n  时长：约 5 秒。"
+    },
+    "scene": {
+      "scene-1": "- **镜头 1（0:00–0:06）**",
+      "scene-10": "  画面：手翻开台历到下一格，写下\"明早：9:00 ……\"。镜头从侧面平移到日历正面。",
+      "scene-11": "  文案：「台历翻到明天，写下第一件要做的事。」",
+      "scene-12": "  时长：约 7 秒。",
+      "scene-13": "- **镜头 4（0:18–0:25）**",
+      "scene-14": "  画面：手合上笔记本电脑，屏幕光熄灭，画面变暗到只剩台灯。",
+      "scene-15": "  文案：「然后给自己一个信号——合上电脑，」",
+      "scene-16": "  时长：约 7 秒。",
+      "scene-17": "- **镜头 5（0:25–0:30）**",
+      "scene-18": "  画面：空荡一隅的桌面，笔已归位，台灯暖光。缓慢拉远，留白。",
+      "scene-19": "  文案：「灯，留给明天的自己。」",
+      "scene-2": "  画面：台灯下的桌面一角，键盘、几张纸、一支笔。缓慢从左侧推近。",
+      "scene-20": "  时长：约 5 秒。",
+      "scene-3": "  文案：「今天结束时，把它收干净。」",
+      "scene-4": "  时长：约 6 秒。",
+      "scene-5": "- **镜头 2（0:06–0:11）**",
+      "scene-6": "  画面：手把笔放进笔筒，把纸张对齐推到桌沿。轻微俯拍。",
+      "scene-7": "  文案：「桌面，笔，还有那几张没填完的纸。」",
+      "scene-8": "  时长：约 5 秒。",
+      "scene-9": "- **镜头 3（0:11–0:18）**"
+    },
+    "segment": {
+      "segment-1": "- **镜头 1（0:00–0:06）**",
+      "segment-10": "  画面：手翻开台历到下一格，写下\"明早：9:00 ……\"。镜头从侧面平移到日历正面。",
+      "segment-11": "  文案：「台历翻到明天，写下第一件要做的事。」",
+      "segment-12": "  时长：约 7 秒。",
+      "segment-13": "- **镜头 4（0:18–0:25）**",
+      "segment-14": "  画面：手合上笔记本电脑，屏幕光熄灭，画面变暗到只剩台灯。",
+      "segment-15": "  文案：「然后给自己一个信号——合上电脑，」",
+      "segment-16": "  时长：约 7 秒。",
+      "segment-17": "- **镜头 5（0:25–0:30）**",
+      "segment-18": "  画面：空荡一隅的桌面，笔已归位，台灯暖光。缓慢拉远，留白。",
+      "segment-19": "  文案：「灯，留给明天的自己。」",
+      "segment-2": "  画面：台灯下的桌面一角，键盘、几张纸、一支笔。缓慢从左侧推近。",
+      "segment-20": "  时长：约 5 秒。",
+      "segment-3": "  文案：「今天结束时，把它收干净。」",
+      "segment-4": "  时长：约 6 秒。",
+      "segment-5": "- **镜头 2（0:06–0:11）**",
+      "segment-6": "  画面：手把笔放进笔筒，把纸张对齐推到桌沿。轻微俯拍。",
+      "segment-7": "  文案：「桌面，笔，还有那几张没填完的纸。」",
+      "segment-8": "  时长：约 5 秒。",
+      "segment-9": "- **镜头 3（0:11–0:18）**"
+    },
+    "voice": {
+      "creator_context.voice": {
+        "consent_ref": null,
+        "context": {
+          "avoid": [
+            "激励式、励志式或口号式收束",
+            "强情绪起伏或过度抒情",
+            "具体品牌、机构、APP、平台名",
+            "疗效、统计、调查或权威结论式表述",
+            "第一人称亲历叙述或工作细节"
+          ],
+          "tone": "克制、安静、第一人称观察；像在跟自己说话，不渲染情绪、不下结论、不喊口号。"
+        },
+        "reference_asset_ids": [],
+        "source": "creator_context"
+      }
+    }
+  },
+  "inputs": {
+    "confirmed": {
+      "SCENES.md": "- **镜头 1（0:00–0:06）**\n  画面：台灯下的桌面一角，键盘、几张纸、一支笔。缓慢从左侧推近。\n  文案：「今天结束时，把它收干净。」\n  时长：约 6 秒。\n- **镜头 2（0:06–0:11）**\n  画面：手把笔放进笔筒，把纸张对齐推到桌沿。轻微俯拍。\n  文案：「桌面，笔，还有那几张没填完的纸。」\n  时长：约 5 秒。\n- **镜头 3（0:11–0:18）**\n  画面：手翻开台历到下一格，写下\"明早：9:00 ……\"。镜头从侧面平移到日历正面。\n  文案：「台历翻到明天，写下第一件要做的事。」\n  时长：约 7 秒。\n- **镜头 4（0:18–0:25）**\n  画面：手合上笔记本电脑，屏幕光熄灭，画面变暗到只剩台灯。\n  文案：「然后给自己一个信号——合上电脑，」\n  时长：约 7 秒。\n- **镜头 5（0:25–0:30）**\n  画面：空荡一隅的桌面，笔已归位，台灯暖光。缓慢拉远，留白。\n  文案：「灯，留给明天的自己。」\n  时长：约 5 秒。",
+      "SCRIPT.md": "今天结束时，把它收干净。\n桌面，笔，还有那几张没填完的纸。\n台历翻到明天，写下第一件要做的事。\n然后给自己一个信号——合上电脑，灯，留给明天的自己。",
+      "TREATMENT.md": "**Content Core**\n- 一般建议（不是亲历）：三个具体动作——收好桌面、记下明天第一件事、给今天一个结束信号。\n- 公开事实：办公室/桌面的视觉常识（键盘、纸张、台灯、马克杯）。\n- 当前风格：克制备忘录——不渲染情绪、不下结论、不喊口号。\n- 核心张力：一天结束时那种\"还没做完\"的悬置感。一个具体的清理动作，把它落下来。\n**Director Treatment**\n- 情绪路径：平静 → 觉察 → 落定。不是激励，是收束。\n- 第一个具体画面：被台灯光照亮的桌面一角，键盘、几张纸、一支笔——不是俯拍大全景，是贴近生活的一张。\n- 觉察时刻：手把笔放回笔筒、台历翻到下一格、画面短暂留白。\n- 收尾不喊口号，最后一句把\"明天\"轻放下来，画面停在稍微被收拾过的桌面上，留一秒余光。\n**画面语言（贯穿全片）**\n- 静态照片风，低饱和度，自然光或暖台灯光，9:16 竖构图；\n- 轻微 Ken Burns（缓慢推近或平移），不切碎，不加花字；\n- 字幕在 9:16 安全区底部，宋体/思源黑体风格，纯白+半透明黑底，不压字；\n- 不放表情符号、不放贴纸、不放浮窗。\n\n## 声音设计\n- **旁白**：普通话，预置女声（如 `female-shaonv` 或同档温暖中低音），节奏 0.95，语速自然偏慢、像在跟自己说话。整体克制，无明显情绪起伏，最后一句稍轻。\n- **总配音时长预估**：约 24 秒（含句间自然停顿）。\n- **配乐**：轻柔无歌词 BGM（钢琴或环境氛围），从镜头 3 进入，镜头 5 末淡出；旁白期间自动 duck 到 −12 dB 左右，句间短暂恢复。音量低于人声，不抢戏。\n- **音轨**：旁白 + 轻柔无歌词背景音乐。\n- **语言**：简体中文。\n- **留白**：镜头 5 末段约 1 秒只有环境音/无声，给画面落定。"
+    },
+    "content_core": {
+      "audience": "普通成年人，下班/收工前的日常场景，无需特定行业或身份。",
+      "boundaries": [
+        "不声称是创作者本人的真实经历或亲历场景",
+        "不涉及具体品牌、机构、人物、地点或工作场所",
+        "不涉及疗效、统计、调查、专业建议或权威结论",
+        "不放大情绪、不喊口号、不做励志收束",
+        "不写制作规格、镜头清单或时长——只保留可公开的内容主张"
+      ],
+      "claim_types": [
+        "opinion",
+        "observation",
+        "hypothesis"
+      ],
+      "core_idea": "一天结束时，那点还没做完的悬置感，最容易被一个具体的小动作落下来——收桌面、写明早第一件事、给今天一个收工信号。",
+      "intended_takeaway": "看完后观众理解到：一天结束时做三个具体的小动作，就能把今天落定、把明天接上——这是建议，不是承诺。",
+      "schema": "easel-content-core@1",
+      "tension": "成年人每天结束时悬而未决的「还没完」感，与一个具体、可见、可在 30 秒里讲完的小清理动作之间的落差。",
+      "topic": "请创作一条30秒的竖屏短视频，主题是「做完今天，给明天留一个清晰的起点」。面对普通成年人，用三个具体的小行动讲清楚：收好桌面、记下明天最先做的一件事、给自己一个结束工作的信号。采用克制清晰的表达，静态照片配轻微镜头运动、简洁字幕、普通话预置旁白和轻柔无歌词背景音乐。故事是一般建议和示意，不声称是我的真实经历，不涉及品牌、机构、疗效或统计事实。画幅9:16，1080×1920，30fps。请通过正常创作流程给出完整可确认的文案、分镜与声音方案，由你决定节奏和具体表达。素材可以正常检索，在需要时使用授权内的AI图片和预置旁白；不要生成AI视频或AI音乐，不发布。",
+      "why_worth_telling": "把模糊的疲惫收束成一个可执行的画面，让普通人在合上电脑之前就能完成一次轻量的「交接」给明天的自己。"
+    },
+    "creator_context": {
+      "audience": "普通成年人，下班或收工前需要一次轻量交接的日常场景受众。",
+      "identity": {
+        "public_description": "通用画像下的创作者，无特定行业、职位或机构归属；本作品以一般成年人视角表达克制的日常建议。"
+      },
+      "privacy_policy": {
+        "do_not_infer_private_facts": true
+      },
+      "relevant_context": [
+        "创作者明确不声称这是个人亲历，要求以一般建议和示意呈现",
+        "作品定位为日常思考短片，强调克制与画面留白",
+        "目标场景：一天结束时的桌面环境（键盘、纸张、台灯、笔、台历、笔记本电脑等常见办公物品）"
+      ],
+      "schema": "easel-creator-context@1",
+      "voice": {
+        "avoid": [
+          "激励式、励志式或口号式收束",
+          "强情绪起伏或过度抒情",
+          "具体品牌、机构、APP、平台名",
+          "疗效、统计、调查或权威结论式表述",
+          "第一人称亲历叙述或工作细节"
+        ],
+        "tone": "克制、安静、第一人称观察；像在跟自己说话，不渲染情绪、不下结论、不喊口号。"
+      }
+    },
+    "handoff_sha256": "sha256:6f24131ad79cfa932b79c20286294a9821aff512442eaee5bbe7fd8b3fa3a55f",
+    "mode_documents": {
+      "audio-bible.md": "# Audio Bible\n\nNarration should feel like a person thinking aloud after the fact: calm, conversational and precise. It must not become a speech, a sales pitch, a coach's lecture or a solemn trailer voice.\n\n- Let the selected runtime voice and approved voice ID carry the account identity; this Mode never selects a provider or invents a voice clone.\n- Translate the supported delivery choices into the existing Voice Need constraints.voice_delivery (pace_ratio, pitch_semitones, tone), inheriting the frozen mode defaults where no content-specific choice is needed. A description alone is not an executed speech parameter.\n- Generate narration before locking shot durations. Use actual audio timings, not character-count estimates, to pace visual beats.\n- BGM is optional. When an approved track exists, it should support the emotional movement at a low level and duck under narration. No BGM is better than unlicensed, distracting or fake ambience.\n- The frozen music_ducking parameters lower the authored music level during measured speech, with a smooth attack and release. Short breaths remain ducked; longer pauses restore the authored level. This envelope preserves source position and looping. It is not loudness normalization or proof of intelligibility: choose the base music gain against actual audio and verify the finished mix.\n- Use SFX only when they belong to a specific visual action. Do not add whooshes, impacts or notification sounds as decoration.\n",
+      "director-treatment.md": "# Director Treatment\n\n`clear_memo_video` is a film-language mode, not a writing formula. Keep the topic, argument and story structure open.\n\nBefore writing shots, make two compact decisions:\n\n1. **Content Core**: classify each important statement as real experience, current action, learning, public fact, or unverified thought. State the one tension the viewer should recognise.\n2. **Director Treatment**: decide the viewer's emotional path, the first concrete image or line, the moment of recognition, and where the work should stop without forcing a solution.\n\nThe preferred posture is an ordinary person noticing something specific, not an expert delivering a lesson. Open from a lived detail, a calculation, a small contradiction, or a changed understanding. Do not manufacture hardship, dialogue, professional incidents, family scenes, or outcomes to make the narrative complete.\n\nDo not force a hook type, three-act structure, CTA, or conclusion. A quiet ending, an unresolved question, or one next action is valid when it fits the material.\n",
+      "editing-bible.md": "# Editing Bible\n\nThe default rhythm is unhurried but never static: each visual beat earns its screen time, and each cut changes the viewer's understanding, setting or emotional distance.\n\n- Prefer 25-60 seconds and roughly 6-9 visual beats as a starting range, not a fixed template.\n- Establish the concrete tension in the first three seconds. Do not spend the opening on a channel ident, abstract slogan or generic setup.\n- Avoid rapid montage, decorative transitions, bouncing captions and repeated near-identical images.\n- Keep subtitles concise, readable and inside the 9:16 safe area. The subtitle pace follows speech, not an arbitrary visual beat grid.\n- Let the last image and last sentence have room to land. Do not force a call to action, a solution or an optimistic moral.\n",
+      "mode.json": "{\n  \"id\": \"clear_memo_video\",\n  \"version\": \"1.3\",\n  \"name\": \"清醒备忘录 · 视频\",\n  \"summary\": \"以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。\",\n  \"status\": \"active\",\n  \"visual_material_style\": \"restrained low saturation everyday\",\n  \"voice_delivery\": {\"pace_ratio\": 0.95, \"pitch_semitones\": 0, \"tone\": \"neutral\"},\n  \"music_ducking\": {\"gain_ratio\": 0.25, \"attack_seconds\": 0.12, \"release_seconds\": 0.45},\n  \"defaults\": {\n    \"duration_seconds\": {\"preferred\": [30, 45], \"allowed\": [25, 60]},\n    \"visual_beats\": {\"preferred\": [6, 9]},\n    \"orientation\": \"9:16\",\n    \"narration\": \"reflective-first-person\",\n    \"bgm\": \"optional-and-subordinate\"\n  },\n  \"boundaries\": {\n    \"content\": \"Director decides the topic, argument, structure, and whether a video is worthwhile.\",\n    \"profile\": \"Profile remains the source of identity, factual boundaries, audience, and public scope.\",\n    \"runtime\": \"Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns.\"\n  }\n}\n",
+      "qc-rubric.md": "# Director QC Rubric\n\nTechnical QC is necessary but insufficient. Before a work is marked ready, review it against these questions:\n\n1. **Recognition**: does the first three seconds contain a concrete, understandable tension?\n2. **Observation**: is there one genuine observation, with fact and interpretation kept distinct?\n3. **Narrative movement**: does each beat advance the thought, rather than repeat the same sentence over another image?\n4. **Visual honesty**: are real assets identified honestly, and are illustrations clearly expressive rather than fake evidence?\n5. **Rhythm**: do voice duration, cuts, subtitles and pauses feel intentionally aligned?\n6. **Identity**: would the work still feel like this account without its logo or title?\n7. **Anti-template check**: does it avoid PPT, generic AI image carousel, lecture tone and motivational-content shortcuts?\n\nIf a work fails Recognition, Observation, Visual honesty, or Identity, it is `NOT_READY` even when the MP4 is technically valid. Record concise reasons and rework only the failing layer.\n",
+      "visual-bible.md": "# Visual Bible\n\nThe visual world is restrained, human-scale and daily: desks, commutes, screens, notebooks, windows, kitchens, clocks, rooms, pauses and small gestures. A picture must advance the observation; it must not merely decorate narration.\n\n- Prefer supplied or approved real evidence for real claims: screenshots, recording excerpts, notes, data or personal material. Never fabricate a screenshot or pass an AI illustration off as evidence.\n- When no real material is needed, use low-saturation illustration or quiet photographic B-roll with generous negative space. Avoid glossy AI spectacle, generic cyberpunk, floating dashboards and motivational-poster compositions.\n- An illustration may use a recurring symbolic narrator rather than a synthetic portrait. Keep it visually consistent only after a reviewed reference asset exists; otherwise use scene-led imagery and do not pretend there is a locked character.\n- Use motion sparingly: slow camera drift, gentle Ken Burns, a short purposeful transition, or one dynamic insert at an emotional turn. Do not animate every still simply to prove that it is video.\n- Text belongs in the subtitle and deliberate cover system, not inside generated imagery.\n"
+    },
+    "preparation": {
+      "ai_generation_allowed": true,
+      "aspect_ratio": "9:16",
+      "audio_mode": "mixed",
+      "beats": [
+        {
+          "description": "台灯下的桌面一角，键盘、几张纸、一支笔；缓慢从左侧推近。旁白与字幕：「今天结束时，把它收干净。」",
+          "duration_seconds": 6.0,
+          "label": "镜头 1"
+        },
+        {
+          "description": "手把笔放进笔筒，把纸张对齐推到桌沿；轻微俯拍。旁白与字幕：「桌面，笔，还有那几张没填完的纸。」",
+          "duration_seconds": 5.0,
+          "label": "镜头 2"
+        },
+        {
+          "description": "手翻开台历到下一格，写下「明早：9:00 ……」，镜头从侧面平移到日历正面。旁白与字幕：「台历翻到明天，写下第一件要做的事。」",
+          "duration_seconds": 7.0,
+          "label": "镜头 3"
+        },
+        {
+          "description": "手合上笔记本电脑，屏幕光熄灭，画面变暗到只剩台灯。旁白与字幕：「然后给自己一个信号——合上电脑，」",
+          "duration_seconds": 7.0,
+          "label": "镜头 4"
+        },
+        {
+          "description": "空荡一隅的桌面，笔已归位，台灯暖光；缓慢拉远，留白约 1 秒。旁白与字幕：「灯，留给明天的自己。」",
+          "duration_seconds": 5.0,
+          "label": "镜头 5"
+        }
+      ],
+      "duration_seconds": 30,
+      "language": "zh-CN",
+      "material_sources": [
+        "ai_image_fill",
+        "preset_voice",
+        "preset_bgm",
+        "no_ai_video",
+        "no_ai_music"
+      ],
+      "publication_allowed": false,
+      "schema": "easel-production-brief@1",
+      "text_overlays": [
+        "今天结束时，把它收干净。",
+        "桌面，笔，还有那几张没填完的纸。",
+        "台历翻到明天，写下第一件要做的事。",
+        "然后给自己一个信号——合上电脑，灯，留给明天的自己。"
+      ],
+      "visual_constraints": [
+        "9:16 竖构图，分辨率 1080×1920，30fps",
+        "静态照片风格为主，配以轻微镜头运动（缓慢推近、平移、轻微俯拍、拉远）",
+        "低饱和度，自然光或暖台灯光",
+        "简洁字幕：位于 9:16 安全区底部，宋体/思源黑体风格，纯白+半透明黑底",
+        "不放表情符号、不放贴纸、不放浮窗、不加花字",
+        "最后一镜末段约 1 秒留白，仅环境音或无声"
+      ]
+    },
+    "proposal": {
+      "revision": 1,
+      "scenes": "- **镜头 1（0:00–0:06）**\n  画面：台灯下的桌面一角，键盘、几张纸、一支笔。缓慢从左侧推近。\n  文案：「今天结束时，把它收干净。」\n  时长：约 6 秒。\n- **镜头 2（0:06–0:11）**\n  画面：手把笔放进笔筒，把纸张对齐推到桌沿。轻微俯拍。\n  文案：「桌面，笔，还有那几张没填完的纸。」\n  时长：约 5 秒。\n- **镜头 3（0:11–0:18）**\n  画面：手翻开台历到下一格，写下\"明早：9:00 ……\"。镜头从侧面平移到日历正面。\n  文案：「台历翻到明天，写下第一件要做的事。」\n  时长：约 7 秒。\n- **镜头 4（0:18–0:25）**\n  画面：手合上笔记本电脑，屏幕光熄灭，画面变暗到只剩台灯。\n  文案：「然后给自己一个信号——合上电脑，」\n  时长：约 7 秒。\n- **镜头 5（0:25–0:30）**\n  画面：空荡一隅的桌面，笔已归位，台灯暖光。缓慢拉远，留白。\n  文案：「灯，留给明天的自己。」\n  时长：约 5 秒。",
+      "schema": "easel-video-proposal@2",
+      "script": "今天结束时，把它收干净。\n桌面，笔，还有那几张没填完的纸。\n台历翻到明天，写下第一件要做的事。\n然后给自己一个信号——合上电脑，灯，留给明天的自己。",
+      "sha256": "4ca6fe2c666c0c8bc489ad84f8a1265edd4c3807b4f1d6ce80febdd9843cf264",
+      "sound": "- **旁白**：普通话，预置女声（如 `female-shaonv` 或同档温暖中低音），节奏 0.95，语速自然偏慢、像在跟自己说话。整体克制，无明显情绪起伏，最后一句稍轻。\n- **总配音时长预估**：约 24 秒（含句间自然停顿）。\n- **配乐**：轻柔无歌词 BGM（钢琴或环境氛围），从镜头 3 进入，镜头 5 末淡出；旁白期间自动 duck 到 −12 dB 左右，句间短暂恢复。音量低于人声，不抢戏。\n- **音轨**：旁白 + 轻柔无歌词背景音乐。\n- **语言**：简体中文。\n- **留白**：镜头 5 末段约 1 秒只有环境音/无声，给画面落定。",
+      "specification_notes": "- 时长：约 30 秒（最终以配音实测为准）\n- 画幅：9:16（1080×1920，30fps）\n- 音轨：旁白与轻柔无歌词背景音乐\n- 语言：简体中文\n沿用用户硬要求：30 秒、9:16、静态照片+轻微镜头运动、简洁字幕、普通话预置旁白、轻柔无歌词 BGM、不声称亲历、不涉及品牌/机构/疗效/统计。\nEasel 推荐（理由）：建议中文女声温暖中低音，节奏稍慢以匹配\"克制备忘录\"调性；BGM 在第三镜后引入并 duck，避免开头堆叠；最后留 1 秒无声收尾。\n待确认：无。",
+      "specs": {
+        "aspect_ratio": "9:16",
+        "audio_mode": "mixed",
+        "duration_seconds": 30,
+        "language": "zh-CN"
+      },
+      "treatment": "**Content Core**\n- 一般建议（不是亲历）：三个具体动作——收好桌面、记下明天第一件事、给今天一个结束信号。\n- 公开事实：办公室/桌面的视觉常识（键盘、纸张、台灯、马克杯）。\n- 当前风格：克制备忘录——不渲染情绪、不下结论、不喊口号。\n- 核心张力：一天结束时那种\"还没做完\"的悬置感。一个具体的清理动作，把它落下来。\n**Director Treatment**\n- 情绪路径：平静 → 觉察 → 落定。不是激励，是收束。\n- 第一个具体画面：被台灯光照亮的桌面一角，键盘、几张纸、一支笔——不是俯拍大全景，是贴近生活的一张。\n- 觉察时刻：手把笔放回笔筒、台历翻到下一格、画面短暂留白。\n- 收尾不喊口号，最后一句把\"明天\"轻放下来，画面停在稍微被收拾过的桌面上，留一秒余光。\n**画面语言（贯穿全片）**\n- 静态照片风，低饱和度，自然光或暖台灯光，9:16 竖构图；\n- 轻微 Ken Burns（缓慢推近或平移），不切碎，不加花字；\n- 字幕在 9:16 安全区底部，宋体/思源黑体风格，纯白+半透明黑底，不压字；\n- 不放表情符号、不放贴纸、不放浮窗。",
+      "updated_at": "2026-10-08T01:53:31+00:00"
+    },
+    "schema": "planning-authority-inputs@1",
+    "truth_packet": {
+      "claims": [],
+      "first_person_allowed": [],
+      "forbidden_inventions": [
+        "不得编造第一人称的工作场景、公司、项目、对话或人物关系",
+        "不得补造具体日期、时间安排、工作内容或业绩结果",
+        "不得将一般建议表达为已验证的疗效、统计结论或权威建议",
+        "不得引入未确认的品牌、机构、APP、平台或工具名",
+        "不得补造真实的桌面照片或工作场所截图——必要时使用授权内的 AI 生图补位，并标注非真实场景"
+      ],
+      "personal_facts": [],
+      "public_allowed": [
+        "把'收好桌面、写下明天第一件事、给今天一个收工信号'作为面向普通成年人的一般性建议呈现",
+        "以办公室/桌面视觉常识（键盘、纸张、台灯、笔、台历、笔记本电脑）为画面元素",
+        "使用用户已确认的旁白文案与轻柔无歌词背景音乐作为声音层"
+      ],
+      "schema": "easel-truth-packet@2",
+      "uncertainty_policy": {
+        "learning_is_not_proven_capability": true,
+        "plan_is_not_experience": true,
+        "unknown_claims": "label_uncertain"
+      }
+    }
+  },
+  "mode": {
+    "boundaries": {
+      "content": "Director decides the topic, argument, structure, and whether a video is worthwhile.",
+      "profile": "Profile remains the source of identity, factual boundaries, audience, and public scope.",
+      "runtime": "Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns."
+    },
+    "defaults": {
+      "bgm": "optional-and-subordinate",
+      "duration_seconds": {
+        "allowed": [
+          25,
+          60
+        ],
+        "preferred": [
+          30,
+          45
+        ]
+      },
+      "narration": "reflective-first-person",
+      "orientation": "9:16",
+      "visual_beats": {
+        "preferred": [
+          6,
+          9
+        ]
+      }
+    },
+    "id": "clear_memo_video",
+    "music_ducking": {
+      "attack_seconds": 0.12,
+      "gain_ratio": 0.25,
+      "release_seconds": 0.45
+    },
+    "name": "清醒备忘录 · 视频",
+    "status": "active",
+    "summary": "以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。",
+    "version": "1.3",
+    "visual_material_style": "restrained low saturation everyday",
+    "voice_delivery": {
+      "pace_ratio": 0.95,
+      "pitch_semitones": 0,
+      "tone": "neutral"
+    }
+  }
+}

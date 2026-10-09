@@ -836,3 +836,9 @@ run039因本次测试文件缩进错误未收集，失败原样保留；修正�
 本节没有提交、加载服务或新真实R4。服务仍89bc；batch09及全部历史FAIL不变，Smoke=NO。最终软件通过及Astra结论、固定commit/source和真实新批结果分别登记，不把本节中间PASS当作真实发布成功。
 
 **最终软件出口：** 修订后run042实际135PASS/0FAIL/0CONTRACT_GAP/0未执行；完整pytest873PASS/5既有skip，115技能、compileall、diff检查通过，未涉及前端。源203文件SHA`bf527ce1b565409817a5c21e0dc8029e6ca3ad73681bd619493fc4bd17be9caf`、257旧正式现场/117fixture在矩阵前后不变；Astra最终CONTINUE，无新增必修项。完整JUnit/stdout/source清单及结论见[单一软件记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch09-authority-software/software-summary.json)。此前run039/组件FAIL及batch09真实FAIL保留。下一步依既有授权窄提交、固定及安全加载，再以原16主题/原oracle另起全新32项，未完成真实成绩不得Smoke。
+
+### 13.28 R4 batch10：@7固定版本已加载，真实评测进行中（2026-10-07）
+
+固定commit`3be0ff946c29c8871a8f34de015c8b3944316ac7` / production203文件SHA`bf527ce1b565409817a5c21e0dc8029e6ca3ad73681bd619493fc4bd17be9caf`，23个选定源码/测试/fixture/Task文件凭证检查0命中，未push，其他工作树保留。run042135PASS/873全量PASS/5既有skip、115技能/compileall/diff、AstraCONTINUE。15:00:18 Web10168/Gateway10166安全加载，HTTP200/Gateway空闲；实际raw-stream停服后精确备份1,178,673字节、SHAbf6d88c5c98eeffb58971c3bc2ceb0dbf379d105c1dd847f3eab2d6d8dd0f0bf。无进程内SHA端点，版本证据为新PID/时间/执行文件/cwd与固定源核对。
+
+实时8旧Owner有效操作0、各批unknown/pending/submitting/release待办0、Gatewayactive/lost/audit0，257旧正式现场/117fixture和九旧批原件保持。仅已购文字套餐额度89%/周98%，禁止余额/现金/超额/回退，实际账单UNKNOWN。原16主题与独立oracle不变，32新正常Creation隔离冻结，第0项开始真实Prep/A/B/Truth，尚无评分。正式合同与独立语义双PASS才下一项；实际Supply/Provider/生成/TTS/Build禁止，历史FAIL不恢复不倒算，Smoke=NO。[加载记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/batch10-release-loaded.json)。

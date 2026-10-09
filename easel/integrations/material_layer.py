@@ -277,6 +277,8 @@ class PlanningIntegration:
         script: str,
         scenes: str,
         script_assessment: dict[str, Any] | None = None,
+        voice_identity_assessment: dict[str, Any] | None = None,
+        inherit_voice_identity: bool = False,
         requirements_source: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if plan.creation_id != attempt.get("creation_id") or plan.attempt_id != attempt.get("attempt_id"):
@@ -316,7 +318,7 @@ class PlanningIntegration:
             raise MaterialIntegrationError(str(exc)) from exc
         root = _workspace(attempt)
         product = bool(work.get('preparation', {}).get('snapshot_hashes')) or (
-            (work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@2')
+            (work.get('delivery') or {}).get('video_plan', {}).get('schema') in {'easel-video-proposal@2', 'easel-video-proposal@3'})
         version = attempt.get('planning_contract_version')
         from easel.integrations.semantic_boundary import POLICY as boundary_policy
         if plan.policy.get('semantic_compiler') == boundary_policy and version != 3:
@@ -402,6 +404,26 @@ class PlanningIntegration:
             if semantic is not None: manifest['semantic'] = semantic
             for key, record in records.items(): store.write_recovery_record(key, record)
         manifest_path = root / "planning" / "manifest.json"
+        from easel.integrations import voice_identity as voice
+        try:
+            voice_context = voice.review_context(work, plan, script, review)
+            if voice_context is not None:
+                checked_voice = voice.validate_checkpoint(work, attempt, plan, script, review,
+                    voice_identity_assessment, manifest=manifest,
+                    allow_inheritance=inherit_voice_identity)['report']
+                voice_path = root / 'planning' / 'voice-identity-review.json'
+                if _has_symlink_components(root, voice_path):
+                    raise ValueError('旁白身份报告路径无效')
+                if voice_path.exists() and json.loads(voice_path.read_text(encoding='utf-8')) != checked_voice:
+                    raise ValueError('已有旁白身份报告不能覆盖')
+                from easel.integrations.semantic_planning import write_file, encode
+                write_file(root, 'voice-identity-review.json', encode(checked_voice))
+                manifest['voice_identity'] = {'path': 'planning/voice-identity-review.json',
+                                            'sha256': hashlib.sha256(voice_path.read_bytes()).hexdigest()}
+            elif voice_identity_assessment is not None:
+                raise ValueError('未绑定旁白方案不能认领新报告')
+        except (OSError, ValueError, TypeError) as exc:
+            raise MaterialIntegrationError('旁白身份Truth合同无效：' + str(exc)) from exc
         if _has_symlink_components(root, manifest_path):
             raise MaterialIntegrationError("Planning manifest path must not contain symlinks")
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
@@ -430,6 +452,27 @@ class PlanningIntegration:
 
     def load(self, attempt: dict[str, Any]) -> dict[str, Any]:
         """Load persisted Planning artifacts and verify their recorded digests."""
+        result = self._load_contract(attempt)
+        from easel.integrations import voice_identity as voice
+        try:
+            owner = creation.get_creation(attempt['creation_id'])
+            if voice.require_binding(owner, result['plan'], result['script']) is not None:
+                report = voice.read_checkpoint_report(attempt, result['manifest'])
+                checked = voice.validate_checkpoint(owner, attempt, result['plan'], result['script'],
+                    result['truth_ledger'], report, manifest=result['manifest'])
+                result['voice_identity'] = checked['report']
+                result['voice_checkpoint'] = checked
+            elif result['manifest'].get('voice_identity') is not None:
+                raise ValueError('旧合同不能认领新旁白身份证据')
+        except (OSError, ValueError, TypeError) as exc:
+            raise MaterialIntegrationError('旁白身份Truth恢复合同无效：' + str(exc)) from exc
+        return result
+
+    def _load_contract(self, attempt: dict[str, Any]) -> dict[str, Any]:
+        """Internal contract read; load/Gate also require independent voice proof.
+
+        Used by the iterative checkpoint verifier, never as a readiness decision.
+        """
         root = _workspace(attempt)
         store = AttemptMaterialStore(root)
         try:
@@ -457,7 +500,7 @@ class PlanningIntegration:
         owner = creation.get_creation(plan.creation_id)
         owner_attempt = next((item for item in owner.get('hypit_attempts', [])
                               if item.get('attempt_id') == plan.attempt_id), {})
-        current_contract = ((owner.get('delivery') or {}).get('video_plan') or {}).get('schema') == 'easel-video-proposal@2'
+        current_contract = ((owner.get('delivery') or {}).get('video_plan') or {}).get('schema') in {'easel-video-proposal@2', 'easel-video-proposal@3'}
         v2 = (attempt.get('planning_contract_version') is not None or stored.get('contract_version') is not None
               or schema in {'easel-material-planning@2', 'easel-material-planning@3'} or 'requirements' in manifest
               or current_contract or owner_attempt.get('planning_contract_version') is not None)
@@ -517,7 +560,8 @@ class PlanningIntegration:
             except (OSError, ValueError, TypeError, KeyError) as exc:
                 raise MaterialIntegrationError('Planning要求合同完整性无效：' + str(exc)) from exc
         return {"plan": plan, **artifacts, "context_refs": plan.context_refs,
-                "truth_ledger": ledger, "attempt": attempt, 'requirements': manifest.get('requirements'), 'semantic': manifest.get('semantic')}
+                "truth_ledger": ledger, "attempt": attempt, 'manifest': manifest,
+                'requirements': manifest.get('requirements'), 'semantic': manifest.get('semantic')}
 
     def review_script(
         self,
@@ -596,6 +640,16 @@ class MaterialGateIntegration:
         current, current_gaps = calculator.calculate(plan, bundle)
         if current != readiness or tuple(gaps) != current_gaps:
             raise MaterialIntegrationError("MaterialReadiness evidence is stale")
+        from easel.integrations.voice_identity import covered_asset_evidence
+        try:
+            work = creation.get_creation(attempt['creation_id'])
+            voice_evidence = None
+            if (work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@3':
+                planning = PlanningIntegration().load(attempt)
+                voice_evidence = covered_asset_evidence(work, plan, bundle, store, planning['script'],
+                                                      checkpoint=planning['voice_checkpoint'])
+        except ValueError as exc:
+            raise MaterialIntegrationError(str(exc)) from exc
         store.write_bundle(bundle)
         store.write_supply_run(run)
         readiness_path = root / "materials" / "readiness.json"
@@ -618,6 +672,7 @@ class MaterialGateIntegration:
                 "readiness_locator": "materials/readiness.json",
                 "gaps_locator": "materials/gaps.json",
                 "blocking_needs": list(readiness.blocking_needs),
+                **({'voice_identity_evidence': voice_evidence} if voice_evidence is not None else {}),
             },
             material_audio_policy={
                 "requires_audio": any(
@@ -659,6 +714,18 @@ class MaterialGateIntegration:
             raise MaterialIntegrationError("MaterialReadiness 已失效；禁止进入 Production Authoring")
         if gate.get("bundle_revision") != bundle.revision or gate.get("plan_revision") != readiness.plan_revision:
             raise MaterialIntegrationError("MaterialReadiness revision is stale")
+        from easel.integrations.voice_identity import covered_asset_evidence
+        try:
+            work = creation.get_creation(attempt['creation_id'])
+            voice_evidence = None
+            if (work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@3':
+                planning = PlanningIntegration().load(attempt)
+                voice_evidence = covered_asset_evidence(work, plan, bundle, store, planning['script'],
+                                                      checkpoint=planning['voice_checkpoint'])
+            if voice_evidence is not None and gate.get('voice_identity_evidence') != voice_evidence:
+                raise ValueError('Gate旁白身份准入证据已失效')
+        except ValueError as exc:
+            raise MaterialIntegrationError(str(exc)) from exc
         return plan, bundle, readiness
 
 
@@ -2815,6 +2882,7 @@ class MaterialProductOrchestrator:
                 script=planning.get("script", ""),
                 scenes=planning.get("scenes", ""),
                 script_assessment=planning.get("script_assessment"),
+                voice_identity_assessment=planning.get('voice_identity_assessment'),
             )
         attempt = planning["attempt"]
         # Persist binds execution defaults and Voice text identity. Supply must

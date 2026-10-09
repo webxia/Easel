@@ -1,0 +1,62 @@
+{
+  "status": "THREE_ADVISORY_CHANGES_SOFTWARE_VALIDATED",
+  "goal": "稳定自主出片",
+  "goal_completed": false,
+  "session": "wc_sess_TVqbfxf7Z6k74Oz_",
+  "head": "df0d3a302ef59c6a5751f44be034fcc82a592f18",
+  "source_pin_kind": "dirty_worktree_manifest_not_commit",
+  "production_source_sha256": "90ab1935538ab3044c61ae1889392cfc42ae39ebfd26d3a78dc03ea1b1fb0272",
+  "production_files": 223,
+  "scope_changed_production_files": 10,
+  "policies": {
+    "intake": "confirmed-planning-intake@6",
+    "query_cardinality": "bounded-query-cardinality@1",
+    "visual_requirements": "visual-requirements@2",
+    "material_observation_request": "material-compact-observation@5"
+  },
+  "implemented": {
+    "queries": "New policy accepts 0-3 supplied visual queries. One or two pass through existing scalar discovery fields; three retain the existing object representation. No padding, deletion, translation or hard-filter promotion. English, length, uniqueness and modality constraints remain.",
+    "keyed_review": "Classification and same-frame checks are validated for complete unique integer IDs, then copied into program order. Original responses and status/basis are preserved. Missing, duplicated, unknown, boolean IDs, extra fields and wrong frames remain rejected. Creative scene/Need order is untouched.",
+    "preference_notes": "New visual policy permits an empty string. Field presence/type remain required; no invented acceptance. Required evidence and verdict semantics are unchanged.",
+    "recovery": "Plan-pinned revision propagates through compilation, cache, Material request, raw compact_results, deterministic normalization digests and cold report reconstruction. Legacy intake5 and visual-requirements1 retain prior rules."
+  },
+  "validation": {
+    "final_related": {
+      "job": "wc_job_rau70u9oykDBj0vX",
+      "passed": 168,
+      "failed": 0,
+      "errors": 0,
+      "skipped": 0,
+      "pytest_seconds": 822.24,
+      "junit_sha256": "615a66eff2619a47554699b35eeb6c571e0d3862eaa01218cf246199874114a4"
+    },
+    "native": {
+      "job": "wc_job_ktVJZcoiSk3o457P",
+      "passed": 1,
+      "failed": 0,
+      "pytest_seconds": 38.27,
+      "local_fixture_http": 5,
+      "real_model_calls": 0,
+      "junit_sha256": "8fd8396b50f01b0a400ef129ee24f572d036ccc5f94f0e5f94c936a083842ab3"
+    },
+    "earlier_overlapping_runs": [
+      {"job": "wc_job_sInL0ERmOH3wNul5", "passed": 53, "failed": 0},
+      {"job": "wc_job_Nm9XF8t6u-lkPypl", "passed": 20, "failed": 0}
+    ],
+    "evidence_limit": "Real internal modules with deterministic external replies. Not a full repository regression, real-model reliability estimate, Formal Planning qualification or MP4 acceptance. Do not add overlapping test counts.",
+    "syntax": "PASS",
+    "scoped_diff": "PASS",
+    "source_and_tests_unchanged": true
+  },
+  "history": {"protected": 302, "fixtures": 142, "sealed_budget_and_batch_files": 5, "all_unchanged": true},
+  "independent_reviewer": "UNAVAILABLE_NOT_CLAIMED",
+  "live_model_calls": 0,
+  "quota_queries": 0,
+  "new_media_calls": 0,
+  "build_calls": 0,
+  "original_unknown_reclassified": false,
+  "new_batch_dispatched": false,
+  "deployment_commit_push_publish": false,
+  "private_evidence": "Library/Application Support/Easel/acceptance/autonomous-first-cut-2026-10-08/advisory-validation-20261009T090924Z",
+  "next": "Keep this validated implementation. Reconcile the previously unknown original upstream request before any further real dispatch; do not repeat this implementation, query account quota automatically, reset budgets or treat software evidence as real video acceptance."
+}

@@ -34,6 +34,12 @@ class EvalStateViolation(Exception):
 
 class PlanningEvalBoundary:
     def __init__(self, before_stage=None, before_submit=None):
+        # Planning uses two pure authorization readers in this module. Load
+        # their definitions before tracing, also in a fresh CLI process. The
+        # downstream call guard below stays strict; import is not generation.
+        from easel.integrations.material_generation import (
+            authorized_generation_modalities, requested_generation_modalities,
+        )
         self.code = MaterialProductOrchestrator._run.__code__
         source, first = inspect.getsourcelines(MaterialProductOrchestrator._run)
         import textwrap
@@ -65,12 +71,15 @@ class PlanningEvalBoundary:
                 if self.before_stage:
                     self.before_stage(row)
                 self.phase_calls.append(row)
-            forbidden = (module.startswith(('easel.integrations.material_supply',
+            pure_authorization = (module == 'easel.integrations.material_generation'
+                                  and frame.f_code.co_qualname.split('.', 1)[0] in {
+                                      'authorized_generation_modalities', 'requested_generation_modalities'})
+            forbidden = (not pure_authorization and (module.startswith(('easel.integrations.material_supply',
                          'easel.integrations.material_generation',
                          'easel.integrations.material_recovery'))
                          or module.startswith('easel.materials.providers')
                          and name in {'search', 'acquire', 'generate', 'synthesize'}
-                         or module == 'easel.integrations.hypit.service' and name == '_cli')
+                         or module == 'easel.integrations.hypit.service' and name == '_cli'))
             if forbidden:
                 if module.startswith('easel.integrations.material_supply'):
                     self.supply_calls += 1
@@ -167,6 +176,34 @@ def confirm_sample(sample):
         video_plan_sha256=plan['sha256'], production_specs=plan['specs'],
         delivery_proposal=transcript,
         proposal_sha256=hashlib.sha256(transcript.encode()).hexdigest())
+
+
+def replay_frozen_preparation(work, inputs):
+    """Evaluation-only source replay, never an old Plan/status/report restore.
+
+    The ordinary Preparation validator and snapshot producer own validation and
+    the new identities. Only these four approved input files may be copied.
+    """
+    from easel import creation_preparation as prep
+    names = {'content-core.json', 'truth-packet.json', 'creator-context.json', 'production-brief.json'}
+    if set(inputs) != names:
+        raise EvalStateViolation('Frozen Preparation must contain exactly four input sources')
+    preparation = prep.claim_chat_preparation(work['id'], 'delivery:' + work['id'],
+        work['delivery']['confirmed_by_turn'])
+    draft = prep.preparation_paths(work['id'], preparation['operation_key'])['draft']
+    for name in sorted(names):
+        row = inputs[name]
+        path = Path(row['path'])
+        if path.is_symlink() or not path.is_file(): raise EvalStateViolation('Frozen input unsafe')
+        raw = path.read_bytes()
+        if hashlib.sha256(raw).hexdigest() != row['sha256']:
+            raise EvalStateViolation('Frozen Preparation source changed')
+        if (draft / name).exists(): raise EvalStateViolation('Cannot overwrite evaluation input')
+        (draft / name).write_bytes(raw)
+    prep.validate_preparation_draft(work['id'], preparation['operation_key'])
+    return {'creation_id': work['id'], 'operation_key': preparation['operation_key'],
+            'inputs': {name: inputs[name]['sha256'] for name in sorted(names)},
+            'kind': 'isolated-evaluation-carrier', 'real_preparation_calls': 0}
 
 
 @contextmanager

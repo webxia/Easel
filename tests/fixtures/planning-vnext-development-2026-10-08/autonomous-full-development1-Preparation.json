@@ -1,0 +1,29 @@
+{
+  "ai_generation_allowed": true,
+  "aspect_ratio": "9:16",
+  "audio_mode": "mixed",
+  "beats": [],
+  "duration_seconds": 30,
+  "language": "zh-CN",
+  "material_sources": [
+    "local_desk_photo_placeholder"
+  ],
+  "publication_allowed": false,
+  "schema": "easel-production-brief@1",
+  "text_overlays": [
+    "今天的桌面，先收一收。",
+    "然后，写下明天第一件要做的事。",
+    "最后，给自己一个收工的信号。",
+    "这样，明天打开门的时候，",
+    "不是从零开始。"
+  ],
+  "visual_constraints": [
+    "画面为静态照片质感，只在后期完成缓慢推近 / 横移 / 上摇的轻微镜头运动",
+    "字幕压在画面下三分之一安全区，单条不超过 12 字，跟随旁白节奏，不做弹跳或装饰",
+    "不出现真人正脸、不出现可识别办公场景或品牌 / 机构 / App 截图",
+    "手部动作和笔尖画面只保留示意，不形成可读的真实文字",
+    "Shot 9 结尾使用近黑桌面做自然暗角渐入，不做突兀切换",
+    "基础音量约 –22 dB 到 –18 dB；旁白开始 200 ms 内将音乐压低 8–10 dB；旁白结束后 400–600 ms 内平滑恢复；Shot 9 结尾 1.5 秒自然淡出",
+    "不使用 whoosh、impact、通知音等装饰音效；不出现品牌音效或 App 提示音"
+  ]
+}

@@ -719,7 +719,7 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
                 from easel.integrations.semantic_boundary import POLICY as boundary_policy
                 names = ['SEMANTIC_PLAN.json', 'SEMANTIC_CHECKPOINT.json']
                 if plan.policy.get('semantic_compiler') == boundary_policy:
-                    names.append('SEMANTIC_A_RESULT.json')
+                    names.extend(planning['semantic'].get('raw_artifacts', ['SEMANTIC_A_RESULT.json']))
                 for name in names:
                     _copy_retry_checkpoint_file(source_root, target_root, Path('planning') / name)
                 checkpoint = target_root / 'planning/SEMANTIC_CHECKPOINT.json'
@@ -727,14 +727,18 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
                     raise HypitIntegrationError('语义快照复制期间变化')
             target = update_film_attempt(target['attempt_id'], event='planning_contract_copied',
                                          planning_contract_version=source['planning_contract_version'])
+        if planning["truth_ledger"]["status"] != "PASSED":
+            raise HypitIntegrationError("Script Truth checkpoint 尚未通过审核")
+        # The inherited identity decision binds the complete original ledger.
+        # Copy it before persist so no new review timestamp or decision is made.
+        _copy_retry_checkpoint_file(source_root, target_root, Path("planning/script-claims.json"))
         persisted = PlanningIntegration().persist(
             target, new_plan, treatment=planning["treatment"],
             script=planning["script"], scenes=planning["scenes"],
             requirements_source=requirements_source,
+            inherit_voice_identity=planning.get('voice_identity') is not None,
         )
         target = persisted["attempt"]
-        if planning["truth_ledger"]["status"] != "PASSED":
-            raise HypitIntegrationError("Script Truth checkpoint 尚未通过审核")
         _copy_retry_checkpoint_file(source_root, target_root, Path("planning/script-claims.json"))
         ledger = planning["truth_ledger"]
         target_planning = {**target["material_planning"],

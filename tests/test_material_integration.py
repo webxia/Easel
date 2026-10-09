@@ -27,6 +27,7 @@ from easel.materials.application.rights import RightsService
 from easel.materials.application.compiler import NeedCompiler
 from easel.materials.domain import (
     BgmNeedSpec,
+    SfxNeedSpec,
     CandidateSource,
     DurationHint,
     FileInfo,
@@ -2569,7 +2570,7 @@ def test_sparse_shared_observation_explores_unknown_metadata_and_skips_covered_s
     assert store.read_bundle() == before
 
 
-@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'video_failed', 'video_intake_resume', 'voice_preflight', 'terms_resume', 'image_ready', 'image_backlog'])
+@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'video_failed', 'video_intake_resume', 'voice_preflight', 'terms_resume', 'image_ready', 'image_backlog', 'restricted_image', 'restricted_video', 'restricted_voice', 'restricted_music', 'modality_drift'])
 def test_commission_generation_reserves_before_submit_and_survives_restart(material_integration_env, monkeypatch, outcome):
     import asyncio
     from io import BytesIO
@@ -2583,14 +2584,17 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     from tests.test_creation_preparation import web
 
     attempt = material_integration_env
-    is_video = outcome in {'video_resume', 'video_failed', 'video_intake_resume'}
-    is_voice = outcome == 'voice_preflight'
+    is_video = outcome in {'video_resume', 'video_failed', 'video_intake_resume', 'restricted_video'}
+    is_voice = outcome in {'voice_preflight', 'restricted_voice'}
+    is_music = outcome == 'restricted_music'
     expected_cost = '1.650000' if is_video else '0.025000'
     plan = MaterialPlan(plan_id='commission-plan', creation_id=attempt['creation_id'], attempt_id=attempt['attempt_id'],
-        needs=tuple(MaterialNeed(need_id=f'image-{i}', scope=NeedScope(type=NeedScopeType.GLOBAL if is_voice else NeedScopeType.SCENE, ref=f'scene-{i}'),
-            media_type=MediaType.AUDIO if is_voice else MediaType.VIDEO if is_video else MediaType.IMAGE,
+        needs=tuple(MaterialNeed(need_id=f'image-{i}', scope=NeedScope(
+            type=NeedScopeType.EVENT if is_music and i == 1 else NeedScopeType.GLOBAL if is_voice or is_music else NeedScopeType.SCENE,
+            ref=f'scene-{i}'),
+            media_type=MediaType.AUDIO if is_voice or is_music else MediaType.VIDEO if is_video else MediaType.IMAGE,
             modality_spec=VoiceNeedSpec(identity=VoiceIdentityRef(source=VoiceIdentitySource.DIRECTOR_INTENT,
-                reference='预置普通话')) if is_voice else None,
+                reference='预置普通话')) if is_voice else (BgmNeedSpec() if i == 0 else SfxNeedSpec(event_description='雨声')) if is_music else None,
             role='主视觉', intent=NeedIntent(description=f'不同场景 {i}'),
             constraints={'allow_generation': True}, importance=NeedImportance.REQUIRED) for i in range(2)))
     planning = PlanningIntegration().persist(attempt, plan, treatment='纪实观察', script='假设场景。', scenes='两个不同场景')
@@ -2602,7 +2606,7 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
     MaterialProductOrchestrator()._run(attempt, (), planning=PlanningIntegration().load(attempt))
     # A deterministic successful empty search establishes an actual shortage;
     # absence of configured providers alone must never license paid fallback.
-    if not is_video and not is_voice:
+    if not is_video and not is_voice and not is_music:
         evidence_path = AttemptMaterialStore(attempt['workspace']['path']).materials_root / 'product-supply.json'
         evidence = json.loads(evidence_path.read_text())
         for row in evidence['routing']:
@@ -2633,9 +2637,58 @@ def test_commission_generation_reserves_before_submit_and_survives_restart(mater
         work['chat_workflow'] = {'proposal_status': 'READY_FOR_CONFIRMATION'}
     preview = commissioned.generation_budget_preview()
     budget = {'maxCostCny': 2 if is_video else 0.06 if outcome == 'image_backlog' else 0.03, 'scopeSha256': preview['scope_sha256']}
+    restricted = outcome.startswith('restricted_') or outcome == 'modality_drift'
+    if restricted:
+        budget['allowedModalities'] = ['voice', 'image']
     work = creation.confirm_chat_proposal(attempt['creation_id'], 'fixture-confirm',
         delivery_proposal=proposal, proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), generation_budget=budget,
         input_use_statement_sha256=creation.input_use_preview()['statement_sha256'])
+    if restricted:
+        grant = work['delivery']['authorization']['material_generation']
+        assert grant['allowed_modalities'] == ['image', 'voice']
+        assert creation.confirm_chat_proposal(work['id'], 'same-replay', delivery_proposal=proposal,
+            proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(),
+            generation_budget={**budget, 'allowedModalities': ['image', 'voice']})['delivery'] == work['delivery']
+        for changed in [None, ['image', 'video', 'voice'], [], ['voice', 'voice'], ['bgm']]:
+            replay = {k: v for k, v in budget.items() if k != 'allowedModalities'}
+            if changed is not None: replay['allowedModalities'] = changed
+            with pytest.raises(creation.CreationError):
+                creation.confirm_chat_proposal(work['id'], 'changed-replay', delivery_proposal=proposal,
+                    proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), generation_budget=replay)
+        assert creation.get_creation(work['id'])['delivery'] == work['delivery']
+    if outcome in {'restricted_video', 'restricted_music', 'modality_drift'}:
+        from easel.creation_delivery import active_delivery
+        from copy import deepcopy
+        token = active_delivery.set(work['id'])
+        try:
+            if outcome in {'restricted_video', 'restricted_music'}:
+                assert commissioned.pending_generated_need(work, attempt, plan) is None
+                commissioned.generate_for_commission(attempt['attempt_id'])
+                assert not quote_reads and not creation.get_creation(work['id'])['delivery'].get('material_generations')
+            request_id = 'synthetic-restricted-receipt'
+            receipt = {'status': 'reserved', 'attempt_id': attempt['attempt_id'], 'need_id': plan.needs[0].need_id,
+                       'fingerprint': commissioned.commission_fingerprint(plan, '假设场景。', grant),
+                       'quote': {'upper_estimate': '0.01'}}
+            with creation.edit_creation(work['id']) as current:
+                current['delivery'].setdefault('material_generations', {})[request_id] = receipt
+                if outcome == 'modality_drift':
+                    current['delivery']['authorization']['material_generation']['allowed_modalities'] = ['image']
+            with pytest.raises(creation.CreationError, match='授权内'):
+                commissioned.assert_commission_request(attempt, plan, '假设场景。', settings, request_id, plan.needs[0].need_id)
+            if is_music:
+                assert {need.modality_spec.kind for need in plan.needs} == {'bgm', 'sfx'}
+                with creation.edit_creation(work['id']) as current:
+                    current['delivery']['material_generations'][request_id]['need_id'] = plan.needs[1].need_id
+                with pytest.raises(creation.CreationError, match='授权内'):
+                    commissioned.assert_commission_request(attempt, plan, '假设场景。', settings, request_id, plan.needs[1].need_id)
+            assert not quote_reads
+            if outcome == 'restricted_video':
+                assert all(n.importance.value == 'required' and n.media_type.value == 'video' for n in plan.needs)
+            damaged = deepcopy(grant); del damaged['allowed_modalities']
+            with pytest.raises(creation.CreationError): commissioned.authorized_generation_modalities(damaged)
+        finally:
+            active_delivery.reset(token)
+        return
     if outcome in {'image_ready', 'image_backlog'}:
         from easel.creation_delivery import set_material_endpoint
         set_material_endpoint(work['id'])

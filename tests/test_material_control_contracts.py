@@ -110,6 +110,93 @@ def test_required_paper_and_optional_angle_have_distinct_admission_contracts(fau
             assert group['clauses']
 
 
+@pytest.mark.parametrize('fault', [None, 'missing', 'duplicate', 'unknown', 'bool_id',
+    'wrong_frame', 'extra', 'no_basis', 'not_met', 'unknown_status', 'tamper', 'null_note'])
+def test_advisory_keyed_review_preserves_raw_semantics_and_cold_reload(tmp_path, fault):
+    import json, subprocess, sys
+    from easel.materials.domain import MaterialPlan
+    from easel.materials.application.visual_contract import ADVISORY_REVISION, digest
+    need = visual_need().model_copy(update={'intent': NeedIntent(description='two paper sheets; no logo')})
+    plan = MaterialPlan(plan_id='advisory', creation_id='creator', attempt_id='attempt',
+        context_refs={'brief_sha256': 'a' * 64}, policy={'visual_requirements': ADVISORY_REVISION}, needs=(need,))
+    frozen = compilation_input(need, plan.context_refs, {}, plan=plan)
+    units = classification_units(frozen)
+    assert len(units) == 2
+    labels = {'classifications': [{'id': u['id'], 'kind': 'required', 'preference_source': None}
+                                  for u in reversed(units)], 'queries': ['paper desk']}
+    labels_before = deepcopy(labels)
+    compiled = bind_classifications(frozen, labels)
+    assert labels == labels_before and compiled['queries'] == ['paper desk']
+    contract = validate_compilation(frozen, compiled)
+    old = {**frozen, 'revision': 'visual-requirements@1'}
+    with pytest.raises(ValueError): bind_classifications(old, labels)
+    with pytest.raises(ValueError): validate_compilation(old, compiled)
+    for change in ('missing', 'duplicate', 'unknown', 'bool'):
+        bad = deepcopy(labels)
+        if change == 'missing': bad['classifications'].pop()
+        elif change == 'duplicate': bad['classifications'][0]['id'] = bad['classifications'][1]['id']
+        elif change == 'unknown': bad['classifications'][0]['id'] = 99
+        else: bad['classifications'][0]['id'] = True
+        with pytest.raises(ValueError): bind_classifications(frozen, bad)
+    asset = MaterialAsset(asset_id='image', media_type=MediaType.IMAGE,
+        file=FileInfo(path='materials/assets/image/original.png', sha256='b' * 64, size=1, mime='image/png'),
+        source=CandidateSource(kind='fixture'), rights=RightsInfo(status=RightsStatus.UNKNOWN),
+        technical=TechnicalInfo(status=TechnicalStatus.PASSED))
+    manifest = {'need_sha256': need_identity(need), 'asset_sha256': asset.file.sha256, 'asset_id': asset.asset_id,
+        'input_sha256': 'c' * 64, 'media_type': 'image', 'frames': [{'index': 0, 'sha256': 'd' * 64}]}
+    response = {'frame': 0, 'observed': True, 'description': 'two sheets', 'style': 'daylight',
+        'logo': False, 'text': False, 'preference_notes': '',
+        'checks': [{'id': c['id'], 'status': 'met', 'basis': 'fixture observed condition'}
+                   for c in reversed(contract['clauses']) if c['kind'] == 'required']}
+    assert len(batches(manifest, contract)) == 1
+    if fault == 'missing': response['checks'].pop()
+    elif fault == 'duplicate': response['checks'][0]['id'] = response['checks'][1]['id']
+    elif fault == 'unknown': response['checks'][0]['id'] = 99
+    elif fault == 'bool_id': response['checks'][0]['id'] = True
+    elif fault == 'wrong_frame': response['frame'] = 1
+    elif fault == 'extra': response['checks'][0]['restriction'] = 'additional condition'
+    elif fault == 'no_basis': response['checks'][0]['basis'] = ''
+    elif fault == 'null_note': response['preference_notes'] = None
+    elif fault in {'not_met', 'unknown_status'}:
+        response['checks'][0]['status'] = 'not_met' if fault == 'not_met' else 'unknown'
+    original = deepcopy(response)
+    if fault not in {None, 'not_met', 'unknown_status', 'tamper'}:
+        with pytest.raises(ValueError): assemble_report(manifest, contract, [response])
+        assert response == original
+        return
+    report = assemble_report(manifest, contract, [response])
+    assert response == original and report['compact_results'] == [original]
+    assert report['result_normalizations'][0]['raw_sha256'] == digest(original)
+    assert report['result_normalizations'][0]['reordered_checks'] is True
+    assert report['preference_notes'] == ['']
+    assert [row['id'] for row in report['requirement_checks'][0]['requirements']] == [0, 1]
+    assert report['verdict'] == ('unsuitable' if fault == 'not_met' else 'uncertain' if fault == 'unknown_status' else 'suitable')
+    apply_observation(need, asset, manifest, report)
+    if fault == 'tamper':
+        bad = deepcopy(report); bad['result_normalizations'][0]['normalized_sha256'] = '0' * 64
+        with pytest.raises(ValueError): apply_observation(need, asset, manifest, bad)
+        return
+    data = tmp_path / 'cold-advisory.json'
+    data.write_text(json.dumps({'need': need.model_dump(mode='json'), 'asset': asset.model_dump(mode='json'),
+        'manifest': manifest, 'report': report}))
+    code = '''import json,sys,socket
+from pathlib import Path
+from easel.materials.domain import MaterialNeed,MaterialAsset
+from easel.materials.application.visual_observation import apply_observation
+from easel.materials.application.visual_contract import assemble_report
+x=json.loads(Path(sys.argv[1]).read_text())
+def forbidden(*a,**k): raise AssertionError('cold replay used network')
+socket.socket.connect=forbidden
+r=x['report']
+assert assemble_report(x['manifest'],r['requirements_contract'],r['compact_results'])==r
+apply_observation(MaterialNeed.model_validate_json(json.dumps(x['need'])),MaterialAsset.model_validate_json(json.dumps(x['asset'])),x['manifest'],r)
+print('COLD_ADVISORY_PASS')
+'''
+    child = subprocess.run([sys.executable, '-c', code, str(data)], capture_output=True, text=True, timeout=30)
+    assert child.returncode == 0, child.stderr
+    assert 'COLD_ADVISORY_PASS' in child.stdout
+
+
 @pytest.mark.parametrize('fault', [None, 'missing', 'extra', 'reordered', 'overlap', 'wrong_offset'])
 def test_subtitle_mapping_proves_whole_script_without_guessing_newline_counts(fault):
     script = '第一句。\n第二句。\n第一句。'

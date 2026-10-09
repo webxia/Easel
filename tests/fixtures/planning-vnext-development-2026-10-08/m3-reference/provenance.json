@@ -1,0 +1,25 @@
+{
+  "kind": "public reference implementation; online service equivalence UNPROVEN",
+  "retrieved_at": "2026-10-08",
+  "real_model_calls": 0,
+  "sources": [
+    {
+      "file": "sglang_minimax_m3.py.txt",
+      "url": "https://raw.githubusercontent.com/sgl-project/sglang/main/python/sglang/srt/function_call/minimax_m3.py",
+      "bytes": 20323,
+      "sha256": "7c3f1086e4186ccdd273cb6f201badca6da17d6f2ddbff79a2c69103fd511b71"
+    },
+    {
+      "file": "sglang_function_utils.py.txt",
+      "url": "https://raw.githubusercontent.com/sgl-project/sglang/main/python/sglang/srt/function_call/utils.py",
+      "bytes": 17496,
+      "sha256": "3c1caf6907f05ddd4a44634f2c907d514de2191a45ee76b2ffaf962bf30a0902"
+    },
+    {
+      "file": "huggingface.co_MiniMaxAI_MiniMax-M3_raw_main_chat_template.jinja",
+      "url": "https://huggingface.co/MiniMaxAI/MiniMax-M3/raw/main/chat_template.jinja",
+      "bytes": 11756,
+      "sha256": "11421244f67553498e5c8112dae02802025bcc4305ec45ad380af95c96f9fe64"
+    }
+  ]
+}

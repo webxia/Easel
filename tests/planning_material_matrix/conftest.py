@@ -13,6 +13,7 @@ import time
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
+NATIVE_POPEN = subprocess.Popen
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'web'))
 
@@ -46,8 +47,24 @@ def trace(request):
     yield evidence
 
 
+@pytest.fixture
+def native_guard_process(tmp_path, monkeypatch, isolate):
+    """Allow only the offline Node guard; all other child processes stay blocked."""
+    blocked = subprocess.Popen
+    def guarded(command, *args, **kwargs):
+        import shutil
+        expected = [shutil.which('node'), str(tmp_path / 'guard-test.mjs'),
+                    str(ROOT / 'scripts/openclaw_structured_result.mjs'), str(tmp_path / 'ledger')]
+        environment = kwargs.get('env', {})
+        if (command != expected or set(environment) != {'PATH', 'NODE_OPTIONS'}
+                or environment['NODE_OPTIONS'] != '--import=' + str(tmp_path / 'no-network.mjs')):
+            return blocked(command, *args, **kwargs)
+        return NATIVE_POPEN(command, *args, **kwargs)
+    monkeypatch.setattr(subprocess, 'Popen', guarded)
+
+
 @pytest.fixture(autouse=True)
-def isolate(tmp_path, monkeypatch, trace):
+def isolate(tmp_path, monkeypatch, trace, request):
     # No network/child processes/real runtime configuration. Overrides in cases
     # are explicit fixture adapters; product modules otherwise remain native.
     from easel import creation, creative_mode
@@ -74,7 +91,31 @@ def isolate(tmp_path, monkeypatch, trace):
         return stop
     monkeypatch.setattr(socket.socket, 'connect', forbidden('network connect'))
     monkeypatch.setattr(socket, 'create_connection', forbidden('network connection'))
-    monkeypatch.setattr(subprocess, 'Popen', forbidden('external process'))
+    blocked_process = forbidden('external process')
+    def local_media(command, *args, **kwargs):
+        # This existing integration row needs real local encoding/inspection;
+        # it still cannot run arbitrary processes or media network protocols.
+        import shutil
+        risk = getattr(request.node, 'callspec', None)
+        risk = risk.params.get('risk', '') if risk else ''
+        if (not risk.startswith('preset:material_') or not isinstance(command, list)
+                or not command or kwargs.get('shell')):
+            return blocked_process(command, *args, **kwargs)
+        executable = Path(shutil.which(str(command[0])) or str(command[0])).resolve()
+        encoder = Path(shutil.which('ffmpeg') or '/absent-ffmpeg').resolve()
+        probe = Path(shutil.which('ffprobe') or '/absent-ffprobe').resolve()
+        target = Path(str(command[-1])).resolve()
+        if not target.is_relative_to(tmp_path.resolve()):
+            return blocked_process(command, *args, **kwargs)
+        if executable == encoder and command[1:-1] == [
+                '-nostdin', '-loglevel', 'error', '-f', 'lavfi', '-i',
+                'sine=frequency=350:sample_rate=16000:duration=5'] and target.name == 'fixture-voice.mp3':
+            return NATIVE_POPEN([str(executable), '-protocol_whitelist', 'file,pipe', *command[1:]], *args, **kwargs)
+        if executable == probe and command[1:-1] == [
+                '-v', 'error', '-show_streams', '-show_format', '-of', 'json']:
+            return NATIVE_POPEN([str(executable), '-protocol_whitelist', 'file,pipe', *command[1:]], *args, **kwargs)
+        return blocked_process(command, *args, **kwargs)
+    monkeypatch.setattr(subprocess, 'Popen', local_media)
     monkeypatch.setattr(web, 'run_agent_sync', forbidden('unmocked Gateway/model'))
     monkeypatch.setattr(service, '_cli', forbidden('Hypit CLI'))
 

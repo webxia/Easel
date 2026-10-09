@@ -1,0 +1,79 @@
+{
+  "status": "AUDIT_COMPLETE_UNIFIED_DESIGN_DRAFT_NOT_IMPLEMENTED",
+  "goal_completed": false,
+  "source_sha256": "1dccfb0f1c3a68602a45b4f28240f2eec818e070828a43f6db38d4fa820b630d",
+  "source_files": 221,
+  "head": "df0d3a302ef59c6a5751f44be034fcc82a592f18",
+  "source_pin_kind": "dirty_worktree_manifest_not_commit",
+  "primary_scope": {
+    "named_qualification_batches": 9,
+    "first_sample_executions": 9,
+    "executions_with_model_runs": 8,
+    "deduplication": "one original run-00 per named batch, unique Creation; model run IDs retained privately",
+    "output_contract_primary_failures": 7,
+    "engineering_primary_failures": 2,
+    "proven_normalizable_first_blocker": 1,
+    "other_output_failures_not_filter_only": 6,
+    "not_all_project_failures": true,
+    "not_a_success_rate_estimate": true
+  },
+  "cases": [
+    {"batch":"qualification-candidate","class":"ENGINEERING","reason":"Cold-import evaluator false-positive before any model run"},
+    {"batch":"qualification-cold-v2","class":"NOT_FILTER_ONLY","reason":"Ten extra root fields include meaningful content; only one visual obligation represented"},
+    {"batch":"qualification-m27-v1","class":"NOT_FILTER_ONLY","reason":"Repeated program-owned Voice, missing unresolved container, modality/query errors"},
+    {"batch":"qualification-staged-v2","class":"ENGINEERING_WITH_SEMANTIC_RESIDUAL","reason":"shape called get on a boolean schema; candidate also contains invalid references and unresolved/necessity problems"},
+    {"batch":"qualification-source-view-v1","class":"NOT_FILTER_ONLY","reason":"Invalid query candidates plus missing mandatory BGM"},
+    {"batch":"qualification-intake-v1","class":"NOT_FILTER_ONLY","reason":"Unknown scope and program Voice resubmitted as BGM"},
+    {"batch":"qualification-intake-v2","class":"NOT_FILTER_ONLY","reason":"Malformed string slots, missing unresolved; necessity/unresolved issues remain"},
+    {"batch":"p3-qualification-2026-10-09","class":"NOT_FILTER_ONLY","reason":"Oversized quotes, invalid sources and Need relations, no visual candidates and false coverage judgments"},
+    {"batch":"relational-qualification-2026-10-09","class":"PROVEN_LOCAL_NORMALIZATION_OPPORTUNITY","reason":"Extra contains exactly repeats the frozen array rule and existing BGM/required fields; no full semantic or downstream pass claimed"}
+  ],
+  "additional_scope": {
+    "old_r4_batches_reviewed_as_summaries":10,
+    "old_r4_sample_executions":12,
+    "supplementary_vnext_execution":1,
+    "vnext_fence": "Removing the whole JSON fence still leaves excessive conditions, invalid scopes/continuity, frame/duration and unresolved problems."
+  },
+  "current_contains_counterfactual": {
+    "raw_sha256":"30ed9d55aff910c0e138df124616759145f4c035b9630be0fece1f105e13c818",
+    "original_schema_error_count":1,
+    "path":["needs",6,"contains"],
+    "rule_matches_frozen_schema":true,
+    "value_matches_existing_candidate_fields":true,
+    "in_memory_only":true,
+    "normalized_selection_schema":"PASS",
+    "constructible_details_slots":7,
+    "A_details_B_Truth_not_executed":true,
+    "historical_failure_unchanged":true
+  },
+  "existing_projection_locations": [
+    {"file":"easel/materials/application/visual_contract.py","lines":"58-119","behavior":"Identity-bound wrapper/audio-row/path/null/source-text conversion; preference completion is compiler derivation, not generic normalization"},
+    {"file":"easel/integrations/planning_wire.py","lines":"1-18,58-95","behavior":"Versioned lossless wire decoding; literal null text must not become null"},
+    {"file":"easel/integrations/planning_input_view.py","lines":"39-67","behavior":"Source mapping and program-known empty continuity decoding"},
+    {"file":"web/app.py","lines":"2913-2947","behavior":"Whole JSON-fence extraction in the material path; not tool/prose fallback permission"},
+    {"file":"easel/integrations/script_truth.py","lines":"203-237","behavior":"Validate compatible extra reviews before projecting only unresolved claims"}
+  ],
+  "design_decisions": [
+    "Reuse ACCEPT/NORMALIZE/BOUNDED_REPAIR/REJECT; no new workflow or agent",
+    "Separate safely retained raw envelope, normalized candidate and formal artifacts",
+    "No success recovery from partial/error/unknown runs; no discarding sensitive fields before safety checks",
+    "Only stage/version-specific equivalence rules; unknown extra fields block admission",
+    "Preserve requirements, denials, authorization, rights, costs and frozen text",
+    "Separate decoding, normalization, compiler derivation and model repair",
+    "Optional hints need an explicit fallback contract and downstream proof; lossy fallback is not lossless normalization",
+    "Receipt binds raw/schema/input/policy/normalized identities, actions and remaining errors; replay retains original policy",
+    "First implement the shared admission contract with A-selection; map but do not simultaneously rewrite all downstream stages"
+  ],
+  "private_audit":"Library/Application Support/Easel/acceptance/autonomous-first-cut-2026-10-08/output-admission-design-audit-2026-10-09/audit.json",
+  "private_audit_sha256":"35a8c9906f49f0ad6ab6456c856de3c58aa6c18065c5f28529904a0786d1c6fd",
+  "protected_files_verified":302,
+  "fixtures_verified":142,
+  "production_edits":0,
+  "new_real_model_calls":0,
+  "new_media_calls":0,
+  "new_build_calls":0,
+  "services_reloaded":false,
+  "commit_push_publish":false,
+  "formal_videos":"0/3",
+  "design_review":"OWNER_DRAFT; not independent approval or implementation acceptance"
+}

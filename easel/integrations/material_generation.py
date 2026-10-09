@@ -88,6 +88,14 @@ def commission_generated_rights(work, plan, need, asset, record, script):
             or not record.get('voice_id') or record['voice_id'] != scope.get('speech_voice_id')
             or not any(e.get('url') == VOICE_URL and len(e.get('sha256', '')) == 64 for e in quote.get('evidence', []))):
         return None
+    if is_voice:
+        from easel.integrations.voice_identity import require_binding
+        try:
+            binding = require_binding(work, plan, script)
+        except ValueError:
+            return None
+        if binding is not None and approval.get('voice_binding_sha256') != binding['binding_sha256']:
+            return None
     if not is_voice and (record.get('model') != scope.get(modality + '_model')
             or record.get('model') not in ({'image-01'} if modality == 'image' else MINIMAX_VIDEO_MODELS)):
         return None
@@ -159,28 +167,70 @@ def _scope_digest(settings, scope) -> str:
     return _digest([scope, hashlib.sha256((settings.api_key or '').encode()).hexdigest()])
 
 
+GENERATION_MODALITIES = frozenset({'image', 'video', 'voice'})
+MODALITY_AUTHORIZATION = 'material-generation-budget@2'
+
+
+def requested_generation_modalities(budget):
+    if 'allowedModalities' not in budget:
+        return GENERATION_MODALITIES
+    value = budget['allowedModalities']
+    if (not isinstance(value, list) or not value or any(type(item) is not str for item in value)
+            or len(set(value)) != len(value) or not set(value) <= GENERATION_MODALITIES):
+        raise creation.CreationError('素材生成范围须为不重复的图片、视频、预置旁白类别')
+    return frozenset(value)
+
+
+def authorized_generation_modalities(grant):
+    if 'authorization_contract' not in grant and 'allowed_modalities' not in grant:
+        return GENERATION_MODALITIES  # Preserve genuinely legacy authorizations.
+    if grant.get('authorization_contract') != MODALITY_AUTHORIZATION or 'allowed_modalities' not in grant:
+        raise creation.CreationError('素材生成范围授权记录不完整，不能扩大执行')
+    return requested_generation_modalities({'allowedModalities': grant['allowed_modalities']})
+
+
+def generation_need_modality(need):
+    # Audio media is not automatically speech: BGM/SFX cannot spend a voice grant.
+    if need.media_type.value == 'audio':
+        return 'voice' if getattr(need.modality_spec, 'kind', None) == 'voice' else None
+    return need.media_type.value if need.media_type.value in {'image', 'video'} else None
+
+
+def commission_fingerprint(plan, script, grant):
+    values = [plan.to_json(), script, grant['scope']]
+    modalities = authorized_generation_modalities(grant)
+    if 'authorization_contract' in grant:
+        values.append({'authorization_contract': MODALITY_AUTHORIZATION,
+                       'allowed_modalities': sorted(modalities)})
+    return _digest(values)
+
+
 def commission_generation_authorization(budget: dict | None) -> dict | None:
     if budget is None:
         return None
     try:
-        if set(budget) != {'maxCostCny', 'scopeSha256'} or isinstance(budget['maxCostCny'], bool):
+        if set(budget) not in ({'maxCostCny', 'scopeSha256'}, {'maxCostCny', 'scopeSha256', 'allowedModalities'}) or isinstance(budget['maxCostCny'], bool):
             raise ValueError
         amount = Decimal(str(budget['maxCostCny']))
         if not amount.is_finite() or not 0 < amount <= 1000 or amount.as_tuple().exponent < -2:
             raise ValueError
     except (InvalidOperation, ValueError, KeyError, TypeError) as exc:
         raise creation.CreationError('素材预算须为 0～1000 元之间的正数，最多两位小数') from exc
+    modalities = requested_generation_modalities(budget)
     preview = generation_budget_preview()
     if not preview.get('available') or budget['scopeSha256'] != preview.get('scope_sha256'):
         raise creation.CreationError('素材服务或音色配置已变化，请核对当前方案中的费用范围')
     return {'currency': 'CNY', 'max_amount': str(amount), 'scope': preview['scope'],
-            'scope_sha256': preview['scope_sha256']}
+            'scope_sha256': preview['scope_sha256'],
+            **({'authorization_contract': MODALITY_AUTHORIZATION, 'allowed_modalities': sorted(modalities)}
+               if 'allowedModalities' in budget else {})}
 
 
 def pending_generated_need(work, attempt, plan):
     authorization = work.get('delivery', {}).get('authorization', {}).get('material_generation')
     if not authorization:
         return None
+    allowed = authorized_generation_modalities(authorization)
     records = work['delivery'].get('material_generations', {})
     blocking = set(attempt.get('material_gate', {}).get('blocking_needs', []))
     # One initial generation per Need/draft. Unknown outcomes never open another
@@ -188,7 +238,8 @@ def pending_generated_need(work, attempt, plan):
     revision = hashlib.sha256(plan.to_json().encode()).hexdigest()
     retained = AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()
     for need in plan.needs:
-        if (need.need_id not in blocking or need.constraints.get('allow_generation') is False
+        if (generation_need_modality(need) not in allowed
+                or need.need_id not in blocking or need.constraints.get('allow_generation') is False
                 or not MaterialSourceRouter._generation_eligible(need)):
             continue
         if need.media_type.value in {'image', 'video'}:
@@ -334,8 +385,10 @@ def generate_for_commission(attempt_id: str) -> None:
     if (not settings.api_key or generation_scope(settings) != authorization['scope']
             or _scope_digest(settings, generation_scope(settings)) != authorization['scope_sha256']):
         raise GenerationQuoteUnavailable('素材服务或音色已偏离确认委托；未提交生成')
-    modality = 'voice' if need.media_type.value == 'audio' else need.media_type.value
-    fingerprint = _digest([planning['plan'].to_json(), planning['script'], authorization['scope']])
+    modality = generation_need_modality(need)
+    if modality not in authorized_generation_modalities(authorization):
+        raise creation.CreationError('该素材生成类别不在当前委托授权内')
+    fingerprint = commission_fingerprint(planning['plan'], planning['script'], authorization)
     store = AttemptMaterialStore(attempt['workspace']['path'])
     prior = work['delivery'].get('material_generations', {}).get(request_id)
     if prior is not None and prior.get('fingerprint') != fingerprint:
@@ -424,15 +477,24 @@ def assert_commission_request(attempt, plan, script, settings, request_id, need_
     work = creation.get_creation(attempt['creation_id'])
     grant = work.get('delivery', {}).get('authorization', {}).get('material_generation')
     receipt = work.get('delivery', {}).get('material_generations', {}).get(request_id, {})
+    need = next((item for item in plan.needs if item.need_id == need_id), None)
     if (not is_managed(work) or active_delivery.get() != work['id'] or not grant
             or receipt.get('status') != 'reserved' or receipt.get('attempt_id') != attempt['attempt_id']
-            or receipt.get('need_id') != need_id
+            or receipt.get('need_id') != need_id or need is None
+            or generation_need_modality(need) not in authorized_generation_modalities(grant)
             or generation_scope(settings) != grant['scope']
             or _scope_digest(settings, generation_scope(settings)) != grant['scope_sha256']
-            or receipt.get('fingerprint') != _digest([plan.to_json(), script, grant['scope']])):
+            or receipt.get('fingerprint') != commission_fingerprint(plan, script, grant)):
         raise creation.CreationError('当前生成请求不在已核价的委托授权内')
+    from easel.integrations.voice_identity import require_binding
+    try:
+        binding = require_binding(work, plan, script)
+    except ValueError as exc:
+        raise creation.CreationError(str(exc)) from exc
     # Preserve the evidence available before submission. A later public-page
     # revision must not replace the agreement attached to an existing result.
     return {'creation_id': work['id'], 'request_id': request_id, 'source': 'commission_budget',
             'scope_sha256': grant['scope_sha256'], 'quote': receipt['quote'],
-            'input_use': work['delivery']['authorization'].get('input_use')}
+            'input_use': work['delivery']['authorization'].get('input_use'),
+            **({'voice_binding_sha256': binding['binding_sha256']}
+               if binding is not None and generation_need_modality(need) == 'voice' else {})}

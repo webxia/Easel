@@ -2181,7 +2181,7 @@ def test_quality_saved_report_is_reused_and_invalid_draft_gets_only_local_repair
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize('cache_state', ['current', 'legacy', 'corrupt_current'])
+@pytest.mark.parametrize('cache_state', ['current', 'legacy', 'corrupt_current', 'advisory'])
 def test_real_planning_contract_reaches_visual_consumer_without_reclassification(tmp_path, monkeypatch, cache_state):
     from easel.materials.application.visual_contract import (
         compilation_input, digest, requirements_cache_key, validate_compilation,
@@ -2193,11 +2193,15 @@ def test_real_planning_contract_reaches_visual_consumer_without_reclassification
     from easel.materials.store import AttemptMaterialStore
     fixture = Path(__file__).parent / 'fixtures/planning-material-contract-2026-10-06'
     plan = MaterialPlan.model_validate_json((fixture / 'MATERIAL_PLAN.json').read_bytes())
+    if cache_state == 'advisory':
+        plan = plan.model_copy(update={'policy': {**plan.policy, 'visual_requirements': 'visual-requirements@2'}})
     root = tmp_path / 'attempt'
     planning_dir = root / 'planning'
     planning_dir.mkdir(parents=True)
     for name in ('MATERIAL_PLAN.json', 'MATERIAL_REQUIREMENTS.json'):
         (planning_dir / name).write_bytes((fixture / name).read_bytes())
+    if cache_state == 'advisory':
+        (planning_dir / 'MATERIAL_PLAN.json').write_text(plan.model_dump_json())
     for name in ('TREATMENT.md', 'SCRIPT.md', 'SCENES.md'):
         (planning_dir / name).write_text('隔离合同回放，不是生产输入。')
     attempt = {'creation_id': plan.creation_id, 'attempt_id': plan.attempt_id, 'workspace': {'path': str(root)}}
@@ -2228,23 +2232,23 @@ def test_real_planning_contract_reaches_visual_consumer_without_reclassification
     calls = []
     def observed(_attempt, payload, _prompt, *, attachments=None):
         # Any fallback classification would fail this protocol assertion.
-        assert payload['protocol'] == 'material-compact-observation@4'
+        assert payload['protocol'] == ('material-compact-observation@5' if cache_state == 'advisory' else 'material-compact-observation@4')
         assert attachments
         calls.append(payload)
         return {'frame': payload['frame']['index'], 'observed': True,
             'description': 'deterministic fixture pixels', 'style': 'white fixture', 'logo': None, 'text': None,
-            'checks': [{'id': c['id'], 'status': 'unknown', 'basis': 'fixture cannot establish creative suitability'} for c in payload['clauses']],
-            'preference_notes': 'not a real material evaluation'}
+            'checks': [{'id': c['id'], 'status': 'unknown', 'basis': 'fixture cannot establish creative suitability'} for c in (list(reversed(payload['clauses'])) if cache_state == 'advisory' else payload['clauses'])],
+            'preference_notes': '' if cache_state == 'advisory' else 'not a real material evaluation'}
     monkeypatch.setattr(web, '_material_compact_result', observed)
     visual = [n for n in bound_needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}]
     assert len(list((store.materials_root / 'recoveries').glob('requirements-*.json'))) == 7
     for need in visual:
-        frozen = compilation_input(need, bound_plan.context_refs, mode)
+        frozen = compilation_input(need, bound_plan.context_refs, mode, plan=bound_plan)
         key = requirements_cache_key(frozen)
         saved = store.read_recovery_record(key)
         assert saved['input'] == frozen
         assert validate_compilation(frozen, saved['response']) == saved['contract']
-        if cache_state != 'current':
+        if cache_state not in {'current', 'advisory'}:
             store.write_recovery_record('requirements-' + digest(frozen), saved)
             if cache_state == 'legacy':
                 (store.materials_root / 'recoveries' / (key + '.json')).unlink()
@@ -2260,9 +2264,170 @@ def test_real_planning_contract_reaches_visual_consumer_without_reclassification
             report = web._observe_material_frames(attempt, manifest, attachments)
             assert report['verdict'] == 'uncertain'
             assert report['requirements_contract'] == saved['contract']
+            if cache_state == 'advisory':
+                assert report['requirements_contract']['revision'] == 'visual-requirements@2'
+                assert all(value == '' for value in report['preference_notes'])
+                before_calls = len(calls)
+                assert web._observe_material_frames(attempt, manifest, attachments) == report
+                assert len(calls) == before_calls
     assert len(calls) == (0 if cache_state == 'corrupt_current' else 7)
     assert [n.model_dump(mode='json') for n in bound_needs if n.media_type is MediaType.AUDIO] == [n.model_dump(mode='json') for n in plan.needs if n.media_type is MediaType.AUDIO]
     assert (planning_dir / 'MATERIAL_REQUIREMENTS.json').read_bytes() == before['MATERIAL_REQUIREMENTS.json']
+
+
+@pytest.mark.parametrize('case', ['plain', 'fenced', 'domain_reject', 'duplicate', 'unsafe',
+    'malformed', 'legacy_cache', 'legacy_run', 'cache_failure', 'capture_failure', 'tamper', 'missing_policy'])
+def test_material_output_receipts_keep_domain_and_original_requests(prep_env, monkeypatch, case):
+    """Actual compact consumer and store; only its external terminal is a fixture."""
+    from copy import deepcopy
+    import hashlib
+    from easel.integrations import output_receipts as receipts
+    from easel.output_admission import digest as admission_digest
+    from easel.materials.store import AttemptMaterialStore
+    from easel.materials.application.visual_contract import digest, validate_result
+    root = prep_env['tmp'] / 'receipt-attempt'; root.mkdir()
+    work = prep_env['work']
+    attempt = {'creation_id': work['id'], 'attempt_id': 'fa_receipt_fixture', 'workspace': {'path': str(root)}}
+    store = AttemptMaterialStore(root)
+    payload = {'frame': {'index': 0}, 'clauses': [{'id': 0}]}
+    answer = {'frame': 0, 'observed': True, 'description': 'actual fixture frame',
+              'style': 'fixture', 'logo': None, 'text': None,
+              'checks': [{'id': 0, 'status': 'not_met', 'basis': 'required object absent'}],
+              'preference_notes': 'fixture observation, not a ready verdict'}
+    raw = json.dumps(answer, ensure_ascii=False)
+    if case == 'fenced': raw = '```json\n' + raw + '\n```'
+    if case == 'domain_reject':
+        answer['observed'] = 'false'; raw = json.dumps(answer)
+    if case == 'duplicate': raw = '{"observed":true,"observed":false}'
+    if case == 'unsafe': raw = '{"api_key":"fixture-credential-never-real"}'
+    if case == 'malformed': raw = '{"frame":'
+    identity = digest(payload)
+    compact_key = 'compact-' + identity
+    pkey = receipts.policy_key('material-compact', identity)
+    session = 'material-result-' + digest({'policy': 'native-thinking-off-json@2', 'payload': payload})[:24]
+    if case == 'legacy_cache':
+        store.write_recovery_record(compact_key, {'input_sha256': identity, 'result': answer})
+        before = (store.materials_root / 'recoveries' / (compact_key + '.json')).read_bytes()
+    if case == 'legacy_run':
+        with creation.edit_creation(work['id']) as current:
+            current.setdefault('delivery', {})['agent_calls'] = {'fixture-original': {'session_key': 'agent:main:' + session,
+                'status': 'ok', 'run_id': 'fixture-original-run'}}
+    gateway_observations, submissions = [], {}
+    def external(message, timeout, key, **options):
+        pinned = store.read_recovery_record(pkey)
+        assert pinned is not None, 'Policy must exist before a possible remote request'
+        assert key == receipts.execution_session({'key': pkey, **pinned})
+        assert (key == session) == (case == 'legacy_run')
+        request = (message, key, json.dumps(options, sort_keys=True))
+        gateway_observations.append(request)
+        submissions.setdefault(request, raw)  # Observation of one retained terminal.
+        return submissions[request]
+    monkeypatch.setattr(web, 'run_agent_sync', external)
+    original_write = AttemptMaterialStore.write_recovery_record
+    failed = [False]
+    def write(self, key, value):
+        target = key.startswith('output-capture-') if case == 'capture_failure' else key == compact_key
+        if case in {'cache_failure', 'capture_failure'} and target and not failed[0]:
+            failed[0] = True
+            raise OSError('fixture local persistence failure')
+        return original_write(self, key, value)
+    monkeypatch.setattr(AttemptMaterialStore, 'write_recovery_record', write)
+    def run(): return web._material_compact_result(attempt, payload, 'Observe the frozen fixture only')
+    if case in {'cache_failure', 'capture_failure'}:
+        with pytest.raises(receipts.OutputReceiptError, match='persistence'): run()
+        assert len(submissions) == 1
+    result = run()
+    before_calls = len(gateway_observations)
+    assert run() == result and len(gateway_observations) == before_calls
+    if case == 'legacy_cache':
+        assert not gateway_observations
+        assert (store.materials_root / 'recoveries' / (compact_key + '.json')).read_bytes() == before
+        assert store.read_recovery_record(pkey) is None
+        return
+    assert len(submissions) == 1
+    if case == 'cache_failure': assert len(gateway_observations) == 1
+    if case == 'capture_failure': assert len(gateway_observations) == 2
+    saved = store.read_recovery_record(compact_key)
+    if case == 'legacy_run':
+        assert store.read_recovery_record(pkey)['mode'] == 'legacy'
+        assert 'output_receipt' not in saved and result == answer
+        return
+    reference = saved['output_receipt']
+    captured = store.read_recovery_record(reference['capture_key'])
+    receipt = captured['admission']['receipt']
+    if case in {'duplicate', 'unsafe', 'malformed'}:
+        assert captured['raw'] is None and receipt['decision']['outcome'] == 'REJECT'
+        assert captured['admission']['candidate'] is None
+        assert 'fixture-credential-never-real' not in json.dumps(captured)
+        with pytest.raises(ValueError): validate_result(payload, result)
+        return
+    assert captured['raw'] == raw and receipt['raw_sha256'] == hashlib.sha256(raw.encode()).hexdigest()
+    assert receipt['decision']['outcome'] == ('NORMALIZE' if case == 'fenced' else 'ACCEPT')
+    assert result == answer
+    if case == 'domain_reject':
+        with pytest.raises(ValueError): validate_result(payload, result)
+    else:
+        assert validate_result(payload, result)['checks'][0]['status'] == 'not_met'
+    if case == 'tamper':
+        changed = deepcopy(captured); changed['admission']['candidate']['checks'][0]['status'] = 'met'
+        original_write(store, reference['capture_key'], changed)
+        with pytest.raises(receipts.OutputReceiptError): run()
+        original_write(store, reference['capture_key'], captured)
+        changed_cache = deepcopy(saved); changed_cache['result']['checks'][0]['status'] = 'met'
+        original_write(store, compact_key, changed_cache)
+        with pytest.raises(receipts.OutputReceiptError): run()
+        assert len(gateway_observations) == before_calls
+    if case == 'missing_policy':
+        (store.materials_root / 'recoveries' / (pkey + '.json')).unlink()
+        with pytest.raises(receipts.OutputReceiptError): run()
+        assert len(gateway_observations) == before_calls
+
+
+@pytest.mark.parametrize('case', ['per_request', 'strict_fence', 'receipt_failure', 'tamper', 'legacy'])
+def test_truth_output_receipts_keep_each_original_report(prep_env, monkeypatch, case):
+    """File consumer replay is local, and never borrows a later repair's output."""
+    from easel.integrations import output_receipts as receipts
+    from easel.output_admission import STRICT_PROFILE
+    from easel.materials.store import AttemptMaterialStore
+    root = prep_env['tmp'] / 'truth-receipt'; root.mkdir()
+    attempt = {'creation_id': prep_env['work']['id'], 'attempt_id': 'fa_truth_receipt', 'workspace': {'path': str(root)}}
+    report = root / 'report.json'
+    if case == 'legacy': report.write_text('{"existing":true}')
+    store, policy = web._output_consumer_policy(attempt, 'truth-fixture', 'frozen-fixture',
+        'truth-fixture-original', 'original prompt', profile=STRICT_PROFILE,
+        input_identity='frozen-fixture', legacy_artifact=report.exists())
+    if case == 'legacy':
+        assert policy['mode'] == 'legacy'
+        assert not list(store.materials_root.rglob('output-capture-*.json'))
+        return
+    raw = '{"voice":{"decision":"CONFLICT"}}'
+    report.write_text('```json\n' + raw + '\n```' if case == 'strict_fence' else raw)
+    writer = AttemptMaterialStore.write_recovery_record
+    failed = [False]
+    def fail_once(self, key, value):
+        if case == 'receipt_failure' and key.startswith('output-capture-') and not failed[0]:
+            failed[0] = True; raise OSError('fixture disk')
+        return writer(self, key, value)
+    monkeypatch.setattr(AttemptMaterialStore, 'write_recovery_record', fail_once)
+    def read(instruction='original prompt'): return web._read_admitted_truth(store, policy, instruction, report)
+    if case == 'strict_fence':
+        with pytest.raises(ValueError, match='接收失败'): read()
+        return
+    if case == 'receipt_failure':
+        with pytest.raises(receipts.OutputReceiptError): read()
+    first, capture = read()
+    assert first['voice']['decision'] == 'CONFLICT'
+    assert read() == (first, capture)
+    if case == 'per_request':
+        report.write_text('{"voice":{"decision":"MATCH"}}')
+        second, second_capture = read('different authorized request')
+        assert second['voice']['decision'] == 'MATCH' and second_capture['key'] != capture['key']
+        assert read() == (first, capture)  # A later file never alters the old decision.
+    if case == 'tamper':
+        stored = store.read_recovery_record(capture['key'])
+        stored['admission']['candidate']['voice']['decision'] = 'MATCH'
+        writer(store, capture['key'], stored)
+        with pytest.raises(receipts.OutputReceiptError): read()
 
 
 @pytest.mark.parametrize('outcome', ['valid', 'invalid', 'pending_valid', 'timeout', 'failed'])

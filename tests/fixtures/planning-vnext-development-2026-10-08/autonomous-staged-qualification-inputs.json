@@ -1,0 +1,237 @@
+{
+  "confirmed": {
+    "SCENES.md": "1. **临出门的停顿｜0.0—4.2秒｜4.2秒**  \n   **画面：** 竖屏静态生活照片。玄关附近，人站在画面边缘，手正准备拿起物品；钥匙放在不显眼的位置，画面有较多留白。缓慢推进，不表现慌张。  \n   **对应文案：** 出门前，总有东西要临时找一遍。  \n   **字幕：** 先别急着找东西  \n   **作用：** 三秒内建立“出门前反复找”的具体矛盾。\n2. **固定一个位置｜4.2—8.4秒｜4.2秒**  \n   **画面：** 小钥匙托盘或固定挂钩的近景，钥匙放在明确、容易拿取的位置。极轻微向右平移。  \n   **对应文案：** 可以先做三个小调整。  \n   **字幕：** 三个小调整  \n   **作用：** 从问题转向方法，不加入杂乱场景。\n3. **钥匙固定归位｜8.4—13.6秒｜5.2秒**  \n   **画面：** 日常玄关照片：一只手把钥匙放回同一处，画面能看清动作与固定位置。轻微向钥匙推进。  \n   **对应文案：** 第一，给钥匙留一个固定位置。不是更隐蔽，是每次都放在同一个地方。  \n   **字幕：** ① 钥匙固定归位\n4. **出门前快速检查｜13.6—20.3秒｜6.7秒**  \n   **画面：** 桌面近景，钥匙、手机和证件并排放在一个开放区域。手从画面外轻触物品，不伪造复杂操作。缓慢横移。  \n   **对应文案：** 第二，出门前，快速检查今天要带的东西。钥匙、手机、证件，放在一起确认。  \n   **字幕：** ② 检查今日随身物品\n5. **让包顺手可拿｜20.3—26.0秒｜5.7秒**  \n   **画面：** 门边固定位置上的日常背包或手提包，旁边留出拿取空间。轻微向下移动，强调位置和取用关系。  \n   **对应文案：** 第三，把随身包放在进门后就能拿到的位置，不用临出门再想它在哪里。  \n   **字幕：** ③ 随身包放在顺手处\n6. **安静收束｜26.0—30.0秒｜4.0秒**  \n   **画面：** 玄关或桌面上归拢好的钥匙与包，画面安静，停止运动，留出一秒余白。最后停留，不出现打勾、箭头或效果承诺。  \n   **对应文案：** 不要求一次整理整间家。先把每天要用的东西，放回同一个地方。  \n   **字幕：** 从同一个地方开始\n画面可优先采用授权图库中的真实生活照片。不同镜头可以来自不同空间，不强求同一个人或同一房间；核心信息由“钥匙归位—集中检查—包顺手可拿”三个独立动作保证完整。",
+    "SCRIPT.md": "出门前，总有东西要临时找一遍。\n可以先做三个小调整。\n第一，给钥匙留一个固定位置。不是更隐蔽，是每次都放在同一个地方。\n第二，出门前，快速检查今天要带的东西。钥匙、手机、证件，放在一起确认。\n第三，把随身包放在进门后就能拿到的位置，不用临出门再想它在哪里。\n不要求一次整理整间家。\n先把每天要用的东西，放回同一个地方。",
+    "TREATMENT.md": "这不是一条“收纳技巧教学”，而是一条出门前的暂停提醒：**先把每天必用的东西放回同一个地方，再离开。**\n核心张力很具体——临出门时，钥匙、证件或随身包明明就在家里，却因为“每次找的位置不一样”，让人开始着急、翻找、反复确认。\n整条片子的情绪路径是：\n**发现小麻烦 → 建立三个固定动作 → 留下一处安静余白。**\n开口不解释道理，先给出具体问题；中间只讲三个动作，不添加专家口吻或夸张效果；结尾停在“下次出门，从同一个地方开始”，不承诺从此告别忘带东西，也不强行加入行动号召。\n故事属于一般建议和日常示意。画面不使用伪造聊天记录、虚构数据或冒充个人经历的素材。\n\n## 声音设计\n预置旁白：preset-cmn-youth\n**旁白气质：** 像一个人在整理思绪后，把三个实用建议平静说给另一个人听。不做教练式训诫，也不使用播报腔。语气自然、清楚，句间稍留呼吸；三个序号式动作明确但不强调。\n**语速：** 0.94倍，接近日常说话速度。它是 Easel 推荐：在30秒内保留必要信息，同时避免赶读。正式制作时以实际语速生成，再依据真实音频时长微调停顿与画面节奏。\n**音调：** 0个半音；**情绪控制：** neutral。保持平静、克制，不加入“开心”“惊讶”等情绪，避免把一般建议演成销售式号召。\n**配乐：** 轻柔、无歌词、节奏稀疏的授权背景音乐，仅铺底，不设置明显旋律高潮。音乐在旁白全程主动压低；短呼吸延续压低，较长停顿才稍微恢复。最后约1秒自然收尾。\n**留白：** 开头保留约0.3秒进入时间；三个动作之间各留短暂停顿；结尾约1秒只保留环境底色与音乐尾声，不补说CTA。\n**字幕：** 简体中文，字少、每屏一句，不做弹跳或花哨动画；放在9:16安全区内，不遮挡钥匙、手机、证件和包的关键动作。\n\n已选择预置旁白：青涩青年音色（中文 (普通话)）。"
+  },
+  "content_core": {
+    "audience": "面临出门前临时翻找困扰的普通成年人，希望用最小动作降低出门焦虑。",
+    "boundaries": [
+      "不要扩展成个人成长故事或自我总结剧情",
+      "不要展示具体品牌、机构名、商业产品或店面",
+      "不要使用真实聊天记录、统计数据或可核实的他人事件",
+      "不要给出医学/疗效/心理学结论",
+      "不要承诺从此告别忘带东西或加上行动号召",
+      "不要出现真人代言、采访、口播卡等伪装真实经历的形式"
+    ],
+    "claim_types": [
+      "observation",
+      "opinion"
+    ],
+    "core_idea": "出门前先暂停一次，把每天必用的东西放回同一个地方；用三个具体的小动作替代“收纳技巧教学”。",
+    "intended_takeaway": "看完后记住“给钥匙留固定位置 / 出门前集中检查 / 把包放在顺手处”这三个具体动作，而不是被要求一次性大整理。",
+    "schema": "easel-content-core@1",
+    "tension": "东西明明都在家里，却因为每次摆放位置不同而临出门反复翻找，引发对自我和生活节奏的轻微失控感。",
+    "topic": "请创作一条30秒的竖屏短视频，主题是「出门前，把常用物品放在同一个地方」。面对普通成年人，用三个具体的小行动讲清楚：给钥匙留固定位置、检查要随身带的物品、把随身包放在方便拿取的地方。采用克制清晰的表达，静态照片配轻微镜头运动、简洁字幕、系统已展示并核实的普通话预置旁白身份，以及轻柔无歌词背景音乐。故事是一般建议和示意，不声称是我的真实经历，不涉及品牌、机构、疗效或统计事实。画幅9:16，1080×1920，30fps。请通过正常创作流程给出完整可确认的文案、分镜与声音方案，由你决定节奏和具体表达；声音选择以当前系统展示的已核实能力为准。素材可以正常检索，在需要时使用授权内的AI图片和预置旁白；不要生成AI视频或AI音乐，不发布。",
+    "why_worth_telling": "这是几乎每个普通家庭都遇到的高频小摩擦，三十秒内能用三步说清，且不涉及个人经历或品牌，容错边界很干净。"
+  },
+  "creator_context": {
+    "audience": "面临出门前临时翻找困扰的普通成年人，希望用最小动作降低出门焦虑。",
+    "identity": {
+      "public_description": "Easel 内的通用 Director：与创作者协作生成生活类短视频，面向普通成年人，使用克制、低饱和、克制语言，避免个人化叙事。"
+    },
+    "privacy_policy": {
+      "do_not_infer_private_facts": true
+    },
+    "relevant_context": [
+      "作品是 30 秒竖屏生活类短视频，面向普通成年人",
+      "故事性质是一般建议和示意，不指向用户本人或任何真实人物经历",
+      "本作品禁止生成 AI 视频或 AI 音乐；允许在授权内使用 AI 图片与预置旁白"
+    ],
+    "schema": "easel-creator-context@1",
+    "voice": {
+      "avoid": [
+        "训诫式或销售式口吻",
+        "“用了就能从此不丢东西”之类的效果承诺",
+        "个人化第一经历叙事",
+        "以品牌、机构、检测或数据作为支撑",
+        "“作为 X 领域的权威”之类的人物背书"
+      ],
+      "tone": "克制、平静、贴近日常说话，像把一个小建议说给另一个普通人听。"
+    }
+  },
+  "handoff_sha256": "sha256:cb816f51877cad88349d3450b82cb2a6052365a1943d71ccd5b63ad715d2e8be",
+  "mode_documents": {
+    "audio-bible.md": "# Audio Bible\n\nNarration should feel like a person thinking aloud after the fact: calm, conversational and precise. It must not become a speech, a sales pitch, a coach's lecture or a solemn trailer voice.\n\n- Let the selected runtime voice and approved voice ID carry the account identity; this Mode never selects a provider or invents a voice clone.\n- Translate the supported delivery choices into the existing Voice Need constraints.voice_delivery (pace_ratio, pitch_semitones, tone), inheriting the frozen mode defaults where no content-specific choice is needed. A description alone is not an executed speech parameter.\n- Generate narration before locking shot durations. Use actual audio timings, not character-count estimates, to pace visual beats.\n- BGM is optional. When an approved track exists, it should support the emotional movement at a low level and duck under narration. No BGM is better than unlicensed, distracting or fake ambience.\n- The frozen music_ducking parameters lower the authored music level during measured speech, with a smooth attack and release. Short breaths remain ducked; longer pauses restore the authored level. This envelope preserves source position and looping. It is not loudness normalization or proof of intelligibility: choose the base music gain against actual audio and verify the finished mix.\n- Use SFX only when they belong to a specific visual action. Do not add whooshes, impacts or notification sounds as decoration.\n",
+    "director-treatment.md": "# Director Treatment\n\n`clear_memo_video` is a film-language mode, not a writing formula. Keep the topic, argument and story structure open.\n\nBefore writing shots, make two compact decisions:\n\n1. **Content Core**: classify each important statement as real experience, current action, learning, public fact, or unverified thought. State the one tension the viewer should recognise.\n2. **Director Treatment**: decide the viewer's emotional path, the first concrete image or line, the moment of recognition, and where the work should stop without forcing a solution.\n\nThe preferred posture is an ordinary person noticing something specific, not an expert delivering a lesson. Open from a lived detail, a calculation, a small contradiction, or a changed understanding. Do not manufacture hardship, dialogue, professional incidents, family scenes, or outcomes to make the narrative complete.\n\nDo not force a hook type, three-act structure, CTA, or conclusion. A quiet ending, an unresolved question, or one next action is valid when it fits the material.\n",
+    "editing-bible.md": "# Editing Bible\n\nThe default rhythm is unhurried but never static: each visual beat earns its screen time, and each cut changes the viewer's understanding, setting or emotional distance.\n\n- Prefer 25-60 seconds and roughly 6-9 visual beats as a starting range, not a fixed template.\n- Establish the concrete tension in the first three seconds. Do not spend the opening on a channel ident, abstract slogan or generic setup.\n- Avoid rapid montage, decorative transitions, bouncing captions and repeated near-identical images.\n- Keep subtitles concise, readable and inside the 9:16 safe area. The subtitle pace follows speech, not an arbitrary visual beat grid.\n- Let the last image and last sentence have room to land. Do not force a call to action, a solution or an optimistic moral.\n",
+    "mode.json": "{\n  \"id\": \"clear_memo_video\",\n  \"version\": \"1.3\",\n  \"name\": \"清醒备忘录 · 视频\",\n  \"summary\": \"以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。\",\n  \"status\": \"active\",\n  \"visual_material_style\": \"restrained low saturation everyday\",\n  \"voice_delivery\": {\"pace_ratio\": 0.95, \"pitch_semitones\": 0, \"tone\": \"neutral\"},\n  \"music_ducking\": {\"gain_ratio\": 0.25, \"attack_seconds\": 0.12, \"release_seconds\": 0.45},\n  \"defaults\": {\n    \"duration_seconds\": {\"preferred\": [30, 45], \"allowed\": [25, 60]},\n    \"visual_beats\": {\"preferred\": [6, 9]},\n    \"orientation\": \"9:16\",\n    \"narration\": \"reflective-first-person\",\n    \"bgm\": \"optional-and-subordinate\"\n  },\n  \"boundaries\": {\n    \"content\": \"Director decides the topic, argument, structure, and whether a video is worthwhile.\",\n    \"profile\": \"Profile remains the source of identity, factual boundaries, audience, and public scope.\",\n    \"runtime\": \"Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns.\"\n  }\n}\n",
+    "qc-rubric.md": "# Director QC Rubric\n\nTechnical QC is necessary but insufficient. Before a work is marked ready, review it against these questions:\n\n1. **Recognition**: does the first three seconds contain a concrete, understandable tension?\n2. **Observation**: is there one genuine observation, with fact and interpretation kept distinct?\n3. **Narrative movement**: does each beat advance the thought, rather than repeat the same sentence over another image?\n4. **Visual honesty**: are real assets identified honestly, and are illustrations clearly expressive rather than fake evidence?\n5. **Rhythm**: do voice duration, cuts, subtitles and pauses feel intentionally aligned?\n6. **Identity**: would the work still feel like this account without its logo or title?\n7. **Anti-template check**: does it avoid PPT, generic AI image carousel, lecture tone and motivational-content shortcuts?\n\nIf a work fails Recognition, Observation, Visual honesty, or Identity, it is `NOT_READY` even when the MP4 is technically valid. Record concise reasons and rework only the failing layer.\n",
+    "visual-bible.md": "# Visual Bible\n\nThe visual world is restrained, human-scale and daily: desks, commutes, screens, notebooks, windows, kitchens, clocks, rooms, pauses and small gestures. A picture must advance the observation; it must not merely decorate narration.\n\n- Prefer supplied or approved real evidence for real claims: screenshots, recording excerpts, notes, data or personal material. Never fabricate a screenshot or pass an AI illustration off as evidence.\n- When no real material is needed, use low-saturation illustration or quiet photographic B-roll with generous negative space. Avoid glossy AI spectacle, generic cyberpunk, floating dashboards and motivational-poster compositions.\n- An illustration may use a recurring symbolic narrator rather than a synthetic portrait. Keep it visually consistent only after a reviewed reference asset exists; otherwise use scene-led imagery and do not pretend there is a locked character.\n- Use motion sparingly: slow camera drift, gentle Ken Burns, a short purposeful transition, or one dynamic insert at an emotional turn. Do not animate every still simply to prove that it is video.\n- Text belongs in the subtitle and deliberate cover system, not inside generated imagery.\n"
+  },
+  "preparation": {
+    "ai_generation_allowed": true,
+    "aspect_ratio": "9:16",
+    "audio_mode": "mixed",
+    "beats": [],
+    "duration_seconds": 30,
+    "language": "zh-CN",
+    "material_sources": [
+      "stock_photo_lifestyle_entryway",
+      "preset_voice_zh_cmn_youth"
+    ],
+    "publication_allowed": false,
+    "schema": "easel-production-brief@1",
+    "text_overlays": [
+      "先别急着找东西",
+      "三个小调整",
+      "① 钥匙固定归位",
+      "② 检查今日随身物品",
+      "③ 随身包放在顺手处",
+      "从同一个地方开始"
+    ],
+    "visual_constraints": [
+      "静态照片（授权素材），配极轻微推进或平移；不使用生成式 AI 视频",
+      "画幅 1080×1920，9:16 安全区字幕，不遮挡关键物品动作",
+      "不出现品牌 logo、机构名、商店名、检测报告、人物代言、采访或聊天记录",
+      "不出现可核对的需求、“客人反馈”、代言人证件或医学/心理学结论",
+      "不出现打勾、箭头、“从此告别忘带东西”之类的效果承诺或行动号召",
+      "不生成 AI 视频或 AI 音乐；音乐仅使用授权内的轻柔无歌词背景音轨",
+      "旁白使用 Easel 已展示并核实的预置音色（preset-cmn-youth / 青涩青年音色 / 中文（普通话）），语速 0.94，音调 0，情绪 neutral；不输入其他名称或制造真人伪体验"
+    ]
+  },
+  "proposal": {
+    "revision": 1,
+    "scenes": "1. **临出门的停顿｜0.0—4.2秒｜4.2秒**  \n   **画面：** 竖屏静态生活照片。玄关附近，人站在画面边缘，手正准备拿起物品；钥匙放在不显眼的位置，画面有较多留白。缓慢推进，不表现慌张。  \n   **对应文案：** 出门前，总有东西要临时找一遍。  \n   **字幕：** 先别急着找东西  \n   **作用：** 三秒内建立“出门前反复找”的具体矛盾。\n2. **固定一个位置｜4.2—8.4秒｜4.2秒**  \n   **画面：** 小钥匙托盘或固定挂钩的近景，钥匙放在明确、容易拿取的位置。极轻微向右平移。  \n   **对应文案：** 可以先做三个小调整。  \n   **字幕：** 三个小调整  \n   **作用：** 从问题转向方法，不加入杂乱场景。\n3. **钥匙固定归位｜8.4—13.6秒｜5.2秒**  \n   **画面：** 日常玄关照片：一只手把钥匙放回同一处，画面能看清动作与固定位置。轻微向钥匙推进。  \n   **对应文案：** 第一，给钥匙留一个固定位置。不是更隐蔽，是每次都放在同一个地方。  \n   **字幕：** ① 钥匙固定归位\n4. **出门前快速检查｜13.6—20.3秒｜6.7秒**  \n   **画面：** 桌面近景，钥匙、手机和证件并排放在一个开放区域。手从画面外轻触物品，不伪造复杂操作。缓慢横移。  \n   **对应文案：** 第二，出门前，快速检查今天要带的东西。钥匙、手机、证件，放在一起确认。  \n   **字幕：** ② 检查今日随身物品\n5. **让包顺手可拿｜20.3—26.0秒｜5.7秒**  \n   **画面：** 门边固定位置上的日常背包或手提包，旁边留出拿取空间。轻微向下移动，强调位置和取用关系。  \n   **对应文案：** 第三，把随身包放在进门后就能拿到的位置，不用临出门再想它在哪里。  \n   **字幕：** ③ 随身包放在顺手处\n6. **安静收束｜26.0—30.0秒｜4.0秒**  \n   **画面：** 玄关或桌面上归拢好的钥匙与包，画面安静，停止运动，留出一秒余白。最后停留，不出现打勾、箭头或效果承诺。  \n   **对应文案：** 不要求一次整理整间家。先把每天要用的东西，放回同一个地方。  \n   **字幕：** 从同一个地方开始\n画面可优先采用授权图库中的真实生活照片。不同镜头可以来自不同空间，不强求同一个人或同一房间；核心信息由“钥匙归位—集中检查—包顺手可拿”三个独立动作保证完整。",
+    "schema": "easel-video-proposal@3",
+    "script": "出门前，总有东西要临时找一遍。\n可以先做三个小调整。\n第一，给钥匙留一个固定位置。不是更隐蔽，是每次都放在同一个地方。\n第二，出门前，快速检查今天要带的东西。钥匙、手机、证件，放在一起确认。\n第三，把随身包放在进门后就能拿到的位置，不用临出门再想它在哪里。\n不要求一次整理整间家。\n先把每天要用的东西，放回同一个地方。",
+    "sha256": "3fbb77bf3c12acd983e09defd89dd071b3fb6ecb0c496f6ade5075deef77550e",
+    "sound": "预置旁白：preset-cmn-youth\n**旁白气质：** 像一个人在整理思绪后，把三个实用建议平静说给另一个人听。不做教练式训诫，也不使用播报腔。语气自然、清楚，句间稍留呼吸；三个序号式动作明确但不强调。\n**语速：** 0.94倍，接近日常说话速度。它是 Easel 推荐：在30秒内保留必要信息，同时避免赶读。正式制作时以实际语速生成，再依据真实音频时长微调停顿与画面节奏。\n**音调：** 0个半音；**情绪控制：** neutral。保持平静、克制，不加入“开心”“惊讶”等情绪，避免把一般建议演成销售式号召。\n**配乐：** 轻柔、无歌词、节奏稀疏的授权背景音乐，仅铺底，不设置明显旋律高潮。音乐在旁白全程主动压低；短呼吸延续压低，较长停顿才稍微恢复。最后约1秒自然收尾。\n**留白：** 开头保留约0.3秒进入时间；三个动作之间各留短暂停顿；结尾约1秒只保留环境底色与音乐尾声，不补说CTA。\n**字幕：** 简体中文，字少、每屏一句，不做弹跳或花哨动画；放在9:16安全区内，不遮挡钥匙、手机、证件和包的关键动作。\n\n已选择预置旁白：青涩青年音色（中文 (普通话)）。",
+    "sound_source": "预置旁白：preset-cmn-youth\n**旁白气质：** 像一个人在整理思绪后，把三个实用建议平静说给另一个人听。不做教练式训诫，也不使用播报腔。语气自然、清楚，句间稍留呼吸；三个序号式动作明确但不强调。\n**语速：** 0.94倍，接近日常说话速度。它是 Easel 推荐：在30秒内保留必要信息，同时避免赶读。正式制作时以实际语速生成，再依据真实音频时长微调停顿与画面节奏。\n**音调：** 0个半音；**情绪控制：** neutral。保持平静、克制，不加入“开心”“惊讶”等情绪，避免把一般建议演成销售式号召。\n**配乐：** 轻柔、无歌词、节奏稀疏的授权背景音乐，仅铺底，不设置明显旋律高潮。音乐在旁白全程主动压低；短呼吸延续压低，较长停顿才稍微恢复。最后约1秒自然收尾。\n**留白：** 开头保留约0.3秒进入时间；三个动作之间各留短暂停顿；结尾约1秒只保留环境底色与音乐尾声，不补说CTA。\n**字幕：** 简体中文，字少、每屏一句，不做弹跳或花哨动画；放在9:16安全区内，不遮挡钥匙、手机、证件和包的关键动作。",
+    "specification_notes": "时长：30秒  \n画幅：9:16，1080×1920，30fps  \n音轨：旁白与音乐  \n语言：简体中文  \n**沿用用户要求：** 30秒、9:16、1080×1920、30fps；三个具体行动；静态照片配轻微镜头运动；简洁字幕；已核实的普通话预置旁白；轻柔无歌词背景音乐；不生成AI视频或AI音乐；不发布；内容按一般建议和示意呈现。\n**Easel 推荐及理由：** 采用6段节奏，分配为4.2、4.2、5.2、6.7、5.7、4.0秒。开头直接建立“临时找东西”的张力，中段给第二个动作略多时间以容纳完整检查示例，结尾保留4秒让建议自然落地。声音方面采用0.94倍语速、中性情绪与无歌词轻音乐，是因为这个主题需要清楚和可信，不需要戏剧化情绪。",
+    "specs": {
+      "aspect_ratio": "9:16",
+      "audio_mode": "mixed",
+      "duration_seconds": 30,
+      "language": "zh-CN"
+    },
+    "treatment": "这不是一条“收纳技巧教学”，而是一条出门前的暂停提醒：**先把每天必用的东西放回同一个地方，再离开。**\n核心张力很具体——临出门时，钥匙、证件或随身包明明就在家里，却因为“每次找的位置不一样”，让人开始着急、翻找、反复确认。\n整条片子的情绪路径是：\n**发现小麻烦 → 建立三个固定动作 → 留下一处安静余白。**\n开口不解释道理，先给出具体问题；中间只讲三个动作，不添加专家口吻或夸张效果；结尾停在“下次出门，从同一个地方开始”，不承诺从此告别忘带东西，也不强行加入行动号召。\n故事属于一般建议和日常示意。画面不使用伪造聊天记录、虚构数据或冒充个人经历的素材。",
+    "updated_at": "2026-10-08T12:40:28+00:00",
+    "voice_profile": {
+      "evidence": {
+        "document_sha256": "e522acb13f9c1b6d76daeb424f60eb8d150d184a8fcc1e44dbb9270878162d6e",
+        "label_quote": "青涩青年音色",
+        "language_quote": "中文 (普通话)",
+        "url": "https://platform.minimaxi.com/docs/faq/system-voice-id.md"
+      },
+      "execution_controls_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "pace_ratio": {
+            "maximum": 2,
+            "minimum": 0.5,
+            "type": "number"
+          },
+          "pitch_semitones": {
+            "maximum": 12,
+            "minimum": -12,
+            "type": "integer"
+          },
+          "tone": {
+            "enum": [
+              null,
+              "afraid",
+              "angry",
+              "disgusted",
+              "happy",
+              "neutral",
+              "sad",
+              "surprised"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "handle": "preset-cmn-youth",
+      "label": "青涩青年音色",
+      "language": "zh-CN",
+      "limits": "官方名称和语言不证明性别、音域或听感；只执行已冻结的语速、音调和支持的情绪控制。",
+      "official_language": "中文 (普通话)",
+      "schema": "confirmed-preset-profile@1"
+    }
+  },
+  "schema": "planning-authority-inputs@1",
+  "truth_packet": {
+    "claims": [
+      {
+        "claim": "采用克制清晰的表达，静态照片配轻微镜头运动、简洁字幕、系统已展示并核实的普通话预置旁白身份，以及轻柔无歌词背景音乐。",
+        "confidence": "high",
+        "kind": "observation",
+        "source": "user_statement",
+        "source_quote": "采用克制清晰的表达，静态照片配轻微镜头运动、简洁字幕、系统已展示并核实的普通话预置旁白身份，以及轻柔无歌词背景音乐。"
+      },
+      {
+        "claim": "故事是一般建议和示意，不声称是我的真实经历，不涉及品牌、机构、疗效或统计事实。",
+        "confidence": "high",
+        "kind": "observation",
+        "source": "user_statement",
+        "source_quote": "故事是一般建议和示意，不声称是我的真实经历，不涉及品牌、机构、疗效或统计事实。"
+      },
+      {
+        "claim": "不要生成AI视频或AI音乐，不发布。",
+        "confidence": "high",
+        "kind": "observation",
+        "source": "user_statement",
+        "source_quote": "不要生成AI视频或AI音乐，不发布。"
+      },
+      {
+        "claim": "素材可以正常检索",
+        "confidence": "high",
+        "kind": "observation",
+        "source": "user_statement",
+        "source_quote": "素材可以正常检索"
+      },
+      {
+        "claim": "在临出门时把钥匙、证件或随身包放在固定位置，能减少反复翻找的次数；这是基于行为心理学的常识观察，并非临床结论。",
+        "confidence": "medium",
+        "kind": "opinion",
+        "source": "model_inference"
+      },
+      {
+        "claim": "30 秒内可用“克留 + 检查 + 包顺手”三个动作传达核心建议，这是基于竖屏短视频节奏与注意力模型的常识判断。",
+        "confidence": "medium",
+        "kind": "opinion",
+        "source": "model_inference"
+      }
+    ],
+    "first_person_allowed": [
+      "可以以“很多人在出门前都会临门一阵抓”这种一般化表述起句",
+      "可以使用“不要求一次整理整间家”这类不指向任何个人经历的过渡句"
+    ],
+    "forbidden_inventions": [
+      "补造用户本人或他人的真实故事、聊天记录、事件、金额、日期",
+      "补造代言人、机构、检测报告或任何可核实的“权威背书”",
+      "补造医学/心理学/统计事实主张为事实",
+      "补造“没有这个方法就一定会丢东西”或“用了就能从此不丢东西”的伪因果事实",
+      "输出与该“Art”无关的家庭、财务、健康、求职隐私",
+      "在公开文案中泄露 API Key、内部地址、代理、路径、env 变量或“由 AI 生成”等工具痕迹"
+    ],
+    "personal_facts": [],
+    "public_allowed": [
+      "钥匙、手机、证件、随身包等常见出门物品的公共表达",
+      "玄关、桌面、挂钩、托盘等普通住宅陈设的一般措述",
+      "“给钥匙留固定位置 / 出门前检查 / 把包放在顺手处”这三个动作本身",
+      "有关“出门前小动作”的一般化生活观察"
+    ],
+    "schema": "easel-truth-packet@2",
+    "uncertainty_policy": {
+      "learning_is_not_proven_capability": true,
+      "plan_is_not_experience": true,
+      "unknown_claims": "label_uncertain"
+    }
+  },
+  "voice_binding": {
+    "binding_sha256": "c4948c247aec047db9d21c8781ca5a3e04ab6df89d3d04d1d264e44d78cb2e05",
+    "confirmed_at": "2026-10-08T12:40:28+00:00",
+    "creation_id": "cr_c5a20edd024a474b8f4db58850a271d5",
+    "plan_sha256": "3fbb77bf3c12acd983e09defd89dd071b3fb6ecb0c496f6ade5075deef77550e",
+    "profile_sha256": "dec3fdd7f45912d67d7dba770189fb4406ec30641d0bc1cbd8a3a2235a0f96c6",
+    "proposal_sha256": "6f46185910e0454b34d876521328fd17306be8434ee0502977fe1486b6a88d20",
+    "schema": "confirmed-preset-binding@1",
+    "scope_content_sha256": "b97bf245170dc4f559240eebd36573de04edf20c93f725d599ee461c459b0d9c",
+    "scope_sha256": "8ffce77726056952104dac56b6c20c2718ffcb58d8d52903754a0ca2bc2a337c",
+    "script_sha256": "28b8eb85bb0d10f44633718103d11de88847a56e48c30702a534b7e3162f1aed",
+    "sound_sha256": "c86c452f9c10c307f047749dd3d20703de9ad1f7a08f7f729c9d1367ae25ea5d",
+    "sound_source_sha256": "dc304995dd1cc78b33a71504c43335a62db89b3339060d0089eb0426b1c7c50f"
+  }
+}

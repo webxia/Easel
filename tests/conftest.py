@@ -7,6 +7,24 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def prohibit_live_network_in_deterministic_tests(monkeypatch):
+    """A missing external fixture must fail before any real network request.
+
+    Loopback remains available for the native Gateway and local HTTP fixtures.
+    Real evaluation runs are separate executors, never ordinary pytest.
+    """
+    import urllib.request
+    from urllib.parse import urlsplit
+    original = urllib.request.urlopen
+    def guarded(url, *args, **kwargs):
+        target = url.full_url if isinstance(url, urllib.request.Request) else str(url)
+        if urlsplit(target).hostname not in {'localhost', '127.0.0.1', '::1'}:
+            pytest.fail('确定性测试禁止实时外部网络；缺少外部边界fixture')
+        return original(url, *args, **kwargs)
+    monkeypatch.setattr(urllib.request, 'urlopen', guarded)
+
+
+@pytest.fixture(autouse=True)
 def protect_real_runtime_writes(monkeypatch):
     roots = (Path(__file__).resolve().parents[1] / 'outputs', Path.home() / '.easel/hypit')
 

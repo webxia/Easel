@@ -793,7 +793,7 @@ export function stopChat(sessionId: string): Promise<{ stopped: boolean }> {
   });
 }
 
-export type GenerationBudget = { maxCostCny: number; scopeSha256: string };
+export type GenerationBudget = { maxCostCny: number; scopeSha256: string; allowedModalities?: ('image' | 'video' | 'voice')[] };
 
 export function streamChat(
   message: string,

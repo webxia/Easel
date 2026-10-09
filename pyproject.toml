@@ -13,6 +13,7 @@ dependencies = [
     "uvicorn>=0.30,<1",         # ASGI server（easel web）
     "sse-starlette>=2.1,<4",    # 对话流式 SSE
     "pydantic>=2.7,<3",         # 请求模型
+    "jsonschema>=4.23,<5",      # Planning wire 完整合同校验（无工作流框架）
     "segno>=1.6,<2",             # B站扫码登录二维码渲染（纯 Python）
     "python-multipart>=0.0.9,<1", # FastAPI 文件上传 / Form
     "Pillow>=10,<13", "opencv-python>=4.8,<5", "numpy>=1.26,<3",

@@ -870,7 +870,7 @@ def test_50_vnext_capture_transport(prep_env, tmp_path, trace, risk):
 
 
 @pytest.mark.parametrize('risk', ['A', 'B', 'repair_capacity', 'preview', 'length',
-    'identity', 'late', 'missing', 'lost_terminal', 'duplicate_json', 'persist_failure', 'input_os_capacity', 'escaped_secret', 'sensitive_key'])
+    'identity', 'late', 'missing', 'lost_terminal', 'duplicate_json', 'persist_failure', 'input_os_capacity', 'escaped_secret', 'sensitive_key', 'tool_valid', 'tool_wrong_name', 'tool_wrong_schema', 'tool_wrong_terminal', 'tool_runtime_upgrade', 'tool_runtime_readback'])
 def test_51_vnext_full_capture(prep_env, tmp_path, trace, risk):
     trace.define('完整合法A/B及repair envelope无损捕获；不认领preview/别的run/未知终态；同原请求恢复',
                  '真实Delivery/Harness/有界响应Schema；仅Gateway和Runtime外部边界固定替身，安装Runtime另有具名离线回放')
@@ -879,7 +879,7 @@ def test_51_vnext_full_capture(prep_env, tmp_path, trace, risk):
     trace.note('real model / Supply', 0)
 
 
-@pytest.mark.parametrize('risk', ['mixed_projection', 'source_frame', 'identity_cache', 'forbidden_aliases'])
+@pytest.mark.parametrize('risk', ['mixed_projection', 'source_frame', 'identity_cache', 'forbidden_aliases', 'real_audio_postproduction'])
 def test_52_vnext_semantic_projection(trace, risk):
     trace.define('窄A不维护正式ID/别名/sidecar；确定派生保留素材required、偏好、后期/叙事及音频隔离，旧策略无回归',
                  'batch09脱敏冻结输入的具名派生对照；真实MaterialNeed/NeedCompiler/visual contract模块')
@@ -897,15 +897,30 @@ def test_53_vnext_historical_projection(trace, origin):
 
 
 @pytest.mark.parametrize('risk', ['reentry', 'audio_omission', 'structural_repair', 'semantic_repair',
-    'exhausted', 'answer_repair', 'pending', 'persist_failure', 'tamper', 'unknown_question', 'multibatch', 'legacy_resume'])
+    'exhausted', 'answer_repair', 'pending', 'persist_failure', 'tamper', 'unknown_question', 'multibatch', 'legacy_resume',
+    'legacy_carrier_pending', 'legacy_tool_pending', 'carrier_removed', 'carrier_changed',
+    'missing_slot', 'forged_support', 'derived_authority', 'real_wrapper', 'real_full_creation', 'real_full_creation2', 'repair_invalid', 'legacy_supported_pending',
+    'legacy_supported_current', 'legacy_wire_current', 'xml_roundtrip', 'xml_answer_repair', 'wire_tamper', 'frame_header_repair',
+    'staged_reentry', 'staged_structure', 'staged_semantic', 'staged_selection_captured',
+    'staged_details_registered', 'staged_details_unknown', 'staged_tamper'])
 def test_54_vnext_bounded_review(authority_runtime, monkeypatch, trace, risk):
     trace.define('新视频入口全audio仍查冻结视觉遗漏；有界B保留完整义务和原件，局部patch不改已接受语义；一次额度重入不刷新',
                  '真实Handoff、Harness capture、问题/修复、正式合同persist/load；仅模型执行边界返回明确固定判断')
-    semantic.test_vnext_bounded_review_runtime(authority_runtime, monkeypatch, risk)
+    staged = {'staged_reentry': ('reentry', None), 'staged_structure': ('structural_repair', None),
+              'staged_semantic': ('semantic_repair', None),
+              'staged_selection_captured': ('frame_header_repair', 'selection_captured'),
+              'staged_details_registered': ('frame_header_repair', 'details_registered'),
+              'staged_details_unknown': ('frame_header_repair', 'details_unknown')}
+    if risk == 'staged_tamper':
+        semantic.test_vnext_staged_capture_replay_identity(authority_runtime, monkeypatch)
+    elif risk in staged:
+        semantic.test_vnext_staged_request_recovery(authority_runtime, monkeypatch, *staged[risk])
+    else:
+        semantic.test_vnext_bounded_review_runtime(authority_runtime, monkeypatch, risk)
     trace.note('real model / Supply / service operations', 0)
 
 
-@pytest.mark.parametrize('risk', ['immutable_patch', 'whole_context', 'capacity', 'false_accept_risk'])
+@pytest.mark.parametrize('risk', ['immutable_patch', 'whole_context', 'capacity', 'false_accept_risk', 'xml_codec', 'atomic_frame'])
 def test_55_vnext_review_protection(trace, risk):
     trace.define('query不当视觉义务；完整原文/上下文不裁剪；已接受部分不可改，非法证据拒绝；错误ACCEPT仍由独立语义预期检出',
                  'batch10冻结输入的离线派生对照；实际问题构造、patch合同、formal projection，不冒充模型能力')
@@ -914,8 +929,22 @@ def test_55_vnext_review_protection(trace, risk):
     trace.note('real model / Supply', 0)
 
 
-@pytest.mark.parametrize('risk', ['success', 'semantic_reject', 'truth_reject', 'capture_truncated', 'source_tamper', 'async_tamper', 'between_resume'])
+@pytest.mark.parametrize('risk', ['success', 'semantic_reject', 'truth_reject', 'capture_truncated', 'source_tamper', 'async_tamper', 'between_resume', 'output_as_source',
+    *['preset:' + risk for risk in ['match', 'script_auto_pass', 'old_script_cache', 'conflict',
+    'unresolved', 'unknown_handle', 'empty_script', 'missing_binding', 'duplicate_voice', 'capacity',
+    'report_format', 'repair_changes_decision', 'fake_quote', 'missing_report', 'scope_drift', 'profile_drift',
+    'material_match', 'material_preset', 'material_bundle_swap', 'material_forged_rights',
+    'material_forged_record', 'material_bytes', 'material_cache',
+    'conflict_missing_script', 'unresolved_extra_outer', 'match_outer_repair_changes',
+    'material_fork', 'material_fork_report', 'material_fork_plan', 'material_fork_record',
+    'material_fork_fingerprint', 'material_fork_creation', 'material_fork_cycle', 'material_fork_copy']]])
 def test_56_vnext_continuous_owner(prep_env, monkeypatch, trace, risk):
+    if risk.startswith('preset:'):
+        trace.define('正常入口绑定已展示身份；程序派生唯一required Voice；SCRIPT自动PASS不跳过独立Truth；正式Supply/记录/Rights/Gate验证当前批准资产并保护恢复',
+                     '真实内部提案/确认/Owner/Preparation/Handoff/A/B/Truth/persist/load；material变体继续正式Supply/TTS记录/独立ASR/Rights/Match/Gate，仅模型/Provider/识别边界固定替身')
+        semantic.test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk.split(':', 1)[1])
+        trace.note('live external execution / Build / fees', 0)
+        return
     trace.define('正常确认/Owner/Preparation/新A完整capture/有界B/Truth/真实persist-load连续执行；Supply前停止，失败不放行或重派',
                  '默认新版产品入口，脱敏正常d01固定主题；仅外部模型响应替身，原Eval切点及内部模块真实执行')
     semantic.test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk)
@@ -932,3 +961,19 @@ def test_57_vnext_development_bounds(tmp_path, prep_env, monkeypatch, trace, ris
     else:
         semantic.test_vnext_development_recovery(prep_env, tmp_path, monkeypatch, risk)
     trace.note('real model / fees', 0)
+
+
+@pytest.mark.parametrize('risk', ['schema', 'native_guard', 'slots', 'final_source', 'derived',
+    'forged_quote', 'unknown_field', 'legitimate_native', 'postproduction', 'whole_obligation', 'capacity'])
+def test_58_structured_carrier_contract(tmp_path, trace, risk, request):
+    trace.define('完整动态Schema与冻结目录/既有模态一致；原生持久化前安全检查、8MiB容量、原请求并发占额和协议恢复拒绝',
+                 '真实schema/parser和原生支持模块；隔离进程/本地存储，无Provider网络')
+    if risk == 'schema':
+        semantic.test_vnext_tool_schema_matches_frozen_choices_and_existing_modality_rules()
+    elif risk != 'native_guard':
+        semantic.test_supported_review_frozen_references(risk)
+    else:
+        request.getfixturevalue('native_guard_process')
+        from tests.test_openclaw_structured_result import test_native_structured_storage_and_concurrent_submission_guard
+        test_native_structured_storage_and_concurrent_submission_guard(tmp_path)
+    trace.note('external submissions / fees', 0)

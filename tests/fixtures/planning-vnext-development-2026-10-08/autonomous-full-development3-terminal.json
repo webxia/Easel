@@ -1,0 +1,31 @@
+{
+  "provenance": "real native failure metadata; original rejected candidate/finish reason unavailable, not a synthetic response",
+  "source_sha256": "e2451702c3d5fdb112e93bae8d03280cd8dcb9ae2cf2ad4281f47dc55985da52",
+  "runtime_sha256": "12b0d561276ef8518978e4ebcc391f5d8551b6a1fc63277216668967746c19c5",
+  "run_id": "easel-6f288c36a66c4e97b422c0402fe3deac",
+  "session_id": "98442aec-a8b2-5272-8c0a-3dafa3e8d3d7",
+  "schema_sha256": "2d0dd75877db44b314e3391bf63475c9f5a47ac340a7e2fe930913a4349bd260",
+  "first_error": "STRUCTURED_TERMINAL_REJECTED",
+  "final_error": "STRUCTURED_EXECUTION_FAILED",
+  "actual_provider_submissions": 1,
+  "framework_retry_events": 3,
+  "transcript_event_count": 6,
+  "terminal_receipt": {
+    "runId": "easel-6f288c36a66c4e97b422c0402fe3deac",
+    "sessionId": "98442aec-a8b2-5272-8c0a-3dafa3e8d3d7",
+    "turnId": "easel-6f288c36a66c4e97b422c0402fe3deac",
+    "effective": {
+      "provider": "minimax",
+      "model": "MiniMax-M3",
+      "responseModel": "MiniMax-M3"
+    }
+  },
+  "planning_journal_call": {
+    "input_bytes": 45761,
+    "request_sha256": "921dcf74e52bc461ec16e6cff05721ae101c9ebe6989a3748aa102f115775429",
+    "result": "TRANSPORT_FAILED",
+    "session": "semantic-fa_fcda420330b2c182c5c360b51b6b257c-vnext-A"
+  },
+  "expected": "REJECT; no Supply, generation, Build or state advancement; no duplicate execution",
+  "root_cause_status": "UNKNOWN_SPECIFIC_TERMINAL"
+}

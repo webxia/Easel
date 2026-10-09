@@ -967,3 +967,57 @@ Astra只读复核`STOP`仅针对纯音频豁免判据，S3投影允许继续。�
 固定软件`aa0ab42a`/source`ffac01cc…51c74d`、AstraCONTINUE及实时同源/套餐/隔离预检后，已执行第1轮第0项正常新d01。Preparation通过，A真实7,849字节完整结果在结构入口拒绝，132秒，2个正式RPC。首个错误为fenced JSON，但剥开只作诊断后仍存在超长条件、未知目录scope/continuity、图片源时长与frame冲突、8项unresolved，不能由安全的单一局部patch修好。停批，不为通过做整对象重写、提高carrier限制或手改正式产物；可选第二轮不执行。B/Truth/Supply/生成/TTS/Build0；实际token及现金账单UNKNOWN，套餐窗口100→99%、周97→97%。原句柄全部终态且release完成，Gateway active/lost/audit0。历史十批1550与257/117指纹仍未变，历史FAIL不改。
 
 最终`PLANNING_VNEXT_IMPLEMENTATION=FAIL（软件PASS、Development FAIL）; READY_FOR_FORMAL_R4=NO; FORMAL_R4=NOT_STARTED; ENGINEERING_INTERVENTION_IN_FROZEN_ROUND=0`。本连续Goal完成软件实施、实际有界评测及资格判定后停止，不认领MATERIAL_READY。[完整验收与根因](../acceptance/planning-semantic-boundary-vnext-development-2026-10-08.md)。后续若评审受约束输出/输入边界，另开授权范围；不自动重新发批次。
+
+
+## A Carrier 后续 Goal：Harness-owned 结构化提交协议（2026-10-08，已授权）
+
+本节为同一 Task 的新授权范围，承接 Development 首轮 FAIL；不覆盖上文冻结结果和历史失败。用户确认在四项评审修订后设定目标并实施。来源为本轮用户附文与随后明确执行指令。
+
+### 目标与固定边界
+
+固定软件基线 commit `aa0ab42ac86305d818613bc4a078469eb2042918`、production source SHA `ffac01cc608caf72790d2a71d5bdf813657bc7ade24be09f31c4347ea651c74d`。当前 HEAD 可以包含后续证据文档，必须独立核验生产源码指纹。当前首先阻塞 Development 的已确认问题为 `MODEL_SEMANTIC_CARRIER_NONCONFORMANCE`，不提前声称全部根因已经找到。
+
+模型提交语义候选；程序负责允许值、执行身份、完整捕获、结构与合同校验、持久化。只有完整、结构合法且身份一致的 A 候选才能进入既有 B。正式结果仅接受指定结构化工具，不接受 prose/fenced JSON、终端文本或 Agent 写文件；诊断内容不编译成正式产物。
+
+允许修改 A carrier、动态机械 schema、能力检测、接收与持久化、关联 journal/cache/request/carrier policy，以及直接相关测试和诊断。不修改 B/Truth/Delivery/Material V1.3/Provider/Hypit/Build/Quality，不迁移模型或套餐、不升级 OpenClaw、不重写 Gateway、不增加公开 HTTP 路由或第二条执行链；不扩大 repair、不降低 semantic gate、不修改历史 FAIL/held-out。能力不足按门限 STOP，不用 Prompt patch 绕过。
+
+### 顺序与协议
+
+1. **只读能力审计。** 分别核实当前 MiniMax-M3 Provider、安装 OpenClaw、实际 Easel profile/Harness：工具定义、指定调用、真实 schema 传递、完整 arguments、容量及超限行为、原 run 关联、终态、无工具/非法/截断/传输未知区别。不能把 tool_choice 等同于参数合法，也不能把 4096 preview 当输出上限。真实探测须进入下述统一授权账本；优先当前源码与离线外部替身，不调用真实模型。
+2. **生命周期设计及 Astra 前置复核。** 在生产修改前形成最小协议并由 Astra 只读复核；CONTINUE 才实施，MODIFY 先修改设计再复核，STOP 停止。
+3. **最小实现与软件验证。** 原正式 carrier 语义与派生责任不变；程序拥有最终落盘和状态推进。工具只是候选提交，不是 A_ACCEPTED。只能绑定 creation/attempt/request/revision/schema/frozen fingerprint/model/runtime/tool name/tool_call_id/original run；完整工具事件与整个 run 终态分别证明，定义调用后错误、缺片、重复、重入与恢复规则。同一请求多个目标工具调用明确拒绝，不选最后一次正确答案。完整合法结果落盘失败只恢复本地写入，不重派模型。
+4. **兼容性 Gate 与最终 Astra。** A capture→投影→既有 B→正式 Planning→Truth→persist/load→现有 Material consumer parse/validate，停在 Supply 前。涉及下游非平凡合同改动则 BLOCKED/STOP。只在外部模型/Provider/网关边界使用替身，内部实际执行；具名矩阵、全量 pytest、技能、compileall、diff，前端变更才 lint/build。软件 PASS 和最终 Astra CONTINUE 后固定新版本，才进入真实评测。
+5. **有界 Development，资格判定后停止。** 同一既有矩阵/评测执行器与验收入口，不建立平行主链。最多两轮，成功必须是一个固定版本的一整轮六次通过；禁止跨版本拼分。Formal R4/Smoke/E2E/Supply/生成/TTS/Build 全部禁止。
+
+### 动态 schema 与错误分类
+
+动态 schema 只约束程序已知机械空间：真实 scope/continuity/catalog、字段及既有数量上限。语义选择仍归 Creator/Director，程序不得猜测后写死 image/video。区分 source/display/final duration 和 source/final frame，不因字段名相似而合并事实；image 不接受无合法语义的源时长。超限先记 carrier 不合规；不得截断、删除、自动合并 required 条件。只有独立核对冻结输入证明确有必要语义无法表达时，才能记 `CONTRACT_NOT_EXPRESSIBLE` 并停止，不能仅凭模型写18条就扩大合同。
+
+分类至少保留：NO_TARGET_TOOL_CALL、MODEL_TRUNCATED、TOOL_CALL_INCOMPLETE、SCHEMA_INVALID、CONTRACT_INVALID、TOO_LARGE、DUPLICATE_TARGET_TOOL_CALL、WRONG_TOOL_CALL、IDENTITY_MISMATCH、TRANSPORT_UNKNOWN、PERSIST_FAILED、A_CONTRACT_REJECTED、A_ACCEPTED。截断/无结果不能折叠为空 JSON parse error。只有排除 Harness/schema/capture/lifecycle 后，才认定 Provider/Runtime 兼容性问题；当前接入不足不等于模型或服务端不支持。
+
+新 carrier 版本必须进入请求/journal/checkpoint/cache/policy 身份；旧冻结按原版本恢复，旧 pending 先按原身份对账，不能因升级刷新 repair/调用额度或重新派发。
+
+### 四项修订后的真实评测合同
+
+- 固定3个既有开发主题×2次独立执行=每轮6项。d01全新 Creation/Attempt/request 的重放就是该轮第1/6项，成功后只继续其余5项；oracle/expected 不变，held-out不使用。
+- **B 正常 CHALLENGE 不直接判失败。** 沿既有共享预算执行局部修复和复核；最终仍失败、额度耗尽，或必须修改 B 实现/合同，才停止新提交。报告分别记录发现阶段与根因归属，B发现A错误不自动归罪B；不在A-only范围修B。Truth最终失败或范围外问题同样停止并留证。
+- **账本按可测粒度命名。** Prep/A/B/Truth/repair/re-review/diagnostic及能力审计真实探测纳入统一账本。阶段RPC与底层模型提交分开，不用前者冒认后者；底层次数无法独立核实时记 UNKNOWN，不认领模型提交上限已执行。只能使用既有已购文字套餐，禁止现金/API余额/超额收费/付费fallback或媒体。无法证明套餐路由停止；现金账单未知记 UNKNOWN，不能估0。
+- **硬预算与第二轮条件。** 每轮最多6项/32次阶段RPC/60分钟，每样本8分钟；总计最多2轮/12项/64次阶段RPC/120分钟。底层模型提交64上限另须可观察且可执行，不能用RPC代替；无法建立此保护不启动真实轮次。第二轮仅用于本范围已定位carrier/Harness缺陷，在针对修复、确定性回归、必要复核、新版本固定及原请求对账全部完成后启动。第一轮 FAIL永久封存；不因失败自动重跑，不为B/Truth范围外问题使用第二轮。
+
+整轮成功需6/6 final PASS，semantic loss/required downgrade/invented hard/frozen mutation/artifact failure/truncation/unknown/state violation/Supply/冻结轮次工程介入均0；repair须原额度内局部且有记录。软件实现阶段修改不冒称真实轮次工程介入；被冻结的真实轮次内一旦工程救场立即FAIL，不能倒算。
+
+### 验收记录与停止状态
+
+审计先记录 BASELINE/实际 Runtime及实现指纹/三层能力/容量/终态/恢复/未知范围。只读审计若 BLOCKED 则生产实现、软件新协议验收、Development均 NOT_EXECUTED，保存证据后停止本 Goal，不冒认 carrier 或模型 PASS。
+
+后续若具备能力，最终分别记录 PRE_ASTRA/IMPLEMENTATION/LIFECYCLE/VERSION/COMPATIBILITY/MATRIX/FULL_TESTS/既有skip/HISTORY/FINAL_ASTRA/D01/A_CAPTURE/B_ENTERED/每轮成绩/分层调用/repair/截断/未知/耗时/配额/账单/工程介入/发现阶段/根因/READY_FOR_FORMAL_R4。只有完整固定版本6/6成功才 READY_FOR_FORMAL_R4=YES，随后停止，不自动启动R4。
+
+初始执行状态：GOAL=ACTIVE；CAPABILITY_AUDIT=IN_PROGRESS；生产修改=0；本轮模型提交=0；本轮Supply=0。审计结果按下节后续证据更新。
+
+#### 本 Goal 能力门停止收尾（2026-10-08）
+
+CAPABILITY_AUDIT=BLOCKED；ASTRA_PRE_IMPLEMENTATION=STOP。普通agent RPC原生validator拒绝动态tools/toolChoice；direct/managed共用256000字节工具参数硬上限，已验收结构合法A紧凑1331979字节实际离线拒绝。底层builder可以表达指定function，不能转授当前RPC能力；swarm有注册与内部retry限制，HTTP兼容端点当前关闭。不把本地能力阻断归罪MiniMax服务端，不把容量反例冒认真实语义不可表达或历史d01根因。
+
+Astra要求的生命周期细化保留：同一事件传输重放按原身份/序列幂等，不重复拼接、不误判模型多次调用；完整目标工具结束与整个run允许成功终态共同成立才准入，缺失/length/error/aborted保持拒绝或UNKNOWN。当前仅设计，未实施。
+
+生产源码SHA仍ffac01cc…51c74d；257现场/117fixture/十批1550文件原指纹保持。已按授权STOP分支结束，不改生产、不启用端点、不升级Runtime、不重启、不commit/push；新协议软件矩阵、全量回归、Development和R4全部NOT_EXECUTED。本轮真实调用/费用/工程介入均0；READY_FOR_FORMAL_R4=NO。完整[能力审计、原生回放和Astra结论](../acceptance/planning-a-structured-carrier-capability-2026-10-08.md)保存。后续Runtime容量或接入改造需要新的范围决策，本Goal不继续补Prompt或真实批次。

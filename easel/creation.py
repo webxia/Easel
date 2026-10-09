@@ -339,18 +339,23 @@ def reopen_video_proposal(creation_id: str, *, seed: dict | None = None) -> dict
     return get_creation(creation_id)
 
 
-def begin_video_proposal(creation_id: str, turn_id: str) -> dict[str, Any]:
+def begin_video_proposal(creation_id: str, turn_id: str, *, preset_contract=False, voice_profile_offer=None) -> dict[str, Any]:
     with edit_creation(creation_id) as data:
         workflow = data["chat_workflow"]
         if not workflow.get("confirmed_at"):
             workflow.update(proposal_status="DISCUSSING", video_plan_required=True,
                             proposal_turn_id=turn_id)
+            if preset_contract:
+                workflow.update(proposal_voice_contract='confirmed-preset-profile@1',
+                                voice_profile_offer=voice_profile_offer)
     return get_creation(creation_id)
 
 
 def save_video_proposal(creation_id: str, turn_id: str, response: str) -> dict[str, Any]:
     from easel.creator_proposal import parse_video_plan
-    plan = parse_video_plan(response)
+    workflow = get_creation(creation_id)['chat_workflow']
+    plan = parse_video_plan(response, voice_profile=workflow.get('voice_profile_offer'),
+                           bind_preset=workflow.get('proposal_voice_contract') == 'confirmed-preset-profile@1')
     from easel.output_contract import output_decision
     with edit_creation(creation_id) as data:
         workflow = data["chat_workflow"]
@@ -433,6 +438,8 @@ def confirm_chat_proposal(
                 from easel.creator_proposal import validate_video_plan
                 if not validate_video_plan(plan):
                     raise CreationError("当前方案需更新为正文与说明分开的完整版本后确认")
+                if plan.get('schema') == 'easel-video-proposal@3' and delivery_proposal is None:
+                    raise CreationError('预置旁白选择必须随明确委托和技术授权一起确认')
                 if (not video_plan_sha256 or plan.get("sha256") != video_plan_sha256
                         or production_specs != plan.get("specs")
                         or any(plan.get("specs", {}).get(key) is None for key in
@@ -488,14 +495,23 @@ def confirm_chat_proposal(
                     **({"agent_calls": data["proposal_history"][-1]["delivery"].get("agent_calls", {}),
                         "proposal_revision": len(data["proposal_history"])} if editing else {}),
                 }
+                from easel.integrations.voice_identity import binding_for
+                try:
+                    voice_binding = binding_for(data)
+                except ValueError as exc:
+                    raise CreationError(str(exc)) from exc
+                if voice_binding is not None:
+                    data['delivery']['voice_binding'] = voice_binding
         elif (proposal_sha256 is not None
               and workflow.get("proposal_sha256") != proposal_sha256):
             raise CreationError("本 Creation 已绑定另一份确认方案；不能静默替换冻结输入")
         elif generation_budget is not None:
             from decimal import Decimal, InvalidOperation
+            from easel.integrations.material_generation import requested_generation_modalities, authorized_generation_modalities
             grant = data.get('delivery', {}).get('authorization', {}).get('material_generation') or {}
             try:
-                same = (set(generation_budget) == {'maxCostCny', 'scopeSha256'}
+                same = (set(generation_budget) in ({'maxCostCny', 'scopeSha256'}, {'maxCostCny', 'scopeSha256', 'allowedModalities'})
+                        and requested_generation_modalities(generation_budget) == authorized_generation_modalities(grant)
                         and not isinstance(generation_budget['maxCostCny'], bool)
                         and Decimal(str(generation_budget['maxCostCny'])) == Decimal(grant.get('max_amount', 'NaN'))
                         and generation_budget['scopeSha256'] == grant.get('scope_sha256'))
@@ -509,6 +525,12 @@ def confirm_chat_proposal(
                     or recorded.get('creation_id') != creation_id
                     or recorded.get('proposal_sha256') != workflow.get('proposal_sha256')):
                 raise CreationError('本作品未确认这份文字使用声明，不能通过重放确认新增或更换授权')
+        if (data.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@3':
+            from easel.integrations.voice_identity import require_binding
+            try:
+                require_binding(data)
+            except ValueError as exc:
+                raise CreationError(str(exc)) from exc
     return get_creation(creation_id)
 
 

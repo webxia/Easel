@@ -1,0 +1,80 @@
+{
+  "status": "FIRST_UNIT_SOFTWARE_VALIDATED_NATIVE_VALIDATION_BLOCKED",
+  "goal": "稳定自主出片",
+  "goal_completed": false,
+  "session": "wc_sess_TVqbfxf7Z6k74Oz_",
+  "head": "df0d3a302ef59c6a5751f44be034fcc82a592f18",
+  "source_pin_kind": "dirty_worktree_manifest_not_commit",
+  "source_sha256": "8f4743d0afdc5c22ad73c29157a7ca71f4d60fe6c389c66e1fb5407f4e73d0f4",
+  "source_files": 222,
+  "intake_policy": "confirmed-planning-intake@5",
+  "admission_policy": "model-output-admission@1",
+  "candidate_review_policy": "planning-candidate-review@2",
+  "production_files_changed": [
+    "easel/output_admission.py",
+    "easel/integrations/semantic_boundary_run.py",
+    "easel/integrations/planning_semantic_review.py",
+    "easel/integrations/planning_candidate_review.py"
+  ],
+  "implemented": [
+    "Shared channel-specific complete JSON admission with existing four outcomes; no state or repair budget owner",
+    "A-selection exact contains echo normalization only when the current BGM array rule, complete duplicate value and valid outer header agree",
+    "Raw capture, normalized candidate and formal plan remain distinct; original schema errors and exact transformation actions are retained",
+    "Durable admission before details; details binds raw capture, normalized candidate and receipt identities",
+    "Cold verify rebuilds candidate and receipt from original capture; policy stripping, receipt/action/candidate/artifact tampering are rejected",
+    "Old intake@4 and earlier retain their recovery behavior; normalization neither uses nor refreshes the shared repair allowance"
+  ],
+  "capture_identity": "Receipt references the existing Owner-validated original stage/session/request/raw digest and schema/runtime/frozen input identities. Concrete run/tool-call terminal validation remains in Delivery, without synthetic IDs.",
+  "final_validation": {
+    "job": "wc_job_8RjVLzueHKjdljuS",
+    "passed": 67,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 0,
+    "pytest_reported_seconds": 271.64,
+    "junit_suite_seconds": 271.528,
+    "junit_sha256": "8c24ae51fac04356d860e71bc22b9c688f4e1fd0d195b26d14d3528ac289c815",
+    "scope": "Registered rules, normal Creation/Preparation/Planning/Truth/load, shared repair, receipt failure recovery, exact-request observation, cold verify, tamper rejection, legacy staged recovery, semantic projection and affected Material/fork/Rights scenarios",
+    "external_models": "Deterministic fixtures only; no live success rate claim",
+    "source_and_test_fence_unchanged": true,
+    "syntax": "PASS",
+    "scoped_diff": "PASS"
+  },
+  "retained_test_failures": [
+    {"job": "wc_job_f8Z8zK124JHZXcMk", "passed": 22, "failed": 2, "cause": "Fixture expected one native Owner checkpoint advance to finish despite intentionally interrupted receipt/details"},
+    {"job": "wc_job_eeN1ac5TqdykZc8F", "passed": 46, "failed": 1, "cause": "Pending external fixture lacked a concrete Delivery run ledger; native no-duplicate guard correctly prevented another outer dispatch"}
+  ],
+  "test_corrections": "Only fixture continuation changed: receipt failure resumes the same native Owner checkpoint; details pending observes the exact retained response inside the same owner operation. Production unknown-execution protection was not weakened.",
+  "native_gateway_validation": {
+    "test": "tests/structured_planning_product.py::test_native_output_admission_lifecycle",
+    "status": "PLATFORM_BLOCKED_NO_JOB_NO_RETRY",
+    "error": "此工具调用被 OpenAI 的安全检查屏蔽。请仔细检查你发送的内容。",
+    "result_obtained": false,
+    "rerouted_or_retried": false
+  },
+  "archived_original_replay": {
+    "raw_bytes": 2071,
+    "raw_sha256": "30ed9d55aff910c0e138df124616759145f4c035b9630be0fece1f105e13c818",
+    "normalized_selection_schema": "PASS",
+    "details_slots_constructible": 7,
+    "old_intake4_message_exact": true,
+    "old_transport_valid": true,
+    "original_unchanged": true,
+    "formal_planning_success": false
+  },
+  "second_delivery_unit": "NOT_IMPLEMENTED in production consumers: complete-text-fence and strict-JSON profiles are registered and tested, but Material/Truth receipt/cache migration remains later. Existing codecs remain intact.",
+  "queries_fallback": "NOT_ENABLED",
+  "history": {"protected_matched": 302, "fixtures_matched": 142, "sealed_qualification_ledger_unchanged": true, "old_failures_regraded": false},
+  "private_directory": "Library/Application Support/Easel/acceptance/autonomous-first-cut-2026-10-08/output-admission-implementation-2026-10-09",
+  "private_report": "implementation-final.json",
+  "private_report_sha256": "539cb875474b2c28d2f3d0c5bb9dad3e5e19a060f247b77c68ff64d89e84e3e8",
+  "owner_review": "CONTINUE_WITHIN_APPROVED_SOFTWARE_SCOPE",
+  "independent_review": "UNAVAILABLE_NOT_OBTAINED",
+  "real_model_calls": 0,
+  "media_calls": 0,
+  "build_calls": 0,
+  "live_services_loaded": false,
+  "commit_push_publish": false,
+  "formal_videos": "0/3",
+  "next": "Retain first-unit implementation and obtain the blocked native lifecycle evidence only through an allowed operation; do not reroute the refusal. Do not redo the implementation, reopen sealed real batches or claim full Planning/video acceptance. Continue staged consumer adoption only after first-unit validation closure."
+}

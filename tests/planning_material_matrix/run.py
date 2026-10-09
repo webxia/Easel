@@ -40,7 +40,7 @@ def fixture_files():
     return {str(p.relative_to(ROOT)): sha(p) for folder in [
         'planning-material-contract-2026-10-06', 'planning-modality-contract-2026-10-06',
         'planning-truth-contract-2026-10-06','planning-semantic-contract-2026-10-07',
-        'planning-eval-r4-2026-10-07'] for p in sorted((ROOT / 'tests/fixtures' / folder).rglob('*')) if p.is_file()}
+        'planning-eval-r4-2026-10-07', 'planning-vnext-development-2026-10-08'] for p in sorted((ROOT / 'tests/fixtures' / folder).rglob('*')) if p.is_file()}
 
 
 def main():
@@ -60,7 +60,8 @@ def main():
     harness = run / 'harness'
     harness.mkdir()
     before['test_harness_files'] = {}
-    for name in ('cases.py', 'conftest.py', 'run.py', 'planning_eval.py', 'planning_eval_run.py', '../test_model_output_contracts.py','../test_semantic_planning.py'):
+    for name in ('cases.py', 'conftest.py', 'run.py', 'planning_eval.py', 'planning_eval_run.py', '../conftest.py', '../test_model_output_contracts.py','../test_semantic_planning.py', '../test_openclaw_structured_result.py',
+                 'structured_gateway.py', 'structured_runtime.mjs', 'producer_experiment.py', '../structured_planning_product.py'):
         source = Path(__file__).parent / name
         # A copied conftest.py would be auto-loaded by default pytest discovery.
         # Store source snapshots as text while preserving their exact bytes/SHA.
@@ -77,12 +78,14 @@ def main():
     reconciliation = {'finished_at': datetime.now(timezone.utc).isoformat(), 'pytest_exit_status': proc.returncode,
         'production_sha256': after_production['sha256'], 'production_unchanged': before['production'] == after_production,
         'protected_unchanged': before['protected_files'] == after_protected,
+        'test_harness_unchanged': all(sha(Path(__file__).parent / name) == value
+                                    for name, value in before['test_harness_files'].items()),
         'fixtures_unchanged': before['historical_fixtures'] == after_fixtures,
         'protected_file_count': len(after_protected), 'fixture_file_count': len(after_fixtures)}
     (run / 'reconciliation.json').write_text(json.dumps(reconciliation, ensure_ascii=False, indent=2) + '\n')
     print(proc.stdout + proc.stderr)
     print(json.dumps({'run': str(run), **reconciliation}, ensure_ascii=False))
-    if not all(reconciliation[k] for k in ('production_unchanged', 'protected_unchanged', 'fixtures_unchanged')):
+    if not all(reconciliation[k] for k in ('production_unchanged', 'protected_unchanged', 'fixtures_unchanged', 'test_harness_unchanged')):
         return 2
     return proc.returncode
 

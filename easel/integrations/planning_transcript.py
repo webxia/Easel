@@ -51,6 +51,10 @@ def read_original(prefix, profile, call, *, runner=subprocess.run, env=None):
     params = {'agentId': call['agent_id'], 'sessionKey': call['session_key'],
               'sessionId': call['session_id'], 'runId': call['run_id'],
               'profile': profile, 'runtimeParts': RUNTIME_PARTS, 'maxResultBytes': MAX_RESULT_BYTES}
+    if call.get('reply_contract') == 'planning-result-v3':
+        from easel.integrations.planning_structured import verify_runtime, RUNTIME_PARTS as structured_parts
+        verify_runtime(root)
+        params.update(structured=call['structured_result'], structuredParts=structured_parts)
     try:
         result = runner([node, str(Path(__file__).with_suffix('.mjs')), str(root)],
             input=json.dumps(params), text=True, capture_output=True, timeout=20, env=environment)

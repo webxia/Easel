@@ -649,6 +649,8 @@ def _prepare_creation_for_hypit_locked(
                 "production_brief_sha256": snapshot["hashes"]["production_brief"],
                 **({"video_plan": work["delivery"]["video_plan"]}
                    if (work.get("delivery") or {}).get("video_plan") else {}),
+                **({'voice_binding': work['delivery']['voice_binding']}
+                   if (work.get('delivery') or {}).get('voice_binding') else {}),
                 **({"confirmed_proposal_sha256": (work.get("chat_workflow") or {}).get("proposal_sha256")}
                    if (work.get("chat_workflow") or {}).get("proposal_sha256") else {}),
             },
@@ -736,7 +738,7 @@ def _prepare_creation_for_hypit_locked(
                 or list((legacy_root/'materials/recoveries').glob('planning-structure-repair-*.json')))
             if version is None and not legacy_evidence:
                 requested_version = getattr(planning_executor, 'planning_contract_version', 2)
-                if requested_version == 3 and ((work.get('delivery') or {}).get('video_plan') or {}).get('schema') != 'easel-video-proposal@2':
+                if requested_version == 3 and ((work.get('delivery') or {}).get('video_plan') or {}).get('schema') not in {'easel-video-proposal@2', 'easel-video-proposal@3'}:
                     # A frozen legacy confirmation stays on its original writer.
                     requested_version = 2
                 attempt = service.update_film_attempt(attempt['attempt_id'], event='planning_contract_registered',

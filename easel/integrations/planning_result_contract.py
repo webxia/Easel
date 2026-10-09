@@ -6,12 +6,13 @@ belong to the application. Capacity rejection never truncates an obligation.
 from __future__ import annotations
 
 from typing import Annotated, Literal
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationInfo, field_validator, model_validator
 
 REPLY_CONTRACT = 'planning-result-v2'
 MAX_RESULT_BYTES = 8 * 1024 * 1024
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_B_ANSWERS = 48
+FLEXIBLE_QUERY_POLICY = 'bounded-query-cardinality@1'
 Text = Annotated[str, Field(min_length=1, max_length=2000)]
 Handle = Annotated[str, Field(min_length=1, max_length=512)]
 ShortText = Annotated[str, Field(min_length=1, max_length=200)]
@@ -58,13 +59,37 @@ class NeedProposal(Carrier):
     voice_expression: Text | None = None
     sound: SoundIntent | None = None
 
+    @field_validator('queries')
+    @classmethod
+    def query_shape(cls, value: tuple[str, ...], info: ValidationInfo) -> tuple[str, ...]:
+        if (info.context or {}).get('candidate_review_queries'):
+            return value  # Read-only review candidate, never formal admission.
+        if not (info.context or {}).get('local_query_faults'):
+            return value  # Historical rejection/repair paths retain their original errors.
+        # Modality is declared before queries. Keep the exact admission rule,
+        # but report this independently repairable field at its actual path.
+        # An invalid/missing modality has its own error; never infer one here.
+        modality = info.data.get('modality')
+        flexible = (info.context or {}).get('flexible_queries', False)
+        if modality in {'image', 'video'} and value and ((not flexible and len(value) != 3) or any(
+                not q.strip() or not q.isascii() for q in value)
+                or len({q.strip().casefold() for q in value}) != len(value)):
+            raise ValueError('Visual query candidates require up to three distinct short English phrases' if flexible
+                             else 'Visual query candidates require three distinct short English phrases')
+        if modality in {'voice', 'bgm', 'sfx'} and value:
+            raise ValueError('Visual retrieval queries cannot enter audio')
+        return value
+
     @model_validator(mode='after')
-    def semantic_shape(self):
+    def semantic_shape(self, info: ValidationInfo):
         visual = self.modality in {'image', 'video'}
-        if visual and self.queries and (len(self.queries) != 3 or any(not q.strip() or not q.isascii()
-                for q in self.queries) or len({q.strip().casefold() for q in self.queries}) != 3):
-            raise ValueError('Visual query candidates require three distinct short English phrases')
-        if not visual and self.queries:
+        review_queries = (info.context or {}).get('candidate_review_queries', False)
+        flexible = (info.context or {}).get('flexible_queries', False)
+        if not review_queries and visual and self.queries and ((not flexible and len(self.queries) != 3) or any(not q.strip() or not q.isascii()
+                for q in self.queries) or len({q.strip().casefold() for q in self.queries}) != len(self.queries)):
+            raise ValueError('Visual query candidates require up to three distinct short English phrases' if flexible
+                             else 'Visual query candidates require three distinct short English phrases')
+        if not review_queries and not visual and self.queries:
             raise ValueError('Visual retrieval queries cannot enter audio')
         if self.modality == 'image' and self.source_seconds is not None:
             raise ValueError('Display/final duration cannot become image source duration')
@@ -118,6 +143,95 @@ def result_schema(stage):
     return {'A': SemanticProposal, 'B': ReviewResponse}[stage].model_json_schema()
 
 
+def semantic_tool_schema(catalog, *, compiled=False, flexible_queries=False):
+    """Expose existing mechanical rules and frozen choices to the A carrier.
+
+    This is only a request schema. Semantic admission, source qualification,
+    query distinctness and the independent review remain application checks.
+    Never infer a modality, necessity or source property from output specs.
+    """
+    schema = result_schema('A')
+    if flexible_queries:
+        schema['x-easel-query-cardinality'] = FLEXIBLE_QUERY_POLICY
+    need = schema['$defs']['NeedProposal']
+    properties = need['properties']
+    scopes = sorted({key for kind in ('global', 'scene', 'segment', 'event')
+                     for key in catalog.get(kind, {})})
+    if not scopes:
+        raise ValueError('Semantic carrier requires a frozen scope catalog')
+    properties['scope']['enum'] = scopes
+    continuity = sorted(key for key, record in catalog.get('continuity', {}).items()
+                        if isinstance(record.get('kind'), str))
+    properties['continuity_choices']['items'] = (
+        {**properties['continuity_choices']['items'], 'enum': continuity}
+        if continuity else False)
+    voices = sorted(catalog.get('voice', {}))
+    properties['voice_choice'] = {'anyOf': [
+        *([{'type': 'string', 'minLength': 1, 'maxLength': 512, 'enum': voices}] if voices else []),
+        {'type': 'null'}], 'default': None}
+
+    def when(field, choices, then):
+        return {'if': {'properties': {field: {'enum': choices}}, 'required': [field]},
+                'then': then}
+
+    def props(**values):
+        return {'properties': values}
+
+    null = {'type': 'null'}
+    rules = [
+        when('modality', ['image', 'voice'], props(source_seconds=null)),
+        when('modality', ['voice', 'bgm', 'sfx'], props(
+            frame={'const': 'unconstrained'}, native_ratio=null, visual_preference=null,
+            queries={'maxItems': 0})),
+        when('modality', ['image', 'video', 'bgm', 'sfx'], props(
+            voice_choice=null, voice_expression=null)),
+        when('modality', ['image', 'video', 'voice'], props(sound=null)),
+        when('modality', ['voice'], {
+            'required': ['voice_choice'], **props(voice_choice=(
+                {'type': 'string', 'enum': voices} if voices else False))}),
+        when('modality', ['bgm', 'sfx'], {
+            'required': ['sound'], **props(sound={'type': 'object'})}),
+        when('modality', ['bgm'], props(sound=props(
+            event_description=null, sound_character=null, intensity=null, environment=null))),
+        when('modality', ['sfx'], props(sound={
+            'required': ['event_description'], **props(
+                event_description={'type': 'string'}, mood=null, genre=null,
+                instruments={'maxItems': 0}, vocals_allowed={'const': False},
+                energy=null, tempo_bpm=null)})),
+        # Omitted frame has the same unconstrained default as the existing model.
+        {'if': {'properties': {'frame': {'const': 'native'}}, 'required': ['frame']},
+         'then': {'required': ['native_ratio'], **props(native_ratio={'type': 'string'})},
+         'else': props(native_ratio=null)},
+        {'if': props(conditions={'contains': {
+            'properties': {'meaning': {'const': 'dynamic_action'},
+                           'strength': {'const': 'required'},
+                           'responsibility': {'const': 'material'}},
+            'required': ['meaning', 'strength', 'responsibility']}}),
+         'then': props(modality={'const': 'video'})},
+        when('modality', ['image', 'video'], props(queries={
+            **({'maxItems': 3} if flexible_queries else
+               {'anyOf': [{'maxItems': 0}, {'minItems': 3, 'maxItems': 3}]}),
+            'items': {'pattern': r'^[\x00-\x7f]*\S[\x00-\x7f]*$'}})),
+    ]
+    need['allOf'] = rules
+    if catalog.get('derived_voice'):
+        # One program-owned Voice reserves the sixteenth slot. A cannot supply
+        # a second Voice, and no requirement is silently dropped or merged.
+        schema['properties']['needs']['maxItems'] = 15
+        properties['modality']['enum'] = ['image', 'video', 'bgm', 'sfx']
+    if compiled:
+        # These are existing formal projection/domain requirements, not new
+        # semantic judgments. Optional Needs also need a real source obligation.
+        rules.append(props(conditions={'contains': {
+            'properties': {'strength': {'const': 'required'},
+                           'responsibility': {'const': 'material'}},
+            'required': ['strength', 'responsibility']}}))
+        events = sorted(catalog.get('event', {}))
+        rules.append(when('modality', ['sfx'], props(scope=(
+            {'enum': events} if events else False))))
+    return schema
+
+
 def maximum_compact_bytes(schema):
     """Conservative UTF-8 JSON bound, including escaped controls and keys.
 
@@ -128,8 +242,21 @@ def maximum_compact_bytes(schema):
     import json
     definitions = schema.get('$defs', {})
     def size(node):
+        if node is False:
+            return 0  # Empty choice domain; no legal item is silently invented.
+        if node is True:
+            raise ValueError('Unbounded semantic capacity schema')
         if '$ref' in node:
             return size(definitions[node['$ref'].split('/')[-1]])
+        if 'allOf' in node:
+            bounds = []
+            for part in [{k: v for k, v in node.items() if k != 'allOf'}, *node['allOf']]:
+                try:
+                    bounds.append(size(part))
+                except ValueError:
+                    pass
+            if bounds:
+                return min(bounds)  # Intersection cannot exceed any finite constituent.
         if 'anyOf' in node:
             return max(map(size, node['anyOf']))
         if 'enum' in node:
@@ -137,6 +264,8 @@ def maximum_compact_bytes(schema):
         if 'const' in node:
             return len(json.dumps(node['const'], ensure_ascii=False).encode())
         kind = node.get('type')
+        if isinstance(kind, list):
+            return max(size({**node, 'type': item}) for item in kind)
         if kind == 'string':
             # Pattern-only strings here are the finite native-ratio enum.
             count = node.get('maxLength', 4 if node.get('pattern', '').startswith('^(?:16:9') else None)

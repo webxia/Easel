@@ -1,0 +1,886 @@
+{
+  "kind": "offline-producer-union-experiment",
+  "production_enabled": false,
+  "actual_http": 0,
+  "model_reliability": "NOT_TESTED",
+  "semantic_kind": "NOT_SELECTED",
+  "canonical_changed": false,
+  "repair_contract_changed": false,
+  "schemas": [
+    {
+      "derived_voice": false,
+      "old_wire_bytes": 8432,
+      "union_wire_bytes": 12326,
+      "union_sha256": "704caf9126dd94fe821f3b83c2dae1dcd4a6f1a72b1673ccca21e727ab907930"
+    },
+    {
+      "derived_voice": true,
+      "old_wire_bytes": 8424,
+      "union_wire_bytes": 10474,
+      "union_sha256": "422eca80f2d5f98864a247dbbcc24a1a676a65e466076ba31e41a2b01fc067ff"
+    }
+  ],
+  "cases": [
+    {
+      "case": "False/image/required/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/image/required/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/image/required/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/image/required/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/image/required/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/image/preference/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/image/preference/material/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/image/preference/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/image/preference/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/image/preference/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/image/preference/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/required/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/required/material/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/required/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/required/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/required/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/required/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/preference/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/preference/material/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/preference/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/preference/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/preference/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/video/preference/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/bgm/required/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/bgm/required/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/bgm/required/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/bgm/required/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/bgm/required/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/bgm/preference/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/bgm/preference/material/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/bgm/preference/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/bgm/preference/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/bgm/preference/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/bgm/preference/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/sfx/required/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/sfx/required/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/sfx/required/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/sfx/required/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/sfx/required/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/sfx/preference/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/sfx/preference/material/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/sfx/preference/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/sfx/preference/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/sfx/preference/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/sfx/preference/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/voice/required/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/voice/required/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/voice/required/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/voice/required/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/voice/required/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/voice/preference/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/voice/preference/material/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/voice/preference/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/voice/preference/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/voice/preference/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/voice/preference/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/mixed-ordered-duplicates",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/defaults/missing",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/defaults/null",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/defaults/string-null",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "False/original-local-repair-leaf",
+      "expected": "same target, immutable original",
+      "actual": "same target, immutable original",
+      "result": "PASS"
+    },
+    {
+      "case": "False/reject/unknown_scope",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "False/reject/image_duration",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "False/reject/voice_field",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "False/reject/required_action",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "False/reject/unknown_modality",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "False/reject/non_ascii_query",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "False/reject/missing_required_source",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "False/reject/extra_property",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "False/wire-poison/image",
+      "expected": "reject cross-modal poison",
+      "actual": "rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "False/wire-poison/bgm",
+      "expected": "reject cross-modal poison",
+      "actual": "rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "False/wire-poison/sfx",
+      "expected": "reject cross-modal poison",
+      "actual": "rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "True/image/required/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/image/required/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/image/required/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/image/required/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/image/required/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/image/preference/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/image/preference/material/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/image/preference/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/image/preference/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/image/preference/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/image/preference/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/required/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/required/material/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/required/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/required/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/required/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/required/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/preference/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/preference/material/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/preference/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/preference/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/preference/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/video/preference/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/bgm/required/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/bgm/required/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/bgm/required/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/bgm/required/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/bgm/required/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/bgm/preference/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/bgm/preference/material/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/bgm/preference/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/bgm/preference/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/bgm/preference/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/bgm/preference/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/sfx/required/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/sfx/required/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/sfx/required/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/sfx/required/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/sfx/required/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/sfx/preference/material/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/sfx/preference/material/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/sfx/preference/postproduction/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/sfx/preference/postproduction/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/sfx/preference/narrative/observable",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/sfx/preference/narrative/dynamic_action",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/mixed-ordered-duplicates",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/defaults/missing",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/defaults/null",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/defaults/string-null",
+      "expected": "canonical equality after public parser",
+      "actual": "equal",
+      "result": "PASS"
+    },
+    {
+      "case": "True/original-local-repair-leaf",
+      "expected": "same target, immutable original",
+      "actual": "same target, immutable original",
+      "result": "PASS"
+    },
+    {
+      "case": "True/reject/unknown_scope",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "True/reject/image_duration",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "True/reject/voice_field",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "True/reject/required_action",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "True/reject/unknown_modality",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "True/reject/non_ascii_query",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "True/reject/missing_required_source",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "True/reject/extra_property",
+      "expected": "reject without mutation",
+      "actual": "rejected, unchanged",
+      "result": "PASS"
+    },
+    {
+      "case": "True/wire-poison/image",
+      "expected": "reject cross-modal poison",
+      "actual": "rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "True/wire-poison/bgm",
+      "expected": "reject cross-modal poison",
+      "actual": "rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "True/wire-poison/sfx",
+      "expected": "reject cross-modal poison",
+      "actual": "rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "derived_voice/reject-duplicate",
+      "expected": "no Voice branch",
+      "actual": "rejected",
+      "result": "PASS"
+    },
+    {
+      "case": "historical-real-A",
+      "expected": "FAIL remains FAIL",
+      "actual": "rejected",
+      "result": "PASS"
+    }
+  ],
+  "pass": 135,
+  "fail": 0,
+  "reconciliation": {
+    "production": "b04cc840189874cdd5d9e29b103af24cd1737948bc53de287866fee76b857353",
+    "protected": {
+      "count": 302,
+      "unchanged": true
+    },
+    "fixtures": {
+      "count": 133,
+      "unchanged": true
+    },
+    "previous_development_records": {
+      "count": 193,
+      "unchanged": true
+    }
+  },
+  "decision": "NOT_SELECTED_FOR_PRODUCTION; REAL_MODEL_BENEFIT_UNPROVEN",
+  "research_sources": [
+    {
+      "url": "https://github.com/MiniMax-AI/MiniMax-Provider-Verifier/blob/main/m3_format_check/docs/m3_text_cases.md",
+      "access_date": "2026-10-08",
+      "finding": "Official M3 verifier marks response_format=json_object unsupported. No claim about every other provider or strict-tool API."
+    },
+    {
+      "url": "https://pydantic.dev/docs/ai/core-concepts/output/",
+      "access_date": "2026-10-08",
+      "finding": "Separating output tools reduces per-tool schema complexity. A single-tool union is not that implementation and does not guarantee compliance."
+    },
+    {
+      "url": "https://docs.sglang.io/docs/advanced_features/structured_outputs",
+      "access_date": "2026-10-08",
+      "finding": "Grammar constraints require inference-server support; local client validation is not constrained decoding."
+    }
+  ],
+  "research_commit_pin": "UNAVAILABLE_GITHUB_API_RATE_LIMIT; page URL and access date recorded",
+  "test_files": {
+    "tests/planning_material_matrix/producer_experiment.py": "23e47681cd7a23a8f54be7b39d75c76cc4a4ec61fdb0222cb7ce7325a66b6a25",
+    "tests/test_openclaw_structured_result.py": "f3a3d151f3dfa89879aae441662df4a452558bb009229f23d86c8d894b028359"
+  },
+  "verification": {
+    "pytest": "4 passed in 7.68s",
+    "compileall": "PASS (changed test files only)",
+    "diff_check": "PASS (changed tracked files in this turn only)",
+    "full_suite": "NOT_RERUN; production unchanged",
+    "astra": "MODIFY addressed; not approved for production or live execution"
+  },
+  "historical_actual_schema_comparison": {
+    "old_wire_bytes": 9648,
+    "union_wire_bytes": 13446
+  }
+}

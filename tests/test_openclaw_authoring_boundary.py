@@ -126,6 +126,8 @@ def test_authoring_policy_has_only_workspace_text_tools(tmp_path):
 
 def test_attempt_authoring_stages_inputs_and_promotes_only_approved_files(tmp_path):
     attempt = _seed_attempt(tmp_path / "attempt")
+    (attempt / "handoff" / "truth.json").chmod(0o444)
+    (attempt / "handoff").chmod(0o555)
     stage_parent = tmp_path / "openclaw" / "authoring-staging"
     config = {}
     agent_workspace = None

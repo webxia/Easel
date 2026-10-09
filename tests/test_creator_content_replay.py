@@ -45,6 +45,141 @@ from easel.materials.store import AttemptMaterialStore
 from easel.materials.domain import BgmNeedSpec, SemanticInfo
 
 
+def replay_vnext_native_hypit(work, attempt, voice_asset, monkeypatch, directory):
+    """Opt-in software chain: vNext/preset Gate -> actual local Hypit MP4.
+
+    The model, speech and ASR are fixtures. No renderer response or MP4 is
+    substituted. Owner/production/free approval/export/Quality use real code.
+    """
+    import time
+    from easel.creation_delivery import advance_creation, next_operation
+    from easel.integrations.hypit.cli import HypitCLI
+    from tests.test_hypit_integration import measured_narration_fixture
+    chrome = Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
+    assert chrome.is_file(), 'Actual local Chrome required; never auto-download'
+    runtime = directory / 'native-local-runtime.json'
+    runtime.write_text(json.dumps({'format': 'hypit.runtime-local@1', 'dataRoot': '.native-local-runtime',
+        'credentials': {}, 'bindings': {}, 'endpoints': {
+            'media.local': {'use': '@hypit/provider-media-local'},
+            'hyperframes.local': {'use': '@hypit/provider-hyperframes-local', 'config': {
+                'chromePath': str(chrome), 'ffmpegPath': shutil.which('ffmpeg'),
+                'ffprobePath': shutil.which('ffprobe'), 'browserGpu': 'software', 'workers': 1}}}}))
+    monkeypatch.setattr(web, '_hypit_runtime_profile', lambda: str(runtime))
+    # This explicit scenario uses the actual installed CLI, not the global test
+    # fixture's renderer. All subprocesses inherit an isolated auth-free home.
+    machine_home = Path.home()
+    local_home = directory / 'native-home'; local_home.mkdir()
+    for name, version in (('@fontsource-variable/noto-sans-sc', '5.3.0'),
+                          ('@hyperframes/engine', '0.7.101'), ('@hyperframes/producer', '0.7.101')):
+        package = machine_home / 'Library/Application Support/Hypit/packages' / name / version
+        assert (package / 'node_modules' / name / 'package.json').is_file(), 'Pinned local dependency must already be installed'
+        shutil.copytree(package, local_home / package.relative_to(machine_home),
+                        ignore=shutil.ignore_patterns('install.log', '.npmrc'))
+    monkeypatch.setenv('HOME', str(local_home))
+    monkeypatch.setattr(service, '_cli', lambda cli=None: cli or HypitCLI(executable=shutil.which('hypit'), timeout=300))
+    from easel.integrations import openclaw_authoring as scoped
+    # Substitute the external Gateway only. Staging, vocabulary preparation,
+    # narration compilation, native check and promotion remain production code.
+    policies = {}
+    authored = []
+    def fixed_author(command, params):
+        current = service.get_film_attempt(attempt['attempt_id'])
+        agent_id = params['agentId']
+        root = Path(policies[agent_id]['workspace'])
+        plan, bundle, ready = MaterialGateIntegration().assert_ready(current)
+        # Authoring chooses among the formally qualified assets; the program
+        # derives the final selection from actual Source references afterwards.
+        options = ProductionAuthoringIntegration().qualified_authoring_assets(current)
+        assert any(row['asset_id'] == voice_asset.asset_id for row in options)
+        store = AttemptMaterialStore(Path(current['workspace']['path']))
+        source, _, _ = measured_narration_fixture()
+        source = source.replace('end="4s"', 'end="15s"')
+        source = source.replace('<render:Video id="output"', '<render:Video id="final"')
+        source = re.sub(r'<media:Audio id="music-source".*?</audio:Track>', '', source, flags=re.DOTALL)
+        source = source.replace('<film:Track source={music-track.audio}/>', '')
+        source = source.replace('./voice.wav', store.hypit_source_path(voice_asset,
+            'productions/easel-authoring/authors/main.svml'))
+        target = root / 'productions/easel-authoring/authors/main.svml'
+        target.parent.mkdir(parents=True, exist_ok=True); target.write_text(source)
+        target.with_name('recipes.svs').write_text('<?svml using="@hypit/svs@1"?>\n<sheet version="1">\n'
+            'film.memo { background: #203040; }\ntext.caption { stack-order: 20; size: 48; fill: #FFFFFF; }\n</sheet>\n')
+        run = root / 'productions/easel-authoring/runs/main.svrun'
+        run.parent.mkdir(parents=True, exist_ok=True)
+        run.write_text(json.dumps({'schema': 'easel-authoring-svrun@1', 'creation_id': work['id'],
+            'attempt_id': current['attempt_id'], 'plan_id': plan.plan_id, 'plan_revision': ready.plan_revision,
+            'bundle_id': bundle.bundle_id, 'bundle_revision': bundle.revision,
+            'readiness_revision': ready.bundle_revision, 'authoring_source': '../authors/main.svml',
+            'material_selection': '../material-selection.json', 'status': 'AUTHORING_READY',
+            'publication_allowed': False, 'build': {'enabled': False}}))
+        authored.append(current['attempt_id'])
+    def fixed_gateway(command, **kwargs):
+        response = {}
+        if 'config' in command and 'patch' in command:
+            policies.update(json.loads(kwargs['input'])['agents']['entries'])
+        elif 'agents' in command and 'list' in command:
+            response = [{'id': key, 'workspace': row['workspace']} for key, row in policies.items()]
+        elif 'gateway' in command and 'call' in command:
+            method = command[command.index('call') + 1]
+            params = json.loads(command[command.index('--params') + 1])
+            if method == 'agent':
+                fixed_author(command, params)
+                response = {'runId': params['idempotencyKey'], 'status': 'ok', 'endedAt': time.time()}
+            elif method == 'sessions.abort':
+                response = {'ok': True, 'status': 'no-active-run'}
+            else: raise AssertionError('Unexpected external Gateway method: ' + method)
+        return subprocess.CompletedProcess(command, 0, json.dumps(response), '')
+    native_author = scoped.run_attempt_scoped_authoring
+    monkeypatch.setattr(web, 'run_attempt_scoped_authoring',
+                        lambda **kwargs: native_author(**kwargs, runner=fixed_gateway))
+    native_release = scoped.release_delivery_authoring
+    monkeypatch.setattr(scoped, 'release_delivery_authoring',
+                        lambda *args, **kwargs: native_release(*args, **kwargs, runner=fixed_gateway))
+    def fixed_visual_review(current, manifest, attachments):
+        assert attachments and manifest['binding']['sha256']
+        return {'schema': quality.SCHEMA, 'input_sha256': manifest['input_sha256'],
+            'frames': [{'index': row['index'], 'observed': True,
+                        'description': 'fixed external observation of rendered caption frame'} for row in manifest['frames']],
+            'checks': {name: {'status': 'pass', 'reason': 'offline model response fixture',
+                             'frame_indices': [0]} for name in quality.VISUAL_CHECKS}}
+    monkeypatch.setattr(web, '_review_output_frames', fixed_visual_review)
+    operations = []
+    errors = []
+    async def execute(operation, current):
+        operations.append(operation)
+        try:
+            await web._execute_creation_delivery(operation, current)
+        except Exception as exc:
+            errors.append((operation, type(exc).__name__, str(exc), str(exc.__cause__)))
+            raise
+    deadline = time.monotonic() + 600
+    while time.monotonic() < deadline:
+        asyncio.run(advance_creation(work['id'], execute))
+        assert not errors, errors
+        saved = creation.get_creation(work['id'])
+        if next_operation(saved) == (None, 'first_cut_ready'): break
+        latest = service.get_film_attempt(saved['hypit_attempts'][-1]['attempt_id'])
+        if latest['status'] == 'BUILD_FAILED' or saved['delivery']['status'] in {'failed', 'production_failed'}:
+            raise AssertionError(latest.get('last_error') or saved['delivery'])
+        time.sleep(.5)
+    else: raise AssertionError('Actual local Hypit did not complete within the software scenario ceiling')
+    final = service.get_film_attempt(attempt['attempt_id'])
+    assert authored == [attempt['attempt_id']]
+    for operation in ('author', 'validate', 'price', 'approve_free', 'submit', 'refresh', 'export', 'quality'):
+        assert operation in operations, (operation, operations)
+    assert operations.count('submit') == 1
+    assert final['cost']['approval_kind'] == 'confirmed_commission_no_charge'
+    assert final['review']['system']['status'] == 'READY'
+    output = creation.OUTPUTS_DIR / final['outputs']['final.video']['path']
+    assert output.is_file() and output.stat().st_size > 1000
+    evidence = {'result': 'PASS', 'scope': 'offline latest-contract actual local Hypit',
+        'real_model_calls': 0, 'real_media_calls': 0, 'renderer': 'installed Hypit 0.2.7',
+        'operations': operations, 'mp4': str(output), 'mp4_sha256': hashlib.sha256(output.read_bytes()).hexdigest(),
+        'quality': final['review'], 'cost': final['cost'], 'attempt': final}
+    path = Path(os.environ['EASEL_TEST_EVIDENCE']) / 'vnext-native-hypit.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(evidence, ensure_ascii=False, indent=2) + '\n')
+
+
 def test_same_creator_mode_three_contents_reach_reviewable_first_cut(material_integration_env, tmp_path, monkeypatch):
     if not shutil.which('ffmpeg'):
         pytest.skip('Local deterministic audio fixture requires ffmpeg')

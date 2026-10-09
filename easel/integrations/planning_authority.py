@@ -85,6 +85,14 @@ def load_inputs(attempt, canonical, planning_context, mode, *, allow_missing_can
     result = {'schema': 'planning-authority-inputs@1', 'handoff_sha256': attempt['handoff']['hash'],
               'confirmed': dict(canonical), 'proposal': proposal, 'preparation': brief,
               'mode_documents': mode_documents, **documents}
+    if proposal is not None and proposal.get('schema') == 'easel-video-proposal@3':
+        from easel import creation
+        from easel.integrations.voice_identity import require_binding
+        work = creation.get_creation(attempt['creation_id'])
+        binding = require_binding(work, script=canonical['SCRIPT.md'])
+        if proposal != work['delivery']['video_plan'] or binding != request.get('voice_binding'):
+            raise ValueError('Planning确认旁白身份与冻结Handoff不一致')
+        result['voice_binding'] = binding
     if SecretRedactor.contains_secret(result):
         raise ValueError('Planning来源包含疑似凭证，未提交')
     return result

@@ -124,6 +124,13 @@ def _cleanup_stage(stage_root: Path, agent_id: str, configured: bool, *, command
     agent_state_root = stage_root.parent.parent / "agents"
     if agent_state_root.is_dir() and not agent_state_root.is_symlink():
         _remove_exact_tree(agent_state_root, agent_id)
+    # Frozen handoff inputs are copied with their read-only mode. Removing a
+    # private stage needs write permission on its directories, not on the
+    # original frozen inputs. Never follow a link while changing those modes.
+    for directory, children, _files in os.walk(stage_root, followlinks=False):
+        candidate = Path(directory)
+        if not candidate.is_symlink():
+            candidate.chmod(candidate.stat().st_mode | 0o700)
     shutil.rmtree(stage_root)
 
 

@@ -1695,8 +1695,8 @@ Recommended project documentation hierarchy:
 docs/00_PROJECT.md
 → stable project goal
 
-docs/01_ARCHITECTURE.md
-→ current + target architecture overview
+docs/DOCUMENT_INDEX.md
+→ current architecture and task routing
 
 docs/architecture/easel-video-architecture-v1.md
 → authoritative video target architecture
@@ -1710,8 +1710,8 @@ docs/02_CURRENT_STATE.md
 docs/03_ROADMAP.md
 → phased implementation plan
 
-docs/tasks/v1c-t09-generated-material-real-product-branch.md
-→ current blocked execution task
+docs/workstreams/generated-material.md
+→ generated material capability boundaries; current status in Current State
 
 docs/decisions/
 → frozen architecture decisions

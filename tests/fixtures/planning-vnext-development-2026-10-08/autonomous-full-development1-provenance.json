@@ -1,0 +1,19 @@
+{
+  "creation_id": "cr_37a22ea5ef6b4845ba0f1d99a26c78b7",
+  "attempt_id": "fa_12ed8b2fffe0fadfc96ad44660710c0a",
+  "source_sha256": "4d1a55101b61259b125a11f3cd9f18dbdcb9dbd9c00ff98ed20a568fd1356c68",
+  "commit": "df0d3a302ef59c6a5751f44be034fcc82a592f18",
+  "runtime_sha256": "12b0d561276ef8518978e4ebcc391f5d8551b6a1fc63277216668967746c19c5",
+  "raw_A_bytes": 22137,
+  "raw_A_sha256": "d4cec92a8a495216c934ed5ffaac6982583783a31a1acb3827290515d0b13725",
+  "result": "FAIL",
+  "engineering_intervention": 0,
+  "kind": "real_normal_web_creation_failure",
+  "scope": "Original full A, derived Preparation; no normalization or restored acceptance",
+  "first_cut_ready": false,
+  "transport": "COMPLETE_NATIVE_TOOL_CALL_OK_RELEASED",
+  "business_schema": "REJECT",
+  "replay": "Reject before repair/B/Material; same request journal reused on reentry",
+  "preparation_placeholder": "Produced by original Preparation agent write event 17f516ed-1fd9-4961-9371-7a0a06db1aca; no test fixture read detected",
+  "provider_strict": "UNPROVEN"
+}
