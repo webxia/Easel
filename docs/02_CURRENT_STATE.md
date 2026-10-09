@@ -1,4 +1,104 @@
 # Easel Current State
+## 2026-10-10：新 Attempt 默认启用 ADR-005，新旧兼容保留至真实出片验收
+
+用户已明确要求**从新创建的 Attempt 默认使用新版协议**，先以实际成片验证，完成后才删旧实现。`easel/integrations/result_protocols.py` 的 `DEFAULT_PROFILES` 已设为固定映射：`truth-source-ref@1`、`material-observation-delta@1`、`easel-script-claim-ledger@3`、`quality-review-delta@1`、`easel-hypit-source@1`。**不包含**过渡 `hypit-run-promotion@1`。新建 Attempt 若未显式指定 `result_protocols`，创建时复制并持久化当前默认版本；明确指定旧版本和已有历史 Attempt 的 pin 不受默认值影响，Retry 继承原 Attempt 版本；同一 Attempt 禁止两套 Authoring Writer 同时启用。默认配置的启用是**源码默认策略切换**，不是已部署服务热重载，不证明真实模型/Provider/Build 能完成成片。
+
+验证：`tests/test_result_protocol_defaults.py` + `tests/test_authoring_publication.py` **25 PASS**；`tests/test_result_protocol_defaults.py` + native Authoring + 旧 journal 组合 **41 PASS / 41.35 秒**（Job `wc_job_dLEZ4X0QzPfc6Wpb`，均为内部离线集成，不调用真实付费资源）。删除旧代码属于**首次真实新作品成片成功之后的后续单独动作**；不能现在删除旧版或修改历史 Attempt 恢复格式。本节为本次提交范围说明，下方 ADR-005 显式 profile 软件验收记录是之前的阶段基线。
+
+
+
+## 2026-10-09 UTC：ADR-005 显式协议软件实施与最终验收完成
+
+在原 Goal `wc_goal_kaovu_gxSvF9cEjC`、Session `wc_sess_90Fh0Hg3TUl_XbNs` 和唯一自主首版 Task 的 O4/O5 下完成本轮软件范围。U1、Truth source-ref、Material/Quality delta、Hypit 原生解析/Authoring 交接及 Markdown ledger@3 已接入实际 Owner 和保存/缓存/冷恢复链。[ADR-005](decisions/ADR-005-agent-result-processing.md) 已按最新代码修订；[具名验收记录](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/adr005-result-processing-software-2026-10-09.json)保存命令、逐文件摘要、Job、审查与范围。
+
+| 本轮直接观察的回归 | 终态 | 范围与版本关系 |
+|---|---|---|
+| `wc_job_J-sZqXQht6UTrt2y` | 107 PASS，257.06 秒，exit 0 | 原生 parser/typed graph、Authoring/managed/cold/CAS/fork、Quality、旧 journal/CLI/有限修复，含实际安装本地 static check；随后另补两处 native CLI 构造保护 |
+| `wc_job_XyTXDYXot_2JSU8G` | 66 PASS，160.24 秒，exit 0 | Truth/Planning/source-ref、Material delta/资格/嵌套父证据 fork、实际 MP4 Quality、混合 Markdown 两代 fork、operator hash/revision/旧协议；这些实现未再改动 |
+| `wc_job_hXz4h8kVrcv5ipKd` | 40 PASS，113.17 秒，exit 0 | 最后两处构造保护后的原生子集：complete/validate 本地恢复、严格 CLI、publication/冷进程/CAS、managed/实际 fork、native Quality 和 legacy 有界修复 |
+
+套件有重叠，不合计为不同功能数。最终子集前后 46 个具名源码/测试/AGENTS/依赖声明完全相同，aggregate SHA256 为 `4658bb35aa5f34552d87c8c9cb92a92b4dad9b98f5f50c7daf9530137d66625e`；核对时间 `2026-10-09T17:18:51.458657+00:00` 与 `2026-10-09T17:21:22.546169+00:00`。仍为 `easel-studio` / HEAD `d5bd227c2b6750ae18cea06ebcf4f9f89350899b` 的 dirty 工作树，没有提交、推送或把整个仓库认领为冻结 release。
+
+**独立审查已取得：** Astra Reviewer `/root/adr005_implementation_review` 对实际 publication revision `3172512921752053`、service revision `3172512921752054` 给出 **DECISION = CONTINUE**，显式 pin 范围内无剩余源码阻断项。CLI 构造取得在本地错误 context 内，实际 check 在外，既保护恢复又保留已知源码诊断的有限修复；40 项终态补齐落盘后的行为条件。下方其他窗口“Reviewer 不可调用/NOT_OBTAINED”为当时现场，当前以本条实际审查为准。
+
+**解决的关键失效路径：** 原回复与程序派生分别持久化；Truth 引用由程序还原；Material 固定原 logical group 后复用独立 facts/撤销实际依赖资格；Quality 保留已决及 observed=False；Markdown 按 CommonMark 和原字节 coverage 审核。Hypit 的 Material/Revision/音频/表达/Quality 共享 typed 图，原 Authoring Owner 先验隔离候选再持久发表；IO/冷恢复不再次派 Agent。回归覆盖 validate 曾覆盖 native authoring 回执的问题及修正，不放松 parser 身份来掩盖证据丢失。
+
+**保留范围：** `DEFAULT_PROFILES={}`；新 profile 显式选择，原 Attempt 按 pin 恢复。窄版 `hypit_run_promotion@1` 保留为历史显式子链，与 `hypit_source@1` 互斥。默认 rollout、五 profile 同一默认链、B SourceUnit/candidate correction 和更广 Hypit Surface 为后续独立工作。CLI_ERROR/未经纯度核实的 TYPE_REFINEMENT_REJECTED 来源不明确时保留本地诊断，不匹配错误文字猜修复。
+
+已执行实际安装 Hypit 纯 parser/本地 static check、实际 PNG/4 秒 MP4 测量和真实内部调用链；没有真实模型/Provider/Hypit Build/视频 E2E，没有服务重启/部署。历史 `DIAGNOSTICS_VERIFIED_HISTORICAL_ROOT_CAUSE_UNKNOWN`、A-details 原 FAIL/缺失原件、`output-admission-continuation-80http-v1` 的实际 HTTP3、remaining_batches=0、closed/dispatch_blocked、BATCH_SLOTS_EXHAUSTED 及账单 UNKNOWN 保持。ADR-005 软件 Goal 收口不表示“稳定自主出片”的真实验收 Goal 已完成。
+
+## 2026-10-10：ADR-005 FINAL 受控软件回归完成，独立 Reviewer/正式冻结待定（另一窗口阶段历史）
+
+本节保留原窗口、原日期和当时证据；后续接线、复核和本轮软件收口见上方最新条目，历史 FAIL、拦截与 NOT_OBTAINED 不改为通过。
+
+原 Goal `wc_goal_kaovu_gxSvF9cEjC`、原 Session `wc_sess_90Fh0Hg3TUl_XbNs`、同一自主首版 Task。仍是 dirty `easel-studio` / HEAD `d5bd227c`，未冻结 release。按 AGENTS.md 的重要阶段要求，FINAL 只验软件合同，不包含真实模型/Provider、Hypit Build、媒体或第一条视频交付。
+
+**最新受影响集成回归真实通过**：双 Authoring Writer 互斥及 legacy journal定向 **21 PASS**；原生 Authoring 的 Retry/子 Attempt/冷恢复用例 **3 PASS**（Job `wc_job_87fG9osVI9NvtJOD`，25.19秒，曾失败两次的测试现为通过；旧FAIL证据不删除）；Material + Quality + Script Markdown + native Hypit 原生解析跨域集 **29 PASS**（Job `wc_job_PjXSWy2Xvu6tDwaq`，18.80秒）；旧 Script Truth 与 Material 视觉合同回归 **81 PASS**；原生Authoring及legacy静态 Owner **17 PASS**（Job `wc_job_N0HSRBSTUeoVtTEP`，44.55秒）；另一份 Authoring/journal/原生/测试组合 **87 PASS**（Job `wc_job_RbPp_a_jLK1S55ro`，82.41秒）。这些套件有重叠，不机械加总。相关源码 `git diff --check` PASS。旧 Output 及 Protocol 默认 profile 均未打开。
+
+**快照身份**：最后一次只读核心 Python/Native SHA256 记录：`hypit/authoring_publication.py=386b6639e3bd3e05…`、`hypit/native_source.py=333384256b6137fb…`、`hypit/native_parser.mjs=b762423216fa2b45…`、`hypit/service.py=7e1ad3efcc95bc11…`、`result_protocols.py=74edd36f5cdd5e8d…`。这只是动态 dirty 工作区 SHA，不是已提交冻结的 Git tree；多窗口继续写入后不能自动把旧测试归给新版本。
+
+**目前未满足的正式收口条件**：AGENTS.md 第57–87行规定的重要阶段需 Astra 独立 Reviewer 输出 `DECISION=CONTINUE|MODIFY|STOP`；当前 WebCodex Runner 插件注册清单为空、Runner MCP server 清单为空，尚无实际 Astra 复核结果。普通自检不可冒充独立 Reviewer。另 `finish_coding_task` 审核记录为非clean dirty worktree，多个历史未跟踪产物，不能不经Owner确认删除。正式冻结/合并/提交亦未获允许。**故 FINAL 软件综合测试验证完成，但正式独立复核与冻结/归档仍未完成，Goal 应继续 ACTIVE，不得标整体完成。**
+
+
+**本窗口额外 FINAL 验证（2026-10-10）**：实际一组组合回归 `tests/test_authoring_publication.py`、`test_native_authoring_publication.py`、`test_native_authoring_owner_recovery.py`、`test_hypit_native_source.py`、`test_material_result_delta.py`、`test_quality_result_delta.py`、`test_script_markdown.py`、`test_script_truth.py` 共 **87 PASS / 82.41秒**（Job `wc_job_RbPp_a_jLK1S55ro`）；Material冻结合同、Truth来源冷重建、Quality实测补充 **73 PASS / 17.55秒**（Job `wc_job_rAE6qbDBtnmsJJvK`）；Markdown Source-Ref→Truth→两代 Material fork **1 PASS / 105.92秒**（Job `wc_job_HWU-3i4E7KoRIOqU`）。数据集重叠，绝不累加为“161项不同功能”。测试前后22个关键源/测试文件按路径名+SHA256排序聚合的 `manifest_sha256=e3cfe2feb05f1034654904633df2571e2186865afa5a594d63ad34060a05fcd9` **完全相同**，Git HEAD仍为`d5bd227c2b6750ae18cea06ebcf4f9f89350899b`，仅证明本次受测文件未漂移，不能代替干净Release。Git `diff --check` PASS。
+
+**给 Astra Reviewer 的最小独立复核输入（尚未执行）**：读 `AGENTS.md`、`docs/decisions/ADR-005-agent-result-processing.md`、本 CurrentState、原唯一 Task，限本次冻结测试对应的差异和上述SHA。只读审查：(1) capture/admission/derivation/source-ref/Markdown冷恢复没有假事实/重复请求；(2) Material V1.3、Rights、Need/Match/Readiness、Quality旧已决`observed=False`没有被放宽；(3) Hypit native AST/SVRun/SVS、单一Authoring Owner、两个profile互斥、Intent提前持久化、外来文件/中断/Retry parser身份闭环；(4) 现有FAIL/UNKNOWN和媒体调用预算保持。输出严格为 `DECISION = CONTINUE | MODIFY | STOP`、`RISKS`、`MINIMUM_CORRECTION`，不授权源代码改写/真实AI/Provider/媒体Build。当前无Astra可用Provider，因此 **DECISION = NOT_OBTAINED**；不得将本记录或 Main 自检称为Astra意见。
+
+## 2026-10-10：ADR-005 U3 原生 Hypit/Authoring 软件阶段验收（FINAL 仍待）
+
+在原 Goal `wc_goal_kaovu_gxSvF9cEjC` 和唯一自主首版 Task 下继续，未新建视频生产主线。最新 opt-in `hypit_source=easel-hypit-source@1` 已连接 `complete_film_authoring` 的正式 Owner：冻结 Planning/Truth、Director/Creator、Material V1.3/Rights/Readiness、Hypit 原生 SVML/SVRun/SVS、复合型 typed refs/源码位置、隔离候选静态检查、持久 Intent、有序文件发表、最后 Attempt READY 注册；所有 Provider/Build/Runtime 仍在原边界外。未设置任何新默认 profile（`result_protocols.DEFAULT_PROFILES={}`）。
+
+**本轮当前代码实测**：`tests/test_native_authoring_publication.py` **16 PASS / 41.01 秒**（Job `wc_job_Z1D1FYvTgpBmpBJN`），含真实安装 Hypit 0.2.7 的本地 `hypit check` 静态检查 1 PASS（无 Runtime/Build，另有独立单项 1 PASS/2.47 秒）、候选原件/发表回执、部分首尾提交中断后不重调用模型/CLI、真实全新 Python 进程无网络冷恢复1 PASS/2.99秒、外来文件漂移/候选污染拒绝、并发仅一份结果、局部校验读IO恢复及失败不提前 READY。独立原生 AST/SVS/typed-ref 测试 8 PASS，首次联合 U3 parser+Authoring 回归 **21 PASS/47.38 秒**（Job `wc_job_0hhSV_Lu9hb7kcKW`，执行时还未增加最终两个测试），旧 legacy Authoring/机器可判定Run修复 **2 PASS**。其他历史重复套件不得机械加总。
+
+先前较窄的 `hypit_run_promotion@1` 保留为显式兼容子链；新增 `result_protocols.validate` 校验，不允许同一 Attempt 同时 pin 它和 `hypit_source@1` 两套 Authoring Writer。专属 `tests/test_authoring_publication.py` 综合测试启动曾被平台安全检查阻断，**本次未取得新增互斥回归的实际 PASS**；需在 FINAL 受允许时补证或在独立审查中保留为明确缺口，不可虚构验收。
+
+**U3结论**：完整原生路径已达到阶段性软件实施和定向验收，允许把 Goal 中 U3 标为“completed（software stage）”，不等于已部署、默认开启、真实模型视频交付。FINAL 仍需按 AGENTS.md 做 Astra 重要阶段独立架构/正确性复核，核对最终源码版本、跨单元组合回归、协议互斥与旧版冷重放；正式发布或开启 profile 均不在本轮授权内。当前 `easel-studio` / HEAD `d5bd227c` 的脏工作树及其他窗口文件、历史 FAIL/UNKNOWN、实际费用和预算未修改；无 Git commit/push、真实 Provider/Build 或服务重启。
+
+**新增 FINAL 现场**：另一窗口跨 Retry 复测 Job `wc_job_U6vFg0QaaiMogPjX` 首轮 1 PASS / 1 FAIL；`before_intent` 故障注入在父 Attempt 的 `validate_film_attempt` 阶段先被触发，没有进入预期子 Authoring 交接阶段。尚不能将这一测试视为恢复合同失败或已修复；保留为 FINAL 需核对的独立测试现场，不覆盖其他窗口实现。
+
+**FINAL 进一步现场与源码指纹**：跨 Retry 测试 Job `wc_job_NX-w5_ecUwO_xTPy` 为 1 PASS / 1 FAIL（exit 1）。失败点是 `_execution_fingerprint()` 严格比较 **当前 installed parser identity** 和已发表 `native_publication.parser`，返回 `Native parser differs from the published Authoring identity`。可能涉及并行源码更动、测试阶段切换或回执不一致；**精确根因未证实，禁止放松 parser hash 绑定**。当前工作树精确文件 SHA256（非仓库提交/未冻结）摘录：`hypit/authoring_publication.py=61512d0d269bf19f…`、`hypit/native_source.py=93856a8c4c960783…`、`hypit/native_parser.mjs=b762423216fa2b45…`、`hypit/service.py=e578133dfb960937…`、`result_protocols.py=74edd36f5cdd5e8d…`，HEAD=`d5bd227c2b6750ae18cea06ebcf4f9f89350899b`。受测文件若变化需按新SHA重新跑相关验证；不得把动态工作树当作冻结Release。最终跨模块 pytest 合并调用曾被平台安全检查阻断，没有获得 PASS。
+
+
+## 2026-10-10：ADR-005 U3 受控 SVRun 发表子链真实接入（部分完成）
+
+沿原唯一 Task 和 Goal wc_goal_kaovu_gxSvF9cEjC（Session wc_sess_90Fh0Hg3TUl_XbNs）继续；当前 dirty easel-studio / HEAD d5bd227c，其他窗口未提交代码和历史证据保持。没有新建 Goal，也没有在当前运行服务启用新协议。
+
+**本次实质改动**：result_protocols 增加显式且默认关闭的 hypit_run_promotion=hypit-run-promotion@1。只对已经通过 Easel Creation/Attempt、Plan/Bundle/Readiness、authoring_source 路径及禁止 Build 身份检查的 Run 清单启用。_hypit_run_markup() 将原 JSON sidecar 与程序确定性的 native main.svrun 按一个有界 publication 意图执行：先在 .easel/authoring-publications 保存原件/候选/hash 证明，再发表固定文件；可恢复自己的部分写入，外来修改拒绝。native 文件再次消费必须存在当次原发表 journal，不得对已完成的 native 文件临时创建一份证明。未 pin 新 profile 的旧 Attempt、hypit check、Material Rights/Gate、选片和 Build 责任保持。
+
+**证据**：tests/test_authoring_publication.py 及旧 test_authoring_is_runtime_independent_and_static_check_only 当前共21 PASS、0 FAIL，包含中断续写、外来更改、敏感内容/坏JSON、旧profile、冻结身份、journal丢失拒绝。真实内部 Creation/Handoff→Planning/Truth→Material→Authoring→失败后fork 新 profile 集成1 PASS/98.29秒（Job wc_job_GLqrTJsZaOlsp4Eu），只有外部服务为确定性替身，不调用真实模型或Hypit Build。这证明的是 SVRun 子链软件闭合，不是 ADR-005 E2E 或视频交付。
+
+**U3 新增原生候选与合流约束（最新只读核对）**：同一工作区已出现 `hypit/native_source.py`、`native_parser.mjs`、`native_revision.py`、`native_audio_graph.py`、`authoring_publication.py`；`result_protocols` 另注册显式 `hypit_source=easel-hypit-source@1`，`complete_film_authoring` 在该 profile 下分流至隔离候选→原生语法解析→Hypit静态 check→Attempt发表意图及有序恢复，复用原服务 Owner 与未授权 Build 边界。实际 Hypit 原生 AST/typed引用/来源位置测试 Job wc_job_XYcjoSouuWtDcBlY 为8 PASS/6.49秒，连同 Quality 的 Job wc_job_qlnES7i7x5nWkRCH 为14 PASS/15.39秒；此前1 FAIL/7 PASS 的诊断记录保留。当前缺少 **完整 native Authoring 文件发表/重启恢复的实测终态**，其代码仍为候选。原 `hypit_run_promotion@1` 是已验证的窄路径，不应与更完整的 `hypit_source@1` 同时按生产路径激活；后续必须先证明完整路径、确定单一Owner和版本继承关系，再决定是否合并/退役窄实现，不能形成两套并行主生产线。
+
+**未完成/冻结边界**：原生AST已有局部真实测试，不能继续称仅源码能力；但完整 SVML、selection、SVRun、SVS/SVS recipe、受保护音轨、Rights和跨文件发表仍须原 Authoring Owner 的完整真实内部集成与独立复核（含中途失败、冷恢复、文件外来更改及受测版本冻结）。任何安全检查拦截都不以替换执行路径绕过。U3/FINAL均不标完成。全部新profile默认关闭，保留Git工作树、预算、旧FAIL/UNKNOWN，不重启、commit或push。
+
+
+## 2026-10-09：ADR-005 Agent 结果处理软件实施分单元进度（未整体完成）
+
+本次沿原唯一自主首版 Task 的 O4/O5 和 ADR-005 实施，持久 Goal 为 wc_goal_kaovu_gxSvF9cEjC，接续 WebCodex Session wc_sess_90Fh0Hg3TUl_XbNs；不是新的视频生产链。当前 Checkout 为 easel-studio / HEAD d5bd227c，工作树包含其他窗口未提交改动，所有目标仍需在最终版本上重跑受影响集成。U0、U1、U2a 已登记软件阶段通过，现有 Receipt、Truth source-ref 和旧版本继续使用原合同；38项、独立/联合场景与源码冷恢复已在原 Task 保留证据，不能与有重叠的28/25项机械相加。
+
+**U4 Markdown**：已完成明确版本的初步端到端接入。项目依赖新增 markdown-it-py>=3,<5，本地已验证；script_markdown.py 实现原文UTF-8块区间、CommonMark结构、未知标题/围栏/列表/引文保守覆盖和未解释行的完整检查；script_truth.py 新增 easel-script-claim-ledger@3，旧@2默认保留。新Attempt经显式结果profile选择后，Truth独立/联合、Planning persist/load、source-ref出处与冷回放使用冻结的对应版本。相关 Markdown/旧ledger 22 PASS、联合新旧 source-ref 共30 PASS、真实内部Preparation→Planning→Truth→Material两个新增选择2 PASS；未更改默认 profile（仍空），不冒充真实模型语义通过。额外跨流程Markdown Source-Ref→Truth→两代Material fork已有最新单项1 PASS（Job wc_job_CfadeC90qETC9s83，105.45秒；曾经失败的原Job仍保留历史），完整组合与实施代码复核仍属最终验收。
+
+**U2b Material**：阶段性软件验收已补齐。已接入 facts/checks delta、原件凭据、事实资格/争议持久化、程序完整报告、Web Owner与Matching/Readiness临时证据视图。当前视觉合同及Material Owner测试68 PASS（含直接 Web Owner→官方观察→缓存复用5 PASS）；共享Owner/批次恢复/异议/独立候选的既有集成补验6 PASS（Job wc_job_gzqX0vY9vE_mfv7t），旧23 PASS与Astra CONTINUE均保留但不跨重叠集机械累计。原冻结V1.3、Rights、UNKNOWN与缓存身份不放宽，默认profile仍关闭；最终组合与受测源码封存在 FINAL。
+**U2c Quality**：最新 `quality_results.py` 现已接通 Web Owner、Quality inspect、saved/pending、Delivery 状态与 repair_request，保留真实MP4输出、观察轮次及冻结Director/修复边界。独立新协议源头、历史 observed=False、两轮 delta、合法事实异议、原件冷进程、修复额度与 Web consumer 共6项定向测试通过（本窗口）；另一窗口既有实际 MP4 多轮 Owner 集成 2 PASS（Job wc_job_xpX0cjtwgmvgEST6，15.40秒，已核对终态）。早期 2 PASS/3 FAIL 对应旧接口与测试未适配的状态，不代表当前版本依然失败。Astra 对应跨模块合同前置复核为 CONTINUE；仍需最终整组回归，默认 profile 保持关闭。
+**U3 Hypit**：本轮新增的非生产 `hypit/publication.py` 意图/原件/部分成功续写工具已有14项离线测试PASS，新增路径正规化、外来写入者中途改写拒绝、UTF-8/JSON完整性/敏感内容拒绝；现有 `complete_film_authoring` 旧路径静态校验1 PASS，时钟引用规范化的原字节（CR/CRLF/Unicode）保留与旧测试2 PASS。发表模块仍未连接正式Authoring，因此不具备生产准入权；已安装Hypit0.2.7原生AST入口直接探针被平台安全检查拦截，禁止换入口绕过，SVML/SVRun/SVS AST迁移尚未完成。**U3仍为IN_PROGRESS，不能标为完成**。
+
+**FINAL风险/边界**：Markdown source-ref→Truth→两代fork原失败单项已复跑1 PASS（Job wc_job_CfadeC90qETC9s83，105.45秒；旧 wc_job_D4f028MglqIFUY-a 的36 PASS/1 FAIL保留历史）；更大组合pytest调用本轮被平台安全检查拦截，未形成可证实的综合回归。默认新profile仍为空，用户冻结预算与历史FAIL/UNKNOWN不变；未发起真实模型、Provider、媒体或Hypit Build，不重启/部署/commit/push。不将部分软件验收、既有静态check或AST源码能力等同实片交付。
+
+
+
+## 2026-10-09：A-details 离线诊断修补已验证，历史精确根因未确认（本轮停止）
+
+通过原 WebCodex Session `wc_sess_TVqbfxf7Z6k74Oz_` 从检查点 `wc_msg_UVtrp6bJO-z26lNi` 续接原唯一 Task；本轮范围限于原件离线诊断、最小修补与受影响集成测试。当前状态 **DIAGNOSTICS_VERIFIED_HISTORICAL_ROOT_CAUSE_UNKNOWN**：诊断能力修补子项已验证，历史故障精确复现及修复未完成，原“稳定自主出片”Goal 仍进行中。此次正常权限读取已成功，不再把前窗口访问拦截写作当前阻塞。
+
+原 Job `wc_job_a4moxdKR6BxULVLY` 已 failed/exit2；第二批首例 FAIL、2 次实际 HTTP。A-selection 与 A-details 均 HTTP200 / RESPONSE_COMPLETE / tool_calls，参数流分别1706/19653字节；原 A-details run `easel-4583ce810be04841b33b0709cc3ac7b7` 已 error/released，保存的 CAPTURE_PENDING 不表示仍在执行。原请求的 input view、selection admission、details/wire 绑定与实际 HTTP Schema 已由原 journal 离线重建一致；Schema SHA `40d9caadca47a85ef32f425d5ebeee00e27b1e9bc78ba7b5765bdf8246a83411`。已检查的代理、原 run 日志、SDK transcript/trajectory、请求 guard 与 capture 持久化通道未保存可恢复的 A-details 参数原文或具体底层异常，不能据完整传输认定 JSON、SDK 或语义成功，也不能断言原失败是 missing finish、TLS 或 Schema 问题。
+
+最小修补在现有 `rejection@1` 机制中保留首个 error/aborted 诊断，并在 SDK 清理未完成 tool call 前保存受限类别和形状信息；不保存异常正文/堆栈，不改变候选合同或接收终态。仓库兼容补丁仅应用到新离线副本 `/tmp/easel-structured-runtime-offline-rootcause-20261009T132535Z`；原 Runtime 11 个固定文件未变，无升级或服务重启。仓库新 helper/transport 身份 pin 对旧 Runtime 会 fail closed；本条不表示运行中服务已加载修补。
+
+修补前确定性诊断对照 Job `wc_job_Wt1le4C-KRrn1uYz`：2 FAIL/7.89秒；修补后受影响组合 Job `wc_job_wPmg85ctH0otMP6I`：29 PASS、0 FAIL/0 skip、80.39秒，已取得终态并核对 JUnit。包含真实内部 Gateway→transport→SDK→helper→reader 拒绝链，以及既有正常 Owner/Planning/Truth/persist/load 生命周期；仅外部 Provider 使用确定性回复，共6次本地替身 HTTP。missing-finish 用例为诊断缺口对照，并非原故障重放。测试前后14个具名源码/测试文件摘要 `f995591c70a5560c1460274c18e472a251b2421d35c93537a9e4c41f136d6b7a` 不变，branch `easel-studio` / HEAD `d5bd227c2b6750ae18cea06ebcf4f9f89350899b`，修改未提交。
+
+[具名离线证据](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-sdk-error-diagnostics-offline-2026-10-09.json)保存命令、Job、逐文件摘要和限制；私有证据目录 `offline-root-cause-20261009T132535Z` 保存修补前后 JUnit、Schema 重建及原件保护核验。17份原证据的字节摘要保持；只读 SQLite 访问产生了新的空 agent WAL/SHM 协调文件，原数据库和原已有 WAL 字节保持。已有修改及另观察到的 ADR-005/索引文档改动均保留，不从 dirty 状态推断并发来源。
+
+原池 `output-admission-continuation-80http-v1` 仍实际 HTTP3（1+2）、两个批次槽位已用、remaining_batches=0、closed/dispatch_blocked=true、BATCH_SLOTS_EXHAUSTED；未改账本或重开。账单 UNKNOWN 保持，本轮新增真实模型/配额/媒体/Authoring/Build均0，¥30旧媒体上限不构成本轮授权。原 FAIL、NOT_REVIEWED 与视频0保持。本轮止于历史证据不足；不继续工程首片或三主题验收，不标记原 Goal 完成。下方为此前时点。
 
 ## 2026-10-09：按用户授权本地提交代码并完成服务重启
 

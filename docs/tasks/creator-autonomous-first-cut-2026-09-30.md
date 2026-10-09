@@ -4,7 +4,74 @@
 
 ## 当前目标与已有基础
 
+### ADR-005 软件实施（2026-10-09 用户授权，本轮软件验收完成）
+
+**2026-10-10 用户明确决策：**后续新建 Attempt 默认启用 ADR-005 五个新版结果协议（Truth source-ref、Material delta、Markdown ledger@3、Quality delta、Hypit native source）；旧 Attempt 和显式旧 pin 继续冻结旧协议。过渡的 Hypit SVRun-only Writer 不进入默认链，也不允许双 Writer 并行。已确认相关定向 25 PASS、native Authoring/旧 journal 组合41 PASS；真实新作品成片前**不删除旧实现**，不将此配置切换当作已经生产启用或媒体 Build 验收。最新状态见 Current State。
+
+
+本轮按 `AGENTS.md` 在最新 dirty checkout 上实施 [ADR-005](../decisions/ADR-005-agent-result-processing.md)，归入本 Task 的 O4/O5。Main 修改和整合，Scout 只读调查，跨合同方案和阶段收口由独立 Astra Reviewer 复核。下表只认领显式 profile 软件范围；证据汇总见 [Current State](../02_CURRENT_STATE.md)，准确命令、Job、46 文件摘要和最终审查见[具名验收记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/adr005-result-processing-software-2026-10-09.json)。
+
+| 单元 | 实施范围与依赖 | 验收与状态 |
+|---|---|---|
+| U0 基线 | 最新源码、实际安装包、旧协议与既有失败；按事实修订 ADR | 已完成；保留 A-details 诊断改动与历史根因 UNKNOWN，不扩大真实调用预算 |
+| U1 结果接收 | 复用 admission/receipts；分开结果拒绝、本地完整性错误及可重建派生 | 软件验收完成；原请求、原件、完整派生、存储失败恢复和旧规则保留 |
+| U2a Truth 来源引用 | 独立/联合 producer → 来源 handle → 完整报告 → persist/load/fork/cold | 软件验收完成；新旧 ledger、voice review 和两代 fork 有实际 Owner 验证。B SourceUnit/candidate correction 未迁移 |
+| U2b Material 增量 | 派发前固定 logical group facts/checks 或 delta；请求/资格/争议/assembly/apply/cold | 软件验收完成；共享事实、负面结果、成功批次后中断、嵌套父证据实际 fork、异议撤销和独立候选均有验证 |
+| U2c Quality 增量 | 只补未决 delta；原件/正式报告分存，程序合并且不覆盖已决 | 软件验收完成；实际 MP4/多轮 Owner、saved/pending/Delivery/Director、observed=False/异议和 native Authoring→Quality 均有验证 |
+| U3 Hypit/文件交接 | 实际 Hypit 0.2.7 语法/typed 图；原 Authoring Owner 隔离候选、intent、CAS 与恢复 | 软件验收完成；实际本地 static check、冷进程、managed stage 零新增 Agent、真实 fork、外来 writer、最终 CAS、CLI 本地错误分流已验证。两 Hypit Writer 互斥 |
+| U4 Markdown/ledger | 固定 markdown-it-py 4.0.0 与 ledger@3；原字节/coverage/Truth/Planning 冷重建 | 软件验收完成；中文/混合 Markdown、CRLF/CR/LF、引用/代码/表格保守覆盖、operator revision/hash、两代 fork 均已验证，旧 @2 保留 |
+| 收口 | 受影响实际内部集成、受测快照、独立审查、文档与交接 | 最终 Astra **DECISION=CONTINUE**；两处构造保护落盘后原生子集通过，46 个具名文件在回归前后一致。其他窗口早先未取得 Reviewer 的记录为历史 |
+
+**本轮验证边界：** 实际内部 Owner/stores、纯原生 parser、本地静态 check 和媒体测量已执行，外部模型/Provider/Build 使用确定性替身。各组有重叠，不把测试数相加为功能数。工作树仍未提交，受测摘要不等于 release；无真实模型/Provider/Hypit Build/真实 E2E、服务重启/部署或 Git commit/push。封存 HTTP 池和历史 FAIL/UNKNOWN 保持。
+
+**后续独立工作：** `DEFAULT_PROFILES = {}`，新协议显式 pin，历史 Attempt 原版本恢复。默认 rollout 前另做交叉验收和切换；五 profile 同一默认链、B SourceUnit/candidate correction 及真实模型视频验收不在本轮完成声明内，也不增加为首片前置。
+
+**最新代码对方案的修正：** Material 现有 facts key 已含完整 frame（index、seek、JPEG SHA）；真正缺口是 policy/contract/route/资格，以及恢复时动态 prior 导致请求 identity 漂移。Quality resolved_frames 包含 observed=False，必须冻结。Truth 需覆盖联合 producer、material_recovery 与 voice review identity。Hypit 原生 structured parser 与完整 raw frontend 明确分开；发表 journal 应放在现有 fingerprint 排除的 `.easel`，并由阶段 identity 绑定。
+
+**U2b 实施校正：** facts scope 改为独立、固定的可见事实子合同摘要（字段/上限、事实 prompt revision、visual contract revision）加完整采样/附件及派发前 route 核验，允许不同 Need 复用同份实际画面事实；每组 request/derivation/qualification 仍固定自己的完整 Need 合同。事实字段不承载 Need 偏好或动态动作判定；合法异议撤销所有实际引用该 fact ref 的 Need×Asset 系统资格。Creator 内容确认保留，但失效系统 LOGO/TEXT/视频区间不会进入 Matcher；原始报告、Asset 与 Bundle revision 不改。不同 Creation/Handoff、协议或未授权祖先的嵌套事实/异议仍是本地完整性错误。Quality 的 Build 后 receipts 也必须放 `.easel`，避免审片保存本身改变已提交工程 fingerprint。
+
 ### 连续自主出片 Goal（2026-10-08 用户追加授权，进行中）
+
+#### 本窗口收窄执行：离线诊断修补已验证，历史精确根因仍未知（2026-10-09，已停止）
+
+沿原 Session `wc_sess_TVqbfxf7Z6k74Oz_`、原唯一 Task 续接 `wc_msg_UVtrp6bJO-z26lNi`；没有新建 Goal、开发 Session、Task、工作树或生产链。用户本轮仅授权“精确根因离线复现与最小修复 + 受影响集成测试”，不授权工程首片、三主题验收或新真实模型请求。O1/O2、自动配额移除及三项机械约束简化保持既有实施。
+
+本轮结论是 **DIAGNOSTICS_VERIFIED_HISTORICAL_ROOT_CAUSE_UNKNOWN**。已完成诊断能力的最小修补和受影响验证；历史故障精确复现及对应修复未完成，因此本轮原定精确根因阶段不标完成，连续自主出片 Goal 仍进行中。当前停止原因是已检查的持久化证据缺少历史 A-details 参数原文及具体 SDK/Runtime 错误，而非本窗口再次遭到平台访问拒绝。
+
+原 Job `wc_job_a4moxdKR6BxULVLY` 已 failed/exit2、第二批首例 FAIL/实际 HTTP2。原 A-details run `easel-4583ce810be04841b33b0709cc3ac7b7` 已 error/released；Creation `cr_974075895e364878b9be34d0479ecd9d` / Attempt `fa_4eec26c13c336dd79518d330204b4759`。原参数传输19653字节、HTTP200/RESPONSE_COMPLETE/tool_calls 已核对，但候选未捕获，CAPTURE_PENDING 只是持久化标签。由原 journal 重建 input view、selection admission、details/wire 绑定及实际 HTTP Schema 全部一致（Schema SHA `40d9caadca47a85ef32f425d5ebeee00e27b1e9bc78ba7b5765bdf8246a83411`）；这不等于已还原原回复或证实 JSON/SDK/语义通过。原日志、SDK transcript/trajectory、guard 与 capture 通道未提供可恢复的原文及具体异常，历史根因仍 UNKNOWN，B/repair/Truth/Supply未进入、语义 NOT_REVIEWED、无视频。
+
+修补仅涉及 helper 的首个 error/aborted 诊断保留、Runtime 兼容脚本在 SDK 清理前保留受限类别/形状，以及匹配的新 helper/transport 身份 pin；复用 `rejection@1`、身份绑定、RESERVED 和重复提交保护。未知字段、异常及语义失败没有被忽略或改成 PASS，原候选不改、repair 不扩大。兼容补丁只在新离线副本 `/tmp/easel-structured-runtime-offline-rootcause-20261009T132535Z` 应用；原 Runtime 未改、服务未重启。新源码 pin 对旧 Runtime fail closed，未认领在线加载完成。
+
+| 验证 | 实际 Job 与终态 | 结论范围 |
+|---|---|---|
+| 未修版本的两项诊断对照 | `wc_job_Wt1le4C-KRrn1uYz`，exit1，2 FAIL，7.89秒 | 首个诊断缺失可确定性重现；原生 SDK missing-finish 对照不是历史 tool_calls 故障原件 |
+| 修补后受影响集成组合 | `wc_job_wPmg85ctH0otMP6I`，exit0，29 PASS/0 FAIL/0 skip，80.39秒 | 实际内部 Gateway/transport/SDK/helper/reader 拒绝链及正常 Owner/Planning/Truth/persist/load；外部边界共6次本地替身 HTTP，无真实 Provider 调用 |
+
+相关源码/测试14文件的测试前后摘要 `f995591c70a5560c1460274c18e472a251b2421d35c93537a9e4c41f136d6b7a` 一致；branch `easel-studio` / HEAD `d5bd227c2b6750ae18cea06ebcf4f9f89350899b`，本轮修改未提交。原失败证据17文件及原 Runtime 11个固定文件字节保持；只读 SQLite 访问新增空 agent WAL/SHM 协调文件，原 DB/已有 WAL 未变。测试覆盖相关成功/拒绝、首件保留、身份与旧格式、重复提交、敏感文本排除和保存失败；未机械重跑全量，不冒称真实模型稳定性或视频 E2E 通过。
+
+原证据根目录仍为 `/Users/xgx/Library/Application Support/Easel/acceptance/autonomous-first-cut-2026-10-08/output-admission-continuation-80http-v1/batch-02-engineering`；本轮私有证据在同 acceptance 根下 `offline-root-cause-20261009T132535Z`。 [具名验证记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-sdk-error-diagnostics-offline-2026-10-09.json)保存精确命令、Job、逐文件摘要、原件核验和停止边界；结果同步到 Current State 和原 Session 检查点。
+
+父池 actual_http=3（首批1、第二批2）、remaining_batches=0、closed=true、dispatch_blocked=true、BATCH_SLOTS_EXHAUSTED 已核实且不修改；80HTTP未用满不产生第三批授权。账单 UNKNOWN 不记零，旧¥30媒体上限不是本轮授权。本轮新增真实模型、主动配额、媒体、TTS、Authoring、Build均0；无部署、重启、commit、push或发布。已停止，不恢复旧失败作品，不启动工程首片或三个主题稳定性验收；下方 O1/O2 及后续序列保留为原历史授权和实施记录，本窗口不继续执行。
+
+#### 流程审计优化 v1：先工程首片，再稳定性验收（2026-10-09，用户批准方案与执行）
+
+授权依据：用户在流程审计后要求“根据这次审计 创建优化方案，然后进行执行”。沿原唯一Task与Creation→Planning/Truth→Material/Rights/Readiness→Authoring→本地Hypit→Quality主链，不新增生产模式。基线HEAD `d5bd227c`、生产source `90ab1935`。已完成的quota移除、intake@6查询条数、visual@2结果重排/空备注不重复实施。
+
+| 单元 | 改动与验收 | 顺序 |
+|---|---|---|
+| O1 网络故障可解释、可恢复 | 在隔离文字评测代理增加版本化、无正文/凭证的连接/TLS/请求发送/响应/本地交付/账本保存证据。仅已证明业务请求未开始发送且属暂时连接故障，允许同逻辑请求最多一次重试；每个尝试重新占用原HTTP总池、重新核原授权与时间，不退款、不增加模型repair。证书、认证、额度不足不自动重试。发送开始后的故障保持UNKNOWN；完整响应后的本地失败不得误报未完成上游。真实HTTP边界和外部替身集成覆盖这些分支。旧协议不自动启用。 | 当前先做 |
+| O2 工程首片与资格批分离 | 工程首片只要求该新作品自身的完整Planning/独立语义、Truth、Rights、Readiness、Build、输出绑定Quality成立，不再把另外五个主题重复样本或正式R4整批通过当作首片前置。先取得可审阅输出并保留实际缺陷；工程介入逐项记录，绝不认领零介入/稳定PASS。原6例资格与同版3主题连续自主验收仍保留独立身份和评分，未执行就是未执行。执行器只复用原Planning边界支持单样本工程检查，不把隔离假媒体凭证载体直接当生产作品。 | O1后 |
+| O3 已审查报价证据复用 | 仅在素材阶段实际被公开文档读取阻塞时，增加型号/区域/规格/协议版本/有效期绑定的已审查快照；过期/缺失/冲突仍停，预算和Rights不删。不现场每张素材重复抓完整文档。 | 按实际阻塞 |
+| O4 消除机械回抄 | Preparation固定主题/规格、Truth/SVRun身份、Material同帧事实、Quality已决结果优先交程序生成/合并；不改变创作语义和已确认合同。按发生阻塞的阶段逐项实施和复核，不同时改四层。 | 非首片总前置 |
+| O5 后置优化与稳定验证 | B答复修复和A语义修复的分配、来源片段引用、检索语言、方案外壳、ASR局部歧义、Quality严重度暂列backlog；不自动增加一次共享repair，不把软偏好当硬错，也不以相似度/忽略字段伪造通过。首片之后按同一固定版本验证3个新主题零工程介入。 | 首片后或明确blocker |
+
+O1实现边界：只从当前连接实例的实际调用顺序证明未发送；不能仅根据TimeoutError类、0回复字节或后来一次TLS错误推断旧POST未发送。HTTPS CONNECT代理协商不算模型业务POST；证据不能取得时保守UNKNOWN。传输诊断只保存枚举阶段、白名单异常类别、整数errno、调用/响应计数及摘要，不保存异常原文、URL认证、请求头或内容。连接重试只在新manifest显式绑定策略后启用，正式输出结构/语义仍按原规则。预算耗尽、未知或本地持久化失败时没有自动重发路径。
+
+O2预算：继承`output-admission-continuation-80http-v1`，原第一批FAIL与占额不改；本授权不增加两个批次/80HTTP/5400秒的总池，不回收已封存批剩余份额。剩余一个40HTTP/2700秒槽可用于具名工程Planning检查，而不是宣称完成6/6资格。完整生产仍使用原媒体累计¥30与文字授权，禁止余额/现金/积分购买/付费回退，不自动发布。
+
+历史UNKNOWN不能按新诊断倒算。只有核实原请求是隔离的纯候选提交、无采购/文件修改工具、原Gateway run已终态释放且无可恢复结果时，才可另记“放弃结果恢复、保留未知账单和原占额”的受限工程续接决定；原账本/FAIL保持封存，新的独立身份占用剩余槽，不重发或改写旧run。无法证实上述边界，仍停止相关真实派发，不妨碍离线优化。
+
+前置窄复核：Owner在原契约内执行；本轮独立MCP Reviewer目录为空，未取得Astra独立意见，不冒称通过。不改Provider API/Runtime版本/TLS验证/生产服务配置；不推送、不发布。重要范围变化或安全/预算边界不足时保存检查点并停止相关执行。验收按已证明风险列证据，不按测试数量认领成片。
 
 #### 本地提交与服务重启（2026-10-09，用户明确授权）
 

@@ -49,6 +49,7 @@
 - **当前视频目标架构：** [`architecture/easel-video-architecture-v1.md`](architecture/easel-video-architecture-v1.md)。
 - **当前 Material Layer 唯一冻结架构：** [`architecture/material-layer-v1.3.md`](architecture/material-layer-v1.3.md)，由 ADR-004 采纳。
 - **正式 Creation + Hypit 边界：** [`decisions/ADR-001-creation-hypit-mainline.md`](decisions/ADR-001-creation-hypit-mainline.md)。
+- **Agent 结果处理与产物交接：** [ADR-005](decisions/ADR-005-agent-result-processing.md)。本轮具名显式 profile 已实施并通过软件验收；实际范围、独立审查和默认 rollout/B 迁移等后续工作见第 27.6 节与 Current State，不增加首条工程视频前置。
 - **当前代码路径：** 以源码、测试和 [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) 为准。
 - 其他架构说明已删除；需要新增设计时先更新当前架构入口或创建 ADR，不再堆积独立审计快照。
 

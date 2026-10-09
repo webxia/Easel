@@ -4175,7 +4175,7 @@ def test_advisory_query_count_keeps_full_planning_and_cold_verify(prep_env, monk
     'conflict_missing_script', 'unresolved_extra_outer', 'match_outer_repair_changes',
     'material_fork', 'material_fork_report', 'material_fork_plan', 'material_fork_record',
     'material_fork_fingerprint', 'material_fork_creation', 'material_fork_cycle', 'material_fork_copy'])
-def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, native_render=False, frozen_replay=False, admission_case=None, advisory_queries=None):
+def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, native_render=False, frozen_replay=False, admission_case=None, advisory_queries=None, truth_profile=False, script_override=None, ledger_revision=None, run_promotion=False):
     """Normal proposal/Owner/Handoff/A/B/Truth and persisted consumer contracts.
 
     Only model/config boundaries are fixed; all internal transitions are real.
@@ -4189,6 +4189,14 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
     from easel.runtime_config import EaselRuntimeConfig, MiniMaxRuntimeConfig
     from easel.integrations import voice_identity as voice
     from easel.integrations.material_generation import generation_budget_preview
+    from easel.integrations import result_protocols
+    profiles = {'truth_reply': 'truth-source-ref@1'} if truth_profile else {}
+    if ledger_revision:
+        profiles['script_ledger'] = ledger_revision
+    if run_promotion:
+        profiles['hypit_run_promotion'] = 'hypit-run-promotion@1'
+    monkeypatch.setattr(result_protocols, 'DEFAULT_PROFILES', profiles)
+    truth_prefix = '〔Easel Truth 来源引用审阅〕' if truth_profile else '〔Easel Truth 脚本与预置旁白身份独立审阅〕'
     from easel.integrations.material_layer import PlanningIntegration, MaterialIntegrationError
     from easel.integrations.planning_wire import project
     config = replace(EaselRuntimeConfig.load(), minimax=MiniMaxRuntimeConfig(api_key='fixture-key'))
@@ -4205,11 +4213,14 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
         sound = sound.replace('不添加音乐', '配轻柔无歌词授权背景音乐')
     if risk.startswith('conflict'): sound += '\n只能使用另一预置身份，拒绝本版展示的身份。'
     if risk.startswith('unresolved'): sound += '\n必须是低沉女性音色，满足未核实的指定音域。'
-    auto_pass = risk != 'match'
-    script = '假设桌上有两张白纸。' if auto_pass else '先看问题，再做决定。'
+    auto_pass = risk != 'match' and not (truth_profile and risk.startswith('material_fork'))
+    script = script_override if script_override is not None else ('假设桌上有两张白纸。' if auto_pass else '先看问题，再做决定。')
     proposal = VIDEO_PROPOSAL.replace('无旁白，无音乐。', sound).replace(
         '音轨：静音', '音轨：旁白与音乐' if music_case else '音轨：纯旁白')
-    proposal = proposal.replace('先看问题，再做决定。', '' if risk == 'empty_script' else script)
+    if script_override is not None:
+        proposal = proposal.replace('```text\n先看问题，再做决定。\n```', '```text\n' + script + '\n```')
+    else:
+        proposal = proposal.replace('先看问题，再做决定。', '' if risk == 'empty_script' else script)
     proposal = proposal.replace('桌面笔记', '两张白纸放在桌上')
     material_case = risk.startswith('material_')
     if material_case:
@@ -4220,6 +4231,8 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
         assert saved['chat_workflow']['output_decision']['outcome'] == 'REJECT'
         return
     plan = saved['chat_workflow']['video_plan']
+    if script_override is not None:
+        assert plan['script'] == script
     assert plan['schema'] == 'easel-video-proposal@3'
     assert plan['sound_source'] == sound and plan['sound'] == voice.render_sound(sound, voice.verified_profile())
     assert voice._PRESET not in json.dumps(plan)
@@ -4271,6 +4284,24 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
     music_candidate = {'scope': 'global', 'role': '配乐', 'modality': 'bgm', 'necessity': 'required',
         'conditions': [{'text': '轻柔无歌词背景音乐。', 'strength': 'required', 'responsibility': 'material'}],
         'sound': {'vocals_allowed': False}}
+    ledger_io_target, ledger_io_failures = [None], []
+    if risk == 'old_script_cache_io':
+        from easel.integrations import output_receipts
+        original_read = Path.read_text
+        original_owner = web._assess_source_ref_truth
+        def fail_ledger_read(path, *args, **kwargs):
+            if path == ledger_io_target[0] and not ledger_io_failures:
+                ledger_io_failures.append('unreadable')
+                raise OSError('fixture existing ledger read interrupted')
+            return original_read(path, *args, **kwargs)
+        def checked_owner(*args, **kwargs):
+            try:
+                return original_owner(*args, **kwargs)
+            except output_receipts.OutputReceiptError:
+                ledger_io_failures.append('local_receipt_error')
+                raise
+        monkeypatch.setattr(Path, 'read_text', fail_ledger_read)
+        monkeypatch.setattr(web, '_assess_source_ref_truth', checked_owner)
     calls = []
     def external(message, timeout=None, session=None, **options):
         if session in pending_admission:
@@ -4297,13 +4328,15 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
                 assert payload['catalog']['derived_voice']['profile'] == voice.verified_profile()
             value = vnext_proposal()
             if material_case: value['needs'][0]['necessity'] = 'optional'
-            if risk == 'old_script_cache':
+            if risk in {'old_script_cache', 'old_script_cache_io'}:
                 from easel.integrations.script_truth import create_script_claim_ledger
                 attempt = creation.get_creation(work['id'])['hypit_attempts'][-1]
                 root = Path(attempt['workspace']['path'])
                 ledger = create_script_claim_ledger(script, root / 'handoff/truth-packet.json')
                 assert ledger['status'] == 'PASSED'
                 (root / 'planning/script-claims.json').write_text(json.dumps(ledger))
+                if risk == 'old_script_cache_io':
+                    ledger_io_target[0] = root / 'planning/script-claims.json'
             if music_case:
                 if risk == 'music_optional':
                     value['needs'].append({**deepcopy(music_candidate), 'necessity': 'optional'})
@@ -4336,22 +4369,24 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
             answers = supported_fixture_answers(batch, [{'question': q['question'], 'decision': 'ACCEPT',
                 'evidence': [0], 'reason': '独立固定对照：两纸源条件及已确认场景。'} for q in batch['questions']])
             return json.dumps(fixture_review_wire(batch, answers), ensure_ascii=False)
-        if message.startswith('〔Easel Truth 脚本与预置旁白身份独立审阅〕'):
+        if message.startswith(truth_prefix):
             attempt = creation.get_creation(work['id'])['hypit_attempts'][-1]
             root = Path(attempt['workspace']['path'])
             from easel.integrations.script_truth import create_script_claim_ledger
             from easel.materials.domain import MaterialPlan
             material_plan = MaterialPlan.model_validate_json((root / 'planning/MATERIAL_PLAN.json').read_text())
             context = voice.review_context(creation.get_creation(work['id']), material_plan, script,
-                create_script_claim_ledger(script, root / 'handoff/truth-packet.json'))
-            report = json.loads(message.split('，不增加字段：', 1)[1].split('\n前份报告', 1)[0])
+                create_script_claim_ledger(script, root / 'handoff/truth-packet.json',
+                    revision=result_protocols.selected(attempt, 'script_ledger') or 'easel-script-claim-ledger@2'))
+            report = json.loads(message.split('写后停止：\n' if truth_profile else '，不增加字段：', 1)[1].split('\n前份报告', 1)[0])
             if report['script'] is not None:
-                for row in report['script']['decisions']:
+                decisions = report['script']['decisions']
+                for row in (decisions.values() if truth_profile else decisions):
                     row.update(kind='creative_expression', reason='独立对照：不含事实主张的创作建议。')
             report['voice'] = {'decision': 'CONFLICT' if risk.startswith('conflict') else 'UNRESOLVED' if risk.startswith('unresolved') else 'MATCH',
                 'reason': '独立固定语义对照：完整声音要求及实际身份和执行控制相容。',
                 'sources': [{'ref': ref, 'quote': source} for ref, source in context['sources'].items()]}
-            truth_count = sum(m.startswith('〔Easel Truth 脚本与预置旁白身份独立审阅〕') for m in calls)
+            truth_count = sum(m.startswith(truth_prefix) for m in calls)
             if risk == 'report_format' and truth_count == 1: report.pop('voice')
             if risk == 'repair_changes_decision':
                 if truth_count == 1: report['script'] = {}
@@ -4362,7 +4397,7 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
                 if truth_count == 1: report['extra'] = 'invalid outer metadata'
                 else: report['voice']['decision'] = 'CONFLICT'
             if risk == 'fake_quote': report['voice']['sources'][0]['quote'] = '不是冻结原文的承诺'
-            target = Path(re.search(r'只写(.+\.json)，不增加字段：', message)[1])
+            target = Path(re.search(r'只写 (.+\.json)，按以下固定结构' if truth_profile else r'只写(.+\.json)，不增加字段：', message)[1])
             target.write_text(json.dumps(report, ensure_ascii=False))
             return 'fixed external Truth report'
         if '单次局部修复' in message:
@@ -4395,6 +4430,15 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
     monkeypatch.setattr(web, '_hypit_runtime_profile', lambda: None)
     boundary = PlanningEvalBoundary()
     outcome = asyncio.run(boundary.advance(work['id'], web))
+    if risk == 'old_script_cache_io':
+        assert not outcome['boundary_reached']
+        assert ledger_io_failures == ['unreadable', 'local_receipt_error']
+        assert not any(m.startswith(truth_prefix) for m in calls)
+        interrupted = creation.get_creation(work['id'])['hypit_attempts'][-1]
+        evidence = Path(interrupted['workspace']['path']) / 'materials/recoveries'
+        assert not list(evidence.glob('truth-source-request-*.json'))
+        assert not list(evidence.glob('truth-source-slot-*.json'))
+        outcome = asyncio.run(boundary.advance(work['id'], web))
     if admission_case == 'receipt_failure':
         assert not outcome['boundary_reached']
         interrupted = creation.get_creation(work['id'])['hypit_attempts'][-1]
@@ -4421,7 +4465,7 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
         else:
             assert 'admissions' not in journal
         return
-    successful = music_case or material_case or risk in {'match', 'script_auto_pass', 'old_script_cache', 'report_format', 'missing_report', 'scope_drift', 'profile_drift'}
+    successful = music_case or material_case or risk in {'match', 'script_auto_pass', 'old_script_cache', 'old_script_cache_io', 'report_format', 'missing_report', 'scope_drift', 'profile_drift'}
     assert outcome['boundary_reached'] == successful, (outcome,
         creation.get_creation(work['id']).get('preparation', {}).get('last_error'))
     assert boundary.supply_calls == 0 and not boundary.state_violations
@@ -4430,7 +4474,7 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
         assert not any('CONFIRMED_PROPOSAL_TRANSCRIPT=' in message for message in calls)
     current = creation.get_creation(work['id'])
     attempt = current['hypit_attempts'][-1]
-    truth_calls = sum(m.startswith('〔Easel Truth 脚本与预置旁白身份独立审阅〕') for m in calls)
+    truth_calls = sum(m.startswith(truth_prefix) for m in calls)
     if risk in {'missing_binding', 'duplicate_voice', 'capacity'}:
         assert truth_calls == 0
     else:
@@ -4713,6 +4757,22 @@ print('COLD_ADMISSION_PASS')
                     assert AttemptMaterialStore(twice['workspace']['path']).list_generation_records() == (record,)
                     assert truth_calls == len(asr_calls) == len(speech_calls) == 1
                     assert creation.get_creation(work['id'])['delivery']['material_generations'] == original_receipts
+                    if truth_profile:
+                        original_truth = PlanningIntegration().load(attempt)['manifest']['truth_result']
+                        assert original_truth is not None
+                        for child in (inherited, twice):
+                            loaded_child = PlanningIntegration().load(child)
+                            assert child['result_protocols'] == attempt['result_protocols']
+                            assert loaded_child['manifest']['truth_result'] == original_truth
+                            if ledger_revision:
+                                original_ledger = PlanningIntegration().load(attempt)['truth_ledger']
+                                child_ledger = loaded_child['truth_ledger']
+                                assert child_ledger['schema'] == ledger_revision
+                                assert child_ledger['parser_identity'] == original_ledger['parser_identity']
+                                assert child_ledger['coverage'] == original_ledger['coverage']
+                                assert child_ledger == original_ledger
+                                assert Path(child['workspace']['path']).joinpath('planning/SCRIPT.md').read_bytes() == script.encode('utf-8')
+                        assert sum(m.startswith(truth_prefix) for m in calls) == 1
                     return
                 if risk == 'material_fork_report':
                     report_path = root / 'planning/voice-identity-review.json'
@@ -4777,3 +4837,40 @@ print('COLD_ADMISSION_PASS')
             assert len(speech_calls) == len(asr_calls) == 1
     else:
         assert not Path(attempt['workspace']['path']).joinpath('planning/manifest.json').exists()
+
+
+@pytest.mark.parametrize('risk', ['match', 'script_auto_pass', 'report_format',
+    'conflict_missing_script', 'unresolved_extra_outer', 'match_outer_repair_changes', 'fake_quote',
+    'old_script_cache_io', 'material_fork', 'material_fork_copy'])
+def test_source_ref_truth_uses_normal_owner_and_preserves_voice_refusals(prep_env, monkeypatch, risk):
+    test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, truth_profile=True)
+
+
+def test_markdown_source_ref_persist_and_two_forks_preserve_full_coverage(prep_env, monkeypatch):
+    script = ('## 旁白\r\n先看**问题**，再做[决定][choice]。🌱\r'
+              '- 第二步看 `记录`。\n> 第三步保留疑问。\r\n\r\n'
+              '## 镜头说明\n画面：白纸放在桌上。\n'
+              '## 未经证实的增长数字\r\n~~~text\n它声称去年增长了20%。\n~~~\n\n'
+              '| 项目 | 描述 |\n| --- | --- |\n| 结果 | 等待核实 |\n\n'
+              '![说明文字](fixture.png)\r\n\r\n[choice]: https://example.test/choice')
+    test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, 'material_fork',
+        truth_profile=True, script_override=script, ledger_revision='easel-script-claim-ledger@3')
+
+def test_native_run_journal_promotion_reaches_real_material_authoring_and_fork(prep_env, monkeypatch):
+    """Frozen Handoff/Truth/Material -> real Authoring validation -> partial journal -> fork."""
+    from easel.integrations.hypit import publication
+    published = []
+    original = publication.publish
+
+    def tracked_publish(root, journal_id):
+        proof = original(root, journal_id)
+        assert publication.verify(root, journal_id) == proof
+        published.append((str(root), journal_id))
+        return proof
+
+    monkeypatch.setattr(publication, 'publish', tracked_publish)
+    test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, 'material_fork',
+        truth_profile=True, run_promotion=True)
+    assert published
+    assert all(publication.verify(root, journal_id)['schema'] == publication.SCHEMA
+               for root, journal_id in published)

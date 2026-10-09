@@ -986,8 +986,13 @@ def test_script_truth_operator_api_is_protected_hash_bound_and_resumes(prep_env,
     assert authoring_starts == [result["attempt_id"]]
 
 
+@pytest.mark.parametrize("truth_profile", ["legacy", "source_ref", "source_ref_markdown"])
 @pytest.mark.parametrize("repair_succeeds", [True, False])
-def test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_review(prep_env, monkeypatch, repair_succeeds):
+def test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_review(prep_env, monkeypatch, repair_succeeds, truth_profile):
+    from easel.integrations import result_protocols
+    new_truth = {'truth_reply': 'truth-source-ref@1',
+                 **({'script_ledger': 'easel-script-claim-ledger@3'} if truth_profile.endswith('markdown') else {})}
+    monkeypatch.setattr(result_protocols, 'DEFAULT_PROFILES', new_truth if truth_profile.startswith('source_ref') else {})
     from easel.creation_delivery import DeliveryExecutionUncertain, active_delivery
     from easel.integrations.material_layer import PlanningIntegration
     from easel.integrations.material_supply import ProductMaterialSupply
@@ -1011,12 +1016,19 @@ def test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_re
                                 "TREATMENT.md": planning["treatment"], "SCENES.md": planning["scenes"],
                                 "SCRIPT.md": "我去年在公司推行了这个方法。"}.items():
                 (root / "planning" / name).write_text(value)
-        elif message.startswith("〔Easel Script 系统审阅〕"):
+        elif message.startswith(("〔Easel Script 系统审阅〕", "〔Easel Truth 来源引用审阅〕")):
             calls.append("assess")
-            report_path = Path(re.search(r"只写 (.+\.json)，JSON 结构", message)[1])
-            report = json.loads(message.split("（逐项替换判断，不增加字段）：\n", 1)[1].split("\n写入后停止。", 1)[0])
+            if truth_profile.startswith('source_ref'):
+                assert message.startswith("〔Easel Truth 来源引用审阅〕")
+                report_path = Path(re.search(r"只写 (.+\.json)，按以下固定结构", message)[1])
+                report = json.loads(message.split("写后停止：\n", 1)[1].split("\n前份报告", 1)[0])
+                decisions = report["decisions"].values()
+            else:
+                report_path = Path(re.search(r"只写 (.+\.json)，JSON 结构", message)[1])
+                report = json.loads(message.split("（逐项替换判断，不增加字段）：\n", 1)[1].split("\n写入后停止。", 1)[0])
+                decisions = report["decisions"]
             is_rewritten = "我更愿意" in (root / "planning/SCRIPT.md").read_text()
-            for decision in report["decisions"]:
+            for decision in decisions:
                 decision.update(kind="creative_expression" if is_rewritten else "rewrite_required",
                                 reason="这是主观选择，不声称实际成效。" if is_rewritten else "公司经历没有来源，应删除自行添加的亲历。")
             report_path.write_text(json.dumps(report))
@@ -2428,6 +2440,103 @@ def test_truth_output_receipts_keep_each_original_report(prep_env, monkeypatch, 
         stored['admission']['candidate']['voice']['decision'] = 'MATCH'
         writer(store, capture['key'], stored)
         with pytest.raises(receipts.OutputReceiptError): read()
+
+
+
+
+@pytest.mark.parametrize('ledger_revision', ['easel-script-claim-ledger@2', 'easel-script-claim-ledger@3'])
+@pytest.mark.parametrize('case', ['clean', 'capture_write_failure', 'bad_ref', 'tamper_projection'])
+def test_source_ref_truth_keeps_original_source_and_cold_projection(prep_env, monkeypatch, case, ledger_revision):
+    """The actual web Owner, receipt store and Truth validator consume the wire."""
+    import hashlib
+    import subprocess
+    import sys
+    from easel.integrations import output_receipts as receipts, truth_source_refs as refs
+    from easel.integrations.script_truth import create_script_claim_ledger, apply_system_script_review
+    from easel.materials.store import AttemptMaterialStore
+    root = prep_env['tmp'] / 'source-ref-truth'
+    (root / 'handoff').mkdir(parents=True)
+    (root / 'planning').mkdir()
+    quote = '这张照片拍摄于周五，画面有一张白纸。🌱'
+    truth_path = root / 'handoff/truth-packet.json'
+    truth_path.write_text(json.dumps({'schema': 'easel-truth-packet@2',
+        'claims': [{'source': 'user_statement', 'claim': quote, 'source_quote': quote}],
+        'personal_facts': []}, ensure_ascii=False))
+    script = '照片是在周五拍摄的。'
+    attempt = {'creation_id': prep_env['work']['id'], 'attempt_id': 'fa_source_ref',
+        'workspace': {'path': str(root)},
+        'result_protocols': {'schema': 'agent-result-protocols@1',
+                             'profiles': {'truth_reply': 'truth-source-ref@1',
+                                           **({'script_ledger': ledger_revision} if ledger_revision.endswith('@3') else {})}}}
+    original_calls = {}
+    def external(_stage, _attempt_id, message, _timeout, session):
+        key = hashlib.sha256(message.encode()).hexdigest()
+        # Models are the only external boundary; same completed execution reuses
+        # its original file, just as the real adapter does in the full Owner test.
+        if key in original_calls:
+            return
+        catalog = json.loads(re.search(r'^完整事实目录：(.+)$', message, re.MULTILINE)[1])
+        assert list(catalog.values())[0]['quote'] == quote
+        reply = json.loads(message.split('写后停止：\n', 1)[1].split('\n前份报告', 1)[0])
+        for row in reply['decisions'].values():
+            row.update(kind='supported_paraphrase', reason='完整冻结来源明确说明拍摄时间，改写保持原事实。',
+                       sources=['missing-source' if case == 'bad_ref' else next(iter(catalog))])
+        assert quote not in json.dumps(reply, ensure_ascii=False)
+        target = Path(re.search(r'只写 (.+\.json)，按以下固定结构', message)[1])
+        target.write_text(json.dumps(reply, ensure_ascii=False))
+        original_calls[key] = reply
+    monkeypatch.setattr(web, '_run_timed_creation_agent', external)
+    write_record = AttemptMaterialStore.write_recovery_record
+    failed = [False]
+    def write(self, key, value):
+        if case == 'capture_write_failure' and key.startswith('output-capture-') and not failed[0]:
+            failed[0] = True
+            raise OSError('fixture storage interruption')
+        return write_record(self, key, value)
+    monkeypatch.setattr(AttemptMaterialStore, 'write_recovery_record', write)
+    if case == 'capture_write_failure':
+        with pytest.raises(receipts.OutputReceiptError):
+            web._assess_planning_script(attempt, script)
+        assert len(original_calls) == 1
+    if case == 'bad_ref':
+        with pytest.raises(prep.PreparationError):
+            web._assess_planning_script(attempt, script)
+        assert len(original_calls) == 2
+        return
+    formal = web._assess_planning_script(attempt, script)
+    assert formal['decisions'][0]['sources'] == [{'ref': 'truth_packet.claims[0]', 'quote': quote}]
+    ledger = apply_system_script_review(script, truth_path,
+        create_script_claim_ledger(script, truth_path, revision=ledger_revision), formal)
+    assert ledger['status'] == 'PASSED'
+    store = AttemptMaterialStore(root)
+    reference = refs.origin_for_report(store, formal)
+    assert web._assess_planning_script(attempt, script) == formal
+    assert len(original_calls) == 1
+    refs.bind_ledger_origin(store, attempt, reference, script, truth_path, ledger)
+    if case == 'tamper_projection':
+        origin = store.read_recovery_record(reference['key'])
+        record = store.read_recovery_record(origin['derivation']['key'])
+        record['output']['decisions'][0]['kind'] = 'creative_expression'
+        write_record(store, origin['derivation']['key'], record)
+        with pytest.raises(receipts.OutputReceiptError):
+            refs.validate_origin(store, reference, script=script, truth_path=truth_path)
+        assert len(original_calls) == 1
+        return
+    check = (
+        'import json,socket,sys; from pathlib import Path; '
+        'from easel.materials.store import AttemptMaterialStore; '
+        'from easel.integrations.truth_source_refs import validate_origin; '
+        'socket.create_connection=lambda *a,**k: (_ for _ in ()).throw(AssertionError("network forbidden")); '
+        'data=json.load(sys.stdin); '
+        'value=validate_origin(AttemptMaterialStore(data["root"]),data["reference"],'
+        'script=data["script"],truth_path=Path(data["root"])/"handoff/truth-packet.json"); '
+        'assert value==data["formal"]; print("cold projection verified")'
+    )
+    result = subprocess.run([sys.executable, '-c', check],
+        input=json.dumps({'root': str(root), 'reference': reference, 'script': script, 'formal': formal}),
+        text=True, capture_output=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert 'cold projection verified' in result.stdout
 
 
 @pytest.mark.parametrize('outcome', ['valid', 'invalid', 'pending_valid', 'timeout', 'failed'])
