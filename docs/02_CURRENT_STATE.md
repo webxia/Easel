@@ -1,5 +1,13 @@
 # Easel Current State
 
+## 2026-10-09：按用户授权本地提交代码并完成服务重启
+
+代码提交 `82b66519fa12379d4ef7d2fd477c58f57d67eddf`，分支 easel-studio，103个明确选择的源码/测试/夹具/当前文档文件；1190个批量历史运行输出原样留在工作区，未推送。生产223文件SHA仍为 `90ab1935538ab3044c61ae1889392cfc42ae39ebfd26d3a78dc03ea1b1fb0272`，与此前168项相关回归及原生1项的冻结源码/测试一致；本轮未重跑该整组，另完成前端tsc/Vite build及本地静态资源HTTP验证。
+
+通过原LaunchAgent重启：ai.openclaw.easel PID21609→22325，com.easel.web PID21631→22399；Gateway18789 /healthz为200且ok=true，Web7860首页和/api/status为200且gateway=true。首次bootout后立即bootstrap返回exit5；确认服务已卸载且端口无监听后，经同一正常入口重新bootstrap成功，保留失败记录。原流记录及两份服务日志已在受保护目录精确备份。模型/Runtime/服务配置未更换，Runtime仍2026.9.4；无进程内源码SHA端点，加载证据为新PID/启动时间/原执行路径/已提交源码核对，不冒充进程内证明。
+
+Gateway任务总数621前后未增、active/lost/audit均0；20份Creation元数据、302保护文件、142fixture和5份封存账本不变。原UPSTREAM_UNKNOWN、剩余授权和历史FAIL保持，不发起新模型/配额/素材/Build/发布，也不认领真实Planning或成片通过。[提交与重启记录](acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-commit-restart-2026-10-09.json)。
+
 ## 2026-10-09：三项机械约束简化完成，相关回归与原生生命周期通过
 
 已完成获批三项：新`intake@6`视觉queries允许0～3条，1/2条由已有标量检索字段无损承载，不补词/删词；英文、长度、唯一性和模态限制保留。新Plan固定`visual-requirements@2`，完整唯一整数ID的classification/checks由程序对齐，空字符串preference_notes允许，无需占位评价。原始compact_results不改，另记可重算规范化摘要；缺项/重复/未知ID/错帧/额外字段/必要依据不足仍拒绝，not_met/unknown不会变成通过。旧intake5与visual1、缓存、原请求保持旧规则。

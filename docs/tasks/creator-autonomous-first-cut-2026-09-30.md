@@ -6,6 +6,10 @@
 
 ### 连续自主出片 Goal（2026-10-08 用户追加授权，进行中）
 
+#### 本地提交与服务重启（2026-10-09，用户明确授权）
+
+已提交103个选定文件，代码commit `82b66519fa12379d4ef7d2fd477c58f57d67eddf`，生产SHA90ab1935/223文件保持原软件验收身份；批量历史运行输出不入本次提交、不删除。前端构建通过。原LaunchAgent重启Web/Gateway后PID22399/22325、HTTP200/Gateway live；初次bootstrap exit5保留，观察已卸载后同入口恢复成功。日志/原始流已受保护归档，旧Creation和封存账本不变。此授权只含本地commit及重启，不扩展真实批次、模型/Runtime升级、push或发布；UPSTREAM_UNKNOWN仍待另行对账。证据见Current State及 `autonomous-commit-restart-2026-10-09.json`，无需再提交已完成源码或再次重启。
+
 #### 三项机械约束简化实施（2026-10-09，用户批准）
 
 **实施收尾：SOFTWARE_VALIDATED。** 断线后先确认六文件仍为原partial，未重复撤回；已完成上述producer至consumer的版本传递、缓存和冷恢复。最终相关回归168PASS/0FAIL/0skip（Job `wc_job_rau70u9oykDBj0vX`，822.24秒），原生生命周期1PASS/38.27秒（Job `wc_job_ktVJZcoiSk3o457P`，5次本地替身HTTP）。新0/1/2/3条完整Planning/Truth/冷verify、旧intake5共享repair/冷verify、同ID乱序/空备注、缺项重复错帧错误类型篡改拒绝和真实旧fixture消费者均在覆盖内。原件保留，规范结果按版本重算，不将not_met/unknown改为met。当前source `90ab1935538ab3044c61ae1889392cfc42ae39ebfd26d3a78dc03ea1b1fb0272`/223文件，工作树未提交；302保护/142fixture/5封存账本一致。[具名验收](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-advisory-validation-2026-10-09.json)。此前53/20测试有重叠不累计，外部模型均fixture，不认领真实Planning或MP4。无新增真实派发/配额查询/媒体/Build/部署/commit/push/publish，独立Reviewer不可用；原UNKNOWN和剩余预算保持，本单元已完成无需再实施。

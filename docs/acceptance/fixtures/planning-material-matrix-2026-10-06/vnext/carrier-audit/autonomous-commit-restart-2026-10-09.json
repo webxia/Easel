@@ -1,0 +1,33 @@
+{
+  "status": "COMMITTED_AND_SERVICES_RESTARTED",
+  "code_commit": "82b66519fa12379d4ef7d2fd477c58f57d67eddf",
+  "branch": "easel-studio",
+  "committed_files": 103,
+  "bulk_historical_outputs_left_untracked": 1190,
+  "production_source_sha256": "90ab1935538ab3044c61ae1889392cfc42ae39ebfd26d3a78dc03ea1b1fb0272",
+  "production_files": 223,
+  "validation": {"source_and_test_fingerprints_match_prior_evidence": true, "prior_related_tests": 168, "prior_native_tests": 1, "rerun_prior_suite": false, "frontend_tsc_vite_build": "PASS", "secret_pattern_scan": "NO_MATCHES_NOT_A_UNIVERSAL_SECRET_PROOF", "scope_diff": "PASS"},
+  "services": [
+    {"label": "ai.openclaw.easel", "old_pid": 21609, "new_pid": 22325, "port": 18789, "status": "running", "health_http": 200, "health_ok": true},
+    {"label": "com.easel.web", "old_pid": 21631, "new_pid": 22399, "port": 7860, "status": "running", "root_http": 200, "status_http": 200, "gateway_connected": true}
+  ],
+  "frontend_assets": {"javascript": "index-B1Kr5gH0.js", "stylesheet": "index-DUf7kBkS.css", "both_http": 200},
+  "startup_observation": "Initial bootstrap immediately following bootout returned exit 5. Both registrations and listeners were checked absent; later bootstrap through the same standard launchctl entrypoint succeeded. No configuration or runtime replacement.",
+  "runtime_version": "2026.9.4",
+  "in_process_source_sha_endpoint": false,
+  "load_evidence": "New PIDs, startup times, original command/cwd, and committed source matching validated snapshot; not an in-process SHA assertion.",
+  "archived_service_logs_and_raw_stream": 3,
+  "gateway_task_total_before_after": [621, 621],
+  "gateway_active": 0,
+  "gateway_lost": 0,
+  "gateway_audit_errors": 0,
+  "unchanged": {"creation_metadata": 20, "protected_files": 302, "historical_fixtures": 142, "sealed_budget_records": 5},
+  "upstream_unknown": "PRESERVED_NOT_REDISPATCHED",
+  "new_model_submissions": 0,
+  "quota_queries": 0,
+  "media_or_build_submissions": 0,
+  "pushed": false,
+  "published": false,
+  "formal_video_acceptance": false,
+  "private_evidence": "Library/Application Support/Easel/acceptance/autonomous-first-cut-2026-10-08/commit-restart-20261009T101834Z"
+}

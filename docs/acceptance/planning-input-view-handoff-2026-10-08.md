@@ -1,5 +1,7 @@
 # 稳定自主出片 Goal：Planning @9 交接
 
+**2026-10-09 最新运行状态：已按用户要求本地提交并重启服务。** 代码commit82b66519、source90ab1935/223文件；Web7860 PID22399、专用Gateway18789 PID22325均健康，Runtime2026.9.4未更换。日志精确归档，当前无活动Job/模型任务，旧Creation与UNKNOWN/预算不变。103个选定文件提交，1190个批量历史输出原样保留未提交；未push/发布或发起真实评测。此前168PASS+原生1PASS按源摘要复用，前端构建另通过。[运行记录](fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-commit-restart-2026-10-09.json)。
+
 **2026-10-09 最新收尾：三项机械约束简化已实现并验证。** 已核断线撤回未改变六文件partial状态，保留并补齐下游；intake6查询0～3条、visual-requirements2按完整唯一ID对齐、空字符串偏好备注；保留原回复、规范化摘要、旧intake5/visual1和冷恢复，缺项/错帧/真实不符/授权等边界不变。当前source `90ab1935538ab3044c61ae1889392cfc42ae39ebfd26d3a78dc03ea1b1fb0272`/223文件，最终相关168PASS（Job `wc_job_rau70u9oykDBj0vX`）+原生1PASS/5本地替身HTTP（Job `wc_job_ktVJZcoiSk3o457P`），全部已取终态。302保护/142fixture/5封存账本及源码/测试围栏一致，独立Reviewer未取得，无新真实模型、quota、媒体、Build或部署推送发布。[结果](fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/autonomous-advisory-validation-2026-10-09.json)，私有原`advisory-validation-20261009T090924Z`含最终证据。三项软件已完成，不再重做；真实上游UNKNOWN与旧父池停止仍保留，下一执行须先原请求对账，不自动分配新批。以下为历史说明。
 
 **2026-10-09 最新用户决策：移除自动配额查询，盘点非必要校验。** 执行器已改本地check_authorized_route，无quota网络/25%门槛，保留原凭证/route/无fallback/本地预算与UNKNOWN；15+4定向测试PASS、无新真实请求。优先候选是query条数/语言硬门槛、同帧checks按ID规范排序和非必需preference_notes；这些仅盘点未实现，详情见原Task“移除自动配额查询与非必要校验盘点”。Planning/Material/Hypit生产源码保持e5cb1c59，旧失败、父池和UNKNOWN保持，不能重开旧manifest。私有证据remove-automatic-quota-20261009T082246Z；不再为续接主动查quota，后续原请求对账与业务准入仍独立。
