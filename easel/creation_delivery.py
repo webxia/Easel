@@ -268,6 +268,8 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         if not attempt.get("outputs"):
             return "export", "exporting"
         system = attempt.get("review", {}).get("system", {})
+        from easel.integrations import quality_results
+        quality_results.verify_current_review(attempt)
         binding = system.get("binding", {})
         output = attempt["outputs"].get(binding.get("output_name"), {})
         if (system.get("schema") == QUALITY_SCHEMA and output

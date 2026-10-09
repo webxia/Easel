@@ -298,12 +298,17 @@ def run_attempt_scoped_authoring(
                     cwd=str(cwd), timeout=timeout + 30, env=env,
                 )
                 validate_artifacts(staged_workspace)
-        _promote_authoring_artifacts(staged_workspace, source)
+        try:
+            _promote_authoring_artifacts(staged_workspace, source)
+        except OSError as exc:
+            from easel.integrations.output_receipts import OutputReceiptError
+            raise OutputReceiptError("Authoring promotion failed locally; recover the retained original stage") from exc
         preserve = bool(retained)  # outer selection/checkpoint still has to commit
         return result.stdout or ""
     except Exception as exc:
         from easel.creation_delivery import DeliveryExecutionUncertain
-        if isinstance(exc, DeliveryExecutionUncertain):
+        from easel.integrations.output_receipts import OutputReceiptError
+        if isinstance(exc, (DeliveryExecutionUncertain, OutputReceiptError)):
             preserve = bool(retained)
         raise
     finally:

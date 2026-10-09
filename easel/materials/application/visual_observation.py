@@ -24,6 +24,8 @@ from easel.materials.domain import (
 )
 
 SCHEMA = "easel-visual-observation@2"
+RESULT_REPORT_SCHEMA = "easel-visual-observation@3"
+RESULT_REPORT_LIMIT = 8 * 1024 * 1024
 PREFIX = "easel-visual-v1:"
 MAX_VISUAL_CANDIDATES = 9
 GROUP_SCHEMA = 'easel-shared-visual-observation@1'
@@ -80,7 +82,9 @@ def visual_reassessment_pairs(attempt: dict) -> set[tuple[str, str]]:
                 or not re.fullmatch(r'[0-9a-f]{64}', identity)):
             continue
         path = store.materials_root / 'observations' / (identity + '.json')
-        if path.is_symlink() or not path.is_file() or path.stat().st_size > 128 * 1024:
+        new_protocol = attempt.get('result_protocols', {}).get('profiles', {}).get('material_observation') == 'material-observation-delta@1'
+        limit = RESULT_REPORT_LIMIT if new_protocol else 128 * 1024
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > limit:
             raise ValueError('当前素材观察证据缺失，先恢复报告')
         if requires_reassessment(need, json.loads(path.read_text()), asset.media_type):
             pairs.add((need.need_id, asset.asset_id))
@@ -139,7 +143,7 @@ def observation_for_need(manifest, need):
     return current
 
 
-def validate_shared_report(group: dict, asset: MaterialAsset, report: dict) -> dict:
+def validate_shared_report(group: dict, asset: MaterialAsset, report: dict, *, result_processor=None) -> dict:
     """One image input, independently validated evidence for each Need."""
     rows = report.get('reports')
     manifests = group['observations']
@@ -155,14 +159,14 @@ def validate_shared_report(group: dict, asset: MaterialAsset, report: dict) -> d
     for manifest in manifests:
         need = MaterialNeed.model_validate_json(json.dumps(manifest['need']))
         try:
-            apply_observation(need, asset, manifest, rows[need.need_id])
+            apply_observation(need, asset, manifest, rows[need.need_id], result_processor=result_processor)
         except (ValueError, TypeError, AttributeError) as exc:
             raise ValueError(f'reports[{need.need_id}]: {exc}') from exc
     return rows
 
 
 def observe_shared_asset(attempt, need, asset, manifest, attachments, candidate_needs, store, batch_key, executor,
-                         *, covered_need_ids=()):
+                         *, covered_need_ids=(), result_processor=None):
     """Freeze grouping before dispatch; resume the same group after partial writes.
 
     Individual valid reports remain the ordinary matching checkpoints. Grouping
@@ -182,7 +186,7 @@ def observe_shared_asset(attempt, need, asset, manifest, attachments, candidate_
             current = observation_for_need(manifest, other)
             saved = store.materials_root / 'observations' / (current['input_sha256'] + '.json')
             try:
-                read_observation_report(saved, other, asset, current)
+                read_observation_report(saved, other, asset, current, result_processor=result_processor)
             except (OSError, ValueError, TypeError, AttributeError):
                 pending.append(current)
         groups = []
@@ -206,15 +210,16 @@ def observe_shared_asset(attempt, need, asset, manifest, attachments, candidate_
     if path.is_symlink():
         raise ValueError('共享观察报告路径无效')
     report = None
-    if path.is_file() and path.stat().st_size <= 512 * 1024:
+    group_limit = MAX_SHARED_NEEDS * RESULT_REPORT_LIMIT + 512 * 1024 if result_processor is not None else 512 * 1024
+    if path.is_file() and path.stat().st_size <= group_limit:
         try:
             report = json.loads(path.read_text(encoding='utf-8'))
-            validate_shared_report(group, asset, report)
+            validate_shared_report(group, asset, report, result_processor=result_processor)
         except (OSError, ValueError, TypeError, AttributeError):
             report = None
     if report is None:
         report = executor(attempt, group, attachments)
-        validate_shared_report(group, asset, report)
+        validate_shared_report(group, asset, report, result_processor=result_processor)
         store.write_observation_record(group['input_sha256'], report)
     # Group is durable before distributing individual reports; a crash here
     # resumes this group without another model call.
@@ -223,12 +228,13 @@ def observe_shared_asset(attempt, need, asset, manifest, attachments, candidate_
     return report['reports'][need.need_id]
 
 
-def read_observation_report(path: Path, need: MaterialNeed, asset: MaterialAsset, manifest: dict) -> dict:
+def read_observation_report(path: Path, need: MaterialNeed, asset: MaterialAsset, manifest: dict, *, result_processor=None) -> dict:
     """Only a validated report is a reusable checkpoint, including on resume."""
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > 128 * 1024:
+    limit = RESULT_REPORT_LIMIT if result_processor is not None else 128 * 1024
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > limit:
         raise ValueError('素材观察报告缺失或路径无效或过大')
     report = json.loads(path.read_text(encoding='utf-8'))
-    apply_observation(need, asset, manifest, report)
+    apply_observation(need, asset, manifest, report, result_processor=result_processor)
     return report
 
 
@@ -383,12 +389,18 @@ def prepare_observation(need: MaterialNeed, asset: MaterialAsset, path: Path, *,
     return manifest, attachments
 
 
-def apply_observation(need: MaterialNeed, asset: MaterialAsset, manifest: dict, report: dict) -> MaterialAsset:
+def apply_observation(need: MaterialNeed, asset: MaterialAsset, manifest: dict, report: dict, *,
+                      result_processor=None, persist_qualification=False) -> MaterialAsset:
     """Validate identity and coverage; keep Rights and Provider facts untouched."""
+    is_delta = report.get('schema') == RESULT_REPORT_SCHEMA
+    if is_delta != (result_processor is not None):
+        raise RuntimeError('Material result protocol and proof processor do not match')
+    if is_delta:
+        result_processor.verify(manifest, report)
     if (manifest.get("need_sha256") != need_identity(need)
             or manifest.get("asset_sha256") != asset.file.sha256
             or manifest.get("asset_id") != asset.asset_id
-            or report.get("schema") != SCHEMA
+            or report.get("schema") not in {SCHEMA, RESULT_REPORT_SCHEMA}
             or report.get("input_sha256") != manifest.get("input_sha256")):
         raise ValueError("观察报告与当前场景、素材或预览不一致；"
                          f"schema 应为 {SCHEMA}，input_sha256 应为 {manifest.get('input_sha256')}，"
@@ -399,7 +411,7 @@ def apply_observation(need: MaterialNeed, asset: MaterialAsset, manifest: dict, 
         if (not isinstance(contract, dict) or contract.get('need_sha256') != need_identity(need)
                 or contract.get('source_data', {}).get('need') != need.model_dump(mode='json')):
             raise ValueError('逐项要求合同不属于当前 Need')
-        rebuilt = assemble_report(manifest, contract, report.get('compact_results', []))
+        rebuilt = (report if is_delta else assemble_report(manifest, contract, report.get('compact_results', [])))
         if rebuilt != report or report.get('requirements_sha256') != digest(contract):
             raise ValueError('逐项要求、事实和正式适用结论不一致')
     verdict = report.get("verdict")
@@ -457,6 +469,8 @@ def apply_observation(need: MaterialNeed, asset: MaterialAsset, manifest: dict, 
                 value=value if field is SemanticField.LOGO else (("visible text",) if value else ()),
                 confidence=0.8, evidence=evidence))
     inference = SemanticInference(analyzer_id=PREFIX + need_identity(need),
+        model_version=(result_processor.qualify(need, asset, manifest, report,
+            create=persist_qualification) if is_delta else None),
         status=IntelligenceStatus.COMPLETE if verdict in {"suitable", "unsuitable"} or interval else IntelligenceStatus.PARTIAL,
         annotations=tuple(annotations), observed_at=datetime.now(timezone.utc))
     retained = tuple(i for i in asset.semantic.inferences if i.analyzer_id != inference.analyzer_id)

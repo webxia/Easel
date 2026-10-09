@@ -302,6 +302,9 @@ def _authoring_file_hash(
 
 
 def _execution_fingerprint(attempt: dict[str, Any], run_path: str | None = None) -> dict[str, Any]:
+    from . import native_source, authoring_publication
+    if attempt.get("pending_authoring_publication") or native_source.enabled(attempt):
+        authoring_publication.require_no_pending(attempt)
     workspace = _workspace(attempt)
     handoff_id = attempt.get("handoff", {}).get("handoff_id")
     package, manifest, handoff_hash = resolve_handoff(attempt["creation_id"], handoff_id)
@@ -327,6 +330,13 @@ def _execution_fingerprint(attempt: dict[str, Any], run_path: str | None = None)
         "runtime_profile_sha256": runtime["sha256"],
         "run_path": run_source.relative_to(workspace).as_posix(),
     }
+    if native_source.enabled(attempt):
+        parser = native_source.installed_parser()
+        receipt = attempt.get("authoring", {}).get("native_publication", {})
+        if receipt.get("parser") != parser:
+            raise authoring_publication.AuthoringPublicationError("Native parser differs from the published Authoring identity")
+        components["native_parser"] = parser
+        components["native_domain"] = authoring_publication._domain(attempt)
     encoded = json.dumps(components, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return {**components, "sha256": "sha256:" + hashlib.sha256(encoded).hexdigest()}
 
@@ -437,6 +447,7 @@ def create_film_attempt(
     runtime_profile: str | None = None,
     preparation_key: str | None = None,
     runtime_status: str | None = None,
+    result_protocols: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if preparation_key is not None and not re.fullmatch(r"[0-9a-f]{64}", preparation_key):
         raise HypitIntegrationError("Preparation operation key 格式无效")
@@ -468,6 +479,10 @@ def create_film_attempt(
             existing = next((item for item in current.get("hypit_attempts", [])
                              if item.get("preparation_key") == preparation_key), None)
             if existing:
+                if result_protocols is not None:
+                    from easel.integrations import result_protocols as result_versions
+                    if result_versions.inherited(existing) != result_versions.validate(result_protocols):
+                        raise HypitIntegrationError('Existing Attempt result protocols differ from the inherited checkpoint')
                 if runtime and existing.get("runtime_status") != "CONFIGURED":
                     if (existing.get("execution_status") not in {"BLOCKED", "NOT_SUBMITTED"}
                             or existing.get("build", {}).get("operation")
@@ -498,8 +513,12 @@ def create_film_attempt(
             handoff_id=handoff_id, handoff_hash=handoff_hash,
             root=root,
         )
+        from easel.integrations import result_protocols as result_versions
+        pinned_results = (result_versions.current() if result_protocols is None
+                          else result_versions.validate(result_protocols))
         attempt = {
             "schema": "easel-film-build-attempt@1",
+            "result_protocols": pinned_results,
             "attempt_id": attempt_id,
             "creation_id": creation_id,
             "attempt_number": attempt_number,
@@ -673,9 +692,11 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
     key_payload = (f"build-retry:{attempt_id}:{build_id}" if revision is None else
                    f"output-revision:{attempt_id}:" + json.dumps(revision, sort_keys=True, ensure_ascii=False))
     retry_key = hashlib.sha256(key_payload.encode("utf-8")).hexdigest()
+    from easel.integrations.result_protocols import inherited as inherited_result_protocols
     target = create_film_attempt(
         source["creation_id"], source["handoff"]["handoff_id"],
         runtime_profile=source["runtime_profile"]["path"], preparation_key=retry_key,
+        result_protocols=inherited_result_protocols(source),
     )
     target_root = _workspace(target)
     lock_dir = target_root / ".easel"
@@ -688,6 +709,12 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
     with lock_path.open("a+") as lock_stream:
         fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX)
         target = get_film_attempt(target["attempt_id"])
+        if target.get("pending_authoring_publication") or target.get("native_authoring_validation"):
+            target = complete_film_authoring(target["attempt_id"], cli=cli)
+            if _execution_fingerprint(get_film_attempt(attempt_id))["sha256"] != source_fingerprint["sha256"]:
+                raise HypitIntegrationError("恢复期间源 Attempt checkpoint 发生变化")
+            return update_film_attempt(target["attempt_id"], event="build_retry_checkpoint_ready",
+                preparation_status="PRODUCTION_PREPARED", retry_source={**target["retry_source"], "status": "READY"})
         if target.get("retry_source", {}).get("status") in {"READY", "AUTHORING_REPAIR_REQUIRED"}:
             return target
         if target.get("execution_status") != "NOT_SUBMITTED":
@@ -731,12 +758,17 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
             raise HypitIntegrationError("Script Truth checkpoint 尚未通过审核")
         # The inherited identity decision binds the complete original ledger.
         # Copy it before persist so no new review timestamp or decision is made.
+        inherited_truth_result = planning['manifest'].get('truth_result')
+        if inherited_truth_result is not None:
+            from easel.integrations.truth_source_refs import copy_origin
+            copy_origin(source_root, target_root, inherited_truth_result, _copy_retry_checkpoint_file)
         _copy_retry_checkpoint_file(source_root, target_root, Path("planning/script-claims.json"))
         persisted = PlanningIntegration().persist(
             target, new_plan, treatment=planning["treatment"],
             script=planning["script"], scenes=planning["scenes"],
             requirements_source=requirements_source,
             inherit_voice_identity=planning.get('voice_identity') is not None,
+            truth_result_reference=inherited_truth_result,
         )
         target = persisted["attempt"]
         _copy_retry_checkpoint_file(source_root, target_root, Path("planning/script-claims.json"))
@@ -769,6 +801,8 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
         if observation_root.is_dir():
             for record in observation_root.glob("*.json"):
                 _copy_retry_checkpoint_file(source_root, target_root, record.relative_to(source_root))
+        from easel.integrations import material_results
+        material_results.copy_evidence(source_root, target_root, bundle, _copy_retry_checkpoint_file)
 
         new_bundle_id = f"bundle-{target['attempt_id'][-20:]}"
         new_run = supply_run.model_copy(update={
@@ -782,7 +816,7 @@ def _fork_film_checkpoint(attempt_id: str, *, cli: HypitCLI | None = None,
         new_bundle = MaterialBundleAssembler().assemble(
             new_plan, new_run, bundle.assets, bundle.matches, bundle_id=new_bundle_id,
         )
-        readiness, gaps = MaterialReadinessCalculator(store=target_store).calculate(new_plan, new_bundle)
+        readiness, gaps = material_results.readiness_calculator(target, target_store).calculate(new_plan, new_bundle)
         if readiness.status is not ReadinessStatus.READY:
             raise HypitIntegrationError("复用素材未通过当前 MaterialReadiness，禁止视频制作重试")
         from easel.integrations.material_recovery import director_shot_choices
@@ -916,6 +950,8 @@ def authoring_agent_task(attempt_id: str) -> dict[str, str]:
     task path and allowed output surface deterministic.
     """
     attempt = get_film_attempt(attempt_id)
+    from .authoring_publication import require_no_pending
+    require_no_pending(attempt)
     workspace = _workspace(attempt)
     handoff_id = attempt.get("handoff", {}).get("handoff_id")
     handoff_hash = attempt.get("handoff", {}).get("hash")
@@ -940,6 +976,8 @@ def begin_film_authoring(attempt_id: str) -> dict[str, Any]:
     or duplicate UI click cannot create concurrent writers in one workspace.
     """
     attempt = get_film_attempt(attempt_id)
+    from .authoring_publication import require_no_pending
+    require_no_pending(attempt)
     if attempt.get('planning_repair') and attempt['planning_repair'].get('status') != 'COMPLETE':
         raise HypitIntegrationError('内容修正与重新核验尚未完成，不能开始视频编排')
     # Material-integrated attempts must pass the current MaterialReadiness
@@ -999,7 +1037,7 @@ def _normalize_single_timeline_clock_reference(source: Path) -> bool:
     """
     if not source.is_file():
         return False
-    text = source.read_text(encoding="utf-8")
+    text = source.read_bytes().decode("utf-8")  # Preserve frozen CR, CRLF and cue bytes.
     clocks = list(re.finditer(r'<time:Clock\b[^>]*\bid="([A-Za-z_][A-Za-z0-9_-]*)"[^>]*/>', text))
     if len(clocks) != 1:
         return False
@@ -1020,28 +1058,32 @@ def _normalize_single_timeline_clock_reference(source: Path) -> bool:
         r'(<time:Timeline\b[^>]*?\bclock=)"' + re.escape(old_id) + r'"',
         r"\1{clock}", text,
     )
-    source.write_text(text, encoding="utf-8")
+    source.write_bytes(text.encode("utf-8"))
     return True
 
 
 def _assert_composition_revision(attempt: dict[str, Any], authored: Path | None = None) -> None:
     if not attempt.get("revision_feedback"):
         return
-    from easel.integrations.hypit.revision import assert_composition_preserves_sound_and_copy
+    from . import native_source, native_revision, revision
+    rules = native_revision if native_source.enabled(attempt) else revision
 
-    original = get_film_attempt(attempt["retry_source"]["attempt_id"])
-    if _execution_fingerprint(original)["sha256"] != attempt["retry_source"]["fingerprint"]:
-        raise HypitIntegrationError("局部修改的原成片 checkpoint 已变化，拒绝继续")
+    from .authoring_publication import frozen_evidence
     relative = "productions/easel-authoring/authors/main.svml"
+    with frozen_evidence(native_source.enabled(attempt)):
+        original = get_film_attempt(attempt["retry_source"]["attempt_id"])
+        if _execution_fingerprint(original)["sha256"] != attempt["retry_source"]["fingerprint"]:
+            raise HypitIntegrationError("局部修改的原成片 checkpoint 已变化，拒绝继续")
+        base = _workspace(original) / relative
+        if native_source.enabled(attempt):
+            base = native_source.parse_file(base)
+        replacements = quality_visual_replacements(attempt)
     if attempt['revision_feedback'].get('origin') == 'system_quality':
-        from .revision import assert_quality_revision
-        assert_quality_revision(_workspace(original) / relative, authored or _workspace(attempt) / relative,
-                                set(attempt['revision_feedback']['allowed_changes']),
-                                replacements=quality_visual_replacements(attempt))
+        rules.assert_quality_revision(base, authored or _workspace(attempt) / relative,
+                                      set(attempt['revision_feedback']['allowed_changes']),
+                                      replacements=replacements)
         return
-    assert_composition_preserves_sound_and_copy(
-        _workspace(original) / relative, authored or _workspace(attempt) / relative,
-    )
+    rules.assert_composition_preserves_sound_and_copy(base, authored or _workspace(attempt) / relative)
 
 
 def quality_visual_replacements(attempt: dict[str, Any], *, include_missing: bool = False) -> dict[str, dict[str, dict]]:
@@ -1060,8 +1102,9 @@ def quality_visual_replacements(attempt: dict[str, Any], *, include_missing: boo
     after = integration.qualified_authoring_assets(attempt)
     assets = {a.asset_id: a for a in bundle.assets}
     selected = set(original['production_authoring']['selected_asset_ids'])
-    from .revision import quality_protected_sources
-    protected_sources = quality_protected_sources(_workspace(original) / 'productions/easel-authoring/authors/main.svml')
+    from . import native_source, native_revision, revision as revision_rules
+    rules = native_revision if native_source.enabled(original) else revision_rules
+    protected_sources = rules.quality_protected_sources(_workspace(original) / 'productions/easel-authoring/authors/main.svml')
     result = {}
     for old in before:
         if (old['asset_id'] not in selected or old['media_type'] not in {'image', 'video'}
@@ -1097,17 +1140,23 @@ def _assert_local_video_trim_ranges(attempt: dict[str, Any], authored: Path | No
         return
     from easel.integrations.material_layer import MaterialGateIntegration, ProductionAuthoringIntegration
     from easel.materials.store import AttemptMaterialStore
-    from easel.integrations.hypit.revision import assert_video_trim_ranges, assert_observed_video_uses
+    from . import native_source, native_revision, revision
+    rules = native_revision if native_source.enabled(attempt) else revision
 
-    _, bundle, _ = MaterialGateIntegration().assert_ready(attempt)
+    from .authoring_publication import frozen_evidence
     relative = "productions/easel-authoring/authors/main.svml"
-    store = AttemptMaterialStore(_workspace(attempt))
-    assets = {store.hypit_source_path(asset, relative): asset.technical.duration_seconds
-              for asset in bundle.assets if asset.media_type.value == "video"
-              and asset.technical.duration_seconds is not None}
-    assert_video_trim_ranges(authored or _workspace(attempt) / relative, assets)
-    assert_observed_video_uses(authored or _workspace(attempt) / relative,
-                               ProductionAuthoringIntegration().qualified_authoring_assets(attempt))
+    with frozen_evidence(native_source.enabled(attempt)):
+        _, bundle, _ = MaterialGateIntegration().assert_ready(attempt)
+        store = AttemptMaterialStore(_workspace(attempt))
+        assets = {store.hypit_source_path(asset, relative): asset.technical.duration_seconds
+                  for asset in bundle.assets if asset.media_type.value == "video"
+                  and asset.technical.duration_seconds is not None}
+        qualified = ProductionAuthoringIntegration().qualified_authoring_assets(attempt)
+    source = authored or _workspace(attempt) / relative
+    if native_source.enabled(attempt) and not isinstance(source, native_source.Document):
+        source = native_source.parse_file(source)
+    rules.assert_video_trim_ranges(source, assets)
+    rules.assert_observed_video_uses(source, qualified)
 
 
 def complete_film_authoring(
@@ -1121,6 +1170,18 @@ def complete_film_authoring(
     pricing and Build remain separate execution-stage operations.
     """
     attempt = get_film_attempt(attempt_id)
+    from . import native_source, authoring_publication
+    if attempt.get("pending_authoring_publication") or native_source.enabled(attempt):
+        try:
+            return authoring_publication.complete(attempt_id, cli=cli)
+        except HypitIntegrationError as exc:
+            if not get_film_attempt(attempt_id).get("pending_authoring_publication"):
+                def reject_source(item):
+                    item.pop("native_authoring_validation", None)
+                    return item
+                _save_attempt(attempt_id, reject_source)
+                _record_operation_error(attempt_id, "authoring_check", exc, status="AUTHORING_FAILED")
+            raise
     if "material_planning" in attempt or "material_gate" in attempt:
         from easel.integrations.material_layer import MaterialGateIntegration
 
@@ -1232,6 +1293,8 @@ def validate_film_attempt(
     recover_interrupted: bool = False,
 ) -> dict[str, Any]:
     attempt = get_film_attempt(attempt_id)
+    from .native_source import enabled as native_enabled
+    native = native_enabled(attempt)
     _assert_retry_checkpoint_ready(attempt)
     if "material_planning" in attempt or "material_gate" in attempt:
         from easel.integrations.material_layer import ProductionAuthoringIntegration
@@ -1250,18 +1313,28 @@ def validate_film_attempt(
     attempt = _save_attempt(attempt_id, begin_validation)
     workspace = _workspace(attempt)
     source = _run_source(attempt, run_path)
-    client = _cli(cli)
+    if native:
+        from .authoring_publication import frozen_evidence
+        with frozen_evidence():
+            client = _cli(cli)
+    else:
+        client = _cli(cli)
     try:
         _assert_composition_revision(attempt)
         _assert_local_video_trim_ranges(attempt)
-        check = client.check(workspace, source)
+        if native:
+            from .authoring_publication import check_authoring
+            check = check_authoring(client, workspace, source)
+        else:
+            check = client.check(workspace, source)
     except HypitIntegrationError as exc:
         _record_operation_error(attempt_id, "check", exc, status="AUTHORING_FAILED")
         raise
     if check.get("ok") is not True:
         def fail_check(item):
             item["authoring_status"] = "AUTHORING_FAILED"
-            item["authoring"] = {"status": "failed", "run_path": run_path, "check": check}
+            item["authoring"] = {**(item.get("authoring", {}) if native else {}),
+                                 "status": "failed", "run_path": run_path, "check": check}
             _set_summary(item)
             return _event(item, "authoring_check_failed")
         return _save_attempt(attempt_id, fail_check)
@@ -1285,7 +1358,8 @@ def validate_film_attempt(
         raise HypitIntegrationError("Plan 期间 Run/依赖发生变化；请重新 validate")
     def finish_plan(item):
         item["authoring_status"] = "PLANNED" if okay else "PLAN_FAILED"
-        item["authoring"] = {"status": "ready" if okay else "failed",
+        item["authoring"] = {**(item.get("authoring", {}) if native else {}),
+                              "status": "ready" if okay else "failed",
                               "run_path": run_path, "check": SecretRedactor.redact(check)}
         safe_plan = SecretRedactor.redact(plan)
         item["plan"] = {"status": "ready" if okay else "failed",

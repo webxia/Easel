@@ -8,7 +8,9 @@ class HypitIntegrationError(ValueError):
 class HypitCLIError(HypitIntegrationError):
     """A CLI invocation failed, optionally retaining a validated machine payload."""
 
-    def __init__(self, message: str, *, payload=None, returncode: int | None = None):
+    def __init__(self, message: str, *, payload=None, returncode: int | None = None,
+                 failure_kind: str | None = None):
         super().__init__(message)
         self.payload = payload
         self.returncode = returncode
+        self.failure_kind = failure_kind

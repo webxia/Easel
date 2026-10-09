@@ -2662,7 +2662,7 @@ def _authoring_agent_message(attempt_id: str, task: dict[str, str]) -> str:
 
 
 def _output_consumer_policy(attempt, stage, logical_id, session, prompt, *, profile,
-                            input_identity, attachments=None, legacy_artifact=False):
+                            input_identity, attachments=None, legacy_artifact=False, result_spec=None, result_store=None):
     """Pin one existing consumer before dispatch; do not upgrade retained runs."""
     from easel.integrations import output_receipts as receipts
     from easel.output_admission import digest
@@ -2676,13 +2676,13 @@ def _output_consumer_policy(attempt, stage, logical_id, session, prompt, *, prof
                'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(),
                'attachments_sha256': digest(attachments),
                'route': {'profile': OPENCLAW_PROFILE, 'thinking': THINKING_LEVEL}}
-    store = AttemptMaterialStore(attempt['workspace']['path'])
+    store = result_store if result_store is not None else AttemptMaterialStore(attempt['workspace']['path'])
     prior = receipts.read_record(store, receipts.policy_key(stage, logical_id))
     has_new_execution = any(row.get('session_key', '').startswith('agent:main:' + session + '-ad-') for row in old_calls)
     if has_new_execution and (prior is None or prior.get('mode') != 'current'):
         raise receipts.OutputReceiptError('Existing consumer execution lost its pinned policy')
     policy = receipts.pin_policy(store, stage=stage, logical_id=logical_id,
-                                binding=binding, profile=profile, legacy_started=started)
+                                binding=binding, profile=profile, legacy_started=started, spec=result_spec)
     return store, policy
 
 
@@ -2701,17 +2701,33 @@ def _read_admitted_truth(store, policy, instruction, path):
     return captured['candidate'], captured
 
 
+def _assess_source_ref_truth(attempt, script, plan=None):
+    from easel.integrations.truth_source_refs import assess, TruthReviewRefused
+    try:
+        return assess(attempt, script, plan, get_work=get_creation,
+            invoke=lambda instruction, session: _run_timed_creation_agent(
+                'truth', attempt['attempt_id'], instruction, TIMEOUT_PRODUCE, session),
+            pin=_output_consumer_policy)
+    except TruthReviewRefused as exc:
+        raise PreparationError(str(exc)) from exc
+
+
 def _assess_planning_script(attempt: dict, script: str) -> dict | None:
     """Execute a source-bound Script assessment through the existing gateway."""
+    from easel.integrations.result_protocols import selected
+    if selected(attempt, 'truth_reply') == 'truth-source-ref@1':
+        return _assess_source_ref_truth(attempt, script)[0]
     from easel.integrations.script_truth import (
         create_script_claim_ledger, apply_system_script_review, system_review_sources,
     )
     root = Path(attempt["workspace"]["path"]).resolve()
     truth_path = root / "handoff/truth-packet.json"
-    ledger = create_script_claim_ledger(script, truth_path)
+    ledger_revision = selected(attempt, 'script_ledger') or 'easel-script-claim-ledger@2'
+    ledger = create_script_claim_ledger(script, truth_path, revision=ledger_revision)
     if ledger["status"] == "PASSED":
         return None
-    identity = hashlib.sha256((ledger["script_sha256"] + ledger["truth_packet_sha256"]).encode()).hexdigest()
+    identity = hashlib.sha256((ledger['ledger_sha256'] if ledger_revision.endswith('@3') else
+        ledger['script_sha256'] + ledger['truth_packet_sha256']).encode()).hexdigest()
     report_path = root / "planning" / f"script-assessment-{identity}.json"
     template = {"schema": "easel-script-assessment@1", "script_sha256": ledger["script_sha256"],
                 "truth_packet_sha256": ledger["truth_packet_sha256"], "decisions": [
@@ -2784,6 +2800,9 @@ def _assess_planning_script(attempt: dict, script: str) -> dict | None:
 
 def _assess_planning_truth(attempt, plan, script):
     """One existing Truth execution, with a distinct mandatory preset item."""
+    from easel.integrations.result_protocols import selected
+    if selected(attempt, 'truth_reply') == 'truth-source-ref@1':
+        return _assess_source_ref_truth(attempt, script, plan)
     from easel.integrations import voice_identity as voice
     from easel.integrations.script_truth import create_script_claim_ledger, apply_system_script_review
     work = get_creation(attempt['creation_id'])
@@ -2791,13 +2810,16 @@ def _assess_planning_truth(attempt, plan, script):
         return _assess_planning_script(attempt, script), None
     root = Path(attempt['workspace']['path']).resolve()
     truth_path = root / 'handoff/truth-packet.json'
-    ledger = create_script_claim_ledger(script, truth_path)
+    ledger_revision = selected(attempt, 'script_ledger') or 'easel-script-claim-ledger@2'
+    ledger = create_script_claim_ledger(script, truth_path, revision=ledger_revision)
     base_ledger = ledger
     existing_path = root / 'planning/script-claims.json'
     if existing_path.is_file() and not existing_path.is_symlink():
         from easel.integrations.script_truth import validate_script_claim_ledger
         try:
             existing = validate_script_claim_ledger(script, truth_path, json.loads(existing_path.read_text(encoding='utf-8')))
+            if existing['schema'] != ledger_revision:
+                raise PreparationError('Script claim ledger revision differs from the frozen Attempt')
             if existing['status'] == 'PASSED': ledger = existing
         except (OSError, ValueError):
             pass
@@ -2878,7 +2900,7 @@ def _assess_planning_truth(attempt, plan, script):
             failure = SecretRedactor.redact_text(str(exc))[:1000]
             continue
         try:
-            if create_script_claim_ledger(script, truth_path) != base_ledger:
+            if create_script_claim_ledger(script, truth_path, revision=ledger_revision) != base_ledger:
                 raise PreparationError('Truth执行期间冻结脚本来源变化')
             if script_template is None:
                 if report['script'] is not None:
@@ -3070,6 +3092,8 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
     from easel.materials.store import AttemptMaterialStore
     from easel.integrations.hypit.handoff import load_frozen_creative_mode
     store = AttemptMaterialStore(attempt['workspace']['path'])
+    from easel.integrations import material_results
+    result_processor = material_results.processor(attempt, store)
     shared = manifest.get('schema') == GROUP_SCHEMA
     inputs = manifest['observations'] if shared else [manifest]
     plan = store.read_plan()
@@ -3088,7 +3112,7 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
         path = store.materials_root / 'observations' / (item['input_sha256'] + '.json')
         if path.is_file():
             try:
-                saved_report = read_observation_report(path, need, asset, item)
+                saved_report = read_observation_report(path, need, asset, item, result_processor=result_processor)
                 if saved_report.get('requirements_contract', {}).get('revision', REVISION) != requirements_revision(plan):
                     raise ValueError('观察报告接收规则与冻结Plan不一致')
                 reports[need.need_id] = saved_report
@@ -3145,6 +3169,20 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
             contract = validate_compilation(frozen, cached['response'])
             if contract != cached.get('contract'):
                 raise PreparationError('要求合同保存结果不一致')
+        if result_processor is not None:
+            try:
+                report = material_results.observe(attempt, item, contract, attachments,
+                    pin=_output_consumer_policy,
+                    invoke=lambda message, session, media: run_agent_sync(
+                        message, TIMEOUT_PRODUCE, session, attachments=media, capture_reply=True))
+            except (ValueError, material_results.MaterialFactsDisputed) as exc:
+                raise PreparationError(str(exc)) from exc
+            from easel.materials.application.visual_observation import apply_observation
+            apply_observation(need, asset, item, report, result_processor=result_processor,
+                              persist_qualification=True)
+            store.write_observation_record(item['input_sha256'], report)
+            reports[need.need_id] = report
+            continue
         results = []
         for ordinal, batch in enumerate(batches(item, contract)):
             facts_key = 'frame-facts-' + digest({'asset_sha256': item['asset_sha256'], 'frame': batch['frame']})
@@ -3207,13 +3245,23 @@ def _observe_material_frames(attempt: dict, manifest: dict, attachments: list[di
         reports[need.need_id] = report
     if shared:
         result = {'schema': GROUP_SCHEMA, 'input_sha256': manifest['input_sha256'], 'reports': reports}
-        validate_shared_report(manifest, store.read_asset(inputs[0]['asset_id']), result)
+        validate_shared_report(manifest, store.read_asset(inputs[0]['asset_id']), result, result_processor=result_processor)
         store.write_observation_record(manifest['input_sha256'], result)
         return result
     return reports[inputs[0]['need']['need_id']]
 
 
 def _review_output_frames(attempt: dict, manifest: dict, attachments: list[dict]) -> dict:
+    from easel.integrations import quality_results
+    if quality_results.enabled(attempt):
+        try:
+            return quality_results.review(attempt, manifest, attachments,
+                pin=_output_consumer_policy,
+                invoke=lambda instruction, session, media: run_agent_sync(
+                    instruction, TIMEOUT_PRODUCE, session, attachments=media))
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise PreparationError('系统审片增量报告未通过原合同：'
+                                   + SecretRedactor.redact_text(str(exc))[:1000]) from exc
     from easel.integrations.hypit.quality import SCHEMA, VISUAL_CHECKS, CONTENT_CHECKS, validate_visual_review
     root = Path(attempt['workspace']['path']).resolve()
     report_path = root / '.easel/quality' / (manifest['input_sha256'] + '.json')
@@ -3840,7 +3888,11 @@ def _semantic_material_planning_executor(attempt, planning_context, canonical, r
 
 async def _run_film_authoring(attempt_id: str) -> dict:
     """Dispatch one durable no-media Authoring job through the existing Agent."""
+    from easel.integrations.hypit import native_source, authoring_publication
+    from easel.integrations.output_receipts import OutputReceiptError
     before = get_film_attempt(attempt_id)
+    if before.get("pending_authoring_publication") or before.get("native_authoring_validation"):
+        return await asyncio.to_thread(complete_film_authoring, attempt_id)
     previous = before.get("authoring_status")
     prior_error = (before.get("last_error") or {}).get("message")
     started = await asyncio.to_thread(begin_film_authoring, attempt_id)
@@ -3971,6 +4023,30 @@ async def _run_film_authoring(attempt_id: str) -> dict:
             from easel.materials.store import AttemptMaterialStore
 
             current = get_film_attempt(attempt_id)
+            if native_source.enabled(current):
+                # Keep the model's raw files intact. All code-owned derivation
+                # and the final Hypit check happen in complete's isolated candidate.
+                try:
+                    doc = native_source.parse_file(staged / authoring_publication.AUTHOR,
+                                                   workspace=staged, require_support=False)
+                    with authoring_publication.frozen_evidence():
+                        plan, bundle, readiness = MaterialGateIntegration().assert_ready(current)
+                    run = staged / authoring_publication.RUN
+                    if (staged / authoring_publication.SIDECAR).exists():
+                        authoring_publication.assert_run_current(current, staged, authoring_publication.RUN,
+                                                                 plan, bundle, readiness)
+                    else:
+                        authoring_publication._check_manifest(run.read_bytes(), current, plan, bundle, readiness)
+                    declared = {node.literal("src") for node in doc.iter()
+                                if node.module == "@hypit/media" and node.local_name in {"Image", "Video", "Audio"}}
+                    with authoring_publication.frozen_evidence():
+                        allowed = {item["src"] for item in ProductionAuthoringIntegration().qualified_authoring_assets(current)}
+                    if not declared or not declared <= allowed:
+                        raise MaterialIntegrationError("SVML 引用了未通过当前 Need/Match 的素材")
+                    authoring_publication._admit(current, doc)
+                except OSError as exc:
+                    raise OutputReceiptError("Native Authoring capture failed locally; retain this stage") from exc
+                return
             authored = staged / "productions/easel-authoring/authors/main.svml"
             authored.write_text(ProductionAuthoringIntegration().compile_narration(
                 current, authored.read_text(encoding="utf-8")), encoding="utf-8")
@@ -4070,7 +4146,7 @@ async def _run_film_authoring(attempt_id: str) -> dict:
 
         result = dispatch(turn_message)
         current = get_film_attempt(attempt_id)
-        if "material_planning" in current or "material_gate" in current:
+        if ("material_planning" in current or "material_gate" in current) and not native_source.enabled(current):
             from easel.integrations.material_layer import (
                 MaterialIntegrationError, ProductionAuthoringIntegration,
             )
@@ -4116,6 +4192,8 @@ async def _run_film_authoring(attempt_id: str) -> dict:
             )
             await asyncio.to_thread(run_scoped_authoring, repair_message)
             return await asyncio.to_thread(complete_film_authoring, attempt_id)
+    except OutputReceiptError:
+        raise  # Local evidence/IO/publication recovery never changes Authoring to model-repair state.
     except DeliveryExecutionUncertain:
         raise
     except Exception as exc:

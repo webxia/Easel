@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from easel import creation
+from easel.integrations import material_results
 from easel.integrations.hypit.cli import HypitCLI
 from easel.integrations.hypit.errors import HypitIntegrationError
 from easel.materials.application.readiness import MaterialReadinessCalculator
@@ -138,10 +139,33 @@ def _hypit_run_markup(run_source: Path, root: Path, attempt: dict[str, Any],
         '  <target output="final.video"/>\n'
         '</svrun>\n'
     )
-    if native:
-        if run_source.read_text(encoding="utf-8") != markup:
-            raise MaterialIntegrationError("Hypit Run differs from the validated Easel identity manifest")
-    else:
+    if native and run_source.read_text(encoding="utf-8") != markup:
+        raise MaterialIntegrationError("Hypit Run differs from the validated Easel identity manifest")
+    from easel.integrations import result_protocols
+    if result_protocols.selected(attempt, 'hypit_run_promotion') == 'hypit-run-promotion@1':
+        # A selected new Attempt retains this exact two-file promotion
+        # identity, including after only its sidecar has been written.
+        from easel.integrations.hypit import publication
+        frozen_identity = hashlib.sha256(json.dumps({
+            'schema': 'hypit-run-promotion@1',
+            'expected': expected,
+            'build': build,
+            'handoff_sha256': attempt.get('handoff', {}).get('hash'),
+            'result_protocols': result_protocols.inherited(attempt),
+        }, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+        candidates = {
+            identity_source.relative_to(root).as_posix(): raw.encode('utf-8'),
+            run_source.relative_to(root).as_posix(): markup.encode('utf-8'),
+        }
+        try:
+            journal_id = publication.prepare(root, attempt_id=attempt['attempt_id'],
+                operation_id='svrun-promotion-v1', frozen_identity=frozen_identity,
+                candidates=candidates, require_existing=native)
+            publication.publish(root, journal_id)
+            publication.verify(root, journal_id)
+        except publication.AuthoringPublicationError as exc:
+            raise MaterialIntegrationError('Native SVRun promotion cannot be completed or recovered') from exc
+    elif not native:
         identity_source.write_text(raw, encoding="utf-8")
         run_source.write_text(markup, encoding="utf-8")
     return markup
@@ -149,7 +173,7 @@ def _hypit_run_markup(run_source: Path, root: Path, attempt: dict[str, Any],
 
 def _ensure_hypit_svml_header(author_source: Path) -> str:
     """Add Hypit's required source declaration without changing authored markup."""
-    authored = author_source.read_text(encoding="utf-8")
+    authored = author_source.read_bytes().decode("utf-8")
     if authored.startswith('<?svml using="@hypit/markup@1"?>'):
         return authored
     xml_declaration = re.match(r"\s*<\?xml\s+[^?]*\?>\s*", authored)
@@ -280,6 +304,7 @@ class PlanningIntegration:
         voice_identity_assessment: dict[str, Any] | None = None,
         inherit_voice_identity: bool = False,
         requirements_source: dict[str, Any] | None = None,
+        truth_result_reference: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if plan.creation_id != attempt.get("creation_id") or plan.attempt_id != attempt.get("attempt_id"):
             raise MaterialIntegrationError("MaterialPlan identity does not match Attempt")
@@ -352,8 +377,10 @@ class PlanningIntegration:
             except (OSError, ValueError, TypeError, KeyError) as exc:
                 raise MaterialIntegrationError('Planning语义编译完整性无效：' + str(exc)) from exc
         truth_path = root / "handoff" / "truth-packet.json"
+        from easel.integrations import result_protocols as result_versions
+        ledger_revision = result_versions.selected(attempt, "script_ledger") or "easel-script-claim-ledger@2"
         try:
-            review = create_script_claim_ledger(script, truth_path)
+            review = create_script_claim_ledger(script, truth_path, revision=ledger_revision)
             if script_assessment is not None:
                 review = apply_system_script_review(script, truth_path, review, script_assessment)
         except ScriptTruthError as exc:
@@ -362,12 +389,25 @@ class PlanningIntegration:
         if _has_symlink_components(root, review_path):
             raise MaterialIntegrationError("Script claim ledger path must not contain symlinks")
         if review_path.is_file():
+            if ledger_revision.endswith("@3"):
+                try:
+                    existing_data = json.loads(review_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    raise MaterialIntegrationError("Frozen Script ledger cannot be upgraded or recovered") from exc
+                if existing_data.get("schema") != ledger_revision:
+                    raise MaterialIntegrationError("Frozen Script ledger revision changed")
             try:
                 existing_review = validate_script_claim_ledger(script, truth_path, json.loads(review_path.read_text(encoding="utf-8")))
                 if existing_review["status"] == "PASSED" or script_assessment is None:
                     review = existing_review
             except (OSError, ValueError, ScriptTruthError):
                 pass  # Changed script/truth must receive a fresh review ledger.
+        from easel.output_admission import digest as result_digest
+        truth_result = None
+        if result_versions.selected(attempt, 'truth_reply') == 'truth-source-ref@1':
+            from easel.integrations.truth_source_refs import planning_origin
+            truth_result = planning_origin(AttemptMaterialStore(root), attempt, script, truth_path, review,
+                report=script_assessment, inherited_reference=truth_result_reference)
         review_path.parent.mkdir(parents=True, exist_ok=True)
         review_path.write_text(json.dumps(review, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         store = AttemptMaterialStore(root)
@@ -396,6 +436,9 @@ class PlanningIntegration:
                 for key, path in artifact_paths.items()
             },
         }
+        if 'result_protocols' in attempt:
+            manifest['result_protocols'] = result_versions.inherited(attempt)
+            manifest['truth_result'] = truth_result
         if version in {2, 3}:
             from easel.integrations.planning_contract import requirements_bytes
             if requirements_bytes(root, plan) != requirements_raw:
@@ -442,6 +485,8 @@ class PlanningIntegration:
                 "truth_review_status": review["status"],
                 "truth_ledger_locator": "planning/script-claims.json",
                 "truth_ledger_sha256": review["ledger_sha256"],
+                **({'result_protocols_sha256': result_digest(result_versions.inherited(attempt))}
+                   if 'result_protocols' in attempt else {}),
                 "script_sha256": review["script_sha256"],
                 "truth_packet_sha256": review["truth_packet_sha256"],
                 "truth_claim_count": len(review["claims"]),
@@ -514,6 +559,13 @@ class PlanningIntegration:
         elif (schema != 'easel-material-planning@1' or stored.get('status') != 'PLANNING_READY'
               or stored.get('plan_id') != plan.plan_id or stored.get('plan_revision') != manifest['plan_revision']):
             raise MaterialIntegrationError('旧Planning不是有效的冻结检查点')
+        from easel.integrations import result_protocols as result_versions
+        from easel.output_admission import digest as result_digest
+        pinned_results = result_versions.inherited(attempt)
+        if (result_versions.validate(manifest.get('result_protocols', {'schema': result_versions.SCHEMA, 'profiles': {}})) != pinned_results
+                or owner_attempt and result_versions.inherited(owner_attempt) != pinned_results
+                or 'result_protocols' in attempt and stored.get('result_protocols_sha256') != result_digest(pinned_results)):
+            raise MaterialIntegrationError('Planning result protocols differ from the frozen Attempt')
         artifacts: dict[str, str] = {}
         for key in ("treatment", "script", "scenes"):
             item = manifest.get("artifacts", {}).get(key)
@@ -535,8 +587,14 @@ class PlanningIntegration:
         try:
             ledger = json.loads(review_path.read_text(encoding="utf-8"))
             ledger = validate_script_claim_ledger(artifacts["script"], root / "handoff" / "truth-packet.json", ledger)
+            if ledger["schema"] != (result_versions.selected(attempt, "script_ledger") or "easel-script-claim-ledger@2"):
+                raise ValueError("Persisted Script ledger extractor revision differs from the Attempt")
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             raise MaterialIntegrationError("Persisted Script claim ledger is invalid or stale") from exc
+        if result_versions.selected(attempt, 'truth_reply') == 'truth-source-ref@1':
+            from easel.integrations.truth_source_refs import bind_ledger_origin
+            bind_ledger_origin(store, attempt, manifest.get('truth_result'), artifacts['script'],
+                               root / 'handoff/truth-packet.json', ledger)
         stored = attempt.get("material_planning", {})
         if (stored.get("truth_review_status") != ledger.get("status")
                 or stored.get("truth_ledger_sha256") != ledger.get("ledger_sha256")
@@ -582,8 +640,12 @@ class PlanningIntegration:
                 raise MaterialIntegrationError("Script/Truth review artifacts are unavailable or unsafe")
         try:
             ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+            from easel.integrations import result_protocols
+            expected_revision = result_protocols.selected(attempt, "script_ledger") or "easel-script-claim-ledger@2"
+            if ledger.get("schema") != expected_revision:
+                raise MaterialIntegrationError("Operator Script review does not match the Attempt protocol pin")
             updated_ledger = apply_operator_script_review(
-                script_path.read_text(encoding="utf-8"), truth_path, ledger,
+                script_path.read_bytes().decode("utf-8"), truth_path, ledger,
                 confirm_all_claims_reviewed=confirm_all_claims_reviewed,
                 expected_script_sha256=expected_script_sha256,
                 expected_truth_packet_sha256=expected_truth_packet_sha256,
@@ -636,7 +698,7 @@ class MaterialGateIntegration:
             raise MaterialIntegrationError("SupplyRun.result_bundle_id does not match MaterialBundle")
         if readiness.plan_id != plan.plan_id or readiness.bundle_id != bundle.bundle_id:
             raise MaterialIntegrationError("MaterialReadiness identity mismatch")
-        calculator = MaterialReadinessCalculator(store=store)
+        calculator = material_results.readiness_calculator(attempt, store)
         current, current_gaps = calculator.calculate(plan, bundle)
         if current != readiness or tuple(gaps) != current_gaps:
             raise MaterialIntegrationError("MaterialReadiness evidence is stale")
@@ -709,7 +771,7 @@ class MaterialGateIntegration:
             bundle = store.read_bundle()
         except Exception as exc:
             raise MaterialIntegrationError("Material Plan/Bundle evidence is unavailable") from exc
-        readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
+        readiness, gaps = material_results.readiness_calculator(attempt, store).calculate(plan, bundle)
         if readiness.status is not ReadinessStatus.READY or gaps:
             raise MaterialIntegrationError("MaterialReadiness 已失效；禁止进入 Production Authoring")
         if gate.get("bundle_revision") != bundle.revision or gate.get("plan_revision") != readiness.plan_revision:
@@ -749,8 +811,8 @@ class ProductionAuthoringIntegration:
         for need_id, choice in choices.items():
             asset = store.read_asset(choice['asset_id']) if choice['asset_id'] in assets else None
             if (asset is None or asset.file.sha256 != choice['sha256']
-                    or not MaterialReadinessCalculator(store=store)._accessible(asset)
-                    or need_id not in ProductionAuthoringIntegration._qualified_need_ids(plan, bundle, asset)):
+                    or not material_results.readiness_calculator(attempt, store)._accessible(asset)
+                    or need_id not in ProductionAuthoringIntegration._qualified_need_ids(plan, bundle, asset, store=store, attempt=attempt)):
                 raise MaterialIntegrationError('已接受的素材仍须满足当前权利、技术和匹配要求')
         return choices
 
@@ -776,15 +838,20 @@ class ProductionAuthoringIntegration:
                                                              math.floor(interval[1] * rate)]
                                                   for rate in (24, 25, 30, 60)}}
                         for need in plan.needs if need.need_id in need_ids
-                        and (interval := observed_interval(need, asset)) is not None
+                        and (interval := material_results.current_interval(store, need, asset, attempt)) is not None
                     ]} if asset.media_type is MediaType.VIDEO else {}),
             }
             for asset in bundle.assets
-            if (need_ids := self._qualified_need_ids(plan, bundle, asset))
+            if (need_ids := self._qualified_need_ids(plan, bundle, asset, store=store, attempt=attempt))
         ]
 
     def record_selection_from_authored_svml(self, attempt: dict[str, Any]) -> dict[str, Any]:
         """Record Production's actual media references using Easel-owned identity fields."""
+        from easel.integrations.hypit.native_source import enabled
+        if enabled(attempt):
+            from easel.integrations.hypit.authoring_publication import require_no_pending
+            require_no_pending(attempt)
+            return {"status": "PENDING_NATIVE_VALIDATION", "attempt": attempt}
         _, bundle, _ = self.gate.assert_ready(attempt)
         root = _workspace(attempt)
         authoring_source = "productions/easel-authoring/authors/main.svml"
@@ -846,7 +913,7 @@ class ProductionAuthoringIntegration:
         records = []
         for asset_id in selected:
             asset = assets[asset_id]
-            need_ids = self._qualified_need_ids(plan, bundle, asset)
+            need_ids = self._qualified_need_ids(plan, bundle, asset, store=store, attempt=attempt)
             if not need_ids:
                 raise MaterialIntegrationError("Production 选择的素材没有当前合格 Need ↔ Asset Match")
             source = store.hypit_source_path(asset, authoring_source)
@@ -909,35 +976,55 @@ class ProductionAuthoringIntegration:
         return {"status": updated["production_authoring"]["status"], "selection": selection, "attempt": updated}
 
     def compile_narration(self, attempt: dict[str, Any], source: str,
-                          author_path: str = "productions/easel-authoring/authors/main.svml") -> str:
+                          author_path: str = "productions/easel-authoring/authors/main.svml", *,
+                          _root=None, _document=None) -> str:
         """Compile from the current admitted evidence, never the agent's copy."""
         from easel.integrations.hypit.narration import compile_measured_narration
         from easel.integrations.hypit.music import compile_music_ducking
         from easel.integrations.hypit.handoff import load_frozen_creative_mode
         from easel.materials.application.voice_delivery import authoring_voice_timings
 
-        plan, bundle, _ = self.gate.assert_ready(attempt)
-        store = AttemptMaterialStore(_workspace(attempt))
-        if not any(getattr(need.modality_spec, 'kind', None) == 'voice' for need in plan.needs):
-            return source
-        if not any(record.get("voice_timing") for record in store.list_generation_records()):
-            return source
-        planning = PlanningIntegration().load(attempt)
-        timings = authoring_voice_timings(plan, bundle, store, planning["script"])
-        sources = {asset.asset_id: store.hypit_source_path(asset, author_path) for asset in bundle.assets}
-        try:
-            source = compile_measured_narration(source, timings, sources)
+        from easel.integrations.hypit import native_source, native_audio_graph
+        from easel.integrations.hypit.authoring_publication import frozen_evidence
+        with frozen_evidence(native_source.enabled(attempt)):
+            plan, bundle, _ = self.gate.assert_ready(attempt)
+            store = AttemptMaterialStore(_workspace(attempt))
+            if not any(getattr(need.modality_spec, 'kind', None) == 'voice' for need in plan.needs):
+                return source
+            if not any(record.get("voice_timing") for record in store.list_generation_records()):
+                return source
+            planning = PlanningIntegration().load(attempt)
+            timings = authoring_voice_timings(plan, bundle, store, planning["script"])
+            sources = {asset.asset_id: store.hypit_source_path(asset, author_path) for asset in bundle.assets}
             mode, _ = load_frozen_creative_mode(attempt)
             bgm_needs = {n.need_id for n in plan.needs if getattr(n.modality_spec, 'kind', None) == 'bgm'}
             bgm_ids = {m.asset_id for m in bundle.matches if m.qualified and m.need_id in bgm_needs}
+        try:
+            if native_source.enabled(attempt):
+                root = Path(_root) if _root is not None else _workspace(attempt)
+                doc = _document or native_source.parse_text(source, root / author_path, workspace=root, require_support=False)
+                source = native_audio_graph.compile_measured_narration(doc, timings, sources)
+                doc = native_source.parse_text(source, root / author_path, workspace=root, identity=doc.identity, require_support=False)
+                return native_audio_graph.compile_music_ducking(doc, timings, sources, bgm_ids, mode.get('music_ducking'))
+            source = compile_measured_narration(source, timings, sources)
             return compile_music_ducking(source, timings, sources, bgm_ids, mode.get('music_ducking'))
         except (ValueError, KeyError) as exc:
             raise MaterialIntegrationError(f"旁白原生编排需要修正：{exc}") from exc
 
     def validate_authored_selection(self, attempt: dict[str, Any], run_path: str) -> dict[str, Any]:
+        from easel.integrations.hypit.native_source import enabled
+        if enabled(attempt):
+            from easel.integrations.hypit.authoring_publication import validate_current
+            return validate_current(attempt, run_path, integration=self)
+        return self._validate_authored_selection(attempt, run_path)
+
+    def _validate_authored_selection(self, attempt: dict[str, Any], run_path: str, *,
+                                     _root=None, _document=None) -> dict[str, Any]:
         """Bind Production's explicit selection to real workspace bytes and SVML references."""
-        plan, bundle, readiness = self.gate.assert_ready(attempt)
-        root = _workspace(attempt)
+        from easel.integrations.hypit.authoring_publication import frozen_evidence
+        with frozen_evidence(_document is not None):
+            plan, bundle, readiness = self.gate.assert_ready(attempt)
+        root = Path(_root) if _root is not None else _workspace(attempt)
         store = AttemptMaterialStore(root)
         run = Path(run_path)
         if run.is_absolute() or ".." in run.parts:
@@ -948,28 +1035,41 @@ class ProductionAuthoringIntegration:
         run_source = run_lexical.resolve()
         if root not in run_source.parents or not run_source.is_file():
             raise MaterialIntegrationError("Hypit Run is missing or outside the Attempt workspace")
-        run_text = _hypit_run_markup(run_source, root, attempt, plan, bundle, readiness)
-        author_match = re.search(r'<author\b[^>]*\bsource="([^"]+)"', run_text)
-        if author_match is None:
-            raise MaterialIntegrationError("SVRun must identify its authored SVML source")
-        authored_ref = Path(author_match.group(1))
-        authored_lexical = run_source.parent / authored_ref
-        authored_source = authored_lexical.resolve()
-        if (authored_ref.is_absolute() or root not in authored_source.parents
-                or _has_symlink_components(root, authored_lexical) or not authored_source.is_file()):
-            raise MaterialIntegrationError("SVRun author source is missing or outside the Attempt workspace")
-        authored_text = _ensure_hypit_svml_header(authored_source)
-        _assert_production_only_sources(run_text, authored_text)
-        from easel.integrations.hypit.revision import assert_observed_video_uses
-        assert_observed_video_uses(authored_source, self.qualified_authoring_assets(attempt))
-        if self.compile_narration(attempt, authored_text, str(authored_source.relative_to(root))) != authored_text:
-            raise MaterialIntegrationError("原生旁白/字幕与当前可信音频时序不一致，请重新完成编排")
-        if '@easel/audio-mix@1' in authored_text:
-            from easel.integrations.hypit.music import install_music_component
-            try:
-                install_music_component(root)
-            except ValueError as exc:
-                raise MaterialIntegrationError(str(exc)) from exc
+        if _document is not None:
+            from easel.integrations.hypit.authoring_publication import assert_run_current
+            from easel.integrations.hypit import native_revision
+            assert_run_current(attempt, root, run_path, plan, bundle, readiness)
+            authored_source = root / _document.source.name
+            authored_text = _document.source.text
+            with frozen_evidence():
+                qualified = self.qualified_authoring_assets(attempt)
+            native_revision.assert_observed_video_uses(_document, qualified)
+            if self.compile_narration(attempt, authored_text, str(authored_source.relative_to(root)),
+                                      _root=root, _document=_document) != authored_text:
+                raise MaterialIntegrationError("原生旁白/字幕与当前可信音频时序不一致，请重新完成编排")
+        else:
+            run_text = _hypit_run_markup(run_source, root, attempt, plan, bundle, readiness)
+            author_match = re.search(r'<author\b[^>]*\bsource="([^"]+)"', run_text)
+            if author_match is None:
+                raise MaterialIntegrationError("SVRun must identify its authored SVML source")
+            authored_ref = Path(author_match.group(1))
+            authored_lexical = run_source.parent / authored_ref
+            authored_source = authored_lexical.resolve()
+            if (authored_ref.is_absolute() or root not in authored_source.parents
+                    or _has_symlink_components(root, authored_lexical) or not authored_source.is_file()):
+                raise MaterialIntegrationError("SVRun author source is missing or outside the Attempt workspace")
+            authored_text = _ensure_hypit_svml_header(authored_source)
+            _assert_production_only_sources(run_text, authored_text)
+            from easel.integrations.hypit.revision import assert_observed_video_uses
+            assert_observed_video_uses(authored_source, self.qualified_authoring_assets(attempt))
+            if self.compile_narration(attempt, authored_text, str(authored_source.relative_to(root))) != authored_text:
+                raise MaterialIntegrationError("原生旁白/字幕与当前可信音频时序不一致，请重新完成编排")
+            if '@easel/audio-mix@1' in authored_text:
+                from easel.integrations.hypit.music import install_music_component
+                try:
+                    install_music_component(root)
+                except ValueError as exc:
+                    raise MaterialIntegrationError(str(exc)) from exc
 
         selection_path = root / "productions" / "easel-authoring" / "material-selection.json"
         if _has_symlink_components(root, selection_path):
@@ -977,7 +1077,12 @@ class ProductionAuthoringIntegration:
         try:
             selection_bytes = selection_path.read_bytes()
             selection = json.loads(selection_bytes.decode("utf-8"))
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except OSError as exc:
+            if _document is not None:
+                from easel.integrations.output_receipts import OutputReceiptError
+                raise OutputReceiptError("Production selection storage is unavailable; recover local validation") from exc
+            raise MaterialIntegrationError("Production material selection evidence is unavailable") from exc
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise MaterialIntegrationError("Production material selection evidence is unavailable") from exc
         if not isinstance(selection, dict):
             raise MaterialIntegrationError("Production material selection evidence is invalid")
@@ -1021,7 +1126,8 @@ class ProductionAuthoringIntegration:
         selection_bytes = (
             json.dumps(selection, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
         ).encode("utf-8")
-        selection_path.write_bytes(selection_bytes)
+        if _document is None:
+            selection_path.write_bytes(selection_bytes)
         previous_authoring = attempt.get("production_authoring")
         if not isinstance(previous_authoring, dict):
             previous_authoring = {}
@@ -1048,12 +1154,16 @@ class ProductionAuthoringIntegration:
         assets = {asset.asset_id: asset for asset in bundle.assets}
         if len({item.get("asset_id") for item in records if isinstance(item, dict)}) != len(records):
             raise MaterialIntegrationError("Production selection contains duplicate or malformed Asset records")
-        declared_media_sources = {
-            value for value in re.findall(
-                r'<(?:[A-Za-z_][\w.-]*:)?(?:Image|Video|Audio)\b[^>]*\bsrc="([^"]+)"',
-                authored_text,
-            )
-        }
+        if _document is not None:
+            declared_media_sources = {node.literal("src") for node in _document.iter()
+                                      if node.module == "@hypit/media" and node.local_name in {"Image", "Video", "Audio"}}
+        else:
+            declared_media_sources = {
+                value for value in re.findall(
+                    r'<(?:[A-Za-z_][\w.-]*:)?(?:Image|Video|Audio)\b[^>]*\bsrc="([^"]+)"',
+                    authored_text,
+                )
+            }
         selected_ids: list[str] = []
         checked: list[dict[str, str]] = []
         attributions: list[dict[str, Any]] = []
@@ -1066,16 +1176,29 @@ class ProductionAuthoringIntegration:
             asset = assets.get(asset_id) if isinstance(asset_id, str) else None
             if asset is None:
                 raise MaterialIntegrationError("Production selected an Asset outside the current MaterialBundle")
-            actual_path = store.resolve_asset_locator(asset.file.path)
-            digest = hashlib.sha256(actual_path.read_bytes()).hexdigest()
-            if digest != asset.file.sha256 or actual_path.stat().st_size != asset.file.size:
-                raise MaterialIntegrationError(f"Selected MaterialAsset bytes changed after admission: {asset_id}")
+            with frozen_evidence(_document is not None):
+                actual_path = store.resolve_asset_locator(asset.file.path)
+                digest = hashlib.sha256(actual_path.read_bytes()).hexdigest()
+                if digest != asset.file.sha256 or actual_path.stat().st_size != asset.file.size:
+                    raise MaterialIntegrationError(f"Selected MaterialAsset bytes changed after admission: {asset_id}")
             expected_src = store.hypit_source_path(asset, authored_source.relative_to(root).as_posix())
             if item.get("sha256") != digest:
                 raise MaterialIntegrationError("Production selection hash does not match admitted Asset")
             if expected_src not in declared_media_sources:
                 raise MaterialIntegrationError(f"SVML does not reference selected MaterialAsset: {asset_id}")
-            if asset.media_type is MediaType.IMAGE:
+            if asset.media_type is MediaType.IMAGE and _document is not None:
+                from easel.integrations.hypit.native_graph import linked, target
+                images = [node for node in _document.find("@hypit/media", "Image") if node.literal("src") == expected_src]
+                for node in _document.iter():
+                    if (_document.kind(node) not in {("@hypit/media-track", name) for name in ("Item", "Member", "Layer")}
+                            or not any(linked(node.ref("image"), image) for image in images)):
+                        continue
+                    extent = target(_document, node.ref("extent"), ("@hypit/spatial", "Extent"))
+                    if (asset.technical.width is None or asset.technical.height is None
+                            or extent.literal("width") != str(asset.technical.width)
+                            or extent.literal("height") != str(asset.technical.height)):
+                        raise MaterialIntegrationError(f"Image Extent must use inspected source dimensions: {asset_id}")
+            elif asset.media_type is MediaType.IMAGE:
                 image_ids = re.findall(
                     r'<media:Image\b(?=[^>]*\bid="([A-Za-z_][\w.-]*)")'
                     + r'(?=[^>]*\bsrc="' + re.escape(expected_src) + r'")[^>]*/?>',
@@ -1101,7 +1224,7 @@ class ProductionAuthoringIntegration:
                             )
             if item.get("media_type") != asset.media_type.value or item.get("mime") != asset.file.mime:
                 raise MaterialIntegrationError("Production selection media contract does not match admitted Asset")
-            qualified_need_ids = self._qualified_need_ids(plan, bundle, asset)
+            qualified_need_ids = self._qualified_need_ids(plan, bundle, asset, store=store, attempt=attempt)
             if not qualified_need_ids:
                 raise MaterialIntegrationError("Production 选择的素材没有当前合格 Need ↔ Asset Match")
             declared_need_ids = item.get("qualified_need_ids")
@@ -1116,7 +1239,11 @@ class ProductionAuthoringIntegration:
                 "qualified_need_ids": list(qualified_need_ids),
             })
             if asset.media_type is MediaType.AUDIO:
-                track_ids = _hypit_audio_tracks_for_source(authored_text, expected_src)
+                if _document is not None:
+                    from easel.integrations.hypit.native_graph import audio_tracks_for_source
+                    track_ids = audio_tracks_for_source(_document, expected_src)
+                else:
+                    track_ids = _hypit_audio_tracks_for_source(authored_text, expected_src)
                 if not track_ids:
                     raise MaterialIntegrationError(
                         f"SVML selected audio Asset is not normalized, placed on an AudioTrack, and included in Film: {asset_id}"
@@ -1170,9 +1297,14 @@ class ProductionAuthoringIntegration:
         if voice_track_ids & bgm_track_ids:
             raise MaterialIntegrationError("Required narration and BGM must use separate Hypit AudioTracks")
         if voice_needs:
-            timeline_ends = [float(value) for value in re.findall(
-                r'<time:Timeline\b[^>]*\bend="([0-9]+(?:\.[0-9]+)?)s"', authored_text,
-            )]
+            if _document is not None:
+                from easel.integrations.hypit.native_graph import timeline
+                _, _, rate, frames = timeline(_document)
+                timeline_ends = [float(frames / rate)]
+            else:
+                timeline_ends = [float(value) for value in re.findall(
+                    r'<time:Timeline\b[^>]*\bend="([0-9]+(?:\.[0-9]+)?)s"', authored_text,
+                )]
             if len(timeline_ends) != 1:
                 raise MaterialIntegrationError(
                     "旁白需要一个可核验的固定 Timeline end 秒数，禁止无法核对的静默截断"
@@ -1182,7 +1314,7 @@ class ProductionAuthoringIntegration:
                 asset = assets[item["asset_id"]]
                 if (asset.media_type is MediaType.AUDIO
                         and any(need_id in {need.need_id for need in voice_needs}
-                                for need_id in self._qualified_need_ids(plan, bundle, asset))
+                                for need_id in self._qualified_need_ids(plan, bundle, asset, store=store, attempt=attempt))
                         and (asset.technical.duration_seconds is None
                              or asset.technical.duration_seconds > timeline_end + 0.25)):
                     raise MaterialIntegrationError(
@@ -1215,10 +1347,10 @@ class ProductionAuthoringIntegration:
             }
             if current_checked_by_id != previous_checked_by_id:
                 raise MaterialIntegrationError("Production selection changed after authoring validation")
-        selection_path.write_bytes(normalized_selection_bytes)
+        if _document is None:
+            selection_path.write_bytes(normalized_selection_bytes)
 
-        updated = _update_attempt(
-            attempt,
+        patch = dict(
             production_authoring={
                 **attempt.get("production_authoring", {}),
                 "status": "READY",
@@ -1247,12 +1379,13 @@ class ProductionAuthoringIntegration:
                 ],
             },
         )
+        updated = _update_attempt(attempt, **patch) if _document is None else {**attempt, **patch}
         return {"status": "READY", "attempt": updated, "selected_asset_ids": tuple(selected_ids),
-                "readiness": readiness}
+                "readiness": readiness, "patch": patch, "selection_bytes": normalized_selection_bytes}
 
     @staticmethod
     def _qualified_need_ids(
-        plan: MaterialPlan, bundle: MaterialBundle, asset: MaterialAsset,
+        plan: MaterialPlan, bundle: MaterialBundle, asset: MaterialAsset, *, store=None, attempt=None,
     ) -> tuple[str, ...]:
         if asset.technical.status is not TechnicalStatus.PASSED:
             return ()
@@ -1270,7 +1403,8 @@ class ProductionAuthoringIntegration:
             # READY proves at least one candidate per required Need, not every
             # persisted match. Recheck the actual selected candidate, including
             # optional Needs and byte-/Need-scoped observation evidence.
-            if MaterialMatcher(rights).match(need, (asset,)).matches:
+            current_asset = material_results.matching_asset(store, need, asset, attempt)
+            if MaterialMatcher(rights).match(need, (current_asset,)).matches:
                 qualified.add(need.need_id)
         return tuple(sorted(qualified))
 
@@ -1590,7 +1724,7 @@ class MaterialProductOrchestrator:
                 "supply_run": run.model_dump(mode="json"),
             }
             store.write_generation_record(generated.generation_id, generated.record)
-        readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
+        readiness, gaps = material_results.readiness_calculator(attempt, store).calculate(plan, bundle)
         updated_gate = MaterialGateIntegration().record(
             attempt, plan, bundle, run, readiness, gaps,
         )
@@ -1773,7 +1907,9 @@ class MaterialProductOrchestrator:
                 "semantic_reviewed_need_ids": [need.need_id for need in compatible_needs
                     if MaterialMatcher._creator_match_review(need, asset)],
                 "system_observed_need_ids": [need.need_id for need in compatible_needs
-                    if observed_match(need, asset) is True or voice_content_observed(need, asset)],
+                    if (observed_match(need, asset) is True
+                        and material_results.eligible(store, need, asset, attempt=attempt, allow_creator=False))
+                    or voice_content_observed(need, asset)],
                 "reviewed": asset.rights.reviewed_at is not None,
             })
         return candidates
@@ -2051,7 +2187,7 @@ class MaterialProductOrchestrator:
             revised_bundle = MaterialBundleAssembler().assemble(
                 plan, reviewed_run, assets, tuple(matches), bundle_id=bundle.bundle_id,
             )
-        readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, revised_bundle)
+        readiness, gaps = material_results.readiness_calculator(attempt, store).calculate(plan, revised_bundle)
         gate = MaterialGateIntegration().record(
             attempt, plan, revised_bundle, reviewed_run, readiness, gaps,
         )
@@ -2062,7 +2198,7 @@ class MaterialProductOrchestrator:
         blocked = [key for key, choice in choices.items()
                    if choice['asset_id'] not in accepted_assets
                    or accepted_assets[choice['asset_id']].file.sha256 != choice['sha256']
-                   or not MaterialReadinessCalculator(store=store)._accessible(accepted_assets[choice['asset_id']])
+                   or not material_results.readiness_calculator(attempt, store)._accessible(accepted_assets[choice['asset_id']])
                    or not any(m.need_id == key and m.asset_id == choice['asset_id'] and m.qualified
                               for m in revised_bundle.matches)]
         if choices:
@@ -2088,9 +2224,9 @@ class MaterialProductOrchestrator:
         journal = store.read_recovery_record(marker['request_id']) if marker.get('request_id') else None
         choices = journal['choices'] if journal and journal['plan_revision'] == MaterialReadinessCalculator.plan_revision(plan) else {}
         for current_need in plan.needs:
-            eligible = assets
+            eligible = tuple(material_results.matching_asset(store, current_need, a, attempt) for a in assets)
             if require_scoped_visual and current_need.media_type in {MediaType.IMAGE, MediaType.VIDEO}:
-                eligible = tuple(a for a in assets if observed_match(current_need, a) is True
+                eligible = tuple(a for a in eligible if observed_match(current_need, a) is True
                                  or matcher._creator_match_review(current_need, a))
             ranked = matcher.match(current_need, eligible)
             shortlist = list(deduplicator.deduplicate_and_diversify(
@@ -2331,13 +2467,14 @@ class MaterialProductOrchestrator:
         excluded = {}
         if visual_repair:
             from easel.integrations.hypit.service import _execution_fingerprint
-            from easel.integrations.hypit.revision import quality_protected_sources
+            from easel.integrations.hypit import native_source, native_revision, revision as revision_rules
             source = get_film_attempt(attempt['retry_source']['attempt_id'])
             if (source['creation_id'] != attempt['creation_id']
                     or PlanningIntegration().load(source)['plan'].needs != plan.needs
                     or _execution_fingerprint(source)['sha256'] != attempt['retry_source']['fingerprint']):
                 raise MaterialIntegrationError('原成片或素材需求已变化，不能沿用修复观察')
-            protected = quality_protected_sources(_workspace(source) / 'productions/easel-authoring/authors/main.svml')
+            rules = native_revision if native_source.enabled(source) else revision_rules
+            protected = rules.quality_protected_sources(_workspace(source) / 'productions/easel-authoring/authors/main.svml')
             selected_ids = set(source['production_authoring']['selected_asset_ids'])
             for candidate in ProductionAuthoringIntegration().qualified_authoring_assets(source):
                 if (candidate['asset_id'] in selected_ids and candidate['media_type'] in {'image', 'video'}
@@ -2391,8 +2528,8 @@ class MaterialProductOrchestrator:
         def covered(need):
             usable = tuple(store.read_asset(a.asset_id) for a in bundle.assets
                            if a.asset_id in verified and a.asset_id not in excluded.get(need.need_id, ()))
-            usable = tuple(a for a in usable if observed_match(need, a) is True
-                           or matcher._creator_match_review(need, a))
+            usable = tuple(material_results.matching_asset(store, need, a, attempt) for a in usable)
+            usable = tuple(a for a in usable if observed_match(need, a) is True or matcher._creator_match_review(need, a))
             return bool(matcher.match(need, usable).matches)
 
         # A completed fallback first closes its own intake checkpoint. Adding
@@ -2412,7 +2549,8 @@ class MaterialProductOrchestrator:
             current = store.read_asset(asset.asset_id)
             if current.file != asset.file:
                 raise MaterialIntegrationError("素材在观察期间发生变化，不能登记旧证据")
-            observed = apply_observation(need, current, manifest, report)
+            observed = apply_observation(need, current, manifest, report,
+                result_processor=material_results.processor(attempt, store))
             # Valid shared children enter independent evidence immediately,
             # before another group is nominated. Resume never changes timestamps.
             if not any(scoped_inference(need, current, i, manifest["input_sha256"])
@@ -2606,7 +2744,8 @@ class MaterialProductOrchestrator:
                     report = None
                     if report_path.is_file():
                         try:
-                            report = read_observation_report(report_path, need, asset, manifest)
+                            report = read_observation_report(report_path, need, asset, manifest,
+                                result_processor=material_results.processor(attempt, store))
                         except (OSError, ValueError, TypeError, AttributeError):
                             # A completed model run may have written invalid JSON or
                             # stale evidence. Resume its bounded report repair below.
@@ -2620,7 +2759,8 @@ class MaterialProductOrchestrator:
                             shared_needs = [n for n in plan.needs if asset_id in pairs.get(n.need_id, [])]
                             report = observe_shared_asset(attempt, need, asset, manifest, attachments,
                                 shared_needs, store, round_key, group_executor,
-                                covered_need_ids={n.need_id for n in shared_needs if covered(n)})
+                                covered_need_ids={n.need_id for n in shared_needs if covered(n)},
+                                result_processor=material_results.processor(attempt, store))
                         else:
                             report = executor(attempt, manifest, attachments)
                         store.write_observation_record(manifest["input_sha256"], report)
@@ -2633,7 +2773,8 @@ class MaterialProductOrchestrator:
                             other_manifest = observation_for_need(manifest, other)
                             other_path = _workspace(attempt) / f"materials/observations/{other_manifest['input_sha256']}.json"
                             try:
-                                other_report = read_observation_report(other_path, other, asset, other_manifest)
+                                other_report = read_observation_report(other_path, other, asset, other_manifest,
+                                    result_processor=material_results.processor(attempt, store))
                             except (OSError, ValueError, TypeError, AttributeError):
                                 continue  # Missing/invalid children aren't evidence and don't trigger new calls here.
                             register(other, asset, other_manifest, other_report)
@@ -2787,7 +2928,7 @@ class MaterialProductOrchestrator:
         revised_bundle = MaterialBundleAssembler().assemble(
             plan, reviewed_run, assets, tuple(matches), bundle_id=bundle.bundle_id,
         )
-        readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, revised_bundle)
+        readiness, gaps = material_results.readiness_calculator(attempt, store).calculate(plan, revised_bundle)
         gate = MaterialGateIntegration().record(
             attempt, plan, revised_bundle, reviewed_run, readiness, gaps,
         )
@@ -2799,7 +2940,7 @@ class MaterialProductOrchestrator:
         blocked = [key for key, choice in choices.items()
                    if choice['asset_id'] not in accepted_assets
                    or accepted_assets[choice['asset_id']].file.sha256 != choice['sha256']
-                   or not MaterialReadinessCalculator(store=store)._accessible(accepted_assets[choice['asset_id']])
+                   or not material_results.readiness_calculator(attempt, store)._accessible(accepted_assets[choice['asset_id']])
                    or not any(m.need_id == key and m.asset_id == choice['asset_id'] and m.qualified
                               for m in revised_bundle.matches)]
         if choices:

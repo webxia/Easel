@@ -20,7 +20,7 @@ class HypitCLI:
         self.executable = executable or os.environ.get("HYPIT_BIN") or self._discover_executable()
         self.timeout = timeout
         if not self.executable:
-            raise HypitIntegrationError("找不到 Hypit CLI；请安装 Hypit 或设置 HYPIT_BIN")
+            raise HypitCLIError("找不到 Hypit CLI；请安装 Hypit 或设置 HYPIT_BIN", failure_kind="local_io")
 
     @staticmethod
     def _discover_executable() -> str | None:
@@ -49,10 +49,11 @@ class HypitCLI:
             pass
         return env
 
-    def _run(self, args: list[str], workspace: Path, *, timeout: int | None = None) -> dict[str, Any]:
+    def _run(self, args: list[str], workspace: Path, *, timeout: int | None = None,
+             strict_json: bool = False) -> dict[str, Any]:
         cwd = workspace.resolve()
         if not cwd.is_dir():
-            raise HypitIntegrationError("Hypit workspace 不存在")
+            raise HypitCLIError("Hypit workspace 不存在", failure_kind="local_io")
         command = [str(self.executable), *args, "--json"]
         try:
             completed = subprocess.run(
@@ -73,19 +74,28 @@ class HypitCLI:
             except (json.JSONDecodeError, TypeError):
                 partial_payload = None
             raise HypitCLIError(
-                f"Hypit 命令超时：{args[0]}", payload=SecretRedactor.redact(partial_payload)) from exc
+                f"Hypit 命令超时：{args[0]}", payload=SecretRedactor.redact(partial_payload),
+                failure_kind="timeout") from exc
+        except UnicodeError as exc:
+            raise HypitCLIError("Hypit 返回了无效字符编码", failure_kind="protocol") from exc
         except OSError as exc:
-            raise HypitIntegrationError(f"无法启动 Hypit CLI：{exc}") from exc
+            raise HypitCLIError(f"无法启动 Hypit CLI：{exc}", failure_kind="local_io") from exc
 
         try:
-            payload = json.loads(completed.stdout)
-        except (json.JSONDecodeError, TypeError) as exc:
+            if strict_json:
+                from easel.output_admission import _parse_object
+                if len(completed.stdout.encode("utf-8")) > 4 * 1024 * 1024:
+                    raise ValueError("Hypit check JSON exceeds the fixed response bound")
+                payload = _parse_object(completed.stdout)
+            else:
+                payload = json.loads(completed.stdout)
+        except (ValueError, TypeError) as exc:
             detail = SecretRedactor.redact_text(
                 (completed.stderr or completed.stdout or "无 JSON 输出").strip()[-1200:])
             raise HypitCLIError(f"Hypit 返回了无法解析的结果：{detail}",
-                                returncode=completed.returncode) from exc
+                                returncode=completed.returncode, failure_kind="protocol") from exc
         if not isinstance(payload, dict):
-            raise HypitCLIError("Hypit JSON 响应格式无效", returncode=completed.returncode)
+            raise HypitCLIError("Hypit JSON 响应格式无效", returncode=completed.returncode, failure_kind="protocol")
         payload = SecretRedactor.redact(payload)
         if completed.returncode:
             if args[0] == "status" and payload.get("format") == "hypit.cli-status@1":
@@ -117,6 +127,10 @@ class HypitCLI:
 
     def check(self, workspace: Path, run_source: Path) -> dict[str, Any]:
         return self._run(["check", str(run_source), *self._workspace_args(workspace)], workspace)
+
+    def check_native(self, workspace: Path, run_source: Path) -> dict[str, Any]:
+        return self._run(["check", str(run_source), *self._workspace_args(workspace)],
+                         workspace, strict_json=True)
 
     def vocabulary(self, workspace: Path, packages: tuple[str, ...]) -> dict[str, Any]:
         """Read installed authoring contracts without Runtime or execution."""

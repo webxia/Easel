@@ -38,6 +38,8 @@ def needs_reobservation(report: dict) -> bool:
 
 def repair_request(attempt: dict) -> dict | None:
     """Translate evidenced local defects; never fabricate a human rejection."""
+    from easel.integrations import quality_results
+    quality_results.verify_current_review(attempt)
     report = attempt.get('review', {}).get('system', {})
     binding = report.get('binding', {})
     output = attempt.get('outputs', {}).get(binding.get('output_name'), {})
@@ -240,8 +242,49 @@ def music_signal_window(output: np.ndarray, reference: np.ndarray,
             'estimated_gain': round(float(dot[best] / energy), 6), 'voice_projected': projected}
 
 
+def _native_music_clip(doc, source):
+    from .native_graph import audio_placement
+    try:
+        placement = audio_placement(doc, source, allow_trusted_duck=True)
+        normalized = placement.normalize
+        if (set(normalized.attributes) - {'id', 'source', 'video', 'audio', 'span-authority', 'clock'}
+                or normalized.literal('audio') != 'default' or len(placement.items) != 1):
+            raise ValueError('配乐包含尚不能重建的媒体变换或多个片段')
+        item = placement.items[0]
+        if set(item.attributes) - {'id', 'source', 'at', 'for', 'during', 'playback', 'gain',
+                                   'fade-in', 'fade-out', 'trim-start', 'trim-end'}:
+            raise ValueError('配乐播放变换尚无可比较的声音依据')
+        values = {key: item.literal(key) for key in item.attributes if key not in {'source', 'id'}}
+        if values.get('playback') not in {None, 'once', 'once-start', 'once-end', 'loop', 'loop-start', 'loop-end'}:
+            raise ValueError('配乐播放变换尚无可比较的声音依据')
+        return values, placement.fps
+    except HypitIntegrationError as exc:
+        raise ValueError('配乐原生图尚不能核实：' + str(exc)) from exc
+
+
+def _native_voice_placement(doc, source):
+    from .native_graph import audio_placement
+    try:
+        placement = audio_placement(doc, source)
+        if len(placement.items) != 1:
+            return None
+        item = placement.items[0]
+        if any(key in item.attributes for key in ('trim-start', 'trim-end', 'start', 'end', 'until', 'min-rate', 'max-rate')):
+            return None
+        if item.literal('playback', 'once') not in {'once', 'once-start'}:
+            return None
+        if 'during' in item.attributes:
+            if item.literal('during') != 'program' or any(key in item.attributes for key in ('at', 'for')):
+                return None
+            return 0.
+        return float(_frames(item.literal('at', '0f'), placement.fps) / placement.fps)
+    except (HypitIntegrationError, ValueError, ZeroDivisionError):
+        return None
+
+
 def measure_music(path: Path, duration: float, author: str, plan, bundle, store,
-                  voice_span: tuple[float, float] | None, voice_path: Path | None = None) -> dict:
+                  voice_span: tuple[float, float] | None, voice_path: Path | None = None,
+                  *, native_document=None) -> dict:
     """Probe admitted BGM in the mix, without claiming a listening review.
 
     Only native once/loop audio placement is reconstructed. An
@@ -256,16 +299,21 @@ def measure_music(path: Path, duration: float, author: str, plan, bundle, store,
               'assets': [], 'defects': []}
     if not needs:
         return result
-    audio = [_attrs(m[0]) for m in re.finditer(r'<media:Audio\b[^>]*/>', author)]
-    norms = [_attrs(m[0]) for m in re.finditer(r'<pipeline:Normalize\b[^>]*/>', author)]
-    items = [_attrs(m[0]) for m in re.finditer(r'<audio:Item\b[^>]*/>', author)]
-    timelines = [_attrs(m[0]) for m in re.finditer(r'<time:Timeline\b[^>]*/>', author)]
-    clocks = [_attrs(m[0]) for m in re.finditer(r'<time:Clock\b[^>]*/>', author)]
+    if native_document is not None:
+        audio = native_document.find('@hypit/media', 'Audio')
+        timelines = native_document.find('@hypit/timeline-author', 'Timeline')
+    else:
+        audio = [_attrs(m[0]) for m in re.finditer(r'<media:Audio\b[^>]*/>', author)]
+        norms = [_attrs(m[0]) for m in re.finditer(r'<pipeline:Normalize\b[^>]*/>', author)]
+        items = [_attrs(m[0]) for m in re.finditer(r'<audio:Item\b[^>]*/>', author)]
+        timelines = [_attrs(m[0]) for m in re.finditer(r'<time:Timeline\b[^>]*/>', author)]
+        clocks = [_attrs(m[0]) for m in re.finditer(r'<time:Clock\b[^>]*/>', author)]
     pcm, voice_pcm = None, None
     for need in needs:
         matched = {m.asset_id for m in bundle.matches if m.need_id == need.need_id and m.qualified}
         candidates = [(a, media) for a in bundle.assets if a.asset_id in matched for media in audio
-                      if media.get('src') == store.hypit_source_path(a, 'productions/easel-authoring/authors/main.svml')]
+                      if (media.literal('src') if native_document is not None else media.get('src'))
+                      == store.hypit_source_path(a, 'productions/easel-authoring/authors/main.svml')]
         if not candidates and need.importance.value != 'required':
             continue  # Optional, unused music is not required to appear in output.
         row = {'need_id': need.need_id, 'windows': []}
@@ -278,20 +326,23 @@ def measure_music(path: Path, duration: float, author: str, plan, bundle, store,
             source = store.resolve_asset_locator(asset.file.path)
             if service._sha256_file(source) != asset.file.sha256:
                 raise HypitIntegrationError('已选配乐字节已变化，不能核对错误版本')
-            normalized = [n for n in norms if n.get('source') == '{' + media['id'] + '}']
-            if (len(normalized) != 1 or set(normalized[0]) - {'id', 'source', 'video', 'audio', 'span-authority', 'clock'}
-                    or normalized[0].get('audio') != 'default'
-                    or normalized[0].get('clock') != timelines[0].get('clock')):
-                raise ValueError('配乐包含尚不能重建的媒体变换')
-            clips = [i for i in items if i.get('source') == '{' + normalized[0]['id'] + '.media}']
-            clock = [c for c in clocks if '{' + c.get('id', '') + '}' == timelines[0].get('clock')]
-            if len(clips) != 1 or len(clock) != 1:
-                raise ValueError('配乐包含多个片段或时钟不明确')
-            clip = clips[0]
-            if (set(clip) - {'id', 'source', 'at', 'for', 'during', 'playback', 'gain', 'fade-in', 'fade-out', 'trim-start', 'trim-end'}
-                    or clip.get('playback') not in {None, 'once', 'once-start', 'once-end', 'loop', 'loop-start', 'loop-end'}):
-                raise ValueError('配乐播放变换尚无可比较的声音依据')
-            fps = Fraction(clock[0]['frame-rate'])
+            if native_document is not None:
+                clip, fps = _native_music_clip(native_document, media.literal('src'))
+            else:
+                normalized = [n for n in norms if n.get('source') == '{' + media['id'] + '}']
+                if (len(normalized) != 1 or set(normalized[0]) - {'id', 'source', 'video', 'audio', 'span-authority', 'clock'}
+                        or normalized[0].get('audio') != 'default'
+                        or normalized[0].get('clock') != timelines[0].get('clock')):
+                    raise ValueError('配乐包含尚不能重建的媒体变换')
+                clips = [i for i in items if i.get('source') == '{' + normalized[0]['id'] + '.media}']
+                clock = [c for c in clocks if '{' + c.get('id', '') + '}' == timelines[0].get('clock')]
+                if len(clips) != 1 or len(clock) != 1:
+                    raise ValueError('配乐包含多个片段或时钟不明确')
+                clip = clips[0]
+                if (set(clip) - {'id', 'source', 'at', 'for', 'during', 'playback', 'gain', 'fade-in', 'fade-out', 'trim-start', 'trim-end'}
+                        or clip.get('playback') not in {None, 'once', 'once-start', 'once-end', 'loop', 'loop-start', 'loop-end'}):
+                    raise ValueError('配乐播放变换尚无可比较的声音依据')
+                fps = Fraction(clock[0]['frame-rate'])
             def seconds(value):
                 # Audio trim/fade durations resolve to samples, not whole video
                 # frames (e.g. native 600ms at 24fps is valid).
@@ -299,7 +350,7 @@ def measure_music(path: Path, duration: float, author: str, plan, bundle, store,
                 if not match:
                     raise ValueError('声音时长表达尚不能换算为实际采样')
                 return float(Fraction(match[1]) / {'ms': 1000, 's': 1, 'f': fps}[match[2]])
-            if clip.get('during') == timelines[0]['id'] and 'at' not in clip and 'for' not in clip:
+            if clip.get('during') == ('program' if native_document is not None else timelines[0]['id']) and 'at' not in clip and 'for' not in clip:
                 start, stop = 0., duration
             elif 'during' not in clip and 'at' in clip and 'for' in clip:
                 start = float(_frames(clip['at'], fps) / fps)
@@ -426,6 +477,8 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     from easel.materials.application.voice_delivery import authoring_voice_timings
     from easel.materials.store import AttemptMaterialStore
     attempt = service.get_film_attempt(attempt_id)
+    from easel.integrations import quality_results, result_protocols
+    delta_results = quality_results.enabled(attempt)
     if attempt.get('execution_status') != 'BUILD_COMPLETE':
         raise HypitIntegrationError('只有已完成制作的导出视频可以进入系统审片')
     fingerprint = attempt.get('build', {}).get('operation', {}).get('execution_fingerprint', {}).get('sha256')
@@ -452,29 +505,47 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         context.update(treatment=planning['treatment'], scenes=planning['scenes'])
         from easel.integrations.material_recovery import director_shot_choices
         choices = director_shot_choices(attempt, planning['plan'])
+        if delta_results:
+            choices = quality_results._fixed(choices)
         if choices:
             context['director_shot_choices'] = choices
     except (OSError, KeyError, ValueError) as exc:
         raise HypitIntegrationError('系统审片缺少已冻结的创作者、内容或导演方案，不能核实风格') from exc
     plan, bundle, _ = MaterialGateIntegration().assert_ready(attempt)
     store = AttemptMaterialStore(root)
-    author = (root / 'productions/easel-authoring/authors/main.svml').read_text()
+    from . import native_source
+    author_path = root / 'productions/easel-authoring/authors/main.svml'
+    native_document = native_source.parse_file(author_path, workspace=root) if native_source.enabled(attempt) else None
+    author = native_document.source.text if native_document is not None else author_path.read_bytes().decode('utf-8')
     timings = authoring_voice_timings(plan, bundle, store, planning['script'])
     voice_path, offset, cues, voice_span = None, 0., [], None
-    for row in timings['assets']:
+    voice_rows = timings['assets']
+    if native_document is not None:
+        declared = {node.literal('src') for node in native_document.find('@hypit/media', 'Audio')}
+        by_id = {asset.asset_id: asset for asset in bundle.assets}
+        selected_voice_rows = [row for row in voice_rows if row['asset_id'] in by_id and store.hypit_source_path(
+            by_id[row['asset_id']], 'productions/easel-authoring/authors/main.svml') in declared]
+        voice_rows = selected_voice_rows if len(selected_voice_rows) == 1 and selected_voice_rows[0].get('status') == 'READY' else []
+    for row in voice_rows:
         asset = next(a for a in bundle.assets if a.asset_id == row['asset_id'])
         src = store.hypit_source_path(asset, 'productions/easel-authoring/authors/main.svml')
-        media = next((_attrs(m[0]) for m in re.finditer(r'<media:Audio\b[^>]*/>', author) if _attrs(m[0]).get('src') == src), None)
-        if media is None:
-            continue
-        normalized = next(_attrs(m[0]) for m in re.finditer(r'<pipeline:Normalize\b[^>]*/>', author)
-                          if _attrs(m[0]).get('source') == '{' + media['id'] + '}')
-        item = next(_attrs(m[0]) for m in re.finditer(r'<audio:Item\b[^>]*/>', author)
-                    if _attrs(m[0]).get('source') == '{' + normalized['id'] + '.media}')
-        clock = next(_attrs(m[0]) for m in re.finditer(r'<time:Clock\b[^>]*/>', author)
-                     if '{' + _attrs(m[0]).get('id', '') + '}' == normalized['clock'])
-        fps = Fraction(clock['frame-rate'])
-        offset = float(_frames(item['at'], fps) / fps)
+        if native_document is not None:
+            measured_offset = _native_voice_placement(native_document, src)
+            if measured_offset is None:
+                continue
+            offset = measured_offset
+        else:
+            media = next((_attrs(m[0]) for m in re.finditer(r'<media:Audio\b[^>]*/>', author) if _attrs(m[0]).get('src') == src), None)
+            if media is None:
+                continue
+            normalized = next(_attrs(m[0]) for m in re.finditer(r'<pipeline:Normalize\b[^>]*/>', author)
+                              if _attrs(m[0]).get('source') == '{' + media['id'] + '}')
+            item = next(_attrs(m[0]) for m in re.finditer(r'<audio:Item\b[^>]*/>', author)
+                        if _attrs(m[0]).get('source') == '{' + normalized['id'] + '.media}')
+            clock = next(_attrs(m[0]) for m in re.finditer(r'<time:Clock\b[^>]*/>', author)
+                         if '{' + _attrs(m[0]).get('id', '') + '}' == normalized['clock'])
+            fps = Fraction(clock['frame-rate'])
+            offset = float(_frames(item['at'], fps) / fps)
         voice_path, cues = store.resolve_asset_locator(asset.file.path), row['cues']
         voice_span = (offset, offset + row['audio_duration_seconds'])
         if service._sha256_file(voice_path) != asset.file.sha256:
@@ -483,8 +554,17 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     identity = hashlib.sha256(json.dumps({'schema': SCHEMA, 'binding': binding, 'execution': fingerprint, 'mode': mode_hash,
         'script': planning['script'], 'author': author, 'timings': timings, 'context': context,
         'music_needs': [n.model_dump(mode='json') for n in plan.needs if getattr(n.modality_spec, 'kind', None) == 'bgm']}, sort_keys=True).encode()).hexdigest()
+    if native_document is not None:
+        identity = native_source.digest({'review_input': identity, 'native_source': native_document.source_identity})
+    if delta_results:
+        identity = quality_results._identity({'legacy_identity': identity,
+            'result_protocols': result_protocols.inherited(attempt),
+            'projection': quality_results.PROJECTION})
     previous = attempt.get('review', {}).get('system', {})
     same_input = previous.get('input_sha256') == identity
+    if same_input and delta_results:
+        quality_results.verify_saved_review(attempt, previous, parent_input_sha256=identity,
+                                                binding=binding, director_choices=choices)
     if (same_input and previous.get('status') in {'READY', 'REPAIR_REQUIRED', 'INCOMPLETE'}
             and not needs_reobservation(previous)):
         return attempt
@@ -493,8 +573,14 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     if (pending.get('input_sha256') != identity
             or pending.get('observation_round') != observation_round):
         pending = {}
+    if pending and delta_results:
+        quality_results.verify_saved_review(attempt, pending, parent_input_sha256=identity,
+                                                binding=binding, complete=False, director_choices=choices)
 
     def save_review(report, *, complete):
+        if delta_results:
+            quality_results.verify_saved_review(attempt, report, parent_input_sha256=identity,
+                                                binding=binding, complete=complete, director_choices=choices)
         # Keep the last completed review separate from in-progress evidence.
         # Neither a partial batch nor a transient failure constitutes PASS.
         if service._file_sha256(path) != binding['sha256']:
@@ -504,6 +590,8 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         def save(item):
             if item.get('outputs', {}).get(name, {}).get('sha256') != binding['sha256']:
                 raise HypitIntegrationError('检查期间输出身份变化')
+            if delta_results and director_shot_choices(item, planning['plan']) != choices:
+                raise quality_results.receipts.OutputReceiptError('Quality current directing context changed before saving')
             review = {**item.get('review', {})}
             if complete:
                 review['system'] = report
@@ -519,11 +607,13 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     if any(getattr(n.modality_spec, 'kind', None) == 'voice' for n in plan.needs) and voice_path is None:
         measurements['defects'].append({'kind': 'voice_unverifiable', 'reason': '当前旁白缺少可绑定的时序，尚不能核对完整性', 'time_seconds': 0.})
         voice_span = (0., output['metadata']['duration_seconds'])
-    music = measure_music(path, output['metadata']['duration_seconds'], author, plan, bundle, store, voice_span, voice_path)
+    music = measure_music(path, output['metadata']['duration_seconds'], author, plan, bundle, store, voice_span, voice_path,
+                          native_document=native_document)
     measurements['music'] = music
     measurements['defects'].extend(music['defects'])
-    from .revision import expression_uses
-    commitments = expression_uses(root / 'productions/easel-authoring/authors/main.svml')
+    from . import native_revision, revision
+    commitments = (native_revision.expression_uses(native_document) if native_document is not None
+                   else revision.expression_uses(author_path))
     # Actual output previews, never source thumbnails or authored screenshots.
     duration = output['metadata']['duration_seconds']
     moments = sorted({min(duration - .05, .5), *[min(duration - .05, offset + (c['start_seconds'] + c['end_seconds']) / 2) for c in cues]})
@@ -564,10 +654,18 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         batch = {**manifest, 'frames': [{**f, 'index': i} for i, f in enumerate(frames[start:end])],
                  'frame_offset': start, 'frame_total': len(frames)}
         batch_identity = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
+        if delta_results:
+            batch.update(parent_input_sha256=identity, source_batch_sha256=batch_identity,
+                         source_frame_count=end - start)
         cached = next((v for v in previous.get('visual', [])
                        if same_input and v.get('source_batch_sha256', v.get('batch_sha256')) == batch_identity), None)
         checkpoint = next((v for v in pending.get('visual', [])
                            if v.get('source_batch_sha256', v.get('batch_sha256')) == batch_identity), None)
+        if delta_results:
+            for retained in (cached, checkpoint):
+                if retained is not None:
+                    quality_results.verify_batch(attempt, retained, parent_input_sha256=identity,
+                                                 source_batch_sha256=batch_identity)
         reusable = checkpoint or (cached if cached is not None
             and all(not _unresolved_check(k, c) for k, c in cached['checks'].items()) else None)
         batch['observation_round'] = reusable['observation_round'] if reusable is not None else observation_round
@@ -578,6 +676,9 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         if reusable is not None:
             # A completed checkpoint includes its supplemental frames too.
             batch['frames'] = [{k: v for k, v in f.items() if k not in {'observed', 'description'}} for f in reusable['frames']]
+            if delta_results:
+                batch = quality_results.replay_manifest(attempt, reusable,
+                    parent_input_sha256=identity, source_batch_sha256=batch_identity)
         elif cached is not None and batch['review_focus']:
             # Retain original evidence and all valid resolved checks. Only this
             # incomplete group receives one new, output-bound sample per round.
@@ -622,11 +723,21 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
             batch_attachments.append({'type': 'image', 'mimeType': 'image/jpeg', 'content': base64.b64encode(raw).decode()})
             batch['resolved_checks'] = resolved
             batch['resolved_frames'] = [{**cached['frames'][old], 'index': new} for old, new in index_map.items()]
+            if delta_results:
+                batch['resolved_from'] = {'origin': cached['result_origin'],
+                    'frame_map': [{'from': old, 'to': new} for old, new in index_map.items()],
+                    'check_keys': [key for key in VISUAL_CHECKS if key in resolved]}
             if len(json.dumps(batch, ensure_ascii=False).encode()) + sum(len(a['content']) for a in batch_attachments) > 95000:
                 raise HypitIntegrationError('局部补证超过容量，保留已观察结果，不重审整片')
         batch['input_sha256'] = reusable['input_sha256'] if reusable is not None else hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
         report = reusable if reusable is not None else executor(attempt, batch, batch_attachments)
         validate_visual_review(batch, report)
+        if delta_results:
+            quality_results.verify_batch(attempt, report, parent_input_sha256=identity,
+                source_batch_sha256=batch_identity, manifest=batch,
+                # Retained wrappers were verified in their prior complete layout.
+                # Rebuild the current layout below; save_review verifies that new offset.
+                frame_offset=None if reusable is not None else len(review_frames))
         visual.append({**report, 'frames': [{**f, **report['frames'][i]} for i, f in enumerate(batch['frames'])], 'frame_offset': len(review_frames), 'batch_sha256': batch_identity,
                        'source_batch_sha256': batch_identity,
                        'observation_round': batch['observation_round'], 'review_focus': batch['review_focus']})

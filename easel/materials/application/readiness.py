@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from typing import Callable
 
 from easel.materials.application.assembly import MaterialBundleAssembler
 from easel.materials.application.matching import MaterialMatcher
@@ -13,6 +14,7 @@ from easel.materials.domain import (
     MaterialBundle,
     MaterialGap,
     MaterialMatch,
+    MaterialNeed,
     MaterialPlan,
     MaterialReadiness,
     ReadinessStatus,
@@ -27,6 +29,7 @@ class MaterialReadinessCalculator:
 
     store: AttemptMaterialStore | None = None
     rights: RightsService | None = None
+    evidence_view: Callable[[MaterialNeed, MaterialAsset], MaterialAsset] | None = None
 
     def calculate(self, plan: MaterialPlan, bundle: MaterialBundle) -> tuple[MaterialReadiness, tuple[MaterialGap, ...]]:
         if bundle.plan_id != plan.plan_id:
@@ -75,7 +78,8 @@ class MaterialReadinessCalculator:
                     continue
                 # A persisted qualified flag is only a claim. Recheck the
                 # current Need and Asset, including per-Need semantic evidence.
-                verified = MaterialMatcher(self.rights).match(need, [asset])
+                evidence_asset = self.evidence_view(need, asset) if self.evidence_view is not None else asset
+                verified = MaterialMatcher(self.rights).match(need, [evidence_asset])
                 if not verified.matches:
                     reasons.append(f"{asset.asset_id}:match_evidence_invalid")
                     continue
