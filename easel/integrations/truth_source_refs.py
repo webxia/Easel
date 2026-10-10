@@ -122,7 +122,7 @@ def _request(attempt, script, plan, get_work):
     from easel.integrations import voice_identity as voice
     root = Path(attempt['workspace']['path']).resolve()
     truth_path = root / 'handoff/truth-packet.json'
-    ledger_revision = result_protocols.selected(attempt, 'script_ledger') or 'easel-script-claim-ledger@2'
+    ledger_revision = result_protocols.selected(attempt, 'script_ledger')
     base = truth.create_script_claim_ledger(script, truth_path, revision=ledger_revision)
     work = get_work(attempt['creation_id'])
     voice_binding = voice.require_binding(work, plan, script) if plan is not None else None

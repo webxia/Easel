@@ -65,7 +65,7 @@ def transport_identity(catalog, *, supported=True, runtime_sha=None, projected=F
     projection = wire.project(canonical, 'A', atomic_framing=atomic) if projected else None
     request = structured.request_for(projection.schema if projection else canonical)
     selection = (input_views.SourceSelection(canonical, catalog).schema if source_view else
-                 staged.StagedProposal(canonical).selection_schema) if staged_a else None
+                 staged._read_only_staged(canonical).selection_schema) if staged_a else None
     if intake_inputs is not None:
         if not source_view or not staged_a:
             raise ValueError('Confirmed intake requires the versioned staged input view')
@@ -180,7 +180,7 @@ def selection_admission(scope, call, schema, schema_binding):
         try:
             view = input_views.PlanningInputView(scope['inputs'], scope['catalog'])
             decoded = view.codec.decode(value, view.codec.identity, diagnostic=True)
-            staged.StagedProposal(query_schema(scope)).details_contract(
+            staged._read_only_staged(query_schema(scope)).details_contract(
                 decoded, diagnostic=True)
         except (ValueError, TypeError, KeyError):
             receipt['decision']['code'] = 'SELECTION_SHAPE_OR_REFERENCE_INVALID'
@@ -524,7 +524,7 @@ def run(attempt, planning_context, canonical, mode, route, dispatch):
         return patcher.apply_patches(original, patches, targets, support_batch=support_batch), output
 
     if uses_staged:
-        codec = staged.StagedProposal(query_schema(scope))
+        codec = staged._read_only_staged(query_schema(scope))
         selection_schema = intake_selection(scope, view.codec.schema if view is not None else codec.selection_schema)
         a_message_for = (lambda stage, **kw: view_a_message(scope, view, stage, **kw)) if view is not None else (lambda stage, **kw: staged_a_message(scope, stage, **kw))
         selected = invoke('A-selection', a_message_for('A-selection'), selection_schema)
@@ -769,7 +769,7 @@ def verify(root, plan, mode, script, origin=None, *, canonical=None, attempt=Non
         value = candidate('repair', lineage['output'], canonical_schema, strict=True) if uses_wire else lineage['output']
         return review.decode_patch_slots(value, targets, support_batch=batch) if uses_support else value
     if uses_staged:
-        codec = staged.StagedProposal(query_schema(scope))
+        codec = staged._read_only_staged(query_schema(scope))
         selection_schema = intake_selection(scope, view.codec.schema if view is not None else codec.selection_schema)
         a_message_for = (lambda stage, **kw: view_a_message(scope, view, stage, **kw)) if view is not None else (lambda stage, **kw: staged_a_message(scope, stage, **kw))
         selected = candidate('A-selection', json.loads(checkpoint['wire_originals']['A-selection']), selection_schema)

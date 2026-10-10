@@ -200,6 +200,18 @@ def read_checkpoint_report(attempt, manifest):
 
 def validate_checkpoint(work, attempt, plan, script, ledger, report, *,
                         manifest=None, allow_inheritance=False):
+    """Check one immutable lineage without repeatedly rebuilding ancestors."""
+    from easel.integrations.hypit import service
+    from easel.integrations import planning_wire
+    # Share only immutable schema compilers while recursively checking one
+    # frozen ancestry. Fresh commands still reconstruct every evidence proof.
+    with service._fingerprint_read_scope(), planning_wire._schema_read_scope():
+        return _validate_checkpoint_evidence(work, attempt, plan, script, ledger, report,
+            manifest=manifest, allow_inheritance=allow_inheritance)
+
+
+def _validate_checkpoint_evidence(work, attempt, plan, script, ledger, report, *,
+                                  manifest=None, allow_inheritance=False):
     """Verify existing fork lineage once, without recursive load/Gate calls.
 
     A checkpoint maps identities; it never changes the original semantic

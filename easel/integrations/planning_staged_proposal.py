@@ -222,3 +222,12 @@ class StagedProposal:
                            for i, n in enumerate(selection['needs'])],
                  'unresolved': [*selection['unresolved'], *details['unresolved']]}
         return self.union.decode_candidate(value)
+
+
+def _read_only_staged(canonical):
+    """Compile an exact staged schema once per frozen read, never across runs.
+
+    Callers must not mutate the returned codec or its schema objects. All
+    validation/decoding still runs against each original reply independently.
+    """
+    return wire._scoped_compile('staged', canonical, (), lambda: StagedProposal(canonical))

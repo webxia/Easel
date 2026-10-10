@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from easel import output_admission as admission
-from easel.integrations import material_results, output_receipts as receipts
+from easel.integrations import material_results, output_receipts as receipts, result_protocols
 from easel.materials.application.visual_contract import (
     compilation_input, classification_units, bind_classifications, validate_compilation, batches,
 )
@@ -57,8 +57,7 @@ def _scope(root):
     )
     attempt = {"creation_id": "creation", "attempt_id": "attempt",
         "workspace": {"path": str(root)},
-        "result_protocols": {"schema": "agent-result-protocols@1",
-                             "profiles": {"material_observation": material_results.REVISION}}}
+        "result_protocols": result_protocols.current()}
     attachments = [{"type": "image", "sha256": "d" * 64}]
     assert len(batches(manifest, contract)) >= 2
     return need, asset, attempt, manifest, contract, attachments

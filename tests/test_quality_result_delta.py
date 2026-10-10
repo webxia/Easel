@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from easel import output_admission as admission
-from easel.integrations import output_receipts as receipts, quality_results as q
+from easel.integrations import output_receipts as receipts, quality_results as q, result_protocols
 from easel.integrations.hypit import quality
 from easel.integrations.hypit.quality import SCHEMA, VISUAL_CHECKS, validate_visual_review
 
@@ -17,8 +17,7 @@ from easel.integrations.hypit.quality import SCHEMA, VISUAL_CHECKS, validate_vis
 def _initial(root):
     attempt = {"creation_id": "quality-creation", "attempt_id": "quality-attempt",
                "workspace": {"path": str(root)},
-               "result_protocols": {"schema": "agent-result-protocols@1",
-                                    "profiles": {"quality_review": q.REVISION}}}
+               "result_protocols": result_protocols.current()}
     frames = [
         {"index": 0, "time_seconds": 0.3, "sha256": "b" * 64,
          "caption_expected": False, "expression_need_ids": ["a"]},

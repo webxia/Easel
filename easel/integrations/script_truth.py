@@ -57,42 +57,6 @@ def _read_truth(truth_path: Path) -> tuple[bytes, dict[str, Any]]:
     return payload, truth
 
 
-def _units(script: str) -> list[tuple[str, bool]]:
-    encoded = script.encode("utf-8")
-    if len(encoded) > _MAX_SCRIPT_BYTES or "\x00" in script:
-        raise ScriptTruthError("Script is invalid or exceeds review limit")
-    units: list[tuple[str, bool]] = []
-    directive_section = False
-    for line in script.splitlines():
-        heading = re.match(r"^\s*#{1,6}\s+(.+?)\s*#*\s*$", line)
-        if heading:
-            section = heading.group(1).strip()
-            if _DIRECTION_SECTION.fullmatch(section):
-                directive_section = True
-            elif _CLAIM_SECTION.fullmatch(section):
-                directive_section = False
-            continue
-        if line.strip() in {"---", "***", "___"}:
-            continue
-        value = re.sub(r"^\s*(?:#{1,6}\s+|[-*+]\s+|>\s*)", "", line).strip()
-        if not value:
-            continue
-        if value.casefold() in {"script", "narration", "脚本", "旁白"}:
-            continue
-        direction = directive_section or bool(_DIRECTION_PREFIX.match(value))
-        for part in _SENTENCE_BOUNDARY.split(value):
-            text = part.strip()
-            if text:
-                if len(text) > 4000:
-                    raise ScriptTruthError("Script sentence exceeds review limit")
-                units.append((text, direction))
-    if not units:
-        raise ScriptTruthError("Script contains no reviewable text")
-    if len(units) > _MAX_UNITS:
-        raise ScriptTruthError("Script has too many review units")
-    return units
-
-
 def _verbatim_evidence(truth: dict[str, Any]) -> dict[str, str]:
     """Return only user-authored verbatim quotes that can be checked exactly."""
     evidence: dict[str, str] = {}
@@ -110,23 +74,20 @@ def _verbatim_evidence(truth: dict[str, Any]) -> dict[str, str]:
 
 
 def create_script_claim_ledger(script: str, truth_path: Path, *,
-                               revision: str = "easel-script-claim-ledger@2") -> dict[str, Any]:
-    """Create a versioned ledger; only exact frozen user quotes pass automatically."""
-    if revision not in {"easel-script-claim-ledger@2", "easel-script-claim-ledger@3"}:
+                               revision: str = "easel-script-claim-ledger@3") -> dict[str, Any]:
+    """Create the only production Script ledger with full Markdown coverage."""
+    if revision != "easel-script-claim-ledger@3":
         raise ScriptTruthError("Unknown Script ledger revision")
     truth_bytes, truth = _read_truth(truth_path)
     script_bytes = script.encode("utf-8")
     rows = []
     evidence = _verbatim_evidence(truth)
-    if revision == "easel-script-claim-ledger@3":
-        from easel.integrations.script_markdown import extract_script
-        try:
-            markdown_units, coverage, parser = extract_script(script)
-        except ValueError as exc:
-            raise ScriptTruthError(str(exc)) from exc
-        source_units = [(row["text"], row["direction"], row) for row in markdown_units]
-    else:
-        source_units = [(text, direction, None) for text, direction in _units(script)]
+    from easel.integrations.script_markdown import extract_script
+    try:
+        markdown_units, coverage, parser = extract_script(script)
+    except ValueError as exc:
+        raise ScriptTruthError(str(exc)) from exc
+    source_units = [(row["text"], row["direction"], row) for row in markdown_units]
     for index, (text, is_direction, source_unit) in enumerate(source_units, start=1):
         source_ref = evidence.get(text)
         if source_ref:
@@ -138,9 +99,8 @@ def create_script_claim_ledger(script: str, truth_path: Path, *,
         else:
             status, classification = "REVIEW_REQUIRED", "UNCLASSIFIED_ASSERTION_OR_CREATIVE_TEXT"
         rows.append({
-            **({key: source_unit[key] for key in ("block_id", "block_type", "source_block_span",
-               "unit_ordinal_in_block", "text_sha256", "extractor_revision", "role")}
-               if source_unit is not None else {}),
+            **{key: source_unit[key] for key in ("block_id", "block_type", "source_block_span",
+                "unit_ordinal_in_block", "text_sha256", "extractor_revision", "role")},
             "claim_id": f"claim-{index:04d}",
             "text": text,
             "classification": classification,
@@ -148,12 +108,12 @@ def create_script_claim_ledger(script: str, truth_path: Path, *,
             "source_ref": source_ref,
             "evidence_quote": text if source_ref else None,
             "review": ({"reviewer": "deterministic_classifier",
-                        "rule": "markdown-v3-direction@1" if source_unit is not None else "non-claim-directive-v1"}
+                        "rule": "markdown-v3-direction@1"}
                        if status == "AUTO_REVIEWED" else None),
         })
     ledger: dict[str, Any] = {
         "schema": revision,
-        **({"parser_identity": parser, "coverage": coverage} if revision == "easel-script-claim-ledger@3" else {}),
+        "parser_identity": parser, "coverage": coverage,
         "script_sha256": _sha256(script_bytes),
         "truth_packet_sha256": _sha256(truth_bytes),
         "claims": rows,
@@ -256,21 +216,17 @@ def apply_system_script_review(script: str, truth_path: Path, ledger: dict[str, 
 
 def validate_script_claim_ledger(script: str, truth_path: Path, ledger: dict[str, Any]) -> dict[str, Any]:
     """Validate current bytes, full text coverage, permitted dispositions, and stored digest."""
-    if not isinstance(ledger, dict) or ledger.get("schema") not in {
-            "easel-script-claim-ledger@2", "easel-script-claim-ledger@3"}:
+    if not isinstance(ledger, dict) or ledger.get("schema") != "easel-script-claim-ledger@3":
         raise ScriptTruthError("Script claim ledger schema is invalid")
     expected = create_script_claim_ledger(script, truth_path, revision=ledger["schema"])
-    if ledger["schema"] == "easel-script-claim-ledger@3":
-        if any(ledger.get(key) != expected[key] for key in ("parser_identity", "coverage")):
-            raise ScriptTruthError("Script Markdown parser identity or complete block coverage changed")
-    elif any(key in ledger for key in ("parser_identity", "coverage")) or any(
-            isinstance(row, dict) and any(key in row for key in ("block_id", "source_block_span", "extractor_revision"))
-            for row in (ledger.get("claims") if isinstance(ledger.get("claims"), list) else [])):
-        raise ScriptTruthError("Markdown Script ledger cannot be relabelled as the legacy extractor")
+    # Distinguish genuinely stale frozen source bytes before the derived
+    # Markdown parser coverage. Never interpret either mismatch as a PASS.
     if ledger.get("script_sha256") != expected["script_sha256"]:
         raise ScriptTruthError("Script claim ledger is stale for current Script bytes")
     if ledger.get("truth_packet_sha256") != expected["truth_packet_sha256"]:
         raise ScriptTruthError("Script claim ledger is stale for frozen Truth Packet bytes")
+    if any(ledger.get(key) != expected[key] for key in ("parser_identity", "coverage")):
+        raise ScriptTruthError("Script Markdown parser identity or complete block coverage changed")
     rows = ledger.get("claims")
     if not isinstance(rows, list) or len(rows) != len(expected["claims"]):
         raise ScriptTruthError("Script claim ledger does not cover every review unit")
@@ -283,9 +239,8 @@ def validate_script_claim_ledger(script: str, truth_path: Path, ledger: dict[str
     }
     for actual, base in zip(rows, expected["claims"], strict=True):
         keys = ("claim_id", "text", "classification", "source_ref", "evidence_quote")
-        if ledger["schema"] == "easel-script-claim-ledger@3":
-            keys += ("block_id", "block_type", "source_block_span", "unit_ordinal_in_block",
-                     "text_sha256", "extractor_revision", "role")
+        keys += ("block_id", "block_type", "source_block_span", "unit_ordinal_in_block",
+                 "text_sha256", "extractor_revision", "role")
         if not isinstance(actual, dict) or any(actual.get(key) != base.get(key) for key in keys):
             raise ScriptTruthError("Script claim ledger entry does not match current Script/evidence")
         status = actual.get("status")

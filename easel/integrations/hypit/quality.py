@@ -478,7 +478,7 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     from easel.materials.store import AttemptMaterialStore
     attempt = service.get_film_attempt(attempt_id)
     from easel.integrations import quality_results, result_protocols
-    delta_results = quality_results.enabled(attempt)
+    result_protocols.inherited(attempt)  # Only the current delta Quality protocol may run.
     if attempt.get('execution_status') != 'BUILD_COMPLETE':
         raise HypitIntegrationError('只有已完成制作的导出视频可以进入系统审片')
     fingerprint = attempt.get('build', {}).get('operation', {}).get('execution_fingerprint', {}).get('sha256')
@@ -505,8 +505,7 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         context.update(treatment=planning['treatment'], scenes=planning['scenes'])
         from easel.integrations.material_recovery import director_shot_choices
         choices = director_shot_choices(attempt, planning['plan'])
-        if delta_results:
-            choices = quality_results._fixed(choices)
+        choices = quality_results._fixed(choices)
         if choices:
             context['director_shot_choices'] = choices
     except (OSError, KeyError, ValueError) as exc:
@@ -515,37 +514,23 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     store = AttemptMaterialStore(root)
     from . import native_source
     author_path = root / 'productions/easel-authoring/authors/main.svml'
-    native_document = native_source.parse_file(author_path, workspace=root) if native_source.enabled(attempt) else None
-    author = native_document.source.text if native_document is not None else author_path.read_bytes().decode('utf-8')
+    native_document = native_source.parse_file(author_path, workspace=root)
+    author = native_document.source.text
     timings = authoring_voice_timings(plan, bundle, store, planning['script'])
     voice_path, offset, cues, voice_span = None, 0., [], None
     voice_rows = timings['assets']
-    if native_document is not None:
-        declared = {node.literal('src') for node in native_document.find('@hypit/media', 'Audio')}
-        by_id = {asset.asset_id: asset for asset in bundle.assets}
-        selected_voice_rows = [row for row in voice_rows if row['asset_id'] in by_id and store.hypit_source_path(
-            by_id[row['asset_id']], 'productions/easel-authoring/authors/main.svml') in declared]
-        voice_rows = selected_voice_rows if len(selected_voice_rows) == 1 and selected_voice_rows[0].get('status') == 'READY' else []
+    declared = {node.literal('src') for node in native_document.find('@hypit/media', 'Audio')}
+    by_id = {asset.asset_id: asset for asset in bundle.assets}
+    selected_voice_rows = [row for row in voice_rows if row['asset_id'] in by_id and store.hypit_source_path(
+        by_id[row['asset_id']], 'productions/easel-authoring/authors/main.svml') in declared]
+    voice_rows = selected_voice_rows if len(selected_voice_rows) == 1 and selected_voice_rows[0].get('status') == 'READY' else []
     for row in voice_rows:
         asset = next(a for a in bundle.assets if a.asset_id == row['asset_id'])
         src = store.hypit_source_path(asset, 'productions/easel-authoring/authors/main.svml')
-        if native_document is not None:
-            measured_offset = _native_voice_placement(native_document, src)
-            if measured_offset is None:
-                continue
-            offset = measured_offset
-        else:
-            media = next((_attrs(m[0]) for m in re.finditer(r'<media:Audio\b[^>]*/>', author) if _attrs(m[0]).get('src') == src), None)
-            if media is None:
-                continue
-            normalized = next(_attrs(m[0]) for m in re.finditer(r'<pipeline:Normalize\b[^>]*/>', author)
-                              if _attrs(m[0]).get('source') == '{' + media['id'] + '}')
-            item = next(_attrs(m[0]) for m in re.finditer(r'<audio:Item\b[^>]*/>', author)
-                        if _attrs(m[0]).get('source') == '{' + normalized['id'] + '.media}')
-            clock = next(_attrs(m[0]) for m in re.finditer(r'<time:Clock\b[^>]*/>', author)
-                         if '{' + _attrs(m[0]).get('id', '') + '}' == normalized['clock'])
-            fps = Fraction(clock['frame-rate'])
-            offset = float(_frames(item['at'], fps) / fps)
+        measured_offset = _native_voice_placement(native_document, src)
+        if measured_offset is None:
+            continue
+        offset = measured_offset
         voice_path, cues = store.resolve_asset_locator(asset.file.path), row['cues']
         voice_span = (offset, offset + row['audio_duration_seconds'])
         if service._sha256_file(voice_path) != asset.file.sha256:
@@ -554,15 +539,13 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     identity = hashlib.sha256(json.dumps({'schema': SCHEMA, 'binding': binding, 'execution': fingerprint, 'mode': mode_hash,
         'script': planning['script'], 'author': author, 'timings': timings, 'context': context,
         'music_needs': [n.model_dump(mode='json') for n in plan.needs if getattr(n.modality_spec, 'kind', None) == 'bgm']}, sort_keys=True).encode()).hexdigest()
-    if native_document is not None:
-        identity = native_source.digest({'review_input': identity, 'native_source': native_document.source_identity})
-    if delta_results:
-        identity = quality_results._identity({'legacy_identity': identity,
-            'result_protocols': result_protocols.inherited(attempt),
-            'projection': quality_results.PROJECTION})
+    identity = native_source.digest({'review_input': identity, 'native_source': native_document.source_identity})
+    identity = quality_results._identity({'legacy_identity': identity,
+        'result_protocols': result_protocols.inherited(attempt),
+        'projection': quality_results.PROJECTION})
     previous = attempt.get('review', {}).get('system', {})
     same_input = previous.get('input_sha256') == identity
-    if same_input and delta_results:
+    if same_input:
         quality_results.verify_saved_review(attempt, previous, parent_input_sha256=identity,
                                                 binding=binding, director_choices=choices)
     if (same_input and previous.get('status') in {'READY', 'REPAIR_REQUIRED', 'INCOMPLETE'}
@@ -573,14 +556,13 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
     if (pending.get('input_sha256') != identity
             or pending.get('observation_round') != observation_round):
         pending = {}
-    if pending and delta_results:
+    if pending:
         quality_results.verify_saved_review(attempt, pending, parent_input_sha256=identity,
                                                 binding=binding, complete=False, director_choices=choices)
 
     def save_review(report, *, complete):
-        if delta_results:
-            quality_results.verify_saved_review(attempt, report, parent_input_sha256=identity,
-                                                binding=binding, complete=complete, director_choices=choices)
+        quality_results.verify_saved_review(attempt, report, parent_input_sha256=identity,
+                                            binding=binding, complete=complete, director_choices=choices)
         # Keep the last completed review separate from in-progress evidence.
         # Neither a partial batch nor a transient failure constitutes PASS.
         if service._file_sha256(path) != binding['sha256']:
@@ -590,7 +572,7 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         def save(item):
             if item.get('outputs', {}).get(name, {}).get('sha256') != binding['sha256']:
                 raise HypitIntegrationError('检查期间输出身份变化')
-            if delta_results and director_shot_choices(item, planning['plan']) != choices:
+            if director_shot_choices(item, planning['plan']) != choices:
                 raise quality_results.receipts.OutputReceiptError('Quality current directing context changed before saving')
             review = {**item.get('review', {})}
             if complete:
@@ -611,9 +593,8 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
                           native_document=native_document)
     measurements['music'] = music
     measurements['defects'].extend(music['defects'])
-    from . import native_revision, revision
-    commitments = (native_revision.expression_uses(native_document) if native_document is not None
-                   else revision.expression_uses(author_path))
+    from . import native_revision
+    commitments = native_revision.expression_uses(native_document)
     # Actual output previews, never source thumbnails or authored screenshots.
     duration = output['metadata']['duration_seconds']
     moments = sorted({min(duration - .05, .5), *[min(duration - .05, offset + (c['start_seconds'] + c['end_seconds']) / 2) for c in cues]})
@@ -654,18 +635,16 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         batch = {**manifest, 'frames': [{**f, 'index': i} for i, f in enumerate(frames[start:end])],
                  'frame_offset': start, 'frame_total': len(frames)}
         batch_identity = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
-        if delta_results:
-            batch.update(parent_input_sha256=identity, source_batch_sha256=batch_identity,
-                         source_frame_count=end - start)
+        batch.update(parent_input_sha256=identity, source_batch_sha256=batch_identity,
+                     source_frame_count=end - start)
         cached = next((v for v in previous.get('visual', [])
                        if same_input and v.get('source_batch_sha256', v.get('batch_sha256')) == batch_identity), None)
         checkpoint = next((v for v in pending.get('visual', [])
                            if v.get('source_batch_sha256', v.get('batch_sha256')) == batch_identity), None)
-        if delta_results:
-            for retained in (cached, checkpoint):
-                if retained is not None:
-                    quality_results.verify_batch(attempt, retained, parent_input_sha256=identity,
-                                                 source_batch_sha256=batch_identity)
+        for retained in (cached, checkpoint):
+            if retained is not None:
+                quality_results.verify_batch(attempt, retained, parent_input_sha256=identity,
+                                             source_batch_sha256=batch_identity)
         reusable = checkpoint or (cached if cached is not None
             and all(not _unresolved_check(k, c) for k, c in cached['checks'].items()) else None)
         batch['observation_round'] = reusable['observation_round'] if reusable is not None else observation_round
@@ -676,9 +655,8 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
         if reusable is not None:
             # A completed checkpoint includes its supplemental frames too.
             batch['frames'] = [{k: v for k, v in f.items() if k not in {'observed', 'description'}} for f in reusable['frames']]
-            if delta_results:
-                batch = quality_results.replay_manifest(attempt, reusable,
-                    parent_input_sha256=identity, source_batch_sha256=batch_identity)
+            batch = quality_results.replay_manifest(attempt, reusable,
+                parent_input_sha256=identity, source_batch_sha256=batch_identity)
         elif cached is not None and batch['review_focus']:
             # Retain original evidence and all valid resolved checks. Only this
             # incomplete group receives one new, output-bound sample per round.
@@ -723,21 +701,19 @@ def inspect_output(attempt_id: str, *, executor) -> dict:
             batch_attachments.append({'type': 'image', 'mimeType': 'image/jpeg', 'content': base64.b64encode(raw).decode()})
             batch['resolved_checks'] = resolved
             batch['resolved_frames'] = [{**cached['frames'][old], 'index': new} for old, new in index_map.items()]
-            if delta_results:
-                batch['resolved_from'] = {'origin': cached['result_origin'],
-                    'frame_map': [{'from': old, 'to': new} for old, new in index_map.items()],
-                    'check_keys': [key for key in VISUAL_CHECKS if key in resolved]}
+            batch['resolved_from'] = {'origin': cached['result_origin'],
+                'frame_map': [{'from': old, 'to': new} for old, new in index_map.items()],
+                'check_keys': [key for key in VISUAL_CHECKS if key in resolved]}
             if len(json.dumps(batch, ensure_ascii=False).encode()) + sum(len(a['content']) for a in batch_attachments) > 95000:
                 raise HypitIntegrationError('局部补证超过容量，保留已观察结果，不重审整片')
         batch['input_sha256'] = reusable['input_sha256'] if reusable is not None else hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()
         report = reusable if reusable is not None else executor(attempt, batch, batch_attachments)
         validate_visual_review(batch, report)
-        if delta_results:
-            quality_results.verify_batch(attempt, report, parent_input_sha256=identity,
-                source_batch_sha256=batch_identity, manifest=batch,
-                # Retained wrappers were verified in their prior complete layout.
-                # Rebuild the current layout below; save_review verifies that new offset.
-                frame_offset=None if reusable is not None else len(review_frames))
+        quality_results.verify_batch(attempt, report, parent_input_sha256=identity,
+            source_batch_sha256=batch_identity, manifest=batch,
+            # Retained wrappers were verified in their prior complete layout.
+            # Rebuild the current layout below; save_review verifies that new offset.
+            frame_offset=None if reusable is not None else len(review_frames))
         visual.append({**report, 'frames': [{**f, **report['frames'][i]} for i, f in enumerate(batch['frames'])], 'frame_offset': len(review_frames), 'batch_sha256': batch_identity,
                        'source_batch_sha256': batch_identity,
                        'observation_round': batch['observation_round'], 'review_focus': batch['review_focus']})

@@ -141,7 +141,8 @@ def _domain_payload(attempt):
         raise AuthoringPublicationError("Registered Handoff differs from this Attempt")
     verify_handoff_directory(root / "handoff", handoff_hash)
     planning = PlanningIntegration().load(attempt)
-    plan, bundle, readiness = MaterialGateIntegration().assert_ready(attempt)
+    plan, bundle, readiness = MaterialGateIntegration().assert_ready(
+        attempt, _validated_planning=planning)
     integration = ProductionAuthoringIntegration()
     store = AttemptMaterialStore(root)
     _, mode_hash = load_frozen_creative_mode(attempt)
@@ -161,7 +162,7 @@ def _domain_payload(attempt):
         "planning": {key: planning[key] for key in ("script", "scenes", "treatment", "truth_ledger")},
         "director": director_shot_choices(attempt, plan),
         "creator_selection": integration.accepted_combination(attempt, plan, bundle, store),
-        "qualified_assets": integration.qualified_authoring_assets(attempt),
+        "qualified_assets": integration._qualified_authoring_assets_from_ready(attempt, plan, bundle),
     }
     return native_source.digest(payload)
 

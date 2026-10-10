@@ -7,6 +7,9 @@ Invalid business leaves remain diagnostic candidates for the existing repair.
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import contextmanager
+from contextvars import ContextVar
+import json
 
 from jsonschema import Draft202012Validator
 
@@ -16,6 +19,44 @@ from easel.integrations.planning_result_contract import MAX_RESULT_BYTES, maximu
 POLICY = 'planning-xml-wire@1'
 GUIDANCE = ('工具Schema已经展开引用。必填可空值用且只用 {"null":true} 或 {"value":非空原值}；'
             '字符串 "null" 是普通文本。数组直接提交数组，不使用 item 包装。')
+
+# Cache only pure compiled schema representations within one synchronous,
+# read-only checkpoint traversal. Do not cache accepted replies, source facts,
+# execution fingerprints or Material readiness. No process-wide retention.
+_SCHEMA_READ_CACHE: ContextVar[dict | None] = ContextVar('easel_planning_schema_read_cache', default=None)
+
+
+@contextmanager
+def _schema_read_scope():
+    if _SCHEMA_READ_CACHE.get() is not None:
+        yield
+        return
+    token = _SCHEMA_READ_CACHE.set({})
+    try:
+        yield
+    finally:
+        _SCHEMA_READ_CACHE.reset(token)
+
+
+def _scoped_compile(kind, canonical, variant, factory):
+    cache = _SCHEMA_READ_CACHE.get()
+    if cache is None:
+        return factory()
+    try:
+        # Exact JSON content prevents a hash collision or differing schema from
+        # sharing a codec. Cached instances are internal read-only codecs.
+        key = (kind, variant, json.dumps(canonical, ensure_ascii=False, sort_keys=True,
+                                         separators=(',', ':'), allow_nan=False))
+    except (TypeError, ValueError):
+        return factory()  # Keep the original schema rejection behavior.
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    compiled = factory()
+    if len(cache) < 64:
+        cache[key] = compiled
+    return compiled
+
 
 
 def _types(schema):
@@ -341,4 +382,5 @@ class FrameProjection:
 
 
 def project(canonical, stage, *, atomic_framing=False):
-    return FrameProjection(canonical, stage) if atomic_framing else Projection(canonical, stage)
+    return _scoped_compile('wire', canonical, (stage, atomic_framing),
+        lambda: FrameProjection(canonical, stage) if atomic_framing else Projection(canonical, stage))

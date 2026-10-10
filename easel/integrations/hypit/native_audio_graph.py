@@ -159,7 +159,11 @@ def compile_measured_narration(value, timings, asset_sources):
         changes.append(({"start": end, "end": end},
                         f'\n  <{doc.nested_name(movie, "Track")} source={{easel-captions.track}}/>'))
     source = doc.replaced(changes)
-    _reparse(doc, source)
+    # The input Document is already parsed under the installed parser identity.
+    # Rechecking unchanged bytes is redundant on idempotent/cold validation,
+    # but every actual generated change must still pass the native parser.
+    if source != doc.source.text:
+        _reparse(doc, source)
     return source
 
 
@@ -221,5 +225,9 @@ def compile_music_ducking(value, timings, sources, bgm_ids, policy):
         end = doc.imports[-1]["range"]["end"]
         changes.append(({"start": end, "end": end}, '\n<import as="easelmix" from="@easel/audio-mix@1"/>'))
     source = doc.replaced(changes)
-    _reparse(doc, source)
+    # The input Document is already parsed under the installed parser identity.
+    # Rechecking unchanged bytes is redundant on idempotent/cold validation,
+    # but every actual generated change must still pass the native parser.
+    if source != doc.source.text:
+        _reparse(doc, source)
     return source

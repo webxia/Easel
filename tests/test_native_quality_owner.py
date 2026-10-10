@@ -13,6 +13,81 @@ from tests.test_material_integration import material_integration_env
 from tests.test_native_authoring_publication import native_owner, CheckBoundary
 
 
+from easel.integrations.hypit.errors import HypitIntegrationError
+
+
+def test_native_audio_quality_measurements_reject_truncation_masking_and_clipping():
+    """Keep former output-quality audio hazards without the removed old pin."""
+    import numpy as np
+    from easel.integrations.hypit.quality import audio_measurements, music_signal_window
+
+    rng = np.random.default_rng(47)
+    voice = rng.normal(0, .08, 64000).astype(np.float32)
+    times = np.arange(len(voice)) / 16000
+    music = .01 * np.sin(2 * np.pi * 440 * times)
+    cues = [{"start_seconds": .1, "end_seconds": 1.9},
+            {"start_seconds": 2.1, "end_seconds": 3.9}]
+    clean = audio_measurements(.8 * voice + music, voice, cues=cues)
+    assert clean["defects"] == []
+    assert clean["voice_windows"][-1]["time_seconds"] > 3.5
+    with pytest.raises(HypitIntegrationError, match="无效音频采样"):
+        audio_measurements(voice, np.full_like(voice, np.nan), cues=cues)
+    truncated = .8 * voice + music
+    truncated[48000:] = music[48000:]
+    assert any(d["kind"] == "voice_missing" and d["time_seconds"] >= 3
+               for d in audio_measurements(truncated, voice, cues=cues)["defects"])
+    masked = audio_measurements(
+        .8 * voice + .15 * np.sin(2 * np.pi * 440 * times), voice, cues=cues)
+    assert any(d["kind"] in {"voice_missing", "voice_masked"}
+               for d in masked["defects"])
+    assert audio_measurements(np.zeros(64000, dtype=np.float32))["defects"][0]["kind"] == "silent_audio"
+    assert any(d["kind"] == "audio_clipping"
+               for d in audio_measurements(np.ones(64000, dtype=np.float32))["defects"])
+    voice_probe = voice[:16000]
+    music_probe = .08 * np.sin(2 * np.pi * (170 * times[:16000] + 6 * times[:16000] ** 2))
+    mix = np.pad(.8 * voice_probe + .015 * music_probe, (300, 340))
+    measured = music_signal_window(mix, music_probe, voice_probe)
+    assert measured["voice_projected"] and measured["correlation"] > .99
+    assert measured["estimated_gain"] == pytest.approx(.015, abs=.0001)
+    absent = music_signal_window(np.pad(.8 * voice_probe, (300, 340)), music_probe, voice_probe)
+    assert absent["estimated_gain"] < .0005
+
+def test_native_output_measurement_decodes_black_frames_without_false_voice_loss(tmp_path):
+    """Retain legacy real decoded black-frame + separate voice-reference hazard."""
+    import numpy as np
+    import shutil
+    import subprocess
+    import wave
+    from easel.integrations.hypit.quality import measure_output
+    assert shutil.which("ffmpeg") and shutil.which("ffprobe"), "FFmpeg required for offline media fixture"
+    rng = np.random.default_rng(47)
+    voice = rng.normal(0, .08, 64000).astype(np.float32)
+    source = tmp_path / "reference-voice.wav"
+    with wave.open(str(source), "wb") as wav:
+        wav.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        wav.writeframes((voice * 32767).astype("<i2").tobytes())
+    output = tmp_path / "decoded.mp4"
+    subprocess.run([
+        "ffmpeg", "-nostdin", "-loglevel", "error",
+        "-f", "lavfi", "-i", "color=black:s=160x90:r=10:d=2",
+        "-f", "lavfi", "-i", "color=gray:s=160x90:r=10:d=2",
+        "-i", str(source),
+        "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+        "-map", "[v]", "-map", "2:a", "-c:v", "libx264",
+        "-c:a", "aac", "-t", "4", str(output),
+    ], check=True, capture_output=True, timeout=20)
+    result = measure_output(output, {"duration_seconds": 4, "audio_present": True},
+                            source, 0, [
+       {"start_seconds": .1, "end_seconds": 1.9},
+       {"start_seconds": 2.1, "end_seconds": 3.9},
+    ])
+    assert result["frame_count"] == 8
+    assert any(defect["kind"] == "near_black" and defect["time_seconds"] == 0
+               for defect in result["defects"])
+    assert result["audio"]["voice_windows"]
+    assert not any(defect["kind"] == "voice_missing" for defect in result["defects"])
+
+
 @pytest.mark.parametrize("material_integration_env", [{
     "hypit_source": "easel-hypit-source@1", "quality_review": "quality-review-delta@1",
 }], indirect=True)

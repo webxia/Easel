@@ -1,7 +1,7 @@
 """Versioned, reversible Planning input view; no semantic decisions are inferred."""
 from copy import deepcopy
 from jsonschema import Draft202012Validator
-from easel.integrations.planning_staged_proposal import StagedProposal
+from easel.integrations.planning_staged_proposal import _read_only_staged
 
 
 class SourceSelection:
@@ -14,7 +14,7 @@ class SourceSelection:
 
     def __init__(self, canonical, catalog):
         from easel.integrations.planning_authority import digest
-        self.staged = StagedProposal(canonical)
+        self.staged = _read_only_staged(canonical)
         self.catalog = deepcopy(catalog)
         self.references = {}
         self.to_wire = {}

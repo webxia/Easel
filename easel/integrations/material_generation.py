@@ -315,6 +315,7 @@ def image_fallback_decision(work, attempt, plan, need) -> dict:
         if row.get('asset_sha256') != asset.file.sha256:
             return {**result, 'reason': '观察身份失效，不能触发生图'}
         from easel.materials.application.visual_observation import read_observation_report
+        from easel.integrations import material_results, output_receipts
         identity = row.get('input_sha256', '')
         if not isinstance(identity, str) or not re.fullmatch(r'[0-9a-f]{64}', identity):
             return result
@@ -323,7 +324,9 @@ def image_fallback_decision(work, attempt, plan, need) -> dict:
             if input_path.is_symlink():
                 return result
             manifest = json.loads(input_path.read_text())
-            report = read_observation_report(store.materials_root / 'observations' / (identity + '.json'), need, asset, manifest)
+            report = read_observation_report(
+                store.materials_root / 'observations' / (identity + '.json'), need, asset, manifest,
+                result_processor=material_results.processor(attempt, store))
             path = store.resolve_asset_locator(asset.file.path)
             if hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256:
                 return result
@@ -333,7 +336,7 @@ def image_fallback_decision(work, attempt, plan, need) -> dict:
                     and report.get('failure_kind') in {'content_mismatch', 'hard_constraint'}
                     and any(f.get('meets_requirements') is False for f in report['frames'])):
                 valid_rejections += 1
-        except (ValueError, OSError, TypeError, AttributeError):
+        except (ValueError, OSError, TypeError, AttributeError, output_receipts.OutputReceiptError):
             return {**result, 'reason': '有效负面报告缺失或失效，不能触发生图'}
     path = store.materials_root / 'product-supply.json'
     if path.is_symlink() or not path.is_file():
