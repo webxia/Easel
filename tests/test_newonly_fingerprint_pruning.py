@@ -159,4 +159,3 @@ def test_pure_planning_schema_cache_is_exact_and_one_read_only():
         assert staged._read_only_staged(schema) is not staged_first
         assert wire.project(schema, 'A', atomic_framing=True) is not first
     assert schema == original  # No schema or source mutation by the cache itself.
-

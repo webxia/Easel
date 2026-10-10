@@ -901,8 +901,3 @@ def test_native_commission_approval_cas_rechecks_latest_creation_confirmation(
     saved = service.get_film_attempt(attempt["attempt_id"])
     assert injected == [True] and saved["cost"]["approved"] is False
     assert saved["execution_status"] == "NOT_SUBMITTED" and cli.build_count == 0
-
-
-
-
-
