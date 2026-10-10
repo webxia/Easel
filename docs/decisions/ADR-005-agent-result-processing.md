@@ -1,12 +1,12 @@
 # ADR-005 Agent 结果处理与产物交接
 
-- 状态：**显式 profile 软件实施与验收完成；2026-10-10 用户授权新 Attempt 默认 rollout 已在源码配置**。实际完成范围及审查见第 27.6 节与原 Task；旧 Attempt 的冻结 pin 保持，旧版将在真实成片验证后另行删除。此项不表示 B SourceUnit 迁移、部署或真实视频 E2E 已完成。
+- **现行状态（2026-10-10）：ADR-005 CUT0–CUT6 已完成并推送**，`origin/easel-studio` SHA `a6ed065d72b66e5dcdf886a90eb5b36fac971acf`。五项默认 pin、Native Authoring 与旧执行 Writer 删除已交付；历史 Attempt 原件只读保留。此前第 27.6/27.7 节是阶段性历史记录，现行准入和交付结论见第 27.8 节。真实媒体 E2E、部署/服务加载和 B SourceUnit 迁移仍需独立验证。
 - 日期：2026-10-09。
 - 范围：Easel 视频主线的模型结果接收、表示解析、程序绑定、局部修复、文件交接和冷恢复。
 - 所属实施任务：[自主首版唯一 Task](../tasks/creator-autonomous-first-cut-2026-09-30.md)，细化其中 O4 与 O5；实施以原 Task 的最新授权范围与实际阶段阻塞为准。
 - 架构约束：[ADR-001](ADR-001-creation-hypit-mainline.md)、[ADR-004](ADR-004-material-layer-v1.3-baseline.md)、[视频架构](../architecture/easel-video-architecture-v1.md)、[Material V1.3](../architecture/material-layer-v1.3.md)。
-- 代码核查：分支 `easel-studio`，读取时 HEAD 为 `d5bd227c2b6750ae18cea06ebcf4f9f89350899b`；工作树包含其他窗口的既有改动。HEAD 不能单独代表全部已读文件，实施时须刷新相关源码、测试、协议及实际安装依赖的指纹。
-- 初次写回为本 ADR 与索引；2026-10-09 用户追加授权后实施。首次写回见第 27.3 节，实施核对见第 27.5 节，本轮软件验收和边界见第 27.6 节。
+- 代码核查：最初读取 dirty `easel-studio` / HEAD `d5bd227c2b6750ae18cea06ebcf4f9f89350899b`；默认策略补验前后观察到 HEAD `236295f9d6392fed7b82b431018d73c2f6fd494c`。共享工作区的 HEAD 不能单独代表全部已读文件，具体受测身份见第 27.6 / 27.7 节逐文件摘要。
+- 实施追溯：第 27.3/27.5 节是首次检查，第 27.6/27.7 节是已结束的显式 profile / 默认启用阶段；最后一次旧路径清理由第 27.8 节和 CUT0–CUT6 Task 决定。
 
 ## 1 需要作出的设计决定
 
@@ -1206,7 +1206,7 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 
 | 路径 | 实施职责 |
 |---|---|
-| `easel/integrations/result_protocols.py` | 新 Attempt 显式 pin、旧 Attempt 继承、两个 Hypit Writer 互斥 |
+| `easel/integrations/result_protocols.py` | 新 Attempt 默认/显式 pin、旧 Attempt 继承、两个 Hypit Writer 互斥 |
 | `easel/integrations/truth_source_refs.py` | 固定来源目录、keyed reply、原件/完整投影及冷重建 |
 | `easel/integrations/material_results.py` | facts/checks 与 delta 的原请求、资格、异议和跨 fork 证明 |
 | `easel/integrations/quality_results.py` | 未决检查 delta、完整报告重建与已决结果保护 |
@@ -1243,7 +1243,7 @@ Hypit 证据根目录：`/Users/xgx/.local/node-v24.21.0-darwin-arm64/lib/node_m
 - 原 complete_film_authoring Owner 已接入 `.easel` 下的 Attempt 互斥锁、原件/隔离候选、校验前验证标记、check 后持久 intent、有序文件发表及 Creation 保存锁内的最终 CAS。候选/正式文件集合、输入领域身份、parser 和 metadata 均复验；中断仅续写本 intent 已发表的前缀，外来写入拒绝。managed Delivery 的 promotion IO 保留 stage、原指令和已返回 Agent receipt；恢复不再派 Agent。CLI 构造/启动、timeout、protocol 和未知 `CLI_ERROR` 均走本地错误；只有固定精确源码诊断进入现有有界作者修复。实际 check 在构造错误的 context 外执行，不能把真正的源诊断也吞成本地失败。
 - 本次只做软件实施与离线验证。真实 HTTP 池已封存，无新真实调用预算；服务未重启，旧 running Runtime 不自动获得本次源码或另一窗口的 pin 更新。
 
-### 27.6 本轮软件实施与验收结果（2026-10-09 UTC）
+### 27.6 显式 profile 阶段的软件实施与验收结果（2026-10-09 UTC）
 
 本轮完成 U1、U2a Truth、U2b Material、U2c Quality、U3 原生 Authoring、U4 Markdown 的具名软件实施，仍归属原唯一 Task 的 O4/O5。最终独立 Astra Reviewer 对实际源码给出 **DECISION = CONTINUE**；最后两处 native CLI 构造保护的行为回归也已通过。[具名软件验收记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/adr005-result-processing-software-2026-10-09.json)保存逐文件身份、准确命令、Job 终态、审查范围和历史边界；当前汇总以 [Current State](../02_CURRENT_STATE.md) 为准。
 
@@ -1269,10 +1269,35 @@ Hypit 证据根目录：`/Users/xgx/.local/node-v24.21.0-darwin-arm64/lib/node_m
 
 - 已运行真实内部 Owner、stores、parser、compiler、publication、fork 和质量测量；实际安装 Hypit 本地静态 check、真实 PNG/4 秒 MP4 与外部替身分别记录。软件测试不证明实际模型成功率或视频 E2E。
 - 最终 46 个具名源码/测试/规则文件在受影响回归前后摘要一致；这是受测工作区快照，不是已提交 release，既有 dirty 改动与历史失败记录保留。
-- `DEFAULT_PROFILES = {}`。新 profile 只经显式 pin 使用，已有 Attempt 和无 pin 历史记录按原规则恢复。窄版 `hypit_run_promotion@1` 作为历史显式子链保留，与 `hypit_source@1` 互斥。
-- 默认 rollout、五 profile 同一新默认链的交叉验收，以及 B SourceUnit/candidate correction 为后续工作；不增加为首片或本轮软件交付的新前置。
+- 本阶段验收时 `DEFAULT_PROFILES = {}`，新 profile 经显式 pin 使用；后续新建默认已按第 27.7 节切换。已有 Attempt 和无 pin 历史记录仍按原规则恢复。窄版 `hypit_run_promotion@1` 作为历史显式子链保留，与 `hypit_source@1` 互斥。
+- 本阶段未包含默认切换；后续创建默认和兼容性验证见第 27.7 节。五 profile 真实联合成片及 B SourceUnit/candidate correction 仍属后续工作，不增加为本轮软件交付的新前置。
 - 固定安装/allowlist 外的 Hypit 版本、raw Surface 或加载环境需单独验证。已识别的 SVS 非 BMP 与块注释组合等超出适配范围时明确拒绝，不改输入凑成可解析形式。
 - 历史 A-details 根因 UNKNOWN、封存 HTTP 池、remaining_batches=0、旧 FAIL/NOT_REVIEWED 和账单 UNKNOWN 不改。没有新增真实模型/Provider/Hypit Build，没有重启/部署或 Git commit/push；运行服务不自动加载本轮工作树。
 
+### 27.7 后续新要求：新 Attempt 默认启用与兼容性补验（2026-10-10 本地日期）
+
+**这是 CUT3/CUT4 删除旧 Writer 之前的历史阶段决定：**新建 Attempt 默认启用新版协议，当时拟等真实新作品成功后再删旧路径。随后用户单独授权提前删除，CUT6 已完成推送；以第 27.8 节为当前结果。本节原显式/默认切换测试身份保留，不冒认成后续 CUT5 全链验收。
+
+本阶段当时 `DEFAULT_PROFILES` 固定为 `truth-source-ref@1`、`material-observation-delta@1`、`easel-script-claim-ledger@3`、`quality-review-delta@1`、`easel-hypit-source@1`。新建入口复制并持久化默认映射；显式旧版、无 pin 的历史记录与 retry 继承按原规则恢复，同 preparation key 幂等且拒绝冲突版本。过渡 `hypit_run_promotion@1` 不进入默认，两个 Authoring Writer 保持互斥，旧实现继续保留。
+
+Main 在核对并发改动时，先保存两处默认提案并短暂恢复此前显式配置；读到后续用户决策后将提案精确恢复，补齐独立审查和当前源码验证。初次范围不明的 MODIFY / Goal rev16 阻塞是历史状态；最新 Astra Reviewer 对默认创建策略及历史兼容给出 **DECISION = CONTINUE**。
+
+- Main 补验 Job `wc_job_8K5nyabt1F579Xtt`：默认策略、native Authoring 与旧 journal **41 PASS / 40.85 秒 / exit 0**；另一窗口相同集合的 `wc_job_dLEZ4X0QzPfc6Wpb` **41 PASS / 41.35 秒**终态也已直接读取。
+- 前后 47 个具名文件一致，aggregate SHA256 为 `dddf4b51a121d876a09e35cb17cc3a22837ae6a602bcf3eed62b3a896c7bdd84`，核对时间 `2026-10-09T18:25:37.121389+00:00` 与 `2026-10-09T18:28:18.176990+00:00`，均观察到 HEAD `236295f9d6392fed7b82b431018d73c2f6fd494c`。共享工作树仍有其他改动；此摘要只认领具名受测文件。
+- 新增默认测试验证真实创建/持久化、配置副本、显式旧版、幂等冲突、继承映射及 Writer 互斥；真实 retry/fork Owner 证据仍引用此前集成测试。与 107 / 66 / 40 项阶段回归存在重叠，不相加为独立覆盖数量。
+- 收口另补当前工作区全 Material **109 PASS / 22.55 秒 / exit 0**（`wc_job_uK-zUwg7mIe7MJFX`），47文件再次核对一致。会话内另一合并工作区的111项历史失败保持原状，当前109项不为其合并/清理任务背书。
+- 当前完成的是软件实现、默认创建策略和兼容性验收。没有在本 Main 工作流新增真实模型/Provider/Hypit Build、服务重启或部署，不声称五项协议已联合真实成片。实际新作品成片、之后删除旧代码及 B SourceUnit/candidate correction 迁移继续按后续范围处理。
+
+当前结论、原阶段证据与本次 47 文件快照统一保存在[具名软件验收记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/adr005-result-processing-software-2026-10-09.json)的 `default_policy_acceptance`，状态入口仍为 [Current State](../02_CURRENT_STATE.md)。
+
+### 27.8 ADR-005 新版协议单线化正式交付（2026-10-10）
+
+**此节为当前交付结论；27.6/27.7 记录的是删除旧路径之前的历史阶段，不再作为现行启动或回退指令。**
+
+- 用户之后明确授权直接删除过渡执行生产路径，新 Attempt 固定五项当前 profile，旧 Writer/过渡 Producer 不再可达；旧 Attempt 的旧原件仅只读保留，不自动恢复生产。冻结 Material/Rights/Readiness 与 Creator/Director 边界均不变。
+- 实现已按 CUT0–CUT6 提交至 `easel-studio` 并经远程核对，`origin/easel-studio` SHA `a6ed065d72b66e5dcdf886a90eb5b36fac971acf`。当前唯一本次 Task 及验收在 [ADR-005 CUT](../tasks/adr005-new-only-cutover-2026-10-10.md) 和 [历史 Hypit 回归精确退役](../acceptance/adr005-hypit-native-legacy-test-retirement-2026-10-10.md)。
+- 受测软件新旧合集 `450 PASS / 0 FAIL`，CUT6 提交后另有定向 `74 PASS / 0 FAIL`；前端 Lint/Build、Skills 与静态检查通过。这不是新作品真实模型成功、收费 Build 或端到端媒体交付证明。
+- CUT5 的独立 Reviewer **未执行**，用户明确豁免该门禁后批准完成；不能把先前 27.6/27.7 的 Astra 阶段性意见冒认为 CUT5 最终审查。
+- 仍待独立交付的是：Planning 网络/SDK 恢复补丁在自身受测版本上的整合、运行服务加载与第一条全新视频真实 E2E，以及后续 B SourceUnit/候选修正。没有新增真实模型/Provider/Hypit Build 调用授权；历史 FAIL/UNKNOWN 和预算保留。
 
 

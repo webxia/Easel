@@ -1,15 +1,14 @@
 # Easel V1 自主首版与 Director 全链执行：唯一实施 Task
 
-状态：2026-10-02 本轮最小范围 **SOFTWARE_ACCEPTED / READY_FOR_HUMAN_E2E**。本文保留唯一实施范围、责任与验收条件；不将软件回放等同真实自主交付或跨内容风格验收。历史方案与授权通过 Git 追溯，完成证据唯一汇总在 [Current State](../02_CURRENT_STATE.md)。
-
+**当前状态（2026-10-10）：** ADR-005 CUT6 已推送（基线 `a6ed065d`）；Planning / Structured Result 可靠性 O1 代码已精确提交 `4d811058`，离线 27 PASS + Native 12 PASS、OpenClaw 2026.9.4 正式补丁已备份并加载，Gateway/Web 重启及 11 个组件身份验证 PASS。阶段感知自动重试仍仅属于**隔离评测代理**，不代表 Gateway 已支持生产通用自动重试；真实新作品视频 E2E 尚未通过，后续模型及费用请求须独立授权。2026-10-02 的 `SOFTWARE_ACCEPTED / READY_FOR_HUMAN_E2E` 是历史阶段结论；以 [Current State](../02_CURRENT_STATE.md) 和 [Roadmap](../03_ROADMAP.md) 为准。
 ## 当前目标与已有基础
 
-### ADR-005 软件实施（2026-10-09 用户授权，本轮软件验收完成）
+### ADR-005 软件实施历史（2026-10-09 阶段，现已由 CUT6 正式收口）
 
-**2026-10-10 用户明确决策：**后续新建 Attempt 默认启用 ADR-005 五个新版结果协议（Truth source-ref、Material delta、Markdown ledger@3、Quality delta、Hypit native source）；旧 Attempt 和显式旧 pin 继续冻结旧协议。过渡的 Hypit SVRun-only Writer 不进入默认链，也不允许双 Writer 并行。已确认相关定向 25 PASS、native Authoring/旧 journal 组合41 PASS；真实新作品成片前**不删除旧实现**，不将此配置切换当作已经生产启用或媒体 Build 验收。最新状态见 Current State。
+**本段原为 CUT0 之前的历史阶段决策：**新 Attempt 采用五项 ADR-005 结果协议；旧 Attempt 冻结旧 pin、不允许双 Writer 并行。历史验证为 25 PASS 和 41 PASS。当时计划真实成片后再删除旧实现，**但后来用户明确授权在 CUT3/CUT4 提前删除并于 CUT6 推送**；不得再将“旧执行实现保留”作为当前指令。真实新作品 E2E 仍未通过，最新事实见 [CUT 交付记录](adr005-new-only-cutover-2026-10-10.md) 和 [Current State](../02_CURRENT_STATE.md)。
 
 
-本轮按 `AGENTS.md` 在最新 dirty checkout 上实施 [ADR-005](../decisions/ADR-005-agent-result-processing.md)，归入本 Task 的 O4/O5。Main 修改和整合，Scout 只读调查，跨合同方案和阶段收口由独立 Astra Reviewer 复核。下表只认领显式 profile 软件范围；证据汇总见 [Current State](../02_CURRENT_STATE.md)，准确命令、Job、46 文件摘要和最终审查见[具名验收记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/adr005-result-processing-software-2026-10-09.json)。
+本轮按 `AGENTS.md` 在最新 dirty checkout 上实施 [ADR-005](../decisions/ADR-005-agent-result-processing.md)，归入本 Task 的 O4/O5。Main 修改和整合，Scout 只读调查，跨合同方案和阶段收口由独立 Astra Reviewer 复核。下表记录各 profile 的软件实施；后续新建默认策略另有 41 项补验和 47 文件快照。证据汇总见 [Current State](../02_CURRENT_STATE.md)，准确命令、Job、阶段与最新摘要及审查见[具名验收记录](../acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/adr005-result-processing-software-2026-10-09.json)。
 
 | 单元 | 实施范围与依赖 | 验收与状态 |
 |---|---|---|
@@ -20,11 +19,11 @@
 | U2c Quality 增量 | 只补未决 delta；原件/正式报告分存，程序合并且不覆盖已决 | 软件验收完成；实际 MP4/多轮 Owner、saved/pending/Delivery/Director、observed=False/异议和 native Authoring→Quality 均有验证 |
 | U3 Hypit/文件交接 | 实际 Hypit 0.2.7 语法/typed 图；原 Authoring Owner 隔离候选、intent、CAS 与恢复 | 软件验收完成；实际本地 static check、冷进程、managed stage 零新增 Agent、真实 fork、外来 writer、最终 CAS、CLI 本地错误分流已验证。两 Hypit Writer 互斥 |
 | U4 Markdown/ledger | 固定 markdown-it-py 4.0.0 与 ledger@3；原字节/coverage/Truth/Planning 冷重建 | 软件验收完成；中文/混合 Markdown、CRLF/CR/LF、引用/代码/表格保守覆盖、operator revision/hash、两代 fork 均已验证，旧 @2 保留 |
-| 收口 | 受影响实际内部集成、受测快照、独立审查、文档与交接 | 最终 Astra **DECISION=CONTINUE**；两处构造保护落盘后原生子集通过，46 个具名文件在回归前后一致。其他窗口早先未取得 Reviewer 的记录为历史 |
+| 收口 | 受影响实际内部集成、受测快照、独立审查、文档与交接 | 显式 profile 及后续新默认均取得 Astra **DECISION=CONTINUE**；两处构造保护后40项通过，默认策略补验41项通过，各自46/47文件前后一致。其他窗口早先未取得 Reviewer 的记录为历史 |
 
-**本轮验证边界：** 实际内部 Owner/stores、纯原生 parser、本地静态 check 和媒体测量已执行，外部模型/Provider/Build 使用确定性替身。各组有重叠，不把测试数相加为功能数。工作树仍未提交，受测摘要不等于 release；无真实模型/Provider/Hypit Build/真实 E2E、服务重启/部署或 Git commit/push。封存 HTTP 池和历史 FAIL/UNKNOWN 保持。
+**本轮验证边界：** 实际内部 Owner/stores、纯原生 parser、本地静态 check 和媒体测量已执行，外部模型/Provider/Build 使用确定性替身。107 / 66 / 40 项阶段回归与默认策略41项补验存在重叠，不相加为功能数。默认补验前后观察到共享工作区 HEAD `236295f9d6392fed7b82b431018d73c2f6fd494c`，工作树仍有其他改动，47文件受测摘要不等于冻结 release；本 Main 工作流无新增真实模型/Provider/Hypit Build/真实 E2E、服务重启/部署或 Git commit/push。封存 HTTP 池和历史 FAIL/UNKNOWN 保持。
 
-**后续独立工作：** `DEFAULT_PROFILES = {}`，新协议显式 pin，历史 Attempt 原版本恢复。默认 rollout 前另做交叉验收和切换；五 profile 同一默认链、B SourceUnit/candidate correction 及真实模型视频验收不在本轮完成声明内，也不增加为首片前置。
+**当前策略与后续工作（覆盖本节较早的保留旧路径描述）：** 新 Attempt 只准入五项新版 pin；历史 Attempt 的旧 pin 与原件仅只读保留，过渡生产 Writer 已删除并推送。仍需独立验证当前 Runtime 加载、Planning 网络恢复及单条新作品真实成片；B SourceUnit/candidate correction 尚未迁移。旧版软件 PASS 不能替代新作品媒体 E2E。
 
 **最新代码对方案的修正：** Material 现有 facts key 已含完整 frame（index、seek、JPEG SHA）；真正缺口是 policy/contract/route/资格，以及恢复时动态 prior 导致请求 identity 漂移。Quality resolved_frames 包含 observed=False，必须冻结。Truth 需覆盖联合 producer、material_recovery 与 voice review identity。Hypit 原生 structured parser 与完整 raw frontend 明确分开；发表 journal 应放在现有 fingerprint 排除的 `.easel`，并由阶段 identity 绑定。
 
