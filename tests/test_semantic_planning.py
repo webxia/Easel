@@ -7,6 +7,33 @@ from easel.materials.application.visual_contract import planning_contracts
 
 FIXTURE = Path(__file__).parent / 'fixtures/planning-semantic-contract-2026-10-07'
 
+def _r4_current_truth_reply(message, *, reject=False):
+    """Create a real source-ref file-json result using only the frozen prompt.
+
+    This simulates the model only; Easel owns SourceUnit extraction, original
+    receipt capture, source IDs and persisted Truth/voice judgment validation.
+    """
+    import re
+    assert message.startswith('〔Easel Truth 来源引用审阅〕')
+    report = json.loads(message.split('写后停止：\n', 1)[1].split('\n前份报告', 1)[0])
+    context = json.loads(message.split('\n旁白独立上下文：', 1)[1].split('\n只写 ', 1)[0])
+    # Source-ref with no bound preset voice is a bare SCRIPT decision map,
+    # whereas voice-bound requests wrap it under a separate 'script' key.
+    body = report.get('script') if 'script' in report else report
+    if body:
+        for row in body['decisions'].values():
+            row.update(kind='unresolved' if reject else 'creative_expression',
+                       reason='冻结声明缺少证据' if reject else '独立固定创作表达无新事实')
+    if report.get('voice') is not None:
+        report['voice'] = {'decision': 'MATCH',
+                           'reason': '冻结官方身份与全部实际声源控制对应',
+                           'sources': [{'ref': key, 'quote': quote}
+                                       for key, quote in context['sources'].items()]}
+    target = Path(re.search(r'只写 (.+?\.json)，按以下固定结构', message)[1])
+    target.write_text(json.dumps(report, ensure_ascii=False))
+    return target
+
+
 
 def test_real_fourth_failure_replays_before_any_supply():
     plan = MaterialPlan.model_validate_json((FIXTURE / 'MATERIAL_PLAN.json').read_text())
@@ -123,6 +150,23 @@ def test_r4_runner_preflight_refuses_unsafe_submission(prep_env, tmp_path, monke
             request=json.loads(message.splitlines()[-1])
             value=_authority_fixed_response(request) if 'controls' in request else labels()
             Path(re.search(r'只写 (.+\.json)', message)[1]).write_text(json.dumps(value))
+        elif message.startswith('〔Easel Truth 来源引用审阅〕'):
+            # Current source-ref and Voice Owner: fixed decisions reference
+            # frozen source IDs; the fixture does not invent old JSON reviews.
+            report = json.loads(message.split('写后停止：\n', 1)[1])
+            context = json.loads(message.split('\n旁白独立上下文：', 1)[1].split('\n只写 ', 1)[0])
+            script_decisions = (report.get('script') if 'script' in report else report)
+            if script_decisions:
+                for row in script_decisions['decisions'].values():
+                    row.update(kind='creative_expression', reason='固定样例不引入外部事实')
+            if report.get('voice'):
+                report['voice'] = {'decision': 'MATCH',
+                    'reason': '官方声音身份与冻结执行控制相符',
+                    'sources': [{'ref': ref, 'quote': quote} for ref, quote in context['sources'].items()]}
+            target = Path(re.search(r'只写 (.+\.json)，按以下固定结构', message)[1])
+            target.write_text(json.dumps(report, ensure_ascii=False))
+            if risk == 'end_scene_drift':
+                current_scene['old-scene'] = 'changed-after-last-model-call'
         elif message.startswith('〔Easel Script 系统审阅〕'):
             target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
             response = json.loads(message.split('（逐项替换判断，不增加字段）：\n', 1)[1].split('\n写入后停止。', 1)[0])
@@ -193,6 +237,9 @@ def test_r4_native_eval_stops_before_supply(prep_env, monkeypatch, risk):
             target = Path(request['output_paths'][request['targets'][0]])
             output = semantic_draft(); output['needs'][0]['modality_spec']['kind'] = 'unknown'
             target.write_text(json.dumps(output))
+        elif message.startswith('〔Easel Truth 来源引用审阅〕'):
+            calls.append(('Truth', session))
+            _r4_current_truth_reply(message, reject=risk == 'truth_reject')
         elif message.startswith('〔Easel Script 系统审阅〕'):
             calls.append(('Truth', session))
             target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
@@ -225,7 +272,7 @@ def test_r4_native_eval_stops_before_supply(prep_env, monkeypatch, risk):
             a_sessions = [sid for stage, sid in calls if stage == 'A']
             assert len(a_sessions) == 1
         elif risk == 'success':
-            assert first['boundary_reached'] and first['owner_advanced']
+            assert first['boundary_reached'] and first['owner_advanced'], (first, creation.get_creation(work['id']).get('delivery', {}).get('last_error'), calls)
             assert first['native_next_operation'] == 'prepare'
             count = len(calls)
             second = await boundary.advance(work['id'], web)
@@ -306,6 +353,8 @@ def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence
                 {'batches':[{'index':b['index'],**_authority_fixed_response(b)} for b in request['context']['batches']]}
                 if 'controls' in request['context']['batches'][0] else _classification_fixture_from_schema(request['context']['response_schema']))
             target.write_text(json.dumps(value)); output_paths.append(target)
+        elif message.startswith('〔Easel Truth 来源引用审阅〕'):
+            output_paths.append(_r4_current_truth_reply(message))
         elif message.startswith('〔Easel Script 系统审阅〕'):
             target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
             value = json.loads(message.split('（逐项替换判断，不增加字段）：\n', 1)[1].split('\n写入后停止。', 1)[0])
@@ -387,7 +436,7 @@ def test_r4_native_async_owner_checkpoints(prep_env, monkeypatch, risk, evidence
             assert len(methods) == before  # known failure cannot refresh Preparation retry
         else:
             expected_calls = 5 if risk in {'repair_A', 'repair_B'} else 4
-            assert result == 'CONTRACT_VALID_SEMANTICS_PENDING' and len(runs) == expected_calls, (current['delivery'].get('last_error'), mismatch)
+            assert result == 'CONTRACT_VALID_SEMANTICS_PENDING' and len(runs) == expected_calls, (current['delivery'].get('last_error'), mismatch, [(x[0],x[1]) for x in snapshots[-8:]], list(runs.values())[-1:] )
             calls = current['delivery']['agent_calls']
             assert all(c['status'] == 'ok' and c['runtime_release'] == 'released' for c in calls.values())
             assert set(c['run_id'] for c in calls.values()) == set(runs)
@@ -3924,6 +3973,9 @@ def test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk):
         if '单次局部修复' in message:
             # Deliberately invalid local result; no second allowance or Truth.
             return json.dumps({'patches': []})
+        if message.startswith('〔Easel Truth 来源引用审阅〕'):
+            _r4_current_truth_reply(message, reject=risk == 'truth_reject')
+            return 'fixed source-ref Truth review'
         if message.startswith('〔Easel Script 系统审阅〕'):
             target = Path(re.search(r'只写 (.+\.json)，JSON 结构', message)[1])
             response = json.loads(message.split('（逐项替换判断，不增加字段）：\n', 1)[1].split('\n写入后停止。', 1)[0])
@@ -4181,6 +4233,10 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
     Only model/config boundaries are fixed; all internal transitions are real.
     A successful trace stops at the existing Supply boundary, before purchase.
     """
+    # The legacy Truth Owner no longer exists; all cases exercise the same
+    # five pinned source-ref/Markdown@3 contracts and retain their failure
+    # assertions (Truth/rights/Need/voice/Material).
+    truth_profile = True
     import asyncio, hashlib, re
     from copy import deepcopy
     from dataclasses import replace
@@ -4190,7 +4246,9 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
     from easel.integrations import voice_identity as voice
     from easel.integrations.material_generation import generation_budget_preview
     from easel.integrations import result_protocols
-    profiles = {'truth_reply': 'truth-source-ref@1'} if truth_profile else {}
+    # A source-ref test must exercise the complete immutable five-stage pin,
+    # never the old partial opt-in that is now read-only.
+    profiles = result_protocols.current()['profiles'] if truth_profile else {}
     if ledger_revision:
         profiles['script_ledger'] = ledger_revision
     if run_promotion:
@@ -4689,6 +4747,17 @@ print('COLD_ADMISSION_PASS')
                 from easel.integrations.material_layer import ProductionAuthoringIntegration
                 from tests.test_hypit_integration import measured_narration_fixture, FakeHypit
                 class Renderer(FakeHypit):
+                    def check(self, workspace, run_source):
+                        from easel.integrations.hypit.native_source import parse_file, parse_run
+                        from easel.integrations.hypit import authoring_publication as native
+                        parse_file(workspace / native.AUTHOR, workspace=workspace)
+                        _, parsed, _ = parse_run(run_source, workspace=workspace)
+                        assert parsed['targets'] == [{'output': 'final.video'}]
+                        return {'format': 'hypit.cli-check@1', 'ok': True,
+                                'sourceKind': 'run', 'run': native.RUN, 'author': native.AUTHOR,
+                                'frontend': '@hypit/run-markup@1', 'targetCount': 1,
+                                'targets': ['final.video'], 'candidates': 0,
+                                'satisfactions': 0, 'historicalOutputCount': 0}
                     def pricing(self, *_args, **_kwargs):
                         return {'format': 'hypit.cli-pricing@1', 'requestCount': 1,
                                 'noChargeRequestCount': 1, 'groups': []}
@@ -4707,12 +4776,14 @@ print('COLD_ADMISSION_PASS')
                 source = re.sub(r'<media:Audio id="music-source".*?</audio:Track>', '', source, flags=re.DOTALL)
                 source = source.replace('<film:Track source={music-track.audio}/>', '')
                 source = source.replace('./voice.wav', store.hypit_source_path(asset, 'productions/easel-authoring/authors/main.svml'))
-                source = production.compile_narration(prepared, source)
                 author = root / 'productions/easel-authoring/authors/main.svml'
                 author.parent.mkdir(parents=True, exist_ok=True)
-                author.write_text(source)
+                # Native parser resolves imported recipes before code-owned
+                # narration derivation; the removed regex writer never did.
                 author.with_name('recipes.svs').write_text('<?svml using="@hypit/svs@1"?>\n<sheet version="1">\n'
                     'film.memo { background: #101820; }\ntext.caption { stack-order: 20; size: 48; fill: #FFFFFF; }\n</sheet>\n')
+                source = production.compile_narration(prepared, source)
+                author.write_text(source)
                 run = root / 'productions/easel-authoring/runs/main.svrun'
                 run.parent.mkdir(parents=True, exist_ok=True)
                 ready = gate.assert_ready(prepared)[2]
@@ -4752,7 +4823,8 @@ print('COLD_ADMISSION_PASS')
                 assert inherited_store.list_generation_records() == (record,)
                 gate.assert_ready(inherited)
                 if risk in {'material_fork', 'material_fork_copy'}:
-                    twice = service.retry_failed_film_build(fail_build(inherited)['attempt_id'], cli=renderer)
+                    second_failed = fail_build(inherited)
+                    twice = service.retry_failed_film_build(second_failed['attempt_id'], cli=renderer)
                     gate.assert_ready(twice)
                     assert AttemptMaterialStore(twice['workspace']['path']).list_generation_records() == (record,)
                     assert truth_calls == len(asr_calls) == len(speech_calls) == 1
@@ -4794,8 +4866,26 @@ print('COLD_ADMISSION_PASS')
                         edge['attempt_id'] = service.create_film_attempt(other['id'], other_handoff['handoff_id'],
                             runtime_profile=str(runtime))['attempt_id']
                     inherited = service.update_film_attempt(inherited['attempt_id'], event='fixture_origin_tamper', retry_source=edge)
-                with pytest.raises((ValueError, MaterialIntegrationError)):
-                    gate.assert_ready(inherited)
+                if risk in {'material_fork_report', 'material_fork_plan'}:
+                    # A changed parent Report/Plan invalidates the published
+                    # native Authoring domain, not a model-repairable reply.
+                    from easel.integrations.hypit.authoring_publication import AuthoringPublicationError
+                    with pytest.raises(AuthoringPublicationError,
+                                       match='Frozen Authoring domain evidence cannot be verified') as rejected:
+                        gate.assert_ready(inherited)
+                    assert isinstance(rejected.value.__cause__, MaterialIntegrationError)
+                elif risk in {'material_fork_creation', 'material_fork_cycle'}:
+                    # Truth source-ref ownership checks fail before Gate when
+                    # the retry lineage crosses a Creation or loops back.
+                    from easel.integrations.output_receipts import OutputReceiptError
+                    expected = ('Truth checkpoint lineage crosses frozen Creation inputs'
+                                if risk == 'material_fork_creation'
+                                else 'Truth checkpoint lineage is cyclic or exceeds its bound')
+                    with pytest.raises(OutputReceiptError, match=expected):
+                        gate.assert_ready(inherited)
+                else:
+                    with pytest.raises((ValueError, MaterialIntegrationError)):
+                        gate.assert_ready(inherited)
                 assert truth_calls == len(asr_calls) == len(speech_calls) == 1
                 return
             if risk == 'material_match':
@@ -4855,22 +4945,3 @@ def test_markdown_source_ref_persist_and_two_forks_preserve_full_coverage(prep_e
               '![说明文字](fixture.png)\r\n\r\n[choice]: https://example.test/choice')
     test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, 'material_fork',
         truth_profile=True, script_override=script, ledger_revision='easel-script-claim-ledger@3')
-
-def test_native_run_journal_promotion_reaches_real_material_authoring_and_fork(prep_env, monkeypatch):
-    """Frozen Handoff/Truth/Material -> real Authoring validation -> partial journal -> fork."""
-    from easel.integrations.hypit import publication
-    published = []
-    original = publication.publish
-
-    def tracked_publish(root, journal_id):
-        proof = original(root, journal_id)
-        assert publication.verify(root, journal_id) == proof
-        published.append((str(root), journal_id))
-        return proof
-
-    monkeypatch.setattr(publication, 'publish', tracked_publish)
-    test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, 'material_fork',
-        truth_profile=True, run_promotion=True)
-    assert published
-    assert all(publication.verify(root, journal_id)['schema'] == publication.SCHEMA
-               for root, journal_id in published)

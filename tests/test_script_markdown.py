@@ -91,9 +91,10 @@ def test_v3_spans_and_schema_cannot_be_relabelled_as_legacy(tmp_path):
         altered['ledger_sha256'] = _canonical_digest(altered)
         with pytest.raises(ScriptTruthError):
             validate_script_claim_ledger(script, path, altered)
-    previous = create_script_claim_ledger(script, path)
-    assert previous["schema"] == "easel-script-claim-ledger@2"
-    assert validate_script_claim_ledger(script, path, previous) == previous
+    # No legacy producer remains: defaults always use complete Markdown @3.
+    assert create_script_claim_ledger(script, path)["schema"] == "easel-script-claim-ledger@3"
+    with pytest.raises(ScriptTruthError, match="revision"):
+        create_script_claim_ledger(script, path, revision="easel-script-claim-ledger@2")
 
 
 def test_v3_rejects_unmapped_or_oversized_blocks(tmp_path):

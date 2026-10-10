@@ -60,9 +60,11 @@ def test_production_directions_are_auto_checked_but_voiceover_claims_still_need_
     )
     ledger = create_script_claim_ledger(script, _truth(tmp_path))
     assert [item["status"] for item in ledger["claims"]] == [
+        "REVIEW_REQUIRED",  # Unrecognized heading is never automatically admitted.
         "AUTO_REVIEWED", "AUTO_REVIEWED", "REVIEW_REQUIRED",
     ]
-    assert ledger["claims"][0]["review"]["reviewer"] == "deterministic_classifier"
+    assert ledger["claims"][1]["review"]["reviewer"] == "deterministic_classifier"
+    assert ledger["claims"][-1]["review"] is None
 
 
 def test_explicitly_marked_fiction_is_distinguished(tmp_path):
