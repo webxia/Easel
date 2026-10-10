@@ -455,6 +455,35 @@ def qualification(store, need, asset, manifest, report, *, create=False):
     return REVISION + ':' + reference['sha256']
 
 
+
+def verify_published_observation(store, need, asset, report, attempt):
+    """Verify an @3 report against the original immutable qualification and raw receipts.
+
+    Production may only consume the exact report originally admitted for the
+    Need x Asset x Attempt; a mutated observations/*.json cannot replace it.
+    """
+    from easel.materials.application.visual_observation import PREFIX, need_identity
+    if not enabled(attempt) or report.get('schema') != REPORT:
+        raise receipts.OutputReceiptError('Material observed report protocol is not pinned')
+    candidates = [i for i in asset.semantic.inferences
+                  if i.analyzer_id == PREFIX + need_identity(need)
+                  and (i.model_version or '').startswith(REVISION + ':')]
+    if not candidates:
+        raise receipts.OutputReceiptError('Material observed report has no original qualification')
+    for inference in candidates:
+        digest = inference.model_version.removeprefix(REVISION + ':')
+        record = _load(store, {'key': 'material-qualification-' + digest, 'sha256': digest},
+                       'material-qualification-')
+        if record.get('manifest', {}).get('input_sha256') != report.get('input_sha256'):
+            continue
+        if (record.get('asset_id') != asset.asset_id
+                or record.get('asset_sha256') != asset.file.sha256
+                or record.get('need_sha256') != need_identity(need)
+                or record.get('report') != report):
+            raise receipts.OutputReceiptError('Material observed report does not match its original qualification')
+        return verify_report(store, record['manifest'], report)
+    raise receipts.OutputReceiptError('Material observed report is not bound to the qualifying asset')
+
 def eligible(store, need, asset, *, attempt=None, allow_creator=True):
     from easel.materials.application.visual_observation import PREFIX, need_identity
     relevant = [i for i in asset.semantic.inferences if i.analyzer_id == PREFIX + need_identity(need)]

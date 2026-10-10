@@ -36,6 +36,14 @@ class DeliveryBudgetExhausted(RuntimeError):
     """No new work; durable results and uncertain-run reconciliation remain valid."""
 
 
+class DeliveryReportError(ValueError):
+    """A known terminal report fault, distinct from unknown remote execution."""
+
+    def __init__(self, message: str, *, failure_kind: str):
+        super().__init__(message)
+        self.failure_kind = failure_kind
+
+
 def delivery_call_stage(operation: str | None) -> str:
     if operation in {"observe_material", "recover_material", "generate_material", "review_material"}:
         return "material"
@@ -539,7 +547,8 @@ async def advance_creation(
         key = f"{attempt_id}:{operation}"
         failures = work["delivery"].get("failures", {})
         observation = operation in {"refresh", "reconcile", "observe_agent"}
-        if operation and not observation and failures.get(key, 0) >= MAX_FAILURES:
+        if operation and not observation and (failures.get(key, 0) >= MAX_FAILURES
+                                             or work['delivery'].get('exhausted_operation') == key):
             operation, status = None, "failed"
         record = work["delivery"]
         if (observation or previous_operation == operation) and record.get("status") == "observation_failed":
@@ -631,6 +640,11 @@ async def advance_creation(
                     record.update(status="failed", exhausted_operation=key,
                                   last_error=str(exc), updated_at=creation._now())
                     record.setdefault("failures", {})[key] = MAX_FAILURES
+                    return False
+                if isinstance(exc, DeliveryReportError):
+                    record.update(status="observation_failed" if observation else "failed",
+                                  exhausted_operation=key, last_failure_kind=exc.failure_kind,
+                                  last_error=str(exc), updated_at=creation._now())
                     return False
                 count = record.setdefault("failures", {}).get(key, 0) + 1
                 record["failures"][key] = count

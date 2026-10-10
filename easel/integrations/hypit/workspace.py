@@ -176,6 +176,13 @@ intent.
 
 ### Hypit Markup authoring contract (installed v0.2.7)
 
+Read `productions/easel-authoring/POSTPRODUCTION_REQUIREMENTS.json` when present.
+Its source-bound clauses are pending Production responsibilities, not material
+requirements or proof of completion. Implement them using the installed
+contracts and preserve the frozen text, real subjects and source actions.
+Unclassified Needs still follow SCRIPT/SCENES and the MaterialPlan. Do not edit
+this server-owned input or claim its existence proves the expression is done.
+
 The author source is Hypit Structured Markup, not a custom Easel XML schema.
 Every isolated authoring turn receives `hypit-contracts/*.json`, exported
 by Easel from the installed `hypit vocabulary` without Runtime or execution.

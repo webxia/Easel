@@ -1,6 +1,6 @@
 # 独立执行任务二：视频制作流程的软件优化
 
-> 日期：2026-10-05｜范围：G3 的前置调查与软件改动｜状态：待用户在独立窗口设置并启动。
+> 日期：2026-10-05｜范围：G3 的前置调查与软件改动｜状态：软件验证完成，独立分支待整合；未执行真实视频验收。
 > 可与 [BGM 任务](creation-bgm-readiness-2026-10-05.md)并行完成软件工作；真实制作的依赖和汇合规则见[总顺序](creation-latency-2026-10-02.md)。
 
 ## 1. 执行目标与最小上下文
@@ -40,3 +40,11 @@
 - 更新自己的 Task 和软件 Acceptance。主工作区 Current State/总顺序由 BGM 目标 Owner 在整合时统一更新；不把一个窗口的软件结果写成另一个窗口已验收。
 
 真实网关语义案例、Authoring、Build、Quality 感知核验和 G4 三个新 Content 均在 **BGM 达到 MATERIAL_READY、两分支完成整合回归后另行启动**。本目标不消耗旧作品预算，也不自动启动真实视频。
+
+## 5. 本轮交付
+
+- 分支：`codex/video-flow-software`；基线：`easel-studio` 的 `6223406526b4de3faef654d29515fb417a42a500`。
+- 独立 worktree：`/Users/xgx/.codex/worktrees/video-flow-software/Easel`。仅带入本 Task，未覆盖主工作区未提交材料；研究固定提交与许可另录于验收文件，审查不依赖未跟踪的历史研究文件。
+- 已修复与剩余缺口、真实调用链、固定输入回放、来源/版本/许可、边界复核及后续真实验收条件见[本轮软件验收记录](../acceptance/creation-video-flow-software-2026-10-05.md)。
+- 本轮只补全要求合同复用、观察分组恢复身份、具名报告故障停止，以及后期表达只读输入传递；现有选材限额、软偏好/硬源动作规则、Material V1.3、累计费用与 Hypit 主链保持原有职责。相关组合回归 418 项通过。
+- Astra 前置复核要求使用独立服务端后期输入并绑定保留的 Authoring 阶段；最终复核 `DECISION = CONTINUE`，无新增必修项。真实 Authoring、Build、Quality 和 BGM 验收仍按第 4 节另行授权。

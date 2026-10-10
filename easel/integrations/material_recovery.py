@@ -280,14 +280,12 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
                 alternatives = ([audio_choices[need.need_id]] if need.need_id in audio_choices else
                                 query_hints(need.constraints)[1:])
                 if not alternatives:
-                    for path in sorted((store.materials_root / 'recoveries').glob('requirements-*.json')):
-                        if path.is_symlink():
-                            raise MaterialIntegrationError('要求合同路径无效')
-                        contract = json.loads(path.read_text()).get('contract', {})
-                        from easel.materials.application.visual_observation import need_identity
-                        if contract.get('need_sha256') == need_identity(need) and contract.get('queries'):
-                            alternatives = contract['queries'][1:]
-                            break
+                    from easel.materials.application.visual_contract import compilation_input, read_requirements_contract
+                    from easel.integrations.hypit.handoff import load_frozen_creative_mode
+                    contract = read_requirements_contract(store, compilation_input(
+                        need, planning['plan'].context_refs, load_frozen_creative_mode(attempt)[0]))
+                    if contract is not None:
+                        alternatives = contract['queries'][1:]
                 tried = {q.casefold() for r in record.get('previous_rounds', [])
                          for q in r.get('search_terms', {}).get(need.need_id, [])}
                 primary = need.constraints.get('search_query_en', '')
