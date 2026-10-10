@@ -13,9 +13,9 @@ RUNTIME_PARTS = {'dist/provider-transport-fetch-C-DHvnM1.mjs': 'fe2923d07e202d3c
  'dist/src-7tzZ8j12.mjs': '02a4796e3fa3407f8ef1390fdc53093fa43a85dfe4c00be1edc23fd762d161cc',
  'dist/principal-CweFVZNq.mjs': '086a8c6f780f79142716303921cb84e9ab6d20cae9f2879e4276f6a4199e70bd',
  'dist/builtin-openclaw-B-H-7lKk.mjs': 'dadd861cb8ae029e1c40385705a44cb7a1d8c17ae532d26c6e879c5fc5d0e4b0',
- 'node_modules/@openclaw/ai/dist/transports.mjs': '5f3bc7fef92f40200583f3d6012fe88c678abe686373c901f214d3c94e12c7f9',
+ 'node_modules/@openclaw/ai/dist/transports.mjs': '96fb39bc4e8c6129783c587a2324071bbb92fff366c2f94c71dbaaa185570ed7',
  'node_modules/@openclaw/ai/dist/openai-completions-stream-Da2vvl-S.mjs': 'dbf0630c2f7daf2ab5539fe64c1644a92fc89b08e568151ea6c37efcc73fbf87',
- 'dist/easel-structured-result.mjs': '6c9d804bfbb1d11461c919b53088f11d4d76b1d95190dd8b1d21fe7a3ef98ec4',
+ 'dist/easel-structured-result.mjs': 'e744c9a6dba38ade4e87500c3443102e5a7b3c54fbbea42a8e8778c681928803',
  'dist/runtime-rYK9YYw9.mjs': '8440f13bc2e687057bc52f76aa0bbb394c8780f85e38e5616399e7779dfcf998',
  'dist/runtime-Bye51EWk.mjs': '1b4dd796612ec6238e749f52d12a208185574e40a09e2d37caca8f00b8f746f1'}
 

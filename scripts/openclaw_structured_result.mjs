@@ -227,9 +227,21 @@ export function candidateEvidence(message, request) {
 }
 
 const REJECTION_VERSION = 'easel-structured-rejection@1';
+// Exact literals from the pinned SDK only. Never persist exception text or stack.
+const sdkFailureMessages = new Map([
+  ['Stream ended without finish_reason', 'STRUCTURED_SDK_FINISH_REASON_MISSING'],
+  ['Exceeded tool-call argument buffer limit', 'STRUCTURED_SDK_ARGUMENT_BUFFER_LIMIT'],
+  ['Exceeded legacy tool-call content buffer limit', 'STRUCTURED_SDK_LEGACY_CONTENT_BUFFER_LIMIT'],
+  ['Exceeded post-tool-call delta buffer limit', 'STRUCTURED_SDK_POST_TOOL_BUFFER_LIMIT'],
+]);
+const sdkFailureTypes = new Map([
+  [SyntaxError, 'STRUCTURED_SDK_SYNTAX_ERROR'],
+  [TypeError, 'STRUCTURED_SDK_TYPE_ERROR'],
+  [RangeError, 'STRUCTURED_SDK_RANGE_ERROR'],
+]);
 const rejectionCodes = new Set(['STRUCTURED_TERMINAL_REJECTED', 'STRUCTURED_STORAGE_REJECTED',
   'STRUCTURED_CAPACITY_REJECTED', 'STRUCTURED_ARGUMENTS_CHANGED', 'STRUCTURED_REQUEST_INVALID',
-  'STRUCTURED_EXECUTION_FAILED']);
+  'STRUCTURED_EXECUTION_FAILED', ...sdkFailureMessages.values(), ...sdkFailureTypes.values()]);
 const errorCodes = new Set([...rejectionCodes, 'STRUCTURED_PAYLOAD_CHANGED',
   'STRUCTURED_ROUTE_CHANGED', 'STRUCTURED_IDENTITY_INVALID', 'STRUCTURED_LEDGER_UNSAFE',
   'STRUCTURED_SUBMISSION_UNCERTAIN', 'STRUCTURED_RECOVERY_REQUIRED',
@@ -330,6 +342,22 @@ export function retainRejection(scope, message, category) {
   }
 }
 
+// The transport calls this before its native cleanup removes unfinished tools.
+// Diagnostic failures never replace the SDK error or authorize another submission.
+export function retainExecutionFailure(scope, message, error) {
+  try {
+    let category = errorCodes.has(error?.message) ? error.message : sdkFailureMessages.get(error?.message);
+    if (!category) {
+      for (const [Type, code] of sdkFailureTypes) {
+        if (error instanceof Type) { category = code; break; }
+      }
+    }
+    return retainRejection(scope, message, category ?? 'STRUCTURED_EXECUTION_FAILED');
+  } catch {
+    return 'UNAVAILABLE';
+  }
+}
+
 // Hold partial events inside the provider transport. They must not reach
 // transcript/raw-stream/diagnostic subscribers before complete storage checking.
 export function protectedStream(destination, scope) {
@@ -361,6 +389,7 @@ export function protectedStream(destination, scope) {
         const source = event.error;
         const category = errorCodes.has(source?.errorMessage)
           ? source.errorMessage : 'STRUCTURED_EXECUTION_FAILED';
+        retainRejection(scope, source, category);
         terminal = {role: 'assistant', content: [], api: 'openai-completions',
           provider: scope.identity.provider, model: scope.identity.model,
           timestamp: Date.now(), usage: source?.usage,

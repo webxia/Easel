@@ -3,6 +3,220 @@ from pathlib import Path
 import json
 import shutil
 import subprocess
+import pytest
+
+
+@pytest.mark.parametrize('case', ['complete', 'connect_once', 'connect_exhausted', 'http401', 'http429',
+    'after_send', 'partial_response', 'retry_budget', 'retry_deadline', 'retry_authorization'])
+def test_phase_aware_proxy_retries_only_proven_unsent(tmp_path, monkeypatch, case):
+    """Real local HTTP proxy, socket client and ledger; only upstream is a fixture."""
+    import errno, threading, urllib.request, urllib.error
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from tests.planning_material_matrix import transport_recovery as transport
+    from tests.planning_material_matrix.structured_gateway import EvalHttpBudget, EvalProviderProxy
+    marker = 'synthetic-private-exception-must-not-be-saved'
+    raw = b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+    received, opened, checks = [], [], []
+    clock = [100.]
+    class Upstream(BaseHTTPRequestHandler):
+        def log_message(self, *_): pass
+        def do_POST(self):
+            received.append(self.rfile.read(int(self.headers['Content-Length'])))
+            if case == 'after_send':
+                self.connection.shutdown(2); self.connection.close(); return
+            status = int(case[4:]) if case.startswith('http') else 200
+            data = marker.encode() if status != 200 else raw
+            self.send_response(status)
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.wfile.write(data[:8] if case == 'partial_response' else data)
+            self.wfile.flush()
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
+    thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+    origin = f'http://127.0.0.1:{server.server_port}/v1/chat/completions'
+    policy = transport.POLICY
+    budget = EvalHttpBudget(tmp_path / 'ledger', 'a' * 64, transport_policy=policy,
+        limit=1 if case == 'retry_budget' else 40, clock=lambda: clock[0])
+    def authorize():
+        checks.append(True)
+        if len(checks) == 2:
+            if case == 'retry_deadline': clock[0] += 2700
+            if case == 'retry_authorization': raise ValueError(marker)
+    native_init = transport._HTTPConnection.__init__
+    def setup(self, *args, **kwargs):
+        native_init(self, *args, **kwargs)
+        create = self._create_connection
+        def connect(*args, **kwargs):
+            opened.append(True)
+            if case in {'connect_exhausted', 'retry_budget', 'retry_deadline', 'retry_authorization'} or (
+                    case == 'connect_once' and len(opened) == 1):
+                raise ConnectionRefusedError(errno.ECONNREFUSED, marker)
+            return create(*args, **kwargs)
+        self._create_connection = connect
+    monkeypatch.setattr(transport._HTTPConnection, '__init__', setup)
+    proxy = EvalProviderProxy(budget, origin, 'fixture-model', 'fixture-only-key', offline=True,
+                              before_send=authorize).start()
+    try:
+        request = urllib.request.Request(proxy.url + '/chat/completions',
+            data=b'{"model":"fixture-model","max_tokens":64}',
+            headers={'Authorization': 'Bearer ' + proxy.client_token})
+        content = b''
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                try: content = response.read()
+                except __import__('http.client').client.IncompleteRead: pass
+        except urllib.error.HTTPError as error:
+            content = error.read(); error.close()
+        if case in {'complete', 'connect_once'}: assert content == raw
+        assert marker.encode() not in content
+    finally:
+        proxy.stop(); server.shutdown(); server.server_close(); thread.join()
+    state = json.loads(budget.path.read_text())
+    attempts = state['requests']
+    assert len(attempts) == (2 if case in {'connect_once', 'connect_exhausted'} else 1)
+    assert len(received) == (1 if case in {'complete', 'connect_once', 'http401', 'http429', 'after_send', 'partial_response'} else 0)
+    if case.startswith('connect') or case.startswith('retry'):
+        assert attempts[0]['state'] == 'NOT_SENT'
+        assert attempts[0]['transport']['request_write_attempted'] is False
+        assert attempts[0]['transport']['category'] == 'CONNECTION_REFUSED'
+        assert len(checks) == 2
+    if case == 'connect_once':
+        assert attempts[1]['connection_retry_of'] == 1
+        assert attempts[1]['request_sha256'] == attempts[0]['request_sha256']
+    if case in {'complete', 'connect_once'}:
+        assert attempts[-1]['state'] == 'RESPONSE_COMPLETE'
+        assert attempts[-1]['transport']['request_write_attempted'] is True
+        assert attempts[-1]['transport']['response_complete'] is True
+        assert not state['closed']
+    else:
+        assert state['closed']
+        if case in {'after_send', 'partial_response'}:
+            assert attempts[0]['state'] == 'UNKNOWN'
+            assert attempts[0]['transport']['request_write_attempted'] is True
+        if case.startswith('http'): assert attempts[0]['state'] == 'HTTP_REJECTED'
+    assert marker not in budget.path.read_text() and 'fixture-only-key' not in budget.path.read_text()
+    with pytest.raises(ValueError):
+        EvalHttpBudget(tmp_path / 'ledger', 'a' * 64)  # No silent upgrade/downgrade.
+
+
+@pytest.mark.parametrize('tunnel', [False, True])
+def test_https_setup_failure_is_not_application_send(monkeypatch, tunnel):
+    import socket, ssl
+    from tests.planning_material_matrix import transport_recovery as transport
+    for error in (TimeoutError('private'), ssl.SSLCertVerificationError(1, 'private')):
+        progress = transport.Progress()
+        connection = transport._HTTPSConnection('example.invalid', progress=progress)
+        assert connection._context.context.verify_mode == ssl.CERT_REQUIRED
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        listener.bind(('127.0.0.1', 0)); listener.listen(1)
+        left = socket.create_connection(listener.getsockname(), timeout=2)
+        right, _ = listener.accept(); listener.close()
+        connection._create_connection = lambda *_a, **_k: left
+        if tunnel:
+            connection.set_tunnel('example.invalid')
+            # Exercise native send inside CONNECT setup; it is not POST data.
+            connection._tunnel = lambda: connection.send(b'CONNECT example.invalid:443 HTTP/1.1\r\n\r\n')
+        class Handshake:
+            def wrap_socket(self, *_args, **kwargs):
+                assert kwargs['server_hostname'] == 'example.invalid'
+                raise error
+        connection._context.context = Handshake()
+        try:
+            with pytest.raises(type(error)):
+                connection.send(b'POST /v1/chat/completions HTTP/1.1\r\n')
+            evidence = transport.failure_evidence(error, progress)
+            assert evidence['phase'] == 'TLS_HANDSHAKE' and evidence['submission'] == 'NOT_SENT'
+            assert evidence['safe_connection_retry'] == isinstance(error, TimeoutError)
+            right.settimeout(1 if tunnel else 0)
+            try: sent = right.recv(4096)
+            except BlockingIOError: sent = b''
+            assert b'POST' not in sent
+            assert bool(sent) == tunnel
+        finally:
+            connection.close(); right.close()
+    # A plain timeout without connection/write instrumentation proves nothing.
+    assert transport.failure_evidence(TimeoutError(), transport.Progress())['submission'] == 'UNKNOWN'
+
+
+@pytest.mark.parametrize('fault', ['client_midstream', 'client_after_receipt', 'receipt_write'])
+def test_completed_upstream_is_not_retried_for_local_failure(tmp_path, monkeypatch, fault):
+    import io
+    from types import SimpleNamespace
+    from tests.planning_material_matrix import transport_recovery as transport
+    from tests.planning_material_matrix.structured_gateway import EvalHttpBudget, EvalSseObservation
+    budget = EvalHttpBudget(tmp_path / 'ledger', 'b' * 64, transport_policy=transport.POLICY)
+    number = budget.reserve({'request_sha256': 'c' * 64})
+    raw = b'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+    opens, writes = [], []
+    class Response(io.BytesIO):
+        status = 200
+        headers = {}
+        length = None
+    class Opener:
+        def __init__(self, progress): self.progress = progress
+        def open(self, *_args, **_kwargs):
+            opens.append(True)
+            self.progress.connection_observed = self.progress.request_write_attempted = True
+            return Response(raw)
+    monkeypatch.setattr(transport, 'observed_opener', Opener)
+    class Sink(io.BytesIO):
+        def write(self, data):
+            if fault == 'client_midstream' or fault == 'client_after_receipt' and data == b'0\r\n\r\n':
+                raise BrokenPipeError('do-not-log-private-text')
+            return super().write(data)
+    finish = budget.finish
+    def save(number, value):
+        writes.append(value)
+        if fault == 'receipt_write': raise OSError('do-not-log-private-text')
+        return finish(number, value)
+    monkeypatch.setattr(budget, 'finish', save)
+    client = SimpleNamespace(wfile=Sink(), send_response=lambda *_: None, send_header=lambda *_: None,
+        end_headers=lambda: None, failure=lambda *_: None, close_connection=False)
+    owner = SimpleNamespace(budget=budget, before_send=lambda: pytest.fail('No network retry'), expected_number=None)
+    transport.forward(owner, client, object(), {}, number, EvalSseObservation)
+    state = json.loads(budget.path.read_text())
+    assert len(opens) == len(writes) == len(state['requests']) == 1
+    assert state['closed'] and client.close_connection
+    if fault == 'client_after_receipt':
+        assert state['requests'][0]['state'] == 'RESPONSE_COMPLETE'
+        assert state['close_reason'] == 'LOCAL_DELIVERY_FAILED'
+    elif fault == 'receipt_write':
+        assert writes[0]['transport']['response_complete'] is True
+        assert state['requests'][0]['state'] == 'UNKNOWN'
+        assert state['close_reason'] == 'LOCAL_RECEIPT_FAILED'
+    else:
+        assert state['requests'][0]['state'] == 'UNKNOWN'
+        assert state['requests'][0]['transport']['phase'] == 'CLIENT_DELIVERY'
+    assert 'do-not-log-private-text' not in budget.path.read_text()
+
+
+@pytest.mark.parametrize('decision', ['PASS', 'FAIL'])
+def test_engineering_planning_check_not_stability_or_media_grant(tmp_path, decision):
+    import hashlib
+    from tests.planning_material_matrix import planning_eval_run as runner
+    from tests.planning_material_matrix.structured_gateway import EvalHttpBudget
+    from tests.planning_material_matrix.transport_recovery import POLICY
+    manifest = tmp_path / 'manifest.json'
+    manifest.write_text(json.dumps({'schema': runner.ENGINEERING_SCHEMA, 'transport_policy': POLICY}))
+    identity = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    budget = EvalHttpBudget(tmp_path / 'actual-http', identity, transport_policy=POLICY)
+    number = budget.reserve({}); budget.finish(number, {'state': 'RESPONSE_COMPLETE'})
+    directory = tmp_path / 'runs'; directory.mkdir()
+    path = directory / 'run-00.json'
+    path.write_text(json.dumps({'manifest_sha256': identity, 'result': 'CONTRACT_VALID_SEMANTICS_PENDING',
+                               'semantic_review': 'NOT_REVIEWED'}))
+    runner.record_convergence_review(tmp_path, manifest, 0, decision, {'kind': 'fixed independent oracle fixture'})
+    result = json.loads(path.read_text()); state = json.loads(budget.path.read_text())
+    assert result['semantic_review'] == decision
+    assert result['formal_qualification'] is False and result['production_dispatch_allowed'] is False
+    assert state['closed']
+    assert state['close_reason'] == ('BATCH_COMPLETE' if decision == 'PASS' else 'BATCH_FAILED')
+    with pytest.raises(ValueError): budget.reserve({})
+    with pytest.raises(runner.EvalStateViolation):
+        runner.record_convergence_review(tmp_path, manifest, 0, 'PASS', {'kind': 'cannot regrade'})
+    assert runner.transport_policy_for({'schema': 'planning-qualification-eval@2'}) is None
+    with pytest.raises(runner.EvalStateViolation):
+        runner.transport_policy_for({'schema': runner.ENGINEERING_SCHEMA})
 
 
 def test_eval_actual_http_ceiling_and_pre_sdk_observation(tmp_path):
@@ -381,6 +595,72 @@ for (const [name,candidate,finishShape,finishValue] of cases) {
   assert.equal(fs.readFileSync(file,'utf8'),first);
   assert.equal(fs.readdirSync(folder).length,1);
 }
+// First SDK error is a rejection too; its original content/exception stays private.
+for (const [name,source,expectedStop] of [
+  ['first-sdk-error',{...message,errorMessage:marker},'error'],
+  ['first-sdk-abort',{...message,errorMessage:marker,stopReason:'aborted'},'aborted'],
+]) {
+  const folder=path.join(directory,name);fs.mkdirSync(folder,{mode:0o700});
+  const scopedIdentity={...identity,runId:name};
+  const scope={directory:folder,identity:scopedIdentity,request};
+  reserveSubmission(folder,scopedIdentity,payload,request);
+  const reserved=fs.readdirSync(folder)[0];
+  const reservation=fs.readFileSync(path.join(folder,reserved),'utf8');
+  const events=[];let terminal;
+  const stream=guard.protectedStream({push:e=>events.push(e),end:e=>{terminal=e}},scope);
+  stream.push({type:'error',error:source});stream.end();
+  assert.equal(events.length,1);
+  assert.equal(events[0].error.errorMessage,'STRUCTURED_EXECUTION_FAILED');
+  assert.equal(events[0].error.stopReason,expectedStop);
+  assert.deepEqual(events[0].error.content,[]);
+  assert.equal(terminal,events[0].error);
+  const names=fs.readdirSync(folder).filter(n=>n.startsWith('rejection-'));
+  assert.equal(names.length,1,'First SDK error diagnostic was lost');
+  const file=path.join(folder,names[0]);const first=fs.readFileSync(file,'utf8');
+  assert.equal(first.includes(marker),false);
+  assert.equal(JSON.parse(first).runId,name);
+  assert.equal(JSON.parse(first).schemaSha256,request.schemaSha256);
+  assert.equal(fs.statSync(file).mode&0o077,0);
+  assert.throws(()=>reserveSubmission(folder,scopedIdentity,payload,request),
+    /STRUCTURED_SUBMISSION_UNCERTAIN/);
+  assert.equal(fs.readFileSync(path.join(folder,reserved),'utf8'),reservation);
+}
+// These are diagnostic controls, not a replay of any historical Provider response.
+for (const [name,error,category] of [
+  ['sdk-finish',Error('Stream ended without finish_reason'),'STRUCTURED_SDK_FINISH_REASON_MISSING'],
+  ['sdk-buffer',Error('Exceeded tool-call argument buffer limit'),'STRUCTURED_SDK_ARGUMENT_BUFFER_LIMIT'],
+  ['sdk-syntax',new SyntaxError(marker),'STRUCTURED_SDK_SYNTAX_ERROR'],
+  ['sdk-type',new TypeError(marker),'STRUCTURED_SDK_TYPE_ERROR'],
+  ['sdk-range',new RangeError(marker),'STRUCTURED_SDK_RANGE_ERROR'],
+  ['sdk-unknown',Error(marker),'STRUCTURED_EXECUTION_FAILED'],
+]) {
+  const folder=path.join(directory,name);fs.mkdirSync(folder,{mode:0o700});
+  const scope={directory:folder,identity:{...identity,runId:name},request};
+  assert.equal(guard.retainExecutionFailure(scope,message,error),'SAVED');
+  const file=path.join(folder,fs.readdirSync(folder)[0]);const first=fs.readFileSync(file,'utf8');
+  const record=JSON.parse(first);
+  assert.equal(record.category,category);
+  assert.equal(record.toolCallCount,1,'Pre-cleanup tool evidence was lost');
+  assert.equal(first.includes(marker),false);
+  guard.protectedStream({push(){},end(){}},scope).push({
+    type:'error',error:{...message,content:[],errorMessage:marker}});
+  assert.equal(fs.readFileSync(file,'utf8'),first,'Cleanup replaced the first diagnosis');
+  assert.equal(guard.retainExecutionFailure({...scope,identity:{...scope.identity,model:'other'}},
+    message,error),'UNAVAILABLE');
+  assert.equal(fs.readFileSync(file,'utf8'),first);
+}
+const errorWriteFailure=path.join(directory,'error-write-failure');
+fs.mkdirSync(errorWriteFailure,{mode:0o700});
+const originalLink=fs.linkSync;const errorEvents=[];
+try {
+  fs.linkSync=()=>{throw Error('ENOSPC')};
+  const scope={directory:errorWriteFailure,identity,request};
+  assert.equal(guard.retainExecutionFailure(scope,message,new SyntaxError(marker)),'UNAVAILABLE');
+  guard.protectedStream({push:e=>errorEvents.push(e),end(){}},scope).push({
+    type:'error',error:{errorMessage:marker}});
+  assert.equal(errorEvents[0].error.errorMessage,'STRUCTURED_EXECUTION_FAILED');
+  assert.deepEqual(fs.readdirSync(errorWriteFailure),[]);
+} finally {fs.linkSync=originalLink;}
 const race=path.join(directory,'rejection-race');
 const rejectWorker=finish=>new Promise((resolve,reject)=>{
   const child=spawn(process.execPath,[process.argv[1],process.argv[2],race,'rejection-worker',finish],{stdio:'ignore'});

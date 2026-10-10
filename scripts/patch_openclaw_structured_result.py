@@ -29,9 +29,11 @@ PINS = {
 # Accepted A-only carrier; upgrade only these exact inspected bytes.
 PRIOR_PARTS = {'dist/principal-CweFVZNq.mjs':
     {'ef1226e5b08865214ebf96e9e112137563e6317c5c523a6b9fcf608cd1717ba3',
-    'd2065be2b5ce0f5b447c45d61e79a0a423d1f9e148b2a766c34cd255876eb7d0'}}
+    'd2065be2b5ce0f5b447c45d61e79a0a423d1f9e148b2a766c34cd255876eb7d0'},
+    AI + 'transports.mjs': {'5f3bc7fef92f40200583f3d6012fe88c678abe686373c901f214d3c94e12c7f9'}}
 PRIOR_HELPER = {'b8664827744dc0bc51e71191e498902b1e3ae6af95510df1d46bddde668961e5',
-                'b1d10de4523e9c3099df17d143b8c72aa89775c1923a811ef451c891af990036'}
+                'b1d10de4523e9c3099df17d143b8c72aa89775c1923a811ef451c891af990036',
+                '6c9d804bfbb1d11461c919b53088f11d4d76b1d95190dd8b1d21fe7a3ef98ec4'}
 
 def digest(value):
     return hashlib.sha256(value).hexdigest()
@@ -105,7 +107,7 @@ def transform(name, source):
             '\t\t\tpath.join(resolveStateDir(), "easel-structured-requests"));\n\t}\n'
             '\treturn {\n\t\tserverToolClearingEnabled,')
     if name.endswith('transports.mjs'):
-        source = ('import {protectedStream as easelProtectedStream, reserveSubmission as easelReserveSubmission}'
+        source = ('import {protectedStream as easelProtectedStream, reserveSubmission as easelReserveSubmission, retainExecutionFailure as easelRetainExecutionFailure}'
                   ' from "../../../../dist/easel-structured-result.mjs";\n') + source
         source = once(source, '\t\t\t\tconst baseFetch = buildGuardedModelFetch(model);',
             '\t\t\t\tconst baseFetch = buildGuardedModelFetch(model, void 0,\n'
@@ -122,6 +124,14 @@ def transform(name, source):
             '\t\t\t\t\t\tconst scope = options.easelStructuredResult;\n'
             '\t\t\t\t\t\teaselReserveSubmission(scope.directory, scope.identity, JSON.parse(init.body), scope.request);\n'
             '\t\t\t\t\t}\n')
+        source = once(source,
+            '\t\t\t\t\tcleanup: () => {\n'
+            '\t\t\t\t\t\toutput.stopReason = options?.signal?.aborted ? "aborted" : "error";\n'
+            '\t\t\t\t\t\tfinalizeOpenAICompletionsToolCalls(output, { allowSilentToolCallPromotion: false });',
+            '\t\t\t\t\tcleanup: () => {\n'
+            '\t\t\t\t\t\tif (options?.easelStructuredResult) easelRetainExecutionFailure(options.easelStructuredResult, output, error);\n'
+            '\t\t\t\t\t\toutput.stopReason = options?.signal?.aborted ? "aborted" : "error";\n'
+            '\t\t\t\t\t\tfinalizeOpenAICompletionsToolCalls(output, { allowSilentToolCallPromotion: false });')
         return once(source, '\t\t\t\tawait processCompletionsStream(hookedResponseStream, output, model, stream, {\n',
             '\t\t\t\tawait processCompletionsStream(hookedResponseStream, output, model, stream, {\n'
             '\t\t\t\t\teaselStructuredResult: options?.easelStructuredResult,\n')

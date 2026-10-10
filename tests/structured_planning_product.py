@@ -83,7 +83,51 @@ def test_native_harness_lifecycle(authority_runtime, monkeypatch, tmp_path, risk
         'real_model_calls': 0, 'records': records}, ensure_ascii=False, indent=2) + '\n')
 
 
-def test_native_output_admission_lifecycle(prep_env, monkeypatch, tmp_path):
+def test_native_phase_aware_output_lifecycle(prep_env, monkeypatch, tmp_path):
+    from tests.planning_material_matrix import transport_recovery as transport
+    original = transport._HTTPConnection.__init__
+    attempted = []
+    def with_one_refused_connect(self, *args, **kwargs):
+        original(self, *args, **kwargs)
+        connect = self._create_connection
+        def once(*args, **kwargs):
+            attempted.append(True)
+            if len(attempted) == 1:
+                raise ConnectionRefusedError(61, 'local fixture before HTTP send')
+            return connect(*args, **kwargs)
+        self._create_connection = once
+    monkeypatch.setattr(transport._HTTPConnection, '__init__', with_one_refused_connect)
+    test_native_output_admission_lifecycle(prep_env, monkeypatch, tmp_path, phase_aware=True)
+    assert len(attempted) == 6
+
+
+
+def test_native_sdk_failure_diagnostics(tmp_path):
+    """Synthetic transport control through the real SDK; not historical replay."""
+    runtime = Path(os.environ['EASEL_TEST_RUNTIME']).resolve()
+    assert runtime.parent == Path('/tmp').resolve() and runtime.name.startswith('easel-structured-runtime-')
+    from easel.integrations.planning_structured import verify_runtime
+    verify_runtime(runtime)
+    report = gateway(runtime, tmp_path / 'sdk-failure', shutil.which('node'),
+        scenario='sdk_missing_finish',
+        model_row={'id': 'MiniMax-M2.7', 'name': 'offline M2.7', 'reasoning': True,
+                   'input': ['text'], 'contextWindow': 204800, 'maxTokens': 65536},
+        model_params={'params': {'max_completion_tokens': 65536,
+                                 'extra_body': {'thinking': {'type': 'adaptive'}}}})
+    assert report['terminal']['status'] == 'error'
+    assert report['capture']['state'] == 'TOOL_REJECTED'
+    assert len(report['provider_calls']) == 1
+    assert report['first_rejection']['category'] == 'STRUCTURED_SDK_FINISH_REASON_MISSING'
+    assert report['first_rejection']['toolCallCount'] == 1
+    assert report['database_and_existing_wal_unchanged']
+    report.update(historical_failure_replayed=False,
+                  evidence_kind='synthetic-sdk-error-control',
+                  local_fixture_http=1, real_model_calls=0)
+    output = Path(os.environ['EASEL_TEST_EVIDENCE'])
+    output.mkdir(parents=True, exist_ok=True)
+    (output / 'native-sdk-failure.json').write_text(json.dumps(report, indent=2) + '\n')
+
+def test_native_output_admission_lifecycle(prep_env, monkeypatch, tmp_path, *, phase_aware=False):
     """Real native capture of the invalid echo, then local normalize + one repair.
 
     Only the upstream Provider answers and Truth/Preparation are fixtures.
@@ -94,7 +138,9 @@ def test_native_output_admission_lifecycle(prep_env, monkeypatch, tmp_path):
     runtime = Path(os.environ['EASEL_TEST_RUNTIME']).resolve()
     assert runtime.parent == Path('/tmp').resolve() and runtime.name.startswith('easel-structured-runtime-')
     owner.structured.verify_runtime(runtime)
-    budget = EvalHttpBudget(tmp_path / 'native-admission-http', hashlib.sha256(b'admission-native@1').hexdigest())
+    from tests.planning_material_matrix.transport_recovery import POLICY
+    budget = EvalHttpBudget(tmp_path / 'native-admission-http', hashlib.sha256(b'admission-native@1').hexdigest(),
+                           transport_policy=POLICY if phase_aware else None)
     records = []
     native_run = owner.run
     def with_native_capture(attempt, context, canonical, mode, route, dispatch):
@@ -124,10 +170,17 @@ def test_native_output_admission_lifecycle(prep_env, monkeypatch, tmp_path):
     assert len(records) == 5
     assert [row['stage'] for row in records] == ['A-selection', 'A-details', 'B-000', 'repair', 'B-recheck-000']
     requests = json.loads(budget.path.read_text())['requests']
+    if phase_aware:
+        assert len(requests) == 6 and requests[0]['state'] == 'NOT_SENT'
+        assert requests[1]['connection_retry_of'] == 1
+        assert requests[1]['request_sha256'] == requests[0]['request_sha256']
+        requests = requests[1:]
+        assert all(row['transport']['response_complete'] for row in requests)
     assert len(requests) == 5 and all(row['provider_finish'] == 'tool_calls' for row in requests)
     output = Path(os.environ['EASEL_TEST_EVIDENCE']); output.mkdir(parents=True, exist_ok=True)
     (output / 'native-output-admission.json').write_text(json.dumps({
         'result': 'PASS', 'real_model_calls': 0, 'local_fixture_http': 5,
+        'reserved_connection_attempts': 6 if phase_aware else 5, 'phase_aware': phase_aware,
         'schema_echo_preserved_in_capture': True, 'normalization_used_no_model_call': True,
         'records': records}, ensure_ascii=False, indent=2) + '\n')
 
@@ -198,7 +251,7 @@ def test_native_gateway_ordinary_truth_and_report_repair_share_http_guard(tmp_pa
         native.stop(); proxy.stop(); provider.shutdown(); provider.server_close(); thread.join()
 
 
-@pytest.mark.parametrize('qualification', [False, True, 'm27'], ids=['contrast', 'qualification', 'm27-qualification'])
+@pytest.mark.parametrize('qualification', [False, True, 'm27', 'engineering'], ids=['contrast', 'qualification', 'm27-qualification', 'engineering'])
 def test_native_four_cell_diagnostic_runner(tmp_path, monkeypatch, qualification):
     """Actual runner, isolated confirmations, Gateway/capture and local HTTP."""
     import threading
@@ -226,13 +279,18 @@ def test_native_four_cell_diagnostic_runner(tmp_path, monkeypatch, qualification
         manifest.update(schema='planning-qualification-eval@1', samples=source['samples'], probes=[],
                         limits={'http': 40, 'seconds': 2700, 'themes': 3, 'repeats': 2}, candidate=candidate,
                         tool_hashes=runner.tool_hashes())
-        if qualification == 'm27':
+        if qualification in {'m27', 'engineering'}:
             manifest.update(schema='planning-qualification-eval@2', candidate={
                 'model_row': {'id': 'MiniMax-M2.7', 'name': 'MiniMax Token Plan · M2.7',
                     'reasoning': True, 'input': ['text'], 'contextWindow': 204800, 'maxTokens': 65536},
                 'model_params': {'params': {'max_completion_tokens': 65536,
                     'extra_body': {'thinking': {'type': 'adaptive'}}}},
             })
+    if qualification == 'engineering':
+        from tests.planning_material_matrix.transport_recovery import POLICY
+        manifest.update(schema=runner.ENGINEERING_SCHEMA, transport_policy=POLICY,
+            samples=[source['samples'][0]], limits={'http': 40, 'seconds': 2700, 'themes': 1, 'repeats': 1},
+            tool_hashes=runner.tool_hashes(transport_policy=POLICY))
     manifest_path = tmp_path / 'manifest.json'; manifest_path.write_text(json.dumps(manifest))
     directory = tmp_path / 'diagnostic'
     # The runner sees a synthetic account. No actual credential is loaded by it.
@@ -252,9 +310,9 @@ def test_native_four_cell_diagnostic_runner(tmp_path, monkeypatch, qualification
             payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             index = len(provider_calls)
             assert 'max_tokens' not in payload
-            assert payload['max_completion_tokens'] == (65536 if qualification == 'm27' else
+            assert payload['max_completion_tokens'] == (65536 if qualification in {'m27', 'engineering'} else
                                                         131072 if qualification else source['model_rows'][0]['maxTokens'])
-            assert payload['model'] == ('MiniMax-M2.7' if qualification == 'm27' else 'MiniMax-M3')
+            assert payload['model'] == ('MiniMax-M2.7' if qualification in {'m27', 'engineering'} else 'MiniMax-M3')
             provider_calls.append({'thinking': payload['thinking'], 'model': payload['model'],
                                    'max_completion_tokens': payload['max_completion_tokens']})
             if qualification:
@@ -270,6 +328,13 @@ def test_native_four_cell_diagnostic_runner(tmp_path, monkeypatch, qualification
                     context = json.JSONDecoder().raw_decode(text[text.index('{', marker):])[0]
                     value = {'needs': [{'scope': 'global', 'role': '背景', 'modality': 'image', 'necessity': 'required',
                         'conditions': [{'text': '静态生活照片', 'strength': 'required', 'responsibility': 'material'}]}]}
+                    if qualification == 'engineering':
+                        # The frozen engineering fixture explicitly includes BGM.
+                        # This is a fixed reply, not measured model semantics.
+                        value['needs'].append({'scope': 'global', 'role': '背景音乐', 'modality': 'bgm',
+                            'necessity': 'required', 'conditions': [{'text': '轻柔无歌词背景音乐',
+                                'strength': 'required', 'responsibility': 'material'}],
+                            'sound': {'vocals_allowed': False}})
                     from tests.test_semantic_planning import staged_fixture_wire
                     stage = text[marker:text.index('〕', marker) + 1]
                     raw = staged_fixture_wire(stage + '\n' + json.dumps(context, ensure_ascii=False), value)
@@ -320,7 +385,10 @@ def test_native_four_cell_diagnostic_runner(tmp_path, monkeypatch, qualification
     monkeypatch.setattr(gateway_module, 'EvalProviderProxy', local_proxy)
     args = SimpleNamespace(directory=directory, contrast_manifest=manifest_path, convergence_manifest=None,
         fixed_commit=manifest['fixed_commit'], fixed_source=manifest['fixed_source'], one=None)
-    if qualification: args.contrast_manifest = None; args.qualification_manifest = manifest_path
+    if qualification:
+        args.contrast_manifest = None
+        args.qualification_manifest = None if qualification == 'engineering' else manifest_path
+        args.engineering_manifest = manifest_path if qualification == 'engineering' else None
     def invoke():
         if not qualification:
             return runner.convergence_main(args)
@@ -345,8 +413,8 @@ def local_proxy(budget,_upstream,model,key,**kwargs):
  return original(budget,sys.argv[2],model,key,offline=True,**kwargs)
 gateway.EvalProviderProxy=local_proxy
 value=json.loads(sys.argv[3])
-for key in ('directory','qualification_manifest'):
- value[key]=Path(value[key])
+for key in ('directory','qualification_manifest','engineering_manifest'):
+ if value.get(key) is not None: value[key]=Path(value[key])
 raise SystemExit(runner.convergence_main(SimpleNamespace(**value)))
 '''
         value={k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()}
@@ -358,29 +426,33 @@ raise SystemExit(runner.convergence_main(SimpleNamespace(**value)))
     try:
         assert invoke() == 0
         assert not provider_calls
-        for i in range(6 if qualification else 4):
+        for i in range(1 if qualification == 'engineering' else 6 if qualification else 4):
             args.one = i
             assert invoke() == 0
             if qualification:
                 runner.record_convergence_review(directory, manifest_path, i, 'PASS',
                     {'kind': 'offline execution test only; fixed judgments are NOT real semantic evidence'})
                 budget = json.loads((directory / 'actual-http/http-budget.json').read_text())
-                assert budget['closed'] == (i == 5)
+                assert budget['closed'] == (i == (0 if qualification == 'engineering' else 5))
             else: assert len(provider_calls) == i + 1
         count = len(provider_calls)
         assert invoke() == 0  # Completed cell cannot submit again.
         assert len(provider_calls) == count
         if qualification:
             roster = json.loads((directory / 'roster.json').read_text())['runs']
-            assert [r['sample'] for r in roster] == [0, 0, 1, 1, 2, 2]
-            assert len({r['creation_id'] for r in roster}) == 6
+            assert [r['sample'] for r in roster] == ([0] if qualification == 'engineering' else [0, 0, 1, 1, 2, 2])
+            assert len({r['creation_id'] for r in roster}) == (1 if qualification == 'engineering' else 6)
+            if qualification == 'engineering':
+                result = json.loads((directory / 'runs/run-00.json').read_text())
+                assert result['formal_qualification'] is False and result['production_dispatch_allowed'] is False
+                assert result['supply_calls'] == 0 and result['state_violations'] == []
             assert budget['close_reason'] == 'BATCH_COMPLETE'
             assert len(budget['requests']) == count
-            assert all(r['max_completion_tokens'] == (65536 if qualification == 'm27' else 131072)
+            assert all(r['max_completion_tokens'] == (65536 if qualification in {'m27', 'engineering'} else 131072)
                        and r['thinking_mode'] == 'adaptive' for r in budget['requests'])
             assert production()['sha256'] == manifest['fixed_source'] and protected() == manifest['protected_files']
             output = Path(os.environ['EASEL_TEST_EVIDENCE']); output.mkdir(exist_ok=True, parents=True)
-            (output / ('m27-qualification-runner.json' if qualification == 'm27' else 'qualification-runner.json')).write_text(json.dumps({'result': 'PASS', 'real_model_calls': 0,
+            (output / ('m27-qualification-runner.json' if qualification in {'m27', 'engineering'} else 'qualification-runner.json')).write_text(json.dumps({'result': 'PASS', 'real_model_calls': 0,
                 'local_provider_calls': count, 'roster': [r['sample'] for r in roster], 'semantic_quality': 'NOT_TESTED',
                 'production_and_protected_unchanged': True}))
             return

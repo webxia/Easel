@@ -30,8 +30,11 @@ class EvalHttpBudget:
     batch ceiling, including ordinary Truth and every SDK/framework attempt.
     Reservations are never refunded, even if the process dies before a receipt.
     """
-    def __init__(self, directory, manifest_sha256, *, limit=40, seconds=2700, clock=time.time):
+    def __init__(self, directory, manifest_sha256, *, limit=40, seconds=2700, clock=time.time, transport_policy=None):
         self.directory = Path(directory).resolve()
+        from tests.planning_material_matrix.transport_recovery import POLICY
+        if transport_policy not in (None, POLICY):
+            raise ValueError('EVAL_TRANSPORT_POLICY_INVALID')
         if (Path(directory).is_symlink() or not re.fullmatch('[a-f0-9]{64}', manifest_sha256)
                 or type(limit) is not int or not 0 < limit <= 40
                 or type(seconds) is not int or not 0 < seconds <= 2700):
@@ -39,6 +42,8 @@ class EvalHttpBudget:
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.directory.chmod(0o700)
         self.identity = {'manifest_sha256': manifest_sha256, 'limit': limit, 'seconds': seconds}
+        if transport_policy is not None:
+            self.identity['transport_policy'] = transport_policy
         self.clock = clock
         self.path = self.directory / 'http-budget.json'
         with self.edit() as state:
@@ -79,6 +84,9 @@ class EvalHttpBudget:
         with self.edit() as state:
             now = self.clock()
             first = state['first_reserved_at']
+            if self.identity.get('transport_policy') and any(row['state'] == 'UNKNOWN' for row in state['requests']):
+                state.update(closed=True, close_reason='UPSTREAM_UNKNOWN')
+                raise ValueError('EVAL_UNRESOLVED_REQUEST_CANNOT_RETRY')
             if expected_number is not None and (type(expected_number) is not int
                     or expected_number != len(state['requests']) + 1
                     or any(row['state'] == 'UNKNOWN' for row in state['requests'])):
@@ -105,7 +113,8 @@ class EvalHttpBudget:
         with self.edit() as state:
             state.update(closed=True)
             state.setdefault('close_reason', reason if reason in {
-                'BATCH_FAILED', 'UPSTREAM_HTTP_FAILED', 'UPSTREAM_UNKNOWN', 'BATCH_COMPLETE'} else 'BATCH_FAILED')
+                'BATCH_FAILED', 'UPSTREAM_HTTP_FAILED', 'UPSTREAM_UNKNOWN', 'BATCH_COMPLETE',
+                'UPSTREAM_NOT_SENT', 'LOCAL_DELIVERY_FAILED', 'LOCAL_RECEIPT_FAILED'} else 'BATCH_FAILED')
 
     def validate_completion(self):
         """Late terminal evidence is retained, but cannot earn batch PASS."""
@@ -357,6 +366,17 @@ class EvalProviderProxy:
                 observation = EvalSseObservation()
                 headers_sent = False
                 receipt_saved = False
+                if owner.budget.identity.get('transport_policy'):
+                    from tests.planning_material_matrix.transport_recovery import forward
+                    request = urllib.request.Request(owner.upstream, data=body, method='POST', headers={
+                        'Authorization': 'Bearer ' + owner._key, 'Content-Type': 'application/json'})
+                    try:
+                        forward(owner, self, request, metadata, number, EvalSseObservation)
+                    except Exception:
+                        # A ledger/storage failure is local, never a reason to
+                        # submit the model again or expose raw exception text.
+                        self.close_connection = True
+                    return
                 try:
                     request = urllib.request.Request(owner.upstream, data=body, method='POST', headers={
                         'Authorization': 'Bearer ' + owner._key, 'Content-Type': 'application/json'})
@@ -537,9 +557,12 @@ def main(runtime, workspace, node, raw_path=None, scenario='valid', schema_path=
                     'finish_reason': None}]} for i, piece in enumerate(pieces)] + [messages[-1]]
             if scenario in {'terminal_stop', 'terminal_length'}:
                 messages[-1]['choices'][0]['finish_reason'] = scenario.removeprefix('terminal_')
+            if scenario == 'sdk_missing_finish':
+                messages = messages[:-1]  # Complete HTTP, absent Provider terminal; external fixture only.
             for message in messages:
                 self.wfile.write(('data: ' + json.dumps(message) + '\n\n').encode())
-            self.wfile.write(b'data: [DONE]\n\n')
+            if scenario != 'sdk_missing_finish':
+                self.wfile.write(b'data: [DONE]\n\n')
             self.wfile.flush()
 
     provider = ThreadingHTTPServer(('127.0.0.1', 0), Provider)
@@ -678,7 +701,7 @@ net.Socket.prototype.connect=function(...args){
         assert capture.get('toolCallId') == 'original-native-call'
     else:
         assert capture.get('state') != 'FOUND'
-    if scenario in {'terminal_stop', 'terminal_length', 'sensitive_debug'}:
+    if scenario in {'terminal_stop', 'terminal_length', 'sensitive_debug', 'sdk_missing_finish'}:
         from scripts.patch_openclaw_structured_result import digest
         guard_folder = state / 'easel-structured-requests'
         files = list(guard_folder.glob('rejection-*.json'))
@@ -686,7 +709,12 @@ net.Socket.prototype.connect=function(...args){
         diagnostic = json.loads(files[0].read_text())
         assert diagnostic['runId'] == run_id and diagnostic['sessionId'] == 'structured-fixture'
         assert diagnostic['schemaSha256'] == structured['schemaSha256']
-        if scenario.startswith('terminal_'):
+        if scenario == 'sdk_missing_finish':
+            assert diagnostic['category'] == 'STRUCTURED_SDK_FINISH_REASON_MISSING'
+            assert diagnostic['providerFinishValue'] == 'MISSING'
+            assert diagnostic['toolCallCount'] == 1, 'SDK cleanup erased the pre-error tool shape'
+            assert diagnostic['uniqueExpectedTool'] is True
+        elif scenario.startswith('terminal_'):
             assert diagnostic['category'] == 'STRUCTURED_TERMINAL_REJECTED'
             assert diagnostic['providerFinishValue'] == scenario.removeprefix('terminal_')
             # length discards the unfinished tool in the installed native reducer.

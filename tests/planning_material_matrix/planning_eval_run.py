@@ -35,6 +35,15 @@ TOOL_PATHS = ('tests/planning_material_matrix/planning_eval.py',
               'tests/planning_material_matrix/structured_gateway.py', 'tests/structured_planning_product.py')
 
 CONTRAST_RESULTS = {'OBSERVED_CONTRACT_ACCEPT', 'OBSERVED_CONTRACT_REJECT'}
+ENGINEERING_SCHEMA = 'planning-engineering-check@1'
+
+
+def transport_policy_for(manifest):
+    from tests.planning_material_matrix.transport_recovery import POLICY
+    policy = manifest.get('transport_policy')
+    if policy not in (None, POLICY) or manifest.get('schema') == ENGINEERING_SCHEMA and policy != POLICY:
+        raise EvalStateViolation('Explicit engineering transport policy required')
+    return policy
 
 
 def model_profile():
@@ -172,13 +181,16 @@ def record_convergence_review(directory, manifest_path, index, decision, evidenc
     """Independent evaluation oracle only; never changes formal product files."""
     from tests.planning_material_matrix.structured_gateway import EvalHttpBudget
     manifest_bytes = Path(manifest_path).read_bytes()
-    qualification = json.loads(manifest_bytes).get('schema') in {
+    manifest = json.loads(manifest_bytes)
+    engineering = manifest.get('schema') == ENGINEERING_SCHEMA
+    qualification = manifest.get('schema') in {
         'planning-qualification-eval@1', 'planning-qualification-eval@2'}
-    first, total = (0, 6) if qualification else (4, 10)
+    first, total = (0, 1) if engineering else (0, 6) if qualification else (4, 10)
     if index not in range(first, total) or decision not in {'PASS', 'FAIL'} or not evidence:
         raise EvalStateViolation('Independent evaluation review invalid')
     manifest_sha = hashlib.sha256(manifest_bytes).hexdigest()
-    budget = EvalHttpBudget(Path(directory) / 'actual-http', manifest_sha)
+    budget = EvalHttpBudget(Path(directory) / 'actual-http', manifest_sha,
+                           transport_policy=transport_policy_for(manifest))
     path = Path(directory) / 'runs' / f'run-{index:02}.json'
     result = json.loads(path.read_text())
     if result['manifest_sha256'] != manifest_sha or result['result'] != 'CONTRACT_VALID_SEMANTICS_PENDING':
@@ -188,6 +200,9 @@ def record_convergence_review(directory, manifest_path, index, decision, evidenc
     try: budget.validate_completion()
     except ValueError: decision = 'FAIL'
     result.update(semantic_review=decision, independent_oracle=evidence)
+    if engineering:
+        result.update(evaluation_kind='engineering_planning_check', formal_qualification=False,
+                      production_dispatch_allowed=False)
     if decision == 'FAIL': result['result'] = 'FAIL'; budget.close()
     save(path, result)
     if index == total - 1 and decision == 'PASS':
@@ -207,7 +222,7 @@ def accept_convergence_stage(output, budget):
 def qualification_profile(manifest):
     """One explicit candidate, retaining the unchanged live profile baseline."""
     from copy import deepcopy
-    if manifest.get('schema') == 'planning-qualification-eval@2':
+    if manifest.get('schema') in {'planning-qualification-eval@2', ENGINEERING_SCHEMA}:
         # An isolated, text-only alternative. Never rewrite the live profile
         # or reinterpret an old M3 manifest as authorization for this model.
         candidate = {
@@ -249,25 +264,34 @@ def convergence_main(args):
         raise EvalStateViolation('Convergence evidence must have a protected root outside source')
     directory.mkdir(parents=True, exist_ok=True, mode=0o700); directory.chmod(0o700)
     contrast = bool(getattr(args, 'contrast_manifest', None))
-    qualification = bool(getattr(args, 'qualification_manifest', None))
-    manifest_path = args.qualification_manifest if qualification else args.contrast_manifest if contrast else args.convergence_manifest
+    engineering = bool(getattr(args, 'engineering_manifest', None))
+    qualification = engineering or bool(getattr(args, 'qualification_manifest', None))
+    manifest_path = (args.engineering_manifest if engineering else args.qualification_manifest if qualification
+                     else args.contrast_manifest if contrast else args.convergence_manifest)
     raw_manifest = manifest_path.read_bytes()
     manifest = json.loads(raw_manifest)
     manifest_sha = hashlib.sha256(raw_manifest).hexdigest()
-    schemas = ({'planning-qualification-eval@1', 'planning-qualification-eval@2'} if qualification else
+    schemas = ({ENGINEERING_SCHEMA} if engineering else
+               {'planning-qualification-eval@1', 'planning-qualification-eval@2'} if qualification else
                {'planning-carrier-contrast@1'} if contrast else {'autonomous-convergence-eval@1'})
     if (manifest.get('schema') not in schemas
-            or len(manifest['samples']) != (1 if contrast else 3)
+            or len(manifest['samples']) != (1 if contrast or engineering else 3)
             or len(manifest['probes']) != (0 if qualification else 4) or manifest['fixed_commit'] != args.fixed_commit
             or manifest['fixed_source'] != args.fixed_source):
         raise EvalStateViolation('Convergence manifest/caps/release invalid')
     runtime = Path(manifest['runtime']).resolve(); verify_runtime(runtime)
+    transport_policy = transport_policy_for(manifest)
+    if contrast and transport_policy is not None:
+        raise EvalStateViolation('Historical diagnostic cell cannot add retries')
     budget = EvalHttpBudget(directory / 'actual-http', manifest_sha,
-                           limit=4 if contrast else 40, seconds=900 if contrast else 2700)
+                           limit=4 if contrast else 40, seconds=900 if contrast else 2700,
+                           transport_policy=transport_policy)
     first = 0 if qualification else 4
-    total = 6 if qualification else 4 if contrast else 10
+    total = 1 if engineering else 6 if qualification else 4 if contrast else 10
     if qualification:
-        if manifest['limits'] != {'http': 40, 'seconds': 2700, 'themes': 3, 'repeats': 2}:
+        expected_limits = {'http': 40, 'seconds': 2700,
+                           'themes': 1 if engineering else 3, 'repeats': 1 if engineering else 2}
+        if manifest['limits'] != expected_limits:
             raise EvalStateViolation('Qualification limits changed')
         qualification_profile(manifest)
     if contrast:
@@ -283,7 +307,8 @@ def convergence_main(args):
     def integrity():
         if (head() != args.fixed_commit or production()['sha256'] != args.fixed_source
                 or hashlib.sha256(manifest_path.read_bytes()).hexdigest() != manifest_sha
-                or tool_hashes(contrast=contrast) != manifest['tool_hashes'] or protected() != manifest['protected_files']):
+                or tool_hashes(contrast=contrast, transport_policy=transport_policy) != manifest['tool_hashes']
+                or protected() != manifest['protected_files']):
             raise EvalStateViolation('Frozen convergence source/tool/input/scene changed')
         verify_runtime(runtime)
         for sample in manifest['samples']:
@@ -312,10 +337,11 @@ def convergence_main(args):
             if not roster_path.exists():
                 rows = []
                 for index in range(total):
-                    sample_index = 0 if index < first else (index - first) // 2
+                    sample_index = 0 if index < first or engineering else (index - first) // 2
                     work, mapping = frozen_sample(manifest['samples'][sample_index])
                     rows.append({'index': index, 'creation_id': work['id'], 'sample': sample_index,
-                                 'kind': 'protocol-probe' if index < first else 'planning-eval', 'input_mapping': mapping})
+                                 'kind': 'engineering-planning-check' if engineering else 'protocol-probe' if index < first else 'planning-eval',
+                                 'input_mapping': mapping})
                 save(roster_path, {'manifest_sha256': manifest_sha, 'runs': rows,
                     'kind': 'isolated evaluation carriers; no production works or media authorization'})
             roster = json.loads(roster_path.read_text())
@@ -389,6 +415,9 @@ def convergence_main(args):
                       'started_at': time.time(), 'engineering_intervention': 0, 'supply_calls': 0}
             save(result_path, output)
             try:
+                if engineering:
+                    output.update(evaluation_kind='engineering_planning_check', formal_qualification=False,
+                                  production_dispatch_allowed=False)
                 if args.one < first:
                     probe = manifest['probes'][args.one]
                     token = active_delivery.set(row['creation_id'])
@@ -458,9 +487,12 @@ def convergence_main(args):
         EaselRuntimeConfig.load = original_config
 
 
-def tool_hashes(*, contrast=False):
+def tool_hashes(*, contrast=False, transport_policy=None):
     paths = (*TOOL_PATHS, 'tests/planning_material_matrix/producer_experiment.py',
              'tests/test_openclaw_structured_result.py') if contrast else TOOL_PATHS
+    if transport_policy is not None:
+        transport_policy_for({'transport_policy': transport_policy})
+        paths = (*paths, 'tests/planning_material_matrix/transport_recovery.py')
     return {name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest() for name in paths}
 
 
@@ -700,10 +732,11 @@ def main():
     parser.add_argument('--convergence-manifest', type=Path, help='Confirmed frozen-Preparation/actual-HTTP convergence batch')
     parser.add_argument('--contrast-manifest', type=Path, help='Authorized fixed four-cell A-only diagnostic experiment')
     parser.add_argument('--qualification-manifest', type=Path, help='Separate three-theme six-case full Planning batch')
+    parser.add_argument('--engineering-manifest', type=Path, help='One complete Planning/Truth engineering check; not stability or media authorization')
     args = parser.parse_args()
-    if sum(bool(value) for value in (args.contrast_manifest, args.convergence_manifest, args.qualification_manifest)) > 1:
+    if sum(bool(value) for value in (args.contrast_manifest, args.convergence_manifest, args.qualification_manifest, args.engineering_manifest)) > 1:
         raise EvalStateViolation('Exactly one immutable batch mode is required')
-    if args.convergence_manifest or args.contrast_manifest or args.qualification_manifest:
+    if args.convergence_manifest or args.contrast_manifest or args.qualification_manifest or args.engineering_manifest:
         return convergence_main(args)
     directory = args.directory.resolve()
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
