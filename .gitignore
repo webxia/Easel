@@ -109,3 +109,12 @@ skills/openclaw/video-production/vendor/**/*large-v3*
 /qrcode.png
 /赛博江湖/
 /赛博江湖-同路长歌/
+
+# Local Planning evaluation runs and raw acceptance archives (retain on disk).
+# Stable, reviewed fixtures already tracked by Git remain tracked; promote new
+# evidence deliberately after checking it contains no credentials/private data.
+/docs/acceptance/fixtures/planning-material-matrix-2026-10-06/run-[0-9]*/
+/docs/acceptance/fixtures/planning-material-matrix-2026-10-06/r4-preflight/
+/docs/acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/carrier-audit/
+/docs/acceptance/fixtures/planning-material-matrix-2026-10-06/vnext/*.xml
+/docs/acceptance/fixtures/planning-material-matrix-2026-10-06/governance-release-loaded.json

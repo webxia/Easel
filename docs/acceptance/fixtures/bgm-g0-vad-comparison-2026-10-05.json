@@ -1,0 +1,23 @@
+{
+  "schema": "easel-bgm-g0-auxiliary-vad@1",
+  "purpose": "one bounded comparison after AST-only calibration failed; speech veto only, no singing/no-vocals guarantee",
+  "installed_model": {
+    "package": "faster-whisper",
+    "version": "1.2.1",
+    "file": "silero_vad_v6.onnx",
+    "sha256": "4cbf549b8326f60f80f2536d9eefeb450a9abe83365a098031c89719f1be17d2"
+  },
+  "threshold": [
+    0.3,
+    0.5,
+    0.7
+  ],
+  "min_contiguous_ms": [
+    64,
+    128
+  ],
+  "hop_samples": 512,
+  "sampling_rate": 16000,
+  "parameters_registered_before_vad_scores": true,
+  "holdout": "remain sealed unless calibration meets the original error and positive gate"
+}

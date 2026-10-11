@@ -1,0 +1,1814 @@
+{
+  "schema": "easel-bgm-calibration@1",
+  "samples": [
+    {
+      "sample_id": "music-hd-0004",
+      "source_group": "music-hd-0004",
+      "split": "calibration",
+      "layer": "continuous",
+      "expected": "instrumental_music",
+      "audio_file": "music-hd-0004.wav",
+      "audio_sha256": "3cbf5e29696ee6db3ad7a0c70d9753ba15914b2c7c0f3a13653462fde3c613c9",
+      "duration_seconds": 30.0,
+      "transform": {
+        "start_seconds": 20.0,
+        "end_seconds": 50.0,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/hd-classical/music-hd-0004.wav",
+        "source_sha256": "bbf9d5950cd284d3604170995998bb2e39b97bea621e25c49dd79e3a826edaae",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/LICENSE",
+        "license_text": "music-hd-0003\nBerceuse, Lyric Pieces for piano, Op. 38 - HD - Edward Grieg\nmusic-hd-0005\nLittle Bird, Lyric Pieces for piano - HD - Edward Grieg (mellow tune)\nmusic-hd-0006\nMarch of the Dwarfs, Lyric Pieces for piano - HD - Edward Grieg\nmusic-hd-0007\nPuck, Lyric Pieces for piano - HD - Edward Grieg\nmusic-hd-0008\nSolitary Traveller, Lyric Pieces for piano\nmusic-hd-0004\nButterfly \"Sommerfugl\", Lyric Pieces for piano, Op. 43 - HD - Edward Grieg (superb timeless melody!)\nComposer:Edvard Grieg\nPerformer:Bernd Krueger\nSource: Bernd Krueger \nLicense:CC BY-SA 3.0 DE\nhttp://www.hdclassicalmusic.com/browse/?by=performer&id_performer=7",
+        "annotation": "music-hd-0004 westernart,romantic N Bernd_Krueger Grieg",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-fma-0010",
+      "source_group": "music-fma-0010",
+      "split": "calibration",
+      "layer": "continuous",
+      "expected": "instrumental_music",
+      "audio_file": "music-fma-0010.wav",
+      "audio_sha256": "8066fd6cb7b254ee985be487e06e959508e6b3c653c25987ede8fe4ecda80757",
+      "duration_seconds": 30.0,
+      "transform": {
+        "start_seconds": 20.0,
+        "end_seconds": 50.0,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/fma/music-fma-0010.wav",
+        "source_sha256": "0de07614156fadb4f206242228c0564a9a630f38fa7af0180d22d524d3615b08",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/LICENSE",
+        "license_text": "music-fma-0010\nStormy Blues by Arne Huseby is licensed under a Attribution 3.0 International License.\nmusic-fma-0011\nWarm Duck Shuffle by Arne Huseby is licensed under a Attribution 3.0 International License.\nhttp://freemusicarchive.org/music/arnebhus/arnebhus_-_Singles/",
+        "annotation": "music-fma-0010 blues N Arne_Huseby",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-hd-0042",
+      "source_group": "music-hd-0042",
+      "split": "holdout",
+      "layer": "continuous",
+      "expected": "instrumental_music",
+      "audio_file": "music-hd-0042.wav",
+      "audio_sha256": "fed7f81ee14a8b5ef2bee1bcd6c93206a2269a6d35884beaec1a6289a7148f83",
+      "duration_seconds": 30.0,
+      "transform": {
+        "start_seconds": 20.0,
+        "end_seconds": 50.0,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/hd-classical/music-hd-0042.wav",
+        "source_sha256": "440ceabfaef891f875e378b8e7df89104dd23fe961aeee613e8f9b3a489b9551",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/LICENSE",
+        "license_text": "music-hd-0040\nAufzug - Entry Dance from \"The Fairy Queen\" (Henry Purcell)\nmusic-hd-0042\nHornpipe from the Faerie Queene - Purcell\nComposer:Henry Purcell\nPerformer:Jon Sayles\nSource: Jon Sayles\nLicense:Public Domain\nhttp://www.hdclassicalmusic.com/browse/?by=performer&id_performer=149",
+        "annotation": "music-hd-0042 westernart,baroque N Jon_Sayles Purcell",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-fma-0100",
+      "source_group": "music-fma-0100",
+      "split": "holdout",
+      "layer": "continuous",
+      "expected": "instrumental_music",
+      "audio_file": "music-fma-0100.wav",
+      "audio_sha256": "183547d8066a6cb6b9807367510042fa84e2d0d8a607268f563b4f6591cf6a73",
+      "duration_seconds": 30.0000625,
+      "transform": {
+        "start_seconds": 18.064999999999998,
+        "end_seconds": 48.065062499999996,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/fma/music-fma-0100.wav",
+        "source_sha256": "33749df1eb6d41987b0f967371ceaa9fae215e3ef7a0d29783759354b81509df",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/LICENSE",
+        "license_text": "music-fma-0097\n\"Tiny Robot Armies” (by Quiet Music for Tiny Robots)\nmusic-fma-0099\n“You Were My Robot Lover” (by Quiet Music for Tiny Robots)\nmusic-fma-0098\n“No Tears, No Rust” (by Quiet Music for Tiny Robots)\nmusic-fma-0100\n“Quiet” (by Quiet Music for Tiny Robots)\nCC BY 4.0\nhttp://freemusicarchive.org/music/Quiet_Music_for_Tiny_Robots/The_February_Album",
+        "annotation": "music-fma-0100 pop,electronica N Quiet_Music_for_Tiny_Robots",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-hd-0007",
+      "source_group": "music-hd-0007",
+      "split": "calibration",
+      "layer": "sparse_low_energy",
+      "expected": "instrumental_music",
+      "audio_file": "music-hd-0007.wav",
+      "audio_sha256": "790b7dc770447c399541c12b1b919afa8e502946f744d65dba897a40c75481f0",
+      "duration_seconds": 30.0,
+      "transform": {
+        "start_seconds": 20.0,
+        "end_seconds": 50.0,
+        "gain": 0.03,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/hd-classical/music-hd-0007.wav",
+        "source_sha256": "ad3f11f84c39d4745f493bb353a30165870728738a21d4475acec337008fab5e",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/LICENSE",
+        "license_text": "music-hd-0003\nBerceuse, Lyric Pieces for piano, Op. 38 - HD - Edward Grieg\nmusic-hd-0005\nLittle Bird, Lyric Pieces for piano - HD - Edward Grieg (mellow tune)\nmusic-hd-0006\nMarch of the Dwarfs, Lyric Pieces for piano - HD - Edward Grieg\nmusic-hd-0007\nPuck, Lyric Pieces for piano - HD - Edward Grieg\nmusic-hd-0008\nSolitary Traveller, Lyric Pieces for piano\nmusic-hd-0004\nButterfly \"Sommerfugl\", Lyric Pieces for piano, Op. 43 - HD - Edward Grieg (superb timeless melody!)\nComposer:Edvard Grieg\nPerformer:Bernd Krueger\nSource: Bernd Krueger \nLicense:CC BY-SA 3.0 DE\nhttp://www.hdclassicalmusic.com/browse/?by=performer&id_performer=7",
+        "annotation": "music-hd-0007 westernart,romantic N Bernd_Krueger Grieg",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-fma-0052",
+      "source_group": "music-fma-0052",
+      "split": "calibration",
+      "layer": "sparse_low_energy",
+      "expected": "instrumental_music",
+      "audio_file": "music-fma-0052.wav",
+      "audio_sha256": "3534ed0cd88dc1e4cea89167a4c471506a7f14403a862d45ac6d55971e658ae3",
+      "duration_seconds": 30.0,
+      "transform": {
+        "start_seconds": 20.0,
+        "end_seconds": 50.0,
+        "gain": 0.03,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/fma/music-fma-0052.wav",
+        "source_sha256": "71d301d9674b9e7514cf754f9ab89a5d62bcd7842c6a9a33444a446bbe40c00a",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/LICENSE",
+        "license_text": "“Flying” (by Jahzzar)\nmusic-fma-0048\n“Notre-Dame” (by Jahzzar)\nmusic-fma-0052\n“Pigalle” (by Jahzzar)\nmusic-fma-0056\n“Rossio” (by Jahzzar)\nmusic-fma-0049\n“Jardins du Luxembourg” (by Jahzzar)\nmusic-fma-0053\n“Alfama” (by Jahzzar)\nmusic-fma-0057\n“Montmartre” (by Jahzzar)\nmusic-fma-0050\n“Boulevard St Germain” (by Jahzzar)\nmusic-fma-0054   \n“Chiado” (by Jahzzar)\nmusic-fma-0051\n“Pontes” (by Jahzzar)\nmusic-fma-0055\nParis, Lisboa by Jahzzar is licensed under a Attribution-ShareAlike 3.0 International License.\nhttp://freemusicarchive.org/music/Jahzzar/Paris_Lisboa/Jardins_du_Luxembourg",
+        "annotation": "music-fma-0052 indierock,folk,pop N Jahzzar",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-hd-0067",
+      "source_group": "music-hd-0067",
+      "split": "holdout",
+      "layer": "sparse_low_energy",
+      "expected": "instrumental_music",
+      "audio_file": "music-hd-0067.wav",
+      "audio_sha256": "2ca6bf8d1a2b325fe0c919513a066f7806c48fc03dc11691e133fa9d1c7a8c9c",
+      "duration_seconds": 30.0,
+      "transform": {
+        "start_seconds": 20.0,
+        "end_seconds": 50.0,
+        "gain": 0.03,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/hd-classical/music-hd-0067.wav",
+        "source_sha256": "c8ba5fdfc5b3e5a2f8f9278971744f4e486f467fb14f5c5ac03386ab5abfbaf1",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/LICENSE",
+        "license_text": "music-hd-0065\nThe pearls, Op. 109 - HD - Johann Friedrich Franz Burgmüller\nmusic-hd-0066\nSpinning Song - HD - Johann Friedrich Franz Burgmüller \nmusic-hd-0067\nThe sylphs - HD - Johann Friedrich Franz Burgmüller\nmusic-hd-0068\nThunderstorm - HD - Johann Friedrich Franz Burgmüller\nComposer:Johann Friedrich Franz Burgmüller\nPerformer:Bernd Krueger\nSource: Bernd Krueger \nLicense:CC BY-SA 3.0 DE",
+        "annotation": "music-hd-0067 westernart,romantic N Bernd_Krueger Burgmuller",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-fma-0072",
+      "source_group": "music-fma-0072",
+      "split": "holdout",
+      "layer": "sparse_low_energy",
+      "expected": "instrumental_music",
+      "audio_file": "music-fma-0072.wav",
+      "audio_sha256": "3b46e076d26a3d653e6c93e8354d61e0a82bf253501c120360d430fd5ab9b551",
+      "duration_seconds": 30.0,
+      "transform": {
+        "start_seconds": 20.0,
+        "end_seconds": 50.0,
+        "gain": 0.03,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/fma/music-fma-0072.wav",
+        "source_sha256": "d423f00f99f3fe77ce79f8e642d4a9a916681d99523b9e6dc3949a24d539691b",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/LICENSE",
+        "license_text": "“Fight the Sea” (by Josh Woodward)\nmusic-fma-0067\n“The Pawnbroker's Stepdaughter” (by Josh Woodward)\nmusic-fma-0071\n“Cherry” (by Josh Woodward)\nmusic-fma-0068\n“Shower Scene (Instrumental Version)” (by Josh Woodward)\nmusic-fma-0072\n“Can't Take Our Love Away” (by Josh Woodward)\nmusic-fma-0069\n“Thanks For Coming” (by Josh Woodward)\nmusic-fma-0073\n“Big Disco Ball (Instrumental Version)” (by Josh Woodward)\nmusic-fma-0070 \nCrawford Street by Josh Woodward is licensed under a Attribution License. \nBased on a work at http://www.joshwoodward.com/\nPermissions beyond the scope of this license may be available at http://www.joshwoodward.com/sharing/ or contact artist via email.\nhttp://freemusicarchive.org/music/Josh_Woodward/Crawford_Street",
+        "annotation": "music-fma-0072 pop,folk N Josh_Woodward",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-hd-0045",
+      "source_group": "music-hd-0045",
+      "split": "calibration",
+      "layer": "fade_boundary",
+      "expected": "instrumental_music",
+      "audio_file": "music-hd-0045.wav",
+      "audio_sha256": "eae68ab6cf7ef13e47f1b15477e9f60f5d371062bde5b0824df8ba7948a5fafe",
+      "duration_seconds": 30.0000625,
+      "transform": {
+        "start_seconds": 38.153499999999994,
+        "end_seconds": 68.15356249999999,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/hd-classical/music-hd-0045.wav",
+        "source_sha256": "300f6b8767adf3cd03a09a4901088a466efe0ceab2655fb36cedf1b4e48624d3",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/LICENSE",
+        "license_text": "music-hd-0045\nWhat If I Never Speed - John Dowland\nComposer:John Dowland\nPerformer:Jon Sayles\nSource: Jon Sayles\nLicense:Public Domain\nhttp://www.hdclassicalmusic.com/listen/?id_song=586",
+        "annotation": "music-hd-0045 westernart,baroque N Jon_Sayles Dowland",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-fma-0060",
+      "source_group": "music-fma-0060",
+      "split": "calibration",
+      "layer": "fade_boundary",
+      "expected": "instrumental_music",
+      "audio_file": "music-fma-0060.wav",
+      "audio_sha256": "377837c7737058e134c5ef2a811e16ac87d28f2e627f5f7fc813ec27c8fd08f4",
+      "duration_seconds": 30.0,
+      "transform": {
+        "start_seconds": 103.43350000000001,
+        "end_seconds": 133.4335,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/fma/music-fma-0060.wav",
+        "source_sha256": "8d45ceb346cb54e50040e91203ee4ec864c3f8ac96b7d89505bda8572e9d3792",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/LICENSE",
+        "license_text": "“12 MORNINGS” (by Jason Shaw)\nmusic-fma-0058\n“ACOUSTIC BLUES” (by Jason Shaw)\nmusic-fma-0059\n“HOEDOWN” (by Jason Shaw)\nmusic-fma-0060\n“WORDS” (by Jason Shaw)\nmusic-fma-0061\nAudionautix: Acoustic by Jason Shaw is licensed under a Attribution 3.0 United States License. \nPermissions beyond the scope of this license may be available at http://audionautix.com/index.",
+        "annotation": "music-fma-0060 country,folk N Jason",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-hd-0068",
+      "source_group": "music-hd-0068",
+      "split": "holdout",
+      "layer": "fade_boundary",
+      "expected": "instrumental_music",
+      "audio_file": "music-hd-0068.wav",
+      "audio_sha256": "779115a0e3ef5b47cde4be890db2d79ec629d3c2ba37896e08c3407a80aa159e",
+      "duration_seconds": 30.0000625,
+      "transform": {
+        "start_seconds": 49.490624999999994,
+        "end_seconds": 79.49068749999999,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/hd-classical/music-hd-0068.wav",
+        "source_sha256": "119401fdb232ac0995b9f10703df9beafabb60139eb027e26ed99263d1ed6127",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/LICENSE",
+        "license_text": "music-hd-0065\nThe pearls, Op. 109 - HD - Johann Friedrich Franz Burgmüller\nmusic-hd-0066\nSpinning Song - HD - Johann Friedrich Franz Burgmüller \nmusic-hd-0067\nThe sylphs - HD - Johann Friedrich Franz Burgmüller\nmusic-hd-0068\nThunderstorm - HD - Johann Friedrich Franz Burgmüller\nComposer:Johann Friedrich Franz Burgmüller\nPerformer:Bernd Krueger\nSource: Bernd Krueger \nLicense:CC BY-SA 3.0 DE",
+        "annotation": "music-hd-0068 westernart,romantic N Bernd_Krueger Burgmuller",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/hd-classical/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-fma-0040",
+      "source_group": "music-fma-0040",
+      "split": "holdout",
+      "layer": "fade_boundary",
+      "expected": "instrumental_music",
+      "audio_file": "music-fma-0040.wav",
+      "audio_sha256": "80dd7bce3375cc6a9d268b97e5100fee1b4ed49b6aa432a0497e4f1288c5ee6f",
+      "duration_seconds": 30.0,
+      "transform": {
+        "start_seconds": 70.048,
+        "end_seconds": 100.048,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/fma/music-fma-0040.wav",
+        "source_sha256": "a1c0ad2a2d89170c12c03434b1a0e695f299d2636ccd2e32ca4665ff1d48b9b7",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/LICENSE",
+        "license_text": "“Xenophones” (by Factory Sounds)\nmusic-fma-0038\n“Spiderman works for US postal” (by Factory Sounds)\nmusic-fma-0034\n“The Titular Jam” (by Factory Sounds)\nmusic-fma-0039\n“Dookage Storm” (by Factory Sounds)\nmusic-fma-0035\n“.May Again” (by Factory Sounds)\nmusic-fma-0040\n“Brush the sCrufF off” (by Factory Sounds)\nmusic-fma-0036\n“Modulative” (by Factory Sounds)\nmusic-fma-0041\n“Fox News Encounters logistics” (by Factory Sounds)\nmusic-fma-0037 \nbaby boys' summer by Factory Sounds is licensed under a Attribution License.\nhttp://freemusicarchive.org/music/Factory_Sounds/baby_boys_summer_1411",
+        "annotation": "music-fma-0040 rock,folk N Factory_Sounds",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "speech-librivox-0009",
+      "source_group": "speech-librivox-0009",
+      "split": "calibration",
+      "layer": "speech",
+      "expected": "not_instrumental",
+      "audio_file": "speech-librivox-0009.wav",
+      "audio_sha256": "964151c425e5147e7e125d2aea314edbcc804d89647b9714df5bf267b508a271",
+      "duration_seconds": 63.6343125,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 63.6343125,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/speech/librivox/speech-librivox-0009.wav",
+        "source_sha256": "afdfc48bb6ac16ffd97cf0663cc90122d7defa17d07d6b3c5017a6523c086cef",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/LICENSE",
+        "license_text": "All LibriVox (url: https://librivox.org/) recordings are\nin the Public Domain.\n\n",
+        "annotation": "speech-librivox-0009 f chinese",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "speech-librivox-0031",
+      "source_group": "speech-librivox-0031",
+      "split": "calibration",
+      "layer": "speech",
+      "expected": "not_instrumental",
+      "audio_file": "speech-librivox-0031.wav",
+      "audio_sha256": "69dd45a83d02a7cfb91700d69026fc1fb5a5d4ffe4017fe1661f42aae18aeb12",
+      "duration_seconds": 80.613875,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 80.613875,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/speech/librivox/speech-librivox-0031.wav",
+        "source_sha256": "af51ff10916deb4f517752e1e1ee8d9c8f8503a1be59e42c44c02f527a63d28f",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/LICENSE",
+        "license_text": "All LibriVox (url: https://librivox.org/) recordings are\nin the Public Domain.\n\n",
+        "annotation": "speech-librivox-0031 m english",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "speech-librivox-0039",
+      "source_group": "speech-librivox-0039",
+      "split": "holdout",
+      "layer": "speech",
+      "expected": "not_instrumental",
+      "audio_file": "speech-librivox-0039.wav",
+      "audio_sha256": "0ed2fd1b5178d50b8e202ad04861b3accea094466b13528a8b6df2e6ec4a11ac",
+      "duration_seconds": 146.207375,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 146.207375,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/speech/librivox/speech-librivox-0039.wav",
+        "source_sha256": "41fb73636b15dc76815fff9f816c97e897d2d920acef4b89097f8f05fe682fca",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/LICENSE",
+        "license_text": "All LibriVox (url: https://librivox.org/) recordings are\nin the Public Domain.\n\n",
+        "annotation": "speech-librivox-0039 f chinese",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "speech-librivox-0001",
+      "source_group": "speech-librivox-0001",
+      "split": "holdout",
+      "layer": "speech",
+      "expected": "not_instrumental",
+      "audio_file": "speech-librivox-0001.wav",
+      "audio_sha256": "42f90a262d26fc28587d08ded6f052cfbe01c17ca4ca05e5607b4cde735abf65",
+      "duration_seconds": 79.9346875,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 79.9346875,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/speech/librivox/speech-librivox-0001.wav",
+        "source_sha256": "aa31bcba6049760ee64468437cc11a3d9359a71310f403c27d69ca2f25e9ed12",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/LICENSE",
+        "license_text": "All LibriVox (url: https://librivox.org/) recordings are\nin the Public Domain.\n\n",
+        "annotation": "speech-librivox-0001 m english",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-fma-wa-0018",
+      "source_group": "music-fma-wa-0018",
+      "split": "calibration",
+      "layer": "singing_choir",
+      "expected": "not_instrumental",
+      "audio_file": "music-fma-wa-0018.wav",
+      "audio_sha256": "5171351ca20a8975282c193be32caae4aa4400575122647a87c1ae6b4b09f8a1",
+      "duration_seconds": 153.1820625,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 153.1820625,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/fma-western-art/music-fma-wa-0018.wav",
+        "source_sha256": "4024459ce522f2b3f018cee4e15538fb3dbc6b0e8b4323a356b79dc39169b82b",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma-western-art/LICENSE",
+        "license_text": "music-fma-wa-0005\nmusic-fma-wa-0007\nmusic-fma-wa-0010\nmusic-fma-wa-0014\nmusic-fma-wa-0018\nmusic-fma-wa-0020\nmusic-fma-wa-0022\nmusic-fma-wa-0024\nmusic-fma-wa-0025\nmusic-fma-wa-0026\nmusic-fma-wa-0027\nmusic-fma-wa-0028\nSelections from the December 2006 Concert by Advent Chamber Orchestra is licensed under a Attribution-Share Alike 3.0 United States License\nhttp://freemusicarchive.org/music/Advent_Chamber_Orchestra/Selections_from_the_December_2006_Concert/",
+        "annotation": "music-fma-wa-0018 westernart,baroque Y Advent_Chamber Handel",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma-western-art/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-fma-0105",
+      "source_group": "music-fma-0105",
+      "split": "calibration",
+      "layer": "singing_choir",
+      "expected": "not_instrumental",
+      "audio_file": "music-fma-0105.wav",
+      "audio_sha256": "998fb14b5df8ffff3b7bfd74a027195eb02a7e09421b4a254ad36d3baceb02f0",
+      "duration_seconds": 203.78125,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 203.78125,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/fma/music-fma-0105.wav",
+        "source_sha256": "6255cfbea19484735343ca4960eb22734a4ba6db6804713864a74ad9296136eb",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/LICENSE",
+        "license_text": "“Lovers Like Neon” (by The Copycuts)\nmusic-fma-0104\n“Next Life” (by The Copycuts)\nmusic-fma-0105\n“Soul Rising” (by The Copycuts)\nmusic-fma-0106\nSketches by The Copycuts is licensed under a Attribution-ShareAlike License\nhttp://freemusicarchive.org/music/The_Copycuts/Sketches_1599",
+        "annotation": "music-fma-0105 pop Y The_Copycuts",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-fma-wa-0083",
+      "source_group": "music-fma-wa-0083",
+      "split": "holdout",
+      "layer": "singing_choir",
+      "expected": "not_instrumental",
+      "audio_file": "music-fma-wa-0083.wav",
+      "audio_sha256": "33dc8f7a13dd76ff1d57c66554850f6b9386de58b0c075b15946bf3f88671107",
+      "duration_seconds": 160.26125,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 160.26125,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/fma-western-art/music-fma-wa-0083.wav",
+        "source_sha256": "ccb17d63c4cd56ad58a76bddd1a194ec2e8d1ae9b9b6d054e57a1394927b340a",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma-western-art/LICENSE",
+        "license_text": "music-fma-wa-0083\nmusic-fma-wa-0088\nmusic-fma-wa-0084\nmusic-fma-wa-0089\nmusic-fma-wa-0085\nmusic-fma-wa-0090\nmusic-fma-wa-0086\nmusic-fma-wa-0091\nmusic-fma-wa-0087\nmusic-fma-wa-0092\nStabat Mater - Domenico Scarlatti by The Tudor Consort is licensed under a Attribution 3.0 International License.\nhttp://freemusicarchive.org/music/The_Tudor_Consort/Stabat_Mater_-_Domenico_Scarlatti",
+        "annotation": "music-fma-wa-0083 westernart,baroque Y Tudor_Consort Scarlatti",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma-western-art/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "music-fma-0067",
+      "source_group": "music-fma-0067",
+      "split": "holdout",
+      "layer": "singing_choir",
+      "expected": "not_instrumental",
+      "audio_file": "music-fma-0067.wav",
+      "audio_sha256": "7a93b396e4973b26862b69da029c08c0d6335c56e39e9dbd363ac3a5dad48d0e",
+      "duration_seconds": 277.002,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 277.002,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/music/fma/music-fma-0067.wav",
+        "source_sha256": "000b94e2190e5edf1c0bb4e0fd627dfc6ef4dcc43eb6645a4a9ae015949b5d22",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/LICENSE",
+        "license_text": "“Fight the Sea” (by Josh Woodward)\nmusic-fma-0067\n“The Pawnbroker's Stepdaughter” (by Josh Woodward)\nmusic-fma-0071\n“Cherry” (by Josh Woodward)\nmusic-fma-0068\n“Shower Scene (Instrumental Version)” (by Josh Woodward)\nmusic-fma-0072\n“Can't Take Our Love Away” (by Josh Woodward)\nmusic-fma-0069\n“Thanks For Coming” (by Josh Woodward)\nmusic-fma-0073\n“Big Disco Ball (Instrumental Version)” (by Josh Woodward)\nmusic-fma-0070 \nCrawford Street by Josh Woodward is licensed under a Attribution License. \nBased on a work at http://www.joshwoodward.com/\nPermissions beyond the scope of this license may be available at http://www.joshwoodward.com/sharing/ or contact artist via email.\nhttp://freemusicarchive.org/music/Josh_Woodward/Crawford_Street",
+        "annotation": "music-fma-0067 pop,folk Y Josh_Woodward",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/music/fma/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "speech-librivox-0139",
+      "source_group": "speech-librivox-0139",
+      "split": "calibration",
+      "layer": "weak_voice",
+      "expected": "not_instrumental",
+      "audio_file": "speech-librivox-0139.wav",
+      "audio_sha256": "a94063b6236b5b3e4e3f054ffd0f84130fd1423354b40e36f1a82facfb8ec6e9",
+      "duration_seconds": 108.721625,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 108.721625,
+        "gain": 0.01,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/speech/librivox/speech-librivox-0139.wav",
+        "source_sha256": "624086240d72b63dfe2f466d1708bf93876c63a29d611e0f14fae113e0086f78",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/LICENSE",
+        "license_text": "All LibriVox (url: https://librivox.org/) recordings are\nin the Public Domain.\n\n",
+        "annotation": "speech-librivox-0139 f english",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "speech-librivox-0141",
+      "source_group": "speech-librivox-0141",
+      "split": "calibration",
+      "layer": "weak_voice",
+      "expected": "not_instrumental",
+      "audio_file": "speech-librivox-0141.wav",
+      "audio_sha256": "6dabb58ff09f8d7e4c85b48aee633ca25ef294d3cf4edc63f232ce0692251ec5",
+      "duration_seconds": 81.4236875,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 81.4236875,
+        "gain": 0.01,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/speech/librivox/speech-librivox-0141.wav",
+        "source_sha256": "8516a484dcd0fc2aaedec544417eea9d3d81ad24b1fa683d05cd1dc92a86b59f",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/LICENSE",
+        "license_text": "All LibriVox (url: https://librivox.org/) recordings are\nin the Public Domain.\n\n",
+        "annotation": "speech-librivox-0141 f english",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "speech-librivox-0128",
+      "source_group": "speech-librivox-0128",
+      "split": "holdout",
+      "layer": "weak_voice",
+      "expected": "not_instrumental",
+      "audio_file": "speech-librivox-0128.wav",
+      "audio_sha256": "c7a5e41297bb7ec75bd1cc241820bdb1907eeed4041b115d792a87a5ac768cff",
+      "duration_seconds": 79.8040625,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 79.8040625,
+        "gain": 0.01,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/speech/librivox/speech-librivox-0128.wav",
+        "source_sha256": "f67a58d9b35ac4ce746a0608d3697539dfe6d9c9c4fa40a212056db0fe4cf541",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/LICENSE",
+        "license_text": "All LibriVox (url: https://librivox.org/) recordings are\nin the Public Domain.\n\n",
+        "annotation": "speech-librivox-0128 f russian",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "speech-librivox-0100",
+      "source_group": "speech-librivox-0100",
+      "split": "holdout",
+      "layer": "weak_voice",
+      "expected": "not_instrumental",
+      "audio_file": "speech-librivox-0100.wav",
+      "audio_sha256": "3ddcac2d288ef51067574f2b9e94e6ed63b2503f6e1d6608fb2450ee3dd88a59",
+      "duration_seconds": 259.552625,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 259.552625,
+        "gain": 0.01,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/speech/librivox/speech-librivox-0100.wav",
+        "source_sha256": "08b324266e84553abbdefdbb556649a3e32da1ffbae8693183cb9b8573e4e82c",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/LICENSE",
+        "license_text": "All LibriVox (url: https://librivox.org/) recordings are\nin the Public Domain.\n\n",
+        "annotation": "speech-librivox-0100 f chinese",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/speech/librivox/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "noise-free-sound-0030",
+      "source_group": "noise-free-sound-0030",
+      "split": "calibration",
+      "layer": "noise",
+      "expected": "not_instrumental",
+      "audio_file": "noise-free-sound-0030.wav",
+      "audio_sha256": "14d9a4d463c6ac5418cba7e3d71b37492be60ba2fcf439196ac35db46188a8fa",
+      "duration_seconds": 73.01225,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 73.01225,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/noise/free-sound/noise-free-sound-0030.wav",
+        "source_sha256": "ead234fde2621c274d6643d3b7db046609bf7ccaf22505e258cb2959601e4c8e",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/noise/free-sound/LICENSE",
+        "license_text": "All selected recordings were marked as in the Public Domain\non Free Sound (url: https://www.freesound.org/).\n",
+        "annotation": "noise-free-sound-0030",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/noise/free-sound/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "noise-free-sound-0031",
+      "source_group": "noise-free-sound-0031",
+      "split": "calibration",
+      "layer": "noise",
+      "expected": "not_instrumental",
+      "audio_file": "noise-free-sound-0031.wav",
+      "audio_sha256": "f421705229136aeedfc78e094ffb0d4cdd4895a12e77a1d80a435e0613fb8fba",
+      "duration_seconds": 35.4743125,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 35.4743125,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/noise/free-sound/noise-free-sound-0031.wav",
+        "source_sha256": "c1ef7e24f73d15c31d49129d5d1c318b209908f2894941437ad8e8538b253bad",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/noise/free-sound/LICENSE",
+        "license_text": "All selected recordings were marked as in the Public Domain\non Free Sound (url: https://www.freesound.org/).\n",
+        "annotation": "noise-free-sound-0031",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/noise/free-sound/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "noise-free-sound-0335",
+      "source_group": "noise-free-sound-0335",
+      "split": "holdout",
+      "layer": "noise",
+      "expected": "not_instrumental",
+      "audio_file": "noise-free-sound-0335.wav",
+      "audio_sha256": "2030d8d09b52bfd63ab4f68becad6b0ffd1d837d6945b7299822396cc4fe6fc9",
+      "duration_seconds": 34.0375625,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 34.0375625,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/noise/free-sound/noise-free-sound-0335.wav",
+        "source_sha256": "31dd21973d8765fb7b6b66e8fd55720f9d36338cb50fa814123f324ee0baa246",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/noise/free-sound/LICENSE",
+        "license_text": "All selected recordings were marked as in the Public Domain\non Free Sound (url: https://www.freesound.org/).\n",
+        "annotation": "noise-free-sound-0335",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/noise/free-sound/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "noise-free-sound-0370",
+      "source_group": "noise-free-sound-0370",
+      "split": "holdout",
+      "layer": "noise",
+      "expected": "not_instrumental",
+      "audio_file": "noise-free-sound-0370.wav",
+      "audio_sha256": "33e4483487593dd7d3ef3dd790ff8720768c2dd2f310cf156935110b18f8ba26",
+      "duration_seconds": 72.2546875,
+      "transform": {
+        "start_seconds": 0.0,
+        "end_seconds": 72.2546875,
+        "gain": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "archive_repo": "thusinh1969/musan",
+        "archive_revision": "386f1cb86397a73ec5f3c124246cc0896bf8f873",
+        "archive_member": "musan/noise/free-sound/noise-free-sound-0370.wav",
+        "source_sha256": "7f4891d0e5e8ed20128eedab440dc41fd9c4af3f7b6b7b204abe04c36bcee379",
+        "license_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/noise/free-sound/LICENSE",
+        "license_text": "All selected recordings were marked as in the Public Domain\non Free Sound (url: https://www.freesound.org/).\n",
+        "annotation": "noise-free-sound-0370",
+        "annotation_reference": "https://huggingface.co/datasets/FluidInference/musan/blob/3edcfdf89b56dbe6a395ff29f9c29489e03d1321/noise/free-sound/ANNOTATIONS"
+      }
+    },
+    {
+      "sample_id": "silence",
+      "source_group": "silence",
+      "split": "calibration",
+      "layer": "technical_nonmusic",
+      "expected": "not_instrumental",
+      "audio_file": "silence.wav",
+      "audio_sha256": "40abc924dc63f75aafb2400bb99fd66741e22eb9ff2450973a18db53a06286ac",
+      "duration_seconds": 30.0,
+      "transform": {
+        "kind": "silence",
+        "sample_rate": 16000,
+        "duration_seconds": 30.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "kind": "deterministic_local",
+        "license": "CC0-1.0",
+        "ground_truth": "generated signal, no musical composition or human voice"
+      }
+    },
+    {
+      "sample_id": "tone440",
+      "source_group": "tone440",
+      "split": "calibration",
+      "layer": "technical_nonmusic",
+      "expected": "not_instrumental",
+      "audio_file": "tone440.wav",
+      "audio_sha256": "07e7f83ffc8bb7b1cb3cce86901605d37222d0281a021b39cb435e320da335ee",
+      "duration_seconds": 30.0,
+      "transform": {
+        "kind": "tone",
+        "sample_rate": 16000,
+        "duration_seconds": 30.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "kind": "deterministic_local",
+        "license": "CC0-1.0",
+        "ground_truth": "generated signal, no musical composition or human voice"
+      }
+    },
+    {
+      "sample_id": "tone1000",
+      "source_group": "tone1000",
+      "split": "holdout",
+      "layer": "technical_nonmusic",
+      "expected": "not_instrumental",
+      "audio_file": "tone1000.wav",
+      "audio_sha256": "41b5e65c61daa6918efd2113078979fb0bb898998f2fb7d763503197135036cc",
+      "duration_seconds": 30.0,
+      "transform": {
+        "kind": "tone",
+        "sample_rate": 16000,
+        "duration_seconds": 30.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "kind": "deterministic_local",
+        "license": "CC0-1.0",
+        "ground_truth": "generated signal, no musical composition or human voice"
+      }
+    },
+    {
+      "sample_id": "impulses",
+      "source_group": "impulses",
+      "split": "holdout",
+      "layer": "technical_nonmusic",
+      "expected": "not_instrumental",
+      "audio_file": "impulses.wav",
+      "audio_sha256": "e2a8bda5ad12dc70c72411e7f22d47405832f275584297c0204528fa08dcaf3e",
+      "duration_seconds": 30.0,
+      "transform": {
+        "kind": "impulses",
+        "sample_rate": 16000,
+        "duration_seconds": 30.0,
+        "encoding": "pcm_s16le_16000_mono"
+      },
+      "source": {
+        "kind": "deterministic_local",
+        "license": "CC0-1.0",
+        "ground_truth": "generated signal, no musical composition or human voice"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-0.5s-6db-at-0s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-0.5s-6db-at-0s.wav",
+      "audio_sha256": "ae3cafce73a7d121c0319973f2892467b4e923aee2587c0850b48807c23ca854",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 11.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 0.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.37355247090376775,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-0.5s-6db-at-5s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-0.5s-6db-at-5s.wav",
+      "audio_sha256": "7ae270948f59ff4dc62a62256e7556a2cbcc0184fca391f2dde021aa376e27b9",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 11.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 5.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.37355247090376775,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-0.5s-6db-at-15s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-0.5s-6db-at-15s.wav",
+      "audio_sha256": "22eb48c59e34ec6f50695faefe0dd1a1afafdb7aca9aa5579864505aeb046ca9",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 11.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 15.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.37355247090376775,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-0.5s-6db-at-29.5s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-0.5s-6db-at-29.5s.wav",
+      "audio_sha256": "7057db564a02527c9f25e60b298d23febd15e8afe2e82bbf7db2d6f05e2d6d6e",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 11.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 29.5,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.37355247090376775,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-0.5s-18db-at-0s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-0.5s-18db-at-0s.wav",
+      "audio_sha256": "263d0c3fae60a3245e013138dbc3f9b8518d5e447e36f91ae195b0ea2add0fe3",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 11.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 0.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.09383213831200515,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-0.5s-18db-at-5s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-0.5s-18db-at-5s.wav",
+      "audio_sha256": "58a3877bfb07e2db2dd9c1f8aa13a863a1330437ec1e344618ec3d75665c0583",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 11.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 5.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.09383213831200515,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-0.5s-18db-at-15s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-0.5s-18db-at-15s.wav",
+      "audio_sha256": "5c4c3abe9896f5313c207da725acecf4a7a01bbf0ff59b52e255e86384806bb2",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 11.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 15.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.09383213831200515,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-0.5s-18db-at-29.5s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-0.5s-18db-at-29.5s.wav",
+      "audio_sha256": "b064f5afc40087282d339b0af82da0453ea5a8c718b24fe10b6684c6d750763f",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 11.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 29.5,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.09383213831200515,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-3s-6db-at-0s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-3s-6db-at-0s.wav",
+      "audio_sha256": "e527bb1c5442d5bbec0dfccb11b91b3d9aa519e7bc76686d85e9c21aba9466d9",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 13.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 0.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.3930836293158678,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-3s-6db-at-5s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-3s-6db-at-5s.wav",
+      "audio_sha256": "aa8c7f28057846b6b3df3e44bec9b9e4de30e495261ff9270c26bd34e0d3c52a",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 13.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 5.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.3930836293158678,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-3s-6db-at-15s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-3s-6db-at-15s.wav",
+      "audio_sha256": "3cf07f158987919481c238b18e060ba3f0f6df47ed85a54bc3149c1e574b0c02",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 13.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 15.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.3930836293158678,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-3s-6db-at-27s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-3s-6db-at-27s.wav",
+      "audio_sha256": "833df8d6c2fbe277dbeed01d3502871464e839e8a00dcfa5ec6489a0ad6e6653",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 13.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 27.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.3930836293158678,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-3s-18db-at-0s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-3s-18db-at-0s.wav",
+      "audio_sha256": "afce7d5cb395d03bd1023a3cdf784efa2f0976501509e1f74946a882e95c09b5",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 13.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 0.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.098738143492707,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-3s-18db-at-5s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-3s-18db-at-5s.wav",
+      "audio_sha256": "5228596b7ee9599e9f3070de6da53fa5d3f78432ae7eaf295700df52777123e7",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 13.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 5.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.098738143492707,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-3s-18db-at-15s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-3s-18db-at-15s.wav",
+      "audio_sha256": "a1e234ae2af1d48de5896d2c7705f290858cc563eb8874a26788907d0a304fcc",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 13.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 15.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.098738143492707,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "calibration-speech-mix-3s-18db-at-27s",
+      "source_group": "music-fma-0010",
+      "source_groups": [
+        "music-fma-0010",
+        "speech-librivox-0009"
+      ],
+      "split": "calibration",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "calibration-speech-mix-3s-18db-at-27s.wav",
+      "audio_sha256": "1a01fcca6a1f7c9e114c0e46cd06edcf4162a00c6ed972df7a79166fd5ff3604",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0010",
+          "speech-librivox-0009"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 13.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 27.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.098738143492707,
+        "global_peak_scale": 0.9804188929258388,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-0.5s-6db-at-0s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-0.5s-6db-at-0s.wav",
+      "audio_sha256": "2b603000628b0537362956dd99826a8d8b480cc3c6aa2a08cd1d9b0105d9e752",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 0.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.6218358662010945,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-0.5s-6db-at-5s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-0.5s-6db-at-5s.wav",
+      "audio_sha256": "5ff2d42aead90e9b2e51eb5ba60b54538a67c79be4ec631b9cee3c4a1a58a0eb",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 5.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.6218358662010945,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-0.5s-6db-at-15s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-0.5s-6db-at-15s.wav",
+      "audio_sha256": "ccbf9758800b8132cbb222efb0b72171c3b1b03c113839ff7de2f69ddc40d6e4",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 15.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.6218358662010945,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-0.5s-6db-at-29.5s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-0.5s-6db-at-29.5s.wav",
+      "audio_sha256": "fed27ea0617958c825cf9894369a8fb36d55d0a02996c0accd9ecab0807f2386",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 29.5,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.6218358662010945,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-0.5s-18db-at-0s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-0.5s-18db-at-0s.wav",
+      "audio_sha256": "1276601d73639f4a1e973f425819521a38d4aee6537d80b48e242c07bbfb9d68",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 0.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.15619810749365362,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-0.5s-18db-at-5s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-0.5s-18db-at-5s.wav",
+      "audio_sha256": "3058da919bc272d28ee0e1f6c73a4e1a882c32d0b94d6f461cff738a3144f80c",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 5.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.15619810749365362,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-0.5s-18db-at-15s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-0.5s-18db-at-15s.wav",
+      "audio_sha256": "2fd827fb2c5bd3a295578d34e4365022ae1317d09f8768776ba349654474c12b",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 15.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.15619810749365362,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-0.5s-18db-at-29.5s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-0.5s-18db-at-29.5s.wav",
+      "audio_sha256": "a258708a5e333e991b66a27bfdfbea142547bb39c138825e120b54fc79c41ec5",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 0.5,
+        "insert_start_seconds": 29.5,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.15619810749365362,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-3s-6db-at-0s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-3s-6db-at-0s.wav",
+      "audio_sha256": "8d8681646db44e252330af8d63a3d66141a0a9155173fa7d4a432b1eaee9588d",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 0.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.6108282051329965,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-3s-6db-at-5s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-3s-6db-at-5s.wav",
+      "audio_sha256": "9420149054f41f44b468afbb4966a8be6d8d9370daf18d64be235c70eb81821b",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 5.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.6108282051329965,
+        "global_peak_scale": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-3s-6db-at-15s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-3s-6db-at-15s.wav",
+      "audio_sha256": "88b32ffd481d70eb180da5cd64659cc63ae00996fb63b1648db0dca89a6f9bfe",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 15.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.6108282051329965,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-3s-6db-at-27s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-3s-6db-at-27s.wav",
+      "audio_sha256": "ac71d73c31ec2d817c1d12120e33c706ed35e347d0743f9984bcf86ea57cf770",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 27.0,
+        "voice_to_music_rms_db": -6,
+        "voice_gain": 0.6108282051329965,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-3s-18db-at-0s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-3s-18db-at-0s.wav",
+      "audio_sha256": "85d6e6b5a88a7d67983d2a9e369e2a46d0ba9d6e8bbc32474c3c68532ce64bc9",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 0.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.15343310804569246,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-3s-18db-at-5s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-3s-18db-at-5s.wav",
+      "audio_sha256": "faf109e80028097da9c87269d143e1be892f6ca4edf3dc0cb99d5f20c817f039",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 5.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.15343310804569246,
+        "global_peak_scale": 1.0,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-3s-18db-at-15s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-3s-18db-at-15s.wav",
+      "audio_sha256": "fd802278c449e201f3a1d78602a0c0319aa63412cce58ace39d48e37fbb851cc",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 15.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.15343310804569246,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    },
+    {
+      "sample_id": "holdout-speech-mix-3s-18db-at-27s",
+      "source_group": "music-fma-0100",
+      "source_groups": [
+        "music-fma-0100",
+        "speech-librivox-0039"
+      ],
+      "split": "holdout",
+      "layer": "short_voice_mixture",
+      "expected": "not_instrumental",
+      "audio_file": "holdout-speech-mix-3s-18db-at-27s.wav",
+      "audio_sha256": "1be9a496185dff34f62343f79fa9bb4a9304f3c53941f1515045e0404478d7d3",
+      "duration_seconds": 30.0,
+      "source": {
+        "kind": "licensed_derivative",
+        "parent_sample_ids": [
+          "music-fma-0100",
+          "speech-librivox-0039"
+        ],
+        "ground_truth": "energy-bearing interval from independently annotated Chinese speech inserted into annotated no-vocals music; interval chosen without AST"
+      },
+      "transform": {
+        "speech_source_start_seconds": 10.0,
+        "speech_duration_seconds": 3.0,
+        "insert_start_seconds": 27.0,
+        "voice_to_music_rms_db": -18,
+        "voice_gain": 0.15343310804569246,
+        "global_peak_scale": 0.9800299090520661,
+        "encoding": "pcm_s16le_16000_mono"
+      }
+    }
+  ],
+  "limitations": [
+    "Low-energy layer is gain-derived from independently annotated instrumental tracks; it does not alone cover naturally sparse compositions.",
+    "Boundary layer uses true track endings; presence of natural fade has not been independently heard.",
+    "Weak voice layer is gain-derived annotated speech, not independently annotated humming/chant."
+  ]
+}
