@@ -30,13 +30,13 @@ Easel V1 要让一个 Creator/Profile + 一个 Director/Creative Mode，在不�
 - 隔离 `r02` 原 Job `wc_job_M7dcEmbRkeJlJ0tf` 已终止但业务 FAIL：3/3 HTTP 完整；A-details-002 仍持有原 `run_id/session_id` 的 pending 证据，B/Truth/Plan 未到达，259 冻结文件中测试文件发生中途变化。保全所有请求/UNKNOWN/模型费用证据；不重派、不把此结果声明成模型语义故障或 B 聚合失败。按本轮用户要求，不为该等待现场另开独立专项。
 - 合法 `PENDING/SUBMITTING/UNKNOWN` 只能按**原 operation** 被动观察，绝不重派/删账/清零；真实 Provider/TTS/有价 Hypit Build、正式 Web 制作、服务重启/部署与 Release 必须按阶段 Gate 获得单独授权，不能借历史模型套餐说明、报价或已有 Credential 假设零现金。
 - MaterialPlan → Supply → Bundle → Readiness → MATERIAL_READY；Creator 冻结意图、版权与真实素材、Script/Truth、Native Authoring/Cost、同一视频 Output SHA、Technical/System Quality 与人工 Review 不能靠自动字段补齐或降低必需标准。未经 U3-L 验证的长片有价执行 fail-closed；不自动发布。
-- 本轮用户**只授权工作区/文档整理第 1–3 项**，完成后立即暂停：禁止触发真实模型、Provider、Web `confirm_production`、Hypit Build、生产运行状态变更、Git stage/commit/push、修改源代码/测试或清理历史素材。
+- 此前工作区/文档整理 1–3 项已完成并已本地提交；本次轻量治理仅涉及过期文档入口及测试债分类。不因整理/提交自动授权真实模型、Provider、Web `confirm_production`、Hypit Build、生产运行状态变更或历史素材清理。
 
 ## 当前代码与记录入口
 
 - 正式标准：[唯一 New-Only 主方案](../architecture/web-backend-new-only-cutover-plan-2026-10-11.md)；最新状态：[Current State](../02_CURRENT_STATE.md)；阶段顺序：[Roadmap](../03_ROADMAP.md)；**所有真实 E2E/软件/费用/失败原始运行证据只归**[唯一 E2E 账本](../acceptance/easel-v1-web-real-e2e-2026-10-10.md)和其具名原件。
 - 当前 Web/Delivery 相关实现：`web/app.py`、`web/frontend/src/App.tsx`、`web/frontend/src/components/FilmOperatorPage.tsx`、`easel/creation_delivery.py`；Material/Planning、Hypit/Quality 按实际第一失败关口再读，不默认加载整套 3000 行历史。
-- 工作区 `/Users/xgx/Projects/Easel`，分支 `easel-studio`、HEAD `ce6fa81739b812ff6bed8115cabd78bdf548e389`。整理前 219 项 dirty = 93 修改 / 121 删除 / 5 未跟踪；旧视频生产代码退役删除不可随便回滚，新 Planning 文件/四份测试夹具不可盲删。
+- 工作区 `/Users/xgx/Projects/Easel`，分支 `easel-studio`、现有已提交基线 `990feb439bc7af58d7c7b85c6ec12780f5920d53`。整理前 219 项 dirty（93 修改 / 121 删除 / 5 未跟踪）均已提交；旧视频生产代码退役删除不可随便回滚，新 Planning 文件/四份测试夹具不可盲删。
 
 ## 旧全文备份与可恢复性
 
@@ -47,16 +47,8 @@ Easel V1 要让一个 Creator/Profile + 一个 Director/Creative Mode，在不�
 - `working-files-before.tar.gz`：包括 98 项未提交修改/未跟踪实际文件的完整字节；`git-worktree-before.patch.gz`：全部 tracked 差异；`manifest-before.json`：219 个条目、121 个删除的 Git HEAD blob SHA；`worktree-triage.json`：保守保留/待审分类清单。无权据此清理忽略目录、原 Creation、历史 Attempt、素材或 Secret。
 - 本次精简**不改变原历史 RUN/PASS/FAIL、授权变更及原始 SHA**。查询旧决定请在归档按日期和实际任务原文回查，不能恢复其中过时的调度命令或创建第二个 Task。
 
-## 文档整理 Closure（只对本轮 1–3 项）
+## 历史文档治理结论（已完成；仅供追溯）
 
-`RESULT = COMPLETE`（仅工作区备份、状态/路由对齐、当前 Task 压缩；**Easel 产品仍 U4 BLOCKED，U3-L 未通过，U5/U6 未执行**）。
+原 219 项工作区变更及文档瘦身已于本地 `990feb43` 提交，Git clean。整理前完整原文和未提交字节保存在上节私有证据目录；不因新提交改写旧 SHA 或历史运行账。当前唯一可执行下一动作仍为第 2 节的 U4 安全准入，其他历史 Closure 和过期 NEXT 均不再调度工作。
 
-`DRIFT = NO_PRODUCT_CHANGE`（只调整 4 份活跃 Markdown；219 项 Git 状态集合、原生产代码/测试、历史运行文件与 Secret 不变；全量工作区原字节另有 SHA 归档）。
-
-`EVIDENCE = 219 项 Git 分类 + 98 份修改/未跟踪文件字节备份 + 121 个 Git 原删除身份 + 历史 Task/State SHA + U2/U3/U4 具名验收证据`。
-
-`LESSON = 保留历史证据但不能让旧 Closure/NEXT 持续抢当前 Web 主线的执行权；Planning 局部验收与正式 U5 Web E2E 必须区分。`
-
-`NEXT_SINGLE_ACTION = 本轮整理完成即停，继续由用户审阅。随后根据另行许可，先处理 U4 无副作用 Web 预检，而不是从旧 Planning 稳定性批次恢复调度。`
-
-`TRANSITION = HOLD`（文档整理闭合，不自动放行 U4/U5/U6 的浏览器/真实模型/付费/部署/Release）。
+扩展 Structured Result 四项旧测试失败已按 Runtime 指纹（2）、诊断提示词漂移（1）、旧 Proposal 夹具（1）分类；尚未完成真正修复或全量 PASS。实际 Web 与短片软件 Gate 不因本次整理改变；真实调用及发布仍须另行批准。

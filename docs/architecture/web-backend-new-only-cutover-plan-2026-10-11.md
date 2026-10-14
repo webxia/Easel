@@ -1,5 +1,7 @@
 # Easel V1 New-Only → Web E2E 统一实施与验收标准（唯一已批准主方案）
 
+> **现行状态阅读说明（2026-10-14）：**本方案 §8 是唯一规范；下方 2026-10-11 的 `U2_CANDIDATE_NOT_READY`、`IMPLEMENTATION_NOT_AUTHORIZED`、旧 Goal 权限和“最新”字样属于对应历史时点，不代表今天的阶段事实或撤销已发生的本地提交。当前状态以 [Current State](../02_CURRENT_STATE.md) 为准：U2 原候选 READY、U3-S PASS、U4 BLOCKED、U3-L 未正式通过、U5/U6 未执行。所有新付费/正式 Web E2E/部署与发布仍需阶段 Gate 及明确授权。
+
 > **2026-10-11 最新执行授权：**用户已正式批准本文件 **U2 全部工程实施（仅必要生产/测试源码与无付费离线集成）**，不再局限之前的 U2 噪音治理。执行只归属既有 Creator Task 的 10 项清单；R1–R6/U0–U6 的标准与后续 Gate 不变。**禁止付费服务、真实新 Web E2E、服务重启、部署、Git commit/push/reset/clean、对外 Release**。当前改造与旧 fixture 迁移未全部通过，保持 `U2_CANDIDATE_NOT_READY`，绝不因源码存在宣称版本加载或真实出片。
 
 > **最新执行边界（2026-10-11）：**U1 已完成；用户已授权 Goal `wc_goal_7qRkRJmGzXXU4iWN` 实施五步 U2 噪音治理（现场保护、指令隔离、媒体删除保护、旧协议执行退役、测试/Runtime 对账）。仅受控代码及非付费回归，不含真实模型/Provider、有价媒体、真实 Web E2E、服务正式部署或对外 Release。下文“U2 未授权”是此前时点记录；新的执行进度以唯一 Creator Task 和本 Goal 检查点为准，标准 R1–R6、U0–U6 不改。

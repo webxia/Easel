@@ -1,7 +1,7 @@
 
 # Easel Current State
 
-> **唯一当前状态 · 2026-10-14 文档治理收口。** 本文件只保留已核验状态、有效阻塞和下一动作。历史批次不再按日期堆叠；原 300 行/123,518 字节全文已按 SHA 保存在 Mac 私有工作区归档。本次只整理工作区/文档，不是新 Gate 验收。权威规则见[唯一 New-Only U0–U6 主方案](architecture/web-backend-new-only-cutover-plan-2026-10-11.md)，原始产品运行证据见[唯一 E2E 账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md)。
+> **唯一当前状态 · 2026-10-14 文档治理收口。** 本文件只保留已核验状态、有效阻塞和下一动作。历史批次不再按日期堆叠；原 300 行/123,518 字节全文已按 SHA 保存在 Mac 私有工作区归档。文档治理已完成，之后的 Git 提交及轻量审计也不构成新的 Gate 验收。权威规则见[唯一 New-Only U0–U6 主方案](architecture/web-backend-new-only-cutover-plan-2026-10-11.md)，原始产品运行证据见[唯一 E2E 账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md)。
 
 ## 当前正式主线
 
@@ -31,12 +31,14 @@
 
 ## 当前 Git / 文档保全状态
 
-- Mac 工作区 `/Users/xgx/Projects/Easel`，分支 `easel-studio`，HEAD `ce6fa81739b812ff6bed8115cabd78bdf548e389`。整理前 219 dirty = 93 修改、121 删除、5 未跟踪；旧 Skill/Web 退役的删除不可因清洁 Git 而回滚，新 Planning 源码和四份测试夹具不可盲删。
+- Mac 工作区 `/Users/xgx/Projects/Easel`，分支 `easel-studio`，已提交基线 `990feb439bc7af58d7c7b85c6ec12780f5920d53`。当前提交前的 219 项（93 修改、121 删除、5 未跟踪）已并入该本地 Git 提交；旧 Skill/Web 退役的删除不可因清洁 Git 而回滚，新 Planning 源码和四份测试夹具不可盲删。
 - **整理前原件完整快照（本机私有）**：`/Users/xgx/.local/share/easel/creator-task-evidence/2026-10-14-workspace-docs-consolidation-r01/`；包括 `manifest-before.json`、`worktree-triage.json`、`working-files-before.tar.gz`、`git-worktree-before.patch.gz`、`before-docs/`。原 Task 和 State 全文、98 项实际文件字节及 121 项待删 Git HEAD blob 身份均已留存，SHA 见[唯一 Creator Task](tasks/creator-autonomous-first-cut-2026-09-30.md)。
-- 当前操作仅对 `DOCUMENT_INDEX.md`、`02_CURRENT_STATE.md`、`03_ROADMAP.md` 和唯一 Creator Task 做文档整理，不修改已运行的 Creation/Attempt、源码/测试、服务、Secret、Rights/账单或素材原件。历史正文从私有归档及具名 Acceptance 查询，旧日期的 `NEXT_SINGLE_ACTION` 不具有调度权。
+- 此前整理仅修改四份文档；本次轻量治理仅清理过期入口并记录测试债，不修改 Creation/Attempt、生产代码、服务、Secret、Rights/账单或素材原件。历史正文从私有归档及具名 Acceptance 查询，旧日期的 `NEXT_SINGLE_ACTION` 不具有调度权。
 
 ## NEXT_SINGLE_ACTION（后续业务，需另行授权）
 
 **先完成 U4 无副作用 Web / Runtime / 权利 / 额度准入。**保留之前已保存的本地地址浏览器权限拒绝，不通过换通道绕过。需要有证据区分同版受控加载、真实 UI 可用性和下一请求费用/权益后，才能申请 U5 的正式 Web Creation/confirm_production 短片 Debug。Planning 在该 Web 生产链中继续；U3-L 可以与合法的 U5 短片工作并行，但 U6 必须等待 U3-L 同版资格通过。
 
-**本轮停止条件：**用户只授权工作区快照、索引/状态/路线图对齐和唯一 Task 精简 1–3 项，完成即停。不因此自动开始 U4/U5、真实模型/Provider、Hypit Build、服务重启、Git commit/push 或 Release。
+**提交前验证遗留：**New-Only Web/Native/MiniMax 核心专项 88 PASS；扩展 Structured Result 123 PASS / 4 FAIL。四项属于安装 OpenClaw Runtime 指纹/本地 SDK 差异（2 项）、历史 source-scope 提示词实验漂移（1 项）、旧 Proposal 夹具与当前验证冲突（1 项）。保持 FAIL 原样，尚未证实属于当前产品缺陷；不能记为全绿，也不因此阻断无关文档治理。
+
+**后续权限：**U4/U5/付费、部署和 Release 仍受主方案与另行授权约束；工作区整理完成不产生任何新的生产许可。

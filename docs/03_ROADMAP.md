@@ -1,6 +1,6 @@
 # Easel Roadmap
 
-> **当前有效进度（2026-10-14）：**已批准 New-Only U0–U6 唯一标准；**U2_CANDIDATE_READY（2026-10-12 原指纹）/ U3-S=PASS / U4=BLOCKED / U3-L 尚未正式取得 900 秒资格 / U5-U6 未执行 / RELEASE_NOT_AUTHORIZED**。当前工作区变更需与旧候选指纹区分。本轮只获准工作区/文档整理，完成 1–3 后暂停。
+> **当前有效进度（2026-10-14）：**已批准 New-Only U0–U6 唯一标准；**U2_CANDIDATE_READY（2026-10-12 原指纹）/ U3-S=PASS / U4=BLOCKED / U3-L 尚未正式取得 900 秒资格 / U5-U6 未执行 / RELEASE_NOT_AUTHORIZED**。当前 Git 已在 `990feb43` 本地提交，受测 U2 候选仍须重新核对加载指纹；这不是新的 U4/U5 验收或授权。
 >
 > **唯一业务下一动作：**在单独授权和安全条件满足后继续 **U4 无副作用 Web 页面、Runtime 同版、Rights/预算/UNKNOWN 准入**；成功后才能启动 U5 单条真实 Web Creation 短片 Debug。Planning 随 U5 Web Delivery 执行，独立十样本稳定性批次不构成 U5 额外前置。U3-L 可与合规短片 Debug 并行，U6 必须等待同版 U3-L PASS。实际阶段事实见[Current State](02_CURRENT_STATE.md)，原运行证据见[E2E 账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md)。
 
