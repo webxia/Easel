@@ -71,7 +71,7 @@ assets/                  paper.pdf / parsed/ / asset-library.json / script.md
    python skills/openclaw/paper-explainer/scripts/render_slides.py audit --plan outputs/<项目>/assets/slide-plan.json --slides-dir outputs/<项目>/assets/slides --contact-sheet outputs/<项目>/assets/slides-contact-sheet.jpg
    ```
    任一非 0 退出必须改 plan 后重渲；`validate` 会按页面职能拦截“只有口号、缺少解释”的低信息页，并检查合并主题后所有正文色在实际背景上的对比度；明亮 accent 可继续用于装饰，文字会使用可读的语义前景色。`render` 会硬拦文字/元素越界、重叠、组内不对齐、卡内文字左边漂移与结构页过度空洞。脚本全过后当前 Agent **必须肉眼查看 contact sheet 和至少 3 张原尺寸 slide**，检查暂停/静音时页面能否独立读懂、论文图可读、文字是否和所属元素对齐、留白是否有叙事作用、视觉素材是否相关、节奏是否重复；只过脚本不等于合格。不要把 narration 整段搬上屏。只有论文图本身承载主要信息时才可在该页设 `density: visual`，不得把它当作跳过内容提炼的开关。
-10. **成片（配音+字幕+合成，缺一不可）**：从 slide-plan 的 narration 生成口播——单人用 **tts-voiceover**，双人用 **multi-voice-dubbing**；同步 SRT，缺则跑 **auto-subtitle**。把 `assets/slides/slide_*.png`、配音和字幕写入 auto-short-video storyboard 后合成，必须设顶层 `"image_motion": "static"`；slide/图表禁用 Ken Burns，不得缩放、平移或裁掉边缘。页面停留时长按对应 narration 音频/字幕分段，不均分整轨。不能只交静态图或无声视频。
+10. **视频素材准备，不直接出片**：从 slide-plan 提供原始 slides、旁白 SCRIPT 与字幕时序建议；单人/双人配音分别参考 **tts-voiceover** / **multi-voice-dubbing**。若用户要求 Easel 正式视频，必须在 Web Creation 讨论并确认脚本、Director/Creative Mode 与音轨，再由 Material Layer 核验 Rights/SHA/Need 并由唯一 Delivery/Hypit 生成 MP4；不得调用已退役的独立 storyboard 合成器、不得把静态图或本 Skill 的素材准备直接标记为正式成片。slide/图表的静态展示要求作为导演意图交由当前制作合同验证。
 11. 用 `manifest.py meta` 登记 `final.mp4` 或 `article.md` 为 deliverable；中间解析、slide 和音频只放 `assets/`。
 12. **发布**：交 **skill-channels-upload**（视频号）/ B站 biliup。
 

@@ -100,6 +100,9 @@ def claim_chat_preparation(
     requested_key = _operation_key(session_id, turn_id)
     result: dict[str, Any] = {}
     with creation.edit_creation(creation_id) as work:
+        from easel.creation_delivery import is_managed
+        if not is_managed(work):
+            raise PreparationError('历史或未冻结 New-Only 委托只读，不能领取 Preparation')
         current = dict(work.get("preparation") or {"status": "CREATED"})
         status = current.get("status", "CREATED")
         if not work.get("creative_mode"):
@@ -111,6 +114,9 @@ def claim_chat_preparation(
         elif status == "PREPARING" and _pid_alive(current.get("owner_pid")) and not recover_interrupted:
             result = {"action": "in_progress", **current}
         else:
+            if (status == 'CREATED' and current.get('revision_source_attempt_id')
+                    and requested_key == current.get('previous_operation_key')):
+                raise PreparationError('新方案准备标识不得复用历史失败Attempt')
             existing_key = current.get("operation_key")
             key = existing_key if status in _RESUMABLE_PREPARATION and isinstance(existing_key, str) else requested_key
             paths = preparation_paths(creation_id, key)
@@ -577,6 +583,11 @@ def prepare_creation_for_hypit(
 ) -> dict[str, Any]:
     """Freeze Easel-owned inputs, create/reuse Handoff and Attempt #1, then stop."""
     work = creation.get_creation(creation_id)
+    from easel.creation_delivery import is_managed, requires_u3l_media_qualification
+    if not is_managed(work):
+        raise PreparationError('历史或未认证 New-Only Creation 不允许执行 Preparation')
+    if requires_u3l_media_qualification((work.get('delivery') or {}).get('video_plan')):
+        raise PreparationError('301～900 秒已确认长片仍需 U3-L 媒体资格；当前不可启动 Preparation')
     try:
         creation.require_chat_proposal_confirmed(work)
     except creation.CreationError as exc:
@@ -597,6 +608,11 @@ def _prepare_creation_for_hypit_locked(
     planning_executor: Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]] | None,
 ) -> dict[str, Any]:
     work = creation.get_creation(creation_id)
+    from easel.creation_delivery import is_managed, requires_u3l_media_qualification
+    if not is_managed(work):
+        raise PreparationError('历史或未认证 New-Only Creation 不允许执行 Preparation')
+    if requires_u3l_media_qualification((work.get('delivery') or {}).get('video_plan')):
+        raise PreparationError('301～900 秒已确认长片仍需 U3-L 媒体资格；当前不可启动 Preparation')
     try:
         creation.require_chat_proposal_confirmed(work)
     except creation.CreationError as exc:
@@ -727,28 +743,27 @@ def _prepare_creation_for_hypit_locked(
                 },
             }
             version = attempt.get('planning_contract_version')
-            if version not in {None, 2, 3}: raise MaterialIntegrationError('Planning合同版本冲突')
-            legacy_calls = [call for call in (work.get('delivery') or {}).get('agent_calls', {}).values()
-                            if call.get('session_key') == 'agent:main:material-planning-' + attempt['attempt_id']]
-            pending = any(call.get('status') in {'submitting','pending'} or call.get('runtime_release')=='pending'
-                          for call in legacy_calls)
-            legacy_root = Path(attempt['workspace']['path'])
-            legacy_evidence = (legacy_calls or any((legacy_root/'planning'/name).exists()
-                for name in ('MATERIAL_PLAN.json','MATERIAL_REQUIREMENTS.json'))
-                or list((legacy_root/'materials/recoveries').glob('planning-structure-repair-*.json')))
-            if version is None and not legacy_evidence:
-                requested_version = getattr(planning_executor, 'planning_contract_version', 2)
-                if requested_version == 3 and ((work.get('delivery') or {}).get('video_plan') or {}).get('schema') not in {'easel-video-proposal@2', 'easel-video-proposal@3'}:
-                    # A frozen legacy confirmation stays on its original writer.
-                    requested_version = 2
-                attempt = service.update_film_attempt(attempt['attempt_id'], event='planning_contract_registered',
-                                                      planning_contract_version=requested_version)
+            if version is None:
+                # Registration must precede the first request; stale files and
+                # journals cannot be recategorized to replenish model calls.
+                legacy_root = Path(attempt['workspace']['path'])
+                if (getattr(planning_executor, 'planning_contract_version', None) != 3
+                        or any((legacy_root / 'planning' / name).exists()
+                               for name in ('MATERIAL_PLAN.json', 'MATERIAL_REQUIREMENTS.json'))
+                        or list((legacy_root / 'materials/recoveries').glob('planning-structure-repair-*.json'))
+                        or any(call.get('session_key') ==
+                               'agent:main:material-planning-' + attempt['attempt_id']
+                               for call in (work.get('delivery') or {}).get('agent_calls', {}).values())):
+                    raise MaterialIntegrationError('旧 Planning / 未登记执行不能自动升级或重派')
+                attempt = service.update_film_attempt(
+                    attempt['attempt_id'], event='planning_contract_registered',
+                    planning_contract_version=3)
+            elif version != 3:
+                raise MaterialIntegrationError('退役 Planning 版本只读保留，不能执行')
             planning = planning_executor(attempt, planning_context)
-            # The product executor reconciles a legacy writer before registering
-            # v2. Never advance a custom executor that left its original run unknown.
             attempt = service.get_film_attempt(attempt['attempt_id'])
-            if pending and attempt.get('planning_contract_version') not in {2,3}:
-                raise MaterialIntegrationError('旧Planning原请求尚未核实，不能推进素材')
+            if attempt.get('planning_contract_version') != 3:
+                raise MaterialIntegrationError('当前 Planning 版本未保持冻结')
         active_stage = "material"
         _update_preparation(creation_id, active_stage=active_stage)
         material_result = MaterialProductOrchestrator().run_with_planning(

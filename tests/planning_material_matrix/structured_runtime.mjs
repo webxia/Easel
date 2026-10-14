@@ -31,6 +31,7 @@ const fakeFetch = async (url, init) => {
   const sent = JSON.parse(init.body);
   guard.validatePayload(sent, request);
   const chunks = [];
+  if (scenario.extraText) chunks.push({choices:[{index:0,delta:{content:scenario.extraText},finish_reason:null}]});
   for (let offset=0; offset<scenario.raw.length; offset+=16384) {
     const calls = [{index:0,id:'original-tool-id',type:'function',function:{
       name: scenario.wrongTool ? 'exec' : guard.TOOL, arguments:scenario.raw.slice(offset,offset+16384)}}];
@@ -59,7 +60,9 @@ const cases = [
   {name:'legal_large_A',raw:large,finish:'tool_calls',valid:true},
   {name:'exact_8MiB',raw:exact,finish:'tool_calls',valid:true},
   {name:'over_8MiB',raw:exact+' ',finish:'tool_calls',valid:false},
-  {name:'duplicate_json_key',raw:'{"needs":[],"needs":[]}',finish:'tool_calls',valid:false},
+  {name:'duplicate_json_key',raw:'{"needs":[],"needs":[]}',finish:'tool_calls',valid:false,storageReason:'DUPLICATE_KEY'},
+  {name:'invalid_json',raw:'{"x":}',finish:'tool_calls',valid:false},
+  {name:'unsafe_message_text',raw:'{}',extraText:'Bearer '+'s'.repeat(32),finish:'tool_calls',valid:false,storageReason:'SECRET_PATTERN',storageStage:'MESSAGE_STORAGE'},
   {name:'escaped_sensitive_key',raw:String.raw`{"api_\u006bey":"synthetic-value"}`,finish:'tool_calls',valid:false},
   {name:'wrong_tool',raw:large,wrongTool:true,finish:'tool_calls',valid:false},
   {name:'second_tool',raw:'{}',duplicate:true,finish:'tool_calls',valid:false},
@@ -72,6 +75,12 @@ for (scenario of cases) {
   const identity = {runId:scenario.name,sessionId:'offline-test',provider:model.provider,model:model.id};
   const bound = guard.bindAttempt(createOpenAICompletionsTransportStreamFn(),request,identity,
     path.join(workspace,'reservations'));
+  const rejectionCategory = scenario.name === 'over_8MiB' ? 'STRUCTURED_SDK_ARGUMENT_BUFFER_LIMIT'
+    : scenario.name === 'invalid_json' ? 'STRUCTURED_SDK_MALFORMED_TOOL_CALL'
+    : scenario.lateError ? 'STRUCTURED_EXECUTION_FAILED'
+    : !scenario.finish ? 'STRUCTURED_TERMINAL_REJECTED'
+    : scenario.finish !== 'tool_calls' || scenario.wrongTool || scenario.duplicate
+      ? 'STRUCTURED_TERMINAL_REJECTED' : 'STRUCTURED_STORAGE_REJECTED';
   const before = fetches;
   const events = [];
   const stream = bound(model,context,{apiKey:'offline-placeholder'});
@@ -90,11 +99,18 @@ for (scenario of cases) {
     const directory=path.join(workspace,'reservations');
     const file=path.join(directory,'rejection-'+guard.sha256(guard.canonical({
       runId:identity.runId,sessionId:identity.sessionId}))+'.json');
-    if (!scenario.lateError && scenario.name!=='over_8MiB') {
+    {
       const diagnostic=JSON.parse(fs.readFileSync(file,'utf8'));
+      assert.equal(diagnostic.category,rejectionCategory);
       assert.equal(diagnostic.runId,identity.runId);
       assert.equal(diagnostic.sessionId,identity.sessionId);
       assert.equal(diagnostic.schemaSha256,request.schemaSha256);
+      if (scenario.storageReason) {
+        assert.equal(diagnostic.version,'easel-structured-rejection@2');
+        assert.equal(diagnostic.storageReason,scenario.storageReason);
+        assert.equal(diagnostic.storageStage,scenario.storageStage ?? 'RAW_ARGUMENTS');
+      }
+      assert.equal(fs.readFileSync(file,'utf8').includes('Bearer '+'s'.repeat(32)),false);
       if (scenario.finish==='stop' || scenario.finish==='length') {
         assert.equal(diagnostic.providerFinishValue,scenario.finish);
         assert.equal(diagnostic.category,'STRUCTURED_TERMINAL_REJECTED');
@@ -104,20 +120,17 @@ for (scenario of cases) {
         assert.equal(diagnostic.rawArgumentBytes,scenario.finish==='length'?null:Buffer.byteLength(scenario.raw));
       }
       assert.equal(fs.readFileSync(file,'utf8').includes('synthetic-value'),false);
-    } else assert.equal(fs.existsSync(file),false,'An earlier transport error became a candidate rejection');
+    }
   }
   assert.equal(fetches-before,1);
   const retry = bound(model,context,{apiKey:'offline-placeholder'});
   for await (const event of retry) assert.equal(event.type,'error');
   assert.equal((await retry.result()).stopReason,'error');
   assert.equal(fetches-before,1,'Runtime retry reached Provider fetch');
-  if (!scenario.valid && !scenario.lateError && scenario.name!=='over_8MiB') {
+  if (!scenario.valid) {
     const file=path.join(workspace,'reservations','rejection-'+guard.sha256(guard.canonical({
       runId:identity.runId,sessionId:identity.sessionId}))+'.json');
-    assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).category,
-      scenario.finish==='stop' || scenario.finish==='length' || scenario.wrongTool || scenario.duplicate || !scenario.finish
-        ? 'STRUCTURED_TERMINAL_REJECTED'
-        : scenario.name==='over_8MiB' ? 'STRUCTURED_CAPACITY_REJECTED' : 'STRUCTURED_STORAGE_REJECTED');
+    assert.equal(JSON.parse(fs.readFileSync(file,'utf8')).category,rejectionCategory);
   }
   rows.push({case:scenario.name,result:'PASS',provider_fetches:1,
     raw_bytes:Buffer.byteLength(scenario.raw),accepted:scenario.valid});

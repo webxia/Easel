@@ -5,7 +5,7 @@
 让画面在节拍上切换，配 punch/flash 效果，做出"踩点"燃系短视频。
 
 与 slideshow.py 的区别：slideshow 每图固定时长、柔和转场；本脚本切换点由音乐节拍决定、
-硬切卡点、带节拍特效。与 auto-short-video 的区别：后者是"主题→AI 配图配音成片"完整流水线。
+硬切卡点、带节拍特效。本脚本仅编辑已提供的图片/片段与音乐，不承担 Easel 正式 Creation/Delivery 视频生产。
 
 依赖：ffmpeg + ffprobe + librosa + numpy。节拍检测失败时退化为等间隔切换。
 

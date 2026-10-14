@@ -14,8 +14,9 @@ try {
   if (pkg.version!=='2026.9.4' || !params.runtimeParts || Object.entries(params.runtimeParts).some(([name,sha])=>
       path.basename(name)!==name || crypto.createHash('sha256').update(fs.readFileSync(path.join(root,'dist',name)))
         .digest('hex')!==sha)) throw Error('runtime identity');
+  if (!params.structured) throw Error('structured request required');
   let structuredGuard;
-  if (params.structured) {
+  {
     if (!params.structuredParts || Object.entries(params.structuredParts).some(([name,sha])=>
         path.isAbsolute(name) || name.split('/').includes('..') ||
         crypto.createHash('sha256').update(fs.readFileSync(path.join(root,name))).digest('hex')!==sha))
@@ -31,8 +32,6 @@ try {
   const {r: applyCliProfileEnv}=await import(pathToFileURL(path.join(root,'dist',
     'startup-trace-DTSRmmXT.mjs')).href);
   applyCliProfileEnv({profile:params.profile,env:process.env});
-  const {s: resolvePhase}=await import(pathToFileURL(path.join(root,'dist',
-    'chat-message-content-CgaQZ9n2.mjs')).href);
   const {withOpenClawAgentDatabaseReadOnly}=await import(pathToFileURL(path.join(root,
     'dist/plugin-sdk/sqlite-runtime.js')).href);
   // Pure canonical selector is version/hash pinned because it is not SDK-exported.
@@ -43,7 +42,7 @@ try {
     try {
       const size=db.prepare('SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(CAST(event_json AS BLOB))),0) AS bytes FROM transcript_events WHERE session_id=?')
         .get(params.sessionId);
-      if (size.n>4096 || size.bytes>(params.structured?128:32)*1024*1024) return {state:'TRANSCRIPT_TOO_LARGE'};
+      if (size.n>4096 || size.bytes>128*1024*1024) return {state:'TRANSCRIPT_TOO_LARGE'};
       const events=db.prepare('SELECT event_json FROM transcript_events WHERE session_id=? ORDER BY seq')
         .all(params.sessionId).map(row=>JSON.parse(row.event_json));
       const header=events.find(e=>e.type==='session');
@@ -55,7 +54,7 @@ try {
       const message=last.event.message;
       const content=message.content;
       if (!Array.isArray(content)) return {state:'INVALID'};
-      if (params.structured) {
+      {
         // Active transcript event identity deduplicates stored event replay;
         // distinct model calls or changed messages can never share an acceptance.
         const unique=new Map();
@@ -91,20 +90,6 @@ try {
           toolName:call.name,toolCallId:call.id,schemaSha256:evidence.schemaSha256,
           providerFinishReason:evidence.providerFinishReason};
       }
-      // Tool arguments and thinking are never interpreted as an assistant result.
-      if (content.some(block=>['toolCall','toolUse','functionCall'].includes(block?.type)))
-        return {state:'NONTERMINAL'};
-      if (resolvePhase(message)==='commentary' || content.some(block=>
-          resolvePhase({role:'assistant',content:[block]})==='commentary'))
-        return {state:'NONTERMINAL'};
-      const blocks=content.filter(block=>block?.type==='text');
-      if (blocks.some(block=>typeof block.text!=='string')) return {state:'INVALID'};
-      const text=blocks.map(block=>block.text).join('');
-      if (Buffer.byteLength(text)>params.maxResultBytes) return {state:'RESULT_TOO_LARGE'};
-      return {state:'FOUND',sessionId:params.sessionId,runId:params.runId,
-        messageId:last.event.id,sequence:last.seq,stopReason:message.stopReason,
-        text,sha256:crypto.createHash('sha256').update(text).digest('hex'),
-        bytes:Buffer.byteLength(text),runtimeVersion:pkg.version};
     } finally {db.exec('ROLLBACK');}
   },{agentId:params.agentId,env:process.env},{throwOnMissingTable:true});
   answer(result.found?result.value:{state:'MISSING'});

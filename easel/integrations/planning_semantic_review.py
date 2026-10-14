@@ -26,8 +26,28 @@ AUDIO_INTAKE_POLICY = 'confirmed-planning-intake@2'
 P3_INTAKE_POLICY = 'confirmed-planning-intake@3'
 RELATIONAL_INTAKE_POLICY = 'confirmed-planning-intake@4'
 ADMISSION_INTAKE_POLICY = 'confirmed-planning-intake@5'
-INTAKE_POLICY = 'confirmed-planning-intake@6'
-INTAKE_POLICIES = frozenset({LEGACY_INTAKE_POLICY, AUDIO_INTAKE_POLICY, P3_INTAKE_POLICY, RELATIONAL_INTAKE_POLICY, ADMISSION_INTAKE_POLICY, INTAKE_POLICY})
+FLEXIBLE_INTAKE_POLICY = 'confirmed-planning-intake@6'
+BOUNDED_BATCH_INTAKE_POLICY = 'confirmed-planning-intake@7'
+FRAMING_INTAKE_POLICY = 'confirmed-planning-intake@8'
+QUOTE_INTAKE_POLICY = 'confirmed-planning-intake@9'
+ATOMIC_DETAILS_INTAKE_POLICY = 'confirmed-planning-intake@10'
+SOUND_TEMPO_INTAKE_POLICY = 'confirmed-planning-intake@11'
+COMPLETE_GUIDANCE_INTAKE_POLICY = 'confirmed-planning-intake@12'
+ROOT_ECHO_INTAKE_POLICY = 'confirmed-planning-intake@13'
+SFX_GUIDANCE_INTAKE_POLICY = 'confirmed-planning-intake@14'
+SCHEMA_SHAPE_INTAKE_POLICY = 'confirmed-planning-intake@15'
+INTAKE_POLICY = SCHEMA_SHAPE_INTAKE_POLICY
+CANDIDATE_BATCH_POLICY = 'bounded-candidate-review-batches@1'
+CANDIDATE_BATCH_LIMIT = 16  # New-only: fit each actual B answer within the model's output budget.
+CURRENT_CANDIDATE_BATCH_POLICY = 'bounded-candidate-review-batches@2'
+CURRENT_CANDIDATE_BATCH_LIMIT = 8
+FRAMING_GUIDANCE_POLICY = 'source-vs-output-framing@1'
+B_QUOTE_GUIDANCE_POLICY = 'source-typed-review-quote@2'
+ATOMIC_DETAIL_GUIDANCE_POLICY = 'bounded-atomic-need-slots@1'
+SOUND_TEMPO_GUIDANCE_POLICY = 'optional-tempo-bpm-array@1'
+SFX_GUIDANCE_POLICY = 'source-sound-vs-postproduction-sync@1'
+SCHEMA_SHAPE_GUIDANCE_POLICY = 'schema-derived-detail-shape@1'
+INTAKE_POLICIES = frozenset({LEGACY_INTAKE_POLICY, AUDIO_INTAKE_POLICY, P3_INTAKE_POLICY, RELATIONAL_INTAKE_POLICY, ADMISSION_INTAKE_POLICY, FLEXIBLE_INTAKE_POLICY, BOUNDED_BATCH_INTAKE_POLICY, FRAMING_INTAKE_POLICY, QUOTE_INTAKE_POLICY, ATOMIC_DETAILS_INTAKE_POLICY, SOUND_TEMPO_INTAKE_POLICY, COMPLETE_GUIDANCE_INTAKE_POLICY, ROOT_ECHO_INTAKE_POLICY, SFX_GUIDANCE_INTAKE_POLICY, SCHEMA_SHAPE_INTAKE_POLICY})
 
 
 def selected_source(scope, inputs, catalog):
@@ -115,10 +135,13 @@ def questions(proposal, inputs, catalog, *, supported=False, source_bound=False)
 
 
 def review_batches(directory):
+    batch_size = directory.get('candidate_batch_limit', MAX_B_ANSWERS)
+    if type(batch_size) is not int or not 1 <= batch_size <= MAX_B_ANSWERS:
+        raise ValueError('Unknown Planning candidate review batch size')
     result = []
-    for offset in range(0, len(directory['questions']), MAX_B_ANSWERS):
+    for offset in range(0, len(directory['questions']), batch_size):
         batch = {**{k: v for k, v in directory.items() if k != 'questions'},
-                       'questions': directory['questions'][offset:offset + MAX_B_ANSWERS],
+                       'questions': directory['questions'][offset:offset + batch_size],
                        'response_schema': ReviewResponse.model_json_schema()}
         if directory.get('support_policy') == support.REVISION:
             batch['source_catalog'] = support.source_catalog(batch)
@@ -127,20 +150,28 @@ def review_batches(directory):
     return result
 
 
-def review_message(batch):
+def review_message(batch, *, quote_wire_guidance=False):
     source_guidance = ('selected_source由程序绑定所选原文行或全局范围；编号不是分镜序号。'
         'global的evidence_id=0与document_path引用本批完整原文，不是省略来源。'
         '核对该Need义务是否确实对应选定来源，全文别处存在相似内容不能替错绑背书。'
         '保留完整上下文，标题与后续正文的关联及跨行义务由你判断，不能机械限于单行授权。'
         if batch.get('review_source_policy') == SOURCE_POLICY else '')
     if batch.get('support_policy') == support.REVISION:
+        quote_guidance = (
+            '按所选source_catalog来源的原值类型填写support.quote：字符串来源必须填写'
+            '同一来源中的连续原文JSON字符串，必须非空且最多512字符，不加对象包装；'
+            '仅合法非字符串来源填写JSON null，绑定该来源原值。'
+            '没有合格来源或无法判断支持时使用CHALLENGE/UNRESOLVED，不得用null冒充依据。'
+            if quote_wire_guidance else
+            '字符串quote必须原样存在于该来源；非字符串值以quote=null绑定原值。')
         return ('〔Easel Planning vNext 有界视觉复核〕\n'
             + source_guidance +
             '逐个必填槽位审核完整候选义务、必要性/偏好、模态、原素材/后期/叙事归属及视觉遗漏。'
             'scope覆盖独立于A，A全audio仍查视觉遗漏，不审核声音语义。'
             '只使用Harness提供的工具提交本轮复核结果，严格遵守response_schema；不提出新计划。'
             'question/evidence身份由程序派生，不自行填写。support选择source_catalog的原有handle，'
-            '字符串quote必须原样存在于该来源；非字符串值以quote=null绑定原值。'
+            + quote_guidance +
+            'support.role只能选该来源在本题允许的角色；ACCEPT至少含一项合格authority或output_authority。'
             'authority与context分开：Preparation不创造授权，成片规格不直接授权native源属性；'
             'output_authority仅用于实际后期义务。引用存在不证明蕴含，不能用一处真实引用'
             '放行整个复合义务。判断还须涵盖所有含义，软偏好不能升级required。'
@@ -177,7 +208,11 @@ def validate_answers(value, batch):
         if (not answer.reason.strip() or len(set(answer.evidence)) != len(answer.evidence)
                 or not set(answer.evidence) <= set(question['evidence'])):
             raise ValueError('Review evidence selection or reason is invalid')
-        if answer.decision == 'ACCEPT' and (not answer.evidence or not set(answer.evidence) & set(range(6))):
+        # Supported answers already prove eligible authority in the actual
+        # frozen catalog above. Evidence IDs are identities, not authority:
+        # confirmed audio is appended after the original six source groups.
+        if not supported and answer.decision == 'ACCEPT' and (
+                not answer.evidence or not set(answer.evidence) & set(range(6))):
             raise ValueError('Accepted review requires actual independent frozen evidence')
     return response
 

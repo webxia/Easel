@@ -56,7 +56,7 @@ def cached_music_reassessment(attempt):
         if need.need_id not in blocking or getattr(need.modality_spec, 'kind', None) != 'bgm':
             continue
         candidates = [a for a in assets if a.media_type is MediaType.AUDIO and a.asset_id not in voice_ids
-                      and a.technical.duration_seconds is not None and 1 <= a.technical.duration_seconds <= 300]
+                      and a.technical.duration_seconds is not None and 1 <= a.technical.duration_seconds <= 900]
         candidates.sort(key=lambda a: (-matcher._soft_scores(need, a)[1], a.asset_id))
         for asset in candidates[:9]:
             if music_observed(need, asset) is not None:

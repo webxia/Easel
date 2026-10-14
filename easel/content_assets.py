@@ -77,6 +77,12 @@ def assert_media_publication_allowed(path: Path) -> None:
             or any(review.get(key, {}).get('status') != 'pass' for key in ('technical', 'truth', 'style'))
             or review.get('material_usage', []) != usage):
         raise ContentAssetRegistrationError('当前成片尚未通过绑定此文件的最终审片，不能发布')
+    from easel.integrations.hypit.service import require_final_admission
+    from easel.integrations.hypit.errors import HypitIntegrationError
+    try:
+        require_final_admission(attempt, output_name)
+    except HypitIntegrationError as exc:
+        raise ContentAssetRegistrationError('当前作品不符合系统 Quality、Rights 与输出 SHA 的正式发布准入') from exc
     if publication_requires_rights_review(usage):
         raise ContentAssetRegistrationError('本片素材使用范围仅限内部制作；入库未增加发布权限')
 
@@ -188,6 +194,12 @@ def _selected_record(work: dict[str, Any], attempt_id: str, output_name: str) ->
             or attempt.get("selected") is not True
             or attempt.get("review_status") != "APPROVED"):
         raise ContentAssetRegistrationError("只有当前已批准的 Selected Output 可以登记到内容库")
+    from easel.integrations.hypit.service import require_final_admission
+    from easel.integrations.hypit.errors import HypitIntegrationError
+    try:
+        require_final_admission(attempt, output_name)
+    except HypitIntegrationError as exc:
+        raise ContentAssetRegistrationError('当前成片尚未通过统一 Final Admission，不能入库') from exc
     output = attempt.get("outputs", {}).get(output_name)
     review = attempt.get("review", {})
     sha = (output or {}).get("sha256")

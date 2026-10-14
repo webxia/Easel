@@ -44,6 +44,8 @@ def runtime_location(prefix, env):
 
 def read_original(prefix, profile, call, *, runner=subprocess.run, env=None):
     from easel.integrations.planning_result_contract import MAX_RESULT_BYTES
+    if call.get('reply_contract') != 'planning-result-v3':
+        raise ValueError('Historical Planning transcript is read-only')
     environment = dict(os.environ if env is None else env)
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', profile):
         raise DeliveryExecutionUncertain('Planning网关profile身份无效')
@@ -51,10 +53,9 @@ def read_original(prefix, profile, call, *, runner=subprocess.run, env=None):
     params = {'agentId': call['agent_id'], 'sessionKey': call['session_key'],
               'sessionId': call['session_id'], 'runId': call['run_id'],
               'profile': profile, 'runtimeParts': RUNTIME_PARTS, 'maxResultBytes': MAX_RESULT_BYTES}
-    if call.get('reply_contract') == 'planning-result-v3':
-        from easel.integrations.planning_structured import verify_runtime, RUNTIME_PARTS as structured_parts
-        verify_runtime(root)
-        params.update(structured=call['structured_result'], structuredParts=structured_parts)
+    from easel.integrations.planning_structured import verify_runtime, RUNTIME_PARTS as structured_parts
+    verify_runtime(root)
+    params.update(structured=call['structured_result'], structuredParts=structured_parts)
     try:
         result = runner([node, str(Path(__file__).with_suffix('.mjs')), str(root)],
             input=json.dumps(params), text=True, capture_output=True, timeout=20, env=environment)

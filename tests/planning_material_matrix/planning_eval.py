@@ -160,6 +160,10 @@ class PlanningEvalBoundary:
 def confirm_sample(sample):
     """Normal Creation begin/save/confirm; independent controlled input."""
     proposal = sample['proposal']
+    from easel.creator_proposal import parse_video_plan
+    if parse_video_plan(proposal) is None:
+        raise EvalStateViolation('Archived Planning sample cannot be enrolled under Proposal @4: '
+                                 + sample['id'])
     work = creation.create_creation(sample['theme'], profile='个人经营实践',
         creative_mode='clear_memo_video', route='hypit_video',
         origin={'type': 'chat', 'session_hash': hashlib.sha256(proposal.encode()).hexdigest()})
@@ -167,14 +171,18 @@ def confirm_sample(sample):
     creation.begin_video_proposal(work['id'], turn)
     creation.save_video_proposal(work['id'], turn, proposal)
     plan = creation.get_creation(work['id'])['chat_workflow'].get('video_plan')
-    if not plan or any(v is None for v in plan['specs'].values()):
-        raise EvalStateViolation('Frozen sample is not a legal normal proposal: ' + sample['id'])
+    from easel.creator_proposal import validate_video_plan
+    if not validate_video_plan(plan):
+        raise EvalStateViolation('Archived Planning sample cannot be enrolled under Proposal @4: '
+                                 + sample['id'])
+    consent = creation.input_use_preview(plan=plan)
     transcript = json.dumps([{'role': 'user', 'content': sample['theme']},
                              {'role': 'assistant', 'content': proposal},
                              {'role': 'user', 'content': '确认此方案。只做 Planning Eval，不执行素材供给或制作。'}], ensure_ascii=False)
     return creation.confirm_chat_proposal(work['id'], 'r4-confirm-' + sample['id'],
         video_plan_sha256=plan['sha256'], production_specs=plan['specs'],
         delivery_proposal=transcript,
+        input_use_statement_sha256=consent['statement_sha256'],
         proposal_sha256=hashlib.sha256(transcript.encode()).hexdigest())
 
 

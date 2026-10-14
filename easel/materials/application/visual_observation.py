@@ -145,6 +145,8 @@ def observation_for_need(manifest, need):
 
 def validate_shared_report(group: dict, asset: MaterialAsset, report: dict, *, result_processor=None) -> dict:
     """One image input, independently validated evidence for each Need."""
+    if not isinstance(report, dict):
+        raise ValueError('共享观察回复必须是完整 JSON 对象；静默或空返回不能登记为素材证据')
     rows = report.get('reports')
     manifests = group['observations']
     digest = hashlib.sha256(json.dumps({k: v for k, v in group.items() if k != 'input_sha256'},

@@ -264,9 +264,9 @@ def _selftest() -> int:
 
         # 2) produce 层登记，带 upstream
         c, _ = run(["record", "--data", mp, "--topic", "测试主题",
-                    "--layer", "produce", "--skill", "auto-short-video",
-                    "--outputs", "final.mp4", "--upstream", "script.md",
-                    "--summary", "已出片 45s"])
+                    "--layer", "produce", "--skill", "ai-image-gen",
+                    "--outputs", "cover.png", "--upstream", "script.md",
+                    "--summary", "生成视觉素材"])
         assert c == 0, "record produce 应成功"
 
         # 3) read 校验
@@ -283,7 +283,7 @@ def _selftest() -> int:
         # 4) latest 取整体最近一步
         c, out = run(["latest", "--data", mp])
         assert c == 0
-        assert json.loads(out)["step"]["skill"] == "auto-short-video"
+        assert json.loads(out)["step"]["skill"] == "ai-image-gen"
 
         # 5) latest 按层过滤
         c, out = run(["latest", "--data", mp, "--layer", "plan"])

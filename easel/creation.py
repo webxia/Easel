@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 from contextlib import contextmanager
+from copy import deepcopy
 import json
 import os
 import re
@@ -304,7 +305,7 @@ def ensure_chat_proposal_state(creation_id: str) -> dict[str, Any]:
     return get_creation(creation_id)
 
 
-def reopen_video_proposal(creation_id: str, *, seed: dict | None = None) -> dict[str, Any]:
+def reopen_video_proposal(creation_id: str) -> dict[str, Any]:
     """Reopen a failed, pre-material commission without discarding checkpoints.
 
     Caller must hold the delivery execution lock. Successful Material/Production
@@ -314,6 +315,9 @@ def reopen_video_proposal(creation_id: str, *, seed: dict | None = None) -> dict
         workflow = data.get("chat_workflow") or {}
         if workflow.get("editing_proposal"):
             return data
+        from easel.creation_delivery import is_managed
+        if not is_managed(data):
+            raise CreationError("历史 Creation 只读；不能重新打开旧生产委托")
         delivery = data.get("delivery") or {}
         attempts = data.get("hypit_attempts", [])
         if (delivery.get("status") != "failed" or data.get("selected_output_name")
@@ -326,9 +330,9 @@ def reopen_video_proposal(creation_id: str, *, seed: dict | None = None) -> dict
                        for a in attempts)):
             raise CreationError("当前仅支持内容准备或创作规划失败后修改方案；制作已开始或结果未核实，不能覆盖已有执行")
         history = data.setdefault("proposal_history", [])
-        history.append({"workflow": dict(workflow), "delivery": dict(delivery),
-                        "preparation": dict(data.get("preparation") or {}), "archived_at": _now()})
-        draft = workflow.get("video_plan") or seed
+        history.append({"workflow": deepcopy(workflow), "delivery": deepcopy(delivery),
+                        "preparation": deepcopy(data.get("preparation") or {}), "archived_at": _now()})
+        draft = workflow.get("video_plan")
         workflow.update(confirmed_at=None, confirmed_by_turn=None, proposal_status="DISCUSSING",
                         phase="PROPOSAL", video_plan_required=True, editing_proposal=True,
                         proposal_turn_id="editing")
@@ -336,6 +340,57 @@ def reopen_video_proposal(creation_id: str, *, seed: dict | None = None) -> dict
             workflow["video_plan"] = draft
         data["chat_workflow"] = workflow
         delivery.update(status="revising_proposal", operation=None)
+    return get_creation(creation_id)
+
+
+def reuse_failed_confirmed_video_proposal(creation_id: str) -> dict[str, Any]:
+    """Offer an unchanged, previously approved plan for a new Web confirmation.
+
+    This restores only the editable proposal's confirmable state, not consent,
+    Preparation, Planning, a model submission, or any old failed Attempt.
+    """
+    from easel.creator_proposal import validate_video_plan
+    with edit_creation(creation_id) as data:
+        workflow = data.get('chat_workflow') or {}
+        current = data.get('delivery') or {}
+        revisions = data.get('proposal_history') or []
+        archived = revisions[-1] if revisions else {}
+        previous_workflow = archived.get('workflow') or {}
+        previous_delivery = archived.get('delivery') or {}
+        plan = workflow.get('video_plan')
+        attempts = data.get('hypit_attempts') or []
+        from easel.creation_delivery import is_managed
+        archived_owner = {**data, "chat_workflow": previous_workflow,
+                          "delivery": previous_delivery}
+        if (not is_managed(archived_owner)
+                or data.get('route') != 'hypit_video'
+                or (data.get('origin') or {}).get('type') != 'chat'
+                or not workflow.get('editing_proposal')
+                or workflow.get('confirmed_at')
+                or workflow.get('proposal_status') not in {'DISCUSSING', 'READY_FOR_CONFIRMATION'}
+                or current.get('status') != 'revising_proposal'
+                or data.get('selected_output_name')
+                or previous_delivery.get('status') != 'failed'
+                or not previous_workflow.get('confirmed_at')
+                or not isinstance(plan, dict) or not validate_video_plan(plan)
+                or previous_workflow.get('video_plan') != plan
+                or previous_delivery.get('video_plan') != plan
+                or previous_workflow.get('production_specs') != plan.get('specs')
+                or not attempts or any(
+                    (a.get('material_planning') or {}).get('status') == 'PLANNING_READY'
+                    or (a.get('material_gate') or {}).get('bundle_revision')
+                    or a.get('production_authoring')
+                    or a.get('execution_status') not in {'NOT_SUBMITTED', 'BLOCKED'}
+                    for a in attempts)
+                or previous_delivery.get('material_generations')
+                or any(call.get('status') in {'pending', 'submitting', 'unknown'}
+                       or call.get('runtime_release') == 'pending'
+                       for call in (previous_delivery.get('agent_calls') or {}).values())):
+            raise CreationError('只能复用原已确认、未进入素材或制作的完整方案；未知操作须先对账')
+        workflow['proposal_status'] = 'READY_FOR_CONFIRMATION'
+        workflow['phase'] = 'PROPOSAL'
+        workflow['proposal_error'] = None
+        data['chat_workflow'] = workflow
     return get_creation(creation_id)
 
 
@@ -367,7 +422,7 @@ def save_video_proposal(creation_id: str, turn_id: str, response: str) -> dict[s
             workflow["video_plan"] = {**plan, "revision": revision, "updated_at": _now()}
         workflow["output_decision"] = output_decision("proposal", "ACCEPT" if plan else "REJECT",
             "valid_proposal" if plan else "invalid_script_container", text=response,
-            field_path="script", policy_revision="easel-video-proposal@2")
+            field_path="script", policy_revision="easel-video-proposal@4")
         workflow["proposal_error"] = None if plan else "正文与说明需要分开，请更新完整方案后确认"
         workflow["proposal_status"] = ("READY_FOR_CONFIRMATION"
             if plan and all(value is not None for value in plan["specs"].values()) else "DISCUSSING")
@@ -386,26 +441,36 @@ def mark_chat_proposal_ready(creation_id: str) -> dict[str, Any]:
     return get_creation(creation_id)
 
 
-def input_use_preview(*, version: int = 2) -> dict[str, Any]:
-    """The exact declaration shown before confirmation; not an asset license."""
-    statement = ('我确认有权将本次提供的文字内容用于这份作品，并授权 Easel 按本方案改写、'
-                 '合成预置音色旁白和剪辑。素材自身的许可仍按实际证据核对，不自动发布。')
-    declaration = {'schema': 'easel-input-use@1', 'statement': statement,
+def input_use_preview(*, plan: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Visible @3 text-use consent bound to the exact @4 plan and audio mode.
+
+    It is an authorization declaration, never proof of Rights or an approval to
+    make a paid call. Older declarations must not be used for new production.
+    """
+    from easel.creator_proposal import validate_video_plan
+    if not validate_video_plan(plan):
+        raise CreationError('必须先明确当前 Proposal @4，才能签署文字使用授权')
+    mode = plan['specs']['audio_mode']
+    voice = mode in {'voice', 'mixed'}
+    operations = ['rewrite', 'text_to_visual_generation', 'editing']
+    if voice:
+        operations.append('preset_voice_synthesis')
+    statement = ('我确认有权将本次提供的文字内容用于当前已核对的作品方案，并授权 Easel 按确认范围改写、'
+                 '以文字生成视觉素材、编辑作品'
+                 + ('、按已选择的预置身份合成完整SCRIPT旁白' if voice else '；不授予旁白合成权限')
+                 + '。素材与音乐的 Rights、TTS 实际调用及付费仍须另行确认，不自动发布。')
+    declaration = {'schema': 'easel-input-use@3', 'statement': statement,
                    'scope': 'creator_provided_text_for_current_creation',
-                   'operations': ['rewrite', 'preset_voice_synthesis', 'editing'], 'publication_allowed': False}
-    if version == 2:
-        declaration.update(schema='easel-input-use@2', statement=(
-            '我确认有权将本次提供的文字内容用于这份作品，并授权 Easel 按本方案改写、'
-            '以文字生成图片或视频素材、合成预置音色旁白和剪辑。'
-            '素材自身的许可仍按实际证据核对，不自动发布。'))
-        declaration['operations'] = ['rewrite', 'text_to_visual_generation', 'preset_voice_synthesis', 'editing']
-    elif version != 1:
-        raise CreationError('不支持的输入使用声明版本')
-    # Bind both the visible words and their versioned scope. A later policy
-    # expansion must not recognize an older page's confirmation digest.
-    digest = hashlib.sha256(json.dumps(declaration, sort_keys=True, ensure_ascii=False,
-                                     separators=(',', ':')).encode('utf-8')).hexdigest()
-    return {**declaration, 'statement_sha256': digest}
+                   'video_plan_sha256': plan['sha256'],
+                   'script_sha256': hashlib.sha256(plan['script'].encode('utf-8')).hexdigest(),
+                   'audio_mode': mode, 'operations': operations,
+                   'publication_allowed': False}
+    if voice:
+        from easel.integrations.planning_authority import digest
+        declaration['voice_profile_sha256'] = digest(plan['voice_profile'])
+    encoded = json.dumps(declaration, sort_keys=True, ensure_ascii=False,
+                         separators=(',', ':')).encode('utf-8')
+    return {**declaration, 'statement_sha256': hashlib.sha256(encoded).hexdigest()}
 
 
 def confirm_chat_proposal(
@@ -431,6 +496,12 @@ def confirm_chat_proposal(
         if not workflow.get("confirmed_at"):
             if workflow.get("proposal_status") != "READY_FOR_CONFIRMATION":
                 raise CreationError("Easel 尚未完成创作方案回复，不能开始制作")
+            if not workflow.get('video_plan_required') or delivery_proposal is None:
+                raise CreationError('新视频只接受已保存 Proposal @4 的明确制作委托')
+            if not data.get('creative_mode') or not data.get('creative_mode_version'):
+                raise CreationError('新视频必须先冻结有效 Creative Mode 身份')
+            if input_use_statement_sha256 is None:
+                raise CreationError('新生产必须确认与当前音轨模式及方案SHA绑定的文字使用声明')
             if proposal_sha256 is not None and not re.fullmatch(r"[0-9a-f]{64}", proposal_sha256):
                 raise CreationError("确认方案摘要无效")
             if workflow.get("video_plan_required"):
@@ -438,7 +509,7 @@ def confirm_chat_proposal(
                 from easel.creator_proposal import validate_video_plan
                 if not validate_video_plan(plan):
                     raise CreationError("当前方案需更新为正文与说明分开的完整版本后确认")
-                if plan.get('schema') == 'easel-video-proposal@3' and delivery_proposal is None:
+                if plan.get('specs', {}).get('audio_mode') in {'voice', 'mixed'} and delivery_proposal is None:
                     raise CreationError('预置旁白选择必须随明确委托和技术授权一起确认')
                 if (not video_plan_sha256 or plan.get("sha256") != video_plan_sha256
                         or production_specs != plan.get("specs")
@@ -446,6 +517,8 @@ def confirm_chat_proposal(
                                ("duration_seconds", "aspect_ratio", "audio_mode", "language"))):
                     raise CreationError("视频方案已更新或尚未完成，请查看当前文案与分镜后确认")
             editing = workflow.get("editing_proposal", False)
+            if data.get('hypit_attempts') and not editing:
+                raise CreationError('历史 Attempt 不能由新确认升级或接管')
             if editing and data.get("preparation", {}).get("snapshot_hashes"):
                 previous = data["proposal_history"][-1]["workflow"].get("production_specs")
                 if production_specs != previous:
@@ -468,18 +541,27 @@ def confirm_chat_proposal(
                         or hashlib.sha256(delivery_proposal.encode("utf-8")).hexdigest() != proposal_sha256
                         or SecretRedactor.contains_secret(delivery_proposal)):
                     raise CreationError("自主委托与确认方案不一致或含疑似 Secret")
-                input_use = None
-                if input_use_statement_sha256 is not None:
-                    declaration = input_use_preview()
-                    if input_use_statement_sha256 != declaration['statement_sha256']:
-                        raise CreationError('文字使用范围说明已变化，请核对当前方案中的确认内容')
-                    input_use = {**declaration, 'creation_id': creation_id, 'proposal_sha256': proposal_sha256,
-                                 'confirmed_at': workflow['confirmed_at'],
-                                 'confirmed_by_turn': workflow['confirmed_by_turn']}
+                declaration = input_use_preview(plan=workflow['video_plan'])
+                if input_use_statement_sha256 != declaration['statement_sha256']:
+                    raise CreationError('文字使用范围说明与当前方案或声音权限不一致')
+                input_use = {**declaration, 'creation_id': creation_id,
+                             'proposal_sha256': proposal_sha256,
+                             'confirmed_at': workflow['confirmed_at'],
+                             'confirmed_by_turn': workflow['confirmed_by_turn']}
                 # Enrollment and confirmation are one write. Old confirmations
                 # never acquire a delivery record through a replay or restart.
                 data["delivery"] = {
                     "schema": "easel-creation-delivery@1",
+                    "production_contract": {
+                        "schema": "easel-new-video-commission@1", "creation_id": creation_id,
+                        "session_hash": data["origin"]["session_hash"],
+                        "creator_profile": data.get("profile"),
+                        "creative_mode": data["creative_mode"],
+                        "creative_mode_version": data["creative_mode_version"],
+                        "video_plan_sha256": workflow["video_plan"]["sha256"],
+                        "input_use_sha256": declaration["statement_sha256"],
+                        "confirmed_at": workflow["confirmed_at"],
+                    },
                     **({'endpoint': 'MATERIAL_READY', 'endpoint_set_at': workflow['endpoint_set_at']}
                        if workflow.get('delivery_endpoint') == 'MATERIAL_READY' else {}),
                     "proposal": delivery_proposal,
@@ -492,7 +574,9 @@ def confirm_chat_proposal(
                                       "material_generation": commission_generation_authorization(generation_budget),
                                       "input_use": input_use},
                     "status": "pending", "failures": {},
-                    **({"agent_calls": data["proposal_history"][-1]["delivery"].get("agent_calls", {}),
+                    **({"agent_calls": deepcopy(data["proposal_history"][-1]["delivery"].get("agent_calls", {})),
+                        "call_budgets": deepcopy(data["proposal_history"][-1]["delivery"].get("call_budgets", {})),
+                        "operation_timings": deepcopy(data["proposal_history"][-1]["delivery"].get("operation_timings", {})),
                         "proposal_revision": len(data["proposal_history"])} if editing else {}),
                 }
                 from easel.integrations.voice_identity import binding_for
@@ -502,6 +586,32 @@ def confirm_chat_proposal(
                     raise CreationError(str(exc)) from exc
                 if voice_binding is not None:
                     data['delivery']['voice_binding'] = voice_binding
+                if editing and data.get('hypit_attempts'):
+                    # An explicitly reconfirmed failed Planning commission must
+                    # not reuse an old Attempt's immutable A-selection/A-details
+                    # journal. Keep all old snapshots and receipts in history.
+                    source = data['hypit_attempts'][-1]
+                    archived = data['proposal_history'][-1]
+                    old_prep = archived['preparation']
+                    source_key = old_prep.get('operation_key')
+                    old_delivery = archived['delivery']
+                    if (old_delivery.get('status') != 'failed'
+                            or old_prep.get('status') not in {'MATERIAL_FAILED', 'FAILED', 'HANDOFF_READY'}
+                            or not isinstance(source_key, str)
+                            or not re.fullmatch(r'[0-9a-f]{64}', source_key)
+                            or source.get('preparation_key') != source_key
+                            or source.get('execution_status') not in {'NOT_SUBMITTED', 'BLOCKED'}
+                            or any(c.get('status') in {'pending', 'submitting', 'unknown'}
+                                   or c.get('runtime_release') == 'pending'
+                                   for c in old_delivery.get('agent_calls', {}).values())):
+                        raise CreationError('原失败Attempt的执行身份尚不能安全修订；必须先对账，不能复用旧Planning')
+                    data['preparation'] = {
+                        'status': 'CREATED', 'updated_at': _now(),
+                        'revision_source_attempt_id': source['attempt_id'],
+                        'previous_operation_key': source_key,
+                    }
+                    data['delivery']['revision_source_attempt_id'] = source['attempt_id']
+
         elif (proposal_sha256 is not None
               and workflow.get("proposal_sha256") != proposal_sha256):
             raise CreationError("本 Creation 已绑定另一份确认方案；不能静默替换冻结输入")
@@ -525,7 +635,7 @@ def confirm_chat_proposal(
                     or recorded.get('creation_id') != creation_id
                     or recorded.get('proposal_sha256') != workflow.get('proposal_sha256')):
                 raise CreationError('本作品未确认这份文字使用声明，不能通过重放确认新增或更换授权')
-        if (data.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@3':
+        if (data.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@4':
             from easel.integrations.voice_identity import require_binding
             try:
                 require_binding(data)
@@ -583,8 +693,15 @@ def record_stage(creation_id: str, stage: str, status: str, *,
     if decision is not None and stage != "qc":
         raise CreationError("只有 qc 阶段可以写入最终决策")
 
-    clean_artifacts = [_safe_artifact_path(item) for item in (artifacts or [])]
     with edit_creation(creation_id) as data:
+        # Reject the retired video Writer under the Creation lock *before*
+        # inspecting caller-supplied artifacts. A nonexistent/hostile path is
+        # not a different outcome or an escape from the New-Only boundary.
+        # Preparation/Handoff retain their real content_core snapshot; normal
+        # non-video stages keep their original bookkeeping behavior.
+        if data.get("route") == "hypit_video" and stage != "content_core":
+            raise CreationError("旧视频阶段 Writer 已退役；New-Only 视频只能由 Delivery 执行")
+        clean_artifacts = [_safe_artifact_path(item) for item in (artifacts or [])]
         if status == "completed" and stage in ("content_core", "director_plan", "storyboard", "assets", "assemble") and not clean_artifacts:
             raise CreationError(f"{stage} 完成时必须登记至少一个真实产物")
         if stage == "qc" and status == "completed" and decision is None:
@@ -623,6 +740,8 @@ def record_stage(creation_id: str, stage: str, status: str, *,
 def stage_context(creation_id: str, target: str) -> str:
     """Return a stage-specific Mode context after enforcing upstream state."""
     data = _load(creation_id)
+    if data.get("route") == "hypit_video":
+        raise CreationError("旧视频阶段 Context 已退役；New-Only 使用冻结 Handoff/Director")
     if target not in creative_mode_stage_names():
         allowed = ", ".join(creative_mode_stage_names())
         raise CreationError(f"未知 Mode 生产阶段 {target!r}；可用：{allowed}")
@@ -660,15 +779,6 @@ def main(argv: list[str] | None = None) -> int:
     listing = sub.add_parser("list", help="列出最近作品")
     listing.add_argument("--limit", type=int, default=50)
 
-    record = sub.add_parser("record", help="登记一个阶段及其真实产物")
-    record.add_argument("--id", required=True)
-    record.add_argument("--stage", required=True, choices=STAGES)
-    record.add_argument("--status", required=True, choices=STAGE_STATUSES)
-    record.add_argument("--artifact", action="append", default=[])
-    record.add_argument("--summary", default="")
-    record.add_argument("--error", default="")
-    record.add_argument("--decision", choices=("ready", "not_ready"))
-
     context = sub.add_parser("context", help="读取一个生产环节的 Mode 合同")
     context.add_argument("--id", required=True)
     context.add_argument("--stage", required=True, choices=creative_mode_stage_names())
@@ -682,10 +792,6 @@ def main(argv: list[str] | None = None) -> int:
             _print(get_creation(args.id))
         elif args.command == "list":
             _print(list_creations(args.limit))
-        elif args.command == "record":
-            _print(record_stage(args.id, args.stage, args.status,
-                                artifacts=args.artifact, summary=args.summary,
-                                error=args.error, decision=args.decision))
         else:
             print(stage_context(args.id, args.stage))
     except CreationError as exc:

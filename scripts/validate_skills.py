@@ -17,10 +17,10 @@ KEY_RE = re.compile(r"^([A-Za-z][A-Za-z0-9_-]*):(?:\s*(.*))?$")
 TRIGGER_RE = re.compile(r"当用户|触发|使用时机|适用场景|用户说|用户问|用户需要|用于")
 LEGACY_OUTPUT_DIRS = {
     "ai-image", "ai-music", "ai-video", "audio-denoise", "audio-editing",
-    "audio-mix", "audio-visualizer", "auto-short-video", "auto-subtitle",
+    "audio-mix", "audio-visualizer", "auto-subtitle",
     "beat-sync-video", "comment-insights", "doc-convert", "green-screen",
     "image-enhance", "meme-generator", "mindmap", "novels", "paper",
-    "remove-bg", "reviews", "rss", "short-drama", "slideshow-video",
+    "remove-bg", "reviews", "rss", "slideshow-video",
     "subtitle-translate", "tts-voiceover", "video-chapters", "video-highlights",
     "video-intro-outro", "video-reframe", "video-to-article", "voice-clone",
 }

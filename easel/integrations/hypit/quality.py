@@ -164,12 +164,15 @@ def audio_measurements(output: np.ndarray, voice: np.ndarray | None = None,
 
 def measure_output(path: Path, metadata: dict, voice_path: Path | None, offset: float, cues: list[dict]):
     duration = metadata.get('duration_seconds')
-    if not isinstance(duration, (int, float)) or not 0 < duration <= 300:
-        raise HypitIntegrationError('当前质量分析支持五分钟以内的有限成片')
+    if (type(duration) not in (int, float) or not np.isfinite(duration)
+            or not 0 < duration <= 900):
+        raise HypitIntegrationError('当前质量分析只接受 1～900 秒的有限成片')
     raw = _decode(path, '-an', '-vf', 'fps=2,scale=160:90', '-pix_fmt', 'gray', '-f', 'rawvideo', '-t', str(duration))
     if not raw or len(raw) % (160 * 90):
         raise HypitIntegrationError('成片画面采样不完整')
     frames = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 90, 160)
+    if abs(len(frames) / 2 - duration) > 1.1:
+        raise HypitIntegrationError('视频采样未覆盖当前成片完整首中尾，不能批准 Quality')
     dark = np.mean(frames < 12, axis=(1, 2)) > .98
     defects = []
     start = None
@@ -185,7 +188,9 @@ def measure_output(path: Path, metadata: dict, voice_path: Path | None, offset: 
     if metadata.get('audio_present'):
         pcm = np.frombuffer(_decode(path, '-vn', '-ac', '1', '-ar', '16000', '-t', str(duration), '-f', 'f32le'), dtype='<f4')
         voice = None if voice_path is None else np.frombuffer(
-            _decode(voice_path, '-vn', '-ac', '1', '-ar', '16000', '-t', '300', '-f', 'f32le'), dtype='<f4')
+            _decode(voice_path, '-vn', '-ac', '1', '-ar', '16000', '-t', '900', '-f', 'f32le'), dtype='<f4')
+        if abs(len(pcm) / 16000 - duration) > 1.1:
+            raise HypitIntegrationError('成片声音未覆盖完整时长，不能批准 Quality')
         audio = audio_measurements(pcm, voice, offset, cues)
         defects.extend(audio['defects'])
     elif voice_path is not None:
@@ -357,7 +362,7 @@ def measure_music(path: Path, duration: float, author: str, plan, bundle, store,
                 stop = min(duration, start + float(_frames(clip['for'], fps) / fps))
             else:
                 raise ValueError('配乐播放范围不明确')
-            reference = np.frombuffer(_decode(source, '-vn', '-ac', '1', '-ar', '16000', '-t', '300', '-f', 'f32le'), dtype='<f4')
+            reference = np.frombuffer(_decode(source, '-vn', '-ac', '1', '-ar', '16000', '-t', '900', '-f', 'f32le'), dtype='<f4')
             trim_start = round(seconds(clip.get('trim-start', '0s')) * 16000)
             trim_end = round(seconds(clip['trim-end']) * 16000) if 'trim-end' in clip else len(reference)
             if not 0 <= trim_start < trim_end <= len(reference):
@@ -388,7 +393,7 @@ def measure_music(path: Path, duration: float, author: str, plan, bundle, store,
             if project_voice and voice_path is not None:
                 moments = all_moments
                 if voice_pcm is None:
-                    voice_pcm = np.frombuffer(_decode(voice_path, '-vn', '-ac', '1', '-ar', '16000', '-t', '300', '-f', 'f32le'), dtype='<f4')
+                    voice_pcm = np.frombuffer(_decode(voice_path, '-vn', '-ac', '1', '-ar', '16000', '-t', '900', '-f', 'f32le'), dtype='<f4')
                     if not len(voice_pcm) or not np.isfinite(voice_pcm).all():
                         raise ValueError('缺少有效的准入旁白声音，不能核对重叠配乐')
             if len(moments) < 2:

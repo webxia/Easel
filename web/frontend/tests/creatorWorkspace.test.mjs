@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { creatorExecutionRecord, projectCreatorWorkspace as project } from '../src/lib/creatorWorkspace.ts';
 const confirmed = { chat_workflow: { proposal_status: 'CONFIRMED' } };
-const progressWork = { ...confirmed, updated_at: '2026-10-01T12:42:04Z',
+const commissioned = { ...confirmed, operator_admission: { production_managed: true } };
+const progressWork = { ...commissioned, updated_at: '2026-10-01T12:42:04Z',
   preparation: { status: 'HANDOFF_READY', handoff_id: 'h', active_stage: 'planning' },
   delivery: { schema: 'easel-creation-delivery@1', status: 'observing_execution',
     confirmed_at: '2026-10-01T12:37:14Z', proposal: 'private-prompt', agent_calls: {
@@ -56,39 +57,39 @@ assert.match(failedAuthoring.failureReason, /编排文件未通过格式核验/)
 assert.ok(!failedAuthoring.failureReason.includes('Timeline'));
 const delivery = { schema: 'easel-creation-delivery@1', status: 'checking_cost' };
 const priced = { execution_status: 'NOT_SUBMITTED', plan: { status: 'ready' }, cost: { status: 'pricing_read' }, material_gate: { status: 'MATERIAL_READY' } };
-assert.equal(project({ ...confirmed, delivery }, priced, null).pending, 0);
-assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'needs_cost_approval' } }, priced, null).pending, 1);
-const repairing = project({ ...confirmed, delivery: { ...delivery, status: 'retrying' } }, { authoring_status: 'AUTHORING_FAILED' }, null);
+assert.equal(project({ ...commissioned, delivery }, priced, null).pending, 0);
+assert.equal(project({ ...commissioned, delivery: { ...delivery, status: 'needs_cost_approval' } }, priced, null).pending, 1);
+const repairing = project({ ...commissioned, delivery: { ...delivery, status: 'retrying' } }, { authoring_status: 'AUTHORING_FAILED' }, null);
 assert.equal(repairing.failureStage, null);
 assert.equal(repairing.title, '正在恢复当前步骤');
-const retryingBuild = project({ ...confirmed, delivery: { ...delivery, status: 'recovering_production' } }, { execution_status: 'BUILD_FAILED' }, null);
+const retryingBuild = project({ ...commissioned, delivery: { ...delivery, status: 'recovering_production' } }, { execution_status: 'BUILD_FAILED' }, null);
 assert.equal(retryingBuild.failureStage, null);
 assert.match(retryingBuild.title, /复用已完成的内容和素材/);
-assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'production_failed' } }, { execution_status: 'BUILD_FAILED' }, null).failureStage, '视频制作');
-const disconnected = project({ ...confirmed, delivery: { ...delivery, status: 'observation_failed' } }, { execution_status: 'RUNNING' }, null);
+assert.equal(project({ ...commissioned, delivery: { ...delivery, status: 'production_failed' } }, { execution_status: 'BUILD_FAILED' }, null).failureStage, '视频制作');
+const disconnected = project({ ...commissioned, delivery: { ...delivery, status: 'observation_failed' } }, { execution_status: 'RUNNING' }, null);
 assert.equal(disconnected.failureStage, null);
 assert.match(disconnected.title, /状态连接中断/);
 console.log('Creator projection: proposal, early failure, selected output, cost, uncertain submission, resumed gates passed');
 
-const observingMaterial = project({ ...confirmed, delivery: { ...delivery, status: 'observing_material' } },
+const observingMaterial = project({ ...commissioned, delivery: { ...delivery, status: 'observing_material' } },
   { material_planning: { status: 'PLANNING_READY' }, material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['scene-1'] } }, null);
 assert.equal(observingMaterial.pending, 0);
 assert.equal(observingMaterial.materialWorking, true);
 assert.equal(observingMaterial.timeline[3].state, 'running');
 assert.match(observingMaterial.title, /核对候选素材的实际画面/);
-const supplementingMaterial = project({ ...confirmed, delivery: { ...delivery, status: 'recovering_material' } },
+const supplementingMaterial = project({ ...commissioned, delivery: { ...delivery, status: 'recovering_material' } },
   { material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['scene-1'] } }, null);
 assert.equal(supplementingMaterial.pending, 0);
 assert.match(supplementingMaterial.title, /补充缺失素材/);
-const observationFailure = project({ ...confirmed, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:observe_material' } },
+const observationFailure = project({ ...commissioned, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:observe_material' } },
   { material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['scene-1'] } }, null);
 assert.equal(observationFailure.failureStage, '素材准备');
-const localIntake = project({ ...confirmed, delivery: { ...delivery, status: 'recovering_material', operation: 'finish_material_generation' } },
+const localIntake = project({ ...commissioned, delivery: { ...delivery, status: 'recovering_material', operation: 'finish_material_generation' } },
   { material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['voice'] } }, null);
 assert.equal(localIntake.pending, 0);
 assert.match(localIntake.title, /已保存.*无需重新生成/);
-assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:finish_material_generation' } }, {}, null).failureStage, '素材准备');
-const materialEndpoint = project({ ...confirmed, delivery: { ...delivery, endpoint: 'MATERIAL_READY', status: 'material_ready' } },
+assert.equal(project({ ...commissioned, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:finish_material_generation' } }, {}, null).failureStage, '素材准备');
+const materialEndpoint = project({ ...commissioned, delivery: { ...delivery, endpoint: 'MATERIAL_READY', status: 'material_ready' } },
   { material_gate: { status: 'MATERIAL_READY', blocking_needs: [] } }, null);
 assert.match(materialEndpoint.title, /素材已就绪.*停止/);
 assert.equal(materialEndpoint.timeline[3].state, 'completed');
@@ -96,17 +97,17 @@ assert.equal(materialEndpoint.timeline[4].state, 'waiting');
 assert.equal(materialEndpoint.timeline[6].state, 'waiting');
 assert.equal(materialEndpoint.selected, false);
 const exported = { execution_status: 'BUILD_COMPLETE', outputs: { final: { sha256: 'fixture' } } };
-const checkingQuality = project({ ...confirmed, delivery: { ...delivery, status: 'checking_quality' } }, exported, null);
+const checkingQuality = project({ ...commissioned, delivery: { ...delivery, status: 'checking_quality' } }, exported, null);
 assert.equal(checkingQuality.pending, 0);
 assert.equal(checkingQuality.timeline[5].state, 'running');
 assert.match(checkingQuality.title, /检查成片画面与声音/);
-assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'first_cut_ready' } }, exported, null).pending, 1);
-assert.match(project({ ...confirmed, delivery: { ...delivery, status: 'quality_incomplete' } }, exported, null).title, /证据尚不完整/);
-const repairingQuality = project({ ...confirmed, delivery: { ...delivery, status: 'repairing_quality' } }, exported, null);
+assert.equal(project({ ...commissioned, delivery: { ...delivery, status: 'first_cut_ready' } }, exported, null).pending, 1);
+assert.match(project({ ...commissioned, delivery: { ...delivery, status: 'quality_incomplete' } }, exported, null).title, /证据尚不完整/);
+const repairingQuality = project({ ...commissioned, delivery: { ...delivery, status: 'repairing_quality' } }, exported, null);
 assert.equal(repairingQuality.pending, 0);
 assert.equal(repairingQuality.timeline[5].state, 'running');
 assert.match(repairingQuality.title, /正在修正系统审片/);
-assert.equal(project({ ...confirmed, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:repair_quality' } }, exported, null).failureStage, '审片');
+assert.equal(project({ ...commissioned, delivery: { ...delivery, status: 'failed', exhausted_operation: 'a:repair_quality' } }, exported, null).failureStage, '审片');
 
 const editing = project({ chat_workflow: { editing_proposal: true, proposal_status: 'DISCUSSING' },
   delivery: { schema: 'easel-creation-delivery@1', status: 'revising_proposal' },
@@ -117,7 +118,7 @@ assert.equal(editing.title, '修改创作方案');
 assert.equal(editing.failureStage, null);
 assert.equal(editing.timeline.find(row => row.name === '创作规划').state, 'waiting');
 
-const audioCapabilityBlocked = project({ ...confirmed, delivery: { ...delivery, status: 'needs_audio_verification' } },
+const audioCapabilityBlocked = project({ ...commissioned, delivery: { ...delivery, status: 'needs_audio_verification' } },
   { material_gate: { status: 'MATERIAL_NOT_READY', blocking_needs: ['voice'] } }, null);
 assert.equal(audioCapabilityBlocked.materialWorking, false);
 assert.equal(audioCapabilityBlocked.materialUnavailable, true);

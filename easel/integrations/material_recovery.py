@@ -245,6 +245,44 @@ def recover_managed_materials(attempt_id: str, *, executor) -> dict:
             audio_used = {nid for r in previous_rounds
                           for nid in r.get('compiled_audio_fallback_need_ids', [])}
             need_ids = [nid for nid in need_ids if nid not in audio_used]
+            # A verified suitable source with UNKNOWN Rights is a rights
+            # decision, not missing scene content. Never spend a second search
+            # wave to compensate for unreviewed usage. This check consumes the
+            # original Need-bound Material@3 receipt and exact source bytes;
+            # it does not upgrade the Rights or Material Gate.
+            from easel.materials.application.visual_observation import observed_match
+            from easel.materials.domain import RightsStatus, TechnicalStatus
+            from easel.integrations import material_results, output_receipts
+            pending_rights=set()
+            current_bundle=store.read_bundle()
+            if current_bundle.revision != gate.get('bundle_revision'):
+                raise MaterialIntegrationError('补料前 Bundle 已变化，请核对原件')
+            for need in planning['plan'].needs:
+                if need.need_id not in need_ids or need.media_type.value not in {'image','video'}:
+                    continue
+                for asset in current_bundle.assets:
+                    if (asset.media_type is not need.media_type
+                            or asset.rights.status is not RightsStatus.UNKNOWN
+                            or asset.technical.status is not TechnicalStatus.PASSED
+                            or observed_match(need, asset) is not True):
+                        continue
+                    path=store.resolve_asset_locator(asset.file.path)
+                    if (store.read_asset(asset.asset_id) != asset or not path.is_file()
+                            or path.stat().st_size != asset.file.size
+                            or hashlib.sha256(path.read_bytes()).hexdigest() != asset.file.sha256):
+                        raise MaterialIntegrationError('已观察素材字节或 Rights 证据变化，不能另行检索')
+                    try:
+                        admitted_observation=material_results.eligible(
+                            store,need,asset,attempt=attempt,allow_creator=False)
+                    except (output_receipts.OutputReceiptError, ValueError) as exc:
+                        raise MaterialIntegrationError('原视觉证据不可核验，不能转换成检索缺口') from exc
+                    if admitted_observation:
+                        pending_rights.add(need.need_id)
+                        break
+            need_ids=[nid for nid in need_ids if nid not in pending_rights]
+            if pending_rights and not need_ids and not previous_rounds:
+                return attempt  # Only human Rights evidence can unblock these Needs.
+
         if len(previous_rounds) >= 2:
             # Keep exhausted visual waves exhausted; this action is audio-only.
             audio_choices = unused_compiled_bgm_queries(attempt, planning['plan'])
@@ -489,6 +527,11 @@ def _recover_locked(attempt_id, store, request_id, expected_plan_revision,
         NeedCompiler.for_plan(source_plan, search_terms=search_terms).compile(need)
         needs.append(need)
     target_plan = source_plan.model_copy(update={"needs": tuple(needs)})
+    # New-Only recovery supplies another source, not another Planning truth.
+    # A BGM Rights preference cannot silently revise the frozen vNext Need.
+    from easel.integrations.semantic_boundary import POLICY as vnext_policy
+    if target_plan != source_plan and source_plan.policy.get('semantic_compiler') == vnext_policy:
+        raise MaterialIntegrationError('冻结 vNext 素材Need不能由补料放宽；须显式新修订委托，不改写原方案')
     record["target_plan_revision"] = MaterialReadinessCalculator.plan_revision(target_plan)
     for asset in source_bundle.assets:
         persisted = store.read_asset(asset.asset_id)
@@ -498,11 +541,15 @@ def _recover_locked(attempt_id, store, request_id, expected_plan_revision,
             raise MaterialIntegrationError("已保留素材的字节或证据变化，拒绝覆盖")
     store.write_recovery_record(request_id, record)
     if record["status"] == "PREPARED":
-        planning = PlanningIntegration().persist(
-            attempt, target_plan, treatment=planning["treatment"],
-            script=planning["script"], scenes=planning["scenes"],
-        )
-        attempt = planning["attempt"]
+        if target_plan != source_plan:
+            planning = PlanningIntegration().persist(
+                attempt, target_plan, treatment=planning["treatment"],
+                script=planning["script"], scenes=planning["scenes"],
+            )
+            attempt = planning["attempt"]
+        # An unchanged Plan already owns its frozen Requirements, Script Truth
+        # and verified Voice identity. Do not issue a fresh identity assessment
+        # or overwrite current vNext checkpoints just to rerun one Supply.
         now = datetime.now(timezone.utc)
         run = SupplyRun(supply_run_id=f"recover-{request_id}", plan_id=target_plan.plan_id,
                         parent_run_id=source_bundle.supply_run_id, started_at=now, finished_at=now,

@@ -30,10 +30,16 @@ PINS = {
 PRIOR_PARTS = {'dist/principal-CweFVZNq.mjs':
     {'ef1226e5b08865214ebf96e9e112137563e6317c5c523a6b9fcf608cd1717ba3',
     'd2065be2b5ce0f5b447c45d61e79a0a423d1f9e148b2a766c34cd255876eb7d0'},
-    AI + 'transports.mjs': {'5f3bc7fef92f40200583f3d6012fe88c678abe686373c901f214d3c94e12c7f9'}}
-PRIOR_HELPER = {'b8664827744dc0bc51e71191e498902b1e3ae6af95510df1d46bddde668961e5',
+    AI + 'transports.mjs': {'5f3bc7fef92f40200583f3d6012fe88c678abe686373c901f214d3c94e12c7f9',
+                          '96fb39bc4e8c6129783c587a2324071bbb92fff366c2f94c71dbaaa185570ed7'},
+    'dist/provider-transport-fetch-C-DHvnM1.mjs':
+        {'fe2923d07e202d3c84f1aa1f69fb7f43c3e288a14b9970aef2bab6a32a1e21cd'}}
+PRIOR_HELPER = {'1ab40cf4ec7c495141492d4bf7947c294187dce9c5e11c3bdf169fb2157de805',
+                '03c8406e5c5e1b8fa7828c4358e466ce8de3c84cf300fa8df5eec6f4c2f797c2',
+                'b8664827744dc0bc51e71191e498902b1e3ae6af95510df1d46bddde668961e5',
                 'b1d10de4523e9c3099df17d143b8c72aa89775c1923a811ef451c891af990036',
-                '6c9d804bfbb1d11461c919b53088f11d4d76b1d95190dd8b1d21fe7a3ef98ec4'}
+                '6c9d804bfbb1d11461c919b53088f11d4d76b1d95190dd8b1d21fe7a3ef98ec4',
+                'e744c9a6dba38ade4e87500c3443102e5a7b3c54fbbea42a8e8778c681928803'}
 
 def digest(value):
     return hashlib.sha256(value).hexdigest()
@@ -49,6 +55,11 @@ def transform(name, source):
     if name.endswith('host-policy-Zcg_cNz8.mjs'):
         return source  # Behavior dependency: forwards options to the real host.
     if name.endswith('provider-transport-fetch-C-DHvnM1.mjs'):
+        source = ('import {observeProviderResponse as easelObserveProviderResponse}'
+                  ' from "./easel-structured-result.mjs";\n') + source
+        source = once(source, '\t\tlet response = result.response;',
+            '\t\tlet response = result.response;\n'
+            '\t\tif (options?.easelStructuredResult) response = easelObserveProviderResponse(response, options.easelStructuredResult);')
         source = once(source, 'function sanitizeOpenAISdkSseResponse(response, options) {',
             'function sanitizeOpenAISdkSseResponse(response, options) {\n'
             '\tconst easelWireLimit = options?.easelStructuredResult ? 64 * 1024 * 1024 : null;')
@@ -111,7 +122,7 @@ def transform(name, source):
                   ' from "../../../../dist/easel-structured-result.mjs";\n') + source
         source = once(source, '\t\t\t\tconst baseFetch = buildGuardedModelFetch(model);',
             '\t\t\t\tconst baseFetch = buildGuardedModelFetch(model, void 0,\n'
-            '\t\t\t\t\toptions?.easelStructuredResult ? {easelStructuredResult: true} : void 0);')
+            '\t\t\t\t\toptions?.easelStructuredResult ? {easelStructuredResult: options.easelStructuredResult} : void 0);')
         source = once(source,
             'function createOpenAICompletionsTransportStreamFn() {\n\treturn (model, context, options) => {\n'
             '\t\tconst { eventStream, stream } = createWritableTransportEventStream();',

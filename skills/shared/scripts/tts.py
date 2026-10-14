@@ -196,7 +196,7 @@ def _transcode(src: Path, dst: Path, fmt: str) -> None:
 
 
 # ── 闭源口播（好嗓子，优先）────────────────────────────────────────
-# tts-voiceover 及所有用它的视频 SKILL(auto-short-video/paper-explainer…)的旁白，配了 VOICE_PROVIDER
+# tts-voiceover 及依赖它的合法配音素材 Skill（如 paper-explainer），配了 VOICE_PROVIDER
 # 就默认走闭源云 TTS(voice_clone.py，有情感、像真人)，edge 仅无 key 时兜底——避免"AI 味/生硬"。
 
 class ClosedTTSError(Exception):

@@ -238,6 +238,9 @@ class MaterialSourceRouter:
         )
         if need.media_type not in {MediaType.IMAGE, MediaType.VIDEO} and not is_voice:
             return False
+        # A frozen No overrides continuity hints or reusable character IDs.
+        if need.constraints.get("allow_generation") is False:
+            return False
         if need.constraints.get("allow_generation") is True:
             return True
         continuity_kinds = {ref.kind.casefold() for ref in need.continuity_refs}

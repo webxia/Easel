@@ -3,6 +3,106 @@
 
 > **文档职责（2026-10-11 主方案正式批准）：本文件是唯一 E2E 历史及未来运行证据账本，不再拥有独立生产执行标准。** 新生产的 R1–R6、U0–U6 唯一标准已由用户批准，见 [`New-Only → Web E2E 统一主方案`](../architecture/web-backend-new-only-cutover-plan-2026-10-11.md) §8（`APPROVED_SINGLE_EXECUTION_STANDARD`）；具体 U2/U5/U6 执行、模型/Provider/Build、服务与费用仍待单独授权。本文件下方旧 Proposal @3、410、旧 Material 链路、E0–E3 手册均为当时的历史事实与证据，**不再作为未来可执行命令**；7 次失败 Attempt、24/24 次调用、15 份原始捕获、现金/UNKNOWN、SHA 保持原样。以后每轮新增真实执行信息**只在本文件顶部**登记，不在 Creator Task 重复写运行流水，不另建平行账本。**
 
+## 2026-10-12 同一 U2 候选受控加载与 U4 复检
+
+**CONTROLLED_LOAD=COMPLETE；RESULT=BLOCKED（U4）；DRIFT=NO_DRIFT；TRANSITION=HOLD；U2_CANDIDATE_READY / U3-S=PASS / U3-L=NOT_STARTED / RELEASE_NOT_AUTHORIZED。** 本轮用户明确授权候选前端/安装 Skill 同步、前后端重启和本地页面读取；没有授权生产确认、模型/Provider、有价调用、真实 E2E 或 U5–U6。承接前次加载差异，不重启历史迁移。
+
+### 同一候选加载与只读验证
+
+- 加载前逐项核验 U2 manifest SHA `846bb445d7df5fdfd98332b68e4f989f6e07e64d24e14bb1e226c072b5cd6ddc`，1,233 项 Source/Test/Skill、8 项非敏感配置及 5 项隔离 React 产物无漂移。原服务 dist 移至本轮非公开临时备份目录；直接安装已验收的 5 项 React 产物，未重新构建或改变候选指纹。
+- 同步安装文件 11 份：7 个 Skill 的 `SKILL.md`（ai-video-gen、beat-sync-video、hypit-authoring、multi-voice-dubbing、paper-explainer、slideshow-video、video-intro-outro）、multi-voice-dubbing/paper-explainer 的两份 EASEL-META、paper-explainer 的 storyboard reference 和一份 skill-wechat-publisher 安装包附带测试文件。旧文件均完整备份；**仓库源码/测试文件没有修改**。核验安装 112 个 Skill 集合、598 个存在文件及 118 个候选删除身份全部匹配，没有额外或遗漏的 Skill。
+- 项目前端由 FastAPI 提供，没有独立 5173 前端开发进程。本轮重启原 `com.easel.web` LaunchAgent，旧 PID `35281` → 新 PID **`98148` / 2026-10-12 23:37:31 +08:00**；仍只监听 `127.0.0.1:7860`。当前 OpenAPI SHA `efa13175291909b748e0a5d546db06d6e5609ea9c9401bdb03aecbbdebd8be3c`，规范化后 **80 个实际路径注册 = 80 个当前源码路径，无增减/方法差异**；原 15 个旧注册已消失。没有调用旧生产端点进行试探。
+- 浏览器访问前只读 GET `/` / `/api/status` / `/openapi.json` 为 200；Gateway health 为 true。服务 index SHA **`22e1fa4efad2ed8516ca5b300f79c746662f864771d1f7d64109999c6ea9ecd8`** 与候选一致，其引用的候选 JS `index-BcwhSvxF.js` 在服务 dist 的 SHA 为 `e303bf1766b7941c15b504f2674c1f523182c8a65aa6dff0a3fb592f6a12e3ba`；5 项磁盘产物全部匹配。`/onepage` 及三条旧 static HTML 入口均 404。
+- Gateway 原 PID `86014` 和启动时间保持，OpenClaw 2026.9.4 的 11 个磁盘补丁 pin 全部匹配；本轮没有重启 Gateway、执行会话修复或新 Agent Job。Hypit 0.2.7、本地 Runtime profile SHA `1e4099d70ed19b6ebed1451ad430cf0f9c3bbd464d9218712874af1744d18a51` 保持，没有任何 Hypit CLI/Check/Plan/Pricing/Build。安装磁盘身份不能证明 Gateway 进程内全部字节或原会话的缓存 Prompt；不为获取这种证据派发模型请求。
+
+### U4 缺证与现场保护
+
+虽然本轮用户明确授权页面读取，浏览器安全审批仍返回 **“A saved user permission setting blocks this action”**，阻止访问 `http://127.0.0.1:7860`。没有成功创建页面、读取按钮或执行确认；未改用其他浏览器、原始控制或间接页面渲染绕过。**ACTUAL_UI=NOT_VERIFIED_SAVED_PERMISSION_BLOCK**，区别于产品 UI 故障。拒绝后仅完成独立本地文件与保全检查，没有再通过 HTTP 达成被拒绝的页面读取。
+
+重启前后核对实际 Delivery 资格：`cr_ca48a2d63ade46b6bd88664aa436e9ad` 无下一操作、等待证据；`cr_3ac59f99a8fa4d79a588423f8d688dc8` 的 prepare 原失败次数为 3 且原 exhausted_operation 匹配，现行 Owner 门禁阻止执行。两条记录均保持原字节；没有手改失败状态、点击 retry、释放原占额或自动开始 Preparation。其余历史 Creation 不进入现行生产 Worker。
+
+29 个现有 Creation / 25 个引用 Attempt 的既有 Rights、费用/UNKNOWN 观察与上一记录相同，**不重放、不重新解释或清账**。10 份原生成结果的 billing UNKNOWN（8 个不同原文 SHA）保持，Gateway 46 份原请求记录 SHA 保持。当前套餐余量、未结算占用及下一请求最高现金风险仍 **BUDGET_NOT_PROVEN**；本轮新增模型/Provider/生产确认/有价服务/Hypit 请求均为 0。没有把免费 CI 报价或凭证存在当成真实请求的现金保证。
+
+本轮证据和完整旧安装备份在 `/private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/easel-u4-load-eiudtbqm/`：`start.json`、`sync-result.json`、`served-dist-before-load/`、`installed-skill-backup/`、`loaded-web-audit.json`、`loaded-openapi.json`、`skill-sync-verification.json`、`runtime-identity.json`、`delivery-no-dispatch-check.json`、费用观察及最终指纹检查。旧安装备份不在公开服务根目录，不构成第二条执行主线。
+
+**EVIDENCE=受控加载同版已验证，112 Skills 合同通过；实际页面与现金上限未验证，U4 不放行。LESSON=保存的浏览器访问策略须独立解除，聊天授权不会自动更改工具设置。NEXT_SINGLE_ACTION=暂停，待用户解除浏览器保存的本地地址禁用设置并具备可靠现金上限证据后，再继续同一候选的 U4 只读预检。** 不自动进入 U5–U6，不再重启或新增生产请求；无真实 Web E2E / DEBUG PROGRESS / RELEASE PASS 新结论。最终保全与文档检查结果如下方收尾。
+
+**收尾：**HEAD `ce6fa81739b812ff6bed8115cabd78bdf548e389` / `easel-studio`、74 M / 121 D、0 staged / 0 untracked 保持；仓库相对起点只有本 Task、Current State、本账本变化，未改生产/测试/配置。候选 1,233/8/5 项身份和实际服务 5 项 React 产物均匹配；3,255 个既有运行 JSON/JSONL、46 个 Gateway 请求 SHA 无变化，现有 29 个 Creation ID 集合不变，没有新增 Creation/Attempt 或业务请求。112 Skills 合同、本轮 4 个新增引用/锚点与 git diff --check 通过。受控重启的 Web 进程保持健康启动身份，旧安装备份保留；最终报告在 `final-fingerprint-check.json`。**本轮已暂停，U4 仍 BLOCKED。**
+
+## 2026-10-12 U4 无付费只读预检运行证据
+
+**RESULT=BLOCKED（U4）；DRIFT=NO_DRIFT；TRANSITION=HOLD；U2_CANDIDATE_READY / U3-S=PASS / U3-L=NOT_STARTED / RELEASE_NOT_AUTHORIZED。** 本轮仅授权现场只读预检，未点击生产确认、派发请求、查询 Provider 或调用 Hypit。此结果不推翻 U2/U3-S 软件证据，但不得进入 U5–U6。
+
+### Web 与实际加载身份
+
+- 后端 PID `35281`，启动时间 **2026-10-11 13:11:49 +08:00**，工作目录本项目，监听 `127.0.0.1:7860`。访问浏览器前只读 GET `/` 和 `/openapi.json` 均 200；OpenAPI 原文 SHA `5d2457db2b0e5cab3519a03a47a162e35e5d16b93c5313b30b1c7ee52320f019`。路径转换器规范化后，当前源码注册 80 个路径，实际加载注册 95 个；多出的 15 个包括 `/onepage`、Creation stage/handoff、旧 Attempt author/build/export/reconcile 及直接素材生成等。完整差异列在 `loaded-version-audit.json`；**没有调用这些主动接口，不能用路由注册推断其会执行、拒绝或付费**。`/static/index.html`、`main.html`、`onepage.html` 返回 404，只证明此次请求结果。
+- 页面 index SHA `19e606decf4f8df676d63917aa4956d05235e5258e0bf51c19673b0ce867e70f`；它引用磁盘 `index-WHRnRRmi.js`，SHA `b5667e8b4ef61cdbacf32f88e1a0f34c63331755790369140b96f4953c85ee7a`，mtime **2026-10-12 19:34:23 +08:00**。U2 隔离候选 index SHA `22e1fa4efad2ed8516ca5b300f79c746662f864771d1f7d64109999c6ea9ecd8`，JS `index-BcwhSvxF.js` SHA `e303bf1766b7941c15b504f2674c1f523182c8a65aa6dff0a3fb592f6a12e3ba`，后者不在服务 dist 中；另 CSS/图标三项一致。**React 加载产物不同，不只是后端需要加载当前版本。**
+- 浏览器创建本地页面时安全审批拒绝，原因为 **user declined permission / 用户未授予访问许可**。没有创建页面或点击任何按钮；此后未通过其他浏览器、HTTP/UI 转换或间接方式绕过访问拒绝。实际 Creator 页面、Proposal @4 投影、按钮及拒绝行为为 **NOT_VERIFIED_BROWSER_PERMISSION_DENIED**。上述访问前的接口结果和磁盘检查不冒充实际页面验收。
+
+### Gateway / Skill / Hypit
+
+- Gateway PID `86014`，启动于 **2026-10-10 21:43:42 +08:00**，loopback `18789`；安装 OpenClaw **2026.9.4**。候选 pin 的 **11 个结构化结果运行文件磁盘 SHA 全部一致**，最新文件 mtime 早于该进程启动；这仍不是进程内全部加载字节的直接证明。未启动 Job、`agent.wait`、会话修复或 Gateway patch。
+- 已安装 112 个 Skill 的 `SKILL.md` 中 **105 一致 / 7 不同**：`paper-explainer`、`video-intro-outro`、`multi-voice-dubbing`、`beat-sync-video`、`hypit-authoring`、`slideshow-video`、`ai-video-gen`。部分安装文本仍引用旧 auto-short-video 组装路径，hypit-authoring 尚缺候选的 Material 准入限制；这里只证明安装合同未同步，不推断执行结果。逐文件 SHA 和差异在 `openclaw-skill-audit.json` / `skill-*.diff`，未修改任何安装文件。
+- Hypit 安装 **0.2.7**；只读当前进程环境下解析的 Runtime profile `/Users/xgx/.easel/hypit-v1-runtime/hypit.runtime.json`，SHA `1e4099d70ed19b6ebed1451ad430cf0f9c3bbd464d9218712874af1744d18a51`，local media/hyperframes、空 bindings/credentials。该磁盘配置不证明后端继承环境或下一请求报价；本轮没有执行 Hypit CLI、Check/Plan/Pricing/Build。Gateway 主模型配置 MiniMax-M3/无 fallback、凭证仅记录存在性；未输出 Secret，也未验证真实套餐额度。
+
+### 只读 Rights / 费用 / UNKNOWN 观察
+
+- 29 个已存 Creation，引用 25 个 Attempt；保存的 Agent 状态为 225 ok / 12 error，Build 状态为 20 NOT_SUBMITTED / 4 BUILD_COMPLETE / 1 BUILD_FAILED，未见保存的待执行 Agent 或非终态 Build。Gateway 的原结构化请求保留 22 个 RESERVED 和 24 个无 state 记录；RESERVED 是原派发身份留存，不能据此认定仍运行或已经结算，未进行实时查询。两个 @4 Creation 分别为 needs_evidence / failed，均无 Build；未把既有检查点恢复为生产。
+- 引用 Attempt 中 **10 份 COMPLETE 生成结果的 billing 均为 UNKNOWN**，其中同一原生成记录在三个 Attempt 中完整复用，按原文只有 **8 个不同 SHA**。这些数量不是费用总额或收费次数；不重新解释旧业务结果、不合并改写记录、不清零 UNKNOWN、不补 request 身份或重派。原首片 @3 Creation 的 7 Attempt、24/24 Preparation 计数保持，不回放。
+- 被引用工作区中 368 个 asset 快照的保存 Rights 为 344 KNOWN / 23 ATTRIBUTION_REQUIRED / 1 PUBLIC_DOMAIN。295 个当前可读原件 SHA 与保存值一致；73 个原快照的引用文件在观察位置不可读，保持现场、不恢复或删除。以上只读快照统计**不证明新生产的 Need/Bundle/Rights 准入**。当前两个 @4 Creation 没有生成结果，也没有据此补出 MATERIAL_READY。
+- **当前套餐剩余额度、已有 UNKNOWN 占用金额及下一请求最高现金风险未得到可靠证明：BUDGET_NOT_PROVEN。** 历史 ¥10 上限、凭证存在、模型 maxTokens 或 U3-S 的 0 元隔离 CI 报价均不能替代当前权益/现金证据。无新增费用请求，未将 UNKNOWN 当零；本轮未新增生产授权。
+
+### 保全与交接
+
+证据目录 `/private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/easel-u4-readonly-pgdqiqu1/`：`u4-preflight.json`、`start.json`、原 GET 响应、`loaded-version-audit.json`、dist 比较、安装身份/Skill pin、脱敏 Runtime 配置、Creation/Rights/费用原件索引、Gateway 观察与最终保全检查。没有创建第二套方案或正式审计文档。
+
+**NEXT_SINGLE_ACTION=暂停，等待明确授权受控加载同一 U2 候选；具备页面读取许可及当前费用上限证据后重做 U4。** 本轮不部署/重启、不进入 U5–U6。U2 软件候选与 U3-S PASS 保持，U4 不放行，真实 Web E2E / DEBUG PROGRESS / RELEASE PASS 均无新结果。最终候选、历史原件和文档范围核验结果附于本节收尾。
+
+**收尾核验：**HEAD `ce6fa81739b812ff6bed8115cabd78bdf548e389` / `easel-studio` 未变；相对本轮起点仅 Task、Current State、本账本三份文件变化，保留 **74 M / 121 D、0 staged / 0 untracked**。U2 manifest SHA `846bb445d7df5fdfd98332b68e4f989f6e07e64d24e14bb1e226c072b5cd6ddc` 及 1,233 项源码/测试/Skill、8 项非敏感配置、5 项隔离 React 文件逐项无漂移；起始 **3,255 个运行 JSON/JSONL SHA 全部未变**。Web/Gateway 的 PID 和启动时间未变。`git diff --check` 通过，本轮新增文档链接可解析；检查同时发现历史 Task 段落已有 30 个本地 fixture 引用不可解析，未恢复或改写这些历史入口，不宣称全篇历史链接通过。实际页面缺证与本地加载差异仍保留 BLOCKED；没有通过新增测试或历史回放替代 U4。最终核验原件见 `final-fingerprint-check.json`。
+
+## 2026-10-12 U3-S 无付费本地连续集成运行证据
+
+**U3-S = PASS / SOFTWARE_INTEGRATION_PASS；U3-L = NOT_STARTED；RELEASE_NOT_AUTHORIZED。** 本轮用户仅授权当前候选的 45～60 秒中文 mixed 本地集成、关键拒绝和冷恢复；不重放历史失败，完成即停。以下是真实本地渲染的软件证据，**不是实时 Provider、真实 Web E2E 或 Release PASS**。主方案 §8.3 允许外部固定回执；内部 Owner、Rights/Readiness、Hypit Build、媒体解码与最终准入均实际执行，没有直接写入 MATERIAL_READY/Quality READY。
+
+### L2 连续链与实际媒体
+
+- 候选：HEAD `ce6fa81739b812ff6bed8115cabd78bdf548e389` / `easel-studio`；U2 manifest SHA `846bb445d7df5fdfd98332b68e4f989f6e07e64d24e14bb1e226c072b5cd6ddc`。源码/测试/Skill 1,233 项、非敏感配置 8 项、隔离 React 产物 5 项保持原指纹；安装 Hypit 0.2.7，使用独立临时 Runtime，仅本地 media/hyperframes、空凭证，不加载/重启生产服务。
+- 新的隔离 CI Creation `cr_03b8bc9f10f24975a21625e24eb2e86a` / Attempt `fa_cfc537ec88deaccee172502d48d8c033`；Build `bld_20261012T145221177Z_BFC9CDFB37`，operation `op_1f217db2e2c647b2a82d2b298f9df068`。原五 pin 为 `truth-source-ref@1 / material-observation-delta@1 / easel-script-claim-ledger@3 / quality-review-delta@1 / easel-hypit-source@1`，Planning 保持当前 @7/@9/v3。Proposal @4、Consent @3、完整 SCRIPT、预置 Voice 身份和 frozen Creator/Director/Creative Mode 经现行 Owner 消费。
+- 外部确定性边界：Planning/Truth/VLM 固定合法回执；MiniMax Speech 外部回执返回本机 Tingting 实际中文音频，**仅验证身份绑定及现行合同消费，不证明真实 MiniMax 声线或 Provider 授权**；BGM 与视觉本地自建。实际 Whisper 对完整 SCRIPT 转录/计时，实际 AST 对音乐源观察；Audio/Visual SHA、Material Match、Bundle、Readiness 和冻结 Rights 均由现有模块处理。普通人工 Rights 不能替代生成旁白来源的拒绝原件保留。公开 MiniMax 协议页只读取得，原文提取 SHA `90d05ccc1dbf8404cbc40cfb096698ceec2bc894440ac507cd048ecb9a896ae0` 与已批准条款 pin 相同，未修改合同常量或给历史 Attempt 补资格。
+- 真实 Hypit Check/Plan/Pricing：7 个请求 / 7 个 no-charge / `groups=[]` / USD 0。成本批准前 submit 实际拒绝，未创建 Build operation。真实付费 AI/Provider/TTS/Build 请求为 0；离线模拟的生成记录、预留和 UNKNOWN 仍保留原身份，不冒充真实结算。
+- 成功 Attempt 的真实 Build 只提交一次，成功导出唯一目标 `final.video`。文件：[本地 MP4](/private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/easel-u3s-fficf06b/ci/outputs/_creations/cr_03b8bc9f10f24975a21625e24eb2e86a/attempts/fa_cfc537ec88deaccee172502d48d8c033/final.mp4)；**SHA256 `07024bb66cb601fb144179598f482b4c06d1c1c2d7330f14e9148043c9c2d070`，1,033,271 bytes；50.000 秒 H.264 1080×1920 + 50.000 秒 AAC 48kHz 双声道**。实际 Export 由当前 `web._execute_creation_delivery` 查唯一目标，未绕过当前委托资格。
+- Quality 实际采样 100 帧，旁白 87 窗最小相关度 0.997；无 clipping/声音遮蔽缺陷，BGM 末段 45/47/48 秒相关度均 1.0；技术 `defects=[]`。System Quality READY、Final Admission 通过。VLM/人工 Review 是明确 CI 外部回执，APPROVED 只属于内部软件测试，不是人类试听、完整播放或发布批准；Rights 的 `internal_production_only/current_creation_only` 限制保留。Main 实际查看 1/25/49 秒画面，中文字幕/视觉在其适用区间可见，末段实际 BGM 信号保持。
+
+### 关键拒绝与原操作冷恢复
+
+`rejections-cold.log` **14 PASS / 20 deselected，228.05s**：Native 成本、runtime bytes/Plan 漂移、UNKNOWN、三切点导出凭据、委托撤销及 Authoring checkpoint 恢复。`material-rejections.log` **3 PASS / 214 deselected，19.57s**：Voice 授权撤销、原音频 SHA 和 Rights UNKNOWN。`protocol-rejections.log` **11 PASS，44.00s**：当前 New-Only 旧主动入口、未准入素材/运行身份及合法停止后的取消边界。没有推断整套 Material 新结果，也没有迁移或删除旧失败测试。
+
+真实 Build 回执在外部边界注入丢失后，Attempt 为 SUBMISSION_UNCERTAIN，重复 submit 返回原 operation 的 idempotent replay、未再 Build。独立新 Python 进程按相同工作区/operation/运行证据认领原 Build；结果入库前保持 unresolved、`retry_allowed=false`。导出后另一个新进程禁止质量 executor，重读保存 Quality、五 pin 和同一实际媒体 SHA，再次通过 Final Admission。`run-18.log` 连续链检查点接续 **1 PASS，16.39s**，不是首次整条运行耗时；`cold-final.log` 独立最终重读 PASS。
+
+本轮失败原件未删除：第一份独立 CI Build `bld_20261012T144915414Z_4249EC6352` 为沙箱 `listen EPERM/pgrep denied`，原 operation 终态失败、无 MP4；获本地隔离渲染权限后另建本轮 CI Attempt，未恢复历史生产。成功 Build 曾被临时脚本错误请求 Output `final`，真实目标为 `final.video`；只修临时验收脚本，沿原成功 operation 完成实际 Export，不修改 Authoring 或重发 Build。所有临时失败日志保留，不能把失败 Build 算通过。
+
+### L1 原件只读分类与当前边界对应
+
+原作品仍为 Proposal @3；**7 个历史 journal / 15 份原始 reply 的 SHA 逐一核验，未重放、未重新解释旧业务结果或恢复旧生产**。原生产不具备当前 @4 准入，标 `HISTORICAL_READ_ONLY / NON_REPLAYABLE_AS_CURRENT_PRODUCTION`；丢失 B 不伪造回复。完整原件路径、request/reply SHA 和 journal SHA 在本轮 `l1-readonly-classification.json`，分类仅作原件审计。对应当前风险验证如下：
+
+| 原 Attempt / 风险 | 当前应有判定与实测证据 |
+|---|---|
+| `fa_d31a3e20ab22070d99842241a868f44d` / 动作由静图承接 | REJECT；当前 `test_vnext_tool_schema_matches_frozen_choices_and_existing_modality_rules` 拒绝 image 的 required dynamic_action，不靠静图抹掉来源义务。 |
+| `fa_559421cca275b16c490249a4571a509b` / role 超长 | 合法短 role ACCEPT，超长 REJECT，不截断；本轮 `current-contract-probe.json` 当前 Schema/consumer 判定一致。 |
+| `fa_da27c309a6428657cbac964b3cff9784` / B 丢失 | 缺结果/终态不释放结果或重派；`test_vnext_full_capture[missing/lost_terminal]`；既有当前 R6 B-000 冷恢复证据见 U2 Task。本轮真实 Build UNKNOWN 同 operation 恢复另证。 |
+| `fa_07e8c628b4508ea1815930502943a9ea` / framing | 合法组合保持语义，非法 mode/ratio REJECT；`test_vnext_review_contract_protection[atomic_frame]`。 |
+| `fa_8d848d7c2b6dba5dd61b508a9abacc5b` / B 引用对象 | 可证等价 codec 往返；非法字段/引用 REJECT，不猜测改写；`test_vnext_review_contract_protection[xml_codec]`。 |
+| `fa_ca09eac4f3afcb40b94a903943565d9d` / A-details 游离字段 | 顶层/Need 未注册字段 REJECT，不移到别处；本轮 `current-contract-probe.json` 正反对照。 |
+| `fa_eb89de3f9300c1851378db0455157d40` / tempo 对象包装 | 合法 `[60,90]` ACCEPT，`{item:[60,90]}` REJECT，不擅自规范化；本轮 `current-contract-probe.json` 当前 Schema/consumer 一致。 |
+
+以上具名当前 Planning 集合 `l1-current-boundary.log` **5 PASS，0.87s**，另六项合同探针 PASS。只证明当前风险边界，不把原七次真实 FAIL 改成 PASS；按用户要求没有历史失败执行回放。
+
+### 指纹、证据保全与停点
+
+证据目录 `/private/var/folders/s8/sh775m3d14s259bbqfs3w5b40000gn/T/easel-u3s-fficf06b/` 保留：`test_u3s.py`、各轮日志、`u3s-result.json`、实际 Build/Export/Quality/冷进程回执、`mp4-probe.json`、首中尾 PNG、生成/Voice/音乐观察与公开条款原件、L1 原件映射和 `final-fingerprint-check.json`。编译、Skills 合同、git diff --check PASS。独立只读 Reviewer **CONTINUE**，核验了实际 MP4 SHA、连续链/冷恢复和替身边界；Main 签字 U3-S 软件资格。
+
+既有 3,255 个运行 JSON/JSONL SHA 全部未变，起始 dirty 全部保留；本轮仅修改 Task/Current State/本账本，最终 74 M / 121 D、0 staged / 0 untracked（本账本从本轮起点的 clean 变为 modified）。两份本轮临时 Worker 已关闭；无生产服务部署重启、实时模型/付费 Provider、真实 Web E2E、Git commit/push/reset/clean。**RESULT=COMPLETE（仅 U3-S）；DRIFT=NO_DRIFT；TRANSITION=HOLD。NEXT_SINGLE_ACTION=暂停，等待用户单独授权 U4 无付费只读预检；本轮不进入 U3-L/U4–U6，不自动发布。**
+
 ## 2026-10-11 用户调整：允许新Creation，以首条完整MP4为终点
 
 原 `cr_70af2a4443b541998f929541ef9f4b84` 的7个失败Attempt、24/24计数和15份原始回复**保持不变，作为回归与审计证据**。不再要求续跑原作品，也不追加原作品独立8次技术调用。此前为旧作品的+8特殊恢复写入但未验证的四文件变更已精确撤回，原先13个tracked修改保留；针对性Python编译和恢复专项8 PASS再次通过。当前 **E1 = FAIL/BLOCKED，未有MP4**，此记录不声称已真实复跑。

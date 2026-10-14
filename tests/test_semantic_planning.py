@@ -45,23 +45,33 @@ def test_real_fourth_failure_replays_before_any_supply():
     assert 'constraints/subtitle_overlay_only' not in repair['message']
 
 
-def test_r4_frozen_samples_are_legal_normal_proposals(prep_env):
-    from tests.planning_material_matrix.planning_eval import confirm_sample
+def test_r4_frozen_samples_preserve_current_newonly_admission_boundary(prep_env):
+    """Archived samples are evidence, not permission to issue a legacy commission."""
+    from tests.planning_material_matrix.planning_eval import confirm_sample, EvalStateViolation
+    from easel.creator_proposal import parse_video_plan, validate_video_plan
     import hashlib
     payload = json.loads((Path(__file__).parent / 'fixtures/planning-eval-r4-2026-10-07/samples.json').read_text())
     assert len(payload['samples']) == 16 and payload['runs_per_theme'] == 2
     assert [s['split'] for s in payload['samples']].count('held_out') == 8
-    identities = []
+    accepted, rejected = [], []
     for sample in payload['samples']:
+        proposal = parse_video_plan(sample['proposal'])
         for _ in range(2):
+            if proposal is None:
+                with pytest.raises(EvalStateViolation, match='cannot be enrolled under Proposal @4'):
+                    confirm_sample(sample)
+                rejected.append(sample['id'])
+                continue
             work = confirm_sample(sample)
             plan = work['delivery']['video_plan']
-            assert plan['schema'] == 'easel-video-proposal@2'
+            assert validate_video_plan(plan)
+            assert plan['schema'] == 'easel-video-proposal@4'
             assert hashlib.sha256(plan['script'].encode()).hexdigest() == sample['expected_script_sha256']
             assert work['chat_workflow']['proposal_status'] == 'CONFIRMED'
             assert not work.get('hypit_attempts') and not work['delivery'].get('generation_budget')
-            identities.append(work['id'])
-    assert len(set(identities)) == 32
+            accepted.append(work['id'])
+    assert len(accepted) == len(set(accepted)) == 18
+    assert len(rejected) == 14  # 7 old audio samples lack current explicit voice binding.
 
 
 def test_r4_validator_child_uses_isolated_root(prep_env, tmp_path):
@@ -902,23 +912,97 @@ def test_semantic_predicate_purpose_contract(semantic_runtime, risk, evidence=No
             {'external_response': 'independent fixed labels, not model proof', 'submissions': len(messages), 'Supply': 0})
 
 
-def test_semantic_draft_compiles_identity_and_lossless_independent_contract():
-    from easel.integrations.semantic_planning import compile_draft, classification_batches, assemble_requirements
-    refs = {'creative_mode_sha256': 'm'}
-    plan = compile_draft(semantic_draft(), creation_id='synthetic', attempt_id='synthetic-a',
-                         refs=refs, mode={}, script='先看问题。', allowed_refs={'scene': {'scene-1'}})
-    assert plan.needs[0].intent.description == '两张白纸放在桌上。'
-    assert plan.needs[0].importance.value == 'required'
-    batches = classification_batches(plan, {})
-    response = {'classifications': [{'id': 0, 'kind': 'required', 'preference_source': None},
-                                   {'id': 1, 'kind': 'postproduction', 'preference_source': None}]}
-    result = assemble_requirements(plan, {}, [response])
-    rows = result[plan.needs[0].need_id]['clauses']
-    assert [(r['path'], r['text'], r['kind']) for r in rows] == [
+def test_semantic_draft_compiles_identity_and_lossless_independent_contract(prep_env, monkeypatch):
+    """Current @7 A/B invariants using an actual confirmed @4/@9 source chain."""
+    from easel.integrations import semantic_planning as compiler, planning_authority as authority
+    from easel.materials.store import AttemptMaterialStore
+    result = {}
+    test_vnext_continuous_owner_boundary(prep_env, monkeypatch, 'success', r6_result=result)
+    attempt = result['attempt']
+    root = Path(attempt['workspace']['path'])
+    state = AttemptMaterialStore(root).read_recovery_record('semantic-planning-vnext')
+    scope = state['scope']
+    inputs = authority.load_inputs(attempt, scope['canonical'], {'context_refs': scope['context_refs']}, scope['mode'])
+    args = dict(creation_id=attempt['creation_id'], attempt_id=attempt['attempt_id'],
+        refs=scope['context_refs'], mode=scope['mode'], script=scope['canonical']['SCRIPT.md'],
+        allowed_refs=scope['catalog'], authority_inputs=inputs)
+    draft = semantic_draft()
+    plan = compiler.compile_draft(draft, **args)
+    assert compiler.compile_draft(json.dumps(draft, sort_keys=True), compiler_policy=compiler.AUTHORITY_POLICY, **args) == plan
+    catalog = authority.catalog(inputs, authority.applied_operations(compiler.parse_draft(draft), plan, scope['mode']))
+    options = dict(canonical=scope['canonical'], authority_catalog=catalog)
+    batches = compiler.classification_batches(plan, scope['mode'], **options)
+    assert len(batches) == 1
+    assert batches[0]['compiler_policy'] == compiler.AUTHORITY_POLICY
+    assert batches[0]['review_target']['schema'] == 'material-review-target@4'
+    responses = [_authority_fixed_response(batch) for batch in batches]
+    import jsonschema
+    jsonschema.validate(responses[0], batches[0]['output_schema'])
+    requirements = compiler.assemble_requirements(plan, scope['mode'], responses, **options)
+    assert [(r['path'], r['text'], r['kind']) for r in requirements[plan.needs[0].need_id]['clauses']] == [
         ('intent/description', '两张白纸放在桌上。', 'required'),
         ('intent/function', '让观众先看问题。', 'postproduction'),
+        ('constraints/preferred_style', 'restrained low saturation everyday', 'preference'),
         ('constraints/preferred_visual_details', '暖光。', 'preference')]
-    assert len(batches) == 1
+    # A fresh interpreter reconstructs @7 from the same confirmed handoff;
+    # only the independent external B judgments cross as an offline fixture.
+    import subprocess, sys, hashlib
+    from easel import creation
+    cold_fixture = prep_env['tmp'] / 'compiler-current-cold.json'
+    cold_fixture.write_text(json.dumps({'draft': draft, 'responses': responses}))
+    expected_digest = hashlib.sha256(compiler.encode({'plan': plan.model_dump(mode='json'),
+        'batches': batches, 'requirements': requirements})).hexdigest()
+    cold_script = """
+import sys, socket, json, hashlib
+from pathlib import Path
+from easel import creation
+from easel.integrations import semantic_planning as c, planning_authority as a
+from easel.materials.store import AttemptMaterialStore
+socket.socket.connect = lambda *a, **k: (_ for _ in ()).throw(AssertionError('network forbidden'))
+creation.CREATIONS_DIR = Path(sys.argv[1])
+attempt = creation.get_creation(sys.argv[2])['hypit_attempts'][-1]
+scope = AttemptMaterialStore(attempt['workspace']['path']).read_recovery_record('semantic-planning-vnext')['scope']
+f = json.loads(Path(sys.argv[3]).read_text())
+inputs = a.load_inputs(attempt, scope['canonical'], {'context_refs': scope['context_refs']}, scope['mode'])
+plan = c.compile_draft(f['draft'], creation_id=attempt['creation_id'], attempt_id=attempt['attempt_id'],
+    refs=scope['context_refs'], mode=scope['mode'], script=scope['canonical']['SCRIPT.md'],
+    allowed_refs=scope['catalog'], authority_inputs=inputs)
+catalog = a.catalog(inputs, a.applied_operations(c.parse_draft(f['draft']), plan, scope['mode']))
+opts = dict(canonical=scope['canonical'], authority_catalog=catalog)
+batches = c.classification_batches(plan, scope['mode'], **opts)
+requirements = c.assemble_requirements(plan, scope['mode'], f['responses'], **opts)
+print(hashlib.sha256(c.encode({'plan': plan.model_dump(mode='json'), 'batches': batches, 'requirements': requirements})).hexdigest())
+"""
+    cold = subprocess.run([sys.executable, '-c', cold_script, str(creation.CREATIONS_DIR),
+        attempt['creation_id'], str(cold_fixture)], capture_output=True, text=True, timeout=35)
+    assert cold.returncode == 0, cold.stderr[:1000]
+    assert cold.stdout.strip() == expected_digest
+    for fault in ('missing_basis', 'missing_controls', 'foreign_basis', 'missing_authority'):
+        invalid = deepcopy(responses)
+        if fault == 'missing_basis': invalid[0]['classifications'][0].pop('basis')
+        if fault == 'missing_controls': invalid[0].pop('controls')
+        if fault == 'foreign_basis': invalid[0]['classifications'][0]['basis']['source_ids'] = ['foreign-source']
+        with pytest.raises(compiler.SemanticPlanningError):
+            compiler.assemble_requirements(plan, scope['mode'], invalid,
+                **{**options, **({'authority_catalog': None} if fault == 'missing_authority' else {})})
+    with pytest.raises(compiler.SemanticPlanningError):
+        compiler.compile_draft(draft, **{**args, 'authority_inputs': None})
+    before = {str(p): p.read_bytes() for p in root.rglob('*') if p.is_file()}
+    for version in range(1, 7):
+        retired = f'semantic-planning-compiler@{version}'
+        for call in (
+            lambda: compiler.compile_draft(draft, compiler_policy=retired, **args),
+            lambda: compiler.classification_batches(plan, scope['mode'], compiler_policy=retired, **options),
+            lambda: compiler.assemble_requirements(plan, scope['mode'], responses, compiler_policy=retired, **options),
+            lambda: compiler.classification_output_schema({**batches[0], 'compiler_policy': retired}),
+            lambda: compiler.classification_repair_schema([{**batches[0], 'compiler_policy': retired}], [0]),
+            lambda: compiler.run_semantic_planning(attempt, {}, {}, {}, {},
+                lambda *a, **k: pytest.fail('retired compiler dispatched'), compiler_policy=retired),
+            lambda: compiler.verify_semantic_checkpoint(root,
+                plan.model_copy(update={'policy': {'semantic_compiler': retired}}), scope['mode'], args['script'], attempt=attempt),
+        ):
+            with pytest.raises(ValueError): call()
+        assert {str(p): p.read_bytes() for p in root.rglob('*') if p.is_file()} == before
 
 
 from tests.test_creation_preparation import prep_env
@@ -1892,74 +1976,10 @@ def test_asset_versus_use_task(semantic_runtime, risk, evidence=None):
         assert not rt['calls'] and store.read_recovery_record('semantic-planning-v3')==state
 
 
-@pytest.mark.parametrize('risk', ['complete', 'length', 'no_result', 'invalid', 'persist_failure', 'pending'])
-def test_vnext_capture_transport(prep_env, tmp_path, risk):
-    import subprocess
-    from tests.test_creation_preparation import _confirmed_delivery
-    from easel import creation
-    from easel.creation_delivery import active_delivery, DeliveryExecutionUncertain
-    from easel.integrations.openclaw_delivery import run_delivery_agent, PlanningResultError
-    from easel.integrations.planning_capture import capture, persist_captured
-    work = _confirmed_delivery()
-    methods, run_id, calls = [], None, {}
-    reply = '{"decision":"ACCEPT"}' if risk != 'invalid' else '{'
-    pending = risk == 'pending'
-
-    def gateway(command, **kwargs):
-        nonlocal run_id, pending
-        method = command[command.index('call')+1]
-        params = json.loads(command[command.index('--params')+1]); methods.append(method)
-        if method == 'agent':
-            run_id = params['idempotencyKey']; payload = {'runId': run_id, 'status': 'accepted'}
-        elif method == 'sessions.abort':
-            payload = {'ok': True, 'status': 'no-active-run', 'abortedRunId': None}
-        elif pending:
-            pending = False; payload = {'runId': run_id, 'status': 'pending'}
-        else:
-            payload = {'runId': run_id, 'status': 'ok', 'endedAt': 1000,
-                       'stopReason': 'length' if risk == 'length' else 'stop'}
-            if risk != 'no_result': payload['terminalReply'] = {'disposition': 'visible', 'text': reply}
-        return subprocess.CompletedProcess(command, 0, json.dumps(payload), '')
-
-    def dispatch(key, message, session):
-        cmd = ['openclaw', '--profile', 'fixture', 'agent', '--agent', 'main',
-               '--session-key', session, '--message', message]
-        return run_delivery_agent(cmd, runner=gateway, capture_reply=True,
-                                  reply_contract='planning-result-v1', retry_failed=False).stdout
-
-    saves = []
-    save = lambda: saves.append(json.loads(json.dumps(calls)))
-    token = active_delivery.set(work['id'])
-    try:
-        with pytest.raises(DeliveryExecutionUncertain):
-            capture(calls, 'A', 'compact', 'vnext', dispatch, save)
-        if risk == 'pending':
-            with pytest.raises(DeliveryExecutionUncertain): capture(calls, 'A', 'compact', 'vnext', dispatch, save)
-            assert calls['A']['result'] == 'TRANSPORT_FAILED'
-        if risk in {'length', 'no_result', 'invalid'}:
-            expected = {'length': 'MODEL_TRUNCATED', 'no_result': 'MODEL_NO_RESULT',
-                        'invalid': 'STRUCTURED_OUTPUT_INVALID'}[risk]
-            for _ in range(2):
-                with pytest.raises(PlanningResultError, match=expected):
-                    capture(calls, 'A', 'compact', 'vnext', dispatch, save)
-            assert calls['A']['result'] == expected
-        else:
-            assert capture(calls, 'A', 'compact', 'vnext', dispatch, save) == {'decision': 'ACCEPT'}
-            assert calls['A']['result'] == 'MODEL_COMPLETED'
-            if risk == 'persist_failure':
-                def broken(raw): raise OSError('disk full')
-                with pytest.raises(OSError): persist_captured(calls, 'A', broken, save)
-                assert calls['A']['result'] == 'PERSIST_FAILED'
-            output = tmp_path/'captured.json'
-            persist_captured(calls, 'A', output.write_bytes, save)
-            assert output.read_text() == reply and calls['A']['result'] == 'ACCEPTED'
-            assert capture(calls, 'A', 'compact', 'vnext', dispatch, save) == {'decision': 'ACCEPT'}
-        assert methods.count('agent') == 1
-        native = next(iter(creation.get_creation(work['id'])['delivery']['agent_calls'].values()))
-        assert native['reply_contract'] == 'planning-result-v1'
-        assert 'compact' not in native.values()
-    finally:
-        active_delivery.reset(token)
+# Retired Planning Reply v1 capture scenarios are covered by current v3 below:
+# complete -> tool_valid; length -> length; no_result -> missing;
+# invalid -> duplicate_json; persist_failure -> persist_failure; pending -> pending.
+# Historical execution denial/opaque observation is test_r6_retired_reply_*.
 
 
 def vnext_capacity_payload(stage):
@@ -2041,7 +2061,7 @@ def test_vnext_tool_schema_matches_frozen_choices_and_existing_modality_rules():
 
 
 @pytest.mark.parametrize('risk', ['A', 'B', 'repair_capacity', 'preview', 'length',
-    'identity', 'late', 'missing', 'lost_terminal', 'duplicate_json', 'persist_failure',
+    'identity', 'late', 'pending', 'missing', 'lost_terminal', 'duplicate_json', 'persist_failure',
     'input_os_capacity', 'escaped_secret', 'sensitive_key',
     'tool_valid', 'tool_wrong_name', 'tool_wrong_schema', 'tool_wrong_terminal',
     'tool_runtime_upgrade', 'tool_runtime_readback'])
@@ -2055,7 +2075,7 @@ def test_vnext_full_capture(prep_env, tmp_path, risk):
     from easel.integrations.planning_capture import capture, persist_captured
     from easel.integrations.planning_result_contract import MAX_RESULT_BYTES, maximum_compact_bytes, result_schema
     from easel.integrations.planning_structured import request_for
-    structured = request_for(result_schema('A')) if risk.startswith('tool_') else None
+    structured = request_for(result_schema('B' if risk == 'B' else 'A'))
     for stage in ('A','B'):
         assert maximum_compact_bytes(result_schema(stage)) < MAX_RESULT_BYTES
     reply = vnext_capacity_payload('B' if risk == 'B' else 'A')
@@ -2078,6 +2098,8 @@ def test_vnext_full_capture(prep_env, tmp_path, risk):
             assert params.get('easelStructuredResult') == structured
             run_id=params['idempotencyKey']; result={'runId':run_id,'status':'accepted'}
         elif method=='sessions.abort': result={'ok':True,'status':'no-active-run'}
+        elif risk == 'pending' and methods.count('agent.wait') == 1:
+            result = {'runId': run_id, 'status': 'pending'}
         else:
             result={'runId':run_id,'status':'ok','endedAt':1000,'stopReason':'stop',
                 'terminalReply':{'disposition':'visible','text':'preview…'}}
@@ -2095,7 +2117,7 @@ def test_vnext_full_capture(prep_env, tmp_path, risk):
             'bytes':len(reply.encode()),'stopReason':'length' if risk=='length' else 'stop',
             'messageId':'original-message','sequence':10,'runtimeVersion':'2026.9.4'}
         if structured:
-            value.update(stopReason='toolUse', providerFinishReason='tool_calls', toolCallId='original-tool-id',
+            value.update(stopReason='length' if risk == 'length' else 'toolUse', providerFinishReason='tool_calls', toolCallId='original-tool-id',
                 toolName='exec' if risk == 'tool_wrong_name' else structured['name'],
                 schemaSha256='wrong' if risk == 'tool_wrong_schema' else structured['schemaSha256'])
         return value
@@ -2104,7 +2126,7 @@ def test_vnext_full_capture(prep_env, tmp_path, risk):
     def dispatch(key,message,session):
         return run_delivery_agent(['openclaw','--profile','fixture','agent','--agent','main',
             '--session-key','agent:main:'+session,'--session-id',session_id,'--message',message],
-            runner=gateway,capture_reply=True,reply_contract='planning-result-v3' if structured else 'planning-result-v2',
+            runner=gateway,capture_reply=True,reply_contract='planning-result-v3',
             structured_result=structured, expected_runtime_sha256=expected_runtime[0],
             transcript_reader=transcript,retry_failed=False).stdout
     token=active_delivery.set(work['id'])
@@ -2123,7 +2145,7 @@ def test_vnext_full_capture(prep_env, tmp_path, risk):
             assert creation.get_creation(work['id'])['delivery']==before
             assert not methods
             return
-        for _ in range(1+(risk=='late')):
+        for _ in range(1+(risk in {'late', 'pending'})):
             with pytest.raises(DeliveryExecutionUncertain): capture(saved,'A','frozen input','new-vnext',dispatch,lambda:None)
         if risk == 'tool_runtime_readback': expected_runtime[0] = '0' * 64
         if risk in {'identity','lost_terminal'}:
@@ -2553,6 +2575,8 @@ def staged_fixture_parts(message, value):
             row['scope'] = mapping[row['scope']]
             if catalog.get('continuity') == {}:
                 assert row.pop('continuity_choices') == []
+    if payload.get('detail_batch'):
+        details['slots'] = {key: details['slots'][key] for key in payload['detail_batch']['slots']}
     return selection, details, mapping
 
 
@@ -2566,6 +2590,17 @@ def staged_fixture_wire(message, value, *, invalid=None):
     elif invalid == 'capacity':
         selection['needs'] = [deepcopy(selection['needs'][0]) for _ in range(16)]
     return json.dumps(selection if 'A-selection〕' in message else details, ensure_ascii=False)
+
+
+def fixture_current_request_payload(message, tool_schema):
+    """External fixture reads the program's lossless input presentation."""
+    payload = json.loads(message.splitlines()[-1])
+    if 'input_projection' in payload:
+        from easel.integrations import planning_request_view as request_view
+        binding = payload['input_projection']
+        payload = request_view.restore(payload, tool_schema, stage=binding['stage'],
+            expected_original_sha256=binding['original_sha256'])
+    return payload
 
 
 def supported_fixture_answers(batch, answers):
@@ -2604,7 +2639,8 @@ def fixture_review_wire(batch, answers):
             elif question['kind'] == 'unresolved_classification':
                 row['required_kinds'] = supplied.get('required_kinds', ['visual'] if row['decision'] == 'ACCEPT' else [])
                 row['related_needs'] = supplied.get('related_needs', visual[:1] if row['decision'] == 'ACCEPT' else [])
-    if 'wire_representation' in batch:
+    if ('wire_representation' in batch
+            and not batch['wire_representation'].startswith('support.quote')):
         for answer in result.values():
             for reference in answer['support']:
                 value = reference['quote']
@@ -2641,6 +2677,118 @@ def xml_reference_transport(raw, request):
     render = Environment().from_string(template).make_module({'messages': [], 'tools': []}).to_xml
     xml = render(json.loads(raw), namespace['MINIMAX_NS_TOKEN'])
     return json.dumps(parser._parse_parameter(xml, request['schema']), ensure_ascii=False)
+
+
+def test_versioned_review_batches_keep_all_questions_and_old_size():
+    """New B output is bounded without dropping questions or rewriting an @6 batch."""
+    from easel.integrations import planning_semantic_review as review
+    original = {'questions': [{'question': i, 'kind': 'synthetic_offline'} for i in range(37)]}
+    legacy = review.review_batches(original)
+    assert len(legacy) == 1 and len(legacy[0]['questions']) == 37
+    bounded = {**original, 'candidate_batch_limit': review.CANDIDATE_BATCH_LIMIT}
+    batches = review.review_batches(bounded)
+    assert [len(batch['questions']) for batch in batches] == [16, 16, 5]
+    assert [q['question'] for batch in batches for q in batch['questions']] == list(range(37))
+    assert original == {'questions': [{'question': i, 'kind': 'synthetic_offline'} for i in range(37)]}
+    assert all(batch['candidate_batch_limit'] == 16 for batch in batches)
+    for invalid in (0, -1, 49, 1.0, '16'):
+        with pytest.raises(ValueError, match='batch size'):
+            review.review_batches({**original, 'candidate_batch_limit': invalid})
+
+
+def test_frozen_intake6_7_8_identity_kept_while_intake9_pins_b_quote_guidance(authority_runtime):
+    """B-quote guidance is new-only; it cannot reinterpret frozen @6/@7/@8 requests."""
+    from easel.integrations import planning_semantic_review as review
+    from easel.integrations import semantic_boundary_run as boundary
+    from easel.integrations import planning_authority as authority
+    from easel.integrations.semantic_planning import source_catalog
+    rt = authority_runtime
+    inputs = authority.load_inputs(rt['attempt'], rt['canonical'], rt['context'], rt['mode'])
+    catalog = source_catalog(rt['canonical'], {
+        'creator_context': inputs['creator_context'], 'proposal': inputs.get('proposal')})
+    def identity(policy):
+        return boundary.transport_identity(
+            catalog, projected=True, atomic=True, source_bound=True,
+            staged_a=True, source_view=True, intake_inputs=inputs, intake_policy=policy)
+    flexible = identity(review.FLEXIBLE_INTAKE_POLICY)
+    bounded = identity(review.BOUNDED_BATCH_INTAKE_POLICY)
+    framing = identity(review.FRAMING_INTAKE_POLICY)
+    quoted = identity(review.QUOTE_INTAKE_POLICY)
+    assert [p['intake_policy'] for p in (flexible, bounded, framing, quoted)] == [
+        'confirmed-planning-intake@6', 'confirmed-planning-intake@7',
+        'confirmed-planning-intake@8', 'confirmed-planning-intake@9']
+    assert 'candidate_batch_policy' not in flexible
+    assert 'candidate_batch_policy' in bounded and 'framing_guidance_policy' not in bounded
+    assert 'b_quote_guidance_policy' not in framing and 'b_quote_guidance_policy' not in bounded
+    assert quoted['b_quote_guidance_policy'] == review.B_QUOTE_GUIDANCE_POLICY
+    assert quoted['framing_guidance_policy'] == framing['framing_guidance_policy'] == review.FRAMING_GUIDANCE_POLICY
+    atomic = identity(review.ATOMIC_DETAILS_INTAKE_POLICY)
+    assert atomic['intake_policy'] == 'confirmed-planning-intake@10'
+    assert atomic['atomic_detail_guidance_policy'] == review.ATOMIC_DETAIL_GUIDANCE_POLICY
+    assert atomic['b_quote_guidance_policy'] == quoted['b_quote_guidance_policy']
+    assert 'atomic_detail_guidance_policy' not in quoted
+    assert atomic['candidate_batch_policy'] == quoted['candidate_batch_policy']
+    assert boundary.admission_enabled({'transport': atomic})
+    tempo = identity(review.SOUND_TEMPO_INTAKE_POLICY)
+    assert tempo['intake_policy'] == 'confirmed-planning-intake@11'
+    assert tempo['sound_tempo_guidance_policy'] == review.SOUND_TEMPO_GUIDANCE_POLICY
+    assert 'sound_tempo_guidance_policy' not in atomic
+    assert tempo['atomic_detail_guidance_policy'] == atomic['atomic_detail_guidance_policy']
+    assert tempo['schema_sha256'] == atomic['schema_sha256']
+    assert boundary.admission_enabled({'transport': tempo})
+    assert all(p['query_cardinality_policy'] == flexible['query_cardinality_policy']
+               and p['schema_sha256'] == flexible['schema_sha256'] for p in (bounded, framing, quoted))
+    assert all(p['candidate_batch_policy'] == {
+        'id': review.CANDIDATE_BATCH_POLICY, 'max_questions': 16} for p in (bounded, framing, quoted))
+    assert all(boundary.admission_enabled({'transport': item})
+               for item in (flexible, bounded, framing, quoted))
+
+
+def test_new_b_quote_wire_guidance_does_not_change_frozen_review_message(prep_env, monkeypatch):
+    """Current Wire/source instructions agree; old transport cannot be reinterpreted."""
+    from easel.integrations import planning_semantic_review as review
+    from easel.integrations import planning_candidate_review as candidate
+    from easel.integrations import planning_authority as authority
+    from easel.integrations.semantic_planning import source_catalog
+    from easel.integrations.planning_result_contract import SemanticProposal
+    from easel.materials.store import AttemptMaterialStore
+    result = {}
+    test_vnext_continuous_owner_boundary(prep_env, monkeypatch, 'success', r6_result=result)
+    attempt = result['attempt']
+    scope = AttemptMaterialStore(Path(attempt['workspace']['path'])).read_recovery_record(
+        'semantic-planning-vnext')['scope']
+    inputs = authority.load_inputs(attempt, scope['canonical'],
+        {'context_refs': scope['context_refs']}, scope['mode'])
+    catalog = source_catalog(scope['canonical'], {
+        'creator_context': inputs['creator_context'], 'proposal': inputs.get('proposal')})
+    proposal = SemanticProposal.model_validate(vnext_proposal())
+    directory = candidate.directory_for(proposal, inputs, catalog,
+        policy=candidate.RELATIONAL_POLICY, candidate_batch_limit=review.CANDIDATE_BATCH_LIMIT)
+    batch = candidate.batches(directory)[0]
+    existing = candidate.message_for(batch)
+    new_only = candidate.message_for(batch, quote_wire_guidance=True)
+    assert existing != new_only
+    assert '新增B层Wire格式约束' not in existing
+    for phrase in ('schema.title', '{"value":', '{"null":true}', '"$text"', 'UNRESOLVED'):
+        assert phrase in new_only
+    assert 'quote=null' in existing
+    assert 'quote=null' not in new_only
+    assert '没有可引依据时' not in new_only
+    assert '仅合法非字符串来源' in new_only
+    assert '不得用null冒充依据' in new_only
+    assert batch == candidate.batches(directory)[0]
+    from easel.integrations import semantic_boundary_run as boundary
+    from easel.integrations.planning_input_view import PlanningInputView
+    current = {'catalog': catalog, 'inputs': inputs,
+               'input_view': PlanningInputView(inputs, catalog).identity,
+               'transport': boundary.transport_identity(catalog, intake_inputs=inputs)}
+    assert current['transport']['b_quote_guidance_policy'] == 'source-typed-review-quote@2'
+    assert boundary.validate_transport(boundary.VIEW_JOURNAL, current)
+    for retired in ('explicit-supported-quote-wire@1', 'explicit-supported-quote-wire@2', 'source-typed-review-quote@1'):
+        historical = deepcopy(current)
+        historical['transport']['b_quote_guidance_policy'] = retired
+        with pytest.raises(ValueError, match='transport identity changed'):
+            boundary.validate_transport(boundary.VIEW_JOURNAL, historical)
 
 
 @pytest.mark.parametrize('queries', [
@@ -3918,8 +4066,59 @@ def test_vnext_review_contract_protection(risk):
         assert independent_expected.startswith('FAIL')  # Never report this as semantic success.
 
 
-@pytest.mark.parametrize('risk', ['success', 'semantic_reject', 'truth_reject', 'capture_truncated', 'source_tamper', 'async_tamper', 'between_resume', 'output_as_source'])
-def test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk):
+def test_fixed_detail_batches_preserve_complete_candidate_and_reject_pollution():
+    from easel.integrations.planning_staged_proposal import StagedProposal
+    from easel.integrations.planning_result_contract import semantic_tool_schema
+    codec = StagedProposal(semantic_tool_schema({'scene': {'scene-1': '两张白纸'}}))
+    value = vnext_proposal()
+    value['needs'] = [deepcopy(value['needs'][0]) for _ in range(11)]
+    selection, details, receipt = codec.encode(value)
+    plan = codec.detail_batches(selection)
+    assert [len(batch['slots']) for batch in plan['batches']] == [4, 4, 3]
+    replies = {batch['key']: {'slots': {key: deepcopy(details['slots'][key])
+               for key in batch['slots']}, 'unresolved': ['重复原报告']}
+               for batch in plan['batches']}
+    full = deepcopy(details)
+    full['unresolved'] = ['重复原报告'] * 3
+    assert codec.assemble_batches_candidate(selection, plan, replies) == codec.assemble_candidate(selection, full, receipt)
+    assert codec.assemble_batches_candidate(selection, plan, replies)['unresolved'] == ['重复原报告'] * 3
+    for corruption in ('missing_batch', 'extra_batch', 'foreign_slot', 'missing_slot', 'root_pollution',
+                       'empty_root_slot', 'missing_container', 'bad_container', 'header_injection', 'overflow', 'order'):
+        changed, batch_plan = deepcopy(replies), deepcopy(plan)
+        first = changed['A-details-000']
+        if corruption == 'missing_batch': changed.pop('A-details-001')
+        elif corruption == 'extra_batch': changed['A-details-999'] = deepcopy(first)
+        elif corruption == 'foreign_slot': first['slots']['slot_004'] = deepcopy(details['slots']['slot_004'])
+        elif corruption == 'missing_slot': first['slots'].pop('slot_000')
+        elif corruption == 'root_pollution': first['responsibility'] = 'material'
+        elif corruption == 'empty_root_slot': first['slot_000'] = ''
+        elif corruption == 'missing_container': first['slots']['slot_000'].pop('conditions')
+        elif corruption == 'bad_container': first['slots']['slot_000'] = [first['slots']['slot_000']]
+        elif corruption == 'header_injection': first['slots']['slot_000']['necessity'] = 'required'
+        elif corruption == 'overflow': first['unresolved'] = ['重复原报告'] * 16
+        else: batch_plan['batches'].reverse()
+        for repair_missing_leaves in (False, True):
+            with pytest.raises(ValueError):
+                codec.assemble_batches_candidate(selection, batch_plan, changed,
+                    repair_missing_leaves=repair_missing_leaves)
+    changed = deepcopy(replies)
+    del changed['A-details-002']['slots']['slot_009']['conditions'][0]['text']
+    before = deepcopy(changed)
+    candidate = codec.assemble_batches_candidate(selection, plan, changed, repair_missing_leaves=True)
+    assert changed == before and 'text' not in candidate['needs'][9]['conditions'][0]
+    from easel.integrations.planning_semantic_review import structural_targets
+    targets = structural_targets(candidate, local_query_faults=True)
+    assert [t['path'] for t in targets] == [['needs', 9, 'conditions', 0, 'text']]
+    # The diagnostic candidate's optional defaults cannot be copied back into
+    # the actual assembly alongside the still-missing required text.
+    changed['A-details-002']['slots']['slot_009'].pop('purpose')
+    candidate = codec.assemble_batches_candidate(selection, plan, changed, repair_missing_leaves=True)
+    assert 'purpose' not in candidate['needs'][9]
+    assert 'text' not in candidate['needs'][9]['conditions'][0]
+
+
+@pytest.mark.parametrize('risk', ['success', 'batched', 'details_unknown', 'missing_leaf', 'missing_leaf_unknown', 'missing_leaf_second_error', 'batch_budget', 'batch_overflow', 'quote_repair', 'cross_batch_repair', 'cross_batch_repair_unknown', 'semantic_reject', 'truth_reject', 'capture_truncated', 'source_tamper', 'async_tamper', 'between_resume', 'output_as_source'])
+def test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk, *, r6_cut=None, r6_result=None):
     import asyncio, re, hashlib
     from tests.test_creation_preparation import web, prep, creation, write_drafts
     from tests.planning_material_matrix.planning_eval import confirm_sample, PlanningEvalBoundary
@@ -3930,7 +4129,26 @@ def test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk):
     sample = json.loads((Path(__file__).parent / 'fixtures/planning-eval-r4-2026-10-07/samples.json').read_text())['samples'][0]
     work = confirm_sample(sample)
     calls = []
+    if risk == 'batch_budget':
+        from easel.integrations import semantic_boundary_run as engine
+        monkeypatch.setattr(engine, 'MAX_PLANNING_CALLS', 20)
+    repaired_answer = {}
+    pending_details, pending_repair, observations = {}, {}, []
+    missing_leaf = risk.startswith('missing_leaf')
+    successful = risk in {'success', 'batched', 'details_unknown', 'quote_repair', 'cross_batch_repair', 'cross_batch_repair_unknown', 'missing_leaf', 'missing_leaf_unknown'}
     def external(message, timeout=None, session=None, **options):
+        if session in pending_repair:
+            original_message, original_options, reply = pending_repair[session]
+            assert (message, options) == (original_message, original_options)
+            assert creation.get_creation(work['id'])['delivery']['agent_calls']['original-repair']['status'] == 'ok'
+            observations.append(session)
+            return reply
+        if session in pending_details:
+            original_message, original_options, reply = pending_details[session]
+            assert (message, options) == (original_message, original_options)
+            assert creation.get_creation(work['id'])['delivery']['agent_calls']['original-details']['status'] == 'ok'
+            observations.append(session)  # Original terminal capture, no model submission.
+            return reply
         calls.append((session, message))
         if message.startswith('〔Easel Semantic Planning vNext A-'):
             assert options['capture_reply'] and options['reply_contract'] == 'planning-result-v3'
@@ -3945,7 +4163,33 @@ def test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk):
                     raise DeliveryExecutionUncertain('Original external request still pending')
             value = vnext_proposal()
             value['needs'][0]['conditions'].append({'text': '在后期叠加正文。', 'strength': 'required', 'responsibility': 'postproduction'})
-            return staged_fixture_wire(message, value)
+            if risk in {'batched', 'batch_overflow', 'details_unknown', 'cross_batch_repair', 'cross_batch_repair_unknown'} or missing_leaf:
+                value['needs'] = [{**deepcopy(value['needs'][0]), 'role': f'固定外部素材{i}'} for i in range(5)]
+            if risk == 'batch_budget':
+                value['needs'] = [{**deepcopy(value['needs'][0]), 'role': f'固定外部素材{i}'} for i in range(10)]
+                value['needs'].extend([{'scope': 'global', 'role': f'预算反例音乐{i}', 'modality': 'bgm',
+                    'necessity': 'required', 'conditions': [{'text': '轻柔无歌词音乐', 'strength': 'required',
+                    'responsibility': 'material'}], 'sound': {'vocals_allowed': False}} for i in range(2)])
+            if risk == 'batch_overflow':
+                value['unresolved'] = ['保留的原报告'] * 15
+                response = json.loads(staged_fixture_wire(message, value))
+                if 'A-details〕' in message:
+                    response['unresolved'] = ['本批报告', '本批报告']
+                return json.dumps(response, ensure_ascii=False)
+            reply = staged_fixture_wire(message, value)
+            if missing_leaf and session.endswith('A-details-001'):
+                damaged = json.loads(reply)
+                repaired_answer['text'] = damaged['slots']['slot_004']['conditions'][0].pop('text')
+                reply = json.dumps(damaged, ensure_ascii=False)
+            if risk == 'details_unknown' and session.endswith('A-details-001'):
+                from easel.creation_delivery import DeliveryExecutionUncertain
+                pending_details[session] = (message, deepcopy(options), reply)
+                with creation.edit_creation(work['id']) as current:
+                    current['delivery'].setdefault('agent_calls', {})['original-details'] = {
+                        'run_id': 'easel-original-details', 'profile': web.OPENCLAW_PROFILE, 'status': 'pending',
+                        'session_key': 'agent:main:' + session}
+                raise DeliveryExecutionUncertain('Original second detail batch still pending')
+            return reply
         if '有界视觉复核' in message:
             if risk == 'between_resume':
                 from easel.creation_delivery import DeliveryExecutionUncertain
@@ -3956,7 +4200,7 @@ def test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk):
                         'session_key': 'agent:main:semantic-' + attempt_id + '-vnext-B-000'}
                 raise DeliveryExecutionUncertain('Original B still pending')
             assert options['capture_reply'] and options['reply_contract'] == 'planning-result-v3'
-            payload = json.loads(message.splitlines()[-1])
+            payload = fixture_current_request_payload(message, options['structured_result']['schema'])
             from easel.integrations.planning_structured import request_for
             assert options['structured_result'] == request_for(payload['response_schema'])
             answers = supported_fixture_answers(payload, [{'question': q['question'],
@@ -3969,8 +4213,76 @@ def test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk):
                 answers[0]['support'] = [{'source': source,
                     'quote': entry['value'] if isinstance(entry['value'], str) else None, 'role': 'output_authority'}]
                 answers[0]['evidence'] = [entry['evidence_id']]
-            return json.dumps(fixture_review_wire(payload, answers))
+            response = fixture_review_wire(payload, answers)
+            if risk == 'missing_leaf_second_error':
+                response[next(iter(response))]['support'][0]['quote'] = ''
+            if risk == 'quote_repair' and not repaired_answer:
+                keys = list(response)[:2]
+                repaired_answer['values'] = [deepcopy(response[key]) for key in keys]
+                for key in keys:
+                    response[key]['support'][0]['quote'] = ''
+            if risk in {'cross_batch_repair', 'cross_batch_repair_unknown'} and session.endswith(('B-000', 'B-001')):
+                target = next(iter(response))
+                repaired_answer.setdefault('cross_batch', {})[target] = deepcopy(response[target])
+                if session.endswith('B-000'):
+                    response[target]['decision'] = ['ACCEPT', 'UNRESOLVED']
+                else:
+                    response[target]['support'][0]['role'] = 'not-an-allowed-role'
+            return json.dumps(response)
         if '单次局部修复' in message:
+            if missing_leaf:
+                payload = fixture_current_request_payload(message, options['structured_result']['schema'])
+                assert len(payload['targets']) == 1
+                target = payload['targets'][0]
+                assert target['kind'] == 'structural_leaf'
+                assert target['path'] == ['needs', 4, 'conditions', 0, 'text']
+                assert 'text' not in payload['original']['needs'][4]['conditions'][0]
+                reply = json.dumps({'target-0000': repaired_answer['text']}, ensure_ascii=False)
+                if risk == 'missing_leaf_unknown':
+                    from easel.creation_delivery import DeliveryExecutionUncertain
+                    pending_repair[session] = (message, deepcopy(options), reply)
+                    with creation.edit_creation(work['id']) as current:
+                        current['delivery'].setdefault('agent_calls', {})['original-repair'] = {
+                            'run_id': 'easel-original-repair', 'profile': web.OPENCLAW_PROFILE, 'status': 'pending',
+                            'session_key': 'agent:main:' + session}
+                    raise DeliveryExecutionUncertain('Original leaf repair still pending')
+                return reply
+            if risk == 'quote_repair':
+                payload = fixture_current_request_payload(message, options['structured_result']['schema'])
+                assert len(payload['targets']) == 2
+                assert all(t['kind'] == 'candidate_answer' for t in payload['targets'])
+                schema = payload['schema']
+                from easel.integrations.planning_structured import request_for
+                assert options['structured_result'] == request_for(schema)
+                assert 'support.quote' in payload['wire_representation']
+                response = {f'target-{i:04}': deepcopy(value)
+                            for i, value in enumerate(repaired_answer['values'])}
+                from jsonschema import Draft202012Validator
+                assert Draft202012Validator(schema).is_valid(response)
+                return json.dumps(response)
+            if risk in {'cross_batch_repair', 'cross_batch_repair_unknown'}:
+                from easel.integrations import planning_candidate_review as correction
+                from easel.integrations.planning_structured import request_for
+                from jsonschema import Draft202012Validator
+                payload = fixture_current_request_payload(message, options['structured_result']['schema'])
+                targets = payload['targets']
+                assert len(targets) == 2 and len(payload['original']) == 2
+                assert payload['review_context']['policy'] == correction.B_BATCH_REPAIR_POLICY
+                assert {row['stage'] for row in payload['review_context']['frozen_batches']} == {'B-000', 'B-001'}
+                assert options['structured_result'] == request_for(payload['schema'])
+                answer = {f'target-{i:04}': deepcopy(repaired_answer['cross_batch'][t['path'][0]])
+                          for i, t in enumerate(targets)}
+                assert Draft202012Validator(payload['schema']).is_valid(answer)
+                reply = json.dumps(answer)
+                if risk == 'cross_batch_repair_unknown':
+                    from easel.creation_delivery import DeliveryExecutionUncertain
+                    pending_repair[session] = (message, deepcopy(options), reply)
+                    with creation.edit_creation(work['id']) as current:
+                        current['delivery'].setdefault('agent_calls', {})['original-repair'] = {
+                            'run_id': 'easel-original-repair', 'profile': web.OPENCLAW_PROFILE,
+                            'status': 'pending', 'session_key': 'agent:main:' + session}
+                    raise DeliveryExecutionUncertain('Original shared B repair still pending')
+                return reply
             # Deliberately invalid local result; no second allowance or Truth.
             return json.dumps({'patches': []})
         if message.startswith('〔Easel Truth 来源引用审阅〕'):
@@ -3999,10 +4311,66 @@ def test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk):
                 assert current['delivery']['agent_calls']['original-B']['run_id'] == 'easel-original-B'
                 current['delivery']['agent_calls']['original-B']['status'] = 'ok'
         monkeypatch.setattr(openclaw_delivery, 'reconcile_agent_calls', original_terminal)
+    if risk == 'details_unknown':
+        from easel.integrations import openclaw_delivery
+        def observe_details(creation_id, **kwargs):
+            with creation.edit_creation(creation_id) as current:
+                original = current['delivery']['agent_calls']['original-details']
+                assert original['run_id'] == 'easel-original-details'
+                original['status'] = 'ok'
+        monkeypatch.setattr(openclaw_delivery, 'reconcile_agent_calls', observe_details)
+    if risk in {'missing_leaf_unknown', 'cross_batch_repair_unknown'}:
+        from easel.integrations import openclaw_delivery
+        def observe_repair(creation_id, **kwargs):
+            with creation.edit_creation(creation_id) as current:
+                original = current['delivery']['agent_calls']['original-repair']
+                assert original['run_id'] == 'easel-original-repair'
+                original['status'] = 'ok'
+        monkeypatch.setattr(openclaw_delivery, 'reconcile_agent_calls', observe_repair)
+    interrupted = []
+    if r6_cut:
+        from easel.integrations import semantic_boundary_run as engine
+        original_capture, original_write = engine.capture, engine.write_file
+        def crash_capture(records, key, *args, **kwargs):
+            value = original_capture(records, key, *args, **kwargs)
+            if key == r6_cut and not interrupted:
+                interrupted.append(key)
+                raise OSError('offline process cut after durable original capture')
+            return value
+        def crash_write(root, name, raw):
+            original_write(root, name, raw)
+            if r6_cut == 'checkpoint' and name == 'SEMANTIC_CHECKPOINT.json' and not interrupted:
+                interrupted.append(name)
+                raise OSError('offline process cut after checkpoint publication')
+        monkeypatch.setattr(engine, 'capture', crash_capture)
+        monkeypatch.setattr(engine, 'write_file', crash_write)
     boundary = PlanningEvalBoundary()
     async def scenario():
         first = await boundary.advance(work['id'], web)
-        assert first['boundary_reached'] == (risk == 'success')
+        if risk in {'missing_leaf_unknown', 'cross_batch_repair_unknown'}:
+            assert pending_repair and not first['boundary_reached']
+            count = len(calls)
+            await boundary.advance(work['id'], web)
+            assert len(calls) == count
+            first = await boundary.advance(work['id'], web)
+            assert len(observations) == 1
+        if risk == 'details_unknown':
+            assert pending_details and not first['boundary_reached']
+            count = len(calls)
+            await boundary.advance(work['id'], web)  # Observe original, no new batch.
+            assert len(calls) == count
+            first = await boundary.advance(work['id'], web)
+            assert len(observations) == 1
+            assert len([session for session, _ in calls if session.endswith('A-details-001')]) == 1
+        if r6_cut:
+            assert interrupted and not first['boundary_reached']
+            captured_before = list(calls)
+            first = await boundary.advance(work['id'], web)
+            # Completed original captures cannot become another external request.
+            for session, message in captured_before:
+                assert calls.count((session, message)) == 1
+        assert first['boundary_reached'] == successful, (
+            first, creation.get_creation(work['id']).get('delivery', {}).get('last_error'))
         count = len(calls)
         if risk == 'between_resume':
             attempt = creation.get_creation(work['id'])['hypit_attempts'][-1]
@@ -4011,22 +4379,146 @@ def test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk):
         if risk == 'between_resume':
             await boundary.advance(work['id'], web)  # Original observation precedes Planning recovery.
         assert len(calls) == count
-        if risk == 'success': assert second['boundary_reached']
+        if successful: assert second['boundary_reached']
     asyncio.run(scenario())
     assert boundary.supply_calls == 0 and not boundary.state_violations
+    if risk in {'batch_budget', 'batch_overflow'}:
+        stages = [session.rsplit('-vnext-', 1)[-1] for session, message in calls
+                  if message.startswith('〔Easel Semantic Planning vNext A-')]
+        assert stages == (['A-selection'] if risk == 'batch_budget'
+                          else ['A-selection', 'A-details-000'])
+        assert not any('视觉复核' in message or '局部修复' in message for _, message in calls)
     current = creation.get_creation(work['id'])
     attempt = current['hypit_attempts'][-1]
     root = Path(attempt['workspace']['path'])
     assert not attempt.get('material_gate') and not attempt.get('production_authoring')
-    if risk == 'success':
+    if successful:
         loaded = PlanningIntegration().load(attempt)
+        if r6_cut == 'checkpoint':
+            import subprocess, sys
+            before = {str(p): p.read_bytes() for p in (root / 'planning').rglob('*') if p.is_file()}
+            cold_script = """
+import sys, socket, json
+from pathlib import Path
+from easel import creation
+from easel.materials.domain import MaterialPlan
+from easel.integrations import semantic_boundary_run as engine
+socket.socket.connect = lambda *a, **k: (_ for _ in ()).throw(AssertionError('network forbidden'))
+creation.CREATIONS_DIR = Path(sys.argv[1])
+work = creation.get_creation(sys.argv[2])
+attempt = work['hypit_attempts'][-1]
+root = Path(attempt['workspace']['path'])
+plan = MaterialPlan.model_validate_json((root / 'planning/MATERIAL_PLAN.json').read_bytes())
+checkpoint = json.loads((root / 'planning/SEMANTIC_CHECKPOINT.json').read_bytes())
+scope = checkpoint['scope']
+assert engine.verify(root, plan, scope['mode'], scope['canonical']['SCRIPT.md'], attempt=attempt)['policy'] == engine.POLICY
+print('R6_CURRENT_CHECKPOINT_COLD_VERIFIED')
+"""
+            cold = subprocess.run([sys.executable, '-c', cold_script, str(creation.CREATIONS_DIR), work['id']],
+                                  capture_output=True, text=True, timeout=35)
+            assert cold.returncode == 0, cold.stderr[:1000]
+            assert cold.stdout.strip() == 'R6_CURRENT_CHECKPOINT_COLD_VERIFIED'
+            assert {str(p): p.read_bytes() for p in (root / 'planning').rglob('*') if p.is_file()} == before
         assert loaded['truth_ledger']['status'] == 'PASSED'
         assert loaded['plan'].policy['semantic_compiler'] == web.PLANNING_COMPILER_POLICY
         assert loaded['plan'].needs[0].intent.description == '两张白纸放在桌上。'
         assert '在后期叠加正文。' in loaded['plan'].needs[0].intent.function
         assert root.joinpath('planning/SCRIPT.md').read_bytes() == current['delivery']['video_plan']['script'].encode()
-        for name in ('SEMANTIC_A_SELECTION.json', 'SEMANTIC_A_DETAILS.json'):
-            assert hashlib.sha256(root.joinpath('planning', name).read_bytes()).hexdigest()
+        checkpoint = json.loads(root.joinpath('planning/SEMANTIC_CHECKPOINT.json').read_text())
+        detail_keys = sorted(key for key in checkpoint['capture'] if key.startswith('A-details-'))
+        assert detail_keys == (['A-details-000', 'A-details-001'] if risk in {'batched', 'details_unknown', 'cross_batch_repair', 'cross_batch_repair_unknown'} or missing_leaf else ['A-details-000'])
+        if missing_leaf:
+            raw_details = json.loads(checkpoint['wire_originals']['A-details-001'])
+            assert 'text' not in raw_details['slots']['slot_004']['conditions'][0]
+            assert checkpoint['repair']['stage'] == 'A'
+            assert checkpoint['repair']['targets'][0]['path'] == ['needs', 4, 'conditions', 0, 'text']
+        if risk in {'cross_batch_repair', 'cross_batch_repair_unknown'}:
+            assert checkpoint['repair']['stage'] == 'B-cross-batch'
+            assert len(checkpoint['repair']['targets']) == 2
+            assert checkpoint['candidate_correction']['repair_calls'] == 1
+            assert len([1 for _, msg in calls if '单次局部修复' in msg]) == 1
+            assert all(t['kind'] == 'candidate_answer' for t in checkpoint['repair']['targets'])
+        assert not root.joinpath('planning/SEMANTIC_A_DETAILS.json').exists()
+        for key in detail_keys:
+            raw = root.joinpath('planning', key.replace('A-details-', 'SEMANTIC_A_DETAILS_') + '.json').read_bytes()
+            assert hashlib.sha256(raw).hexdigest() == checkpoint['capture'][key]['reply_sha256']
+        if risk == 'batched' and not r6_cut:
+            # Persisted originals and frozen batch identity are independently
+            # checked by the actual consumer; a restore never repairs evidence.
+            raw_path = root / 'planning/SEMANTIC_A_DETAILS_001.json'
+            checkpoint_path = root / 'planning/SEMANTIC_CHECKPOINT.json'
+            for path in (raw_path, checkpoint_path):
+                original = path.read_bytes()
+                if path == raw_path:
+                    path.write_bytes(original + b' ')
+                else:
+                    changed = deepcopy(checkpoint)
+                    changed['detail_binding']['batch_identity']['batches_sha256'] = '0' * 64
+                    path.write_text(json.dumps(changed))
+                with pytest.raises((ValueError, RuntimeError)):
+                    PlanningIntegration().load(attempt)
+                path.write_bytes(original)
+            assert PlanningIntegration().load(attempt)['truth_ledger']['status'] == 'PASSED'
+        # U2-A: after the real vNext Planning/Truth checkpoint, cross the
+        # Material Supply boundary with a local, self-created and licensed image.
+        # No external Provider, model, Hypit Build, fake READY or old policy.
+        from PIL import Image, ImageDraw
+        from easel.integrations.material_layer import MaterialProductOrchestrator
+        local_root = prep_env['tmp'] / 'u2a-local-material'
+        local_root.mkdir()
+        path = local_root / 'two-white-papers.jpg'
+        picture = Image.new('RGB', (720, 1280), color=(95, 76, 57))
+        draw = ImageDraw.Draw(picture)
+        draw.rectangle((72, 310, 316, 765), fill=(248, 248, 245))
+        draw.rectangle((380, 330, 660, 790), fill=(249, 248, 245))
+        picture.save(path)
+        from hashlib import sha256
+        (local_root / 'two-white-papers.jpg.rights.json').write_text(
+            json.dumps({'schema': 'easel-local-rights@1',
+                'asset_sha256': sha256(path.read_bytes()).hexdigest(),
+                'rights': {'status': 'KNOWN',
+                    'license_name': 'Self-created deterministic fixture media',
+                    'evidence': [{'kind': 'asset_license',
+                                  'reference': 'https://rights.example/u2a-self-created',
+                                  'summary': 'Test source was generated locally from two rectangles.'}]}},
+                ensure_ascii=False), encoding='utf-8')
+        material = MaterialProductOrchestrator().run_with_planning(
+            attempt, (local_root,), loaded)
+        assert material['supply'].bundle.assets
+        assert material['status'] == 'MATERIAL_NOT_READY'  # No visual observation yet.
+        visual = next(asset for asset in material['supply'].bundle.assets
+                      if asset.rights.status.value == 'KNOWN')
+        for need in loaded['plan'].needs:
+            observation = MaterialProductOrchestrator().review_material_match(
+                attempt['attempt_id'],
+                asset_id=visual.asset_id, expected_sha256=visual.file.sha256,
+                need_id=need.need_id,
+                observed_content='桌面上有两张清晰完整的白色纸张，背景为棕色桌面，没有文字。',
+                logo_present=None, visible_text_present=None,
+                confirm_review=True)
+        assert observation['material_status'] == 'MATERIAL_READY'
+        from easel.integrations.material_layer import MaterialGateIntegration
+        from easel.integrations.hypit import service
+        verified_attempt = service.get_film_attempt(attempt['attempt_id'])
+        gate_plan, _, gate_readiness = MaterialGateIntegration().assert_ready(verified_attempt)
+        assert gate_plan == loaded['plan'] and gate_readiness.status.value == 'READY'
+        assert verified_attempt['build']['status'] == 'not_submitted'
+        assert verified_attempt['build']['operation'] is None  # No Hypit submission.
+        resumed = MaterialProductOrchestrator().run_with_planning(
+            verified_attempt, (local_root,), loaded)
+        assert resumed['status'] == 'MATERIAL_READY'
+        assert resumed['gate']['readiness'].bundle_revision == gate_readiness.bundle_revision
+        # A changed source byte must fail closed, not reuse stale Rights/Need admission.
+        from easel.materials.store import AttemptMaterialStore
+        from easel.integrations.material_layer import MaterialIntegrationError
+        store = AttemptMaterialStore(root)
+        original_asset = store.resolve_asset_locator(visual.file.path)
+        with original_asset.open('ab') as stream:
+            stream.write(b'changed-after-admission')
+        with pytest.raises((MaterialIntegrationError, ValueError, OSError)):
+            MaterialGateIntegration().assert_ready(service.get_film_attempt(attempt['attempt_id']))
+
+
     if risk in {'semantic_reject', 'capture_truncated', 'source_tamper', 'async_tamper', 'between_resume'}:
         assert not root.joinpath('planning/manifest.json').exists()
     if risk in {'source_tamper', 'async_tamper', 'between_resume'}:
@@ -4036,6 +4528,133 @@ def test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk):
         assert root.joinpath('planning/SCENES.md').read_text() != current['delivery']['video_plan']['scenes']
     if risk == 'capture_truncated':
         assert not any('视觉复核' in m or '局部修复' in m for _, m in calls)
+
+    if risk == 'quote_repair':
+        from easel.materials.store import AttemptMaterialStore
+        journal = AttemptMaterialStore(root).read_recovery_record('semantic-planning-vnext')
+        assert journal['repair_used']
+        assert sum('单次局部修复' in message for _, message in calls) == 1
+        assert journal['schema_bindings']['repair']['source_quote_policy'] == 'source-typed-review-quote@1'
+    if missing_leaf:
+        from easel.materials.store import AttemptMaterialStore
+        journal = AttemptMaterialStore(root).read_recovery_record('semantic-planning-vnext')
+        assert journal['repair_used']
+        assert sum('单次局部修复' in message for _, message in calls) == 1
+        if risk == 'missing_leaf_second_error':
+            assert 'B local repair conflicts with an already-needed shared repair' in current['delivery']['last_error']
+            assert not root.joinpath('planning/manifest.json').exists()
+            assert not any(message.startswith(('〔Easel Truth', '〔Easel Script 系统审阅〕'))
+                           for _, message in calls)
+    if r6_result is not None:
+        r6_result.update(attempt=attempt, loaded=loaded, work=current)
+
+
+@pytest.mark.parametrize('cut', ['A-selection', 'A-details-000', 'A-details-001', 'B-000', 'checkpoint', 'missing_leaf_checkpoint', 'quote_repair_checkpoint', 'cross_batch_repair_checkpoint'])
+def test_r6_current_owner_cold_recovery(prep_env, monkeypatch, cut):
+    test_vnext_continuous_owner_boundary(prep_env, monkeypatch,
+        'cross_batch_repair' if cut == 'cross_batch_repair_checkpoint' else
+        'quote_repair' if cut == 'quote_repair_checkpoint' else
+        'missing_leaf' if cut == 'missing_leaf_checkpoint' else
+        'batched' if cut in {'A-details-001', 'checkpoint'} else 'success',
+        r6_cut='checkpoint' if cut in {'missing_leaf_checkpoint', 'quote_repair_checkpoint', 'cross_batch_repair_checkpoint'} else cut)
+
+
+def test_r6_retired_checkpoints_are_readonly_before_source_checks(prep_env, monkeypatch):
+    from copy import deepcopy
+    from easel.integrations import semantic_boundary_run as engine
+    from easel.materials.store import AttemptMaterialStore
+    result = {}
+    test_vnext_continuous_owner_boundary(prep_env, monkeypatch, 'success', r6_result=result)
+    attempt, plan = result['attempt'], result['loaded']['plan']
+    root = Path(attempt['workspace']['path'])
+    store = AttemptMaterialStore(root)
+    current = store.read_recovery_record(engine.STATE_KEY)
+    checkpoint_path = root / 'planning/SEMANTIC_CHECKPOINT.json'
+    checkpoint = json.loads(checkpoint_path.read_bytes())
+    def snapshot():
+        return {str(p.relative_to(root)): p.read_bytes() for p in root.rglob('*') if p.is_file()}
+    for version in [*range(2, 14), 'old_b_quote', 'old_b_roles']:
+        old = deepcopy(current)
+        frozen = deepcopy(checkpoint)
+        if version in {'old_b_quote', 'old_b_roles'}:
+            retired = 'source-typed-review-quote@1' if version == 'old_b_roles' else 'explicit-supported-quote-wire@1'
+            old['scope']['transport']['b_quote_guidance_policy'] = retired
+            frozen['scope']['transport']['b_quote_guidance_policy'] = retired
+            rejection = 'transport identity changed'
+        else:
+            old['schema'] = f'semantic-planning-checkpoint@{version}'
+            old['scope']['inputs'] = {'historical': 'must not be interpreted or marked failed'}
+            frozen['schema'] = f'semantic-planning-frozen@{version}'
+            rejection = 'read-only'
+        store.write_recovery_record(engine.STATE_KEY, old)
+        checkpoint_path.write_text(json.dumps(frozen))
+        before = snapshot()
+        scope = current['scope']
+        for call in (
+            lambda: engine.check_existing_sources(attempt),
+            lambda: engine.policy_for(attempt),
+            lambda: engine.run(attempt, {'context_refs': scope['context_refs']}, scope['canonical'],
+                scope['mode'], current['route'], lambda *a, **k: pytest.fail('old dispatch')),
+            lambda: engine.verify(root, plan, scope['mode'], scope['canonical']['SCRIPT.md'], attempt=attempt),
+        ):
+            with pytest.raises(ValueError, match=rejection):
+                call()
+            assert snapshot() == before
+
+
+@pytest.mark.parametrize('contract', ['planning-result-v1', 'planning-result-v2'])
+def test_r6_retired_reply_never_dispatches_parses_or_releases(prep_env, monkeypatch, contract):
+    import subprocess
+    from copy import deepcopy
+    from tests.test_creation_preparation import _confirmed_delivery, creation, web
+    from easel.creation_delivery import active_delivery
+    from easel.integrations import openclaw_delivery as adapter, planning_transcript
+    work = _confirmed_delivery()
+    methods = []
+    def forbidden(*a, **k):
+        pytest.fail('retired contract reached runtime or writer')
+    monkeypatch.setattr(web, '_heal_openclaw_session', forbidden)
+    token = active_delivery.set(work['id'])
+    try:
+        before = creation.get_creation(work['id'])
+        with pytest.raises(ValueError):
+            adapter.run_delivery_agent([], runner=forbidden, capture_reply=True, reply_contract=contract)
+        with pytest.raises(ValueError):
+            web.run_agent_sync('old', capture_reply=True, reply_contract=contract)
+        assert creation.get_creation(work['id']) == before
+        original = {'reply_contract': contract, 'run_id': 'original-run', 'session_id': 'original-session',
+            'session_key': 'agent:main:original', 'agent_id': 'main', 'profile': 'fixture',
+            'status': 'pending', 'capture_reply': True, 'runtime_release': 'pending',
+            'result': 'TRANSPORT_FAILED', 'terminal_reply': {'sha256': 'original', 'text': 'opaque evidence'}}
+        with creation.edit_creation(work['id']) as current:
+            current['delivery']['agent_calls'] = {'original': deepcopy(original)}
+        before = creation.get_creation(work['id'])
+        for call in (
+            lambda: adapter._completed_reply([], original),
+            lambda: adapter._capture_original(work['id'], 'original', [], 'fixture', forbidden, {}, forbidden),
+            lambda: planning_transcript.read_original([], 'fixture', original, runner=forbidden),
+        ):
+            with pytest.raises(ValueError, match='read-only'): call()
+            assert creation.get_creation(work['id']) == before
+        def gateway(command, **kwargs):
+            method = command[command.index('call') + 1]
+            methods.append(method)
+            assert method == 'agent.wait'
+            params = json.loads(command[command.index('--params') + 1])
+            assert params == {'runId': 'original-run', 'timeoutMs': 0}
+            return subprocess.CompletedProcess(command, 0, json.dumps({'runId': 'original-run',
+                'status': 'ok', 'endedAt': 1000, 'stopReason': 'stop',
+                'terminalReply': {'disposition': 'visible', 'text': 'DO NOT PARSE'}}), '')
+        adapter.reconcile_agent_calls(work['id'], command_prefix=['offline'], profile='fixture', runner=gateway)
+        observed = creation.get_creation(work['id'])
+        call = observed['delivery']['agent_calls']['original']
+        assert {k: v for k, v in call.items() if k not in {'status', 'ended_at', 'observed_at'}} == {
+            k: v for k, v in original.items() if k != 'status'}
+        assert call['status'] == 'ok' and methods == ['agent.wait']
+        assert {k:v for k,v in observed['delivery'].items() if k != 'agent_calls'} == {
+            k:v for k,v in before['delivery'].items() if k != 'agent_calls'}
+    finally:
+        active_delivery.reset(token)
 
 
 @pytest.mark.parametrize('risk', ['submissions', 'deadline_observation', 'round2_gate', 'roster'])
@@ -4144,7 +4763,8 @@ def test_vnext_development_recovery(prep_env, tmp_path, monkeypatch, risk):
 
 
 @pytest.mark.parametrize('risk', ['slots', 'final_source', 'derived', 'forged_quote',
-                                 'unknown_field', 'legitimate_native', 'postproduction', 'whole_obligation', 'capacity'])
+                                 'unknown_field', 'legitimate_native', 'postproduction', 'whole_obligation',
+                                 'scalar_support', 'scalar_quoted', 'text_null', 'wire_scalars', 'eligible_roles', 'confirmed_audio', 'capacity'])
 def test_supported_review_frozen_references(risk):
     """Derived offline controls; the real failed B and its verdict remain intact."""
     from copy import deepcopy
@@ -4153,6 +4773,107 @@ def test_supported_review_frozen_references(risk):
     folder = Path(__file__).parent / 'fixtures/planning-vnext-development-2026-10-08'
     original = json.loads((folder / 'autonomous-round1-review-input.json').read_text())
     batch = deepcopy(original)
+    if risk == 'confirmed_audio':
+        from easel.integrations import planning_semantic_review as review
+        for identity in (7, 42):
+            question = {**deepcopy(batch['questions'][0]), 'kind': 'complete_obligation',
+                'candidate': {'responsibility': 'postproduction'}, 'evidence': [identity]}
+            current = {**batch, 'questions': [question], 'support_policy': support.REVISION,
+                'evidence': [{'id': identity, 'origin': 'confirmed_audio',
+                              'value': {'sound': '仅杯底触桌有轻"嗒"；其余时段无 SFX。'}}]}
+            handle, entry = next(iter(support.source_catalog(current).items()))
+            payload = {support.slot(question): {'decision': 'ACCEPT', 'reason': '固定引用资格，不证明语义蕴含。',
+                'support': [{'source': handle, 'quote': entry['value'], 'role': 'authority'}]}}
+            jsonschema.validate(payload, support.response_schema(current))
+            decoded = support.decode_slots(payload, current)
+            assert review.validate_answers(decoded, current).answers[0].evidence == (identity,)
+            for change in ('curly_quote', 'context_only', 'unknown_source'):
+                bad = deepcopy(payload)
+                ref = bad[support.slot(question)]['support'][0]
+                if change == 'curly_quote': ref['quote'] = ref['quote'].replace('"嗒"', '“嗒”')
+                elif change == 'context_only': ref['role'] = 'context'
+                else: ref['source'] = 'source-9999'
+                with pytest.raises(ValueError):
+                    review.validate_answers(support.decode_slots(bad, current), current)
+            legacy = deepcopy(decoded)
+            legacy['answers'][0].pop('support')
+            with pytest.raises(ValueError, match='independent frozen evidence'):
+                review.validate_answers(legacy, {k: v for k, v in current.items() if k != 'support_policy'})
+        return
+    if risk == 'eligible_roles':
+        from easel.integrations import planning_wire as wire
+        for kind, responsibility, evidence in [
+            ('complete_obligation', 'material', [0, 1, 2, 3, 4, 5, 6]),
+            ('complete_obligation', 'postproduction', [0, 1, 2, 3, 4, 5, 6]),
+            ('frozen_visual_coverage', None, [0]),
+            ('frozen_visual_coverage', None, []),
+        ]:
+            question = {**deepcopy(batch['questions'][0]), 'kind': kind,
+                        'candidate': {'responsibility': responsibility}, 'evidence': evidence}
+            current = {**batch, 'questions': [question]}
+            schema = support.response_schema(current)
+            projection = wire.project(schema, 'B-000', atomic_framing=True)
+            catalog = support.source_catalog(current)
+            # One representative for each source eligibility/value-type class.
+            representatives = {}
+            for handle, entry in catalog.items():
+                representatives.setdefault((entry['origin'], isinstance(entry['value'], str)), (handle, entry))
+            for handle, entry in representatives.values():
+                for role in ('context', 'authority', 'output_authority'):
+                    for decision in ('ACCEPT', 'CHALLENGE', 'UNRESOLVED'):
+                        quote = entry['value'][:512] if isinstance(entry['value'], str) else None
+                        payload = {support.slot(question): {'decision': decision, 'reason': '独立固定资格回归。',
+                            'support': [{'source': handle, 'quote': quote, 'role': role}]}}
+                        expected = (entry['evidence_id'] in evidence and role in entry['roles']
+                            and (role != 'output_authority' or kind == 'complete_obligation' and responsibility == 'postproduction')
+                            and (decision != 'ACCEPT' or role in {'authority', 'output_authority'}))
+                        assert jsonschema.Draft202012Validator(schema).is_valid(payload) == expected
+                        assert bool(projection.errors(payload)) != expected
+                        answer = support.SupportedResponse.model_validate(support.decode_slots(payload, current)).answers[0]
+                        if expected:
+                            support.validate_support(answer, question, current)
+                            assert projection.decode_valid(payload) == payload
+                        else:
+                            with pytest.raises(ValueError): support.validate_support(answer, question, current)
+            for decision in ('ACCEPT', 'CHALLENGE', 'UNRESOLVED'):
+                payload = {support.slot(question): {'decision': decision, 'reason': '没有可支持的引用。', 'support': []}}
+                assert jsonschema.Draft202012Validator(schema).is_valid(payload) == (decision != 'ACCEPT')
+        assert support.source_catalog(batch) == support.source_catalog(original)
+        return
+    if risk == 'wire_scalars':
+        from easel.integrations import planning_wire as wire
+        batch['questions'] = [batch['questions'][0]]
+        values = ['null', 'true', '123', '中文"引文"\\转义\n第二行', None, True, 123]
+        batch['evidence'][0]['value']['wire_scalar_fixtures'] = values
+        catalog = support.source_catalog(batch)
+        schema = support.response_schema(batch)
+        projection = wire.project(schema, 'B-000', atomic_framing=True)
+        assert projection.identity['source_quote_policy'] == wire.SOURCE_TYPED_QUOTE
+        key = support.slot(batch['questions'][0])
+        for handle, source_row in catalog.items():
+            if source_row['path'][:1] != ['wire_scalar_fixtures']:
+                continue
+            value = source_row['value']
+            quote = value if isinstance(value, str) else None
+            payload = {key: {'decision': 'ACCEPT', 'reason': '固定离线引用边界。',
+                'support': [{'source': handle, 'quote': quote, 'role': 'authority'}]}}
+            encoded = projection.encode(payload)
+            assert encoded == payload and projection.decode_valid(encoded) == payload
+            answer = support.SupportedResponse.model_validate(support.decode_slots(payload, batch)).answers[0]
+            support.validate_support(answer, batch['questions'][0], batch)
+            for bad in ({'value': quote}, {'null': True}, '', [], {}, False,
+                        None if isinstance(value, str) else 'null'):
+                altered = deepcopy(payload)
+                altered[key]['support'][0]['quote'] = bad
+                assert projection.errors(altered)
+            for change in ('missing', 'extra', 'unknown_source'):
+                altered = deepcopy(payload)
+                row = altered[key]['support'][0]
+                if change == 'missing': row.pop('quote')
+                elif change == 'extra': row['guessed'] = True
+                else: row['source'] = 'source-does-not-exist'
+                assert projection.errors(altered)
+        return
     if risk == 'capacity':
         from easel.integrations.planning_result_contract import maximum_compact_bytes, MAX_RESULT_BYTES
         batch['questions'] = [{**batch['questions'][0], 'question': i} for i in range(48)]
@@ -4161,7 +4882,8 @@ def test_supported_review_frozen_references(risk):
         return
     if risk == 'legitimate_native':
         batch['evidence'][0]['value']['SCENES.md'] += '\n源图必须原生9:16；这是独立素材要求。'
-    question = batch['questions'][3 if risk == 'postproduction' else 1 if risk == 'whole_obligation' else 0]
+    question = batch['questions'][3 if risk in {'postproduction', 'scalar_support', 'scalar_quoted'}
+                                 else 1 if risk == 'whole_obligation' else 0]
     batch['questions'] = [question]
     catalog = support.source_catalog(batch)
     def source(origin, path):
@@ -4180,6 +4902,13 @@ def test_supported_review_frozen_references(risk):
     elif risk == 'unknown_field':
         assert not any(r['origin'] == 'derived_preparation' and r['path'] == ['visual_preference'] for r in catalog.values())
         handle = 'brief.visual_preference'  # Never a program-issued source handle.
+    elif risk in {'scalar_support', 'scalar_quoted'}:
+        handle, row = source('confirmed_spec', ['duration_seconds'])
+        assert not isinstance(row['value'], str)
+        quote = None if risk == 'scalar_support' else str(row['value'])
+        role = 'output_authority'
+    elif risk == 'text_null':
+        quote = None
     payload = {support.slot(question): {'decision': 'ACCEPT', 'reason': '离线支持资格对照，非真实审核结论。',
         'support': [{'source': handle, 'quote': quote, 'role': role}]}}
     if risk == 'slots':
@@ -4187,15 +4916,19 @@ def test_supported_review_frozen_references(risk):
         with pytest.raises(ValueError, match='slots'): support.decode_slots({**payload, 'question-9999': {}}, batch)
         assert 'question' not in support.response_schema(batch)['properties'][support.slot(question)]['properties']
         return
-    if risk != 'unknown_field': jsonschema.validate(payload, support.response_schema(batch))
+    if risk in {'scalar_quoted', 'text_null', 'derived', 'final_source'}:
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(payload, support.response_schema(batch))
+    elif risk != 'unknown_field':
+        jsonschema.validate(payload, support.response_schema(batch))
     value = support.decode_slots(payload, batch)
     answer = support.SupportedResponse.model_validate(value).answers[0]
     assert answer.question == question['question']
-    if risk in {'final_source', 'derived', 'forged_quote', 'unknown_field'}:
+    if risk in {'final_source', 'derived', 'forged_quote', 'unknown_field', 'scalar_quoted', 'text_null'}:
         with pytest.raises(ValueError): support.validate_support(answer, question, batch)
     else:
         support.validate_support(answer, question, batch)
-        assert answer.evidence == (0,)
+        assert answer.evidence == (row['evidence_id'],)
     if risk == 'whole_obligation':
         assert '无人物' in question['candidate']['text'] and '无人物' not in quote
         # A truthful partial citation is NOT proof of the compound obligation.
@@ -4291,7 +5024,7 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
     plan = saved['chat_workflow']['video_plan']
     if script_override is not None:
         assert plan['script'] == script
-    assert plan['schema'] == 'easel-video-proposal@3'
+    assert plan['schema'] == 'easel-video-proposal@4'
     assert plan['sound_source'] == sound and plan['sound'] == voice.render_sound(sound, voice.verified_profile())
     assert voice._PRESET not in json.dumps(plan)
     transcript = json.dumps([{'role': 'user', 'content': request.message},
@@ -4301,7 +5034,7 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
         production_specs=plan['specs'], delivery_proposal=transcript,
         proposal_sha256=hashlib.sha256(transcript.encode()).hexdigest(),
         generation_budget={'maxCostCny': 1, 'scopeSha256': preview['scope_sha256'], 'allowedModalities': ['voice']},
-        input_use_statement_sha256=creation.input_use_preview()['statement_sha256'])
+        input_use_statement_sha256=creation.input_use_preview(plan=plan)['statement_sha256'])
     assert voice.require_binding(work)['plan_sha256'] == plan['sha256']
     if risk == 'missing_binding':
         with creation.edit_creation(work['id']) as current: current['delivery'].pop('voice_binding')
@@ -4554,7 +5287,7 @@ def test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, risk, *, n
                 from easel.integrations.planning_result_contract import semantic_tool_schema
                 from jsonschema import Draft202012Validator
                 visual = loaded['plan'].needs[0]
-                assert checkpoint['scope']['transport']['intake_policy'] == 'confirmed-planning-intake@6'
+                assert checkpoint['scope']['transport']['intake_policy'] == review.INTAKE_POLICY
                 assert loaded['plan'].policy['visual_requirements'] == 'visual-requirements@2'
                 assert list(query_hints(visual.constraints)) == advisory_queries
                 assert checkpoint['initial']['needs'][0]['queries'] == advisory_queries
@@ -4945,3 +5678,40 @@ def test_markdown_source_ref_persist_and_two_forks_preserve_full_coverage(prep_e
               '![说明文字](fixture.png)\r\n\r\n[choice]: https://example.test/choice')
     test_vnext_confirmed_preset_truth_boundary(prep_env, monkeypatch, 'material_fork',
         truth_profile=True, script_override=script, ledger_revision='easel-script-claim-ledger@3')
+
+
+@pytest.mark.parametrize('stage', ['B', 'repair'])
+def test_planning_input_projection_keeps_frozen_payload_and_rejects_rebinding(stage):
+    from easel.integrations import planning_request_view as view
+    from easel.integrations.planning_authority import digest
+    schema = {'type': 'object', 'properties': {'result': {'type': 'string'}},
+              'required': ['result'], 'additionalProperties': False}
+    key = 'response_schema' if stage == 'B' else 'schema'
+    original = {key: schema, 'sources': {'original': '必须保留的完整来源，不能推导新许可。'},
+        'original': {'kept': {'decision': 'CHALLENGE'}},
+        'targets': [{'path': ['answer'], 'old_sha256': 'frozen',
+            'answer_schema': {'text': '合法Schema甲' * 120},
+            'answer_defs': {'text': '合法Schema乙' * 120}} for _ in range(2)]}
+    projected = view.project(original, schema, stage=stage)
+    assert view.restore(projected, schema, stage=stage,
+        expected_original_sha256=digest(original)) == original
+    assert projected['sources'] == original['sources']
+    assert projected['original'] == original['original']
+    if stage == 'repair':
+        changed = deepcopy(projected)
+        a, b = changed['targets'][0]['answer_schema'], changed['targets'][0]['answer_defs']
+        changed['targets'][0]['answer_schema'], changed['targets'][0]['answer_defs'] = b, a
+        # Even an internally coherent rehashed view must match trusted original.
+        changed['input_projection']['projected_sha256'] = digest({
+            k: v for k, v in changed.items() if k != 'input_projection'})
+        with pytest.raises(ValueError, match='frozen original'):
+            view.restore(changed, schema, stage=stage,
+                expected_original_sha256=digest(original))
+    wrong_tool = deepcopy(schema); wrong_tool['properties']['result']['type'] = 'boolean'
+    with pytest.raises(ValueError, match='binding changed'):
+        view.restore(projected, wrong_tool, stage=stage,
+            expected_original_sha256=digest(original))
+    wrong_stage = 'repair' if stage == 'B' else 'B'
+    with pytest.raises(ValueError, match='binding changed'):
+        view.restore(projected, schema, stage=wrong_stage,
+            expected_original_sha256=digest(original))

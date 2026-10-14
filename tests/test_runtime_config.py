@@ -171,7 +171,7 @@ def test_startup_status_checks_required_runtime_without_operator_secret(tmp_path
     assert "Easel Operator credential" not in status
 
 
-def test_dependency_registry_has_profile_scoped_requirements_and_keeps_legacy_visible(tmp_path):
+def test_dependency_registry_keeps_live_profiles_and_excludes_retired_producers(tmp_path):
     config = EaselRuntimeConfig.load(environ={}, env_file=tmp_path / "none.env")
     registry = DependencyRegistry(config)
     inventory = {row.spec.id: row for row in registry.inventory(probe_local=False)}
@@ -182,12 +182,14 @@ def test_dependency_registry_has_profile_scoped_requirements_and_keeps_legacy_vi
     assert inventory["easel.operator"].status is ReadinessStatus.NOT_REQUIRED
     assert "v1-release" in inventory["openclaw.model-auth"].spec.required_by_profiles
     assert "v1-release" in inventory["hypit.runtime-profile"].spec.required_by_profiles
-    assert inventory["legacy.video-production"].status is ReadinessStatus.LEGACY
+    assert "legacy.video-production" not in inventory
+    assert "legacy.auto-short-video" not in inventory
+    assert inventory["legacy.video-generation"].status is ReadinessStatus.LEGACY
     assert inventory["provider.openverse"].spec.config_keys == (
         "OPENVERSE_CLIENT_ID", "OPENVERSE_CLIENT_SECRET", "OPENVERSE_ACCESS_TOKEN",
     )
     assert inventory["provider.openverse"].status is ReadinessStatus.MISSING_CREDENTIAL
-    assert "full-system" not in inventory["legacy.video-production"].spec.required_by_profiles
+    assert "full-system" not in inventory["legacy.video-generation"].spec.required_by_profiles
 
     core = registry.profile(ReadinessProfile.CORE_VIDEO, probe_local=False)
     assert "provider.pexels" not in {row.spec.id for row in core.dependencies}

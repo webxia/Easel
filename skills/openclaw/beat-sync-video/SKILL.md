@@ -10,7 +10,7 @@ layer: produce
 > 全部走 `skills/shared/scripts/beatsync.py`，**不要手数节拍、手拼滤镜**——脚本已做
 > 节拍检测、区间切分、素材循环、音画对齐。
 
-> 每图固定时长的柔和相册见 **slideshow-video**；主题→AI 配图配音成片见 **auto-short-video**。
+> 每图固定时长的柔和相册编辑可参考 **slideshow-video**；从主题创建 Easel 正式成片必须从 Web Creation 确认开始，由唯一 Delivery/Hypit 生产，本工具不替代正式生产链。
 
 ## 输入
 

@@ -27,7 +27,17 @@ RELATIONAL_POLICY = 'planning-candidate-review@2'
 LEGACY_INTAKE_POLICY = 'confirmed-planning-intake@3'
 RELATIONAL_INTAKE_POLICY = 'confirmed-planning-intake@4'
 ADMISSION_INTAKE_POLICY = 'confirmed-planning-intake@5'
-INTAKE_POLICY = 'confirmed-planning-intake@6'
+FLEXIBLE_INTAKE_POLICY = 'confirmed-planning-intake@6'
+BOUNDED_BATCH_INTAKE_POLICY = 'confirmed-planning-intake@7'
+FRAMING_INTAKE_POLICY = 'confirmed-planning-intake@8'
+QUOTE_INTAKE_POLICY = 'confirmed-planning-intake@9'
+ATOMIC_DETAILS_INTAKE_POLICY = 'confirmed-planning-intake@10'
+SOUND_TEMPO_INTAKE_POLICY = 'confirmed-planning-intake@11'
+COMPLETE_GUIDANCE_INTAKE_POLICY = 'confirmed-planning-intake@12'
+ROOT_ECHO_INTAKE_POLICY = 'confirmed-planning-intake@13'
+SFX_GUIDANCE_INTAKE_POLICY = 'confirmed-planning-intake@14'
+INTAKE_POLICY = 'confirmed-planning-intake@15'
+B_BATCH_REPAIR_POLICY = 'planning-b-cross-batch-local-repair@1'
 MATERIAL_KINDS = ('visual', 'voice', 'bgm', 'sfx')
 
 
@@ -49,11 +59,11 @@ class RelationalResponse(Carrier):
 
 
 def enabled(scope):
-    return scope.get('transport', {}).get('intake_policy') in {LEGACY_INTAKE_POLICY, RELATIONAL_INTAKE_POLICY, ADMISSION_INTAKE_POLICY, INTAKE_POLICY}
+    return scope.get('transport', {}).get('intake_policy') in {LEGACY_INTAKE_POLICY, RELATIONAL_INTAKE_POLICY, ADMISSION_INTAKE_POLICY, FLEXIBLE_INTAKE_POLICY, BOUNDED_BATCH_INTAKE_POLICY, FRAMING_INTAKE_POLICY, QUOTE_INTAKE_POLICY, ATOMIC_DETAILS_INTAKE_POLICY, SOUND_TEMPO_INTAKE_POLICY, COMPLETE_GUIDANCE_INTAKE_POLICY, ROOT_ECHO_INTAKE_POLICY, SFX_GUIDANCE_INTAKE_POLICY, INTAKE_POLICY}
 
 
 def policy_for(scope):
-    return RELATIONAL_POLICY if scope.get('transport', {}).get('intake_policy') in {RELATIONAL_INTAKE_POLICY, ADMISSION_INTAKE_POLICY, INTAKE_POLICY} else POLICY
+    return RELATIONAL_POLICY if scope.get('transport', {}).get('intake_policy') in {RELATIONAL_INTAKE_POLICY, ADMISSION_INTAKE_POLICY, FLEXIBLE_INTAKE_POLICY, BOUNDED_BATCH_INTAKE_POLICY, FRAMING_INTAKE_POLICY, QUOTE_INTAKE_POLICY, ATOMIC_DETAILS_INTAKE_POLICY, SOUND_TEMPO_INTAKE_POLICY, COMPLETE_GUIDANCE_INTAKE_POLICY, ROOT_ECHO_INTAKE_POLICY, SFX_GUIDANCE_INTAKE_POLICY, INTAKE_POLICY} else POLICY
 
 
 def _relational(batch):
@@ -64,7 +74,7 @@ def _material_kind(need):
     return 'visual' if need['modality'] in review.VISUAL else need['modality']
 
 
-def directory_for(proposal, inputs, catalog, *, policy=POLICY):
+def directory_for(proposal, inputs, catalog, *, policy=POLICY, candidate_batch_limit=None):
     if policy not in {POLICY, RELATIONAL_POLICY}:
         raise ValueError('Unknown candidate review policy')
     if policy == RELATIONAL_POLICY:
@@ -115,6 +125,10 @@ def directory_for(proposal, inputs, catalog, *, policy=POLICY):
             'candidate_context': bindings, 'evidence': evidence})
     if len(questions) > 4096:
         raise ValueError('Complete candidate review exceeds question capacity')
+    if candidate_batch_limit is not None:
+        if candidate_batch_limit not in {review.CANDIDATE_BATCH_LIMIT, review.CURRENT_CANDIDATE_BATCH_LIMIT} or type(candidate_batch_limit) is not int:
+            raise ValueError('Unknown candidate batch policy')
+        directory['candidate_batch_limit'] = candidate_batch_limit  # Frozen with question IDs in the review receipt.
     return directory
 
 
@@ -177,10 +191,10 @@ def message_context(batch):
     return projected
 
 
-def message_for(batch):
+def message_for(batch, *, quote_wire_guidance=False):
     transported = {**message_context(batch), 'response_schema': wire.project(batch['response_schema'], 'B', atomic_framing=True).schema,
-                   'wire_representation': wire.GUIDANCE}
-    prefix = review.review_message(transported).rsplit('\n', 1)[0]
+                   'wire_representation': wire.guidance(batch['response_schema'])}
+    prefix = review.review_message(transported, quote_wire_guidance=quote_wire_guidance).rsplit('\n', 1)[0]
     instruction = ('\nP3候选审核：候选尚未被正式接受。visual_choices只判断其他头部；necessity独立由need_necessity判断，'
         '不要仅因必要性错误重复挑战整个头部。need_necessity的ACCEPT表示当前值忠实，CHALLENGE表示有冻结来源明确要求'
         '该optional候选为required；不得把软偏好升级。required需要降级、语义不明确或依据不足用UNRESOLVED。'
@@ -201,6 +215,24 @@ def message_for(batch):
             '完整候选正文就在本请求共享candidate_bindings中，必须按同名键读取，不需要外部检索。'
             '引用存在不是覆盖成立，必须核对完整候选实际承担的义务。'
             '每个support.quote只能选择同一冻结来源中的简短连续原文，最多512字符，不粘贴整个分镜或总结改写。')
+    if batch.get('candidate_batch_limit') in {review.CANDIDATE_BATCH_LIMIT, review.CURRENT_CANDIDATE_BATCH_LIMIT}:
+        instruction += ('\n本次只审核本批已列的题目，不重复其他批次答案。每题reason尽量在100个汉字内'
+            '完整说明实际依据或不足；support.quote优先选简短且连续的精确原文，不粘贴大段文本。'
+            '简短不代表猜测、忽略义务或改写证据；无法在现有原文中判断时用UNRESOLVED。'
+            '不要额外撰写总论、重复冻结上下文或输出schema外字段。')
+    if quote_wire_guidance:
+        instruction += ('\n新增B层Wire格式约束：只提交response_schema.properties中列出的question-XXXX题目键；'
+            'schema.title只是说明，不得输出额外的title、summary或metadata顶层键。'
+            '每项support.quote必须与同项source所在类型分支一致，直接填写字符串或JSON null。'
+            '禁止{"$text":"..."}、{"value":"..."}、{"null":true}等对象包装或增加其他字段。'
+            'source与role仍须来自实际冻结依据和允许角色，不因格式示例伪造引用。'
+            'quote不是完整蕴含证明；无法确定完整义务时仍选择UNRESOLVED。')
+    if batch.get('candidate_batch_limit') == review.CURRENT_CANDIDATE_BATCH_LIMIT:
+        from easel.integrations import planning_request_view as request_view
+        from easel.integrations.planning_structured import request_for, b_review_parameters
+        transported['response_schema'] = request_for(b_review_parameters(transported['response_schema']))['schema']
+        transported = request_view.project(transported, transported['response_schema'], stage='B')
+        instruction += request_view.GUIDANCE
     return review.checked_message(prefix + instruction + '\n' + review.compact(transported))
 
 
@@ -435,10 +467,80 @@ def apply_patches(original, value, targets, *, support_batch=None):
     return result
 
 
-def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls):
+def _local_b_repair_refs(target):
+    """Reject ambiguous cross-batch JSON references, without expanding constraints."""
+    defs = target['answer_defs']
+    if not isinstance(defs, dict):
+        raise ValueError('Cross-batch repair definitions are not finite')
+    links = {}
+    def inspect(node, owner=None):
+        if isinstance(node, list):
+            for value in node: inspect(value, owner)
+        elif isinstance(node, dict):
+            if any(key in node for key in ('$id', '$anchor', '$dynamicRef',
+                                            '$dynamicAnchor', '$recursiveRef', '$recursiveAnchor')):
+                raise ValueError('Cross-batch repair has an unsupported reference scope')
+            if '$ref' in node:
+                reference = node['$ref']
+                if (not isinstance(reference, str) or not reference.startswith('#/$defs/')
+                        or reference.count('/') != 2 or reference[8:] not in defs):
+                    raise ValueError('Cross-batch repair has an unknown local reference')
+                if owner is not None:
+                    links.setdefault(owner, set()).add(reference[8:])
+            for value in node.values(): inspect(value, owner)
+    inspect(target['answer_schema'])
+    for name, value in defs.items(): inspect(value, name)
+    def visit(name, ancestors):
+        if name in ancestors:
+            raise ValueError('Cross-batch repair has a recursive reference')
+        for child in links.get(name, ()): visit(child, (*ancestors, name))
+    for name in defs: visit(name, ())
+
+
+def _frozen_b_repair_targets(rows):
+    """Rebind each faulty answer to the captured batch and its exact local schema."""
+    targets, original, contexts = [], {}, []
+    for stage, batch, raw, decoded, faults in rows:
+        if not faults:
+            continue
+        _wrapper(decoded, batch)  # Never filter out an extra/missing root key.
+        expected = _answer_targets(decoded, batch)
+        if expected != faults:
+            raise ValueError('Cross-batch local target identity changed')
+        keys = set()
+        for target in expected:
+            key = target['path'][0]
+            if (target['kind'] != 'candidate_answer' or target.get('policy') != POLICY
+                    or target['path'] != [key] or key in original or key in keys
+                    or target['batch_sha256'] != digest(batch)
+                    or target['old_sha256'] != digest(decoded[key])
+                    or target['answer_schema'] != batch['response_schema']['properties'][key]
+                    or target['answer_defs'] != batch['response_schema'].get('$defs', {})):
+                raise ValueError('Cross-batch target does not match its frozen question')
+            _local_b_repair_refs(target)
+            original[key] = deepcopy(decoded[key])
+            targets.append(target)
+            keys.add(key)
+            if len(targets) > MAX_B_ANSWERS:
+                raise ValueError('Cross-batch local repair exceeds one shared slot capacity')
+        contexts.append({'stage': stage, 'batch_sha256': digest(batch),
+            'reply_value_sha256': digest(raw),
+            'questions': [deepcopy(q) for q in batch['questions'] if support.slot(q) in keys],
+            'source_catalog': deepcopy(batch['source_catalog']),
+            'candidate_bindings': deepcopy(batch['candidate_bindings']),
+            'evidence': deepcopy(batch['evidence']),
+            'review_source_policy': batch.get('review_source_policy'),
+            'candidate_policy': batch.get('candidate_policy')})
+    return targets, original, {'policy': B_BATCH_REPAIR_POLICY, 'frozen_batches': contexts}
+
+
+def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls, a_calls):
     """Same deterministic evaluation for live owner and read-only frozen replay."""
     inputs, catalog = scope['inputs'], scope['catalog']
-    flexible = scope.get('transport', {}).get('intake_policy') == 'confirmed-planning-intake@6'
+    intake = scope.get('transport', {}).get('intake_policy')
+    flexible = intake in {FLEXIBLE_INTAKE_POLICY, BOUNDED_BATCH_INTAKE_POLICY, FRAMING_INTAKE_POLICY, QUOTE_INTAKE_POLICY, ATOMIC_DETAILS_INTAKE_POLICY, SOUND_TEMPO_INTAKE_POLICY, COMPLETE_GUIDANCE_INTAKE_POLICY, ROOT_ECHO_INTAKE_POLICY, SFX_GUIDANCE_INTAKE_POLICY, INTAKE_POLICY}
+    batch_limit = (review.CURRENT_CANDIDATE_BATCH_LIMIT if intake == INTAKE_POLICY else review.CANDIDATE_BATCH_LIMIT) if intake in {BOUNDED_BATCH_INTAKE_POLICY, FRAMING_INTAKE_POLICY, QUOTE_INTAKE_POLICY, ATOMIC_DETAILS_INTAKE_POLICY, SOUND_TEMPO_INTAKE_POLICY, COMPLETE_GUIDANCE_INTAKE_POLICY, ROOT_ECHO_INTAKE_POLICY, SFX_GUIDANCE_INTAKE_POLICY, INTAKE_POLICY} else None
+    quote_wire_guidance = intake in {QUOTE_INTAKE_POLICY, ATOMIC_DETAILS_INTAKE_POLICY, SOUND_TEMPO_INTAKE_POLICY, COMPLETE_GUIDANCE_INTAKE_POLICY, ROOT_ECHO_INTAKE_POLICY, SFX_GUIDANCE_INTAKE_POLICY, INTAKE_POLICY}
     lineage = None
     repairs = 0
     def fix(stage, original, targets, context=None):
@@ -470,19 +572,36 @@ def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls):
     value = proposal.model_dump(mode='json')
     if any(t['kind'] == 'confirmed_music_coverage' for t in pending) and len(value['needs']) >= semantic_tool_schema(catalog, compiled=True, flexible_queries=flexible)['properties']['needs']['maxItems']:
         raise ValueError('Required BGM cannot fit without removing a Need')
-    directory = directory_for(proposal, inputs, catalog, policy=policy_for(scope))
+    directory = directory_for(proposal, inputs, catalog, policy=policy_for(scope), candidate_batch_limit=batch_limit)
     view.check_review(directory)
     initial_directory = directory
     initial_value = deepcopy(value)
     initial_responses, responses = [], []
     initial_batches = batches(directory)
+    aggregate_b = (intake == INTAKE_POLICY and
+                   scope.get('transport', {}).get('b_batch_repair_policy') == B_BATCH_REPAIR_POLICY)
+    if intake == INTAKE_POLICY and not aggregate_b:
+        raise ValueError('Current B local repair aggregation identity is missing')
     coverage = sum(q['kind'] == 'frozen_visual_coverage' for q in directory['questions'])
-    if 2 + len(initial_batches) + 1 + (16 * 14 + coverage + 16 + 47) // 48 > max_calls:
+    review_batch_size = batch_limit or MAX_B_ANSWERS
+    if a_calls + len(initial_batches) + 1 + (16 * 14 + coverage + 16 + review_batch_size - 1) // review_batch_size > max_calls:
         raise ValueError('Complete candidate review/recheck exceeds original call capacity')
     def ask(key, batch, *, recheck=False):
-        message = message_for(batch)
+        message = message_for(batch, quote_wire_guidance=quote_wire_guidance)
         raw = invoke(key, message, batch['response_schema'])
         decoded = candidate(key, raw, batch['response_schema'])
+        if aggregate_b and not recheck:
+            _wrapper(decoded, batch)  # A malformed root is never a local answer.
+            faults = _answer_targets(decoded, batch)
+            invalid_keys = {target['path'][0] for target in faults}
+            # The recorded wire schema must locate every error within a target;
+            # otherwise collecting only selected keys would launder a rejection.
+            errors = wire.project(batch['response_schema'], key, atomic_framing=True).errors(raw)
+            if any(not item['path'] or item['path'][0] not in invalid_keys for item in errors):
+                raise ValueError('Unlocalized B wire error cannot enter shared repair')
+            if faults and (repairs or pending):
+                raise ValueError('B local repair conflicts with an already-needed shared repair')
+            return raw, (decoded, faults)
         faults = _answer_targets(decoded, batch)
         if faults:
             if recheck:
@@ -491,11 +610,42 @@ def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls):
         return raw, decode_answers(decoded, batch)
     # Precompute all full messages before any independent review dispatch.
     for batch in initial_batches:
-        message_for(batch)
+        message_for(batch, quote_wire_guidance=quote_wire_guidance)
+    collected_b = []
     for i, batch in enumerate(initial_batches):
-        raw, response = ask(f'B-{i:03}', batch)
+        stage = f'B-{i:03}'
+        raw, response = ask(stage, batch)
         initial_responses.append(raw)
-        responses.append(response)
+        if aggregate_b:
+            decoded, faults = response
+            collected_b.append((stage, batch, raw, decoded, faults))
+        else:
+            responses.append(response)
+    if aggregate_b:
+        targets, old_local, context = _frozen_b_repair_targets(collected_b)
+        if targets:
+            # One existing Owner repair call; no duplicate permits or fresh budget.
+            # This must remain deterministic when replayed from captured B replies.
+            repaired_local = fix('B-cross-batch', old_local, targets, context)
+            if set(repaired_local) != set(old_local):
+                raise ValueError('Cross-batch repair changed frozen answer identities')
+        else:
+            repaired_local = {}
+        for stage, batch, raw, decoded, faults in collected_b:
+            final = deepcopy(decoded)
+            for target in faults:
+                key = target['path'][0]
+                if target['old_sha256'] != digest(decoded[key]):
+                    raise ValueError('Cross-batch local answer changed after capture')
+                final[key] = deepcopy(repaired_local[key])
+            if any(final[key] != original for key, original in decoded.items()
+                   if key not in {t['path'][0] for t in faults}):
+                raise ValueError('Cross-batch repair touched an accepted answer')
+            projection = wire.project(batch['response_schema'], stage, atomic_framing=True)
+            wire_result = projection.encode(final)
+            if projection.errors(wire_result) or projection.decode_valid(wire_result) != final:
+                raise ValueError('Cross-batch repair violates original strict B wire schema')
+            responses.append(decode_answers(final, batch))
     semantic, _ = semantic_targets(directory, responses, value)
     targets = [*pending, *semantic]
     before_semantic = [r.model_dump(mode='json') for r in responses]
@@ -506,12 +656,12 @@ def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls):
             raise ValueError('Candidate intake still invalid after the single repair')
         Draft202012Validator(semantic_tool_schema(catalog, compiled=True, flexible_queries=flexible)).validate(value)
         value = proposal.model_dump(mode='json')
-        updated = directory_for(proposal, inputs, catalog, policy=policy_for(scope))
+        updated = directory_for(proposal, inputs, catalog, policy=policy_for(scope), candidate_batch_limit=batch_limit)
         view.check_review(updated)
         kept, to_review = review.recheck(directory, responses, updated)
         pending_batches = batches(to_review)
         for batch in pending_batches:
-            message_for(batch)
+            message_for(batch, quote_wire_guidance=quote_wire_guidance)
         for i, batch in enumerate(pending_batches):
             _, response = ask(f'B-recheck-{i:03}', batch, recheck=True)
             for answer in response.answers:

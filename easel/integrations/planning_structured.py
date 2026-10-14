@@ -7,15 +7,15 @@ import json
 CONTRACT = 'planning-result-v3'
 VERSION = 'easel-structured-result@1'
 TOOL = 'submit_semantic_plan'
-RUNTIME_PARTS = {'dist/provider-transport-fetch-C-DHvnM1.mjs': 'fe2923d07e202d3c84f1aa1f69fb7f43c3e288a14b9970aef2bab6a32a1e21cd',
+RUNTIME_PARTS = {'dist/provider-transport-fetch-C-DHvnM1.mjs': '0a50d1f8a71a1de076bac0f01376c36e5b797e504b33090027772afb5ea7ad45',
  'dist/fetch-guard-C3-bkDI5.mjs': 'e71b77957be81bb70838b43840b6a97cafb8577eea8953c606a2177721c95682',
  'node_modules/@openclaw/ai/dist/host-policy-Zcg_cNz8.mjs': '4fd8c9243682dec7901f73bd29885f79bcc97ec301d68ff26e11173e5bc58df8',
  'dist/src-7tzZ8j12.mjs': '02a4796e3fa3407f8ef1390fdc53093fa43a85dfe4c00be1edc23fd762d161cc',
  'dist/principal-CweFVZNq.mjs': '086a8c6f780f79142716303921cb84e9ab6d20cae9f2879e4276f6a4199e70bd',
  'dist/builtin-openclaw-B-H-7lKk.mjs': 'dadd861cb8ae029e1c40385705a44cb7a1d8c17ae532d26c6e879c5fc5d0e4b0',
- 'node_modules/@openclaw/ai/dist/transports.mjs': '96fb39bc4e8c6129783c587a2324071bbb92fff366c2f94c71dbaaa185570ed7',
+ 'node_modules/@openclaw/ai/dist/transports.mjs': 'd4ac51e6605d6c4eeaf3d1d6f8c733dc342406ee3c1456e63462edfe681a0434',
  'node_modules/@openclaw/ai/dist/openai-completions-stream-Da2vvl-S.mjs': 'dbf0630c2f7daf2ab5539fe64c1644a92fc89b08e568151ea6c37efcc73fbf87',
- 'dist/easel-structured-result.mjs': 'e744c9a6dba38ade4e87500c3443102e5a7b3c54fbbea42a8e8778c681928803',
+ 'dist/easel-structured-result.mjs': '73a5029aa9d6e0276b938f3900a516b31132d4c3b00ae56ff117e5502e030cdd',
  'dist/runtime-rYK9YYw9.mjs': '8440f13bc2e687057bc52f76aa0bbb394c8780f85e38e5616399e7779dfcf998',
  'dist/runtime-Bye51EWk.mjs': '1b4dd796612ec6238e749f52d12a208185574e40a09e2d37caca8f00b8f746f1'}
 
@@ -36,6 +36,22 @@ def request_for(schema):
                          separators=(',', ':'), allow_nan=False)
     return {'version': VERSION, 'name': TOOL, 'schema': schema,
             'schemaSha256': hashlib.sha256(encoded.encode()).hexdigest()}
+
+
+# Presentation-only change: JSON Schema's root title is not a result property.
+# Keep the original B wire projection (and its cached decoder) untouched.
+B_ROOT_TITLE_POLICY = 'planning-b-root-title-omitted@1'
+
+
+def b_review_parameters(schema):
+    if (not isinstance(schema, dict) or schema.get('title') != 'PlanningVisualReview'
+            or schema.get('type') != 'object'
+            or schema.get('additionalProperties') is not False
+            or not isinstance(schema.get('properties'), dict)
+            or not schema['properties']):
+        raise ValueError('Unexpected B review parameters Schema; no title projection')
+    # A new root dictionary; no in-place mutation of cached wire projections.
+    return {key: value for key, value in schema.items() if key != 'title'}
 
 
 def validate_request(request):

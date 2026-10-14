@@ -76,6 +76,30 @@ def _find_attempt(attempt_id: str) -> tuple[dict[str, Any], dict[str, Any]]:
     raise HypitIntegrationError("FilmBuildAttempt 不存在")
 
 
+def _assert_current_commission(work, attempt, *, allow_stopped=False):
+    from easel.creation_delivery import is_managed
+    from easel.integrations import result_protocols
+    if (not is_managed(work)
+            or _attempt_in_creation(work, attempt.get('attempt_id')) is None
+            or (not allow_stopped and work.get('delivery', {}).get('stopped'))):
+        raise HypitIntegrationError('历史 Attempt 或已撤销委托只读，不能执行当前生产操作')
+    result_protocols.inherited(attempt)
+
+
+def _current_operation_attempt(attempt_id, *, allow_stopped=False):
+    work, attempt = _find_attempt(attempt_id)
+    _assert_current_commission(work, attempt, allow_stopped=allow_stopped)
+    return {'creation_id': work['id'], **attempt}
+
+
+def _save_current_operation(attempt_id, mutate, *, allow_stopped=False):
+    # Passive status/UNKNOWN reconciliation continues to use _save_attempt.
+    def guarded(item, work):
+        _assert_current_commission(work, item, allow_stopped=allow_stopped)
+        return mutate(item)
+    return _save_attempt(attempt_id, guarded, include_creation=True)
+
+
 def _save_attempt(attempt_id: str, mutate, *, include_creation: bool = False) -> dict[str, Any]:
     work, _ = _find_attempt(attempt_id)
     result: dict[str, Any] = {}
@@ -138,6 +162,27 @@ def _summary_status(attempt: dict[str, Any]) -> str:
 
 def _set_summary(attempt: dict[str, Any]) -> None:
     attempt["status"] = _summary_status(attempt)
+
+
+def _assert_u3l_long_video_not_submitted(attempt: dict[str, Any]) -> None:
+    """Do not price, approve or submit an unqualified 301..900s V1 work.
+
+    The 1..900s Proposal remains valid. This execution-only boundary must
+    be revisited against a named U3-L real-media qualification/fingerprint.
+    """
+    from easel.creation_delivery import requires_u3l_media_qualification
+    request = attempt.get("production_request") or {}
+    try:
+        work = creation.get_creation(attempt["creation_id"])
+    except (creation.CreationError, OSError, KeyError):
+        # Missing Creation cannot authorize a new commission; the ordinary
+        # current Owner/Pin checks remain responsible for its rejection.
+        work = {}
+    signed_plan = (work.get("delivery") or {}).get("video_plan")
+    if (requires_u3l_media_qualification(signed_plan)
+            or requires_u3l_media_qualification(request.get("video_plan"))):
+        raise HypitIntegrationError(
+            "301～900 秒长片仍需 U3-L 媒体资格；禁止未验收的 Pricing、批准或 Build")
 
 
 def _assert_retry_checkpoint_ready(attempt: dict[str, Any]) -> None:
@@ -1348,6 +1393,7 @@ def estimate_film_attempt(attempt_id: str, *, cli: HypitCLI | None = None) -> di
     attempt = get_film_attempt(attempt_id)
     from easel.integrations import result_protocols
     result_protocols.inherited(attempt)
+    _assert_u3l_long_video_not_submitted(attempt)
     _assert_retry_checkpoint_ready(attempt)
     if attempt.get("execution_status") == "BLOCKED":
         raise HypitIntegrationError("Execution 被 Runtime 配置阻塞；先完成 Runtime Resolution")
@@ -1458,6 +1504,7 @@ def approve_film_cost(
     attempt = get_film_attempt(attempt_id)
     from easel.integrations import result_protocols
     result_protocols.inherited(attempt)
+    _assert_u3l_long_video_not_submitted(attempt)
     authorization = (_confirmed_commission_authorization(
         creation.get_creation(attempt["creation_id"]), max_budget_usd)
         if use_commission else None)
@@ -1551,6 +1598,7 @@ def submit_film_build(
     attempt = get_film_attempt(attempt_id)
     from easel.integrations import result_protocols
     result_protocols.inherited(attempt)
+    _assert_u3l_long_video_not_submitted(attempt)
     _assert_retry_checkpoint_ready(attempt)
     existing_execution = attempt.get("execution_status", "NOT_SUBMITTED")
     if existing_execution == "BLOCKED":
@@ -1580,6 +1628,9 @@ def submit_film_build(
     outcome: dict[str, Any] = {}
 
     def begin(item, work):
+        from easel.creation_delivery import requires_u3l_media_qualification
+        if requires_u3l_media_qualification((work.get('delivery') or {}).get('video_plan')):
+            raise HypitIntegrationError("301～900 秒长片仍需 U3-L 媒体资格；未提交 Build")
         if item.get("execution_status", "NOT_SUBMITTED") != "NOT_SUBMITTED":
             outcome["attempt"] = dict(item)
             outcome["replay"] = True
@@ -1915,9 +1966,9 @@ def inspect_film_build(attempt_id: str, *, cli: HypitCLI | None = None) -> dict[
 
 
 def cancel_film_build(attempt_id: str, *, cli: HypitCLI | None = None) -> dict[str, Any]:
-    attempt = get_film_attempt(attempt_id)
-    from easel.integrations import result_protocols
-    result_protocols.inherited(attempt)
+    # Stopping an otherwise current commission must not prevent cancelling its
+    # already submitted Build. It never authorizes historical production.
+    attempt = _current_operation_attempt(attempt_id, allow_stopped=True)
     if attempt.get("execution_status") in {"BUILD_COMPLETE", "BUILD_FAILED", "CANCELLED"}:
         raise HypitIntegrationError("终态 Hypit Build 不能再请求取消")
     build_id = attempt.get("build", {}).get("build_id")
@@ -1939,10 +1990,10 @@ def cancel_film_build(attempt_id: str, *, cli: HypitCLI | None = None) -> dict[s
         _set_summary(item)
         return _event(item, "build_cancel_requested", requested=requested)
 
-    return _save_attempt(attempt_id, update)
+    return _save_current_operation(attempt_id, update, allow_stopped=True)
 
 
-def _validate_video(path: Path, *, require_audio: bool) -> dict[str, Any]:
+def _validate_video(path: Path, *, require_audio: bool, forbid_audio: bool = False) -> dict[str, Any]:
     if not path.is_file() or path.stat().st_size <= 0:
         raise HypitIntegrationError("Hypit 导出文件为空或不存在")
     probe = shutil.which("ffprobe")
@@ -1964,8 +2015,10 @@ def _validate_video(path: Path, *, require_audio: bool) -> dict[str, Any]:
     duration = float(metadata.get("format", {}).get("duration") or 0)
     if video is None or int(video.get("width") or 0) <= 0 or int(video.get("height") or 0) <= 0:
         raise HypitIntegrationError("导出文件没有有效视频轨")
-    if duration <= 0:
-        raise HypitIntegrationError("导出文件没有有效时长")
+    if not math.isfinite(duration) or not 0 < duration <= 900:
+        raise HypitIntegrationError("导出视频实际时长超出 900 秒产品硬上限或无效")
+    if forbid_audio and audio is not None:
+        raise HypitIntegrationError("静音方案导出视频不得存在任何音轨")
     if require_audio and audio is None:
         raise HypitIntegrationError("Handoff 要求音轨，但导出文件没有音频轨")
     decoder = shutil.which("ffmpeg")
@@ -2001,7 +2054,7 @@ def export_film_output(
     cli: HypitCLI | None = None,
 ) -> dict[str, Any]:
     # Serialize export receipts as well as file writes across worker/API calls.
-    workspace = _workspace(get_film_attempt(attempt_id))
+    workspace = _workspace(_current_operation_attempt(attempt_id))
     lock_path = workspace / ".easel" / "export.lock"
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as lock:
@@ -2010,7 +2063,7 @@ def export_film_output(
 
 
 def _export_film_output_locked(attempt_id: str, output_name: str, *, cli) -> dict[str, Any]:
-    attempt = get_film_attempt(attempt_id)
+    attempt = _current_operation_attempt(attempt_id)
     if attempt.get("execution_status") != "BUILD_COMPLETE":
         raise HypitIntegrationError("只有 Hypit Build complete 后才能导出")
     if output_name in attempt.get("outputs", {}):
@@ -2032,11 +2085,14 @@ def _export_film_output_locked(attempt_id: str, output_name: str, *, cli) -> dic
     relative = final_path.relative_to(creation.OUTPUTS_DIR).as_posix()
     try:
         response = _cli(cli).get(_workspace(attempt), build_id, output_name, staged)
+        current_video_plan = (attempt.get("production_request") or {}).get("video_plan") or {}
         metadata = _validate_video(
             staged, require_audio=bool(
                 attempt.get("production_request", {}).get("audio_required", False)
                 or attempt.get("material_audio_policy", {}).get("requires_audio", False)
-            ))
+            ), forbid_audio=(
+                current_video_plan.get("schema") == "easel-video-proposal@4"
+                and current_video_plan.get("specs", {}).get("audio_mode") == "silent"))
         request = attempt.get("production_request", {})
         bounds = request.get("preferred_duration_seconds", {})
         duration = metadata["duration_seconds"]
@@ -2084,12 +2140,12 @@ def _export_film_output_locked(attempt_id: str, output_name: str, *, cli) -> dic
 
     # Commit identity and verified metadata BEFORE publishing final.mp4. A
     # failed write may have committed already: preserve staged bytes either way.
-    _save_attempt(attempt_id, prepare_export)
+    _save_current_operation(attempt_id, prepare_export)
     return _finish_output_export(attempt_id, output_name, receipt, final_path, attribution, material_usage)
 
 
 def _finish_output_export(attempt_id, output_name, receipt, final_path, attribution, material_usage):
-    attempt = get_film_attempt(attempt_id)
+    attempt = _current_operation_attempt(attempt_id)
     if material_usage != _validated_output_usage(attempt):
         raise HypitIntegrationError('导出期间素材使用范围已变化；保留已下载结果，未认领旧依据')
     exported = receipt.get("output", {})
@@ -2125,7 +2181,57 @@ def _finish_output_export(attempt_id, output_name, receipt, final_path, attribut
 
     # Keep the verified file + receipt if registration fails. Recovery checks
     # exactly those bytes instead of downloading or producing a second output.
-    return _save_attempt(attempt_id, register)
+    return _save_current_operation(attempt_id, register)
+
+
+def require_final_admission(attempt: dict[str, Any], output_name: str) -> dict[str, Any]:
+    """One server-side Current Output/Quality/Material/Rights admission invariant.
+
+    Human approval is separate: reviewers may preview and reject before READY;
+    approval and Selection must call this function against frozen source bytes.
+    """
+    from easel.creation_delivery import is_managed
+    from easel.integrations import quality_results, result_protocols
+    from easel.integrations.hypit.quality import SCHEMA as QUALITY_SCHEMA
+    from easel.integrations.output_receipts import OutputReceiptError
+    from easel.integrations.material_layer import MaterialGateIntegration, MaterialIntegrationError
+
+    owner = creation.get_creation(attempt['creation_id'])
+    if not is_managed(owner):
+        raise HypitIntegrationError('历史 Attempt 或未冻结新委托只读，不能批准或入库')
+    _assert_u3l_long_video_not_submitted(attempt)
+    result_protocols.inherited(attempt)
+    gate = attempt.get('material_gate') or {}
+    if (attempt.get('material_planning', {}).get('status') != 'PLANNING_READY'
+            or gate.get('status') != 'MATERIAL_READY'):
+        raise HypitIntegrationError('未通过当前 Material/Rights Readiness，不能批准成片')
+    try:
+        # Recompute actual Need/Match/Rights/Readiness and voice binding from
+        # frozen bytes, not merely stored Plan/Bundle revision strings.
+        MaterialGateIntegration().assert_ready(attempt)
+    except (MaterialIntegrationError, OSError, ValueError, KeyError) as exc:
+        raise HypitIntegrationError('当前 Material/Rights/Voice Readiness 已失效，不能批准成片') from exc
+    output = attempt.get('outputs', {}).get(output_name)
+    system = attempt.get('review', {}).get('system') or {}
+    if (not isinstance(output, dict)
+            or output.get('sha256') is None
+            or system.get('schema') != QUALITY_SCHEMA
+            or system.get('status') != 'READY'
+            or system.get('binding') != {'output_name': output_name,
+                                         'sha256': output['sha256']}
+            or output.get('technical_qc', {}).get('status') != 'pass'
+            or output['technical_qc'].get('sha256') != output['sha256']
+            or output['technical_qc'].get('output_name') != output_name):
+        raise HypitIntegrationError('当前 Output 缺少 Technical QC 和 System Quality READY')
+    if _file_sha256(_output_path(attempt, output)) != output['sha256']:
+        raise HypitIntegrationError('当前 Output SHA 已变化，原 Quality 不可复用')
+    try:
+        quality_results.verify_current_review(attempt)
+    except (OutputReceiptError, ValueError, OSError) as exc:
+        raise HypitIntegrationError('当前 Output/Quality/Plan 原始证据无效') from exc
+    if _validated_output_usage(attempt) != output.get('material_usage', []):
+        raise HypitIntegrationError('当前所选素材 Rights/usage 已变化')
+    return output
 
 
 def record_film_review(attempt_id: str, review: dict[str, Any]) -> dict[str, Any]:
@@ -2154,6 +2260,8 @@ def record_film_review(attempt_id: str, review: dict[str, Any]) -> dict[str, Any
     media_path = _output_path(attempt, output)
     if _file_sha256(media_path) != output_hash:
         raise HypitIntegrationError("Review 绑定的成片内容已变化")
+    if human['status'] == 'approved':
+        require_final_admission(attempt, output_name)
     technical = output.get("technical_qc", {})
     if (technical.get("status") != "pass" or technical.get("output_name") != output_name
             or technical.get("sha256") != output_hash):
@@ -2190,6 +2298,11 @@ def record_film_review(attempt_id: str, review: dict[str, Any]) -> dict[str, Any
         item = _attempt_in_creation(work, attempt_id)
         if item is None:
             raise HypitIntegrationError("FilmBuildAttempt 不存在")
+        from easel.creation_delivery import is_managed
+        if not is_managed(work):
+            raise HypitIntegrationError("历史 Attempt 或未冻结新委托只读，不能写入审片")
+        if human['status'] == 'approved':
+            require_final_admission({**item, 'creation_id': work['id']}, output_name)
         current_output = item.get("outputs", {}).get(output_name)
         if (not isinstance(current_output, dict) or current_output.get("sha256") != output_hash
                 or current_output.get("technical_qc") != technical
@@ -2233,47 +2346,11 @@ def select_film_attempt(creation_id: str, attempt_id: str, output_name: str) -> 
 
 
 def _cleanup_completed_materials(creation_id: str) -> dict[str, Any]:
-    """Release owned media only after selection and library registration persisted."""
-    media_extensions = {'.png', '.jpg', '.jpeg', '.webp', '.gif', '.avif',
-                        '.mp4', '.mov', '.m4v', '.webm', '.wav', '.mp3', '.aac',
-                        '.flac', '.m4a', '.oga', '.ogg', '.opus'}
-    with creation.edit_creation(creation_id) as work:
-        if not work.get('selected_attempt_id') or not work.get('content_asset'):
-            raise HypitIntegrationError("成片未入库，不能清理素材")
-        for item in work.get('hypit_attempts', []):
-            deleted = item.get('material_cleanup', {}).get('deleted_files', 0)
-            try:
-                raw_workspace = Path(item['workspace']['path']).expanduser()
-                if any(path.is_symlink() for path in (raw_workspace, *raw_workspace.parents)):
-                    raise HypitIntegrationError('制作工作区为链接，拒绝清理')
-                workspace = _workspace({**item, 'creation_id': creation_id})
-                targets = []
-                for name in ('materials', 'references'):
-                    directory = workspace / name
-                    if directory.is_symlink():
-                        raise HypitIntegrationError("素材目录为链接，拒绝清理")
-                    if not directory.exists():
-                        continue
-                    for path in directory.rglob('*'):
-                        if path.is_symlink():
-                            raise HypitIntegrationError("素材路径为链接，拒绝清理")
-                        if path.is_file() and (path.suffix.lower() in media_extensions
-                                or (name == 'materials' and 'assets' in path.relative_to(directory).parts
-                                    and path.suffix.lower() != '.json')):
-                            targets.append(path)
-                for path in targets:
-                    path.unlink(missing_ok=True)
-                    deleted += 1
-                item['material_cleanup'] = {'status': 'COMPLETE', 'deleted_files': deleted,
-                                            'at': _now(), 'policy': 'after_selected_output_registered'}
-            except (OSError, HypitIntegrationError):
-                item['material_cleanup'] = {'status': 'PENDING', 'deleted_files': deleted,
-                                            'at': _now(), 'policy': 'after_selected_output_registered'}
-        work['material_cleanup'] = {
-            'status': ('COMPLETE' if all(i.get('material_cleanup', {}).get('status') == 'COMPLETE'
-                       for i in work.get('hypit_attempts', [])) else 'PENDING'),
-            'at': _now(),
-        }
+    """No proven unreferenced cache list exists: retain every Attempt unchanged.
+
+    Selection and registration do not authorize either deleting original media
+    or writing cleanup status into historical Attempts.
+    """
     return creation.get_creation(creation_id)
 
 
@@ -2302,6 +2379,7 @@ def _select_film_attempt(creation_id: str, attempt_id: str, output_name: str) ->
         media_path = _output_path(attempt, selected_output)
         if _file_sha256(media_path) != binding["sha256"]:
             raise HypitIntegrationError("所选成片与已批准 Review 的 sha256 不一致")
+        require_final_admission(attempt, output_name)
         for item in work.get("hypit_attempts", []):
             item["selected"] = item.get("attempt_id") == attempt_id
         work["selected_attempt_id"] = attempt_id
@@ -2336,7 +2414,7 @@ def _select_film_attempt(creation_id: str, attempt_id: str, output_name: str) ->
 def _validated_output_usage(attempt: dict[str, Any]) -> list[dict[str, Any]]:
     """Carry selected Material usage limits through export; never broaden them."""
     if attempt.get('material_planning', {}).get('status') != 'PLANNING_READY':
-        return []
+        raise HypitIntegrationError('当前导出需要 PLANNING_READY，不接受历史 Hypit-only 产物')
     from easel.materials.store import AttemptMaterialStore
     bundle = AttemptMaterialStore(_workspace(attempt)).read_bundle()
     assets = {asset.asset_id: asset for asset in bundle.assets}
@@ -2367,9 +2445,7 @@ def _validated_attribution_metadata(attempt: dict[str, Any]) -> list[dict[str, A
     if not isinstance(entries, list) or any(not isinstance(item, dict) for item in entries):
         raise HypitIntegrationError("当前 Production selection 的 attribution metadata 无效")
     if attempt.get("material_planning", {}).get("status") != "PLANNING_READY":
-        # Preserve legacy Hypit-only attempts; formal Material Attempts are
-        # checked against their persisted Bundle below.
-        return []
+        raise HypitIntegrationError('当前导出需要 PLANNING_READY，不接受历史 Hypit-only 产物')
     from easel.materials.application.rights import RightsService
     from easel.materials.store import AttemptMaterialStore
 

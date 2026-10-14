@@ -1,37 +1,42 @@
+
 # Easel Current State
 
-> **更新：2026-10-10｜唯一当前状态入口。** 本文只写仍然有效的实现、证据和下一步。原 1,403 行阶段流水与全部历史判断已保留在已推送的 Git 提交 `a6ed065d72b66e5dcdf886a90eb5b36fac971acf` 的 `docs/02_CURRENT_STATE.md`；需追溯时执行 `git show a6ed065d:docs/02_CURRENT_STATE.md`。历史 FAIL/UNKNOWN、真实 Attempt、预算、媒体和验收文件均不因本文精简而改变。
+> **唯一当前状态 · 2026-10-14 文档治理收口。** 本文件只保留已核验状态、有效阻塞和下一动作。历史批次不再按日期堆叠；原 300 行/123,518 字节全文已按 SHA 保存在 Mac 私有工作区归档。本次只整理工作区/文档，不是新 Gate 验收。权威规则见[唯一 New-Only U0–U6 主方案](architecture/web-backend-new-only-cutover-plan-2026-10-11.md)，原始产品运行证据见[唯一 E2E 账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md)。
 
-## 1. 正式产品边界
+## 当前正式主线
 
-- **V1 只聚焦视频。** 主链：Creator/Director + Creative Mode → Creation 明确确认 → Preparation/Handoff → Planning/Truth → Material/Rights/Readiness → OpenClaw Native Authoring → Hypit 本地 Check/Build → Quality/Review → 人工选片/Content Library；不自动发布，不启用第二条旧视频生产链。
-- 冻结 Material Layer V1.3；Material Layer 消费而不决定 Director 风格。关键合同仍是 `MaterialRequirement → ResolutionResult → BindingResult → MATERIAL_READY`；Rights、原始文件 SHA、失败证据、操作幂等、费用授权不得绕过。
-- 新 Attempt 仅使用五项新版 pin：`truth-source-ref@1`、`material-observation-delta@1`、`easel-script-claim-ledger@3`、`quality-review-delta@1`、`easel-hypit-source@1`。历史 Attempt 的旧版本只读解释；旧 Writer/过渡执行不能重新入链。
+**Easel Web Creation / Proposal @4/Creator 确认 → Preparation → Planning/Truth → Material V1.3 / Rights / MATERIAL_READY → Native Hypit Authoring → Check/Pricing/Build/Export → Technical QC / System Quality → 人工 Review/Selection/Content Library。**
 
-## 2. 已交付的软件基线（ADR-005）
+一个 Creator/Profile + 一个 Director/Creative Mode + 不同 Content，冻结导演表达但不固定选题；不自动发布，不回退旧视频 Producer/Writer，也不把 Material Layer 变成第二个导演。Material V1.3 / ADR-004、现行五 pin、源文件与输出 SHA、Rights、费用/UNKNOWN 保持不变。Planning 是真实 Web 生产链中的必经环节，而不是独立的 Gate。
 
-- 唯一正式分支 `easel-studio`，已非强推并核对 `origin/easel-studio` SHA：`a6ed065d72b66e5dcdf886a90eb5b36fac971acf`；ADR-005 CUT0～CUT6 已完成（Goal `wc_goal_yYpFxgMopd9MlccK`，Revision 23，Completed）。
-- 当前新旧有效用例合并回归：**450 PASS / 0 FAIL**（20 个套件，Job `wc_job_qM8Yz2eOpg4F7phv`）；发布提交后另有定向 **74 PASS / 0 FAIL**。旧 Hypit 过渡测试 20 函数/25 个参数化场景精确退役，原文件通过 Git 追溯，保留有效旧检查 24 PASS。
-- 前端 lint/build、115 项 Skills/Publisher 合同、Python 编译与 Git 差异检查通过。**不是**真实模型稳定性、付费 Hypit Build 或完整新作品视频 E2E 的通过证据。用户明确豁免 CUT5 独立 Reviewer：**未实际执行 Astra 独立复核**。
-- 参见 [ADR-005](decisions/ADR-005-agent-result-processing.md)、[CUT 验收及交付记录](tasks/adr005-new-only-cutover-2026-10-10.md)、[旧测试迁移映射](acceptance/adr005-hypit-native-legacy-test-retirement-2026-10-10.md)。不要让较早文档的“待删除旧执行路径”覆盖此已发布状态。
+## U0–U6 当前有证据的状态
 
-## 3. Planning / Structured Result 可靠性：代码已提交、运行已加载
+| Gate | 实际证据 | 当前判定 |
+|---|---|---|
+| U0/U1 | 唯一标准 2026-10-11 获批准；运行/历史文件保护持续执行 | U1 PASS；U0 是持续保护义务 |
+| U2 | 2026-10-12 New-Only 唯一受控候选、React/Skill/Web 当时版本加载和旧入口退役有正式记录 | **CANDIDATE_READY（2026-10-12 原指纹）**；之后工作区源码有变更，旧证据不自动放行新同版 |
+| U3-S | 已用合法固定外部回执，通过现行五 pin/内部 Owner/Material/Hypit 的真实本地 50 秒 MP4、Quality、拒绝与冷恢复 | **SOFTWARE_INTEGRATION_PASS**；非真实付费 Provider / Web E1 |
+| U3-L | 长 BGM 原素材、完整 Voice/ASR、900 秒长 MP4、首中尾质量、峰值资源、四模式和 >900 秒边界 | **正式资格尚未通过**；局部 900 秒源码和 fixture 不等于 U3-L PASS |
+| U4 | 候选已受控加载，但真实浏览器访问遇保存的权限拒绝；下一次真实请求的现金/Rights/额度上界未得到充分证明 | **BLOCKED**；静态 GET/HTTP 200 不能替代真人 Web |
+| U5 | 需要 U2 同版候选、U3-S、U4 PASS 和逐次有价/真实模型授权 | **未正式进入**；隔离 Planning 实验不是 Web 短片 Debug |
+| U6 | 全 Gate 与同版 U3-L 后，从独立新 Web Creation 做真实 MP4、审片/入库 | **未执行，Release 未授权** |
 
-- **源码已固定**：可靠性工作包 8 个文件提交为 `4d8110589a27fa5621d633fafdbc1292f8a08d49`，包括 SDK 异常分类、版本固定的 OpenClaw 2026.9.4 补丁、隔离 Planning 评测代理的阶段感知 HTTP 恢复与测试。只有确定业务 POST 尚未发送的临时连接故障才允许有限重试；提交/结果未知保留 `UNKNOWN`。**评测代理恢复不等于生产 Gateway 已支持通用自动重试**。
-- **离线证据**：Structured Result 27 PASS（Gateway 升级后复跑 Job `wc_job_JyIErVLNUgHDhcEd`）；以已核 SHA 的隔离 Runtime 运行 Native 工程 12 PASS、8 个未选择（`wc_job_SNzuGfyoaXIpzr8C`）；从已知上一版补丁到新版的离线升级演练成功，11 个运行组件全部匹配。
-- **已受控加载**：正式安装 OpenClaw 2026.9.4 在升级前确认为已知旧补丁；备份 9 个代码组件到 Mac 私有路径 `~/Library/Application Support/Easel/backups/openclaw-structured-20261010T134205Z-85911` 后执行 8 目标补丁；安装目录 11/11 SHA PASS。Gateway `ai.openclaw.easel` 与 Easel Web `com.easel.web` 经原有 `launchd` 受控重启，二者 HTTP 200、Gateway Profile Health PASS、Node helper 加载 PASS；没有真实模型/Provider/付费媒体调用。正式资格批与新作品 E2E **仍需另行验收**。
-## 4. 真实作品与预算状态
+**U3-S 原件证据：**2026-10-12 的 `final.mp4` 经 FFprobe 为 50.000 秒 H.264 1080×1920 + AAC；SHA256 `07024bb66cb601fb144179598f482b4c06d1c1c2d7330f14e9148043c9c2d070`。它验证了内部真实媒体软件链路，但 Planning/Truth/外部素材和人工 Review 在这一 CI 中有合法替身，不得写成真实 Web E1。
 
-- 历史原作品的 Material 恢复曾达到 **R17 / 9 of 9 / MATERIAL_READY**；这是一个历史素材终点，不是工程视频完成、全类 BGM 能力通过或新 Creation 的真实 E2E。旧失败、UNKNOWN 和真实调用账单保持原值。
-- 历史 Planning 资格/开发批次多次因语义、网关、上游响应等停止；旧批失败原件保留，不能以软件 450 PASS 重写成真实资格 PASS。
-- **O1 可靠性软件/Runtime 加载已完成**；下一阶段是在独立模型与费用授权下沿唯一 Creation→Hypit 主链制作并验收一条**全新工程视频**，逐作品核对 Planning/Truth、Material/Rights、Build、Quality 和人工 Review；之后再做独立 6/6 资格及同一版本 3 个新主题稳定性证明。真实模型稳定性和线上通用自动重试不能由 O1 的离线测试推导为 PASS。
-## 5. 本地工作区与证据保护
+## 当前 Production 与 Planning 事实（不是当前调度入口）
 
-- 正常主仓库 `/Users/xgx/Projects/Easel`；ADR-005 已推送，可靠性代码单独提交。文档治理属于独立清理变更，具体 Git 提交/远端状态以实际 SHA 对账；约 1,192 个未跟踪的 `docs/acceptance/fixtures/` 历史验收原件继续保留，不为清洁 Git 而删除。- 原历史 Task 的内容保留于 Git（包括 `creator-e2e-repair-2026-09-30.md` 和 `v1c-t19-low-friction-creation.md`）；当前唯一授权入口为 Creator 自主首版 Task。不要对已删除文档恢复平行实施入口。
-- 状态入口只更新本文，顺序只更新 [Roadmap](03_ROADMAP.md)，决策与冻结领域合同以 ADR/Architecture 为准；一次运行的细节留在原 Acceptance，不再为每个失败批次在本文新增倒序日志。
+- 原 Web Creation `cr_c59c0f598fa0412593f31cbeda934dfb`：Proposal @4 已确认；Delivery `failed`（Planning v3 合同错误），现存 7 个 Attempt。原件和已计额度保留，不自动重试，不把既有 Web 调试作品冒充独立 E1。
+- 2026-10-14 隔离真实 MiniMax Planning 批次 `r02`：原 Job `wc_job_M7dcEmbRkeJlJ0tf` 终止，业务 `FAIL`；HTTP 3/3 完成，A-details-002 原 Agent pending、无完整 B/Truth/Plan；259 冻结文件仅 258 匹配，一个测试文件运行中发生变化。**既不证明 B 聚合成功/失败，也不是 U4/U5 的额外准入条件。**保全原 run/session/占额，绝不重派或清零；按用户最新要求不把单独修 r02 等待问题设为主任务。
+- 已发生的完整 Planning 诊断/局部 PASS、模型 reported tokens 和历史 UNKNOWN 仅属原运行证据；不以独立“十例至少八例成功”替代 U5 的真实 Web 作品验收。真实 Web 首个阻塞才触发定点合同修复。
 
-## 6. 下一动作及明确非目标
+## 当前 Git / 文档保全状态
 
-1. 核对可靠性代码与本轮文档整理的精确 Git 提交、远程 SHA，以及正式 Gateway/Web 运行版本；原件、费用与 `UNKNOWN` 一律不清零。
-2. 后续用户单独授权后再开始一条全新工程视频的真实 Planning→Hypit E2E；禁止把本轮软件与 Runtime 加载证明当作真实模型稳定性、付费 Build 或视频验收通过。
-3. 文档维护继续遵守唯一 Current State/Roadmap/Task 入口，历史从 Git 与 Acceptance 追溯，不恢复旧 Writer 或第二生产链。
+- Mac 工作区 `/Users/xgx/Projects/Easel`，分支 `easel-studio`，HEAD `ce6fa81739b812ff6bed8115cabd78bdf548e389`。整理前 219 dirty = 93 修改、121 删除、5 未跟踪；旧 Skill/Web 退役的删除不可因清洁 Git 而回滚，新 Planning 源码和四份测试夹具不可盲删。
+- **整理前原件完整快照（本机私有）**：`/Users/xgx/.local/share/easel/creator-task-evidence/2026-10-14-workspace-docs-consolidation-r01/`；包括 `manifest-before.json`、`worktree-triage.json`、`working-files-before.tar.gz`、`git-worktree-before.patch.gz`、`before-docs/`。原 Task 和 State 全文、98 项实际文件字节及 121 项待删 Git HEAD blob 身份均已留存，SHA 见[唯一 Creator Task](tasks/creator-autonomous-first-cut-2026-09-30.md)。
+- 当前操作仅对 `DOCUMENT_INDEX.md`、`02_CURRENT_STATE.md`、`03_ROADMAP.md` 和唯一 Creator Task 做文档整理，不修改已运行的 Creation/Attempt、源码/测试、服务、Secret、Rights/账单或素材原件。历史正文从私有归档及具名 Acceptance 查询，旧日期的 `NEXT_SINGLE_ACTION` 不具有调度权。
+
+## NEXT_SINGLE_ACTION（后续业务，需另行授权）
+
+**先完成 U4 无副作用 Web / Runtime / 权利 / 额度准入。**保留之前已保存的本地地址浏览器权限拒绝，不通过换通道绕过。需要有证据区分同版受控加载、真实 UI 可用性和下一请求费用/权益后，才能申请 U5 的正式 Web Creation/confirm_production 短片 Debug。Planning 在该 Web 生产链中继续；U3-L 可以与合法的 U5 短片工作并行，但 U6 必须等待 U3-L 同版资格通过。
+
+**本轮停止条件：**用户只授权工作区快照、索引/状态/路线图对齐和唯一 Task 精简 1–3 项，完成即停。不因此自动开始 U4/U5、真实模型/Provider、Hypit Build、服务重启、Git commit/push 或 Release。

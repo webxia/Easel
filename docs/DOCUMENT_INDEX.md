@@ -1,5 +1,6 @@
 # Easel 文档路由器
 
+> **2026-10-14 当前唯一状态：**New-Only U2 已于 2026-10-12 达到受控候选 READY，U3-S 本地 50 秒混音 MP4 软件验收 PASS；**U4=BLOCKED**（真实浏览器权限/费用准入缺证），U3-L 900 秒完整资格未通过，U5/U6 未执行。工作区后来有变更，旧指纹资格不自动转移；本轮只做已授权的工作区与文档整理 1–3 项，完成即停。真实状态见[Current State](02_CURRENT_STATE.md)，唯一运行证据见[E2E 账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md)。
 本索引负责告诉读者“下一步读什么”，不是所有文档的平铺清单。默认上下文应短；历史材料按需打开。
 
 ## 默认上下文
@@ -41,7 +42,7 @@
 | 创作耗时/性能 | 默认上下文 + [`创作耗时优化`](tasks/creation-latency-2026-10-02.md) | Delivery Owner、素材供应/观察、编排及审片；以阶段计时与实际调用次数验证，真实端到端时延单独验收。 |
 | Runtime / 外部依赖 / 凭证 | 默认上下文 | [`configuration/v1-runtime-and-external-dependencies.md`](configuration/v1-runtime-and-external-dependencies.md) 和所选能力的 readiness Acceptance；严禁读取或输出 secret。 |
 | MiniMax M Plan Explore 迁移 | [接入改动清单](configuration/minimax-m-plan-explore-migration-2026-10-06.md) | 待实施方案，包含文字模型、思考回放、媒体套餐及旧作品授权；不代表配置已加载或真实验收通过。 |
-| 真实产品/E2E 验证 | 默认上下文 + [T15](tasks/v1c-t15-e2e-readiness.md) | T15 只作历史验收基线；当前范围读取唯一自主首版 Task，再读该条具名 Acceptance、实际 Attempt/Build 证据及所需当前契约。 |
+| 真实产品/E2E / New-Only 视频改造 | 默认上下文 + [**已批准的唯一主实施标准**](architecture/web-backend-new-only-cutover-plan-2026-10-11.md) | 本文 §1–§8 的 R1–R6 与 U0–U6 是**现行唯一目标、顺序与验收规则**；实际授权/Owner 见 [唯一 Creator Task](tasks/creator-autonomous-first-cut-2026-09-30.md)，运行与历史证据见 [E2E 唯一验收账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md)。标准获批≠已经修改 ADR/代码或授权真实执行。 |
 | 文档历史、旧设计或审计追因 | 默认上下文 | 使用下方 Historical 路由；明确说明它是历史证据。 |
 
 ## 架构入口
@@ -53,10 +54,12 @@
 - **当前代码路径：** 以源码、测试和 [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) 为准。
 - 其他架构说明已删除；需要新增设计时先更新当前架构入口或创建 ADR，不再堆积独立审计快照。
 
+- **当前唯一主方案 / 实施身份：**[New-Only → Web E2E 第 8 章](architecture/web-backend-new-only-cutover-plan-2026-10-11.md)；状态 **`APPROVED_SINGLE_EXECUTION_STANDARD / U2_CANDIDATE_READY（2026-10-12 原指纹） / U3-S=PASS / U4=BLOCKED / U3-L=NOT_QUALIFIED / U5,U6=NOT_STARTED / RELEASE_NOT_AUTHORIZED`**。U2 后新增工作区改动不得冒充当时冻结同版。唯一[Creator Task](tasks/creator-autonomous-first-cut-2026-09-30.md)持有 Owner 和授权，[E2E 账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md)保存实际运行。Planning 跟随 Web Creation/Delivery，独立稳定性测试不是 U5 额外 Gate；本轮只执行文档治理，不自动生产或部署。
 ## 当前 Workstreams 与历史路由
 
-- **当前视频交付**：[自主首版唯一实施 Task](tasks/creator-autonomous-first-cut-2026-09-30.md)。O1 可靠性已完成软件实现、离线测试与受控 Gateway/Web 加载；下一阶段需另行授权，沿唯一 Creation + Hypit 主链制作一条新作品，再做 6/6 及三个新主题的稳定性验收，预算和外部模型权限不自动扩大。- **Planning/模型输出可靠性**：[原合同治理 Task](tasks/planning-material-boundary-matrix-2026-10-06.md)；[Planning Semantic Boundary vNext](tasks/planning-semantic-boundary-vnext-2026-10-07.md) 保留独立冻结语义边界，旧失败按其 Acceptance 查，不把工程样本当正式资格。
-- **Material/BGM/视频性能**：[素材与耗时总入口](tasks/creation-latency-2026-10-02.md)、[BGM Task](tasks/creation-bgm-readiness-2026-10-05.md)、[视频流程软件 Task](tasks/creation-video-flow-software-2026-10-05.md)。历史旧作品 R17 的素材恢复不代表完整新视频通过。
+> **2026-10-11 主线收敛：**独立噪音治理 Goal `wc_goal_7qRkRJmGzXXU4iWN` 的未完成步骤 4/5 已逐项并入[唯一 Creator Task 的 U2 清单](tasks/creator-autonomous-first-cut-2026-09-30.md)。此后只从该 Task 领取 U2 工程事项；原 Goal 已标记为 `cancelled`（Revision 8，事项已移交，并非任务全部完成）；历史检查点保留，不再并行实施。已通过的局部安全/旧入口测试不等于 New-Only 候选、Runtime 同版或 E1 PASS；发布及真实 E2E 仍需授权。
+
+- **当前视频交付：**[唯一 Creator Task](tasks/creator-autonomous-first-cut-2026-09-30.md)只保留当前调度入口；历史所有 Closure 已以 SHA 归档，不从旧 `NEXT_SINGLE_ACTION` 接续。**Planning/模型合同历史仅作按需查证：**[Planning Matrix](tasks/planning-material-boundary-matrix-2026-10-06.md)及[Semantic Boundary vNext](tasks/planning-semantic-boundary-vnext-2026-10-07.md)，不新开并行稳定性 Goal；真实出片先走 U4 → U5。- **Material/BGM/视频性能**：[素材与耗时总入口](tasks/creation-latency-2026-10-02.md)、[BGM Task](tasks/creation-bgm-readiness-2026-10-05.md)、[视频流程软件 Task](tasks/creation-video-flow-software-2026-10-05.md)。历史旧作品 R17 的素材恢复不代表完整新视频通过。
 - **生成素材**：[Generated Material Workstream](workstreams/generated-material.md)。真实 Provider、TTS、媒体生成和发布都需要原任务明确权限；代码已接入不等于端到端验收通过。
 - **保留的历史材料**：[Planning 声音合同修复](tasks/planning-modality-contract-2026-10-06.md)、[运行环境恢复](tasks/creation-runtime-release-2026-10-03.md)、[已完成的素材历史](tasks/creation-latency-completed-2026-10-05.md)、[旧 Creator 验收](acceptance/creator-workspace-e2e-2026-09-30.md)、[T15 历史 E2E 基线](tasks/v1c-t15-e2e-readiness.md)。已并入主 Task 的低打扰 T19、Creator E2E 前修复文档仅从 Git 历史检索，不恢复并列 Task。
 - **已完成的新协议清理**：[ADR-005 CUT0–CUT6](tasks/adr005-new-only-cutover-2026-10-10.md) 与 [历史 Hypit 测试精确退役](acceptance/adr005-hypit-native-legacy-test-retirement-2026-10-10.md)。当前不应再按旧版本 Writer 执行。

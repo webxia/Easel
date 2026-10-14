@@ -61,7 +61,7 @@ python skills/shared/scripts/ai_video.py check --provider dashscope
      --image outputs/主题名/cover.png --prompt "人物微笑挥手，头发轻微飘动" \
      -o outputs/主题名/clip.mp4
    ```
-5. **后续加工**：生成的片段可交给 `video_ops.py`（拼接/加字幕/加 BGM/横竖转）、`auto-subtitle`（字幕）、`tts-voiceover`（配音）串成成片，或直接进 `auto-short-video` 端到端流程。
+5. **后续使用**：本能力只提供单个素材片段及来源证据；已有媒体的独立剪辑可复用 `video_ops.py`、`auto-subtitle` 等工具。新建 Easel 正式视频作品须走 Web Creation 确认 → Delivery → Material/Authoring → Hypit，不能绕过主链用 Skill 拼装并直接认领成片。
 
 ## Profile 感知
 

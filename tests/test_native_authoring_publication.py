@@ -30,27 +30,59 @@ pytestmark = pytest.mark.parametrize("material_integration_env", [
 ], indirect=True)
 
 
-def native_owner(attempt):
-    _planning(attempt)
-    root = Path(attempt["workspace"]["path"])
-    plan, asset, supply, bundle, _, _ = _contracts(attempt, root)
-    stream = io.BytesIO()
-    Image.new("RGB", (1, 1), "white").save(stream, format="PNG")
-    data = stream.getvalue()
-    store = AttemptMaterialStore(root)
-    store.resolve_asset_locator(asset.file.path).write_bytes(data)
-    asset = asset.model_copy(update={"file": asset.file.model_copy(update={
-        "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
-    })})
-    store.write_asset(asset)
-    bundle = MaterialBundleAssembler().assemble(plan, supply, (asset,), bundle.matches, bundle_id=bundle.bundle_id)
-    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
-    attempt.update(MaterialGateIntegration().record(attempt, plan, bundle, supply, readiness, gaps)["attempt"])
-    attempt.update(ProductionAuthoringIntegration().prepare(attempt)["attempt"])
-    attempt.update(service.begin_film_authoring(attempt["attempt_id"]))
+def native_owner(attempt, *, rights_review=None):
+    """Current New-Only Planning → licensed Local Material → native Authoring.
+
+    Only external semantic model responses and the later Hypit Check boundary
+    are fixed offline. Never mint material READY or submit an actual Build.
+    """
+    from PIL import ImageDraw
+    from easel.integrations.material_layer import MaterialProductOrchestrator
+    planning = _planning(attempt)
+    plan = planning['plan']
+    root = Path(attempt['workspace']['path'])
+    source_dir = root / 'self-created-native-source'
+    source_dir.mkdir(exist_ok=True)
+    source_file = source_dir / 'two-white-papers.jpg'
+    picture = Image.new('RGB', (720, 1280), (95, 76, 57))
+    draw = ImageDraw.Draw(picture)
+    draw.rectangle((72, 310, 316, 765), fill=(248, 248, 245))
+    draw.rectangle((380, 330, 660, 790), fill=(249, 248, 245))
+    picture.save(source_file)
+    source_file.with_name(source_file.name + '.rights.json').write_text(
+        json.dumps({'schema': 'easel-local-rights@1',
+            'asset_sha256': hashlib.sha256(source_file.read_bytes()).hexdigest(),
+            'rights': {'status': 'KNOWN', 'license_name': 'Self-created offline Native fixture',
+                'evidence': [{'kind': 'asset_license',
+                              'reference': 'https://rights.example/native-fixture',
+                              'summary': 'Two rectangular paper shapes drawn by test code.'}]}},
+            ensure_ascii=False), encoding='utf-8')
+    supply = MaterialProductOrchestrator().run_with_planning(attempt, (source_dir,), planning)
+    assert supply['status'] == 'MATERIAL_NOT_READY'
+    asset = next(a for a in supply['supply'].bundle.assets
+                 if a.rights.status.value == 'KNOWN')
+    if rights_review is not None:
+        # An actual current operator Rights review updates Source, bytes-bound
+        # Rights and Gate before visual Match and before Authoring begins.
+        reviewed = MaterialProductOrchestrator().review_material_rights(
+            attempt['attempt_id'], asset_id=asset.asset_id,
+            expected_sha256=asset.file.sha256, rights=rights_review['rights'],
+            confirm_review=True, source_creator=rights_review['creator'],
+            source_page=rights_review['source_page'],
+        )
+        assert reviewed['material_status'] == 'MATERIAL_NOT_READY'
+        asset = AttemptMaterialStore(root).read_asset(asset.asset_id)
+    review = MaterialProductOrchestrator().review_material_match(
+        attempt['attempt_id'], asset_id=asset.asset_id,
+        expected_sha256=asset.file.sha256, need_id=plan.needs[0].need_id,
+        observed_content='桌面上有两张清晰完整的白色纸张，背景为棕色桌面，没有文字。',
+        logo_present=None, visible_text_present=None, confirm_review=True)
+    assert review['material_status'] == 'MATERIAL_READY'
+    attempt.update(service.get_film_attempt(attempt['attempt_id']))
+    attempt.update(service.begin_film_authoring(attempt['attempt_id']))
     _record_authored_selection(attempt, asset, root)
     selection = json.loads((root / publication.SELECTION).read_bytes())
-    src = selection["assets"][0]["src"]
+    src = selection['assets'][0]['src']
     source = f'''<?svml using="@hypit/markup@1"?>
 <svml>
 <import as="time" from="@hypit/timeline-author@1"/>
@@ -61,13 +93,13 @@ def native_owner(attempt):
 <import as="render" from="@hypit/render-hyperframes@1"/>
 <import as="recipes" source="./recipes.svs"/>
 <time:Clock id="clock" frame-rate="24"/>
-<time:Timeline id="program" clock={{clock}} end="1s"/>
+<time:Timeline id="program" clock={{clock}} end="15s"/>
 <space:Canvas id="canvas" width="1080" height="1920"/>
 <space:Frame id="full-frame" within={{canvas}} left="0px" top="0px" right="1080px" bottom="1920px"/>
-<space:Extent id="image-size" width="1" height="1"/>
+<space:Extent id="image-size" width="720" height="1280"/>
 <media:Image id="selected" src="{src}"/>
 <picture:Track id="pictures" canvas={{canvas}} timeline={{program.timeline}}>
-  <Item id="scene-main" image={{selected}} extent={{image-size}} frame={{full-frame}} appearance={{recipes.media.frame}} at="0s" for="1s"/>
+  <Item id="scene-main" image={{selected}} extent={{image-size}} frame={{full-frame}} appearance={{recipes.media.frame}} at="0s" for="15s"/>
 </picture:Track>
 <film:Film id="movie" canvas={{canvas}} timeline={{program.timeline}} appearance={{recipes.film.memo}}>
   <Track source={{pictures.visual}}/>
@@ -77,14 +109,16 @@ def native_owner(attempt):
 <!-- 原始模型产物 😀 -->
 '''
     source += "<!-- Easel expression: " + json.dumps({
-        "need_id": "need-main", "element_ids": ["scene-main"], "at_seconds": 0,
-        "end_seconds": 1, "responsibility": "material",
+        "need_id": plan.needs[0].need_id, "element_ids": ["scene-main"],
+        "at_seconds": 0, "end_seconds": 15, "responsibility": "material",
     }, ensure_ascii=False) + " -->\n"
     (root / publication.AUTHOR).write_bytes(source.replace("\n", "\r\n").encode())
     (root / publication.AUTHOR).with_name("recipes.svs").write_text(
         '<?svml using="@hypit/svs@1"?>\n<sheet version="1">\n'
         'film.memo { background: #101820; }\nmedia.frame { stack-order: 0; }\n</sheet>\n')
-    return service.get_film_attempt(attempt["attempt_id"]), root
+    return service.get_film_attempt(attempt['attempt_id']), root
+
+
 
 
 class CheckBoundary:

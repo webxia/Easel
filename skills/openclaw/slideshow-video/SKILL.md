@@ -1,6 +1,6 @@
 ---
 name: slideshow-video
-description: "图片相册 → 视频：把一组图片做成带 Ken Burns 缓慢缩放、图间转场、背景音乐和逐图字幕的视频，自动适配平台画幅（竖版/方形/横版）。当用户说 图片转视频、图片做成视频、相册视频、照片视频、一组图生成视频、图片轮播视频、幻灯片视频、把这几张图做成短视频、图集成片、卡点图片视频 时使用。基于 shared/scripts/slideshow.py 确定性 ffmpeg 封装。与 auto-short-video 区别：auto-short-video 从一句话主题自动生成配图/配音成片，本 SKILL 用用户已有的图片直接拼成视频。"
+description: "图片相册 → 视频的已有素材编辑工具：用户提供图片时按已确认画幅添加 Ken Burns、转场、背景音乐与字幕，基于 shared/scripts/slideshow.py 的确定性 ffmpeg 封装。当用户说图片转相册视频或图集剪辑时使用；它不负责从主题自动生产 Easel 正式视频，新 Creation 必须经 Creator 确认与 Delivery/Hypit。"
 layer: produce
 ---
 
@@ -10,7 +10,7 @@ layer: produce
 > 自动适配目标画幅。全部走 `skills/shared/scripts/slideshow.py`，**不要手拼
 > zoompan / xfade**——脚本已处理帧数换算、转场偏移、音画时长对齐。
 
-> 只做"已有图片 → 视频"。从主题自动生成配图/配音的完整流水线见 **auto-short-video**；
+> 只做“已有图片的独立编辑”，不创建 Easel 正式视频作品；从主题发起视频必须经 Web Creation 确认并由 Delivery/Hypit 完成；
 > 已有视频的剪辑见 **video-editing**；单张封面/海报见 **poster-hero**。
 
 ## 输入
@@ -71,5 +71,5 @@ python skills/shared/scripts/slideshow.py build --images-dir ./photos \
 ## 参考来源
 
 Ken Burns（缓慢缩放位移）+ 交叉转场 + BGM 是相册/图集视频的标准做法（MoneyPrinterTurbo
-等短视频工具同款思路）；本 SKILL 复用 auto-short-video 合成器的 zoompan 方案，把帧数换算与
+等短视频工具同款思路）；本 SKILL 自身以 `skills/shared/scripts/slideshow.py` 封装缩放位移方案，把帧数换算与
 xfade 偏移计算封装成确定性脚本，避免手写滤镜链出错。

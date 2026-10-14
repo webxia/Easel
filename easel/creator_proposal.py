@@ -82,36 +82,77 @@ def _plan_payload(plan: dict) -> dict:
     return {key: plan[key] for key in keys if key in plan}
 
 
+def _preset_voice_choices(source: str) -> list[str] | None:
+    """Recognize complete declarations without changing the frozen source.
+
+    Only a single flat Markdown list marker is presentation. Count every line
+    containing the declaration label, so malformed or decorated alternatives
+    cannot be silently ignored beside a valid identity.
+    """
+    choices = []
+    for line in source.splitlines():
+        if '预置旁白' not in line:
+            continue
+        declaration = re.fullmatch(r'(?:[-*+][ \t]+)?预置旁白：[ \t]*([^\r\n]+)', line)
+        if declaration is None:
+            return None
+        choices.append(declaration[1])
+    return choices
+
+
 def validate_video_plan(plan: dict, *, require_current: bool = True) -> bool:
+    """New production accepts only the single @4 contract.
+
+    Historical proposals are preserved as opaque evidence; this validator is
+    not a compatibility decoder and never upgrades an old plan.
+    """
     import hashlib
     import json
     from easel.integrations.hypit.secrets import SecretRedactor
-    if not isinstance(plan, dict) or plan.get('schema') not in ({'easel-video-proposal@2', 'easel-video-proposal@3'} if require_current
-                                                              else {'easel-video-proposal@1', 'easel-video-proposal@2', 'easel-video-proposal@3'}):
+    if not isinstance(plan, dict) or plan.get('schema') != 'easel-video-proposal@4':
         return False
-    if any(not isinstance(plan.get(k), str) or not plan[k].strip() for k in PLAN_SECTIONS.values()):
+    allowed = {'schema', 'treatment', 'script', 'scenes', 'sound', 'specs',
+               'specification_notes', 'sound_source', 'voice_profile',
+               'sha256', 'revision', 'updated_at'}
+    if set(plan) - allowed or any(key not in plan for key in (
+            'schema', 'treatment', 'script', 'scenes', 'sound', 'specs', 'sha256')):
         return False
-    if not isinstance(plan.get('specs'), dict) or set(plan['specs']) != set(SPEC_LABELS):
+    if any(not isinstance(plan.get(k), str) or not plan[k].strip()
+           for k in PLAN_SECTIONS.values()):
         return False
-    if require_current and (_mixed_script(plan['script']) or '\x00' in plan['script']):
+    if _mixed_script(plan['script']) or '\x00' in plan['script']:
+        return False
+    if ('specification_notes' in plan
+            and (not isinstance(plan['specification_notes'], str)
+                 or not plan['specification_notes'].strip())):
+        return False
+    specs = plan.get('specs')
+    if not isinstance(specs, dict) or set(specs) != set(SPEC_LABELS):
+        return False
+    duration = specs.get('duration_seconds')
+    if (type(duration) is not int or not 1 <= duration <= 900
+            or specs.get('aspect_ratio') not in {'9:16', '16:9', '1:1', '4:5', '4:3', '3:4'}
+            or specs.get('language') not in {'zh-CN', 'zh-TW', 'en'}
+            or specs.get('audio_mode') not in {'silent', 'music', 'voice', 'mixed'}):
         return False
     if SecretRedactor.contains_secret(plan):
         return False
-    if plan['schema'] == 'easel-video-proposal@3':
+    if specs['audio_mode'] in {'voice', 'mixed'}:
         from easel.integrations.voice_identity import validate_profile, render_sound
         try:
             validate_profile(plan.get('voice_profile'))
-            if (plan['specs']['audio_mode'] not in {'voice', 'mixed'}
-                    or plan['specs']['language'] != plan['voice_profile']['language']
-                    or not isinstance(plan.get('sound_source'), str) or not plan['sound_source'].strip()
-                    or re.findall(r'(?m)^预置旁白：[ \t]*([^\r\n]+)$', plan['sound_source']) != [plan['voice_profile']['handle']]
+            if (specs['language'] != plan['voice_profile']['language']
+                    or not isinstance(plan.get('sound_source'), str)
+                    or not plan['sound_source'].strip()
+                    or _preset_voice_choices(plan['sound_source']) != [plan['voice_profile']['handle']]
                     or plan['sound'] != render_sound(plan['sound_source'], plan['voice_profile'])):
                 return False
         except ValueError:
             return False
     elif 'voice_profile' in plan or 'sound_source' in plan:
         return False
-    encoded = json.dumps(_plan_payload(plan), ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+    encoded = json.dumps(_plan_payload(plan), ensure_ascii=False, sort_keys=True,
+                         separators=(',', ':'))
     return plan.get('sha256') == hashlib.sha256(encoded.encode()).hexdigest()
 
 
@@ -142,21 +183,22 @@ def parse_video_plan(response: str, *, voice_profile=None, bind_preset=False) ->
     if container is None: return None
     script = container[1]
     if not script.strip() or '\x00' in script or re.search(r'(?m)^```', script) or _mixed_script(script): return None
-    payload = {'schema': 'easel-video-proposal@2', **{key: sections[name].strip() for name, key in PLAN_SECTIONS.items()}}
+    payload = {'schema': 'easel-video-proposal@4', **{key: sections[name].strip() for name, key in PLAN_SECTIONS.items()}}
     payload['script'] = script
     if any(not payload[k] or payload[k] in {'待确认', '待补充', '待生成'} for k in PLAN_SECTIONS.values()): return None
     settings = sections.get('制作规格', '').strip()
     payload['specs'] = proposal_specs([{'role': 'assistant', 'content': settings}])['specs']
-    if bind_preset and payload['specs']['audio_mode'] in {'voice', 'mixed'}:
+    if payload['specs']['audio_mode'] in {'voice', 'mixed'}:
         from easel.integrations.voice_identity import validate_profile, render_sound
         try:
             validate_profile(voice_profile)
         except ValueError:
             return None
-        choices = re.findall(r'(?m)^预置旁白：[ \t]*([^\r\n]+)$', payload['sound'])
+        # Inspect before section-edge trimming can hide an indented declaration.
+        choices = _preset_voice_choices(sections['声音设计'])
         if choices != [voice_profile['handle']] or payload['specs']['language'] != voice_profile['language']:
             return None
-        payload.update(schema='easel-video-proposal@3', voice_profile=voice_profile,
+        payload.update(voice_profile=voice_profile,
                        sound_source=payload['sound'], sound=render_sound(payload['sound'], voice_profile))
     if settings: payload['specification_notes'] = settings
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
@@ -172,8 +214,10 @@ def video_proposal_preview(work: dict, turns: list[dict]) -> dict:
     missing = [label for key, label in SPEC_LABELS.items() if specs.get(key) is None]
     if not plan:
         missing.append("完整视频方案（文案、分镜与声音设计）")
-    elif plan.get('schema') not in {'easel-video-proposal@2', 'easel-video-proposal@3'} and workflow.get('proposal_status') != 'CONFIRMED':
-        missing.append('旧方案需要正常修订正文格式后再确认')
+    elif plan.get('schema') != 'easel-video-proposal@4':
+        missing.append('旧方案需要更新为当前 Proposal @4 才能确认')
+    elif not missing and not validate_video_plan(plan):
+        missing.append('当前方案来源或完整性校验失败，请重新核对并确认')
     elif workflow.get("proposal_status") not in {"READY_FOR_CONFIRMATION", "CONFIRMED"} and not missing:
         missing.append(workflow.get("proposal_error") or "当前方案尚未完成更新")
     return {"specs": specs, "missing": missing}

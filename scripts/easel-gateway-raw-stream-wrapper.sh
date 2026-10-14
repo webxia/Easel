@@ -13,7 +13,7 @@ fi
 
 mkdir -p "$(dirname "$stream_path")"
 [ ! -L "$stream_path" ] || { echo "Refusing symlink raw-stream path" >&2; exit 1; }
-: > "$stream_path"
+: >> "$stream_path"
 chmod 600 "$stream_path"
 
 export EASEL_RAW_STREAM_PATH="$stream_path"

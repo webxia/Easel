@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, ValidationInfo, field_validator, model_validator
 
-REPLY_CONTRACT = 'planning-result-v2'
 MAX_RESULT_BYTES = 8 * 1024 * 1024
 MAX_REQUEST_BYTES = 1024 * 1024
 MAX_B_ANSWERS = 48

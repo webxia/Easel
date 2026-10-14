@@ -52,16 +52,25 @@ def commission_generated_rights(work, plan, need, asset, record, script):
         input_digest = hashlib.sha256(visual_generation_prompt(need).encode()).hexdigest()
         input_key = 'prompt_sha256' if modality == 'video' else 'input_sha256'
     authorization = work['delivery'].get('authorization', {})
-    declaration = authorization.get('input_use') or {}
-    version = {'easel-input-use@1': 1, 'easel-input-use@2': 2}.get(declaration.get('schema'))
-    if version is None or (not is_voice and version < 2):
+    declaration = authorization.get('input_use')
+    # Consent is an exact @4-Proposal-scoped @3 declaration. Old @1/@2
+    # statements are immutable evidence, never current generation authority.
+    # Recheck even after is_managed: this limited Rights claim must not admit
+    # a changed operation, SCRIPT, identity or frozen audio permission.
+    proposal = work['delivery'].get('video_plan')
+    try:
+        issued = creation.input_use_preview(plan=proposal)
+    except (creation.CreationError, ValueError, TypeError, KeyError):
         return None
-    expected = creation.input_use_preview(version=version)
-    if (any(declaration.get(key) != value for key, value in expected.items())
-            or declaration.get('creation_id') != work['id']
-            or declaration.get('proposal_sha256') != work['delivery'].get('proposal_sha256')
-            or declaration.get('confirmed_at') != work['delivery'].get('confirmed_at')
-            or declaration.get('confirmed_by_turn') != work['delivery'].get('confirmed_by_turn')):
+    expected = {**issued, 'creation_id': work['id'],
+                'proposal_sha256': work['delivery'].get('proposal_sha256'),
+                'confirmed_at': work['delivery'].get('confirmed_at'),
+                'confirmed_by_turn': work['delivery'].get('confirmed_by_turn')}
+    required_op = 'preset_voice_synthesis' if is_voice else 'text_to_visual_generation'
+    if (declaration != expected or issued['schema'] != 'easel-input-use@3'
+            or required_op not in issued['operations']
+            or (is_voice and issued['audio_mode'] not in {'voice', 'mixed'})
+            or issued['script_sha256'] != hashlib.sha256(script.encode('utf-8')).hexdigest()):
         return None
     approval = record.get('commission_authorization') or {}
     grant = authorization.get('material_generation') or {}

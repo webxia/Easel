@@ -172,6 +172,79 @@ def test_material_delta_tampered_capture_rejected_on_cold_reuse(tmp_path):
     with pytest.raises(receipts.OutputReceiptError):
         material_results.verify_report(store, manifest, report)
 
+@pytest.mark.parametrize('risk', [
+    'unknown_first', 'second_uncertain', 'formal_write', 'tampered_projection',
+])
+def test_current_material_delta_multi_batch_checkpoint_replay_and_tamper(
+        tmp_path, monkeypatch, risk):
+    """#11 current domain Owner: real @3 captures, derivations, no paid models.
+
+    Current vNext two-scene Product Owner and frozen PNG requirements are
+    independently checked in test_material_integration. This test checks
+    multiple compact batches, source-bound facts, immutable captures and cold
+    receipt replay without relying on legacy handcrafted Planning.
+    """
+    from easel.creation_delivery import DeliveryExecutionUncertain
+
+    need, asset, attempt, manifest, contract, attachments = _scope(tmp_path)
+    store = AttemptMaterialStore(tmp_path)
+    interrupted = []
+    def answer(payload):
+        if risk == 'second_uncertain' and payload['batch'] == 1 and not interrupted:
+            interrupted.append(payload['batch'])
+            raise DeliveryExecutionUncertain('offline second batch has no terminal reply')
+        if risk == 'unknown_first' and payload['batch'] == 0:
+            return _answer(payload, observed=False)
+        return _answer(payload)
+    pin, invoke, calls = _owner(store, answer)
+    args = {'pin': pin, 'invoke': invoke}
+    if risk == 'second_uncertain':
+        with pytest.raises(DeliveryExecutionUncertain):
+            material_results.observe(attempt, manifest, contract, attachments, **args)
+        assert [row[0] for row in calls[:2]] == ['facts', 'delta']
+        saved_first_call = calls[0]
+    report = material_results.observe(attempt, manifest, contract, attachments, **args)
+    assert report['schema'] == material_results.REPORT
+    assert report['verdict'] == ('uncertain' if risk == 'unknown_first' else 'suitable')
+    assert len(report['result_groups']) >= 2
+    material_results.verify_report(store, manifest, report)
+    if risk == 'unknown_first':
+        assert all(row[0] == 'facts' for row in calls)
+        assert any(not frame['observed'] for frame in report['frames'])
+    if risk == 'second_uncertain':
+        assert interrupted == [1]
+        assert calls[0] == saved_first_call
+        assert sum(1 for _, session, _ in calls if session == saved_first_call[1]) == 1
+    original_count = len(calls)
+    if risk == 'formal_write':
+        native = AttemptMaterialStore.write_observation_record
+        fail = []
+        def interrupted_publication(self, key, value):
+            if key == 'current-delta-formal' and not fail:
+                fail.append(key)
+                raise OSError('offline formal report write interrupted')
+            return native(self, key, value)
+        with monkeypatch.context() as local:
+            local.setattr(AttemptMaterialStore, 'write_observation_record', interrupted_publication)
+            with pytest.raises(OSError, match='write interrupted'):
+                store.write_observation_record('current-delta-formal', report)
+        assert fail == ['current-delta-formal']
+        assert material_results.observe(attempt, manifest, contract, attachments, **args) == report
+        store.write_observation_record('current-delta-formal', report)
+        assert json.loads((store.materials_root / 'observations/current-delta-formal.json').read_text()) == report
+    elif risk == 'tampered_projection':
+        reference = report['result_groups'][1]['derivation']
+        original = store.read_recovery_record(reference['key'])
+        store.write_recovery_record(reference['key'], {**original, 'unbound_projection': True})
+        with pytest.raises(receipts.OutputReceiptError):
+            material_results.verify_report(store, manifest, report)
+        with pytest.raises(receipts.OutputReceiptError):
+            material_results.observe(attempt, manifest, contract, attachments, **args)
+    else:
+        assert material_results.observe(attempt, manifest, contract, attachments, **args) == report
+    assert len(calls) == original_count
+
+
 def test_material_delta_web_owner_to_official_observation_and_cache(tmp_path, monkeypatch):
     """Actual web producer -> receipt -> Material validator -> frozen report -> cold reuse."""
     from easel.integrations.hypit import handoff

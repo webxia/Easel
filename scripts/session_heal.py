@@ -1,16 +1,8 @@
 #!/usr/bin/env python3
-"""session_heal.py — 清洗 OpenClaw 会话历史，去掉「无签名 thinking 块」和空消息，修复回放。
+"""仅修复明确的旧Bedrock assistant无签名thinking块。
 
-根因：OpenClaw 把 Claude 的 thinking 块存进会话历史（`agents/main/sessions/<id>.jsonl`）时
-**丢了 signature**；内网 Bedrock 网关回放时校验签名不通过 → 400 `Invalid signature in
-thinking block` → 前端报「Session history or replay state is invalid」。thinking 块对续接
-不是必须的，删掉即可让回放合法（不影响已产出的最终文本/工具结果）。
-
-做两件事（幂等、原子写、失败不抛）：
-  1. 删除每条 message 里 type 为 thinking / redacted_thinking 的内容块；
-  2. 删除 content 变空（或本就空）的 message 条目（空 content 消息本身也非法）。
-非 message 条目（session/model_change/custom…）原样保留。空 content 消息不含 tool 块，
-删除不会拆散 tool_use/tool_result 配对。
+MiniMax工具续接需要原思考历史；来源不明、其他Provider、带签名或redacted块均保留。
+不按当前默认模型猜测历史消息来源，不手工清洗Planning Harness transcript。
 
 用法：
     session_heal.py <history.jsonl> [--dry-run] [--backup]
@@ -24,9 +16,10 @@ import json
 import os
 import sys
 import tempfile
+from copy import deepcopy
 from pathlib import Path
 
-_THINKING_TYPES = {"thinking", "redacted_thinking"}
+_THINKING_TYPES = {"thinking"}
 
 
 def sanitize_rows(rows: list[dict]) -> tuple[list[dict], dict]:
@@ -39,11 +32,19 @@ def sanitize_rows(rows: list[dict]) -> tuple[list[dict], dict]:
             out.append(r)
             continue
         msg = r.get("message")
+        if (not isinstance(msg, dict) or msg.get('role') != 'assistant'
+                or msg.get('provider') != 'amazon-bedrock'
+                or 'anthropic.claude' not in str(msg.get('model', ''))):
+            out.append(r)
+            continue
+        r = deepcopy(r)
+        msg = r['message']
         content = msg.get("content") if isinstance(msg, dict) else None
         if isinstance(content, list):
             kept = []
             for b in content:
-                if isinstance(b, dict) and b.get("type") in _THINKING_TYPES:
+                if (isinstance(b, dict) and b.get("type") in _THINKING_TYPES
+                        and not b.get('signature') and not b.get('thinkingSignature')):
                     thinking_removed += 1
                     continue
                 kept.append(b)
@@ -127,6 +128,9 @@ def _selftest() -> int:
         {"type": "message", "message": {"role": "assistant", "content": [
             {"type": "tool_use", "id": "t1", "name": "x", "input": {}}]}},               # 保留 tool_use
     ]
+    for row in rows:
+        if row.get('message', {}).get('role') == 'assistant':
+            row['message'].update(provider='amazon-bedrock', model='anthropic.claude-fixture')
     clean, st = sanitize_rows(rows)
     chk("thinking 全删", st["thinking_removed"] == 2)
     chk("空/仅thinking 消息丢 2 条", st["msgs_dropped"] == 2)

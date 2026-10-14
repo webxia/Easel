@@ -51,9 +51,16 @@ def observed_result(attempt, manifest, attachments, *, outcome="suitable", descr
     saved = store.read_recovery_record(key)
     proposed = {"input": frozen, "response": reply, "contract": contract}
     if saved is None:
+        # Pure-domain tests may not yet have a canonical Planning classification.
         store.write_recovery_record(key, proposed)
     else:
-        assert saved == proposed, "frozen requirement classification changed"
+        # The current vNext Planner already froze this exact Need's requirements.
+        # Reuse that genuine checkpoint: the offline observer is not a second
+        # compiler and must neither replace nor reinterpret approved clauses.
+        assert saved.get("input") == frozen, "frozen requirement input changed"
+        assert validate_compilation(frozen, saved["response"]) == saved["contract"], (
+            "frozen requirement receipt is invalid")
+        contract = saved["contract"]
 
     def answer(payload):
         from jsonschema import Draft202012Validator

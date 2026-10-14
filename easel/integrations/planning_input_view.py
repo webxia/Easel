@@ -10,7 +10,7 @@ class SourceSelection:
     Does not select source kind, modality, necessity, obligations, or repair.
     Old malformed selections cannot enter through encode().
     """
-    POLICY = 'planning-source-selection@1'
+    POLICY = 'planning-source-selection@2'
 
     def __init__(self, canonical, catalog):
         from easel.integrations.planning_authority import digest
@@ -32,9 +32,40 @@ class SourceSelection:
         if self.empty_continuity:
             del header['properties']['continuity_choices']
             header['required'].remove('continuity_choices')
+        # Move the existing immutable header constraints to the producer.
+        # Keep the public closed header for the existing admission normalizer.
+        self.allowed_scopes = {}
+        branches = []
+        for modality in header['properties']['modality']['enum']:
+            scope = self.staged.branches[modality]['properties']['scope']
+            if scope is False:
+                handles = []
+            else:
+                if (not isinstance(scope, dict) or 'enum' not in scope
+                        or set(scope) - {'type', 'title', 'minLength', 'maxLength', 'enum'}
+                        or any(name not in self.to_wire for name in scope['enum'])):
+                    raise ValueError('Unknown modality source constraint cannot be approximated')
+                handles = [self.to_wire[name] for name in scope['enum']]
+            self.allowed_scopes[modality] = handles
+            branch = deepcopy(header)
+            branch['properties']['modality'] = {'type': 'string', 'const': modality}
+            branch['properties']['scope'] = {'type': 'string', 'enum': handles} if handles else False
+            branches.append(branch)
+        header['anyOf'] = branches
         Draft202012Validator.check_schema(self.schema)
         self.identity = {'policy': self.POLICY, 'catalog_sha256': digest(catalog),
                          'schema_sha256': digest(self.schema), 'mapping_sha256': digest(self.references)}
+
+    def validate_source_choices(self, selection):
+        """Reject source faults without suppressing other repairable leaves."""
+        if (not isinstance(selection, dict) or not isinstance(selection.get('needs'), list)
+                or any(not isinstance(row, dict) for row in selection['needs'])):
+            raise ValueError('Invalid source selection shape')
+        for row in selection['needs']:
+            modality, handle = row.get('modality'), row.get('scope')
+            if (not isinstance(modality, str) or not isinstance(handle, str)
+                    or handle not in self.allowed_scopes.get(modality, ())):
+                raise ValueError('Selected source violates its modality constraint')
 
     def encode(self, selection):
         Draft202012Validator(self.staged.selection_schema).validate(selection)

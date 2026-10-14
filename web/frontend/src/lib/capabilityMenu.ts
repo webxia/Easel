@@ -266,12 +266,6 @@ export const CAPABILITY_MENU: { meta?: unknown; tabs: CapabilityTab[] } = {
      "label": "视频",
      "items": [
       {
-       "skill": "auto-short-video",
-       "label": "一句话出片",
-       "desc": "一句话主题 → 成品短视频：自动串联 文案→配图/AI视频→配音→字幕→BGM→合成，把 Easel 制作层零件编排成一条'一键出片'流水线。**单条视频、口播/资讯向，画面默认逐句配图 + Ken Burns 缓动，需",
-       "status": "ready"
-      },
-      {
        "skill": "beat-sync-video",
        "label": "卡点视频",
        "desc": "音乐卡点视频 / 踩点视频：检测背景音乐的节拍，让图片或片段在节拍点上切换，配推进/白闪特效，做出燃系'卡点'短视频。当用户说 卡点视频、踩点视频、音乐卡点、节奏卡点、按音乐切换、鼓点视频、踩节奏、beat 卡点、图片卡",
@@ -336,12 +330,6 @@ export const CAPABILITY_MENU: { meta?: unknown; tabs: CapabilityTab[] } = {
        "label": "绿幕合成",
        "desc": "绿幕抠像 / 换背景 / 合成：把绿幕（或蓝幕/指定色）拍摄的前景人物抠出来，合成到新背景——图片、视频、纯色或前景自身模糊。当用户说 绿幕、抠像、抠图换背景、去绿幕、chromakey、绿幕合成、换背景、蓝幕、把绿幕背",
        "status": "ready"
-      },
-      {
-       "skill": "short-drama",
-       "label": "AI 微短剧",
-       "desc": "制作多集 AI 微短剧：建立剧集圣经和角色参考，完成分集剧本、逐镜 I2V、对白审计、配音字幕 BGM 与成片，保持跨镜跨集一致性。 当用户说“AI/横屏/竖屏/微短剧、拍短剧、分集剧本、连续剧情视频、做几集短剧”时使用",
-       "status": "need"
       },
       {
        "skill": "ai-video-gen",

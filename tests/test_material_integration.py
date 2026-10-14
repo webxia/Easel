@@ -111,10 +111,31 @@ def material_integration_env(tmp_path, monkeypatch, request):
     monkeypatch.setattr(handoff, "CREATIVE_MODES_DIR", modes, raising=False)
     monkeypatch.setenv("EASEL_HYPIT_HOME", str(tmp_path / ".easel" / "hypit"))
     monkeypatch.setenv("EASEL_MATERIAL_LIBRARY_ROOT", str(tmp_path / "material-library"))
+    # Guard HTTP TestClient lifespans from dispatching current real commissions.
+    # Only tests explicitly driving Delivery may execute a local fake boundary.
+    from tests.test_creation_preparation import web as direct_web
+    from web import app as package_web
+    async def disabled_background_worker(stop, _execute):
+        await stop.wait()
+    monkeypatch.setattr(direct_web, 'serve_delivery', disabled_background_worker)
+    monkeypatch.setattr(package_web, 'serve_delivery', disabled_background_worker)
+    # Real New-Only Creation/Consent, not a manually entitled historical record.
+    from tests.test_creation_preparation import _confirm_current_video_plan
     work = creation.create_creation(
         "一个需要素材层的短视频", profile="测试", creative_mode="clear_memo_video",
-        route="hypit_video",
+        route="hypit_video", origin={"type": "chat", "session_hash": hashlib.sha256(
+            b"u2a-material-positive-test").hexdigest()},
     )
+    work = _confirm_current_video_plan(work, turn_id="material-confirm")
+    from easel.creation_preparation import _canonical_bytes, _sha256
+    brief = {
+        'schema': 'easel-production-brief@1', 'language': 'zh-CN',
+        'duration_seconds': 15, 'aspect_ratio': '9:16', 'audio_mode': 'silent',
+        'beats': [], 'text_overlays': [], 'visual_constraints': [],
+        'material_sources': [], 'ai_generation_allowed': False,
+        'publication_allowed': False,
+    }
+    brief_sha256 = _sha256(_canonical_bytes(brief))
     package = service.create_creation_handoff(
         work["id"],
         content_core={"schema": "content-core@1", "question": work["idea"]},
@@ -128,7 +149,10 @@ def material_integration_env(tmp_path, monkeypatch, request):
                          "voice": {"tone": "克制", "avoid": []}, "relevant_context": [],
                          "privacy_policy": {"do_not_infer_private_facts": True}},
         production_request={"media_type": "video", "orientation": "9:16", "language": "zh-CN",
-                            "preferred_duration_seconds": {"min": 10, "max": 30}},
+                            "production_brief": brief,
+                            "production_brief_sha256": brief_sha256,
+                            "video_plan": work["delivery"]["video_plan"],
+                            "confirmed_proposal_sha256": work["chat_workflow"]["proposal_sha256"]},
         max_budget_usd=5,
     )
     from easel.integrations import result_protocols as result_versions
@@ -139,7 +163,112 @@ def material_integration_env(tmp_path, monkeypatch, request):
                           'profiles': {**result_versions.DEFAULT_PROFILES,
                                       **getattr(request, 'param', {})}},
     )
+    attempt = service.update_film_attempt(
+        attempt["attempt_id"], event="planning_contract_registered",
+        planning_contract_version=3)
+    from easel.creation_delivery import is_managed
+    assert is_managed(creation.get_creation(work["id"]))
+    assert attempt["planning_contract_version"] == 3
     return attempt
+
+
+
+def test_u2a_material_fixture_is_authorized_newonly_v3_commission(material_integration_env):
+    """All downstream Material tests begin with a real @4 consent and five pins."""
+    from easel.creation_delivery import is_managed
+    from easel.integrations.result_protocols import inherited, current
+    attempt = material_integration_env
+    work = creation.get_creation(attempt['creation_id'])
+    assert is_managed(work)
+    assert attempt['planning_contract_version'] == 3
+    assert inherited(attempt) == current()
+    assert work['delivery']['video_plan']['schema'] == 'easel-video-proposal@4'
+    assert work['delivery']['authorization']['input_use']['schema'] == 'easel-input-use@3'
+    _, manifest, _ = handoff.resolve_handoff(work['id'], attempt['handoff']['handoff_id'])
+    assert manifest['production_request']['video_plan'] == work['delivery']['video_plan']
+
+
+
+def test_u2a_material_v13_current_supply_and_rights(material_integration_env, tmp_path):
+    """Real v3/vNext Planning to local Rights/Readiness, no paid external calls."""
+    from tests.test_creation_preparation import _current_vnext_planning_executor
+    from PIL import ImageDraw
+
+    attempt = material_integration_env
+    root = Path(attempt['workspace']['path'])
+    _, manifest, _ = handoff.resolve_handoff(
+        attempt['creation_id'], attempt['handoff']['handoff_id'])
+    handoff_root = root / 'handoff'
+    inputs = {key: json.loads((handoff_root / value['path']).read_text(encoding='utf-8'))
+              for key, value in (('content_core', manifest['content']['content_core']),
+                                 ('truth_packet', manifest['content']['truth_packet']),
+                                 ('creator_context', manifest['creator_context']))}
+    refs = {
+        'content_core_sha256': manifest['content']['content_core']['hash'],
+        'truth_packet_sha256': manifest['content']['truth_packet']['hash'],
+        'creator_context_sha256': manifest['creator_context']['hash'],
+        'production_brief_sha256': manifest['production_request']['production_brief_sha256'],
+        'creative_mode_sha256': manifest['creative_mode']['hash']}
+    planning = _current_vnext_planning_executor(attempt, {**inputs, 'context_refs': refs})
+    assert planning['plan'].context_refs == refs
+
+    local_root = tmp_path / 'self-created-media'
+    local_root.mkdir()
+    source = local_root / 'two-white-papers.jpg'
+    image = Image.new('RGB', (720, 1280), color=(95, 76, 57))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((72, 310, 316, 765), fill=(248, 248, 245))
+    draw.rectangle((380, 330, 660, 790), fill=(249, 248, 245))
+    image.save(source)
+    source.with_name(source.name + '.rights.json').write_text(json.dumps({
+        'schema': 'easel-local-rights@1',
+        'asset_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
+        'rights': {'status': 'KNOWN', 'license_name': 'Self-created fixture',
+                   'evidence': [{'kind': 'asset_license',
+                                 'reference': 'https://rights.example/u2a-fixture',
+                                 'summary': 'Offline synthetic image, no external source.'}]}},
+        ensure_ascii=False), encoding='utf-8')
+    supplied = MaterialProductOrchestrator().run_with_planning(
+        attempt, (local_root,), planning)
+    assert supplied['planning']['manifest']['schema'] == 'easel-material-planning@3'
+    assert supplied['planning']['truth_ledger']['status'] == 'PASSED'
+    assert supplied['status'] == 'MATERIAL_NOT_READY'
+    asset = next(a for a in supplied['supply'].bundle.assets
+                 if a.rights.status.value == 'KNOWN')
+    reviewed = MaterialProductOrchestrator().review_material_match(
+        attempt['attempt_id'], asset_id=asset.asset_id,
+        expected_sha256=asset.file.sha256,
+        need_id=supplied['planning']['plan'].needs[0].need_id,
+        observed_content='桌面上有两张清晰完整的白色纸张，背景为棕色桌面，没有文字。',
+        logo_present=None, visible_text_present=None, confirm_review=True)
+    assert reviewed['material_status'] == 'MATERIAL_READY'
+    current_attempt = service.get_film_attempt(attempt['attempt_id'])
+    plan, _, readiness = MaterialGateIntegration().assert_ready(current_attempt)
+    assert plan == supplied['planning']['plan'] and readiness.status.value == 'READY'
+    assert current_attempt['build']['operation'] is None
+    resumed = MaterialProductOrchestrator().run_with_planning(
+        current_attempt, (local_root,), PlanningIntegration().load(current_attempt))
+    assert resumed['status'] == 'MATERIAL_READY'
+    store = AttemptMaterialStore(root)
+    original = store.resolve_asset_locator(asset.file.path)
+    original.write_bytes(original.read_bytes() + b'changed-source')
+    with pytest.raises(MaterialIntegrationError):
+        MaterialGateIntegration().assert_ready(service.get_film_attempt(attempt['attempt_id']))
+
+
+
+def test_u2a_historical_manual_plan_does_not_launder_current_commission(
+        material_integration_env):
+    """A valid @4 Creation cannot authorize an unpinned old file Writer."""
+    attempt = material_integration_env
+    before = creation._creation_path(attempt['creation_id']).read_bytes()
+    root = Path(attempt['workspace']['path'])
+    assert not (root / 'planning/manifest.json').exists()
+    with pytest.raises(MaterialIntegrationError, match='旧 Planning/非当前委托只读'):
+        _legacy_manual_planning(attempt)
+    assert creation._creation_path(attempt['creation_id']).read_bytes() == before
+    assert not (root / 'planning/manifest.json').exists()
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
 
 
 def _contracts(attempt: dict, root: Path):
@@ -180,7 +309,8 @@ def _contracts(attempt: dict, root: Path):
     return plan, asset, run, bundle, readiness, gaps
 
 
-def _planning(attempt):
+def _legacy_manual_planning(attempt):
+    """Only used to prove that a hand-written old Plan is not admitted."""
     result = PlanningIntegration().persist(
         attempt,
         MaterialPlan(plan_id="plan-int-1", creation_id=attempt["creation_id"], attempt_id=attempt["attempt_id"],
@@ -193,6 +323,3900 @@ def _planning(attempt):
     )
     attempt.update(result["attempt"])
     return result
+
+
+def _planning(attempt):
+    """Current official vNext Owner, with only model responses fixed offline.
+
+    No manually seeded Need, MaterialPlan, review ledger, Result Pin or READY.
+    """
+    from tests.test_creation_preparation import _current_vnext_planning_executor
+    from easel.integrations.hypit import service
+    root = Path(attempt["workspace"]["path"])
+    if (root / "planning/manifest.json").exists():
+        loaded = PlanningIntegration().load(service.get_film_attempt(attempt["attempt_id"]))
+        attempt.update(loaded["attempt"])
+        return {**loaded, "status": loaded["manifest"]["status"]}
+    _, manifest, _ = handoff.resolve_handoff(
+        attempt["creation_id"], attempt["handoff"]["handoff_id"])
+    source_root = root / "handoff"
+    documents = {key: json.loads((source_root / ref["path"]).read_text(encoding="utf-8"))
+                 for key, ref in (
+                     ("content_core", manifest["content"]["content_core"]),
+                     ("truth_packet", manifest["content"]["truth_packet"]),
+                     ("creator_context", manifest["creator_context"]))}
+    refs = {
+        "content_core_sha256": manifest["content"]["content_core"]["hash"],
+        "truth_packet_sha256": manifest["content"]["truth_packet"]["hash"],
+        "creator_context_sha256": manifest["creator_context"]["hash"],
+        "production_brief_sha256": manifest["production_request"]["production_brief_sha256"],
+        "creative_mode_sha256": manifest["creative_mode"]["hash"],
+    }
+    planned = _current_vnext_planning_executor(attempt, {**documents, "context_refs": refs})
+    persisted = PlanningIntegration().persist(
+        attempt, planned["plan"], treatment=planned["treatment"],
+        script=planned["script"], scenes=planned["scenes"],
+        script_assessment=planned.get("script_assessment"),
+        voice_identity_assessment=planned.get("voice_identity_assessment"))
+    attempt.update(persisted["attempt"])
+    cold = PlanningIntegration().load(service.get_film_attempt(attempt["attempt_id"]))
+    assert cold["plan"] == persisted["plan"]  # No test-created READY checkpoint.
+    return {**cold, "status": persisted["status"]}
+
+
+
+
+def _current_budgeted_visual_fixture(material_integration_env, monkeypatch, ai_allowed, *, max_cost=.03, allowed=('image',), two_scenes=False):
+    """Current @4/Consent@3/five pins; no legacy manual Plan or paid Provider."""
+    from dataclasses import replace
+    from easel.runtime_config import EaselRuntimeConfig, MiniMaxRuntimeConfig
+    from easel.integrations import material_generation as paid
+    from easel.creation_preparation import _canonical_bytes, _sha256
+    from easel.integrations import result_protocols as versions
+    from tests.test_creation_preparation import VIDEO_PROPOSAL
+
+    baseline = EaselRuntimeConfig.load()
+    settings = MiniMaxRuntimeConfig(api_key="offline-fixture-key")
+    empty_stock = Path(material_integration_env["workspace"]["path"]) / "empty-image-stock"
+    empty_stock.mkdir(exist_ok=True)
+    frozen_config = replace(baseline, minimax=settings,
+        material=replace(baseline.material, local_roots=(str(empty_stock),)))
+    monkeypatch.setattr(EaselRuntimeConfig, "load",
+                        classmethod(lambda cls, **kwargs: frozen_config))
+    work = creation.create_creation(
+        "有明确预算和冻结许可的视觉素材测试", profile=None,
+        creative_mode="clear_memo_video", route="hypit_video",
+        origin={"type": "chat", "session_hash": hashlib.sha256(
+            f"u2a-paid-brief-{ai_allowed}".encode()).hexdigest()})
+    turn = "explicit-budget-approval"
+    # The frozen author-facing proposal records the content permission in
+    # words; a positive Brief is not silently inferred from a cost ceiling.
+    permission = ("明确允许真实检索缺口以获批预算生成静态补位图像。"
+                  if ai_allowed else "明确禁止生成图像，必须使用已有授权来源。")
+    proposal = VIDEO_PROPOSAL.replace(
+        "从日常选择的变化切入，不把结论当成普遍规律。不露脸。",
+        "从日常选择的变化切入，不把结论当成普遍规律。不露脸。\n" + permission)
+    if two_scenes:
+        proposal = proposal.replace(
+            '0–15 秒：桌面两张白纸，呈现后期叠加的屏幕文案「先看问题，再做决定。」。',
+            '0–7 秒：桌面两张白纸，呈现后期叠加的屏幕文案「先看问题，再做决定。」。'
+            '\n7–15 秒：桌面一本蓝色封面笔记本。')
+    creation.begin_video_proposal(work["id"], turn)
+    draft = creation.save_video_proposal(work["id"], turn, proposal)
+    plan = draft["chat_workflow"]["video_plan"]
+    assert plan["schema"] == "easel-video-proposal@4"
+    transcript = json.dumps([{"role": "assistant", "content": proposal}],
+                            ensure_ascii=False, separators=(",", ":"))
+    consent = creation.input_use_preview(plan=plan)
+    scope = paid.generation_budget_preview()
+    assert scope["available"] and "offline-fixture-key" not in json.dumps(scope)
+    grant = {"maxCostCny": max_cost, "scopeSha256": scope["scope_sha256"],
+             "allowedModalities": list(allowed)}
+    unconfirmed = creation._creation_path(work["id"]).read_bytes()
+    with pytest.raises(creation.CreationError, match="素材服务或音色配置已变化"):
+        creation.confirm_chat_proposal(
+            work["id"], turn, delivery_proposal=transcript,
+            proposal_sha256=hashlib.sha256(transcript.encode()).hexdigest(),
+            video_plan_sha256=plan["sha256"], production_specs=plan["specs"],
+            input_use_statement_sha256=consent["statement_sha256"],
+            generation_budget={**grant, "scopeSha256": "0"*64})
+    assert creation._creation_path(work["id"]).read_bytes() == unconfirmed
+    work = creation.confirm_chat_proposal(
+        work["id"], turn, delivery_proposal=transcript,
+        proposal_sha256=hashlib.sha256(transcript.encode()).hexdigest(),
+        video_plan_sha256=plan["sha256"], production_specs=plan["specs"],
+        input_use_statement_sha256=consent["statement_sha256"],
+        generation_budget=grant)
+    authorization = work["delivery"]["authorization"]
+    assert authorization["input_use"]["schema"] == "easel-input-use@3"
+    assert authorization["material_generation"]["allowed_modalities"] == sorted(allowed)
+    assert authorization["material_generation"]["max_amount"] == str(max_cost)
+    assert paid.authorized_generation_modalities(authorization["material_generation"]) == set(allowed)
+    with pytest.raises(creation.CreationError, match="不能通过重放|扩大素材预算"):
+        creation.confirm_chat_proposal(
+            work["id"], "increase-budget",
+            delivery_proposal=transcript,
+            proposal_sha256=hashlib.sha256(transcript.encode()).hexdigest(),
+            generation_budget={**grant, "allowedModalities": ["image", "video"]})
+
+    # Freeze a genuine Preparation snapshot, not a hand-written Handoff. The
+    # paid fallback must be able to verify the original content permission.
+    from easel import creation_preparation as preparation
+    from tests.test_creation_preparation import write_drafts, _current_vnext_planning_executor
+    claim = preparation.claim_chat_preparation(work["id"], "paid-fixture-session", turn)
+    paths = preparation.preparation_paths(work["id"], claim["operation_key"])
+    write_drafts(work, paths["draft"])
+    brief_path = paths["draft"] / "production-brief.json"
+    brief = json.loads(brief_path.read_text(encoding="utf-8"))
+    brief["ai_generation_allowed"] = ai_allowed
+    brief_path.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+    prepared = preparation.prepare_creation_for_hypit(
+        work["id"], runtime_profile=None, planning_executor=_current_vnext_planning_executor)
+    attempt = service.get_film_attempt(prepared["attempt_id"])
+    current = PlanningIntegration().load(attempt)
+    assert creation.get_creation(work["id"])["preparation"]["snapshot_hashes"]
+    brief_hash = creation.get_creation(work["id"])["preparation"]["snapshot_hashes"]["production_brief"]
+    assert current["truth_ledger"]["status"] == "PASSED"
+    assert current["plan"].context_refs["production_brief_sha256"] == brief_hash
+    visual = [n for n in current["plan"].needs if n.media_type is MediaType.IMAGE]
+    assert len(visual) == (2 if two_scenes else 1)
+    assert all(n.constraints.get("allow_generation") is ai_allowed for n in visual)
+    assert work["delivery"]["video_plan"]["specs"]["audio_mode"] == "silent"
+    assert service.get_film_attempt(attempt["attempt_id"])["build"]["operation"] is None
+    assert not creation.get_creation(work["id"])["delivery"].get("material_generations")
+    return work, attempt, current, settings
+
+
+@pytest.mark.parametrize("ai_allowed", [False, True], ids=["brief-forbids", "brief-allows"])
+def test_u2a_current_budgeted_visual_commission_binds_frozen_brief(
+        material_integration_env, monkeypatch, ai_allowed):
+    work, attempt, current, settings = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, ai_allowed)
+    assert current["plan"].needs[0].constraints["allow_generation"] is ai_allowed
+    if not ai_allowed:
+        from easel.materials.application.routing import MaterialSourceRouter
+        from easel.materials.domain import ContinuityRef
+        # A character continuity hint is not stronger than the frozen ban.
+        prohibited = current["plan"].needs[0].model_copy(update={
+            "continuity_refs": (ContinuityRef(kind="character", ref="frozen-id"),)})
+        assert not MaterialSourceRouter._generation_eligible(prohibited)
+    assert service.get_film_attempt(attempt["attempt_id"])["build"]["operation"] is None
+
+
+@pytest.mark.parametrize('risk', [
+    'unfinished_observation', 'changed_bundle_revision',
+    'material_call_space_exhausted', 'no_generation_grant',
+])
+def test_u2a_current_image_fallback_fail_closed_before_any_paid_request(
+        material_integration_env, monkeypatch, risk):
+    """#20 retained V1 risks only: real @4/vNext/Brief + zero-stock observation.
+
+    No legacy Planning.persist/Delivery forgery; only post-frozen local copies
+    are altered to exercise stale facts / exhausted call-room / absent grant.
+    Image preference, dynamic video and source-identity policy have dedicated
+    existing tests; they are not reconstructed here as illegal Plans.
+    """
+    from copy import deepcopy
+    from easel.integrations import material_generation as paid
+    from easel.materials.providers import minimax_pricing
+    from easel.creation_delivery import is_managed
+    work, attempt, planning, _ = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, True)
+    no_stock=lambda *_: pytest.fail('no local pixels exist; do not query model')
+    MaterialProductOrchestrator().observe_visual_materials(
+        attempt['attempt_id'],executor=no_stock)
+    work=creation.get_creation(work['id'])
+    attempt=service.get_film_attempt(attempt['attempt_id'])
+    plan=planning['plan']
+    need=next(n for n in plan.needs if n.media_type is MediaType.IMAGE)
+    assert is_managed(work)
+    eligible=paid.image_fallback_decision(work,attempt,plan,need)
+    assert eligible['eligible'], eligible
+    assert paid.pending_generated_need(work,attempt,plan)[0].need_id==need.need_id
+    immutable=(
+        creation._creation_path(work['id']).read_bytes(),
+        service.get_film_attempt(attempt['attempt_id']),
+        AttemptMaterialStore(attempt['workspace']['path']).read_bundle())
+    changed_work, changed_attempt=deepcopy(work),deepcopy(attempt)
+    if risk=='unfinished_observation':
+        changed_attempt['material_observation']['status']='PENDING'
+    elif risk=='changed_bundle_revision':
+        changed_attempt['material_observation']['bundle_revision']='0'*64
+    elif risk=='material_call_space_exhausted':
+        # Pure, ephemeral NextOperation budget projection; do not mutate the
+        # stored commission or grant new currency authority to the fixture.
+        changed_work['delivery'].setdefault('call_budgets', {})['material'] = {
+            'used': 8, 'limit': 9}
+    else:
+        changed_work['delivery']['authorization']['material_generation']=None
+    if risk=='no_generation_grant':
+        # Material content gap and a monetary/authorization grant are distinct.
+        assert paid.image_fallback_decision(changed_work,changed_attempt,plan,need)['eligible']
+    else:
+        decision=paid.image_fallback_decision(changed_work,changed_attempt,plan,need)
+        assert not decision['eligible'],(risk,decision)
+        assert decision['reason']
+    monkeypatch.setattr(minimax_pricing,'read_public_contract',
+        lambda *_: pytest.fail('no quote/Provider call permitted for invalid inputs'))
+    assert paid.pending_generated_need(changed_work,changed_attempt,plan) is None
+    assert creation._creation_path(work['id']).read_bytes()==immutable[0]
+    assert service.get_film_attempt(attempt['attempt_id'])==immutable[1]
+    assert AttemptMaterialStore(attempt['workspace']['path']).read_bundle()==immutable[2]
+    assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+    assert not AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()
+    assert attempt['build']['operation'] is None
+
+
+@pytest.mark.parametrize('usable_second', [True, False], ids=['second-source-usable', 'all-sources-rejected'])
+@pytest.mark.parametrize('fault_after_first', [False, True], ids=['ordinary-owner', 'cold-resume-after-first-capture'])
+def test_u2a_current_visual_candidate_owner_stops_at_usable_or_evidence_exhaustion(
+        material_integration_env, monkeypatch, usable_second, fault_after_first):
+    """#13 current safety: search results are candidates, never matches by caption.
+
+    Three real locally encoded images, an @4/vNext frozen Need and normal
+    Material Gate. The offline *pixel verdict only* is simulated. The Owner
+    preserves each bounded result and stops once a qualified source exists,
+    without looking at unrelated stock or replaying prior model decisions.
+    """
+    from io import BytesIO
+    from PIL import ImageDraw
+    from easel.creation_delivery import set_material_endpoint
+    from tests.material_delta_fixture import observed_result
+
+    work, attempt, planning, _ = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, False)
+    set_material_endpoint(work['id'])
+    plan=planning['plan']
+    need=next(n for n in plan.needs if n.media_type is MediaType.IMAGE)
+    store=AttemptMaterialStore(attempt['workspace']['path'])
+    before=store.read_bundle()
+    assets=[]
+    for idx in range(3):
+        pic=Image.new('RGB',(720,1280),(55 + idx*28,76,101))
+        draw=ImageDraw.Draw(pic)
+        if idx==1:
+            draw.rectangle((94,230,305,760),fill=(245,245,242))
+            draw.rectangle((389,245,633,792),fill=(250,250,247))
+        else:
+            draw.ellipse((74,230,620,870),fill=(212,44 + idx*30,46))
+        buf=BytesIO();pic.save(buf,format='PNG')
+        payload=buf.getvalue()
+        aid=f'candidate-vnext-{idx}'
+        locator=store.write_asset_bytes(aid,'original.png',payload)
+        asset=MaterialAsset(
+            asset_id=aid,media_type=MediaType.IMAGE,
+            file=FileInfo(path=locator,sha256=hashlib.sha256(payload).hexdigest(),
+                size=len(payload),mime='image/png'),
+            source=CandidateSource(kind='local',provider='offline-fixture',provider_asset_id=aid),
+            rights=RightsInfo(status=RightsStatus.KNOWN,
+                license_name='Local original pixels for isolated software tests',
+                evidence=(RightsEvidence(kind='asset_license',
+                    reference=f'fixture://local-pixels/{aid}'),)),
+            technical=TechnicalInfo(status=TechnicalStatus.PASSED,
+                width=720,height=1280,mime='image/png'),
+            semantic=SemanticInfo(caption=need.intent.description))
+        store.write_asset(asset)
+        assets.append(asset)
+    now=datetime.now(timezone.utc)
+    run=SupplyRun(supply_run_id='current-candidates-'+attempt['attempt_id'][-17:],
+        plan_id=plan.plan_id,parent_run_id=before.supply_run_id,
+        started_at=now,finished_at=now,result_bundle_id=before.bundle_id)
+    bundle=MaterialBundleAssembler().assemble(
+        plan,run,tuple(assets),(),bundle_id=before.bundle_id)
+    from easel.integrations import material_results
+    readiness,gaps=material_results.readiness_calculator(attempt,store).calculate(plan,bundle)
+    attempt=MaterialGateIntegration().record(attempt,plan,bundle,run,readiness,gaps)['attempt']
+    assert attempt['material_gate']['status']=='MATERIAL_NOT_READY'
+    asked=[]
+    source_bytes={a.asset_id: store.resolve_asset_locator(a.file.path).read_bytes() for a in assets}
+    source_rights={a.asset_id: a.rights for a in assets}
+    original_consent=creation.get_creation(work['id'])['delivery']['authorization']
+    def pixels(current,manifest,attachments):
+        key=manifest['asset_id']
+        assert key in {a.asset_id for a in assets}
+        if fault_after_first and key==assets[0].asset_id and key in asked:
+            pytest.fail('cold replay may not call the model again for saved first receipt')
+        asked.append(key)
+        return observed_result(current,manifest,attachments,
+            outcome='suitable' if usable_second and key==assets[1].asset_id else 'unsuitable',
+            description='two white papers' if key==assets[1].asset_id else 'one large red shape')
+    owner=MaterialProductOrchestrator()
+    first_receipt_bytes=None
+    if fault_after_first:
+        # The receipt is durably stored by the real delta producer before
+        # the Owner writes the first scoped inference into the Asset. Interrupt
+        # *after* that Asset write, before outcomes and visual-done journal.
+        write_asset=AttemptMaterialStore.write_asset
+        crashed=[]
+        def write_then_interrupt(self, value):
+            result=write_asset(self,value)
+            if (value.asset_id==assets[0].asset_id and value.semantic.inferences
+                    and not crashed):
+                crashed.append(value.asset_id)
+                raise OSError('offline crash after first persisted pixel evidence')
+            return result
+        with monkeypatch.context() as fault:
+            fault.setattr(AttemptMaterialStore,'write_asset',write_then_interrupt)
+            with pytest.raises(OSError,match='after first persisted pixel evidence'):
+                owner.observe_visual_materials(attempt['attempt_id'],executor=pixels)
+        assert crashed==[assets[0].asset_id]
+        assert asked==[assets[0].asset_id]
+        assert store.read_asset(assets[0].asset_id).semantic.inferences
+        from easel.materials.application.visual_observation import prepare_observation
+        first_manifest,_=prepare_observation(
+            need,assets[0],store.resolve_asset_locator(assets[0].file.path))
+        first_receipt=store.materials_root / 'observations' / (first_manifest['input_sha256']+'.json')
+        assert first_receipt.is_file()
+        first_receipt_bytes=first_receipt.read_bytes()
+        assert first_receipt_bytes
+        # The cold Owner must reuse the same saved input/result and expense
+        # ledger; never rerun the original model or rewrite the asset bytes.
+        assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+        owner=MaterialProductOrchestrator()
+    last=None
+    for _ in range(5):
+        last=owner.observe_visual_materials(attempt['attempt_id'],executor=pixels)
+        if last['material_status']=='MATERIAL_READY':
+            break
+        progress=last['attempt']['material_observation']['candidate_progress'][need.need_id]
+        if not usable_second and len(asked)<len(assets):
+            assert progress['next_candidates'], (
+                'a distinct, unobserved candidate must not disappear merely '
+                'because the previous candidate had a hard content mismatch',progress)
+        if not progress['next_candidates']:
+            break
+    assert last is not None
+    assert asked[:2]==[a.asset_id for a in assets[:2]],asked
+    assert len(asked)==len(set(asked)) and len(asked)<=3,asked
+    assert last['material_status']==('MATERIAL_READY' if usable_second else 'MATERIAL_NOT_READY')
+    if usable_second:
+        assert assets[2].asset_id not in asked
+    completed=list(asked)
+    latest=owner.observe_visual_materials(attempt['attempt_id'],
+        executor=lambda *_: pytest.fail('no budgeted candidate needs fresh pixel review'))
+    assert latest['material_status']==last['material_status']
+    assert asked==completed
+    if fault_after_first:
+        assert first_receipt.read_bytes()==first_receipt_bytes
+    assert {a.asset_id for a in store.read_bundle().assets}=={a.asset_id for a in assets}
+    for source in assets:
+        recorded=store.read_asset(source.asset_id)
+        assert recorded.file==source.file
+        assert recorded.rights==source_rights[source.asset_id]
+        assert store.resolve_asset_locator(recorded.file.path).read_bytes()==source_bytes[source.asset_id]
+        assert hashlib.sha256(source_bytes[source.asset_id]).hexdigest()==source.file.sha256
+    assert creation.get_creation(work['id'])['delivery']['authorization']==original_consent
+    assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+    assert not store.list_generation_records()
+    assert PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan']==plan
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+    assert not service.get_film_attempt(attempt['attempt_id']).get('production_authoring')
+
+
+def test_u2a_current_image_gap_requires_real_search_and_observation(
+        material_integration_env, monkeypatch):
+    from easel.integrations import material_generation as paid
+    work, attempt, planning, _ = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, True)
+    need = planning["plan"].needs[0]
+    work = creation.get_creation(work["id"])
+    first = paid.image_fallback_decision(work, attempt, planning["plan"], need)
+    assert first["eligible"] is False and "素材观察" in first["reason"]
+    def no_pixel_observation(*_):
+        pytest.fail("No stock candidate exists; no paid visual observation")
+    MaterialProductOrchestrator().observe_visual_materials(
+        attempt["attempt_id"], executor=no_pixel_observation)
+    attempt = service.get_film_attempt(attempt["attempt_id"])
+    result = paid.image_fallback_decision(
+        creation.get_creation(work["id"]), attempt, planning["plan"], need)
+    assert result["eligible"] is True, result
+    selected = paid.pending_generated_need(
+        creation.get_creation(work["id"]), attempt, planning["plan"])
+    assert selected is not None and selected[0].need_id == need.need_id
+    assert not creation.get_creation(work["id"])["delivery"].get("material_generations")
+
+
+@pytest.mark.parametrize("outcome", [
+    "budget_exceeded", "submission_unknown", "scope_changed", "received_no_rebuy",
+])
+def test_u2a_current_visual_commission_reservation_unknown_and_no_rebuy(
+        material_integration_env, monkeypatch, outcome):
+    """Delivery/Planning/Gate/quote are real; only price URLs and paid adapter are fixed."""
+    from dataclasses import replace
+    from io import BytesIO
+    from easel.creation_delivery import active_delivery
+    from easel.integrations import material_generation as commissioned
+    from easel.materials.providers import minimax_pricing
+    from easel.materials import providers
+    from easel.materials.providers.minimax_image import MiniMaxImageResult
+    from easel.runtime_config import EaselRuntimeConfig, MiniMaxRuntimeConfig
+    from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
+
+    max_cost = .01 if outcome == "budget_exceeded" else .03
+    work, attempt, planning, settings = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, True, max_cost=max_cost)
+    def no_stock_pixels(*_):
+        pytest.fail("No stock found, therefore no real visual LLM may be called")
+    MaterialProductOrchestrator().observe_visual_materials(
+        attempt["attempt_id"], executor=no_stock_pixels)
+    attempt = service.get_film_attempt(attempt["attempt_id"])
+    work = creation.get_creation(work["id"])
+    need = planning["plan"].needs[0]
+    assert commissioned.image_fallback_decision(
+        work, attempt, planning["plan"], need)["eligible"] is True
+    _, request_id = commissioned.pending_generated_need(
+        work, attempt, planning["plan"])
+
+    terms_reads = []
+    def offline_public_quote(url):
+        terms_reads.append(url)
+        if url == minimax_pricing.TERMS_URL:
+            return MINIMAX_TERMS_FIXTURE
+        return ("## 图像\n单价：元/张\n| image-01 | 图片 | 0.025 |\n"
+                "## 视频\n**视频生成-输出价格**\n| MiniMax-H3-Max | 480P | 按秒计费 | 0.33 元/秒 |\n")
+    monkeypatch.setattr(minimax_pricing, "read_public_contract", offline_public_quote)
+
+    image_data = BytesIO()
+    Image.new("RGB", (64, 64), "teal").save(image_data, format="PNG")
+    model_calls = []
+    class FixedImageProvider:
+        model = "image-01"
+        def __init__(self, *args, **kwargs):
+            pass
+        def generate(self, prompt, **kwargs):
+            entry = creation.get_creation(work["id"])["delivery"]["material_generations"][request_id]
+            assert entry["status"] == "reserved"
+            assert entry["quote"]["upper_estimate"] == "0.025000"
+            model_calls.append(prompt)
+            if outcome == "submission_unknown":
+                raise TimeoutError("fixture response lost after possible paid submit")
+            return MiniMaxImageResult(self.model, image_data.getvalue())
+    monkeypatch.setattr(providers, "MiniMaxImageAdapter", FixedImageProvider)
+
+    if outcome == "scope_changed":
+        baseline = EaselRuntimeConfig.load()
+        monkeypatch.setattr(EaselRuntimeConfig, "load", classmethod(
+            lambda cls, **kwargs: replace(baseline,
+                minimax=MiniMaxRuntimeConfig(api_key="different-offline-fixture-key"))))
+    with pytest.raises(creation.CreationError, match="后台交付者"):
+        commissioned.generate_for_commission(attempt["attempt_id"])
+    token = active_delivery.set(work["id"])
+    try:
+        if outcome == "scope_changed":
+            with pytest.raises(commissioned.GenerationQuoteUnavailable, match="偏离"):
+                commissioned.generate_for_commission(attempt["attempt_id"])
+        else:
+            commissioned.generate_for_commission(attempt["attempt_id"])
+            commissioned.generate_for_commission(attempt["attempt_id"])
+    finally:
+        active_delivery.reset(token)
+
+    record = creation.get_creation(work["id"])["delivery"].get("material_generations", {})
+    if outcome == "scope_changed":
+        assert not record and not model_calls and not terms_reads
+    elif outcome == "budget_exceeded":
+        assert list(record.values())[0]["status"] == "budget_exceeded"
+        assert not model_calls and len(terms_reads) >= 1
+    elif outcome == "submission_unknown":
+        assert len(model_calls) == 1
+        assert list(record.values())[0]["status"] == "uncertain"
+        assert commissioned.pending_generated_need(
+            creation.get_creation(work["id"]),
+            service.get_film_attempt(attempt["attempt_id"]), planning["plan"]) is None
+    else:
+        assert len(model_calls) == 1
+        assert list(record.values())[0]["status"] == "complete"
+        stored = AttemptMaterialStore(attempt["workspace"]["path"]).list_generation_records()
+        assert len(stored) == 1 and stored[0]["status"] == "COMPLETE"
+    assert service.get_film_attempt(attempt["attempt_id"])["build"]["operation"] is None
+
+
+
+@pytest.mark.parametrize('kind', ['reserved_restart', 'terms_unavailable_then_readable'])
+def test_u2a_current_image_unsubmitted_reservation_reuses_request_and_terms(
+        material_integration_env, monkeypatch, kind):
+    """#15 No charge on quote read failure or crash BEFORE Provider submit."""
+    from easel.integrations import material_generation as paid
+    from easel.creation_delivery import active_delivery
+    from easel.materials.providers import minimax_pricing
+    from easel.materials import providers
+    from easel.materials.providers.minimax_image import MiniMaxImageResult
+    from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
+    from io import BytesIO
+    work, attempt, planning, settings = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, True)
+    def no_stock(*_): pytest.fail('no fixture visual stock to inspect')
+    MaterialProductOrchestrator().observe_visual_materials(
+        attempt['attempt_id'], executor=no_stock)
+    attempt = service.get_film_attempt(attempt['attempt_id'])
+    need, request = paid.pending_generated_need(
+        creation.get_creation(work['id']), attempt, planning['plan'])
+    reads = []
+    def fixed_quote(url):
+        reads.append(url)
+        if url == minimax_pricing.TERMS_URL:
+            if kind == 'terms_unavailable_then_readable' and reads.count(url) == 1:
+                raise minimax_pricing.GenerationQuoteReadFailed('offline agreement page unavailable')
+            return MINIMAX_TERMS_FIXTURE
+        return ('## 图像\n单价：元/张\n| image-01 | 图片 | 0.025 |\n'
+                '## 视频\n**视频生成-输出价格**\n'
+                '| MiniMax-H3-Max | 480P | 按秒计费 | 0.33 元/秒 |')
+    monkeypatch.setattr(minimax_pricing,'read_public_contract',fixed_quote)
+    png = BytesIO()
+    Image.new('RGB',(64,64),'teal').save(png,format='PNG')
+    charged_calls = []
+    class OfflineImage:
+        def __init__(self, key, **kwargs):
+            assert key == 'offline-fixture-key'
+            self.model=kwargs['model']
+        def generate(self, prompt, *, aspect_ratio):
+            assert aspect_ratio == (need.modality_spec.aspect_ratio or '16:9')
+            charged_calls.append(prompt)
+            return MiniMaxImageResult(self.model,png.getvalue())
+    monkeypatch.setattr(providers,'MiniMaxImageAdapter',OfflineImage)
+    original_dispatch = MaterialProductOrchestrator.generate_minimax_asset
+    aborted = []
+    if kind == 'reserved_restart':
+        def before_submit_restart(self, *args, **kwargs):
+            if not aborted:
+                aborted.append(kwargs['request_id'])
+                assert kwargs['request_id']==request
+                ledger=creation.get_creation(work['id'])['delivery']['material_generations']
+                assert ledger[request]['status']=='reserved'
+                raise OSError('offline crash before provider submit')
+            return original_dispatch(self, *args, **kwargs)
+        monkeypatch.setattr(MaterialProductOrchestrator,'generate_minimax_asset',before_submit_restart)
+    token=active_delivery.set(work['id'])
+    try:
+        if kind == 'reserved_restart':
+            from easel.materials.store import GenerationRecordNotFound
+            # The Owner surfaces the missing GenerationRecord after the
+            # pre-submit crash; it may safely retry the same reserved request.
+            with pytest.raises((OSError, GenerationRecordNotFound)):
+                paid.generate_for_commission(attempt['attempt_id'])
+            receipt=creation.get_creation(work['id'])['delivery']['material_generations'][request]
+            assert receipt['status']=='reserved'
+        else:
+            with pytest.raises(minimax_pricing.GenerationQuoteReadFailed):
+                paid.generate_for_commission(attempt['attempt_id'])
+            assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+        assert not AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()
+        assert not charged_calls
+        paid.generate_for_commission(attempt['attempt_id'])
+        paid.generate_for_commission(attempt['attempt_id'])
+    finally:
+        active_delivery.reset(token)
+    ledger=creation.get_creation(work['id'])['delivery']['material_generations']
+    assert set(ledger)=={request} and ledger[request]['status']=='complete'
+    assert len(charged_calls)==1
+    assert len(aborted)==(1 if kind=='reserved_restart' else 0)
+    assert reads.count(minimax_pricing.TERMS_URL)==2
+    retained=AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()
+    assert len(retained)==1 and retained[0]['status']=='COMPLETE'
+    assert retained[0]['need_id']==need.need_id
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+
+
+@pytest.mark.parametrize('disabled', ['image', 'video', 'music'])
+def test_u2a_current_frozen_modality_not_paid_without_matching_budget(
+        material_integration_env, monkeypatch, disabled):
+    """#15 Frozen Need permission and separate modality budget must both agree."""
+    from easel.integrations import material_generation as paid
+    from easel.creation_delivery import active_delivery
+    from easel.materials.providers import minimax_pricing
+    if disabled == 'image':
+        work, attempt, planning, _ = _current_budgeted_visual_fixture(
+            material_integration_env, monkeypatch, True, allowed=('video',))
+        need = planning['plan'].needs[0]
+        assert need.media_type is MediaType.IMAGE
+    elif disabled == 'video':
+        work, attempt, planning, _ = _u2a_current_video_budgeted_fixture(
+            material_integration_env, monkeypatch, allowed=('image',))
+        need = planning['plan'].needs[0]
+        assert need.media_type is MediaType.VIDEO
+    else:
+        work, attempt, planning, need = _u2a_current_music_attempt(
+            material_integration_env, 15)
+        assert need.modality_spec.kind == 'bgm'
+    events = []
+    monkeypatch.setattr(minimax_pricing, 'read_public_contract',
+                        lambda *_: events.append('quote') or pytest.fail('unauthorized quote'))
+    assert paid.pending_generated_need(
+        creation.get_creation(work['id']), attempt, planning['plan']) is None
+    token = active_delivery.set(work['id'])
+    try:
+        paid.generate_for_commission(attempt['attempt_id'])
+    finally:
+        active_delivery.reset(token)
+    assert not events
+    assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+    assert not AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+
+
+def test_u2a_current_voice_preflight_requires_local_asr_before_paid_submit(
+        material_integration_env, monkeypatch):
+    from easel.integrations import material_generation as paid
+    from easel.creation_delivery import active_delivery
+    from easel.materials.application import voice_delivery
+    from easel.materials.providers import minimax_pricing
+    work, attempt, planning, need, settings = _u2a_current_voice_attempt(
+        material_integration_env, monkeypatch)
+    calls = []
+    def no_local_model():
+        calls.append('local-asr')
+        raise ValueError('本地语音识别模型未就绪；原委托仍可核对')
+    monkeypatch.setattr(voice_delivery, 'require_local_voice_model', no_local_model)
+    monkeypatch.setattr(minimax_pricing,'read_public_contract',
+                        lambda *_: pytest.fail('do not quote a voice that cannot be checked'))
+    token=active_delivery.set(work['id'])
+    try:
+        with pytest.raises(ValueError, match='本地语音识别模型未就绪'):
+            paid.generate_for_commission(attempt['attempt_id'])
+    finally:
+        active_delivery.reset(token)
+    assert calls == ['local-asr']
+    assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+    assert not AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+
+
+def test_u2a_current_confirmed_voice_rejects_revoked_modality_without_charges(
+        material_integration_env, monkeypatch):
+    """#15: voice commission without current Voice budget cannot reach paid TTS."""
+    from easel.integrations import material_generation as paid
+    from easel.creation_delivery import active_delivery
+    from easel.materials.providers import minimax_pricing
+    from easel.integrations import voice_identity
+    work, attempt, planning, need, settings = _u2a_current_voice_attempt(
+        material_integration_env, monkeypatch)
+    assert need.modality_spec.kind=='voice'
+    baseline = creation.get_creation(work['id'])
+    original = baseline['delivery']['authorization']['material_generation'].copy()
+    with creation.edit_creation(work['id']) as mutated:
+        mutated['delivery']['authorization']['material_generation']['allowed_modalities'] = ['image']
+    quote_calls = []
+    monkeypatch.setattr(minimax_pricing, 'read_public_contract',
+        lambda *_: quote_calls.append(1) or pytest.fail('revoked Voice never quotes'))
+    assert paid.pending_generated_need(
+        creation.get_creation(work['id']), attempt, planning['plan']) is None
+    with pytest.raises(ValueError, match='预算授权'):
+        voice_identity.require_binding(creation.get_creation(work['id']),
+                                       planning['plan'],planning['script'])
+    token = active_delivery.set(work['id'])
+    try:
+        with pytest.raises((creation.CreationError, MaterialIntegrationError), match='后台交付者|旁白身份Truth恢复合同无效'):
+            paid.generate_for_commission(attempt['attempt_id'])
+    finally:
+        active_delivery.reset(token)
+    assert not quote_calls
+    assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+    assert not AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+    with creation.edit_creation(work['id']) as restored:
+        restored['delivery']['authorization']['material_generation'] = original
+    assert voice_identity.require_binding(creation.get_creation(work['id']),
+                                          planning['plan'],planning['script'])
+
+
+@pytest.mark.parametrize('drift', ['account_key', 'voice_scope', 'modality_permission'])
+def test_u2a_current_video_reserved_request_rejects_config_or_grant_drift(
+        material_integration_env, monkeypatch, drift):
+    """#15: after a real reservation, the executor rechecks frozen consent.
+
+    No Video Adapter may submit even once if account/voice config or the
+    stored authorized modality has changed at the pre-submit boundary.
+    """
+    from dataclasses import replace
+    from easel.integrations import material_generation as paid
+    from easel.creation_delivery import active_delivery
+    from easel.runtime_config import EaselRuntimeConfig, MiniMaxRuntimeConfig
+    from easel.materials.providers import minimax_pricing
+    from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
+    from easel.materials.store import GenerationRecordNotFound
+    work, attempt, planning, settings = _u2a_current_video_budgeted_fixture(
+        material_integration_env, monkeypatch)
+    need = next(n for n in planning['plan'].needs if n.media_type is MediaType.VIDEO)
+    pending = paid.pending_generated_need(
+        creation.get_creation(work['id']), attempt, planning['plan'])
+    request_id = pending[1]
+    quotes = []
+    def quote(url):
+        quotes.append(url)
+        if url == minimax_pricing.TERMS_URL:
+            return MINIMAX_TERMS_FIXTURE
+        return ('## 图像\n单价：元/张\n| image-01 | 图片 | 0.025 |\n'
+                '## 视频\n**视频生成-输出价格**\n'
+                '| MiniMax-H3-Max | 480P | 按秒计费 | 0.33 元/秒 |')
+    monkeypatch.setattr(minimax_pricing,'read_public_contract',quote)
+    incoming = []
+    native = MaterialProductOrchestrator.generate_minimax_asset
+    def intercept(self, attempt_id, **kwargs):
+        assert kwargs['request_id'] == request_id
+        ledger=creation.get_creation(work['id'])['delivery']['material_generations']
+        assert ledger[request_id]['status']=='reserved'
+        incoming.append(kwargs)
+        if drift == 'modality_permission':
+            with creation.edit_creation(work['id']) as mutated:
+                mutated['delivery']['authorization']['material_generation']['allowed_modalities']=['image']
+            effective_settings = settings
+        else:
+            effective_settings=replace(settings,
+                api_key='altered-account-key' if drift == 'account_key' else settings.api_key,
+                speech_voice_id='unverified-new-voice' if drift == 'voice_scope' else settings.speech_voice_id)
+        with pytest.raises(creation.CreationError,match='授权内'):
+            paid.assert_commission_request(
+                attempt, planning['plan'], planning['script'], effective_settings,
+                request_id, need.need_id)
+        raise OSError('offline refused before Video Adapter')
+    monkeypatch.setattr(MaterialProductOrchestrator,'generate_minimax_asset',intercept)
+    token=active_delivery.set(work['id'])
+    try:
+        with pytest.raises((OSError,GenerationRecordNotFound)):
+            paid.generate_for_commission(attempt['attempt_id'])
+    finally:
+        active_delivery.reset(token)
+    assert len(incoming)==1
+    assert quotes.count(minimax_pricing.TERMS_URL)==1
+    assert creation.get_creation(work['id'])['delivery']['material_generations'][request_id]['status']=='reserved'
+    assert not AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+    assert not service.get_film_attempt(attempt['attempt_id']).get('production_authoring')
+
+
+def _assert_u2a_current_generated_image_rights_and_backlog(
+        material_integration_env, monkeypatch, *, backlogged=False, material_only=True,
+        validate_signed_consent=False):
+    """#04/#15: a fake paid receipt never makes Rights or media Ready by itself."""
+    from io import BytesIO
+    from PIL import ImageDraw
+    from easel.creation_delivery import active_delivery, set_material_endpoint, next_operation
+    from easel.integrations import material_generation as paid
+    from easel.materials.providers import minimax_pricing
+    from easel.materials import providers
+    from easel.materials.providers.minimax_image import MiniMaxImageResult
+    from tests.material_delta_fixture import observed_result
+    from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
+    work, attempt, planning, _ = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, True)
+    if material_only:
+        set_material_endpoint(work['id'])
+    def no_stock(*_):
+        pytest.fail('empty stock has no image to classify')
+    owner = MaterialProductOrchestrator()
+    owner.observe_visual_materials(attempt['attempt_id'], executor=no_stock)
+    attempt = service.get_film_attempt(attempt['attempt_id'])
+    def quote(url):
+        if url == minimax_pricing.TERMS_URL: return MINIMAX_TERMS_FIXTURE
+        return ('## 图像\n单价：元/张\n| image-01 | 图片 | 0.025 |\n'
+                '## 视频\n**视频生成-输出价格**\n'
+                '| MiniMax-H3-Max | 480P | 按秒计费 | 0.33 元/秒 |')
+    monkeypatch.setattr(minimax_pricing,'read_public_contract',quote)
+    picture=Image.new('RGB',(720,1280),(90,75,57))
+    draw=ImageDraw.Draw(picture)
+    draw.rectangle((80,310,326,765),fill=(253,253,251))
+    draw.rectangle((389,330,654,791),fill=(249,249,246))
+    body=BytesIO(); picture.save(body,format='PNG')
+    submissions=[]
+    class NoNetworkImage:
+        def __init__(self, api_key, **kwargs):
+            assert api_key=='offline-fixture-key'
+            self.model=kwargs['model']
+        def generate(self, prompt, *, aspect_ratio):
+            assert aspect_ratio in {'16:9','9:16'}
+            submissions.append(prompt)
+            return MiniMaxImageResult(self.model,body.getvalue())
+    monkeypatch.setattr(providers,'MiniMaxImageAdapter',NoNetworkImage)
+    token=active_delivery.set(work['id'])
+    try:
+        paid.generate_for_commission(attempt['attempt_id'])
+        paid.generate_for_commission(attempt['attempt_id'])
+    finally:
+        active_delivery.reset(token)
+    assert len(submissions)==1
+    store=AttemptMaterialStore(attempt['workspace']['path'])
+    generated=store.list_generation_records()
+    assert len(generated)==1
+    record=generated[0]
+    asset=store.read_asset(record['asset_id'])
+    assert asset.rights.status is RightsStatus.UNKNOWN
+    assert asset.file.sha256==hashlib.sha256(body.getvalue()).hexdigest()
+    assert service.get_film_attempt(attempt['attempt_id'])['material_gate']['status']=='MATERIAL_NOT_READY'
+    if backlogged:
+        # Unobserved stock from a previous supply cannot consume the
+        # generated-intake slot or make this Need buy another image.
+        from easel.integrations import material_results
+        previous = store.read_bundle()
+        old_id = 'asset-000-unreviewed-stock'
+        old_locator = store.write_asset_bytes(old_id, 'stock.png', body.getvalue())
+        old_stock = asset.model_copy(update={
+            'asset_id': old_id,
+            'file': asset.file.model_copy(update={'path': old_locator}),
+            'source': CandidateSource(kind='stock', provider='fixture-unreviewed-stock',
+                provider_asset_id='archived-candidate'),
+            'semantic': SemanticInfo(),
+            'rights': RightsInfo(status=RightsStatus.UNKNOWN)})
+        store.write_asset(old_stock)
+        now = datetime.now(timezone.utc)
+        historical_supply = SupplyRun(supply_run_id='u2a-backlog-'+attempt['attempt_id'][-16:],
+            plan_id=planning['plan'].plan_id, parent_run_id=previous.supply_run_id,
+            started_at=now, finished_at=now, result_bundle_id=previous.bundle_id)
+        combined = MaterialBundleAssembler().assemble(
+            planning['plan'], historical_supply, (*previous.assets, old_stock),
+            previous.matches, bundle_id=previous.bundle_id)
+        readiness, gaps = material_results.readiness_calculator(
+            attempt, store).calculate(planning['plan'], combined)
+        MaterialGateIntegration().record(
+            service.get_film_attempt(attempt['attempt_id']),planning['plan'],
+            combined,historical_supply,readiness,gaps)
+        from easel.materials.application.readiness import MaterialReadinessCalculator
+        key = 'visual-budget-' + MaterialReadinessCalculator.plan_revision(planning['plan'])
+        spent = [f'prior-stock-{i}:sha256' for i in range(23)]
+        store.write_recovery_record(key,{
+            'associations': {planning['plan'].needs[0].need_id: list(spent)}})
+        assert not paid.pending_generated_need(
+            creation.get_creation(work['id']),
+            service.get_film_attempt(attempt['attempt_id']), planning['plan'])
+    def fixed_visual_observation(current, manifest, attachments):
+        assert manifest['asset_id']==asset.asset_id
+        return observed_result(current, manifest, attachments,
+            outcome='suitable',description='two white papers on brown desk')
+    # Generated-intake priority is an Owner-only privilege; a manual
+    # observation outside active delivery cannot claim a paid commission.
+    token = active_delivery.set(work['id'])
+    try:
+        result=owner.observe_visual_materials(
+            attempt['attempt_id'],executor=fixed_visual_observation)
+    finally:
+        active_delivery.reset(token)
+    assert result['material_status']=='MATERIAL_NOT_READY'
+    assert store.read_asset(asset.asset_id).rights.status is RightsStatus.UNKNOWN
+    assert next_operation(creation.get_creation(work['id']))[0] != 'generate_material'
+    if validate_signed_consent:
+        from copy import deepcopy
+        from easel.creation_delivery import is_managed
+        assert is_managed(creation.get_creation(work['id']))
+        proposal=creation.get_creation(work['id'])['delivery']['video_plan']
+        consent=creation.get_creation(work['id'])['delivery']['authorization']['input_use']
+        assert consent['schema']=='easel-input-use@3'
+        assert consent['video_plan_sha256']==proposal['sha256']
+        assert consent['script_sha256']==hashlib.sha256(proposal['script'].encode()).hexdigest()
+        assert 'text_to_visual_generation' in consent['operations']
+        assert record['billing']['status']=='UNKNOWN'  # settled charge still unknown, reservation bounded
+        # The official terms version in this isolated test is an offline fixture,
+        # never a verified live legal source or a permission to publish.
+        agreed=record['commission_authorization']['quote']['terms_evidence']
+        assert hashlib.sha256(agreed['document'].encode()).hexdigest()==agreed['sha256']
+        monkeypatch.setattr(paid,'MINIMAX_INTERNAL_TERMS_SHA256',agreed['sha256'])
+        work_now=creation.get_creation(work['id'])
+        retained=store.read_asset(asset.asset_id)
+        assert retained.rights.status is RightsStatus.UNKNOWN
+        def claim(work_copy=work_now, record_copy=record, candidate=retained,
+                  source_need=planning['plan'].needs[0], source_script=planning['script']):
+            return paid.commission_generated_rights(
+                work_copy, planning['plan'], source_need, candidate, record_copy, source_script)
+        claimed=claim()
+        assert claimed is not None, 'current signed Consent @3 must be validated by the Rights consumer'
+        assert claimed.status is RightsStatus.KNOWN
+        assert set(claimed.usage_constraints)=={'internal_production_only','current_creation_only'}
+        assert any(e.kind=='asset_commission_use' for e in claimed.evidence)
+        assert store.read_asset(asset.asset_id).rights.status is RightsStatus.UNKNOWN
+        assert service.get_film_attempt(attempt['attempt_id'])['material_gate']['status']=='MATERIAL_NOT_READY'
+        for mutation in ('no_consent','legacy_consent','altered_script','lost_image_operation',
+                         'other_creation','unsettled_request','changed_asset_sha',
+                         'changed_need','changed_quote'):
+            wrong_work=deepcopy(work_now)
+            wrong_record=deepcopy(record)
+            wrong_asset=retained
+            wrong_need=planning['plan'].needs[0]
+            if mutation=='no_consent':
+                wrong_work['delivery']['authorization']['input_use']=None
+            elif mutation=='legacy_consent':
+                wrong_work['delivery']['authorization']['input_use']['schema']='easel-input-use@2'
+            elif mutation=='altered_script':
+                wrong_work['delivery']['authorization']['input_use']['script_sha256']='0'*64
+            elif mutation=='lost_image_operation':
+                wrong_work['delivery']['authorization']['input_use']['operations'].remove('text_to_visual_generation')
+            elif mutation=='other_creation':
+                wrong_work['id']='another-creation'
+            elif mutation=='unsettled_request':
+                key=wrong_record['commission_authorization']['request_id']
+                wrong_work['delivery']['material_generations'][key]['status']='uncertain'
+            elif mutation=='changed_asset_sha':
+                wrong_asset=retained.model_copy(update={
+                    'file':retained.file.model_copy(update={'sha256':'0'*64})})
+            elif mutation=='changed_need':
+                wrong_need=planning['plan'].needs[0].model_copy(update={'role':'unapproved-change'})
+            else:
+                key=wrong_record['commission_authorization']['request_id']
+                wrong_work['delivery']['material_generations'][key]['quote']={}
+            assert claim(wrong_work,wrong_record,wrong_asset,wrong_need) is None,mutation
+    review = owner.review_material_rights if material_only else owner.review_generated_material_rights
+    with pytest.raises(MaterialIntegrationError):
+        review(
+            attempt['attempt_id'], asset_id=asset.asset_id,
+            expected_sha256='0'*64,
+            rights=RightsInfo(status=RightsStatus.KNOWN,
+                evidence=(RightsEvidence(kind='asset_license',
+                    reference='fixture://self-created-paper-image'),)),
+            confirm_review=True)
+    reviewed=review(
+        attempt['attempt_id'], asset_id=asset.asset_id,
+        expected_sha256=asset.file.sha256,
+        rights=RightsInfo(status=RightsStatus.KNOWN,
+            license_name='Offline self-produced pixel fixture',
+            evidence=(RightsEvidence(kind='asset_license',
+                reference='fixture://self-created-paper-image',
+                summary='Test operator owns the image pixels; no external license inferred'),)),
+        confirm_review=True)
+    assert reviewed['material_status']=='MATERIAL_READY'
+    assert store.read_asset(asset.asset_id).file==asset.file
+    assert store.read_asset(asset.asset_id).rights.reviewed_at is not None
+    # Rights changes the Bundle/Readiness revision. The Owner must reconcile
+    # the existing visual evidence under that new Gate, without a second LLM.
+    assert next_operation(creation.get_creation(work['id']))[0] == 'observe_material'
+    reused = owner.observe_visual_materials(attempt['attempt_id'],
+        executor=lambda *_: pytest.fail('pixel result is already saved'))
+    assert reused['material_status'] == 'MATERIAL_READY'
+    if material_only:
+        assert next_operation(creation.get_creation(work['id']))==(None,'material_ready')
+        assert not service.get_film_attempt(attempt['attempt_id']).get('production_authoring')
+    else:
+        assert reviewed['production_authoring']['status'] == 'PENDING_SELECTION'
+        assert service.get_film_attempt(attempt['attempt_id'])['production_authoring']['status'] == 'PENDING_SELECTION'
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+    if backlogged:
+        assert store.read_asset(old_id).rights.status is RightsStatus.UNKNOWN
+        assert not store.read_asset(old_id).semantic.inferences
+        assert store.read_recovery_record(key)['associations'][planning['plan'].needs[0].need_id] == spent
+        assert store.read_recovery_record(key)['generated_intakes'][planning['plan'].needs[0].need_id] == [
+            asset.asset_id + ':' + asset.file.sha256]
+
+
+def test_u2a_current_generated_image_needs_observation_and_explicit_rights_review(
+        material_integration_env, monkeypatch):
+    _assert_u2a_current_generated_image_rights_and_backlog(
+        material_integration_env, monkeypatch)
+
+
+def test_u2a_signed_consent_image_commission_rights_is_narrow_not_a_ready_gate(
+        material_integration_env, monkeypatch):
+    _assert_u2a_current_generated_image_rights_and_backlog(
+        material_integration_env, monkeypatch, validate_signed_consent=True)
+
+
+def test_u2a_current_generated_image_rights_opens_normal_authoring_selection(
+        material_integration_env, monkeypatch):
+    _assert_u2a_current_generated_image_rights_and_backlog(
+        material_integration_env, monkeypatch, material_only=False)
+
+
+def test_u2a_current_generated_image_is_not_stranded_by_stock_backlog(
+        material_integration_env, monkeypatch):
+    _assert_u2a_current_generated_image_rights_and_backlog(
+        material_integration_env, monkeypatch, backlogged=True)
+
+
+def test_u2a_current_two_visual_needs_from_confirmed_distinct_scenes(
+        material_integration_env, monkeypatch):
+    work, attempt, current, _ = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, True, max_cost=.06, two_scenes=True)
+    needs = [n for n in current['plan'].needs if n.media_type is MediaType.IMAGE]
+    assert len(needs) == 2
+    assert {n.scope.ref for n in needs} == {'scene-1','scene-2'}
+    assert {n.need_id for n in needs} <= set(attempt['material_gate']['blocking_needs'])
+    assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+
+
+def test_u2a_current_two_image_commissions_share_budget_without_rebuy_or_cross_need(
+        material_integration_env, monkeypatch):
+    """Two independently frozen scene Needs, exactly two paid-intake receipts.
+
+    Both image bytes are drawn locally and the external model/price responses
+    are fixed test data, not actual provider execution or pixel inference.
+    """
+    from io import BytesIO
+    from PIL import ImageDraw
+    from easel.creation_delivery import active_delivery
+    from easel.integrations import material_generation as paid
+    from easel.materials.providers import minimax_pricing
+    from easel.materials import providers
+    from easel.materials.providers.minimax_image import MiniMaxImageResult
+    from tests.material_delta_fixture import observed_result
+    from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
+
+    work, attempt, planning, _ = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, True, max_cost=.06, two_scenes=True)
+    plan = planning['plan']
+    needs = [n for n in plan.needs if n.media_type is MediaType.IMAGE]
+    assert len(needs) == 2
+    def empty_search_only(*_):
+        pytest.fail('empty stock pool cannot invoke image observation')
+    owner = MaterialProductOrchestrator()
+    owner.observe_visual_materials(attempt['attempt_id'], executor=empty_search_only)
+    attempt = service.get_film_attempt(attempt['attempt_id'])
+    first = paid.pending_generated_need(
+        creation.get_creation(work['id']), attempt, plan)
+    assert first is not None and first[0].need_id == needs[0].need_id
+    quote_reads=[]
+    def quote(url):
+        quote_reads.append(url)
+        if url == minimax_pricing.TERMS_URL: return MINIMAX_TERMS_FIXTURE
+        return ('## 图像\n单价：元/张\n| image-01 | 图片 | 0.025 |\n'
+                '## 视频\n**视频生成-输出价格**\n'
+                '| MiniMax-H3-Max | 480P | 按秒计费 | 0.33 元/秒 |')
+    monkeypatch.setattr(minimax_pricing,'read_public_contract',quote)
+    generated=[]
+    class OfflineTwoImages:
+        def __init__(self, key, **kwargs):
+            assert key=='offline-fixture-key'
+            self.model=kwargs['model']
+        def generate(self,prompt,**kwargs):
+            index=len(generated)
+            assert index < 2, 'no third billable image may be submitted'
+            picture=Image.new('RGB',(720,1280),(90,75,57))
+            canvas=ImageDraw.Draw(picture)
+            if index == 0:
+                canvas.rectangle((80,310,326,765),fill=(253,253,251))
+                canvas.rectangle((389,330,654,791),fill=(249,249,246))
+            else:
+                canvas.rectangle((140,300,600,800),fill=(60,100,190))
+            buf=BytesIO(); picture.save(buf,format='PNG')
+            generated.append((prompt,buf.getvalue()))
+            return MiniMaxImageResult(self.model,buf.getvalue())
+    monkeypatch.setattr(providers,'MiniMaxImageAdapter',OfflineTwoImages)
+    token=active_delivery.set(work['id'])
+    try:
+        paid.generate_for_commission(attempt['attempt_id'])
+        assert len(generated)==1
+        # A new Material revision requires its real observation before the
+        # second Need is authorized to use the remaining common budget.
+        paid.generate_for_commission(attempt['attempt_id'])
+        assert len(generated)==1
+        store=AttemptMaterialStore(attempt['workspace']['path'])
+        first_record=store.list_generation_records()[0]
+        assert first_record['need_id'] == needs[0].need_id
+        def inspect_first(current, manifest, attachments):
+            assert manifest['asset_id']==first_record['asset_id']
+            assert manifest['need']['need_id'] == needs[0].need_id
+            return observed_result(current,manifest,attachments,outcome='suitable',
+                description='two sheets of white paper on a brown tabletop')
+        owner.observe_visual_materials(attempt['attempt_id'],executor=inspect_first)
+        next_attempt=service.get_film_attempt(attempt['attempt_id'])
+        selected=paid.pending_generated_need(
+            creation.get_creation(work['id']), next_attempt,plan)
+        assert selected is not None and selected[0].need_id == needs[1].need_id
+        paid.generate_for_commission(attempt['attempt_id'])
+        paid.generate_for_commission(attempt['attempt_id'])
+    finally:
+        active_delivery.reset(token)
+    store=AttemptMaterialStore(attempt['workspace']['path'])
+    records=store.list_generation_records()
+    assert len(records)==2 and len(generated)==2
+    assert {r['need_id'] for r in records} == {n.need_id for n in needs}
+    assert all(r['status']=='COMPLETE' for r in records)
+    assert len({r['asset_id'] for r in records}) == 2
+    budget=creation.get_creation(work['id'])['delivery']['material_generations']
+    assert len(budget)==2
+    assert {r['status'] for r in budget.values()} == {'complete'}
+    assert sum(float(r['quote']['upper_estimate']) for r in budget.values()) == .05
+    assert all(r['rights_status']=='UNKNOWN' for r in records)
+    records_by_need={r['need_id']:r for r in records}
+    for index, need in enumerate(needs):
+        assert store.read_asset(records_by_need[need.need_id]['asset_id']).file.sha256 == (
+            hashlib.sha256(generated[index][1]).hexdigest())
+    assert all(store.read_asset(r['asset_id']).rights.status is RightsStatus.UNKNOWN for r in records)
+    assert quote_reads.count(minimax_pricing.TERMS_URL)==2
+    assert service.get_film_attempt(attempt['attempt_id'])['material_gate']['status']=='MATERIAL_NOT_READY'
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+
+
+def _u2a_current_shared_visual_asset(material_integration_env, monkeypatch, *, known_rights=True, material_only=True):
+    """Current two-scene frozen Plan and a real owned-image SHA/Bundle/Gate."""
+    from io import BytesIO
+    from PIL import ImageDraw
+    from easel.creation_delivery import set_material_endpoint
+    work, attempt, planning, _ = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, True, max_cost=.06, two_scenes=True)
+    if material_only:
+        set_material_endpoint(work['id'])
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    previous = store.read_bundle()
+    picture=Image.new('RGB',(720,1280),(90,75,57))
+    canvas=ImageDraw.Draw(picture)
+    canvas.rectangle((60,170,288,740), fill=(249,249,246))
+    canvas.rectangle((325,200,542,760), fill=(247,247,245))
+    canvas.rectangle((190,825,600,1110), fill=(43,87,170))
+    image=BytesIO(); picture.save(image,format='PNG')
+    data=image.getvalue()
+    identity='two-white-pages-and-blue-notebook'
+    locator=store.write_asset_bytes(identity,'original.png',data)
+    asset=MaterialAsset(
+        asset_id=identity, media_type=MediaType.IMAGE,
+        file=FileInfo(path=locator, sha256=hashlib.sha256(data).hexdigest(),
+                      size=len(data),mime='image/png'),
+        source=CandidateSource(kind='local',provider='fixture-self-produced',
+                               provider_asset_id=identity),
+        rights=RightsInfo(status=RightsStatus.KNOWN,
+            license_name='Self-produced local test-image-only fixture',
+            evidence=(RightsEvidence(kind='asset_license',
+                reference='fixture://self-produced/two-scenes'),)) if known_rights
+            else RightsInfo(status=RightsStatus.UNKNOWN),
+        technical=TechnicalInfo(status=TechnicalStatus.PASSED,
+            width=720,height=1280,mime='image/png'),
+        semantic=SemanticInfo(caption='桌面两张白纸和一本蓝色封面笔记本'))
+    store.write_asset(asset)
+    now=datetime.now(timezone.utc)
+    run=SupplyRun(supply_run_id='current-shared-visual-'+attempt['attempt_id'][-12:],
+        plan_id=planning['plan'].plan_id,parent_run_id=previous.supply_run_id,
+        started_at=now,finished_at=now,result_bundle_id=previous.bundle_id)
+    bundle=MaterialBundleAssembler().assemble(
+        planning['plan'],run,(asset,),(),bundle_id=previous.bundle_id)
+    from easel.integrations import material_results
+    readiness, gaps=material_results.readiness_calculator(attempt,store).calculate(
+        planning['plan'],bundle)
+    attempt=MaterialGateIntegration().record(
+        attempt,planning['plan'],bundle,run,readiness,gaps)['attempt']
+    assert attempt['material_gate']['status']=='MATERIAL_NOT_READY'
+    assert len([n for n in planning['plan'].needs if n.media_type is MediaType.IMAGE])==2
+    return work, attempt, planning, store, asset
+
+
+@pytest.mark.parametrize('failure_point', [
+    'self_gate_committed', 'self_bundle_only', 'foreign_gate_replaced',
+    'after_complete_marker_interruption', 'foreign_after_complete',
+    'normal_delivery_after_own_gate',
+])
+def test_u2a_current_combination_replay_distinguishes_own_commit_from_foreign_revision(
+        material_integration_env, monkeypatch, failure_point):
+    """#18: a reviewed Bundle may evolve *because of this same saved decision*.
+
+    The same @4/Consent@3/vNext/Material@3 real offline pixel+Rights fixture
+    must resume its own committed Bundle, but not replay after another
+    independent Gate changed Match/Source. Never force a source revision == now.
+    """
+    from tests.material_delta_fixture import observed_result
+    from easel.materials.application.assembly import MaterialBundleAssembler
+
+    material_only = failure_point != 'normal_delivery_after_own_gate'
+    work, attempt, planning, store, asset = _u2a_current_shared_visual_asset(
+        material_integration_env, monkeypatch, material_only=material_only)
+    plan=planning['plan']
+    owner=MaterialProductOrchestrator()
+    def observe(current, manifest, media):
+        return observed_result(current, manifest, media,
+            outcome='suitable',description='two white note pages beside a blue notebook')
+    observed=owner.observe_visual_materials(
+        attempt['attempt_id'], executor=observe, group_executor=observe)
+    assert observed['material_status']=='MATERIAL_READY'
+    ready_attempt=service.get_film_attempt(attempt['attempt_id'])
+    before=store.read_bundle()
+    original_bytes=store.resolve_asset_locator(asset.file.path).read_bytes()
+    original_rights=store.read_asset(asset.asset_id).rights
+    frozen_script=PlanningIntegration().load(ready_attempt)['script']
+    original_grant=creation.get_creation(work['id'])['delivery']['authorization']
+    source_run=store.read_supply_run(before.supply_run_id)
+    assert source_run.result_bundle_id==before.bundle_id
+    if material_only:
+        assert not ready_attempt.get('production_authoring')
+    else:
+        assert ready_attempt['production_authoring']['status']=='PENDING_SELECTION'
+    request=dict(plan_revision=ready_attempt['material_gate']['plan_revision'],
+        bundle_revision=before.revision,confirm_review=True,
+        reviews=[dict(need_id=n.need_id,asset_id=asset.asset_id,
+            expected_sha256=asset.file.sha256,
+            observed_content='已逐场景确认两张白纸和蓝色封面笔记本与画面要求一致。',
+            logo_present=False,visible_text_present=False)
+            for n in plan.needs])
+    assert len(request['reviews'])==2
+
+    # A valid frozen Plan is not permission to accept a stale or partial
+    # human selection. All refusals occur before the PENDING journal exists.
+    from copy import deepcopy
+    invalid_requests=[
+        {**request,'plan_revision':'0'*64},
+        {**request,'bundle_revision':'0'*64},
+        {**request,'reviews':request['reviews'][:1]},
+        {**request,'reviews':request['reviews']*2},
+        {**request,'confirm_review':False},
+    ]
+    wrong_sha=deepcopy(request)
+    wrong_sha['reviews'][0]['expected_sha256']='0'*64
+    invalid_requests.append(wrong_sha)
+    wrong_asset=deepcopy(request)
+    wrong_asset['reviews'][0]['asset_id']='outside-frozen-bundle'
+    invalid_requests.append(wrong_asset)
+    for wrong in invalid_requests:
+        with pytest.raises(MaterialIntegrationError):
+            owner.review_material_combination(attempt['attempt_id'],**wrong)
+        assert owner.pending_combination_request(ready_attempt) is None
+        assert store.read_bundle()==before
+        assert store.read_asset(asset.asset_id).rights==original_rights
+
+    with monkeypatch.context() as interrupted:
+        if failure_point in {'after_complete_marker_interruption', 'foreign_after_complete'}:
+            from easel.integrations import material_layer as integration
+            native_update=integration._update_attempt
+            def after_journal_before_final_marker(current,**fields):
+                if fields.get('material_combination_review',{}).get('status')=='COMPLETE':
+                    raise OSError('fixture interruption after own COMPLETE journal before marker')
+                return native_update(current,**fields)
+            interrupted.setattr(integration,'_update_attempt',after_journal_before_final_marker)
+        elif failure_point=='self_bundle_only':
+            native=AttemptMaterialStore.write_supply_run
+            def after_bundle_before_run(self, run):
+                if run.supply_run_id.startswith('match-'):
+                    raise OSError('fixture interruption after own Bundle before SupplyRun')
+                return native(self,run)
+            interrupted.setattr(AttemptMaterialStore,'write_supply_run',
+                after_bundle_before_run)
+        else:
+            native=AttemptMaterialStore.write_recovery_record
+            def after_gate_before_complete(self,key,value):
+                if key.startswith('combination-') and value.get('status')=='COMPLETE':
+                    raise OSError('fixture interruption after own Gate before completion')
+                return native(self,key,value)
+            interrupted.setattr(AttemptMaterialStore,'write_recovery_record',
+                after_gate_before_complete)
+        with pytest.raises(OSError,match='fixture interruption after own'):
+            owner.review_material_combination(attempt['attempt_id'],**request)
+    pending_id=owner.pending_combination_request(service.get_film_attempt(attempt['attempt_id']))
+    assert pending_id
+    journal=store.read_recovery_record(pending_id)
+    assert journal['status']==('COMPLETE' if failure_point in {
+        'after_complete_marker_interruption','foreign_after_complete'} else 'PENDING')
+    assert journal['plan_revision']==request['plan_revision']
+    assert journal['source_run']==source_run.model_dump(mode='json')
+    assert journal['result_run'] is not None and journal['result_bundle'] is not None
+    own=store.read_bundle()
+    assert own.revision!=before.revision
+    assert own.bundle_id==before.bundle_id
+    assert {a.asset_id for a in own.assets}=={a.asset_id for a in before.assets}
+    assert store.read_asset(asset.asset_id).rights==original_rights
+    assert store.resolve_asset_locator(asset.file.path).read_bytes()==original_bytes
+    assert PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan']==plan
+    assert creation.get_creation(work['id'])['delivery']['authorization']==original_grant
+    committed_run=(store.read_supply_run(own.supply_run_id)
+        if failure_point!='self_bundle_only' else None)
+    if failure_point in {'foreign_gate_replaced','foreign_after_complete'}:
+        # A genuinely different Material Gate (not a replay of the acceptance)
+        # changes only Match+SupplyRun; keep all Asset IDs and SHA the same.
+        at=service.get_film_attempt(attempt['attempt_id'])
+        external_run=SupplyRun(
+            supply_run_id='independent-source-'+at['attempt_id'][-18:],
+            plan_id=plan.plan_id,parent_run_id=own.supply_run_id,
+            started_at=datetime.now(timezone.utc),finished_at=datetime.now(timezone.utc),
+            result_bundle_id=own.bundle_id)
+        alternative=MaterialBundleAssembler().assemble(
+            plan,external_run,own.assets,(),bundle_id=own.bundle_id)
+        assert {a.file.sha256 for a in alternative.assets}=={a.file.sha256 for a in own.assets}
+        from easel.integrations import material_results
+        readiness,gaps=material_results.readiness_calculator(at,store).calculate(
+            plan,alternative)
+        changed=MaterialGateIntegration().record(
+            at,plan,alternative,external_run,readiness,gaps)
+        assert changed['attempt']['material_gate']['status']=='MATERIAL_NOT_READY'
+        snapshot=(store.read_bundle().to_json(),store.read_supply_run(external_run.supply_run_id).to_json(),
+                  service.get_film_attempt(attempt['attempt_id'])['material_gate'],
+                  store.read_asset(asset.asset_id).to_json())
+        with pytest.raises(MaterialIntegrationError,match='组合|Bundle|匹配|来源|审阅'):
+            MaterialProductOrchestrator().finish_material_combination(
+                attempt['attempt_id'])
+        assert store.read_bundle().to_json()==snapshot[0]
+        assert store.read_supply_run(external_run.supply_run_id).to_json()==snapshot[1]
+        assert service.get_film_attempt(attempt['attempt_id'])['material_gate']==snapshot[2]
+        assert store.read_asset(asset.asset_id).to_json()==snapshot[3]
+        assert store.read_recovery_record(pending_id)['status']==journal['status']
+    else:
+        restored=MaterialProductOrchestrator().finish_material_combination(
+            attempt['attempt_id'])
+        assert restored['material_status']=='MATERIAL_READY'
+        assert restored['attempt']['material_combination_review']['status']=='COMPLETE'
+        committed_journal=store.read_recovery_record(pending_id)
+        assert committed_journal['status']=='COMPLETE'
+        assert committed_journal['source_run']==source_run.model_dump(mode='json')
+        assert committed_journal['result_bundle']==own.model_dump(mode='json')
+        assert committed_journal['result_run']==store.read_supply_run(own.supply_run_id).model_dump(mode='json')
+        assert store.read_bundle().revision==own.revision
+        assert store.read_bundle().supply_run_id==own.supply_run_id
+        if committed_run is not None:
+            assert store.read_supply_run(own.supply_run_id)==committed_run
+        from easel.creation_delivery import next_operation
+        current=service.get_film_attempt(attempt['attempt_id'])
+        if material_only:
+            assert not current.get('production_authoring'), (
+                'Material-only endpoint never starts Hypit Authoring')
+            assert next_operation(creation.get_creation(work['id']))[1]=='material_ready'
+        else:
+            assert current['production_authoring']['status']=='PENDING_SELECTION'
+        assert current['build']['operation'] is None
+        assert PlanningIntegration().load(current)['script']==frozen_script
+        again=MaterialProductOrchestrator().finish_material_combination(
+            attempt['attempt_id'],request_id=pending_id)
+        assert again['attempt']['material_gate']==current['material_gate']
+    assert store.read_asset(asset.asset_id).rights==original_rights
+    assert store.resolve_asset_locator(asset.file.path).read_bytes()==original_bytes
+    assert not store.list_generation_records()
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+
+
+def test_u2a_current_combination_acceptance_never_upgrades_unknown_rights(
+        material_integration_env, monkeypatch):
+    """A Creator's preferred composition is not a Material Rights grant."""
+    from tests.material_delta_fixture import observed_result
+    work, attempt, planning, store, asset = _u2a_current_shared_visual_asset(
+        material_integration_env, monkeypatch, known_rights=False)
+    owner=MaterialProductOrchestrator()
+    def observe(current, manifest, media):
+        return observed_result(current,manifest,media,
+            outcome='suitable', description='two white note sheets and blue notebook')
+    observed=owner.observe_visual_materials(
+        attempt['attempt_id'],executor=observe,group_executor=observe)
+    assert observed['material_status']=='MATERIAL_NOT_READY'
+    frozen=store.read_bundle()
+    creation_before=creation.get_creation(work['id'])['delivery']['authorization']
+    attempt=service.get_film_attempt(attempt['attempt_id'])
+    result=owner.review_material_combination(
+        attempt['attempt_id'],plan_revision=attempt['material_gate']['plan_revision'],
+        bundle_revision=frozen.revision,confirm_review=True,
+        reviews=[dict(need_id=need.need_id,asset_id=asset.asset_id,
+            expected_sha256=asset.file.sha256,
+            observed_content='已确认真实画面符合当前场景，但尚未确认使用权。',
+            logo_present=False,visible_text_present=False)
+            for need in planning['plan'].needs])
+    assert result['material_status']=='MATERIAL_NOT_READY'
+    assert store.read_asset(asset.asset_id).rights.status is RightsStatus.UNKNOWN
+    assert service.get_film_attempt(attempt['attempt_id'])['material_gate']['status']=='MATERIAL_NOT_READY'
+    assert not service.get_film_attempt(attempt['attempt_id']).get('production_authoring')
+    assert not service.get_film_attempt(attempt['attempt_id'])['build']['operation']
+    assert creation.get_creation(work['id'])['delivery']['authorization']==creation_before
+    assert store.read_bundle().plan_id==frozen.plan_id
+    assert store.resolve_asset_locator(asset.file.path).stat().st_size==asset.file.size
+
+
+def test_u2a_current_vnext_video_multiframe_delta_receipt_replay_and_tamper(
+        material_integration_env, monkeypatch):
+    """A real current @4 frozen *video* Need supplies multiple sampled frames.
+
+    Unlike old custom Planning, its two+ Material batches come from the actual
+    source media time axis, not new clauses inserted after confirmation.
+    """
+    import subprocess
+    import sys
+    from easel.creation_delivery import set_material_endpoint
+    from easel.materials.application.visual_observation import prepare_observation
+    from easel.materials.application.visual_contract import (
+        compilation_input, read_requirements_contract, batches)
+    from easel.integrations.hypit.handoff import load_frozen_creative_mode
+
+    work, attempt, planning, _ = _u2a_current_video_budgeted_fixture(
+        material_integration_env, monkeypatch)
+    set_material_endpoint(work['id'])
+    plan=planning['plan']
+    need=next(n for n in plan.needs if n.media_type is MediaType.VIDEO)
+    assert need.constraints.get('requires_dynamic_action') is True
+    root=Path(attempt['workspace']['path'])
+    store=AttemptMaterialStore(root)
+    source=store.read_bundle()
+    mp4=root / 'offline-five-seconds-portrait.mp4'
+    subprocess.run(['ffmpeg','-v','error','-nostdin','-y','-f','lavfi',
+        '-i','testsrc2=s=180x320:r=10:d=5','-an','-c:v','libx264',
+        '-pix_fmt','yuv420p',str(mp4)],
+        capture_output=True,check=True,timeout=45)
+    data=mp4.read_bytes()
+    asset_id='self-produced-motion-video'
+    locator=store.write_asset_bytes(asset_id,'original.mp4',data)
+    asset=MaterialAsset(
+        asset_id=asset_id, media_type=MediaType.VIDEO,
+        file=FileInfo(path=locator,sha256=hashlib.sha256(data).hexdigest(),
+                      size=len(data),mime='video/mp4'),
+        source=CandidateSource(kind='local',provider='fixture-self-produced',
+                               provider_asset_id=asset_id),
+        rights=RightsInfo(status=RightsStatus.KNOWN,
+            license_name='Offline self-produced video-pixels fixture',
+            evidence=(RightsEvidence(kind='asset_license',
+                reference='fixture://self-produced/video-five-seconds'),)),
+        technical=TechnicalInfo(status=TechnicalStatus.PASSED,
+            width=180,height=320,duration_seconds=5,mime='video/mp4'),
+        semantic=SemanticInfo(caption='dynamic pattern for contract verification'))
+    store.write_asset(asset)
+    now=datetime.now(timezone.utc)
+    run=SupplyRun(supply_run_id='motion-fixture-'+attempt['attempt_id'][-20:],
+        plan_id=plan.plan_id,parent_run_id=source.supply_run_id,
+        started_at=now,finished_at=now,result_bundle_id=source.bundle_id)
+    bundle=MaterialBundleAssembler().assemble(plan,run,(asset,),(),bundle_id=source.bundle_id)
+    from easel.integrations import material_results
+    readiness,gaps=material_results.readiness_calculator(attempt,store).calculate(plan,bundle)
+    attempt=MaterialGateIntegration().record(
+        attempt,plan,bundle,run,readiness,gaps)['attempt']
+    assert attempt['material_gate']['status']=='MATERIAL_NOT_READY'
+    manifest, attachments=prepare_observation(
+        need,asset,store.resolve_asset_locator(asset.file.path))
+    mode=load_frozen_creative_mode(attempt)[0]
+    frozen=compilation_input(need,plan.context_refs,mode,plan=plan)
+    contract=read_requirements_contract(store,frozen)
+    assert contract is not None
+    windows=batches(manifest,contract)
+    assert len(manifest['frames'])>=2
+    assert len(windows)>=2
+    assert len(attachments)>=2
+    assert {x['frame']['index'] for x in windows} == {
+        x['index'] for x in manifest['frames']}
+    assert store.resolve_asset_locator(asset.file.path).read_bytes()==data
+    assert store.read_plan() == plan
+    assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+    assert not attempt['build']['operation']
+
+    # The real Delta owner records one facts result plus independently
+    # source-bound delta answers for every additional sampled video frame.
+    from easel.integrations import output_receipts as receipts
+    from tests.material_delta_fixture import observed_result
+    from easel.creation_delivery import active_delivery
+    from easel.materials.application.visual_observation import read_observation_report
+    import subprocess as child_process
+
+    actual_model_calls=[]
+    def offline_observe(current, item, media):
+        assert item['need']['need_id']==need.need_id
+        assert item['asset_sha256']==asset.file.sha256
+        assert len(media)==len(manifest['frames'])
+        return observed_result(current,item,media,outcome='suitable',
+            description='offline video fixture pixels (not a real inference)',
+            invocations=actual_model_calls)
+    owner=MaterialProductOrchestrator()
+    original_capture=receipts.capture_result
+    interrupted=[]
+    def capture_then_fail(*args,**kwargs):
+        receipt=original_capture(*args,**kwargs)
+        if not interrupted:
+            interrupted.append(receipt['key'])
+            raise OSError('offline after first video-frame capture')
+        return receipt
+    token=active_delivery.set(work['id'])
+    try:
+        with monkeypatch.context() as local:
+            local.setattr(receipts,'capture_result',capture_then_fail)
+            with pytest.raises(OSError,match='after first video-frame capture'):
+                owner.observe_visual_materials(attempt['attempt_id'], executor=offline_observe)
+        assert len(actual_model_calls)==1
+        assert not store.read_asset(asset.asset_id).semantic.inferences
+        for _ in range(3):
+            owner.observe_visual_materials(attempt['attempt_id'],
+                executor=offline_observe)
+            report_path=store.materials_root / 'observations' / (manifest['input_sha256']+'.json')
+            if report_path.is_file(): break
+        assert report_path.is_file()
+        report=read_observation_report(
+            report_path,need,store.read_asset(asset.asset_id),manifest,
+            result_processor=material_results.processor(attempt,store))
+        assert report['schema']==material_results.REPORT
+        assert len(report['result_groups'])==len(windows)
+        # Distinct video frames cannot borrow other frames' visible facts.
+        # The Delta consumer correctly uses a separate facts capture per SHA;
+        # only multiple clause groups *within one frame* use delta mode.
+        assert all(r.get('observed') is True for r in report['wire_results'])
+        assert len({frame['sha256'] for frame in manifest['frames']})>=2
+        assert len(actual_model_calls)==len(windows), (
+            'first video frame must reuse its exact originally captured answer')
+        material_results.verify_report(store,manifest,report)
+        store.write_recovery_record('current-vnext-video-delta-evidence',{
+            'manifest':manifest,'report':report})
+        cold_script=(
+            "import sys,socket; from easel.materials.store import AttemptMaterialStore; "
+            "from easel.integrations import material_results; "
+            "socket.socket.connect=lambda *a,**k: (_ for _ in ()).throw(AssertionError('network forbidden')); "
+            "s=AttemptMaterialStore(sys.argv[1]); r=s.read_recovery_record('current-vnext-video-delta-evidence'); "
+            "assert material_results.verify_report(s,r['manifest'],r['report'])==r['report']; "
+            "print('CURRENT_VNEXT_VIDEO_DELTA_COLD_PASS')"
+        )
+        cold=child_process.run(
+            [sys.executable,'-c',cold_script,str(root)],
+            capture_output=True,text=True,timeout=35)
+        assert cold.returncode==0, cold.stderr[:600]
+        assert 'CURRENT_VNEXT_VIDEO_DELTA_COLD_PASS' in cold.stdout
+        assert len(actual_model_calls)==len(windows)
+        assert store.read_asset(asset.asset_id).file==asset.file
+        assert store.resolve_asset_locator(asset.file.path).read_bytes()==data
+        assert PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan']==plan
+        assert not service.get_film_attempt(attempt['attempt_id'])['build']['operation']
+        ref=report['result_groups'][1]['derivation']
+        original=store.read_recovery_record(ref['key'])
+        store.write_recovery_record(ref['key'],
+            {**original,'unbound_extra_projection':'reject-on-cold-replay'})
+        from easel.integrations import output_receipts as proof
+        with pytest.raises(proof.OutputReceiptError):
+            material_results.verify_report(store,manifest,report)
+        broken=child_process.run(
+            [sys.executable,'-c',cold_script,str(root)],
+            capture_output=True,text=True,timeout=35)
+        assert broken.returncode!=0 and 'OutputReceiptError' in broken.stderr
+        assert len(actual_model_calls)==len(windows)
+        assert not service.get_film_attempt(attempt['attempt_id'])['build']['operation']
+    finally:
+        active_delivery.reset(token)
+
+
+def test_u2a_current_shared_local_pixel_observation_is_per_need(
+        material_integration_env, monkeypatch):
+    from tests.material_delta_fixture import observed_result
+    from easel.materials.application.visual_observation import observed_match
+    work, attempt, planning, store, asset=_u2a_current_shared_visual_asset(
+        material_integration_env, monkeypatch)
+    seen=[]
+    def per_need(current,manifest,attachments):
+        seen.append(manifest['need']['need_id'])
+        assert manifest['asset_id']==asset.asset_id
+        return observed_result(current,manifest,attachments,
+            outcome='suitable',description='two white sheets next to a blue notebook')
+    def shared(current,group,attachments):
+        for item in group['observations']:
+            seen.append(item['need']['need_id'])
+            assert item['asset_id']==asset.asset_id
+        return observed_result(current,group,attachments,
+            outcome='suitable',description='two white sheets next to a blue notebook')
+    result=MaterialProductOrchestrator().observe_visual_materials(
+        attempt['attempt_id'],executor=per_need,group_executor=shared)
+    ids={n.need_id for n in planning['plan'].needs}
+    assert ids <= set(seen)
+    assert result['material_status']=='MATERIAL_READY'
+    assert all(observed_match(n,store.read_asset(asset.asset_id)) is True
+               for n in planning['plan'].needs)
+    assert {r['need_id'] for r in result['attempt']['material_observation']['outcomes']} == ids
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+    assert not service.get_film_attempt(attempt['attempt_id']).get('production_authoring')
+
+
+def test_u2a_current_material_delta_dispute_revokes_shared_facts_but_preserves_independent_gate(
+        material_integration_env, monkeypatch):
+    """P0-A: current @4/@3/vNext two-Need real PNG Gate; disputed facts are not Rights or Authority.
+
+    One image's published facts are shared across Need-bound reports. A separate
+    image has independently captured facts, so a durable Delta dispute must
+    invalidate only the former; no model re-purchase, Gate mutation, or forged READY.
+    """
+    from io import BytesIO
+    from PIL import ImageDraw
+    from easel.integrations import material_results
+    from easel.materials.application.visual_observation import (
+        prepare_observation, apply_observation, observed_match)
+    from easel.materials.application.visual_contract import (
+        compilation_input, read_requirements_contract)
+    from easel.integrations.hypit.handoff import load_frozen_creative_mode
+    from tests.material_delta_fixture import observed_result
+    from tests.test_material_result_delta import _owner, _answer
+
+    work, attempt, planning, store, source = _u2a_current_shared_visual_asset(
+        material_integration_env, monkeypatch)
+    plan=planning['plan']
+    needs=list(plan.needs)
+    original_source=store.resolve_asset_locator(source.file.path).read_bytes()
+    original_bundle=store.read_bundle()
+    picture=Image.new('RGB',(720,1280),(44,70,94))
+    canvas=ImageDraw.Draw(picture)
+    canvas.rectangle((45,180,288,870), fill=(248,250,247))
+    canvas.rectangle((343,175,668,882), fill=(250,250,249))
+    buf=BytesIO(); picture.save(buf,format='PNG')
+    bytes_backup=buf.getvalue()
+    backup_id='independent-scene-evidence'
+    locator=store.write_asset_bytes(backup_id,'original.png',bytes_backup)
+    backup=source.model_copy(update={
+        'asset_id':backup_id,
+        'file':source.file.model_copy(update={
+            'path':locator,'sha256':hashlib.sha256(bytes_backup).hexdigest(),
+            'size':len(bytes_backup)}),
+        'source':source.source.model_copy(update={'provider_asset_id':backup_id}),
+        'semantic':SemanticInfo(caption='two white pages on the desk')})
+    store.write_asset(backup)
+    now=datetime.now(timezone.utc)
+    supply=SupplyRun(
+        supply_run_id='two-independent-facts-'+attempt['attempt_id'][-15:],
+        plan_id=plan.plan_id,parent_run_id=original_bundle.supply_run_id,
+        started_at=now,finished_at=now,result_bundle_id=original_bundle.bundle_id)
+    bundle=MaterialBundleAssembler().assemble(
+        plan,supply,(source,backup),(),bundle_id=original_bundle.bundle_id)
+    ready,gaps=material_results.readiness_calculator(attempt,store).calculate(plan,bundle)
+    attempt=MaterialGateIntegration().record(attempt,plan,bundle,supply,ready,gaps)['attempt']
+    assert attempt['material_gate']['status']=='MATERIAL_NOT_READY'
+    observed_invocations=[]
+    def publish(need,item):
+        current=store.read_asset(item.asset_id)
+        manifest,attachments=prepare_observation(
+            need,current,store.resolve_asset_locator(current.file.path))
+        report=observed_result(attempt,manifest,attachments,
+            outcome='suitable',description='two separate pages seen',
+            invocations=observed_invocations)
+        assert material_results.verify_report(store,manifest,report)==report
+        reviewed=apply_observation(need,current,manifest,report,
+            result_processor=material_results.processor(attempt,store))
+        store.write_asset(reviewed)
+        return manifest,report
+    primary_manifest,primary_report=publish(needs[0],source)
+    for need in needs:
+        publish(need,backup)
+    first=store.read_asset(source.asset_id)
+    second=store.read_asset(backup.asset_id)
+    assert observed_match(needs[0],first) is True
+    assert all(observed_match(n,second) is True for n in needs)
+    assert all(material_results.eligible(store,n,second,attempt=attempt,allow_creator=False)
+               for n in needs)
+    original_capture=primary_report['result_groups'][0]['capture_key']
+    original_capture_record=store.read_recovery_record(original_capture)
+    assert original_capture_record and isinstance(original_capture_record,dict)
+    assert material_results.eligible(store,needs[0],first,attempt=attempt,allow_creator=False)
+    result=MaterialProductOrchestrator._recalculate_observed_materials(
+        service.get_film_attempt(attempt['attempt_id']),plan,store.read_bundle(),store,
+        require_scoped_visual=True)
+    assert result['material_status']=='MATERIAL_READY'
+    at=service.get_film_attempt(attempt['attempt_id'])
+    current_bundle=store.read_bundle()
+    assert {m.asset_id for m in current_bundle.matches if m.qualified}=={
+        source.asset_id,backup.asset_id}
+    original_creation=creation._creation_path(work['id']).read_bytes()
+
+    challenge=store.read_asset(source.asset_id)
+    manifest,attachments=prepare_observation(
+        needs[1],challenge,store.resolve_asset_locator(challenge.file.path))
+    mode,_=load_frozen_creative_mode(at)
+    contract=read_requirements_contract(store,
+        compilation_input(needs[1],plan.context_refs,mode,plan=plan))
+    assert contract is not None
+    pin,invoke,called=_owner(store,lambda payload:_answer(payload,dispute=True))
+    from easel.integrations.material_results import MaterialFactsDisputed
+    with pytest.raises(MaterialFactsDisputed):
+        material_results.observe(at,manifest,contract,attachments,
+            pin=pin,invoke=invoke)
+    assert len(called)==1 and called[0][0]=='delta',(
+        'only shared original pixel facts, not the independent backup, may be disputed',called)
+    before_calls=list(called)
+    with pytest.raises(MaterialFactsDisputed):
+        material_results.observe(at,manifest,contract,attachments,pin=pin,invoke=invoke)
+    assert called==before_calls, 'valid discrepancy must not trigger model repair or rebuy'
+    assert store.read_recovery_record(original_capture)==original_capture_record
+    with pytest.raises(MaterialFactsDisputed):
+        material_results.verify_report(store,primary_manifest,primary_report)
+    # A separate local interpreter confirms that a cold Owner reads the same
+    # durable dispute, never silently restoring formerly qualified facts.
+    import subprocess,sys
+    cold_script=(
+        "import json,socket,sys; from easel.materials.store import AttemptMaterialStore; "
+        "from easel.integrations import material_results; "
+        "socket.socket.connect=lambda *a,**k: (_ for _ in ()).throw(AssertionError('network forbidden')); "
+        "store=AttemptMaterialStore(sys.argv[1]); plan=store.read_plan(); "
+        "a={'creation_id':plan.creation_id,'attempt_id':plan.attempt_id,'result_protocols':json.loads(sys.argv[2])}; "
+        "assert not material_results.eligible(store,plan.needs[0],store.read_asset(sys.argv[3]),attempt=a,allow_creator=False); "
+        "assert all(material_results.eligible(store,n,store.read_asset(sys.argv[4]),attempt=a,allow_creator=False) for n in plan.needs); "
+        "print('CURRENT_DELTA_COLD_GATED')"
+    )
+    cold=subprocess.run([sys.executable,'-c',cold_script,str(store.attempt_root),
+        json.dumps(at['result_protocols']),source.asset_id,backup.asset_id],
+        capture_output=True,text=True,timeout=35)
+    assert cold.returncode==0,cold.stderr[:900]
+    assert 'CURRENT_DELTA_COLD_GATED' in cold.stdout
+    assert not material_results.eligible(store,needs[0],store.read_asset(source.asset_id),
+        attempt=at,allow_creator=False)
+    assert all(material_results.eligible(store,n,store.read_asset(backup.asset_id),
+        attempt=at,allow_creator=False) for n in needs)
+    assert MaterialGateIntegration().assert_ready(
+        service.get_film_attempt(attempt['attempt_id']))[2].status.value=='READY'
+    assert ProductionAuthoringIntegration._qualified_need_ids(
+        plan,current_bundle,store.read_asset(source.asset_id),store=store,attempt=at)==()
+    assert set(ProductionAuthoringIntegration._qualified_need_ids(
+        plan,current_bundle,store.read_asset(backup.asset_id),store=store,attempt=at))=={
+            n.need_id for n in needs}
+    filtered=MaterialBundleAssembler().assemble(
+        plan,supply,(store.read_asset(source.asset_id),),
+        tuple(m for m in current_bundle.matches if m.asset_id==source.asset_id),
+        bundle_id=current_bundle.bundle_id)
+    unqualified,_=material_results.readiness_calculator(at,store).calculate(plan,filtered)
+    assert unqualified.status.value=='NOT_READY'
+    assert store.read_bundle()==current_bundle
+    assert creation._creation_path(work['id']).read_bytes()==original_creation
+    assert store.resolve_asset_locator(source.file.path).read_bytes()==original_source
+    assert store.resolve_asset_locator(backup.file.path).read_bytes()==bytes_backup
+    assert store.read_asset(source.asset_id).rights==source.rights
+    assert store.read_asset(backup.asset_id).rights==backup.rights
+    assert not store.list_generation_records()
+    assert not at['build']['operation']
+    assert not at.get('production_authoring')
+
+
+@pytest.mark.parametrize('interrupt_first', [False, True],
+    ids=['ordinary-bounded-pool','cold-replay-saved-first-capture'])
+def test_u2a_current_sparse_unlabelled_pool_and_late_source_preserves_need_budgets(
+        material_integration_env, monkeypatch, interrupt_first):
+    """P0-B: real two-scene frozen Plan, no-label pool, late actual local PNG.
+
+    Unknown metadata is never a permission to review the Need x entire pool,
+    or to reset a previous Need/Source association on another SupplyRun.
+    """
+    from io import BytesIO
+    from PIL import ImageDraw
+    from tests.material_delta_fixture import observed_result
+    from easel.creation_delivery import DeliveryExecutionUncertain
+    from easel.materials.application.visual_observation import need_identity
+
+    work,attempt,planning,store,source=_u2a_current_shared_visual_asset(
+        material_integration_env,monkeypatch)
+    plan=planning['plan']
+    needs=list(plan.needs)
+    old_bundle=store.read_bundle()
+    source=source.model_copy(update={'semantic':SemanticInfo()})
+    store.write_asset(source)
+    candidates=[source]
+    original_bytes={source.asset_id:store.resolve_asset_locator(source.file.path).read_bytes()}
+    def local_candidate(index,caption=None):
+        pic=Image.new('RGB',(720,1280),(70+index*13,60,90))
+        ImageDraw.Draw(pic).ellipse((35+index*8,270,600,910),fill=(198,44+index*14,65))
+        buffer=BytesIO();pic.save(buffer,format='PNG')
+        data=buffer.getvalue()
+        key=f'unlabelled-scene-{index}'
+        path=store.write_asset_bytes(key,'original.png',data)
+        asset=source.model_copy(update={
+            'asset_id':key,'file':source.file.model_copy(update={
+                'path':path,'sha256':hashlib.sha256(data).hexdigest(),'size':len(data)}),
+            'source':source.source.model_copy(update={'provider_asset_id':key}),
+            'semantic':SemanticInfo(caption=caption)})
+        store.write_asset(asset)
+        original_bytes[key]=data
+        return asset
+    for idx in range(1,4):
+        candidates.append(local_candidate(idx))
+    def record_pool(current,rows,identity):
+        run=SupplyRun(supply_run_id=identity,plan_id=plan.plan_id,
+            parent_run_id=old_bundle.supply_run_id,
+            started_at=datetime.now(timezone.utc),finished_at=datetime.now(timezone.utc),
+            result_bundle_id=old_bundle.bundle_id)
+        bundle=MaterialBundleAssembler().assemble(plan,run,tuple(rows),(),
+            bundle_id=old_bundle.bundle_id)
+        from easel.integrations import material_results
+        readiness,gaps=material_results.readiness_calculator(current,store).calculate(plan,bundle)
+        return MaterialGateIntegration().record(current,plan,bundle,run,readiness,gaps)['attempt']
+    attempt=record_pool(attempt,candidates,'unlabelled-source-'+attempt['attempt_id'][-17:])
+    assert attempt['material_gate']['status']=='MATERIAL_NOT_READY'
+    observed_calls,model_calls=[],[]
+    failed=[]
+    def pixels(current,manifest,attachments):
+        observed_calls.append((manifest['need']['need_id'],manifest['asset_id'],
+                               manifest['input_sha256']))
+        report=observed_result(current,manifest,attachments,
+            outcome=('suitable' if (manifest['asset_id']=='unlabelled-scene-4'
+                and manifest['need']['need_id']==needs[1].need_id) else 'unsuitable'),
+            description='actual desk sheets evidence',invocations=model_calls)
+        if interrupt_first and not failed:
+            failed.append(observed_calls[-1])
+            raise DeliveryExecutionUncertain('one terminal report captured before Owner journal')
+        return report
+    owner=MaterialProductOrchestrator()
+    if interrupt_first:
+        with pytest.raises(DeliveryExecutionUncertain):
+            owner.observe_visual_materials(attempt['attempt_id'],executor=pixels)
+        assert len(failed)==1 and model_calls
+        first_model_session=model_calls[0]
+        owner=MaterialProductOrchestrator()
+    first=owner.observe_visual_materials(attempt['attempt_id'],executor=pixels)
+    assert first['material_status']=='MATERIAL_NOT_READY'
+    assert len({(a,b) for a,b,_ in observed_calls})<=len(needs),observed_calls
+    assert len(model_calls)==len(set(model_calls)), 'no duplicate provider/model submission'
+    if interrupt_first:
+        assert model_calls.count(first_model_session)==1
+    ledger_key='visual-budget-'+MaterialReadinessCalculator.plan_revision(plan)
+    first_ledger=store.read_recovery_record(ledger_key)
+    assert first_ledger
+    first_associations={k:tuple(v) for k,v in first_ledger['associations'].items()}
+    assert sum(len(v) for v in first_associations.values())<=len(needs)
+    saved_original=list(model_calls)
+    saved_pairs=set((a,b) for a,b,_ in observed_calls)
+    late=local_candidate(4,needs[1].intent.description)
+    candidates.append(late)
+    latest=record_pool(service.get_film_attempt(attempt['attempt_id']),
+                       candidates,'late-actual-source-'+attempt['attempt_id'][-17:])
+    assert latest['material_gate']['status']=='MATERIAL_NOT_READY'
+    second=MaterialProductOrchestrator().observe_visual_materials(
+        attempt['attempt_id'],executor=pixels)
+    new_pairs={(a,b) for a,b,_ in observed_calls} - saved_pairs
+    assert new_pairs=={(need.need_id,late.asset_id) for need in needs},{
+        'observed_pairs':new_pairs,'all_calls':observed_calls,
+        'gate':second['material_status']}
+    # The same labelled hint can nominate both Need associations; each must
+    # consume its own pixel verdict. Negative Need0 is not accepted via Need1.
+    assert len([a for a,b,_ in observed_calls if b==late.asset_id])==2
+    assert second['material_status']=='MATERIAL_NOT_READY'
+    assert len(model_calls)==len(set(model_calls))
+    assert model_calls[:len(saved_original)]==saved_original
+    ledger=store.read_recovery_record(ledger_key)
+    assert all(set(values)<=set(ledger['associations'].get(need_id,()))
+               for need_id,values in first_associations.items())
+    assert sum(len(v) for v in ledger['associations'].values())<=2*len(needs)
+    assert second['attempt']['material_observation']['nominated_associations']<=2*len(needs)
+    after=list(observed_calls)
+    MaterialProductOrchestrator().observe_visual_materials(
+        attempt['attempt_id'],executor=lambda *_: pytest.fail('all original slots already proven'))
+    assert observed_calls==after
+    assert len(model_calls)==len(set(model_calls))
+    for current in candidates:
+        stable=store.read_asset(current.asset_id)
+        assert stable.file==current.file and stable.rights==current.rights
+        assert store.resolve_asset_locator(current.file.path).read_bytes()==original_bytes[current.asset_id]
+        assert hashlib.sha256(original_bytes[current.asset_id]).hexdigest()==current.file.sha256
+    assert not store.list_generation_records()
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+    assert not service.get_film_attempt(attempt['attempt_id']).get('production_authoring')
+    assert PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan']==plan
+
+
+def test_u2a_current_director_style_and_selected_asset_rights_are_independent_of_ready_gate(
+        material_integration_env, monkeypatch):
+    """P0-C New-Only: frozen Director preference is soft; accepted Asset is not bypassable.
+
+    Two real local PNGs each independently match two frozen scene Needs. Another
+    good Asset keeps the global Material Gate READY after the accepted Asset
+    loses Rights, yet the Creator-selected source cannot enter Native Selection.
+    """
+    from io import BytesIO
+    from PIL import ImageDraw
+    from easel.integrations.hypit.handoff import load_frozen_creative_mode
+    from easel.materials.application.generation import visual_generation_prompt
+    from easel.materials.application.visual_observation import (
+        prepare_observation,apply_observation)
+    from easel.integrations import material_results
+    from tests.material_delta_fixture import observed_result
+    from tests import test_semantic_planning as fixed_semantics
+    from copy import deepcopy
+
+    style='muted documentary daylight'
+    detail='优先用桌面自然光下的两张白纸近景，保持人物不露脸。'
+    mode_path=creative_mode.CREATIVE_MODES_DIR/'clear_memo_video/mode.json'
+    baseline=json.loads(mode_path.read_text(encoding='utf-8'))
+    mode_path.write_text(json.dumps(
+        {**baseline,'visual_material_style':style},ensure_ascii=False))
+    original_semantic=fixed_semantics.vnext_proposal
+    def confirmed_director_preference():
+        draft=deepcopy(original_semantic())
+        draft['needs'][0]['conditions'].append({
+            'text':detail,'strength':'preference','responsibility':'material'})
+        return draft
+    monkeypatch.setattr(fixed_semantics,'vnext_proposal',confirmed_director_preference)
+    work,attempt,planning,store,chosen=_u2a_current_shared_visual_asset(
+        material_integration_env,monkeypatch,material_only=False)
+    plan=planning['plan']
+    mode,mode_hash=load_frozen_creative_mode(attempt)
+    assert mode['visual_material_style']==style
+    assert plan.context_refs['creative_mode_sha256']==mode_hash
+    assert all(n.constraints['preferred_style']==style for n in plan.needs)
+    assert plan.needs[0].constraints['preferred_visual_details']==detail
+    assert detail not in plan.needs[0].intent.description
+    compiler=NeedCompiler.for_plan(plan)
+    compiled=compiler.compile(plan.needs[0])
+    assert 'preferred_style' not in compiled.filters
+    assert 'preferred_visual_details' not in compiled.filters
+    assert compiled.ranking_hints['preferred_visual_details']==detail
+    prompt=visual_generation_prompt(plan.needs[0])
+    assert plan.needs[0].intent.description in prompt and style in prompt and detail in prompt
+    mode_path.write_text(json.dumps({**baseline,'visual_material_style':'irrelevant glossy style'}))
+    assert load_frozen_creative_mode(attempt)[0]['visual_material_style']==style
+    assert PlanningIntegration().load(attempt)['plan']==plan
+
+    before=store.read_bundle()
+    buf=BytesIO()
+    image=Image.new('RGB',(720,1280),(50,69,87))
+    draw=ImageDraw.Draw(image)
+    draw.rectangle((35,155,313,805),fill=(248,248,245))
+    draw.rectangle((345,155,675,805),fill=(251,249,245))
+    image.save(buf,format='PNG')
+    bytes_good=buf.getvalue()
+    id_good='current-independent-authoring-source'
+    path=store.write_asset_bytes(id_good,'original.png',bytes_good)
+    good=chosen.model_copy(update={
+        'asset_id':id_good,
+        'file':chosen.file.model_copy(update={'path':path,
+            'sha256':hashlib.sha256(bytes_good).hexdigest(),'size':len(bytes_good)}),
+        'source':chosen.source.model_copy(update={'provider_asset_id':id_good}),
+        'semantic':SemanticInfo(caption='two pages and a blue notebook')})
+    store.write_asset(good)
+    run=SupplyRun(supply_run_id='style-ready-'+attempt['attempt_id'][-19:],
+        plan_id=plan.plan_id,parent_run_id=before.supply_run_id,
+        started_at=datetime.now(timezone.utc),finished_at=datetime.now(timezone.utc),
+        result_bundle_id=before.bundle_id)
+    initial=MaterialBundleAssembler().assemble(
+        plan,run,(chosen,good),(),bundle_id=before.bundle_id)
+    calc=material_results.readiness_calculator(attempt,store)
+    assessment,gaps=calc.calculate(plan,initial)
+    attempt=MaterialGateIntegration().record(attempt,plan,initial,run,assessment,gaps)['attempt']
+    source_bytes=store.resolve_asset_locator(chosen.file.path).read_bytes()
+    for asset in (chosen,good):
+        for need in plan.needs:
+            current=store.read_asset(asset.asset_id)
+            manifest,attachments=prepare_observation(
+                need,current,store.resolve_asset_locator(current.file.path))
+            report=observed_result(attempt,manifest,attachments,
+                outcome='suitable',description='two white pages visibly next to a notebook')
+            store.write_asset(apply_observation(need,current,manifest,report,
+                result_processor=material_results.processor(attempt,store)))
+    owner=MaterialProductOrchestrator()
+    updated=owner._recalculate_observed_materials(
+        service.get_film_attempt(attempt['attempt_id']),plan,store.read_bundle(),
+        store,require_scoped_visual=True)
+    assert updated['material_status']=='MATERIAL_READY'
+    current=service.get_film_attempt(attempt['attempt_id'])
+    assert current['production_authoring']['status']=='PENDING_SELECTION'
+    current_bundle=store.read_bundle()
+    choices={n.need_id: {'asset_id':chosen.asset_id,'sha256':chosen.file.sha256}
+             for n in plan.needs}
+    args={'plan_revision':current['material_gate']['plan_revision'],
+          'bundle_revision':current_bundle.revision,'confirm_review':True,
+          'reviews':[{'need_id':n.need_id,'asset_id':chosen.asset_id,
+                      'expected_sha256':chosen.file.sha256,
+                      'observed_content':'两张白纸与蓝色笔记本在当前场景中均清晰可见。',
+                      'logo_present':False,'visible_text_present':False}
+                     for n in plan.needs]}
+    selected=owner.review_material_combination(attempt['attempt_id'],**args)
+    assert selected['material_status']=='MATERIAL_READY'
+    current=service.get_film_attempt(attempt['attempt_id'])
+    selection_path=store.attempt_root/'productions/easel-authoring/material-selection.json'
+    admitted=json.loads(selection_path.read_text())
+    assert admitted['creator_material_choices']==choices
+    assert ProductionAuthoringIntegration.accepted_combination(
+        current,plan,store.read_bundle(),store)==choices
+    chosen_rights=store.read_asset(chosen.asset_id).rights
+    backup_rights=store.read_asset(good.asset_id).rights
+
+    # Simulate an externally discovered rights revocation in this *isolated*
+    # current Attempt. The real Gate recomputes; no user grant is added.
+    selected_now=store.read_asset(chosen.asset_id)
+    store.write_asset(selected_now.model_copy(update={
+        'rights':RightsInfo(status=RightsStatus.UNKNOWN)}))
+    rechecked=owner._recalculate_observed_materials(
+        service.get_film_attempt(attempt['attempt_id']),plan,store.read_bundle(),
+        store,require_scoped_visual=True)
+    assert rechecked['material_status']=='MATERIAL_READY',(
+        'independent source must keep each Need covered')
+    current=service.get_film_attempt(attempt['attempt_id'])
+    assert MaterialGateIntegration().assert_ready(current)[2].status.value=='READY'
+    assert current['material_combination_review']['blocking_needs']==[n.need_id for n in plan.needs]
+    assert all(n.need_id in ProductionAuthoringIntegration._qualified_need_ids(
+        plan,store.read_bundle(),store.read_asset(good.asset_id),store=store,attempt=current)
+        for n in plan.needs)
+    with pytest.raises(MaterialIntegrationError,match='权利|匹配|已接受'):
+        ProductionAuthoringIntegration.accepted_combination(current,plan,store.read_bundle(),store)
+    with pytest.raises(MaterialIntegrationError,match='权利|匹配|已接受'):
+        ProductionAuthoringIntegration().prepare(current)
+    # The old selection is preserved for evidence, but not re-authorized.
+    assert json.loads(selection_path.read_text())['creator_material_choices']==choices
+    assert store.read_asset(chosen.asset_id).rights.status is RightsStatus.UNKNOWN
+    assert store.read_asset(good.asset_id).rights==backup_rights
+    assert store.resolve_asset_locator(chosen.file.path).read_bytes()==source_bytes
+    assert store.resolve_asset_locator(good.file.path).read_bytes()==bytes_good
+    assert PlanningIntegration().load(current)['plan']==plan
+    assert current['build']['operation'] is None
+    assert not store.list_generation_records()
+
+
+def test_u2a_current_frozen_director_shot_choice_reaches_normal_authoring(
+        material_integration_env, monkeypatch):
+    """P0-C: optional Director shot choice crosses current Recovery -> Selection.
+
+    Only the external recovery search wording is offline; the confirmed @4
+    Proposal, vNext frozen Need, real Supply checkpoint and Native selection
+    projection all belong to the current Creation/Attempt Owners.
+    """
+    from copy import deepcopy
+    from tests import test_semantic_planning as semantic_fixture
+    from tests.material_delta_fixture import observed_result
+    from easel.integrations import material_recovery as recovery
+    from easel.integrations.hypit.handoff import load_frozen_creative_mode
+    preferred='优先用中近景看清两张白纸，必要时保持桌面留白。'
+    mode_path=creative_mode.CREATIVE_MODES_DIR/'clear_memo_video/mode.json'
+    mode=json.loads(mode_path.read_text())
+    mode_path.write_text(json.dumps({
+        **mode,'visual_material_style':'soft low-key documentary'}))
+    native_proposal=semantic_fixture.vnext_proposal
+    def frozen_choice_proposal():
+        proposal=deepcopy(native_proposal())
+        proposal['needs'][0]['conditions'].append({
+            'text':preferred,'strength':'preference','responsibility':'material'})
+        return proposal
+    monkeypatch.setattr(semantic_fixture,'vnext_proposal',frozen_choice_proposal)
+    work,attempt,planning,store,asset=_u2a_current_shared_visual_asset(
+        material_integration_env,monkeypatch,material_only=False)
+    plan=planning['plan']
+    assert plan.needs[0].constraints['preferred_visual_details']==preferred
+    assert load_frozen_creative_mode(attempt)[0]['visual_material_style']=='soft low-key documentary'
+    model_requests=[]
+    def only_offline_recovery(current,record):
+        model_requests.append(record['request_id'])
+        assert record['shot_choice_need_ids']==[plan.needs[0].need_id]
+        return {'request_id':record['request_id'],
+                'search_terms':{n['need_id']: ['two distinct white papers on desktop'
+                    if n['need_id']==plan.needs[0].need_id else 'blue desk notebook photograph']
+                    for n in record['needs']},
+                'shot_choices':{plan.needs[0].need_id:{
+                    'expression':'优先保留冻结两张白纸主体，镜头近景按素材能力调整。',
+                    'reason':'仅在柔和画面偏好中调整构图，不改变核心主体。'}}}
+    saved=recovery.recover_managed_materials(attempt['attempt_id'],
+                                            executor=only_offline_recovery)
+    assert model_requests and saved['autonomous_material_recovery']['status']=='COMPLETE'
+    decisions=recovery.director_shot_choices(saved,plan)
+    assert list(decisions)==[plan.needs[0].need_id]
+    assert decisions[plan.needs[0].need_id]['optional_details']==preferred
+    assert decisions[plan.needs[0].need_id]['core_requirement']==plan.needs[0].intent.description
+    assert PlanningIntegration().load(saved)['plan']==plan
+    assert any(a.asset_id==asset.asset_id for a in store.read_bundle().assets)
+
+    calls=[]
+    def pixels(current,manifest,attachments):
+        if 'observations' in manifest:
+            calls.extend((item['need']['need_id'],item['asset_id'])
+                         for item in manifest['observations'])
+        else:
+            calls.append((manifest['need']['need_id'],manifest['asset_id']))
+        return observed_result(current,manifest,attachments,
+            outcome='suitable',description='two white pages and blue notebook')
+    latest=MaterialProductOrchestrator().observe_visual_materials(
+        attempt['attempt_id'],executor=pixels,group_executor=pixels)
+    assert latest['material_status']=='MATERIAL_READY'
+    state=service.get_film_attempt(attempt['attempt_id'])
+    assert state['production_authoring']['status']=='PENDING_SELECTION'
+    selection=json.loads((store.attempt_root/'productions/easel-authoring/material-selection.json').read_text())
+    assert selection['director_shot_choices']==decisions
+    assert selection['director_shot_choices'][plan.needs[0].need_id]['core_requirement']==plan.needs[0].intent.description
+    assert PlanningIntegration().load(state)['plan']==plan
+    assert store.read_asset(asset.asset_id).rights==asset.rights
+    assert state['build']['operation'] is None
+    assert not store.list_generation_records()
+
+
+@pytest.mark.parametrize('legacy_stage', ['director_plan','storyboard','assets','assemble','qc'])
+def test_u2a_current_video_old_stage_writer_cannot_bypass_newonly(
+        material_integration_env, monkeypatch, legacy_stage):
+    """R1: real @4/Consent@3/vNext; old video stages cannot write Creation.
+
+    A *real* isolated artifact proves the old Writer is rejected even when it
+    could otherwise pass its file check. An invalid path is separately tested
+    to verify the retired-route rejection takes precedence.
+    """
+    work,attempt,planning,_=_current_budgeted_visual_fixture(
+        material_integration_env,monkeypatch,False)
+    assert planning['manifest']['schema']=='easel-material-planning@3'
+    current=creation.get_creation(work['id'])
+    assert current['stages']['content_core']['status']=='completed'
+    # Preparation and Handoff already wrote content_core using the legitimate
+    # signed frozen snapshot; this proof is not re-created by a test Writer.
+    frozen_content=current['stages']['content_core'].copy()
+    probe=creation.OUTPUTS_DIR/work['workspace']/'retired-stage-probe.txt'
+    probe.write_bytes(b'original local test bytes; not a Hypit production artifact')
+    relative=probe.relative_to(creation.OUTPUTS_DIR).as_posix()
+    creation_bytes=creation._creation_path(work['id']).read_bytes()
+    attempt_before=service.get_film_attempt(attempt['attempt_id'])
+    for status in ('in_progress','completed','blocked'):
+        inputs=(relative,'will-not-exist') if status=='completed' else (None,)
+        for path in inputs:
+            kwargs=({'artifacts':[path]} if path else {})
+            if legacy_stage=='qc' and status=='completed':
+                kwargs['decision']='ready'
+            with pytest.raises(creation.CreationError,match='旧视频阶段 Writer 已退役'):
+                creation.record_stage(work['id'],legacy_stage,status,**kwargs)
+            assert creation._creation_path(work['id']).read_bytes()==creation_bytes
+            assert creation.get_creation(work['id'])['stages']['content_core']==frozen_content
+            assert probe.read_bytes()==b'original local test bytes; not a Hypit production artifact'
+    # Context, too, must not expose the retired stage-specific Producer for
+    # current video even when content_core is already completed.
+    with pytest.raises(creation.CreationError,match='旧视频阶段 Context 已退役'):
+        creation.stage_context(work['id'],'director_plan')
+    assert creation._creation_path(work['id']).read_bytes()==creation_bytes
+    assert service.get_film_attempt(attempt['attempt_id'])==attempt_before
+    assert attempt_before['build']['operation'] is None
+
+
+@pytest.mark.parametrize('verdict,known_rights,fault', [
+    ('unsuitable', True, 'syntax'),
+    ('suitable', True, 'missing'),
+    ('suitable', False, None),
+    ('uncertain', True, 'duplicate'),
+    ('unsuitable', True, 'persistent'),
+    ('suitable', True, 'silent_compile'),
+])
+def test_u2a_current_two_scene_observation_reuses_first_evidence_after_fault(
+        material_integration_env, monkeypatch, verdict, known_rights, fault):
+    """Current #09: frozen per-Need pixel result, interrupted shared report & Gate.
+
+    External classifications and frame judgments are deterministic wire-test
+    replies, not assertions of image-model accuracy. This checks the real
+    source-bound output receipt and Owner/Gate semantics.
+    """
+    from easel.creation_delivery import DeliveryExecutionUncertain
+    from easel.materials.application.visual_observation import (
+        GROUP_SCHEMA, observed_match)
+    from tests.material_delta_fixture import observed_result
+
+    work, attempt, planning, store, asset = _u2a_current_shared_visual_asset(
+        material_integration_env, monkeypatch, known_rights=known_rights)
+    needs=[n for n in planning['plan'].needs if n.media_type is MediaType.IMAGE]
+    first,second=needs
+    delivered, invoked=[], []
+    fault_once=[False]
+    def process_one(current, item, attachments):
+        nid=item['need']['need_id']
+        assert nid in {first.need_id,second.need_id}
+        assert item['asset_id']==asset.asset_id
+        outcome='suitable' if nid==first.need_id else verdict
+        report=observed_result(current,item,attachments,
+            outcome=outcome, description='two white papers beside blue notebook',
+            invocations=invoked)
+        delivered.append((nid,item['input_sha256']))
+        return report
+    def observer(current, manifest, attachments):
+        if manifest.get('schema') == GROUP_SCHEMA:
+            if fault == 'persistent':
+                # Never return a valid child report in the deterministically
+                # broken case: recovery must not silently invent one.
+                return {'schema':GROUP_SCHEMA,
+                    'input_sha256':manifest['input_sha256'],'reports':{}}
+            reports={}
+            for item in manifest['observations']:
+                # The frozen group can survive partial local child persistence.
+                reports[item['need']['need_id']]=process_one(current,item,attachments)
+            if not fault_once[0] and fault is not None:
+                fault_once[0]=True
+                if fault == 'missing':
+                    return {'schema':GROUP_SCHEMA,
+                        'input_sha256':manifest['input_sha256'],'reports':{
+                            first.need_id:reports[first.need_id]}}
+                if fault == 'duplicate':
+                    return {'schema':GROUP_SCHEMA,
+                        'input_sha256':manifest['input_sha256'],
+                        'reports':{**reports,'invalid-other-need':reports[first.need_id]}}
+                if fault == 'syntax':
+                    return {'invalid':'truncated-model-group'}
+                # Current frozen vNext Planning does not recompile requirements.
+                # Silence is a report-level refusal, not permission to replace
+                # an approved Need or reinterpret its source requirements.
+                if fault == 'silent_compile':
+                    return None
+            if fault is None and not fault_once[0]:
+                fault_once[0]=True
+                raise DeliveryExecutionUncertain('offline pending group after saved child')
+            return {'schema':GROUP_SCHEMA,
+                'input_sha256':manifest['input_sha256'],'reports':reports}
+        return process_one(current,manifest,attachments)
+
+    owner=MaterialProductOrchestrator()
+    first_before=store.read_asset(asset.asset_id)
+    assert first_before.rights.status == (RightsStatus.KNOWN if known_rights else RightsStatus.UNKNOWN)
+    if fault is None:
+        with pytest.raises(DeliveryExecutionUncertain):
+            owner.observe_visual_materials(
+                attempt['attempt_id'], executor=observer, group_executor=observer)
+    elif fault is not None:
+        with pytest.raises((ValueError,TypeError,MaterialIntegrationError)):
+            owner.observe_visual_materials(
+                attempt['attempt_id'],executor=observer,group_executor=observer)
+    # No failure may write a fabricated qualified bundle or erase original SHA/Rights.
+    assert store.read_asset(asset.asset_id).file == asset.file
+    assert store.read_asset(asset.asset_id).rights == asset.rights
+    result = None
+    if fault == 'persistent':
+        with pytest.raises((ValueError,TypeError,MaterialIntegrationError)):
+            owner.observe_visual_materials(
+                attempt['attempt_id'],executor=observer,group_executor=observer)
+        assert service.get_film_attempt(attempt['attempt_id'])['material_gate']['status']=='MATERIAL_NOT_READY'
+        return
+    for _ in range(3):
+        result=owner.observe_visual_materials(
+            attempt['attempt_id'], executor=observer,group_executor=observer)
+        if result['material_status']=='MATERIAL_READY':
+            break
+    assert result is not None
+    expected='MATERIAL_READY' if known_rights and verdict=='suitable' else 'MATERIAL_NOT_READY'
+    assert result['material_status']==expected
+    assert observed_match(first,store.read_asset(asset.asset_id)) is True
+    assert observed_match(second,store.read_asset(asset.asset_id)) is (verdict=='suitable')
+    before_calls=len(invoked)
+    owner.observe_visual_materials(attempt['attempt_id'],
+        executor=observer,group_executor=observer)
+    assert len(invoked)==before_calls
+    assert not service.get_film_attempt(attempt['attempt_id'])['build']['operation']
+
+
+@pytest.mark.parametrize('crash_after', ['received_bytes', 'bundle_commit'])
+def test_u2a_current_image_paid_receipt_and_gate_cold_resume_uses_original_bundle(
+        material_integration_env, monkeypatch, crash_after):
+    """#04 closure: one real @4 paid-image receipt, cold replay and Rights Gate.
+
+    Only the MiniMax HTTP image response and pricing documents are fake.
+    An opaque completed byte receipt survives each crash. The Owner resumes
+    the original Need and Bundle without loading credentials or paying again.
+    """
+    from io import BytesIO
+    from PIL import ImageDraw
+    from easel.creation_delivery import active_delivery
+    from easel.integrations import material_generation as paid, material_layer
+    from easel.materials.application import generation_modalities
+    from easel.materials.providers import minimax_pricing
+    from easel.materials import providers
+    from easel.materials.providers.minimax_image import MiniMaxImageResult
+    from easel.runtime_config import EaselRuntimeConfig
+    from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
+    from tests.material_delta_fixture import observed_result
+
+    work, attempt, planning, _ = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, True)
+    original = PlanningIntegration().load(attempt)['plan']
+    assert original == planning['plan']
+    owner = MaterialProductOrchestrator()
+    owner.observe_visual_materials(attempt['attempt_id'],
+        executor=lambda *_: pytest.fail('there is no stock to review'))
+    attempt = service.get_film_attempt(attempt['attempt_id'])
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    frozen_bundle = store.read_bundle()
+    frozen_gate = dict(attempt['material_gate'])
+    need, request = paid.pending_generated_need(
+        creation.get_creation(work['id']), attempt, original)
+    assert need.need_id == original.needs[0].need_id
+    assert frozen_gate['bundle_revision'] == frozen_bundle.revision
+
+    picture = Image.new('RGB',(720,1280),(80,92,105))
+    brush = ImageDraw.Draw(picture)
+    brush.rectangle((60,220,308,844),fill=(248,247,244))
+    brush.rectangle((391,248,665,871),fill=(246,248,248))
+    output=BytesIO(); picture.save(output,format='PNG')
+    pixel_bytes=output.getvalue()
+    calls=[]
+    class PaidBoundaryIsFixture:
+        def __init__(self,key,**kwargs):
+            assert key=='offline-fixture-key'
+            self.model=kwargs['model']
+        def generate(self,prompt,*,aspect_ratio):
+            ledger=creation.get_creation(work['id'])['delivery']['material_generations']
+            assert ledger[request]['status']=='reserved'
+            calls.append(prompt)
+            assert len(calls)==1, 'generation cannot reissue'
+            return MiniMaxImageResult(self.model,pixel_bytes)
+    monkeypatch.setattr(providers,'MiniMaxImageAdapter',PaidBoundaryIsFixture)
+    def price(url):
+        if url == minimax_pricing.TERMS_URL:
+            return MINIMAX_TERMS_FIXTURE
+        return ('## 图像\n单价：元/张\n| image-01 | 图片 | 0.025 |\n'
+            '## 视频\n**视频生成-输出价格**\n'
+            '| MiniMax-H3-Max | 480P | 按秒计费 | 0.33 元/秒 |\n')
+    monkeypatch.setattr(minimax_pricing,'read_public_contract',price)
+    monkeypatch.setattr(material_supply_module.ProductMaterialSupply,'run',
+        lambda *_args,**_kw: pytest.fail('already supplied; no source re-search'))
+    token=active_delivery.set(work['id'])
+    try:
+        with monkeypatch.context() as damaged:
+            if crash_after=='received_bytes':
+                inspector=generation_modalities.TechnicalInspector
+                damaged.setattr(inspector,'inspect_and_persist',
+                    lambda *_: (_ for _ in ()).throw(OSError('fixture failed after received image bytes')))
+                match='received image bytes'
+            else:
+                damaged.setattr(material_layer,'_update_attempt',
+                    lambda *_a,**_kw: (_ for _ in ()).throw(OSError('fixture failed after Bundle committed')))
+                match='Bundle committed'
+            with pytest.raises(OSError,match=match):
+                paid.generate_for_commission(attempt['attempt_id'])
+        saved=store.read_generation_record('gen-'+request)
+        assert saved['received_asset']['file']['sha256']==hashlib.sha256(pixel_bytes).hexdigest()
+        assert saved['status'] == ('RESULT_INTAKE_FAILED' if crash_after=='received_bytes' else 'COMPLETE')
+        assert len(calls)==1
+        assert store.read_bundle().bundle_id==frozen_bundle.bundle_id
+        if crash_after=='received_bytes':
+            assert store.read_bundle()==frozen_bundle
+        with monkeypatch.context() as offline:
+            offline.setattr(EaselRuntimeConfig,'load',classmethod(
+                lambda cls,**_kw: pytest.fail('resumed intake may not load provider config')))
+            resumed=owner.resume_minimax_intake(attempt['attempt_id'])
+        assert resumed['material_gate']['status']=='MATERIAL_NOT_READY'
+        assert resumed['generation']['asset_sha256']==hashlib.sha256(pixel_bytes).hexdigest()
+        latest=store.read_generation_record('gen-'+request)
+        assert latest['status']=='COMPLETE'
+        bundle=store.read_bundle()
+        assert bundle.plan_id == original.plan_id
+        assert bundle.bundle_id == frozen_bundle.bundle_id
+        assert store.read_supply_run(bundle.supply_run_id).parent_run_id == frozen_bundle.supply_run_id
+        assert {a.asset_id for a in frozen_bundle.assets} <= {a.asset_id for a in bundle.assets}
+        for old in frozen_bundle.assets:
+            assert store.read_asset(old.asset_id)==old
+        asset=store.read_asset(latest['asset_id'])
+        assert asset.file.sha256==hashlib.sha256(pixel_bytes).hexdigest()
+        assert store.resolve_asset_locator(asset.file.path).read_bytes()==pixel_bytes
+        assert asset.source.provider=='minimax' and asset.source.provider_asset_id=='gen-'+request
+        assert asset.rights.status is RightsStatus.UNKNOWN
+        assert latest['billing']['status']=='UNKNOWN'
+        assert PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan']==original
+        assert len(calls)==1
+        assert not service.get_film_attempt(attempt['attempt_id'])['build']['operation']
+        results=owner.generated_material_rights_candidates(attempt['attempt_id'])
+        assert [v['asset_id'] for v in results] == [asset.asset_id]
+
+        def observe(current,manifest,attachments):
+            assert manifest['asset_id']==asset.asset_id
+            return observed_result(current,manifest,attachments,
+                outcome='suitable',description='two white sheets on a desk')
+        owner.observe_visual_materials(attempt['attempt_id'],executor=observe)
+        assert store.read_asset(asset.asset_id).rights.status is RightsStatus.UNKNOWN
+        with pytest.raises(MaterialIntegrationError,match='SHA-256'):
+            owner.review_generated_material_rights(
+                attempt['attempt_id'],asset_id=asset.asset_id,
+                expected_sha256='0'*64,
+                rights=RightsInfo(status=RightsStatus.KNOWN,
+                    evidence=(RightsEvidence(kind='asset_license',reference='fixture://own-image'),)),
+                confirm_review=True)
+        reviewed=owner.review_generated_material_rights(
+            attempt['attempt_id'],asset_id=asset.asset_id,
+            expected_sha256=asset.file.sha256, confirm_review=True,
+            rights=RightsInfo(status=RightsStatus.KNOWN,
+                license_name='Self-produced PNG offline test only',
+                evidence=(RightsEvidence(kind='asset_license',
+                    reference='fixture://own-image',summary='Test-owned synthetic pixels'),)),
+            source_creator='Fixture-Pixel-Owner',
+            source_page='https://fixture.example/local-image')
+        assert reviewed['material_status']=='MATERIAL_READY'
+        assert reviewed['production_authoring']['status']=='PENDING_SELECTION'
+        retained=store.read_asset(asset.asset_id)
+        assert retained.file==asset.file and retained.source.creator=='Fixture-Pixel-Owner'
+        assert retained.source.source_page=='https://fixture.example/local-image'
+        assert retained.rights.status is RightsStatus.KNOWN
+        assert len(calls)==1
+        assert not service.get_film_attempt(attempt['attempt_id'])['build']['operation']
+    finally:
+        active_delivery.reset(token)
+
+
+def _u2a_current_video_budgeted_fixture(material_integration_env, monkeypatch, *,
+                                        allowed=("video",), max_cost=2):
+    """Freeze a 5s dynamic-action Need under @4; no hand-built Plan/authorization."""
+    from dataclasses import replace
+    from easel.runtime_config import EaselRuntimeConfig, MiniMaxRuntimeConfig
+    from easel.integrations import material_generation as paid
+    from easel import creation_preparation as preparation
+    from tests.test_creation_preparation import (
+        VIDEO_PROPOSAL, write_drafts, _current_vnext_planning_executor)
+
+    original = EaselRuntimeConfig.load()
+    settings = MiniMaxRuntimeConfig(api_key="offline-fixture-key")
+    local_empty = Path(material_integration_env["workspace"]["path"]) / 'empty-moving-shot'
+    local_empty.mkdir(exist_ok=True)
+    runtime = replace(original, minimax=settings,
+        material=replace(original.material, local_roots=(str(local_empty),)))
+    monkeypatch.setattr(EaselRuntimeConfig, 'load',
+                        classmethod(lambda cls, **kwargs: runtime))
+    proposal = VIDEO_PROPOSAL.replace(
+        "0–15 秒：桌面两张白纸，呈现后期叠加的屏幕文案「先看问题，再做决定。」。",
+        "0–5 秒：镜头从桌面右侧连续平移到左侧，两张白纸始终清晰可见；"
+        "后期叠加屏幕文案「先看问题，再做决定。」。")
+    proposal = proposal.replace('时长：15 秒','时长：5 秒').replace(
+        '不露脸。', '不露脸。已同意缺少合法运动镜头时按预算生成一个 5 秒纯视觉运动镜头。')
+    work = creation.create_creation(
+        "明确预算的真实桌面平移镜头", profile=None,
+        creative_mode="clear_memo_video", route="hypit_video",
+        origin={"type":"chat","session_hash":hashlib.sha256(
+            ("video-generation-" + ','.join(allowed)).encode()).hexdigest()})
+    turn = 'video-five-seconds-consent'
+    creation.begin_video_proposal(work['id'], turn)
+    staged = creation.save_video_proposal(work['id'], turn, proposal)
+    plan = staged['chat_workflow']['video_plan']
+    assert plan['schema'] == 'easel-video-proposal@4'
+    assert plan['specs']['duration_seconds'] == 5
+    scope = paid.generation_budget_preview()
+    assert scope['available']
+    budget = {'maxCostCny': max_cost, 'scopeSha256':scope['scope_sha256'],
+              'allowedModalities':list(allowed)}
+    transcript = json.dumps([{'role':'assistant','content': proposal}],
+                            ensure_ascii=False, separators=(',',':'))
+    work = creation.confirm_chat_proposal(
+        work['id'], turn, delivery_proposal=transcript,
+        proposal_sha256=hashlib.sha256(transcript.encode()).hexdigest(),
+        production_specs=plan['specs'], video_plan_sha256=plan['sha256'],
+        generation_budget=budget,
+        input_use_statement_sha256=creation.input_use_preview(plan=plan)['statement_sha256'])
+    assert work['delivery']['authorization']['material_generation']['allowed_modalities'] == sorted(allowed)
+    claim = preparation.claim_chat_preparation(work['id'], 'video-motion-fixture-session',turn)
+    paths = preparation.preparation_paths(work['id'],claim['operation_key'])
+    write_drafts(work, paths['draft'])
+    brief_file = paths['draft'] / 'production-brief.json'
+    brief = json.loads(brief_file.read_text(encoding='utf-8'))
+    brief.update(duration_seconds=5, ai_generation_allowed=True)
+    brief_file.write_text(json.dumps(brief,ensure_ascii=False),encoding='utf-8')
+    prepared = preparation.prepare_creation_for_hypit(
+        work['id'],runtime_profile=None,planning_executor=_current_vnext_planning_executor)
+    attempt = service.get_film_attempt(prepared['attempt_id'])
+    current = PlanningIntegration().load(attempt)
+    assert current['truth_ledger']['status'] == 'PASSED'
+    visual = [n for n in current['plan'].needs if n.media_type is MediaType.VIDEO]
+    assert len(visual) == 1, [(n.role,n.media_type) for n in current['plan'].needs]
+    assert visual[0].constraints.get('allow_generation') is True
+    assert visual[0].constraints.get('requires_dynamic_action') is True
+    assert not any(n.media_type is MediaType.IMAGE for n in current['plan'].needs)
+    assert attempt['material_gate']['status']=='MATERIAL_NOT_READY'
+    assert attempt['build']['operation'] is None
+    return work, attempt, current, settings
+
+
+def test_u2a_current_video_commission_freezes_dynamic_visual_and_budget(
+        material_integration_env, monkeypatch):
+    work, attempt, current, settings = _u2a_current_video_budgeted_fixture(
+        material_integration_env, monkeypatch)
+    from easel.integrations import material_generation as paid
+    need, request = paid.pending_generated_need(
+        creation.get_creation(work['id']), attempt, current['plan'])
+    assert need.media_type is MediaType.VIDEO
+    assert need.duration_hint is not None
+    assert request.startswith('delivery-')
+    assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+
+
+
+@pytest.mark.parametrize('outcome', [
+    'pending_then_received', 'task_failed', 'intake_crash',
+    'submission_unknown',
+])
+def test_u2a_current_video_generation_reservation_task_recovery_no_repurchase(
+        material_integration_env, monkeypatch, outcome):
+    """Real vNext Video Need + current cost/Owner; fake paid adapter and CDN only.
+
+    Executable FFmpeg output is local and SHA-bound. Nothing here calls the
+    paid Provider, models, Hypit Build or real media rights providers.
+    """
+    from easel.integrations import material_generation as commissioned
+    from easel.materials.providers import minimax_pricing
+    from easel.materials import providers
+    from easel.materials.providers.minimax_video import (
+        MiniMaxVideoError, MiniMaxVideoObservationPending, MiniMaxVideoTask)
+    from easel.materials.application import generation as video_generation
+    from easel.materials.application import generation_modalities
+    from easel.creation_delivery import active_delivery, DeliveryObservationPending
+    from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
+    import subprocess
+
+    work, attempt, planning, settings = _u2a_current_video_budgeted_fixture(
+        material_integration_env, monkeypatch)
+    need = next(n for n in planning['plan'].needs if n.media_type is MediaType.VIDEO)
+    request = commissioned.pending_generated_need(
+        creation.get_creation(work['id']),attempt, planning['plan'])[1]
+    quote_calls = []
+    def official_contract_fixture(url):
+        quote_calls.append(url)
+        if url == minimax_pricing.TERMS_URL:
+            return MINIMAX_TERMS_FIXTURE
+        return ('## 图像\n单价：元/张\n| image-01 | 图片 | 0.025 |\n'
+                '## 视频\n**视频生成-输出价格**\n'
+                '| MiniMax-H3-Max | 480P | 按秒计费 | 0.33 元/秒 |\n')
+    monkeypatch.setattr(minimax_pricing, 'read_public_contract', official_contract_fixture)
+
+    owner_events, poll_calls, upload_calls = [], [], []
+    task_id = 'fixture-video-paid-task'
+    class FixedVideoAdapter:
+        def __init__(self, key, **kwargs):
+            assert key == 'offline-fixture-key'
+            self.model = kwargs['model']
+        def submit(self, prompt, *, duration_seconds, resolution, ratio):
+            receipt = creation.get_creation(work['id'])['delivery']['material_generations'][request]
+            assert receipt['status'] == 'reserved'
+            assert receipt['quote']['upper_estimate'] == '1.650000'
+            assert (duration_seconds, resolution, ratio) == (5, '480P', '9:16')
+            owner_events.append(prompt)
+            if outcome == 'submission_unknown':
+                raise MiniMaxVideoError('offline submit connection lost', submission_uncertain=True)
+            return MiniMaxVideoTask(task_id, self.model, 'queued')
+        def wait(self, submitted_id):
+            assert submitted_id == task_id
+            poll_calls.append(submitted_id)
+            if outcome == 'pending_then_received' and len(poll_calls) == 1:
+                raise MiniMaxVideoObservationPending('offline queued', task_status='queued')
+            if outcome == 'task_failed':
+                raise MiniMaxVideoError('offline video task failed')
+            return MiniMaxVideoTask(task_id, self.model,'succeeded',
+                video_url='https://cdn.hailuoai.com/fixture-video.mp4',duration_seconds=5)
+
+    video_path = Path(attempt['workspace']['path'])/'five-second-portrait-clip.mp4'
+    subprocess.run(['ffmpeg','-v','error','-nostdin','-y','-f','lavfi',
+        '-i','color=c=teal:s=90x160:r=10:d=5','-an','-c:v','libx264',
+        str(video_path)],capture_output=True, check=True,timeout=35)
+    pixels = video_path.read_bytes()
+    assert pixels and len(pixels) > 300
+    class OfflineAcquirer:
+        def __init__(self, store):
+            self.store = store
+        def acquire(self, candidate):
+            upload_calls.append(candidate.acquisition.locator)
+            assert candidate.need_id == need.need_id
+            assert candidate.source.provider == 'minimax'
+            asset_id = 'asset-' + hashlib.sha256(request.encode()).hexdigest()[:32]
+            path = self.store.write_asset_bytes(asset_id,'original.mp4',pixels)
+            asset = MaterialAsset(asset_id=asset_id, media_type=MediaType.VIDEO,
+                file=FileInfo(path=path, sha256=hashlib.sha256(pixels).hexdigest(),
+                              size=len(pixels), mime='video/mp4'),
+                source=candidate.source, rights=RightsInfo(status=RightsStatus.UNKNOWN),
+                technical=TechnicalInfo(status=TechnicalStatus.PENDING))
+            self.store.write_asset(asset)
+            return asset
+
+    monkeypatch.setattr(providers,'MiniMaxVideoAdapter',FixedVideoAdapter)
+    monkeypatch.setattr(video_generation,'create_material_generation_acquirer',OfflineAcquirer)
+
+    if outcome == 'intake_crash':
+        native = video_generation.TechnicalInspector
+        class CrashOnceInspector(native):
+            touches = 0
+            def inspect_and_persist(self, asset):
+                type(self).touches += 1
+                if self.touches == 1:
+                    raise OSError('offline inspector interrupted after receipt')
+                return super().inspect_and_persist(asset)
+        monkeypatch.setattr(video_generation,'TechnicalInspector',CrashOnceInspector)
+    with pytest.raises(creation.CreationError, match='后台交付者'):
+        commissioned.generate_for_commission(attempt['attempt_id'])
+    token = active_delivery.set(work['id'])
+    try:
+        if outcome == 'pending_then_received':
+            with pytest.raises(DeliveryObservationPending):
+                commissioned.generate_for_commission(attempt['attempt_id'])
+            before = AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()[0]
+            assert before['status']=='RUNNING' and before['task_id']==task_id
+            assert len(owner_events)==1 and len(poll_calls)==1 and not upload_calls
+            commissioned.generate_for_commission(attempt['attempt_id'])
+            commissioned.generate_for_commission(attempt['attempt_id'])
+        elif outcome == 'task_failed':
+            for _ in range(2):
+                with pytest.raises(MiniMaxVideoError, match='failed'):
+                    commissioned.generate_for_commission(attempt['attempt_id'])
+        elif outcome == 'submission_unknown':
+            commissioned.generate_for_commission(attempt['attempt_id'])
+            commissioned.generate_for_commission(attempt['attempt_id'])
+        else:
+            with pytest.raises(OSError, match='inspector interrupted'):
+                commissioned.generate_for_commission(attempt['attempt_id'])
+            receipt = AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()[0]
+            assert receipt['status']=='RESULT_INTAKE_FAILED' and receipt['received_asset']
+            # Offline-only intake: never read credentials or poll the Provider.
+            with monkeypatch.context() as disallowed:
+                from easel.runtime_config import EaselRuntimeConfig
+                disallowed.setattr(EaselRuntimeConfig,'load',classmethod(
+                    lambda cls, **kwargs: pytest.fail('cold receipt must not reload credentials')))
+                MaterialProductOrchestrator().resume_minimax_intake(attempt['attempt_id'])
+    finally:
+        active_delivery.reset(token)
+    saved = creation.get_creation(work['id'])
+    receipt = saved['delivery'].get('material_generations',{}).get(request,{})
+    records = AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()
+    assert len(records)==1
+    stored = records[0]
+    assert len(owner_events)==1
+    assert len(poll_calls)==(2 if outcome in {'pending_then_received','task_failed'} else
+                             1 if outcome == 'intake_crash' else 0)
+    if outcome == 'submission_unknown':
+        assert stored['status']=='SUBMISSION_UNCERTAIN' and receipt['status']=='uncertain'
+        assert not upload_calls
+    elif outcome == 'task_failed':
+        assert stored['status']=='RESULT_FAILED' and stored['task_id']==task_id
+        assert receipt['status']=='reserved' and not upload_calls
+    else:
+        assert stored['status']=='COMPLETE'
+        assert stored['task_id']==task_id
+        assert len(upload_calls)==1
+        asset = AttemptMaterialStore(attempt['workspace']['path']).read_asset(stored['asset_id'])
+        assert asset.file.sha256 == hashlib.sha256(pixels).hexdigest()
+        assert asset.rights.status is RightsStatus.UNKNOWN
+        assert asset.technical.status is TechnicalStatus.PASSED
+        assert asset.source.provider_asset_id == task_id
+        assert service.get_film_attempt(attempt['attempt_id'])['material_gate']['status']=='MATERIAL_NOT_READY'
+    assert len(quote_calls)==2
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+    assert not service.get_film_attempt(attempt['attempt_id']).get('production_authoring')
+
+
+@pytest.mark.parametrize('tamper_source', [False, True], ids=['valid-source-rights-unknown', 'source-sha-tampered'])
+def test_u2a_current_rights_only_visual_gap_cannot_research_or_generate(
+        material_integration_env, monkeypatch, tamper_source):
+    """#17 negative: complete pixel suitability without asset Rights is NOT a supply shortage.
+
+    Both Needs and the original offline PNG belong to a genuine frozen
+    Proposal@4/Consent@3/vNext Attempt. Real Material@3 captured visual
+    suitability, but the local self-produced fixture has explicitly UNKNOWN
+    Rights. Reopening source search cannot grant those missing rights.
+    """
+    from easel.integrations import material_recovery as recovery
+    from easel.materials.application.visual_observation import observed_match
+    from tests.material_delta_fixture import observed_result
+    work, attempt, planning, store, asset = _u2a_current_shared_visual_asset(
+        material_integration_env, monkeypatch, known_rights=False)
+    def observed_pixels(current,manifest,attachments):
+        return observed_result(current,manifest,attachments,
+            outcome='suitable',description='two white paper sheets next to blue notebook')
+    owner=MaterialProductOrchestrator()
+    owner.observe_visual_materials(attempt['attempt_id'],
+        executor=observed_pixels,group_executor=observed_pixels)
+    latest=service.get_film_attempt(attempt['attempt_id'])
+    recorded=store.read_asset(asset.asset_id)
+    assert recorded.rights.status is RightsStatus.UNKNOWN
+    assert all(observed_match(n,recorded) is True for n in planning['plan'].needs)
+    assert latest['material_observation']['status']=='COMPLETE'
+    assert latest['material_gate']['status']=='MATERIAL_NOT_READY'
+    frozen_gate=latest['material_gate'].copy()
+    frozen_bytes=store.resolve_asset_locator(recorded.file.path).read_bytes()
+    frozen_bundle=store.read_bundle()
+    frozen_creator=creation.get_creation(work['id'])
+    def no_provider(*_a,**_kw):
+        pytest.fail('Rights-only shortage cannot trigger supplemental Provider or model')
+    monkeypatch.setattr(recovery.ProductMaterialSupply,'run',no_provider)
+    monkeypatch.setattr(MaterialProductOrchestrator,'generate_minimax_asset',no_provider)
+    location=store.resolve_asset_locator(recorded.file.path)
+    if tamper_source:
+        location.write_bytes(frozen_bytes+b'changed')
+    try:
+        if tamper_source:
+            with pytest.raises(MaterialIntegrationError,match='素材字节|Rights 证据变化'):
+                recovery.recover_managed_materials(
+                    attempt['attempt_id'],executor=no_provider)
+        else:
+            refreshed=recovery.recover_managed_materials(
+                attempt['attempt_id'],executor=no_provider)
+            assert refreshed['material_gate']==frozen_gate
+    finally:
+        if tamper_source:
+            location.write_bytes(frozen_bytes)
+    assert service.get_film_attempt(attempt['attempt_id'])['material_gate']==frozen_gate
+    assert store.read_asset(asset.asset_id)==recorded
+    assert store.read_bundle()==frozen_bundle
+    assert store.resolve_asset_locator(recorded.file.path).read_bytes()==frozen_bytes
+    assert creation.get_creation(work['id'])==frozen_creator
+    assert not store.list_generation_records()
+    current=service.get_film_attempt(attempt['attempt_id'])
+    assert not current.get('production_authoring')
+    assert not current['build']['operation']
+
+
+def test_u2a_current_autonomous_material_two_waves_reuse_committed_supply(
+        material_integration_env, monkeypatch):
+    """#17 New-Only: a proven gap, bounded supplemental waves, cold Gate replay.
+
+    A real @4/Consent@3/Brief/vNext Need stays frozen. The sole external
+    Provider registry is empty (explicit offline outage fixture); this proves
+    safe idempotence/exhaustion, not actual search recall or selected quality.
+    """
+    from easel.integrations import material_recovery as recovery
+    from easel.creation_delivery import active_delivery, is_managed, set_material_endpoint
+    from easel.materials.application.readiness import MaterialReadinessCalculator
+    work, attempt, planning, _ = _current_budgeted_visual_fixture(
+        material_integration_env, monkeypatch, False)
+    set_material_endpoint(work['id'])
+    assert is_managed(creation.get_creation(work['id']))
+    frozen_plan=planning['plan']
+    frozen_script=planning['script']
+    store=AttemptMaterialStore(attempt['workspace']['path'])
+    MaterialProductOrchestrator().observe_visual_materials(
+        attempt['attempt_id'],
+        executor=lambda *_: pytest.fail('No stock was discovered; no pixel model call'))
+    attempt=service.get_film_attempt(attempt['attempt_id'])
+    original_bundle=store.read_bundle()
+    assert not original_bundle.assets
+    assert attempt['material_gate']['status']=='MATERIAL_NOT_READY'
+    assert attempt['material_observation']['status']=='COMPLETE'
+    frozen_creation=creation.get_creation(work['id'])
+    original_auth=frozen_creation['delivery']['authorization']
+    original_snapshots=frozen_creation['preparation']['snapshot_hashes']
+
+    # The actual ProductSupply/Owner checkpoint code executes, but provider
+    # discovery is empty; neither remote lookup nor paid fallback can occur.
+    monkeypatch.setattr(material_supply_module,'product_provider_registry',
+        lambda roots: (material_supply_module.ProviderRegistry(), ()))
+    monkeypatch.setattr(MaterialProductOrchestrator,'generate_minimax_asset',
+        lambda *_a,**_k: pytest.fail('No paid generation on supplemental search'))
+    supplied=[]
+    native_supply=recovery.ProductMaterialSupply.run
+    def counted_supply(self,*args,**kwargs):
+        supplied.append(kwargs['supply_run_id'])
+        return native_supply(self,*args,**kwargs)
+    monkeypatch.setattr(recovery.ProductMaterialSupply,'run',counted_supply)
+    query_calls=[]
+    def frozen_queries(current,request):
+        query_calls.append(request['request_id'])
+        round_n=len(query_calls)
+        proposal={'request_id':request['request_id'],
+            'search_terms':{need['need_id']:[
+                f'overhead source material white paper no text variation {round_n}']
+                for need in request['needs']}}
+        if request.get('shot_choice_need_ids'):
+            proposal['shot_choices']={nid:{
+                'expression':'先保持冻结主体与自然景别','reason':'保留当前作品的纸面主体'}
+                for nid in request['shot_choice_need_ids']}
+        return proposal
+
+    token=active_delivery.set(work['id'])
+    try:
+        crashed=[]
+        native_gate=recovery.MaterialGateIntegration.record
+        with monkeypatch.context() as transient:
+            def interrupt_after_committed_source(self,current,plan,bundle,*a,**k):
+                if bundle.supply_run_id.startswith('supplement-') and not crashed:
+                    crashed.append(bundle.supply_run_id)
+                    raise OSError('offline Gate interruption after Source commit')
+                return native_gate(self,current,plan,bundle,*a,**k)
+            transient.setattr(recovery.MaterialGateIntegration,'record',interrupt_after_committed_source)
+            with pytest.raises(OSError,match='after Source commit'):
+                recovery.recover_managed_materials(
+                    attempt['attempt_id'],executor=frozen_queries)
+        assert len(crashed)==1 and len(supplied)==1
+        paused=service.get_film_attempt(attempt['attempt_id'])
+        first_committed=store.read_bundle()
+        assert first_committed.supply_run_id==crashed[0]
+        assert first_committed.assets==original_bundle.assets
+        first_query_calls=list(query_calls)
+        # Reload via a fresh Owner entry. Original committed Supply/run is
+        # reconciled, so neither the same search nor original model dispatch
+        # is reissued.
+        first=recovery.recover_managed_materials(
+            attempt['attempt_id'],executor=frozen_queries)
+        assert len(supplied)==1
+        assert query_calls==first_query_calls
+        assert first['material_gate']['status']=='MATERIAL_NOT_READY'
+        assert recovery.visual_supply_recovery_state(first)=='available'
+        assert store.read_bundle().plan_id==frozen_plan.plan_id
+        second=recovery.recover_managed_materials(
+            attempt['attempt_id'],executor=frozen_queries)
+        assert len(supplied)==2
+        assert len(set(supplied))==2
+        assert second['material_gate']['status']=='MATERIAL_NOT_READY'
+        assert recovery.visual_supply_recovery_state(second)=='exhausted'
+        repeat=recovery.recover_managed_materials(
+            attempt['attempt_id'],executor=lambda *_: pytest.fail('recovery budget is exhausted'))
+        assert repeat==second
+        assert len(supplied)==2
+    finally:
+        active_delivery.reset(token)
+    for state in [paused,first,second]:
+        assert state['build']['operation'] is None
+        assert not state.get('production_authoring')
+    latest=service.get_film_attempt(attempt['attempt_id'])
+    saved=creation.get_creation(work['id'])
+    assert saved['delivery']['authorization']==original_auth
+    assert saved['preparation']['snapshot_hashes']==original_snapshots
+    assert not saved['delivery'].get('material_generations')
+    assert not store.list_generation_records()
+    assert store.read_plan()==frozen_plan
+    assert PlanningIntegration().load(latest)['script']==frozen_script
+    assert store.read_bundle().assets==original_bundle.assets
+    assert latest['material_gate']['status']=='MATERIAL_NOT_READY'
+    assert latest['material_gate']['blocking_needs']
+    assert len(latest['autonomous_material_recovery'].get('previous_rounds',[]))==1
+    assert len(supplied)==2
+
+
+def _assert_u2a_current_material_recovery_retains_generated_voice(
+        material_integration_env, monkeypatch, interrupt_after_supply, automatic):
+    """#08: current @4 Voice grant/actual frozen vNext Plan, no old hand Plan.
+
+    Only the paid speech adapter is faked. ProductMaterialSupply.run is real
+    but empty, and its one completed supplement must survive a Gate crash.
+    """
+    from easel.integrations import material_recovery as recovery
+    from easel.creation_delivery import active_delivery
+    work, attempt, planning, need, store, record, calls = _u2a_voice_saved_commission(
+        material_integration_env, monkeypatch, provider_timing=False)
+    old_plan = planning['plan']
+    visual = next(n for n in old_plan.needs if n.media_type is MediaType.IMAGE)
+    old_script = planning['script']
+    original_asset = store.read_asset(record['asset_id'])
+    original_bytes = store.resolve_asset_locator(original_asset.file.path).read_bytes()
+    original_bundle = store.read_bundle()
+    original_gate = attempt['material_gate']
+    args = {'request_id':'u2a-current-recovery',
+            'expected_plan_revision':original_gate['plan_revision'],
+            'expected_bundle_revision':original_gate['bundle_revision'],
+            'allow_licensed_bgm':False,
+            'search_terms':{visual.need_id:('two white note pages overhead',)}}
+    assert need.need_id in original_gate['blocking_needs']
+    assert visual.need_id in original_gate['blocking_needs']
+    assert any(a.asset_id == original_asset.asset_id for a in original_bundle.assets)
+    assert record['input_sha256'] == hashlib.sha256(old_script.encode()).hexdigest()
+    def registry(roots):
+        return material_supply_module.ProviderRegistry(), ()
+    monkeypatch.setattr(material_supply_module, 'product_provider_registry', registry)
+    supplier_calls = []
+    native_run = recovery.ProductMaterialSupply.run
+    def counted_supply(self, *args, **kwargs):
+        supplier_calls.append({'skip':kwargs.get('skip_need_ids'),
+                               'search':kwargs.get('search_terms')})
+        return native_run(self, *args, **kwargs)
+    monkeypatch.setattr(recovery.ProductMaterialSupply, 'run', counted_supply)
+    def closed_model(*args, **kwargs):
+        pytest.fail('No external model, provider or TTS during material recovery')
+    monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset', closed_model)
+    query_calls = []
+    def offline_recovery_queries(current_attempt, current_record):
+        assert current_record['status'] == 'PLANNING'
+        assert [n['need_id'] for n in current_record['needs']] == [visual.need_id]
+        query_calls.append(current_record['request_id'])
+        return {'request_id':current_record['request_id'],
+                'search_terms':{visual.need_id:['two white note pages overhead']}}
+    def invoke():
+        if automatic:
+            updated = recovery.recover_managed_materials(
+                attempt['attempt_id'], executor=offline_recovery_queries)
+            return {'attempt':updated,'material_status':updated['material_gate']['status']}
+        return recovery.recover_materials(attempt['attempt_id'], **args)
+    token = active_delivery.set(work['id'])
+    try:
+        with monkeypatch.context() as isolated:
+            if interrupt_after_supply:
+                original_record_gate = recovery.MaterialGateIntegration.record
+                def crash_at_supplement_gate(self, current, source_plan, bundle, *others):
+                    if bundle.supply_run_id.startswith('supplement-'):
+                        raise RuntimeError('fixture crash after supplement')
+                    return original_record_gate(self, current, source_plan, bundle, *others)
+                isolated.setattr(recovery.MaterialGateIntegration, 'record', crash_at_supplement_gate)
+                with pytest.raises(RuntimeError, match='crash after supplement'):
+                    invoke()
+        final = invoke()
+    finally:
+        active_delivery.reset(token)
+    latest = service.get_film_attempt(attempt['attempt_id'])
+    assert len(supplier_calls) == 1, supplier_calls
+    assert supplier_calls[0]['skip'] == (need.need_id,)
+    assert len(query_calls) == (1 if automatic else 0)
+    assert latest['material_gate']['status']=='MATERIAL_NOT_READY'
+    assert PlanningIntegration().load(latest)['plan'] == old_plan
+    assert PlanningIntegration().load(latest)['script'] == old_script
+    assert store.read_asset(original_asset.asset_id) == original_asset
+    assert store.resolve_asset_locator(original_asset.file.path).read_bytes() == original_bytes
+    assert store.read_generation_record(record['generation_id']) == record
+    assert all(a.asset_id == original_asset.asset_id for a in store.read_bundle().assets
+               if a.media_type is MediaType.AUDIO)
+    assert not latest.get('production_authoring')
+    assert not latest['build']['operation']
+    assert len(calls)==1
+    if not automatic:
+        repeated = recovery.recover_materials(attempt['attempt_id'], **args)
+        assert repeated['recovery']['status'] == 'COMPLETE'
+        assert repeated['recovery']['reused'] is True
+        assert len(supplier_calls) == 1
+        with pytest.raises(MaterialIntegrationError, match='改变输入'):
+            recovery.recover_materials(attempt['attempt_id'],
+                **{**args,'search_terms':{visual.need_id:('unrelated footage',)}})
+        with pytest.raises(MaterialIntegrationError, match='素材状态已变化'):
+            recovery.recover_materials(attempt['attempt_id'],
+                **{**args,'request_id':'another-after-supply'})
+    assert PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan'] == old_plan
+
+
+@pytest.mark.parametrize(('interrupt_after_supply','automatic'), [
+    (False, False), (True, False), (True, True),
+])
+def test_u2a_current_generation_material_recovery_retains_voice_without_resupply(
+        material_integration_env, monkeypatch, interrupt_after_supply, automatic):
+    _assert_u2a_current_material_recovery_retains_generated_voice(
+        material_integration_env, monkeypatch, interrupt_after_supply, automatic)
+
+
+def test_u2a_newonly_material_recovery_cannot_loosen_frozen_bgm_license(
+        material_integration_env):
+    """New-Only confirmed BGM source kind is never edited by an old recovery toggle."""
+    from easel.integrations import material_recovery as recovery
+    work, attempt, planning, bgm = _u2a_current_music_attempt(material_integration_env, 15)
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    root = Path(attempt['workspace']['path'])
+    refs = {name:(root/name).read_bytes() for name in (
+        'planning/MATERIAL_PLAN.json','planning/manifest.json',
+        'planning/SCRIPT.md','planning/MATERIAL_REQUIREMENTS.json')}
+    old_attempt = service.get_film_attempt(attempt['attempt_id'])
+    old_creator = creation.get_creation(work['id'])
+    before = store.read_bundle()
+    kwargs = {'request_id':'unapproved-bgm-source-relaxation',
+        'expected_plan_revision':old_attempt['material_gate']['plan_revision'],
+        'expected_bundle_revision':old_attempt['material_gate']['bundle_revision'],
+        'allow_licensed_bgm':True,
+        'search_terms':{bgm.need_id:('piano gentle instrumental',)}}
+    with pytest.raises(MaterialIntegrationError, match='冻结 vNext 素材Need不能'):
+        recovery.recover_materials(attempt['attempt_id'], **kwargs)
+    assert store.read_recovery_record(kwargs['request_id']) is None
+    assert store.read_plan() == planning['plan']
+    assert store.read_bundle() == before
+    assert service.get_film_attempt(attempt['attempt_id']) == old_attempt
+    assert creation.get_creation(work['id']) == old_creator
+    assert {name:(root/name).read_bytes() for name in refs} == refs
+    assert not old_attempt.get('production_authoring') and not old_attempt['build']['operation']
+
+
+def _u2a_current_music_attempt(material_integration_env, duration):
+    """Build one legitimate New-Only music Creation, vNext Plan, and real Gate."""
+    from tests.test_creation_preparation import (
+        VIDEO_PROPOSAL, _confirm_current_video_plan,
+        write_drafts, _current_vnext_planning_executor,
+    )
+    from easel import creation_preparation as preparation
+
+    proposal = (VIDEO_PROPOSAL
+        .replace("无旁白，无音乐。", "无旁白，纯音乐。使用轻柔无歌词的钢琴背景音乐。")
+        .replace("音轨：静音", "音轨：纯音乐")
+        .replace("时长：15 秒", f"时长：{duration} 秒")
+        .replace("0–15 秒", f"0–{duration} 秒"))
+    work = creation.create_creation(
+        f"纯音乐长视频 {duration} 秒", profile=None, creative_mode="clear_memo_video",
+        route="hypit_video",
+        origin={"type":"chat","session_hash":hashlib.sha256(
+            f"music-{duration}-newonly-fixture".encode()).hexdigest()})
+    work = _confirm_current_video_plan(work, turn_id="music-confirm", proposal=proposal)
+    assert work["delivery"]["video_plan"]["specs"]["audio_mode"] == "music"
+    assert work["delivery"]["authorization"]["material_generation"] is None
+    assert "preset_voice_synthesis" not in work["delivery"]["authorization"]["input_use"]["operations"]
+    claim = preparation.claim_chat_preparation(work["id"], "music-fixture-session", "music-prepare")
+    paths = preparation.preparation_paths(work["id"], claim["operation_key"])
+    write_drafts(work, paths["draft"])
+    brief_file = paths["draft"] / "production-brief.json"
+    brief = json.loads(brief_file.read_text(encoding="utf-8"))
+    brief.update(duration_seconds=duration, audio_mode="music", ai_generation_allowed=False)
+    brief_file.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+    prepared = preparation.prepare_creation_for_hypit(
+        work["id"], runtime_profile=None, planning_executor=_current_vnext_planning_executor)
+    attempt = service.get_film_attempt(prepared["attempt_id"])
+    planned = PlanningIntegration().load(attempt)
+    bgms = [n for n in planned["plan"].needs
+            if getattr(n.modality_spec, "kind", None) == "bgm"]
+    assert len(bgms) == 1 and bgms[0].importance is NeedImportance.REQUIRED
+    assert bgms[0].media_type is MediaType.AUDIO
+    assert bgms[0].constraints["required_source_kind"] == "stock"
+    assert bgms[0].constraints["allow_generation"] is False
+    assert not any(getattr(n.modality_spec,"kind",None) == "voice"
+                   for n in planned["plan"].needs)
+    assert attempt["material_gate"]["status"] == "MATERIAL_NOT_READY"
+    assert bgms[0].need_id in attempt["material_gate"]["blocking_needs"]
+    assert attempt["build"]["operation"] is None
+    assert not creation.get_creation(work["id"])["delivery"].get("material_generations")
+    return work, attempt, planned, bgms[0]
+
+
+@pytest.mark.parametrize("duration", [15, 301, 900])
+def test_u2a_current_music_commission_freezes_required_bgm_without_purchase(
+        material_integration_env, duration):
+    work, attempt, planned, bgm = _u2a_current_music_attempt(material_integration_env, duration)
+    assert planned["plan"].needs[-1] == bgm
+    assert attempt["build"]["operation"] is None
+
+
+
+def _u2a_cached_bgm_fixture(material_integration_env, *, duration, vocal_score, openverse_item=None):
+    """A legal @4 music Attempt with real WAV bytes and an offline old-policy report.
+
+    The report is model-fixture evidence, NOT evidence of actual acoustic quality;
+    the application Owner/Gate/rights and byte preservation remain real.
+    """
+    import io
+    import math
+    import wave
+    from PIL import ImageDraw
+    from easel.creation_delivery import set_material_endpoint
+    from easel.materials.application import music_observation as music
+    from easel.materials.application.music_reassessment import cached_music_reassessment
+    from easel.materials.application.assembly import MaterialBundleAssembler
+    from easel.integrations import material_results
+
+    work, attempt, planning, bgm = _u2a_current_music_attempt(material_integration_env, duration)
+    set_material_endpoint(work['id'])
+    attempt = service.get_film_attempt(attempt['attempt_id'])
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    root = Path(attempt['workspace']['path'])
+    frozen_plan = planning['plan']
+    previous = store.read_bundle()
+    # Complete local PCM evidence, not a mislabeled image or invented SHA.
+    one_second = b''.join(int(3000 * math.sin(i * 2 * math.pi * 440 / 8000)).to_bytes(
+        2, 'little', signed=True) for i in range(8000))
+    sound = io.BytesIO()
+    with wave.open(sound, 'wb') as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(8000)
+        for _ in range(duration):
+            wav.writeframes(one_second)
+    audio_bytes = sound.getvalue()
+    identity = f'offline-bgm-{duration}'
+    if openverse_item is not None:
+        # A real OpenverseAudioProvider candidate and real Acquirer create the
+        # original immutable audio and acquisition ledger. Only HTTP is fake.
+        from easel.materials.providers.openverse import OpenverseAudioProvider
+        from easel.materials.application.acquisition import (
+            MaterialAcquirer, DownloadResponse, RemoteURLPolicy)
+        candidate = OpenverseAudioProvider()._candidate(
+            openverse_item, bgm.need_id, MediaType.AUDIO)
+        assert candidate.source.provider == 'openverse_audio'
+        assert candidate.acquisition is not None
+        class OfflineDownload:
+            def get(self, *_args, **_kwargs):
+                return DownloadResponse(200, {'content-type': 'audio/wav'}, audio_bytes)
+        acquired = MaterialAcquirer(
+            store, transport=OfflineDownload(),
+            url_policy=RemoteURLPolicy(lambda *_: ('93.184.216.34',))).acquire(candidate)
+        assert acquired.file.sha256 == hashlib.sha256(audio_bytes).hexdigest()
+        # Emulate the pre-existing item whose metadata was not saved, not a
+        # newly authorized source. The original acquisition proof stays intact.
+        audio_asset = acquired.model_copy(update={
+            'rights': acquired.rights.model_copy(update={
+                'evidence': (), 'attribution_text': None}),
+            'technical': TechnicalInfo(status=TechnicalStatus.PASSED,
+                duration_seconds=duration, mime='audio/wav'),
+            'semantic': SemanticInfo()})
+        assert audio_asset.rights.status == RightsStatus.ATTRIBUTION_REQUIRED
+    else:
+        locator = store.write_asset_bytes(identity, 'original.wav', audio_bytes)
+        audio_asset = MaterialAsset(
+            asset_id=identity, media_type=MediaType.AUDIO,
+            file=FileInfo(path=locator, sha256=hashlib.sha256(audio_bytes).hexdigest(),
+                          size=len(audio_bytes), mime='audio/wav'),
+            source=CandidateSource(kind='stock', provider='fixture-stock-catalog',
+                                   provider_asset_id=identity),
+            rights=RightsInfo(status=RightsStatus.KNOWN,
+                license_name='Fixture self-produced audio: test-only internal usage',
+                evidence=(RightsEvidence(kind='asset_license',
+                          reference='fixture://license/self-produced-audio'),)),
+            technical=TechnicalInfo(status=TechnicalStatus.PASSED,
+                duration_seconds=duration, mime='audio/wav'),
+            semantic=SemanticInfo(),
+        )
+    store.write_asset(audio_asset)
+    # The current video still needs a real visual Match. Approve a genuine
+    # locally drawn and SHA-bound image through the ordinary human review Owner
+    # before assessing whether cached BGM is the *last* blocking Need.
+    picture = Image.new('RGB', (720, 1280), (95, 76, 57))
+    canvas = ImageDraw.Draw(picture)
+    canvas.rectangle((72, 310, 316, 765), fill=(248, 248, 245))
+    canvas.rectangle((380, 330, 660, 790), fill=(249, 248, 245))
+    bitmap = io.BytesIO()
+    picture.save(bitmap, format='PNG')
+    image_bytes = bitmap.getvalue()
+    image_id = 'offline-two-white-papers'
+    image_locator = store.write_asset_bytes(image_id, 'original.png', image_bytes)
+    visual_need = next(n for n in frozen_plan.needs if n.media_type is MediaType.IMAGE)
+    visual = MaterialAsset(
+        asset_id=image_id, media_type=MediaType.IMAGE,
+        file=FileInfo(path=image_locator, sha256=hashlib.sha256(image_bytes).hexdigest(),
+                      size=len(image_bytes), mime='image/png'),
+        source=CandidateSource(kind='local', provider='fixture-local',
+                               provider_asset_id=image_id),
+        rights=RightsInfo(status=RightsStatus.KNOWN,
+            license_name='Self-created fixture two-white-papers',
+            evidence=(RightsEvidence(kind='asset_license',
+                       reference='fixture://license/self-created-image'),)),
+        technical=TechnicalInfo(status=TechnicalStatus.PASSED,
+            width=720, height=1280, mime='image/png'),
+        semantic=SemanticInfo())
+    store.write_asset(visual)
+    now = datetime.now(timezone.utc)
+    run = SupplyRun(supply_run_id=f'current-bgm-catalog-{duration}', plan_id=frozen_plan.plan_id,
+                    parent_run_id=previous.supply_run_id,
+                    started_at=now, finished_at=now, result_bundle_id=previous.bundle_id)
+    assembled = MaterialBundleAssembler().assemble(
+        frozen_plan, run, (*previous.assets, visual, audio_asset), previous.matches,
+        bundle_id=previous.bundle_id)
+    readiness, gaps = material_results.readiness_calculator(attempt, store).calculate(
+        frozen_plan, assembled)
+    attempt = MaterialGateIntegration().record(
+        attempt, frozen_plan, assembled, run, readiness, gaps)['attempt']
+    reviewed = MaterialProductOrchestrator().review_material_match(
+        attempt['attempt_id'], asset_id=visual.asset_id, need_id=visual_need.need_id,
+        expected_sha256=visual.file.sha256,
+        observed_content='桌面上两张清晰完整的白色纸张，背景为棕色桌面，没有文字。',
+        logo_present=None, visible_text_present=None, confirm_review=True)
+    assert reviewed['material_status'] == 'MATERIAL_NOT_READY'
+    attempt = service.get_film_attempt(attempt['attempt_id'])
+    assert bgm.need_id in attempt['material_gate']['blocking_needs']
+    assert visual_need.need_id not in attempt['material_gate']['blocking_needs']
+    # Current Owner completes this cycle without pretending BGM was observed.
+    # After that legitimate checkpoint, a prior cached BGM report can be replayed.
+    def no_external_model(*_):
+        pytest.fail('Current visual is human-reviewed; no model invoked by cache test')
+    MaterialProductOrchestrator().observe_visual_materials(
+        attempt['attempt_id'], executor=no_external_model)
+    attempt = service.get_film_attempt(attempt['attempt_id'])
+    assert attempt['material_observation']['status'] == 'COMPLETE'
+    if openverse_item is not None:
+        assert MaterialProductOrchestrator.pending_openverse_rights_refresh(attempt)
+        assert not store.list_generation_records()
+        return work, attempt, frozen_plan, bgm, audio_asset, store, None, None
+    starts = sorted(set(range(0, duration - 9, 5)) | {duration - 10})
+    report = {
+        'schema': music.SCHEMA, 'model': music.MODEL_ID,
+        'model_revision': music.MODEL_REVISION,
+        'model_sha256': music.MODEL_FILES['model.safetensors'],
+        'audio_sha256': audio_asset.file.sha256, 'duration_seconds': float(duration),
+        'windows': [{'start_seconds': start, 'end_seconds': start + 10,
+                     'rms': .1, 'scores': {'Music': .55, **{
+                         label: vocal_score for label in music.VOCAL_LABELS}}}
+                    for start in starts],
+    }
+    key = 'music-' + hashlib.sha256((
+        music.SCHEMA + music.MODEL_REVISION + audio_asset.file.sha256).encode()).hexdigest()
+    report_locator = store.write_observation_record(key, report)
+    original_report = (root / report_locator).read_bytes()
+    assert cached_music_reassessment(attempt) is not None
+    assert not store.list_generation_records()
+    return work, attempt, frozen_plan, bgm, audio_asset, store, report_locator, original_report
+
+
+def _assert_u2a_cached_bgm_reassessment(
+        material_integration_env, monkeypatch, duration, vocal_score):
+    from easel.creation_delivery import active_delivery, next_operation
+    from easel.materials.application import music_observation as music
+    from easel.materials.application.music_reassessment import (
+        cached_music_reassessment, pending_music_reassessment)
+
+    (work, attempt, plan, bgm, audio_asset, store,
+     report_locator, original_report) = _u2a_cached_bgm_fixture(
+         material_integration_env, duration=duration, vocal_score=vocal_score)
+    # Reassessment MUST be a local, same-attempt recovery; no new searches,
+    # acoustic model, Authoring or charged operations.
+    owner = MaterialProductOrchestrator()
+    def forbid(*args, **kwargs):
+        pytest.fail('A cached music report must not call Provider or model')
+    monkeypatch.setattr(owner, 'refresh_openverse_rights', forbid)
+    monkeypatch.setattr(owner, 'material_rights_candidates', forbid)
+    monkeypatch.setattr(music, 'read_local_music', forbid)
+    monkeypatch.setattr(ProductionAuthoringIntegration, 'prepare', forbid)
+    assert next_operation(creation.get_creation(work['id']))[0] == 'observe_material'
+    token = active_delivery.set(work['id'])
+    try:
+        result = owner.observe_visual_materials(attempt['attempt_id'], executor=forbid)
+    finally:
+        active_delivery.reset(token)
+    latest = service.get_film_attempt(attempt['attempt_id'])
+    assert latest['material_observation']['status'] == 'COMPLETE'
+    assert not pending_music_reassessment(latest)
+    assert store.read_recovery_record('music-reassessment-'+music.POLICY_DIGEST)['status'] == 'COMPLETE'
+    if vocal_score == .015:
+        assert bgm.need_id not in latest['material_gate']['blocking_needs']
+    else:
+        assert bgm.need_id in latest['material_gate']['blocking_needs']
+    expected = 'MATERIAL_READY' if vocal_score == .015 else 'MATERIAL_NOT_READY'
+    assert result['material_status'] == latest['material_gate']['status'] == expected
+    assert next_operation(creation.get_creation(work['id']))[0] != 'observe_material'
+    assert (Path(attempt['workspace']['path']) / report_locator).read_bytes() == original_report
+    remaining = store.read_asset(audio_asset.asset_id)
+    assert remaining.file == audio_asset.file
+    assert remaining.rights == audio_asset.rights
+    assert not store.list_generation_records()
+    assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+    assert latest['build']['operation'] is None
+
+
+@pytest.mark.parametrize('duration,vocal_score', [
+    (15, .015), (15, .05), (301, .015), (301, .05), (900, .015),
+], ids=['15-instrumental', '15-unknown', '301-instrumental', '301-unknown', '900-instrumental'])
+def test_u2a_current_cached_bgm_reassessment_retains_sha_rights_and_long_tail(
+        material_integration_env, monkeypatch, duration, vocal_score):
+    _assert_u2a_cached_bgm_reassessment(material_integration_env, monkeypatch, duration, vocal_score)
+
+
+def _assert_u2a_cached_bgm_recovery(
+        material_integration_env, monkeypatch, fault):
+    """Current @4 Owner replays the SAME frozen request after a local crash."""
+    from easel.creation_delivery import active_delivery
+    from easel.integrations import material_layer
+    from easel.materials.application import music_observation as music
+    from easel.materials.application.music_reassessment import pending_music_reassessment
+
+    (work, attempt, plan, bgm, asset, store,
+     report_path, original_report) = _u2a_cached_bgm_fixture(
+        material_integration_env, duration=15, vocal_score=.015)
+    work_before = creation.get_creation(work['id'])
+    rights_before = store.read_asset(asset.asset_id).rights
+    bytes_before = store.resolve_asset_locator(asset.file.path).read_bytes()
+    owner = MaterialProductOrchestrator()
+    def forbidden(*args, **kwargs):
+        pytest.fail('A cached report cannot re-search, regenerate, or re-observe paid media')
+    monkeypatch.setattr(owner, 'refresh_openverse_rights', forbidden)
+    monkeypatch.setattr(owner, 'material_rights_candidates', forbidden)
+    monkeypatch.setattr(music, 'read_local_music', forbidden)
+    monkeypatch.setattr(ProductionAuthoringIntegration, 'prepare', forbidden)
+    token = active_delivery.set(work['id'])
+    try:
+        with monkeypatch.context() as interruption:
+            if fault in {'requested', 'journal'}:
+                original_write = AttemptMaterialStore.write_recovery_record
+                stop_at = 'REQUESTED' if fault == 'requested' else 'COMPLETE'
+                def write_and_interrupt(self, key, record):
+                    original_write(self, key, record)
+                    if key.startswith('music-reassessment-') and record['status'] == stop_at:
+                        raise OSError('fixture interruption after ' + stop_at)
+                interruption.setattr(AttemptMaterialStore, 'write_recovery_record', write_and_interrupt)
+            elif fault == 'asset':
+                original_write = AttemptMaterialStore.write_asset
+                def write_and_interrupt(self, value):
+                    original_write(self, value)
+                    raise OSError('fixture interruption after asset')
+                interruption.setattr(AttemptMaterialStore, 'write_asset', write_and_interrupt)
+            elif fault == 'bundle':
+                original_write = AttemptMaterialStore.write_bundle
+                def write_and_interrupt(self, value):
+                    original_write(self, value)
+                    raise OSError('fixture interruption after bundle')
+                interruption.setattr(AttemptMaterialStore, 'write_bundle', write_and_interrupt)
+            elif fault == 'gate':
+                original_record = MaterialGateIntegration.record
+                def record_and_interrupt(self, *args, **kwargs):
+                    original_record(self, *args, **kwargs)
+                    raise OSError('fixture interruption after gate')
+                interruption.setattr(MaterialGateIntegration, 'record', record_and_interrupt)
+            else:
+                original_update = material_layer._update_attempt
+                def update_and_interrupt(current, **changes):
+                    updated = original_update(current, **changes)
+                    if changes.get('material_observation', {}).get('status') == 'PENDING':
+                        raise OSError('fixture interruption after pending')
+                    return updated
+                interruption.setattr(material_layer, '_update_attempt', update_and_interrupt)
+            with pytest.raises(OSError, match='fixture interruption'):
+                owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
+        # Cold re-entry consumes only the checkpoint and cached local report.
+        assert pending_music_reassessment(service.get_film_attempt(attempt['attempt_id']))
+        resumed = owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
+    finally:
+        active_delivery.reset(token)
+    latest = service.get_film_attempt(attempt['attempt_id'])
+    assert latest['material_observation']['status'] == 'COMPLETE'
+    assert bgm.need_id not in latest['material_gate']['blocking_needs']
+    assert resumed['material_status'] == latest['material_gate']['status'] == 'MATERIAL_READY'
+    assert store.read_recovery_record('music-reassessment-'+music.POLICY_DIGEST)['status'] == 'COMPLETE'
+    assert (Path(attempt['workspace']['path']) / report_path).read_bytes() == original_report
+    assert store.resolve_asset_locator(asset.file.path).read_bytes() == bytes_before
+    assert store.read_asset(asset.asset_id).rights == rights_before
+    saved = creation.get_creation(work['id'])
+    assert saved['delivery']['authorization'] == work_before['delivery']['authorization']
+    assert not saved['delivery'].get('material_generations')
+    assert not store.list_generation_records()
+    assert latest['build']['operation'] is None
+
+
+@pytest.mark.parametrize('fault', ['requested', 'pending', 'asset', 'bundle', 'gate', 'journal'])
+def test_u2a_current_cached_bgm_recovers_each_durable_checkpoint_without_replay(
+        material_integration_env, monkeypatch, fault):
+    _assert_u2a_cached_bgm_recovery(material_integration_env, monkeypatch, fault)
+
+
+@pytest.mark.parametrize('tamper', ['original_bytes', 'raw_report', 'bundle', 'rights'])
+def test_u2a_current_cached_bgm_refuses_changed_original_or_evidence_then_recovers(
+        material_integration_env, monkeypatch, tamper):
+    """Unknown checkpoint remains blocked; restoring isolated source permits cold resume."""
+    from easel.creation_delivery import active_delivery
+    from easel.materials.application import music_observation as music
+
+    (work, attempt, plan, bgm, asset, store,
+     report_path, original_report) = _u2a_cached_bgm_fixture(
+        material_integration_env, duration=15, vocal_score=.015)
+    raw_audio = store.resolve_asset_locator(asset.file.path).read_bytes()
+    preserved_bundle = store.read_bundle()
+    path = Path(attempt['workspace']['path']) / report_path
+    owner = MaterialProductOrchestrator()
+    def forbidden(*args, **kwargs):
+        pytest.fail('Cached BGM recovery must not call a source or model')
+    monkeypatch.setattr(owner, 'refresh_openverse_rights', forbidden)
+    monkeypatch.setattr(owner, 'material_rights_candidates', forbidden)
+    monkeypatch.setattr(music, 'read_local_music', forbidden)
+    monkeypatch.setattr(ProductionAuthoringIntegration, 'prepare', forbidden)
+
+    token = active_delivery.set(work['id'])
+    try:
+        with monkeypatch.context() as interruption:
+            native = AttemptMaterialStore.write_recovery_record
+            def interrupt_requested(self, key, record):
+                native(self, key, record)
+                if key.startswith('music-reassessment-') and record['status'] == 'REQUESTED':
+                    raise OSError('fixture interruption after requested')
+            interruption.setattr(AttemptMaterialStore, 'write_recovery_record', interrupt_requested)
+            with pytest.raises(OSError, match='after requested'):
+                owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
+        if tamper == 'original_bytes':
+            store.resolve_asset_locator(asset.file.path).write_bytes(raw_audio + b'changed')
+        elif tamper == 'raw_report':
+            invalid = json.loads(original_report)
+            invalid['audio_sha256'] = '0'*64
+            path.write_text(json.dumps(invalid), encoding='utf-8')
+        elif tamper == 'bundle':
+            store.write_bundle(preserved_bundle.model_copy(update={'bundle_id': 'foreign-bundle'}))
+        else:
+            existing = store.read_asset(asset.asset_id)
+            store.write_asset(existing.model_copy(update={'rights': RightsInfo(status=RightsStatus.UNKNOWN)}))
+        with pytest.raises((MaterialIntegrationError, ValueError)):
+            owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
+        if tamper == 'original_bytes':
+            store.resolve_asset_locator(asset.file.path).write_bytes(raw_audio)
+        elif tamper == 'raw_report':
+            path.write_bytes(original_report)
+        elif tamper == 'bundle':
+            store.write_bundle(preserved_bundle)
+        else:
+            store.write_asset(asset)
+        recovered = owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
+    finally:
+        active_delivery.reset(token)
+    latest = service.get_film_attempt(attempt['attempt_id'])
+    assert recovered['material_status'] == latest['material_gate']['status'] == 'MATERIAL_READY'
+    assert bgm.need_id not in latest['material_gate']['blocking_needs']
+    assert latest['material_observation']['status'] == 'COMPLETE'
+    assert path.read_bytes() == original_report
+    assert store.resolve_asset_locator(asset.file.path).read_bytes() == raw_audio
+    assert store.read_asset(asset.asset_id).rights == asset.rights
+    assert not store.list_generation_records()
+    assert latest['build']['operation'] is None
+
+
+def _u2a_current_voice_attempt(material_integration_env, monkeypatch, *, script_override=None):
+    """Only public @4 voice enrollment and frozen vNext production ownership."""
+    from dataclasses import replace
+    from easel.runtime_config import EaselRuntimeConfig, MiniMaxRuntimeConfig
+    from easel.integrations import material_generation as commissioned
+    from easel.integrations import voice_identity as voice
+    from easel import creation_preparation as preparation
+    from tests.test_creation_preparation import (
+        VIDEO_PROPOSAL, write_drafts, _current_vnext_planning_executor)
+
+    baseline = EaselRuntimeConfig.load()
+    settings = MiniMaxRuntimeConfig(api_key="offline-fixture-key")
+    monkeypatch.setattr(EaselRuntimeConfig, "load", classmethod(
+        lambda cls, **kwargs: replace(baseline, minimax=settings)))
+    sound = ('预置旁白：' + voice.HANDLE
+             + '\n按冻结 SCRIPT 逐字朗读，无音乐，不臆测未核实的听感。')
+    proposal = VIDEO_PROPOSAL.replace("无旁白，无音乐。", sound).replace(
+        "音轨：静音", "音轨：纯旁白")
+    if script_override is not None:
+        proposal = proposal.replace(
+            "```text\n先看问题，再做决定。\n```",
+            "```text\n" + script_override + "\n```")
+    work = creation.create_creation(
+        "明确预置身份的旁白", profile=None, creative_mode="clear_memo_video",
+        route="hypit_video", origin={"type": "chat", "session_hash":
+            hashlib.sha256(b"u2a-voice-current").hexdigest()})
+    turn = "voice-explicit-approval"
+    creation.begin_video_proposal(work["id"], turn, preset_contract=True,
+        voice_profile_offer=voice.verified_profile())
+    saved = creation.save_video_proposal(work["id"], turn, proposal)
+    plan = saved["chat_workflow"]["video_plan"]
+    assert plan["schema"] == "easel-video-proposal@4"
+    assert plan["specs"]["audio_mode"] == "voice"
+    if script_override is not None:
+        assert plan["script"] == script_override
+    transcript = json.dumps([{"role":"assistant","content":proposal}], ensure_ascii=False)
+    scope = commissioned.generation_budget_preview()
+    assert scope["available"] and scope["scope"]["speech_voice_id"] == settings.speech_voice_id
+    grant = {"maxCostCny": 1, "scopeSha256": scope["scope_sha256"],
+             "allowedModalities": ["voice"]}
+    confirmed = creation.confirm_chat_proposal(
+        work["id"], turn, delivery_proposal=transcript,
+        proposal_sha256=hashlib.sha256(transcript.encode()).hexdigest(),
+        production_specs=plan["specs"], video_plan_sha256=plan["sha256"],
+        generation_budget=grant,
+        input_use_statement_sha256=creation.input_use_preview(plan=plan)["statement_sha256"])
+    binding = voice.require_binding(confirmed)
+    assert binding["script_sha256"] == hashlib.sha256(plan["script"].encode()).hexdigest()
+    assert confirmed["delivery"]["authorization"]["material_generation"]["allowed_modalities"] == ["voice"]
+
+    claim = preparation.claim_chat_preparation(work["id"], "voice-fixture-session", turn)
+    paths = preparation.preparation_paths(work["id"], claim["operation_key"])
+    write_drafts(confirmed, paths["draft"])
+    brief_file = paths["draft"] / "production-brief.json"
+    brief = json.loads(brief_file.read_text(encoding="utf-8"))
+    brief["audio_mode"] = "voice"
+    brief_file.write_text(json.dumps(brief, ensure_ascii=False), encoding="utf-8")
+    prepared = preparation.prepare_creation_for_hypit(
+        work["id"], runtime_profile=None, planning_executor=_current_vnext_planning_executor)
+    attempt = service.get_film_attempt(prepared["attempt_id"])
+    planned = PlanningIntegration().load(attempt)
+    from easel.materials.domain import VoiceIdentitySource
+    voices = [n for n in planned["plan"].needs
+              if getattr(n.modality_spec,"kind",None) == "voice"]
+    assert len(voices) == 1
+    need = voices[0]
+    assert need.importance is NeedImportance.REQUIRED
+    assert need.modality_spec.identity.source is VoiceIdentitySource.EXPLICIT_USER
+    assert need.modality_spec.identity.reference == voice.REFERENCE
+    assert need.modality_spec.text_sha256 == binding["script_sha256"]
+    assert voice.require_binding(creation.get_creation(work["id"]),
+                                 planned["plan"], planned["script"]) == binding
+    assert attempt["material_gate"]["status"] == "MATERIAL_NOT_READY"
+    assert attempt["build"]["operation"] is None
+    assert not creation.get_creation(work["id"])["delivery"].get("material_generations")
+    return work, attempt, planned, need, settings
+
+
+def test_u2a_current_voice_proposal_binds_full_frozen_script_without_paid_tts(
+        material_integration_env, monkeypatch):
+    work, attempt, planned, need, settings = _u2a_current_voice_attempt(
+        material_integration_env, monkeypatch)
+    assert need.modality_spec.text_sha256 == hashlib.sha256(planned['script'].encode()).hexdigest()
+    assert attempt['build']['operation'] is None
+
+
+def test_u2a_long_voice_script_is_frozen_in_current_source(
+        material_integration_env, monkeypatch):
+    script = '每天整理纸面上的重要记录。' * 8
+    work, attempt, planning, need, _ = _u2a_current_voice_attempt(
+        material_integration_env, monkeypatch, script_override=script)
+    assert planning['script'] == script
+    assert need.modality_spec.text_sha256 == hashlib.sha256(script.encode()).hexdigest()
+    assert attempt['build']['operation'] is None
+
+
+def _u2a_voice_saved_commission(material_integration_env, monkeypatch, *, provider_timing, script_override=None):
+    """Only MiniMax's paid HTTP boundary is fake; reservation/intake/Plan are real.
+
+    MP3 is real offline ffmpeg audio with a tone, NOT real narration. The ASR
+    transcript in later tests is a deterministic wire fixture and cannot prove
+    that the audio really contains the words of the frozen SCRIPT.
+    """
+    import subprocess
+    from easel.integrations import material_generation as commissioned
+    from easel.materials.application import voice_delivery
+    from easel.materials.providers import minimax_pricing
+    from easel.materials import providers
+    from easel.materials.providers.minimax_speech import MiniMaxSpeechResult
+    from easel.creation_delivery import active_delivery, next_operation
+    from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
+
+    work, attempt, planning, need, settings = _u2a_current_voice_attempt(
+        material_integration_env, monkeypatch, script_override=script_override)
+    from easel.integrations.voice_identity import require_binding
+    frozen = creation.get_creation(work['id'])
+    assert require_binding(frozen, planning['plan'], planning['script'])
+    assert planning['truth_ledger']['status'] == 'PASSED'
+    assert commissioned.pending_generated_need(
+        frozen, attempt, planning['plan'])[0].need_id == need.need_id
+
+    # Real locally encoded bytes allow the real ffprobe TechnicalInspector.
+    mp3 = subprocess.run([
+        'ffmpeg', '-v', 'error', '-nostdin', '-f', 'lavfi',
+        '-i', 'sine=frequency=440:duration=3', '-c:a', 'libmp3lame',
+        '-b:a', '64k', '-f', 'mp3', 'pipe:1',
+    ], capture_output=True, check=True, timeout=25).stdout
+    assert mp3.startswith(b'ID3') and len(mp3) > 2000
+    calls = []
+    class OfflineSpeechAdapter:
+        def __init__(self, _api_key, **args):
+            assert _api_key == 'offline-fixture-key'
+            self.model = args['model']
+            self.voice_id = args['voice_id']
+        def generate(self, text, **controls):
+            latest = creation.get_creation(work['id'])['delivery']
+            key = commissioned.pending_generated_need(
+                creation.get_creation(work['id']), service.get_film_attempt(
+                    attempt['attempt_id']), planning['plan'])[1]
+            assert latest['material_generations'][key]['status'] == 'reserved'
+            assert text == planning['script']
+            assert controls == need.constraints.get('voice_delivery')
+            calls.append(text)
+            segments = (({'text': text, 'start_character': 0, 'end_character': len(text),
+                          'start_seconds': .1, 'end_seconds': 2.9},)
+                        if provider_timing else ())
+            return MiniMaxSpeechResult(
+                self.model, self.voice_id, mp3, 'mp3', segments,
+                None if provider_timing else 'provider_timing_missing_or_invalid')
+
+    def quote_fixture(url):
+        if url == minimax_pricing.TERMS_URL:
+            return MINIMAX_TERMS_FIXTURE
+        if url == minimax_pricing.VOICE_URL:
+            return '| 1 | 中文 | `male-qn-qingse` | 青年 |\n'
+        return ('## 语音\n单价：元/万字符\n1 个汉字算 2 个字符\n'
+                '| 同步 T2A | speech-2.8-hd | 说明 | 3.50 |\n'
+                '## 图像\n单价：元/张\n| image-01 | 图片 | 0.025 |\n'
+                '## 视频\n**视频生成-输出价格**\n'
+                '| MiniMax-H3-Max | 480P | 按秒计费 | 0.33 元/秒 |\n'
+                '| 1 | 中文 | `male-qn-qingse` | 青年 |\n')
+    monkeypatch.setattr(minimax_pricing, 'read_public_contract', quote_fixture)
+    monkeypatch.setattr(providers, 'MiniMaxSpeechAdapter', OfflineSpeechAdapter)
+    # Only a bounded local-ASR dependency check is replaced. No remote model.
+    monkeypatch.setattr(voice_delivery, 'require_local_voice_model',
+                        lambda *args, **kwargs: Path(attempt['workspace']['path']))
+    def forbidden_provider(*args, **kwargs):
+        pytest.fail('Voice recovery may not re-enter a paid provider')
+    token = active_delivery.set(work['id'])
+    try:
+        commissioned.generate_for_commission(attempt['attempt_id'])
+        # No second purchase even if Gate remains blocked on Voice Rights/ASR.
+        commissioned.generate_for_commission(attempt['attempt_id'])
+    finally:
+        active_delivery.reset(token)
+    assert calls == [planning['script']], creation.get_creation(work['id'])['delivery'].get('material_generations')
+    current = service.get_film_attempt(attempt['attempt_id'])
+    store = AttemptMaterialStore(current['workspace']['path'])
+    records = [r for r in store.list_generation_records() if r.get('modality') == 'voice']
+    assert len(records) == 1
+    record = records[0]
+    assert record['status'] == 'COMPLETE'
+    assert record['operator_confirmed_paid'] is False
+    assert record['commission_authorization']['source'] == 'commission_budget'
+    assert record['need_id'] == need.need_id
+    assert record['input_sha256'] == hashlib.sha256(planning['script'].encode()).hexdigest()
+    assert record['asset_id'] in {a.asset_id for a in store.read_bundle().assets}
+    assert store.read_asset(record['asset_id']).technical.status is TechnicalStatus.PASSED
+    assert next_operation(creation.get_creation(work['id']))[0] == 'recover_voice_timing'
+    assert current['build']['operation'] is None
+    return work, current, planning, need, store, record, calls
+
+
+@pytest.mark.parametrize('provider_timing', [False, True], ids=['timing-missing','timing-received'])
+def test_u2a_current_voice_commission_saves_paid_boundary_result_without_rebuy(
+        material_integration_env, monkeypatch, provider_timing):
+    work, attempt, planning, need, store, record, calls = _u2a_voice_saved_commission(
+        material_integration_env, monkeypatch, provider_timing=provider_timing)
+    assert record['voice_timing']['status'] == ('READY' if provider_timing else 'UNAVAILABLE')
+    assert record['billing']['status'] == 'UNKNOWN'
+    assert store.read_asset(record['asset_id']).rights.status is RightsStatus.UNKNOWN
+    assert len(calls) == 1
+    assert not attempt.get('production_authoring')
+
+
+def _assert_u2a_voice_cold_recovery(
+        material_integration_env, monkeypatch, timing_case, *, audit_signed_consent=False):
+    """Current #16: durable commission receipt, local ASR, crash and no new TTS.
+
+    The real MP3 is a sine-tone test file. Words are fixed ASR *wire* responses,
+    never proof that the waveform contains speech or the right voice identity.
+    """
+    from easel.materials.application import voice_delivery
+    from easel.creation_delivery import next_operation
+    from easel.materials.application.matching import MaterialMatcher
+
+    long_script = '每天整理纸面上的重要记录。' * 8 if timing_case == 'bounded_cached' else None
+    (work, attempt, planning, need, store, original_record,
+     tts_calls) = _u2a_voice_saved_commission(
+         material_integration_env, monkeypatch, provider_timing=(timing_case == 'provider'),
+         script_override=long_script)
+    from copy import deepcopy
+    from types import SimpleNamespace
+    current = store.read_asset(original_record['asset_id'])
+    saved_audio_bytes = store.resolve_asset_locator(current.file.path).read_bytes()
+    saved_authorization = deepcopy(creation.get_creation(work['id'])['delivery']['authorization'])
+    script = planning['script']
+    chars = voice_delivery._spoken(script)
+    assert chars and script == creation.get_creation(work['id'])['delivery']['video_plan']['script']
+    asr_calls = []
+    local_report = {
+        'engine': 'offline-fixed-wire', 'words': [
+            {'text': character, 'start_seconds': round(.1 + index * 2.7/len(chars), 6),
+             'end_seconds': round(.1 + (index + 1) * 2.7/len(chars), 6),
+             'probability': (.282 if index == 0 and timing_case == 'bounded_cached' else .97)}
+            for index, character in enumerate(chars)],
+    }
+    verification = {
+        'model_sha256': 'a'*64, 'engine': 'offline-fixed-wire',
+        'version': 'fixture-1', 'language': None,
+        'parameters': {'local_only': True}, 'rules': 'fixture-cold-recovery@1',
+    }
+    monkeypatch.setattr(voice_delivery, 'voice_verification_identity', lambda *_: dict(verification))
+    def local_asr(file_path, language):
+        assert file_path.read_bytes() == saved_audio_bytes and language is None
+        asr_calls.append(file_path)
+        return deepcopy(local_report)
+    monkeypatch.setattr(voice_delivery, 'read_local_voice', local_asr)
+    monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset',
+                        lambda *args, **kwargs: pytest.fail('recovery must not repurchase TTS'))
+    assert next_operation(creation.get_creation(work['id']))[0] == 'recover_voice_timing'
+
+    owner = MaterialProductOrchestrator()
+    original_write = AttemptMaterialStore.write_generation_record
+    checkpoint_writes = []
+    with monkeypatch.context() as isolated:
+        def crash_after_audio_recognition(self, generation_id, record):
+            if (record.get('voice_recognition') is not None and
+                    generation_id == original_record['generation_id'] and not checkpoint_writes):
+                checkpoint_writes.append(generation_id)
+                raise OSError('offline crash after ASR checkpoint')
+            return original_write(self, generation_id, record)
+        isolated.setattr(AttemptMaterialStore, 'write_generation_record',
+                         crash_after_audio_recognition)
+        with pytest.raises(OSError, match='after ASR checkpoint'):
+            owner.recover_voice_timing(attempt['attempt_id'])
+    assert len(asr_calls) == 1
+    assert store.read_generation_record(original_record['generation_id']) == original_record
+    assert store.read_asset(current.asset_id).file == current.file
+    assert store.resolve_asset_locator(current.file.path).read_bytes() == saved_audio_bytes
+    # Exact same audio, SCRIPT SHA and ASR config resume from the saved report.
+    monkeypatch.setattr(voice_delivery, 'read_local_voice',
+                        lambda *_: pytest.fail('the same local ASR must not run twice'))
+    MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
+    finalized = store.read_generation_record(original_record['generation_id'])
+    latest = service.get_film_attempt(attempt['attempt_id'])
+    observed = store.read_asset(current.asset_id)
+    assert finalized['status'] == 'COMPLETE'
+    assert finalized['operator_confirmed_paid'] is False
+    assert finalized['commission_authorization'] == original_record['commission_authorization']
+    assert finalized['voice_timing']['status'] == 'READY'
+    assert finalized['voice_timing']['source'] == (
+        'provider_alignment' if timing_case == 'provider' else 'local_asr')
+    if timing_case == 'bounded_cached':
+        assert finalized['voice_timing']['confidence_acceptance']['minimum_word_probability'] == .282
+    assert finalized['voice_recognition']['words'] == local_report['words']
+    assert voice_delivery.voice_content_observed(need, observed)
+    assert observed.file == current.file and observed.rights.status is RightsStatus.UNKNOWN
+    assert store.resolve_asset_locator(observed.file.path).read_bytes() == saved_audio_bytes
+    assert not MaterialMatcher().match(need, (observed,)).matches  # ASR does not grant Rights.
+    assert len(tts_calls) == 1 and len(asr_calls) == 1
+    assert next_operation(creation.get_creation(work['id']))[0] != 'recover_voice_timing'
+    assert creation.get_creation(work['id'])['delivery']['authorization'] == saved_authorization
+    assert latest['build']['operation'] is None and not latest.get('production_authoring')
+
+
+    if audit_signed_consent:
+        from easel.integrations import material_generation as commissioned
+        from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
+        from easel.integrations.voice_identity import covered_asset_evidence, require_binding
+        from easel.materials.application.readiness import MaterialReadinessCalculator
+        from copy import deepcopy
+        work_now=creation.get_creation(work['id'])
+        declaration=work_now['delivery']['authorization']['input_use']
+        assert declaration['schema']=='easel-input-use@3'
+        assert declaration['audio_mode']=='voice'
+        assert 'preset_voice_synthesis' in declaration['operations']
+        assert 'text_to_visual_generation' in declaration['operations']
+        assert require_binding(work_now,planning['plan'],script)
+        assert finalized['billing']['status']=='UNKNOWN'  # actual settlement not inferred from an approved cap
+        # Terms are test-only agreed sample bytes; never a statement about the
+        # external live service terms or actual quality of the sine-tone MP3.
+        agreed=finalized['commission_authorization']['quote']['terms_evidence']
+        assert hashlib.sha256(agreed['document'].encode()).hexdigest()==agreed['sha256']
+        monkeypatch.setattr(commissioned,'MINIMAX_INTERNAL_TERMS_SHA256',agreed['sha256'])
+        baseline=store.read_asset(observed.asset_id)
+        assert baseline.rights.status is RightsStatus.UNKNOWN
+        def claim(w=work_now,r=finalized,a=baseline,n=need,text=script):
+            return commissioned.commission_generated_rights(w,planning['plan'],n,a,r,text)
+        evidence=claim()
+        assert evidence is not None, 'valid signed Consent @3 must be consumed by Voice Rights'
+        assert evidence.status is RightsStatus.KNOWN
+        assert set(evidence.usage_constraints)=={'internal_production_only','current_creation_only'}
+        assert any(row.kind=='asset_commission_use' for row in evidence.evidence)
+        # Reconstructing a possible internal-use claim is not publishing it,
+        # and fake ASR is never sufficient to declare the output ready.
+        assert store.read_asset(observed.asset_id).rights.status is RightsStatus.UNKNOWN
+        assert service.get_film_attempt(attempt['attempt_id'])['material_gate']['status']=='MATERIAL_NOT_READY'
+        for fault in ('no_consent','legacy_consent','no_voice_op','wrong_script','wrong_need',
+                      'wrong_asset','wrong_voice','unsettled_request','terms_drift','wrong_binding'):
+            w,r,a,n,text=deepcopy(work_now),deepcopy(finalized),baseline,need,script
+            if fault=='no_consent': w['delivery']['authorization']['input_use']=None
+            elif fault=='legacy_consent': w['delivery']['authorization']['input_use']['schema']='easel-input-use@1'
+            elif fault=='no_voice_op': w['delivery']['authorization']['input_use']['operations'].remove('preset_voice_synthesis')
+            elif fault=='wrong_script': text='未确认的另一份SCRIPT'
+            elif fault=='wrong_need': n=need.model_copy(update={'role':'changed-voice-need'})
+            elif fault=='wrong_asset': a=baseline.model_copy(update={
+                'file':baseline.file.model_copy(update={'sha256':'0'*64})})
+            elif fault=='wrong_voice': r['voice_id']='unknown-new-voice'
+            elif fault=='unsettled_request':
+                key=r['commission_authorization']['request_id']
+                w['delivery']['material_generations'][key]['status']='uncertain'
+            elif fault=='terms_drift':
+                r['commission_authorization']['quote']['terms_evidence']['document']+='new terms'
+                w['delivery']['material_generations'][r['commission_authorization']['request_id']]['quote']=deepcopy(r['commission_authorization']['quote'])
+            else: r['commission_authorization']['voice_binding_sha256']='0'*64
+            assert claim(w,r,a,n,text) is None, fault
+        evidence_view=covered_asset_evidence(
+            work_now,planning['plan'],store.read_bundle(),store,script,
+            checkpoint={'report': {'fixture':'not-an-operator-approval'},'chain':[]})
+        assert evidence_view is not None and not evidence_view['approved']
+        assert MaterialReadinessCalculator(store=store).calculate(
+            planning['plan'],store.read_bundle())[0].status.value=='NOT_READY'
+
+
+        # Re-enter the actual Material Owner after offline ASR. Its application
+        # of the narrow source-bound claim is tested separately from the
+        # still-missing visual material and from actual speech quality.
+        from easel.creation_delivery import active_delivery
+        owner_token=active_delivery.set(work['id'])
+        try:
+            resumed=MaterialProductOrchestrator().observe_visual_materials(
+                attempt['attempt_id'],
+                executor=lambda *_: pytest.fail('no available visual stock or external model'))
+        finally:
+            active_delivery.reset(owner_token)
+        admitted=store.read_asset(observed.asset_id)
+        assert admitted.rights == evidence
+        assert admitted.file == observed.file
+        latest_gate=service.get_film_attempt(attempt['attempt_id'])['material_gate']
+        assert latest_gate['status']=='MATERIAL_NOT_READY'
+        assert any(n.media_type is MediaType.IMAGE and n.need_id in latest_gate['blocking_needs']
+                   for n in planning['plan'].needs)
+        assert latest_gate['voice_identity_evidence']['binding_sha256'] == require_binding(
+            creation.get_creation(work['id']),planning['plan'],script)['binding_sha256']
+        assert latest_gate['voice_identity_evidence']['approved']
+        assert latest_gate['voice_identity_evidence']['approved'][0]['asset_sha256']==admitted.file.sha256
+        assert len(tts_calls)==len(asr_calls)==1
+        assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+
+def test_u2a_voice_signed_consent_rights_requires_frozen_asr_and_internal_scope(
+        material_integration_env, monkeypatch):
+    _assert_u2a_voice_cold_recovery(
+        material_integration_env, monkeypatch, 'provider', audit_signed_consent=True)
+
+
+@pytest.mark.parametrize('timing_case', ['missing', 'provider', 'bounded_cached'])
+def test_u2a_current_voice_cold_recovery_preserves_paid_receipt_and_script(
+        material_integration_env, monkeypatch, timing_case):
+    _assert_u2a_voice_cold_recovery(material_integration_env, monkeypatch, timing_case)
+
+
+def test_u2a_voice_current_invalid_asr_is_cached_without_rebuy(
+        material_integration_env, monkeypatch):
+    """Wrong words may never be silently reclassified as voice content."""
+    from easel.materials.application import voice_delivery
+    from easel.creation_delivery import next_operation
+    (work, attempt, planning, need, store, original_record,
+     tts_calls) = _u2a_voice_saved_commission(
+        material_integration_env, monkeypatch, provider_timing=True)
+    recorded_bytes = store.resolve_asset_locator(
+        store.read_asset(original_record['asset_id']).file.path).read_bytes()
+    verify = {'model_sha256': 'b'*64, 'engine': 'offline-wire', 'rules': 'fixture-invalid-voice'}
+    monkeypatch.setattr(voice_delivery, 'voice_verification_identity', lambda *_: dict(verify))
+    calls = []
+    def invalid_asr(file, language):
+        calls.append(file)
+        assert file.read_bytes() == recorded_bytes and language is None
+        return {'engine': 'offline-wire', 'words': [
+            {'text': '错误语音', 'start_seconds': .1,
+             'end_seconds': 2.9, 'probability': .99}]}
+    monkeypatch.setattr(voice_delivery, 'read_local_voice', invalid_asr)
+    monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset',
+                        lambda *_args, **_kw: pytest.fail('TTS must not be purchased again'))
+    with pytest.raises(ValueError, match='旁白识别文字与冻结脚本不一致'):
+        MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
+    assert len(calls) == 1
+    assert store.read_generation_record(original_record['generation_id']) == original_record
+    assert store.read_asset(original_record['asset_id']).rights.status is RightsStatus.UNKNOWN
+    assert next_operation(creation.get_creation(work['id'])) == (None, 'needs_audio_verification')
+    monkeypatch.setattr(voice_delivery, 'read_local_voice',
+                        lambda *_: pytest.fail('deterministic rejection cannot rerun ASR'))
+    with pytest.raises(MaterialIntegrationError, match='同一音频和验证配置'):
+        MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
+    assert len(tts_calls) == len(calls) == 1
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+    assert store.resolve_asset_locator(
+        store.read_asset(original_record['asset_id']).file.path).read_bytes() == recorded_bytes
+
+
+def test_u2a_voice_current_recovery_rejects_modified_original_bytes(
+        material_integration_env, monkeypatch):
+    from easel.materials.application import voice_delivery
+    (work, attempt, planning, need, store, record,
+     tts_calls) = _u2a_voice_saved_commission(
+        material_integration_env, monkeypatch, provider_timing=False)
+    asset = store.read_asset(record['asset_id'])
+    location = store.resolve_asset_locator(asset.file.path)
+    original_bytes = location.read_bytes()
+    asr_calls = []
+    monkeypatch.setattr(voice_delivery, 'voice_verification_identity',
+                        lambda *_: {'model_sha256': 'a'*64, 'rules': 'byte-bound'})
+    monkeypatch.setattr(voice_delivery, 'read_local_voice',
+                        lambda *_args: asr_calls.append(1))
+    location.write_bytes(original_bytes + b'changed')
+    with pytest.raises(MaterialIntegrationError, match='旁白字节已变化'):
+        MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
+    assert not asr_calls
+    assert store.read_generation_record(record['generation_id']) == record
+    assert store.read_asset(asset.asset_id) == asset
+    assert len(tts_calls) == 1
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+    # Isolated test source restored; the stored identity is not retroactively rewritten.
+    location.write_bytes(original_bytes)
+    assert hashlib.sha256(location.read_bytes()).hexdigest() == asset.file.sha256
+
+
+@pytest.mark.parametrize('fault', [
+    'mismatch', 'extra', 'truncated', 'overlap', 'confidence', 'identity',
+])
+def test_u2a_current_voice_asr_must_match_full_frozen_script_and_byte_identity(
+        material_integration_env, monkeypatch, fault):
+    """Pure interpretation of fixed ASR wire; uses a real @4 issued Voice Need."""
+    from copy import deepcopy
+    from easel.materials.application import voice_delivery
+    (work, attempt, planning, need, store, original_record,
+     tts_calls) = _u2a_voice_saved_commission(
+         material_integration_env, monkeypatch, provider_timing=False)
+    asset = store.read_asset(original_record['asset_id'])
+    script = planning['script']
+    chars = voice_delivery._spoken(script)
+    report = {
+        'engine': 'offline-ASR-wire',
+        'audio_sha256': asset.file.sha256,
+        'script_sha256': hashlib.sha256(script.encode()).hexdigest(),
+        'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest(),
+        'words': [{
+            'text': c,
+            'start_seconds': round(.1 + i * 2.7 / len(chars), 6),
+            'end_seconds': round(.1 + (i + 1) * 2.7 / len(chars), 6),
+            'probability': .98} for i, c in enumerate(chars)],
+    }
+    accepted = voice_delivery.timing_from_recognition(script, asset, report)
+    assert accepted['status'] == 'READY'
+    assert len(accepted['cues']) >= 1
+    assert not voice_delivery.voice_content_observed(need, asset)
+    bad = deepcopy(report)
+    if fault == 'mismatch':
+        bad['words'][0]['text'] = '错'
+    elif fault == 'extra':
+        bad['words'][-1]['text'] += '啊'
+    elif fault == 'truncated':
+        bad['words'].pop()
+    elif fault == 'overlap':
+        bad['words'][1]['start_seconds'] = .1
+    elif fault == 'confidence':
+        bad['words'][0]['probability'] = .2
+    else:
+        bad['audio_sha256'] = '0'*64
+    with pytest.raises(ValueError):
+        if fault == 'identity':
+            voice_delivery.apply_voice_content(need, asset, script, bad)
+        else:
+            voice_delivery.timing_from_recognition(script, asset, bad)
+    assert store.read_asset(asset.asset_id) == asset
+    assert store.read_generation_record(original_record['generation_id']) == original_record
+    assert len(tts_calls) == 1
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
+
+
+def test_u2a_current_voice_operator_correction_cannot_bypass_script_or_rights(
+        material_integration_env, monkeypatch):
+    """A simulated explicit operator receipt is scoped to the rejected ASR SHA.
+
+    This exercises reviewer admission, NOT a claim that a real person listened
+    to our offline sine-tone audio fixture.
+    """
+    from copy import deepcopy
+    from easel.materials.application import voice_delivery
+    (work, attempt, planning, need, store, record,
+     tts_calls) = _u2a_voice_saved_commission(
+        material_integration_env, monkeypatch, provider_timing=True)
+    script = planning['script']
+    asset = store.read_asset(record['asset_id'])
+    chars = voice_delivery._spoken(script)
+    wrong_words = [
+        {'text': '真的', 'start_seconds': .1, 'end_seconds': .6, 'probability': .98},
+        *[{'text': c, 'start_seconds': round(.6 + i * 2.1/(len(chars)-2), 6),
+           'end_seconds': round(.6 + (i + 1) * 2.1/(len(chars)-2), 6),
+           'probability': .98} for i, c in enumerate(chars[2:])],
+    ]
+    monkeypatch.setattr(voice_delivery, 'voice_verification_identity',
+                        lambda *_: {'model_sha256': 'a'*64, 'rules': 'operator-fixture'})
+    monkeypatch.setattr(voice_delivery, 'read_local_voice',
+                        lambda *_: {'engine': 'offline-wire', 'words': deepcopy(wrong_words)})
+    with pytest.raises(ValueError, match='旁白识别文字与冻结脚本不一致'):
+        MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
+    stored = list((Path(attempt['workspace']['path']) / 'materials/observations')
+                  .glob('voice-asr-rejected-*.json'))
+    assert len(stored) == 1
+    rejected = json.loads(stored[0].read_text())
+    digest = voice_delivery.recognition_digest(rejected)
+    assert stored[0].stem == 'voice-asr-rejected-' + digest
+    assert rejected['audio_sha256'] == asset.file.sha256
+    assert rejected['script_sha256'] == hashlib.sha256(script.encode()).hexdigest()
+    request = {
+        'asset_id': asset.asset_id, 'need_id': need.need_id,
+        'expected_sha256': asset.file.sha256,
+        'observed_content': '隔离操作员确认：ASR 首两字应与已冻结 SCRIPT 完全一致。',
+        'logo_present': None, 'visible_text_present': None, 'confirm_review': True,
+    }
+    reviewed_before = store.read_asset(asset.asset_id)
+    wrong_corrections = (
+        {'recognition_sha256': '0'*64, 'corrections': [
+            {'character': 0, 'text': chars[0]}, {'character': 1, 'text': chars[1]}]},
+        {'recognition_sha256': digest, 'corrections': [
+            {'character': 0, 'text': '错'}, {'character': 1, 'text': chars[1]}]},
+        {'recognition_sha256': digest, 'corrections': [
+            {'character': 0, 'text': chars[0]}]},
+    )
+    for bad in wrong_corrections:
+        with pytest.raises((MaterialIntegrationError, ValueError)):
+            MaterialProductOrchestrator().review_material_match(
+                attempt['attempt_id'], **request, voice_recognition_review=bad)
+        assert store.read_asset(asset.asset_id) == reviewed_before
+
+    response = MaterialProductOrchestrator().review_material_match(
+        attempt['attempt_id'], **request, voice_recognition_review={
+            'recognition_sha256': digest,
+            'corrections': [{'character': 0, 'text': chars[0]},
+                            {'character': 1, 'text': chars[1]}],
+        })
+    inspected = store.read_asset(asset.asset_id)
+    assert voice_delivery.timing_from_recognition(script, inspected, rejected)['status'] == 'READY'
+    assert inspected.file == asset.file and inspected.rights.status is RightsStatus.UNKNOWN
+    assert response['material_status'] == 'MATERIAL_NOT_READY'
+    assert need.need_id in service.get_film_attempt(attempt['attempt_id'])['material_gate']['blocking_needs']
+    assert len(tts_calls) == 1
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
 
 
 def test_protected_script_truth_status_includes_full_script_for_human_review(material_integration_env):
@@ -210,7 +4234,7 @@ def test_protected_script_truth_status_includes_full_script_for_human_review(mat
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["script"] == "假设脚本内容。\n"
+    assert payload["script"] == creation.get_creation(attempt['creation_id'])['delivery']['video_plan']['script']
     assert payload["script_sha256"] == planning["truth_ledger"]["script_sha256"]
     assert payload["claims"] == planning["truth_ledger"]["claims"]
 
@@ -353,7 +4377,8 @@ def test_authoring_selection_uses_actual_svml_refs_and_frozen_revisions(material
     assert "../" in selection["assets"][0]["src"]
     ready = service.complete_film_authoring(attempt["attempt_id"], cli=cli)
     selection = json.loads((root / native.SELECTION).read_bytes())
-    assert selection["assets"][0]["qualified_need_ids"] == ["need-main"]
+    frozen_need = PlanningIntegration().load(service.get_film_attempt(attempt["attempt_id"]))["plan"].needs[0].need_id
+    assert selection["assets"][0]["qualified_need_ids"] == [frozen_need]
     assert ready["authoring_status"] == "AUTHORING_READY" and len(cli.calls) == 1
     frozen = native._files(root)
     expected = {item["path"]: item["sha256"] for item in ready["authoring"]["files"]}
@@ -376,8 +4401,8 @@ def test_selected_image_extent_uses_inspected_source_dimensions(material_integra
     attempt, root, native, cli = _native_stage(material_integration_env)
     author = root / native.AUTHOR
     original = author.read_text()
-    assert '<space:Extent id="image-size" width="1" height="1"/>' in original
-    author.write_text(original.replace('id="image-size" width="1"', 'id="image-size" width="999"'))
+    assert '<space:Extent id="image-size" width="720" height="1280"/>' in original
+    author.write_text(original.replace('id="image-size" width="720"', 'id="image-size" width="999"'))
     before = native._files(root)
     with pytest.raises(HypitIntegrationError, match="Extent|dimension"):
         service.complete_film_authoring(attempt["attempt_id"], cli=cli)
@@ -464,28 +4489,47 @@ def test_script_truth_review_blocks_supply_and_production_until_operator_accepts
     assert changed["truth_ledger"]["status"] == "REVIEW_REQUIRED"
 
 
-def test_required_voice_need_is_bound_to_frozen_script_and_provider_neutral_identity(material_integration_env):
+def test_required_voice_need_is_bound_to_frozen_script_and_provider_neutral_identity(
+        material_integration_env):
+    """Pure current compiler invariant; not permission to inject Voice into silent V1.
+
+    The actual voice/mixed commissioned end-to-end chain needs its own frozen
+    Proposal @4. This unit proves SCRIPT SHA/identity binding and rejects the
+    old unpinned direct Production persist path.
+    """
+    from easel.integrations.semantic_planning import apply_defaults
     attempt = material_integration_env
     script = "假设冻结旁白。\n"
     plan = MaterialPlan(
         plan_id="voice-plan", creation_id=attempt["creation_id"], attempt_id=attempt["attempt_id"],
         needs=(MaterialNeed(
             need_id="voiceover", scope=NeedScope(type=NeedScopeType.GLOBAL, ref="program"),
-            media_type=MediaType.AUDIO, role="voiceover", intent=NeedIntent(description="Narration"),
+            media_type=MediaType.AUDIO, role="voiceover",
+            intent=NeedIntent(description="Narration"),
             importance=NeedImportance.REQUIRED,
             modality_spec=VoiceNeedSpec(identity=VoiceIdentityRef(
-                source=VoiceIdentitySource.CREATOR_CONTEXT, reference="creator-voice",
-            )),
-        ),),
-    )
-    result = PlanningIntegration().persist(
-        attempt, plan, treatment="# Treatment\n", script=script, scenes="# Scenes\n",
-    )
-    need = result["plan"].needs[0]
+                source=VoiceIdentitySource.CREATOR_CONTEXT, reference="creator-voice")),
+        ),))
+    mode, _ = handoff.load_frozen_creative_mode(attempt)
+    original = plan.to_json()
+    bound = apply_defaults(plan, mode, script)
+    need = bound.needs[0]
+    assert need.modality_spec.identity == plan.needs[0].modality_spec.identity
     assert need.modality_spec.text_ref == "planning/SCRIPT.md"
     assert need.modality_spec.text_sha256 == hashlib.sha256(script.encode()).hexdigest()
-    canonical_plan = json.loads((Path(attempt["workspace"]["path"]) / "planning/MATERIAL_PLAN.json").read_text())
-    assert canonical_plan["needs"][0]["modality_spec"]["text_sha256"] == need.modality_spec.text_sha256
+    assert plan.to_json() == original  # Canonical defaults do not modify input.
+    root = Path(attempt["workspace"]["path"])
+    creation_before = creation._creation_path(attempt["creation_id"]).read_bytes()
+    attempt_before = service.get_film_attempt(attempt["attempt_id"])
+    with pytest.raises(MaterialIntegrationError, match="旧 Planning/非当前委托只读"):
+        PlanningIntegration().persist(
+            attempt, bound, treatment="# Treatment\n", script=script,
+            scenes="# Scenes\n")
+    assert not (root / "planning/manifest.json").exists()
+    assert creation._creation_path(attempt["creation_id"]).read_bytes() == creation_before
+    assert service.get_film_attempt(attempt["attempt_id"]) == attempt_before
+
+
 
 
 def test_required_voice_need_without_provider_neutral_identity_is_rejected(material_integration_env):
@@ -562,33 +4606,54 @@ def test_selected_audio_must_be_normalized_on_distinct_film_tracks(material_inte
         native_graph.audio_tracks_for_source(doc_misrouted, bgm_src)
 
 
-def test_int02_gate_blocks_not_ready_and_accepts_current_ready(material_integration_env):
+def test_int02_gate_blocks_not_ready_and_accepts_current_ready(material_integration_env, tmp_path):
+    """Only a current observed Need+Asset+Rights match may open authoring."""
+    from PIL import ImageDraw
     attempt = material_integration_env
-    _planning(attempt)
-    root = Path(attempt["workspace"]["path"])
-    plan, asset, run, bundle, readiness, gaps = _contracts(attempt, root)
-    blocked_match = MaterialMatch(need_id="need-main", asset_id=asset.asset_id, rank=1,
-                                  score=0.0, reasons=("hard_filter=failed",), qualified=False)
-    blocked_bundle = MaterialBundleAssembler().assemble(
-        plan, run, (asset,), (blocked_match,), bundle_id="bundle-int-blocked"
-    )
-    blocked_run = run.model_copy(update={"result_bundle_id": blocked_bundle.bundle_id})
-    blocked_readiness, blocked_gaps = MaterialReadinessCalculator(
-        store=AttemptMaterialStore(root)
-    ).calculate(plan, blocked_bundle)
-    blocked_result = MaterialGateIntegration().record(
-        attempt, plan, blocked_bundle, blocked_run, blocked_readiness, blocked_gaps
-    )
-    attempt.update(blocked_result["attempt"])
-    with pytest.raises(HypitIntegrationError, match="MATERIAL_READY"):
-        service.begin_film_authoring(attempt["attempt_id"])
-    assert (root / "materials/gaps.json").is_file()
-    ready = MaterialReadinessCalculator(store=AttemptMaterialStore(root)).calculate(plan, bundle)
-    updated = MaterialGateIntegration().record(attempt, plan, bundle, run, *ready)
-    attempt.update(updated["attempt"])
-    assert updated["status"] == "MATERIAL_READY"
-    with pytest.raises(HypitIntegrationError, match="素材选择"):
-        service.begin_film_authoring(attempt["attempt_id"])
+    planning = _planning(attempt)
+    local_root = tmp_path / 'self-created-gate-source'
+    local_root.mkdir()
+    image_path = local_root / 'two-white-papers.jpg'
+    pic = Image.new('RGB', (720, 1280), (95, 76, 57))
+    draw = ImageDraw.Draw(pic)
+    draw.rectangle((72, 310, 316, 765), fill=(248, 248, 245))
+    draw.rectangle((380, 330, 660, 790), fill=(249, 248, 245))
+    pic.save(image_path)
+    image_path.with_name(image_path.name + '.rights.json').write_text(
+        json.dumps({'schema': 'easel-local-rights@1',
+            'asset_sha256': hashlib.sha256(image_path.read_bytes()).hexdigest(),
+            'rights': {'status': 'KNOWN', 'license_name': 'Fixture self-created media',
+                'evidence': [{'kind': 'asset_license',
+                              'reference': 'https://rights.example/current-gate',
+                              'summary': 'Local two-paper image made by the test.'}]}},
+            ensure_ascii=False), encoding='utf-8')
+    pending = MaterialProductOrchestrator().run_with_planning(
+        attempt, (local_root,), planning)
+    assert pending['status'] == 'MATERIAL_NOT_READY'
+    assert pending['attempt']['material_gate']['status'] == 'MATERIAL_NOT_READY'
+    assert not pending['attempt'].get('production_authoring')
+    with pytest.raises(HypitIntegrationError, match='MATERIAL_READY'):
+        service.begin_film_authoring(attempt['attempt_id'])
+    assert (Path(attempt['workspace']['path']) / 'materials/gaps.json').is_file()
+    asset = next(asset for asset in pending['supply'].bundle.assets
+                 if asset.rights.status is RightsStatus.KNOWN)
+    reviewed = MaterialProductOrchestrator().review_material_match(
+        attempt['attempt_id'], asset_id=asset.asset_id,
+        expected_sha256=asset.file.sha256,
+        need_id=planning['plan'].needs[0].need_id,
+        observed_content='桌面上有两张清晰完整的白色纸张，背景为棕色桌面，没有文字。',
+        logo_present=None, visible_text_present=None, confirm_review=True)
+    assert reviewed['material_status'] == 'MATERIAL_READY'
+    current_attempt = service.get_film_attempt(attempt['attempt_id'])
+    _, _, readiness = MaterialGateIntegration().assert_ready(current_attempt)
+    assert readiness.status.value == 'READY'
+    assert current_attempt['build']['operation'] is None
+    # Authoring may begin to choose admitted media, but not Build or export.
+    claimed = service.begin_film_authoring(attempt['attempt_id'])
+    assert claimed['authoring_status'] == 'AUTHORING_RUNNING'
+    assert claimed['production_authoring']['status'] == 'PENDING_SELECTION'
+    assert claimed['build']['operation'] is None
+
 
 
 def test_int03_explicit_selection_precedes_authoring_and_check_evidence(material_integration_env, monkeypatch):
@@ -681,21 +4746,20 @@ def test_product_orchestrator_runs_local_supply_before_authoring(material_integr
     attempt = material_integration_env
     local_root = tmp_path / "local-materials"
     local_root.mkdir()
-    Image.new("RGB", (720, 1280), (32, 48, 64)).save(local_root / "portrait.jpg")
+    from PIL import ImageDraw
+    picture = Image.new("RGB", (720, 1280), (95, 76, 57))
+    shapes = ImageDraw.Draw(picture)
+    shapes.rectangle((72, 310, 316, 765), fill=(248, 248, 245))
+    shapes.rectangle((380, 330, 660, 790), fill=(249, 248, 245))
+    picture.save(local_root / "portrait.jpg")
     registry = material_supply_module.ProviderRegistry()
     registry.register(LocalProvider((local_root,)))
     monkeypatch.setattr(
         material_supply_module, "product_provider_registry", lambda _roots: (registry, ()),
     )
-    plan = MaterialPlan(
-        plan_id="plan-product-local", creation_id=attempt["creation_id"], attempt_id=attempt["attempt_id"],
-        needs=(MaterialNeed(
-            need_id="need-local", scope=NeedScope(type=NeedScopeType.SCENE, ref="scene-1"),
-            media_type=MediaType.IMAGE, role="主视觉", intent=NeedIntent(description="竖屏人物肖像"),
-            importance=NeedImportance.REQUIRED,
-        ),),
-    )
-    planning = {"plan": plan, "context_refs": {}, "treatment": "T", "script": "假设脚本内容。", "scenes": "C"}
+    # Obtain current Need/Plan from the frozen vNext Owner, not from a test Writer.
+    planning = _planning(attempt)
+    plan = planning['plan']
     result = MaterialProductOrchestrator().run_with_planning(attempt, (local_root,), planning)
     trace = json.loads((Path(attempt["workspace"]["path"]) / "materials/product-supply.json").read_text())
     assert trace["routing"][0]["library_search_called"] is True
@@ -730,16 +4794,22 @@ def test_product_orchestrator_runs_local_supply_before_authoring(material_integr
         [(item.status, item.failure_summary) for item in evidenced["supply"].supply_run.provider_results],
     )
     assert any(asset.rights.status is RightsStatus.KNOWN for asset in evidenced["supply"].bundle.assets)
-    assert {asset.asset_id for asset in result["supply"].bundle.assets}.issubset(
-        {asset.asset_id for asset in evidenced["supply"].bundle.assets})
+    # Rights evidence changes the admitted Asset identity; the original
+    # unresolved source remains readable and its bytes are never rewritten.
+    store = AttemptMaterialStore(Path(attempt['workspace']['path']))
+    first_asset = result['supply'].bundle.assets[0]
+    assert store.read_asset(first_asset.asset_id).file.sha256 == first_asset.file.sha256
+    visual_source_sha = hashlib.sha256(local_file.read_bytes()).hexdigest()
+    assert first_asset.file.sha256 == visual_source_sha
+    assert all(a.file.sha256 == visual_source_sha for a in evidenced['supply'].bundle.assets)
     assert "production_authoring" not in evidenced["attempt"]
     assert (Path(attempt["workspace"]["path"]) / "materials/bundle.json").is_file()
     visual = next(asset for asset in evidenced["supply"].bundle.assets
                   if asset.rights.status is RightsStatus.KNOWN)
     reviewed = MaterialProductOrchestrator().review_material_match(
         attempt["attempt_id"], asset_id=visual.asset_id,
-        expected_sha256=visual.file.sha256, need_id="need-local",
-        observed_content="画面是一张竖屏人物肖像，主体和场景清楚",
+        expected_sha256=visual.file.sha256, need_id=plan.needs[0].need_id,
+        observed_content="桌面上有两张白色纸张，背景为棕色桌面，没有文字。",
         logo_present=None, visible_text_present=None, confirm_review=True,
     )
     assert reviewed["material_status"] == "MATERIAL_READY"
@@ -752,17 +4822,9 @@ def test_no_supply_cannot_bypass_gate(material_integration_env, monkeypatch):
         material_supply_module, "product_provider_registry",
         lambda _roots: (material_supply_module.ProviderRegistry(), ()),
     )
-    plan = MaterialPlan(
-        plan_id="plan-no-supply", creation_id=attempt["creation_id"], attempt_id=attempt["attempt_id"],
-        needs=(MaterialNeed(
-            need_id="required-video", scope=NeedScope(type=NeedScopeType.SCENE, ref="scene-1"),
-            media_type=MediaType.VIDEO, role="主镜头", intent=NeedIntent(description="河边行走视频"),
-            importance=NeedImportance.REQUIRED,
-        ),),
-    )
-    result = MaterialProductOrchestrator().run_with_planning(
-        attempt, (), {"plan": plan, "context_refs": {}, "treatment": "T", "script": "假设脚本内容。", "scenes": "C"},
-    )
+    # A required frozen vNext visual Need with zero Providers must stay blocked.
+    planning = _planning(attempt)
+    result = MaterialProductOrchestrator().run_with_planning(attempt, (), planning)
     assert result["status"] == "MATERIAL_NOT_READY"
     assert result["attempt"]["material_gate"]["status"] == "MATERIAL_NOT_READY"
     assert "production_authoring" not in result["attempt"]
@@ -847,16 +4909,23 @@ def test_product_supply_records_need_gated_generation_without_hypit_request(
             constraints={"allow_generation": True}, importance=NeedImportance.REQUIRED,
         ),),
     )
-    result = MaterialProductOrchestrator().run_with_planning(
-        attempt, (), {"plan": plan, "context_refs": {}, "treatment": "T", "script": "假设脚本内容。", "scenes": "C"},
-    )
+    # Isolated routing-domain test: no Writing/Production entitlement is
+    # inferred from a manually assembled plan or a theoretical generation route.
+    result = material_supply_module.ProductMaterialSupply(registry=registry).run(
+        plan, attempt, local_roots=(), supply_run_id='u2a-generation-route',
+        bundle_id='u2a-generation-bundle')
     trace = json.loads((Path(attempt["workspace"]["path"]) / "materials/product-supply.json").read_text())
-    assert result["status"] == "MATERIAL_NOT_READY"
-    assert result["supply"].generation_preparation["status"] == "MATERIAL_GENERATION_AVAILABLE"
-    assert trace["routing"][0]["routes"][-1]["kind"] == "GENERATIVE"
-    assert trace["generation_preparation"]["need_id"] == "need-generated"
-    assert "production_authoring" not in result["attempt"]
-    assert "material_generation_request" not in result["attempt"]
+    assert result.readiness.status.value == 'NOT_READY'
+    assert result.generation_preparation['status'] == 'MATERIAL_GENERATION_AVAILABLE'
+    assert trace['routing'][0]['routes'][-1]['kind'] == 'GENERATIVE'
+    assert trace['generation_preparation']['need_id'] == 'need-generated'
+    assert 'production_authoring' not in attempt
+    assert 'material_generation_request' not in attempt
+    # Product integration is intentionally stricter than routing analysis.
+    with pytest.raises(MaterialIntegrationError, match='旧 Planning/非当前委托只读'):
+        MaterialProductOrchestrator().run_with_planning(attempt, (), {
+            'plan': plan, 'context_refs': {}, 'treatment': 'T',
+            'script': '假设脚本内容。', 'scenes': 'C'})
     generation_runs = Path(attempt["workspace"]["path"]) / "materials/generation-runs"
     assert not list(generation_runs.glob("*/result.json"))
 
@@ -1087,179 +5156,17 @@ def test_frozen_mode_style_reaches_provider_and_library_without_rewriting_conten
 
 
 def test_generation_preserves_bundle_then_rights_review_opens_production_gate(
-    material_integration_env, monkeypatch,
-):
-    from easel.runtime_config import EaselRuntimeConfig
+        material_integration_env, monkeypatch):
+    """CURRENT_REQUIRED #04: real current @4 generation, Rights, Gate, Authoring.
 
-    attempt = material_integration_env
-    root = Path(attempt["workspace"]["path"])
-    plan = MaterialPlan(
-        plan_id="plan-operator-rights", creation_id=attempt["creation_id"],
-        attempt_id=attempt["attempt_id"], needs=(MaterialNeed(
-            need_id="need-generated-review", scope=NeedScope(type=NeedScopeType.SCENE, ref="scene-1"),
-            media_type=MediaType.IMAGE, role="主视觉", intent=NeedIntent(description="一张生成测试图片"),
-            constraints={"allow_generation": True}, importance=NeedImportance.REQUIRED,
-        ),),
-    )
-    planning = PlanningIntegration().persist(
-        attempt, plan, treatment="# Treatment\n", script="假设脚本内容。\n", scenes="# Scenes\n",
-    )
-    attempt.update(planning["attempt"])
-    planning = PlanningIntegration().review_script(
-        attempt, confirm_all_claims_reviewed=True,
-        expected_script_sha256=planning["truth_ledger"]["script_sha256"],
-        expected_truth_packet_sha256=planning["truth_ledger"]["truth_packet_sha256"],
-    )
-    attempt.update(planning["attempt"])
-
-    store = AttemptMaterialStore(root)
-    payload = b"operator rights review deterministic image"
-    digest = hashlib.sha256(payload).hexdigest()
-    locator = store.write_asset_bytes("asset-operator-rights", "original.png", payload)
-    asset = MaterialAsset(
-        asset_id="asset-operator-rights", media_type=MediaType.IMAGE,
-        file=FileInfo(path=locator, sha256=digest, size=len(payload), mime="image/png"),
-        source=CandidateSource(kind="generative", provider="minimax", provider_asset_id="gen-rights"),
-        rights=RightsInfo(status=RightsStatus.UNKNOWN),
-        technical=TechnicalInfo(status=TechnicalStatus.PASSED, width=64, height=64, mime="image/png"),
-        semantic=_observed_semantic("一张生成测试图片"),
-    )
-    store.write_asset(asset)
-    store.write_generation_record("gen-rights", {
-        "schema": "easel-material-generation@1", "generation_id": "gen-rights",
-        "attempt_id": attempt["attempt_id"], "plan_id": plan.plan_id,
-        "plan_revision": MaterialReadinessCalculator.plan_revision(plan),
-        "need_id": "need-generated-review", "status": "COMPLETE",
-        "asset_id": asset.asset_id, "asset_path": locator,
-        "asset_sha256": digest, "asset_bytes": len(payload),
-    })
-    monkeypatch.setattr(
-        material_supply_module, "product_provider_registry",
-        lambda _roots: (material_supply_module.ProviderRegistry(), ()),
-    )
-    monkeypatch.setattr(EaselRuntimeConfig, "material_roots", lambda _self: ())
-
-    orchestrator = MaterialProductOrchestrator()
-    blocked = orchestrator._run(attempt, (), planning=PlanningIntegration().load(attempt))
-    assert blocked["status"] == "MATERIAL_NOT_READY"
-    assert [item["asset_id"] for item in orchestrator.generated_material_rights_candidates(attempt["attempt_id"])] == [asset.asset_id]
-
-    with pytest.raises(MaterialIntegrationError, match="SHA-256 已变化"):
-        orchestrator.review_generated_material_rights(
-            attempt["attempt_id"], asset_id=asset.asset_id, expected_sha256="0" * 64,
-            rights=RightsInfo(status=RightsStatus.KNOWN,
-                              evidence=(RightsEvidence(kind="asset_license", reference="fixture://terms"),)),
-            confirm_review=True,
-        )
-
-    def no_provider_lookup(_roots):
-        raise AssertionError("Generation and Rights review must reuse the admitted Bundle without Supply")
-
-    monkeypatch.setattr(material_supply_module, "product_provider_registry", no_provider_lookup)
-    from types import SimpleNamespace
-    from easel.integrations import material_layer
-
-    before = store.read_bundle()
-    request_id = "fixture-second-generation"
-    generation_id = "gen-" + request_id
-    added = asset.model_copy(update={
-        "asset_id": "asset-" + hashlib.sha256(request_id.encode()).hexdigest()[:32],
-        "source": asset.source.model_copy(update={"provider_asset_id": generation_id}),
-    })
-    added_locator = store.write_asset_bytes(added.asset_id, "original.png", payload)
-    added = added.model_copy(update={"file": added.file.model_copy(update={"path": added_locator})})
-
-    calls = []
-    def generate_fixture(_self, frozen_plan, need, local_store, **_kwargs):
-        calls.append('provider-result')
-        local_store.write_generation_record(generation_id, {
-            'schema': 'easel-material-generation@1', 'generation_id': generation_id,
-            'attempt_id': frozen_plan.attempt_id, 'plan_id': frozen_plan.plan_id,
-            'plan_revision': MaterialReadinessCalculator.plan_revision(frozen_plan),
-            'need_id': need.need_id, 'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest(),
-            'provider': 'minimax', 'modality': 'image', 'model': 'image-01',
-            'status': 'RESULT_RECEIVED', 'received_asset': added.model_copy(update={
-                'technical': TechnicalInfo(status=TechnicalStatus.PENDING)}).model_dump(mode='json'),
-            'billing': {'status': 'UNKNOWN'}, 'operator_confirmed_paid': True,
-        })
-        raise OSError('fixture restart after receipt')
-
-    with monkeypatch.context() as generation_patch:
-        generation_patch.setattr(EaselRuntimeConfig, "load", lambda: SimpleNamespace(
-            minimax=SimpleNamespace(api_key="fixture-key", image_model="image-01", base_url="https://api.minimax.cn"),
-        ))
-        generation_patch.setattr(material_layer.MiniMaxImageSpeechGeneration, "generate", generate_fixture)
-        with pytest.raises(OSError, match='after receipt'):
-            orchestrator.generate_minimax_asset(
-                attempt["attempt_id"], need_id=plan.needs[0].need_id,
-                request_id=request_id, confirmed_paid=True,
-            )
-    from easel.creation_delivery import next_operation, SCHEMA
-    from easel.integrations.hypit.service import get_film_attempt
-    from easel.materials.application import generation_modalities
-    from easel.materials.application.generation_modalities import recoverable_generation_records
-
-    def state():
-        proposal = 'fixture approved'
-        digest = hashlib.sha256(proposal.encode()).hexdigest()
-        return {'chat_workflow': {'proposal_status': 'CONFIRMED', 'proposal_sha256': digest},
-                'delivery': {'schema': SCHEMA, 'proposal': proposal, 'proposal_sha256': digest},
-                'hypit_attempts': [get_film_attempt(attempt['attempt_id'])]}
-
-    assert next_operation(state()) == ('finish_material_generation', 'recovering_material')
-    frozen = store.read_plan()
-    assert not recoverable_generation_records(frozen.model_copy(update={'plan_id': 'other'}), before, store)
-    class LocalInspector:
-        def __init__(self, local_store):
-            self.store = local_store
-        def inspect_and_persist(self, asset):
-            calls.append('local-inspection')
-            self.store.write_asset(added)
-            return added
-    def no_credentials():
-        raise AssertionError('Local receipt recovery cannot load Provider credentials')
-    with monkeypatch.context() as recovery_patch:
-        recovery_patch.setattr(EaselRuntimeConfig, 'load', no_credentials)
-        recovery_patch.setattr(generation_modalities, 'TechnicalInspector', LocalInspector)
-        native_update = material_layer._update_attempt
-        def lost_gate_write(*args, **kwargs):
-            raise OSError('fixture interruption after Bundle commit')
-        recovery_patch.setattr(material_layer, '_update_attempt', lost_gate_write)
-        with pytest.raises(OSError, match='after Bundle commit'):
-            orchestrator.resume_minimax_intake(attempt['attempt_id'])
-        assert store.read_generation_record(generation_id)['status'] == 'COMPLETE'
-        assert next_operation(state()) == ('finish_material_generation', 'recovering_material')
-        recovery_patch.setattr(material_layer, '_update_attempt', native_update)
-        result = orchestrator.resume_minimax_intake(attempt['attempt_id'])
-    assert calls == ['provider-result', 'local-inspection']
-    assert next_operation(state())[0] != 'finish_material_generation'
-    after = store.read_bundle()
-    assert after.bundle_id == before.bundle_id
-    assert {item.asset_id for item in after.assets} == {asset.asset_id, added.asset_id}
-    assert next(item for item in after.assets if item.asset_id == asset.asset_id) == asset
-    assert store.read_supply_run(after.supply_run_id).parent_run_id == before.supply_run_id
-    assert result["material_gate"]["status"] == "MATERIAL_NOT_READY"
-    assert len(orchestrator.material_rights_candidates(attempt["attempt_id"])) == 2
-
-    reviewed = orchestrator.review_generated_material_rights(
-        attempt["attempt_id"], asset_id=asset.asset_id, expected_sha256=digest,
-        rights=RightsInfo(
-            status=RightsStatus.KNOWN, license_name="Fixture terms",
-            evidence=(RightsEvidence(kind="asset_license", reference="fixture://terms",
-                                     summary="Asset-bound fixture evidence reviewed by operator"),),
-        ),
-        confirm_review=True,
-        source_creator="Fixture Creator",
-        source_page="https://fixture.example/generated-asset",
-    )
-    assert reviewed["material_status"] == "MATERIAL_READY"
-    assert reviewed["material_gate"]["status"] == "MATERIAL_READY"
-    assert reviewed["production_authoring"]["status"] == "PENDING_SELECTION"
-    persisted = AttemptMaterialStore(root).read_bundle()
-    reviewed_asset = next(a for a in persisted.assets if a.asset_id == asset.asset_id)
-    assert reviewed_asset.rights.status is RightsStatus.KNOWN
-    assert reviewed_asset.source.creator == "Fixture Creator"
-    assert reviewed_asset.source.source_page == "https://fixture.example/generated-asset"
+    Former implementation wrote invalid synthetic Planning, a non-image byte
+    stream labeled PNG and a manually claimed GENERATION receipt. The new
+    owner-specific test uses real PNG bytes and original MiniMax offline adapter
+    receipts, with independent Rights review and native selection admission.
+    Receipt-intake cold recovery remains separately covered by CURRENT #15/#08.
+    """
+    return test_u2a_current_generated_image_rights_opens_normal_authoring_selection(
+        material_integration_env, monkeypatch)
 
 
 def test_current_bundle_rights_review_admits_external_asset_without_repeating_supply(
@@ -1267,27 +5174,26 @@ def test_current_bundle_rights_review_admits_external_asset_without_repeating_su
 ):
     attempt = material_integration_env
     root = Path(attempt["workspace"]["path"])
-    plan = MaterialPlan(
-        plan_id="plan-external-rights-review", creation_id=attempt["creation_id"],
-        attempt_id=attempt["attempt_id"], needs=(MaterialNeed(
-            need_id="need-external-review", scope=NeedScope(type=NeedScopeType.SCENE, ref="scene-1"),
-            media_type=MediaType.IMAGE, role="主视觉", intent=NeedIntent(description="一个可用于剪辑的主视觉素材"),
-            importance=NeedImportance.REQUIRED,
-        ),),
-    )
-    planning = PlanningIntegration().persist(
-        attempt, plan, treatment="# Treatment\n", script="假设脚本内容。\n", scenes="# Scenes\n",
-    )
-    attempt.update(planning["attempt"])
-    planning = PlanningIntegration().review_script(
-        attempt, confirm_all_claims_reviewed=True,
-        expected_script_sha256=planning["truth_ledger"]["script_sha256"],
-        expected_truth_packet_sha256=planning["truth_ledger"]["truth_packet_sha256"],
-    )
-    attempt.update(planning["attempt"])
-
+    # Retain the frozen vNext Need and Truth ledger; never invent a new Plan ID
+    # or re-persist a legacy manual plan under a lawful @4 commission.
+    planning = _planning(attempt)
+    plan = planning["plan"]
+    assert len(plan.needs) == 1
+    assert plan.needs[0].media_type is MediaType.IMAGE
+    assert planning["truth_ledger"]["status"] == "PASSED"
     store = AttemptMaterialStore(root)
-    payload = b"external image bytes reviewed by operator"
+    # Real local JPEG bytes, not a byte-string disguised as a stock image.
+    # The example Pexels provenance is synthetic and is never fetched.
+    from io import BytesIO
+    from PIL import ImageDraw
+
+    image = Image.new("RGB", (720, 1280), (95, 76, 57))
+    drawing = ImageDraw.Draw(image)
+    drawing.rectangle((72, 310, 316, 765), fill=(248, 248, 245))
+    drawing.rectangle((380, 330, 660, 790), fill=(249, 248, 245))
+    encoded = BytesIO()
+    image.save(encoded, format="JPEG")
+    payload = encoded.getvalue()
     digest = hashlib.sha256(payload).hexdigest()
     locator = store.write_asset_bytes("asset-pexels-review", "original.jpg", payload)
     asset = MaterialAsset(
@@ -1298,8 +5204,8 @@ def test_current_bundle_rights_review_admits_external_asset_without_repeating_su
             source_page="https://www.pexels.com/photo/asset-1/", creator="Fixture Creator",
         ),
         rights=RightsInfo(status=RightsStatus.UNKNOWN),
-        technical=TechnicalInfo(status=TechnicalStatus.PASSED, width=64, height=64, mime="image/jpeg"),
-        semantic=_observed_semantic("一张外部测试图片"),
+        technical=TechnicalInfo(status=TechnicalStatus.PASSED, width=720, height=1280, mime="image/jpeg"),
+        semantic=_observed_semantic("桌面上有两张清晰完整的白色纸张，背景为棕色桌面，没有文字。"),
     )
     store.write_asset(asset)
     run = SupplyRun(
@@ -1397,62 +5303,47 @@ def test_selected_asset_must_be_referenced_by_actual_authored_svml(material_inte
     before = native._files(root)
     with pytest.raises(HypitIntegrationError):
         service.complete_film_authoring(attempt["attempt_id"], cli=cli)
-    assert not cli.calls and native._files(root) == before
-
-
-@pytest.mark.parametrize("extra, error", [
-    ('<?svml using="@hypit/gpt-image@1"?>', "禁止在 SVML/SVRun 中生成媒体"),
-    ('<media:Image id="unadmitted" src="../../../../other.png"/>', "media absent from the admitted"),
-])
-def test_production_rejects_generated_or_unadmitted_media_sources(material_integration_env, extra, error):
-    attempt, root, native, cli = _native_stage(material_integration_env)
-    author = root / native.AUTHOR
-    original = author.read_text()
-    assert extra and original.startswith('<?svml using="@hypit/markup@1"?>')
-    author.write_text(original + "\n" + extra)
-    before = native._files(root)
-    with pytest.raises(HypitIntegrationError):
-        service.complete_film_authoring(attempt["attempt_id"], cli=cli)
-    assert not cli.calls and native._files(root) == before
+    assert native._files(root) == before and not cli.calls
 
 
 def test_production_selection_requires_qualified_need_match(material_integration_env):
-    attempt = material_integration_env
-    _planning(attempt)
-    root = Path(attempt["workspace"]["path"])
-    plan, qualified_asset, run, _, _, _ = _contracts(attempt, root)
-    extra_bytes = b"unqualified candidate"
-    extra_digest = hashlib.sha256(extra_bytes).hexdigest()
+    """Current vNext Bundle must reject an ineligible Need-to-Asset selection.
+
+    Test the qualification predicate on a hypothetical unqualified Asset while
+    keeping the real frozen Bundle unchanged. Production must still reject an
+    unadmitted selected ID before any media Build.
+    """
+    from tests.test_native_authoring_publication import native_owner
+    attempt, root = native_owner(material_integration_env)
+    plan, bundle, readiness = MaterialGateIntegration().assert_ready(attempt)
+    assert readiness.status.value == 'READY'
     store = AttemptMaterialStore(root)
-    extra_locator = store.write_asset_bytes("asset-unmatched", "extra.png", extra_bytes)
-    unmatched_asset = qualified_asset.model_copy(update={
-        "asset_id": "asset-unmatched",
-        "file": FileInfo(
-            path=extra_locator, sha256=extra_digest, size=len(extra_bytes), mime="image/png",
-        ),
+    current_asset = bundle.assets[0]
+    payload = store.resolve_asset_locator(current_asset.file.path).read_bytes()
+    bad_id = 'asset-unmatched'
+    bad_locator = store.write_asset_bytes(bad_id, 'unmatched.jpg', payload)
+    unmatched_asset = current_asset.model_copy(update={
+        'asset_id': bad_id,
+        'file': current_asset.file.model_copy(update={
+            'path': bad_locator, 'sha256': hashlib.sha256(payload).hexdigest(),
+            'size': len(payload)}),
     })
     store.write_asset(unmatched_asset)
-    bundle_id = "bundle-selection-match"
-    run = run.model_copy(update={"result_bundle_id": bundle_id})
-    matches = (
-        MaterialMatch(need_id="need-main", asset_id=qualified_asset.asset_id, rank=1,
-                      score=1.0, reasons=("hard_filter=passed",), qualified=True),
-        MaterialMatch(need_id="need-main", asset_id=unmatched_asset.asset_id, rank=2,
-                      score=0.0, reasons=("hard_filter=failed",), qualified=False),
-    )
-    bundle = MaterialBundleAssembler().assemble(
-        plan, run, (qualified_asset, unmatched_asset), matches, bundle_id=bundle_id,
-    )
-    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
-    assert readiness.status.value == "READY"
-    attempt.update(MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)["attempt"])
-    attempt.update(ProductionAuthoringIntegration().prepare(attempt)["attempt"])
-    service.begin_film_authoring(attempt["attempt_id"])
-    native, cli = _stage_native_selected_image(attempt, unmatched_asset, root)
-    original_files = native._files(root)
-    with pytest.raises(MaterialIntegrationError, match="Need ↔ Asset Match"):
-        service.complete_film_authoring(attempt["attempt_id"], cli=cli)
-    assert not cli.calls and native._files(root) == original_files
+    unqualified = MaterialMatch(
+        need_id=plan.needs[0].need_id, asset_id=bad_id, rank=2,
+        score=0.0, reasons=('hard_filter=failed',), qualified=False)
+    hypothetical = bundle.model_copy(update={
+        'assets': (*bundle.assets, unmatched_asset),
+        'matches': (*bundle.matches, unqualified),
+    })
+    assert not ProductionAuthoringIntegration._qualified_need_ids(
+        plan, hypothetical, unmatched_asset, store=store, attempt=attempt)
+
+    before = service.get_film_attempt(attempt['attempt_id'])
+    with pytest.raises(MaterialIntegrationError, match='不在 MaterialBundle'):
+        ProductionAuthoringIntegration().prepare(attempt, selected_asset_ids=(bad_id,))
+    assert service.get_film_attempt(attempt['attempt_id']) == before
+    assert before['build']['operation'] is None
 
 
 def test_selection_is_bound_to_attempt_and_readiness_revisions(material_integration_env):
@@ -1516,223 +5407,71 @@ def test_selection_retry_rejects_mismatched_redundant_identity_alias(material_in
 
 
 def test_production_selection_carries_verified_attribution_facts(material_integration_env):
-    attempt = material_integration_env
-    _planning(attempt)
-    root = Path(attempt["workspace"]["path"])
-    plan, asset, run, bundle, _, _ = _contracts(attempt, root)
-    source_page = "https://example.org/photo/1"
-    asset = asset.model_copy(update={
-        "source": CandidateSource(
-            kind="fixture", provider="fixture", creator="Ada",
-            source_page=source_page, provider_asset_id="fixture-1",
-        ),
-        "rights": RightsInfo(
-            status=RightsStatus.ATTRIBUTION_REQUIRED, attribution_required=True,
-            attribution_text=f"Photo by Ada — {source_page}",
-            usage_constraints=('internal_production_only',),
-            evidence=(RightsEvidence(kind="asset_license", reference="fixture:license"),),
-        ),
+    """Current @4/vNext -> Rights -> observed Match -> Native Check -> export usage.
+
+    The credit is supplied by a local test operator as an explicit source fact,
+    not generated by the LLM or attached to an obsolete synthetic Plan.
+    """
+    from tests.test_native_authoring_publication import native_owner, CheckBoundary
+
+    source_page = "https://rights.example/self-created-attribution-image"
+    credit = f"Photo by Ada — {source_page}"
+    rights = RightsInfo(
+        status=RightsStatus.ATTRIBUTION_REQUIRED, attribution_required=True,
+        attribution_text=credit,
+        usage_constraints=('internal_production_only',),
+        evidence=(RightsEvidence(kind="asset_license", reference="fixture:license"),),
+    )
+    attempt, root = native_owner(material_integration_env, rights_review={
+        "rights": rights, "creator": "Ada", "source_page": source_page,
     })
-    AttemptMaterialStore(root).write_asset(asset)
-    matches = (MaterialMatch(
-        need_id="need-main", asset_id=asset.asset_id, rank=1, score=1.0,
-        reasons=("hard_filter=passed",), qualified=True,
-    ),)
-    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), matches, bundle_id=bundle.bundle_id)
-    readiness, gaps = MaterialReadinessCalculator(store=AttemptMaterialStore(root)).calculate(plan, bundle)
-    assert readiness.status.value == "READY"
-    attempt.update(MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)["attempt"])
-    attempt.update(ProductionAuthoringIntegration().prepare(attempt)["attempt"])
-    service.begin_film_authoring(attempt["attempt_id"])
-    native, cli = _stage_native_selected_image(attempt, asset, root)
+    store = AttemptMaterialStore(root)
+    frozen = PlanningIntegration().load(attempt)
+    assert frozen['plan'].plan_id == store.read_bundle().plan_id
+    bundle = store.read_bundle()
+    assert len(bundle.assets) == 1
+    asset = bundle.assets[0]
+    assert asset.rights.status is RightsStatus.ATTRIBUTION_REQUIRED
+    assert asset.source.creator == "Ada" and asset.source.source_page == source_page
+    assert attempt['material_gate']['status'] == 'MATERIAL_READY'
+    cli = CheckBoundary(root)
     ready = service.complete_film_authoring(attempt["attempt_id"], cli=cli)
     assert ready["authoring_status"] == "AUTHORING_READY" and len(cli.calls) == 1
-    result = {"attempt": ready}
-    persisted = result["attempt"]["production_authoring"]["selection_validation"]["attributions"]
+    assert ready['build']['operation'] is None
+    persisted = ready["production_authoring"]["selection_validation"]["attributions"]
     assert persisted == [{
         "asset_id": asset.asset_id, "creator": "Ada",
-        "credit_text": f"Photo by Ada — {source_page}", "source_page": source_page,
+        "credit_text": credit, "source_page": source_page,
         "destination": "export_credits", "rights_status": "ATTRIBUTION_REQUIRED",
         "evidence_references": ["fixture:license"],
     }]
-    assert service._validated_output_usage(result['attempt']) == [{
+    assert service._validated_output_usage(ready) == [{
         'asset_id': asset.asset_id, 'sha256': asset.file.sha256,
         'constraints': ['internal_production_only'],
     }]
-    # Clearing a restriction after selection must not silently broaden an
-    # already authored/exported result's permission.
-    changed = asset.model_copy(update={'rights': asset.rights.model_copy(update={'usage_constraints': ()})})
-    changed_bundle = MaterialBundleAssembler().assemble(plan, run, (changed,), matches, bundle_id=bundle.bundle_id)
-    AttemptMaterialStore(root).write_bundle(changed_bundle)
+    # A later "relaxed" license cannot broaden an already-validated export.
+    changed = asset.model_copy(update={
+        'rights': asset.rights.model_copy(update={'usage_constraints': ()})})
+    run = store.read_supply_run(bundle.supply_run_id)
+    changed_bundle = MaterialBundleAssembler().assemble(
+        frozen['plan'], run, (changed,), bundle.matches, bundle_id=bundle.bundle_id)
+    store.write_bundle(changed_bundle)
     with pytest.raises(service.HypitIntegrationError, match='使用范围已变化'):
-        service._validated_output_usage(result['attempt'])
+        service._validated_output_usage(ready)
 
 
-@pytest.mark.parametrize(('interrupt_after_supply', 'automatic'), [(False, False), (True, False), (True, True)])
+@pytest.mark.parametrize(('interrupt_after_supply', 'automatic'), [
+    (False, False), (True, False), (True, True),
+])
 def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
         material_integration_env, monkeypatch, interrupt_after_supply, automatic):
-    from easel.integrations import material_recovery as recovery
-    attempt = service.get_film_attempt(material_integration_env["attempt_id"])
-    if automatic:
-        # Runtime setup belongs after material preparation. An unavailable
-        # renderer must not prevent supplemental supply or its reconciliation.
-        assert attempt['execution_status'] == 'BLOCKED'
-    else:
-        attempt = service.update_film_attempt(attempt['attempt_id'],
-            execution_status="NOT_SUBMITTED", event="fixture_runtime_ready")
-    store = AttemptMaterialStore(attempt["workspace"]["path"])
-    plan, visual, _, _, _, _ = _contracts(attempt, Path(attempt["workspace"]["path"]))
-    voice_need = MaterialNeed(
-        need_id="voice", scope=NeedScope(type=NeedScopeType.GLOBAL, ref="film"), media_type=MediaType.AUDIO,
-        role="旁白", intent=NeedIntent(description="普通话旁白"), importance=NeedImportance.REQUIRED,
-        constraints={"required_source_kind": "generative", "allow_generation": True},
-        modality_spec=VoiceNeedSpec(kind="voice", identity=VoiceIdentityRef(
-            source=VoiceIdentitySource.EXPLICIT_USER, reference="预置普通话音色")))
-    bgm_need = MaterialNeed(
-        need_id="bgm", scope=NeedScope(type=NeedScopeType.GLOBAL, ref="film"), media_type=MediaType.AUDIO,
-        role="配乐", intent=NeedIntent(description="gentle piano instrumental"),
-        importance=NeedImportance.REQUIRED, constraints={"required_source_kind": "stock"},
-        modality_spec=BgmNeedSpec(kind="bgm", instruments=("piano",), vocals_allowed=False))
-    planning = PlanningIntegration().persist(attempt, plan.model_copy(update={
-        "needs": plan.needs + (voice_need, bgm_need)}), treatment="原方案", script="假设原旁白。", scenes="原场景")
-    attempt, plan = planning["attempt"], planning["plan"]
-    voice_bytes = b"completed-generation-fixture"
-    voice_path = store.write_asset_bytes("voice-asset", "original.mp3", voice_bytes)
-    voice = visual.model_copy(update={"asset_id": "voice-asset", "media_type": MediaType.AUDIO,
-        "file": FileInfo(path=voice_path, sha256=hashlib.sha256(voice_bytes).hexdigest(),
-                         size=len(voice_bytes), mime="audio/mpeg"),
-        "source": CandidateSource(kind="generative", provider="fixture", provider_asset_id="voice"),
-        "rights": RightsInfo(status=RightsStatus.UNKNOWN),
-        "technical": TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=10, mime="audio/mpeg")})
-    store.write_asset(voice)
-    music_path = store.write_asset_bytes("music-asset", "original.mp3", b"music-fixture")
-    music = voice.model_copy(update={"asset_id": "music-asset",
-        "file": FileInfo(path=music_path, sha256=hashlib.sha256(b"music-fixture").hexdigest(),
-                         size=len(b"music-fixture"), mime="audio/mpeg"),
-        "source": CandidateSource(kind="local", provider="fixture", provider_asset_id="music"),
-        "rights": RightsInfo(status=RightsStatus.ATTRIBUTION_REQUIRED, attribution_required=True,
-                             attribution_text="fixture credit", evidence=(RightsEvidence(
-                                 kind="asset_license", reference="fixture-license"),))})
-    store.write_asset(music)
-    store.write_generation_record("generation", {"schema": "easel-material-generation@1",
-        "status": "COMPLETE", "attempt_id": attempt["attempt_id"], "plan_id": plan.plan_id,
-        "plan_revision": MaterialReadinessCalculator.plan_revision(plan), "need_id": "voice",
-        "input_sha256": planning["truth_ledger"]["script_sha256"], "asset_id": voice.asset_id,
-        "asset_sha256": voice.file.sha256, "asset_path": voice.file.path, "asset_bytes": voice.file.size})
-    run = SupplyRun(supply_run_id="initial", plan_id=plan.plan_id,
-                    started_at=datetime.now(timezone.utc), finished_at=datetime.now(timezone.utc),
-                    result_bundle_id="recovery-bundle")
-    from easel.materials.application.matching import MaterialMatcher
-    matches = MaterialMatcher().match(plan.needs[0], (visual,)).matches
-    bundle = MaterialBundleAssembler().assemble(plan, run, (visual, voice, music), matches,
-                                                bundle_id="recovery-bundle")
-    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
-    attempt = MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)["attempt"]
-    args = dict(request_id="recovery-test", expected_plan_revision=readiness.plan_revision,
-                expected_bundle_revision=bundle.revision, allow_licensed_bgm=True,
-                search_terms={"bgm": ("piano instrumental",)})
-    query_calls = []
-    if automatic:
-        from easel.creation_delivery import SCHEMA
-        with creation.edit_creation(attempt['creation_id']) as work:
-            work['delivery'] = {'schema': SCHEMA}
-        # Preparing an empty selection is not execution and must not prevent
-        # correction when subsequent system observation invalidates readiness.
-        service.update_film_attempt(attempt['attempt_id'], event='fixture_empty_authoring',
-            production_authoring={'status': 'PENDING_SELECTION', 'selected_asset_ids': []})
-    def plan_queries(current, record):
-        import web.app as webapp
-        query_calls.append(record['request_id'])
-        assert [n['need_id'] for n in record['needs']] == ['bgm']
-        def answer(message, timeout, session_id):
-            assert '不生成素材或启动 Build' in message and 'required_source_kind' in message
-            store.write_recovery_record(record['request_id'] + '-queries',
-                {'request_id': record['request_id'], 'search_terms': {'bgm': ['piano instrumental']}})
-            return ''
-        monkeypatch.setattr(webapp, 'run_agent_sync', answer)
-        return webapp._plan_material_recovery(current, record)
-    def invoke():
-        if not automatic:
-            return recovery.recover_materials(attempt['attempt_id'], **args)
-        updated = recovery.recover_managed_materials(attempt['attempt_id'], executor=plan_queries)
-        return {'attempt': updated, 'material_status': updated['material_gate']['status']}
-    monkeypatch.setattr(material_supply_module, "product_provider_registry",
-                        lambda roots: (material_supply_module.ProviderRegistry(), ()))
-    calls = []
-    actual_supply = recovery.ProductMaterialSupply.run
-    def counted_supply(self, *a, **kw):
-        calls.append(kw)
-        return actual_supply(self, *a, **kw)
-    monkeypatch.setattr(recovery.ProductMaterialSupply, "run", counted_supply)
-    real_record = recovery.MaterialGateIntegration.record
-    def interrupted_record(self, a, p, b, *rest):
-        if interrupt_after_supply and b.supply_run_id.startswith("supplement-"):
-            raise RuntimeError("simulated gate update interruption")
-        return real_record(self, a, p, b, *rest)
-    monkeypatch.setattr(recovery.MaterialGateIntegration, "record", interrupted_record)
-    if interrupt_after_supply:
-        with pytest.raises(RuntimeError, match="interruption"):
-            invoke()
-        monkeypatch.setattr(recovery.MaterialGateIntegration, "record", real_record)
-    result = invoke()
-    assert len(calls) == 1
-    assert calls[0]["skip_need_ids"] == ("voice",)
-    refreshed = PlanningIntegration().load(result["attempt"])
-    assert refreshed["plan"].needs[:2] == plan.needs[:2]
-    if automatic:
-        assert refreshed['plan'] == plan  # Supplemental wording cannot enlarge source permissions.
-        assert len(query_calls) == 1
-        assert result['attempt']['autonomous_material_recovery']['status'] == 'COMPLETE'
-        assert result['attempt']['execution_status'] == 'BLOCKED'
-    else:
-        assert "required_source_kind" not in refreshed["plan"].needs[2].constraints
-        assert refreshed["plan"].needs[2].constraints["allow_generation"] is False
-    assert refreshed["script"] == "假设原旁白。"
-    assert refreshed["scenes"] == "原场景"
-    assert refreshed["truth_ledger"]["script_sha256"] == planning["truth_ledger"]["script_sha256"]
-    assert store.read_asset(voice.asset_id) == voice
-    assert {asset.asset_id: asset for asset in store.read_bundle().assets} == {
-        asset.asset_id: asset for asset in (visual, voice, music)}
-    assert store.read_supply_run(store.read_bundle().supply_run_id).parent_run_id.startswith('recover-')
-    assert len(store.list_generation_records()) == 1
-    assert result["material_status"] == "MATERIAL_NOT_READY"  # Rights remains a formal gate.
-    trace = json.loads((store.materials_root / "product-supply.json").read_text())["routing"]
-    assert [row["need_id"] for row in trace if row.get("checkpoint_reused")] == ["need-main", "voice"]
-    repeated = invoke()
-    assert len(calls) == 1
-    if not automatic:
-        assert repeated['recovery']['reused'] is True
-        with pytest.raises(MaterialIntegrationError, match="改变输入"):
-            recovery.recover_materials(attempt["attempt_id"], **{**args, "search_terms": {"bgm": ("different",)}})
-    with pytest.raises(MaterialIntegrationError, match="状态已变化"):
-        recovery.recover_materials(attempt["attempt_id"], **{**args, "request_id": "stale-new-request"})
-    # The same formal review handles real listening evidence after a source-only revision.
-    generation = store.read_generation_record("generation")
-    store.write_generation_record("generation", {**generation, "input_sha256": "0" * 64})
-    review_args = dict(asset_id=voice.asset_id, expected_sha256=voice.file.sha256, need_id="voice",
-                      observed_content="已试听，句子完整清晰且语速合适", logo_present=None,
-                      visible_text_present=None, confirm_review=True)
-    with pytest.raises(MaterialIntegrationError, match="绑定当前冻结脚本"):
-        MaterialProductOrchestrator().review_material_match(attempt["attempt_id"], **review_args)
-    store.write_generation_record("generation", generation)
-    reviewed = MaterialProductOrchestrator().review_material_match(attempt["attempt_id"], **review_args)
-    assert reviewed["material_status"] == "MATERIAL_NOT_READY"  # A listening review cannot clear UNKNOWN Rights.
-    candidates = MaterialProductOrchestrator().material_rights_candidates(attempt["attempt_id"])
-    narration = next(c for c in candidates if c["asset_id"] == voice.asset_id)
-    assert narration["generation_need_ids"] == ["voice"]
-    assert narration["semantic_reviewed_need_ids"] == ["voice"]
-    music_review = MaterialProductOrchestrator().review_material_match(attempt["attempt_id"],
-        **{**review_args, "asset_id": music.asset_id, "expected_sha256": music.file.sha256,
-           "need_id": "bgm", "observed_content": "试听为舒缓无歌词钢琴器乐，符合配乐要求"})
-    assert music_review["material_status"] == "MATERIAL_NOT_READY"
-    candidates = MaterialProductOrchestrator().material_rights_candidates(attempt["attempt_id"])
-    music_candidate = next(c for c in candidates if c["asset_id"] == music.asset_id)
-    assert "bgm" in music_candidate["rights_blocking_need_ids"]  # Missing credit provenance stays visible.
-    assert "bgm" in music_candidate["semantic_reviewed_need_ids"]
-    service.update_film_attempt(attempt["attempt_id"], execution_status="BUILD_RUNNING", event="fixture_build")
-    assert invoke()['material_status'] == 'MATERIAL_NOT_READY'
-    with pytest.raises(MaterialIntegrationError, match="视频制作已开始"):
-        recovery.recover_materials(attempt["attempt_id"], **{**args, "request_id": "new-after-build"})
+    """Migrate CURRENT_REQUIRED #08 to real @4/vNext + paid Voice receipt.
+
+    The frozen voice identity, full Script and generated WAV/MP3 SHA must remain
+    unchanged while the current Owner performs exactly one supplemental supply.
+    """
+    _assert_u2a_current_material_recovery_retains_generated_voice(
+        material_integration_env, monkeypatch, interrupt_after_supply, automatic)
 
 
 @pytest.mark.parametrize(('second_verdict', 'known_rights', 'report_fault'), [
@@ -1742,128 +5481,16 @@ def test_material_recovery_preserves_generation_and_reconciles_without_resupply(
 ])
 def test_system_visual_observation_is_per_need_and_resumes_without_supply(
         material_integration_env, monkeypatch, second_verdict, known_rights, report_fault):
-    import base64
-    import io
-    import web.app as webapp
-    from easel.creation_delivery import DeliveryExecutionUncertain, DeliveryReportError
-    from easel.materials.application.visual_observation import SCHEMA, observed_match
-    attempt = material_integration_env
-    from easel.integrations import material_results
-    delta = material_results.enabled(attempt)
-    root = Path(attempt['workspace']['path'])
-    store = AttemptMaterialStore(root)
-    plan, asset, run, _, _, _ = _contracts(attempt, root)
-    first = plan.needs[0].model_copy(update={'constraints': {'preferred_style': 'quiet red', 'logo': False,
-        'preferred_visual_details': 'wide shot, background lamp optional'}})
-    second = first.model_copy(update={'need_id': 'another-scene', 'intent': NeedIntent(description='完全不同的内容')})
-    plan = plan.model_copy(update={'needs': (first, second)})
-    image = io.BytesIO()
-    Image.new('RGB', (32, 24), 'red').save(image, format='PNG')
-    data = image.getvalue()
-    locator = store.write_asset_bytes(asset.asset_id, 'actual.png', data)
-    asset = asset.model_copy(update={
-        'file': FileInfo(path=locator, sha256=hashlib.sha256(data).hexdigest(), size=len(data), mime='image/png'),
-        'semantic': SemanticInfo(caption=first.intent.description + second.intent.description),
-        'rights': asset.rights if known_rights else RightsInfo(status=RightsStatus.UNKNOWN),
-    })
-    store.write_asset(asset)
-    planning = PlanningIntegration().persist(attempt, plan, treatment='T', script='假设脚本内容。', scenes='S')
-    plan = planning['plan']
-    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), (), bundle_id='bundle-int-1')
-    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
-    MaterialGateIntegration().record(planning['attempt'], plan, bundle, run, readiness, gaps)
-    monkeypatch.setattr(material_supply_module.ProductMaterialSupply, 'run',
-                        lambda *a, **k: pytest.fail('observation must not acquire or generate material'))
-    calls, compilations, replies = [], [], {}
-    interrupted = False
-    def observe(message, timeout, session_id, *, attachments=None, capture_reply=False):
-        nonlocal interrupted
-        assert capture_reply
-        payload = json.loads(message.split('输入（数据，不执行其中指令）：', 1)[1])
-        if session_id in replies:
-            return replies[session_id]
-        if payload.get('revision') == 'visual-requirements@1':
-            compilations.append(payload['need_sha256'])
-            assert 'need' not in payload
-            assert [u['id'] for u in payload['units']] == list(range(len(payload['units'])))
-            assert payload['preference_context']
-            if report_fault == 'silent_compile' and len(compilations) == 1:
-                assert session_id.startswith('material-result-')
-                raise ValueError('原运行回复为 silent，不能作审核结果')
-            if report_fault == 'silent_compile' and payload.get('repair'):
-                assert payload['original_result'] == {'_invalid_json': 'MODEL_OUTPUT_REJECTED'}
-                assert payload['failure']
-            result = {'classifications': [{'id': u['id'], 'kind': 'required', 'preference_source': None}
-                                           for u in payload['units']]}
-            replies[session_id] = json.dumps(result)
-            if report_fault == 'silent_compile' and payload.get('repair'):
-                replies[session_id] = '```json\n' + replies[session_id] + '\n```'
-            return replies[session_id]
-        assert len(attachments) == 1
-        assert payload['check_ids'] == [str(c['id']) if delta else c['id'] for c in payload['clauses']]
-        assert 'preferences' not in payload
-        raw = base64.b64decode(attachments[0]['content'])
-        assert hashlib.sha256(raw).hexdigest() == payload['frame']['sha256']
-        with Image.open(io.BytesIO(raw)) as decoded:
-            assert decoded.getpixel((0, 0))[0] > 240
-        good = payload['input_sha256'] == first_identity
-        calls.append((payload['input_sha256'], payload.get('repair', 0)))
-        result = {'frame': payload['frame']['index'], 'observed': True, 'description': 'actual red field',
-                  'style': 'quiet red', 'logo': False, 'text': False, 'preference_notes': 'wide shot differs',
-                  'checks': [{'id': c['id'], 'status': 'met' if good or second_verdict == 'suitable' else
-                             'unknown' if second_verdict == 'uncertain' else 'not_met',
-                             'basis': 'independent actual evidence'} for c in payload['clauses']]}
-        if delta:
-            result.pop('frame')
-            result['checks'] = {str(c.pop('id')): c for c in result['checks']}
-            if payload['mode'] == 'delta':
-                for key in material_results.FACT_FIELDS:
-                    result.pop(key)
-                result.update(observation_ref='observation', facts_dispute={'kind': 'none'})
-            assert payload['mode'] == ('facts' if good else 'delta')
-        if not good and (not payload.get('repair') or report_fault == 'persistent'):
-            if report_fault == 'syntax' or report_fault == 'persistent':
-                replies[session_id] = '{"invalid":'
-            elif report_fault == 'missing':
-                result['checks'] = []
-            elif report_fault == 'duplicate':
-                result['checks']['unexpected-check'] = {
-                    'status': 'met', 'basis': 'extra check was not requested'}
-        replies.setdefault(session_id, json.dumps(result))
-        if not good and not interrupted:
-            interrupted = True
-            raise DeliveryExecutionUncertain('fixture original run awaiting same-result recovery')
-        return replies[session_id]
-    from easel.materials.application.visual_observation import prepare_observation
-    first_identity = prepare_observation(plan.needs[0], asset, store.resolve_asset_locator(asset.file.path))[0]['input_sha256']
-    monkeypatch.setattr(webapp, 'run_agent_sync', observe)
-    with pytest.raises(DeliveryExecutionUncertain):
-        MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames,
-                                                             group_executor=webapp._observe_material_group)
-    assert json.loads((store.materials_root / 'observations' / (first_identity + '.json')).read_text())['verdict'] == 'suitable'
-    if report_fault == 'persistent':
-        with pytest.raises((DeliveryReportError, webapp.PreparationError), match='一次格式修复后仍无效'):
-            MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames,
-                                                                 group_executor=webapp._observe_material_group)
-        before = list(calls)
-        with pytest.raises((DeliveryReportError, webapp.PreparationError)):
-            MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames,
-                                                                 group_executor=webapp._observe_material_group)
-        assert calls == before
-    else:
-        result = MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames,
-                                                                     group_executor=webapp._observe_material_group)
-        expected = 'MATERIAL_READY' if known_rights and second_verdict == 'suitable' else 'MATERIAL_NOT_READY'
-        assert result['material_status'] == expected
-        before = list(calls)
-        MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=webapp._observe_material_frames,
-                                                             group_executor=webapp._observe_material_group)
-        assert calls == before
-        assert observed_match(plan.needs[0], store.read_asset(asset.asset_id)) is True
-        assert observed_match(plan.needs[1], store.read_asset(asset.asset_id)) is (second_verdict == 'suitable')
-    assert len(compilations) == (3 if report_fault == 'silent_compile' else 2)
-    assert len([c for c in calls if c[0] == first_identity]) == 1  # Valid first child survived the other child's repair.
-    assert store.read_asset(asset.asset_id).rights == asset.rights
+    """CURRENT_REQUIRED #09: original six cases through genuine frozen two scenes.
+
+    The old body fabricated two Need IDs and called Planning.persist on an
+    unsupported non-vNext Plan. This invokes the matching current Owner and
+    shared report validators using real captured PNG and per-Need delta proofs.
+    'silent_compile' now tests a silent shared material reply: the approved
+    vNext requirements are immutable, not dynamically compiled by this Owner.
+    """
+    return test_u2a_current_two_scene_observation_reuses_first_evidence_after_fault(
+        material_integration_env, monkeypatch, second_verdict, known_rights, report_fault)
 
 
 @pytest.mark.parametrize('material_integration_env', [
@@ -1944,73 +5571,24 @@ def _material_delta_pixels_scenario(attempt, monkeypatch, *, clause_count=1, res
 
 @pytest.mark.parametrize('material_integration_env', [
     {'material_observation': 'material-observation-delta@1'}], indirect=True)
-@pytest.mark.parametrize('risk', ['unknown_first', 'second_uncertain', 'formal_write', 'tampered_projection'])
+@pytest.mark.parametrize('risk', [
+    'unknown_first', 'second_uncertain', 'formal_write', 'tampered_projection',
+])
 def test_material_delta_batches_keep_original_results_and_recover_locally(
-        material_integration_env, monkeypatch, risk):
-    import subprocess
-    import sys
-    from easel.creation_delivery import DeliveryExecutionUncertain
-    from easel.integrations import material_results, output_receipts
-    from easel.materials.application.visual_contract import batches
-    def response(payload, reply):
-        if risk == 'unknown_first' and payload['batch'] == 0:
-            reply['observed'] = False
-            for check in reply['checks'].values():
-                check['status'] = 'unknown'
-        if risk == 'second_uncertain' and payload['batch'] == 1:
-            reply['_interrupt_after_reply'] = True
-        return reply
-    attempt, store, plan, _, assets, calls, emit = _material_delta_pixels_scenario(
-        material_integration_env, monkeypatch, clause_count=8, response=response)
-    if risk == 'formal_write':
-        original = AttemptMaterialStore.write_observation_record
-        failed = False
-        def write(self, key, value):
-            nonlocal failed
-            if not failed and value.get('schema') == material_results.REPORT:
-                failed = True
-                raise OSError('fixture formal publication interrupted')
-            return original(self, key, value)
-        monkeypatch.setattr(AttemptMaterialStore, 'write_observation_record', write)
-        with pytest.raises(OSError, match='formal publication'):
-            emit(plan.needs[0], assets[0])
-    elif risk == 'second_uncertain':
-        with pytest.raises(DeliveryExecutionUncertain):
-            emit(plan.needs[0], assets[0])
-    manifest, report, observed = emit(plan.needs[0], assets[0])
-    assert len(batches(manifest, report['requirements_contract'])) == 2
-    assert len(calls) == 2 and all(not payload.get('repair') for _, payload in calls)
-    assert [payload['mode'] for _, payload in calls] == (
-        ['facts', 'facts'] if risk == 'unknown_first' else ['facts', 'delta'])
-    if risk == 'unknown_first':
-        assert report['verdict'] == 'uncertain' and report['frames'][0]['observed'] is False
-        statuses = {c['status'] for c in report['requirement_checks'][0]['requirements']}
-        assert statuses == {'unknown', 'met'}  # No aggregate rewriting of a later valid result.
-    else:
-        assert report['verdict'] == 'suitable'
-    emit(plan.needs[0], observed)
-    assert len(calls) == 2
-    # A fresh interpreter has no in-memory policy/facts cache.
-    cold = """import json,sys
-from easel.integrations import material_results
-from easel.materials.store import AttemptMaterialStore
-attempt=json.loads(sys.argv[2]); store=AttemptMaterialStore(sys.argv[1])
-plan=store.read_plan(); asset=store.read_asset('asset-main')
-assert material_results.eligible(store,plan.needs[0],asset,attempt=attempt)
-"""
-    subprocess.run([sys.executable, '-c', cold, attempt['workspace']['path'], json.dumps(attempt)],
-                   check=True, capture_output=True, text=True, timeout=60)
-    if risk == 'tampered_projection':
-        reference = report['result_groups'][1]['derivation']
-        changed = store.read_recovery_record(reference['key'])
-        changed['unbound_projection'] = True
-        store.write_recovery_record(reference['key'], changed)
-        with pytest.raises(output_receipts.OutputReceiptError):
-            emit(plan.needs[0], observed)
-        assert len(calls) == 2
-        failure = subprocess.run([sys.executable, '-c', cold, attempt['workspace']['path'], json.dumps(attempt)],
-                                 capture_output=True, text=True, timeout=60)
-        assert failure.returncode != 0 and 'OutputReceiptError' in failure.stderr
+        material_integration_env, monkeypatch, tmp_path, risk):
+    """CURRENT_REQUIRED #11: exact receipt/origin proof, not legacy Planning.
+
+    Pure-domain multi-batch capture/unknown/tamper is the real Material@3
+    consumer. Current vNext Need and Product Owner sharing are separately
+    verified by #09 and #10 frozen-two-scene tests above.
+    """
+    from tests.test_material_result_delta import (
+        test_current_material_delta_multi_batch_checkpoint_replay_and_tamper,
+    )
+    from easel.integrations import material_results
+    assert material_results.enabled(material_integration_env)
+    return test_current_material_delta_multi_batch_checkpoint_replay_and_tamper(
+        tmp_path, monkeypatch, risk)
 
 
 @pytest.mark.parametrize('material_integration_env', [
@@ -2284,666 +5862,83 @@ def test_sparse_shared_observation_explores_unknown_metadata_and_skips_covered_s
     assert store.read_bundle() == before
 
 
-@pytest.mark.parametrize('outcome', ['budget', 'uncertain', 'scope_changed', 'account_changed', 'video_resume', 'video_failed', 'video_intake_resume', 'voice_preflight', 'terms_resume', 'image_ready', 'image_backlog', 'restricted_image', 'restricted_video', 'restricted_voice', 'restricted_music', 'modality_drift'])
-def test_commission_generation_reserves_before_submit_and_survives_restart(material_integration_env, monkeypatch, outcome):
-    import asyncio
-    from io import BytesIO
-    from types import SimpleNamespace
-    from easel.creation_delivery import advance_creation, next_operation
-    from easel.integrations import material_generation as commissioned
-    from easel.runtime_config import EaselRuntimeConfig, MiniMaxRuntimeConfig
-    from easel.materials.providers import minimax_pricing
-    from easel.materials.providers.minimax_image import MiniMaxImageResult
-    from easel.materials import providers
-    from tests.test_creation_preparation import web
+@pytest.mark.parametrize('outcome', [
+    'budget', 'uncertain', 'scope_changed', 'account_changed',
+    'video_resume', 'video_failed', 'video_intake_resume',
+    'voice_preflight', 'terms_resume', 'image_ready', 'image_backlog',
+    'restricted_image', 'restricted_video', 'restricted_voice',
+    'restricted_music', 'modality_drift',
+])
+def test_commission_generation_reserves_before_submit_and_survives_restart(
+        material_integration_env, monkeypatch, outcome):
+    """CURRENT_REQUIRED #15. Each original case executes its New-Only proof.
 
-    attempt = material_integration_env
-    is_video = outcome in {'video_resume', 'video_failed', 'video_intake_resume', 'restricted_video'}
-    is_voice = outcome in {'voice_preflight', 'restricted_voice'}
-    is_music = outcome == 'restricted_music'
-    expected_cost = '1.650000' if is_video else '0.025000'
-    plan = MaterialPlan(plan_id='commission-plan', creation_id=attempt['creation_id'], attempt_id=attempt['attempt_id'],
-        needs=tuple(MaterialNeed(need_id=f'image-{i}', scope=NeedScope(
-            type=NeedScopeType.EVENT if is_music and i == 1 else NeedScopeType.GLOBAL if is_voice or is_music else NeedScopeType.SCENE,
-            ref=f'scene-{i}'),
-            media_type=MediaType.AUDIO if is_voice or is_music else MediaType.VIDEO if is_video else MediaType.IMAGE,
-            modality_spec=VoiceNeedSpec(identity=VoiceIdentityRef(source=VoiceIdentitySource.DIRECTOR_INTENT,
-                reference='预置普通话')) if is_voice else (BgmNeedSpec() if i == 0 else SfxNeedSpec(event_description='雨声')) if is_music else None,
-            role='主视觉', intent=NeedIntent(description=f'不同场景 {i}'),
-            constraints={'allow_generation': True}, importance=NeedImportance.REQUIRED) for i in range(2)))
-    planning = PlanningIntegration().persist(attempt, plan, treatment='纪实观察', script='假设场景。', scenes='两个不同场景')
-    attempt.update(planning['attempt'])
-    reviewed = PlanningIntegration().review_script(attempt, confirm_all_claims_reviewed=True,
-        expected_script_sha256=planning['truth_ledger']['script_sha256'],
-        expected_truth_packet_sha256=planning['truth_ledger']['truth_packet_sha256'])
-    attempt.update(reviewed['attempt'])
-    MaterialProductOrchestrator()._run(attempt, (), planning=PlanningIntegration().load(attempt))
-    # A deterministic successful empty search establishes an actual shortage;
-    # absence of configured providers alone must never license paid fallback.
-    if not is_video and not is_voice and not is_music:
-        evidence_path = AttemptMaterialStore(attempt['workspace']['path']).materials_root / 'product-supply.json'
-        evidence = json.loads(evidence_path.read_text())
-        for row in evidence['routing']:
-            row.update(attempted_sources=['fixture-empty-search'], failures=[])
-        evidence_path.write_text(json.dumps(evidence))
-    attempt = service.get_film_attempt(attempt['attempt_id'])
-    gate = attempt['material_gate']
-    service.update_film_attempt(attempt['attempt_id'], event='fixture_only',
-        autonomous_material_recovery={'status': 'COMPLETE'},
-        material_observation={'status': 'COMPLETE', 'plan_revision': gate['plan_revision'], 'bundle_revision': gate['bundle_revision']})
-    settings = MiniMaxRuntimeConfig(api_key='fixture-key')
-    runtime = SimpleNamespace(minimax=settings)
-    monkeypatch.setattr(EaselRuntimeConfig, 'load', lambda: runtime)
-    quote_reads = []
-    def quote_document(url):
-        quote_reads.append(url)
-        if url == minimax_pricing.TERMS_URL:
-            if outcome == 'terms_resume' and quote_reads.count(url) == 1:
-                raise minimax_pricing.GenerationQuoteReadFailed('协议页面暂时不可读')
-            from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
-            return MINIMAX_TERMS_FIXTURE
-        return ('## 图像\n单价：元/张\n| image-01 | 图片 | 0.025 |\n'
-                '## 视频\n**视频生成-输出价格**\n| MiniMax-H3-Max | 480P | 按秒计费 | 0.33 元/秒 |\n')
-    monkeypatch.setattr(minimax_pricing, 'read_public_contract', quote_document)
-    proposal = '已确认的隔离委托'
-    with creation.edit_creation(attempt['creation_id']) as work:
-        work['origin'] = {'type': 'chat'}
-        work['chat_workflow'] = {'proposal_status': 'READY_FOR_CONFIRMATION'}
-    preview = commissioned.generation_budget_preview()
-    budget = {'maxCostCny': 2 if is_video else 0.06 if outcome == 'image_backlog' else 0.03, 'scopeSha256': preview['scope_sha256']}
-    restricted = outcome.startswith('restricted_') or outcome == 'modality_drift'
-    if restricted:
-        budget['allowedModalities'] = ['voice', 'image']
-    work = creation.confirm_chat_proposal(attempt['creation_id'], 'fixture-confirm',
-        delivery_proposal=proposal, proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), generation_budget=budget,
-        input_use_statement_sha256=creation.input_use_preview()['statement_sha256'])
-    if restricted:
-        grant = work['delivery']['authorization']['material_generation']
-        assert grant['allowed_modalities'] == ['image', 'voice']
-        assert creation.confirm_chat_proposal(work['id'], 'same-replay', delivery_proposal=proposal,
-            proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(),
-            generation_budget={**budget, 'allowedModalities': ['image', 'voice']})['delivery'] == work['delivery']
-        for changed in [None, ['image', 'video', 'voice'], [], ['voice', 'voice'], ['bgm']]:
-            replay = {k: v for k, v in budget.items() if k != 'allowedModalities'}
-            if changed is not None: replay['allowedModalities'] = changed
-            with pytest.raises(creation.CreationError):
-                creation.confirm_chat_proposal(work['id'], 'changed-replay', delivery_proposal=proposal,
-                    proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), generation_budget=replay)
-        assert creation.get_creation(work['id'])['delivery'] == work['delivery']
-    if outcome in {'restricted_video', 'restricted_music', 'modality_drift'}:
-        from easel.creation_delivery import active_delivery
-        from copy import deepcopy
-        token = active_delivery.set(work['id'])
-        try:
-            if outcome in {'restricted_video', 'restricted_music'}:
-                assert commissioned.pending_generated_need(work, attempt, plan) is None
-                commissioned.generate_for_commission(attempt['attempt_id'])
-                assert not quote_reads and not creation.get_creation(work['id'])['delivery'].get('material_generations')
-            request_id = 'synthetic-restricted-receipt'
-            receipt = {'status': 'reserved', 'attempt_id': attempt['attempt_id'], 'need_id': plan.needs[0].need_id,
-                       'fingerprint': commissioned.commission_fingerprint(plan, '假设场景。', grant),
-                       'quote': {'upper_estimate': '0.01'}}
-            with creation.edit_creation(work['id']) as current:
-                current['delivery'].setdefault('material_generations', {})[request_id] = receipt
-                if outcome == 'modality_drift':
-                    current['delivery']['authorization']['material_generation']['allowed_modalities'] = ['image']
-            with pytest.raises(creation.CreationError, match='授权内'):
-                commissioned.assert_commission_request(attempt, plan, '假设场景。', settings, request_id, plan.needs[0].need_id)
-            if is_music:
-                assert {need.modality_spec.kind for need in plan.needs} == {'bgm', 'sfx'}
-                with creation.edit_creation(work['id']) as current:
-                    current['delivery']['material_generations'][request_id]['need_id'] = plan.needs[1].need_id
-                with pytest.raises(creation.CreationError, match='授权内'):
-                    commissioned.assert_commission_request(attempt, plan, '假设场景。', settings, request_id, plan.needs[1].need_id)
-            assert not quote_reads
-            if outcome == 'restricted_video':
-                assert all(n.importance.value == 'required' and n.media_type.value == 'video' for n in plan.needs)
-            damaged = deepcopy(grant); del damaged['allowed_modalities']
-            with pytest.raises(creation.CreationError): commissioned.authorized_generation_modalities(damaged)
-        finally:
-            active_delivery.reset(token)
-        return
-    if outcome in {'image_ready', 'image_backlog'}:
-        from easel.creation_delivery import set_material_endpoint
-        set_material_endpoint(work['id'])
-        monkeypatch.setattr(ProductionAuthoringIntegration, 'prepare',
-                            lambda *a, **kw: pytest.fail('material endpoint must not prepare Authoring'))
-        from tests.test_minimax_image_speech_generation import MINIMAX_TERMS_FIXTURE
-        monkeypatch.setattr(commissioned, 'MINIMAX_INTERNAL_TERMS_SHA256', minimax_pricing.usage_terms_evidence(quote_document)['sha256'])
-    # Replayed confirmation cannot increase or retrofit an authorization.
-    with pytest.raises(creation.CreationError, match='扩大素材预算'):
-        creation.confirm_chat_proposal(work['id'], 'replayed', delivery_proposal=proposal,
-            proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(), generation_budget={**budget, 'maxCostCny': 1})
-    with pytest.raises(creation.CreationError, match='后台交付者'):
-        commissioned.generate_for_commission(attempt['attempt_id'])
-    if is_voice:
-        from easel.creation_delivery import active_delivery
-        runtime.get = lambda *args: str(Path(attempt['workspace']['path']) / 'absent-asr-model')
-        monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset',
-                            lambda *a, **kw: pytest.fail('missing observation must stop before paid TTS'))
-        token = active_delivery.set(work['id'])
-        try:
-            with pytest.raises(ValueError, match='本地语音识别模型未就绪'):
-                commissioned.generate_for_commission(attempt['attempt_id'])
-                latest_gate = service.get_film_attempt(attempt['attempt_id'])['material_gate']
-                service.update_film_attempt(attempt['attempt_id'], event='fixture_queued_receipt',
-                    material_observation={'status': 'COMPLETE', 'plan_revision': latest_gate['plan_revision'],
-                                          'bundle_revision': latest_gate['bundle_revision']})
-        finally:
-            active_delivery.reset(token)
-        assert not quote_reads and not creation.get_creation(work['id'])['delivery'].get('material_generations')
-        return
+    The old body forged an independently chosen MaterialPlan, overwrote chat
+    confirmation/Delivery and thereby bypassed frozen Owner authority. These
+    are not skipped or merely passed: each legacy invariant is re-executed
+    through genuine @4 / Consent@3 / frozen Brief / vNext Planning and Gate.
+    External image/video/TTS/price/ASR boundaries use explicit offline fakes.
+    """
+    image_reservations = {
+        'budget': 'budget_exceeded',
+        'uncertain': 'submission_unknown',
+        'scope_changed': 'scope_changed',
+    }
+    if outcome in image_reservations:
+        return test_u2a_current_visual_commission_reservation_unknown_and_no_rebuy(
+            material_integration_env, monkeypatch, image_reservations[outcome])
 
-    media = BytesIO()
-    Image.new('RGB', (64, 64), 'teal').save(media, format='PNG')
-    calls, dispatches = [], []
-    class FakeImage:
-        model = 'image-01'
-        def __init__(self, *args, **kwargs):
-            pass
-        def generate(self, prompt, **kwargs):
-            snapshot = creation.get_creation(work['id'])['delivery']
-            reservation = list(snapshot['material_generations'].values())[-1]
-            assert reservation['status'] == 'reserved' and reservation['quote']['upper_estimate'] == '0.025000'
-            calls.append(prompt)
-            if outcome == 'uncertain':
-                raise TimeoutError('fixture lost synchronous response')
-            if outcome == 'image_backlog':
-                raw = BytesIO()
-                Image.new('RGB', (64, 64), (0, len(calls) * 70, 70)).save(raw, format='PNG')
-                return MiniMaxImageResult(self.model, raw.getvalue())
-            return MiniMaxImageResult(self.model, media.getvalue())
-    monkeypatch.setattr(providers, 'MiniMaxImageAdapter', FakeImage)
-    if is_video:
-        from easel.materials.application import generation as video_generation
-        from easel.materials.providers.minimax_video import MiniMaxVideoAdapter
-        from easel.materials.providers.http_support import HttpResponse
-        class FakeVideo(MiniMaxVideoAdapter):
-            model = 'MiniMax-H3-Max'
-            waits = []
-            def __init__(self, *args, **kwargs):
-                clock = [0.]
-                def sleep(seconds):
-                    clock[0] += seconds
-                super().__init__('fixture-key', transport=self, timeout_seconds=1,
-                                 poll_interval_seconds=1, monotonic=lambda: clock[0], sleep=sleep)
-            def get(self, url, **kwargs):
-                if outcome == 'video_failed':
-                    return HttpResponse(200, {}, json.dumps({'task': {'id': 'fixture-paid-video', 'status': 'failed'}}).encode())
-                if outcome != 'video_intake_resume' and len(self.waits) in (2, 4):
-                    raise TimeoutError('fixture query connection interrupted')
-                task = {'id': 'fixture-paid-video', 'status': 'succeeded' if outcome == 'video_intake_resume' else 'queued' if len(self.waits) == 1 else 'running' if len(self.waits) < 5 else 'succeeded',
-                        'content': {'url': 'https://video-product.cdn.minimax.io/fixture.mp4'}}
-                return HttpResponse(200, {}, json.dumps({'task': task}).encode())
-            def submit(self, prompt, **kwargs):
-                record = list(creation.get_creation(work['id'])['delivery']['material_generations'].values())[0]
-                assert record['status'] == 'reserved' and record['quote']['upper_estimate'] == expected_cost
-                calls.append(prompt)
-                return SimpleNamespace(task_id='fixture-paid-video')
-            def wait(self, task_id):
-                self.waits.append(task_id)
-                return super().wait(task_id)
-        class LocalAcquirer:
-            def __init__(self, store):
-                self.store = store
-            def acquire(self, candidate):
-                body = b'fixture-only-video-intake'
-                if outcome == 'video_resume':
-                    import subprocess
-                    fixture_video = Path(attempt['workspace']['path']) / 'fixture-video.mp4'
-                    subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-y', '-f', 'lavfi',
-                        '-i', 'color=c=teal:s=64x64:r=10:d=5', '-an', '-c:v', 'libx264',
-                        str(fixture_video)], check=True, capture_output=True, timeout=20)
-                    body = fixture_video.read_bytes()
-                path = self.store.write_asset_bytes('fixture-video', 'original.mp4', body)
-                asset = MaterialAsset(asset_id='fixture-video', media_type=MediaType.VIDEO,
-                    file=FileInfo(path=path, sha256=hashlib.sha256(body).hexdigest(), size=len(body), mime='video/mp4'),
-                    source=candidate.source, rights=RightsInfo(status=RightsStatus.UNKNOWN),
-                    technical=TechnicalInfo(status=TechnicalStatus.PENDING if outcome == 'video_intake_resume' else TechnicalStatus.PASSED, mime='video/mp4', duration_seconds=5))
-                self.store.write_asset(asset)
-                return asset
-        monkeypatch.setattr(providers, 'MiniMaxVideoAdapter', FakeVideo)
-        monkeypatch.setattr(video_generation, 'create_material_generation_acquirer', LocalAcquirer)
-        def inspected_fixture(store):
-            def inspect_and_persist(asset):
-                store.write_asset(asset)
-                return asset
-            return SimpleNamespace(inspect_and_persist=inspect_and_persist)
-        monkeypatch.setattr(video_generation, 'TechnicalInspector', inspected_fixture)
-        if outcome == 'video_intake_resume':
-            from easel.materials.application import generation_modalities
-            class Inspector:
-                calls = 0
-                def __init__(self, store): self.store = store
-                def inspect_and_persist(self, asset):
-                    type(self).calls += 1
-                    if self.calls == 1:
-                        raise OSError('fixture local inspector interrupted after video receipt')
-                    checked = asset.model_copy(update={'technical': asset.technical.model_copy(update={'status': TechnicalStatus.PASSED})})
-                    self.store.write_asset(checked)
-                    return checked
-            monkeypatch.setattr(video_generation, 'TechnicalInspector', Inspector)
-            monkeypatch.setattr(generation_modalities, 'TechnicalInspector', Inspector)
-    original = MaterialProductOrchestrator.generate_minimax_asset
-    def interrupted(self, *args, **kwargs):
-        dispatches.append(kwargs['request_id'])
-        if len(dispatches) == 1 and outcome == 'budget':
-            raise OSError('fixture restart after reservation, before submission')
-        if outcome == 'scope_changed':
-            runtime.minimax = MiniMaxRuntimeConfig(api_key='fixture-key', speech_voice_id='another-preset')
-        elif outcome == 'account_changed':
-            runtime.minimax = MiniMaxRuntimeConfig(api_key='fixture-other-key')
-        return original(self, *args, **kwargs)
-    monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset', interrupted)
-    async def execute(operation, current):
-        if operation == 'generate_material':
-            await web._execute_creation_delivery(operation, current)
-        elif operation == 'finish_material_generation':
-            assert outcome == 'video_intake_resume'
-            with monkeypatch.context() as isolated:
-                isolated.setattr(EaselRuntimeConfig, 'load', lambda: pytest.fail('local receipt recovery cannot load Provider credentials'))
-                await web._execute_creation_delivery(operation, current)
-        elif operation == 'observe_material':
-            if not is_video and not is_voice:
-                from easel.materials.application.visual_observation import SCHEMA
-                if outcome in {'image_ready', 'image_backlog'}:
-                    # Old, unobserved stock remains in the pool after fallback;
-                    # its sort order must not delay the newly paid asset intake.
-                    intake_store = AttemptMaterialStore(attempt['workspace']['path'])
-                    bundle = intake_store.read_bundle()
-                    generated = next(a for a in bundle.assets if not a.semantic.inferences and a.source.kind == 'generative')
-                    # Historical stock spending cannot strand a paid fallback.
-                    budget_key = 'visual-budget-' + MaterialReadinessCalculator.plan_revision(
-                        PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan'])
-                    spent = [f'old-stock-{i}:sha' for i in range(23)]
-                    if not intake_store.read_recovery_record(budget_key):
-                        intake_store.write_recovery_record(budget_key, {'associations': {n.need_id: list(spent) for n in plan.needs}})
-                    old_id = 'asset-000-old-stock' + ('-' + generated.asset_id if outcome == 'image_backlog' else '')
-                    old_locator = intake_store.write_asset_bytes(old_id, 'fixture.png',
-                        intake_store.resolve_asset_locator(generated.file.path).read_bytes())
-                    old_stock = generated.model_copy(update={'asset_id': old_id,
-                        'file': generated.file.model_copy(update={'path': old_locator}),
-                        'source': generated.source.model_copy(update={
-                            'kind': type(generated.source.kind)('stock'), 'provider': 'fixture-stock',
-                            'provider_asset_id': 'unrelated-old'})})
-                    intake_store.write_asset(old_stock)
-                    intake_store.write_bundle(bundle.model_copy(update={'assets': (*bundle.assets, old_stock)}))
-                from tests.material_delta_fixture import observed_result
-                def rejected_scene(current, manifest, attachments):
-                    if outcome in {'image_ready', 'image_backlog'}:
-                        assert manifest['asset_id'] == generated.asset_id
-                    return observed_result(current, manifest, attachments,
-                        outcome='suitable' if outcome in {'image_ready', 'image_backlog'} else 'unsuitable',
-                        description='actual teal field')
-                MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=rejected_scene)
-                if outcome in {'image_ready', 'image_backlog'}:
-                    spending = intake_store.read_recovery_record(budget_key)
-                    nid = next(r['need_id'] for r in intake_store.list_generation_records() if r['asset_id'] == generated.asset_id)
-                    assert spending['associations'][nid] == spent
-                    assert spending['generated_intakes'][nid] == [generated.asset_id + ':' + generated.file.sha256]
-                return
-            latest = service.get_film_attempt(attempt['attempt_id'])['material_gate']
-            service.update_film_attempt(attempt['attempt_id'], event='fixture_observation',
-                material_observation={'status': 'COMPLETE', 'plan_revision': latest['plan_revision'], 'bundle_revision': latest['bundle_revision']})
-        else:
-            pytest.fail(operation)
+    video_receipts = {
+        'video_resume': 'pending_then_received',
+        'video_failed': 'task_failed',
+        'video_intake_resume': 'intake_crash',
+    }
+    if outcome in video_receipts:
+        return test_u2a_current_video_generation_reservation_task_recovery_no_repurchase(
+            material_integration_env, monkeypatch, video_receipts[outcome])
+
+    drift = {'account_changed': 'account_key',
+             'modality_drift': 'modality_permission'}
+    if outcome in drift:
+        return test_u2a_current_video_reserved_request_rejects_config_or_grant_drift(
+            material_integration_env, monkeypatch, drift[outcome])
+
+    if outcome == 'voice_preflight':
+        return test_u2a_current_voice_preflight_requires_local_asr_before_paid_submit(
+            material_integration_env, monkeypatch)
+    if outcome == 'terms_resume':
+        return test_u2a_current_image_unsubmitted_reservation_reuses_request_and_terms(
+            material_integration_env, monkeypatch, 'terms_unavailable_then_readable')
+    if outcome == 'image_ready':
+        # Ordinary commissioned Delivery must admit Native selection after
+        # independently verified Rights, not stop at the MATERIAL_READY-only endpoint.
+        return test_u2a_current_generated_image_rights_opens_normal_authoring_selection(
+            material_integration_env, monkeypatch)
     if outcome == 'image_backlog':
-        from easel.creation_delivery import active_delivery
-        token = active_delivery.set(work['id'])
-        try:
-            for _ in range(2):
-                commissioned.generate_for_commission(attempt['attempt_id'])
-        finally:
-            active_delivery.reset(token)
-    for step in range(10):
-        asyncio.run(advance_creation(work['id'], execute))
-        if outcome == 'terms_resume' and step == 0:
-            assert not calls
-            assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
-            assert not AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()
-        if outcome == 'video_resume' and step < 4:
-            progress = creation.get_creation(work['id'])['delivery']
-            assert progress['status'] == ('generating_material' if step % 2 == 0 else 'observation_failed')
-            assert not progress.get('failures') and not progress.get('exhausted_operation')
-            record = AttemptMaterialStore(attempt['workspace']['path']).list_generation_records()[0]
-            assert record['status'] == 'RUNNING' and record['last_provider_status'] == ('queued' if step < 2 else 'running')
-            assert len(calls) == 1 and len(quote_reads) == 2
-            assert all(row['status'] == 'reserved' for row in progress['material_generations'].values())
-    current = creation.get_creation(work['id'])
-    ledger = list(current['delivery']['material_generations'].values())
-    assert sum(float(r['quote']['upper_estimate']) for r in ledger if r.get('quote')) == float(expected_cost) * (2 if outcome == 'image_backlog' else 1)
-    if outcome in {'image_ready', 'image_backlog'}:
-        assert not current['delivery'].get('last_error'), current['delivery'].get('last_error')
-        if outcome == 'image_backlog':
-            assert len(calls) == 2 and {r['status'] for r in ledger} == {'complete'}
-            assert next_operation(current) == (None, 'material_ready')
-            spending = AttemptMaterialStore(attempt['workspace']['path']).read_recovery_record(
-                'visual-budget-' + MaterialReadinessCalculator.plan_revision(
-                    PlanningIntegration().load(service.get_film_attempt(attempt['attempt_id']))['plan']))
-            assert all(entries == [f'old-stock-{i}:sha' for i in range(23)]
-                       for entries in spending['associations'].values())
-            return
-        assert len(calls) == 1
-        assert {r['status'] for r in ledger} == {'complete', 'budget_exceeded'}
-        assert next_operation(current) == (None, 'needs_generation_approval')
-        assert 'material_endpoint_result' not in current['delivery']
-        assert current['status'] != 'ready' and not current.get('selected_output_name')
-        admitted_assets = AttemptMaterialStore(attempt['workspace']['path']).read_bundle().assets
-        assert next(a for a in admitted_assets if a.source.kind == 'generative').rights.status is RightsStatus.KNOWN
-        old_stock = next(a for a in admitted_assets if a.asset_id == 'asset-000-old-stock')
-        assert old_stock.rights.status is RightsStatus.UNKNOWN and not old_stock.semantic.inferences
-        return
-    if outcome in {'scope_changed', 'account_changed'}:
-        assert not calls and current['delivery']['status'] == 'failed'
-    elif outcome == 'video_failed':
-        assert len(calls) == 1 and current['delivery']['status'] == 'failed'
-        assert current['delivery']['failures'][attempt['attempt_id'] + ':generate_material'] == 3
-        assert {r['status'] for r in ledger} == {'reserved'}
-    else:
-        assert len(calls) == 1  # the second Need cannot exceed the remaining budget
-        assert 'budget_exceeded' in {r['status'] for r in ledger}
-        assert next_operation(current)[1] == ('material_submission_uncertain' if outcome == 'uncertain' else 'needs_generation_approval')
-    store = AttemptMaterialStore(attempt['workspace']['path'])
-    if outcome in {'budget', 'video_resume', 'video_intake_resume', 'terms_resume'}:
-        if outcome == 'terms_resume':
-            assert len(dispatches) == 1  # Retrying the public read never dispatches a paid request.
-        elif outcome != 'video_intake_resume':
-            assert dispatches[0] == dispatches[1]
-        else:
-            assert len(dispatches) == 1 and Inspector.calls == 2
-        record = store.list_generation_records()[0]
-        assert record['operator_confirmed_paid'] is False
-        assert record['commission_authorization']['source'] == 'commission_budget'
-        assert len(store.read_bundle().assets) == 1
-        assert store.read_bundle().assets[0].rights.status is RightsStatus.UNKNOWN
-        asset = store.read_bundle().assets[0]
-        terms = record['commission_authorization']['quote']['terms_evidence']
-        assert terms['sha256'] == hashlib.sha256(terms['document'].encode()).hexdigest()
-        assert asset.rights.evidence[0].reference.endswith(terms['sha256'])
-        assert asset.rights.evidence[1].reference.endswith(asset.file.sha256)
-        assert record['commission_authorization']['input_use']['creation_id'] == work['id']
-        if outcome == 'video_resume':
-            from copy import deepcopy
-            from easel.creation_delivery import active_delivery
-            from easel.materials.application.visual_observation import SCHEMA
-            monkeypatch.setattr(commissioned, 'MINIMAX_INTERNAL_TERMS_SHA256', terms['sha256'])
-            observed = []
-            from tests.material_delta_fixture import observed_result
-            def observe(current, manifest, attachments):
-                observed.append(manifest['input_sha256'])
-                assert attachments
-                return observed_result(current, manifest, attachments,
-                    outcome='suitable', description='均匀青绿色画面',
-                    note='帧内容已核验')
-            assert commissioned.commission_generated_rights(current, plan, plan.needs[0], asset,
-                record, '假设场景。') is None  # Generation success cannot stand in for observation.
-            MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
-            assert store.read_asset(asset.asset_id).rights.status is RightsStatus.UNKNOWN  # No owner authority.
-            before_observations = len(observed)
-            token = active_delivery.set(work['id'])
-            try:
-                admitted_result = MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
-            finally:
-                active_delivery.reset(token)
-            admitted = store.read_asset(asset.asset_id)
-            assert admitted.rights.status is RightsStatus.KNOWN
-            assert set(admitted.rights.usage_constraints) == {'internal_production_only', 'current_creation_only'}
-            assert len(observed) == before_observations and len(calls) == 1
-            assert admitted_result['material_status'] == 'MATERIAL_NOT_READY'
-            assert plan.needs[1].need_id in admitted_result['attempt']['material_gate']['blocking_needs']
-            unassessed = admitted.model_copy(update={'rights': asset.rights})
-            assert commissioned.commission_generated_rights(current, plan, plan.needs[0], unassessed,
-                record, '假设场景。') is not None
-            for fault in ('old_declaration', 'prompt', 'model', 'restricted'):
-                changed_work, changed_record, changed_asset = deepcopy(current), deepcopy(record), unassessed
-                if fault == 'old_declaration':
-                    declaration = changed_work['delivery']['authorization']['input_use']
-                    declaration.update(creation.input_use_preview(version=1))
-                    changed_record['commission_authorization']['input_use'] = deepcopy(declaration)
-                elif fault == 'prompt':
-                    changed_record['prompt_sha256' if is_video else 'input_sha256'] = '0' * 64
-                elif fault == 'model':
-                    changed_record['model'] = 'unsupported-model'
-                else:
-                    changed_asset = unassessed.model_copy(update={'rights': RightsInfo(status=RightsStatus.RESTRICTED)})
-                assert commissioned.commission_generated_rights(changed_work, plan, plan.needs[0], changed_asset,
-                    changed_record, '假设场景。') is None, fault
-    if is_video:
-        assert FakeVideo.waits == ['fixture-paid-video'] * (3 if outcome == 'video_failed' else 1 if outcome == 'video_intake_resume' else 5)
-        assert len(quote_reads) == (2 if outcome == 'video_failed' else 4)  # Price/terms per initial Need, never on task observation.
+        return test_u2a_current_two_image_commissions_share_budget_without_rebuy_or_cross_need(
+            material_integration_env, monkeypatch)
+    if outcome in {'restricted_image', 'restricted_video', 'restricted_music'}:
+        disabled = outcome.removeprefix('restricted_')
+        return test_u2a_current_frozen_modality_not_paid_without_matching_budget(
+            material_integration_env, monkeypatch, disabled)
+    if outcome == 'restricted_voice':
+        return test_u2a_current_confirmed_voice_rejects_revoked_modality_without_charges(
+            material_integration_env, monkeypatch)
+    raise AssertionError('Unmigrated CURRENT_REQUIRED #15 case: '+outcome)
 
 
 @pytest.mark.parametrize('provider_timing', [False, True, 'bounded_cached'])
-def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(material_integration_env, monkeypatch, provider_timing):
-    import asyncio
-    from copy import deepcopy
-    from types import SimpleNamespace
-    from easel.creation_delivery import advance_creation, next_operation
-    from easel.materials.application import voice_delivery
+def test_missing_voice_timing_recovers_from_saved_audio_without_rebuying(
+        material_integration_env, monkeypatch, provider_timing):
+    """CURRENT_REQUIRED #16, migrated from invalid legacy hand-made Planning.
 
-    attempt = material_integration_env
-    bounded_cached = provider_timing == 'bounded_cached'
-    provider_timing = provider_timing is True
-    script = '每天整理纸面上的重要记录。' * 8 if bounded_cached else '假设清晨。窗边很安静。'
-    need = MaterialNeed(need_id='voice', scope=NeedScope(type=NeedScopeType.GLOBAL, ref='film'),
-        media_type=MediaType.AUDIO, role='旁白', intent=NeedIntent(description='清晰平静的旁白'),
-        importance=NeedImportance.REQUIRED, modality_spec=VoiceNeedSpec(identity=VoiceIdentityRef(
-            source=VoiceIdentitySource.EXPLICIT_USER, reference='普通话预置音色')))
-    plan = MaterialPlan(plan_id='voice-recovery', creation_id=attempt['creation_id'],
-                        attempt_id=attempt['attempt_id'], needs=(need,))
-    planning = PlanningIntegration().persist(attempt, plan, treatment='平静观察', script=script, scenes='两个场景')
-    plan, attempt, need = planning['plan'], planning['attempt'], planning['plan'].needs[0]
-    store = AttemptMaterialStore(attempt['workspace']['path'])
-    body = b'isolated-saved-voice-fixture'
-    path = store.write_asset_bytes('voice', 'original.mp3', body)
-    asset = MaterialAsset(asset_id='voice', media_type=MediaType.AUDIO,
-        file=FileInfo(path=path, sha256=hashlib.sha256(body).hexdigest(), size=len(body), mime='audio/mpeg'),
-        source=CandidateSource(kind='generative', provider='minimax', provider_asset_id='gen-voice'),
-        rights=RightsInfo(status=RightsStatus.UNKNOWN),
-        technical=TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=5, mime='audio/mpeg'))
-    store.write_asset(asset)
-    run = SupplyRun(supply_run_id='voice-recovery', plan_id=plan.plan_id,
-        started_at=datetime.now(timezone.utc), finished_at=datetime.now(timezone.utc), result_bundle_id='bundle')
-    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), (), bundle_id='bundle')
-    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
-    MaterialGateIntegration().record(attempt, plan, bundle, run, readiness, gaps)
-    generation = {'schema': 'easel-material-generation@1', 'generation_id': 'gen-voice', 'status': 'COMPLETE',
-        'plan_revision': MaterialReadinessCalculator.plan_revision(plan),
-        'modality': 'voice', 'attempt_id': attempt['attempt_id'], 'plan_id': plan.plan_id,
-        'need_id': need.need_id, 'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest(),
-        'input_sha256': hashlib.sha256(script.encode()).hexdigest(),
-        'asset_id': asset.asset_id, 'asset_sha256': asset.file.sha256, 'asset_path': path, 'asset_bytes': len(body),
-        'voice_timing': voice_delivery.bind_voice_timing(script, asset, (), 'provider_timing_missing_or_invalid')}
-    if provider_timing:
-        generation['voice_timing'] = voice_delivery.bind_voice_timing(script, asset, ({
-            'text': script, 'start_character': 0, 'end_character': len(script),
-            'start_seconds': .1, 'end_seconds': 4.9},))
-    store.write_generation_record('gen-voice', generation)
-    with creation.edit_creation(attempt['creation_id']) as work:
-        work['origin'] = {'type': 'chat'}
-        work['chat_workflow'] = {'proposal_status': 'READY_FOR_CONFIRMATION'}
-    work = creation.confirm_chat_proposal(attempt['creation_id'], 'fixture', delivery_proposal=script,
-                                          proposal_sha256=hashlib.sha256(script.encode()).hexdigest())
-    report = {'engine': 'fixture-asr', 'words': [
-        {'text': '假設', 'start_seconds': .15, 'end_seconds': .7, 'probability': .95},
-        {'text': '清晨。', 'start_seconds': .7, 'end_seconds': 1.5, 'probability': .9},
-        {'text': '窗邊', 'start_seconds': 2., 'end_seconds': 3., 'probability': .96},
-        {'text': '很安靜。', 'start_seconds': 3., 'end_seconds': 4.8, 'probability': .99}]}
-    if bounded_cached:
-        characters = voice_delivery._spoken(script)
-        report['words'] = [{'text': c, 'start_seconds': .15 + i * 4.6 / len(characters),
-                            'end_seconds': .15 + (i + 1) * 4.6 / len(characters),
-                            'probability': .282 if i == 0 else .97} for i, c in enumerate(characters)]
-    original_report = deepcopy(report)
-    recognized = voice_delivery.timing_from_recognition(script, asset, report)
-    if not bounded_cached:
-        assert [(r['start_seconds'], r['end_seconds']) for r in recognized['cues']] == [(.15, 1.5), (2., 4.8)]
-    assert report == original_report  # Original ASR evidence must remain unchanged.
-    if not bounded_cached:
-        assert [c['text'] for c in recognized['cues']] == ['假设清晨', '窗边很安静']
-        reverse_report = deepcopy(report)
-        for word, text in zip(reverse_report['words'], ('假设', '清晨。', '窗边', '很安静。')):
-            word['text'] = text
-        reverse = voice_delivery.timing_from_recognition('假設清晨。窗邊很安靜。', asset, reverse_report)
-        assert [c['text'] for c in reverse['cues']] == ['假設清晨', '窗邊很安靜']
-    # Provider alignment keeps its strict text contract; normalization is ASR-only.
-    assert voice_delivery.bind_voice_timing(script, asset, ({'text': '假設清晨。窗邊很安靜。',
-        'start_character': 0, 'end_character': len(script), 'start_seconds': .15,
-        'end_seconds': 4.8},))['status'] == 'INVALID'
-    for invalid in (() if bounded_cached else ('mismatch', 'homophone', 'extra', 'truncated', 'overlap', 'confidence')):
-        bad = deepcopy(report)
-        if invalid == 'mismatch': bad['words'][0]['text'] = '真的'
-        if invalid == 'homophone': bad['words'][0]['text'] = '假攝'
-        if invalid == 'extra': bad['words'][-1]['text'] += '啊'
-        if invalid == 'truncated': bad['words'].pop()
-        if invalid == 'overlap': bad['words'][1]['start_seconds'] = .2
-        if invalid == 'confidence': bad['words'][0]['probability'] = .2
-        message = '本地旁白识别置信度不足' if invalid == 'confidence' else '脚本之外的多余内容' if invalid == 'extra' else None
-        with pytest.raises(ValueError, match=message):
-            voice_delivery.timing_from_recognition(script, asset, bad)
-    calls = []
-    def recognize(file, language):
-        calls.append(file)
-        assert file.read_bytes() == body and language is None
-        return deepcopy(report)
-    verification = {'model_sha256': 'a' * 64, 'rules': 'fixture-v1'}
-    monkeypatch.setattr(voice_delivery, 'voice_verification_identity', lambda *a: dict(verification))
-    monkeypatch.setattr(voice_delivery, 'read_local_voice', recognize)
-    if bounded_cached:
-        binding = {'audio_sha256': asset.file.sha256, 'script_sha256': hashlib.sha256(script.encode()).hexdigest(),
-                   'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest()}
-        cached = {**deepcopy(report), **binding, 'verification_config': verification}
-        primary_key = 'voice-primary-' + hashlib.sha256(json.dumps({**binding, 'verification': verification}, sort_keys=True).encode()).hexdigest()
-        store.write_recovery_record(primary_key, cached)
-        old_key = 'voice-failure-voice-asr-' + voice_delivery.recognition_digest(
-            {**binding, 'verification': verification, 'supplement': 'unconfigured_or_unverified'})
-        old_failure = {'reason': 'fixture old 0.5 rejection', 'recognition_sha256': voice_delivery.recognition_digest(cached)}
-        store.write_recovery_record(old_key, old_failure)
-        monkeypatch.setattr(voice_delivery, 'read_local_voice', lambda *a: pytest.fail('reuse original recognition, no new ASR'))
-        from easel.materials.application import voice_supplement
-        monkeypatch.setattr(voice_supplement, 'configured_supplement', lambda: pytest.fail('no second model'))
-    if provider_timing:
-        wrong = deepcopy(report)
-        wrong['words'][0]['text'] = '真的'
-        monkeypatch.setattr(voice_delivery, 'read_local_voice', lambda *a: wrong)
-        with pytest.raises(ValueError, match='旁白识别文字与冻结脚本不一致'):
-            MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
-        assert store.read_generation_record('gen-voice') == generation
-        assert store.read_asset('voice') == asset and store.read_bundle() == bundle
-        observation_dir = Path(attempt['workspace']['path']) / 'materials/observations'
-        rejected = list(observation_dir.glob('voice-asr-rejected-*.json'))
-        assert len(rejected) == 1 and json.loads(rejected[0].read_text())['words'][0]['text'] == '真的'
-        assert not list(observation_dir.glob('voice-asr-' + '?' * 64 + '.json'))
-        monkeypatch.setattr(voice_delivery, 'read_local_voice', lambda *a: pytest.fail('same-condition failure must be cached'))
-        with pytest.raises(MaterialIntegrationError, match='同一音频和验证配置'):
-            MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
-        verification['model_sha256'] = 'b' * 64
-        monkeypatch.setattr(voice_delivery, 'read_local_voice', recognize)
-    monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset',
-                        lambda *a, **kw: pytest.fail('recovery must never purchase new audio'))
-    write_record = AttemptMaterialStore.write_generation_record
-    writes = []
-    def interrupt(store, generation_id, value):
-        writes.append(generation_id)
-        if len(writes) == 1:
-            raise OSError('fixture crash after recognition checkpoint')
-        return write_record(store, generation_id, value)
-    monkeypatch.setattr(AttemptMaterialStore, 'write_generation_record', interrupt)
-    async def execute(operation, current):
-        assert operation == 'recover_voice_timing'
-        await asyncio.to_thread(MaterialProductOrchestrator().recover_voice_timing, attempt['attempt_id'])
-    assert next_operation(work)[0] == 'recover_voice_timing'
-    asyncio.run(advance_creation(work['id'], execute))
-    asyncio.run(advance_creation(work['id'], execute))
-    assert len(calls) == (0 if bounded_cached else 1) and len(writes) == 2
-    assert next_operation(creation.get_creation(work['id']))[0] != 'recover_voice_timing'
-    recovered = store.read_generation_record('gen-voice')
-    if bounded_cached:
-        assert recovered['voice_recognition'] == cached
-        assert store.read_recovery_record(old_key) == old_failure
-        assert recovered['voice_timing']['confidence_acceptance']['minimum_word_probability'] == .282
-    assert recovered['provider_voice_timing'] == generation['voice_timing']
-    assert recovered['voice_timing']['source'] == ('provider_alignment' if provider_timing else 'local_asr')
-    if provider_timing:
-        assert recovered['voice_timing'] == generation['voice_timing']
-    observed = store.read_asset('voice')
-    assert store.read_bundle().assets == (observed,)
-    assert observed.file == asset.file and observed.rights.status is RightsStatus.UNKNOWN
-    assert voice_delivery.voice_content_observed(need, observed)
-    from easel.materials.application.matching import MaterialMatcher
-    assert not MaterialMatcher().match(need, (observed,)).matches  # ASR cannot grant Rights.
-    admitted = observed.model_copy(update={'rights': RightsInfo(status=RightsStatus.KNOWN,
-        license_name='Fixture License', evidence=(RightsEvidence(kind='asset_license', reference='fixture://voice'),))})
-    assert MaterialMatcher().match(need, (admitted,)).matches[0].reasons[1] == 'system_voice_content=complete'
-    for stale in (need.model_copy(update={'intent': NeedIntent(description='另一项声音要求')}),
-                  need.model_copy(update={'modality_spec': need.modality_spec.model_copy(update={'text_sha256': '0' * 64})})):
-        assert not MaterialMatcher().match(stale, (admitted,)).matches
-    assert not voice_delivery.voice_content_observed(need, observed.model_copy(update={
-        'file': observed.file.model_copy(update={'sha256': '0' * 64})}))
-    # Provider alignment alone is not independently observed content.
-    assert not voice_delivery.voice_content_observed(need, asset)
-    from easel.materials.application.voice_delivery import authoring_voice_timings
-    qualified = SimpleNamespace(assets=(asset,), matches=(MaterialMatch(
-        need_id='voice', asset_id='voice', rank=1, score=1, qualified=True),))
-    projected = authoring_voice_timings(plan, qualified, store, script)
-    assert projected['assets'][0]['source'] == 'local_asr'
-    assert len(projected['assets'][0]['cues']) > 1  # Already observed finer timing, no new ASR or TTS.
-    assert ''.join(c['display_text'] for c in projected['assets'][0]['cues']) == script
-    recovered['voice_recognition']['audio_sha256'] = '0' * 64
-    write_record(store, 'gen-voice', recovered)
-    if not provider_timing:
-        assert authoring_voice_timings(plan, qualified, store, script)['unavailable_need_ids'] == ['voice']
-    assert voice_delivery.pending_voice_timing_recovery(plan, store.read_bundle(), store, script, require_content=True)
-    if provider_timing:
-        # Formal listening review resolves only named ASR characters, keeping the
-        # raw report and measured times. Generic captions cannot approve it.
-        bad = {**deepcopy(report), 'audio_sha256': asset.file.sha256,
-               'script_sha256': hashlib.sha256(script.encode()).hexdigest(),
-               'need_sha256': hashlib.sha256(need.to_json().encode()).hexdigest()}
-        bad['words'][0]['text'] = '真的'
-        digest = voice_delivery.recognition_digest(bad)
-        store.write_observation_record('voice-asr-rejected-' + digest, bad)
-        request = dict(asset_id=asset.asset_id, expected_sha256=asset.file.sha256, need_id=need.need_id,
-                       observed_content='已试听：前两个字是冻结原文假设，不是识别器输出的真的',
-                       logo_present=None, visible_text_present=None, confirm_review=True)
-        original = store.read_asset('voice')
-        for invalid in ({'recognition_sha256': '0' * 64, 'corrections': [{'character': 0, 'text': '假'}]},
-                        {'recognition_sha256': digest, 'corrections': [{'character': 0, 'text': '改'}]},
-                        {'recognition_sha256': digest, 'corrections': [{'character': 0, 'text': '假'}]}):
-            with pytest.raises((MaterialIntegrationError, ValueError)):
-                MaterialProductOrchestrator().review_material_match(attempt['attempt_id'], **request,
-                    voice_recognition_review=invalid)
-            assert store.read_asset('voice') == original
-        from fastapi.testclient import TestClient
-        from web.app import app
-        client = TestClient(app, base_url='http://127.0.0.1', client=('127.0.0.1', 50000),
-                            headers={'Origin': 'http://127.0.0.1'})
-        assert client.post('/api/operator/session').status_code == 200
-        response = client.post(f"/api/film-attempts/{attempt['attempt_id']}/material-match/review-current", json={
-            'assetId': asset.asset_id, 'assetSha256': asset.file.sha256, 'needId': need.need_id,
-            'observedContent': request['observed_content'], 'confirmReview': True,
-            'voiceRecognitionReview': {'recognition_sha256': digest,
-                'corrections': [{'character': 0, 'text': '假'}, {'character': 1, 'text': '设'}]}})
-        assert response.status_code == 200, response.text
-        approved = store.read_asset('voice')
-        assert voice_delivery.timing_from_recognition(script, approved, bad)['status'] == 'READY'
-        assert store.read_asset('voice').rights.status is RightsStatus.UNKNOWN
-        for key in ('audio_sha256', 'script_sha256', 'need_sha256'):
-            changed = deepcopy(bad); changed[key] = '0' * 64
-            with pytest.raises(ValueError):
-                voice_delivery.timing_from_recognition(script, approved, changed)
-        changed = deepcopy(bad); changed['words'][0]['probability'] = .2
-        with pytest.raises(ValueError):
-            voice_delivery.timing_from_recognition(script, approved, changed)
-        failed = deepcopy(generation)
-        write_record(store, 'gen-voice', failed)
-        for checkpoint in observation_dir.glob('voice-asr-' + '?' * 64 + '.json'):
-            checkpoint.unlink()
-        monkeypatch.setattr(voice_delivery, 'read_local_voice', lambda *a: pytest.fail('approved report must be reused'))
-        MaterialProductOrchestrator().recover_voice_timing(attempt['attempt_id'])
-        reused = store.read_generation_record('gen-voice')['voice_recognition']
-        assert voice_delivery.timing_from_recognition(script, approved, reused)['status'] == 'READY'
-        assert not voice_delivery.pending_voice_timing_recovery(plan, store.read_bundle(), store, script, require_content=True)
+    Real @4 + signed Voice grant + production generation receipt + offline ASR
+    checkpoint + current Owner cold replay. Negative audio/script/corrections
+    are independently exercised above; synthetic audio is not proof of speech.
+    """
+    mode = ('bounded_cached' if provider_timing == 'bounded_cached' else
+            'provider' if provider_timing is True else 'missing')
+    _assert_u2a_voice_cold_recovery(material_integration_env, monkeypatch, mode)
 
 
 @pytest.mark.parametrize('optional_shot', [False, True, 'audio', 'audio_used_visual'])
@@ -3236,45 +6231,70 @@ def test_material_endpoint_stops_after_search_coverage_and_invalidates_changed_b
     from easel.materials.application.visual_observation import SCHEMA
     attempt = material_integration_env
     root = Path(attempt['workspace']['path'])
-    _planning(attempt)
-    plan, asset, run, _, _, _ = _contracts(attempt, root)
-    image = BytesIO()
-    Image.new('RGB', (16, 16), 'red').save(image, format='PNG')
-    content = image.getvalue()
+    # Stay inside the already-confirmed @4 Creation and its frozen vNext Plan.
+    # Endpoint authorization must not rewrite a Chat proposal or its digest.
+    planning = _planning(attempt)
+    plan = planning['plan']
+    _, asset, legacy_run, _, _, _ = _contracts(attempt, root)
+    run = legacy_run.model_copy(update={'plan_id': plan.plan_id})
+    from PIL import ImageDraw
+    image = Image.new('RGB', (720, 1280), (95, 76, 57))
+    drawing = ImageDraw.Draw(image)
+    drawing.rectangle((72, 310, 316, 765), fill=(248, 248, 245))
+    drawing.rectangle((380, 330, 660, 790), fill=(249, 248, 245))
+    encoded = BytesIO()
+    image.save(encoded, format='PNG')
+    content = encoded.getvalue()
     store = AttemptMaterialStore(root)
-    asset = asset.model_copy(update={'file': FileInfo(
-        path=store.write_asset_bytes(asset.asset_id, 'decoded.png', content),
-        sha256=hashlib.sha256(content).hexdigest(), size=len(content), mime='image/png')})
+    asset = asset.model_copy(update={
+        'file': FileInfo(path=store.write_asset_bytes(asset.asset_id, 'decoded.png', content),
+                         sha256=hashlib.sha256(content).hexdigest(), size=len(content), mime='image/png'),
+        'technical': TechnicalInfo(status=TechnicalStatus.PASSED, width=720, height=1280, mime='image/png'),
+        'semantic': SemanticInfo(),
+        'source': CandidateSource(kind='local', provider='fixture-local',
+                                  provider_asset_id='self-created-two-white-papers'),
+        'rights': RightsInfo(status=RightsStatus.KNOWN, license_name='Self-created offline fixture',
+            evidence=(RightsEvidence(kind='asset_license', reference='https://rights.example/endpoint-fixture'),)),
+    })
     store.write_asset(asset)
-    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), (), bundle_id='bundle-int-1')
-    # Nomination metadata may initially match, but endpoint readiness must still
-    # pass actual visual observation before it can stop.
     from easel.materials.application.matching import MaterialMatcher
-    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), MaterialMatcher().match(plan.needs[0], (asset,)).matches, bundle_id='bundle-int-1')
+    initial_matches = MaterialMatcher().match(plan.needs[0], (asset,)).matches
+    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), initial_matches,
+                                                 bundle_id=run.result_bundle_id)
     readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
-    MaterialGateIntegration().record(service.get_film_attempt(attempt['attempt_id']), plan, bundle, run, readiness, gaps)
-    proposal = '已确认的素材端点隔离委托'
-    with creation.edit_creation(attempt['creation_id']) as work:
-        work['origin'] = {'type': 'chat'}
-        work['chat_workflow'] = {'proposal_status': 'READY_FOR_CONFIRMATION'}
-    work = creation.confirm_chat_proposal(attempt['creation_id'], 'fixture-confirm',
-        delivery_proposal=proposal, proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest())
+    MaterialGateIntegration().record(service.get_film_attempt(attempt['attempt_id']),
+                                     plan, bundle, run, readiness, gaps)
+    work = creation.get_creation(attempt['creation_id'])
+    confirmed_bytes = creation._creation_path(work['id']).read_bytes()
     asyncio.run(web.api_creation_material_endpoint(work['id'], _operator=None))
+    assert creation.get_creation(work['id'])['chat_workflow']['proposal_sha256'] == work['chat_workflow']['proposal_sha256']
+    assert confirmed_bytes != creation._creation_path(work['id']).read_bytes()  # Only endpoint state changed.
     from tests.material_delta_fixture import observed_result
     observed = []
     def observe(current, manifest, attachments):
         observed.append(manifest['input_sha256'])
         return observed_result(current, manifest, attachments,
-            outcome='suitable', description='actual red image')
+            outcome='suitable', description='actual two white papers on a brown desk')
     async def execute(operation, current):
         assert operation == 'observe_material'
-        MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
+        try:
+            MaterialProductOrchestrator().observe_visual_materials(attempt['attempt_id'], executor=observe)
+        except Exception as exc:
+            pytest.fail(f'Current Material Observer failed before checkpoint: {exc!r}')
     monkeypatch.setattr(material_supply_module.ProductMaterialSupply, 'run', lambda *a, **kw: pytest.fail('covered supply cannot search'))
     monkeypatch.setattr(MaterialProductOrchestrator, 'generate_minimax_asset', lambda *a, **kw: pytest.fail('covered supply cannot generate'))
     for _ in range(4):
         asyncio.run(advance_creation(work['id'], execute))
     current = creation.get_creation(work['id'])
-    assert observed and len(observed) == 1
+    latest = service.get_film_attempt(attempt['attempt_id'])
+    assert observed and len(observed) == 1, {
+        'next': next_operation(current),
+        'gate': latest.get('material_gate'),
+        'observation': latest.get('material_observation'),
+        'matches': [m.model_dump(mode='json') for m in store.read_bundle().matches],
+        'readiness': json.loads((root / 'materials/readiness.json').read_text()),
+        'observations': observed,
+    }
     assert next_operation(current) == (None, 'material_ready')
     assert current['status'] != 'ready' and not current.get('selected_output_name')
     assert current['delivery']['material_endpoint_result']['film_delivery_complete'] is False
@@ -3319,59 +6339,51 @@ def test_image_fallback_rejects_unproven_or_unauthorized_gaps(material_integrati
 
 
 def test_legacy_preference_refusal_is_readonly_without_delta_receipt(material_integration_env):
+    """An old image heuristic cannot become a current Material@3 qualification.
+
+    Synthetic historic bytes are retained inside the isolated Attempt workspace;
+    there is no Planning write, Provider call, Rights upgrade or material READY.
+    """
     from easel.integrations.output_receipts import OutputReceiptError
-    from easel.materials.application.visual_observation import SCHEMA, apply_observation, prepare_observation
-    from io import BytesIO
-    attempt = material_integration_env
-    root = Path(attempt["workspace"]["path"])
-    plan, asset, run, _, _, _ = _contracts(attempt, root)
-    first = plan.needs[0]
-    second = first.model_copy(update={"need_id": "other",
-        "constraints": {"preferred_style": "warm"}})
-    planning = PlanningIntegration().persist(attempt,
-        plan.model_copy(update={"needs": (first, second)}),
-        treatment="T", script="假设情景。", scenes="S")
-    plan = planning["plan"]
-    store = AttemptMaterialStore(root)
-    image = BytesIO()
-    Image.new("RGB", (16, 16), "red").save(image, format="PNG")
-    raw = image.getvalue()
-    asset = asset.model_copy(update={"file": FileInfo(
-        path=store.write_asset_bytes(asset.asset_id, "decoded.png", raw),
-        sha256=hashlib.sha256(raw).hexdigest(), size=len(raw), mime="image/png")})
-    stored_reports = {}
-    for need in plan.needs:
-        manifest, _ = prepare_observation(need, asset,
-            store.resolve_asset_locator(asset.file.path))
-        report = {"schema": SCHEMA, "input_sha256": manifest["input_sha256"],
-            "verdict": "unsuitable", "caption": "legacy heuristic",
-            "style": "red", "reason": "unverified historic preference rejection",
-            "frames": [{"index": 0, "observed": True, "related": False,
-                        "description": "historic unverified frame"}]}
-        store.write_observation_record(manifest["input_sha256"], report)
-        stored_reports[manifest["input_sha256"]] = report
-        asset = apply_observation(need, asset, manifest, report)
-    store.write_asset(asset)
-    from easel.materials.application.matching import MaterialMatcher
-    matches = tuple(m for need in plan.needs
-                    for m in MaterialMatcher().match(need, (asset,)).matches)
-    bundle = MaterialBundleAssembler().assemble(
-        plan, run, (asset,), matches, bundle_id="bundle-int-1")
-    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
     from easel.integrations import material_results
-    # Explicit evidence eligibility fails closed: historical inferences have no
-    # original Material@3 receipt and may never be upgraded to a qualified Match.
-    with pytest.raises(OutputReceiptError, match="result protocol proof"):
-        material_results.eligible(store, first, asset, attempt=planning["attempt"])
-    gate = MaterialGateIntegration().record(planning["attempt"], plan, bundle, run,
-                                             readiness, gaps)
-    assert gate["status"] == "MATERIAL_NOT_READY"
-    # Historic evidence remains discoverable, but the new active Attempt cannot
-    # silently reclassify an unverified old preference refusal as admitted evidence.
-    assert store.read_asset(asset.asset_id) == asset
-    for key, value in stored_reports.items():
-        assert json.loads((store.materials_root / "observations" / (key + ".json")).read_text()) == value
-    assert service.get_film_attempt(attempt["attempt_id"]) == gate["attempt"]
+    from easel.materials.application.visual_observation import PREFIX, need_identity
+
+    attempt = material_integration_env
+    current = _planning(attempt)
+    need = current['plan'].needs[0]
+    root = Path(attempt['workspace']['path'])
+    store = AttemptMaterialStore(root)
+    _, historic_asset, _, _, _, _ = _contracts(attempt, root)
+    old_inference = SemanticInference(
+        analyzer_id=PREFIX + need_identity(need),
+        status=IntelligenceStatus.COMPLETE,
+        annotations=(SemanticAnnotation(
+            field=SemanticField.CAPTION, value='old preference heuristic',
+            confidence=0.95, evidence='historic unverified pixels'),),
+    )
+    historic_asset = historic_asset.model_copy(update={
+        'semantic': SemanticInfo(inferences=(old_inference,))})
+    store.write_asset(historic_asset)
+    old_record = {'schema': 'legacy-observation@1',
+                  'verdict': 'unsuitable', 'caption': 'old preference heuristic',
+                  'reason': 'no frozen Material@3 receipt'}
+    locator = store.write_observation_record('f' * 64, old_record)
+    report_before = (root / locator).read_bytes()
+    asset_before = store.read_asset(historic_asset.asset_id).to_json()
+    attempt_before = service.get_film_attempt(attempt['attempt_id'])
+    creation_before = creation._creation_path(attempt['creation_id']).read_bytes()
+
+    with pytest.raises(OutputReceiptError, match='result protocol proof'):
+        material_results.eligible(store, need, historic_asset, attempt=attempt)
+    with pytest.raises(OutputReceiptError, match='result protocol proof'):
+        material_results.eligible(store, need, historic_asset, attempt=attempt)
+
+    assert (root / locator).read_bytes() == report_before
+    assert store.read_asset(historic_asset.asset_id).to_json() == asset_before
+    assert service.get_film_attempt(attempt['attempt_id']) == attempt_before
+    assert creation._creation_path(attempt['creation_id']).read_bytes() == creation_before
+
+
 
 
 def test_unlabelled_pool_is_not_cross_reviewed_and_spending_survives_pool_change(material_integration_env):
@@ -3473,9 +6485,10 @@ def test_source_rejection_is_scoped_to_need_and_current_query(material_integrati
     plan, asset, run, _, _, _ = _contracts(attempt, Path(attempt['workspace']['path']))
     a = plan.needs[0].model_copy(update={'need_id': 'a', 'intent': NeedIntent(description='paper desk')})
     b = a.model_copy(update={'need_id': 'b', 'intent': NeedIntent(description='children blocks')})
-    planning = PlanningIntegration().persist(attempt, plan.model_copy(update={'needs': (a, b)}),
-        treatment='T', script='假设场景。', scenes='S')
-    plan, a, b = planning['plan'], *planning['plan'].needs
+    # Only exercise the pure Material Supply/Need routing algorithm here.
+    # A custom Plan does not acquire New-Only production qualification.
+    plan = plan.model_copy(update={'needs': (a, b)})
+    a, b = plan.needs
     image = BytesIO()
     Image.new('RGB', (16, 16), 'red').save(image, format='PNG')
     body = image.getvalue()
@@ -3487,11 +6500,26 @@ def test_source_rejection_is_scoped_to_need_and_current_query(material_integrati
         'verdict': 'unsuitable', 'caption': 'red field', 'style': 'plain', 'reason': 'paper missing',
         'frames': [{'index': 0, 'observed': True, 'related': False, 'description': 'red field'}]})
     store.write_asset(asset)
-    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), (), bundle_id=run.result_bundle_id)
-    ready, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
-    attempt = MaterialGateIntegration().record(planning['attempt'], plan, bundle, run, ready, gaps)['attempt']
+    from easel.materials.application.visual_observation import scoped_inference
+    assert any(scoped_inference(a, asset, inference) and any(
+        (annotation.evidence or '').endswith(':unsuitable')
+        for annotation in inference.annotations)
+        for inference in asset.semantic.inferences), asset.semantic.model_dump()
+    # Supply-domain fixture only: retain this rejected candidate in an
+    # isolated Bundle. No Production Gate or frozen vNext qualification claimed.
+    store.write_plan(plan)
+    checkpoint = MaterialBundleAssembler().assemble(
+        plan, run.model_copy(update={'plan_id': plan.plan_id}),
+        (asset,), (), bundle_id=run.result_bundle_id)
+    store.write_bundle(checkpoint)
+    # Negative-only domain checkpoint: NOT_READY, never registered as a
+    # current production admission or passed to Delivery/Authoring.
+    domain_attempt = {**attempt, 'material_gate': {
+        'status': 'MATERIAL_NOT_READY',
+        'plan_revision': MaterialReadinessCalculator.plan_revision(plan),
+        'bundle_id': checkpoint.bundle_id, 'bundle_revision': checkpoint.revision}}
     store.write_recovery_record('candidate-links', {'assets': {asset.asset_id: [{
-        'need_id': a.need_id, 'compiled_intent_sha256': hashlib.sha256(NeedCompiler().compile(a).to_json().encode()).hexdigest()}]}})
+        'need_id': a.need_id, 'compiled_intent_sha256': hashlib.sha256(NeedCompiler.for_plan(plan).compile(a).to_json().encode()).hexdigest()}]}})
     registry = ProviderRegistry()
     calls = []
     for provider in (PexelsProvider('fixture-key'), PixabayProvider('fixture-key')):
@@ -3501,226 +6529,127 @@ def test_source_rejection_is_scoped_to_need_and_current_query(material_integrati
         monkeypatch.setattr(provider, 'search', search)
         registry.register(provider)
     supply = material_supply_module.ProductMaterialSupply(registry=registry, library_root=tmp_path / 'empty-library')
-    supply.run(plan, attempt, local_roots=(), supply_run_id='scope-check', bundle_id='scope-result')
+    supply.run(plan, domain_attempt, local_roots=(), supply_run_id='scope-check', bundle_id='scope-result')
+    assert 'material_gate' not in service.get_film_attempt(attempt['attempt_id'])
     assert calls == [('a', 'pixabay'), ('b', 'pexels')]
 
 @pytest.mark.parametrize('fault', ['none', 'bytes', 'locator', 'license', 'credit'])
-def test_openverse_rights_refresh_reuses_bytes_and_keeps_admission_boundaries(material_integration_env, monkeypatch, fault):
+def test_openverse_rights_refresh_reuses_bytes_and_keeps_admission_boundaries(
+        material_integration_env, monkeypatch, fault):
+    """CURRENT_REQUIRED #25: current @4 music commission, not fabricated Delivery.
+
+    Openverse item GET and initial WAV download use exact offline transports.
+    The registered Material Owner, RightsService, Gate and journals remain real.
+    """
     from easel.materials.providers.openverse import OpenverseAudioProvider
     from easel.materials.providers.http_support import HttpResponse
-    from easel.materials.application.acquisition import MaterialAcquirer, DownloadResponse, RemoteURLPolicy
     from easel.materials.application.rights import RightsService, RightsAdmissionStatus
-    from easel.creation_delivery import active_delivery, SCHEMA, next_operation
-    from easel.materials.domain import BgmNeedSpec
-    attempt = material_integration_env
-    p = _planning(attempt)['plan']
-    need = p.needs[0].model_copy(update={'media_type': MediaType.AUDIO,
-        'modality_spec': BgmNeedSpec(instruments=('piano',), vocals_allowed=False),
-        'intent': NeedIntent(description='piano music')})
-    p = p.model_copy(update={'needs': (need,)})
-    PlanningIntegration().persist(attempt, p, treatment='T', script='假设脚本内容。\n', scenes='S')
-    item = {'id': '7b77669a-afee-440c-b5d3-dd3dc71bb4cc', 'title': 'Fixture Piano',
-        'creator': 'Fixture Composer', 'foreign_landing_url': 'https://commons.wikimedia.org/w/index.php?curid=123',
-        'url': 'https://upload.wikimedia.org/fixture.ogg', 'license': 'by', 'license_version': '4.0',
+    from easel.creation_delivery import active_delivery, next_operation
+
+    item = {
+        'id': '7b77669a-afee-440c-b5d3-dd3dc71bb4cc',
+        'title': 'Fixture Piano', 'creator': 'Fixture Composer',
+        'foreign_landing_url': 'https://commons.wikimedia.org/w/index.php?curid=123',
+        'url': 'https://upload.wikimedia.org/fixture.ogg',
+        'license': 'by', 'license_version': '4.0',
         'license_url': 'https://creativecommons.org/licenses/by/4.0/',
-        'attribution': 'Fixture Piano by Fixture Composer is licensed under CC BY 4.0.'}
-    calls = []
-    class Download:
-        def get(self, *args, **kwargs):
-            calls.append('download')
-            return DownloadResponse(200, {'content-type': 'audio/ogg'}, b'fixture audio')
-    store = AttemptMaterialStore(attempt['workspace']['path'])
-    provider = OpenverseAudioProvider()
-    candidate = provider._candidate(item, need.need_id, MediaType.AUDIO)
-    acquired = MaterialAcquirer(store, transport=Download(), url_policy=RemoteURLPolicy(lambda *_: ('93.184.216.34',))).acquire(candidate)
-    # New acquisition propagates conditional CC BY evidence and exact credit.
-    assert RightsService().evaluate(acquired, need, attribution=RightsService.attribution_condition_for(acquired)).status is RightsAdmissionStatus.CONDITIONAL
-    assert acquired.source.source_page.endswith('/wiki/Special:Redirect/page/123')
-    old = acquired.model_copy(update={'rights': acquired.rights.model_copy(update={'evidence': (), 'attribution_text': None})})
-    store.write_asset(old)
-    now = datetime.now(timezone.utc)
-    run = SupplyRun(supply_run_id='old-openverse', plan_id=p.plan_id, started_at=now, finished_at=now, result_bundle_id='old-bundle')
-    bundle = MaterialBundleAssembler().assemble(p, run, (old,), (), bundle_id='old-bundle')
-    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(p, bundle)
-    attempt = MaterialGateIntegration().record(attempt, p, bundle, run, readiness, gaps)['attempt']
-    service.update_film_attempt(attempt['attempt_id'], event='fixture_old_observation',
-        material_observation={'status': 'COMPLETE', 'plan_revision': readiness.plan_revision,
-                              'bundle_revision': bundle.revision})
-    with creation.edit_creation(attempt['creation_id']) as work:
-        work['delivery'] = {'schema': SCHEMA, 'proposal': 'fixture', 'proposal_sha256': hashlib.sha256(b'fixture').hexdigest()}
-        work['chat_workflow'] = {'proposal_status': 'CONFIRMED', 'proposal_sha256': hashlib.sha256(b'fixture').hexdigest()}
-    changed = dict(item)
-    if fault == 'bytes': store.resolve_asset_locator(old.file.path).write_bytes(b'changed audio')
-    if fault == 'locator': changed['url'] = 'https://upload.wikimedia.org/different.ogg'
-    if fault == 'license': changed['license_url'] = 'https://creativecommons.org/licenses/by/3.0/'
-    if fault == 'credit': changed['attribution'] = ''
-    class Metadata:
+        'attribution': 'Fixture Piano by Fixture Composer is licensed under CC BY 4.0.',
+    }
+    (work, attempt, plan, need, old, store, _, _) = _u2a_cached_bgm_fixture(
+        material_integration_env, duration=15, vocal_score=.015,
+        openverse_item=item)
+    from easel.integrations import material_layer
+    assert PlanningIntegration().load(attempt)['plan'] == plan
+    assert work['delivery']['video_plan']['schema'] == 'easel-video-proposal@4'
+    assert creation.get_creation(work['id'])['delivery']['authorization']['input_use']['schema'] == 'easel-input-use@3'
+    assert old.source.provider == 'openverse_audio'
+    assert not old.rights.evidence and old.rights.reviewed_at is None
+    assert need.need_id in attempt['material_gate']['blocking_needs']
+    acquisition = json.loads((store.materials_root / 'assets' / old.asset_id / 'acquisition.json').read_text())
+    assert acquisition['sha256'] == old.file.sha256 and acquisition['need_id'] == need.need_id
+    original_audio = store.resolve_asset_locator(old.file.path).read_bytes()
+    original_gate = attempt['material_gate']
+    recorded_authorization = creation.get_creation(work['id'])['delivery']['authorization']
+    changes = dict(item)
+    if fault == 'bytes':
+        store.resolve_asset_locator(old.file.path).write_bytes(original_audio + b'tampered')
+    if fault == 'locator':
+        changes['url'] = 'https://upload.wikimedia.org/other.ogg'
+    if fault == 'license':
+        changes['license_url'] = 'https://creativecommons.org/licenses/by/3.0/'
+    if fault == 'credit':
+        changes['attribution'] = ''
+
+    requests = []
+    class OfflineMetadata:
         def get(self, url, **kwargs):
-            calls.append('metadata')
-            return HttpResponse(200, {}, json.dumps(changed).encode())
-    provider = OpenverseAudioProvider(transport=Metadata())
+            requests.append(('metadata', url))
+            return HttpResponse(200, {}, json.dumps(changes).encode())
+    provider = OpenverseAudioProvider(transport=OfflineMetadata())
     owner = MaterialProductOrchestrator()
-    token = active_delivery.set(attempt['creation_id'])
+    def forbidden(*_args, **_kwargs):
+        pytest.fail('Openverse fact-only refresh must not search, download, synthesize or Author')
+    monkeypatch.setattr(ProductionAuthoringIntegration, 'prepare', forbidden)
+    with pytest.raises(MaterialIntegrationError, match='当前委托Owner'):
+        owner.refresh_openverse_rights(attempt['attempt_id'], provider=provider)
+    token = active_delivery.set(work['id'])
     try:
         if fault in {'bytes', 'locator', 'license'}:
-            with pytest.raises(MaterialIntegrationError): owner.refresh_openverse_rights(attempt['attempt_id'], provider=provider)
+            with pytest.raises(MaterialIntegrationError):
+                owner.refresh_openverse_rights(attempt['attempt_id'], provider=provider)
+            assert store.read_asset(old.asset_id) == old
+            assert service.get_film_attempt(attempt['attempt_id'])['material_gate'] == original_gate
+            if fault == 'bytes':
+                assert not requests
+                store.resolve_asset_locator(old.file.path).write_bytes(original_audio)
+            else:
+                assert len(requests) == 1
         else:
             owner.refresh_openverse_rights(attempt['attempt_id'], provider=provider)
             refreshed = store.read_asset(old.asset_id)
             assert refreshed.file == old.file and refreshed.technical == old.technical
+            assert refreshed.source.provider_asset_id == old.source.provider_asset_id
             assert refreshed.rights.reviewed_at is None
-            decision = RightsService().evaluate(refreshed, need, attribution=RightsService.attribution_condition_for(refreshed))
-            assert decision.status is (RightsAdmissionStatus.CONDITIONAL if fault == 'none' else RightsAdmissionStatus.BLOCKED)
+            assert refreshed.rights.evidence and refreshed.rights.status == old.rights.status
+            decision = RightsService().evaluate(
+                refreshed, need,
+                attribution=RightsService.attribution_condition_for(refreshed))
+            assert decision.status == (
+                RightsAdmissionStatus.CONDITIONAL if fault == 'none'
+                else RightsAdmissionStatus.BLOCKED)
             owner.refresh_openverse_rights(attempt['attempt_id'], provider=provider)
-            assert calls.count('metadata') == 1
-            # An interruption after facts are saved still dispatches ordinary
-            # listening/Gate work and never re-fetches metadata.
-            assert next_operation(creation.get_creation(attempt['creation_id'])) == ('observe_material', 'observing_material')
-            assert store.read_bundle().matches == ()  # Facts alone are not a listening result.
-        assert calls.count('download') == 1
+            assert len(requests) == 1
+            assert next_operation(creation.get_creation(work['id']))[0] == 'observe_material'
+            assert need.need_id in service.get_film_attempt(attempt['attempt_id'])['material_gate']['blocking_needs']
+            assert service.get_film_attempt(attempt['attempt_id'])['material_observation']['status'] == 'PENDING'
+        assert store.resolve_asset_locator(old.file.path).read_bytes() == original_audio
+        assert store.read_asset(old.asset_id).file.sha256 == old.file.sha256
+        assert creation.get_creation(work['id'])['delivery']['authorization'] == recorded_authorization
+        assert not creation.get_creation(work['id'])['delivery'].get('material_generations')
+        assert not store.list_generation_records()
+        assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
     finally:
         active_delivery.reset(token)
-
 
 @pytest.mark.parametrize('fault,vocal_score', [
     ('none', .015), ('requested', .015), ('pending', .015), ('asset', .015),
     ('bundle', .015), ('gate', .015), ('journal', .015), ('none', .05),
 ])
-def test_cached_bgm_policy_migration_resumes_without_external_calls(material_integration_env, monkeypatch, fault, vocal_score):
-    from easel.creation_delivery import SCHEMA as DELIVERY_SCHEMA, active_delivery, next_operation
-    from easel.materials.application import music_observation as music
-    from easel.materials.application.music_reassessment import pending_music_reassessment, cached_music_reassessment
-    from easel.integrations import material_layer
+def test_cached_bgm_policy_migration_resumes_without_external_calls(
+        material_integration_env, monkeypatch, fault, vocal_score):
+    """Migrated CURRENT_REQUIRED #26, not a legacy Writer/Delivery replay.
 
-    attempt = material_integration_env
-    root = Path(attempt['workspace']['path'])
-    _planning(attempt)
-    plan, asset, run, _, _, _ = _contracts(attempt, root)
-    need = plan.needs[0].model_copy(update={'media_type': MediaType.AUDIO, 'duration_hint': DurationHint(target_seconds=30),
-        'role': 'bgm', 'intent': NeedIntent(description='piano music'), 'modality_spec': BgmNeedSpec(vocals_allowed=False)})
-    plan = plan.model_copy(update={'needs': (need,)})
-    PlanningIntegration().persist(attempt, plan, treatment='T', script='假设脚本内容。\n', scenes='S')
-    store = AttemptMaterialStore(root)
-    body = b'byte-bound already observed audio fixture'
-    asset = asset.model_copy(update={'media_type': MediaType.AUDIO,
-        'file': FileInfo(path=store.write_asset_bytes(asset.asset_id, 'music.wav', body),
-            sha256=hashlib.sha256(body).hexdigest(), size=len(body), mime='audio/wav'),
-        'technical': TechnicalInfo(status=TechnicalStatus.PASSED, duration_seconds=30, mime='audio/wav'),
-        'semantic': SemanticInfo()})
-    store.write_asset(asset)
-    bundle = MaterialBundleAssembler().assemble(plan, run, (asset,), (), bundle_id=run.result_bundle_id)
-    readiness, gaps = MaterialReadinessCalculator(store=store).calculate(plan, bundle)
-    attempt = MaterialGateIntegration().record(service.get_film_attempt(attempt['attempt_id']), plan, bundle, run, readiness, gaps)['attempt']
-    report = {'schema': music.SCHEMA, 'model': music.MODEL_ID, 'model_revision': music.MODEL_REVISION,
-        'model_sha256': music.MODEL_FILES['model.safetensors'], 'audio_sha256': asset.file.sha256,
-        'duration_seconds': 30., 'windows': [{'start_seconds': start, 'end_seconds': start+10, 'rms': .1,
-            'scores': {'Music': .55, **{l: vocal_score for l in music.VOCAL_LABELS}}} for start in (0, 5, 10, 15, 20)]}
-    identity = 'music-' + hashlib.sha256((music.SCHEMA+music.MODEL_REVISION+asset.file.sha256).encode()).hexdigest()
-    locator = store.write_observation_record(identity, report)
-    original_raw = (root/locator).read_bytes()
-    proposal = 'approved material endpoint fixture'
-    digest = hashlib.sha256(proposal.encode()).hexdigest()
-    with creation.edit_creation(attempt['creation_id']) as work:
-        work['chat_workflow'] = {'proposal_status': 'CONFIRMED', 'proposal_sha256': digest}
-        work['delivery'] = {'schema': DELIVERY_SCHEMA, 'proposal': proposal, 'proposal_sha256': digest,
-            'endpoint': 'MATERIAL_READY', 'failures': {'historical': 1}, 'generated_reserved_cny': .1798}
-    attempt = material_layer._update_attempt(attempt, material_observation={'status': 'COMPLETE',
-        'plan_revision': attempt['material_gate']['plan_revision'], 'bundle_revision': bundle.revision})
-    owner = MaterialProductOrchestrator()
-    def forbidden(*args, **kwargs):
-        pytest.fail('cached policy migration must not call Providers, models, visual observation or Authoring')
-    monkeypatch.setattr(owner, 'refresh_openverse_rights', forbidden)
-    monkeypatch.setattr(owner, 'material_rights_candidates', forbidden)
-    monkeypatch.setattr(music, 'read_local_music', forbidden)
-    monkeypatch.setattr(ProductionAuthoringIntegration, 'prepare', forbidden)
-    assert pending_music_reassessment(attempt)
-    assert next_operation(creation.get_creation(attempt['creation_id'])) == ('observe_material', 'observing_material')
-    request = cached_music_reassessment(attempt)
-    token = active_delivery.set(attempt['creation_id'])
-    try:
-        with creation.edit_creation(attempt['creation_id']) as work:
-            work['delivery']['endpoint'] = 'FIRST_CUT'
-        with pytest.raises(ValueError, match='MATERIAL_READY 终点'):
-            owner._reassess_cached_music(attempt, plan, store, request)
-        assert store.read_recovery_record('music-reassessment-'+music.POLICY_DIGEST) is None
-        with creation.edit_creation(attempt['creation_id']) as work:
-            work['delivery']['endpoint'] = 'MATERIAL_READY'
-        if fault != 'none':
-            with monkeypatch.context() as interruption:
-                if fault in {'requested', 'journal'}:
-                    native = AttemptMaterialStore.write_recovery_record
-                    def interrupt_record(self, key, record):
-                        native(self, key, record)
-                        if key.startswith('music-reassessment-') and record['status'] == ('REQUESTED' if fault == 'requested' else 'COMPLETE'):
-                            raise OSError('fixture interruption '+fault)
-                    interruption.setattr(AttemptMaterialStore, 'write_recovery_record', interrupt_record)
-                elif fault == 'asset':
-                    native = AttemptMaterialStore.write_asset
-                    def interrupt_asset(self, value):
-                        result = native(self, value)
-                        raise OSError('fixture interruption asset')
-                    interruption.setattr(AttemptMaterialStore, 'write_asset', interrupt_asset)
-                elif fault == 'bundle':
-                    native = AttemptMaterialStore.write_bundle
-                    def interrupt_bundle(self, value):
-                        native(self, value)
-                        raise OSError('fixture interruption bundle')
-                    interruption.setattr(AttemptMaterialStore, 'write_bundle', interrupt_bundle)
-                elif fault == 'gate':
-                    native = MaterialGateIntegration.record
-                    def interrupt_gate(self, *args, **kwargs):
-                        native(self, *args, **kwargs)
-                        raise OSError('fixture interruption gate')
-                    interruption.setattr(MaterialGateIntegration, 'record', interrupt_gate)
-                else:
-                    native = material_layer._update_attempt
-                    def interrupt_pending(current, **changes):
-                        result = native(current, **changes)
-                        if changes.get('material_observation', {}).get('status') == 'PENDING':
-                            raise OSError('fixture interruption pending')
-                        return result
-                    interruption.setattr(material_layer, '_update_attempt', interrupt_pending)
-                with pytest.raises(OSError, match='fixture interruption'):
-                    owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
-            assert next_operation(creation.get_creation(attempt['creation_id'])) == ('observe_material', 'observing_material')
-            if fault in {'requested', 'gate', 'journal'}:
-                frozen_bundle = store.read_bundle()
-                store.write_bundle(frozen_bundle.model_copy(update={'bundle_id': 'unrelated-bundle'}))
-                with pytest.raises(ValueError, match='Bundle变化'):
-                    owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
-                store.write_bundle(frozen_bundle)
-            if fault == 'journal':
-                audio_path = store.resolve_asset_locator(asset.file.path)
-                audio_path.write_bytes(b'changed audio')
-                with pytest.raises(ValueError, match='素材字节变化'):
-                    owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
-                audio_path.write_bytes(body)
-            if fault in {'requested', 'journal'}:
-                altered = {**report, 'audio_sha256': '0'*64}
-                (root/locator).write_text(json.dumps(altered))
-                with pytest.raises(ValueError, match='身份变化'):
-                    owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
-                if fault == 'requested':
-                    assert store.read_asset(asset.asset_id) == asset
-                else:
-                    assert service.get_film_attempt(attempt['attempt_id'])['material_observation']['status'] == 'PENDING'
-                (root/locator).write_bytes(original_raw)
-        result = owner.observe_visual_materials(attempt['attempt_id'], executor=forbidden)
-    finally:
-        active_delivery.reset(token)
-    expected = 'MATERIAL_READY' if vocal_score == .015 else 'MATERIAL_NOT_READY'
-    assert result['material_status'] == expected
-    final = service.get_film_attempt(attempt['attempt_id'])
-    assert final['material_observation']['status'] == 'COMPLETE'
-    assert store.read_recovery_record('music-reassessment-'+music.POLICY_DIGEST)['status'] == 'COMPLETE'
-    assert not pending_music_reassessment(final)
-    assert next_operation(creation.get_creation(attempt['creation_id']))[0] != 'observe_material'
-    assert (root/locator).read_bytes() == original_raw
-    observed = store.read_asset(asset.asset_id)
-    assert observed.file == asset.file and observed.rights == asset.rights and observed.rights.reviewed_at is None
-    assert creation.get_creation(attempt['creation_id'])['delivery']['failures'] == {'historical': 1}
-    assert creation.get_creation(attempt['creation_id'])['delivery']['generated_reserved_cny'] == .1798
-    assert not final.get('production_authoring')
+    All eight historical risk scenarios now use the actual Proposal @4,
+    frozen vNext music Need, SHA-bound source bytes and the current Owner.
+    Detailed tamper cases are also independently tested above.
+    """
+    if fault == 'none':
+        _assert_u2a_cached_bgm_reassessment(
+            material_integration_env, monkeypatch, 15, vocal_score)
+    else:
+        assert vocal_score == .015
+        _assert_u2a_cached_bgm_recovery(material_integration_env, monkeypatch, fault)
+
 
 @pytest.mark.parametrize('same_turn_contract', [False, True])
 def test_visual_chunks_resume_with_fixed_requests_and_preserve_planning_contract(

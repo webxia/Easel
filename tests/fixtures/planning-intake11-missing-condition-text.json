@@ -1,0 +1,850 @@
+{
+  "source_journal_sha256": "71ad12bf384a2e783e6f5c7723e965d010bca8fcc1d39584f795bee1b978f457",
+  "purpose": "2026-10-13真实Planning格式失败回放；原回复不可补写或作为成功证据；无凭证。",
+  "snapshot": {
+    "schema": "semantic-planning-checkpoint@9",
+    "scope": {
+      "attempt_id": "fa_905d431e46bf92272883d1d7d46f573d",
+      "canonical": {
+        "SCENES.md": "总时长 45 秒；9:16 竖屏；7 个镜头，连续不重叠。\n\n| # | 时长 | 画面 | 对应文案 | 节奏说明 |\n|---|---|---|---|---|\n| 1 | 0.0–5.5s | 俯拍一张半乱的桌面：杯垫、水杯、散落的笔、翻开的笔记本一角。浅景深，光是傍晚的窗光。 | 忙完不是再加一件事， | 静态长镜头，慢慢轻微推近，旁白先起 |\n| 2 | 5.5–11.0s | 平视侧拍：一只手把水杯挪回杯垫，轻放。声音：杯底接触桌面的\"嗒\"。 | 是把这一天的边角合上。 | 动作跟\"合上\"一词同步 |\n| 3 | 11.0–17.5s | 俯拍特写：手指把一支笔滚回笔筒或笔搁。 | 水杯归位，笔放回原处， | 节奏由旁白带，画面只做一个动作 |\n| 4 | 17.5–24.0s | 侧面中景：双手合上笔记本盖子，轻轻\"啪\"一声。 | 笔记本合起来。 | 盖子合上的声音点对\"合起来\" |\n| 5 | 24.0–32.0s | 中景：手伸向台灯开关，按下。画面亮度自然降下来，桌面的高光收缩。 | 灯可以先关， | 压暗过程约 2 秒，配合\"先\"字 |\n| 6 | 32.0–40.0s | 静帧中景：空桌面、台灯灭后的轮廓、窗光更明显。镜头几乎不动。 | 让桌面替你说，已经停一下了。 | 长留白，让句子在画面里走完 |\n| 7 | 40.0–45.0s | 缓推：只剩桌面边缘与窗外一片安静的天色。 | （无旁白） | 完全留白，BGM 渐弱但不切断 |\n\n字幕规格：每行 ≤ 12 个汉字，9:16 安全区居中偏下，字号统一，黑白两色按背景切换；不出现 emoji、表情、动效字。",
+        "SCRIPT.md": "忙完不是再加一件事，\n是把这一天的边角合上。\n水杯归位，笔放回原处，\n笔记本合起来。\n灯可以先关，\n让桌面替你说，已经停一下了。",
+        "TREATMENT.md": "**Content Core**\n- 核心议题：把收桌面当成一天结束的\"合页\"，而不是另一项待办\n- 内容分类：场景里说的事实 = 普通生活观察；不引用数据、不宣称功效\n- 一句话张力：我们常把\"忙完\"等同于\"再撑一下\"，但真正的停顿来自一个具体的小动作\n\n**Director Treatment**\n- 观众情绪路径：平视 → 微顿 → 放下\n- 第一个具体画面：一杯还冒着热气的水、旁边是合了一半的笔记本\n- \"识别瞬间\"：当旁白说出\"把这一天的边角合上\"时\n- 收尾：不喊口号，让画面停在关掉的台灯和安静桌面，留两秒白噪声般的留白\n\n## 声音设计\n- 预置旁白：preset-cmn-youth\n- 音色说明：青涩青年音色 / 中文普通话；旁白气质平静、像自己跟自己说，不上扬不拖腔；语速中等，每句之间留半拍\n- 旁白执行参数：pace_ratio 0.95（比默认略慢一档，给\"停顿\"留余地）、pitch_semitones 0、tone neutral\n- 段落标点对应节奏：逗号 = 0.3s 气口，句号 = 0.6s 停顿；分镜 6 末尾的句号后留 2.0s\n- BGM：无歌词、轻柔 pad 为主，可加极少量木吉他拨弦；不抢人声，旁白时自动压低（音乐闪避）\n- SFX：仅 3 处点状出现——分镜 2 杯底触桌的轻\"嗒\"、分镜 4 笔记本合盖的\"啪\"、分镜 5 台灯开关的\"咔\"；其余时段无 SFX\n- 留白：分镜 7 整段无旁白，仅 BGM 渐弱收尾\n- 音轨组成与本版\"旁白与音乐\"规格一致：旁白全程存在，BGM 全程不省略并在末镜自然渐弱\n\n已选择预置旁白：青涩青年音色（中文 (普通话)）。"
+      },
+      "catalog": {
+        "continuity": {},
+        "derived_voice": {
+          "plan_sha256": "230a5bfffc60182ed7d5a4795fdcff6ae08e82a284522259f277b412d338bedb",
+          "profile": {
+            "evidence": {
+              "document_sha256": "e522acb13f9c1b6d76daeb424f60eb8d150d184a8fcc1e44dbb9270878162d6e",
+              "label_quote": "青涩青年音色",
+              "language_quote": "中文 (普通话)",
+              "url": "https://platform.minimaxi.com/docs/faq/system-voice-id.md"
+            },
+            "execution_controls_schema": {
+              "additionalProperties": false,
+              "properties": {
+                "pace_ratio": {
+                  "maximum": 2,
+                  "minimum": 0.5,
+                  "type": "number"
+                },
+                "pitch_semitones": {
+                  "maximum": 12,
+                  "minimum": -12,
+                  "type": "integer"
+                },
+                "tone": {
+                  "enum": [
+                    null,
+                    "afraid",
+                    "angry",
+                    "disgusted",
+                    "happy",
+                    "neutral",
+                    "sad",
+                    "surprised"
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "handle": "preset-cmn-youth",
+            "label": "青涩青年音色",
+            "language": "zh-CN",
+            "limits": "官方名称和语言不证明性别、音域或听感；只执行已冻结的语速、音调和支持的情绪控制。",
+            "official_language": "中文 (普通话)",
+            "schema": "confirmed-preset-profile@1"
+          },
+          "script_sha256": "fb814523e49990830278edce8506a08cc80cf4ae715f7d705fb39ccd1dbace1f",
+          "sound_source_sha256": "f26c1d1c81cdfe46e10f44182341c2e724cde0830270369c370aeaa63cf00e22"
+        },
+        "event": {
+          "event-1": "总时长 45 秒；9:16 竖屏；7 个镜头，连续不重叠。",
+          "event-10": "| 7 | 40.0–45.0s | 缓推：只剩桌面边缘与窗外一片安静的天色。 | （无旁白） | 完全留白，BGM 渐弱但不切断 |",
+          "event-11": "字幕规格：每行 ≤ 12 个汉字，9:16 安全区居中偏下，字号统一，黑白两色按背景切换；不出现 emoji、表情、动效字。",
+          "event-2": "| # | 时长 | 画面 | 对应文案 | 节奏说明 |",
+          "event-3": "|---|---|---|---|---|",
+          "event-4": "| 1 | 0.0–5.5s | 俯拍一张半乱的桌面：杯垫、水杯、散落的笔、翻开的笔记本一角。浅景深，光是傍晚的窗光。 | 忙完不是再加一件事， | 静态长镜头，慢慢轻微推近，旁白先起 |",
+          "event-5": "| 2 | 5.5–11.0s | 平视侧拍：一只手把水杯挪回杯垫，轻放。声音：杯底接触桌面的\"嗒\"。 | 是把这一天的边角合上。 | 动作跟\"合上\"一词同步 |",
+          "event-6": "| 3 | 11.0–17.5s | 俯拍特写：手指把一支笔滚回笔筒或笔搁。 | 水杯归位，笔放回原处， | 节奏由旁白带，画面只做一个动作 |",
+          "event-7": "| 4 | 17.5–24.0s | 侧面中景：双手合上笔记本盖子，轻轻\"啪\"一声。 | 笔记本合起来。 | 盖子合上的声音点对\"合起来\" |",
+          "event-8": "| 5 | 24.0–32.0s | 中景：手伸向台灯开关，按下。画面亮度自然降下来，桌面的高光收缩。 | 灯可以先关， | 压暗过程约 2 秒，配合\"先\"字 |",
+          "event-9": "| 6 | 32.0–40.0s | 静帧中景：空桌面、台灯灭后的轮廓、窗光更明显。镜头几乎不动。 | 让桌面替你说，已经停一下了。 | 长留白，让句子在画面里走完 |"
+        },
+        "global": {
+          "global": "总时长 45 秒；9:16 竖屏；7 个镜头，连续不重叠。\n\n| # | 时长 | 画面 | 对应文案 | 节奏说明 |\n|---|---|---|---|---|\n| 1 | 0.0–5.5s | 俯拍一张半乱的桌面：杯垫、水杯、散落的笔、翻开的笔记本一角。浅景深，光是傍晚的窗光。 | 忙完不是再加一件事， | 静态长镜头，慢慢轻微推近，旁白先起 |\n| 2 | 5.5–11.0s | 平视侧拍：一只手把水杯挪回杯垫，轻放。声音：杯底接触桌面的\"嗒\"。 | 是把这一天的边角合上。 | 动作跟\"合上\"一词同步 |\n| 3 | 11.0–17.5s | 俯拍特写：手指把一支笔滚回笔筒或笔搁。 | 水杯归位，笔放回原处， | 节奏由旁白带，画面只做一个动作 |\n| 4 | 17.5–24.0s | 侧面中景：双手合上笔记本盖子，轻轻\"啪\"一声。 | 笔记本合起来。 | 盖子合上的声音点对\"合起来\" |\n| 5 | 24.0–32.0s | 中景：手伸向台灯开关，按下。画面亮度自然降下来，桌面的高光收缩。 | 灯可以先关， | 压暗过程约 2 秒，配合\"先\"字 |\n| 6 | 32.0–40.0s | 静帧中景：空桌面、台灯灭后的轮廓、窗光更明显。镜头几乎不动。 | 让桌面替你说，已经停一下了。 | 长留白，让句子在画面里走完 |\n| 7 | 40.0–45.0s | 缓推：只剩桌面边缘与窗外一片安静的天色。 | （无旁白） | 完全留白，BGM 渐弱但不切断 |\n\n字幕规格：每行 ≤ 12 个汉字，9:16 安全区居中偏下，字号统一，黑白两色按背景切换；不出现 emoji、表情、动效字。"
+        },
+        "scene": {
+          "scene-1": "总时长 45 秒；9:16 竖屏；7 个镜头，连续不重叠。",
+          "scene-10": "| 7 | 40.0–45.0s | 缓推：只剩桌面边缘与窗外一片安静的天色。 | （无旁白） | 完全留白，BGM 渐弱但不切断 |",
+          "scene-11": "字幕规格：每行 ≤ 12 个汉字，9:16 安全区居中偏下，字号统一，黑白两色按背景切换；不出现 emoji、表情、动效字。",
+          "scene-2": "| # | 时长 | 画面 | 对应文案 | 节奏说明 |",
+          "scene-3": "|---|---|---|---|---|",
+          "scene-4": "| 1 | 0.0–5.5s | 俯拍一张半乱的桌面：杯垫、水杯、散落的笔、翻开的笔记本一角。浅景深，光是傍晚的窗光。 | 忙完不是再加一件事， | 静态长镜头，慢慢轻微推近，旁白先起 |",
+          "scene-5": "| 2 | 5.5–11.0s | 平视侧拍：一只手把水杯挪回杯垫，轻放。声音：杯底接触桌面的\"嗒\"。 | 是把这一天的边角合上。 | 动作跟\"合上\"一词同步 |",
+          "scene-6": "| 3 | 11.0–17.5s | 俯拍特写：手指把一支笔滚回笔筒或笔搁。 | 水杯归位，笔放回原处， | 节奏由旁白带，画面只做一个动作 |",
+          "scene-7": "| 4 | 17.5–24.0s | 侧面中景：双手合上笔记本盖子，轻轻\"啪\"一声。 | 笔记本合起来。 | 盖子合上的声音点对\"合起来\" |",
+          "scene-8": "| 5 | 24.0–32.0s | 中景：手伸向台灯开关，按下。画面亮度自然降下来，桌面的高光收缩。 | 灯可以先关， | 压暗过程约 2 秒，配合\"先\"字 |",
+          "scene-9": "| 6 | 32.0–40.0s | 静帧中景：空桌面、台灯灭后的轮廓、窗光更明显。镜头几乎不动。 | 让桌面替你说，已经停一下了。 | 长留白，让句子在画面里走完 |"
+        },
+        "segment": {
+          "segment-1": "总时长 45 秒；9:16 竖屏；7 个镜头，连续不重叠。",
+          "segment-10": "| 7 | 40.0–45.0s | 缓推：只剩桌面边缘与窗外一片安静的天色。 | （无旁白） | 完全留白，BGM 渐弱但不切断 |",
+          "segment-11": "字幕规格：每行 ≤ 12 个汉字，9:16 安全区居中偏下，字号统一，黑白两色按背景切换；不出现 emoji、表情、动效字。",
+          "segment-2": "| # | 时长 | 画面 | 对应文案 | 节奏说明 |",
+          "segment-3": "|---|---|---|---|---|",
+          "segment-4": "| 1 | 0.0–5.5s | 俯拍一张半乱的桌面：杯垫、水杯、散落的笔、翻开的笔记本一角。浅景深，光是傍晚的窗光。 | 忙完不是再加一件事， | 静态长镜头，慢慢轻微推近，旁白先起 |",
+          "segment-5": "| 2 | 5.5–11.0s | 平视侧拍：一只手把水杯挪回杯垫，轻放。声音：杯底接触桌面的\"嗒\"。 | 是把这一天的边角合上。 | 动作跟\"合上\"一词同步 |",
+          "segment-6": "| 3 | 11.0–17.5s | 俯拍特写：手指把一支笔滚回笔筒或笔搁。 | 水杯归位，笔放回原处， | 节奏由旁白带，画面只做一个动作 |",
+          "segment-7": "| 4 | 17.5–24.0s | 侧面中景：双手合上笔记本盖子，轻轻\"啪\"一声。 | 笔记本合起来。 | 盖子合上的声音点对\"合起来\" |",
+          "segment-8": "| 5 | 24.0–32.0s | 中景：手伸向台灯开关，按下。画面亮度自然降下来，桌面的高光收缩。 | 灯可以先关， | 压暗过程约 2 秒，配合\"先\"字 |",
+          "segment-9": "| 6 | 32.0–40.0s | 静帧中景：空桌面、台灯灭后的轮廓、窗光更明显。镜头几乎不动。 | 让桌面替你说，已经停一下了。 | 长留白，让句子在画面里走完 |"
+        },
+        "voice": {
+          "confirmed.voice_profile": {
+            "context": {
+              "plan_sha256": "230a5bfffc60182ed7d5a4795fdcff6ae08e82a284522259f277b412d338bedb",
+              "profile": {
+                "evidence": {
+                  "document_sha256": "e522acb13f9c1b6d76daeb424f60eb8d150d184a8fcc1e44dbb9270878162d6e",
+                  "label_quote": "青涩青年音色",
+                  "language_quote": "中文 (普通话)",
+                  "url": "https://platform.minimaxi.com/docs/faq/system-voice-id.md"
+                },
+                "execution_controls_schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "pace_ratio": {
+                      "maximum": 2,
+                      "minimum": 0.5,
+                      "type": "number"
+                    },
+                    "pitch_semitones": {
+                      "maximum": 12,
+                      "minimum": -12,
+                      "type": "integer"
+                    },
+                    "tone": {
+                      "enum": [
+                        null,
+                        "afraid",
+                        "angry",
+                        "disgusted",
+                        "happy",
+                        "neutral",
+                        "sad",
+                        "surprised"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                },
+                "handle": "preset-cmn-youth",
+                "label": "青涩青年音色",
+                "language": "zh-CN",
+                "limits": "官方名称和语言不证明性别、音域或听感；只执行已冻结的语速、音调和支持的情绪控制。",
+                "official_language": "中文 (普通话)",
+                "schema": "confirmed-preset-profile@1"
+              },
+              "script_sha256": "fb814523e49990830278edce8506a08cc80cf4ae715f7d705fb39ccd1dbace1f",
+              "sound_source_sha256": "f26c1d1c81cdfe46e10f44182341c2e724cde0830270369c370aeaa63cf00e22"
+            },
+            "source": "explicit_user"
+          },
+          "creator_context.voice": {
+            "consent_ref": null,
+            "context": {
+              "avoid": [
+                "导师腔与「我来教你」",
+                "年龄倒计时与中年危机叙事",
+                "家庭煽情、辞职暗示或副业成功学",
+                "未经验证的第一人称亲历",
+                "抽象口号式收尾(「加油」「明天会更好」)"
+              ],
+              "tone": "平等、克制、有具体观察;可以从一件小事进入,允许幽默、犹疑与未解的困惑,不使用导师腔。"
+            },
+            "reference_asset_ids": [],
+            "source": "creator_context"
+          }
+        }
+      },
+      "context_refs": {
+        "content_core_sha256": "sha256:8a3590a5cd56b0b28a9bb3c147ca613634e2d252ac2444a202f10e7b29b80447",
+        "creative_mode_sha256": "sha256:c8b997c24bb021bcfe1edf3e811f0d2860bb1078b5e7bdb220f4bce2314477e0",
+        "creator_context_sha256": "sha256:9945d43c26f223321c47efead74c150c014583e86a61cdf668c8f54d9b919e47",
+        "production_brief_sha256": "sha256:656930204b987db39a02820f309c7342dac652437b161a58a90a7b6f6caf0497",
+        "truth_packet_sha256": "sha256:ca1559c38e4352ada21144bcd434f742fd7b9f502cd46f8bd32b76647bd82d0d"
+      },
+      "creation_id": "cr_c59c0f598fa0412593f31cbeda934dfb",
+      "input_view": {
+        "authority_sha256": "f7d509d60796fab89930b46f00d6ca87f87fdf61888ca997ab089557a4871ab1",
+        "catalog_sha256": "9cacbce1750322cdd13051639ed88154e22637110186c218065d35b70a5ea623",
+        "inputs_sha256": "6c181048b184967c3893371e7ff8b98773f02004ddb80507ab4e49924b680a6c",
+        "lineage_sha256": "66e950f6bc73357342a372581b83e1623e6456d1b1306c8dcd58c58c8ecf9cc3",
+        "policy": "planning-input-view@1",
+        "view_sha256": "c8f7904ec2ff88ab1e30df96eac592695954ab6319c712ad8f6e37ce32d0f074"
+      },
+      "inputs": {
+        "confirmed": {
+          "SCENES.md": "总时长 45 秒；9:16 竖屏；7 个镜头，连续不重叠。\n\n| # | 时长 | 画面 | 对应文案 | 节奏说明 |\n|---|---|---|---|---|\n| 1 | 0.0–5.5s | 俯拍一张半乱的桌面：杯垫、水杯、散落的笔、翻开的笔记本一角。浅景深，光是傍晚的窗光。 | 忙完不是再加一件事， | 静态长镜头，慢慢轻微推近，旁白先起 |\n| 2 | 5.5–11.0s | 平视侧拍：一只手把水杯挪回杯垫，轻放。声音：杯底接触桌面的\"嗒\"。 | 是把这一天的边角合上。 | 动作跟\"合上\"一词同步 |\n| 3 | 11.0–17.5s | 俯拍特写：手指把一支笔滚回笔筒或笔搁。 | 水杯归位，笔放回原处， | 节奏由旁白带，画面只做一个动作 |\n| 4 | 17.5–24.0s | 侧面中景：双手合上笔记本盖子，轻轻\"啪\"一声。 | 笔记本合起来。 | 盖子合上的声音点对\"合起来\" |\n| 5 | 24.0–32.0s | 中景：手伸向台灯开关，按下。画面亮度自然降下来，桌面的高光收缩。 | 灯可以先关， | 压暗过程约 2 秒，配合\"先\"字 |\n| 6 | 32.0–40.0s | 静帧中景：空桌面、台灯灭后的轮廓、窗光更明显。镜头几乎不动。 | 让桌面替你说，已经停一下了。 | 长留白，让句子在画面里走完 |\n| 7 | 40.0–45.0s | 缓推：只剩桌面边缘与窗外一片安静的天色。 | （无旁白） | 完全留白，BGM 渐弱但不切断 |\n\n字幕规格：每行 ≤ 12 个汉字，9:16 安全区居中偏下，字号统一，黑白两色按背景切换；不出现 emoji、表情、动效字。",
+          "SCRIPT.md": "忙完不是再加一件事，\n是把这一天的边角合上。\n水杯归位，笔放回原处，\n笔记本合起来。\n灯可以先关，\n让桌面替你说，已经停一下了。",
+          "TREATMENT.md": "**Content Core**\n- 核心议题：把收桌面当成一天结束的\"合页\"，而不是另一项待办\n- 内容分类：场景里说的事实 = 普通生活观察；不引用数据、不宣称功效\n- 一句话张力：我们常把\"忙完\"等同于\"再撑一下\"，但真正的停顿来自一个具体的小动作\n\n**Director Treatment**\n- 观众情绪路径：平视 → 微顿 → 放下\n- 第一个具体画面：一杯还冒着热气的水、旁边是合了一半的笔记本\n- \"识别瞬间\"：当旁白说出\"把这一天的边角合上\"时\n- 收尾：不喊口号，让画面停在关掉的台灯和安静桌面，留两秒白噪声般的留白\n\n## 声音设计\n- 预置旁白：preset-cmn-youth\n- 音色说明：青涩青年音色 / 中文普通话；旁白气质平静、像自己跟自己说，不上扬不拖腔；语速中等，每句之间留半拍\n- 旁白执行参数：pace_ratio 0.95（比默认略慢一档，给\"停顿\"留余地）、pitch_semitones 0、tone neutral\n- 段落标点对应节奏：逗号 = 0.3s 气口，句号 = 0.6s 停顿；分镜 6 末尾的句号后留 2.0s\n- BGM：无歌词、轻柔 pad 为主，可加极少量木吉他拨弦；不抢人声，旁白时自动压低（音乐闪避）\n- SFX：仅 3 处点状出现——分镜 2 杯底触桌的轻\"嗒\"、分镜 4 笔记本合盖的\"啪\"、分镜 5 台灯开关的\"咔\"；其余时段无 SFX\n- 留白：分镜 7 整段无旁白，仅 BGM 渐弱收尾\n- 音轨组成与本版\"旁白与音乐\"规格一致：旁白全程存在，BGM 全程不省略并在末镜自然渐弱\n\n已选择预置旁白：青涩青年音色（中文 (普通话)）。"
+        },
+        "content_core": {
+          "audience": "刚开始工作、或工作几年后意识到「忙完并不等于停一下」的人;不需要开发或副业背景,只要有过「再撑一下」的经历。",
+          "boundaries": [
+            "不写第一人称亲历,不出现「我」的经历描述",
+            "不宣称注意力、情绪调节、心理健康或睡眠功效",
+            "不补造具体公司、对话、金额、日期或人名",
+            "不展示笔记本屏幕可读内容、品牌 logo、通知或个人信息",
+            "不展开成时间管理、精力管理或断舍离方法论",
+            "不把「收桌面」写成课程、清单或可量化的行动计划"
+          ],
+          "claim_types": [
+            "observation",
+            "opinion"
+          ],
+          "core_idea": "把收桌面当作一天结束的「合页」,而不是另一项待办——一个具体的小动作就能把「忙完」变成「停一下」。",
+          "intended_takeaway": "「停一下」可以由一个具体的小动作触发,而不需要等到所有事做完或情绪到点;合上笔记本、关掉台灯,就是给自己一个停顿的信号。",
+          "schema": "easel-content-core@1",
+          "tension": "我们常把「忙完」等同于「再撑一下」,而真正的停顿其实来自一个极轻的、可见的小动作。",
+          "topic": "请为一个全新视频作品生成一版完整的讨论草案，沿用当前“个人经营实践”Creator与“清醒备忘录”作品风格。主题：忙完之后，把桌面收好，让一天有个停顿。时长45秒，9:16竖屏1080×1920，简体中文字幕；音轨必须为普通话预置旁白与轻柔无歌词BGM，BGM不省略，少量纸页或杯子声仅作辅助。画面可以有普通笔记本电脑，但屏幕不出现可读内容、品牌、通知或个人信息。写通用场景，不写我的亲历，不宣称注意力、情绪或健康功效。请一次给出完整的创作表达、逐字文案、连续且不重叠合计45秒的分镜与节奏、声音设计和制作规格；预置旁白沿用当前系统可用项。制作规格明确写出时长、画幅、音轨、语言。镜头数、措辞、节奏等常规取舍由你给出推荐，以形成可审阅的完整草案；素材来源和Rights只写待核验要求，不冒充已齐备。本轮只讨论并保存方案，不确认制作，不执行Preparation、模型素材生成、Provider、Hypit Build或发布，不读取或重试任何旧作品。完成草案后等我查看作品卡片。",
+          "why_worth_telling": "日常里「一天结束」往往没有仪式,只剩下一堆没回的消息和一个还亮着的屏幕;把收桌面重新解读为一个「合页」,给读者一个具体可做的小动作,而不是抽象的「放下手机」「好好休息」。"
+        },
+        "creator_context": {
+          "audience": "已经开始工作、对个人成长与选择权感兴趣的人,无论是否具有开发背景。",
+          "identity": {
+            "public_description": "有九年开发经历的普通职场人,正在重新理解工作与生活;通过具体观察分享判断,陪处在相似阶段的人一起看明白。"
+          },
+          "privacy_policy": {
+            "do_not_infer_private_facts": true
+          },
+          "relevant_context": [
+            "本片是普通生活观察短片,不绑定任何个人具体事件",
+            "「收桌面」在本片中是一个面向所有读者的通用动作,不是作者私事",
+            "抖音短视频为当前优先形式,其他平台与账号绑定尚未确定"
+          ],
+          "schema": "easel-creator-context@1",
+          "voice": {
+            "avoid": [
+              "导师腔与「我来教你」",
+              "年龄倒计时与中年危机叙事",
+              "家庭煽情、辞职暗示或副业成功学",
+              "未经验证的第一人称亲历",
+              "抽象口号式收尾(「加油」「明天会更好」)"
+            ],
+            "tone": "平等、克制、有具体观察;可以从一件小事进入,允许幽默、犹疑与未解的困惑,不使用导师腔。"
+          }
+        },
+        "handoff_sha256": "sha256:a3ff6f1732c38799e7cc4cb8b6837b840c0c9e60b16ca48182945408410a0a40",
+        "mode_documents": {
+          "audio-bible.md": "# Audio Bible\n\nNarration should feel like a person thinking aloud after the fact: calm, conversational and precise. It must not become a speech, a sales pitch, a coach's lecture or a solemn trailer voice.\n\n- Let the selected runtime voice and approved voice ID carry the account identity; this Mode never selects a provider or invents a voice clone.\n- Translate the supported delivery choices into the existing Voice Need constraints.voice_delivery (pace_ratio, pitch_semitones, tone), inheriting the frozen mode defaults where no content-specific choice is needed. A description alone is not an executed speech parameter.\n- Generate narration before locking shot durations. Use actual audio timings, not character-count estimates, to pace visual beats.\n- BGM is optional. When an approved track exists, it should support the emotional movement at a low level and duck under narration. No BGM is better than unlicensed, distracting or fake ambience.\n- The frozen music_ducking parameters lower the authored music level during measured speech, with a smooth attack and release. Short breaths remain ducked; longer pauses restore the authored level. This envelope preserves source position and looping. It is not loudness normalization or proof of intelligibility: choose the base music gain against actual audio and verify the finished mix.\n- Use SFX only when they belong to a specific visual action. Do not add whooshes, impacts or notification sounds as decoration.\n",
+          "director-treatment.md": "# Director Treatment\n\n`clear_memo_video` is a film-language mode, not a writing formula. Keep the topic, argument and story structure open.\n\nBefore writing shots, make two compact decisions:\n\n1. **Content Core**: classify each important statement as real experience, current action, learning, public fact, or unverified thought. State the one tension the viewer should recognise.\n2. **Director Treatment**: decide the viewer's emotional path, the first concrete image or line, the moment of recognition, and where the work should stop without forcing a solution.\n\nThe preferred posture is an ordinary person noticing something specific, not an expert delivering a lesson. Open from a lived detail, a calculation, a small contradiction, or a changed understanding. Do not manufacture hardship, dialogue, professional incidents, family scenes, or outcomes to make the narrative complete.\n\nDo not force a hook type, three-act structure, CTA, or conclusion. A quiet ending, an unresolved question, or one next action is valid when it fits the material.\n",
+          "editing-bible.md": "# Editing Bible\n\nThe default rhythm is unhurried but never static: each visual beat earns its screen time, and each cut changes the viewer's understanding, setting or emotional distance.\n\n- Prefer 25-60 seconds and roughly 6-9 visual beats as a starting range, not a fixed template.\n- Establish the concrete tension in the first three seconds. Do not spend the opening on a channel ident, abstract slogan or generic setup.\n- Avoid rapid montage, decorative transitions, bouncing captions and repeated near-identical images.\n- Keep subtitles concise, readable and inside the 9:16 safe area. The subtitle pace follows speech, not an arbitrary visual beat grid.\n- Let the last image and last sentence have room to land. Do not force a call to action, a solution or an optimistic moral.\n",
+          "mode.json": "{\n  \"id\": \"clear_memo_video\",\n  \"version\": \"1.3\",\n  \"name\": \"清醒备忘录 · 视频\",\n  \"summary\": \"以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。\",\n  \"status\": \"active\",\n  \"visual_material_style\": \"restrained low saturation everyday\",\n  \"voice_delivery\": {\"pace_ratio\": 0.95, \"pitch_semitones\": 0, \"tone\": \"neutral\"},\n  \"music_ducking\": {\"gain_ratio\": 0.25, \"attack_seconds\": 0.12, \"release_seconds\": 0.45},\n  \"defaults\": {\n    \"duration_seconds\": {\"preferred\": [30, 45], \"allowed\": [25, 60]},\n    \"visual_beats\": {\"preferred\": [6, 9]},\n    \"orientation\": \"9:16\",\n    \"narration\": \"reflective-first-person\",\n    \"bgm\": \"optional-and-subordinate\"\n  },\n  \"boundaries\": {\n    \"content\": \"Director decides the topic, argument, structure, and whether a video is worthwhile.\",\n    \"profile\": \"Profile remains the source of identity, factual boundaries, audience, and public scope.\",\n    \"runtime\": \"Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns.\"\n  }\n}\n",
+          "qc-rubric.md": "# Director QC Rubric\n\nTechnical QC is necessary but insufficient. Before a work is marked ready, review it against these questions:\n\n1. **Recognition**: does the first three seconds contain a concrete, understandable tension?\n2. **Observation**: is there one genuine observation, with fact and interpretation kept distinct?\n3. **Narrative movement**: does each beat advance the thought, rather than repeat the same sentence over another image?\n4. **Visual honesty**: are real assets identified honestly, and are illustrations clearly expressive rather than fake evidence?\n5. **Rhythm**: do voice duration, cuts, subtitles and pauses feel intentionally aligned?\n6. **Identity**: would the work still feel like this account without its logo or title?\n7. **Anti-template check**: does it avoid PPT, generic AI image carousel, lecture tone and motivational-content shortcuts?\n\nIf a work fails Recognition, Observation, Visual honesty, or Identity, it is `NOT_READY` even when the MP4 is technically valid. Record concise reasons and rework only the failing layer.\n",
+          "visual-bible.md": "# Visual Bible\n\nThe visual world is restrained, human-scale and daily: desks, commutes, screens, notebooks, windows, kitchens, clocks, rooms, pauses and small gestures. A picture must advance the observation; it must not merely decorate narration.\n\n- Prefer supplied or approved real evidence for real claims: screenshots, recording excerpts, notes, data or personal material. Never fabricate a screenshot or pass an AI illustration off as evidence.\n- When no real material is needed, use low-saturation illustration or quiet photographic B-roll with generous negative space. Avoid glossy AI spectacle, generic cyberpunk, floating dashboards and motivational-poster compositions.\n- An illustration may use a recurring symbolic narrator rather than a synthetic portrait. Keep it visually consistent only after a reviewed reference asset exists; otherwise use scene-led imagery and do not pretend there is a locked character.\n- Use motion sparingly: slow camera drift, gentle Ken Burns, a short purposeful transition, or one dynamic insert at an emotional turn. Do not animate every still simply to prove that it is video.\n- Text belongs in the subtitle and deliberate cover system, not inside generated imagery.\n"
+        },
+        "preparation": {
+          "ai_generation_allowed": false,
+          "aspect_ratio": "9:16",
+          "audio_mode": "mixed",
+          "beats": [
+            {
+              "description": "俯拍一张半乱的桌面:杯垫、水杯、散落的笔、翻开的笔记本一角;浅景深,傍晚窗光;镜头缓慢轻微推近;旁白:「忙完不是再加一件事,」",
+              "duration_seconds": 5.5,
+              "label": "半乱桌面"
+            },
+            {
+              "description": "平视侧拍:一只手把水杯挪回杯垫并轻放;SFX 杯底触桌的轻「嗒」;旁白:「是把这一天的边角合上。」",
+              "duration_seconds": 5.5,
+              "label": "水杯归位"
+            },
+            {
+              "description": "俯拍特写:手指把一支笔滚回笔筒或笔搁;节奏由旁白带,画面只做一个动作;旁白:「水杯归位,笔放回原处,」",
+              "duration_seconds": 6.5,
+              "label": "笔放回原处"
+            },
+            {
+              "description": "侧面中景:双手合上笔记本盖子;SFX 轻「啪」一声,声音点对「合起来」;旁白:「笔记本合起来。」",
+              "duration_seconds": 6.5,
+              "label": "合上笔记本"
+            },
+            {
+              "description": "中景:手伸向台灯开关并按下,画面亮度自然降下,桌面高光收缩;SFX 开关「咔」;压暗过程约 2 秒,配合「先」字;旁白:「灯可以先关,」",
+              "duration_seconds": 8.0,
+              "label": "关灯"
+            },
+            {
+              "description": "静帧中景:空桌面、台灯灭后的轮廓、窗光更明显;镜头几乎不动;长留白,让句子在画面里走完;旁白:「让桌面替你说,已经停一下了。」",
+              "duration_seconds": 8.0,
+              "label": "空桌面留白"
+            },
+            {
+              "description": "缓推:只剩桌面边缘与窗外一片安静的天色;无旁白,BGM 自然渐弱收尾;字幕空。",
+              "duration_seconds": 5.0,
+              "label": "天色缓推收尾"
+            }
+          ],
+          "duration_seconds": 45,
+          "language": "zh-CN",
+          "material_sources": [],
+          "publication_allowed": false,
+          "schema": "easel-production-brief@1",
+          "text_overlays": [
+            "忙完不是再加一件事，",
+            "是把这一天的边角合上。",
+            "水杯归位，笔放回原处，",
+            "笔记本合起来。",
+            "灯可以先关，",
+            "让桌面替你说，已经停一下了。"
+          ],
+          "visual_constraints": [
+            "9:16 竖屏,1080×1920",
+            "笔记本屏幕不出现可读内容、不出现品牌 logo、通知、社交账号、邮件预览或任何可识别个人信息",
+            "画面为通用桌面场景:杯垫、水杯、笔、笔记本、台灯、窗外天色;不出现具体公司、地址、人物或可识别环境",
+            "首镜为半乱桌面,末镜为空桌面;整体节奏由「物件归位 → 合盖 → 关灯 → 留白」推进",
+            "不出现任何能识别为某品牌、某地或某人的物件或背景",
+            "字幕为简体中文字幕,每行 ≤ 12 个汉字,9:16 安全区居中偏下,字号统一,黑/白按背景切换,不出现 emoji、表情或动效字",
+            "不展示第一人称亲历画面,不出具「我」的人物形象或口述身份",
+            "不出现方法论标题、清单、课程或步骤编号",
+            "时长合计 45.0 秒,镜头连续不重叠"
+          ]
+        },
+        "proposal": {
+          "revision": 1,
+          "scenes": "总时长 45 秒；9:16 竖屏；7 个镜头，连续不重叠。\n\n| # | 时长 | 画面 | 对应文案 | 节奏说明 |\n|---|---|---|---|---|\n| 1 | 0.0–5.5s | 俯拍一张半乱的桌面：杯垫、水杯、散落的笔、翻开的笔记本一角。浅景深，光是傍晚的窗光。 | 忙完不是再加一件事， | 静态长镜头，慢慢轻微推近，旁白先起 |\n| 2 | 5.5–11.0s | 平视侧拍：一只手把水杯挪回杯垫，轻放。声音：杯底接触桌面的\"嗒\"。 | 是把这一天的边角合上。 | 动作跟\"合上\"一词同步 |\n| 3 | 11.0–17.5s | 俯拍特写：手指把一支笔滚回笔筒或笔搁。 | 水杯归位，笔放回原处， | 节奏由旁白带，画面只做一个动作 |\n| 4 | 17.5–24.0s | 侧面中景：双手合上笔记本盖子，轻轻\"啪\"一声。 | 笔记本合起来。 | 盖子合上的声音点对\"合起来\" |\n| 5 | 24.0–32.0s | 中景：手伸向台灯开关，按下。画面亮度自然降下来，桌面的高光收缩。 | 灯可以先关， | 压暗过程约 2 秒，配合\"先\"字 |\n| 6 | 32.0–40.0s | 静帧中景：空桌面、台灯灭后的轮廓、窗光更明显。镜头几乎不动。 | 让桌面替你说，已经停一下了。 | 长留白，让句子在画面里走完 |\n| 7 | 40.0–45.0s | 缓推：只剩桌面边缘与窗外一片安静的天色。 | （无旁白） | 完全留白，BGM 渐弱但不切断 |\n\n字幕规格：每行 ≤ 12 个汉字，9:16 安全区居中偏下，字号统一，黑白两色按背景切换；不出现 emoji、表情、动效字。",
+          "schema": "easel-video-proposal@4",
+          "script": "忙完不是再加一件事，\n是把这一天的边角合上。\n水杯归位，笔放回原处，\n笔记本合起来。\n灯可以先关，\n让桌面替你说，已经停一下了。",
+          "sha256": "230a5bfffc60182ed7d5a4795fdcff6ae08e82a284522259f277b412d338bedb",
+          "sound": "- 预置旁白：preset-cmn-youth\n- 音色说明：青涩青年音色 / 中文普通话；旁白气质平静、像自己跟自己说，不上扬不拖腔；语速中等，每句之间留半拍\n- 旁白执行参数：pace_ratio 0.95（比默认略慢一档，给\"停顿\"留余地）、pitch_semitones 0、tone neutral\n- 段落标点对应节奏：逗号 = 0.3s 气口，句号 = 0.6s 停顿；分镜 6 末尾的句号后留 2.0s\n- BGM：无歌词、轻柔 pad 为主，可加极少量木吉他拨弦；不抢人声，旁白时自动压低（音乐闪避）\n- SFX：仅 3 处点状出现——分镜 2 杯底触桌的轻\"嗒\"、分镜 4 笔记本合盖的\"啪\"、分镜 5 台灯开关的\"咔\"；其余时段无 SFX\n- 留白：分镜 7 整段无旁白，仅 BGM 渐弱收尾\n- 音轨组成与本版\"旁白与音乐\"规格一致：旁白全程存在，BGM 全程不省略并在末镜自然渐弱\n\n已选择预置旁白：青涩青年音色（中文 (普通话)）。",
+          "sound_source": "- 预置旁白：preset-cmn-youth\n- 音色说明：青涩青年音色 / 中文普通话；旁白气质平静、像自己跟自己说，不上扬不拖腔；语速中等，每句之间留半拍\n- 旁白执行参数：pace_ratio 0.95（比默认略慢一档，给\"停顿\"留余地）、pitch_semitones 0、tone neutral\n- 段落标点对应节奏：逗号 = 0.3s 气口，句号 = 0.6s 停顿；分镜 6 末尾的句号后留 2.0s\n- BGM：无歌词、轻柔 pad 为主，可加极少量木吉他拨弦；不抢人声，旁白时自动压低（音乐闪避）\n- SFX：仅 3 处点状出现——分镜 2 杯底触桌的轻\"嗒\"、分镜 4 笔记本合盖的\"啪\"、分镜 5 台灯开关的\"咔\"；其余时段无 SFX\n- 留白：分镜 7 整段无旁白，仅 BGM 渐弱收尾\n- 音轨组成与本版\"旁白与音乐\"规格一致：旁白全程存在，BGM 全程不省略并在末镜自然渐弱",
+          "specification_notes": "时长：45 秒\n画幅：9:16\n音轨：旁白与音乐\n语言：简体中文\n\n**规格说明**\n- 沿用用户硬要求：时长 45 秒、9:16 1080×1920、简体中文、普通话预置旁白 + 轻柔无歌词 BGM 且 BGM 不省略、笔记本屏幕不出现可读内容/品牌/通知/个人信息、写通用场景不写亲历、不宣称功效、预置旁白 preset-cmn-youth 不替换\n- Easel 推荐（仅作本草案的创作取舍，不是用户已确认的事实）：7 镜结构、首镜俯拍半乱桌面到末镜空桌面收尾、旁白语速比默认略慢、中性偏暖光、台灯关掉作为\"停顿\"的可视化锚点、SFX 仅放在与具体动作对齐的三处、字幕单行 ≤ 12 字\n- 镜头数、措辞、节奏属于制作层常规取舍，已在分镜表里写明推荐值，可逐项调整\n- 素材来源与 Rights：待核验——画面需确认是图库授权素材 / 现场实拍 / AI 生成；普通图库不承诺同一只手、同一张桌子或精确连续动作，制作时若无可用授权镜头，允许按本草案\"桌面物件归位\"的核心动作做等效替换，并在替换记录中注明差异\n- 旁白版权：使用预置旁白 preset-cmn-youth，不做声音克隆、不另选音色\n- 文案字数：约 64 个汉字（含标点），分 6 个语义行，对应分镜 1–6；分镜 7 无旁白\n\n等你看完作品卡片，告诉我按这个版本推进，或者哪里要改。",
+          "specs": {
+            "aspect_ratio": "9:16",
+            "audio_mode": "mixed",
+            "duration_seconds": 45,
+            "language": "zh-CN"
+          },
+          "treatment": "**Content Core**\n- 核心议题：把收桌面当成一天结束的\"合页\"，而不是另一项待办\n- 内容分类：场景里说的事实 = 普通生活观察；不引用数据、不宣称功效\n- 一句话张力：我们常把\"忙完\"等同于\"再撑一下\"，但真正的停顿来自一个具体的小动作\n\n**Director Treatment**\n- 观众情绪路径：平视 → 微顿 → 放下\n- 第一个具体画面：一杯还冒着热气的水、旁边是合了一半的笔记本\n- \"识别瞬间\"：当旁白说出\"把这一天的边角合上\"时\n- 收尾：不喊口号，让画面停在关掉的台灯和安静桌面，留两秒白噪声般的留白",
+          "updated_at": "2026-10-13T01:58:17+00:00",
+          "voice_profile": {
+            "evidence": {
+              "document_sha256": "e522acb13f9c1b6d76daeb424f60eb8d150d184a8fcc1e44dbb9270878162d6e",
+              "label_quote": "青涩青年音色",
+              "language_quote": "中文 (普通话)",
+              "url": "https://platform.minimaxi.com/docs/faq/system-voice-id.md"
+            },
+            "execution_controls_schema": {
+              "additionalProperties": false,
+              "properties": {
+                "pace_ratio": {
+                  "maximum": 2,
+                  "minimum": 0.5,
+                  "type": "number"
+                },
+                "pitch_semitones": {
+                  "maximum": 12,
+                  "minimum": -12,
+                  "type": "integer"
+                },
+                "tone": {
+                  "enum": [
+                    null,
+                    "afraid",
+                    "angry",
+                    "disgusted",
+                    "happy",
+                    "neutral",
+                    "sad",
+                    "surprised"
+                  ]
+                }
+              },
+              "type": "object"
+            },
+            "handle": "preset-cmn-youth",
+            "label": "青涩青年音色",
+            "language": "zh-CN",
+            "limits": "官方名称和语言不证明性别、音域或听感；只执行已冻结的语速、音调和支持的情绪控制。",
+            "official_language": "中文 (普通话)",
+            "schema": "confirmed-preset-profile@1"
+          }
+        },
+        "schema": "planning-authority-inputs@1",
+        "truth_packet": {
+          "claims": [
+            {
+              "claim": "「忙完」常常被理解为「再撑一下」,而不是「停一下」。",
+              "confidence": "medium",
+              "kind": "observation",
+              "source": "model_inference"
+            },
+            {
+              "claim": "把收桌面当作一天结束的「合页」,是一个可见的、可触发停顿的小动作。",
+              "confidence": "medium",
+              "kind": "opinion",
+              "source": "model_inference"
+            },
+            {
+              "claim": "一天的停顿可以由一个具体动作(合上笔记本、关掉台灯)承载,而不需要等到所有事做完。",
+              "confidence": "medium",
+              "kind": "opinion",
+              "source": "model_inference"
+            }
+          ],
+          "first_person_allowed": [],
+          "forbidden_inventions": [
+            "虚构第一人称经历(如「我以前每天熬到凌晨三点才开始收拾」)",
+            "补造具体公司、岗位、对话、同事姓名、薪资或日期",
+            "出现注意力、情绪调节或睡眠等可被理解为功效的表述",
+            "笔记本屏幕上的可读文字、浏览器标签、应用通知、社交账号或邮件预览",
+            "露出品牌 logo(笔记本品牌、咖啡杯品牌、笔的品牌等)",
+            "可识别的家庭住址、窗外地标或个人信息",
+            "把本片包装成方法论、清单、断舍离教程或课程预告"
+          ],
+          "personal_facts": [
+            {
+              "fact": "有九年 Java 开发经历,三十岁前后的普通职场人,长期主线是逐步增加人生选择权。",
+              "public_allowed": true,
+              "source": "profile"
+            },
+            {
+              "fact": "关注职业转型、投资学习与自媒体实践;投资存在亏损经历,金额与具体持仓未知。",
+              "public_allowed": true,
+              "source": "profile"
+            }
+          ],
+          "public_allowed": [
+            "对「忙完之后如何停一下」的普通生活观察",
+            "把收桌面读作一天合页的隐喻",
+            "画面中的桌面、笔记本、台灯、水杯、笔等日常物件"
+          ],
+          "schema": "easel-truth-packet@2",
+          "uncertainty_policy": {
+            "learning_is_not_proven_capability": true,
+            "plan_is_not_experience": true,
+            "unknown_claims": "label_uncertain"
+          }
+        },
+        "voice_binding": {
+          "binding_sha256": "50e62fa58104a44ea318369baf92290aee2830aad868d9e0f5e77290dfe3155a",
+          "confirmed_at": "2026-10-13T03:18:52+00:00",
+          "creation_id": "cr_c59c0f598fa0412593f31cbeda934dfb",
+          "plan_sha256": "230a5bfffc60182ed7d5a4795fdcff6ae08e82a284522259f277b412d338bedb",
+          "profile_sha256": "dec3fdd7f45912d67d7dba770189fb4406ec30641d0bc1cbd8a3a2235a0f96c6",
+          "proposal_sha256": "1f5638c5031c235d7797dbb25fcc6fe82a36c8fcdb2b3b654bd4fe0444063eb9",
+          "schema": "confirmed-preset-binding@1",
+          "scope_content_sha256": "b97bf245170dc4f559240eebd36573de04edf20c93f725d599ee461c459b0d9c",
+          "scope_sha256": "cc88dab60ec352fb049dcf06156f6a988d0674d801a8a3ea6fcfdfd3856e7f96",
+          "script_sha256": "fb814523e49990830278edce8506a08cc80cf4ae715f7d705fb39ccd1dbace1f",
+          "sound_sha256": "c31a21e741a90d59388e780011698bc0ba7893a70a36cd716b3d74fc99c43a74",
+          "sound_source_sha256": "f26c1d1c81cdfe46e10f44182341c2e724cde0830270369c370aeaa63cf00e22"
+        }
+      },
+      "mode": {
+        "boundaries": {
+          "content": "Director decides the topic, argument, structure, and whether a video is worthwhile.",
+          "profile": "Profile remains the source of identity, factual boundaries, audience, and public scope.",
+          "runtime": "Providers, voice IDs, BGM files, renderer settings, and platform credentials remain runtime concerns."
+        },
+        "defaults": {
+          "bgm": "optional-and-subordinate",
+          "duration_seconds": {
+            "allowed": [
+              25,
+              60
+            ],
+            "preferred": [
+              30,
+              45
+            ]
+          },
+          "narration": "reflective-first-person",
+          "orientation": "9:16",
+          "visual_beats": {
+            "preferred": [
+              6,
+              9
+            ]
+          }
+        },
+        "id": "clear_memo_video",
+        "music_ducking": {
+          "attack_seconds": 0.12,
+          "gain_ratio": 0.25,
+          "release_seconds": 0.45
+        },
+        "name": "清醒备忘录 · 视频",
+        "status": "active",
+        "summary": "以克制的第一人称观察，把不同主题讲成同一账号的日常思考短片。",
+        "version": "1.3",
+        "visual_material_style": "restrained low saturation everyday",
+        "voice_delivery": {
+          "pace_ratio": 0.95,
+          "pitch_semitones": 0,
+          "tone": "neutral"
+        }
+      },
+      "policy": "planning-semantic-boundary@1",
+      "transport": {
+        "atomic_detail_guidance_policy": "bounded-atomic-need-slots@1",
+        "b_quote_guidance_policy": "explicit-supported-quote-wire@1",
+        "candidate_batch_policy": {
+          "id": "bounded-candidate-review-batches@1",
+          "max_questions": 16
+        },
+        "framing_guidance_policy": "source-vs-output-framing@1",
+        "input_view_policy": "planning-input-view@1",
+        "intake_policy": "confirmed-planning-intake@11",
+        "output_admission": {
+          "policy": "model-output-admission@1",
+          "profile": "planning-selection@1",
+          "rules_sha256": "1ca420d08bf3e3385f35fa0160166689424ac4f9bdd1a5c6392d674b4e53037f"
+        },
+        "policy": "easel-structured-result@1",
+        "producer": {
+          "policy": "planning-staged-proposal@1",
+          "selection_schema_sha256": "f25905c83e9a3179326edf3d578488b524b7494b6a4618f88cab35ac13655619"
+        },
+        "query_cardinality_policy": "bounded-query-cardinality@1",
+        "reply_contract": "planning-result-v3",
+        "review_source_policy": "literal-scope-review@1",
+        "runtime_sha256": "a84c1168dbcd957e3a2383209af7c2b1f6e7af810944ad38db553773b7fc3e82",
+        "schema_sha256": "4033cd5ae8c7fc30851dd4755890fe8a5ac39dcc64ee9ff00d3616a026d7a3b1",
+        "sound_tempo_guidance_policy": "optional-tempo-bpm-array@1",
+        "source_selection_policy": "planning-source-selection@1",
+        "support_policy": "bounded-semantic-support@1",
+        "wire": {
+          "canonical_schema_sha256": "c9d2db345ea798e0ca796147d24b609f64f4a86c0672bd88ac143809d2b835be",
+          "codec_policy": "planning-xml-wire@1",
+          "producer_schema_sha256": "4aabad57f8c1ec1ddf232ce936958e1019afa1705ed49259bc6807f1bf8c6ce6",
+          "semantic_representation": "planning-atomic-framing@1",
+          "stage": "A",
+          "wire_schema_sha256": "4033cd5ae8c7fc30851dd4755890fe8a5ac39dcc64ee9ff00d3616a026d7a3b1"
+        }
+      }
+    },
+    "admissions": {
+      "A-selection": {
+        "candidate": {
+          "needs": [
+            {
+              "modality": "image",
+              "necessity": "required",
+              "role": "opening overhead view of a half-messy desk: coaster, water cup, scattered pens, corner of an open notebook; shallow depth of field; evening window light; notepad screen unreadable, no brand/logo/notification/PII; universal everyday workspace, not first-person specific.",
+              "scope": "src_f04b6ee54e6f4c1a7a75"
+            },
+            {
+              "modality": "image",
+              "necessity": "required",
+              "role": "eye-level side view of a hand moving a water cup back to its coaster and gently placing it down; low-saturation everyday; cup and coaster generic, no brand visible; notepad screen unreadable, no notification.",
+              "scope": "src_9a9e2c80e545c0fea23e"
+            },
+            {
+              "modality": "image",
+              "necessity": "required",
+              "role": "overhead close-up of fingers rolling a pen back into a pen holder or pen rest; pen generic, no brand/logo; desk surface in shallow depth of field.",
+              "scope": "src_c9a87085ed346896de92"
+            },
+            {
+              "modality": "image",
+              "necessity": "required",
+              "role": "side medium shot of both hands closing a plain notebook lid; notebook cover plain, no visible brand or screen content; quiet desk environment.",
+              "scope": "src_30eb1fda7f37da3808cb"
+            },
+            {
+              "modality": "image",
+              "necessity": "required",
+              "role": "medium shot of a hand reaching to a desk lamp switch and pressing it; lamp and switch generic, no brand; evening window light; the natural dimming of the picture is achieved by post-production brightness, not by an external asset.",
+              "scope": "src_7fa913d7b95a1e6df90d"
+            },
+            {
+              "modality": "image",
+              "necessity": "required",
+              "role": "static medium shot of the now-empty desk: lamp turned off (outlined by window light), more visible window light entering; notebook closed, cup and pens put away; long held still; quiet negative space.",
+              "scope": "src_6b0c05ce1e1dd0d4ca25"
+            },
+            {
+              "modality": "image",
+              "necessity": "required",
+              "role": "slow push-in of just the desk edge and a quiet stretch of evening sky outside the window; no people, no notifications, no first-person specific environment; calm, restrained palette.",
+              "scope": "src_e2704fa592619ec98ac6"
+            },
+            {
+              "modality": "sfx",
+              "necessity": "required",
+              "role": "single light cup-base meeting desk surface tap; short, dry, contact-only; aligned to the cup being placed on the coaster; no other sound in that beat.",
+              "scope": "src_9a9e2c80e545c0fea23e"
+            },
+            {
+              "modality": "sfx",
+              "necessity": "required",
+              "role": "single soft notebook lid closing snap; light, paper-and-cover, not heavy; aligned to the moment the lid meets the cover.",
+              "scope": "src_30eb1fda7f37da3808cb"
+            },
+            {
+              "modality": "sfx",
+              "necessity": "required",
+              "role": "single desk-lamp switch click; small, plastic, dry; aligned to the finger pressing the switch; marks the start of the natural brightness drop.",
+              "scope": "src_7fa913d7b95a1e6df90d"
+            },
+            {
+              "modality": "bgm",
+              "necessity": "required",
+              "role": "lyrics-free soft pad-based BGM with very sparse acoustic guitar plucks; runs through the whole piece without being cut; ducks under narration per frozen music_ducking envelope; gently fades but does not hard-cut at the final shot.",
+              "scope": "src_7eba731d7de0bf1af55e"
+            }
+          ],
+          "unresolved": []
+        },
+        "receipt": {
+          "actions": [],
+          "binding": {
+            "attempt_id": "fa_905d431e46bf92272883d1d7d46f573d",
+            "capture_reference": {
+              "kind": "owner-validated-original-capture",
+              "raw_sha256": "78e53572d8a15d8062d8c55b27ba985cbfdf5945ff51e1d7184fb00dc41117ae",
+              "request_sha256": "db1b9e121153857ba5fe7c0edbcac851749da077d65a78934992652f86bf3805",
+              "session": "semantic-fa_905d431e46bf92272883d1d7d46f573d-vnext-A-selection",
+              "stage": "A-selection"
+            },
+            "creation_id": "cr_c59c0f598fa0412593f31cbeda934dfb",
+            "frozen_inputs_sha256": "6c181048b184967c3893371e7ff8b98773f02004ddb80507ab4e49924b680a6c",
+            "reply_contract": "planning-result-v3",
+            "runtime_sha256": "a84c1168dbcd957e3a2383209af7c2b1f6e7af810944ad38db553773b7fc3e82",
+            "scope_sha256": "a3229d5ec139a22c2454e0e1b61a1d1dc917e727a422e45fd7a78e1bb66614ad",
+            "stage_schema_binding": {
+              "canonical_schema_sha256": "f25905c83e9a3179326edf3d578488b524b7494b6a4618f88cab35ac13655619",
+              "codec_policy": "planning-xml-wire@1",
+              "producer_schema_sha256": "f25905c83e9a3179326edf3d578488b524b7494b6a4618f88cab35ac13655619",
+              "semantic_representation": "planning-atomic-framing@1",
+              "stage": "A-selection",
+              "wire_schema_sha256": "f25905c83e9a3179326edf3d578488b524b7494b6a4618f88cab35ac13655619"
+            },
+            "tool": "submit_semantic_plan"
+          },
+          "channel": "tool",
+          "decision": {
+            "code": "EXISTING_CANDIDATE_REPAIR_REQUIRED",
+            "field_path": null,
+            "input_sha256": "78e53572d8a15d8062d8c55b27ba985cbfdf5945ff51e1d7184fb00dc41117ae",
+            "outcome": "BOUNDED_REPAIR",
+            "policy_revision": "model-output-admission@1",
+            "stage": "A-selection"
+          },
+          "normalized_sha256": "b5b254afca14207d11a6ee4ec2bf116b94385215ae386209d3d7f34cbd9f06a2",
+          "policy": {
+            "policy": "model-output-admission@1",
+            "profile": "planning-selection@1",
+            "rules_sha256": "1ca420d08bf3e3385f35fa0160166689424ac4f9bdd1a5c6392d674b4e53037f"
+          },
+          "raw_errors": {
+            "items": [
+              {
+                "actual_length": 269,
+                "constraint": "maxLength",
+                "limit": 200,
+                "path": [
+                  "needs",
+                  0,
+                  "role"
+                ],
+                "schema_path": [
+                  "properties",
+                  "needs",
+                  "items",
+                  "properties",
+                  "role",
+                  "maxLength"
+                ]
+              },
+              {
+                "actual_length": 208,
+                "constraint": "maxLength",
+                "limit": 200,
+                "path": [
+                  "needs",
+                  1,
+                  "role"
+                ],
+                "schema_path": [
+                  "properties",
+                  "needs",
+                  "items",
+                  "properties",
+                  "role",
+                  "maxLength"
+                ]
+              },
+              {
+                "actual_length": 230,
+                "constraint": "maxLength",
+                "limit": 200,
+                "path": [
+                  "needs",
+                  4,
+                  "role"
+                ],
+                "schema_path": [
+                  "properties",
+                  "needs",
+                  "items",
+                  "properties",
+                  "role",
+                  "maxLength"
+                ]
+              },
+              {
+                "actual_length": 230,
+                "constraint": "maxLength",
+                "limit": 200,
+                "path": [
+                  "needs",
+                  10,
+                  "role"
+                ],
+                "schema_path": [
+                  "properties",
+                  "needs",
+                  "items",
+                  "properties",
+                  "role",
+                  "maxLength"
+                ]
+              }
+            ],
+            "omitted": 0,
+            "total": 4
+          },
+          "raw_sha256": "78e53572d8a15d8062d8c55b27ba985cbfdf5945ff51e1d7184fb00dc41117ae",
+          "remaining_errors": {
+            "items": [
+              {
+                "actual_length": 269,
+                "constraint": "maxLength",
+                "limit": 200,
+                "path": [
+                  "needs",
+                  0,
+                  "role"
+                ],
+                "schema_path": [
+                  "properties",
+                  "needs",
+                  "items",
+                  "properties",
+                  "role",
+                  "maxLength"
+                ]
+              },
+              {
+                "actual_length": 208,
+                "constraint": "maxLength",
+                "limit": 200,
+                "path": [
+                  "needs",
+                  1,
+                  "role"
+                ],
+                "schema_path": [
+                  "properties",
+                  "needs",
+                  "items",
+                  "properties",
+                  "role",
+                  "maxLength"
+                ]
+              },
+              {
+                "actual_length": 230,
+                "constraint": "maxLength",
+                "limit": 200,
+                "path": [
+                  "needs",
+                  4,
+                  "role"
+                ],
+                "schema_path": [
+                  "properties",
+                  "needs",
+                  "items",
+                  "properties",
+                  "role",
+                  "maxLength"
+                ]
+              },
+              {
+                "actual_length": 230,
+                "constraint": "maxLength",
+                "limit": 200,
+                "path": [
+                  "needs",
+                  10,
+                  "role"
+                ],
+                "schema_path": [
+                  "properties",
+                  "needs",
+                  "items",
+                  "properties",
+                  "role",
+                  "maxLength"
+                ]
+              }
+            ],
+            "omitted": 0,
+            "total": 4
+          },
+          "schema": "model-output-admission-receipt@1",
+          "stage": "A-selection",
+          "wire_schema_sha256": "f25905c83e9a3179326edf3d578488b524b7494b6a4618f88cab35ac13655619"
+        }
+      }
+    },
+    "calls": {
+      "A-details": {
+        "elapsed_seconds": 0.312421458074823,
+        "input_bytes": 43566,
+        "output_bytes": 14348,
+        "reply": "{\"slots\": {\"slot_000\": {\"conditions\": [{\"text\": \"overhead top-down angle of a desk surface at evening\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"desk shows a coaster, a water cup, scattered pens, and the corner of an open notebook\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"low saturation everyday palette, no brand or logo visible on any object\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"notebook screen content is not readable: no text, no notifications, no PII\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"shallow depth of field, soft evening window light from one side\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"composition shows a half-messy, lived-in state, not staged or perfectly tidy\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"universal everyday workspace, not tied to a specific person, gender or first-person identity\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"static source frame held long; any slow push-in is achieved in postproduction from a still image\", \"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"observable\"}], \"purpose\": \"opening image: half-messy desk establishing the workspace before the closing ritual begins\", \"visual_preference\": \"low saturation evening palette, shallow DOF, overhead angle\", \"queries\": [\"overhead view of evening desk with coaster water cup scattered pens notebook corner\", \"low saturation workspace still life shallow depth of field window light\"], \"framing\": {\"mode\": \"match_output\"}}, \"slot_001\": {\"conditions\": [{\"text\": \"eye-level side angle of a hand moving a water cup back onto a coaster on a desk\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"low saturation everyday palette, no brand or logo visible on cup or coaster\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"notebook and other desk items in soft background, no readable screen content, no notifications, no PII\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"shallow depth of field, evening window light from one side\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"hand is a generic adult hand, no first-person specific gender, no visible identity marker\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"gentle placing motion shown; the actual contact tap sound is a separate SFX source, not baked into this still\", \"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"dynamic_action\"}], \"purpose\": \"cup being returned to the coaster: first concrete closing gesture of the day\", \"visual_preference\": \"eye-level side view, low saturation, shallow DOF\", \"queries\": [\"hand placing water cup on coaster side view low saturation evening light\", \"eye level workspace still life shallow depth of field window light\"], \"framing\": {\"mode\": \"match_output\"}}, \"slot_002\": {\"conditions\": [{\"text\": \"overhead close-up of fingers rolling a pen back toward a pen holder or pen rest\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"pen is generic, no brand, no logo, no visible marking\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"low saturation everyday palette, shallow depth of field, evening window light\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"fingers are generic adult, no first-person specific identity\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"desk surface visible in soft focus, no notifications, no readable text\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"the actual rolling motion is a separate visual source if used; a still image with the pen mid-roll near the holder is acceptable\", \"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"dynamic_action\"}], \"purpose\": \"pen being put back: second small tidying gesture continuing the closing ritual\", \"visual_preference\": \"overhead close-up, low saturation, shallow DOF\", \"queries\": [\"overhead close up fingers rolling pen toward pen holder low saturation\", \"desk surface shallow depth of field evening window light pen rest\"], \"framing\": {\"mode\": \"match_output\"}}, \"slot_003\": {\"conditions\": [{\"text\": \"side medium shot of two hands closing a plain notebook lid over its cover\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"notebook cover is plain, no visible brand, no logo, no readable screen or text content\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"quiet desk environment, low saturation everyday palette, evening window light\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"hands are generic adult, no first-person specific identity\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"the lid is shown at or near the closed position; the contact snap is a separate SFX source\", \"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"dynamic_action\"}], \"purpose\": \"notebook being closed: the literal \\\"hinge\\\" of the day's closing ritual\", \"visual_preference\": \"side medium shot, low saturation, quiet desk\", \"queries\": [\"two hands closing plain notebook side view low saturation evening light\", \"notebook lid closing medium shot shallow depth of field desk\"], \"framing\": {\"mode\": \"match_output\"}}, \"slot_004\": {\"conditions\": [{\"text\": \"medium shot of a hand reaching toward a desk lamp switch and pressing it\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"lamp and switch are generic, no brand, no logo, no visible marking\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"evening window light present in the source frame, low saturation everyday palette\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"no readable notebook screen, no notifications, no PII, no first-person specific environment\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"the natural dimming of the picture is achieved by post-production brightness adjustment, not by a separate dim source asset\", \"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"dynamic_action\"}], \"purpose\": \"hand turning off the desk lamp: the start of the visual dimming that marks the day closing\", \"visual_preference\": \"medium shot, low saturation, evening window light\", \"queries\": [\"hand pressing desk lamp switch medium shot low saturation evening\", \"desk lamp and switch generic shallow depth of field window light\"], \"framing\": {\"mode\": \"match_output\"}}, \"slot_005\": {\"conditions\": [{\"text\": \"static medium shot of an empty desk: notebook closed, cup and pens put away, lamp off\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"more evening window light visibly entering the frame than in earlier shots, outlining the lamp shape\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"low saturation everyday palette, no brand, no logo, no readable text, no notifications, no PII\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"quiet negative space dominates the frame; no people, no first-person specific environment\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"composition supports being held still for an extended beat; long held stillness is a postproduction edit choice\", \"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"observable\"}], \"purpose\": \"empty desk after the ritual: visual confirmation that the day has been put down\", \"visual_preference\": \"static medium shot, low saturation, generous negative space, evening window light\", \"queries\": [\"empty desk lamp off notebook closed evening window light still\", \"low saturation quiet workspace negative space shallow depth of field\"], \"framing\": {\"mode\": \"match_output\"}}, \"slot_006\": {\"conditions\": [{\"text\": \"composition of just the desk edge and a quiet stretch of evening sky outside the window\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"low saturation, restrained, calm palette; no people, no notifications, no first-person specific environment\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"no brand, no logo, no readable text, no PII, no identifiable place markers\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"composition supports a slow push-in achieved in postproduction from a still or near-still source frame\", \"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"observable\"}], \"purpose\": \"final closing image: desk edge and evening sky, leaving the day in the quiet outside\", \"visual_preference\": \"calm restrained palette, desk edge to window sky, generous negative space\", \"queries\": [\"desk edge evening sky through window low saturation calm\", \"restrained dusk sky and desk corner shallow depth of field\"], \"framing\": {\"mode\": \"match_output\"}}, \"slot_007\": {\"conditions\": [{\"text\": \"single short tap of a cup base meeting a desk surface: dry, light, contact-only\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"dynamic_action\"}, {\"text\": \"no other sound layered into the same beat; the tap stands alone\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"real-sounding physical contact sound, not synthesized impact or notification\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"timing alignment to the cup being placed on the coaster is a postproduction edit choice, not a source property\", \"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"observable\"}], \"purpose\": \"SFX for the cup-on-coaster beat: marks the first concrete closing gesture\", \"source_seconds\": 1, \"sound\": {\"event_description\": \"light cup base tapping on desk surface, short dry contact\", \"sound_character\": \"dry, short, contact-only, no resonance\", \"intensity\": \"low\", \"environment\": \"quiet indoor evening\"}}, \"slot_008\": {\"conditions\": [{\"text\": \"single soft snap of a notebook lid meeting its cover: light, paper-and-cover, not heavy or wooden\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"dynamic_action\"}, {\"text\": \"no other sound layered into the same beat; the snap stands alone\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"real-sounding physical contact sound of a softcover notebook closing\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"timing alignment to the lid meeting the cover is a postproduction edit choice, not a source property\", \"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"observable\"}], \"purpose\": \"SFX for the notebook-closing beat: marks the literal hinge of the day's closing\", \"source_seconds\": 1, \"sound\": {\"event_description\": \"soft notebook lid snapping shut, light paper-and-cover sound\", \"sound_character\": \"soft, light, paper-and-cover, short\", \"intensity\": \"low\", \"environment\": \"quiet indoor evening\"}}, \"slot_009\": {\"conditions\": [{\"text\": \"single small plastic desk-lamp switch click: dry, short, contact-only\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"dynamic_action\"}, {\"text\": \"no other sound layered into the same beat; the click stands alone and marks the start of the natural brightness drop\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"real-sounding small switch contact, not a heavy impact or notification\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"timing alignment to the finger pressing the switch is a postproduction edit choice, not a source property\", \"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"observable\"}], \"purpose\": \"SFX for the lamp-switch beat: marks the start of the visual dimming that closes the day\", \"source_seconds\": 1, \"sound\": {\"event_description\": \"small plastic desk lamp switch click, dry and short\", \"sound_character\": \"dry, small, plastic, contact-only\", \"intensity\": \"low\", \"environment\": \"quiet indoor evening\"}}, \"slot_010\": {\"conditions\": [{\"text\": \"lyrics-free soft pad-based background music with very sparse acoustic guitar plucks as the instrumental source\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"instrumental only, no vocals, no sung or spoken words in the source track\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"runs through the whole piece as a continuous track, not cut into separated stings\", \"strength\": \"required\", \"responsibility\": \"material\", \"meaning\": \"observable\"}, {\"text\": \"actual file, license, and supported execution resources are bound in Material; the prepared track existing is not itself a source content property\", \"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"observable\"}, {\"item\": {\"strength\": \"preference\", \"responsibility\": \"postproduction\", \"meaning\": \"observable\"}}], \"purpose\": \"BGM carrying the piece end to end: sustains the calm reflective mood under narration and through the final quiet shot\", \"source_seconds\": 45, \"sound\": {\"mood\": \"calm, reflective, low-key, unhurried\", \"genre\": \"ambient pad with sparse acoustic guitar plucks\", \"instruments\": [\"soft synthesizer pad\", \"sparse acoustic guitar plucks\"], \"vocals_allowed\": false, \"energy\": \"low, sustained, minimal movement\"}}}, \"unresolved\": []}",
+        "reply_sha256": "ed5c9e42bb2cd5bc2ec8a40efe4f7949ea0d82f8be27eada5085355df85628b8",
+        "request_sha256": "e2884fdae762026a21392d572987bcebb2774480aec1a127eb17c97fb60c6440",
+        "result": "MODEL_COMPLETED",
+        "session": "semantic-fa_905d431e46bf92272883d1d7d46f573d-vnext-A-details"
+      },
+      "A-selection": {
+        "elapsed_seconds": 0.3100132499821484,
+        "input_bytes": 38045,
+        "output_bytes": 3107,
+        "reply": "{\"needs\": [{\"modality\": \"image\", \"necessity\": \"required\", \"role\": \"opening overhead view of a half-messy desk: coaster, water cup, scattered pens, corner of an open notebook; shallow depth of field; evening window light; notepad screen unreadable, no brand/logo/notification/PII; universal everyday workspace, not first-person specific.\", \"scope\": \"src_f04b6ee54e6f4c1a7a75\"}, {\"modality\": \"image\", \"necessity\": \"required\", \"role\": \"eye-level side view of a hand moving a water cup back to its coaster and gently placing it down; low-saturation everyday; cup and coaster generic, no brand visible; notepad screen unreadable, no notification.\", \"scope\": \"src_9a9e2c80e545c0fea23e\"}, {\"modality\": \"image\", \"necessity\": \"required\", \"role\": \"overhead close-up of fingers rolling a pen back into a pen holder or pen rest; pen generic, no brand/logo; desk surface in shallow depth of field.\", \"scope\": \"src_c9a87085ed346896de92\"}, {\"modality\": \"image\", \"necessity\": \"required\", \"role\": \"side medium shot of both hands closing a plain notebook lid; notebook cover plain, no visible brand or screen content; quiet desk environment.\", \"scope\": \"src_30eb1fda7f37da3808cb\"}, {\"modality\": \"image\", \"necessity\": \"required\", \"role\": \"medium shot of a hand reaching to a desk lamp switch and pressing it; lamp and switch generic, no brand; evening window light; the natural dimming of the picture is achieved by post-production brightness, not by an external asset.\", \"scope\": \"src_7fa913d7b95a1e6df90d\"}, {\"modality\": \"image\", \"necessity\": \"required\", \"role\": \"static medium shot of the now-empty desk: lamp turned off (outlined by window light), more visible window light entering; notebook closed, cup and pens put away; long held still; quiet negative space.\", \"scope\": \"src_6b0c05ce1e1dd0d4ca25\"}, {\"modality\": \"image\", \"necessity\": \"required\", \"role\": \"slow push-in of just the desk edge and a quiet stretch of evening sky outside the window; no people, no notifications, no first-person specific environment; calm, restrained palette.\", \"scope\": \"src_e2704fa592619ec98ac6\"}, {\"modality\": \"sfx\", \"necessity\": \"required\", \"role\": \"single light cup-base meeting desk surface tap; short, dry, contact-only; aligned to the cup being placed on the coaster; no other sound in that beat.\", \"scope\": \"src_9a9e2c80e545c0fea23e\"}, {\"modality\": \"sfx\", \"necessity\": \"required\", \"role\": \"single soft notebook lid closing snap; light, paper-and-cover, not heavy; aligned to the moment the lid meets the cover.\", \"scope\": \"src_30eb1fda7f37da3808cb\"}, {\"modality\": \"sfx\", \"necessity\": \"required\", \"role\": \"single desk-lamp switch click; small, plastic, dry; aligned to the finger pressing the switch; marks the start of the natural brightness drop.\", \"scope\": \"src_7fa913d7b95a1e6df90d\"}, {\"modality\": \"bgm\", \"necessity\": \"required\", \"role\": \"lyrics-free soft pad-based BGM with very sparse acoustic guitar plucks; runs through the whole piece without being cut; ducks under narration per frozen music_ducking envelope; gently fades but does not hard-cut at the final shot.\", \"scope\": \"src_7eba731d7de0bf1af55e\"}], \"unresolved\": []}",
+        "reply_sha256": "78e53572d8a15d8062d8c55b27ba985cbfdf5945ff51e1d7184fb00dc41117ae",
+        "request_sha256": "db1b9e121153857ba5fe7c0edbcac851749da077d65a78934992652f86bf3805",
+        "result": "MODEL_COMPLETED",
+        "session": "semantic-fa_905d431e46bf92272883d1d7d46f573d-vnext-A-selection"
+      }
+    },
+    "detail_binding": {
+      "canonical_sha256": "c9d2db345ea798e0ca796147d24b609f64f4a86c0672bd88ac143809d2b835be",
+      "input_view": {
+        "authority_sha256": "f7d509d60796fab89930b46f00d6ca87f87fdf61888ca997ab089557a4871ab1",
+        "catalog_sha256": "9cacbce1750322cdd13051639ed88154e22637110186c218065d35b70a5ea623",
+        "inputs_sha256": "6c181048b184967c3893371e7ff8b98773f02004ddb80507ab4e49924b680a6c",
+        "lineage_sha256": "66e950f6bc73357342a372581b83e1623e6456d1b1306c8dcd58c58c8ecf9cc3",
+        "policy": "planning-input-view@1",
+        "view_sha256": "c8f7904ec2ff88ab1e30df96eac592695954ab6319c712ad8f6e37ce32d0f074"
+      },
+      "normalized_selection_sha256": "a16f1376503306f954793cd622f20d2a474fbc5e59d5988d14ea3e0c83b47537",
+      "normalized_wire_sha256": "b5b254afca14207d11a6ee4ec2bf116b94385215ae386209d3d7f34cbd9f06a2",
+      "opaque_headers_sha256": "b5b254afca14207d11a6ee4ec2bf116b94385215ae386209d3d7f34cbd9f06a2",
+      "policy": "planning-staged-proposal@1",
+      "raw_selection_sha256": "78e53572d8a15d8062d8c55b27ba985cbfdf5945ff51e1d7184fb00dc41117ae",
+      "runtime_sha256": "a84c1168dbcd957e3a2383209af7c2b1f6e7af810944ad38db553773b7fc3e82",
+      "schema_sha256": "c8456adf67fbc90ec25e6107b8448c281c8e2660578c2d40e723d456739d86b4",
+      "scope_sha256": "a3229d5ec139a22c2454e0e1b61a1d1dc917e727a422e45fd7a78e1bb66614ad",
+      "selection_admission_sha256": "f9c7b47731d96984c10ece975bfb79d191e3781600d2c5d09054b03ff9f6d9d5",
+      "selection_sha256": "a16f1376503306f954793cd622f20d2a474fbc5e59d5988d14ea3e0c83b47537"
+    }
+  }
+}

@@ -30,5 +30,5 @@
 - `asr.py` 需 `pip install faster-whisper` + ffmpeg；模型放 `~/.cache/easel-models/faster-whisper-<size>/`（本环境代理下 HF 自动下载失败，需 curl 手动下 config.json/model.bin/tokenizer.json/vocabulary.txt）
 - `tts.py` 需 `pip install edge-tts` + 外网代理（微软在线 TTS）
 - `ai_image.py` / `ai_video.py` / `ai_music.py` 纯标准库（urllib/hmac），但需**用户自备各服务的 API key**（配 .env），见各自 SKILL 的配置章节
-- `data-report`（pandas+matplotlib）、`infographic/gif_chart.py`（matplotlib+Pillow）、`auto-short-video/assemble.py`（ffmpeg）在各自 SKILL 的 scripts/ 下
+- `data-report`（pandas+matplotlib）、`infographic/gif_chart.py`（matplotlib+Pillow）在各自 Skill 目录；旧独立成片合成器已退役，正式新视频只经 Creation + Delivery + Hypit
 - 其余脚本纯标准库，无需额外依赖

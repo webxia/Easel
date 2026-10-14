@@ -11,7 +11,7 @@ layer: produce
 > drawtext / xfade**——脚本已处理字体路径、音画参数一致、转场时间偏移计算。
 
 > 只做"片头/片尾卡片 + 拼接"。静态封面图见 **poster-hero**；通用剪辑见 **video-editing**；
-> 完整"一句话→成片"流水线见 **auto-short-video**。
+> 新视频从主题到正式成片必须经 Easel Web Creation 确认与 Delivery/Hypit 单一主链；本技能只处理已有素材或片头片尾片段，不承担 Creator 作品生产 Owner。
 
 ## 输入
 

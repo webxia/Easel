@@ -19,12 +19,18 @@ from easel.integrations.hypit.secrets import SecretRedactor
 
 POLICY = 'model-output-admission@1'
 RECEIPT = 'model-output-admission-receipt@1'
-SELECTION_PROFILE = 'planning-selection@1'
+LEGACY_SELECTION_PROFILE = 'planning-selection@1'
+SELECTION_PROFILE = 'planning-selection@2'
 TEXT_PROFILE = 'complete-json-container@1'
 STRICT_PROFILE = 'strict-json-object@1'
 MAX_ACTIONS = 16
 MAX_DIAGNOSTICS = 32
 RULES = {
+    'selection-root-bgm-contains-echo@1': {
+        'stage': 'A-selection', 'channel': 'tool', 'path': ['contains'],
+        'value': {'modality': 'bgm', 'necessity': 'required'},
+        'guard': 'Exact active array rule; root echo only; entire remaining selection strictly valid',
+    },
     'selection-bgm-contains-echo@1': {
         'stage': 'A-selection', 'channel': 'tool',
         'path': ['needs', '*', 'contains'],
@@ -37,8 +43,10 @@ RULES = {
     },
 }
 PROFILES = {
-    SELECTION_PROFILE: {'stages': ['A-selection'], 'channels': ['tool'],
+    LEGACY_SELECTION_PROFILE: {'stages': ['A-selection'], 'channels': ['tool'],
                         'rules': ['selection-bgm-contains-echo@1']},
+    SELECTION_PROFILE: {'stages': ['A-selection'], 'channels': ['tool'],
+                        'rules': ['selection-bgm-contains-echo@1', 'selection-root-bgm-contains-echo@1']},
     TEXT_PROFILE: {'stages': None, 'channels': ['text-json', 'file-json'],
                    'rules': ['complete-json-fence@1']},
     STRICT_PROFILE: {'stages': None, 'channels': ['tool', 'text-json', 'file-json'], 'rules': []},
@@ -117,7 +125,7 @@ def schema_diagnostics(value, schema):
     return {'items': rows, 'total': total, 'omitted': total - len(rows)}
 
 
-def _normalize_selection(value, schema):
+def _normalize_selection(value, schema, *, root_echo=False):
     result, actions = deepcopy(value), []
     array = schema.get('properties', {}).get('needs', {})
     item = array.get('items', {})
@@ -128,6 +136,20 @@ def _normalize_selection(value, schema):
         return result, actions
     rows = result.get('needs')
     if not isinstance(rows, list) or len(rows) > MAX_ACTIONS:
+        return result, actions
+    # A root echo is excluded only in isolation. Never combine it with header
+    # cleanup or let it stand in for a missing/optional BGM candidate.
+    if root_echo and 'contains' in result:
+        rule = 'selection-root-bgm-contains-echo@1'
+        echo = result['contains']
+        candidate = {key: item for key, item in result.items() if key != 'contains'}
+        if (schema.get('type') == 'object' and schema.get('additionalProperties') is False
+                and 'contains' not in schema.get('properties', {})
+                and echo == RULES[rule]['value']
+                and Draft202012Validator(schema).is_valid(candidate)):
+            return candidate, [{'rule': rule, 'operation': 'exclude_redundant_field',
+                'path': ['contains'], 'old_value_sha256': digest(echo),
+                'evidence': 'active-array-rule-and-entire-valid-selection'}]
         return result, actions
     for index, row in enumerate(rows):
         if not isinstance(row, dict) or 'contains' not in row:
@@ -196,8 +218,9 @@ def admit_json(raw, schema, *, stage, channel, binding, profile=STRICT_PROFILE,
                 'old_value_sha256': receipt['raw_sha256']})
         receipt['raw_errors'] = schema_diagnostics(original, schema)
         candidate = deepcopy(original)
-        if profile == SELECTION_PROFILE:
-            candidate, actions = _normalize_selection(candidate, schema)
+        if profile in {LEGACY_SELECTION_PROFILE, SELECTION_PROFILE}:
+            candidate, actions = _normalize_selection(candidate, schema,
+                root_echo=profile == SELECTION_PROFILE)
             receipt['actions'].extend(actions)
         receipt['normalized_sha256'] = digest(candidate)
         receipt['remaining_errors'] = schema_diagnostics(candidate, schema)

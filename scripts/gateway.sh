@@ -133,7 +133,7 @@ case "${1:-status}" in
         fi
         mkdir -p "$(dirname "$OPENCLAW_RAW_STREAM_PATH")"
         [ ! -L "$OPENCLAW_RAW_STREAM_PATH" ] || { echo "[easel] Refusing symlink raw-stream path"; exit 1; }
-        : > "$OPENCLAW_RAW_STREAM_PATH"    # 每次起 gateway 清空，避免无限增长/读到上次残留
+        : >> "$OPENCLAW_RAW_STREAM_PATH"   # 保留历史证据；消费者按偏移及 run_id 隔离当前事件
         chmod 600 "$OPENCLAW_RAW_STREAM_PATH"
         _detach openclaw --profile "$PROFILE" gateway run --force --allow-unconfigured --bind loopback > "$LOGFILE" 2>&1
         sleep 4

@@ -94,7 +94,93 @@ class DeliveryObservationPending(RuntimeError):
 
 
 def is_managed(work: dict[str, Any]) -> bool:
-    return (work.get("delivery") or {}).get("schema") == SCHEMA
+    """Strict new-production admission, including the pre-Attempt window.
+
+    A historic delivery schema is *not* a commission. Old Attempts and
+    pending/unknown remote operations retain their bytes for passive
+    reconciliation, but never re-enter a production worker.
+    """
+    import hashlib
+    import json
+    import re
+    from easel.creator_proposal import validate_video_plan
+    from easel.integrations.hypit.secrets import SecretRedactor
+    delivery = work.get("delivery") or {}
+    workflow = work.get("chat_workflow") or {}
+    origin = work.get("origin") or {}
+    contract = delivery.get("production_contract")
+    plan = workflow.get("video_plan")
+    if (work.get("route") != "hypit_video"
+            or origin.get("type") != "chat"
+            or not isinstance(origin.get("session_hash"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", origin["session_hash"])
+            or not work.get("creative_mode")
+            or not work.get("creative_mode_version")
+            or not workflow.get("video_plan_required")
+            or workflow.get("proposal_status") != "CONFIRMED"
+            or not isinstance(workflow.get("confirmed_at"), str)
+            or not workflow.get("confirmed_by_turn")
+            or not isinstance(workflow.get("proposal_sha256"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", workflow["proposal_sha256"])
+            or delivery.get("schema") != SCHEMA
+            or not isinstance(contract, dict)
+            or not validate_video_plan(plan)
+            or delivery.get("video_plan") != plan
+            or delivery.get("confirmed_at") != workflow["confirmed_at"]
+            or delivery.get("confirmed_by_turn") != workflow["confirmed_by_turn"]
+            or delivery.get("proposal_sha256") != workflow["proposal_sha256"]
+            or workflow.get("production_specs") != plan["specs"]
+            or not isinstance(delivery.get("proposal"), str)
+            or len(delivery["proposal"]) > 32_000
+            or SecretRedactor.contains_secret(delivery["proposal"])
+            or hashlib.sha256(delivery["proposal"].encode("utf-8")).hexdigest() != workflow["proposal_sha256"]):
+        return False
+    from easel.creation import input_use_preview
+    try:
+        issued = input_use_preview(plan=plan)
+    except creation.CreationError:
+        return False
+    recorded = (delivery.get("authorization") or {}).get("input_use")
+    expected_consent = {**issued,
+                        "creation_id": work.get("id"),
+                        "proposal_sha256": workflow["proposal_sha256"],
+                        "confirmed_at": workflow["confirmed_at"],
+                        "confirmed_by_turn": workflow["confirmed_by_turn"]}
+    if recorded != expected_consent:
+        return False
+    expected_contract = {
+        "schema": "easel-new-video-commission@1",
+        "creation_id": work.get("id"),
+        "session_hash": origin["session_hash"],
+        "creator_profile": work.get("profile"),
+        "creative_mode": work["creative_mode"],
+        "creative_mode_version": work["creative_mode_version"],
+        "video_plan_sha256": plan["sha256"],
+        "input_use_sha256": issued["statement_sha256"],
+        "confirmed_at": workflow["confirmed_at"],
+    }
+    if contract != expected_contract:
+        return False
+    if plan["specs"]["audio_mode"] in {"voice", "mixed"}:
+        from easel.integrations.voice_identity import require_binding
+        try:
+            require_binding(work)
+        except ValueError:
+            return False
+    elif delivery.get("voice_binding") is not None:
+        return False
+    attempts = work.get("hypit_attempts") or []
+    if attempts:
+        current = attempts[-1]
+        if current.get("creation_id") != work.get("id"):
+            return False
+        from easel.integrations.result_protocols import inherited
+        from easel.integrations.output_receipts import OutputReceiptError
+        try:
+            inherited(current)
+        except (OutputReceiptError, ValueError):
+            return False
+    return True
 
 
 def set_material_endpoint(creation_id: str) -> dict:
@@ -234,6 +320,20 @@ def _attempt(work: dict[str, Any]) -> dict[str, Any]:
     return attempts[-1] if attempts else {}
 
 
+# U2 software boundary, not a revision to the V1 product's 1..900s proposal.
+# Lift only with U3-L real 301..900s BGM/Voice/MP4 evidence and a newly
+# fingerprinted candidate; until then, confirmed long films stay unexecuted.
+U3L_UNVERIFIED_SOFTWARE_LIMIT_SECONDS = 300
+
+
+def requires_u3l_media_qualification(video_plan: dict | None) -> bool:
+    if not isinstance(video_plan, dict) or video_plan.get("schema") != "easel-video-proposal@4":
+        return False
+    specs = video_plan.get("specs")
+    duration = specs.get("duration_seconds") if isinstance(specs, dict) else None
+    return type(duration) is int and duration > U3L_UNVERIFIED_SOFTWARE_LIMIT_SECONDS
+
+
 def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
     """Return an existing operation or an evidenced waiting condition."""
     if not is_managed(work):
@@ -258,10 +358,26 @@ def next_operation(work: dict[str, Any]) -> tuple[str | None, str]:
         return None, "stopped"
     if work.get("selected_output_name"):
         return None, "accepted"
+    if (requires_u3l_media_qualification(delivery.get("video_plan"))
+            and _attempt(work).get("execution_status") not in {
+                "SUBMITTING", "SUBMISSION_UNCERTAIN", "SUBMITTED", "RUNNING", "CANCEL_REQUESTED"}):
+        # Passive reconciliation of already-submitted/uncertain work above all
+        # remains allowed. No new Preparation, Provider, Authoring or Build.
+        return None, "long_video_qualification_required"
     if delivery.get("recovering_build_from"):
         return "retry_build", "recovering_production"
     if delivery.get("recovering_quality_from"):
         return "repair_quality", "repairing_quality"
+    revision_prep = work.get('preparation') or {}
+    if (delivery.get('proposal_revision')
+            and revision_prep.get('status') == 'CREATED'
+            and revision_prep.get('revision_source_attempt_id')):
+        # Preserve the earlier failed Attempt; the new explicit confirmation
+        # receives its own Preparation operation key and separate Attempt.
+        if any(a.get('attempt_id') == revision_prep['revision_source_attempt_id']
+               for a in work.get('hypit_attempts', [])):
+            return 'prepare', 'preparing'
+        return None, 'commission_invalid'
     attempt = _attempt(work)
     if not attempt:
         return "prepare", "preparing"

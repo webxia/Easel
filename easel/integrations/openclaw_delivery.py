@@ -104,16 +104,7 @@ def _observe_payload(creation_id: str, key: str, payload: dict) -> None:
         if (status in {"ok", "error"} and type(ended) in (int, float) and ended > 0
                 and not payload.get("yielded")):
             call.update(status=status, ended_at=ended, observed_at=creation._now())
-            planning_reply = call.get('reply_contract') == 'planning-result-v1'
-            if planning_reply:
-                reply = payload.get('terminalReply')
-                text = reply.get('text') if isinstance(reply, dict) and reply.get('disposition') == 'visible' else None
-                call['stop_reason'] = payload.get('stopReason')
-                call['result'] = ('MODEL_TRUNCATED' if payload.get('stopReason') == 'length'
-                    else 'MODEL_NO_RESULT' if not isinstance(text, str) or not text.strip()
-                    else 'MODEL_TRUNCATED' if len(text.encode('utf-16-le')) // 2 > 3000 or text.rstrip().endswith('…')
-                    else 'MODEL_COMPLETED')
-            if call.get('reply_contract') in {'planning-result-v2', 'planning-result-v3'}:
+            if call.get('reply_contract') == 'planning-result-v3':
                 # The display snapshot may be truncated. Preserve only the
                 # original run's terminal identity here; fetch the raw result.
                 receipt = payload.get('terminalReceipt')
@@ -135,7 +126,7 @@ def _observe_payload(creation_id: str, key: str, payload: dict) -> None:
                         call['stop_reason'] = payload.get('stopReason')
                         call['result'] = ('MODEL_TRUNCATED' if payload.get('stopReason') == 'length'
                                           else 'CAPTURE_PENDING')
-            if (call.get('capture_reply') and call.get('reply_contract') not in {'planning-result-v2', 'planning-result-v3'}
+            if (call.get('capture_reply') and call.get('reply_contract') in {None, 'material-result-v1'}
                     and 'terminalReply' in payload):
                 from easel.integrations.hypit.secrets import SecretRedactor
                 reply = payload.get('terminalReply')
@@ -159,9 +150,8 @@ def _observe_payload(creation_id: str, key: str, payload: dict) -> None:
                         'sensitive_output'
                     )
                     call['reply_error'] = '运行结果缺失、截断、超出协议容量或包含敏感内容；保留原运行，不重新派发'
-                    if planning_reply and call['result'] == 'MODEL_COMPLETED':
-                        call['result'] = 'STRUCTURED_OUTPUT_INVALID'
-            if call.get("session_key") and call.get("runtime_release") != "released":
+            if (call.get("reply_contract") in {None, "material-result-v1", "planning-result-v3"}
+                    and call.get("session_key") and call.get("runtime_release") != "released"):
                 call["runtime_release"] = "pending"
             if status == "error":
                 # Persist only an allowlisted category, never raw gateway/model
@@ -188,6 +178,8 @@ def _release_call_runtime(creation_id: str, key: str, *, command_prefix: Sequenc
     transport failure/yield/pending must never stop a possibly live executor.
     """
     call = creation.get_creation(creation_id)["delivery"]["agent_calls"][key]
+    if call.get("reply_contract") not in {None, "material-result-v1", "planning-result-v3"}:
+        return  # Historical observation never releases or alters the original session.
     if call.get("runtime_release") != "pending":
         return
     if (call["status"] not in {"ok", "error"} or not call.get("ended_at")
@@ -235,7 +227,7 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
                        expected_runtime_sha256: str | None = None, **kwargs):
     """Replacement for an agent CLI call, retaining the existing file executor."""
     creation_id = active_delivery.get()
-    if reply_contract not in {'material-result-v1', 'planning-result-v1', 'planning-result-v2', 'planning-result-v3'}:
+    if reply_contract not in {'material-result-v1', 'planning-result-v3'}:
         raise ValueError('Unknown internal reply contract')
     if reply_contract.startswith('planning-result-') and (not capture_reply or not creation_id):
         raise ValueError('Planning capture must belong to its original Delivery run')
@@ -244,7 +236,7 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
         validate_request(structured_result)
     elif structured_result is not None:
         raise ValueError('Structured tool request cannot change an older reply contract')
-    if reply_contract in {'planning-result-v2', 'planning-result-v3'}:
+    if reply_contract == 'planning-result-v3':
         retry_failed = False  # Transport/model failure never buys another run.
     if not creation_id:
         if attachments:
@@ -273,7 +265,7 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
         request["sessionId"] = flag("--session-id")
     if structured_result is not None:
         request['easelStructuredResult'] = structured_result
-    if reply_contract in {'planning-result-v2', 'planning-result-v3'}:
+    if reply_contract == 'planning-result-v3':
         from easel.integrations.planning_result_contract import MAX_REQUEST_BYTES
         if not request.get('sessionId') or not request.get('sessionKey'):
             raise ValueError('Planning原始结果必须事前绑定sessionId/sessionKey')
@@ -291,7 +283,7 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
         from easel.integrations.planning_structured import RUNTIME_PARTS
         if expected_runtime_sha256 != identity_digest(RUNTIME_PARTS):
             raise ValueError('Frozen Planning Runtime cannot submit on an upgraded installation')
-    if reply_contract in {'planning-result-v2', 'planning-result-v3'} and existing is None:
+    if reply_contract == 'planning-result-v3' and existing is None:
         _planning_rpc_capacity(prefix, profile,
             {**request, 'idempotencyKey': 'easel-' + '0'*32}, kwargs)
         if transcript_reader is None:
@@ -335,7 +327,7 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
                     call['reply_contract'] = reply_contract
             if request["sessionKey"]:
                 call.update(session_key=request["sessionKey"], agent_id=request["agentId"])
-            if reply_contract in {'planning-result-v2', 'planning-result-v3'}:
+            if reply_contract == 'planning-result-v3':
                 call['session_id'] = request['sessionId']
             if structured_result is not None:
                 call['structured_result'] = {key: structured_result[key]
@@ -367,7 +359,7 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
         if call["status"] == "ok":
             if not capture_reply:
                 return subprocess.CompletedProcess(args, 0, "", "")
-            if call.get('reply_contract') in {'planning-result-v2', 'planning-result-v3'}:
+            if call.get('reply_contract') == 'planning-result-v3':
                 if not call.get('terminal_receipt'):
                     payload = _rpc(prefix, profile, 'agent.wait', {'runId': call['run_id'], 'timeoutMs': 0}, runner, kwargs)
                     _observe_payload(creation_id, digest, payload)
@@ -388,7 +380,7 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
     current = creation.get_creation(creation_id)["delivery"]["agent_calls"][digest]
     if current["status"] == "ok":
         if capture_reply:
-            if current.get('reply_contract') in {'planning-result-v2', 'planning-result-v3'}:
+            if current.get('reply_contract') == 'planning-result-v3':
                 _capture_original(creation_id, digest, prefix, profile, runner, kwargs, transcript_reader)
                 current = creation.get_creation(creation_id)['delivery']['agent_calls'][digest]
                 return _completed_reply(args, current)
@@ -406,6 +398,8 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
 
 
 def _completed_reply(args, call):
+    if call.get('reply_contract') not in {None, 'material-result-v1', 'planning-result-v3'}:
+        raise ValueError('Historical Planning result is read-only')
     if call.get('reply_contract', '').startswith('planning-result-') and call.get('result') != 'MODEL_COMPLETED':
         raise PlanningResultError(call.get('result', 'MODEL_NO_RESULT'))
     reply = call.get('terminal_reply')
@@ -422,6 +416,8 @@ def _capture_original(creation_id, key, prefix, profile, runner, kwargs, reader)
     from easel.integrations.planning_transcript import read_original
     from easel.integrations.planning_reply_safety import safe_structured_text
     call = creation.get_creation(creation_id)['delivery']['agent_calls'][key]
+    if call.get('reply_contract') != 'planning-result-v3':
+        raise ValueError('Historical Planning result is read-only')
     if call.get('terminal_reply'):
         return  # A durable byte-checked capture never reads a changed transcript.
     if call.get('result') in {'MODEL_TRUNCATED', 'MODEL_NO_RESULT', 'STRUCTURED_OUTPUT_INVALID', 'CONTRACT_REJECTED'}:
@@ -451,15 +447,13 @@ def _capture_original(creation_id, key, prefix, profile, runner, kwargs, reader)
     else:
         text = value.get('text')
         if value.get('stopReason') == 'length': outcome = 'MODEL_TRUNCATED'
-        elif call.get('reply_contract') == 'planning-result-v3':
+        else:
             expected = call['structured_result']
             if (call.get('stop_reason') != 'tool_calls' or value.get('stopReason') != 'toolUse'
                     or value.get('providerFinishReason') != 'tool_calls'
                     or value.get('schemaSha256') != expected['schemaSha256']
                     or value.get('toolName') != expected['name'] or not value.get('toolCallId')):
                 outcome = 'STRUCTURED_OUTPUT_INVALID'
-        elif value.get('stopReason') not in {'stop', 'end_turn', 'completed'}:
-            raise DeliveryAgentPending('原assistant尚无可核实的成功终态')
         if outcome is None and (not isinstance(text, str) or not text.strip()): outcome = 'MODEL_NO_RESULT'
         elif outcome is None and not safe_structured_text(text): outcome = 'STRUCTURED_OUTPUT_INVALID'
         elif outcome is None and (value.get('bytes') != len(text.encode())
@@ -478,8 +472,7 @@ def _capture_original(creation_id, key, prefix, profile, runner, kwargs, reader)
                 'session_id': call['session_id'], 'message_id': value['messageId'],
                 'sequence': value['sequence'], 'runtime_version': value['runtimeVersion'],
                 'output_bytes': value['bytes'], 'stop_reason': value['stopReason']}
-            if call.get('reply_contract') == 'planning-result-v3':
-                current['result_source'].update(tool_call_id=value['toolCallId'],
+            current['result_source'].update(tool_call_id=value['toolCallId'],
                     tool_name=value['toolName'], schema_sha256=value['schemaSha256'],
                     provider_finish_reason=value['providerFinishReason'])
     if outcome != 'MODEL_COMPLETED':

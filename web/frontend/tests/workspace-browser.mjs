@@ -38,7 +38,7 @@ await page.route('**/api/**', async route => {
   if (path === '/api/operator/session') { operatorSessions++; result = { authenticated: true }; }
   else if (path === '/api/upload/limits') result = { max_mb: 50 };
   else if (path === '/api/creations/fixture-creation') result = { id: 'fixture-creation', idea: '雨后城市的平静', creative_mode: '观察式短片', chat_workflow: { proposal_status: incomplete ? 'DISCUSSING' : proposal ? 'READY_FOR_CONFIRMATION' : 'CONFIRMED' },
-    ...(scenario.startsWith('delivery-') ? { delivery: { schema: 'easel-creation-delivery@1', status: ({ 'delivery-cost': 'checking_cost', 'delivery-export': 'exporting', 'delivery-disconnected': 'observation_failed' })[scenario] } } : {}),
+    ...(!proposal && scenario !== 'legacy-readonly' ? { delivery: { schema: 'easel-creation-delivery@1', status: ({ failed: 'failed', 'early-failure': 'failed', cost: 'needs_cost_approval', review: 'first_cut_ready', material: 'needs_material_review', running: 'producing', planning: 'planning', 'delivery-cost': 'checking_cost', 'delivery-export': 'exporting', 'delivery-disconnected': 'observation_failed' })[scenario] } } : {}),
     preparation: scenario === 'early-failure' ? { status: 'FAILED', last_error: '内容节拍合计与总时长不一致' } : {} };
   else if (path.endsWith('/proposal-preview')) result = { confirmable: !incomplete, specs: { duration_seconds: incomplete ? null : 15, aspect_ratio: incomplete ? null : '9:16', audio_mode: incomplete ? null : 'silent', language: 'zh-CN' }, missing: incomplete ? ['总时长', '明确画幅比例', '音轨方式'] : [], video_plan: { revision: 2, sha256: 'c'.repeat(64), treatment: '雨后城市的平静', script: '雨停了，城市慢下来。', scenes: '0–15 秒：雨后街道与窗边，缓慢收束。', sound: '静音，屏幕文案表达。', specification_notes: 'Easel 推荐：15 秒、9:16、静音，适合本版短文案。' },
     generation_budget: { available: true, scope_sha256: 'fixture-scope', scope: { speech_voice_id: 'male-qn-qingse', speech_model: 'speech-2.8-hd', image_model: 'image-01', video_model: 'MiniMax-H3-Max' } } };
@@ -59,11 +59,18 @@ await page.route('**/api/**', async route => {
 });
 const errors = []; page.on('pageerror', error => errors.push(error.message));
 try {
-  for (const state of ['proposal', 'proposal-stale', 'proposal-missing', 'proposal-error', 'early-failure', 'failed', 'material', 'cost', 'review', 'planning', 'running', 'delivery-cost', 'delivery-export', 'delivery-disconnected']) {
+  for (const state of ['proposal', 'proposal-stale', 'proposal-missing', 'proposal-error', 'early-failure', 'failed', 'material', 'cost', 'review', 'planning', 'running', 'delivery-cost', 'delivery-export', 'delivery-disconnected', 'legacy-readonly']) {
     scenario = state; revisionStarted = false; previewUnavailable = state === 'proposal-error';
     await page.goto(`${base}?scenario=${state}`);
     const canvas = page.getByRole('complementary', { name: '作品画布' });
     await canvas.waitFor();
+    if (state === 'legacy-readonly') {
+      await canvas.getByText('制作记录 / 高级信息（只读）').click();
+      await canvas.getByText('本区域只显示证据', { exact: false }).waitFor();
+      assert.equal(await canvas.getByRole('button', { name: '确认预算并生成视频' }).count(), 0);
+      assert.equal(await canvas.getByRole('button', { name: '确认费用并生成素材' }).count(), 0);
+      assert.equal(await canvas.getByRole('button', { name: '恢复当前非付费 Authoring' }).count(), 0);
+    }
     if (state === 'planning') {
       await page.waitForTimeout(5500);
       assert.equal(planningTruthReads, 0, 'Planning must finish before reading its ledger');
@@ -131,7 +138,7 @@ try {
       await page.getByRole('button', { name: '保存反馈，退回审片' }).click();
       await page.getByText('2 秒：开头构图更紧凑', { exact: true }).waitFor();
     }
-    if (state === 'failed') await page.getByRole('button', { name: '重试视频编排' }).waitFor();
+    if (state === 'failed') await page.getByRole('button', { name: /重试视频制作|重试当前步骤/ }).waitFor();
     const dimensions = await page.evaluate(() => {
       const chat = document.querySelector('.creator-conversation').getBoundingClientRect();
       const canvas = document.querySelector('.creator-work-canvas').getBoundingClientRect();
@@ -168,7 +175,7 @@ try {
   disconnected = true;
   await page.waitForTimeout(5500);
   await page.getByText('状态更新失败，显示最后一次可信状态。当前是否仍在制作尚未确认。').waitFor();
-  assert.deepEqual(mutations, ['/api/film-attempts/fixture-attempt/review', '/api/film-attempts/fixture-attempt/revise', '/api/film-attempts/fixture-revision/author']);
+  assert.deepEqual(mutations, ['/api/film-attempts/fixture-attempt/review', '/api/film-attempts/fixture-attempt/revise']);
   assert.deepEqual(errors, []);
   console.log('Workspace browser checks passed: desktop/mobile, proposal, no-attempt failure, authoring failure, material tasks, cost, output-bound timed feedback, running, pre-Planning ledger absence, reconnection/session renewal, disconnection; no build or Provider mutations.');
 } finally { await browser.close(); rmSync(fixtureDir, { recursive: true, force: true }); }

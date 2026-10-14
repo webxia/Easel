@@ -1,12 +1,23 @@
 # ADR-005 Agent 结果处理与产物交接
 
-- **现行状态（2026-10-10）：ADR-005 CUT0–CUT6 已完成并推送**，`origin/easel-studio` SHA `a6ed065d72b66e5dcdf886a90eb5b36fac971acf`。五项默认 pin、Native Authoring 与旧执行 Writer 删除已交付；历史 Attempt 原件只读保留。此前第 27.6/27.7 节是阶段性历史记录，现行准入和交付结论见第 27.8 节。真实媒体 E2E、部署/服务加载和 B SourceUnit 迁移仍需独立验证。
+- **阶段交付记录（2026-10-10；现行决策见下方 2026-10-11 修订）：ADR-005 CUT0–CUT6 已完成并推送**，`origin/easel-studio` SHA `a6ed065d72b66e5dcdf886a90eb5b36fac971acf`。五项默认 pin、Native Authoring 与旧执行 Writer 删除已交付；历史 Attempt 原件只读保留。此前第 27.6/27.7 节是阶段性历史记录，现行准入和交付结论见第 27.8 节。真实媒体 E2E、部署/服务加载和 B SourceUnit 迁移仍需独立验证。
 - 日期：2026-10-09。
 - 范围：Easel 视频主线的模型结果接收、表示解析、程序绑定、局部修复、文件交接和冷恢复。
 - 所属实施任务：[自主首版唯一 Task](../tasks/creator-autonomous-first-cut-2026-09-30.md)，细化其中 O4 与 O5；实施以原 Task 的最新授权范围与实际阶段阻塞为准。
 - 架构约束：[ADR-001](ADR-001-creation-hypit-mainline.md)、[ADR-004](ADR-004-material-layer-v1.3-baseline.md)、[视频架构](../architecture/easel-video-architecture-v1.md)、[Material V1.3](../architecture/material-layer-v1.3.md)。
 - 代码核查：最初读取 dirty `easel-studio` / HEAD `d5bd227c2b6750ae18cea06ebcf4f9f89350899b`；默认策略补验前后观察到 HEAD `236295f9d6392fed7b82b431018d73c2f6fd494c`。共享工作区的 HEAD 不能单独代表全部已读文件，具体受测身份见第 27.6 / 27.7 节逐文件摘要。
 - 实施追溯：第 27.3/27.5 节是首次检查，第 27.6/27.7 节是已结束的显式 profile / 默认启用阶段；最后一次旧路径清理由第 27.8 节和 CUT0–CUT6 Task 决定。
+
+## 现行适用范围：2026-10-11 New-Only 定点修订（用户已批准）
+
+本次正式决策修订对齐[唯一主方案](../architecture/web-backend-new-only-cutover-plan-2026-10-11.md)的 R1–R6 与 U0–U6，不另建方案。以下规则优先于本文旧阶段的 profile、兼容、恢复与回退描述；[唯一 Creator Task](../tasks/creator-autonomous-first-cut-2026-09-30.md)记录 U1 收尾和后续授权。
+
+- **新生产只有当前合同。** Creation + Hypit / Delivery 为唯一执行主线；旧 Producer、Writer、Parser、Skill、legacy wrapper/codec、旧 checkpoint/journal 的可执行恢复和 fallback 须物理退役，不以开关、410 或双解析保留第二条生产路径。当前五项 pin 和唯一 Planning 版本组合以主方案 §3.7 为准；编号较小不自动等于退役，未纳入当前正式组合的协议才属于旧执行范围。
+- **历史 Attempt 仅原件保全与只读观察。** 保留原请求/回复、receipt、媒体字节、Rights、SHA、费用、计数及 FAIL/UNKNOWN，不运行旧业务 parser，不重建或重新解释旧业务结果，不发表 READY、不补登记、不升级/续跑旧 Creation 或 Attempt。通用归档只读展示已有证据，不代行领域解释。
+- **历史 UNKNOWN 的唯一例外是原操作观察与对账。** 按原 Operation/Run 身份读取非业务终态和费用证据，不消费旧结果推动生产、不重派模型/Provider/Build、不重复扣费、不清零或释放未知占额；无法证明终态或费用时维持 UNKNOWN。后续获准记录对账证据也须追加且绑定原身份，不能覆盖原账或据此恢复旧生产；本轮不执行对账写入。
+- **当前协议冷恢复仍有效。** 本文接收、派生、修复和发表恢复仅适用于通过新生产资格校验、事前固定当前合同/身份/授权的请求；不能只凭五 pin 或版本号把历史 Attempt 追认为新生产。当前请求不因中断变成退役协议，但恢复前仍重验 Owner、refs/SHA、Rights、费用、幂等和原请求状态。旧事实修订/旧帧等同一当前请求内部的证据不等于退役协议；其不可覆盖约束保持。
+- **历史与现行规范分开。** §3 的源码现状、§22 的旧 U0–U4 迁移安排、§26 的阶段能力结果、§27 的具名实施/验收记录仅说明当时事实，不再授权旧协议执行，也不构成另一套实施顺序。L1 只读核对原件与当前责任边界，不为回放恢复旧解释器；无法合法回放记 NON_REPLAYABLE。
+- **不改变冻结边界或放行。** ADR-004 / Material V1.3、Director、Rights、费用与现有状态机保持不变；四声音模式、最长 900 秒、U3-S/U3-L/U4/U6 资格和 SOFTWARE / DEBUG / RELEASE 区分仍服从主方案。本次仅修正式文档，U2 尚未开始，代码/部署/模型/Provider/Hypit Build/真实 E2E 均未授权。
 
 ## 1 需要作出的设计决定
 
@@ -55,7 +66,7 @@
 | 有效负面结果 | `not_met`、`unknown`、`CONFLICT`、`UNRESOLVED` 可能是合法业务结果，不自动作为格式错误修成正面结果 |
 | 预算 | 轮询、本地重解析不产生新模型调用；修复和必要重审仍占原预算；重启不刷新额度 |
 | 未知执行 | 发送后状态未知时观察原请求；不因换 parser、session、Attempt 或模型而自动重派 |
-| 历史兼容 | 旧请求按原版本恢复；新策略只作用于事前固定该策略的新请求 |
+| 历史保全 | 历史 Attempt 原件只读保留；UNKNOWN 仅按原 Operation 做非业务终态观察与费用对账，不解释旧业务结果、不恢复生产、不重派或重复扣费。当前请求仅在新生产资格有效时按事前固定当前合同恢复 |
 | 已放宽行为 | 新 intake@6 的 queries 保持 0～3；visual@2 保持完整唯一 ID 重排及空字符串 preference_notes |
 | 范围 | 不新增自动 quota 查询；不恢复旧 FAIL；不改变发布或外部执行边界 |
 
@@ -63,14 +74,14 @@
 
 ## 3 当前基础与需要收敛的接点
 
-以下“现状”来自本次读取的源码，不将已实现能力重新列成从零开发任务。
+以下“现状”为 2026-10-09 初始源码快照，不是当前可执行协议注册表。旧路径描述只用于定位退役对象；当前准入以本 ADR 顶部适用范围和唯一主方案为准。
 
 | 接点 | 当前事实 | 本方案的变化 |
 |---|---|---|
 | `output_contract.py` | 已有 ACCEPT/NORMALIZE/BOUNDED_REPAIR/REJECT | 复用枚举；附加统一诊断载体 |
 | `output_admission.py` | 完整对象解析、有限数、重复键、编码、安全检查、两条窄规范化 | 收敛 Python 解析行为；规则仍需按 profile 显式登记 |
 | `planning_capture.py` / `openclaw_delivery.py` | 原 run、终态、工具和完整原文先于 admission 验证 | 保持这些职责；接收器不能绕过前置拒绝 |
-| `output_receipts.py` | 事前 policy、raw/candidate/receipt、冷重算、存储异常 | 新消费者获得类型化拒绝；旧调用保留原协议 |
+| `output_receipts.py` | 事前 policy、raw/candidate/receipt、冷重算、存储异常 | 新消费者获得类型化拒绝；旧调用只保留原件，不保留执行协议 |
 | `usable_result()` | 拒绝结果返回 `_invalid_json` 普通字典 | 新入口使用带诊断的结果或明确异常，不把错误交给业务 Schema 伪装成缺字段 |
 | `semantic_boundary.project_proposal()` | 正式 Plan/Need IDs、source clauses、requirements 已由程序生成 | 直接复用；不删除正式合同中的来源证据 |
 | `planning_input_view.py` | 已有 scope handle、输入视图、UTF-8 source position | 复用目录和映射，补齐引用单位，不另建权威来源数据库 |
@@ -82,7 +93,7 @@
 | `hypit/revision.py` | 正则给 typed ref 加引号、改标签前缀后 ET 解析；SVS 手工 token 扫描 | 以原生语法结果替代相应部分，业务保护图继续由 Easel 检查 |
 | `validate_authored_selection()` | 检查同时会改 selection、Run sidecar、SVML 声明 | 新流程显式产生派生记录，并在只读验证后发表 |
 
-### 3.1 当前版本必须分别看待
+### 3.1 初始源码版本快照（历史定位，非现行执行注册表）
 
 - 内部结果分类：`model-output-contract@1`。
 - JSON 接收：`model-output-admission@1`、`model-output-admission-receipt@1`。
@@ -128,7 +139,7 @@
 | 路径、大小、hash、exit code、Build ID | 不作为权威声明 | 从真实文件、工具响应和现有执行器生成 |
 | NORMALIZE、receipt、repair budget、阶段 READY | 否 | 由对应程序 Owner 决定 |
 
-新 wire Schema 应删除程序字段；不能继续要求模型输出这些字段，再无条件用正确值覆盖。旧协议若要求回抄，仍按旧规则核对；不同值不能被“程序绑定”掩盖。
+新 wire Schema 应删除程序字段；不能继续要求模型输出这些字段，再无条件用正确值覆盖。历史旧协议的回抄内容原样保留，不运行旧规则重新验收；当前协议中的冲突值也不能被“程序绑定”掩盖。
 
 ### 5.2 模块边界
 
@@ -257,9 +268,9 @@ def bind_candidate(spec, candidate, frozen_context):
 
 正式消费使用 `require_accepted_candidate()`，只接受 ACCEPT/NORMALIZE；未接受结果不能由此进入正式发表。BOUNDED_REPAIR 的安全候选由已登记的阶段 Owner 按现有 eligibility 检查取得并计算修复 targets。Planning 保留 `require_selection_admission()` 的现有语义，不用通用正式消费门阻断其局部修复。
 
-纯 admission receipt 保存固定接收器自己的 decision，写入后不因 Owner eligibility 改写。新 profile 的 Owner 分类另存于既有阶段 journal/修复记录，绑定原 receipt、候选 hash、资格规则版本和 targets；专用 repair 入口同时检查这两层证据。旧 profile 保持原有组合记录格式及回放语义，不补写新字段改变旧 hash。
+纯 admission receipt 保存固定接收器自己的 decision，写入后不因 Owner eligibility 改写。新 profile 的 Owner 分类另存于既有阶段 journal/修复记录，绑定原 receipt、候选 hash、资格规则版本和 targets；专用 repair 入口同时检查这两层证据。退役 profile 的组合记录与 hash 原样只读保留，不补写新字段，也不运行旧规则恢复或回放业务结果。
 
-完成阶段资格判定后仍为 REJECT 的结果，抛出带明确诊断的 `ModelResultRejected`。存储与完整性失败继续使用 `OutputReceiptError`，不能被 broad `except ValueError` 混入模型修复。旧 `usable_result()` 的行为只留给显式 legacy 分支。
+完成阶段资格判定后仍为 REJECT 的结果，抛出带明确诊断的 `ModelResultRejected`。存储与完整性失败继续使用 `OutputReceiptError`，不能被 broad `except ValueError` 混入模型修复。退役协议专用的 `usable_result()` legacy 分支须删除，不作为错误后的兼容消费入口。
 
 ## 8 Profile 与版本登记
 
@@ -278,7 +289,7 @@ def bind_candidate(spec, candidate, frozen_context):
 | Hypit CLI 响应 | 工具的 JSON 输出 | 保持 HypitCLI 的工具协议和状态对账 | 不按模型文本容错、不把非零退出一律重跑 |
 | 代码/文档 patch | OpenClaw 既有工具能力 | 本期沿用执行器；只接收真实文件变更结果 | 不在 Easel 重新实现通用代码 Agent |
 
-JSON profile、语义合同、观察协议、文档 extractor、Hypit parser 和缓存 identity 独立版本化，便于单项升级和旧路径保留。
+JSON profile、语义合同、观察协议、文档 extractor、Hypit parser 和缓存 identity 独立版本化，便于固定当前请求身份；版本化不授权保留退役可执行路径。
 
 ## 9 通用处理算法
 
@@ -301,7 +312,7 @@ JSON profile、语义合同、观察协议、文档 extractor、Hypit parser 和
 
 实施策略分两层：
 
-- Python 侧可提取共享实现，但保留由固定协议选择的兼容 wrapper。finite、编码等接受规则的一致化只在新 parser/profile revision 中启用；旧 capture/checkpoint 继续原接受及诊断语义，不能同一 revision 下静默收紧。当前不同前置 parser 的差异不等于已证明能穿透最终领域验收。
+- Python 侧可提取当前合同共用的严格实现，删除退役协议专用兼容 wrapper。finite、编码等接受规则变化须显式版本化，不能在同一 revision 下静默改义；历史 capture/checkpoint 原样存档，不重新执行旧接受或诊断规则。当前不同前置 parser 的差异不等于已证明能穿透最终领域验收。
 - Node 侧保留运行时 guard，以同一组无敏感 fixture 验证跨语言边界。Node guard 与 Python domain receiver 是不同信任边界，不因“重复”就删除一层。
 
 本方案不让坏 JSON 绕过安全捕获再进入 repair 库。只能保留安全诊断的拒绝，依旧没有可重放的完整候选。
@@ -319,7 +330,7 @@ JSON profile、语义合同、观察协议、文档 extractor、Hypit parser 和
 | 完整 JSON fence | channel 明确允许；整个容器闭合；外侧仅空白 | 剥包装后完整严格解析 |
 | BGM contains 回显 | 精确命中当前已登记等价条件，外层与 item 合法 | 仅移除该冗余回显 |
 | ID 顺序整理 | 该数组定义为按 ID 的集合；完整、唯一、类型正确 | 按程序预期次序排列，保留原件 |
-| 已登记 legacy codec | 原协议、identity、输入版本均匹配 | 按该 codec 转换；不扩散到新原生工具 |
+| 退役 legacy codec | 历史原协议、identity、输入版本作为证据保留 | 删除可执行转换；仅静态查看原件，不进入新生产 |
 | Hypit 声明适配 | 明确旧声明形态与目标方言；原件已捕获 | 作为文件派生动作记录，不伪装为只读校验 |
 
 程序绑定、补入明确软偏好来源、生成 IDs、复制冻结文件属于 derivation；不把它们包装成 JSON 清洗规则。
@@ -339,7 +350,7 @@ JSON profile、语义合同、观察协议、文档 extractor、Hypit parser 和
 
 在固定 input/schema/policy 下，结果确定；对已经规范化的值再次处理不改变业务结果。第二次处理可以没有新的 normalization action，因此不要求“对原件的第一次 receipt”与“对规范结果的第二次 receipt”完全相等。
 
-规范化过程有固定顺序和次数上限。现有上限 16 动作、32 条诊断继续作为旧 profile 合同；新 profile 是否调整需容量证明，不因错误多而静默截断业务内容。发生一次 normalization 后若仍有错误，不能计整份结果成功。`output_admission` 本体在剩余 Schema 错误存在时返回 REJECT；只有阶段 Owner 通过既有形状、引用和修复资格检查后，才可将安全未接受候选分类为 BOUNDED_REPAIR。
+规范化过程有固定顺序和次数上限。历史 profile 的 16 动作、32 条诊断上限仅保留为原证据说明，不保留旧执行器；新 profile 是否调整需容量证明，不因错误多而静默截断业务内容。发生一次 normalization 后若仍有错误，不能计整份结果成功。`output_admission` 本体在剩余 Schema 错误存在时返回 REJECT；只有阶段 Owner 通过既有形状、引用和修复资格检查后，才可将安全未接受候选分类为 BOUNDED_REPAIR。
 
 ## 11 来源引用与坐标契约
 
@@ -402,9 +413,9 @@ class SourceUnit:
 5. 新 Schema 每个 support 的 units 为 1–16 个合法 enum 引用；每个 answer 仍最多 16 个 support，另由 validator 限定整个 answer 总 unit 引用数不超过 16。数量上限与动态 Schema 的最大序列化体积共同固定，不能收到回复后才决定丢哪些引用。
 6. 新 support 内部合同必须保留位置和 unit identity。固定段落不能表达所有旧任意子串；同 source 两处相同文本展开为旧 quote 会丢位置、甚至触发旧重复引用检查。只有逐项投影无损且展开后仍不超过旧 16 条上限时，才可额外生成兼容视图；新语义验收不依赖这个有损风险视图。
 
-因此，首个单位引用 profile 同时版本化 `Support/SupportedAnswer/CandidateAnswer`、普通 review、candidate correction、repair/patch 动态 Schema、slot decode、support validation、`maximum_compact_bytes` 容量证明、transport identity 与 replay。旧 @1 继续按原任意子串规则回放；不是把 quote 字段简单换成 ID。
+因此，首个单位引用 profile 同时版本化 `Support/SupportedAnswer/CandidateAnswer`、普通 review、candidate correction、repair/patch 动态 Schema、slot decode、support validation、`maximum_compact_bytes` 容量证明、transport identity 与 replay。旧 @1 原件不迁移、不重新解释；当前正式组合中尚未迁移的 B Support 不因这一设计段落自动换版或增加 fallback，也不是把 quote 字段简单换成 ID。
 
-512 不是事实真假标准，也不准截断完整来源。若冻结来源无法形成合格单位或容量不足，在派发前选择已有、另行固定身份的旧 profile，或给出明确不支持；不能新回复失败后临时降级。需要放宽单位大小时，升级对应支持链与容量证明，不修改旧合同。
+512 不是事实真假标准，也不准截断完整来源。若冻结来源无法形成合格单位或容量不足，在派发前明确不支持并停止；不能事前或在新回复失败后选择退役 profile 降级。需要放宽单位大小时，升级对应支持链与容量证明，不修改旧合同。
 
 ### 11.4 完整语义复核仍然存在
 
@@ -481,7 +492,7 @@ review_text 是有版本的展示投影，source_block_span 是原文证据；�
 - 列表和引用保留为文档内容，不因语法前缀被自动排除。
 - 代码块、表格、内嵌 HTML 等不能静默从审阅范围消失。阶段不支持的形式返回明确文档不支持诊断；已声明为制作代码的块可按既有规则另行记录，不当作用户事实。
 - 所有可读正文块必须有“审阅单位”或“明确业务理由的非 claim 覆盖记录”，防止 parser 换库后漏审。
-- 现有 128 KiB Script、1000 units、单句 4000 字符等旧边界保持于旧 profile；新 extractor 的限制需按同样产品范围证明，不在解析时静默裁切。
+- 历史 128 KiB Script、1000 units、单句 4000 字符等边界不被回写改义，旧 profile 仅归档；新 extractor 的限制需按同样产品范围证明，不在解析时静默裁切。
 
 ### 12.5 Truth reply 去回抄
 
@@ -562,10 +573,10 @@ facts+checks 与 checks delta 使用明确不同的 reply Schema，按组派发�
 2. 先在现有 journal/receipt 持久化 `observation_ref → dispute_capture_ref → 当前不可复用` 的关联，再将 frame 标为未解决并停止准入。原 observation/capture 和历史 receipt 不改写。
 3. 第一版默认保留未解决并停止该 frame 准入，不新增事实复核调用。当前没有独立的 frame 级事实重审循环，不能把合法异议计作 JSON 修复来重问。
 4. 若以后在原 Task 明确新增该语义复核能力，须事先固定 Owner、额度归属和停止条件；不能重置原组已用预算。接受的新 facts 才产生新 observation revision。
-5. 依赖旧 facts 的 checks 失效；默认按整个 frame 失效。旧原件及判断保留供审计和原规则回放，但不能直接命中新 revision 的有效结果缓存。
+5. 依赖旧 facts 的 checks 失效；默认按整个 frame 失效。旧事实原件及判断保留供只读审计，但不能直接命中新 revision 的有效结果缓存。
 6. 已完成正式报告发生事实改变，必须生成新的报告/输入版本，不能原地覆盖旧 PASS。
 
-缓存命中、后续组派发、assemble_report、apply_observation 和冷恢复都必须检查这项当前使用资格。即使没有新的 facts revision，已存在未解决异议的旧版本也不得重新成为有效 prior。历史回放仍呈现当时的结果及之后的异议；它不能把历史有效误当成当前可继续使用。
+缓存命中、后续组派发、assemble_report、apply_observation 和冷恢复都必须检查这项当前使用资格。即使没有新的 facts revision，已存在未解决异议的旧版本也不得重新成为有效 prior。历史只读展示仍呈现当时已保存的结果及之后的异议；它不能把历史有效误当成当前可继续使用。
 
 这保留真实事实冲突的防线，同时取消后续模型逐字回抄的要求。
 
@@ -582,7 +593,7 @@ facts+checks 与 checks delta 使用明确不同的 reply Schema，按组派发�
 
 本单元不增加默认调用数或每组首次+一次 repair 的现有上限。被拒的组不抹掉已捕获的成功组；保留原件不等于其结论在新 facts 下仍有效。恢复先核验缓存身份、facts revision 和原件，再决定剩余工作。
 
-新 compact delta 及其 normalization 保存模型实际回复；由程序补入的 facts 进入 derivation/full report，不写回原 compact reply 后仍声称是 raw。旧 `compact_results/result_normalizations` 在旧协议按原方式读取，新协议投影需要独立标识。
+新 compact delta 及其 normalization 保存模型实际回复；由程序补入的 facts 进入 derivation/full report，不写回原 compact reply 后仍声称是 raw。旧 `compact_results/result_normalizations` 仅作为原件只读查看，不由旧协议解析消费；当前协议投影需要独立标识。
 
 ## 14 Quality 与 Voice Truth 的程序合并
 
@@ -606,7 +617,7 @@ facts+checks 与 checks delta 使用明确不同的 reply Schema，按组派发�
 
 模型不得提交已锁定 check 的新值；若提出新矛盾，记录明确重审请求，由原 Owner 决定后续，不自动增调用。当前 `resolved_frames` 也可能包含 observed=False 的旧帧；delta adapter 不能自行重开这些帧。
 
-当前入口让模型写 `.easel/quality/<input_sha>.json` 并按完整报告消费。新 profile 必须先捕获并验证 delta 原件，绑定冻结 resolved context 后派生完整报告，再执行 `validate_visual_review()`。delta 的 bytes/hash 保持不变；完整报告保存到正式报告缓存，不能覆盖原 reply 后冒充原件。旧 full-report 文件只按旧 profile 读取，不当作新 delta。
+当前入口让模型写 `.easel/quality/<input_sha>.json` 并按完整报告消费。新 profile 必须先捕获并验证 delta 原件，绑定冻结 resolved context 后派生完整报告，再执行 `validate_visual_review()`。delta 的 bytes/hash 保持不变；完整报告保存到正式报告缓存，不能覆盖原 reply 后冒充原件。退役协议的旧 full-report 文件只读归档，不运行旧 profile，也不当作新 delta。
 
 ### 14.2 三个不同的循环
 
@@ -656,7 +667,7 @@ ASR 局部歧义仍属于原 Task O5，需音频时间窗与实际识别证据�
 
 bridge 不启动模型、不采购素材、不执行 Build、不修改文件、不根据出错文本猜测意图。
 
-使用哪一个正式可导入入口由已安装包的 exports/构建产物确认。只有 TS 源码导出不能被当成 Node 可直接 import 的证明。若不能稳定调用，保留该新 profile 未启用，并继续现有已登记路径；不能退回任意 XML repair 后声称采用原生 parser。
+使用哪一个正式可导入入口由已安装包的 exports/构建产物确认。只有 TS 源码导出不能被当成 Node 可直接 import 的证明。若当前正式原生 parser 不能稳定调用，停止对应生产并保留诊断；不能恢复退役路径或退回任意 XML repair 后声称采用原生 parser。
 
 ### 15.3 原生语法与 Easel 业务检查分工
 
@@ -870,7 +881,9 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 
 新 reply 为增量时，必须同时保留“模型实际返回的 delta”与“程序合并后的完整报告”。完整报告使用派生字段和新摘要，不能标成原始模型回复，也不能替换原 capture 的 hash。正式报告保留原领域 Schema；如果投影无法满足该 Schema，应升级对应领域合同及全链消费者，而不是用 extra 字段偷渡。
 
-### 19.2 冷恢复的判定表
+### 19.2 当前新生产请求的冷恢复判定表
+
+本表须先通过顶部的新生产资格检查。历史 Attempt 不进入本表的接收、派生、发表或修复分支；其 UNKNOWN 只允许原 Operation 非业务观察与费用对账。
 
 | 恢复时看到的事实 | 下一步 | 禁止行为 |
 |---|---|---|
@@ -880,8 +893,8 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 | receipt 与原件完整，尚未投影 | 重建相同绑定和派生 | 使用当前最新来源或不同文档 |
 | 完整投影已有，正式写入失败 | 按第 16.3 节已持久化意图验证原/候选前缀与固定依赖，继续本地发表 | 再次模型生成；覆盖不同的新产物 |
 | 已完成正式产物 | 校验 lineage 后复用 | 仅因新 parser 上线就重新解释旧结论 |
-| 缺失 policy、hash 不一致、原件被篡改 | 按既有 legacy 资格判断；无法证明则明确停止 | 猜版本、补 receipt、把不匹配内容重新 hash 后继续 |
-| 对应旧 parser 已不可用 | 保留原证据，报告能力缺失 | 自动用新版 parser 得出“等价”结论 |
+| 缺失 policy、hash 不一致、原件被篡改 | 明确停止，保留原证据；不查询 legacy 执行资格 | 猜版本、补 receipt、把不匹配内容重新 hash 后继续 |
+| 当前固定 parser 不可用 | 停止当前处理并保留原证据；历史 parser 不恢复 | 自动用新版 parser 得出“等价”结论 |
 | 原 capture 只允许保存拒绝摘要 | 重放拒绝及其原因 | 通过新容错规则恢复并不存在的候选 |
 | Build 已 SUBMITTING/UNCERTAIN | 原 operation ID 对账 | 把合法 JSON 缺失当作未启动，再调用 Build |
 
@@ -889,10 +902,10 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 
 “重放”与“用新规则重新评估”是两项不同操作：
 
-- 重放只验证原固定规则下的同一结果，不触发模型、素材采购、Render 或 Build。
-- 若未来确有升级评估需求，必须产生独立的新 evaluation/产物版本和来源引用；不能修改原 receipt。该操作不属于本次默认迁移。
+- 当前合格请求的重放只验证事前固定当前规则下的同一结果，不触发模型、素材采购、Render 或 Build；历史 Attempt 只展示原证据，不重新解释旧业务结果。
+- 若未来确有当前协议的升级评估需求，必须另获授权并产生独立的新 evaluation/产物版本和来源引用；不能修改原 receipt，也不授权重新解释历史 Attempt 的旧业务结果。该操作不属于本次默认迁移。
 
-### 19.3 旧协议保持可解释
+### 19.3 历史协议身份与原件只读保全
 
 至少分别固定以下身份：
 
@@ -903,7 +916,7 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 - Hypit 包版本、实际入口/adapter digest；
 - Material/Quality reply、facts 和 projection revision。
 
-新 identity 只进入新请求，旧请求沿用原解码器及条件。现有旧字段的坐标、null/empty、顺序、拒绝语义均不得因默认值变化而漂移。旧 capture 和新 request 不能共用可覆盖的缓存 key。
+新 identity 只进入获准的新请求；历史请求不运行原解码器，不恢复旧业务结果。已有坐标、null/empty、顺序、拒绝结论作为原件保留，不因默认值变化而改写。旧 capture 和新 request 不能共用可覆盖的缓存 key；原件展示与 UNKNOWN 账务观察不构成业务兼容层。
 
 ## 20 开源库选型及接入约束
 
@@ -927,7 +940,7 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 - 在实施时确认目标安装版本和许可证，按项目依赖管理约定固定可重复安装范围及 lock；本设计不虚构当前最新版本。
 - adapter 输出记录实际 parser identity；升级 parser 必须先运行对应的回归 corpus，再为新请求切换新 policy。
 - 跨语言严格 JSON 使用同一输入 corpus 证明边界一致，包括 duplicate keys、溢出数、孤立 surrogate、深度/容量、空白和完整包装。
-- 不允许 provider 不支持新 Schema 时，在同一请求中偷偷退回 prose。能力不足在派发前明确失败或由原 Owner 选择**已有且独立固定身份**的协议。
+- 不允许 provider 不支持新 Schema 时，在同一请求中偷偷退回 prose。当前正式组合能力不足时在派发前明确失败，不由 Owner 选择退役协议兜底。
 - 不为评估选型引入线上格式修复服务；本期能力验证用本地 deterministic fixture 与只读 parser 调用完成。
 
 ## 21 实施接点与 producer–consumer 闭合
@@ -937,12 +950,12 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 | 现有文件/接点 | 应做的增量 | 必须一起核验的消费者 |
 |---|---|---|
 | `easel/output_contract.py` | 复用四 outcome；新增诊断/拒绝异常所需的最小公共类型 | 各 adapter 的异常与 Owner 分流 |
-| `easel/output_admission.py` | 固定 profile 登记、共享严格解析、明确候选与诊断；不调模型 | capture 前置解析、所有旧 profile、receipt 冷重建 |
+| `easel/output_admission.py` | 固定 profile 登记、共享严格解析、明确候选与诊断；不调模型 | 当前 capture 前置解析、当前 profile、receipt 冷重建；旧原件只读 |
 | `easel/integrations/output_receipts.py` | 新正式消费者显式 require_accepted_candidate；固定新 identity；保存 delta→full 的派生证据 | Material/Truth/Quality 的本地写入与冷恢复 |
-| `planning_capture.py`、`openclaw_delivery.py`、Node guard | Python 共用严格规则；保留原执行/工具/终态边界 | 原 capture/reconcile/structured result 合同及 legacy |
+| `planning_capture.py`、`openclaw_delivery.py`、Node guard | Python 共用严格规则；保留原执行/工具/终态边界 | 当前 capture/reconcile/structured result 合同；历史非业务观察 |
 | `planning_review_support.py` | SourceUnit 目录、允许 refs、模型 wire→完整 support 投影 | B response schema、capacity、slot decode、语义验证 |
 | `planning_input_view.py`、`planning_semantic_review.py` | 复用 source scope；显式坐标单位与转换 | input-view/mapping hash、selected_source、正式来源投影 |
-| `semantic_boundary_run.py` | 固定新 support identity、复用 repair journal、回放完整 lineage | details、review、formal projection、旧 journal |
+| `semantic_boundary_run.py` | 固定新 support identity、复用 repair journal、回放完整 lineage | 当前 details、review、formal projection、journal；旧 journal 只读 |
 | `integrations/script_truth.py` | 先 source-ref reply；后续独立切换 Markdown ledger | manifest、Planning persist/_load_contract、Truth coverage |
 | `web/app.py` Material 入口 | 首组 facts+checks、后组 observation ref+checks；显式拒绝分流 | compact payload、prompt/schema、group cache、repair |
 | `visual_contract.py` | 新 reply validator、facts dispute、程序完整投影与容量 | `assemble_report`、classification、plan source |
@@ -958,9 +971,9 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 
 每个实施单元的完成条件包含生产者、在线消费者、保存格式、缓存 identity 和冷重建五项。只改 prompt 或只让第一次在线返回通过，不算闭合。
 
-## 22 分阶段迁移及顺序
+## 22 历史分阶段迁移及顺序（不再调度新生产）
 
-所有工作纳入唯一优化 Task 的 O4/O5 对应位置；本 ADR 不另建主线。O1 与首条工程片的当前执行保持独立。
+本节保留早期 O4/O5 迁移设计及 U0–U4 编号，包含当时的兼容过渡安排；这些不是现行执行指令，不授权保留旧解码器或旧 Writer。后续唯一顺序为主方案 §8 U0–U6，实施范围由现有 Creator Task 管理。
 
 ### U0：固定已验证边界与回归样本
 
@@ -1030,7 +1043,7 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 | 来源选择 | 同文多处、source role 错、失效 hash、跨问题 refs、超长不可分来源 | 精确拒绝或明确不支持；不裁正文、不猜引用 |
 | 坐标 | 中文、emoji、组合字符、CRLF、重复行、半个 UTF-8/codepoint/surrogate | bytes/字符/UTF-16/行边界转换可验证；不更改原文 |
 | Script coverage | 标题、引用、列表、围栏代码、表格/HTML、混合块、相同文本 | 每个实质块有 claim 或受控排除；无不可见漏审 |
-| Source-ref 升级 | 新回复、旧回复、新旧 ledger/manifest、全量 source 过大 | 原引用可投影并重放；不得混用版本或少留证据 |
+| Source-ref 升级 | 当前回复与 ledger/manifest、历史原件、全量 source 过大 | 当前引用可按固定合同投影；历史仅只读保全，不运行旧解释器、不混版或少留证据 |
 | Material 同帧 | 首组 observed=False 后续组 mode、合法 not_met、facts dispute、缺 checks、成功组后失败 | 无 prior 时不发 delta；负面结果不格式修复；不发布不一致报告 |
 | Material 缓存 | 同 asset/index 不同 JPEG/seek/recipe/contract；异议后无新 revision 的重启 | 只命中身份正确且当前无未决异议的 facts；在线与 apply_observation 相同 |
 | Quality delta | 锁定 check 改值、错 output/source_batch、新旧帧 index、无新证据 | 程序合法合并；锁定结果不覆盖；unknown 不变 PASS |
@@ -1080,13 +1093,13 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 
 - 以原阶段固定的 profile/合同 revision 启用，避免新建一套独立总开关与状态真相。
 - 每个新请求在派发前写入所用版本；运行中不切换。
-- 单个新 profile 完成对应 producer–consumer 闭合后即可采纳，不要求其他阶段同步。
-- 如果做本地双解析对照，只对允许留存的同一原件离线执行；旧正式结论仍由原固定规则产生，不能让两个 parser 竞赛选更宽松结果。
+- 单元可分批开发验证，但候选对外放行须完成唯一主方案规定的全部当前 producer–consumer、Web/Backend/Skill/Runtime 同版闭合；不开放新旧可用双轨。
+- 不保留退役 parser 做双解析或恢复历史业务结论；历史原件只读审计，当前协议正反验证不能借旧 parser 选择更宽松结果。
 - 原任务需要独立 review 的实施单元，仍按 AGENTS/原 Task 的 review 要求执行。本设计审查不能替代实施后的验证。
 
 ### 25.2 回退范围
 
-回退只改变**尚未派发的新请求**的默认 profile。已有新协议请求继续用已固定的新解码器，或者明确停止等待能力恢复。必须保留已被实际使用版本的解码/重放能力。
+不允许将尚未派发或已经派发的新视频请求回退到退役 profile/Producer/Writer/Parser。合法当前请求仅按事前固定的当前合同恢复；能力不可用就停止等待修复，不改版续跑。历史 Attempt 仅保全原件与只读观察，不要求保留旧解码/重放实现。候选切换失败时停止新制作并修复当前版本，不恢复旧协议双轨。
 
 不得通过回退：
 
@@ -1103,8 +1116,8 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 1. 确认实际 runtime/安装版本、固定合同与影响范围。
 2. 说明模型少返回了哪些字段，哪些程序字段和证据继续完整保留。
 3. 有确定的 parser、source/identity binding、领域 validator 和明确 Owner。
-4. 原件、delta/派生结果及正式产物可区分，并能按原规则重放。
-5. 合法负面结果、旧协议及 source/坐标边界没有被改义。
+4. 原件、delta/派生结果及正式产物可区分；当前合格请求可按固定合同重放，历史仅只读保存。
+5. 合法负面结果与 source/坐标边界不改义；历史原件不变，退役协议不能执行。
 6. 修复范围与预算不扩大；本地恢复和未知执行不触发额外调用。
 7. 缓存、在线接收、冷重建、所有正式消费者同时更新。
 8. 有针对实际风险的测试证据和要求的独立 review。
@@ -1122,7 +1135,9 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 - 原文与文件处理使用明确坐标，解析同一捕获 bytes；校验不再隐藏发表。
 - 不引入生产 JSON 猜补、通用新 Agent 框架、第二工作流或全量重构前置。
 
-### 实施前能力问题与本轮验证结果
+### 历史实施前能力问题与阶段验证结果
+
+下表为原阶段事实，不授予旧 @2 或其他退役协议当前执行/恢复权限；现行准入见顶部修订。
 
 | 项目 | 能力问题 | 本轮结果与保留边界 |
 |---|---|---|
@@ -1135,7 +1150,9 @@ O1 已有明确边界：只有证明业务 POST 尚未开始、且属于指定�
 
 这些验证不要求先调用真实模型，也不应阻止已无该类风险的阶段继续原流程。
 
-## 27 核查依据与文档维护
+## 27 历史核查依据与文档维护
+
+本节保留 2026-10-09～10 的源码、测试、授权与交付原记录。旧 profile、ledger、Writer、兼容恢复及“当前”等措辞均限于其记载时点，不是 2026-10-11 New-Only 的执行指令；原 FAIL/UNKNOWN、费用、SHA、Job 和通过范围不改写。
 
 ### 27.1 本次核查范围
 

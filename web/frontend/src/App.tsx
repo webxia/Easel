@@ -14,7 +14,7 @@ import PublishPage from './components/PublishPage';
 import BreakdownPage from './components/BreakdownPage';
 import SubNav from './components/SubNav';
 import OnboardingWizard from './components/OnboardingWizard';
-import { fetchStatus, fetchPersonas, streamChat, fetchLastTurn, stopChat, savePersonaCreativeMode } from './lib/api';
+import { fetchStatus, fetchPersonas, fetchCreation, streamChat, fetchLastTurn, stopChat, savePersonaCreativeMode } from './lib/api';
 import type { CreativeModeItem, PersonaItem, UploadedFile, ChatQuestion, GenerationBudget } from './lib/api';
 import { questionStatus } from './lib/api';
 import { deleteSession as deleteRemoteSession } from './lib/api';
@@ -41,6 +41,74 @@ function onboardingSeen(): boolean {
     return true;
   }
   return false;
+}
+
+
+/**
+ * Restore the client-side view of an existing chat-bound Creation after browser
+ * storage is lost. This only reads the persisted plan; it never confirms,
+ * creates, mutates or dispatches work. The original chat ID is verified against
+ * the Creation's existing SHA-256 binding before the normal Web UI is shown.
+ */
+async function restoreCreationConversation(creationId: string, sessionId: string): Promise<ChatSession> {
+  if (!/^cr_[0-9a-f]{32}$/.test(creationId) || !sessionId || sessionId.length > 256) {
+    throw new Error('恢复参数无效');
+  }
+  const work = await fetchCreation(creationId) as unknown as Record<string, unknown>;
+  const origin = work.origin as Record<string, unknown> | undefined;
+  const workflow = work.chat_workflow as Record<string, unknown> | undefined;
+  const plan = workflow?.video_plan as Record<string, unknown> | undefined;
+  const delivery = work.delivery as Record<string, unknown> | undefined;
+  const recoveringFailed = workflow?.proposal_status === 'CONFIRMED' && delivery?.status === 'failed'
+    && typeof workflow?.confirmed_at === 'string';
+  const recoveringEdit = workflow?.proposal_status === 'DISCUSSING' && workflow?.editing_proposal === true;
+  const hash = Array.from(new Uint8Array(await crypto.subtle.digest(
+    'SHA-256', new TextEncoder().encode(sessionId),
+  ))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+  if (work.id !== creationId || origin?.type !== 'chat' || origin.session_hash !== hash
+      || work.route !== 'hypit_video'
+      || (workflow?.proposal_status !== 'READY_FOR_CONFIRMATION' && !recoveringFailed && !recoveringEdit)
+      || plan?.schema !== 'easel-video-proposal@4'
+      || typeof plan.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(plan.sha256)) {
+    throw new Error('原 Creation 或会话绑定不符，不允许恢复为新的作品');
+  }
+  // Match the backend Proposal payload; metadata never changes its identity.
+  const payloadKeys = ['schema', 'treatment', 'script', 'scenes', 'sound', 'specs',
+    'specification_notes', 'sound_source', 'voice_profile'];
+  const canonical = (value: unknown): unknown => Array.isArray(value)
+    ? value.map(canonical)
+    : value !== null && typeof value === 'object'
+      ? Object.fromEntries(Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+        .map(([key, item]) => [key, canonical(item)])) : value;
+  const payload = Object.fromEntries(payloadKeys.filter(key => key in plan).map(key => [key, plan[key]]));
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest(
+    'SHA-256', new TextEncoder().encode(JSON.stringify(canonical(payload))),
+  ))).map(byte => byte.toString(16).padStart(2, '0')).join('');
+  if (digest !== plan.sha256) throw new Error('原方案内容与 SHA 不符，不能恢复');
+  const source = (key: string) => typeof plan[key] === 'string' ? plan[key] as string : '';
+  const restoredPlan = [
+    '【Easel 恢复说明】以下内容来自原 Creation 已持久保存的完整视频方案，不是历史聊天逐字记录。',
+    '创作表达：' + source('treatment'),
+    '文案：' + source('script'),
+    '分镜与节奏：' + source('scenes'),
+    '声音设计：' + source('sound'),
+    '制作规格：' + source('specification_notes'),
+  ].join('\n\n');
+  const messages: ChatMessage[] = [
+    { role: 'user', content: String(work.idea || '') },
+    { role: 'assistant', content: restoredPlan },
+  ];
+  return {
+    id: sessionId,
+    title: '恢复原 Creation · ' + creationId.slice(-8),
+    persona: typeof work.profile === 'string' ? work.profile : undefined,
+    creativeMode: typeof work.creative_mode === 'string' ? work.creative_mode : undefined,
+    capability: 'ai-film',
+    activeCreationId: creationId,
+    activeCreationPhase: recoveringFailed ? 'production_confirmed' : recoveringEdit ? 'proposal' : 'proposal_ready',
+    messages,
+    created: Date.now(),
+  };
 }
 
 export default function App() {
@@ -92,6 +160,38 @@ export default function App() {
       }
     };
     ch?.addEventListener('message', onMsg);
+
+
+    // Explicit browser-only recovery link for a persisted draft Creation.
+    // The fragment is never sent in an HTTP request and is cleared on success.
+    // Normal sessions and production authority are unchanged.
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const recoveryCreationId = params.get('resumeCreation');
+    const recoverySessionId = params.get('resumeSession');
+    if (recoveryCreationId || recoverySessionId) {
+      let cancelled = false;
+      if (!recoveryCreationId || !recoverySessionId) {
+        openNew(existing);
+      } else {
+        void restoreCreationConversation(recoveryCreationId, recoverySessionId)
+          .then(restored => {
+            if (cancelled) return;
+            const prior = existing.find(session => session.id === restored.id);
+            const selected = prior || restored;
+            const updated = [selected, ...existing.filter(session => session.id !== selected.id)];
+            saveSessions(updated);
+            settle(selected.id, updated);
+            setCurrentPage('chat');
+            window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search);
+          })
+          .catch(error => {
+            if (cancelled) return;
+            console.warn('Easel 恢复原 Creation 被拒绝：', error instanceof Error ? error.message : '未知错误');
+            openNew(existing);
+          });
+      }
+      return () => { cancelled = true; ch?.removeEventListener('message', onMsg); ch?.close(); };
+    }
 
     // 1) 本标签刷新：续本标签原会话
     let tabOwn: string | null = null;

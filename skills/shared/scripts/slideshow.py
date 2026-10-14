@@ -5,8 +5,7 @@
 带缓慢缩放（Ken Burns）、图间转场、可选背景音乐与逐图字幕的视频，自动适配目标画幅。
 避免手拼 zoompan/xfade 时算错帧数与转场偏移、音画对不齐。
 
-与 auto-short-video 的边界：auto-short-video 是"一句话主题→AI 配图/配音/字幕→成片"的
-完整流水线；本脚本只做"我已有一组图片 → 拼成视频"，不生成文案/配音。
+本脚本只编辑已提供的图片并导出相册视频，不生成文案/配音；Easel 正式新视频应由 Creation 确认后经 Delivery/Hypit 生产。
 与 video_ops.py：video_ops 处理已有视频，本脚本从静态图片生成视频。
 
 依赖：ffmpeg + ffprobe。

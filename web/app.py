@@ -48,9 +48,8 @@ from easel.creation import (
     mark_chat_proposal_ready,
     begin_video_proposal,
     reopen_video_proposal,
+    reuse_failed_confirmed_video_proposal,
     save_video_proposal,
-    require_chat_proposal_confirmed,
-    record_stage,
     stage_context,
 )
 from easel.chat_capability import (
@@ -100,7 +99,7 @@ from easel.integrations.hypit.service import (
 )
 from easel.creator_proposal import video_proposal_preview
 from easel.creative_mode import creative_mode_exists, list_creative_modes, load_creative_mode
-from easel.openclaw_cmd import openclaw_base_cmd
+from easel.openclaw_cmd import openclaw_base_cmd, model_route
 from easel.persona import (
     _FILE_ORDER,
     chat_turn_message,
@@ -147,9 +146,12 @@ OPENCLAW_WORKSPACE = Path.home() / ".openclaw" / f"workspace-{OPENCLAW_PROFILE}"
 # OpenClaw 会话历史（transcript）目录：<profile 配置目录>/agents/main/sessions/<session-id>.jsonl
 OPENCLAW_SESSIONS_DIR = Path.home() / f".openclaw-{OPENCLAW_PROFILE}" / "agents" / "main" / "sessions"
 
-# 思考档位（每轮 --thinking）。MiniMax-M3 和部分 OpenAI-compatible 网关只支持 off；
-# 同时部分网关不回传 extended-thinking，调高只增加延迟或导致回放失败。仍可通过环境变量覆盖。
-THINKING_LEVEL = (os.environ.get("EASEL_THINKING_LEVEL", "").strip() or "off")
+# 未覆盖时由已配置的模型路由决定；M3.1拒绝off，不影响既有M3默认。
+THINKING_LEVEL = os.environ.get("EASEL_THINKING_LEVEL", "").strip()
+
+
+def _model_route() -> dict:
+    return model_route(OPENCLAW_PROFILE, THINKING_LEVEL, environ=_proxy_env())
 
 # gateway 进程把原始事件流（token/thinking/收尾）写到的单个共享文件。
 # 该接入来自 v0.2.0；当前模型默认关闭 thinking，仍可通过环境变量显式启用。
@@ -158,7 +160,7 @@ SHARED_RAW_STREAM = Path(os.environ.get(
 
 
 def _heal_openclaw_session(sk: str) -> None:
-    """每轮 spawn openclaw 前，清洗该会话历史里的无签名 thinking 块 + 空消息（自愈防回放失效）。
+    """仅修复明确识别的旧Bedrock无签名块；其他模型历史保持原样。
 
     best-effort：任何异常都不阻断对话（清洗失败大不了退回原样，仍可 /new）。
     """
@@ -497,43 +499,10 @@ class CreationRequest(BaseModel):
     route: str | None = None
 
 
-class CreationStageRequest(BaseModel):
-    status: str
-    artifacts: list[str] = Field(default_factory=list)
-    summary: str = ""
-    error: str = ""
-    decision: str | None = None
-
-
-class HypitHandoffRequest(BaseModel):
-    contentCore: dict
-    truthPacket: dict
-    creatorContext: dict
-    references: list[dict] = Field(default_factory=list)
-    productionRequest: dict = Field(default_factory=dict)
-    approvalRequired: bool = True
-    maxBudgetUsd: float | None = None
-
-
-class HypitAttemptRequest(BaseModel):
-    handoffId: str
-    runtimeProfile: str
-
-
-class HypitValidateRequest(BaseModel):
-    runPath: str
-
 
 class HypitBudgetApprovalRequest(BaseModel):
     maxBudgetUsd: float
 
-
-class HypitBuildRequest(BaseModel):
-    title: str = "Easel Creation"
-
-
-class HypitExportRequest(BaseModel):
-    outputName: str
 
 
 class HypitReviewRequest(BaseModel):
@@ -561,39 +530,11 @@ class MaterialPromotionRequest(BaseModel):
     confirmPromotion: bool
 
 
-class HypitReconcileRequest(BaseModel):
-    buildId: str | None = None
-    outputName: str | None = None
-
-
 class ScriptTruthReviewRequest(BaseModel):
     scriptSha256: str
     truthPacketSha256: str
     confirmAllClaimsReviewed: bool
     reviewer: str = Field(default="local_operator", pattern="^(local_operator|codex_delegate)$")
-
-
-class MaterialGenerationRequest(BaseModel):
-    requestId: str = Field(min_length=1, max_length=96, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-    needId: str = Field(min_length=1, max_length=128)
-    confirmPaid: bool
-
-
-class MaterialRecoveryRequest(BaseModel):
-    requestId: str = Field(min_length=1, max_length=96, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-    expectedPlanRevision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    expectedBundleRevision: str = Field(pattern=r"^[0-9a-f]{64}$")
-    allowLicensedBgm: bool = False
-    searchTerms: dict[str, list[str]] = Field(default_factory=dict, max_length=12)
-
-    @field_validator("searchTerms")
-    @classmethod
-    def bounded_search_terms(cls, value):
-        if any(not key or not terms or len(terms) > 4
-               or any(not term.strip() or len(term) > 120 for term in terms)
-               for key, terms in value.items()):
-            raise ValueError("每个素材需求只接受 1～4 条不超过 120 字符的检索提示")
-        return value
 
 
 class MaterialRightsReviewRequest(BaseModel):
@@ -945,13 +886,16 @@ def run_agent_sync(msg: str, timeout: int = TIMEOUT_DIRECT, session_id: str | No
                    *, attachments: list[dict] | None = None, capture_reply: bool = False,
                    retry_failed: bool = True, reply_contract: str = 'material-result-v1',
                    structured_result: dict | None = None, expected_runtime_sha256: str | None = None) -> str:
+    route = _model_route()
     sk = session_id or f'web-{int(time.time() * 1000)}'
-    if reply_contract not in {'planning-result-v2', 'planning-result-v3'}:
+    if reply_contract not in {'material-result-v1', 'planning-result-v3'}:
+        raise ValueError('Historical or unknown reply contract is read-only')
+    if reply_contract == 'material-result-v1':
         _heal_openclaw_session(sk)   # 保留旧路径；新Harness不人工改写原transcript
     # 钉死 --session-id 让 OpenClaw 每轮续同一 transcript（防跨天空闲后新起空会话丢历史，见 _openclaw_session_id）
     cmd = openclaw_base_cmd() + ['--profile', OPENCLAW_PROFILE, 'agent', '--agent', 'main',
            '--session-key', f'agent:main:{sk}', '--session-id', _openclaw_session_id(sk),
-           '--thinking', THINKING_LEVEL,
+           '--thinking', route['thinking'],
            '--timeout', str(timeout), '--message', msg]
     if active_delivery.get():
         from easel.integrations.openclaw_delivery import run_delivery_agent
@@ -1122,12 +1066,8 @@ async def index():
     react_index = REACT_DIR / "index.html"
     if react_index.is_file():
         return FileResponse(react_index, media_type="text/html", headers=no_cache)
-    return FileResponse(STATIC_DIR / "index.html", media_type="text/html", headers=no_cache)
+    raise HTTPException(503, "Easel Creator Web 尚未构建；不启用旧静态制片页")
 
-
-@app.get("/onepage")
-async def onepage():
-    return FileResponse(STATIC_DIR / "onepage.html", media_type="text/html")
 
 
 @app.get("/assets/{path:path}")
@@ -1147,11 +1087,9 @@ async def static_file(path: str):
     fp = (STATIC_DIR / path).resolve()
     if base != fp and base not in fp.parents:
         raise HTTPException(403, "非法路径")
-    if not fp.is_file():
-        raise HTTPException(404)
-    # HTML entrypoints must not be cached: the intro page is edited in-place during local development.
-    headers = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"} if fp.suffix.lower() in {".html", ".htm"} else {}
-    return FileResponse(fp, headers=headers)
+    if fp.suffix.lower() in {".html", ".htm"} or not fp.is_file():
+        raise HTTPException(404, "静态 HTML 制片入口已退役")
+    return FileResponse(fp, headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @app.get("/api/status")
@@ -1199,7 +1137,10 @@ async def api_creations(limit: int = 50):
 @app.get("/api/creations/{creation_id}")
 async def api_creation(creation_id: str):
     try:
-        return get_creation(creation_id)
+        work = get_creation(creation_id)
+        # A delivery schema alone does not grant current production ownership.
+        # This projection is transient; every write repeats the full admission.
+        return {**work, "operator_admission": {"production_managed": is_managed(work)}}
     except CreationError as exc:
         raise HTTPException(404, str(exc)) from exc
 
@@ -1241,48 +1182,37 @@ async def api_creation_proposal_reopen(creation_id: str, _operator: None = Depen
         with execution_lock(creation_id) as acquired:
             if not acquired:
                 raise HTTPException(409, "当前步骤仍在执行，不能修改正在执行的方案")
-            work = get_creation(creation_id)
-            seed = None
-            attempts = work.get("hypit_attempts", [])
-            if attempts and not (work.get("chat_workflow") or {}).get("video_plan"):
-                from easel.creator_proposal import parse_video_plan
-                root = Path(attempts[-1]["workspace"]["path"]) / "planning"
-                values = {}
-                for key, name in (("treatment", "TREATMENT.md"), ("script", "SCRIPT.md"), ("scenes", "SCENES.md")):
-                    path = root / name
-                    if path.is_file() and not path.is_symlink() and path.stat().st_size < 32_000:
-                        values[key] = path.read_text(encoding="utf-8")
-                if len(values) == 3:
-                    seed = parse_video_plan("## 创作表达\n" + values["treatment"] + "\n## 文案\n"
-                        + "```text\n" + values["script"] + "\n```\n## 分镜与节奏\n" + values["scenes"]
-                        + "\n## 声音设计\n沿用原方案声音要求，请在对话中明确修改后的声音设计。")
-                    if seed:
-                        seed.update(revision=0)
-            return reopen_video_proposal(creation_id, seed=seed)
+            return reopen_video_proposal(creation_id)
     except (CreationError, OSError, ValueError) as exc:
         raise HTTPException(409, str(exc)) from exc
 
 
-@app.patch("/api/creations/{creation_id}/stage/{stage}")
-async def api_creation_stage(creation_id: str, stage: str, req: CreationStageRequest):
+@app.post("/api/creations/{creation_id}/proposal/use-previous")
+async def api_creation_proposal_use_previous(creation_id: str, _operator: None = Depends(require_local_operator)):
+    """Web operator restores a previously frozen, unchanged plan for explicit reconfirmation."""
     try:
-        return record_stage(creation_id, stage, req.status, artifacts=req.artifacts,
-                            summary=req.summary, error=req.error, decision=req.decision)
+        with execution_lock(creation_id) as acquired:
+            if not acquired:
+                raise HTTPException(409, "当前步骤正在执行，不能复用历史方案")
+            return reuse_failed_confirmed_video_proposal(creation_id)
     except CreationError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        raise HTTPException(409, str(exc)) from exc
 
 
 async def _hypit_api_call(function, *args, **kwargs):
     try:
         owner = None
-        if getattr(function, '__name__', '') in {'review_material_combination', 'review_material_match', 'review_material_rights', 'review_generated_material_rights'}:
-            owner = get_film_attempt(args[0])['creation_id']
-        if function in {resolve_film_attempt_runtime, validate_film_attempt, estimate_film_attempt,
-                        approve_film_cost, submit_film_build, refresh_film_build, reconcile_film_submission,
-                        export_film_output, retry_failed_film_build, revise_film_output, cancel_film_build} or getattr(function, '__name__', '') == 'generate_minimax_asset':
+        if getattr(function, "__name__", "") in {
+            "review_material_combination", "review_material_match",
+            "review_material_rights", "review_generated_material_rights",
+        }:
+            owner = get_film_attempt(args[0])["creation_id"]
+        if function in {approve_film_cost, revise_film_output, cancel_film_build}:
             attempt = get_film_attempt(args[0])
             work = get_creation(attempt["creation_id"])
-            owner = work["id"] if is_managed(work) else None
+            if not is_managed(work):
+                raise HTTPException(410, "历史作品只能查看，不支持继续旧制作")
+            owner = work["id"]
         with execution_lock(owner) if owner else nullcontext(True) as acquired:
             if not acquired:
                 raise HTTPException(409, "Easel 正在处理当前步骤，请等待状态更新")
@@ -1302,39 +1232,68 @@ async def _hypit_api_call(function, *args, **kwargs):
         raise HTTPException(400, SecretRedactor.redact_text(str(exc))) from exc
 
 
-@app.post("/api/creations/{creation_id}/handoff")
-async def api_creation_handoff(creation_id: str, req: HypitHandoffRequest,
-                               _operator: None = Depends(require_local_operator)):
-    return await _hypit_api_call(
-        create_creation_handoff,
-        creation_id,
-        content_core=req.contentCore,
-        truth_packet=req.truthPacket,
-        creator_context=req.creatorContext,
-        references=req.references,
-        production_request=req.productionRequest or None,
-        approval_required=req.approvalRequired,
-        max_budget_usd=req.maxBudgetUsd,
-    )
-
-
-@app.post("/api/creations/{creation_id}/film-attempts")
-async def api_creation_film_attempt(creation_id: str, req: HypitAttemptRequest,
-                                    _operator: None = Depends(require_local_operator)):
-    return await _hypit_api_call(
-        create_film_attempt, creation_id, req.handoffId, runtime_profile=req.runtimeProfile)
-
-
 @app.get("/api/creations/{creation_id}/film-attempts")
 async def api_creation_film_attempts(creation_id: str,
                                      _operator: None = Depends(require_local_operator)):
     return await _hypit_api_call(list_film_attempts, creation_id)
 
 
+def _film_operator_admission_projection(attempt: dict) -> dict:
+    """Read-only service decision for Web actions; never authorizes a write.
+
+    Only Final Admission determines if an output is approvable or selectable.
+    All POST handlers repeat the actual gate on current bytes under ownership.
+    """
+    from easel.integrations.hypit.service import require_final_admission
+    from easel.integrations.hypit.errors import HypitIntegrationError
+    from easel.integrations.output_receipts import OutputReceiptError
+
+    projection = {
+        'allowed_actions': {'approve_final': False, 'select_film': False,
+                            'review_feedback': False},
+        'blocking_reason': '历史 Attempt 只读，不能进入新版生产',
+        'active_attempt_id': attempt.get('attempt_id'),
+        'current_output_sha256': None,
+    }
+    try:
+        work = get_creation(attempt['creation_id'])
+    except (KeyError, CreationError, OSError):
+        return projection
+    if not is_managed(work):
+        return projection
+    outputs = attempt.get('outputs') or {}
+    binding = (attempt.get('review') or {}).get('system', {}).get('binding') or {}
+    name, sha = binding.get('output_name'), binding.get('sha256')
+    if not isinstance(name, str) or name not in outputs:
+        projection['blocking_reason'] = '当前无可执行最终审核的已导出 Output'
+        return projection
+    if outputs[name].get('sha256') != sha:
+        projection['blocking_reason'] = '当前 Output SHA 与系统审核来源不一致'
+        return projection
+    projection['allowed_actions']['review_feedback'] = True
+    try:
+        require_final_admission(attempt, name)
+    except (HypitIntegrationError, OutputReceiptError, CreationError, OSError) as exc:
+        projection['blocking_reason'] = str(exc)
+        return projection
+    projection['current_output_sha256'] = sha
+    projection['blocking_reason'] = None
+    projection['allowed_actions']['approve_final'] = True
+    review = attempt.get('review') or {}
+    projection['allowed_actions']['select_film'] = (
+        attempt.get('review_status') == 'APPROVED'
+        and review.get('binding') == {'output_name': name, 'sha256': sha}
+        and review.get('human', {}).get('status') == 'approved'
+        and all(review.get(field, {}).get('status') == 'pass'
+                for field in ('truth', 'style', 'technical')))
+    return projection
+
+
 @app.get("/api/film-attempts/{attempt_id}")
 async def api_film_attempt(attempt_id: str,
                            _operator: None = Depends(require_local_operator)):
-    return await _hypit_api_call(get_film_attempt, attempt_id)
+    attempt = await _hypit_api_call(get_film_attempt, attempt_id)
+    return {**attempt, "operator_admission": _film_operator_admission_projection(attempt)}
 
 
 @app.get("/api/film-attempts/{attempt_id}/script-truth")
@@ -1361,6 +1320,9 @@ async def api_script_truth_review(attempt_id: str, req: ScriptTruthReviewRequest
     from easel.integrations.material_layer import PlanningIntegration
 
     attempt = await _hypit_api_call(get_film_attempt, attempt_id)
+    work = get_creation(attempt["creation_id"])
+    if not is_managed(work):
+        raise HTTPException(410, "历史 Script Truth 只读；旧 Preparation/Authoring 无法再恢复")
     reviewed = await _hypit_api_call(
         PlanningIntegration().review_script,
         attempt,
@@ -1369,51 +1331,7 @@ async def api_script_truth_review(attempt_id: str, req: ScriptTruthReviewRequest
         expected_truth_packet_sha256=req.truthPacketSha256,
         reviewer=req.reviewer,
     )
-    work = get_creation(attempt["creation_id"])
-    if is_managed(work):
-        return {"script_truth": reviewed["ledger"], "preparation": work.get("preparation", {})}
-    preparation = await asyncio.to_thread(
-        prepare_creation_for_hypit, attempt["creation_id"],
-        runtime_profile=_hypit_runtime_profile(), planning_executor=_material_planning_executor,
-    )
-    if preparation.get("status") == "READY_FOR_EXTERNAL_AUTHORING":
-        _start_film_authoring(attempt_id)
-    return {"script_truth": reviewed["ledger"], "preparation": preparation}
-
-
-@app.post("/api/film-attempts/{attempt_id}/material-generation/minimax-video")
-async def api_minimax_material_video_generation(
-    attempt_id: str,
-    req: MaterialGenerationRequest,
-    _operator: None = Depends(require_local_operator),
-):
-    from easel.integrations.material_layer import MaterialProductOrchestrator
-
-    return await _hypit_api_call(
-        MaterialProductOrchestrator().generate_minimax_asset,
-        attempt_id,
-        need_id=req.needId,
-        request_id=req.requestId,
-        confirmed_paid=req.confirmPaid,
-    )
-
-
-@app.post("/api/film-attempts/{attempt_id}/material-generation/minimax")
-async def api_minimax_material_generation(
-    attempt_id: str,
-    req: MaterialGenerationRequest,
-    _operator: None = Depends(require_local_operator),
-):
-    from easel.integrations.material_layer import MaterialProductOrchestrator
-
-    return await _hypit_api_call(
-        MaterialProductOrchestrator().generate_minimax_asset,
-        attempt_id,
-        need_id=req.needId,
-        request_id=req.requestId,
-        confirmed_paid=req.confirmPaid,
-    )
-
+    return {"script_truth": reviewed["ledger"], "preparation": work.get("preparation", {})}
 
 @app.get("/api/film-attempts/{attempt_id}/material-rights/candidates")
 async def api_material_rights_candidates(
@@ -1480,19 +1398,6 @@ async def api_material_asset_preview(
                         headers={"Cache-Control": "no-store"})
 
 
-@app.post("/api/film-attempts/{attempt_id}/materials/recover")
-async def api_recover_materials(attempt_id: str, req: MaterialRecoveryRequest,
-                                _operator: None = Depends(require_local_operator)):
-    from easel.integrations.material_recovery import recover_materials
-    return await _hypit_api_call(
-        recover_materials, attempt_id, request_id=req.requestId,
-        expected_plan_revision=req.expectedPlanRevision,
-        expected_bundle_revision=req.expectedBundleRevision,
-        allow_licensed_bgm=req.allowLicensedBgm,
-        search_terms={key: tuple(value) for key, value in req.searchTerms.items()},
-    )
-
-
 @app.post("/api/film-attempts/{attempt_id}/material-match/review-current")
 async def api_material_match_review_current(
     attempt_id: str, req: MaterialMatchReviewRequest,
@@ -1543,69 +1448,10 @@ async def api_material_rights_review(
     )
 
 
-@app.post("/api/film-attempts/{attempt_id}/author")
-async def api_film_attempt_author(
-    attempt_id: str,
-    _operator: None = Depends(require_local_operator),
-):
-    """Start the existing no-media Authoring step after explicit operator action.
-
-    It may call the configured OpenClaw model, but cannot resolve Hypit Runtime,
-    price or submit a Hypit Build, export media, or publish.
-    """
-    try:
-        return _start_film_authoring(attempt_id)
-    except HypitIntegrationError as exc:
-        raise HTTPException(400, str(exc)) from exc
-
-
-@app.post("/api/film-attempts/{attempt_id}/runtime/resolve")
-async def api_film_attempt_runtime_resolve(
-    attempt_id: str,
-    _operator: None = Depends(require_local_operator),
-):
-    runtime_profile = _hypit_runtime_profile()
-    if not runtime_profile:
-        raise HTTPException(409, "Easel 服务端尚未配置 Hypit Runtime Profile")
-    return await _hypit_api_call(resolve_film_attempt_runtime, attempt_id, runtime_profile)
-
-
-@app.post("/api/film-attempts/{attempt_id}/validate")
-async def api_film_attempt_validate(attempt_id: str, req: HypitValidateRequest,
-                                    _operator: None = Depends(require_local_operator)):
-    return await _hypit_api_call(validate_film_attempt, attempt_id, req.runPath)
-
-
-@app.post("/api/film-attempts/{attempt_id}/estimate")
-async def api_film_attempt_estimate(attempt_id: str,
-                                    _operator: None = Depends(require_local_operator)):
-    return await _hypit_api_call(estimate_film_attempt, attempt_id)
-
-
 @app.post("/api/film-attempts/{attempt_id}/approve-cost")
 async def api_film_attempt_approve_cost(attempt_id: str, req: HypitBudgetApprovalRequest,
                                         _operator: None = Depends(require_local_operator)):
     return await _hypit_api_call(approve_film_cost, attempt_id, req.maxBudgetUsd)
-
-
-@app.post("/api/film-attempts/{attempt_id}/build")
-async def api_film_attempt_build(attempt_id: str, req: HypitBuildRequest,
-                                 _operator: None = Depends(require_local_operator)):
-    return await _hypit_api_call(submit_film_build, attempt_id, title=req.title)
-
-
-@app.post("/api/film-attempts/{attempt_id}/refresh")
-async def api_film_attempt_refresh(attempt_id: str,
-                                   _operator: None = Depends(require_local_operator)):
-    return await _hypit_api_call(refresh_film_build, attempt_id)
-
-
-@app.post("/api/film-attempts/{attempt_id}/retry-failed-build")
-async def api_film_attempt_retry_failed_build(
-    attempt_id: str, _operator: None = Depends(require_local_operator),
-):
-    """Fork checked checkpoints; never submit or approve the new Build."""
-    return await _hypit_api_call(retry_failed_film_build, attempt_id)
 
 
 @app.post("/api/film-attempts/{attempt_id}/revise")
@@ -1629,23 +1475,10 @@ async def api_film_attempt_cancel(attempt_id: str,
     return await _hypit_api_call(cancel_film_build, attempt_id)
 
 
-@app.post("/api/film-attempts/{attempt_id}/export")
-async def api_film_attempt_export(attempt_id: str, req: HypitExportRequest,
-                                  _operator: None = Depends(require_local_operator)):
-    return await _hypit_api_call(export_film_output, attempt_id, req.outputName)
-
-
 @app.post("/api/film-attempts/{attempt_id}/review")
 async def api_film_attempt_review(attempt_id: str, req: HypitReviewRequest,
                                   _operator: None = Depends(require_local_operator)):
     return await _hypit_api_call(record_film_review, attempt_id, req.model_dump())
-
-
-@app.post("/api/film-attempts/{attempt_id}/reconcile")
-async def api_film_attempt_reconcile_route(attempt_id: str, req: HypitReconcileRequest,
-                                           _operator: None = Depends(require_local_operator)):
-    return await _hypit_api_call(reconcile_film_submission, attempt_id,
-                                 build_id=req.buildId, output_name=req.outputName)
 
 
 @app.post("/api/creations/{creation_id}/select-build")
@@ -1988,7 +1821,8 @@ async def api_proposal_preview(creation_id: str, req: ProposalPreviewRequest):
     workflow = work.get("chat_workflow") or {}
     return {**preview, "confirmable": workflow.get("proposal_status") == "READY_FOR_CONFIRMATION" and not preview["missing"],
             "video_plan": workflow.get("video_plan"), "generation_budget": generation_budget_preview(),
-            "input_use": input_use_preview()}
+            "input_use": (input_use_preview(plan=workflow["video_plan"])
+                          if not preview["missing"] and workflow.get("video_plan") else None)}
 
 
 def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
@@ -2031,30 +1865,14 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
                                          video_plan_sha256=req.videoPlanSha256,
                                          generation_budget=req.generationBudget,
                                          input_use_statement_sha256=req.inputUseStatementSha256)
-            if is_managed(work):
-                return "", {**work, "_preparation_action": "delivery",
-                            "_client_phase": "production_confirmed"}
-            preparation = claim_chat_preparation(work["id"], req.sessionId, req.turnId)
+            if not is_managed(work):
+                raise HTTPException(409, "旧版 Preparation 执行入口已停用；历史作品只读，请创建新的 Creation")
+            return "", {**work, "_preparation_action": "delivery",
+                        "_client_phase": "production_confirmed"}
         except CreationError as exc:
             raise HTTPException(409, str(exc)) from exc
         except (ChatCapabilityError, PreparationError) as exc:
             raise HTTPException(409, str(exc)) from exc
-        work = {**get_creation(work["id"]),
-                "_preparation_action": preparation.get("action"),
-                "_client_phase": "production_confirmed"}
-        body = (
-            "用户已通过 Easel 的结构化操作明确确认当前聊天中的创作方案，按最新讨论结果开始制作。\n\n"
-            "以下按时间顺序排列的聊天方案是用户确认的制作约束；制作时必须保留其中最后确认的参数，"
-            "若与助手早期建议冲突，以更晚的用户确认内容为准。把稳定的制作约束写入冻结边界/Production Request；"
-            "不得只保留主题而丢失时长、节拍、音轨、画幅、人物/隐私限制、素材来源或不发布要求。\n"
-            f"CONFIRMED_PROPOSAL_SHA256={proposal_sha256}\n"
-            "CONFIRMED_PROPOSAL_TRANSCRIPT=" + proposal_text + "\n\n"
-            f"{creation_context(work)}"
-            f"{preparation_agent_context(work, preparation)}"
-        )
-        message = chat_turn_message(body, work.get("profile"), work.get("creative_mode"))
-        return message, work
-
     if capability is None:
         return _chat_message(req), None
     if not req.sessionId:
@@ -2083,24 +1901,12 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
 
     work = get_creation(work["id"])
     confirmed = bool((work.get("chat_workflow") or {}).get("confirmed_at"))
-    confirmed_preparation_context = ""
     if not confirmed and not work.get("creative_mode"):
         prep_action = "blocked"
     elif confirmed and is_managed(work):
         prep_action = "ordinary"
     elif confirmed:
-        preparation_state = (work.get("preparation") or {}).get("status")
-        if preparation_state not in {"PRODUCTION_PREPARED", "READY_FOR_EXTERNAL_AUTHORING"}:
-            try:
-                preparation = claim_chat_preparation(work["id"], req.sessionId, req.turnId)
-            except PreparationError as exc:
-                raise HTTPException(409, str(exc)) from exc
-            prep_action = preparation.get("action", "ordinary")
-            work = get_creation(work["id"])
-            if prep_action == "generate":
-                confirmed_preparation_context = preparation_agent_context(work, preparation)
-        else:
-            prep_action = "ordinary"
+        raise HTTPException(409, "已确认的旧作品不能继续使用旧版 Preparation；请新建 Creation")
     else:
         prep_action = "proposal"
         from easel.integrations.voice_identity import available_profile
@@ -2154,8 +1960,6 @@ def _prepare_chat_request(req: ChatRequest) -> tuple[str, dict | None]:
             "Hypit workspace、AUTHORING_TASK 或任何视频工程文件。只有用户点击作品画布中的“按这个方案制作”"
             "结构化操作后，服务端才会进入 Preparation；不要根据“可以”“继续”等文字自行推断确认。"
         )
-    elif confirmed_preparation_context:
-        body += confirmed_preparation_context
     elif is_managed(work):
         body += ("\n作品由后端根据已确认委托持续制作。本轮只回答讨论、解释当前状态或收集修改意见；"
                  "不得自行写制作文件、恢复阶段或调用 Provider/Hypit，不得要求用户发送继续。")
@@ -2350,53 +2154,16 @@ async def _finish_ai_film_turn(
             else:
                 mark_chat_proposal_ready(work["id"])
         return ""
-    if is_managed(work):
-        return ""
-    if prep_action != "generate":
-        return ""
-    if not succeeded:
-        mark_preparation_failed(work["id"], "Easel Agent 本轮未正常完成，Preparation 未提交")
-        return ""
-    try:
-        result = await asyncio.to_thread(
-            prepare_creation_for_hypit,
-            work["id"],
-            runtime_profile=_hypit_runtime_profile(),
-            planning_executor=_material_planning_executor,
-        )
-        note = _preparation_reply(result["status"], runtime_status=result.get("runtime_status"))
-        attempt_id = result.get("attempt_id")
-        if result.get("status") == "READY_FOR_EXTERNAL_AUTHORING" and isinstance(attempt_id, str):
-            _start_film_authoring(attempt_id)
-            note += "\n\nEasel 已开始编排视频；开始制作前仍会确认费用。"
-        return "\n\n---\n" + note
-    except Exception as exc:
-        mark_preparation_failed(work["id"], str(exc))
-        return "\n\n---\n" + _preparation_reply("FAILED", error=str(exc))
-
+    # Confirmed new Creation is progressed exclusively by Easel Delivery.
+    # Historical non-managed works may be viewed but never re-dispatched.
+    return ""
 
 async def _resume_confirmed_preparation(work: dict) -> str:
-    """Resume an explicitly confirmed Preparation without dispatching Authoring."""
-    if is_managed(work):
-        retry_delivery(work["id"])
-        return "Easel 会从已保留的结果继续处理，可在作品区查看进度。"
-    try:
-        result = await asyncio.to_thread(
-            prepare_creation_for_hypit,
-            work["id"],
-            runtime_profile=_hypit_runtime_profile(),
-            planning_executor=_material_planning_executor,
-        )
-        note = _preparation_reply(result["status"], runtime_status=result.get("runtime_status"))
-        attempt_id = result.get("attempt_id")
-        if result.get("status") == "READY_FOR_EXTERNAL_AUTHORING" and isinstance(attempt_id, str):
-            _start_film_authoring(attempt_id)
-            note += "\n\nEasel 已开始编排视频；开始制作前仍会确认费用。"
-        return note
-    except Exception as exc:
-        mark_preparation_failed(work["id"], str(exc))
-        return _preparation_reply("FAILED", error=str(exc))
-
+    """Only the durable Delivery Owner may recover a confirmed Creation."""
+    if not is_managed(work):
+        return "历史 Creation 的旧版 Preparation 已停用，请新建作品。原始 Attempt 保持只读。"
+    retry_delivery(work["id"])
+    return "Easel 会从已保留的结果继续处理，可在作品区查看进度。"
 
 async def _quick_chat_preparation_response(req: ChatRequest, work: dict, text: str):
     """Finish blocked/replayed/resumed preparation without dispatching another Agent turn."""
@@ -2596,7 +2363,6 @@ def _save_turn(sk: str, status: str, text: str, extra: dict | None = None) -> No
 # 后台 supervisor 任务集合：持有强引用防被 GC；每个对话流的 openclaw run 跑在这里，
 # 与客户端 SSE 连接解耦（断线不杀 run）。
 _BG_TASKS: set = set()
-_AUTHORING_TASKS: dict[str, asyncio.Task] = {}
 
 # 正在跑的对话 openclaw 进程（sk→proc），供用户**显式「停止」**终止；断线**不**经此路径（断线不杀）。
 _RUNNING_CHAT: dict = {}
@@ -2675,7 +2441,7 @@ def _output_consumer_policy(attempt, stage, logical_id, session, prompt, *, prof
                'session': session, 'input_identity': input_identity,
                'prompt_sha256': hashlib.sha256(prompt.encode()).hexdigest(),
                'attachments_sha256': digest(attachments),
-               'route': {'profile': OPENCLAW_PROFILE, 'thinking': THINKING_LEVEL}}
+               'route': _model_route()}
     store = result_store if result_store is not None else AttemptMaterialStore(attempt['workspace']['path'])
     prior = receipts.read_record(store, receipts.policy_key(stage, logical_id))
     has_new_execution = any(row.get('session_key', '').startswith('agent:main:' + session + '-ad-') for row in old_calls)
@@ -3070,448 +2836,52 @@ def _restore_confirmed_planning(planning_dir, canonical, *, frozen):
 
 
 def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
-    """Ask the Director to plan from the frozen upstream snapshots before supply."""
-    root = Path(attempt["workspace"]["path"]).resolve()
-    refs = planning_context.get("context_refs")
-    if not isinstance(refs, dict) or set(refs) != {
-        "content_core_sha256", "truth_packet_sha256", "creator_context_sha256",
-        "production_brief_sha256", "creative_mode_sha256",
-    } or any(not isinstance(value, str) or not value for value in refs.values()):
-        raise PreparationError("Creative Planning lacks complete frozen Content/Creator/Director references")
-    planning_dir = root / "planning"
-    if planning_dir.is_symlink():
-        raise PreparationError("Planning directory must not be a symlink")
-    planning_dir.mkdir(parents=True, exist_ok=True)
-    confirmed_plan = (get_creation(attempt['creation_id']).get('delivery') or {}).get('video_plan')
-    if confirmed_plan and planning_context.get('quality_repair'):
-        raise PreparationError('本次质量问题需要改变已确认视频方案，请回到方案讨论；当前方案与产物已保留')
-    canonical = ({'SCRIPT.md': confirmed_plan['script'], 'SCENES.md': confirmed_plan['scenes'],
-                  'TREATMENT.md': confirmed_plan['treatment'] + '\n\n## 声音设计\n' + confirmed_plan['sound']}
-                 if confirmed_plan else {})
-    def draft_only(text):
-        return '' if confirmed_plan else text
-    def restore_confirmed():
-        if canonical:
-            _restore_confirmed_planning(planning_dir, canonical,
-                frozen=attempt.get('material_planning', {}).get('status') == 'PLANNING_READY')
-    if attempt.get('planning_contract_version') == 3:
-        return _semantic_material_planning_executor(attempt, planning_context, canonical, restore_confirmed)
-    # The current Domain owns every nested field. A prose subset left video
-    # planning to guess duration_seconds and failed both initial and repair turns.
-    from easel.materials.application.visual_contract import PlanningRequirements
-    from easel.materials.application.need_constraints import PLANNING_CONSTRAINT_CONTRACT, validate_modality_constraints
-    requirements_contract = (
-        "\n〔MATERIAL_REQUIREMENTS 正式 JSON Schema〕\n"
-        + json.dumps(PlanningRequirements.model_json_schema(), ensure_ascii=False, separators=(",", ":"))
-        + "\n〔要求正式合同结束〕\n"
-        "MATERIAL_REQUIREMENTS.json 根对象仅按所有 image/video Need 的 need_id 作键，含 required 和 optional；"
-        "不添加 plan_id/creation_id/attempt_id/context_refs/visual_requirements 包装，也不加入任何 audio Need。"
-        "每项仅 clauses/queries；clauses 按原文顺序完整覆盖 intent/description、非空 intent/function、"
-        "约束中的文本项和 modality/visual_style。path 使用 intent/description、constraints/preferred_visual_details、"
-        "modality/visual_style 等原文来源路径，不用 modality_spec/visual_style。"
-        "search_query_en/search_query_variants_en 和 search_query_variants_primary/alternate/relaxed、"
-        "required_source_kind、usage 为供应元数据，不作为视觉条款。视觉Need禁止声音参数。"
-        "text 逐字引用连续原文，不复制 SHA 或计算位置；kind 仅 required/preference/postproduction/unresolved。"
-        "preference_path 没有显式偏好引用时必须为 null；有引用时为原文显式软偏好路径。"
-        "preferred_visual_details/preferred_style/modality/visual_style 为软偏好，不能升级为 required；"
-        "主体、源动作、数量状态、明确禁令不得降低，有歧义保留 unresolved。"
-        "queries 给三个不同的英文短查询 primary/alternate/relaxed，各不超过100字符。"
-        "隐式继承 Mode 软偏好由程序绑定。声音 Need 仍完整保留在 MATERIAL_PLAN.json，按声音合同供应。\n"
-    )
-    planning_contract = (
-        "\n〔规划文件交付约束〕\n"
-        "只使用本回合实际可用的工具。若 write 工具未提供或返回 Tool write not found，"
-        "立即用已可用的 exec 调用 Python 标准库 json.dump/Path.write_text 保存规划JSON；"
-        "不要再调用不存在的工具，不把文件内容改为回复长文。"
-        "优先一次写出最短充分 MATERIAL_PLAN.json，再核对它存在且能解析；"
-        "已确认的 SCRIPT/SCENES/TREATMENT 保持原样，只读。"
-        "不要重复重算冻结哈希或展开设计推演，完成后仅回复路径和完成状态。"
-        "确认规格要求旁白与音乐时，必须保留 required Voice 和 required BGM，"
-        "不得以背景乐的一般偏好可取舍为由将配乐降为 optional。\n"
-        "\n〔MaterialPlan 正式 JSON Schema〕\n"
-        + json.dumps(MaterialPlan.model_json_schema(), ensure_ascii=False, separators=(",", ":"))
-        + "\n〔正式合同结束〕\n"
-        "严格按此当前 Domain 合同填写所有嵌套字段；不得从其他素材或 Provider 格式猜字段。"
-        "视频目标时长属于 Need.duration_hint.target_seconds，不属于 modality_spec.video；"
-        f"{draft_only('镜头实际时间线仍写 SCENES，由 Production 使用实际素材安排。\n')}"
-        + requirements_contract
-        + PLANNING_CONSTRAINT_CONTRACT
-    )
-    prompt = (
-        "〔Easel Material Creative Planning V1〕\n"
-        f"Attempt ID: {attempt['attempt_id']}\nCreation ID: {attempt['creation_id']}\n"
-        f"Attempt workspace: {root}\n"
-        "这是已冻结 Creation 后的 Creative Planning 阶段，须产出 MaterialPlan 与规划稿；"
-        "不是 Content Core 准备或 Hypit Production Authoring。\n"
-        "先阅读 handoff/handoff.json 中哈希绑定的 production_request.production_brief，"
-        "并确认其 production_brief_sha256 与 context_refs 完全一致；读取 confirmed_proposal_sha256 后再阅读"
-        "handoff/content-core.json、handoff/truth-packet.json、handoff/creator-context.json，"
-        "以及 handoff/creative-mode/ 的 mode.json、director-treatment.md、visual-bible.md、"
-        "audio-bible.md、editing-bible.md。冻结的 Content Core、Truth Packet、Creator Context、"
-        "Creative Mode / Director 是唯一创作依据。不要读取其他项目、历史产物或重复计算 SHA-256。\n"
-        "mode.json 的 visual_material_style 是视觉素材软偏好，会进入检索、排序与图片/视频生成请求。"
-        "默认由 Easel 绑定到视觉 Need.constraints.preferred_style；"
-        f"{draft_only('若具体镜头有不同表达需要，可在该字段明确替换，并在 TREATMENT 说明理由。')}"
-        "同一 Need 的有效风格以 constraints.preferred_style 为准；未填写时继承 ImageNeedSpec.visual_style，再继承 Mode。"
-        "它不限制主题、场景数量，也不能改变事实材料的原貌或作为许可依据。\n"
-        "视觉 Need.intent.description 首句用简短可检索主体/必要动作（不超过 80 字符），后续写核心用途和不可违反要求；"
-        f"{('长叙事、风格和拍摄推演从只读确认稿读取，不把它们拼成检索词。' if confirmed_plan else '长叙事、风格和拍摄推演放在 TREATMENT/SCENES，不把它们拼成检索词。')}"
-        "将你作为 Director 允许取舍的景别、背景陈设、环境细节放入 constraints.preferred_visual_details（可选非空字符串），"
-        "不要把一个示意镜头的全部细节都写成必须同时满足的清单。该字段是软偏好，不是供应硬过滤。"
-        "用户明确指定的事实、身份、禁止事项和不可替换的画面要求不得降为偏好；"
-        f"{draft_only('保持已确认 SCRIPT/SCENES 原样，在 TREATMENT 说明可替代表达与理由。\n')}"
-        f"{draft_only('TREATMENT 区分用户硬要求、必要表达、Mode 稳定表达和一般偏好，注明来源和适用范围。')}"
-        f"{draft_only('用具体安排说明当前 Mode 如何影响选材、旁白、BGM、字幕和剪辑，生产与既有审片会核对实际效果；')}"
-        f"{draft_only('传递文件或哈希不能证明风格落实，不新增一套重复模型审核。')}"
-        "库素材不承诺相同人物/房间的连续动作；在获准来源内规划可实现的核心画面，"
-        "无生成许可不得承诺只能生成的画面，不删必要内容或放宽硬要求来凑齐。\n"
-        "读取后立即写出以下绝对路径的文件，写完再回复；只回复文字不算完成：\n"
-        + ''.join(str(planning_dir / name) + '\n' for name in
-                  (('MATERIAL_PLAN.json', 'MATERIAL_REQUIREMENTS.json') if confirmed_plan
-                   else ('MATERIAL_PLAN.json', 'TREATMENT.md', 'SCRIPT.md', 'SCENES.md')))
-        +
-        "MaterialPlan JSON 顶层只允许 plan_id、creation_id、attempt_id、context_refs、policy、needs；"
-        "不得添加 schema、version 或其他包装字段。必须有 plan_id、creation_id、attempt_id、context_refs、needs。"
-        "每个 Need 必须有 need_id、scope:{type,ref}、media_type、role、"
-        "intent:{description}、importance；至少一个 importance=required。"
-        "intent 只能含 description 和可选 function；素材文件路径、SHA、License、Rights 证据"
-        "属于后续 Supply/Asset，不能写入 Need.intent。图像 modality_spec 若填写，"
-        "kind 必须为 image；竖屏写 aspect_ratio=9:16，不能写 orientation。"
-        "ImageNeedSpec 只允许 kind/aspect_ratio/visual_style/reference_asset_ids；也可省略 modality_spec。"
-        "字幕、标题、转场与画面裁切由 Hypit Production Authoring 负责，不能伪装成 MaterialNeed。"
-        "policy 可以省略；若填写，只能是字符串到字符串的映射，不能放布尔值或数组。"
-        "Need.constraints 遵守上方模态边界及两个结构化例外；不得写 allowed_source_kinds 或 must_not_contain 数组。"
-        "只有用户明确限定图库来源时才写 required_source_kind=stock；合法授权或真实素材不等于图库限定。未指定来源时不要猜测此约束；禁用生成写 allow_generation=false。"
-        "排除人物、地标等画面条件写在 intent.description 中，必须在素材核对中验证；不能删除创作边界。"
-        "scope.type 仅用 scene、event、global 或 segment；media_type 仅用 image、video、audio。"
-        "voice/BGM/SFX 需要 audio 与相应 modality_spec.kind=voice/bgm/sfx；SFX 用 event scope。"
-        "VoiceNeedSpec 只允许 kind、identity、delivery_description、text_ref、text_sha256；"
-        "把 delivery_description 的可执行朗读选择写入 Need.constraints.voice_delivery 对象："
-        "pace_ratio 为 0.5～2 的语速倍率、pitch_semitones 为 -12～12 的整数半音、"
-        "tone 为 neutral/happy/sad/angry/afraid/disgusted/surprised。未指定项继承冻结 Mode。"
-        "参数必须对应 SCRIPT 内容和朗读描述，不用调快语速掩盖脚本超长；"
-        "复杂表演、口音、耳语等不能仅靠这些参数保证，不能声称已落实。音色身份仍由已批准运行配置提供。"
-        "identity 必须是 {source,reference}，source 只用 creator_context、director_intent、explicit_user；"
-        "本作品要求预置 AI 音色时可用 explicit_user 与不含 Provider ID 的语音描述。"
-        "BgmNeedSpec 只允许 kind、mood、genre、instruments、vocals_allowed、energy、tempo_bpm；"
-        "其中 instruments 是字符串数组（例如 [\"piano\"]），tempo_bpm 是两个递增整数的数组"
-        "（例如 [60,80]）；不确定时省略，不能写字符串或单个数字。"
-        f"{draft_only('配乐如何压低和淡出写入 SCENES/TREATMENT，不写进 BgmNeedSpec。')}"
-        "BGM Need.intent.description 写可检索的简短英文音乐描述（例如 gentle piano instrumental），"
-        "不要把压低音量、淡出或时间线指令混入搜索词；"
-        f"{draft_only('这些仍写入 SCENES/TREATMENT。')}"
-        "明确要求 AI 生成的 Image/Voice Need 在 constraints 中写 allow_generation=true；BGM 不得写该许可。"
-        "用户允许图库不足时生图补位，也应在冻结 Brief 允许范围内为可静态表达的 Image Need 写 allow_generation=true，"
-        "不是只有要求必须生成才传递许可；预算不代替内容许可。"
-        "真实事件证据、指定真实身份或必须呈现源动态动作，分别写 requires_real_evidence/requires_real_identity/"
-        "requires_dynamic_action=true，不可用生图补位；不得把 Video Need 偷换为 Image。"
-        "每个视觉 Need 在 constraints.search_query_en 写不超过100字符的英文主体/必要动作/场景短语；"
-        "同时在 constraints.search_query_variants_en 交付primary/alternate/relaxed三个不同短query，不以重复同义词伪装策略变化；"
-        "保留中文 intent 原意及硬要求，不混入后期运动和长风格说明。"
-        "若用户要求此作品必须真实生成该素材，还须写 constraints.required_source_kind=\"generative\"，"
-        "确保搜索来的本地或图库素材不能替代生成结果；仅允许生成作为候选时不要写此硬约束。"
-        "若用户明确禁止本地样本满足某 Need，写 constraints.forbidden_source_kind=\"local\"；"
-        "它只排除本地原始素材，仍允许正式 Library 或 External 资产。"
-        "Required Voice Need 必须提供 provider-neutral identity；其 text_ref/text_sha256 由 Easel 在 SCRIPT 冻结后绑定，"
-        "不得填写 provider_voice_id。"
-        f"{draft_only('若有 Voice Need，SCRIPT.md 只写需要合成的逐字旁白文本，')}"
-        f"{draft_only('不写标题、说明、表格、引号或时间线；节奏和画面安排写入 SCENES.md/TREATMENT.md。')}"
-        "不要编造素材存在、Rights 许可或引用素材 ID。\n"
-        f"plan_id: plan-{attempt['attempt_id'][-20:]}\n"
-        f"context_refs: {json.dumps(refs, ensure_ascii=False, sort_keys=True)}\n"
-        "MaterialPlan 必须根据当前叙事、受众、语气和导演语言提出真实 Need；"
-        "禁止套用固定 IMAGE Need、固定场景数或固定媒体类型。"
-        "同轮另写 planning/MATERIAL_REQUIREMENTS.json，遵守下方要求正式合同。"
-        "完整 Planning 用文件工具交付，不在聊天长文输出。"
-        "SCRIPT/SCENES 必须符合 Content Core 与 Truth Packet，不改写事实、隐私边界或 Director 意图。"
-        "第一人称只能表达观点与反思；不得凭空写我曾做过、看过、按过、说过等已发生动作。"
-        "如需创作假设，须在同一句明确写“假设”或“如果”，不得伪装成真实经历。"
-        "不调用 Provider、Hypit、媒体生成、Plan、Pricing 或 Build。后端会严格校验 Domain 合同和冻结身份。"
-        + planning_contract
-    )
-    if confirmed_plan:
-        revision = (get_creation(attempt["creation_id"]).get("delivery") or {}).get("proposal_revision")
-        if revision:
-            # Only uncommitted planning drafts can be replaced here. Retain the
-            # original files; a durable marker makes interrupted moves resumable.
-            archive = planning_dir / f"before-proposal-{revision}"
-            if archive.is_symlink():
-                raise PreparationError("方案历史目录不能是符号链接")
-            archive.mkdir(exist_ok=True)
-            marker = archive / "complete"
-            if not marker.exists():
-                if attempt.get("material_planning", {}).get("status") == "PLANNING_READY":
-                    raise PreparationError("不能用早期方案修改覆盖已完成的素材规划")
-                for name in ("SCRIPT.md", "SCENES.md", "TREATMENT.md", "MATERIAL_PLAN.json", "MATERIAL_REQUIREMENTS.json"):
-                    source, target = planning_dir / name, archive / name
-                    if source.is_symlink() or target.is_symlink():
-                        raise PreparationError("方案历史不能是符号链接")
-                    if source.exists() and not target.exists():
-                        source.rename(target)
-                marker.write_text(confirmed_plan["sha256"], encoding="utf-8")
-        prompt += "\n本作品已有 Creator 确认的文案与分镜。下列三份文件由 Easel 原样提供，只读，不得重写；只细化 MATERIAL_PLAN.json 的素材需求。\n"
-        restore_confirmed()
-        prompt += json.dumps(confirmed_plan, ensure_ascii=False)
+    """Single New-Only Planning owner: @4 proposal → v3/vNext journal → five pins.
 
-    files = {
-        "plan": planning_dir / "MATERIAL_PLAN.json",
-        "treatment": planning_dir / "TREATMENT.md",
-        "script": planning_dir / "SCRIPT.md",
-        "scenes": planning_dir / "SCENES.md",
-    }
-
-    def validate_artifacts() -> dict:
-        restore_confirmed()
-        values = {}
-        for key, path in files.items():
-            if (path.is_symlink() or not path.is_file()
-                    or path.stat().st_size > (256 * 1024 if key == "plan" else 128 * 1024)):
-                raise PreparationError(f"Creative Planning artifact {path.name} is missing or invalid")
-            values[key] = path.read_bytes().decode("utf-8")
-        if canonical and any(values[key] != canonical[files[key].name] for key in ('script', 'scenes', 'treatment')):
-            raise PreparationError('确认方案恢复后仍不一致；未接受规划')
-        try:
-            plan = MaterialPlan.model_validate_json(values["plan"])
-        except ValidationError as exc:
-            issues = ", ".join(
-                f"{'.'.join(str(part) for part in item['loc'])}:{item['type']}"
-                for item in exc.errors()[:20]
-            )
-            raise PreparationError(f"Creative Planning MaterialPlan Domain validation failed: {issues}") from exc
-        if (plan.plan_id != f"plan-{attempt['attempt_id'][-20:]}"
-                or plan.creation_id != attempt["creation_id"] or plan.attempt_id != attempt["attempt_id"]):
-            raise PreparationError("Creative Planning MaterialPlan identity differs from the current Attempt")
-        if plan.context_refs != refs:
-            different = [key for key in refs if plan.context_refs.get(key) != refs[key]]
-            raise PreparationError("Creative Planning frozen context_refs mismatch: " + ", ".join(different))
-        if not plan.needs or not any(need.importance.value == "required" for need in plan.needs):
-            raise PreparationError("Creative Planning MaterialPlan requires at least one required Need")
-        from easel.materials.application.compiler import NeedCompiler, NeedCompilationError
-        try:
-            validate_modality_constraints(plan.needs)
-            for need in plan.needs:
-                NeedCompiler.for_plan(plan).compile(need)
-        except (NeedCompilationError, ValueError) as exc:
-            raise PreparationError(f"Creative Planning retrieval validation failed: {exc}") from exc
-        if any(not values[key].strip() for key in ("treatment", "script", "scenes")):
-            raise PreparationError("Creative Planning TREATMENT/SCRIPT/SCENES must all be non-empty")
-        requirements_path = planning_dir / 'MATERIAL_REQUIREMENTS.json'
-        if not requirements_path.exists():
-            raise PreparationError('Planning要求文件MATERIAL_REQUIREMENTS.json缺失')
-        if requirements_path.exists():
-            if requirements_path.is_symlink() or not requirements_path.is_file() or requirements_path.stat().st_size > 256 * 1024:
-                raise PreparationError('Planning 要求文件路径或容量无效')
-            from easel.materials.application.visual_contract import planning_contracts, read_planning_requirements
-            from easel.integrations.hypit.handoff import load_frozen_creative_mode
-            from easel.materials.store import AttemptMaterialStore
-            try:
-                contracts = planning_contracts(plan, load_frozen_creative_mode(attempt)[0], read_planning_requirements(requirements_path.read_text(encoding='utf-8')))
-            except (ValueError, TypeError, AttributeError) as exc:
-                raise PreparationError('Planning 要求合同无效：' + str(exc)) from exc
-            for identity, contract in contracts:
-                AttemptMaterialStore(root).write_recovery_record(identity, contract)
-        from easel.output_contract import output_decision
-        return {"plan": plan, "context_refs": refs, "treatment": values["treatment"],
-                "script": values["script"], "scenes": values["scenes"],
-                "output_decision": output_decision('planning', 'NORMALIZE' if 'visual_requirements' in read_planning_requirements(requirements_path.read_text(encoding='utf-8')) else 'ACCEPT', 'validated_artifacts',
-                    text=values['plan'], policy_revision='product-planning@2')}
-
-    session_id = f"material-planning-{attempt['attempt_id']}"
-    # One structure repair per frozen commission, across async re-entry.
-    # Neither changing error text nor edited draft bytes creates new allowance.
-    from easel.materials.store import AttemptMaterialStore
-    from easel.materials.application.visual_contract import digest
-    repair_scope = {'attempt_id': attempt['attempt_id'], 'creation_id': attempt['creation_id'],
-                    'context_refs': refs, 'proposal_sha256': (confirmed_plan or {}).get('sha256'),
-                    'phase': 'structure_repair'}
-    repair_key = 'planning-structure-repair-' + digest(repair_scope)
-    repair_store = AttemptMaterialStore(root)
-    repair_record = repair_store.read_recovery_record(repair_key)
-    route = {'session_id': session_id, 'profile': OPENCLAW_PROFILE,
-             'thinking': THINKING_LEVEL, 'timeout': TIMEOUT_PRODUCE}
-    if repair_record is not None and (
-            repair_record.get('schema') != 'planning-structure-repair@1'
-            or repair_record.get('scope') != repair_scope
-            or not isinstance(repair_record.get('route'), dict)
-            or set(repair_record['route']) != set(route)
-            or repair_record['route'].get('session_id') != session_id
-            or any(not isinstance(repair_record['route'].get(key), str) or not repair_record['route'][key]
-                   for key in ('profile', 'thinking'))
-            or type(repair_record['route'].get('timeout')) is not int or repair_record['route']['timeout'] <= 0
-            or repair_record.get('status') not in {'pending', 'complete', 'failed'}
-            or not isinstance(repair_record.get('message'), str)
-            or repair_record.get('message_sha256') != digest(repair_record['message'])):
-        raise PreparationError('Planning 单次修复凭据或执行配置不一致；保留原记录，不新增请求')
-
-    def resume_structure_repair():
-        if repair_record['status'] == 'failed':
-            raise PreparationError('Planning 单次合同修正执行已失败；不重复派发')
-        if repair_record['status'] == 'complete':
-            return
-        try:
-            _run_timed_creation_agent('structure_repair', attempt['attempt_id'], repair_record['message'],
-                                      route['timeout'], session_id, retry_failed=False)
-        except (DeliveryExecutionUncertain, subprocess.TimeoutExpired):
-            # The durable adapter observes the exact original request/run.
-            raise
-        except Exception:
-            repair_record['status'] = 'failed'
-            repair_store.write_recovery_record(repair_key, repair_record)
-            raise
-        repair_record['status'] = 'complete'
-        repair_store.write_recovery_record(repair_key, repair_record)
-
-    planning_owner = get_creation(attempt['creation_id'])
-    commission = planning_owner.get('delivery') or {}
-    prior_calls = [call for call in commission.get('agent_calls', {}).values()
-                   if call.get('session_key') == f'agent:main:{session_id}']
-    if any(call.get('status') in {'submitting', 'pending'} or call.get('runtime_release')=='pending' for call in prior_calls):
-        from easel.integrations.openclaw_delivery import reconcile_agent_calls, DeliveryAgentPending
-        profiles = {call.get('profile') for call in prior_calls
-                    if call.get('status') in {'submitting', 'pending'} or call.get('runtime_release')=='pending'}
-        if len(profiles) != 1 or not next(iter(profiles)):
-            raise DeliveryExecutionUncertain('旧Planning原route尚未核实，不重新派发')
-        reconcile_agent_calls(attempt['creation_id'], command_prefix=openclaw_base_cmd(), profile=next(iter(profiles)),
-                              cwd=str(PROJECT_ROOT), env=_proxy_env())
-        refreshed = get_creation(attempt['creation_id'])['delivery'].get('agent_calls', {})
-        if any(call.get('status') in {'submitting', 'pending'} or call.get('runtime_release')=='pending' for call in refreshed.values()):
-            raise DeliveryAgentPending('旧Planning原运行仍未结束')
-        prior_calls = [c for c in refreshed.values() if c.get('session_key') == f'agent:main:{session_id}']
-    if repair_record is not None and repair_record['route'] != route:
-        # A configuration change cannot cancel observing the original run or
-        # authorize a different request. After terminal reconciliation, stop.
-        raise PreparationError('Planning原运行已核对，但当前执行配置不同；保留原修复额度，不新增请求')
-    if prior_calls and repair_record is None and any(c.get('status') == 'error' for c in prior_calls):
-        raise PreparationError('旧Planning原运行已失败，不因合同升级重派')
-    if attempt.get('planning_contract_version') is None and (
-            planning_owner.get('preparation', {}).get('snapshot_hashes')
-            or (commission.get('video_plan') or {}).get('schema') in {'easel-video-proposal@2', 'easel-video-proposal@3'}):
-        from easel.integrations.hypit.service import update_film_attempt
-        attempt = update_film_attempt(attempt['attempt_id'], event='planning_contract_registered', planning_contract_version=2)
-    if repair_record is not None:
-        # Even apparently valid draft files cannot bypass an unknown writer.
-        resume_structure_repair()
-    quality_repair = planning_context.get('quality_repair')
-    if quality_repair:
-        prompt += (
-            '\n〔修正系统审片发现的内容问题〕\n'
-            + json.dumps(quality_repair, ensure_ascii=False)
-            + '\n当前 planning 文件是已保留的原方案。仅修正反馈指出的脚本表达、叙事顺序和因此变化的选材意图。'
-              '保持冻结委托、事实、Creator、Mode、规格、Plan.policy、全部 Need ID、类型、用途、'
-              'scope、importance、时长范围、来源约束及声音身份/朗读参数不变。'
-              '可改视觉 Need.intent；声音 Need 保持原样，Voice text_ref/text_sha256 由后端随新 SCRIPT 重新绑定。'
-              '不得增加或删除 Need、降低约束或用假事实解决问题。无关脚本和场景保持原样。'
-              '旧素材会重新核对并尽量复用；不要声称旧旁白能用于变化后的文稿。'
-              '完成上述五文件后停止；沿用同一 Truth、素材、核价与制作流程。'
-        )
-        # The durable gateway reuses a completed call; copied source files
-        # alone are never evidence that the requested repair was executed.
-        _run_timed_creation_agent("planning", attempt['attempt_id'], prompt, TIMEOUT_PRODUCE, session_id)
-    elif repair_record is None and not prior_calls and not all(path.is_file() for path in files.values()):
-        _run_timed_creation_agent("planning", attempt['attempt_id'], prompt, TIMEOUT_PRODUCE, session_id)
+    The removed v2 file writer cannot be selected through an omitted version,
+    a historic fixture, a repaired draft or a runtime fallback.
+    """
+    from easel.integrations.result_protocols import inherited
+    work = get_creation(attempt['creation_id'])
+    if not is_managed(work):
+        raise PreparationError('历史或未冻结委托不能执行新版 Planning')
+    if (attempt.get('planning_contract_version') != 3
+            or attempt.get('creation_id') != work['id']):
+        raise PreparationError('新生产 Planning 必须预先冻结唯一 v3 合同')
     try:
-        result = validate_artifacts()
-    except PreparationError as first_error:
-        # Filesystem/frozen-prose faults cannot authorize another model turn.
-        restore_confirmed()
-        if repair_record is not None:
-            raise PreparationError('Planning 单次合同修正后仍无效：' + str(first_error)) from first_error
-        repair = (
-            "〔Easel Creative Planning 单次合同修正〕\n"
-            f"Attempt workspace: {root}\n"
-            f"校验问题：{str(first_error)[:1200]}\n"
-            + planning_contract
-            +
-            f"当前冻结 context_refs（必须逐字复制，不要自己重算）：{json.dumps(refs, ensure_ascii=False, sort_keys=True)}\n"
-            "已冻结的 Content Core、Truth Packet、Creator Context、Creative Mode 和身份不得改动。"
-            f"{('只修正 planning/MATERIAL_PLAN.json 和 MATERIAL_REQUIREMENTS.json；确认三文件由程序原样提供，只读。' if confirmed_plan else '读取现有 planning 文件，只修正缺失或无效的 planning/MATERIAL_PLAN.json、MATERIAL_REQUIREMENTS.json、TREATMENT.md、SCRIPT.md、SCENES.md；已有效的文件保持原样。')}"
-            "MaterialPlan JSON 顶层只允许 plan_id、creation_id、attempt_id、context_refs、policy、needs；"
-            "schema:extra_forbidden 表示必须删除顶层 schema 字段，不是修改它的值。不得添加 version 或包装对象。"
-            "检索 constraints 遵守上方模态边界及两个结构化例外。只有明确用户图库限定才用 required_source_kind=stock；合法授权或真实素材不代表图库限定，未指定来源不要猜测；禁用生成用 allow_generation=false；"
-            "不要使用 allowed_source_kinds/must_not_contain 数组。排除人物、地标等画面条件完整转写为 intent.description，保留原创作边界并由素材核对验证。"
-            "每个 Need.scope 都必须同时有 type 与非空 ref；global scope 写"
-            "{\"type\":\"global\",\"ref\":\"global\"}。"
-            "Plan.policy 省略或仅含字符串值。VoiceNeedSpec 只允许 kind、identity、delivery_description、"
-            "text_ref、text_sha256；identity 结构为 {source,reference}，source 只用 creator_context、"
-            "director_intent、explicit_user。BgmNeedSpec 只允许 kind、mood、genre、instruments、"
-            "vocals_allowed、energy、tempo_bpm。BGM instruments 是字符串数组（例如 [\"piano\"]），"
-            "tempo_bpm 是两个递增整数的数组（例如 [60,80]）；不确定时省略。"
-            "明确要求 AI 生成的 Image/Voice Need 设置"
-            "constraints.allow_generation=true；若用户要求必须真实生成，还要设置"
-            "constraints.required_source_kind=\"generative\"，阻止本地/外部素材替代。"
-            "若用户禁止本地样本满足 BGM，设置 constraints.forbidden_source_kind=\"local\"。"
-            "BGM 不得设置生成许可。Required Voice Need 必须提供"
-            "provider-neutral identity；text_ref/text_sha256 由 Easel 按冻结 SCRIPT 绑定，"
-            "请同时省略这两个字段，不得只写 text_ref，也不得填写 provider_voice_id。"
-            "若用户要求旁白必须在本作品真实 AI 生成，该 Voice Need 同样设置"
-            "constraints.required_source_kind=\"generative\"。"
-            f"{draft_only('若有 Voice Need，SCRIPT.md 只写需要合成的逐字旁白文本，')}"
-            f"{draft_only('不写标题、解释、表格、引号或时间线；其他编排写入 SCENES.md/TREATMENT.md。')}"
-            "重点：Need.intent 只保留 description/function；移除 source_ref、SHA、License、Rights 等"
-            "供应事实。图像 modality_spec 只保留 kind=image、可选 aspect_ratio=9:16；"
-            "删除 orientation、source_dimensions、treatment 等字段。不需要时可省略 modality_spec。"
-            "删除 subtitle_overlay 等字幕/时间线 Need，字幕属于 Production Authoring。"
-            "Script 的全部文本会进入逐句 Truth/创作声明审阅。不得添加未获 Truth Packet 支持的个人经历；"
-            "创作假设须在句首清楚标记；系统将区分事实改写、创作表达和真实信息缺口。"
-            f"{('两个素材JSON交付后再回复；不写任何确认文案文件。' if confirmed_plan else '五个文件都实际写入后再回复。')}不调用 Provider、Hypit 或付费 Build。"
-        )
-        if confirmed_plan:
-            repair += "\n已确认的 SCRIPT/SCENES/TREATMENT 由程序恢复，只读；以下仅作素材需求依据：\n" + json.dumps(confirmed_plan, ensure_ascii=False)
-        from easel.output_contract import output_decision
-        repair_record = {'output_decision': output_decision('planning', 'BOUNDED_REPAIR', 'structure_invalid'),
-                         'schema': 'planning-structure-repair@1', 'scope': repair_scope, 'route': route,
-                         'message': repair, 'message_sha256': digest(repair), 'status': 'pending'}
-        repair_store.write_recovery_record(repair_key, repair_record)
-        resume_structure_repair()
-        result = validate_artifacts()
-
-    if is_managed(get_creation(attempt["creation_id"])):
-        from easel.creation import edit_creation
-        for revision in range(2):
-            assessment = _assess_planning_script(attempt, result["script"])
-            result["script_assessment"] = assessment
-            from easel.output_contract import output_decision
-            result["truth_output_decision"] = output_decision("truth", "ACCEPT", "validated_report", text=result["script"])
-            repairs = [item for item in (assessment or {}).get("decisions", [])
-                       if item["kind"] == "rewrite_required"]
-            if not repairs:
-                break
-            if confirmed_plan:
-                raise PreparationError("已确认文案存在待核实事实，请回到方案讨论处理；系统不会擅自改写")
-            if revision:
-                raise PreparationError("脚本仍包含系统新增的无依据表述；自动修正未成功，已保留内容，不要求 Creator 为其背书")
-            # The gateway may yield across process restarts. Persist this
-            # repair's input identity before dispatch, so restarting the loop
-            # cannot buy another rewrite of an already changed Script.
-            with edit_creation(attempt["creation_id"]) as work:
-                repair_round = work["delivery"].get("script_repair_rounds", {}).get(attempt["attempt_id"], 0)
-                repaired_scripts = work["delivery"].setdefault("script_repairs", {}).setdefault(attempt["attempt_id"], [])
-                source_hash = assessment["script_sha256"]
-                if source_hash not in repaired_scripts:
-                    if repaired_scripts:
-                        raise PreparationError("脚本自动修正次数已用完，仍存在无依据表述；已保留内容，未进入素材制作")
-                    repaired_scripts.append(source_hash)
-            message = (
-                "〔Easel Planning：修正系统自行引入的事实问题〕\n"
-                f"唯一工作区：{root}\n"
-                f"当前脚本 SHA256：{assessment['script_sha256']}\n"
-                f"显式阶段重试轮次：{repair_round}\n"
-                f"需要修正：{json.dumps(repairs, ensure_ascii=False)}\n"
-                "重读冻结委托和 Truth Packet，只删除或修正上述无依据表达；"
-                "可明确写成假设，不得改变委托核心、用户原话、身份、规格或任何冻结输入。"
-                "只调整 planning/SCRIPT.md 及因此必须同步的 TREATMENT.md、SCENES.md、MATERIAL_PLAN.json、MATERIAL_REQUIREMENTS.json。"
-                "保留其他有效内容和现有身份，MaterialPlan 仍遵循同一 Domain 合同。"
-                "不得生成素材、调用 Provider/Hypit 或替用户补造事实。写入后停止，Easel 会重新审阅。\n"
-                + planning_contract
-            )
-            _run_timed_creation_agent("truth_repair", attempt['attempt_id'], message, TIMEOUT_PRODUCE, session_id)
-            result = validate_artifacts()
-    return result
+        inherited(attempt)
+    except ValueError as exc:
+        raise PreparationError('Planning Attempt 缺少当前五项 Result Pin') from exc
+    refs = planning_context.get('context_refs')
+    if (not isinstance(refs, dict)
+            or set(refs) != {'content_core_sha256', 'truth_packet_sha256',
+                            'creator_context_sha256', 'production_brief_sha256',
+                            'creative_mode_sha256'}
+            or any(not isinstance(value, str) or not value for value in refs.values())):
+        raise PreparationError('Planning 缺少冻结 Content/Creator/Director 身份')
+    root = Path(attempt['workspace']['path']).resolve()
+    planning_dir = root / 'planning'
+    if planning_dir.is_symlink():
+        raise PreparationError('Planning directory must not be a symlink')
+    planning_dir.mkdir(parents=True, exist_ok=True)
+    proposal = work['delivery']['video_plan']
+    if planning_context.get('quality_repair'):
+        raise PreparationError('质量修复需要重新确认当前 Proposal；禁止修改冻结方案')
+    canonical = {
+        'SCRIPT.md': proposal['script'],
+        'SCENES.md': proposal['scenes'],
+        'TREATMENT.md': proposal['treatment'] + '\n\n## 声音设计\n' + proposal['sound'],
+    }
+    def restore_confirmed():
+        _restore_confirmed_planning(planning_dir, canonical,
+            frozen=attempt.get('material_planning', {}).get('status') == 'PLANNING_READY')
+    return _semantic_material_planning_executor(
+        attempt, planning_context, canonical, restore_confirmed)
 
 
-# Preparation chooses v3 for new product work; legacy ready/pending versions
-# are selected from their authoritative persisted marker, never this default.
 _material_planning_executor.planning_contract_version = 3
+
+
 
 
 PLANNING_COMPILER_POLICY = 'planning-semantic-boundary@1'
@@ -3546,14 +2916,14 @@ def _semantic_material_planning_executor(attempt, planning_context, canonical, r
     if source_failure is not None:
         raise PreparationError('Planning v3冻结来源无效：' + source_failure)
     restore_confirmed()
-    route = {'profile':OPENCLAW_PROFILE,'thinking':THINKING_LEVEL,'timeout':TIMEOUT_PRODUCE}
+    route = {**_model_route(), 'timeout': TIMEOUT_PRODUCE}
     from easel.integrations.semantic_boundary_run import policy_for
     from easel.integrations.semantic_boundary import POLICY as boundary_policy
     policy = policy_for(attempt, default=PLANNING_COMPILER_POLICY)
     def dispatch(stage, message, session, *, structured_result=None, expected_runtime_sha256=None):
-        options = {'capture_reply': True, 'reply_contract': 'planning-result-v2'} if policy == boundary_policy else {}
+        options = {'capture_reply': True, 'reply_contract': 'planning-result-v3'}
         if structured_result is not None:
-            options.update(capture_reply=True, reply_contract='planning-result-v3', structured_result=structured_result)
+            options['structured_result'] = structured_result
         if expected_runtime_sha256 is not None:
             options['expected_runtime_sha256'] = expected_runtime_sha256
         return _run_timed_creation_agent(stage, attempt['attempt_id'], message, TIMEOUT_PRODUCE,
@@ -3767,7 +3137,7 @@ async def _run_film_authoring(attempt_id: str) -> dict:
                 profile=OPENCLAW_PROFILE,
                 staging_parent=Path.home() / f".openclaw-{OPENCLAW_PROFILE}" / "authoring-staging",
                 timeout=TIMEOUT_PRODUCE,
-                thinking=THINKING_LEVEL,
+                thinking=_model_route()['thinking'],
                 cwd=PROJECT_ROOT,
                 env=_proxy_env(),
                 validate_artifacts=validate_staged_artifacts,
@@ -3811,39 +3181,6 @@ async def _run_film_authoring(attempt_id: str) -> dict:
         raise
 
 
-def _start_film_authoring(attempt_id: str) -> dict:
-    """Start once; repeated UI clicks return the same durable operation."""
-    attempt = get_film_attempt(attempt_id)
-    from easel.integrations import result_protocols
-    result_protocols.inherited(attempt)
-    if is_managed(get_creation(attempt["creation_id"])):
-        # Material/Truth decisions update the existing Gate; the durable owner
-        # observes it. A browser request must not fork another Agent task.
-        return attempt
-    if "material_planning" in attempt or "material_gate" in attempt:
-        from easel.integrations.material_layer import MaterialGateIntegration
-
-        MaterialGateIntegration().assert_ready(attempt)
-    try:
-        require_chat_proposal_confirmed(get_creation(attempt["creation_id"]))
-    except CreationError as exc:
-        raise HypitIntegrationError(str(exc)) from exc
-    existing = _AUTHORING_TASKS.get(attempt_id)
-    if existing is not None and not existing.done():
-        return get_film_attempt(attempt_id)
-    task = asyncio.create_task(_run_film_authoring(attempt_id))
-    _AUTHORING_TASKS[attempt_id] = task
-
-    def cleanup(done: asyncio.Task) -> None:
-        if _AUTHORING_TASKS.get(attempt_id) is done:
-            _AUTHORING_TASKS.pop(attempt_id, None)
-        try:
-            done.exception()
-        except (asyncio.CancelledError, Exception):
-            pass
-
-    task.add_done_callback(cleanup)
-    return get_film_attempt(attempt_id)
 
 
 @app.get("/api/chat/last/{session_id}")
@@ -3975,7 +3312,8 @@ async def api_chat_stream(req: ChatRequest):
                 "phase": bound_creation.get("_client_phase", "proposal"),
             })
 
-        _heal_openclaw_session(sk)       # 清洗历史里无签名 thinking 块，防回放失效
+        route = _model_route()
+        _heal_openclaw_session(sk)       # 路由核验后，仅修复已知Bedrock历史
         # 原始事件流由常驻 gateway 写到共享文件（见 SHARED_RAW_STREAM / scripts/gateway.sh），
         # 不是 agent 客户端写的。本轮开始时记下文件当前尾偏移：只读此偏移之后追加的行，
         # 再用首个新事件的 runId 闩锁本轮，隔离其它并发会话的事件。
@@ -3987,7 +3325,7 @@ async def api_chat_stream(req: ChatRequest):
         cmd = openclaw_base_cmd() + [
             "--profile", OPENCLAW_PROFILE, "agent", "--agent", "main",
             "--session-key", f"agent:main:{sk}", "--session-id", _openclaw_session_id(sk),
-            "--thinking", THINKING_LEVEL,
+            "--thinking", route['thinking'],
             "--timeout", str(TIMEOUT_CHAT), "--message", message,
         ]
         env = _proxy_env()
@@ -4587,7 +3925,7 @@ async def api_media(path: str):
 
 # 系统数据目录/文件——不允许从内容库删除（删了会丢登录态/日历/发布记录）
 PROTECTED_OUTPUTS = {"_login", "_analytics", "_schedule.json", "_ideas.json",
-                     "_publish", "_publish.log"}
+                     "_publish", "_publish.log", "_creations"}
 UPLOAD_EXTS = IMAGE_EXTS | VIDEO_EXTS | {
     ".pdf", ".txt", ".md", ".markdown", ".csv", ".json", ".srt", ".vtt",
     ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt", ".mp3", ".wav", ".m4a"}
@@ -4621,12 +3959,28 @@ def _safe_output_target(rel: str, *, must_exist: bool = True) -> Path:
 
 
 def _is_protected(full: Path) -> bool:
-    """路径的顶层段是否属于受保护的系统项。"""
+    """Never delete Creation evidence or registered Content Library media."""
+    root = OUTPUTS_DIR.resolve()
     try:
-        rel = full.relative_to(OUTPUTS_DIR.resolve())
+        rel = full.relative_to(root)
     except ValueError:
         return True
-    return bool(rel.parts) and rel.parts[0] in PROTECTED_OUTPUTS
+    if not rel.parts or rel.parts[0] in PROTECTED_OUTPUTS:
+        return True
+    # Selected videos are registered in top-level creation-<id>-<sha> projects.
+    # Reserve the project even if its manifest is missing or damaged.
+    project = root / rel.parts[0]
+    if re.fullmatch(r"creation-cr_[0-9a-f]{32}-[0-9a-f]{12}", project.name):
+        return True
+    manifest = project / ".easel.json"
+    if manifest.is_file():
+        try:
+            record = json.loads(manifest.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return True  # Unknown ownership must not be destroyed.
+        if isinstance(record, dict) and record.get("schema") == "easel-content-asset@1":
+            return True
+    return False
 
 
 @app.delete("/api/output/{path:path}")

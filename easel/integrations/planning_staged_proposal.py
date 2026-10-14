@@ -2,6 +2,8 @@
 from copy import deepcopy
 
 POLICY = 'planning-staged-proposal@1'
+DETAIL_BATCH_POLICY = 'planning-fixed-detail-batches@1'
+DETAIL_BATCH_SIZE = 4
 
 from jsonschema import Draft202012Validator
 
@@ -124,7 +126,7 @@ class StagedProposal:
         Draft202012Validator.check_schema(self.selection_schema)
 
     @classmethod
-    def shape(cls, value, schema):
+    def shape(cls, value, schema, *, missing_leaves=None, _path=()):
         """Reject identity/container damage without suppressing leaf diagnostics."""
         if isinstance(schema, bool):
             # Boolean schemas have no shape. Preserve invalid values for the
@@ -134,15 +136,50 @@ class StagedProposal:
             if not isinstance(value, dict):
                 raise ValueError('Expected candidate object')
             props = schema.get('properties', {})
-            if set(value) - set(props) or set(schema.get('required', ())) - set(value):
+            missing = set(schema.get('required', ())) - set(value)
+            if set(value) - set(props) or (missing and missing_leaves is None):
                 raise ValueError('Candidate properties changed')
+            for key in sorted(missing):
+                # Only collect absent scalar leaves for a separate eligibility
+                # check. A missing container/slot never becomes a repair target.
+                if (not isinstance(props[key], dict)
+                        or props[key].get('type') not in ('string', 'integer', 'number', 'boolean', 'null')):
+                    raise ValueError('Candidate properties changed')
+                missing_leaves.append((*_path, key))
             for key, item in value.items():
-                cls.shape(item, props[key])
+                cls.shape(item, props[key], missing_leaves=missing_leaves, _path=(*_path, key))
         elif schema.get('type') == 'array':
             if not isinstance(value, list):
                 raise ValueError('Expected candidate array')
-            for item in value:
-                cls.shape(item, schema.get('items', {}))
+            for index, item in enumerate(value):
+                cls.shape(item, schema.get('items', {}), missing_leaves=missing_leaves,
+                          _path=(*_path, index))
+
+    def details_shape(self, selection, details, schema, *, repair_missing_leaves=False):
+        """Preserve missing values only when the existing leaf repair owns them."""
+        if not repair_missing_leaves:
+            return self.shape(details, schema)
+        missing = []
+        self.shape(details, schema, missing_leaves=missing)
+        if not missing:
+            return
+        from easel.integrations.planning_semantic_review import structural_targets
+        indices = {f'slot_{i:03}': i for i in range(len(selection['needs']))}
+        eligible = set()
+        for slot in {path[1] for path in missing if len(path) >= 3 and path[0] == 'slots'}:
+            if slot not in indices:
+                raise ValueError('Candidate properties changed')
+            index = indices[slot]
+            # This derived view is diagnostic only. Never copy its defaults or
+            # normalized values into the original candidate or a repair reply.
+            candidate = self.union.decode_candidate({'needs': [{
+                **deepcopy(selection['needs'][index]), **deepcopy(details['slots'][slot])}], 'unresolved': []})
+            for target in structural_targets(candidate, local_query_faults=True,
+                                              flexible_queries=self.union.flexible_queries):
+                if target['kind'] == 'structural_leaf' and target['path'][:2] == ['needs', 0]:
+                    eligible.add(('slots', slot, *target['path'][2:]))
+        if not set(missing) <= eligible:
+            raise ValueError('Candidate missing field is outside the existing leaf repair domain')
 
     def details_contract(self, selection, *, diagnostic=False):
         from easel.integrations.planning_authority import digest
@@ -212,16 +249,53 @@ class StagedProposal:
                  'unresolved': [*selection['unresolved'], *details['unresolved']]}
         return self.union.decode(value)
 
-    def assemble_candidate(self, selection, details, receipt_identity):
+    def assemble_candidate(self, selection, details, receipt_identity, *, repair_missing_leaves=False):
         """Not ACCEPT: preserve local faults for the one existing shared repair."""
         contract = self.details_contract(selection, diagnostic=True)
         if receipt_identity != contract['identity']:
             raise ValueError('Detail result belongs to another selection or contract')
-        self.shape(details, contract['schema'])
+        self.details_shape(selection, details, contract['schema'], repair_missing_leaves=repair_missing_leaves)
         value = {'needs': [{**deepcopy(n), **deepcopy(details['slots'][f'slot_{i:03}'])}
                            for i, n in enumerate(selection['needs'])],
                  'unresolved': [*selection['unresolved'], *details['unresolved']]}
         return self.union.decode_candidate(value)
+
+    def detail_batches(self, selection):
+        """Freeze complete slots before dispatch; never partition a failed reply."""
+        from easel.integrations.planning_authority import digest
+        full = self.details_contract(selection, diagnostic=True)
+        slots = list(full['schema']['properties']['slots']['properties'])
+        batches = []
+        for offset in range(0, len(slots), DETAIL_BATCH_SIZE):
+            keys = slots[offset:offset + DETAIL_BATCH_SIZE]
+            schema = deepcopy(full['schema'])
+            container = schema['properties']['slots']
+            container['properties'] = {key: container['properties'][key] for key in keys}
+            container['required'] = keys
+            batches.append({'key': f'A-details-{len(batches):03}', 'slots': keys,
+                            'schema': schema})
+        identity = {'policy': DETAIL_BATCH_POLICY, 'complete': full['identity'],
+                    'batches_sha256': digest(batches)}
+        return {'identity': identity, 'complete': full, 'batches': batches}
+
+    def assemble_batches_candidate(self, selection, batch_plan, replies, *, repair_missing_leaves=False):
+        if batch_plan != self.detail_batches(selection):
+            raise ValueError('Frozen details batch plan changed')
+        batches = batch_plan['batches']
+        if set(replies) != {batch['key'] for batch in batches}:
+            raise ValueError('Details batch coverage changed')
+        merged = {'slots': {}, 'unresolved': []}
+        for batch in batches:
+            value = replies[batch['key']]
+            self.details_shape(selection, value, batch['schema'], repair_missing_leaves=repair_missing_leaves)
+            if set(merged['slots']) & set(value['slots']):
+                raise ValueError('Duplicate detail slot')
+            merged['slots'].update(deepcopy(value['slots']))
+            merged['unresolved'].extend(deepcopy(value['unresolved']))
+            if len(selection['unresolved']) + len(merged['unresolved']) > 16:
+                raise ValueError('Complete unresolved report capacity exceeded')
+        return self.assemble_candidate(selection, merged, batch_plan['complete']['identity'],
+                                       repair_missing_leaves=repair_missing_leaves)
 
 
 def _read_only_staged(canonical):

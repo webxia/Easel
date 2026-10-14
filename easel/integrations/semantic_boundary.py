@@ -87,6 +87,14 @@ def project_proposal(proposal, *, inputs, catalog, creation_id, attempt_id, refs
         spec = projection['modality_spec']
         constraints = projection['constraints']
         if visual:
+            # This is an execution permission, never a model opinion. Only the
+            # verified frozen Brief may grant AI-generated visual material.
+            # A Need-specific prohibition, when present, still wins.
+            brief = inputs.get('preparation')
+            if isinstance(brief, dict) and type(brief.get('ai_generation_allowed')) is bool:
+                constraints['allow_generation'] = (
+                    brief['ai_generation_allowed']
+                    and constraints.get('allow_generation') is not False)
             if spec.get('aspect_ratio') is not None:
                 # The current observation contract consumes literal constraint
                 # sources. This alias is generated once, never maintained by A.

@@ -3,7 +3,7 @@ name: multi-voice-dubbing
 description: >
   多角色对话配音：按 cast 和逐行对白为不同角色分配音色与情绪，合成多声线音轨和带角色名字幕。
   当用户说“多角色/双人/剧本/对话配音、多人对白、不同角色不同声音、有声剧配音”时使用。
-  单一公共音色用 tts-voiceover；克隆本人音色用 voice-clone；整部短剧制作由 short-drama 编排。
+  单一公共音色用 tts-voiceover；克隆本人音色用 voice-clone；Easel 正式整片必须由 Creation + Delivery + Hypit 编排。
 layer: produce
 ---
 
@@ -15,7 +15,7 @@ layer: produce
 把每行 emotion 喂进 provider 的**真情感通道**，`ffmpeg` 拼成一轨 + 生成对齐的说话人字幕。
 
 > 创意（谁说什么、什么情绪）由你 LLM 产出；音色映射在 cast。确定性 IO（逐行合成/拼接/字幕）走引擎。
-> 产物 `voice.mp3` 可直接当 narration 喂 `auto-short-video/assemble.py` 或加进任意视频；`voice.srt` 是带角色名的字幕。
+> 产物 `voice.mp3` 和带角色名的 `voice.srt` 仅为配音素材。Easel 正式视频必须由 Material Layer 验证 Voice 身份、Rights、SHA、时序后交给 Delivery/Hypit 使用，不再调用旧独立合成器。
 
 ## 配音质量分层（重要：治「像 AI 平读」）
 
@@ -44,7 +44,7 @@ cast 里角色：`--engine clone --provider openai-compatible --voice-id FunAudi
 
 ## 谁会用到
 
-短剧对白（short-drama 已内部委派）、**论文双人问答讲解**（paper-explainer：主讲+提问者）、
+多人对白、**论文双人问答讲解**（paper-explainer：主讲+提问者）、
 访谈/播客脚本、有声剧、任何「多个说话人」的口播。单人整段口播用 **tts-voiceover** 即可。
 
 ## 输入
@@ -100,7 +100,7 @@ python skills/shared/scripts/multivoice.py dub \
 
 ### 4. 用到视频里
 
-- `voice.mp3` 作 narration + `voice.srt` 作字幕，喂 `auto-short-video/scripts/assemble.py`（图/视频合成）。
+- `voice.mp3` 与 `voice.srt` 是可供当前 Creation 提议的素材；须按冻结音轨 Need/Identity/Rights/时序进入 Material Readiness，正式成片只由 Delivery/Hypit 负责。
 - 或与 BGM 混音（**audio-mix**）、加进已有视频（**video-editing**）。
 
 ## 降级

@@ -164,8 +164,4 @@ python .../multivoice.py cast add   --cast cast.json --name 林策 --engine clon
 python .../multivoice.py cast check --cast cast.json    # 通过后会 💡 建议把仍用 edge 的说话角色升级闭源
 python .../multivoice.py dub --cast cast.json --lines lines.json -o voice.mp3   # → voice.mp3 + voice.srt
 ```
-**短剧入口**（--series/--episode 便利层，路径自动推导）：
-```bash
-python skills/openclaw/short-drama/scripts/dubbing.py cast init --series "<剧名>"
-python .../dubbing.py align --series "<剧名>" --episode 1   # 逐镜对齐（lines 每行需标 shot），推荐
-```
+**Easel 正式多角色视频：**此处原独立短剧快捷入口已退役。保留上述 `skills/shared/scripts/multivoice.py` 的音轨素材能力，正式视频须经 Creator Web 确认、Material/Voice 身份与 Rights 验收，由唯一 Delivery/Hypit 编排；不得调用已退役的 `short-drama` 脚本。

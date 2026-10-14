@@ -50,7 +50,7 @@ export function projectCreatorWorkspace(creation: Snapshot | null, attempt: Snap
   const preparation = asRecord(work.preparation);
   const workflow = asRecord(work.chat_workflow);
   const delivery = asRecord(work.delivery);
-  const managed = delivery.schema === 'easel-creation-delivery@1';
+  const managed = asRecord(work.operator_admission).production_managed === true;
   const repairing = managed && delivery.status !== 'failed';
   const planning = asRecord(item.material_planning);
   const gate = asRecord(item.material_gate);

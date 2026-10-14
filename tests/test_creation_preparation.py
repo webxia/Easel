@@ -26,6 +26,8 @@ from easel.materials.domain import (
     NeedScope, NeedScopeType,
 )
 import app as web  # noqa: E402
+# Bind native implementation before tests monkeypatch the Web adapter.
+_NATIVE_VNEXT_PLANNING_OWNER = web._material_planning_executor
 
 
 VIDEO_PROPOSAL = """## 创作表达
@@ -35,7 +37,7 @@ VIDEO_PROPOSAL = """## 创作表达
 先看问题，再做决定。
 ```
 ## 分镜与节奏
-0–15 秒：桌面笔记，呈现屏幕文案「先看问题，再做决定。」。
+0–15 秒：桌面两张白纸，呈现后期叠加的屏幕文案「先看问题，再做决定。」。
 ## 声音设计
 无旁白，无音乐。
 ## 制作规格
@@ -46,22 +48,45 @@ VIDEO_PROPOSAL = """## 创作表达
 """
 
 
+def _confirm_current_video_plan(work: dict, turn_id: str = 'fixture-confirmation',
+                                proposal: str = VIDEO_PROPOSAL) -> dict:
+    """Create a lawful @4 commission through the public Creation domain.
+
+    No manually seeded delivery/authorization/pins and no external model call.
+    """
+    creation.begin_video_proposal(work['id'], turn_id)
+    planned = creation.save_video_proposal(work['id'], turn_id, proposal)
+    plan = planned['chat_workflow']['video_plan']
+    assert plan['schema'] == 'easel-video-proposal@4'
+    declaration = creation.input_use_preview(plan=plan)
+    transcript = json.dumps([{'role': 'assistant', 'content': proposal}],
+                            ensure_ascii=False, separators=(',', ':'))
+    return creation.confirm_chat_proposal(
+        work['id'], turn_id,
+        delivery_proposal=transcript,
+        proposal_sha256=hashlib.sha256(transcript.encode()).hexdigest(),
+        video_plan_sha256=plan['sha256'],
+        production_specs=plan['specs'],
+        input_use_statement_sha256=declaration['statement_sha256'])
+
+
 def _confirmed_delivery():
     work = creation.create_creation("隔离测试主题", creative_mode="clear_memo_video", route="hypit_video",
                                     origin={"type": "chat", "session_hash": "c" * 64})
-    creation.mark_chat_proposal_ready(work["id"])
-    proposal = '[{"role":"user","content":"已确认的隔离测试方案"}]'
-    return creation.confirm_chat_proposal(work["id"], "confirm", delivery_proposal=proposal,
-                                          proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest())
+    return _confirm_current_video_plan(work, turn_id='confirm')
+
+
 
 
 def test_delivery_excludes_legacy_and_serializes_cancellation_and_restarts(prep_env):
     from easel.creation_delivery import advance_creation, enrolled_creation_ids
 
-    legacy = prep_env["work"]
+    legacy = creation.create_creation("历史只读测试作品", creative_mode="clear_memo_video",
+                                      route="hypit_video")
     before = creation._creation_path(legacy["id"]).read_bytes()
     work = _confirmed_delivery()
-    assert enrolled_creation_ids() == [work["id"]]
+    assert set(enrolled_creation_ids()) == {prep_env["work"]["id"], work["id"]}
+    assert legacy["id"] not in enrolled_creation_ids()
     calls = []
 
     async def scenario():
@@ -104,18 +129,19 @@ def test_delivery_excludes_legacy_and_serializes_cancellation_and_restarts(prep_
     assert creation._creation_path(legacy["id"]).read_bytes() == before
     assert calls == ["prepare"]
     # Replayed old confirmations never opt a legacy work into delivery.
-    creation.confirm_chat_proposal(legacy["id"], "retry", delivery_proposal="ignored")
+    with pytest.raises(creation.CreationError, match="不是聊天创建"):
+        creation.confirm_chat_proposal(legacy["id"], "retry", delivery_proposal="ignored")
     assert "delivery" not in creation.get_creation(legacy["id"])
     # New authorization cannot be retrofitted by replaying either an old
     # confirmation or a managed commission that omitted the declaration.
-    declaration = creation.input_use_preview()['statement_sha256']
-    for current in (creation.get_creation(legacy['id']), creation.get_creation(work['id'])):
-        original = creation._creation_path(current['id']).read_bytes()
-        with pytest.raises(creation.CreationError, match='不能通过重放'):
-            creation.confirm_chat_proposal(current['id'], 'add-input-rights',
-                delivery_proposal=current.get('delivery', {}).get('proposal', 'ignored'),
-                input_use_statement_sha256=declaration)
-        assert creation._creation_path(current['id']).read_bytes() == original
+    # A mismatched declaration cannot retroactively mutate this new commission.
+    current = creation.get_creation(work['id'])
+    original = creation._creation_path(current['id']).read_bytes()
+    with pytest.raises(creation.CreationError, match='不能通过重放'):
+        creation.confirm_chat_proposal(current['id'], 'add-input-rights',
+            delivery_proposal=current['delivery']['proposal'],
+            input_use_statement_sha256='0' * 64)
+    assert creation._creation_path(current['id']).read_bytes() == original
 
 
 @pytest.mark.parametrize('drain_ready', [False, True])
@@ -147,6 +173,7 @@ def test_delivery_replay_uses_checkpoints_and_reconciles_uncertain_submission(pr
         with creation.edit_creation(current["id"]) as value:
             if operation == "prepare":
                 value["hypit_attempts"] = [{"attempt_id": "fa_" + "b" * 32,
+                    "creation_id": current["id"],
                     "result_protocols": result_protocols.current(),
                     "execution_status": "NOT_SUBMITTED", "authoring_status": "READY_FOR_EXTERNAL_AUTHORING",
                     "material_planning": {'truth_review_status': 'PASSED'},
@@ -267,9 +294,14 @@ def test_delivery_bounds_failures_preserves_authorization_and_validates_commissi
     assert creation.get_creation(work["id"])["delivery"]["authorization"] == work["delivery"]["authorization"]
     with creation.edit_creation(work["id"]) as current:
         current["delivery"]["proposal"] = "静默篡改委托"
+    tampered_original = creation._creation_path(work["id"]).read_bytes()
     asyncio.run(advance_creation(work["id"], failure))
     assert len(calls) == 4
-    assert creation.get_creation(work["id"])["delivery"]["status"] == "commission_invalid"
+    # A forged commission is no longer eligible for any Delivery write;
+    # do not repair its stored status by mutating evidence on a failed request.
+    from easel.creation_delivery import next_operation
+    assert next_operation(creation.get_creation(work["id"])) == (None, "unmanaged")
+    assert creation._creation_path(work["id"]).read_bytes() == tampered_original
     # A dead caller is insufficient evidence that the independent gateway job
     # stopped. A restart must not silently dispatch a second model request.
     fresh = _confirmed_delivery()
@@ -285,10 +317,14 @@ def test_delivery_bounds_failures_preserves_authorization_and_validates_commissi
 def test_delivery_build_recovery_resumes_source_and_rechecks_cost_with_a_bound(prep_env, monkeypatch):
     from easel.creation_delivery import advance_creation, next_operation, MAX_BUILD_RECOVERIES
 
+    from easel.integrations import result_protocols
     work = _confirmed_delivery()
     source_id = "fa_" + "1" * 32
     with creation.edit_creation(work["id"]) as current:
-        current["hypit_attempts"] = [{"attempt_id": source_id, "execution_status": "BUILD_FAILED"}]
+        current["hypit_attempts"] = [{
+            "attempt_id": source_id, "creation_id": work["id"],
+            "result_protocols": result_protocols.current(),
+            "planning_contract_version": 3, "execution_status": "BUILD_FAILED"}]
     calls = []
 
     def fork_failed(source):
@@ -299,6 +335,9 @@ def test_delivery_build_recovery_resumes_source_and_rechecks_cost_with_a_bound(p
                            if item.get("retry_source", {}).get("attempt_id") == source), None)
             if target is None:
                 target = {"attempt_id": f"fa_{len(current['hypit_attempts']) + 1:032x}",
+                          "creation_id": current["id"],
+                          "result_protocols": result_protocols.current(),
+                          "planning_contract_version": 3,
                           "execution_status": "NOT_SUBMITTED",
                           "retry_source": {"attempt_id": source, "status": "COPYING"}}
                 current["hypit_attempts"].append(target)
@@ -345,8 +384,9 @@ def test_delivery_quality_repair_resumes_one_checkpoint_and_stops_at_budget(prep
     monkeypatch.setattr(quality_results, 'verify_current_review', lambda _attempt: None)
     work = _confirmed_delivery()
     def failed_output(identity):
-        return {'attempt_id': identity, 'result_protocols': result_protocols.current(),
-                'execution_status': 'BUILD_COMPLETE',
+        return {'attempt_id': identity, 'creation_id': work['id'],
+                'result_protocols': result_protocols.current(),
+                'planning_contract_version': 3, 'execution_status': 'BUILD_COMPLETE',
             'outputs': {'final': {'sha256': 'output-sha'}}, 'review': {'human': {'status': 'pending'}, 'system': {
                 'schema': 'easel-output-quality@6', 'status': 'REPAIR_REQUIRED',
                 'binding': {'output_name': 'final', 'sha256': 'output-sha'},
@@ -362,7 +402,8 @@ def test_delivery_quality_repair_resumes_one_checkpoint_and_stops_at_budget(prep
             target = next((a for a in current['hypit_attempts'] if a.get('retry_source', {}).get('attempt_id') == identity), None)
             if target is None:
                 current['hypit_attempts'].append({'attempt_id': f"fa_{len(calls):032x}",
-                    'result_protocols': result_protocols.current(),
+                    'creation_id': current['id'], 'result_protocols': result_protocols.current(),
+                    'planning_contract_version': 3,
                     'execution_status': 'NOT_SUBMITTED', 'retry_source': {'attempt_id': identity, 'status': 'COPYING'}})
             else:
                 target.update(authoring_status='READY_FOR_EXTERNAL_AUTHORING',
@@ -651,6 +692,7 @@ def test_delivery_authoring_keeps_live_stage_and_recovers_completed_files(prep_e
         postproduction_authoring_instruction,
     )
     from tests.test_openclaw_authoring_boundary import _seed_attempt, ATTEMPT_ID
+    from easel.integrations import result_protocols
 
     work = _confirmed_delivery()
     source = _seed_attempt(prep_env["tmp"] / "durable-authoring")
@@ -661,6 +703,8 @@ def test_delivery_authoring_keeps_live_stage_and_recovers_completed_files(prep_e
     parent = prep_env["tmp"] / "isolated" / "authoring-staging"
     with creation.edit_creation(work["id"]) as current:
         current["hypit_attempts"] = [{"attempt_id": ATTEMPT_ID,
+            "creation_id": current["id"], "result_protocols": result_protocols.current(),
+            "planning_contract_version": 3,
             "execution_status": "NOT_SUBMITTED", "authoring_status": "AUTHORING_RUNNING",
             "material_gate": {"status": "MATERIAL_READY"}}]
     entry = {}
@@ -759,6 +803,11 @@ def prep_env(tmp_path, monkeypatch):
     from easel.integrations import material_supply
     from easel.materials.providers import LocalProvider, ProviderRegistry
 
+    monkeypatch.setenv('OPENCLAW_CONFIG_PATH', str(tmp_path / 'offline-openclaw.json'))
+    (tmp_path / 'offline-openclaw.json').write_text(json.dumps({
+        'agents': {'defaults': {'model': {'primary': 'minimax/MiniMax-M3'}}}}))
+    monkeypatch.setattr(web, 'THINKING_LEVEL', '')
+
     load_config = EaselRuntimeConfig.load
     monkeypatch.setattr(EaselRuntimeConfig, "load", classmethod(lambda cls: load_config(
         environ={"EASEL_MATERIAL_LIBRARY_ROOT": str(tmp_path / "library"),
@@ -791,8 +840,7 @@ def prep_env(tmp_path, monkeypatch):
         route="hypit_video",
         origin={"type": "chat", "session_hash": "a" * 64, "initial_turn_hash": "b" * 64},
     )
-    creation.mark_chat_proposal_ready(work["id"])
-    creation.confirm_chat_proposal(work["id"], "fixture-confirmation")
+    work = _confirm_current_video_plan(work)
     claim = prep.claim_chat_preparation(work["id"], "session-a", "turn-a")
     paths = prep.preparation_paths(work["id"], claim["operation_key"])
     write_drafts(work, paths["draft"])
@@ -849,6 +897,89 @@ def write_drafts(work: dict, directory: Path) -> None:
         (directory / name).write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
 
 
+def _current_vnext_planning_executor(attempt, context):
+    """Current Planning/Truth owner with only the external model boundary fixed.
+
+    All v3 checkpoints, source refs, native Plan and Material writes are real.
+    Unexpected model phases fail closed; never route to a paid provider.
+    """
+    from unittest.mock import patch
+    from tests.test_semantic_planning import (
+        vnext_proposal, staged_fixture_wire, supported_fixture_answers,
+        fixture_review_wire, _r4_current_truth_reply,
+    )
+    from easel.creation_delivery import active_delivery
+    # The fixed model reply may include BGM only if the frozen @4 Handoff
+    # expressly requests music. Never invent a voice/music Need for silent.
+    _, manifest, _ = handoff.resolve_handoff(
+        attempt["creation_id"], attempt["handoff"]["handoff_id"])
+    confirmed_plan = manifest["production_request"]["video_plan"]
+    audio_mode = confirmed_plan["specs"]["audio_mode"]
+    # This test-only video response is enabled only by explicit motion in the
+    # frozen Creator-confirmed scene. It does not add model permission to silent
+    # static-scene commissions.
+    requested_motion = "镜头从桌面右侧连续平移" in confirmed_plan["scenes"]
+    two_still_scenes = "桌面一本蓝色封面笔记本" in confirmed_plan["scenes"]
+
+    def fixed_external(message, timeout=None, session=None, **options):
+        if message.startswith('〔Easel Semantic Planning vNext A-'):
+            assert options['reply_contract'] == 'planning-result-v3'
+            value = vnext_proposal()
+            if requested_motion:
+                value['needs'][0] = {
+                    'scope': 'scene-1', 'role': '桌面平移真实动态镜头',
+                    'modality': 'video', 'necessity': 'required',
+                    'source_seconds': 5,
+                    'frame': 'match_output',
+                    'conditions': [
+                        {'text': '镜头从桌面右侧连续平移到左侧，两张白纸始终清晰可见。',
+                         'meaning': 'dynamic_action', 'strength': 'required',
+                         'responsibility': 'material'},
+                    ]}
+            else:
+                value['needs'][0]['conditions'].append({
+                    'text': '在后期叠加正文。', 'strength': 'required',
+                    'responsibility': 'postproduction'})
+            if two_still_scenes:
+                # Only the frozen second scene authorizes this extra image Need.
+                value['needs'].append({
+                    'scope': 'scene-2', 'role': '桌面蓝色笔记本',
+                    'modality': 'image', 'necessity': 'required',
+                    'conditions': [{'text': '桌面一本蓝色封面笔记本。',
+                                    'strength': 'required', 'responsibility': 'material'}]})
+            if audio_mode in {'music', 'mixed'}:
+                value['needs'].append({
+                    'scope': 'global', 'role': '背景音乐', 'modality': 'bgm',
+                    'necessity': 'required',
+                    'conditions': [{'text': '柔和的无歌词钢琴背景音乐',
+                                    'strength': 'required', 'responsibility': 'material'}],
+                    'sound': {'vocals_allowed': False}})
+            return staged_fixture_wire(message, value)
+        if '有界视觉复核' in message:
+            assert options['reply_contract'] == 'planning-result-v3'
+            packet = json.loads(message.splitlines()[-1])
+            decisions = supported_fixture_answers(packet, [{
+                'question': q['question'], 'decision': 'ACCEPT',
+                'evidence': [0],
+                'reason': '明确离线参考：冻结两张白纸条件与后期叠字。'
+            } for q in packet['questions']])
+            return json.dumps(fixture_review_wire(packet, decisions))
+        if message.startswith('〔Easel Truth 来源引用审阅〕'):
+            _r4_current_truth_reply(message)
+            return 'offline source-ref Truth review'
+        pytest.fail('Unexpected external model stage in current U2-A fixture')
+
+    token = active_delivery.set(attempt['creation_id'])
+    try:
+        with patch.object(web, 'run_agent_sync', fixed_external):
+            return _NATIVE_VNEXT_PLANNING_OWNER(attempt, context)
+    finally:
+        active_delivery.reset(token)
+
+
+_current_vnext_planning_executor.planning_contract_version = 3
+
+
 def _test_planning_executor(attempt, context):
     plan = MaterialPlan(
         plan_id=f"plan-{attempt['attempt_id'][-20:]}",
@@ -869,7 +1000,7 @@ def _test_planning_executor(attempt, context):
 
 
 def _prepare_creation(creation_id, **kwargs):
-    kwargs.setdefault("planning_executor", _test_planning_executor)
+    kwargs.setdefault("planning_executor", _current_vnext_planning_executor)
     return prep.prepare_creation_for_hypit(creation_id, **kwargs)
 
 
@@ -965,7 +1096,8 @@ def test_proposal_card_specs_reject_examples_and_freeze_drift(prep_env):
 
 def test_chat_preparation_freezes_truth_core_mode_and_attempt_without_build(prep_env, monkeypatch):
     monkeypatch.setattr(service, "_cli", lambda *_args, **_kwargs: pytest.fail("Hypit CLI must not run"))
-    result = _prepare_creation(prep_env["work"]["id"], runtime_profile=None)
+    result = _prepare_creation(prep_env["work"]["id"], runtime_profile=None,
+                               planning_executor=_current_vnext_planning_executor)
 
     work = creation.get_creation(prep_env["work"]["id"])
     attempt = service.get_film_attempt(result["attempt_id"])
@@ -1002,176 +1134,52 @@ def test_chat_preparation_freezes_truth_core_mode_and_attempt_without_build(prep
     assert not (Path(attempt["workspace"]["path"]) / "hypit.runtime.json").exists()
 
 
-def test_script_truth_operator_api_is_protected_hash_bound_and_resumes(prep_env, monkeypatch):
+def test_historical_script_truth_operator_api_is_read_only(prep_env, monkeypatch):
+    """A rejected legacy Planning executor never becomes an operator write."""
     from fastapi.testclient import TestClient
 
-    def unclassified_planning(attempt, context):
-        result = _test_planning_executor(attempt, context)
-        result["script"] = "画面：桌面上放着笔记本。\n这家公司成立于 2012 年。"
-        return result
+    def retired_planning(*_args, **_kwargs):
+        pytest.fail('Legacy Planning executor cannot be dispatched')
 
-    result = _prepare_creation(
-        prep_env["work"]["id"], runtime_profile=None, planning_executor=unclassified_planning,
-    )
-    assert result["status"] == "SCRIPT_TRUTH_REVIEW_REQUIRED"
-    attempt = service.get_film_attempt(result["attempt_id"])
-    workspace = Path(attempt["workspace"]["path"])
-    ledger = json.loads((workspace / "planning" / "script-claims.json").read_text(encoding="utf-8"))
-    monkeypatch.setattr(web, "prepare_creation_for_hypit", lambda *_args, **_kwargs: {
-        "status": "READY_FOR_EXTERNAL_AUTHORING", "attempt_id": result["attempt_id"],
-    })
-    authoring_starts = []
-    monkeypatch.setattr(web, "_start_film_authoring", lambda attempt_id: authoring_starts.append(attempt_id))
+    with pytest.raises(prep.PreparationError, match='旧 Planning / 未登记执行'):
+        _prepare_creation(prep_env['work']['id'], runtime_profile=None,
+                          planning_executor=retired_planning)
+    persisted = creation.get_creation(prep_env['work']['id'])
+    attempt = service.get_film_attempt(persisted['hypit_attempts'][-1]['attempt_id'])
+    assert not Path(attempt['workspace']['path']).joinpath('planning/manifest.json').exists()
+    # Simulate one *old record* only within the isolated test directory.
+    with creation.edit_creation(persisted['id']) as old:
+        old['delivery'].pop('production_contract')
+    original = creation._creation_path(persisted['id']).read_bytes()
     web.app.dependency_overrides[web.require_local_operator] = lambda: None
     try:
         with TestClient(web.app) as client:
-            status = client.get(f"/api/film-attempts/{result['attempt_id']}/script-truth")
-            assert status.status_code == 200
-            stale = client.post(
-                f"/api/film-attempts/{result['attempt_id']}/script-truth/review",
-                json={
-                    "scriptSha256": "0" * 64,
-                    "truthPacketSha256": ledger["truth_packet_sha256"],
-                    "confirmAllClaimsReviewed": True,
-                },
-            )
-            accepted = client.post(
-                f"/api/film-attempts/{result['attempt_id']}/script-truth/review",
-                json={
-                    "scriptSha256": ledger["script_sha256"],
-                    "truthPacketSha256": ledger["truth_packet_sha256"],
-                    "confirmAllClaimsReviewed": True,
-                    "reviewer": "codex_delegate",
-                },
-            )
+            read = client.get(f"/api/film-attempts/{attempt['attempt_id']}")
+            response = client.post(
+                f"/api/film-attempts/{attempt['attempt_id']}/script-truth/review",
+                json={"scriptSha256": "0" * 64, "truthPacketSha256": "1" * 64,
+                      "confirmAllClaimsReviewed": True, "reviewer": "local_operator"})
     finally:
         web.app.dependency_overrides.pop(web.require_local_operator, None)
-
-    assert stale.status_code == 400
-    assert accepted.status_code == 200
-    assert accepted.json()["script_truth"]["claims"][0]["status"] == "AUTO_REVIEWED"
-    assert accepted.json()["script_truth"]["claims"][1]["status"] == "DELEGATE_REVIEWED"
-    assert accepted.json()["script_truth"]["claims"][1]["review"]["reviewer"] == "codex_delegate"
-    assert accepted.json()["preparation"]["status"] == "READY_FOR_EXTERNAL_AUTHORING"
-    assert authoring_starts == [result["attempt_id"]]
+    assert read.status_code == 200
+    assert read.json()['operator_admission']['allowed_actions']['approve_final'] is False
+    assert response.status_code == 410
+    assert creation._creation_path(persisted['id']).read_bytes() == original
 
 
-@pytest.mark.parametrize("repair_succeeds", [True, False])
-def test_managed_planning_repairs_own_claim_then_supplies_without_human_truth_review(prep_env, monkeypatch, repair_succeeds):
-    # Legacy/partial protocols are read-only, covered by result_protocol_defaults.
-    # This repair-budget scenario now exercises only the full source-ref/Markdown@3 pin.
-    truth_profile = 'source_ref_markdown'
-    from easel.creation_delivery import DeliveryExecutionUncertain, active_delivery
-    from easel.integrations.material_layer import PlanningIntegration
-    from easel.integrations.material_supply import ProductMaterialSupply
 
-    work = _confirmed_delivery()
-    claimed = prep.claim_chat_preparation(work["id"], f"delivery:{work['id']}", work["delivery"]["confirmed_by_turn"])
-    write_drafts(work, prep.preparation_paths(work["id"], claimed["operation_key"])["draft"])
-    calls = []
-    root = None
+@pytest.mark.parametrize('risk', ['semantic_reject', 'truth_reject'])
+def test_current_planning_truth_refusal_does_not_rewrite_or_supply(prep_env, monkeypatch, risk):
+    """Current frozen A/B/Truth refusal replaces retired mutable Script-rewrite flow.
 
-    def agent(message, *_args):
-        nonlocal root
-        if message.startswith("〔Easel Material Creative Planning V1〕"):
-            calls.append("plan")
-            root = Path(re.search(r"^Attempt workspace: (.+)$", message, re.MULTILINE)[1])
-            attempt_id = re.search(r"^Attempt ID: (.+)$", message, re.MULTILINE)[1]
-            refs = json.loads(re.search(r"^context_refs: (.+)$", message, re.MULTILINE)[1])
-            planning = _test_planning_executor({"attempt_id": attempt_id, "creation_id": work["id"], "workspace": {"path": str(root)}},
-                                               {"context_refs": refs})
-            for name, value in {"MATERIAL_PLAN.json": planning["plan"].model_dump_json(),
-                                "TREATMENT.md": planning["treatment"], "SCENES.md": planning["scenes"],
-                                "SCRIPT.md": "我去年在公司推行了这个方法。"}.items():
-                (root / "planning" / name).write_text(value)
-        elif message.startswith(("〔Easel Script 系统审阅〕", "〔Easel Truth 来源引用审阅〕")):
-            calls.append("assess")
-            if truth_profile.startswith('source_ref'):
-                assert message.startswith("〔Easel Truth 来源引用审阅〕")
-                report_path = Path(re.search(r"只写 (.+\.json)，按以下固定结构", message)[1])
-                report = json.loads(message.split("写后停止：\n", 1)[1].split("\n前份报告", 1)[0])
-                decisions = report["decisions"].values()
-            else:
-                report_path = Path(re.search(r"只写 (.+\.json)，JSON 结构", message)[1])
-                report = json.loads(message.split("（逐项替换判断，不增加字段）：\n", 1)[1].split("\n写入后停止。", 1)[0])
-                decisions = report["decisions"]
-            is_rewritten = "我更愿意" in (root / "planning/SCRIPT.md").read_text()
-            for decision in decisions:
-                decision.update(kind="creative_expression" if is_rewritten else "rewrite_required",
-                                reason="这是主观选择，不声称实际成效。" if is_rewritten else "公司经历没有来源，应删除自行添加的亲历。")
-            report_path.write_text(json.dumps(report))
-        elif message.startswith("〔Easel Planning：修正系统自行引入的事实问题〕"):
-            calls.append("rewrite")
-            (root / "planning/SCRIPT.md").write_text("我更愿意先看清问题，再决定下一步。" if repair_succeeds
-                                                   else "我后来在公司实现了百分之十的增长。")
-            # The adapter's same-run reconciliation is covered separately.
-            # Here the completed rewrite outlives its caller before Planning
-            # can persist a ledger, exercising durable repair accounting.
-            if calls.count("rewrite") == 1:
-                raise DeliveryExecutionUncertain("模拟修正结束但调用方未收到完成响应")
-        else:
-            pytest.fail("unexpected model phase")
-        return ""
+    Reuse the complete source-ref Owner scenario; it asserts zero downstream
+    Supply and no repair-purchased acceptance when independent review rejects.
+    Historical Writer messages are deliberately not reintroduced here.
+    """
+    from tests.test_semantic_planning import test_vnext_continuous_owner_boundary
+    test_vnext_continuous_owner_boundary(prep_env, monkeypatch, risk)
 
-    supplied = []
-    native_supply = ProductMaterialSupply.run
 
-    def supply(self, plan, attempt, **kwargs):
-        ledger = PlanningIntegration().load(attempt)["truth_ledger"]
-        assert ledger["status"] == "PASSED"
-        assert [row["status"] for row in ledger["claims"]] == ["SYSTEM_REVIEWED"]
-        supplied.append(plan)
-        return native_supply(self, plan, attempt, **kwargs)
-
-    monkeypatch.setattr(web, "run_agent_sync", agent)
-    monkeypatch.setattr(web, "_hypit_runtime_profile", lambda: None)
-    monkeypatch.setattr(ProductMaterialSupply, "run", supply)
-
-    async def execute(current):
-        token = active_delivery.set(work['id'])
-        try:
-            await web._execute_creation_delivery("prepare", current)
-        finally:
-            active_delivery.reset(token)
-
-    with pytest.raises(DeliveryExecutionUncertain):
-        asyncio.run(execute(creation.get_creation(work["id"])))
-    assert not supplied
-    saved = creation.get_creation(work["id"])
-    assert len(next(iter(saved["delivery"]["script_repairs"].values()))) == 1
-    attempt_id = saved['hypit_attempts'][-1]['attempt_id']
-    timings = saved['delivery']['phase_timings']
-    assert timings[f'{attempt_id}:planning']['calls'] == 1
-    assert timings[f'{attempt_id}:truth']['calls'] == 1
-    assert timings[f'{attempt_id}:truth_repair']['last_outcome'] == 'uncertain'
-    if repair_succeeds:
-        asyncio.run(execute(saved))
-    else:
-        with pytest.raises(prep.PreparationError, match="修正次数已用完"):
-            asyncio.run(execute(saved))
-    saved = creation.get_creation(work["id"])
-    assert saved["preparation"]["status"] == ("MATERIAL_NOT_READY" if repair_succeeds else "MATERIAL_FAILED")
-    assert calls == ["plan", "assess", "rewrite", "assess"]
-    assert len(supplied) == (1 if repair_succeeds else 0)
-    assert len(saved["hypit_attempts"]) == 1
-    timings = saved['delivery']['phase_timings']
-    assert timings[f'{attempt_id}:planning']['calls'] == 1
-    assert timings[f'{attempt_id}:truth']['calls'] == 2  # Changed Script is reassessed.
-    assert timings[f'{attempt_id}:truth_repair']['calls'] == 1  # Completed repair isn't repeated.
-    if not repair_succeeds:
-        from easel.creation_delivery import retry_delivery, MAX_FAILURES
-        attempt_id = saved["hypit_attempts"][-1]["attempt_id"]
-        failure_key = f"{attempt_id}:prepare"
-        with creation.edit_creation(work["id"]) as current:
-            current["delivery"].update(status="failed", exhausted_operation=failure_key,
-                                        failures={failure_key: MAX_FAILURES})
-        retried = retry_delivery(work["id"])
-        assert retried["delivery"]["script_repair_rounds"][attempt_id] == 1
-        assert attempt_id not in retried["delivery"]["script_repairs"]
-        repair_succeeds = True
-        asyncio.run(execute(retried))
-        assert calls.count("rewrite") == 2
-        assert len(supplied) == 1
 
 
 def test_configured_local_material_root_runs_product_gate_before_authoring(prep_env, monkeypatch):
@@ -1189,167 +1197,50 @@ def test_configured_local_material_root_runs_product_gate_before_authoring(prep_
     assert "production_authoring" not in attempt
 
 
-def test_director_planning_executor_consumes_frozen_refs_and_not_fixed_image(prep_env, monkeypatch):
-    prepared = _prepare_creation(prep_env["work"]["id"], runtime_profile=None)
-    attempt = service.get_film_attempt(prepared["attempt_id"])
-    work = creation.get_creation(prepared["creation_id"])
-    _, handoff_manifest, _ = handoff.resolve_handoff(work["id"], prepared["handoff_id"])
-    hashes = work["preparation"]["snapshot_hashes"]
+def test_director_planning_executor_consumes_frozen_current_refs_and_rejects_rewrites(prep_env, monkeypatch):
+    """Current vNext Planning consumes real Handoff pins, never an old file Writer."""
+    from easel.integrations.material_layer import PlanningIntegration
+    from easel.integrations.semantic_boundary import POLICY
+    prepared = _prepare_creation(prep_env['work']['id'], runtime_profile=None)
+    attempt = service.get_film_attempt(prepared['attempt_id'])
+    work = creation.get_creation(prepared['creation_id'])
+    _, manifest, _ = handoff.resolve_handoff(work['id'], prepared['handoff_id'])
+    hashes = work['preparation']['snapshot_hashes']
     refs = {
-        "content_core_sha256": hashes["content_core"],
-        "truth_packet_sha256": hashes["truth_packet"],
-        "creator_context_sha256": hashes["creator_context"],
-        "production_brief_sha256": hashes["production_brief"],
-        "creative_mode_sha256": handoff_manifest["creative_mode"]["hash"],
+        'content_core_sha256': hashes['content_core'],
+        'truth_packet_sha256': hashes['truth_packet'],
+        'creator_context_sha256': hashes['creator_context'],
+        'production_brief_sha256': hashes['production_brief'],
+        'creative_mode_sha256': manifest['creative_mode']['hash'],
     }
-    plan = MaterialPlan(
-        plan_id=f"plan-{attempt['attempt_id'][-20:]}", creation_id=attempt["creation_id"],
-        attempt_id=attempt["attempt_id"], context_refs=refs,
-        needs=(MaterialNeed(
-            need_id="director-main-video", scope=NeedScope(type=NeedScopeType.SCENE, ref="scene-1"),
-            media_type=MediaType.VIDEO, role="主镜头",
-            intent=NeedIntent(description="由当前 Content 与 Director 意图决定的视频镜头"),
-            importance=NeedImportance.REQUIRED,
-        ),),
-    )
-    prompt_seen = []
-    planning_dir = Path(attempt["workspace"]["path"]) / "planning"
-    for name in ("MATERIAL_PLAN.json", "TREATMENT.md", "SCRIPT.md", "SCENES.md"):
-        (planning_dir / name).unlink(missing_ok=True)
+    frozen = PlanningIntegration().load(attempt)
+    assert frozen['plan'].context_refs == refs
+    assert frozen['plan'].policy['semantic_compiler'] == POLICY
+    assert len(frozen['plan'].needs) > 0
+    assert attempt['planning_contract_version'] == 3
+    assert frozen['manifest']['schema'] == 'easel-material-planning@3'
+    root = Path(attempt['workspace']['path'])
+    assert (root / 'planning/SCRIPT.md').read_bytes() == (
+        work['delivery']['video_plan']['script'].encode())
+    assert (root / 'planning/SCENES.md').read_bytes() == (
+        work['delivery']['video_plan']['scenes'].encode())
 
-    def fake_agent(prompt, timeout, session_id=None):
-        prompt_seen.append(prompt)
-        (planning_dir / "MATERIAL_PLAN.json").write_text(plan.model_dump_json(), encoding="utf-8")
-        from tests.test_model_output_contracts import write_fixture_requirements
-        write_fixture_requirements(planning_dir, plan)
-        (planning_dir / "TREATMENT.md").write_text("Treatment", encoding="utf-8")
-        (planning_dir / "SCRIPT.md").write_text("Script", encoding="utf-8")
-        (planning_dir / "SCENES.md").write_text("Scenes", encoding="utf-8")
-        (planning_dir / 'MATERIAL_REQUIREMENTS.json').write_text(json.dumps({plan.needs[0].need_id: {
-            'clauses': [{'path': 'intent/description', 'text': plan.needs[0].intent.description,
-                         'kind': 'required', 'preference_path': None}],
-            'queries': ['documentary main shot', 'documentary subject scene', 'subject scene'],
-        }}), encoding='utf-8')
-        return "planned"
+    monkeypatch.setattr(web, 'run_agent_sync', lambda *_args, **_kwargs:
+                        pytest.fail('Current confirmed Planning cannot re-buy a model call'))
+    original = (root / 'planning/SCENES.md').read_bytes()
+    with pytest.raises(prep.PreparationError, match='重新确认'):
+        web._material_planning_executor(attempt, {
+            'context_refs': refs, 'quality_repair': {
+                'origin': 'system_quality', 'allowed_changes': ['planning'],
+                'feedback': [{'text': '请篡改当前冻结方案'}]}})
+    assert (root / 'planning/SCENES.md').read_bytes() == original
+    (root / 'planning/SCENES.md').write_text('未经确认的外部重写')
+    with pytest.raises(prep.PreparationError, match='冻结来源无效'):
+        web._material_planning_executor(attempt, {'context_refs': refs})
+    (root / 'planning/SCENES.md').write_bytes(original)
+    assert PlanningIntegration().load(attempt)['plan'] == frozen['plan']
 
-    monkeypatch.setattr(web, "run_agent_sync", fake_agent)
-    result = web._material_planning_executor(attempt, {
-        "content_core": handoff_manifest["content"]["content_core"],
-        "truth_packet": handoff_manifest["content"]["truth_packet"],
-        "creator_context": handoff_manifest["creator_context"],
-        "context_refs": refs,
-    })
-    assert prompt_seen and "冻结的 Content Core、Truth Packet、Creator Context" in prompt_seen[0]
-    assert "Creative Mode / Director" in prompt_seen[0]
-    assert "禁止套用固定 IMAGE Need" in prompt_seen[0]
-    assert "读取后立即写出" in prompt_seen[0]
-    assert "production_request.production_brief" in prompt_seen[0]
-    assert "scene、event、global 或 segment" in prompt_seen[0]
-    assert "字幕、标题、转场" in prompt_seen[0]
-    assert "不能写 orientation" in prompt_seen[0]
-    contract = json.loads(prompt_seen[0].split("〔MaterialPlan 正式 JSON Schema〕\n")[1].split("\n〔正式合同结束〕")[0])
-    assert contract == MaterialPlan.model_json_schema()
-    from easel.materials.application.visual_contract import PlanningRequirements
-    requirements_schema = json.loads(prompt_seen[0].split("〔MATERIAL_REQUIREMENTS 正式 JSON Schema〕\n")[1].split("\n〔要求正式合同结束〕")[0])
-    assert requirements_schema == PlanningRequirements.model_json_schema()
-    assert "duration_seconds" not in contract["$defs"]["VideoNeedSpec"]["properties"]
-    assert "target_seconds" in contract["$defs"]["DurationHint"]["properties"]
-    assert result["plan"].needs[0].media_type is MediaType.VIDEO
-    assert result["plan"].context_refs == refs
-    from easel.materials.store import AttemptMaterialStore
-    from easel.materials.application.visual_contract import (
-        planning_contracts, read_requirements_contract,
-    )
-    saved = planning_contracts(result['plan'], handoff.load_frozen_creative_mode(attempt)[0],
-                               json.loads((planning_dir / 'MATERIAL_REQUIREMENTS.json').read_text()))[0][1]
-    assert read_requirements_contract(AttemptMaterialStore(attempt['workspace']['path']), saved['input']) == saved['contract']
 
-    # A copied, valid plan must not short-circuit an output-bound rewrite.
-    # It uses the same executor and frozen references, with explicit scope.
-    feedback = {'origin': 'system_quality', 'allowed_changes': ['planning'],
-                'feedback': [{'text': '先解释问题，再反思结论', 'time_seconds': 2}]}
-    web._material_planning_executor(attempt, {'context_refs': refs, 'quality_repair': feedback})
-    assert len(prompt_seen) == 2
-    assert '修正系统审片发现的内容问题' in prompt_seen[-1]
-    assert json.dumps(feedback, ensure_ascii=False) in prompt_seen[-1]
-    assert '不得增加或删除 Need' in prompt_seen[-1]
-
-    # A discussed/confirmed plan is supplied by Easel, not re-authored by Planning.
-    from easel.creator_proposal import parse_video_plan
-    confirmed = parse_video_plan(VIDEO_PROPOSAL)
-    with creation.edit_creation(work["id"]) as current:
-        current["delivery"] = {"video_plan": confirmed}
-    for path in planning_dir.iterdir():
-        if path.name in {"SCRIPT.md", "SCENES.md", "TREATMENT.md", "MATERIAL_PLAN.json"}:
-            path.unlink()
-    attempt = {**attempt, 'material_planning': {'status': 'DRAFT'}}
-    requests = []
-    def material_only(prompt, *_, **options):
-        requests.append(prompt)
-        assert '四个文件' not in prompt and '写入 SCENES' not in prompt
-        assert '在 TREATMENT 说明' not in prompt and '放在 TREATMENT/SCENES' not in prompt
-        assert (planning_dir / "SCRIPT.md").read_text() == confirmed["script"]
-        assert (planning_dir / "SCENES.md").read_text() == confirmed["scenes"]
-        (planning_dir / "MATERIAL_PLAN.json").write_text('{}' if len(requests) == 1 else plan.model_dump_json())
-        # Both the first turn and bounded repair attempt to move sound prose.
-        (planning_dir / 'TREATMENT.md').write_text('错误导演稿-' + str(len(requests)))
-        (planning_dir / 'SCENES.md').write_text('错误分镜-' + str(len(requests)))
-        return "完成素材需求"
-    monkeypatch.setattr(web, "run_agent_sync", material_only)
-    result = web._material_planning_executor(attempt, {"context_refs": refs})
-    assert len(requests) == 2
-    for request in requests:
-        assert json.loads(request.split("〔MATERIAL_REQUIREMENTS 正式 JSON Schema〕\n")[1].split("\n〔要求正式合同结束〕")[0]) == PlanningRequirements.model_json_schema()
-    assert result["script"] == confirmed["script"]
-    assert result["scenes"] == confirmed["scenes"]
-    assert result['treatment'] == confirmed['treatment'] + '\n\n## 声音设计\n' + confirmed['sound']
-    archive = planning_dir / 'rejected-confirmed-drafts'
-    assert len(list(archive.glob('*.md'))) == 4
-    # A persisted valid plan plus interrupted prose mutation recovers locally,
-    # preserving the rejected bytes, without buying another model call.
-    (planning_dir / "SCRIPT.md").write_text("擅自重写")
-    monkeypatch.setattr(web, "run_agent_sync", lambda *_: pytest.fail('valid Plan must be reused'))
-    restored = web._material_planning_executor(attempt, {"context_refs": refs})
-    assert restored['script'] == confirmed['script']
-    copies = list(archive.glob('*.md'))
-    (planning_dir / "SCRIPT.md").write_text("擅自重写")
-    web._material_planning_executor(attempt, {"context_refs": refs})
-    assert list(archive.glob('*.md')) == copies
-    # Frozen output is never rewritten; invalid path types remain failures.
-    (planning_dir / 'SCENES.md').write_text('冻结后变更')
-    frozen = {**attempt, 'material_planning': {'status': 'PLANNING_READY'}}
-    with pytest.raises(prep.PreparationError, match='已冻结规划'):
-        web._material_planning_executor(frozen, {"context_refs": refs})
-    assert (planning_dir / 'SCENES.md').read_text() == '冻结后变更'
-    (planning_dir / 'SCENES.md').unlink()
-    external = planning_dir.parent / 'external-scenes.md'
-    external.write_text('外部不可覆盖')
-    (planning_dir / 'SCENES.md').symlink_to(external)
-    with pytest.raises(prep.PreparationError, match='路径无效'):
-        web._material_planning_executor(attempt, {"context_refs": refs})
-    assert external.read_text() == '外部不可覆盖'
-    (planning_dir / 'SCENES.md').unlink()
-    # Recheck the directory on a fresh isolated attempt after a model turn.
-    attempt = {**attempt, 'attempt_id': attempt['attempt_id'] + '-path-check'}
-    original = planning_dir.with_name('planning-original')
-    outside = planning_dir.with_name('outside-planning')
-    outside.mkdir()
-    (planning_dir / 'MATERIAL_PLAN.json').unlink()
-    def swap_directory(*_):
-        planning_dir.rename(original)
-        planning_dir.symlink_to(outside, target_is_directory=True)
-        return 'invalid directory mutation'
-    monkeypatch.setattr(web, 'run_agent_sync', swap_directory)
-    try:
-        with pytest.raises(prep.PreparationError, match='symlink'):
-            web._material_planning_executor(attempt, {'context_refs': refs})
-        assert list(outside.iterdir()) == []
-    finally:
-        planning_dir.unlink()
-        original.rename(planning_dir)
-    with pytest.raises(prep.PreparationError, match="回到方案讨论"):
-
-        web._material_planning_executor(attempt, {"context_refs": refs, "quality_repair": feedback})
 
 
 def test_failed_planning_and_not_ready_retry_reuse_frozen_attempt(prep_env):
@@ -1358,6 +1249,9 @@ def test_failed_planning_and_not_ready_retry_reuse_frozen_attempt(prep_env):
 
     def failed_planning(_attempt, _context):
         raise prep.PreparationError("Planning Agent did not write MaterialPlan")
+    # A current registered executor can fail before its first response; the
+    # retry must retain this same Attempt and planning_contract_version=3.
+    failed_planning.planning_contract_version = 3
 
     with pytest.raises(prep.PreparationError, match="MaterialPlan"):
         prep.prepare_creation_for_hypit(
@@ -1379,49 +1273,268 @@ def test_failed_planning_and_not_ready_retry_reuse_frozen_attempt(prep_env):
     assert len(saved["hypit_attempts"]) == 1
 
 
+@pytest.mark.parametrize('root_echo,sfx,source_scope_experimental', [
+    (False, False, False), (True, False, False), (True, True, False),
+    (False, False, 'm31'), (True, True, 'reject_sfx_scope')])
+def test_current_planning_inherits_atomic_and_tempo_guidance(prep_env, monkeypatch, root_echo, sfx,
+                                                          source_scope_experimental):
+    """Real @4 Handoff/Planning/Truth owners; only external replies are fixed."""
+    from easel.integrations import semantic_boundary_run as boundary
+    from easel.integrations import planning_semantic_review as review
+    from easel.integrations import planning_candidate_review as candidate_review
+    from easel.integrations.material_layer import PlanningIntegration
+    if source_scope_experimental == 'm31':
+        from scripts.configure_minimax_m3_thinking import migrated_m31_profile
+        config = {'models': {'providers': {'minimax': {'api': 'openai-completions',
+            'baseUrl': 'https://api.minimax.cn/v1', 'models': [{'id': 'MiniMax-M3'}]}}},
+            'agents': {'defaults': {'model': {'primary': 'minimax/MiniMax-M3'}}}}
+        (prep_env['tmp'] / 'offline-openclaw.json').write_text(json.dumps(migrated_m31_profile(config)))
+        source_scope_experimental = False
+    reject_sfx_scope = source_scope_experimental == 'reject_sfx_scope'
+    source_scope_experimental = False
+    messages = {}
+    equivalent_details = []
+    original = boundary.view_a_message
+    review_messages = []
+    original_review_message = candidate_review.message_for
+
+    def observe_review(batch, **kwargs):
+        message = original_review_message(batch, **kwargs)
+        review_messages.append(message)
+        return message
+
+    def observe(scope, view, stage, **kwargs):
+        assert scope['transport']['intake_policy'] == review.INTAKE_POLICY
+        message = original(scope, view, stage, **kwargs)
+        messages[stage] = message
+        return message
+
+    monkeypatch.setattr(boundary, 'view_a_message', observe)
+    monkeypatch.setattr(candidate_review, 'message_for', observe_review)
+    monkeypatch.setattr(service, '_cli', lambda *_a, **_kw: pytest.fail('No Hypit execution'))
+    work = prep_env['work']
+    if root_echo:
+        from tests import test_semantic_planning as external
+        original_wire = external.staged_fixture_wire
+
+        def echoed_selection(message, value):
+            if sfx:
+                value['needs'].append({
+                    'scope': 'event-1', 'role': '杯底轻触桌面音效', 'modality': 'sfx',
+                    'necessity': 'required',
+                    'conditions': [
+                        {'text': '杯底轻触桌面，短促干脆的轻嗒声，无拖尾。',
+                         'strength': 'required', 'responsibility': 'material', 'meaning': 'observable'},
+                        {'text': '轻嗒声与杯底接触桌面的画面瞬间对齐，混音低于旁白。',
+                         'strength': 'required', 'responsibility': 'postproduction', 'meaning': 'observable'}],
+                    'sound': {'event_description': '杯底轻触桌面的轻嗒声', 'sound_character': '短促干脆，无拖尾'}})
+            raw = original_wire(message, value)
+            if sfx and message.startswith('〔Easel Semantic Planning vNext A-details〕'):
+                # Same external fixture bytes through the real current Owner;
+                # experiment changes no production request or journal identity.
+                equivalent_details.append(json.loads(raw))
+            if message.startswith('〔Easel Semantic Planning vNext A-selection〕'):
+                data = json.loads(raw)
+                if reject_sfx_scope:
+                    data['needs'][-1]['scope'] = data['needs'][0]['scope']
+                data['contains'] = {'modality': 'bgm', 'necessity': 'required'}
+                return json.dumps(data, ensure_ascii=False)
+            return raw
+
+        monkeypatch.setattr(external, 'staged_fixture_wire', echoed_selection)
+        work = creation.create_creation('隔离配乐回声验收', creative_mode='clear_memo_video',
+            route='hypit_video', origin={'type': 'chat', 'session_hash': 'e' * 64})
+        proposal = VIDEO_PROPOSAL.replace('无旁白，无音乐。', '轻柔无歌词钢琴配乐，无旁白。').replace(
+            '音轨：静音', '音轨：music')
+        if sfx:
+            proposal = proposal.replace('0–15 秒：', '0–15 秒：杯底轻触桌面，短促干脆的轻嗒声，无拖尾；轻嗒声与杯底接触桌面的画面瞬间对齐，混音低于旁白。')
+        work = _confirm_current_video_plan(work, proposal=proposal)
+        claim = prep.claim_chat_preparation(work['id'], 'echo-test', 'echo-confirmed')
+        paths = prep.preparation_paths(work['id'], claim['operation_key'])
+        write_drafts(work, paths['draft'])
+        brief_path = paths['draft'] / 'production-brief.json'
+        brief = json.loads(brief_path.read_text())
+        brief['audio_mode'] = 'music'
+        brief_path.write_text(json.dumps(brief))
+    if reject_sfx_scope:
+        with pytest.raises(prep.PreparationError, match='selection admission rejected'):
+            _prepare_creation(work['id'], runtime_profile=None)
+        from easel.materials.store import AttemptMaterialStore
+        attempt = creation.get_creation(work['id'])['hypit_attempts'][-1]
+        journal = AttemptMaterialStore(attempt['workspace']['path']).read_recovery_record(boundary.STATE_KEY)
+        assert set(journal['calls']) == set(messages) == {'A-selection'}
+        assert journal['admissions']['A-selection']['owner_eligibility']['decision']['outcome'] == 'REJECT'
+        assert not journal['repair_used'] and not journal.get('detail_binding')
+        assert not journal['admissions']['A-selection']['receipt']['actions']
+        assert 'contains' in json.loads(journal['calls']['A-selection']['reply'])
+        assert attempt['build']['operation'] is None
+        return
+    result = _prepare_creation(work['id'], runtime_profile=None)
+    attempt = service.get_film_attempt(result['attempt_id'])
+    stored = PlanningIntegration().load(attempt)
+    assert stored['plan'].needs
+    assert review_messages
+    assert all('quote=null' not in message and '仅合法非字符串来源' in message
+               and '不得用null冒充依据' in message for message in review_messages)
+    assert result['status'] == 'MATERIAL_NOT_READY'
+    assert 'role只写' in messages['A-selection']
+    details = messages['A-details']
+    contract = json.loads(details.splitlines()[-1])['atomic_slot_output_contract']
+    assert contract['condition_properties'] == ['text', 'strength', 'responsibility', 'meaning']
+    assert contract['exact_names'] == (['slot_000', 'slot_001', 'slot_002'] if sfx else ['slot_000', 'slot_001'] if root_echo else ['slot_000'])
+    assert 'sound.tempo_bpm是可选字段' in details
+    assert '与画面同步、点位对齐' in details
+    shape = json.loads(details.splitlines()[-1])['detail_shape_contract']
+    assert shape['condition_same_level_fields']['strength']['type'] == 'string'
+    assert shape['condition_same_level_fields']['strength']['enum'] == ['required', 'preference']
+    assert shape['condition_required'] == ['text', 'strength', 'responsibility']
+    assert 'queries' in shape['slots']['slot_000']['allowed_properties']
+    if root_echo:
+        assert 'queries' not in shape['slots']['slot_001']['allowed_properties']
+    if sfx:
+        assert 'queries' not in shape['slots']['slot_002']['allowed_properties']
+    assert attempt['build']['operation'] is None
+    if root_echo:
+        from easel.materials.store import AttemptMaterialStore
+        journal = AttemptMaterialStore(attempt['workspace']['path']).read_recovery_record(boundary.STATE_KEY)
+        admitted = journal['admissions']['A-selection']
+        if source_scope_experimental:
+            assert journal['scope']['transport']['source_selection_policy'] == (
+                'planning-source-kind-handles-experiment@1' if source_scope_experimental == 'kind'
+                else 'test-only-planning-source-scope@3')
+        assert admitted['receipt']['decision']['outcome'] == 'NORMALIZE'
+        assert admitted['receipt']['actions'][0]['path'] == ['contains']
+        assert 'contains' in json.loads(journal['calls']['A-selection']['reply'])
+        assert 'contains' not in admitted['candidate']
+        if sfx:
+            from easel.integrations import planning_input_view as views, planning_staged_proposal as staged, planning_wire as wire
+            scope = journal['scope']
+            view = views.PlanningInputView(scope['inputs'], scope['catalog'])
+            selected = view.codec.decode(boundary.require_selection_admission(admitted, scope=scope),
+                                         view.codec.identity, diagnostic=True)
+            codec = staged._read_only_staged(boundary.query_schema(scope))
+            batch_plan = codec.detail_batches(selected)
+            assert len(batch_plan['batches']) == 1
+            batch, = [b for b in batch_plan['batches'] if 'slot_002' in b['slots']]
+            persisted = json.loads(journal['calls'][batch['key']]['reply'])['slots']['slot_002']
+            assert [(c['strength'], c['responsibility'], c['meaning']) for c in persisted['conditions']] == [
+                ('required', 'material', 'observable'), ('required', 'postproduction', 'observable')]
+            assert any(n.modality_spec.kind == 'sfx' for n in stored['plan'].needs)
+            assert '杯底轻触桌面' in json.dumps(stored['plan'].model_dump(mode='json'), ensure_ascii=False)
+            from jsonschema import Draft202012Validator
+            from tests.planning_material_matrix.producer_experiment import equivalent_schema_experiment
+            contract = batch_plan['complete']
+            projection = wire.project(contract['schema'], 'A-details', atomic_framing=True)
+            candidate, changes = equivalent_schema_experiment(projection.schema)
+            assert changes and len(equivalent_details) == 1
+            raw = equivalent_details[0]
+            assert Draft202012Validator(candidate).is_valid(raw)
+            assert Draft202012Validator(projection.schema).is_valid(raw)
+            from copy import deepcopy
+            # Closed modality, required fields, and condition semantics must
+            # remain rejected under both schemas, including protected predicates.
+            for fault in ('slot_array', 'audio_queries', 'missing_condition_text', 'sfx_action'):
+                altered = deepcopy(raw)
+                if fault == 'slot_array':
+                    altered['slots']['slot_000'] = [altered['slots']['slot_000'], {}]
+                elif fault == 'audio_queries':
+                    altered['slots']['slot_002']['queries'] = []
+                elif fault == 'missing_condition_text':
+                    del altered['slots']['slot_002']['conditions'][0]['text']
+                else:
+                    altered['slots']['slot_002']['conditions'][0]['meaning'] = 'dynamic_action'
+                assert not Draft202012Validator(candidate).is_valid(altered), fault
+                assert not Draft202012Validator(projection.schema).is_valid(altered), fault
+            canonical = codec.assemble_candidate(selected, projection.decode_candidate(raw), contract['identity'])
+            from easel.integrations.planning_semantic_review import structural_targets
+            assert structural_targets(canonical, local_query_faults=True, flexible_queries=True) == []
+
+
+def test_captured_missing_text_stays_rejected_and_old_intake_cannot_dispatch(tmp_path):
+    """Replay the real failed capture; never fill its missing creative text."""
+    from copy import deepcopy
+    from easel.integrations import semantic_boundary_run as boundary
+    from easel.integrations import planning_input_view, planning_staged_proposal, planning_wire
+    from easel.integrations import planning_semantic_review as review
+    from easel.materials.store import AttemptMaterialStore
+    fixture = Path(__file__).parent / 'fixtures/planning-intake11-missing-condition-text.json'
+    original_bytes = fixture.read_bytes()
+    state = json.loads(original_bytes)['snapshot']
+    scope = state['scope']
+    view = planning_input_view.PlanningInputView(scope['inputs'], scope['catalog'])
+    selected = view.codec.decode(boundary.require_selection_admission(
+        state['admissions']['A-selection']), view.codec.identity, diagnostic=True)
+    expected_transport = boundary.transport_identity(scope['catalog'], intake_inputs=scope['inputs'],
+        intake_policy=scope['transport']['intake_policy'])
+    # Original carrier pins are historical evidence, never current dispatch identity.
+    assert scope['transport'] != expected_transport
+    assert {**scope['transport'], 'runtime_sha256': expected_transport['runtime_sha256']} == expected_transport
+    with pytest.raises(ValueError, match='transport identity changed'):
+        boundary.validate_transport(state['schema'], scope)
+    for stage in ('A-selection', 'A-details'):
+        kwargs = {} if stage == 'A-selection' else {
+            'selection': selected, 'binding': state['detail_binding']}
+        message = boundary.view_a_message(scope, view, stage, **kwargs)
+        call = state['calls'][stage]
+        assert hashlib.sha256(message.encode()).hexdigest() == call['request_sha256']
+        assert hashlib.sha256(call['reply'].encode()).hexdigest() == call['reply_sha256']
+    current = deepcopy(scope)
+    current['transport'] = boundary.transport_identity(scope['catalog'], intake_inputs=scope['inputs'])
+    assert current['transport']['intake_policy'] == review.INTAKE_POLICY
+    assert boundary.query_schema(current) == boundary.query_schema(scope)
+    codec = planning_staged_proposal._read_only_staged(boundary.query_schema(scope))
+    contract = codec.details_contract(selected, diagnostic=True)
+    projection = planning_wire.project(contract['schema'], 'A-details', atomic_framing=True)
+    raw = json.loads(state['calls']['A-details']['reply'])
+    errors = projection.errors(raw)
+    assert {tuple(e['path']) for e in errors if e['keyword'] == 'not'} == {
+        ('slots', f'slot_{i:03}', 'conditions') for i in (7, 8, 9)}
+    assert any(e['keyword'] == 'required' and e['path'] == [
+        'slots', 'slot_010', 'conditions', 4] for e in errors)
+    with pytest.raises(ValueError, match='Candidate properties changed'):
+        codec.assemble_candidate(selected, projection.decode_candidate(raw), contract['identity'])
+    store = AttemptMaterialStore(tmp_path)
+    store.write_recovery_record(boundary.STATE_KEY, state)
+    journal = tmp_path / 'materials/recoveries/semantic-planning-vnext.json'
+    before = journal.read_bytes()
+    with pytest.raises(ValueError, match='Historical Planning intake is read-only'):
+        boundary.run({'workspace': {'path': str(tmp_path)}}, {}, {}, {}, {},
+                     lambda *_a, **_kw: pytest.fail('Historical capture must not dispatch'))
+    assert journal.read_bytes() == before
+    assert fixture.read_bytes() == original_bytes
+
+
 @pytest.mark.parametrize("invalid_kind", ["domain", "retrieval", "video_duration"])
-def test_planning_resume_repairs_invalid_domain_file_once(prep_env, monkeypatch, invalid_kind):
-    prepared = _prepare_creation(prep_env["work"]["id"], runtime_profile=None)
-    attempt = service.get_film_attempt(prepared["attempt_id"])
-    root = Path(attempt["workspace"]["path"])
-    valid_json = (root / "materials" / "plan.json").read_text(encoding="utf-8")
-    invalid = json.loads(valid_json)
-    if invalid_kind == "domain":
-        invalid["policy"] = {"must_be_a_string": True}
-        invalid["schema"] = "easel-material-plan@1"
-    elif invalid_kind == "retrieval":
-        invalid["needs"][0]["constraints"] = {"allowed_source_kinds": ["external_stock"]}
+def test_current_planning_rejects_tampered_frozen_plan_without_model_retry(
+        prep_env, monkeypatch, invalid_kind):
+    """A frozen vNext derived Plan is immutable; old Writer repair is gone."""
+    from easel.integrations.material_layer import PlanningIntegration
+    prepared = _prepare_creation(prep_env['work']['id'], runtime_profile=None)
+    attempt = service.get_film_attempt(prepared['attempt_id'])
+    root = Path(attempt['workspace']['path'])
+    stored = PlanningIntegration().load(attempt)
+    original_plan = stored['plan']
+    plan_file = root / 'planning/MATERIAL_PLAN.json'
+    invalid = json.loads(plan_file.read_text())
+    if invalid_kind == 'domain':
+        invalid['schema'] = 'easel-material-plan@1'
+        invalid['policy'] = {'must_be_a_string': True}
+    elif invalid_kind == 'retrieval':
+        invalid['needs'][0]['constraints'] = {'allowed_source_kinds': ['external_stock']}
     else:
-        invalid["needs"][0].update(media_type="video", modality_spec={"kind": "video", "duration_seconds": 8})
-    planning_file = root / "planning" / "MATERIAL_PLAN.json"
-    planning_file.write_text(json.dumps(invalid), encoding="utf-8")
-    prompts = []
+        invalid['needs'][0].update(media_type='video',
+            modality_spec={'kind':'video', 'duration_seconds':8})
+    altered = json.dumps(invalid, ensure_ascii=False)
+    plan_file.write_text(altered, encoding='utf-8')
+    monkeypatch.setattr(web, 'run_agent_sync', lambda *_a, **_kw:
+                        pytest.fail('Tampered current Plan must not buy a retry'))
+    with pytest.raises(prep.PreparationError, match='已有派生产物'):
+        web._material_planning_executor(attempt, {
+            'context_refs': original_plan.context_refs})
+    assert plan_file.read_text() == altered
+    assert service.get_film_attempt(attempt['attempt_id'])['planning_contract_version'] == 3
+    assert service.get_film_attempt(attempt['attempt_id'])['build']['operation'] is None
 
-    def repair_agent(message, _timeout, _session_id, **options):
-        assert options == {"retry_failed": False}
-        prompts.append(message)
-        planning_file.write_text(valid_json, encoding="utf-8")
-        return "corrected"
-
-    monkeypatch.setattr(web, "run_agent_sync", repair_agent)
-    result = web._material_planning_executor(attempt, {
-        "context_refs": invalid["context_refs"],
-    })
-    assert len(prompts) == 1
-    if invalid_kind == "domain":
-        assert "policy.must_be_a_string:string_type" in prompts[0]
-        assert "schema:extra_forbidden" in prompts[0]
-        assert "必须删除顶层 schema 字段" in prompts[0]
-    elif invalid_kind == "retrieval":
-        assert "retrieval validation failed" in prompts[0]
-        assert "required_source_kind=stock" in prompts[0]
-    else:
-        assert "modality_spec.video.duration_seconds:extra_forbidden" in prompts[0]
-        assert "Need.duration_hint.target_seconds" in prompts[0]
-    contract = json.loads(prompts[0].split("〔MaterialPlan 正式 JSON Schema〕\n")[1].split("\n〔正式合同结束〕")[0])
-    assert contract == MaterialPlan.model_json_schema()
-    assert "当前冻结 context_refs" in prompts[0]
-    assert result["plan"].plan_id == invalid["plan_id"]
 
 
 def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkeypatch):
@@ -1455,9 +1568,7 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
         return "INTERNAL_PREPARATION outputs/content-core.json internal reasoning"
 
     monkeypatch.setattr(web, "run_agent_sync", fake_agent)
-    authoring_starts = []
-    monkeypatch.setattr(web, "_start_film_authoring", lambda attempt_id: authoring_starts.append(attempt_id))
-    monkeypatch.setattr(web, "_material_planning_executor", _test_planning_executor)
+    monkeypatch.setattr(web, "_material_planning_executor", _current_vnext_planning_executor)
     monkeypatch.setattr(web, "_hypit_runtime_profile", lambda: None)
     monkeypatch.setattr(service, "workspace_root", lambda: prep_env["tmp"] / ".easel" / "hypit")
     monkeypatch.setattr(service, "_cli", lambda *_args, **_kwargs: pytest.fail("Hypit CLI must not run"))
@@ -1470,6 +1581,11 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
         sessionId="api-session",
         turnId="api-turn",
     )
+    # The HTTP contract is checked without the lifespan background dispatcher.
+    # Explicit Delivery advancement below remains the sole execution owner.
+    async def isolated_delivery_worker(stop, _executor):
+        await stop.wait()
+    monkeypatch.setattr(web, "serve_delivery", isolated_delivery_worker)
     with TestClient(web.app) as client:
         response = client.post("/api/chat", json=payload.model_dump())
         assert response.status_code == 200
@@ -1497,15 +1613,21 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
         offered = preview['generation_budget']
         assert offered['available'] is True and 'fixture-key' not in json.dumps(offered)
         declaration = preview['input_use']
-        assert declaration['schema'] == 'easel-input-use@2'
-        assert 'text_to_visual_generation' in declaration['operations'] and '以文字生成图片或视频素材' in declaration['statement']
+        assert declaration['schema'] == 'easel-input-use@3'
+        assert declaration['video_plan_sha256'] == first_work['chat_workflow']['video_plan']['sha256']
+        assert declaration['audio_mode'] == 'silent'
+        assert 'preset_voice_synthesis' not in declaration['operations']
+        assert 'text_to_visual_generation' in declaration['operations'] and '以文字生成视觉素材' in declaration['statement']
         unsigned = {k: v for k, v in declaration.items() if k != 'statement_sha256'}
         assert declaration['statement_sha256'] == hashlib.sha256(json.dumps(
             unsigned, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
         stale = {**confirmation.model_dump(), 'inputUseStatementSha256': '0' * 64}
         assert client.post('/api/chat', json=stale).status_code == 409
         assert not creation.get_creation(first_work['id'])['chat_workflow'].get('confirmed_at')
-        old_page = {**confirmation.model_dump(), 'inputUseStatementSha256': creation.input_use_preview(version=1)['statement_sha256']}
+        old_scope = {**unsigned, 'schema': 'easel-input-use@2'}
+        old_scope_hash = hashlib.sha256(json.dumps(
+            old_scope, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
+        old_page = {**confirmation.model_dump(), 'inputUseStatementSha256': old_scope_hash}
         assert client.post('/api/chat', json=old_page).status_code == 409
         assert not creation.get_creation(first_work['id'])['chat_workflow'].get('confirmed_at')
         ordinary = {**confirmation.model_dump(), 'creationAction': None,
@@ -1548,7 +1670,9 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
     # Resume from disk in another loop; no client turn owns preparation now.
     from easel.creation_delivery import advance_creation
     asyncio.run(advance_creation(body["creationId"], web._execute_creation_delivery))
-    assert len(agent_calls) == 2
+    assert len(agent_calls) == 2, [{'session': sid, 'is_proposal': '视频创作方案讨论阶段' in msg,
+                                    'is_preparation': 'CURRENT_CREATION_ID=' in msg}
+                                   for msg, timeout, sid in agent_calls]
     assert "CURRENT_CREATION_ID=" in agent_calls[1][0]
     work = creation.get_creation(body["creationId"])
     assert work["chat_workflow"]["proposal_status"] == "CONFIRMED"
@@ -1558,7 +1682,9 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
     _, confirmed_handoff, _ = handoff.resolve_handoff(work["id"], work["hypit_handoffs"][0]["handoff_id"])
     assert confirmed_handoff["production_request"]["confirmed_proposal_sha256"] == work["chat_workflow"]["proposal_sha256"]
     assert confirmed_handoff["production_request"]["production_brief_sha256"] == work["preparation"]["snapshot_hashes"]["production_brief"]
-    assert work["preparation"]["status"] == "MATERIAL_NOT_READY"
+    assert work["preparation"]["status"] == "MATERIAL_NOT_READY", (
+        work["preparation"].get("last_error"), work["delivery"].get("last_error"),
+        work["delivery"].get("status"))
     assert work["preparation"]["runtime_status"] == "NOT_CONFIGURED"
     assert work["id"] == body["creationId"]
     assert len(work["hypit_handoffs"]) == 1
@@ -1567,7 +1693,6 @@ def test_chat_api_discusses_then_requires_explicit_confirmation(prep_env, monkey
     assert work["hypit_attempts"][0]["execution_status"] == "BLOCKED"
     assert work["hypit_attempts"][0]["status"] == "MATERIAL_NOT_READY"
     assert work["hypit_attempts"][0]["material_gate"]["status"] == "MATERIAL_NOT_READY"
-    assert authoring_starts == []
 
 
 def test_chat_proposal_revision_does_not_claim_preparation(prep_env):
@@ -1614,14 +1739,14 @@ def test_car_proposal_prompt_limits_unconfirmed_details_and_user_facing_language
 
 
 @pytest.mark.parametrize("resume", [False, True])
-def test_ready_preparation_starts_authoring_without_an_extra_confirmation(monkeypatch, resume):
+def test_historical_preparation_never_restarts_authoring(monkeypatch, resume):
     started = []
     monkeypatch.setattr(web, "prepare_creation_for_hypit", lambda *_args, **_kwargs: {
         "status": "READY_FOR_EXTERNAL_AUTHORING", "attempt_id": "fa_test",
     })
     monkeypatch.setattr(web, "_hypit_runtime_profile", lambda: None)
     monkeypatch.setattr(web, "_material_planning_executor", lambda *_args: pytest.fail("Planning must be reused"))
-    monkeypatch.setattr(web, "_start_film_authoring", lambda attempt_id: started.append(attempt_id))
+    monkeypatch.setattr(web, "_run_film_authoring", lambda attempt_id: started.append(attempt_id))
     work = {"id": "cr_test"}
 
     if resume:
@@ -1629,7 +1754,7 @@ def test_ready_preparation_starts_authoring_without_an_extra_confirmation(monkey
     else:
         asyncio.run(web._finish_ai_film_turn(work, "generate", succeeded=True))
 
-    assert started == ["fa_test"]
+    assert started == []
 
 
 @pytest.mark.parametrize("path", ["/api/chat", "/api/chat/stream"])
@@ -1683,8 +1808,6 @@ def test_unconfirmed_chat_cannot_create_handoff_or_prepare(prep_env, monkeypatch
         "attempt_id": "fa_legacy", "creation_id": work["id"],
         "result_protocols": result_protocols.current(),
     })
-    with pytest.raises(HypitIntegrationError, match="尚未明确确认"):
-        web._start_film_authoring("fa_legacy")
     with pytest.raises(prep.PreparationError):
         _prepare_creation(work["id"], runtime_profile=None)
     saved = creation.get_creation(work["id"])
@@ -1692,54 +1815,6 @@ def test_unconfirmed_chat_cannot_create_handoff_or_prepare(prep_env, monkeypatch
     assert saved.get("hypit_attempts", []) == []
 
 
-def test_confirmed_attempt_can_dispatch_existing_authoring(prep_env, monkeypatch):
-    result = _prepare_creation(prep_env["work"]["id"], runtime_profile=None)
-    dispatched = []
-
-    async def fake_authoring(attempt_id):
-        dispatched.append(attempt_id)
-
-    monkeypatch.setattr(web, "_run_film_authoring", fake_authoring)
-
-    async def dispatch_once():
-        started = web._start_film_authoring(result["attempt_id"])
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        return started
-
-    with pytest.raises(HypitIntegrationError, match="MATERIAL_READY"):
-        asyncio.run(dispatch_once())
-    assert result["status"] == "MATERIAL_NOT_READY"
-    assert dispatched == []
-
-
-def test_confirmed_interrupted_authoring_can_be_resumed_idempotently(monkeypatch):
-    from easel.integrations import result_protocols
-    attempt_id = "fa_interrupted"
-    attempt = {"attempt_id": attempt_id, "creation_id": "cr_interrupted",
-               "result_protocols": result_protocols.current(),
-               "authoring_status": "AUTHORING_RUNNING"}
-    monkeypatch.setattr(web, "get_film_attempt", lambda _id: attempt)
-    monkeypatch.setattr(web, "get_creation", lambda _id: {})
-    monkeypatch.setattr(web, "require_chat_proposal_confirmed", lambda _creation: None)
-    dispatched = []
-
-    async def fake_authoring(_attempt_id):
-        dispatched.append(_attempt_id)
-
-    monkeypatch.setattr(web, "_run_film_authoring", fake_authoring)
-
-    async def resume_twice():
-        first = web._start_film_authoring(attempt_id)
-        second = web._start_film_authoring(attempt_id)
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        return first, second
-
-    first, second = asyncio.run(resume_twice())
-
-    assert first["authoring_status"] == second["authoring_status"] == "AUTHORING_RUNNING"
-    assert dispatched == [attempt_id]
 
 
 def test_authoring_repairs_machine_detectable_svrun_source_once(prep_env, monkeypatch):
@@ -2059,7 +2134,7 @@ def test_attempt_runtime_resolution_unblocks_same_attempt(prep_env, tmp_path):
     assert len(work["hypit_attempts"]) == 1
 
 
-def test_runtime_resolution_api_uses_server_profile_and_reuses_attempt(prep_env, tmp_path, monkeypatch):
+def test_retired_runtime_resolution_api_cannot_modify_attempt(prep_env, tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
 
     result = _prepare_creation(prep_env["work"]["id"], runtime_profile=None)
@@ -2076,10 +2151,12 @@ def test_runtime_resolution_api_uses_server_profile_and_reuses_attempt(prep_env,
     finally:
         web.app.dependency_overrides.pop(web.require_local_operator, None)
 
-    assert response.status_code == 200
+    assert response.status_code == 404
+    assert not any(route.path == "/api/film-attempts/{attempt_id}/runtime/resolve"
+                   and "POST" in getattr(route, "methods", set()) for route in web.app.routes)
     attempt = service.get_film_attempt(result["attempt_id"])
-    assert attempt["runtime_status"] == "CONFIGURED"
-    assert attempt["execution_status"] == "NOT_SUBMITTED"
+    assert attempt["runtime_status"] != "CONFIGURED"
+    assert attempt["execution_status"] == "BLOCKED"
     assert attempt["attempt_number"] == 1
     assert len(creation.get_creation(prep_env["work"]["id"])["hypit_attempts"]) == 1
 
@@ -2129,8 +2206,11 @@ def test_video_proposal_revision_recovery_and_stale_confirmation(prep_env):
     with creation.edit_creation(cid) as stored:
         stored["chat_workflow"]["proposal_status"] = "READY_FOR_CONFIRMATION"
     draft = incomplete["chat_workflow"]["video_plan"]
-    with pytest.raises(creation.CreationError, match="尚未完成"):
-        creation.confirm_chat_proposal(cid, "bad-confirm", video_plan_sha256=draft["sha256"], production_specs=draft["specs"])
+    from easel.creator_proposal import validate_video_plan
+    assert not validate_video_plan(draft)
+    with pytest.raises(creation.CreationError, match="明确制作委托|尚未完成"):
+        creation.confirm_chat_proposal(cid, "bad-confirm",
+            video_plan_sha256=draft["sha256"], production_specs=draft["specs"])
     assert creation.get_creation(cid).get("delivery") is None
     creation.begin_video_proposal(cid, "turn-2")
     assert video_proposal_preview(creation.get_creation(cid), [])["missing"]
@@ -2139,8 +2219,10 @@ def test_video_proposal_revision_recovery_and_stale_confirmation(prep_env):
     second = creation.save_video_proposal(cid, "turn-2", VIDEO_PROPOSAL.replace("先看问题", "看清选择"))["chat_workflow"]["video_plan"]
     assert second["revision"] == 3 and second["sha256"] != first["sha256"]
     proposal = json.dumps([{"role": "assistant", "content": VIDEO_PROPOSAL}], ensure_ascii=False)
+    current_declaration = creation.input_use_preview(plan=second)
     kwargs = dict(delivery_proposal=proposal, proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest(),
-                  production_specs=second["specs"])
+                  production_specs=second["specs"],
+                  input_use_statement_sha256=current_declaration["statement_sha256"])
     with pytest.raises(creation.CreationError, match="已更新"):
         creation.confirm_chat_proposal(cid, "confirm", video_plan_sha256=first["sha256"], **kwargs)
     from easel.creation_delivery import set_material_endpoint
@@ -2170,14 +2252,18 @@ def test_failed_planning_can_reopen_same_work_without_losing_checkpoint(prep_env
     before = creation.get_creation(cid)
     editing = creation.reopen_video_proposal(cid)
     assert editing['id'] == cid and editing['preparation'] == before['preparation']
-    assert next_operation(editing) == (None, 'revising_proposal')
+    assert editing['chat_workflow']['editing_proposal'] is True
+    assert next_operation(editing) == (None, 'unmanaged')  # No production while revising.
     assert editing['proposal_history'][0]['delivery'] == before['delivery']
     # Repeated clicks neither append history nor discard current edits.
     assert len(creation.reopen_video_proposal(cid)['proposal_history']) == 1
     creation.begin_video_proposal(cid, 'revise')
     creation.save_video_proposal(cid, 'revise', VIDEO_PROPOSAL)
+    declaration = creation.input_use_preview(plan=plan)
     kwargs = dict(delivery_proposal=before['delivery']['proposal'],
-        proposal_sha256=before['delivery']['proposal_sha256'], video_plan_sha256=plan['sha256'])
+        proposal_sha256=before['delivery']['proposal_sha256'],
+        video_plan_sha256=plan['sha256'],
+        input_use_statement_sha256=declaration['statement_sha256'])
     with pytest.raises(creation.CreationError):
         creation.confirm_chat_proposal(cid, 'reconfirm', production_specs={**plan['specs'], 'duration_seconds': 30}, **kwargs)
     result = creation.confirm_chat_proposal(cid, 'reconfirm', production_specs=plan['specs'], **kwargs)
@@ -2191,8 +2277,89 @@ def test_failed_planning_can_reopen_same_work_without_losing_checkpoint(prep_env
         with creation.edit_creation(cid) as current:
             current['delivery']['status'] = 'failed'
             current['hypit_attempts'] = [attempt]
-        with pytest.raises(creation.CreationError, match='制作已开始'):
+        with pytest.raises(creation.CreationError, match='历史 Creation 只读|制作已开始'):
             creation.reopen_video_proposal(cid)
+
+
+
+@pytest.mark.parametrize('previous_status', ['MATERIAL_FAILED', 'HANDOFF_READY'])
+def test_failed_planning_revision_uses_new_preparation_and_keeps_original_attempt(prep_env, previous_status):
+    """An unpinned historical Attempt must not acquire a new commissioned owner."""
+    import asyncio
+    from easel.creation_delivery import advance_creation, is_managed, next_operation
+
+    original_work = _confirmed_delivery()
+    cid = original_work['id']
+    previous_attempt = {
+        'attempt_id': 'fa_' + 'a' * 32,
+        'preparation_key': 'a' * 64,
+        'execution_status': 'NOT_SUBMITTED',
+        'material_planning': {},
+        'material_gate': {},
+        'build': {'status': 'not_submitted'},
+    }
+    with creation.edit_creation(cid) as work:
+        work['preparation'] = {
+            'status': previous_status, 'operation_key': 'a' * 64,
+            'snapshot_hashes': {'fixture': 'b' * 64},
+        }
+        work['hypit_attempts'] = [previous_attempt.copy()]
+        work['delivery'].update(
+            status='failed',
+            exhausted_operation=previous_attempt['attempt_id'] + ':prepare',
+            agent_calls={'old': {'status': 'ok'}},
+            call_budgets={'prepare': {'used': 5, 'limit': 24, 'categories': {}}},
+        )
+    old_bytes = creation._creation_path(cid).read_bytes()
+    old = creation.get_creation(cid)
+    assert not is_managed(old)
+    assert next_operation(old) == (None, 'unmanaged')
+    with pytest.raises(creation.CreationError, match='历史 Creation 只读'):
+        creation.reopen_video_proposal(cid)
+    with pytest.raises(prep.PreparationError, match='历史或未冻结 New-Only 委托只读'):
+        prep.claim_chat_preparation(cid, f'delivery:{cid}', 'fresh-confirm')
+
+    async def forbid_dispatch(_operation, _work):
+        pytest.fail('old Attempt must not dispatch any Preparation or agent work')
+    assert asyncio.run(advance_creation(cid, forbid_dispatch)) is False
+    assert creation._creation_path(cid).read_bytes() == old_bytes
+    preserved = creation.get_creation(cid)
+    assert preserved['hypit_attempts'] == [previous_attempt]
+    assert preserved['delivery']['agent_calls'] == {'old': {'status': 'ok'}}
+    assert preserved['delivery']['call_budgets']['prepare']['used'] == 5
+    assert preserved['preparation']['operation_key'] == 'a' * 64
+    assert not preserved.get('proposal_history')
+
+
+def test_revised_planning_cannot_reuse_original_operation_key(prep_env):
+    """Old operation keys remain quarantined; no claim, fork or byte rewrite."""
+    from easel.creation_delivery import is_managed, next_operation
+    current = _confirmed_delivery()
+    cid = current['id']
+    old_key = prep._operation_key(f'delivery:{cid}', 'same-key')
+    prior_attempt = {'attempt_id': 'fa_' + 'b' * 32,
+                     'preparation_key': old_key, 'execution_status': 'NOT_SUBMITTED'}
+    with creation.edit_creation(cid) as work:
+        work['preparation'] = {
+            'status': 'MATERIAL_FAILED', 'operation_key': old_key,
+            'snapshot_hashes': {'fixture': 'b' * 64},
+        }
+        work['hypit_attempts'] = [prior_attempt.copy()]
+        work['delivery']['status'] = 'failed'
+    old_bytes = creation._creation_path(cid).read_bytes()
+    assert not is_managed(creation.get_creation(cid))
+    with pytest.raises(creation.CreationError, match='历史 Creation 只读'):
+        creation.reopen_video_proposal(cid)
+    with pytest.raises(prep.PreparationError, match='历史或未冻结 New-Only 委托只读'):
+        prep.claim_chat_preparation(cid, f'delivery:{cid}', 'same-key')
+    # A different key also cannot turn the same old Attempt into a new owner.
+    with pytest.raises(prep.PreparationError, match='历史或未冻结 New-Only 委托只读'):
+        prep.claim_chat_preparation(cid, f'delivery:{cid}', 'different-key')
+    assert next_operation(creation.get_creation(cid)) == (None, 'unmanaged')
+    assert creation._creation_path(cid).read_bytes() == old_bytes
+    assert creation.get_creation(cid)['hypit_attempts'] == [prior_attempt]
+
+
 
 
 def test_delivery_stage_budget_counts_nested_calls_and_survives_digest_retry(prep_env):
@@ -2286,14 +2453,21 @@ def test_real_planning_contract_reaches_visual_consumer_without_reclassification
     monkeypatch.setattr(handoff, 'load_frozen_creative_mode', lambda *_: (mode, plan.context_refs['creative_mode_sha256']))
     monkeypatch.setattr(web, 'run_agent_sync', lambda *_a, **_k: pytest.fail('valid real draft needs no Planning or repair call'))
     before = {p.name: p.read_bytes() for p in planning_dir.iterdir()}
-    planned = web._material_planning_executor(attempt, {'context_refs': plan.context_refs})
-    assert planned['plan'] == plan
+    # The historic 2026-10-06 fixture must never enter current vNext Planning.
+    with pytest.raises(prep.PreparationError, match='历史或未冻结委托'):
+        web._material_planning_executor(attempt, {'context_refs': plan.context_refs})
     assert {p.name: p.read_bytes() for p in planning_dir.iterdir()} == before
     store = AttemptMaterialStore(root)
     bound_needs = tuple(n.model_copy(update={'constraints': {**n.constraints, 'preferred_style': n.modality_spec.visual_style}})
                         if n.media_type in {MediaType.IMAGE, MediaType.VIDEO} else n for n in plan.needs)
     bound_plan = plan.model_copy(update={'needs': bound_needs})
     store.write_plan(bound_plan)
+    # Replay immutable historical requirements only for pure observation and
+    # filter semantics, not as a New-Only Planning or Material admission.
+    from easel.materials.application.visual_contract import planning_contracts
+    raw_contract = json.loads((planning_dir / 'MATERIAL_REQUIREMENTS.json').read_text())
+    for cache_key, record in planning_contracts(bound_plan, mode, raw_contract):
+        store.write_recovery_record(cache_key, record)
     asset_path = root / 'materials/assets/paper/original.png'
     asset_path.parent.mkdir(parents=True)
     Image.new('RGB', (12, 12), color='white').save(asset_path)
@@ -2620,79 +2794,324 @@ def test_source_ref_truth_keeps_original_source_and_cold_projection(prep_env, mo
 
 
 @pytest.mark.parametrize('outcome', ['valid', 'invalid', 'pending_valid', 'timeout', 'failed'])
-def test_planning_structure_repair_reentry_uses_one_durable_request(tmp_path, monkeypatch, outcome):
-    from easel.integrations.openclaw_delivery import DeliveryAgentPending
-    from easel.materials.application.need_constraints import VOICE_ALIASES, PLANNING_CONSTRAINT_CONTRACT
+def test_retired_planning_structure_repair_cannot_resume_historical_attempt(
+        tmp_path, monkeypatch, outcome):
+    """Old file-repair attempts remain evidence, never a new v3 dispatch.
+
+    The active vNext same-request recovery is covered by the native
+    test_vnext_continuous_owner_boundary and transport tests.
+    """
+    from easel.materials.store import AttemptMaterialStore
+    from easel.materials.application.need_constraints import VOICE_ALIASES
     from easel.materials.application.compiler import NeedCompiler
     from easel.materials.application.visual_contract import planning_contracts, read_planning_requirements
+
     folder = Path(__file__).parent / 'fixtures/planning-modality-contract-2026-10-06'
-    raw = (folder / 'MATERIAL_PLAN.json').read_bytes()
-    failed = MaterialPlan.model_validate_json(raw)
-    # Explicit test-only legal control, never a runtime normalization or rewrite.
+    source_plan = (folder / 'MATERIAL_PLAN.json').read_bytes()
+    source_requirements = (folder / 'MATERIAL_REQUIREMENTS.json').read_bytes()
+    failed = MaterialPlan.model_validate_json(source_plan)
+    # Pure local legacy-artifact audit: no upgrading, no new Rights, no model.
     needs = []
-    for n in failed.needs:
-        constraints = {k: v for k, v in n.constraints.items() if k not in VOICE_ALIASES}
-        if getattr(n.modality_spec, 'kind', None) == 'voice':
-            constraints['voice_delivery'] = {'pace_ratio': n.constraints['voice_pace_ratio'],
-                'pitch_semitones': n.constraints['voice_pitch_semitones'], 'tone': n.constraints['voice_tone']}
-        needs.append(n.model_copy(update={'constraints': constraints}))
+    for need in failed.needs:
+        constraints = {k: v for k, v in need.constraints.items() if k not in VOICE_ALIASES}
+        if getattr(need.modality_spec, 'kind', None) == 'voice':
+            constraints['voice_delivery'] = {
+                'pace_ratio': need.constraints['voice_pace_ratio'],
+                'pitch_semitones': need.constraints['voice_pitch_semitones'],
+                'tone': need.constraints['voice_tone']}
+        needs.append(need.model_copy(update={'constraints': constraints}))
     legal = failed.model_copy(update={'needs': tuple(needs)})
-    assert [(n.need_id, n.importance) for n in legal.needs] == [(n.need_id, n.importance) for n in failed.needs]
-    directory = tmp_path / 'planning'
-    directory.mkdir()
-    plan_path = directory / 'MATERIAL_PLAN.json'
-    plan_path.write_bytes(raw)
-    requirements = (folder / 'MATERIAL_REQUIREMENTS.json').read_bytes()
-    (directory / 'MATERIAL_REQUIREMENTS.json').write_bytes(requirements)
+    for need in legal.needs:
+        intent = NeedCompiler().compile(need)
+        assert not {'voice_delivery', 'voice_pace_ratio',
+                    'voice_pitch_semitones', 'voice_tone'}.intersection(intent.filters)
+    contracts = planning_contracts(
+        legal, {}, read_planning_requirements(source_requirements.decode()))
+    assert len(contracts) == 7
+    root = tmp_path / 'historic-attempt'
+    planning = root / 'planning'
+    planning.mkdir(parents=True)
+    (planning / 'MATERIAL_PLAN.json').write_bytes(source_plan)
+    (planning / 'MATERIAL_REQUIREMENTS.json').write_bytes(source_requirements)
     for name in ('TREATMENT.md', 'SCRIPT.md', 'SCENES.md'):
-        (directory / name).write_text('隔离测试，不是生产输入。')
-    attempt = {'creation_id': legal.creation_id, 'attempt_id': legal.attempt_id, 'workspace': {'path': str(tmp_path)}}
+        (planning / name).write_text('历史只读原件，不是当前生产输入。')
+    store = AttemptMaterialStore(root)
+    old_journal = {'schema': 'semantic-planning-checkpoint@1',
+                   'scope': {'policy': 'semantic-planning-compiler@5'},
+                   'calls': {'repair': {'status': outcome, 'request_id': 'original-only'}},
+                   'repair_used': True}
+    store.write_recovery_record('semantic-planning-v3', old_journal)
+    original_bytes = {p.relative_to(root).as_posix(): p.read_bytes()
+                      for p in root.rglob('*') if p.is_file()}
+    attempt = {'creation_id': legal.creation_id, 'attempt_id': legal.attempt_id,
+               'workspace': {'path': str(root)}}
     monkeypatch.setattr(web, 'get_creation', lambda *_: {})
-    monkeypatch.setattr(handoff, 'load_frozen_creative_mode', lambda *_: ({}, legal.context_refs['creative_mode_sha256']))
     calls = []
-    def repair(message, timeout, session_id, **options):
-        assert options == {'retry_failed': False}
-        assert PLANNING_CONSTRAINT_CONTRACT in message
-        calls.append((message, timeout, session_id))
-        if len(calls) == 1:
-            # A changed error or an apparently valid draft cannot mint a request.
-            plan_path.write_text(legal.model_dump_json() if outcome == 'pending_valid' else '{}')
-            if outcome == 'timeout':
-                raise subprocess.TimeoutExpired('fixture', 1)
-            raise DeliveryAgentPending('fixture pending')
-        if outcome == 'failed':
-            raise RuntimeError('fixture terminal failure')
-        plan_path.write_text('{}' if outcome == 'invalid' else legal.model_dump_json())
-        return 'fixture terminal'
-    monkeypatch.setattr(web, 'run_agent_sync', repair)
-    first_error = subprocess.TimeoutExpired if outcome == 'timeout' else DeliveryAgentPending
-    with pytest.raises(first_error):
-        web._material_planning_executor(attempt, {'context_refs': legal.context_refs})
-    if outcome == 'failed':
-        with pytest.raises(RuntimeError, match='fixture terminal failure'):
+    monkeypatch.setattr(web, 'run_agent_sync',
+        lambda *_a, **_kw: calls.append('dispatched'))
+    for _ in range(2):
+        with pytest.raises(prep.PreparationError, match='历史或未冻结委托'):
             web._material_planning_executor(attempt, {'context_refs': legal.context_refs})
-        with pytest.raises(prep.PreparationError, match='已失败；不重复派发'):
-            web._material_planning_executor(attempt, {'context_refs': legal.context_refs})
-    elif outcome == 'invalid':
-        with pytest.raises(prep.PreparationError):
-            web._material_planning_executor(attempt, {'context_refs': legal.context_refs})
-        with pytest.raises(prep.PreparationError, match='单次合同修正后仍无效'):
-            web._material_planning_executor(attempt, {'context_refs': legal.context_refs})
+    assert not calls
+    assert {p.relative_to(root).as_posix(): p.read_bytes()
+            for p in root.rglob('*') if p.is_file()} == original_bytes
+    assert store.read_recovery_record('semantic-planning-v3') == old_journal
+    assert (folder / 'MATERIAL_PLAN.json').read_bytes() == source_plan
+
+
+@pytest.mark.parametrize('risk', ['valid', 'missing_bgm', 'optional_bgm', 'unknown_root',
+    'unknown_header', 'bad_echo', 'echo_extra', 'missing_role', 'unknown_scope', 'no_music_rule'])
+def test_root_bgm_echo_is_exact_and_does_not_rewrite_old_receipt(risk, tmp_path):
+    from copy import deepcopy
+    from easel import output_admission as admission
+    from easel.integrations import semantic_boundary_run as boundary, planning_input_view as views
+    from easel.integrations import planning_staged_proposal as staged
+    fixture = Path(__file__).parent / 'fixtures/planning-intake12-root-contains-echo.json'
+    original_bytes = fixture.read_bytes()
+    state = json.loads(original_bytes)['snapshot']
+    scope = state['scope']
+    view = views.PlanningInputView(scope['inputs'], scope['catalog'])
+    schema = boundary.intake_selection(scope, view.codec.schema)
+    call = state['calls']['A-selection']
+    assert hashlib.sha256(boundary.view_a_message(scope, view, 'A-selection').encode()).hexdigest() == call['request_sha256']
+    old = boundary.selection_admission(scope, call, schema, state['schema_bindings']['A-selection'])
+    assert old == state['admissions']['A-selection']
+    with pytest.raises(ValueError, match='SELECTION_SHAPE_OR_REFERENCE_INVALID'):
+        boundary.require_selection_admission(old)
+    value = json.loads(call['reply'])
+    legal = deepcopy(value)
+    legal.pop('contains')
+    if risk == 'missing_bgm': value['needs'] = value['needs'][:-1]
+    if risk == 'optional_bgm': value['needs'][-1]['necessity'] = 'optional'
+    if risk == 'unknown_root': value['restriction'] = '保留实际约束'
+    if risk == 'unknown_header': value['needs'][0]['restriction'] = '保留实际约束'
+    if risk == 'bad_echo': value['contains']['necessity'] = 'optional'
+    if risk == 'echo_extra': value['contains']['restriction'] = '保留实际约束'
+    if risk == 'missing_role': del value['needs'][0]['role']
+    if risk == 'unknown_scope': value['needs'][0]['scope'] = 'unknown-source'
+    if risk == 'no_music_rule': schema['properties']['needs'].pop('contains')
+    raw = json.dumps(value, ensure_ascii=False)
+    result = admission.admit_json(raw, schema, stage='A-selection', channel='tool',
+        binding=old['receipt']['binding'], profile=admission.SELECTION_PROFILE)
+    if risk != 'valid':
+        assert result['receipt']['decision']['outcome'] == 'REJECT'
+        assert not result['receipt']['actions'] and result['candidate'] == value
     else:
-        assert web._material_planning_executor(attempt, {'context_refs': legal.context_refs})['plan'] == legal
-        monkeypatch.setattr(web, 'run_agent_sync', lambda *a, **k: pytest.fail('completed request must not dispatch'))
-        assert web._material_planning_executor(attempt, {'context_refs': legal.context_refs})['plan'] == legal
-        for need in legal.needs:
-            intent = NeedCompiler().compile(need)
-            assert not {'voice_delivery', 'voice_pace_ratio', 'voice_pitch_semitones', 'voice_tone'}.intersection(intent.filters)
-        contracts = planning_contracts(legal, {}, read_planning_requirements(requirements.decode()))
-        assert {record['input']['need']['need_id'] for _, record in contracts} == {
-            n.need_id for n in legal.needs if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}
+        assert result['receipt']['decision']['outcome'] == 'NORMALIZE'
+        assert result['candidate'] == legal
+        assert result['receipt']['actions'][0]['path'] == ['contains']
+        assert result['receipt']['policy'] != old['receipt']['policy']
+        second = admission.admit_json(admission.canonical_json(legal), schema,
+            stage='A-selection', channel='tool', binding=old['receipt']['binding'],
+            profile=admission.SELECTION_PROFILE)
+        assert second['candidate'] == legal and not second['receipt']['actions']
+        current = deepcopy(scope)
+        current['transport'] = boundary.transport_identity(scope['catalog'], intake_inputs=scope['inputs'])
+        admitted = boundary.selection_admission(current, call, schema, state['schema_bindings']['A-selection'])
+        selected = view.codec.decode(boundary.require_selection_admission(admitted, scope=current),
+            view.codec.identity, diagnostic=True)
+        contract = staged._read_only_staged(boundary.query_schema(current)).details_contract(selected, diagnostic=True)
+        binding = boundary.detail_binding(current, selected, call['reply_sha256'], contract, view,
+            admission_receipt=admitted['receipt'])
+        assert binding['raw_selection_sha256'] == call['reply_sha256']
+        assert binding['selection_admission_sha256'] == admission.digest(admitted['receipt'])
+        assert admitted['candidate']['needs'] == value['needs']
         from easel.materials.store import AttemptMaterialStore
         store = AttemptMaterialStore(tmp_path)
-        for key, record in contracts:
-            assert store.read_recovery_record(key) == record
-        assert len(contracts) == 7
-    assert len(calls) == 2 and calls[0] == calls[1]
-    assert (directory / 'MATERIAL_REQUIREMENTS.json').read_bytes() == requirements
-    assert (folder / 'MATERIAL_PLAN.json').read_bytes() == raw
+        store.write_recovery_record(boundary.STATE_KEY, state)
+        journal = tmp_path / 'materials/recoveries/semantic-planning-vnext.json'
+        before = journal.read_bytes()
+        with pytest.raises(ValueError, match='Historical Planning intake is read-only'):
+            boundary.run({'workspace': {'path': str(tmp_path)}}, {}, {}, {}, {},
+                lambda *_a, **_kw: pytest.fail('No old @12 dispatch'))
+        assert journal.read_bytes() == before
+    assert fixture.read_bytes() == original_bytes
+
+
+def test_current_selection_owner_eligibility_is_separate_and_recomputed():
+    from copy import deepcopy
+    from easel.integrations import semantic_boundary_run as boundary, planning_input_view as views
+    from easel import output_admission as admission
+    state = json.loads((Path(__file__).parent / 'fixtures/planning-intake12-root-contains-echo.json').read_text())['snapshot']
+    scope = deepcopy(state['scope'])
+    scope['transport'] = boundary.transport_identity(scope['catalog'], intake_inputs=scope['inputs'])
+    view = views.PlanningInputView(scope['inputs'], scope['catalog'])
+    schema = boundary.intake_selection(scope, view.codec.schema)
+    call = deepcopy(state['calls']['A-selection'])
+    value = json.loads(call['reply'])
+    value.pop('contains')
+    value['needs'][0]['role'] = '长' * 201
+    call['reply'] = json.dumps(value, ensure_ascii=False)
+    call['reply_sha256'] = hashlib.sha256(call['reply'].encode()).hexdigest()
+    result = boundary.selection_admission(scope, call, schema, state['schema_bindings']['A-selection'])
+    assert result['receipt']['decision']['outcome'] == 'REJECT'
+    assert result['owner_eligibility']['decision']['outcome'] == 'BOUNDED_REPAIR'
+    assert boundary.require_selection_admission(result, scope=scope) == value
+    for field in ('policy', 'receipt_sha256', 'candidate_sha256', 'scope_sha256'):
+        forged = deepcopy(result)
+        forged['owner_eligibility'][field] = 'forged'
+        with pytest.raises(ValueError, match='eligibility binding changed'):
+            boundary.require_selection_admission(forged, scope=scope)
+    forged = deepcopy(result)
+    forged['owner_eligibility']['decision']['outcome'] = 'ACCEPT'
+    with pytest.raises(ValueError, match='eligibility binding changed'):
+        boundary.require_selection_admission(forged, scope=scope)
+    with pytest.raises(ValueError, match='eligibility binding changed'):
+        boundary.require_selection_admission({k: v for k, v in result.items() if k != 'owner_eligibility'}, scope=scope)
+    downgraded = deepcopy(result)
+    downgraded['receipt']['policy'] = admission.policy_identity(admission.LEGACY_SELECTION_PROFILE)
+    downgraded['receipt']['decision']['outcome'] = 'ACCEPT'
+    downgraded.pop('owner_eligibility')
+    with pytest.raises(ValueError, match='admission profile changed'):
+        boundary.require_selection_admission(downgraded, scope=scope)
+    assert result['receipt']['policy'] == admission.policy_identity(admission.SELECTION_PROFILE)
+
+
+def test_sfx_source_action_capture_stays_rejected_and_intake13_read_only(tmp_path):
+    from copy import deepcopy
+    from easel.integrations import semantic_boundary_run as boundary
+    from easel.integrations import planning_input_view, planning_staged_proposal, planning_wire
+    from easel.integrations import planning_semantic_review as review
+    from easel.materials.store import AttemptMaterialStore
+    fixture = Path(__file__).parent / 'fixtures/planning-intake13-sfx-dynamic-action.json'
+    before = fixture.read_bytes()
+    state = json.loads(before)['snapshot']
+    scope = state['scope']
+    expected_transport = boundary.transport_identity(scope['catalog'], intake_inputs=scope['inputs'],
+        intake_policy=scope['transport']['intake_policy'])
+    # Original carrier pins are historical evidence, never current dispatch identity.
+    assert scope['transport'] != expected_transport
+    assert {**scope['transport'], 'runtime_sha256': expected_transport['runtime_sha256']} == expected_transport
+    with pytest.raises(ValueError, match='transport identity changed'):
+        boundary.validate_transport(state['schema'], scope)
+    view = planning_input_view.PlanningInputView(scope['inputs'], scope['catalog'])
+    selected = view.codec.decode(boundary.require_selection_admission(
+        state['admissions']['A-selection'], scope=scope), view.codec.identity, diagnostic=True)
+    for stage in ('A-selection', 'A-details'):
+        kwargs = {} if stage == 'A-selection' else {'selection': selected, 'binding': state['detail_binding']}
+        message = boundary.view_a_message(scope, view, stage, **kwargs)
+        assert hashlib.sha256(message.encode()).hexdigest() == state['calls'][stage]['request_sha256']
+        assert hashlib.sha256(state['calls'][stage]['reply'].encode()).hexdigest() == state['calls'][stage]['reply_sha256']
+    codec = planning_staged_proposal._read_only_staged(boundary.query_schema(scope))
+    contract = codec.details_contract(selected, diagnostic=True)
+    projection = planning_wire.project(contract['schema'], 'A-details', atomic_framing=True)
+    raw = json.loads(state['calls']['A-details']['reply'])
+    assert {tuple(e['path']) for e in projection.errors(raw)} == {
+        ('slots', f'slot_{i:03}', 'conditions') for i in (8, 9, 10)}
+    candidate = codec.assemble_candidate(selected, projection.decode_candidate(raw), contract['identity'])
+    with pytest.raises(ValueError, match='cannot be localized'):
+        review.structural_targets(candidate, flexible_queries=True)
+    current = deepcopy(scope)
+    current['transport'] = boundary.transport_identity(scope['catalog'], intake_inputs=scope['inputs'])
+    assert current['transport']['sfx_guidance_policy'] == review.SFX_GUIDANCE_POLICY
+    assert boundary.query_schema(current) == boundary.query_schema(scope)
+    store = AttemptMaterialStore(tmp_path)
+    store.write_recovery_record(boundary.STATE_KEY, state)
+    journal = tmp_path / 'materials/recoveries/semantic-planning-vnext.json'
+    original = journal.read_bytes()
+    with pytest.raises(ValueError, match='Historical Planning intake is read-only'):
+        boundary.run({'workspace': {'path': str(tmp_path)}}, {}, {}, {}, {},
+                     lambda *_a, **_kw: pytest.fail('Original rejected capture must not dispatch'))
+    assert journal.read_bytes() == original
+    assert fixture.read_bytes() == before
+
+
+def test_provider_shape_capture_stays_rejected_and_intake14_read_only(tmp_path):
+    from copy import deepcopy
+    from easel.integrations import semantic_boundary_run as boundary
+    from easel.integrations import planning_input_view, planning_staged_proposal, planning_wire
+    from easel.integrations import planning_semantic_review as review
+    from easel.materials.store import AttemptMaterialStore
+    fixture = Path(__file__).parent / 'fixtures/planning-intake14-provider-shape-rejection.json'
+    original = fixture.read_bytes()
+    state = json.loads(original)['snapshot']
+    scope = state['scope']
+    assert boundary.validate_transport(state['schema'], scope)
+    view = planning_input_view.PlanningInputView(scope['inputs'], scope['catalog'])
+    selected = view.codec.decode(boundary.require_selection_admission(
+        state['admissions']['A-selection'], scope=scope), view.codec.identity, diagnostic=True)
+    for stage in ('A-selection', 'A-details'):
+        kwargs = {} if stage == 'A-selection' else {'selection': selected, 'binding': state['detail_binding']}
+        message = boundary.view_a_message(scope, view, stage, **kwargs)
+        assert hashlib.sha256(message.encode()).hexdigest() == state['calls'][stage]['request_sha256']
+        assert hashlib.sha256(state['calls'][stage]['reply'].encode()).hexdigest() == state['calls'][stage]['reply_sha256']
+        assert 'detail_shape_contract' not in message
+    codec = planning_staged_proposal._read_only_staged(boundary.query_schema(scope))
+    contract = codec.details_contract(selected, diagnostic=True)
+    projection = planning_wire.project(contract['schema'], 'A-details', atomic_framing=True)
+    raw = json.loads(state['calls']['A-details']['reply'])
+    assert projection.errors(raw) == state['wire_diagnostics']['A-details']['wire_errors']
+    assert len(projection.errors(raw)) == 7
+    with pytest.raises(ValueError, match='Candidate properties changed'):
+        codec.assemble_candidate(selected, projection.decode_candidate(raw), contract['identity'])
+    current = deepcopy(scope)
+    current['transport'] = boundary.transport_identity(scope['catalog'], intake_inputs=scope['inputs'])
+    assert current['transport']['schema_shape_guidance_policy'] == review.SCHEMA_SHAPE_GUIDANCE_POLICY
+    assert boundary.query_schema(current) == boundary.query_schema(scope)
+    message = boundary.view_a_message(current, view, 'A-details',
+        selection=selected, binding=state['detail_binding'])
+    shape = json.loads(message.splitlines()[-1])['detail_shape_contract']
+    for key, slot in projection.schema['properties']['slots']['properties'].items():
+        assert shape['slots'][key]['allowed_properties'] == sorted(slot['properties'])
+        assert shape['slots'][key]['required_properties'] == slot['required']
+        assert shape['condition_required'] == slot['properties']['conditions']['items']['required']
+        for name, prop in slot['properties']['conditions']['items']['properties'].items():
+            assert shape['condition_same_level_fields'][name] == {
+                k: prop[k] for k in ('type', 'enum') if k in prop}
+    store = AttemptMaterialStore(tmp_path)
+    store.write_recovery_record(boundary.STATE_KEY, state)
+    journal = tmp_path / 'materials/recoveries/semantic-planning-vnext.json'
+    before = journal.read_bytes()
+    with pytest.raises(ValueError, match='Historical Planning intake is read-only'):
+        boundary.run({'workspace': {'path': str(tmp_path)}}, {}, {}, {}, {},
+                     lambda *_a, **_kw: pytest.fail('Original rejected capture must not dispatch'))
+    assert journal.read_bytes() == before and fixture.read_bytes() == original
+
+
+@pytest.mark.parametrize('effort', ['medium', 'max'])
+def test_m31_route_change_observes_original_unknown_before_refusing_resume(prep_env, monkeypatch, effort):
+    from tests import test_semantic_planning as external
+    from easel.creation_delivery import DeliveryExecutionUncertain
+    from easel.integrations import openclaw_delivery, semantic_boundary_run as boundary
+    from easel.materials.store import AttemptMaterialStore
+    from scripts.configure_minimax_m3_thinking import migrated_m31_profile
+    work_id = prep_env['work']['id']
+    sent = []
+    def uncertain(message, value):
+        sent.append(message)
+        with creation.edit_creation(work_id) as current:
+            aid = current['hypit_attempts'][-1]['attempt_id']
+            current['delivery'].setdefault('agent_calls', {})['original'] = {
+                'run_id': 'original-m3-run', 'profile': web.OPENCLAW_PROFILE, 'status': 'pending',
+                'session_key': 'agent:main:semantic-' + aid + '-vnext-A-selection'}
+        raise DeliveryExecutionUncertain('Offline original M3 pending')
+    monkeypatch.setattr(external, 'staged_fixture_wire', uncertain)
+    with pytest.raises(DeliveryExecutionUncertain):
+        _prepare_creation(work_id, runtime_profile=None)
+    attempt = service.get_film_attempt(creation.get_creation(work_id)['hypit_attempts'][-1]['attempt_id'])
+    store = AttemptMaterialStore(attempt['workspace']['path'])
+    before = store.read_recovery_record(boundary.STATE_KEY)
+    assert before['calls']['A-selection']['result'] == 'TRANSPORT_FAILED'
+    config = {'models': {'providers': {'minimax': {'api': 'openai-completions',
+        'baseUrl': 'https://api.minimax.cn/v1', 'models': [{'id': 'MiniMax-M3'}]}}},
+        'agents': {'defaults': {'model': {'primary': 'minimax/MiniMax-M3'}}}}
+    (prep_env['tmp'] / 'offline-openclaw.json').write_text(json.dumps(migrated_m31_profile(config, reasoning_effort=effort)))
+    observed = []
+    terminal = [False]
+    def reconcile(creation_id, **options):
+        assert creation_id == work_id and options['profile'] == web.OPENCLAW_PROFILE
+        observed.append('original-m3-run')
+        with creation.edit_creation(work_id) as current:
+            row = current['delivery']['agent_calls']['original']
+            assert row['run_id'] == 'original-m3-run'
+            if terminal[0]: row.update(status='error', runtime_release='released')
+    monkeypatch.setattr(openclaw_delivery, 'reconcile_agent_calls', reconcile)
+    context = {'context_refs': before['scope']['context_refs']}
+    with pytest.raises(DeliveryExecutionUncertain, match='尚未核实'):
+        web._material_planning_executor(attempt, context)
+    assert store.read_recovery_record(boundary.STATE_KEY) == before
+    terminal[0] = True
+    with pytest.raises(prep.PreparationError, match='route changed'):
+        web._material_planning_executor(attempt, context)
+    assert store.read_recovery_record(boundary.STATE_KEY) == before
+    assert observed == ['original-m3-run', 'original-m3-run'] and len(sent) == 1

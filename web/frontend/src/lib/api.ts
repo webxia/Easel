@@ -299,17 +299,10 @@ export function reviewMaterialCombination(attemptId: string, review: OperatorRec
   return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/material-match/review-combination`, review);
 }
 
-export function recoverFilmMaterials(attemptId: string, recovery: OperatorRecord): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/materials/recover`, recovery);
-}
-
 export function materialAssetPreviewUrl(attemptId: string, assetId: string, sha256: string): string {
   return `/api/film-attempts/${encodeURIComponent(attemptId)}/material-assets/${encodeURIComponent(assetId)}/preview?sha256=${encodeURIComponent(sha256)}`;
 }
 
-export function startFilmAuthoring(attemptId: string): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/author`);
-}
 
 export function reviewScriptTruth(
   attemptId: string, scriptSha256: string, truthPacketSha256: string,
@@ -320,31 +313,6 @@ export function reviewScriptTruth(
   });
 }
 
-export function generateMiniMaxMaterialVideo(
-  attemptId: string, needId: string, requestId: string,
-): Promise<OperatorRecord> {
-  return generateMiniMaxMaterial(attemptId, needId, requestId);
-}
-
-export function generateMiniMaxMaterial(
-  attemptId: string, needId: string, requestId: string,
-): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/material-generation/minimax`, {
-    needId, requestId, confirmPaid: true,
-  });
-}
-
-export function resolveFilmRuntime(attemptId: string): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/runtime/resolve`);
-}
-
-export function validateFilmAttempt(attemptId: string, runPath: string): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/validate`, { runPath });
-}
-
-export function estimateFilmAttempt(attemptId: string): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/estimate`);
-}
 
 export function approveFilmCost(attemptId: string, maxBudgetUsd: number): Promise<OperatorRecord> {
   return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/approve-cost`, { maxBudgetUsd });
@@ -354,39 +322,14 @@ export function reopenCreationProposal(creationId: string): Promise<OperatorReco
   return operatorPost(`/api/creations/${encodeURIComponent(creationId)}/proposal/reopen`);
 }
 
+export function reuseConfirmedVideoProposal(creationId: string): Promise<OperatorRecord> {
+  return operatorPost(`/api/creations/${encodeURIComponent(creationId)}/proposal/use-previous`);
+}
+
 export function retryCreationDelivery(creationId: string): Promise<OperatorRecord> {
   return operatorPost(`/api/creations/${encodeURIComponent(creationId)}/delivery/retry`);
 }
 
-export function submitFilmBuild(attemptId: string, title: string): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/build`, { title });
-}
-
-export function refreshFilmBuild(attemptId: string): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/refresh`);
-}
-
-export function retryFailedFilmBuild(attemptId: string): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/retry-failed-build`);
-}
-
-export function inspectFilmBuild(attemptId: string): Promise<OperatorRecord> {
-  return operatorRequest(`/api/film-attempts/${encodeURIComponent(attemptId)}/inspect`);
-}
-
-export function cancelFilmBuild(attemptId: string): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/cancel`);
-}
-
-export function reconcileFilmBuild(
-  attemptId: string, input: { buildId?: string; outputName?: string } = {},
-): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/reconcile`, input);
-}
-
-export function exportFilmOutput(attemptId: string, outputName: string): Promise<OperatorRecord> {
-  return operatorPost(`/api/film-attempts/${encodeURIComponent(attemptId)}/export`, { outputName });
-}
 
 export function reviewFilmOutput(
   attemptId: string, input: OperatorRecord,

@@ -30,12 +30,8 @@ def test_managed_native_authoring_promotion_io_reclaims_original_stage_without_a
         "productions/easel-authoring/authors/recipes.svs")}
     for name in (publication.AUTHOR, publication.RUN, "productions/easel-authoring/authors/recipes.svs"):
         (root / name).unlink()
-    with creation.edit_creation(attempt["creation_id"]) as current:
-        current["origin"] = {"type": "chat", "session_hash": "d" * 64}
-    creation.mark_chat_proposal_ready(attempt["creation_id"])
-    proposal = json.dumps([{"role": "user", "content": "已确认本测试作品及假设脚本内容。"}], ensure_ascii=False)
-    creation.confirm_chat_proposal(attempt["creation_id"], "fixture-confirm",
-        delivery_proposal=proposal, proposal_sha256=hashlib.sha256(proposal.encode()).hexdigest())
+    from easel.creation_delivery import is_managed
+    assert is_managed(creation.get_creation(attempt['creation_id']))
 
     policies, methods, messages, deletes = {}, [], [], []
     agent_invokes, run_id, stage_workspace = 0, None, None

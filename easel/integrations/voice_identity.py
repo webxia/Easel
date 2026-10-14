@@ -57,11 +57,13 @@ def render_sound(source, profile):
 def binding_for(work):
     delivery = work.get('delivery') or {}
     proposal = delivery.get('video_plan') or {}
-    if proposal.get('schema') != 'easel-video-proposal@3':
+    if proposal.get('schema') != 'easel-video-proposal@4':
         return None
     from easel.creator_proposal import validate_video_plan
-    if not validate_video_plan(proposal) or proposal['specs']['audio_mode'] not in {'voice', 'mixed'}:
+    if not validate_video_plan(proposal):
         raise ValueError('确认旁白方案不完整')
+    if proposal['specs']['audio_mode'] not in {'voice', 'mixed'}:
+        return None
     profile = proposal['voice_profile']
     grant = delivery.get('authorization', {}).get('material_generation') or {}
     from easel.integrations.material_generation import authorized_generation_modalities
@@ -103,12 +105,13 @@ def require_binding(work, plan=None, script=None):
 
 
 def derived_catalog(proposal, script):
-    if not proposal or proposal.get('schema') != 'easel-video-proposal@3':
+    if not proposal or proposal.get('schema') != 'easel-video-proposal@4':
         return None
     from easel.creator_proposal import validate_video_plan
-    if (not validate_video_plan(proposal) or proposal['script'] != script or not script.strip()
-            or proposal['specs']['audio_mode'] not in {'voice', 'mixed'}):
-        raise ValueError('程序旁白义务缺少完整确认选择')
+    if not validate_video_plan(proposal) or proposal['script'] != script or not script.strip():
+        raise ValueError('当前确认方案与SCRIPT不匹配，不能派生音轨义务')
+    if proposal['specs']['audio_mode'] in {'silent', 'music'}:
+        return None  # No implicit Voice or TTS permission for non-voice proposals.
     return {'profile': proposal['voice_profile'], 'plan_sha256': proposal['sha256'],
             'script_sha256': sha(script), 'sound_source_sha256': sha(proposal['sound_source'])}
 

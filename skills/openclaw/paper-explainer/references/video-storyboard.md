@@ -35,7 +35,7 @@
 2. 按 `slide-design.md` 生成 `slide-plan.json`，只用其中定义的 cover/statement/evidence/process/metrics/comparison/takeaway 骨架。
 3. 图：`assets/parsed/figures/` 选原图；方法图/结果图用 infographic/chart-visualization 重绘；原图太密就裁关键区域，不能缩成邮票。
 4. 必须用 `render_slides.py validate → render → audit`，再肉眼查看 contact sheet；禁止每次在 outputs 临时发明一套 slide 脚本。
-5. 单人口播用 tts-voiceover；双人问答用 multi-voice-dubbing。字幕与每页时长按 narration 分段对齐，再交 auto-short-video 合成。storyboard 顶层必须写 `"image_motion": "static"`；slide 不做 Ken Burns 缩放/平移，只在换页时使用克制转场。
+5. 单人口播素材可参考 tts-voiceover，双人配音素材参考 multi-voice-dubbing；旁白与每页时长按 SCRIPT/字幕分段对齐，正式制作必须提交 Easel Web Creation，由 Material/Rights、Delivery、Hypit 接管音轨和时间线。slide 静态呈现、无 Ken Burns 缩放平移及克制转场只作为 Director/Creative Mode 的冻结表达约束；此文档不再提供独立最终合成命令。
 6. 画幅按用户确认值；B站通常 16:9，视频号可 16:9 或 9:16，但不能静默推断。
 
 ## 封面

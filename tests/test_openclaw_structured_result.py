@@ -458,6 +458,305 @@ def test_pre_sdk_argument_fingerprint_is_complete_bounded_and_payload_free():
     assert post_terminal.result()['argument_stream_state'] == 'UNAVAILABLE'
 
 
+def test_entry_observation_reasons_preserve_strict_completeness_and_hide_values():
+    from tests.planning_material_matrix.structured_gateway import EvalSseObservation
+    private = 'synthetic-private-finish-value'
+    missing = object()
+    def event(reason=missing, *, args=None, call_id='fixed-id', index=0):
+        choice = {'index': 0, 'delta': {}}
+        if reason is not missing: choice['finish_reason'] = reason
+        if args is not None:
+            choice['delta'] = {'tool_calls': [{'index': index, 'id': call_id,
+                                               'function': {'arguments': args}}]}
+        return ('data: ' + json.dumps({'choices': [choice]}, ensure_ascii=False) + '\n\n').encode()
+    start = event(args='{"text":"中文🖼️"}')
+    end = event('tool_calls')
+    cases = [
+        (start + event(None) + end, 'COMPLETE', set(), {'MISSING': 1, 'NULL': 1, 'RECOGNIZED': 1}),
+        (start + event('') + end, 'COMPLETE', {'FINISH_EMPTY'}, {'EMPTY': 1}),
+        (event('', args='{"text":', call_id='') + event('', args='"中文🖼️"}', call_id='fixed-id') + end,
+         'COMPLETE', {'FINISH_EMPTY', 'CALL_ID_EMPTY'}, {'EMPTY': 2}),
+        (start + event('', args='', call_id='') + end, 'COMPLETE', {'CALL_ID_EMPTY'}, {}),
+        (start + event(private) + end, 'UNAVAILABLE', {'FINISH_UNRECOGNIZED', 'FINISH_CONFLICT'}, {'UNRECOGNIZED': 1}),
+        (start + event({'private': private}) + end, 'UNAVAILABLE', {'FINISH_UNRECOGNIZED', 'FINISH_CONFLICT'}, {'UNRECOGNIZED': 1}),
+        (start + event('stop') + end, 'UNAVAILABLE', {'FINISH_CONFLICT'}, {'RECOGNIZED': 2}),
+        (start + event('tool_calls', args='', call_id='changed-id'), 'UNAVAILABLE', {'CALL_ID_CONFLICT'}, {}),
+        (start + end + event(args='later'), 'UNAVAILABLE', {'ARGUMENT_AFTER_FINISH'}, {}),
+        (start + end + event(''), 'UNAVAILABLE', {'EMPTY_FINISH_AFTER_TERMINAL'}, {}),
+        (event(args='x', index=16) + end, 'UNAVAILABLE', {'CALL_INDEX_INVALID'}, {}),
+        (event(args=[]) + end, 'UNAVAILABLE', {'ARGUMENT_TYPE_INVALID'}, {}),
+        (start + b'data: not-json\n\n' + end, 'UNAVAILABLE', {'SSE_JSON_INVALID'}, {}),
+        (start + b'data: []\n\n' + end, 'UNAVAILABLE', {'SSE_EVENT_SHAPE_INVALID'}, {}),
+        (start + b'data: {"tail":', 'UNAVAILABLE', {'HTTP_TAIL_INCOMPLETE'}, {}),
+        (start, 'INCOMPLETE', {'TOOL_FINISH_MISSING', 'ARGUMENT_FINISH_INCOMPLETE'}, {}),
+    ]
+    for stream, state, reasons, counts in cases:
+        for width in (1, 17, 16384):
+            observer = EvalSseObservation()
+            for offset in range(0, len(stream), width): observer.feed(stream[offset:offset + width])
+            observer.finish_response()
+            result = observer.result()
+            assert result['argument_stream_state'] == state
+            assert reasons <= set(result['observation_reasons'])
+            assert result['observation_source'] == 'PROVIDER_ENTRY'
+            assert all(result['finish_classes'][k] == v for k, v in counts.items())
+            assert private not in json.dumps(result) and 'fixed-id' not in json.dumps(result)
+            if state != 'COMPLETE': assert result['argument_streams'] == []
+    for invalid in (0, False, [], {}):
+        for malformed in (event(invalid) + end, event(args='{}', call_id=invalid) + end):
+            observer = EvalSseObservation(); observer.feed(malformed); observer.finish_response()
+            assert observer.result()['argument_stream_state'] != 'COMPLETE'
+    observer = EvalSseObservation(); observer.feed(start + end)
+    assert observer.result()['observation_reasons'] == ['HTTP_BOUNDARY_INCOMPLETE']
+    observer.finish_classes['NULL'] = 1_000_000
+    observer.feed(event(None))
+    assert observer.result()['finish_classes']['NULL'] == 1_000_000
+    for data, code in [(b'data: ' + b'x' * 65536 + b'\n', 'SSE_LINE_LIMIT'),
+                       (b'x' * 65537, 'SSE_BUFFER_LIMIT')]:
+        observer = EvalSseObservation(); observer.feed(data); observer.finish_response()
+        assert code in observer.result()['observation_reasons']
+        assert observer.result()['argument_stream_state'] == 'UNAVAILABLE'
+
+
+def test_structured_entry_unknown_seals_actual_proxy_and_cannot_reopen(tmp_path):
+    import hashlib, threading, urllib.request, urllib.error
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from tests.planning_material_matrix.structured_gateway import EvalHttpBudget, EvalProviderProxy
+    calls = []
+    class Upstream(BaseHTTPRequestHandler):
+        def log_message(self, *_): pass
+        def do_POST(self):
+            calls.append(self.rfile.read(int(self.headers['Content-Length'])))
+            raw = (b'data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]},"finish_reason":"unexpected-finish"}]}\n\n'
+                   b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}\n\n')
+            self.send_response(200); self.send_header('Content-Length', str(len(raw)))
+            self.send_header('Content-Type', 'text/event-stream'); self.end_headers(); self.wfile.write(raw)
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
+    thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+    schema = {'type': 'object'}
+    expected = {'model': 'fixture-model', 'max_tokens': None, 'max_completion_tokens': 8192,
+                'schema_sha256': hashlib.sha256(json.dumps(schema, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+                'thinking_mode': 'disabled', 'tools_count': 1, 'tool_choice_kind': 'function'}
+    budget = EvalHttpBudget(tmp_path / 'ledger', 'a' * 64, limit=4)
+    proxy = EvalProviderProxy(budget, f'http://127.0.0.1:{server.server_port}/v1/chat/completions',
+        'fixture-model', 'offline-only', offline=True, expected_payload=expected,
+        request_identity={'cell': 1, 'run_id': 'diag-1', 'session_id': 'session-1'}).start()
+    payload = {'model': 'fixture-model', 'max_completion_tokens': 8192, 'thinking': {'type': 'disabled'},
+               'tools': [{'type': 'function', 'function': {'name': 'submit_semantic_plan', 'parameters': schema}}],
+               'tool_choice': {'type': 'function', 'function': {'name': 'submit_semantic_plan'}}, 'parallel_tool_calls': False}
+    def send():
+        request = urllib.request.Request(proxy.url + '/chat/completions', json.dumps(payload).encode(),
+            headers={'Authorization': 'Bearer ' + proxy.client_token, 'Content-Type': 'application/json'})
+        return urllib.request.urlopen(request, timeout=10)
+    try:
+        with send() as response: response.read()
+        saved = json.loads(budget.path.read_text())
+        assert saved['closed'] and saved['close_reason'] == 'ENTRY_CAPTURE_UNAVAILABLE'
+        row = saved['requests'][0]
+        assert row['diagnostic_identity'] == {'cell': 1, 'run_id': 'diag-1', 'session_id': 'session-1'}
+        assert row['identity_source'] == 'TRUSTED_CELL_PROXY'
+        assert row['state'] == 'RESPONSE_COMPLETE' and row['argument_stream_state'] == 'UNAVAILABLE'
+        assert row['finish_classes']['UNRECOGNIZED'] == 1
+        with pytest.raises(urllib.error.HTTPError) as failure: send()
+        assert failure.value.code == 429; failure.value.close()
+        restored = EvalHttpBudget(tmp_path / 'ledger', 'a' * 64, limit=4)
+        with pytest.raises(ValueError): restored.reserve({})
+        with pytest.raises(ValueError): restored.finish(1, {'state': 'RESPONSE_COMPLETE', 'argument_stream_state': 'COMPLETE'})
+        assert len(calls) == 1
+        final = json.loads(budget.path.read_text())
+        assert final['requests'] == saved['requests'] and final['first_reserved_at'] == saved['first_reserved_at']
+    finally:
+        proxy.stop(); server.shutdown(); server.server_close(); thread.join()
+
+
+def test_concurrent_diagnostic_cells_share_cap_and_keep_entry_attribution(tmp_path):
+    import concurrent.futures, hashlib, threading, urllib.request
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from tests.planning_material_matrix.structured_gateway import EvalHttpBudget, EvalProviderProxy
+    barrier = threading.Barrier(4)
+    class Upstream(BaseHTTPRequestHandler):
+        def log_message(self, *_): pass
+        def do_POST(self):
+            payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
+            cell = payload['messages'][0]['content']
+            barrier.wait(timeout=10)  # All four HTTP requests are in flight.
+            args = json.dumps({'cell': cell})
+            frames = [
+                {'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'id': 'call-' + cell,
+                    'function': {'arguments': args}}]}, 'finish_reason': None}]},
+                {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]},
+            ]
+            data = ''.join('data: ' + json.dumps(f) + '\n\n' for f in frames).encode()
+            self.send_response(200); self.send_header('Content-Length', str(len(data)))
+            self.end_headers(); self.wfile.write(data)
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
+    thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+    schema = {'type': 'object'}
+    expected = {'model': 'fixture-model', 'max_tokens': None, 'max_completion_tokens': 8192,
+        'schema_sha256': hashlib.sha256(json.dumps(schema, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+        'thinking_mode': 'disabled', 'tools_count': 1, 'tool_choice_kind': 'function'}
+    budget = EvalHttpBudget(tmp_path / 'ledger', 'b' * 64, limit=4)
+    proxies = [EvalProviderProxy(budget, f'http://127.0.0.1:{server.server_port}/v1/chat/completions',
+        'fixture-model', 'offline-only', offline=True, expected_payload=expected,
+        request_identity={'cell': n, 'run_id': 'run-' + str(n), 'session_id': 'session-' + str(n)}).start()
+        for n in range(1, 5)]
+    def send(n):
+        proxy = proxies[n - 1]
+        payload = {'model': 'fixture-model', 'messages': [{'role': 'user', 'content': str(n)}],
+            'max_completion_tokens': 8192, 'thinking': {'type': 'disabled'},
+            'tools': [{'type': 'function', 'function': {'name': 'submit_semantic_plan', 'parameters': schema}}],
+            'tool_choice': {'type': 'function', 'function': {'name': 'submit_semantic_plan'}}, 'parallel_tool_calls': False}
+        req = urllib.request.Request(proxy.url + '/chat/completions', json.dumps(payload).encode(),
+            headers={'Authorization': 'Bearer ' + proxy.client_token})
+        with urllib.request.urlopen(req, timeout=15) as response: response.read()
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool: list(pool.map(send, range(1, 5)))
+        saved = json.loads(budget.path.read_text())
+        assert len(saved['requests']) == 4
+        assert {r['diagnostic_identity']['cell'] for r in saved['requests']} == {1, 2, 3, 4}
+        for row in saved['requests']:
+            cell = str(row['diagnostic_identity']['cell'])
+            assert row['diagnostic_identity']['run_id'] == 'run-' + cell
+            assert row['argument_stream_state'] == 'COMPLETE'
+            assert row['argument_streams'][0]['sha256'] == hashlib.sha256(json.dumps({'cell': cell}).encode()).hexdigest()
+        budget.validate_completion(); budget.close('BATCH_COMPLETE')
+        with pytest.raises(ValueError): budget.reserve({})
+    finally:
+        for proxy in proxies: proxy.stop()
+        server.shutdown(); server.server_close(); thread.join()
+
+
+def test_empty_delta_metadata_matches_installed_sdk_without_changing_arguments(tmp_path):
+    """Real pinned SDK/reducer/guard; only Provider fetch is a fixed SSE fixture."""
+    import hashlib
+    from easel.integrations.planning_structured import verify_runtime
+    runtime = Path.home() / '.local/node-v24.21.0-darwin-arm64/lib/node_modules/openclaw'
+    verify_runtime(runtime)
+    raw = '{"text":"中文🖼️"}'
+    frames = [
+        {'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'id': '', 'type': 'function',
+            'function': {'name': 'submit_semantic_plan', 'arguments': raw[:9]}}]}, 'finish_reason': ''}]},
+        {'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'id': 'fixture-id',
+            'function': {'arguments': raw[9:]}}]}, 'finish_reason': ''}]},
+        {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]},
+    ]
+    data = ''.join('data: ' + json.dumps(f, ensure_ascii=False) + '\n\n' for f in frames)
+    from tests.planning_material_matrix.structured_gateway import EvalSseObservation
+    observer = EvalSseObservation()
+    for byte in data.encode(): observer.feed(bytes([byte]))
+    observer.finish_response(); report = observer.result()
+    assert report['argument_stream_state'] == 'COMPLETE'
+    assert report['finish_classes']['EMPTY'] == 2 and report['empty_call_ids'] == 1
+    assert report['argument_streams'][0]['sha256'] == hashlib.sha256(raw.encode()).hexdigest()
+    fixture = tmp_path / 'sse.txt'; fixture.write_text(data)
+    script = tmp_path / 'sdk-empty-metadata.mjs'
+    script.write_text('''
+import assert from 'node:assert/strict';import fs from 'node:fs';import path from 'node:path';import net from 'node:net';
+const [root,dir,fixture]=process.argv.slice(2);
+net.Socket.prototype.connect=()=>{throw Error('OFFLINE_NETWORK_BLOCKED')};
+const guard=await import(path.join(root,'dist/easel-structured-result.mjs'));
+const {createOpenAICompletionsTransportStreamFn}=await import(path.join(root,'node_modules/@openclaw/ai/dist/transports.mjs'));
+const {t:configure}=await import(path.join(root,'node_modules/@openclaw/ai/dist/host-B8YfDGd4.mjs'));
+let calls=0;const fetch=async()=>{calls++;return new Response(fs.readFileSync(fixture),{headers:{'content-type':'text/event-stream'}})};
+globalThis.fetch=fetch;configure({buildModelFetch:()=>fetch});
+const schema={type:'object',properties:{text:{type:'string'}},required:['text']};
+const request={version:guard.VERSION,name:guard.TOOL,schema,schemaSha256:guard.sha256(guard.canonical(schema))};
+const model={id:'MiniMax-M3',provider:'minimax',api:'openai-completions',baseUrl:'https://offline.invalid/v1',reasoning:false,input:['text'],contextWindow:1000000,maxTokens:8192,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}};
+const bound=guard.bindAttempt(createOpenAICompletionsTransportStreamFn(),request,{runId:'offline-empty',sessionId:'offline-session',provider:'minimax',model:'MiniMax-M3'},dir);
+const stream=bound(model,{messages:[{role:'user',content:'fixed offline input',timestamp:0}],tools:[{name:guard.TOOL,description:'fixture',parameters:schema}]},{apiKey:'offline-placeholder'});
+for await(const event of stream){}const result=await stream.result();
+const evidence=guard.candidateEvidence(result,request);
+assert.equal(calls,1);assert.equal(result.stopReason,'toolUse');assert.equal(evidence.providerFinishReason,'tool_calls');
+assert.equal(evidence.toolCallId,'fixture-id');
+process.stdout.write(JSON.stringify({rawSha256:evidence.rawSha256,rawBytes:evidence.rawBytes}));
+''')
+    result = subprocess.run([shutil.which('node'), str(script), str(runtime), str(tmp_path / 'guard'), str(fixture)],
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+    native = json.loads(result.stdout)
+    assert native['rawSha256'] == report['argument_streams'][0]['sha256']
+    assert native['rawBytes'] == len(raw.encode())
+
+
+def test_provider_argument_observation_preserves_identity_without_payload(tmp_path):
+    """Real observer/receipt paths; network forbidden, only SSE bytes are fixtures."""
+    helper = Path(__file__).resolve().parents[1] / 'scripts/openclaw_structured_result.mjs'
+    script = tmp_path / 'observation.mjs'
+    script.write_text(r'''
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import net from 'node:net';
+import {pathToFileURL} from 'node:url';
+net.Socket.prototype.connect=function(){throw Error('OFFLINE_NETWORK_BLOCKED')};
+const g=await import(pathToFileURL(process.argv[2]));
+const root=process.argv[3];
+const raw='{"text":"中文🎬"}';
+const event=(argumentsText, index=0, id='original', finish=null)=>'data: '+JSON.stringify({choices:[{
+ index:0,delta:argumentsText===null?{}:{tool_calls:[{index,id,type:'function',
+ function:{name:g.TOOL,arguments:argumentsText}}]},finish_reason:finish}]})+'\r\n\r\n';
+const end=event(null,0,'original','tool_calls')+'data: [DONE]\r\n\r\n';
+const split=raw.indexOf('🎬')+1;
+const wire=event(raw.slice(0,split))+event(raw.slice(split))+end;
+const obs=g.createArgumentObservation();
+for(const b of Buffer.from(wire))obs.feed(Buffer.from([b]));
+obs.finish('EOF');
+const result=obs.result();
+assert.equal(result.state,'COMPLETE');
+assert.equal(result.streams[0].sha256,g.sha256(raw));
+assert.equal(result.streams[0].bytes,Buffer.byteLength(raw));
+assert.equal(result.streams[0].fragments,2);
+assert.equal(JSON.stringify(result).includes('中文'),false);
+for(const [bytes,finish] of [[event(raw),'ERROR'],[event(raw),'CANCEL'],
+ [event(raw)+event('',0,'different')+end,'EOF'],[wire+event('changed'),'EOF'],
+ [wire+'data: {"unfinished":','CANCEL'],[Buffer.concat([Buffer.from(wire),Buffer.from([0xe4,0xb8])]),'CANCEL'],
+ [event('\ud800')+end,'EOF'],['data: not-json\n\n','EOF']]){
+ const x=g.createArgumentObservation();x.feed(Buffer.from(bytes));x.finish(finish);
+ assert.notEqual(x.result().state,'COMPLETE');assert.deepEqual(x.result().streams,[]);
+}
+const multi=g.createArgumentObservation();
+multi.feed(Buffer.from(event(raw)+event('{}',1,'second')+end));multi.finish('EOF');
+assert.equal(multi.result().state,'COMPLETE');
+assert.deepEqual(multi.result().streams.map(s=>s.sha256),[g.sha256(raw),g.sha256('{}')]);
+assert.notEqual(multi.result().streams[0].toolCallIdSha256,multi.result().streams[1].toolCallIdSha256);
+const request={version:g.VERSION,name:g.TOOL,schema:{type:'object'},schemaSha256:g.sha256(g.canonical({type:'object'}))};
+const originalResponse=new Response(wire);
+const ActualResponse=globalThis.Response;
+globalThis.Response=class {constructor(){throw Error('synthetic constructor failure')}};
+assert.equal(g.observeProviderResponse(originalResponse,{request}),originalResponse);
+globalThis.Response=ActualResponse;
+assert.equal(originalResponse.body.locked,false);
+assert.equal(await originalResponse.text(),wire,'Diagnostic failure consumed original bytes');
+for(const mode of ['normal','terminal_before_eof','diagnostic_conflict','mismatch']){
+ const directory=path.join(root,mode);fs.mkdirSync(directory,{mode:0o700});
+ const scope={request,directory,identity:{runId:mode,sessionId:'session',provider:'minimax',model:'MiniMax-M3'}};
+ const file=path.join(directory,'provider-arguments-'+g.sha256(g.canonical({runId:mode,sessionId:'session'}))+'.json');
+ if(mode==='diagnostic_conflict')fs.writeFileSync(file,'keep-original',{mode:0o600});
+ const response=g.observeProviderResponse(new Response(wire,{headers:{'content-type':'text/event-stream'}}),scope);
+ const nativeRaw=mode==='mismatch'?'{}':raw;
+ const message={role:'assistant',stopReason:'toolUse',easelProviderFinishReason:'tool_calls',
+ content:[{type:'toolCall',id:'original',name:g.TOOL,arguments:JSON.parse(nativeRaw),easelRawArguments:nativeRaw}]};
+ const delivered=[];
+ const stream=g.protectedStream({push:e=>delivered.push(e),end:()=>{}},scope);
+ if(mode==='terminal_before_eof')stream.push({type:'done',message});
+ assert.equal(await response.text(),wire);
+ if(mode!=='terminal_before_eof')stream.push({type:'done',message});
+ assert.equal(delivered.at(-1).type,'done','Diagnostic changed native admission');
+ if(mode==='diagnostic_conflict'){assert.equal(fs.readFileSync(file,'utf8'),'keep-original');continue;}
+ const record=JSON.parse(fs.readFileSync(file,'utf8'));
+ assert.equal(record.attribution,mode==='mismatch'?'MISMATCH':'MATCH');
+ assert.equal(fs.statSync(file).mode&0o077,0);
+ assert.equal(JSON.stringify(record).includes('中文'),false);
+ const original=fs.readFileSync(file,'utf8');
+ assert.equal(g.retainExecutionFailure(scope,message,new Error('private error body')),'SAVED');
+ assert.equal(fs.readFileSync(file,'utf8'),original,'Later error overwrote diagnostic');
+}
+''')
+    result = subprocess.run([shutil.which('node'), str(script), str(helper), str(tmp_path)],
+                            capture_output=True, text=True, timeout=20)
+    assert result.returncode == 0, result.stderr
+
+
 def test_native_structured_storage_and_concurrent_submission_guard(tmp_path):
     node = shutil.which('node')
     assert node, 'Node is required for the installed-runtime integration boundary'
@@ -627,6 +926,7 @@ for (const [name,source,expectedStop] of [
 }
 // These are diagnostic controls, not a replay of any historical Provider response.
 for (const [name,error,category] of [
+  ['sdk-malformed-call',Error('Provider returned an incomplete or malformed tool call'),'STRUCTURED_SDK_MALFORMED_TOOL_CALL'],
   ['sdk-finish',Error('Stream ended without finish_reason'),'STRUCTURED_SDK_FINISH_REASON_MISSING'],
   ['sdk-buffer',Error('Exceeded tool-call argument buffer limit'),'STRUCTURED_SDK_ARGUMENT_BUFFER_LIMIT'],
   ['sdk-syntax',new SyntaxError(marker),'STRUCTURED_SDK_SYNTAX_ERROR'],
@@ -694,6 +994,56 @@ guard.protectedStream({push:e=>legalEvents.push(e),end(){}},
   {directory:unwritable,identity,request}).push({type:'done',message});
 assert.equal(legalEvents.at(-1).type,'done');
 assert.deepEqual(fs.readdirSync(unwritable),[],'Legal result created a rejection');
+// Fixed subreasons distinguish parser rejection from unsafe additional text.
+const storageCases = [
+  ['syntax','{"x":}', 'JSON_SYNTAX'],
+  ['duplicate','{"x":1,"x":2}', 'DUPLICATE_KEY'],
+  ['pattern',JSON.stringify({x:marker}), 'SECRET_PATTERN'],
+  ['key',JSON.stringify({password:'synthetic-value'}), 'SECRET_KEY'],
+  ['unicode',JSON.stringify({x:String.fromCharCode(0xd800)}), 'INVALID_UNICODE'],
+  ['depth','{"x":'+'['.repeat(66)+'0'+']'.repeat(66)+'}', 'DEPTH_LIMIT'],
+  ['nonfinite','{"x":1e999}', 'NONFINITE_NUMBER'],
+  ['root','[]', 'ROOT_NOT_OBJECT'],
+  ['trailing','{}{}', 'TRAILING_CONTENT'],
+  ['message','{}', 'SECRET_PATTERN'],
+];
+for (const [name,raw,reason] of storageCases) {
+  const folder=path.join(directory,'storage-'+name);fs.mkdirSync(folder,{mode:0o700});
+  const scope={directory:folder,identity:{...identity,runId:'storage-'+name},request};
+  const candidate={...message,content:[{...message.content[0],easelRawArguments:raw},
+    ...name==='message'?[{type:'text',text:marker}]:[]]};
+  const events=[];
+  assert.throws(()=>guard.protectedStream({push:e=>events.push(e),end(){}},scope)
+    .push({type:'done',message:candidate}),/^Error: STRUCTURED_STORAGE_REJECTED$/);
+  assert.equal(events.length,0);
+  const file=path.join(folder,fs.readdirSync(folder)[0]);const first=fs.readFileSync(file,'utf8');
+  const record=JSON.parse(first);
+  assert.equal(record.version,'easel-structured-rejection@2');
+  assert.equal(record.storageReason,reason);
+  assert.equal(record.storageStage,name==='message'?'MESSAGE_STORAGE':'RAW_ARGUMENTS');
+  assert.equal(first.includes(marker),false);
+  assert.equal(first.includes('synthetic-value'),false);
+  // Old @1 diagnostics remain byte-identical; no retroactive subreason.
+  if (name==='duplicate') {
+    const {storageReason,storageStage,...legacy}=record;
+    legacy.version='easel-structured-rejection@1';
+    const old=JSON.stringify(legacy);fs.writeFileSync(file,old);
+    assert.equal(guard.retainRejection(scope,candidate,'STRUCTURED_STORAGE_REJECTED'),'RETAINED');
+    assert.equal(fs.readFileSync(file,'utf8'),old);
+  } else {
+    assert.equal(guard.retainRejection(scope,candidate,'STRUCTURED_STORAGE_REJECTED'),'RETAINED');
+    assert.equal(fs.readFileSync(file,'utf8'),first);
+  }
+}
+const spoof=path.join(directory,'untrusted-reason');fs.mkdirSync(spoof,{mode:0o700});
+const spoofError=Object.assign(Error('STRUCTURED_STORAGE_REJECTED'),
+  {storageReason:marker,storageStage:marker,reason:marker});
+assert.equal(guard.retainRejection({directory:spoof,identity,request},message,
+  'STRUCTURED_STORAGE_REJECTED',spoofError),'SAVED');
+const spoofRecord=fs.readFileSync(path.join(spoof,fs.readdirSync(spoof)[0]),'utf8');
+assert.equal(spoofRecord.includes(marker),false);
+assert.equal(JSON.parse(spoofRecord).storageReason,'UNKNOWN');
+assert.equal(JSON.parse(spoofRecord).storageStage,'UNKNOWN');
 process.stdout.write(JSON.stringify({storage:'PASS',capacity:'PASS',payload:'PASS',concurrency:'PASS',
   rejection_diagnostics:'PASS',durable_reservations:1,network_calls:0}));
 ''')
@@ -938,6 +1288,411 @@ def test_producer_union_experiment_preserves_contract_and_repair(tmp_path):
               'canonical_changed': False, 'repair_contract_changed': False,
               'schemas': schemas, 'cases': rows, 'pass': len(rows), 'fail': 0}
     (tmp_path / 'producer-union-experiment.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+def test_equivalent_schema_experiment_preserves_assertions_and_refuses_unsafe_patterns():
+    from copy import deepcopy
+    from jsonschema import Draft202012Validator as Validator
+    from tests.planning_material_matrix.producer_experiment import equivalent_schema_experiment
+    source = {'type': 'object', 'additionalProperties': False, 'properties': {
+        'text': {'anyOf': [{'type': 'string', 'minLength': 1, 'maxLength': 4, 'pattern': '^n'},
+                           {'type': 'null'}], 'default': {'anyOf': [{'type': 'null'}]}},
+        'number': {'anyOf': [{'type': 'number', 'exclusiveMinimum': 0, 'maximum': 2}, {'type': 'null'}]},
+        'integer': {'anyOf': [{'type': 'null'}, {'type': 'integer', 'multipleOf': 2}]},
+        'flag': {'anyOf': [{'type': 'boolean'}, {'type': 'null'}]},
+        'queries': {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 3,
+                    'allOf': [{'maxItems': 3}]}}, 'required': ['text', 'queries']}
+    before = deepcopy(source)
+    candidate, changes = equivalent_schema_experiment(source)
+    assert source == before and len(changes) == 5
+    assert candidate['properties']['text']['default'] == source['properties']['text']['default']
+    assert list(candidate['properties']) == list(source['properties'])
+    a, b = Validator(source), Validator(candidate)
+    base = {'text': None, 'queries': []}
+    probes = [None, '', 'null', 'n', 'noooo', 0, -1, 1, 1.5, 2, 3, True, False, {}, [], ['a'] * 3, ['a'] * 4]
+    for field in source['properties']:
+        for value in probes:
+            data = {**base, field: value}
+            assert a.is_valid(data) == b.is_valid(data), (field, value)
+        missing = {k: v for k, v in base.items() if k != field}
+        assert a.is_valid(missing) == b.is_valid(missing)
+    nullable = {'anyOf': [{'type': 'string', 'minLength': 1}, {'type': 'null'}]}
+    unsafe = [
+        {'anyOf': [{'type': 'string', 'enum': ['a']}, {'type': 'null'}]},
+        {'anyOf': [{'type': 'string', 'const': 'a'}, {'type': 'null'}]},
+        {'anyOf': [{'type': 'string', 'description': 'branch annotation'}, {'type': 'null'}]},
+        {'anyOf': [{'type': 'array', 'items': {'type': 'string'}}, {'type': 'null'}]},
+        {**nullable, 'type': 'string'}, {**nullable, 'enum': ['a', None]},
+        {'anyOf': [{'type': 'string'}, {'type': 'null'}, {'type': 'number'}]},
+        {'type': 'array', 'maxItems': 3, 'allOf': [{'maxItems': 2}]},
+        {'oneOf': [nullable, {'type': 'number'}]}, {'not': nullable}, {'contains': nullable},
+    ]
+    for schema in unsafe:
+        assert equivalent_schema_experiment(schema) == (schema, [])
+    assert equivalent_schema_experiment(candidate) == (candidate, [])
+
+
+def test_equivalent_details_schema_preserves_real_capture_rejection_and_codec():
+    from copy import deepcopy
+    from jsonschema import Draft202012Validator as Validator
+    from easel.integrations import semantic_boundary_run as boundary, planning_input_view as views
+    from easel.integrations import planning_staged_proposal as staged, planning_wire as wire
+    from easel.integrations.planning_result_contract import maximum_compact_bytes
+    from tests.planning_material_matrix.producer_experiment import equivalent_schema_experiment
+    fixture = Path(__file__).parent / 'fixtures/planning-intake14-provider-shape-rejection.json'
+    original = fixture.read_bytes()
+    state = json.loads(original)['snapshot']
+    scope = state['scope']
+    view = views.PlanningInputView(scope['inputs'], scope['catalog'])
+    selection = view.codec.decode(boundary.require_selection_admission(state['admissions']['A-selection'],
+        scope=scope), view.codec.identity, diagnostic=True)
+    codec = staged._read_only_staged(boundary.query_schema(scope))
+    contract = codec.details_contract(selection, diagnostic=True)
+    projection = wire.project(contract['schema'], 'A-details', atomic_framing=True)
+    source = deepcopy(projection.schema)
+    candidate, changes = equivalent_schema_experiment(source)
+    assert changes and projection.schema == source
+    assert maximum_compact_bytes(candidate) == maximum_compact_bytes(source)
+    raw = json.loads(state['calls']['A-details']['reply'])
+    assert not Validator(source).is_valid(raw) and not Validator(candidate).is_valid(raw)
+    assert projection.errors(raw) == state['wire_diagnostics']['A-details']['wire_errors']
+    assert fixture.read_bytes() == original
+
+
+def test_source_scope_experiment_matches_exact_modality_catalog_and_keeps_original():
+    from copy import deepcopy
+    from jsonschema import Draft202012Validator as V, ValidationError
+    from easel.integrations.planning_input_view import SourceSelection
+    from easel.integrations.planning_result_contract import semantic_tool_schema
+    from tests.planning_material_matrix.producer_experiment import source_scope_selection_experiment
+    for events, continuity in (({'event-1': 'same frozen literal'}, {}),
+                               ({}, {'paper': {'kind': 'object'}})):
+        catalog = {'global': {'global': {}}, 'scene': {'scene-1': 'same frozen literal'},
+                   'segment': {'segment-1': 'same frozen literal'},
+                   'event': events, 'continuity': continuity,
+                   'voice': {'creator_context.voice': {}}, 'derived_voice': {'owned': {}}}
+        codec = SourceSelection(semantic_tool_schema(catalog, compiled=True), catalog)
+        original = deepcopy(codec.schema)
+        tightened, identity = source_scope_selection_experiment(codec)
+        assert codec.schema == original and identity['base_codec_identity'] == codec.identity
+        prior = deepcopy(original)
+        clauses = []
+        for modality in original['properties']['needs']['items']['properties']['modality']['enum']:
+            scope_rule = codec.staged.branches[modality]['properties']['scope']
+            allowed = False if scope_rule is False else {'type': 'string',
+                'enum': [codec.to_wire[name] for name in scope_rule['enum']]}
+            clauses.append({'if': {'properties': {'modality': {'const': modality}}, 'required': ['modality']},
+                            'then': {'properties': {'scope': allowed}}})
+        prior['properties']['needs']['items'].setdefault('allOf', []).extend(clauses)
+        def equivalent(candidate):
+            assert V(tightened).is_valid(candidate) == V(prior).is_valid(candidate)
+        for modality, branch in codec.staged.branches.items():
+            for source, handle in codec.to_wire.items():
+                candidate = {'needs': [{'scope': handle, 'modality': modality,
+                    'role': 'frozen intent', 'necessity': 'required'}], 'unresolved': []}
+                if continuity:
+                    candidate['needs'][0]['continuity_choices'] = ['paper']
+                expected = V(branch['properties']['scope']).is_valid(source)
+                assert V(tightened).is_valid(candidate) == expected, (modality, source)
+                equivalent(candidate)
+                for key in candidate['needs'][0]:
+                    missing = deepcopy(candidate)
+                    del missing['needs'][0][key]
+                    equivalent(missing)
+                for fault in ({'modality': 'unknown'}, {'modality': None}, {'scope': 'unknown'},
+                              {'scope': []}, {'extra': True}, {'role': ''}, {'necessity': False}):
+                    changed = deepcopy(candidate)
+                    changed['needs'][0].update(fault)
+                    equivalent(changed)
+                if continuity:
+                    candidate['needs'][0]['continuity_choices'] = ['invented']
+                    assert not V(tightened).is_valid(candidate)
+                    equivalent(candidate)
+        for candidate in (None, [], {}, {'needs': {}, 'unresolved': []},
+                          {'needs': [None], 'unresolved': []}, {'needs': [], 'unresolved': []}):
+            equivalent(candidate)
+        invalid = {'needs': [{'scope': 'unknown-handle', 'modality': 'image',
+                             'role': 'frozen intent', 'necessity': 'required'}], 'unresolved': []}
+        assert not V(tightened).is_valid(invalid)
+        scene = codec.to_wire['scene-1']
+        wrong = {'needs': [{'scope': scene, 'modality': 'sfx',
+                           'role': 'sound intent', 'necessity': 'required'}], 'unresolved': []}
+        assert not V(tightened).is_valid(wrong)
+        if events:
+            assert V(tightened).is_valid({**wrong, 'needs': [{**wrong['needs'][0], 'scope': codec.to_wire['event-1']}]})
+        else:
+            assert any(c['properties']['scope'] is False
+                       for c in tightened['properties']['needs']['items']['anyOf'])
+        voice = {**wrong, 'needs': [{**wrong['needs'][0], 'modality': 'voice'}]}
+        assert not V(tightened).is_valid(voice)
+    fixture = Path(__file__).parent / 'fixtures/planning-intake14-provider-shape-rejection.json'
+    if fixture.is_file():
+        from easel.integrations import semantic_boundary_run as boundary
+        from easel.integrations.planning_input_view import PlanningInputView
+        original = fixture.read_bytes()
+        state = json.loads(original)['snapshot']
+        view = PlanningInputView(state['scope']['inputs'], state['scope']['catalog'])
+        schema, _ = source_scope_selection_experiment(view.codec)
+        schema = boundary.intake_selection(state['scope'], schema)
+        # Historical receipts stay untouched; test fresh current eligibility.
+        accepted = deepcopy(state['admissions']['A-selection']['candidate'])
+        scope = deepcopy(state['scope'])
+        scope['transport'] = boundary.transport_identity(scope['catalog'], intake_inputs=scope['inputs'])
+        scope['input_view'] = view.identity
+        errors = list(V(schema).iter_errors(accepted))
+        assert [(list(e.absolute_path), e.validator) for e in errors] == [
+            (['needs', i], 'anyOf') for i in (8, 9, 10)]
+        legal = deepcopy(accepted)
+        for i in (8, 9, 10):
+            # Synthetic positive fixture only; never written to the original
+            # journal and never passed off as a model's repaired decision.
+            legal['needs'][i]['scope'] = view.codec.to_wire[next(iter(state['scope']['catalog']['event']))]
+        V(schema).validate(legal)
+        decoded = view.codec.decode(legal, view.codec.identity)
+        view.codec.staged.details_contract(decoded)
+        from easel import output_admission as admission
+        echoed = {**legal, 'contains': {'modality': 'bgm', 'necessity': 'required'}}
+        def admit(value):
+            return admission.admit_json(json.dumps(value, ensure_ascii=False), schema,
+                stage='A-selection', channel='tool', profile=admission.SELECTION_PROFILE,
+                binding={'kind': 'synthetic-source-scope-regression'})
+        normalized = admit(echoed)
+        assert normalized['receipt']['decision']['outcome'] == 'NORMALIZE'
+        assert [(a['rule'], a['path']) for a in normalized['receipt']['actions']] == [
+            ('selection-root-bgm-contains-echo@1', ['contains'])]
+        assert normalized['candidate'] == legal
+        broken = deepcopy(echoed)
+        broken['needs'][8]['scope'] = next(h for h, ref in view.codec.references.items() if ref['kind'] == 'scene')
+        no_music = {**echoed, 'needs': [r for r in legal['needs'] if r['modality'] != 'bgm']}
+        wrong_echo = {**echoed, 'contains': {'modality': 'bgm', 'necessity': 'optional'}}
+        for value in (broken, no_music, wrong_echo):
+            rejected = admit(value)
+            assert rejected['receipt']['decision']['outcome'] == 'REJECT'
+            assert not rejected['receipt']['actions']
+        no_bgm = {**legal, 'needs': [r for r in legal['needs'] if r['modality'] != 'bgm']}
+        assert not V(schema).is_valid(no_bgm)
+        unknown = deepcopy(legal)
+        unknown['needs'][0]['scope'] = 'unknown'
+        assert not V(schema).is_valid(unknown)
+        voice = deepcopy(legal)
+        voice['needs'][0]['modality'] = 'voice'
+        assert not V(schema).is_valid(voice)
+        # Current guidance and producer derive the same exact scope sets.
+        base = boundary.view_a_message(scope, view, 'A-selection')
+        assert 'scope选择工具enum中的实际使用范围' not in base
+        assert '局部素材可选对应场景引用' not in base
+        contract = json.loads(base.rsplit('\n', 1)[1])['scope_reference_contract']
+        assert contract['allowed_scope']['sfx']['kinds'] == ['event']
+        assert contract['policy'] == 'planning-source-selection@2'
+        for modality, handles in view.codec.allowed_scopes.items():
+            assert contract['allowed_scope'][modality]['handles'] == handles
+        malformed = [{**legal, 'needs': rows} for rows in ([None], [1], ['x'], {'bad': {}})]
+        for value in (accepted, broken, unknown, voice, *malformed):
+            result = admit(value)
+            result['owner_eligibility'] = boundary.selection_eligibility(scope, result)
+            assert result['owner_eligibility']['decision']['outcome'] == 'REJECT'
+            with pytest.raises(ValueError): boundary.require_selection_admission(result, scope=scope)
+        # Other previously repairable leaves remain eligible; no scope repair.
+        for value in (no_bgm, {**legal, 'needs': [{**legal['needs'][0], 'role': ''}, *legal['needs'][1:]]}):
+            result = admit(value)
+            result['owner_eligibility'] = boundary.selection_eligibility(scope, result)
+            assert result['owner_eligibility']['decision']['outcome'] == 'BOUNDED_REPAIR'
+        assert fixture.read_bytes() == original
+
+
+def test_diagnostic_cell_binding_is_rebuilt_before_network(monkeypatch):
+    from copy import deepcopy
+    import hashlib, socket
+    from easel.integrations import semantic_boundary_run as boundary, planning_input_view as views
+    from easel.integrations.planning_authority import digest
+    from tests.planning_material_matrix.producer_experiment import (SourceKindInputViewExperiment,
+        source_scope_selection_experiment, source_scope_message_experiment, validate_source_scope_diagnostic_cell)
+    state = json.loads((Path(__file__).parent / 'fixtures/planning-intake14-provider-shape-rejection.json').read_text())['snapshot']
+    scope = state['scope']
+    monkeypatch.setattr(socket.socket, 'connect', lambda *_: pytest.fail('No network before binding validation'))
+    for variant, factory in [('L', views.PlanningInputView), ('K', SourceKindInputViewExperiment)]:
+        view = factory(scope['inputs'], scope['catalog'])
+        schema, binding = source_scope_selection_experiment(view.codec)
+        schema = boundary.intake_selection(scope, schema)
+        binding.update(schema_sha256=digest(schema), scope_sha256=digest(scope), input_view_identity=view.identity)
+        message, _ = source_scope_message_experiment(boundary.view_a_message(scope, view, 'A-selection'), view.codec)
+        message += '\n独立生产外来源约束实验身份：' + json.dumps(binding, ensure_ascii=False, separators=(',', ':'))
+        item = {'number': 1, 'variant': variant, 'identity': {'runId': 'fixture-run', 'sessionId': 'fixture-session'},
+                'schema_sha256': digest(schema), 'message_sha256': hashlib.sha256(message.encode()).hexdigest()}
+        cell = {**item, 'schema': schema, 'message': message, 'experimental_binding': binding,
+                'source_codec_policy': view.codec.identity['policy']}
+        manifest = {'experimental_bindings': {variant: binding}}
+        rebuilt = validate_source_scope_diagnostic_cell(cell, item, manifest, scope)
+        assert rebuilt.identity == view.identity and rebuilt.codec.identity == view.codec.identity
+        faults = []
+        for policy in (None, 'unknown', 'planning-source-selection@999'):
+            faults.append({**deepcopy(cell), 'source_codec_policy': policy})
+        for key in ('number', 'variant', 'identity'):
+            changed = deepcopy(cell); changed[key] = 'forged'; faults.append(changed)
+        for key in ('base_codec_identity', 'input_view_identity', 'scope_sha256', 'schema_sha256'):
+            changed = deepcopy(cell); changed['experimental_binding'][key] = 'forged'; faults.append(changed)
+        for changed in faults:
+            with pytest.raises(ValueError, match='Diagnostic cell'):
+                validate_source_scope_diagnostic_cell(changed, item, manifest, scope)
+
+
+def test_diagnostic_waits_for_durable_http_receipt_without_reissue(tmp_path):
+    import threading
+    from tests.planning_material_matrix.structured_gateway import EvalHttpBudget
+    identity = {'cell': 1, 'run_id': 'fixture-run', 'session_id': 'fixture-session'}
+    budget = EvalHttpBudget(tmp_path / 'ledger', 'a' * 64, limit=1)
+    number = budget.reserve({'diagnostic_identity': identity})
+    started, done = threading.Event(), threading.Event()
+    result = []
+    def reader():
+        started.set()
+        result.append(budget.wait_for_receipt(identity, timeout=2))
+        done.set()
+    thread = threading.Thread(target=reader); thread.start()
+    assert started.wait(1) and not done.wait(.05)
+    budget.finish(number, {'state': 'RESPONSE_COMPLETE', 'argument_stream_state': 'COMPLETE'})
+    assert done.wait(2); thread.join()
+    assert result[0]['state'] == 'RESPONSE_COMPLETE'
+    assert len(json.loads(budget.path.read_text())['requests']) == 1
+    before = budget.path.read_bytes()
+    assert budget.wait_for_receipt(identity, timeout=.1) == result[0]
+    assert budget.path.read_bytes() == before
+    unknown = EvalHttpBudget(tmp_path / 'unknown', 'b' * 64, limit=1)
+    number = unknown.reserve({'diagnostic_identity': identity})
+    unknown.finish(number, {'state': 'UNKNOWN', 'argument_stream_state': 'UNKNOWN'})
+    assert unknown.wait_for_receipt(identity, timeout=.1)['state'] == 'UNKNOWN'
+
+
+def test_empty_and_multiple_argument_streams_keep_boundary_but_reject_native_candidate(tmp_path):
+    from tests.planning_material_matrix.structured_gateway import EvalSseObservation, EvalHttpBudget
+    runtime = Path('/Users/xgx/.local/node-v24.21.0-darwin-arm64/lib/node_modules/openclaw')
+    node = runtime.parents[2] / 'bin/node'
+    if not node.is_file(): pytest.skip('Installed pinned SDK unavailable')
+    from easel.integrations.planning_structured import verify_runtime
+    verify_runtime(runtime)
+    cases = [('single-empty', [''], 'SINGLE_EMPTY'),
+             ('multi-empty', [''] * 11, 'MULTIPLE_ALL_EMPTY'),
+             ('multi-mixed', ['{"text":"fixed"}', ''], 'MULTIPLE_MIXED'),
+             ('multi-nonempty', ['{"text":"fixed"}', '{}'], 'MULTIPLE_NONEMPTY'),
+             ('single-valid', ['{"text":"fixed"}'], 'SINGLE_NONEMPTY'),
+             ('empty-with-legacy', [''], 'SINGLE_EMPTY'),
+             ('empty-with-markup', [''], 'SINGLE_EMPTY'),
+             ('single-valid-invalid-legacy', ['{"text":"fixed"}'], 'SINGLE_NONEMPTY'),
+             ('single-valid-invalid-content', ['{"text":"fixed"}'], 'SINGLE_NONEMPTY'),
+             ('reasoning-only-stop', [], 'NOT_COMPLETE'),
+             ('reasoning-only-length', [], 'NOT_COMPLETE'),
+             ('reasoning-with-valid-tool', ['{"text":"fixed"}'], 'SINGLE_NONEMPTY')]
+    fixture = []
+    for name, values, expected in cases:
+        calls = [{'index': i, 'id': f'call-{i}', 'type': 'function',
+                  'function': {'name': 'submit_semantic_plan', 'arguments': value}} for i, value in enumerate(values)]
+        frames = [{'choices': [{'index': 0, 'delta': {'tool_calls': calls}, 'finish_reason': None}]},
+                  {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'tool_calls'}]}]
+        # Same observed shape as the M3.1 cell3 receipt, using synthetic text:
+        # reasoning is present, but a completed stop must not become a candidate.
+        reasoning_case = name.startswith('reasoning-')
+        if reasoning_case:
+            frames.insert(0, {'choices': [{'index': 0, 'delta': {
+                'reasoning_content': 'private-reasoning-fixture'}, 'finish_reason': None}]})
+            if not values:
+                frames.pop(1)
+                frames[-1]['choices'][0]['finish_reason'] = name.rsplit('-', 1)[1]
+        alternate = '{"text":"alternate-channel-private"}'
+        if name == 'empty-with-legacy':
+            frames.insert(1, {'choices': [{'index': 0, 'delta': {'function_call': {
+                'name': 'submit_semantic_plan', 'arguments': alternate}}, 'finish_reason': None}]})
+        if name == 'empty-with-markup':
+            for content in ('<tool_cal', 'ls><inv', 'oke>', alternate, '</invoke></tool_calls>'):
+                frames.insert(-1, {'choices': [{'index': 0, 'delta': {'content': content}, 'finish_reason': None}]})
+        if name == 'single-valid-invalid-legacy':
+            frames.insert(1, {'choices': [{'index': 0, 'delta': {
+                'function_call': {'name': 'submit_semantic_plan', 'arguments': '\ud800'}}, 'finish_reason': None}]})
+        if name == 'single-valid-invalid-content':
+            frames.insert(1, {'choices': [{'index': 0, 'delta': {'content': '\ud800'}, 'finish_reason': None}]})
+            frames.insert(2, {'choices': [{'index': 0, 'delta': {
+                'content': {'unexpected': 'private-hidden-content'}}, 'finish_reason': None}]})
+        frames.append({'choices': [], 'base_resp': {'status_code': 0, 'status_msg': 'private-status-message'}})
+        data = (''.join('data: ' + json.dumps(f) + '\n\n' for f in frames) + 'data: [DONE]\n\n').encode()
+        for split in (1, 17, 16384):
+            observer = EvalSseObservation()
+            for i in range(0, len(data), split): observer.feed(data[i:i+split])
+            observer.finish_response(); result = observer.result()
+            assert result['argument_stream_state'] == ('COMPLETE' if values else 'INCOMPLETE')
+            assert result['argument_payload_class'] == expected
+            assert result['reasoning_delta_bytes'] == (len('private-reasoning-fixture') if reasoning_case else 0)
+            if not values:
+                assert result['provider_finish'] == name.rsplit('-', 1)[1]
+                assert result['sse_done'] and not result['diagnostic_unknown']
+                assert result['argument_streams'] == []
+                assert result['argument_delta_bytes'] == 0
+                assert 'ARGUMENT_STREAM_MISSING' in result['observation_reasons']
+            assert ('EMPTY_ARGUMENTS' in result['observation_reasons']) == any(v == '' for v in values)
+            assert ('MULTIPLE_TOOL_STREAMS' in result['observation_reasons']) == (len(values) > 1)
+            channels = result['alternate_channels']
+            assert channels['candidate_authority'] is False
+            assert channels['provider_status_codes'] == [0]
+            assert channels['legacy_argument_bytes'] == (len(alternate.encode()) if name == 'empty-with-legacy' else 0)
+            assert channels['legacy_call_deltas'] == int(name in ('empty-with-legacy', 'single-valid-invalid-legacy'))
+            assert channels['alternate_observation_invalid'] == name.startswith('single-valid-invalid-')
+            if name == 'single-valid-invalid-content':
+                assert channels['content_classes']['OTHER'] == 1
+            if name.startswith('single-valid-invalid-'):
+                assert result['argument_stream_state'] == 'COMPLETE'
+                assert result['diagnostic_unknown'] is False
+                # The old observer ignored alternate fields. Prove the new
+                # diagnostics leave that same modern boundary untouched.
+                class ModernOnly(EvalSseObservation):
+                    def observe_alternate_channels(self, event, delta): pass
+                previous = ModernOnly(); previous.feed(data); previous.finish_response()
+                for key in ('argument_stream_state', 'argument_streams', 'provider_finish', 'diagnostic_unknown'):
+                    assert result[key] == previous.result()[key]
+            assert channels['content_tool_markers'] == (['<invoke', '<tool_call'] if name == 'empty-with-markup' else [])
+            serialized = json.dumps(result)
+            assert not any(value in serialized for value in ('alternate-channel-private', 'private-status-message', 'private-hidden-content', 'private-reasoning-fixture'))
+        fixture.append({'name': name, 'sse': data.decode(), 'reasoning': reasoning_case,
+                        'safe': name in ('single-valid', 'single-valid-invalid-legacy', 'reasoning-with-valid-tool')})
+    path = tmp_path / 'cases.json'; path.write_text(json.dumps(fixture))
+    script = tmp_path / 'empty-sdk.mjs'
+    script.write_text(r'''
+import fs from 'node:fs'; import path from 'node:path'; import net from 'node:net';
+import assert from 'node:assert/strict'; import {pathToFileURL} from 'node:url';
+net.Socket.prototype.connect=()=>{throw Error('OFFLINE_NETWORK_BLOCKED')};
+const [runtime,dir,input]=process.argv.slice(2); const load=n=>import(pathToFileURL(path.join(runtime,n)));
+const g=await load('dist/easel-structured-result.mjs');
+const {createOpenAICompletionsTransportStreamFn}=await load('node_modules/@openclaw/ai/dist/transports.mjs');
+const {t:host}=await load('node_modules/@openclaw/ai/dist/host-B8YfDGd4.mjs');
+let wire;const fake=async()=>new Response(wire,{headers:{'content-type':'text/event-stream'}});
+globalThis.fetch=fake;host({buildModelFetch:()=>fake});
+const schema={type:'object',additionalProperties:false,properties:{text:{type:'string',maxLength:25}},required:['text']};
+const request={version:g.VERSION,name:g.TOOL,schema,schemaSha256:g.sha256(g.canonical(schema))};
+const model={id:'MiniMax-M3',provider:'minimax',api:'openai-completions',baseUrl:'https://offline.invalid/v1',reasoning:false,input:['text'],contextWindow:1000000,maxTokens:8192,cost:{input:0,output:0,cacheRead:0,cacheWrite:0}};
+const results=[];
+for(const f of JSON.parse(fs.readFileSync(input,'utf8'))){
+ wire=f.sse;const folder=path.join(dir,f.name);fs.mkdirSync(folder,{mode:0o700});
+ const selected=f.reasoning?{...model,id:'MiniMax-M3.1-Flash-Preview',reasoning:true}:model;
+ const identity={runId:f.name,sessionId:'offline-'+f.name,provider:'minimax',model:selected.id};
+ const bound=g.bindAttempt(createOpenAICompletionsTransportStreamFn(),request,identity,folder);
+ const stream=bound(selected,{messages:[{role:'user',content:'offline fixed response',timestamp:0}],tools:[{name:g.TOOL,parameters:schema,description:'fixed'}]},{apiKey:'offline',maxTokens:8192,
+  onPayload:p=>{if(f.reasoning){p.thinking={type:'adaptive'};p.reasoning_effort='low';}return p;}});
+ for await(const e of stream){}const response=await stream.result();
+ let safe=false;try{g.candidateEvidence(response,request);safe=true}catch{}
+ assert.equal(safe,f.safe);results.push({name:f.name,safe});
+}
+process.stdout.write(JSON.stringify(results));
+''')
+    proc = subprocess.run([str(node), str(script), str(runtime), str(tmp_path), str(path)],
+                          capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    results = json.loads(proc.stdout)
+    for i, row in enumerate(results):
+        if not row['safe']:
+            budget = EvalHttpBudget(tmp_path / ('ledger-' + row['name']), f'{i + 1:064x}', limit=1)
+            budget.reserve({}); budget.close('ENTRY_CAPTURE_UNAVAILABLE')
+            before = budget.path.read_bytes()
+            with pytest.raises(ValueError): budget.reserve({})
+            state = json.loads(budget.path.read_text())
+            assert len(state['requests']) == 1 and state['closed']
+            assert state['requests'] == json.loads(before)['requests']
 
 
 def test_shallow_details_experiment_preserves_closed_contract():
@@ -1425,3 +2180,68 @@ def test_planning_input_view_reconstructs_full_sources(tmp_path):
     (tmp_path / 'input-view-roundtrip.json').write_text(json.dumps({
         'status': 'OFFLINE_ROUNDTRIP_ONLY', 'cases': reports, 'real_calls': 0,
         'semantic_conflicts_resolved': False, 'production_enabled': False}, ensure_ascii=False, indent=2))
+
+
+def test_r6_transcript_reader_only_consumes_original_structured_tool(tmp_path):
+    """Real Node consumer; only the external Runtime/readonly transcript are fixtures."""
+    import hashlib
+    from copy import deepcopy
+    from easel.integrations.planning_transcript import SELECTOR
+    from easel.integrations.planning_structured import request_for
+    root = tmp_path / 'offline-runtime'
+    dist = root / 'dist'
+    (dist / 'plugin-sdk').mkdir(parents=True)
+    (root / 'package.json').write_text(json.dumps({'version': '2026.9.4', 'type': 'module'}))
+    (dist / SELECTOR).write_text('export const X=events=>events.map((event,seq)=>({event,seq}));')
+    profile = dist / 'startup-trace-DTSRmmXT.mjs'
+    profile.write_text('export const r=()=>{};')
+    (dist / 'plugin-sdk/sqlite-runtime.js').write_text('''
+import fs from 'node:fs';
+export const withOpenClawAgentDatabaseReadOnly=callback=>{
+ const events=JSON.parse(fs.readFileSync(new URL('../events.json',import.meta.url),'utf8'));
+ const db={exec(sql){if(!['BEGIN','ROLLBACK'].includes(sql))throw Error('write forbidden');},
+ prepare(){return {get(){return {n:events.length,bytes:JSON.stringify(events).length};},
+ all(){return events.map(event=>({event_json:JSON.stringify(event)}));}};}};
+ return {found:true,value:callback({db})};
+};
+''')
+    repo = Path(__file__).resolve().parents[1]
+    guard = dist / 'easel-structured-result.mjs'
+    guard.write_bytes((repo / 'scripts/openclaw_structured_result.mjs').read_bytes())
+    request = request_for({'type': 'object', 'properties': {'needs': {'type': 'array'}},
+                           'required': ['needs'], 'additionalProperties': False})
+    raw = '{"needs":[]}'
+    digest = hashlib.sha256(raw.encode()).hexdigest()
+    message = {'role': 'assistant', '__openclaw': {'runId': 'original'}, 'stopReason': 'toolUse',
+        'easelProviderFinishReason': 'tool_calls',
+        'content': [{'type': 'toolCall', 'id': 'tool-1', 'name': request['name'],
+                     'arguments': {'needs': []}, 'easelRawArguments': raw}],
+        'easelStructuredResult': {'version': request['version'], 'schemaSha256': request['schemaSha256'],
+            'toolCallId': 'tool-1', 'providerFinishReason': 'tool_calls', 'rawSha256': digest,
+            'rawBytes': len(raw.encode())}}
+    params = {'agentId': 'main', 'sessionKey': 'agent:main:original', 'sessionId': 'session',
+        'runId': 'original', 'profile': 'fixture', 'maxResultBytes': 8388608, 'structured': request,
+        'runtimeParts': {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in (dist / SELECTOR, profile)},
+        'structuredParts': {'dist/easel-structured-result.mjs': hashlib.sha256(guard.read_bytes()).hexdigest()}}
+    for fault in ('none', 'prose', 'schema', 'run', 'session', 'missing_contract', 'bytes', 'duplicate_tool'):
+        current, options = deepcopy(message), deepcopy(params)
+        if fault == 'prose':
+            current.update(stopReason='stop', content=[{'type': 'text', 'text': raw}])
+        if fault == 'schema': current['easelStructuredResult']['schemaSha256'] = 'wrong'
+        if fault == 'run': current['__openclaw']['runId'] = 'other'
+        if fault == 'session': options['sessionId'] = 'other'
+        if fault == 'missing_contract': options.pop('structured')
+        if fault == 'bytes': current['content'][0]['easelRawArguments'] += ' '
+        if fault == 'duplicate_tool': current['content'].append(deepcopy(current['content'][0]))
+        events = [{'type': 'session', 'id': 'session'}, {'type': 'message', 'id': 'message', 'message': current}]
+        source = dist / 'events.json'
+        source.write_text(json.dumps(events))
+        before = source.read_bytes()
+        completed = subprocess.run([shutil.which('node'), str(repo / 'easel/integrations/planning_transcript.mjs'), str(root)],
+            input=json.dumps(options), capture_output=True, text=True, check=True, timeout=15)
+        result = json.loads(completed.stdout)
+        if fault == 'none':
+            assert result['state'] == 'FOUND' and result['text'] == raw and result['sha256'] == digest
+        else:
+            assert result['state'] in {'TOOL_REJECTED', 'MISSING', 'UNAVAILABLE'}
+        assert source.read_bytes() == before

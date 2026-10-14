@@ -71,11 +71,47 @@ def response_schema(batch):
     for field in ('question', 'evidence'):
         del schema['properties'][field]
         schema['required'].remove(field)
-    definitions = schema.pop('$defs', {})
-    definitions['Support']['properties']['source']['enum'] = list(sources)
+    template = schema.pop('$defs', {})['Support']
+    from easel.integrations.planning_wire import SOURCE_QUOTE_SCHEMA
+    definitions, variants, properties = {}, {}, {}
+    for question in batch['questions']:
+        output = (question['kind'] == 'complete_obligation'
+                  and question['candidate'].get('responsibility') == 'postproduction')
+        eligible = {key: {**source, 'roles': [role for role in source['roles']
+                    if role != 'output_authority' or output]}
+                    for key, source in sources.items() if source['evidence_id'] in question['evidence']}
+        # Compile the existing mechanical eligibility checks. Literal quotation
+        # and entailment still belong to the unchanged independent validators.
+        signature = tuple((key, tuple(source['roles'])) for key, source in eligible.items())
+        if signature not in variants:
+            name = 'Support' if not variants else f'Support_{len(variants):03}'
+            variants[signature] = name
+            groups = {}
+            for key, source in eligible.items():
+                groups.setdefault((isinstance(source['value'], str), tuple(source['roles'])), []).append(key)
+            support_schema = deepcopy(template)
+            support_schema['properties']['source']['enum'] = list(eligible)
+            support_schema['properties']['quote'] = deepcopy(SOURCE_QUOTE_SCHEMA)
+            branches = []
+            for (strings, roles), handles in groups.items():
+                props = deepcopy(support_schema['properties'])
+                props['source']['enum'] = handles
+                props['role']['enum'] = list(roles)
+                props['quote'] = ({'type': 'string', 'minLength': 1, 'maxLength': 512}
+                                  if strings else {'type': 'null'})
+                branches.append({'type': 'object', 'additionalProperties': False,
+                                 'properties': props, 'required': list(support_schema['required'])})
+            support_schema['oneOf'] = branches
+            definitions[name] = support_schema if branches else False
+        answer = deepcopy(schema)
+        answer['properties']['support']['items'] = {'$ref': '#/$defs/' + variants[signature]}
+        answer['allOf'] = [{'if': {'properties': {'decision': {'const': 'ACCEPT'}}},
+            'then': {'properties': {'support': {'contains': {'type': 'object',
+                'properties': {'role': {'enum': ['authority', 'output_authority']}},
+                'required': ['role']}, 'minContains': 1}}}}]
+        properties[slot(question)] = answer
     schema = {'title': 'PlanningVisualReview', 'type': 'object', 'additionalProperties': False,
-        '$defs': definitions, 'properties': {slot(q): deepcopy(schema) for q in batch['questions']},
-        'required': [slot(q) for q in batch['questions']]}
+        '$defs': definitions, 'properties': properties, 'required': list(properties)}
     if not 1 <= len(batch['questions']) <= MAX_B_ANSWERS or maximum_compact_bytes(schema) > MAX_RESULT_BYTES:
         raise ValueError('Complete supported review exceeds capacity')
     return schema

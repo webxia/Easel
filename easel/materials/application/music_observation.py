@@ -66,11 +66,11 @@ def classify_music(path: Path, model_path: Path) -> dict:
     import torch
     from transformers import ASTFeatureExtractor, ASTForAudioClassification
     decoded = subprocess.run(['ffmpeg', '-v', 'error', '-nostdin', '-protocol_whitelist', 'file,pipe',
-        '-i', str(path), '-vn', '-ac', '1', '-ar', '16000', '-t', '301', '-f', 'f32le', 'pipe:1'],
-        capture_output=True, check=True, timeout=60)
+        '-i', str(path), '-vn', '-ac', '1', '-ar', '16000', '-t', '901', '-f', 'f32le', 'pipe:1'],
+        capture_output=True, check=True, timeout=180)
     pcm = np.frombuffer(decoded.stdout, dtype='<f4')
-    if not 16000 <= len(pcm) <= 300 * 16000 or not np.isfinite(pcm).all():
-        raise ValueError('配乐观察支持 1～300 秒的有效音频')
+    if not 16000 <= len(pcm) <= 900 * 16000 or not np.isfinite(pcm).all():
+        raise ValueError('配乐观察只支持 1～900 秒的有效完整源音频')
     extractor = ASTFeatureExtractor.from_pretrained(str(model_path), local_files_only=True)
     model = ASTForAudioClassification.from_pretrained(str(model_path), local_files_only=True, use_safetensors=True).eval()
     labels = {int(k): v for k, v in model.config.id2label.items()}
@@ -100,8 +100,8 @@ def read_local_music(path: Path) -> dict:
             'print(json.dumps(classify_music(Path(sys.argv[1]),Path(sys.argv[2]))))')
     try:
         result = subprocess.run([sys.executable, '-c', code, str(path), str(model.resolve())],
-                                capture_output=True, timeout=240, check=True)
-        if len(result.stdout) > 2_000_000:
+                                capture_output=True, timeout=900, check=True)
+        if len(result.stdout) > 8_000_000:
             raise ValueError('配乐观察报告过大')
         return json.loads(result.stdout)
     except (subprocess.SubprocessError, OSError, json.JSONDecodeError) as exc:
@@ -116,14 +116,14 @@ def assess_music(asset, report: dict) -> tuple[str, list[str]]:
             or report.get('model_revision') != MODEL_REVISION
             or report.get('model_sha256') != MODEL_FILES['model.safetensors']
             or report.get('audio_sha256') != asset.file.sha256
-            or type(duration) not in (int, float) or not 1 <= duration <= 300 or not math.isfinite(duration)
+            or type(duration) not in (int, float) or not 1 <= duration <= 900 or not math.isfinite(duration)
             or type(report.get('duration_seconds')) not in (int, float)
-            or not 1 <= report['duration_seconds'] <= 300
+            or not 1 <= report['duration_seconds'] <= 900
             or not math.isfinite(report['duration_seconds'])
             or abs(report['duration_seconds'] - duration) > .15):
         raise ValueError('配乐观察身份或覆盖范围不一致')
     windows = report.get('windows')
-    if not isinstance(windows, list) or not 1 <= len(windows) <= 61:
+    if not isinstance(windows, list) or not 1 <= len(windows) <= 181:
         raise ValueError('配乐观察缺少有界声音窗口')
     end, music, vocals, tags = 0., [], [], set()
     for row in windows:

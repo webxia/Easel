@@ -17,8 +17,26 @@ from easel.integrations.planning_authority import digest
 from easel.integrations.planning_result_contract import MAX_RESULT_BYTES, maximum_compact_bytes
 
 POLICY = 'planning-xml-wire@1'
+SOURCE_TYPED_QUOTE = 'source-typed-review-quote@1'
+SOURCE_QUOTE_SCHEMA = {'title': SOURCE_TYPED_QUOTE, 'type': ['string', 'null'],
+                       'minLength': 1, 'maxLength': 512}
 GUIDANCE = ('工具Schema已经展开引用。必填可空值用且只用 {"null":true} 或 {"value":非空原值}；'
             '字符串 "null" 是普通文本。数组直接提交数组，不使用 item 包装。')
+
+
+def guidance(schema):
+    if _source_quote_schema(schema):
+        return ('support.quote按同项source对应的原值类型直接提交JSON字符串或JSON null，'
+                '不使用value/null对象包装。字符串"null"、"true"及数字样文本仍是原字符串。'
+                '其他必填可空字段仍按各自Schema的显式对象分支填写。数组直接提交数组。')
+    return GUIDANCE
+
+
+def _source_quote_schema(node):
+    if isinstance(node, dict):
+        return node == SOURCE_QUOTE_SCHEMA or any(_source_quote_schema(value)
+            for key, value in node.items() if key not in {'default', 'const', 'enum'})
+    return isinstance(node, list) and any(map(_source_quote_schema, node))
 
 # Cache only pure compiled schema representations within one synchronous,
 # read-only checkpoint traversal. Do not cache accepted replies, source facts,
@@ -120,6 +138,11 @@ class Projection:
         def project(node, required=False):
             if not isinstance(node, dict):
                 return node, {}
+            # Only this exact, program-owned B quote schema uses native JSON
+            # scalars. Its enclosing Support source branches own type selection;
+            # no reply coercion or historical wrapper fallback is permitted.
+            if node == SOURCE_QUOTE_SCHEMA:
+                return deepcopy(node), {}
             types = _types(node)
             if required and 'null' in types and types != {'null'}:
                 null_allowed = Draft202012Validator(node).is_valid(None)
@@ -179,6 +202,8 @@ class Projection:
         self.validator = Draft202012Validator(self.schema)
         self.identity = {'stage': stage, 'codec_policy': POLICY,
                          'canonical_schema_sha256': digest(canonical), 'wire_schema_sha256': digest(self.schema)}
+        if _source_quote_schema(canonical):
+            self.identity['source_quote_policy'] = SOURCE_TYPED_QUOTE
 
     def errors(self, value):
         # No candidate values or arbitrary exception prose in diagnostics.

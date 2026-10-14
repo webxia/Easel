@@ -202,39 +202,35 @@ class PlanningIntegration:
             raise MaterialIntegrationError(str(exc)) from exc
         root = _workspace(attempt)
         product = bool(work.get('preparation', {}).get('snapshot_hashes')) or (
-            (work.get('delivery') or {}).get('video_plan', {}).get('schema') in {'easel-video-proposal@2', 'easel-video-proposal@3'})
+            (work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@4')
         version = attempt.get('planning_contract_version')
         from easel.integrations.semantic_boundary import POLICY as boundary_policy
-        if plan.policy.get('semantic_compiler') == boundary_policy and version != 3:
-            raise MaterialIntegrationError('vNext需要完整语义合同，不能降级绕过复核')
-        if product and version not in {2, 3}:
-            raise MaterialIntegrationError('新产品Planning缺少程序登记的合同；已完成旧记录只能load恢复')
-        if version not in {None, 2, 3}:
-            raise MaterialIntegrationError('Planning合同版本不支持，不能降级')
+        from easel.creation_delivery import is_managed
+        if (not product or not is_managed(work) or version != 3
+                or plan.policy.get('semantic_compiler') != boundary_policy):
+            raise MaterialIntegrationError('旧 Planning/非当前委托只读；只允许唯一 v3/vNext 持久化')
         requirements, records, requirements_raw = None, {}, None
-        if version in {2, 3}:
-            from easel.integrations.planning_contract import requirements_bytes, bind_requirements
-            try:
-                requirements_raw = requirements_bytes(root, plan)
-                sources = {n.need_id: n.model_dump(mode='json') for n in source_plan.needs
-                           if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}
-                if requirements_source is not None:
-                    if hashlib.sha256(requirements_raw).hexdigest() != requirements_source.get('sha256'):
-                        raise ValueError('Planning要求复制字节与源冻结摘要不一致')
-                    sources = requirements_source['source_needs']
-                requirements, records = bind_requirements(plan, mode, requirements_raw, sources,
-                    requirements_source.get('origin') if requirements_source else None)
-            except (OSError, ValueError, TypeError) as exc:
-                raise MaterialIntegrationError('Planning要求合同无效：' + str(exc)) from exc
-        semantic = None
-        if version == 3:
-            from easel.integrations.semantic_planning import verify_semantic_checkpoint
-            try:
-                semantic = verify_semantic_checkpoint(root, plan, mode, script,
-                    requirements_source.get('origin') if requirements_source else None,
-                    canonical={'SCRIPT.md': script, 'SCENES.md': scenes, 'TREATMENT.md': treatment}, attempt=attempt)
-            except (OSError, ValueError, TypeError, KeyError) as exc:
-                raise MaterialIntegrationError('Planning语义编译完整性无效：' + str(exc)) from exc
+        from easel.integrations.planning_contract import requirements_bytes, bind_requirements
+        try:
+            requirements_raw = requirements_bytes(root, plan)
+            sources = {n.need_id: n.model_dump(mode='json') for n in source_plan.needs
+                       if n.media_type in {MediaType.IMAGE, MediaType.VIDEO}}
+            if requirements_source is not None:
+                if hashlib.sha256(requirements_raw).hexdigest() != requirements_source.get('sha256'):
+                    raise ValueError('Planning要求复制字节与源冻结摘要不一致')
+                sources = requirements_source['source_needs']
+            requirements, records = bind_requirements(plan, mode, requirements_raw, sources,
+                requirements_source.get('origin') if requirements_source else None)
+        except (OSError, ValueError, TypeError) as exc:
+            raise MaterialIntegrationError('Planning要求合同无效：' + str(exc)) from exc
+        from easel.integrations.semantic_planning import verify_semantic_checkpoint
+        try:
+            semantic = verify_semantic_checkpoint(root, plan, mode, script,
+                requirements_source.get('origin') if requirements_source else None,
+                canonical={'SCRIPT.md': script, 'SCENES.md': scenes,
+                           'TREATMENT.md': treatment}, attempt=attempt)
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            raise MaterialIntegrationError('Planning语义编译完整性无效：' + str(exc)) from exc
         truth_path = root / "handoff" / "truth-packet.json"
         from easel.integrations import result_protocols as result_versions
         ledger_revision = result_versions.selected(attempt, "script_ledger")
@@ -280,7 +276,7 @@ class PlanningIntegration:
         }
         plan_revision = MaterialReadinessCalculator.plan_revision(plan)
         manifest = {
-            "schema": f"easel-material-planning@{version or 1}",
+            "schema": "easel-material-planning@3",
             "status": "PLANNING_READY",
             "plan_id": plan.plan_id,
             "plan_revision": plan_revision,
@@ -295,13 +291,13 @@ class PlanningIntegration:
         }
         manifest['result_protocols'] = result_versions.inherited(attempt)
         manifest['truth_result'] = truth_result
-        if version in {2, 3}:
-            from easel.integrations.planning_contract import requirements_bytes
-            if requirements_bytes(root, plan) != requirements_raw:
-                raise MaterialIntegrationError('Planning要求文件在冻结期间变化')
-            manifest['requirements'] = requirements
-            if semantic is not None: manifest['semantic'] = semantic
-            for key, record in records.items(): store.write_recovery_record(key, record)
+        from easel.integrations.planning_contract import requirements_bytes
+        if requirements_bytes(root, plan) != requirements_raw:
+            raise MaterialIntegrationError('Planning要求文件在冻结期间变化')
+        manifest['requirements'] = requirements
+        manifest['semantic'] = semantic
+        for key, record in records.items():
+            store.write_recovery_record(key, record)
         manifest_path = root / "planning" / "manifest.json"
         from easel.integrations import voice_identity as voice
         try:
@@ -331,8 +327,8 @@ class PlanningIntegration:
             attempt,
             material_planning={
                 "status": "PLANNING_READY",
-                **({'contract_version': version, 'manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest()}
-                   if version in {2, 3} else {}),
+                'contract_version': 3,
+                'manifest_sha256': hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
                 "output_decision": output_decision(
                     'material', 'ACCEPT', 'validated_planning', policy_revision=manifest['schema']),
                 "plan_id": plan.plan_id,
@@ -397,25 +393,17 @@ class PlanningIntegration:
             raise MaterialIntegrationError('Attempt Planning状态或Plan身份不一致')
         schema = manifest.get('schema')
         from easel.integrations.semantic_boundary import POLICY as boundary_policy
-        if plan.policy.get('semantic_compiler') == boundary_policy and schema != 'easel-material-planning@3':
-            raise MaterialIntegrationError('vNext冻结合同不能降级恢复')
         owner = creation.get_creation(plan.creation_id)
         owner_attempt = next((item for item in owner.get('hypit_attempts', [])
                               if item.get('attempt_id') == plan.attempt_id), {})
-        current_contract = ((owner.get('delivery') or {}).get('video_plan') or {}).get('schema') in {'easel-video-proposal@2', 'easel-video-proposal@3'}
-        v2 = (attempt.get('planning_contract_version') is not None or stored.get('contract_version') is not None
-              or schema in {'easel-material-planning@2', 'easel-material-planning@3'} or 'requirements' in manifest
-              or current_contract or owner_attempt.get('planning_contract_version') is not None)
-        if v2:
-            version = attempt.get('planning_contract_version')
-            if (version not in {2,3} or stored.get('contract_version') != version
-                    or owner_attempt.get('planning_contract_version',version) != version
-                    or schema != f'easel-material-planning@{version}'
-                    or stored.get('manifest_sha256') != hashlib.sha256(manifest_path.read_bytes()).hexdigest()):
-                raise MaterialIntegrationError('Planning v2版本或manifest摘要不一致，不能降级')
-        elif (schema != 'easel-material-planning@1' or stored.get('status') != 'PLANNING_READY'
-              or stored.get('plan_id') != plan.plan_id or stored.get('plan_revision') != manifest['plan_revision']):
-            raise MaterialIntegrationError('旧Planning不是有效的冻结检查点')
+        from easel.creation_delivery import is_managed
+        if (not is_managed(owner) or owner_attempt.get('planning_contract_version') != 3
+                or attempt.get('planning_contract_version') != 3
+                or plan.policy.get('semantic_compiler') != boundary_policy
+                or schema != 'easel-material-planning@3'
+                or stored.get('contract_version') != 3
+                or stored.get('manifest_sha256') != hashlib.sha256(manifest_path.read_bytes()).hexdigest()):
+            raise MaterialIntegrationError('旧 Planning 只读；当前 v3/vNext 冻结原件不合法')
         from easel.integrations import result_protocols as result_versions
         from easel.output_admission import digest as result_digest
         pinned_results = result_versions.inherited(attempt)
@@ -458,22 +446,22 @@ class PlanningIntegration:
                 or stored.get("script_sha256") != ledger.get("script_sha256")
                 or stored.get("truth_packet_sha256") != ledger.get("truth_packet_sha256")):
             raise MaterialIntegrationError("Attempt Script review record does not match persisted claim ledger")
-        if v2:
-            from easel.integrations.hypit.handoff import load_frozen_creative_mode
-            from easel.integrations.planning_contract import verify_requirements
-            try:
-                mode = load_frozen_creative_mode(attempt)[0]
-                verify_requirements(attempt, plan, manifest, mode)
-                if version == 3:
-                    from easel.integrations.semantic_planning import verify_semantic_checkpoint
-                    actual = verify_semantic_checkpoint(root, plan, mode, artifacts['script'],
-                        manifest.get('semantic',{}).get('origin'),
-                        canonical={'SCRIPT.md': artifacts['script'], 'SCENES.md': artifacts['scenes'],
-                                   'TREATMENT.md': artifacts['treatment']}, attempt=attempt)
-                    if actual != manifest.get('semantic'):
-                        raise ValueError('语义编译冻结摘要不一致')
-            except (OSError, ValueError, TypeError, KeyError) as exc:
-                raise MaterialIntegrationError('Planning要求合同完整性无效：' + str(exc)) from exc
+        from easel.integrations.hypit.handoff import load_frozen_creative_mode
+        from easel.integrations.planning_contract import verify_requirements
+        from easel.integrations.semantic_planning import verify_semantic_checkpoint
+        try:
+            mode = load_frozen_creative_mode(attempt)[0]
+            verify_requirements(attempt, plan, manifest, mode)
+            actual = verify_semantic_checkpoint(
+                root, plan, mode, artifacts['script'],
+                manifest.get('semantic', {}).get('origin'),
+                canonical={'SCRIPT.md': artifacts['script'],
+                           'SCENES.md': artifacts['scenes'],
+                           'TREATMENT.md': artifacts['treatment']}, attempt=attempt)
+            if actual != manifest.get('semantic'):
+                raise ValueError('语义编译冻结摘要不一致')
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            raise MaterialIntegrationError('Planning要求合同完整性无效：' + str(exc)) from exc
         return {"plan": plan, **artifacts, "context_refs": plan.context_refs,
                 "truth_ledger": ledger, "attempt": attempt, 'manifest': manifest,
                 'requirements': manifest.get('requirements'), 'semantic': manifest.get('semantic')}
@@ -565,7 +553,8 @@ class MaterialGateIntegration:
         try:
             work = creation.get_creation(attempt['creation_id'])
             voice_evidence = None
-            if (work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@3':
+            if ((work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@4'
+                    and (work.get('delivery') or {}).get('video_plan', {}).get('specs', {}).get('audio_mode') in {'voice', 'mixed'}):
                 planning = PlanningIntegration().load(attempt)
                 voice_evidence = covered_asset_evidence(work, plan, bundle, store, planning['script'],
                                                       checkpoint=planning['voice_checkpoint'])
@@ -644,7 +633,8 @@ class MaterialGateIntegration:
         try:
             work = creation.get_creation(attempt['creation_id'])
             voice_evidence = None
-            if (work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@3':
+            if ((work.get('delivery') or {}).get('video_plan', {}).get('schema') == 'easel-video-proposal@4'
+                    and (work.get('delivery') or {}).get('video_plan', {}).get('specs', {}).get('audio_mode') in {'voice', 'mixed'}):
                 planning = (_validated_planning if _validated_planning is not None
                             else PlanningIntegration().load(attempt))
                 if planning['plan'] != plan:
@@ -1953,7 +1943,12 @@ class MaterialProductOrchestrator:
             base = staged.get(reviewed.asset_id, store.read_asset(reviewed.asset_id))
             inferences = tuple(i for i in base.semantic.inferences if i.analyzer_id != inference.analyzer_id) + (inference,)
             staged[reviewed.asset_id] = base.model_copy(update={'semantic': base.semantic.model_copy(update={'inferences': inferences})})
+        original_run = store.read_supply_run(bundle.supply_run_id)
+        if (original_run.plan_id != plan.plan_id
+                or original_run.result_bundle_id not in (None, bundle.bundle_id)):
+            raise MaterialIntegrationError('原素材供应回执不属于当前组合')
         journal = {'status': 'PENDING', 'plan_revision': plan_revision,
+                   'source_run': original_run.model_dump(mode='json'),
                    'choices': {r['need_id']: {'asset_id': r['asset_id'], 'sha256': r['expected_sha256']} for r in reviews},
                    'bundle': bundle.model_dump(mode='json'),
                    'original_assets': {a.asset_id: store.read_asset(a.asset_id).model_dump(mode='json') for a in bundle.assets},
@@ -1971,6 +1966,14 @@ class MaterialProductOrchestrator:
         if not journal:
             raise MaterialIntegrationError('素材组合接受检查点缺失')
         if journal['status'] == 'COMPLETE':
+            completed_bundle = journal.get('result_bundle')
+            current_gate = attempt.get('material_gate', {})
+            if (not isinstance(completed_bundle, dict)
+                    or store.read_bundle().model_dump(mode='json') != completed_bundle
+                    or current_gate.get('plan_revision') != journal.get('plan_revision')
+                    or current_gate.get('bundle_id') != completed_bundle.get('bundle_id')
+                    or current_gate.get('bundle_revision') != completed_bundle.get('revision')):
+                raise MaterialIntegrationError('已完成组合已被其他 Bundle/Match/Gate 变更取代，不能重放旧决定')
             marker = attempt.get('material_combination_review', {})
             if marker.get('status') == 'PENDING' and marker.get('request_id') == request_id:
                 attempt = _update_attempt(attempt, material_combination_review={**marker, 'status': 'COMPLETE'})
@@ -1981,8 +1984,67 @@ class MaterialProductOrchestrator:
         plan = PlanningIntegration().load(attempt)['plan']
         if MaterialReadinessCalculator.plan_revision(plan) != journal['plan_revision']:
             raise MaterialIntegrationError('组合接受期间方案变化，不能沿用旧决定')
+        from easel.materials.application.assembly import MaterialBundleAssembler
         bundle = MaterialBundle.model_validate_json(json.dumps(journal['bundle']))
-        if {a.asset_id for a in store.read_bundle().assets} != set(journal['original_assets']):
+        recorded_source_run = journal.get('source_run')
+        source_run = store.read_supply_run(bundle.supply_run_id)
+        if (recorded_source_run != source_run.model_dump(mode='json')
+                or source_run.plan_id != plan.plan_id
+                or source_run.result_bundle_id not in (None, bundle.bundle_id)):
+            raise MaterialIntegrationError('组合接受期间原 SupplyRun 原件已变化')
+        current_bundle = store.read_bundle()
+        current_gate = attempt.get('material_gate', {})
+        if (bundle.plan_id != plan.plan_id
+                or MaterialBundleAssembler.revision(bundle) != bundle.revision
+                or current_gate.get('plan_revision') != journal['plan_revision']
+                or current_gate.get('bundle_id') != bundle.bundle_id):
+            raise MaterialIntegrationError('组合接受期间冻结 Plan/Bundle/Gate 身份变化')
+        # A source-revision-only check would incorrectly reject a legitimate
+        # crash after this very combination wrote its new Match/Bundle/Gate.
+        # Record the exact product projection *before* Gate writes it, then
+        # recognize only either its original source or that own checkpoint.
+        projected = journal.get('result_bundle')
+        projected_run = journal.get('result_run')
+        if (projected is None) != (projected_run is None):
+            raise MaterialIntegrationError('组合接受产物检查点不完整')
+        if projected is not None:
+            target = MaterialBundle.model_validate_json(json.dumps(projected))
+            run = SupplyRun.model_validate_json(json.dumps(projected_run))
+            digest = hashlib.sha256(
+                "\n".join(MaterialAsset.model_validate_json(json.dumps(a)).to_json()
+                          for a in projected['assets']).encode()).hexdigest()[:16]
+            expected_id = f"match-{bundle.supply_run_id[-40:]}-{digest}"
+            if (target.plan_id != plan.plan_id or target.bundle_id != bundle.bundle_id
+                    or MaterialBundleAssembler.revision(target) != target.revision
+                    or run.plan_id != plan.plan_id or run.result_bundle_id != bundle.bundle_id
+                    or target.supply_run_id != run.supply_run_id
+                    or (target != bundle and
+                        (run.supply_run_id != expected_id
+                         or run.parent_run_id != bundle.supply_run_id))):
+                raise MaterialIntegrationError('组合接受产物不属于原冻结 Source/Match')
+        else:
+            target = None
+            run = None
+        if (current_bundle != bundle and current_bundle != target
+                or current_gate.get('bundle_revision') not in (
+                    {bundle.revision} if current_bundle == bundle else
+                    {bundle.revision, current_bundle.revision})):
+            raise MaterialIntegrationError('组合接受期间 Bundle/Match 已被其他操作改变')
+        if current_bundle != bundle and run is None:
+            raise MaterialIntegrationError('当前 Bundle 不是该组合的已保存产物')
+        if run is not None:
+            # A changed external SupplyRun with equal asset IDs/source SHA
+            # cannot be silently overwritten; a just-written Bundle without
+            # its Run is a valid intermediate state only while Gate is old.
+            try:
+                saved_run = store.read_supply_run(run.supply_run_id)
+            except AttemptMaterialStoreError as exc:
+                if 'record not found' not in str(exc) or current_gate.get('bundle_revision') == target.revision:
+                    raise MaterialIntegrationError('组合提交的 SupplyRun 原件缺失或损坏') from exc
+            else:
+                if saved_run != run:
+                    raise MaterialIntegrationError('组合原 SupplyRun 记录与本次审阅因果不一致')
+        if {a.asset_id for a in current_bundle.assets} != set(journal['original_assets']):
             raise MaterialIntegrationError('组合接受期间候选集合变化，请重新核对')
         for asset_id, original in journal['original_assets'].items():
             current = store.read_asset(asset_id)
@@ -1996,7 +2058,17 @@ class MaterialProductOrchestrator:
         for raw in journal['reviewed_assets'].values():
             store.write_asset(MaterialAsset.model_validate_json(json.dumps(raw)))
         result = self._recalculate_observed_materials(attempt, plan, bundle, store, require_scoped_visual=True)
-        store.write_recovery_record(request_id, {**journal, 'status': 'COMPLETE'})
+        # _recalculate_observed_materials saved the exact output Bundle/Run
+        # *before* Gate writes. The old input snapshot here would erase proof
+        # of our own self-generated revision during cold resume.
+        committed = store.read_recovery_record(request_id)
+        current_result_bundle = store.read_bundle()
+        if (committed is None
+                or committed.get('result_bundle') != current_result_bundle.model_dump(mode='json')
+                or committed.get('result_run') != store.read_supply_run(
+                    current_result_bundle.supply_run_id).model_dump(mode='json')):
+            raise MaterialIntegrationError('组合完成后的 Bundle/SupplyRun 证据没有闭合')
+        store.write_recovery_record(request_id, {**committed, 'status': 'COMPLETE'})
         result['attempt'] = _update_attempt(result['attempt'], material_combination_review={
             **result['attempt'].get('material_combination_review', {}), 'status': 'COMPLETE', 'request_id': request_id})
         return result
@@ -2009,21 +2081,58 @@ class MaterialProductOrchestrator:
         old_run = store.read_supply_run(bundle.supply_run_id)
         assets = tuple(store.read_asset(item.asset_id) for item in bundle.assets)
         matches = MaterialProductOrchestrator._rank_reviewed_materials(attempt, plan, assets, store, require_scoped_visual=require_scoped_visual)
+        marker = attempt.get('material_combination_review', {})
+        journal = store.read_recovery_record(marker['request_id']) if marker.get('request_id') else None
+        pending_combination = bool(journal and journal.get('status') == 'PENDING')
+        if pending_combination and journal.get('bundle') != bundle.model_dump(mode='json'):
+            raise MaterialIntegrationError('组合 Source 与保存的人审输入不一致')
         reviewed_run = old_run
         revised_bundle = MaterialBundleAssembler().assemble(
             plan, reviewed_run, assets, tuple(matches), bundle_id=bundle.bundle_id,
         )
         if revised_bundle != bundle:
             digest = hashlib.sha256("\n".join(asset.to_json() for asset in assets).encode()).hexdigest()[:16]
-            now = datetime.now(timezone.utc)
-            reviewed_run = SupplyRun(
-                supply_run_id=f"match-{bundle.supply_run_id[-40:]}-{digest}",
-                plan_id=plan.plan_id, parent_run_id=old_run.supply_run_id,
-                started_at=now, finished_at=now, result_bundle_id=bundle.bundle_id,
-            )
+            run_id = f"match-{bundle.supply_run_id[-40:]}-{digest}"
+            projected_run = journal.get('result_run') if pending_combination else None
+            if projected_run is not None:
+                reviewed_run = SupplyRun.model_validate_json(json.dumps(projected_run))
+            else:
+                try:
+                    reviewed_run = store.read_supply_run(run_id)
+                except AttemptMaterialStoreError as exc:
+                    if 'record not found' not in str(exc):
+                        raise MaterialIntegrationError('原匹配 SupplyRun 已损坏，不能覆盖') from exc
+                    now = datetime.now(timezone.utc)
+                    reviewed_run = SupplyRun(
+                        supply_run_id=run_id, plan_id=plan.plan_id,
+                        parent_run_id=old_run.supply_run_id,
+                        started_at=now, finished_at=now, result_bundle_id=bundle.bundle_id,
+                    )
+            if (reviewed_run.supply_run_id != run_id
+                    or reviewed_run.plan_id != plan.plan_id
+                    or reviewed_run.parent_run_id != old_run.supply_run_id
+                    or reviewed_run.result_bundle_id != bundle.bundle_id):
+                raise MaterialIntegrationError('原匹配 SupplyRun 不能归属当前 Bundle')
             revised_bundle = MaterialBundleAssembler().assemble(
                 plan, reviewed_run, assets, tuple(matches), bundle_id=bundle.bundle_id,
             )
+        if pending_combination:
+            recorded_bundle = journal.get('result_bundle')
+            recorded_run = journal.get('result_run')
+            if (recorded_bundle is None) != (recorded_run is None):
+                raise MaterialIntegrationError('组合产物 Checkpoint 不完整')
+            if recorded_bundle is not None:
+                if (recorded_bundle != revised_bundle.model_dump(mode='json')
+                        or recorded_run != reviewed_run.model_dump(mode='json')):
+                    raise MaterialIntegrationError('组合自身产物与已保存的执行回执不一致')
+            else:
+                # The existing PENDING journal owns this exact result before
+                # Gate.record writes Bundle/Run/Readiness. If that write
+                # partially succeeds, cold replay knows its own new revision.
+                store.write_recovery_record(marker['request_id'], {
+                    **journal, 'result_bundle': revised_bundle.model_dump(mode='json'),
+                    'result_run': reviewed_run.model_dump(mode='json'),
+                })
         readiness, gaps = material_results.readiness_calculator(attempt, store).calculate(plan, revised_bundle)
         gate = MaterialGateIntegration().record(
             attempt, plan, revised_bundle, reviewed_run, readiness, gaps,
@@ -2689,9 +2798,11 @@ class MaterialProductOrchestrator:
                             and generated_records[a.asset_id]['need_id'] == need.need_id]
             if commissioned:
                 return commissioned
-            if any(row.get('need_id') == need.need_id and row.get('asset_id') in current_pairs.get(need.need_id, []) and row.get('failure_kind') in {'content_mismatch', 'hard_constraint'}
-                   and row.get('verdict') in {'partial', 'unsuitable'} for row in outcomes):
-                return []
+            # A negative observed candidate rules out that source/strategy,
+            # not every other independent candidate in the same frozen Bundle.
+            # remaining() already filters rejected strategies and spent pairs;
+            # reporting [] here concealed a legitimate next choice even though
+            # the next Owner action would still nominate it.
             pool = remaining(need)
             related = nominate_visual_candidates(need, pool, matcher, origin_ranks=origin_ranks(need), allow_exploration=False)
             return related or ([] if has_content_gap(need) else [a.asset_id for a in pool if a.asset_id not in explored][:1])
@@ -2801,7 +2912,11 @@ class MaterialProductOrchestrator:
         if choices:
             gate['attempt'] = _update_attempt(gate['attempt'],
                 material_combination_review={**marker, 'blocking_needs': blocked})
-        if readiness.status is ReadinessStatus.READY and not blocked:
+        # A Creator-approved MATERIAL_READY endpoint stops at the Material
+        # Gate, including when a later operator Rights review opens that Gate.
+        # It must not publish an Authoring selection as a side effect.
+        material_only = creation.get_creation(attempt['creation_id']).get('delivery', {}).get('endpoint') == 'MATERIAL_READY'
+        if readiness.status is ReadinessStatus.READY and not blocked and not material_only:
             authoring = ProductionAuthoringIntegration().prepare(
                 gate["attempt"], selected_asset_ids=(),
             )

@@ -108,13 +108,46 @@ class EvalHttpBudget:
             if row['number'] != number or row['state'] != 'UNKNOWN':
                 raise ValueError('EVAL_HTTP_RECEIPT_CHANGED')
             row.update(observation)
+            if (row.get('structured_observation_required') is True
+                    and row.get('state') == 'RESPONSE_COMPLETE'
+                    and row.get('argument_stream_state') != 'COMPLETE'):
+                # Explicit structured diagnostics require Provider-entry proof;
+                # HTTP EOF or a successful native result cannot reopen this cap.
+                state.update(closed=True)
+                state.setdefault('close_reason', 'ENTRY_CAPTURE_UNAVAILABLE')
 
     def close(self, reason='BATCH_FAILED'):
         with self.edit() as state:
             state.update(closed=True)
             state.setdefault('close_reason', reason if reason in {
                 'BATCH_FAILED', 'UPSTREAM_HTTP_FAILED', 'UPSTREAM_UNKNOWN', 'BATCH_COMPLETE',
-                'UPSTREAM_NOT_SENT', 'LOCAL_DELIVERY_FAILED', 'LOCAL_RECEIPT_FAILED'} else 'BATCH_FAILED')
+                'UPSTREAM_NOT_SENT', 'LOCAL_DELIVERY_FAILED', 'LOCAL_RECEIPT_FAILED',
+                'ENTRY_CAPTURE_UNAVAILABLE'} else 'BATCH_FAILED')
+
+    def wait_for_receipt(self, request_identity, *, timeout=10):
+        """Wait for the existing HTTP worker's durable observation, never retry.
+
+        Native SSE completion can precede HTTP EOF/ledger fsync. A reserved
+        UNKNOWN row has no argument_stream_state; a final UNKNOWN observation
+        does. Expiry returns the current row without changing any evidence.
+        """
+        if not isinstance(request_identity, dict) or not 0 < timeout <= 30:
+            raise ValueError('EVAL_RECEIPT_WAIT_INVALID')
+        deadline = time.monotonic() + timeout
+        while True:
+            state = json.loads(self.path.read_text())
+            if state.get('identity') != self.identity:
+                raise ValueError('EVAL_BUDGET_IDENTITY_CHANGED')
+            rows = [r for r in state['requests'] if r.get('diagnostic_identity') == request_identity]
+            if len(rows) > 1:
+                raise ValueError('EVAL_DUPLICATE_DIAGNOSTIC_RECEIPT')
+            row = rows[0] if rows else None
+            if row and (row['state'] != 'UNKNOWN' or 'argument_stream_state' in row):
+                return row
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return row
+            threading.Event().wait(min(.02, remaining))
 
     def validate_completion(self):
         """Late terminal evidence is retained, but cannot earn batch PASS."""
@@ -144,31 +177,115 @@ class EvalSseObservation:
         self.argument_streams = {}
         self.argument_finishes = {}
         self.argument_fingerprint_unknown = False
+        self.finish_classes = {key: 0 for key in ('MISSING', 'NULL', 'EMPTY', 'RECOGNIZED', 'UNRECOGNIZED')}
+        self.empty_call_ids = 0
+        self.reasons = set()
+        # Read-only alternate-channel evidence. Never promote legacy calls or
+        # ordinary content to a structured candidate, or retain their text.
+        self.legacy_argument_digest = hashlib.sha256()
+        self.legacy_argument_bytes = self.legacy_calls = 0
+        self.legacy_argument_classes = {key: 0 for key in ('MISSING', 'EMPTY', 'STRING', 'OTHER')}
+        self.content_bytes = 0
+        self.content_classes = {key: 0 for key in ('MISSING', 'NULL', 'EMPTY', 'STRING', 'OTHER')}
+        self.alternate_observation_invalid = False
+        self.content_tail = ''
+        self.content_markers = set()
+        self.provider_status_codes = set()
+        self.provider_status_invalid = False
+
+    def observe_alternate_channels(self, event, delta):
+        base = event.get('base_resp')
+        if base is not None:
+            code = base.get('status_code') if isinstance(base, dict) else None
+            if (type(code) is int and 0 <= code <= 2_000_000_000
+                    and (code in self.provider_status_codes or len(self.provider_status_codes) < 16)):
+                self.provider_status_codes.add(code)
+            else:
+                self.provider_status_invalid = True
+        if delta is None:
+            return
+        if 'function_call' in delta:
+            self.legacy_calls = min(1_000_000, self.legacy_calls + 1)
+            call = delta['function_call']
+            value = call.get('arguments') if isinstance(call, dict) else None
+            kind = ('MISSING' if isinstance(call, dict) and 'arguments' not in call else
+                    'EMPTY' if value == '' else 'STRING' if isinstance(value, str) else 'OTHER')
+            self.legacy_argument_classes[kind] = min(1_000_000, self.legacy_argument_classes[kind] + 1)
+            if isinstance(value, str):
+                try:
+                    data = value.encode('utf-8')
+                except UnicodeEncodeError:
+                    self.alternate_observation_invalid = True
+                else:
+                    self.legacy_argument_digest.update(data)
+                    self.legacy_argument_bytes += len(data)
+            elif kind == 'OTHER':
+                self.alternate_observation_invalid = True
+        content = delta.get('content')
+        kind = ('MISSING' if 'content' not in delta else 'NULL' if content is None else
+                'EMPTY' if content == '' else 'STRING' if isinstance(content, str) else 'OTHER')
+        self.content_classes[kind] = min(1_000_000, self.content_classes[kind] + 1)
+        if kind == 'OTHER': self.alternate_observation_invalid = True
+        if isinstance(content, str):
+            try:
+                data = content.encode('utf-8')
+            except UnicodeEncodeError:
+                self.alternate_observation_invalid = True
+                self.content_tail = ''
+                return
+            self.content_bytes += len(data)
+            text = self.content_tail + content
+            # Presence only; markup is never parsed as arguments. Carry-over
+            # exists only in memory to detect tags split between deltas.
+            for marker in ('<tool_call', '<invoke', '<parameter', '<minimax:tool_call'):
+                if marker in text: self.content_markers.add(marker)
+            self.content_tail = text[-32:]
+
+    def finish_class(self, choice):
+        reason = choice.get('finish_reason')
+        kind = ('MISSING' if 'finish_reason' not in choice else 'NULL' if reason is None
+                else 'EMPTY' if reason == '' else 'RECOGNIZED'
+                if isinstance(reason, str) and reason in {'stop', 'length', 'tool_calls',
+                                                         'function_call', 'content_filter'} else 'UNRECOGNIZED')
+        self.finish_classes[kind] = min(1_000_000, self.finish_classes[kind] + 1)
+        if kind in {'EMPTY', 'UNRECOGNIZED'}:
+            self.reasons.add('FINISH_' + kind)
+        return reason, kind
 
     def observe_arguments(self, choice, call, args):
         index, tool_index = choice.get('index'), call.get('index')
         if (type(index) is not int or type(tool_index) is not int
                 or not 0 <= index < 16 or not 0 <= tool_index < 16):
             self.argument_fingerprint_unknown = True
+            self.reasons.add('CALL_INDEX_INVALID')
             return
         key = (index, tool_index)
         if key not in self.argument_streams:
             if len(self.argument_streams) >= 16:
                 self.argument_fingerprint_unknown = True
+                self.reasons.add('CALL_STREAM_LIMIT')
                 return
             self.argument_streams[key] = {'digest': hashlib.sha256(), 'bytes': 0,
                                          'fragments': 0, 'call_id': None}
         row = self.argument_streams[key]
         call_id = call.get('id')
-        if call_id is not None:
+        if call_id == '' and isinstance(call_id, str):
+            # Match the pinned SDK's partial-delta ID semantics, without
+            # treating arbitrary falsy/non-string values as missing.
+            self.empty_call_ids = min(1_000_000, self.empty_call_ids + 1)
+            self.reasons.add('CALL_ID_EMPTY')
+        elif call_id is not None:
             if (not isinstance(call_id, str) or not 0 < len(call_id) <= 512
                     or row['call_id'] is not None and row['call_id'] != call_id):
                 self.argument_fingerprint_unknown = True
+                self.reasons.add('CALL_ID_INVALID' if not isinstance(call_id, str) or not 0 < len(call_id) <= 512
+                                 else 'CALL_ID_CONFLICT')
                 return
             row['call_id'] = call_id
         if args is not None:
             if not isinstance(args, str):
                 self.argument_fingerprint_unknown = True
+                self.reasons.add('ARGUMENT_TYPE_INVALID')
                 return
             data = args.encode('utf-8')
             row['digest'].update(data)
@@ -182,6 +299,7 @@ class EvalSseObservation:
             line, self.pending = self.pending.split(b'\n', 1)
             if len(line) > 65536:
                 self.parse_unknown = True
+                self.reasons.add('SSE_LINE_LIMIT')
                 continue
             if not line.startswith(b'data:'): continue
             value = line[5:].strip()
@@ -194,18 +312,27 @@ class EvalSseObservation:
                     for key in ('prompt_tokens', 'completion_tokens', 'total_tokens'):
                         value = usage.get(key)
                         if type(value) is int and 0 <= value <= 2_000_000_000: self.usage[key] = value
+                self.observe_alternate_channels(event, None)
                 for choice in event.get('choices', []):
                     previously_finished = choice.get('index') in self.argument_finishes
-                    reason = choice.get('finish_reason')
-                    if reason is not None and self.finish == 'MISSING':
-                        self.finish = reason if reason in {'stop', 'length', 'tool_calls',
-                            'function_call', 'content_filter'} else 'UNKNOWN'
+                    reason, kind = self.finish_class(choice)
+                    if kind == 'EMPTY' and previously_finished:
+                        self.argument_fingerprint_unknown = True
+                        self.reasons.add('EMPTY_FINISH_AFTER_TERMINAL')
+                    # Empty strings are placeholders in partial deltas for the
+                    # installed consumer (if choice.finish_reason), not ends.
+                    # Unknown non-empty/non-string values remain fail-closed.
+                    terminal_field = reason is not None and kind != 'EMPTY'
+                    if terminal_field and self.finish == 'MISSING':
+                        self.finish = reason if kind == 'RECOGNIZED' else 'UNKNOWN'
                     index = choice.get('index')
-                    if reason is not None and type(index) is int and 0 <= index < 16:
+                    if terminal_field and type(index) is int and 0 <= index < 16:
                         if index in self.argument_finishes and self.argument_finishes[index] != reason:
                             self.argument_fingerprint_unknown = True
+                            self.reasons.add('FINISH_CONFLICT')
                         self.argument_finishes[index] = reason
                     delta = choice.get('delta') or choice.get('message') or {}
+                    self.observe_alternate_channels({}, delta)
                     for key in ('reasoning_content', 'reasoning'):
                         if isinstance(delta.get(key), str):
                             self.reasoning_bytes += len(delta[key].encode())
@@ -213,13 +340,19 @@ class EvalSseObservation:
                         args = (call.get('function') or {}).get('arguments')
                         if previously_finished and args not in (None, ''):
                             self.argument_fingerprint_unknown = True
+                            self.reasons.add('ARGUMENT_AFTER_FINISH')
                         if isinstance(args, str): self.argument_bytes += len(args.encode())
                         self.observe_arguments(choice, call, args)
-            except (ValueError, TypeError, AttributeError):
+            except ValueError:
                 self.parse_unknown = True
+                self.reasons.add('SSE_JSON_INVALID')
+            except (TypeError, AttributeError):
+                self.parse_unknown = True
+                self.reasons.add('SSE_EVENT_SHAPE_INVALID')
         if len(self.pending) > 65536:
             self.pending = b''
             self.parse_unknown = True
+            self.reasons.add('SSE_BUFFER_LIMIT')
 
     def finish_response(self):
         """Called only after HTTP read reaches clean EOF, never from an exception.
@@ -232,6 +365,7 @@ class EvalSseObservation:
             self.complete = True
         elif tail:
             self.parse_unknown = True  # Incomplete frame cannot imply completeness.
+            self.reasons.add('HTTP_TAIL_INCOMPLETE')
         self.pending = b''
         self.http_eof = True
 
@@ -241,11 +375,45 @@ class EvalSseObservation:
                             for index, _ in self.argument_streams))
         state = ('UNAVAILABLE' if self.parse_unknown or self.argument_fingerprint_unknown else
                  'COMPLETE' if complete else 'INCOMPLETE')
+        reasons = set(self.reasons)
+        if not (self.complete or self.http_eof): reasons.add('HTTP_BOUNDARY_INCOMPLETE')
+        if not self.argument_streams: reasons.add('ARGUMENT_STREAM_MISSING')
+        if self.finish == 'MISSING': reasons.add('TOOL_FINISH_MISSING')
+        elif self.finish not in {'tool_calls', 'UNKNOWN'}: reasons.add('TOOL_FINISH_OTHER')
+        if any(self.argument_finishes.get(index) != 'tool_calls' for index, _ in self.argument_streams):
+            reasons.add('ARGUMENT_FINISH_INCOMPLETE')
         streams = [{'choice_index': index, 'tool_index': tool_index,
                     'sha256': row['digest'].hexdigest(), 'bytes': row['bytes'],
                     'fragments': row['fragments']}
                    for (index, tool_index), row in sorted(self.argument_streams.items())] if state == 'COMPLETE' else []
-        return {'provider_finish': self.finish, 'sse_done': self.complete,
+        payload_class = 'NOT_COMPLETE'
+        if state == 'COMPLETE':
+            empty = sum(row['bytes'] == 0 for row in streams)
+            if len(streams) == 1:
+                payload_class = 'SINGLE_EMPTY' if empty else 'SINGLE_NONEMPTY'
+            else:
+                payload_class = ('MULTIPLE_ALL_EMPTY' if empty == len(streams)
+                                 else 'MULTIPLE_MIXED' if empty else 'MULTIPLE_NONEMPTY')
+                reasons.add('MULTIPLE_TOOL_STREAMS')
+            if empty:
+                reasons.add('EMPTY_ARGUMENTS')
+        return {'observation_version': 'eval-sse-observation@5', 'observation_source': 'PROVIDER_ENTRY',
+                'alternate_channels': {
+                    'alternate_observation_invalid': self.alternate_observation_invalid,
+                    'legacy_call_deltas': self.legacy_calls,
+                    'legacy_argument_classes': dict(self.legacy_argument_classes),
+                    'legacy_argument_bytes': self.legacy_argument_bytes,
+                    'legacy_argument_sha256': self.legacy_argument_digest.hexdigest(),
+                    'content_delta_bytes': self.content_bytes,
+                    'content_classes': dict(self.content_classes),
+                    'content_tool_markers': sorted(self.content_markers),
+                    'provider_status_codes': sorted(self.provider_status_codes),
+                    'provider_status_invalid': self.provider_status_invalid,
+                    'candidate_authority': False},
+                'argument_payload_class': payload_class,
+                'finish_classes': dict(self.finish_classes), 'empty_call_ids': self.empty_call_ids,
+                'observation_reasons': sorted(reasons),
+                'provider_finish': self.finish, 'sse_done': self.complete,
                 'response_bytes': self.bytes, 'argument_delta_bytes': self.argument_bytes,
                 'reasoning_delta_bytes': self.reasoning_bytes,
                 'sse_events': self.events, 'diagnostic_unknown': self.parse_unknown, 'reported_usage': self.usage,
@@ -262,7 +430,7 @@ class EvalProviderProxy:
     with a closed category before the SDK can persist an upstream error body.
     """
     def __init__(self, budget, upstream, model, api_key, *, offline=False, client_token=None, before_send=None,
-                 expected_payload=None, expected_number=None, expected_model_params=None):
+                 expected_payload=None, expected_number=None, expected_model_params=None, request_identity=None):
         parsed = urllib.parse.urlsplit(upstream)
         if offline:
             allowed = parsed.scheme == 'http' and parsed.hostname in {'127.0.0.1', 'localhost'}
@@ -277,6 +445,16 @@ class EvalProviderProxy:
         self.expected_payload = expected_payload
         self.expected_number = expected_number
         self.expected_model_params = expected_model_params
+        if request_identity is not None and (
+                set(request_identity) != {'cell', 'run_id', 'session_id'}
+                or type(request_identity['cell']) is not int or not 1 <= request_identity['cell'] <= 40
+                or any(not isinstance(request_identity[key], str)
+                       or not re.fullmatch(r'[A-Za-z0-9_-]{1,128}', request_identity[key])
+                       for key in ('run_id', 'session_id'))):
+            raise ValueError('EVAL_REQUEST_IDENTITY_INVALID')
+        # Trusted runner metadata, never parsed from Provider content. Each
+        # concurrent cell has its own authenticated proxy and native guard.
+        self.request_identity = dict(request_identity) if request_identity is not None else None
         owner = self
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *_args, **_kwargs): return None
@@ -338,11 +516,15 @@ class EvalProviderProxy:
                     metadata = {'request_sha256': hashlib.sha256(body).hexdigest(),
                         'request_bytes': len(body), 'model': owner.model, 'schema_sha256': schema_sha,
                         'run_identity': 'UNKNOWN', **token_fields,
+                        'structured_observation_required': owner.expected_payload is not None,
                         'tools_count': len(tools),
                         'tool_choice_kind': payload.get('tool_choice') if payload.get('tool_choice') in ('auto', 'required', 'none') else
                             'function' if isinstance(payload.get('tool_choice'), dict) and payload['tool_choice'].get('type') == 'function' else 'UNKNOWN',
                         'thinking_mode': (payload.get('thinking') or {}).get('type')
                             if isinstance(payload.get('thinking'), dict) and payload['thinking'].get('type') in {'enabled', 'disabled', 'adaptive'} else 'UNKNOWN'}
+                    if owner.request_identity is not None:
+                        metadata['diagnostic_identity'] = dict(owner.request_identity)
+                        metadata['identity_source'] = 'TRUSTED_CELL_PROXY'
                     if owner.expected_model_params is not None:
                         expected = owner.expected_model_params
                         if (set(expected) != {'model', 'thinking_mode', 'max_tokens', 'max_completion_tokens'}
@@ -499,12 +681,15 @@ net.Socket.prototype.connect=function(...args){
 def main(runtime, workspace, node, raw_path=None, scenario='valid', schema_path=None, *, http_budget=None,
          model_params=None, expected_payload=None, expected_number=None,
          model_max_tokens=16000, expected_model_params=None, model_row=None,
-         argument_chunk_chars=None):
+         argument_chunk_chars=None, response_chunk_bytes=None, check_argument_observation=False):
     from easel.integrations.planning_result_contract import semantic_tool_schema
     from easel.integrations.planning_structured import request_for
     if argument_chunk_chars is not None and (type(argument_chunk_chars) is not int
             or not 1 <= argument_chunk_chars <= 65536):
         raise ValueError('Offline argument chunk size must be a bounded positive integer')
+    if response_chunk_bytes is not None and (type(response_chunk_bytes) is not int
+            or not 1 <= response_chunk_bytes <= 65536):
+        raise ValueError('Offline response chunk size must be a bounded positive integer')
     workspace.mkdir(parents=True, exist_ok=False)
     calls = []
     value = {'needs': [{'scope': 'scene-1', 'role': '背景', 'modality': 'image',
@@ -542,6 +727,8 @@ def main(runtime, workspace, node, raw_path=None, scenario='valid', schema_path=
                 return
             self.send_response(200)
             self.send_header('Content-Type', 'text/event-stream')
+            if scenario == 'disconnected':
+                self.send_header('Content-Length', str(len(raw.encode()) * 8 + 1024 * 1024))
             self.end_headers()
             messages = [
                 {'id': 'offline-result', 'choices': [{'index': 0, 'delta': {'tool_calls': [
@@ -559,8 +746,26 @@ def main(runtime, workspace, node, raw_path=None, scenario='valid', schema_path=
                 messages[-1]['choices'][0]['finish_reason'] = scenario.removeprefix('terminal_')
             if scenario == 'sdk_missing_finish':
                 messages = messages[:-1]  # Complete HTTP, absent Provider terminal; external fixture only.
+            if scenario == 'multiple_tools':
+                for message in messages[:-1]:
+                    original = message['choices'][0]['delta']['tool_calls'][0]
+                    second = json.loads(json.dumps(original))
+                    second['index'] = 1
+                    if 'id' in second:
+                        second['id'] = 'second-native-call'
+                    message['choices'][0]['delta']['tool_calls'].append(second)
+            if scenario == 'disconnected':
+                first = ('data: ' + json.dumps(messages[0], ensure_ascii=False) + '\n\n').encode()
+                self.wfile.write(first[:max(1, len(first) // 2)])
+                self.wfile.flush()
+                self.connection.shutdown(socket.SHUT_RDWR)
+                self.close_connection = True
+                return
             for message in messages:
-                self.wfile.write(('data: ' + json.dumps(message) + '\n\n').encode())
+                data = ('data: ' + json.dumps(message, ensure_ascii=False) + '\n\n').encode()
+                width = response_chunk_bytes or len(data)
+                for offset in range(0, len(data), width):
+                    self.wfile.write(data[offset:offset + width])
             if scenario != 'sdk_missing_finish':
                 self.wfile.write(b'data: [DONE]\n\n')
             self.wfile.flush()
@@ -596,7 +801,9 @@ net.Socket.prototype.connect=function(...args){
  return connect.apply(this,args);
 };
 ''')
-    env = {'PATH': str(Path(node).parent) + ':/usr/bin:/bin',
+    isolated_home = workspace / 'home'
+    isolated_home.mkdir()
+    env = {'PATH': str(Path(node).parent) + ':/usr/bin:/bin', 'HOME': str(isolated_home),
            'OPENCLAW_STATE_DIR': str(state), 'OPENCLAW_CONFIG_PATH': str(config_path),
            'OPENCLAW_DISABLE_MDNS': '1', 'NODE_OPTIONS': '--import=' + blocker.as_uri()}
     if scenario == 'sensitive_debug':
@@ -692,6 +899,31 @@ net.Socket.prototype.connect=function(...args){
     after = snapshot()
     changed = [name for name in sorted(before.keys() | after.keys()) if before.get(name) != after.get(name)]
     report['capture'] = {key: value for key, value in capture.items() if key != 'text'}
+    if check_argument_observation:
+        files = list((state / 'easel-structured-requests').glob('provider-arguments-*.json'))
+        assert len(files) == 1, 'Provider argument diagnostic missing or duplicated'
+        diagnostic = json.loads(files[0].read_text())
+        assert files[0].stat().st_mode & 0o077 == 0
+        assert diagnostic['runId'] == run_id and diagnostic['sessionId'] == 'structured-fixture'
+        assert diagnostic['schemaSha256'] == structured['schemaSha256']
+        assert raw not in files[0].read_text(), 'Diagnostic retained argument payload'
+        if scenario == 'valid':
+            assert diagnostic['attribution'] == 'MATCH'
+            assert diagnostic['observed']['state'] == 'COMPLETE'
+            assert diagnostic['observed']['streams'][0]['sha256'] == hashlib.sha256(raw.encode()).hexdigest()
+            assert diagnostic['native']['rawSha256'] == diagnostic['observed']['streams'][0]['sha256']
+        elif scenario == 'disconnected':
+            assert diagnostic['attribution'] == 'UNAVAILABLE'
+            assert diagnostic['observed']['state'] != 'COMPLETE'
+            assert diagnostic['observed']['streams'] == []
+        elif scenario == 'multiple_tools':
+            assert diagnostic['attribution'] == 'UNAVAILABLE'
+            assert diagnostic['observed']['state'] == 'COMPLETE'
+            assert len(diagnostic['observed']['streams']) == 2
+            assert len({s['toolCallIdSha256'] for s in diagnostic['observed']['streams']}) == 2
+            assert {s['sha256'] for s in diagnostic['observed']['streams']} == {hashlib.sha256(raw.encode()).hexdigest()}
+            assert diagnostic['native']['accepted'] is False
+        report['provider_arguments'] = diagnostic
     report['read_changed_files'] = changed
     report['read_before'] = before
     report['read_after'] = after

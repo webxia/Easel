@@ -1,5 +1,11 @@
 # Easel V1 New-Only → Web E2E 统一实施与验收标准（唯一已批准主方案）
 
+> **2026-10-11 最新执行授权：**用户已正式批准本文件 **U2 全部工程实施（仅必要生产/测试源码与无付费离线集成）**，不再局限之前的 U2 噪音治理。执行只归属既有 Creator Task 的 10 项清单；R1–R6/U0–U6 的标准与后续 Gate 不变。**禁止付费服务、真实新 Web E2E、服务重启、部署、Git commit/push/reset/clean、对外 Release**。当前改造与旧 fixture 迁移未全部通过，保持 `U2_CANDIDATE_NOT_READY`，绝不因源码存在宣称版本加载或真实出片。
+
+> **最新执行边界（2026-10-11）：**U1 已完成；用户已授权 Goal `wc_goal_7qRkRJmGzXXU4iWN` 实施五步 U2 噪音治理（现场保护、指令隔离、媒体删除保护、旧协议执行退役、测试/Runtime 对账）。仅受控代码及非付费回归，不含真实模型/Provider、有价媒体、真实 Web E2E、服务正式部署或对外 Release。下文“U2 未授权”是此前时点记录；新的执行进度以唯一 Creator Task 和本 Goal 检查点为准，标准 R1–R6、U0–U6 不改。
+
+> **2026-10-11 U1 收尾导航：**用户另行批准的 [ADR-001](../decisions/ADR-001-creation-hypit-mainline.md) / [ADR-005](../decisions/ADR-005-agent-result-processing.md) 定点修订已完成，见[唯一 Creator Task 的 U1 收尾](../tasks/creator-autonomous-first-cut-2026-09-30.md)。下文“正式 ADR 冲突仍待修订/未授权”的状态描述保留其批准时点背景，不再表示该文档前置未完成；R1–R6 与 U0–U6 合同原文不变。当前 **U1 = COMPLETE；U2 = NOT_STARTED / WAITING_AUTHORIZATION；PAUSED**，不授权代码、运行或真实调用。
+
 > **状态：APPROVED_SINGLE_EXECUTION_STANDARD / IMPLEMENTATION_NOT_AUTHORIZED / PAUSED。2026-10-11 用户明确批准为 Easel V1 唯一主实施与验收标准；不再是候选方案。此前独立审核 DECISION=MODIFY 的三项 §8 修正已吸收，本次批准是用户决策，不伪称独立 Reviewer 再次给出 CONTINUE。V1 最长 900 秒、四种音轨及 R1–R6 不变；代码、ADR、部署、模型/媒体与真实 E2E 均未获本次执行授权。**
 > **日期：2026-10-11。范围：Easel V1 的 Creation + Hypit 视频新生产主链。**
 > **依据：**根目录 `AGENTS.md`、[`Easel 视频架构`](easel-video-architecture-v1.md)、[`Material Layer V1.3`](material-layer-v1.3.md)、[`ADR-001`](../decisions/ADR-001-creation-hypit-mainline.md)、[`ADR-004`](../decisions/ADR-004-material-layer-v1.3-baseline.md)、[`ADR-005`](../decisions/ADR-005-agent-result-processing.md)、当前源码和唯一 [`Current State`](../02_CURRENT_STATE.md)。
