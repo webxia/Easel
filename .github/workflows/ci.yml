@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, easel-v2-rebuild]
   pull_request:
   schedule:
     # 每天 03:17 UTC 跑一次真实安装。错开整点：整点是 GitHub Actions 的高峰，
