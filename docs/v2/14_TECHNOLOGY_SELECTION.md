@@ -1,6 +1,6 @@
 # S5 · 架构选型建议与取舍
 
-状态：**RECOMMENDED — 本轮选型建议，待评审；不是已安装、已验证或已实施的技术栈。** 2026-10-16。用户授权基于 Easel、V1 与开源方案做架构选型，并将 T01～T08 重新分类，不作为选型前置；不写业务代码。
+状态：**RECOMMENDED — 技术推荐待评审，未锁定依赖，不代表已实现或验证。** 以下来源为 2026-10-16 的核查记录。
 
 本轮从 `d25b8f83` 文档工作树再次只读复核 Easel 业务代码（与业务基线 `8eeafb6b` 相同）、V1 归档 `57c8e2ad` 与官方资料。既有需求、职责与主线由[架构基线](02_ARCHITECTURE.md)及[ADR-S5-001](decisions/ADR-S5-001-work-production-boundary.md)约束。下面每项均给出明确推荐；局部疑点不阻止其他项形成判断，也不把完整产品验收变成选型门槛。
 
@@ -16,7 +16,7 @@
 | 素材集成 | **迁入 V1 M01～M05 为应用内素材模块**，统一素材句柄与调用准入 | 重写；单独素材服务；让渲染器自带采购 | 用户已指定迁入，源码具备入库/作用域/权益/复用逻辑 | 旧 Attempt/Creation/报价耦合要适配；索引/Provider 当前可用性未证实 |
 | 进度与观测 | **业务状态快照 + 持久关键事件 + SSE；命令用 HTTP**，沿用 React 展示 | WebSocket；仅轮询；框架调试平台当用户 UI | 现有 SSE/回放与媒体预览基础可用，制作主要是服务端向用户推状态 | 断连/重复/乱序、快照游标一致性、事件隐私与保留策略；不能沿用聊天消息作为作品状态权威 |
 
-“首选”是本轮有依据的推荐，不代表用户已批准依赖锁定。模型厂商/具体模型、媒体 Provider、库的精确版本另按现有配置和所需能力确定，本轮不凭空选定或改配置。
+具体模型、媒体 Provider 和库版本按实际配置与能力要求在负责卡落实，不从技术推荐推导调用或配置变更授权。
 
 ```mermaid
 flowchart TD
@@ -59,7 +59,11 @@ flowchart TD
 | 自有显式执行器 | 少外部抽象，但恢复、等待、取消与代码演进全需自研；V1 已说明“自己控制”不等于可靠 | 若主线最终足够简单且框架引入的状态耦合明显高于少量显式任务逻辑，可选；不得重造通用工作流平台 |
 | Temporal | 单机产品当前没有支撑额外服务和运维复杂度的需求 | 后续正式要求多主机、独立 worker 部署和长期服务运维时再评估 |
 
-[DBOS 官方指南](https://docs.dbos.dev/python/programming-guide)有默认 SQLite 与 FastAPI 集成说明；[Temporal 部署文档](https://docs.temporal.io/production-deployment)展示服务/worker 部署关系。这些支持机制比较，不证明哪一个已在 Easel 跑通。原来要求先 T01→T08 全部通过再选框架的安排取消。
+[DBOS 官方指南](https://docs.dbos.dev/python/programming-guide)有默认 SQLite 与 FastAPI 集成说明；[Temporal 部署文档](https://docs.temporal.io/production-deployment)展示服务/worker 部署关系。这些支持机制比较，不证明哪一个已在 Easel 跑通。
+
+### 依赖兼容依据
+
+依赖需按平台受测约束锁定：核查时 PyPI 元数据 langgraph 1.2.15 与 sqlite checkpointer 3.1.2 的最低 Python 为 3.10，但不能据顶层推导全部传递依赖可用；例如 ormsgpack 新版与 1.12.0 的 Python 范围不同。实施卡要求按3.10/3.12分别解析并跑当前跨平台矩阵，不静默提高要求。[LangGraph 元数据](https://pypi.org/pypi/langgraph/json)、[SQLite saver 元数据](https://pypi.org/pypi/langgraph-checkpoint-sqlite/json)、[ormsgpack 1.12.0 元数据](https://pypi.org/pypi/ormsgpack/1.12.0/json)。不需要采用完整 LangChain 应用框架不等于没有 langchain-core 传递依赖；此次核查未安装依赖或解析完整锁；落实由 S6-04 负责。
 
 ## 3. 数据、版本和持久化
 
@@ -75,7 +79,7 @@ LangGraph 检查点和 V1 素材目录各自使用独立表/文件所有权，�
 | PostgreSQL + 文件/对象存储 | 多主机/高写入并发时更合适，当前新增服务成本较高；不能因框架示例常用就默认给用户安装 |
 | 每作品 JSON + 文件锁 | 易读且 V1 有经验，但授权/操作/引用与事件跨文件一致性需更多自研协调；适合导出/证据，不推荐作全部权威状态 |
 
-[SQLite WAL 文档](https://sqlite.org/wal.html)明确单写者及网络文件系统限制。因此推荐本机磁盘、短事务和正确备份，禁止渲染时持锁；若真实并发/恢复行为无法满足，再改持久化实现。LangGraph 官方将 SQLite checkpointer 定位为本地开发用途，本项目用于单机发布需要独立评估，不能假称官方已背书生产可靠性。精确库版本及 Python 兼容范围按项目 `>=3.10` 的承诺核对；不得静默提高系统要求。
+[SQLite WAL 文档](https://sqlite.org/wal.html)明确单写者及网络文件系统限制。因此推荐本机磁盘、短事务和正确备份，禁止渲染时持锁；若真实并发/恢复行为无法满足，再改持久化实现。精确库版本及 Python 兼容范围按项目 `>=3.10` 的承诺核对；不得静默提高系统要求。
 
 ## 4. 模型接入、工具与上下文
 
@@ -94,6 +98,8 @@ LangGraph 检查点和 V1 素材目录各自使用独立表/文件所有权，�
 
 风险是模型能力、媒体输入上限和服务差异。当前不指定一个未经配置核实的供应商覆盖所有任务；角色可复用同一模型，也可因真实视听能力分别配置，所选版本/能力需记录，不自动降级或换音色。直接 API 与受限 Harness 均须遵守同一授权入口；无法实际限制付费通道的 Harness 不能承担收费工具执行。
 
+现有 output/persona 删除、旧 GET 媒体入口及聊天 TURN_REMINDER 可能绕过作品边界；具体入口保护由[实施合同](15_IMPLEMENTATION_DESIGN.md)与 S6-02/08 落实，私有库不能仅靠隐藏目录名保护。
+
 ## 5. 编辑渲染：原生工程接入与有条件的 Hypit 候选
 
 V1 的[CLI 适配](https://github.com/webxia/Easel/blob/57c8e2ade21af9fb6abccdab3f7ba8e50132314f/easel/integrations/hypit/cli.py)有 check/build/status/get/cancel 接口；[局部修订](https://github.com/webxia/Easel/blob/57c8e2ade21af9fb6abccdab3f7ba8e50132314f/easel/integrations/hypit/native_revision.py)有 `assert_composition_preserves_sound_and_copy`、视频区间与引用检查。它们为可编辑工程、观察渲染与局部保护提供现成证据，故保留这一接入方向。但本轮深审发现 V1 的 native_source.py 固定 @hypit/hypit 0.2.7 及内部源码摘要，并含 darwin-arm64 组件路径；现有局部保护不能据此宣称可直接迁入当前跨平台环境。
@@ -109,6 +115,10 @@ V1 的[CLI 适配](https://github.com/webxia/Easel/blob/57c8e2ade21af9fb6abccdab
 Easel [assemble.py](../../skills/builtin/auto-short-video/scripts/assemble.py)已有 FFmpeg 合成，[SDK 来源](../../skills/builtin/video-production/vendor/VENDOR.md)记录内置版本与本地修改，[SDK 契约](../../skills/builtin/video-production/vendor/video-pipeline-sdk/INTERFACE.md)暴露它自己的生产阶段。若要复用 SDK 能力，通过受支持接口适配或显式维护派生版本；不未经评估绕过其契约抽私有脚本。
 
 [FFmpeg 滤镜](https://ffmpeg.org/ffmpeg-filters.html)可承担裁切、音频混合等机械处理；[Remotion renderer](https://www.remotion.dev/docs/renderer)提供渲染/静帧/取消等 API。发行前按实际构建核对 [FFmpeg 许可](https://ffmpeg.org/legal.html)与 [Remotion 许可](https://www.remotion.dev/license)。Hypit 当前发行与许可未作独立核验，本轮不将其列为已确认开源项目，也不执行其安装/生成。
+
+Hypit 环境白名单仍可能读取 HOME 中的 Runtime 凭证，因此无真实凭证和受限媒体执行边界须由 S6-09 落实；只看定价结果不等于阻断收费通道。该卡提交具体编辑器决定、精确版本/许可与能力矩阵，并回写本节；一个简单可播放样片不能证明全部编辑能力。
+
+V1 完整脚本 Voice 路径不等于句级配音修订；生产须显式固定 engine/voice 并登记音轨段依赖，实施合同及 S6-10 负责。
 
 ## 6. 素材与可观察制作
 
@@ -128,35 +138,14 @@ Easel [assemble.py](../../skills/builtin/auto-short-video/scripts/assemble.py)�
 
 ## 7. T01～T08 重新归类：不再作为选型前置
 
-完整方法与标准保留在[验证/验收清单](tasks/S5_VALIDATION_PLAN.md)，本节只记录阶段归属。
-
-| 原任务 | 选型阶段只看什么 | 实施后必须检查什么 |
-|---|---|---|
-| T01 隔离 | 若采用 Harness，核实其是否能实际限制指令/文件/付费通道；只截取这一疑点 | 全部权限、跨画像和实际运行上下文反例 |
-| T02 交接 | 设计并审查合同/版本关系，不要求先实现全链 | 重复/过期确认、上下文保真、真实模型理解与产物接收 |
-| T03 提交恢复 | 若 LangGraph/持久后端有关键不确定性，用最小假 Provider 验证一个中断恢复/未知提交窗口 | 所有故障、并发、取消、升级、真实 Provider 观察能力 |
-| T04 可观察 | 按 SSE + 事务事件/快照设计确定责任，不需先建完整 UI | 真实事件/展示对照、断连/乱序、隐私、预览与取消 |
-| T05 素材迁入 | 静态核查旧依赖是否可适配，当前已有阅读依据 | 迁入代码的作用域、权益、检索、文件/引用和供应回归 |
-| T06 编辑修订 | Hypit 是否支持受限纯制作及一处局部修订；必要时只做该小样 | 全时长/声音/输入覆盖、固定音色、字幕与局部保护 |
-| T07 模型创作 | 仅当需在具体模型方案间取舍时比较同一小样的模态能力 | 跨题材风格、真实成片缺陷、事实保真、完整检查与停止条件 |
-| T08 完整闭环 | **不作为选型门槛** | 接通产品后端到端验收、自主完成、效率与 Creator 接受 |
+场景与判据唯一保留在[验证清单](tasks/S5_VALIDATION_PLAN.md)，任务映射及 S6/S7 分段由[实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md#3-覆盖关系与验收口径)维护。仅具体取舍存在关键疑点时使用下面的局部实验；完整产品验收不作为选型前置，也不因分段实施而省略。
 
 ## 8. 仅保留影响选型的具体疑点
 
-目前可以给出上述推荐；以下是决定具体依赖或能力接入时可能需要的**条件性小实验**，不是本轮自动执行任务，也不是必须全部通过才允许选型：
+以下疑点在负责卡落实具体接入时处理；没有证据缺口则不额外实验，不要求全部通过才允许独立任务开工。执行范围遵守任务包共同约定及实际用户授权：
 
-- **Q1 编排与本机持久后端**：若文档/版本兼容核查仍不能确定，做“等待确认→恢复”和“对端已接受、回执未存→核实原操作”的最小假服务实验。只判断是否需要换后端/编排，不跑 T03 全矩阵。依赖兼容不通过不得静默提高 Easel 的 Python/部署要求。
-- **Q2 模型工具接入边界**：当选择继续使用带任意执行能力的 Harness 时，仅验证是否能关闭付费绕过路径及额外指令注入；不满足则转为程序提供受控工具的任务接入。当前未授权新的实际模型调用。
-- **Q3 渲染器边界**：核实所选 Hypit 版本能否只消费已有媒体、保持指定原声，修改一处字幕/画面后重渲染而不生成收费素材；如证据不足，使用许可测试媒体做最小样片。其余完整质量/长片覆盖留在实施验收。是否启动本地 Runtime/额外依赖须按实际操作范围明确，不在本轮执行。
+- **Q1 编排与本机持久后端（S6-04）**：若文档/版本兼容核查仍不能确定，做“等待确认→恢复”和“对端已接受、回执未存→核实原操作”的最小假服务实验。只判断是否需要换后端/编排，不跑 T03 全矩阵。依赖兼容不通过不得静默提高 Easel 的 Python/部署要求。
+- **Q2 模型工具接入边界（S6-08）**：当选择继续使用带任意执行能力的 Harness 时，仅验证是否能关闭付费绕过路径及额外指令注入；不满足则转为程序提供受控工具的任务接入。
+- **Q3 渲染器边界（S6-09）**：核实所选 Hypit 版本能否只消费已有媒体、保持指定原声，修改一处字幕/画面后重渲染而不生成收费素材；如证据不足，使用许可测试媒体做最小样片。其余完整质量/长片覆盖留在实施验收。影响用户 Runtime 的安装/启动按实际授权执行。
 
 推荐变更要记录原因和影响，不能静默退化目标。最终具体技术 ADR 在用户认可本轮取舍后记录，条件性未决项明确保留；不把“开始选型”自动写成“全部选型已接受”。
-
-## 9. 本轮可执行性复核修订
-
-本轮对照源码后，具体实施合同由[可执行设计](15_IMPLEMENTATION_DESIGN.md)维护，完整可接手任务见[实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md)。补齐领域记录/状态、命令幂等、API、模型工具边界、旧删除旁路、固定声音、导演形成和引用保护；不把逻辑模块清单当作已可实施的接口。
-
-依赖需按平台受测约束锁定：核查时 PyPI 元数据 langgraph 1.2.15 与 sqlite checkpointer 3.1.2 的最低 Python 为 3.10，但不能据顶层推导全部传递依赖可用；例如 ormsgpack 新版与 1.12.0 的 Python 范围不同。实施卡要求按3.10/3.12分别解析并跑当前跨平台矩阵，不静默提高要求。[LangGraph 元数据](https://pypi.org/pypi/langgraph/json)、[SQLite saver 元数据](https://pypi.org/pypi/langgraph-checkpoint-sqlite/json)、[ormsgpack 1.12.0 元数据](https://pypi.org/pypi/ormsgpack/1.12.0/json)。不需要采用完整 LangChain 应用框架不等于没有 langchain-core 传递依赖；本轮未安装或解完整锁。
-
-现有 output/persona 删除、旧GET媒体入口和聊天TURN_REMINDER 都可能绕过新作品边界，必须在实际入口处理，不只是给新 API 加校验；私有数据库不能仅靠隐藏目录名保护。V1 完整脚本Voice路径不等于句级配音修订，生产要显式指定engine/voice并登记音轨段依赖。Hypit环境白名单仍可能读取HOME中的Runtime凭证，因此无真实凭证和受限媒体执行边界需由独立适配任务落实；只看定价结果不等于阻断收费通道。
-
-S6-09负责提交具体编辑器决策、精确版本和能力矩阵，明确Hypit通过或替代的依据并回写本节；不能以一个简单可播放样片宣布全部编辑能力成立。S6-07分别负责IMAGE和VIDEO接入，S6-10负责VOICE，S6-14负责真实范围验收，不承接未分派的开发缺口。
