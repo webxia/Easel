@@ -8,7 +8,7 @@
 - **产品创作 Agent**：使用 Easel 执行用户创作；其规则源是 [创作 AGENTS](../../agents/workspace/AGENTS.md) 和按需 Skill，不应加载研发执行任务清单来代替业务指令。
 - 官方 [Agent Harness 文档](../agent-harnesses.md) 说明产品 Agent 可在 Easel 根目录启动，且原生底座有不同指令加载机制。因此 **分文件不等于已隔离**；后续必须实际检验 Codex/OpenClaw/其他底座加载内容。不得在未经验证时自动声明隔离生效。
 - 依赖工具、版本和配置的 `AGENTS.md` / `CLAUDE.md` 发现行为需要按实际使用的底座验证。仅因准备兼容某工具，不复制出多套可独立演化的长期规则。
-- 本次不新建独立 Profile 或重新安装运行环境；不得为骨架校验触发模型付费会话。
+- 六维画像继续使用既有 Profile，不另建主人设体系。依赖安装、运行和真实调用按具体 Task 与当前用户授权执行；文档检查不触发付费会话。S6 的实现入口见[实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md)。
 
 ## 2. 接手任务与交接
 
