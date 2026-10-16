@@ -10,8 +10,9 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -45,20 +46,46 @@ def canonical_locator(locator: str) -> str:
     return locator
 
 
+def _comparison_path(path: PurePath) -> PurePath:
+    """Compare equivalent resolved DOS paths without rewriting filesystem input.
+
+    Windows non-strict resolve can retain the extended prefix when a SQLite
+    sidecar disappears during resolution. Only that local absolute drive form
+    is equivalent here; UNC and device namespaces retain their own anchors.
+    """
+    if isinstance(path, PureWindowsPath) and path.is_absolute() and re.fullmatch(r"\\\\\?\\[A-Za-z]:", path.drive):
+        return PureWindowsPath(str(path)[4:])
+    return path
+
+
+def _reject_link(path: Path) -> None:
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        # A not-yet-created destination or disappearing SQLite sidecar is valid.
+        return
+    tag = getattr(info, "st_reparse_tag", 0)
+    if stat.S_ISLNK(info.st_mode) or (tag and tag in (
+        getattr(stat, "IO_REPARSE_TAG_SYMLINK", None),
+        getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", None),
+    )):
+        raise MaterialStoreError("Symlinks and junctions are not allowed in material paths")
+
+
 def reject_symlinks(root: Path, path: Path) -> None:
     try:
         relative = path.relative_to(root)
     except ValueError as exc:
         raise MaterialStoreError("Material path escapes its root") from exc
     current = root
-    if current.is_symlink():
-        raise MaterialStoreError("Material root must not be a symlink")
+    _reject_link(current)
     for part in relative.parts:
         current = current / part
-        if current.is_symlink():
-            raise MaterialStoreError("Symlinks are not allowed in material paths")
+        _reject_link(current)
     try:
-        path.resolve(strict=False).relative_to(root)
+        resolved_relative = _comparison_path(path.resolve(strict=False)).relative_to(_comparison_path(root))
+        if ".." in resolved_relative.parts:
+            raise ValueError("Unresolved parent component")
     except ValueError as exc:
         raise MaterialStoreError("Material path escapes its root") from exc
 
@@ -80,12 +107,9 @@ class MaterialFileStore:
 
     def __init__(self, root: str | Path):
         provided = Path(root).expanduser().absolute()
-        if provided.is_symlink():
-            raise MaterialStoreError("Material root must not be a symlink")
         # Reject a symlink at any supplied component, including an in-root alias.
         for parent in (provided, *provided.parents):
-            if parent.is_symlink():
-                raise MaterialStoreError("Material root contains a symlink")
+            _reject_link(parent)
         if not provided.is_dir():
             raise MaterialStoreError("Material root must be an existing directory")
         self.root = provided.resolve(strict=True)

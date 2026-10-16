@@ -42,3 +42,9 @@ python -m pytest -q tests/production/test_materials_core.py tests/production/tes
 结果 **122 passed（1.35 秒）**；此命令含 S6-07、S6-08 公共事实检索与操作服务集成。素材负例覆盖越界/symlink/篡改、同内容不同权限记录、同片与同画像授权复用、无画像、参考用途、授权变化、索引缺失、并发入库、共享对象引用及安全回收。
 
 真实 embedding 服务、真实用户库/历史数据迁移、Ubuntu/Windows 和完整生产质量 **NOT_TESTED**。库引用和生产域是两个数据库，先保留引用以防在用文件被删；删除作品后由合法删除流程明确释放对应引用，不自动扫旧数据。
+
+### Windows CI 并发路径回归
+
+整批 Windows CI 在 SQLite `catalog.db-shm` 并发消失时发现 `Path.resolve(strict=False)` 偶尔保留 `\\?\C:` 前缀，同根文件被误判越界。修复仅统一已解析的本地绝对盘符比较形式；保留原始路径包含、跨盘/UNC/设备命名空间拒绝，并补齐 root/组件 junction 与符号链接检查。
+
+`python -m pytest -q tests/production/test_materials_paths.py tests/production/test_materials_core.py tests/production/test_materials_reference_guard.py` 本机 **44 passed、2 skipped**；跳过为新增真实 Windows junction 内/外目标用例，由 Windows CI 执行。完整 guard 的消失边车模拟、目录逃逸与既有并发登记均通过；最终远端结果绑定 [PR #8](https://github.com/webxia/Easel/pull/8/checks) 的补丁提交，不能以之前 Windows 失败运行冒充通过。
