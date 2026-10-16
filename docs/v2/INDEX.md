@@ -12,6 +12,7 @@
 | S5 方案比较、职责、状态、授权与恢复 | [逻辑架构基线](02_ARCHITECTURE.md)（主线/职责已确认，技术未锁定） |
 | 用具体创作案例检查每步输入/输出、模型决策和失败衔接 | [90 秒完整案例](13_PRODUCTION_WALKTHROUGH.md)（衔接方式已认可；纸面推演，非真实运行） |
 | 主线衔接、模型规划与开源选型证据 | [主线研究](12_PRODUCTION_FLOW_RESEARCH.md)（已读官方文档/源码，实验未运行） |
+| S5 先验证什么、怎么验证、通过标准 | [按优先级的验证任务 T01～T08](tasks/S5_VALIDATION_PLAN.md)（计划已整理，实验未执行，框架未定） |
 | 本次设计任务与建议决定 | [S5 Task](tasks/S5_ARCHITECTURE.md) · [ADR-S5-001](decisions/ADR-S5-001-work-production-boundary.md)（ADR 仅接受逻辑边界，技术待验证） |
 | 已确认的 S1→S7 顺序 | [固定流程路线图](https://github.com/webxia/Easel/blob/2cd2ddfad8ea2237a7142abc3462b8559e81e057/docs/v2/03_ROADMAP.md)（独立 PR 尚未合流） |
 | 当前证实的事实、正在处理什么 | [当前状态](04_CURRENT_STATE.md) |
