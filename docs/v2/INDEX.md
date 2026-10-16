@@ -10,6 +10,7 @@
 | S4 完整创作需求、验收清单与后续实测事项 | [S4 定稿](01_REQUIREMENTS.md)（需求确认不等于验收通过） |
 | 哪些沿用 Easel、迁入 V1、需要新增 | [需求差距与复用清单](11_REQUIREMENT_GAP_MAP.md)（只读源码核查，未迁移） |
 | S5 方案比较、职责、状态、授权与恢复 | [架构评审稿](02_ARCHITECTURE.md)（PROPOSED，未冻结） |
+| 用具体创作案例检查每步输入/输出、模型决策和失败衔接 | [90 秒完整案例](13_PRODUCTION_WALKTHROUGH.md)（纸面推演，非真实运行） |
 | 主线衔接、模型规划与开源选型证据 | [主线研究](12_PRODUCTION_FLOW_RESEARCH.md)（已读官方文档/源码，实验未运行） |
 | 本次设计任务与建议决定 | [S5 Task](tasks/S5_ARCHITECTURE.md) · [ADR-S5-001](decisions/ADR-S5-001-work-production-boundary.md)（待评审） |
 | 已确认的 S1→S7 顺序 | [固定流程路线图](https://github.com/webxia/Easel/blob/2cd2ddfad8ea2237a7142abc3462b8559e81e057/docs/v2/03_ROADMAP.md)（独立 PR 尚未合流） |
