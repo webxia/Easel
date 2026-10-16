@@ -241,10 +241,11 @@ def cmd_production(args) -> int:
             try:
                 if args.once:
                     await runtime.worker.run_once()
+                    await runtime.maintenance_once()
                 else:
-                    await runtime.worker.run_forever()
+                    await runtime.run_forever()
             finally:
-                runtime.worker.stop()
+                runtime.stop()
         asyncio.run(run())
         return 0
     except ProductionError as error:

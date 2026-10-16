@@ -187,4 +187,14 @@ CREATE TRIGGER acceptance_requires_reviewable BEFORE INSERT ON acceptances
 WHEN NOT EXISTS(SELECT 1 FROM artifacts WHERE id=NEW.output_id AND work_id=NEW.work_id
  AND output_revision IS NOT NULL AND displayable=1 AND quality_state='passed')
 BEGIN SELECT RAISE(ABORT,'output_not_reviewable'); END;
+''', 2: r'''
+ALTER TABLE works ADD COLUMN deleted_at TEXT;
+ALTER TABLE artifacts ADD COLUMN deleted_at TEXT;
+CREATE TABLE cleanup_jobs (
+ id TEXT PRIMARY KEY, work_id TEXT NOT NULL REFERENCES works(id), artifact_id TEXT NOT NULL UNIQUE REFERENCES artifacts(id),
+ storage_ref TEXT NOT NULL, digest TEXT NOT NULL,
+ state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','deferred','retained','deleted','failed')),
+ reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX cleanup_pending ON cleanup_jobs(state,work_id);
 '''}

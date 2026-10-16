@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './components/Sidebar';
+import ProductionPage from './components/ProductionPage';
 import type { Page } from './components/Sidebar';
 import ChatPage from './components/ChatPage';
 import SkillPage from './components/SkillPage';
@@ -752,6 +753,8 @@ export default function App() {
         return <PublishPage persona={selectedPersona} />;
       case 'breakdown':
         return <BreakdownPage persona={selectedPersona} />;
+      case 'production':
+        return <ProductionPage personas={personas} selectedPersona={selectedPersona} />;
       case 'skills':
         return <SkillPage persona={selectedPersona} />;
       case 'outputs':

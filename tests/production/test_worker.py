@@ -204,3 +204,15 @@ def test_cli_status_does_not_initialize_or_load_runtime(tmp_path, capsys):
     assert main(["production", "status", "--root", str(tmp_path)]) == 0
     assert json.loads(capsys.readouterr().out) == []
     assert not list(tmp_path.iterdir())
+
+
+def test_expired_heartbeat_releases_run_without_killing_the_worker_loop(store):
+    _, run_id, _ = seed_run(store)
+    now = [10]
+    async def handler(_ctx):
+        now[0] = 11
+        await asyncio.Future()
+    worker = Worker(store, {"plan": handler}, lease_seconds=.03, clock=lambda: now[0])
+    assert asyncio.run(asyncio.wait_for(worker.run_once(), 5))
+    assert record(store, "runs", run_id)["state"] == "pending"
+    assert not worker._stopping.is_set()

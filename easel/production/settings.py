@@ -1,0 +1,62 @@
+"""Pure settings resolution; persistence and revision checks belong to the service."""
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Literal
+
+from .contracts import SubtitleSettings, VideoSettings, VoiceIdentity
+from .errors import ProductionError
+
+SettingsScope = Literal["work", "channel", "profile"]
+_KEYS = {"duration_seconds", "aspect_ratio", "audio_mode", "voice", "subtitles"}
+
+
+def validate_settings_patch(settings: dict) -> dict:
+    """Validate partial defaults without inventing missing per-work choices."""
+    if not isinstance(settings, dict) or set(settings) - _KEYS:
+        raise ProductionError("invalid_settings", "设置包含不支持的字段")
+    data = deepcopy(settings)
+    if "voice" in data and data["voice"] is not None:
+        voice = VoiceIdentity.model_validate(data["voice"])
+        if not voice.engine:
+            raise ProductionError("voice_identity_incomplete", "固定声音需要明确的服务、模型、音色与引擎")
+        data["voice"] = voice.model_dump(mode="json")
+    if "subtitles" in data:
+        SubtitleSettings.model_validate(data["subtitles"])
+    VideoSettings.model_validate({"duration_seconds": 90, "audio_mode": "silent", **data})
+    return data
+
+
+def resolve_settings(*, work: dict | None = None, channel: dict | None = None,
+                     profile: dict | None = None) -> dict:
+    """Snapshot work > channel > profile. Voice identity is an indivisible choice.
+
+    Explicit work.voice=None clears inheritance. Subtitle fields can be layered;
+    neither this function nor changing a default mutates an earlier snapshot.
+    """
+    result: dict = {}
+    origins: dict = {}
+    for scope, values in (("profile", profile), ("channel", channel), ("work", work)):
+        patch = validate_settings_patch(values or {})
+        for key, value in patch.items():
+            if key == "subtitles":
+                result[key] = {**result.get(key, {}), **deepcopy(value)}
+                for field in value:
+                    origins[f"subtitles.{field}"] = scope
+            else:
+                result[key] = deepcopy(value)
+                origins[key] = scope
+    return {"settings": result, "origins": origins}
+
+
+def settings_save_request(*, scope: SettingsScope, settings: dict,
+                          channel_id: str | None = None, profile_ref: str | None = None) -> dict:
+    """Return exactly the requested save scope; the caller owns its transaction."""
+    if scope not in {"work", "channel", "profile"}:
+        raise ProductionError("invalid_settings_scope", "请选择本片、频道或画像")
+    if scope == "channel" and not channel_id:
+        raise ProductionError("channel_required", "本作品尚未选择频道")
+    if scope == "profile" and not profile_ref:
+        raise ProductionError("profile_required", "本作品尚未选择画像")
+    return {"scope": scope, "settings": validate_settings_patch(settings),
+            "target_ref": channel_id if scope == "channel" else profile_ref if scope == "profile" else None}

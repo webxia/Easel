@@ -114,6 +114,7 @@ class Worker:
         self._stopping = asyncio.Event()
         self._active: asyncio.Task | None = None
         self._running = False
+        self._lease_lost = False
 
     def claim_next(self) -> RunLease | None:
         """SQLite serializes claim/epoch increments across independent processes."""
@@ -273,6 +274,7 @@ class Worker:
                     # Normal node completion may end the run before its checkpoint flush.
                     lost = row is None or row["owner_id"] != lease.owner_id or row["owner_epoch"] != lease.owner_epoch or row["cancel_requested"] or row["state"] == "running"
                     if lost and self._active:
+                        self._lease_lost = True
                         self._active.cancel()
                     return
 
@@ -290,6 +292,7 @@ class Worker:
         if self._running:
             raise RuntimeError("a worker instance cannot run two loops concurrently")
         self._running = True
+        self._lease_lost = False
         lease = None
         heartbeat = None
         stopped = asyncio.Event()
@@ -305,7 +308,7 @@ class Worker:
             try:
                 await self._active
             except asyncio.CancelledError:
-                if not self._stopping.is_set():
+                if not self._stopping.is_set() and not self._lease_lost:
                     # If outer caller cancelled, propagate; takeover is already fenced in DB.
                     with self.store.connection() as reader:
                         row = reader.execute("SELECT owner_epoch,cancel_requested FROM runs WHERE id=?", (lease.run_id,)).fetchone()

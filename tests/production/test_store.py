@@ -50,7 +50,7 @@ def test_schema_covers_all_record_families_and_initialization_is_idempotent(stor
         assert {"profile_refs", "channels", "directors", "director_revisions", "channel_directors", "works", "work_inputs",
                 "plan_revisions", "authorization_grants", "runs", "tasks", "task_dependencies", "operations", "artifacts",
                 "artifact_edges", "quality_checks", "reviews", "acceptances", "events", "command_receipts"} <= tables
-        assert reader.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert reader.execute("PRAGMA user_version").fetchone()[0] == module.SCHEMA_VERSION
         assert reader.execute("PRAGMA foreign_keys").fetchone()[0] == 1
         assert reader.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
         with pytest.raises(sqlite3.OperationalError):
@@ -199,13 +199,14 @@ def test_unchecked_output_cannot_be_accepted(store):
 
 def test_failed_forward_migration_preserves_previous_data(store, monkeypatch):
     work = store.create_work({"title": "不能丢"})
-    monkeypatch.setattr(module, "SCHEMA_VERSION", 2)
-    monkeypatch.setattr(module, "MIGRATIONS", {**module.MIGRATIONS, 2: "CREATE TABLE partial(id TEXT);\nINSERT INTO missing_table VALUES(1);\n"})
+    previous = module.SCHEMA_VERSION
+    monkeypatch.setattr(module, "SCHEMA_VERSION", previous+1)
+    monkeypatch.setattr(module, "MIGRATIONS", {**module.MIGRATIONS, previous+1: "CREATE TABLE partial(id TEXT);\nINSERT INTO missing_table VALUES(1);\n"})
     with pytest.raises(MigrationError):
         store.initialize()
     assert store.get_work(work["id"])["title"] == "不能丢"
     with store.connection() as reader:
-        assert reader.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert reader.execute("PRAGMA user_version").fetchone()[0] == previous
         assert reader.execute("SELECT 1 FROM sqlite_master WHERE name='partial'").fetchone() is None
 
 
