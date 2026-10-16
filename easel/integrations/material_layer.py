@@ -462,9 +462,21 @@ class PlanningIntegration:
                 raise ValueError('语义编译冻结摘要不一致')
         except (OSError, ValueError, TypeError, KeyError) as exc:
             raise MaterialIntegrationError('Planning要求合同完整性无效：' + str(exc)) from exc
+        # D3 is a read-only consumer handoff, not another production readiness.
+        consumer_contract = None
+        if attempt.get('d2_review_policy') is not None:
+            from easel.integrations.planning_d3_consumers import describe_consumers
+            from easel.integrations.semantic_boundary_run import read_artifact
+            try:
+                checkpoint = json.loads(read_artifact(root, 'SEMANTIC_CHECKPOINT.json'))
+                consumer_contract = describe_consumers(
+                    attempt=attempt, plan=plan, checkpoint=checkpoint)
+            except (ValueError, TypeError, KeyError, OSError) as exc:
+                raise MaterialIntegrationError('D3 Consumer Proof/Need binding invalid: ' + str(exc)) from exc
         return {"plan": plan, **artifacts, "context_refs": plan.context_refs,
                 "truth_ledger": ledger, "attempt": attempt, 'manifest': manifest,
-                'requirements': manifest.get('requirements'), 'semantic': manifest.get('semantic')}
+                'requirements': manifest.get('requirements'), 'semantic': manifest.get('semantic'),
+                **({'consumer_contract': consumer_contract} if consumer_contract is not None else {})}
 
     def review_script(
         self,

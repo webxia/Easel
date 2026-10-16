@@ -109,7 +109,15 @@ def _save_attempt(attempt_id: str, mutate, *, include_creation: bool = False) ->
             raise HypitIntegrationError("FilmBuildAttempt 不存在")
         from easel.integrations import result_protocols as result_versions
         result_versions.inherited(attempt)  # Never mutate/resume a historical pin.
+        # Snapshot the identity *before* invoking the callback: some integration
+        # callbacks mutate the input mapping in place rather than returning a copy.
+        frozen_policies = {key: (key in attempt, attempt.get(key))
+                           for key in ('creative_claim_policy', 'd2_review_policy')}
         updated = mutate(attempt, current) if include_creation else mutate(attempt)
+        # Every Attempt mutation route shares the immutable first-creation pin.
+        if any((key in updated, updated.get(key)) != frozen
+               for key, frozen in frozen_policies.items()):
+            raise HypitIntegrationError('Existing Attempt frozen D1 policy or D2 Review policy cannot change')
         _set_summary(updated)
         current["hypit_attempts"] = [
             updated if item.get("attempt_id") == attempt_id else item
@@ -197,6 +205,12 @@ def update_film_attempt(attempt_id: str, *, event: str, **fields: Any) -> dict[s
         raise HypitIntegrationError("Attempt event name is invalid")
 
     def update(item: dict[str, Any]) -> dict[str, Any]:
+        # A D1 policy is first written only by create_film_attempt. No existing
+        # Attempt may add, remove or replace its original policy via a generic
+        # integration update, including a supposedly idempotent replay.
+        if any((key in fields and fields[key] != item.get(key))
+               for key in ('creative_claim_policy', 'd2_review_policy')):
+            raise HypitIntegrationError('Existing Attempt frozen D1 policy or D2 Review policy cannot change')
         changed = dict(item)
         changed.update(fields)
         return _event(changed, event, fields=sorted(fields))
@@ -572,8 +586,19 @@ def create_film_attempt(
     preparation_key: str | None = None,
     runtime_status: str | None = None,
     result_protocols: dict[str, Any] | None = None,
+    creative_claim_policy: str | None = None,
+    d2_review_policy: str | None = None,
 ) -> dict[str, Any]:
     from easel.integrations import result_protocols as result_versions
+    if d2_review_policy is not None:
+        from easel.integrations.planning_d2_typed_review import POLICY as D2_POLICY
+        from easel.integrations.planning_creative_authority import OWNER_POLICY
+        if d2_review_policy != D2_POLICY or creative_claim_policy != OWNER_POLICY:
+            raise HypitIntegrationError('D2 requires original frozen D1 creative claim Policy')
+    if creative_claim_policy is not None:
+        from easel.integrations.planning_creative_authority import OWNER_POLICY
+        if creative_claim_policy != OWNER_POLICY:
+            raise HypitIntegrationError('Unknown frozen D1 Creative Claim policy')
     pinned_results = (result_versions.current() if result_protocols is None
                       else result_versions.validate(result_protocols))
     if preparation_key is not None and not re.fullmatch(r"[0-9a-f]{64}", preparation_key):
@@ -608,6 +633,14 @@ def create_film_attempt(
             if existing:
                 if result_versions.inherited(existing) != pinned_results:
                     raise HypitIntegrationError("Existing Attempt result protocols differ from the new-only checkpoint")
+                # Fail *before* any Runtime/Profile mutation on an existing
+                # Attempt. A newly enabled D1 must never claim old execution.
+                if (creative_claim_policy is not None
+                        and existing.get('creative_claim_policy') != creative_claim_policy):
+                    raise HypitIntegrationError('Existing Attempt cannot upgrade to D1 Creative Claim policy')
+                if (d2_review_policy is not None
+                        and existing.get('d2_review_policy') != d2_review_policy):
+                    raise HypitIntegrationError('Existing Attempt cannot upgrade to D2 typed B Review policy')
                 if runtime and existing.get("runtime_status") != "CONFIGURED":
                     if (existing.get("execution_status") not in {"BLOCKED", "NOT_SUBMITTED"}
                             or existing.get("build", {}).get("operation")
@@ -644,6 +677,8 @@ def create_film_attempt(
             "attempt_id": attempt_id,
             "creation_id": creation_id,
             "attempt_number": attempt_number,
+            **({"creative_claim_policy": creative_claim_policy} if creative_claim_policy else {}),
+            **({"d2_review_policy": d2_review_policy} if d2_review_policy else {}),
             "backend": "hypit",
             "status": "READY_FOR_EXTERNAL_AUTHORING",
             "authoring_status": "READY_FOR_EXTERNAL_AUTHORING",

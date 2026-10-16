@@ -406,6 +406,149 @@ class FrameProjection:
         return self.codec.encode(self._transform(value, self.tree, True))
 
 
+
+B_IDENTITY_POLICY = 'planning-b-explicit-answer-id@2'
+B_ROOT_WRAPPER_POLICY = 'planning-b-lossless-nested-items@1'
+
+
+class BIdentityProjection:
+    """B-only wire representation. Canonical domain answers remain unchanged.
+
+    Only frozen identity can be deterministically projected. Model decisions
+    and evidence are never inferred or repaired here.
+    """
+
+    def __init__(self, canonical, stage):
+        self.canonical = deepcopy(canonical)
+        self.stage = stage
+        self.codec = FrameProjection(canonical, stage)
+        fields = self.codec.schema['properties']
+        self.ids = tuple(fields)
+        if (not self.ids or not all(key.startswith('question-') for key in self.ids)
+                or set(self.ids) != set(self.codec.schema['required'])
+                or self.codec.schema.get('additionalProperties') is not False):
+            raise ValueError('P0 requires a complete frozen B question registry')
+        variants = [
+            {'type': 'object', 'additionalProperties': False,
+             'properties': {'question_id': {'type': 'string', 'const': key},
+                            'answer': deepcopy(fields[key])},
+             'required': ['question_id', 'answer']}
+            for key in self.ids
+        ]
+        self.schema = {
+            'type': 'object',
+            'additionalProperties': False,
+            'properties': {'answers': {'type': 'array',
+                'minItems': len(self.ids), 'maxItems': len(self.ids),
+                'items': {'oneOf': variants}}},
+            'required': ['answers']}
+        Draft202012Validator.check_schema(self.schema)
+        # The existing finite-capacity estimator handles anyOf, not oneOf.
+        # These branches are disjoint by question_id const; for capacity only,
+        # anyOf has the same maximal instance length without weakening wire validation.
+        capacity_schema = deepcopy(self.schema)
+        capacity_schema['properties']['answers']['items'] = {'anyOf': variants}
+        if maximum_compact_bytes(capacity_schema) > MAX_RESULT_BYTES:
+            raise ValueError('P0 B wire exceeds full result capacity')
+        self.identity = {**self.codec.identity,
+            'b_identity_policy': B_IDENTITY_POLICY,
+            'wire_schema_sha256': digest(self.schema),
+            'original_b_wire_schema_sha256': self.codec.identity['wire_schema_sha256']}
+        self.validator = Draft202012Validator(self.schema)
+
+    def normalization_receipt(self, value):
+        """Lossless, allowlisted nested-array wrapper from a real B response.
+
+        Never repairs unknown/missing question IDs, support semantics, source
+        refs or schema errors. The entire transformed object must satisfy the
+        original strict B Tool Schema to be eligible.
+        """
+        if (not isinstance(value, dict) or set(value) != {'answers'}
+                or not isinstance(value['answers'], list)
+                or len(value['answers']) != 1
+                or not isinstance(value['answers'][0], dict)
+                or set(value['answers'][0]) != {'answers'}):
+            return None
+        wrapped = value['answers'][0]['answers']
+        if (not isinstance(wrapped, dict) or set(wrapped) != {'item'}
+                or not isinstance(wrapped['item'], list)
+                or len(wrapped['item']) != len(self.ids)):
+            return None
+        repaired = deepcopy(wrapped['item'])
+        paths = [['answers', 0, 'answers', 'item']]
+        for index, row in enumerate(repaired):
+            if (not isinstance(row, dict) or set(row) != {'question_id', 'answer'}
+                    or not isinstance(row['answer'], dict)
+                    or 'support' not in row['answer']):
+                return None
+            s = row['answer']['support']
+            if not isinstance(s, dict) or set(s) != {'item'}:
+                return None
+            item = s['item']
+            if isinstance(item, dict):
+                row['answer']['support'] = [item]
+            elif isinstance(item, list):
+                row['answer']['support'] = item
+            else:
+                return None
+            paths.append(['answers', index, 'answer', 'support', 'item'])
+        if [row['question_id'] for row in repaired] != list(self.ids):
+            return None
+        normalized = {'answers': repaired}
+        if list(self.validator.iter_errors(normalized)):
+            return None
+        return {'policy': B_ROOT_WRAPPER_POLICY, 'stage': self.stage,
+                'raw_sha256': digest(value), 'normalized_sha256': digest(normalized),
+                'paths': paths, 'normalized': normalized}
+
+    def _map(self, value):
+        if not isinstance(value, dict) or set(value) != {'answers'} or not isinstance(value['answers'], list):
+            raise ValueError('P0 B root must contain only answers')
+        admitted = self.normalization_receipt(value)
+        answers = admitted['normalized']['answers'] if admitted else value['answers']
+        if len(answers) != len(self.ids):
+            raise ValueError('P0 B missing or extra answer')
+        result = {}
+        for item in answers:
+            if not isinstance(item, dict) or set(item) != {'question_id', 'answer'}:
+                raise ValueError('P0 B answer fields must match frozen identity')
+            key = item['question_id']
+            if not isinstance(key, str) or key not in self.ids or key in result:
+                raise ValueError('P0 B unknown or duplicate question ID')
+            result[key] = item['answer']
+        if set(result) != set(self.ids):
+            raise ValueError('P0 B incomplete question registry')
+        return result
+
+    def errors(self, value):
+        try:
+            mapped = self._map(value)
+        except ValueError:
+            return [{'path': [], 'keyword': 'b_identity'}]
+        # Preserve the original canonical-localized wire error paths, so the
+        # existing shared B Repair may only touch already-authorized leaves.
+        return self.codec.errors(mapped)
+
+    def decode_candidate(self, value):
+        return self.codec.decode_candidate(self._map(value))
+
+    def decode_valid(self, value):
+        if self.errors(value):
+            raise ValueError('P0 B wire violates the strict original contract')
+        return self.codec.decode_valid(self._map(value))
+
+    def encode(self, value):
+        self.codec.decode_valid(self.codec.encode(value))
+        return {'answers': [{'question_id': key, 'answer': self.codec.encode(value)[key]}
+                             for key in self.ids]}
+
+
+def b_identity_project(canonical, stage):
+    if not (stage.startswith('B-') and stage != 'B'):
+        raise ValueError('P0 identity representation is B-only')
+    return BIdentityProjection(canonical, stage)
+
+
 def project(canonical, stage, *, atomic_framing=False):
     return _scoped_compile('wire', canonical, (stage, atomic_framing),
         lambda: FrameProjection(canonical, stage) if atomic_framing else Projection(canonical, stage))

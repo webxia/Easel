@@ -3,6 +3,7 @@ from copy import deepcopy
 
 POLICY = 'planning-staged-proposal@1'
 DETAIL_BATCH_POLICY = 'planning-fixed-detail-batches@1'
+MODALITY_FAMILY_BATCH_POLICY = 'planning-modality-family-detail-batches@1'
 DETAIL_BATCH_SIZE = 4
 
 from jsonschema import Draft202012Validator
@@ -260,26 +261,43 @@ class StagedProposal:
                  'unresolved': [*selection['unresolved'], *details['unresolved']]}
         return self.union.decode_candidate(value)
 
-    def detail_batches(self, selection):
-        """Freeze complete slots before dispatch; never partition a failed reply."""
+    def detail_batches(self, selection, *, modality_family=False):
+        """Freeze exact original slot IDs; new-only visual/audio families never mix.
+
+        Legacy consumers retain fixed ordinal batches. New-Only D1 uses only
+        the two existing semantic families without reordering Need identities.
+        A failed frozen batch can never be silently repartitioned/retried.
+        """
         from easel.integrations.planning_authority import digest
         full = self.details_contract(selection, diagnostic=True)
         slots = list(full['schema']['properties']['slots']['properties'])
+        groups = [slots]
+        if modality_family:
+            groups = [
+                [slot for slot in slots if selection['needs'][int(slot.removeprefix('slot_'))]['modality'] in {'image', 'video'}],
+                [slot for slot in slots if selection['needs'][int(slot.removeprefix('slot_'))]['modality'] not in {'image', 'video'}],
+            ]
         batches = []
-        for offset in range(0, len(slots), DETAIL_BATCH_SIZE):
-            keys = slots[offset:offset + DETAIL_BATCH_SIZE]
-            schema = deepcopy(full['schema'])
-            container = schema['properties']['slots']
-            container['properties'] = {key: container['properties'][key] for key in keys}
-            container['required'] = keys
-            batches.append({'key': f'A-details-{len(batches):03}', 'slots': keys,
-                            'schema': schema})
-        identity = {'policy': DETAIL_BATCH_POLICY, 'complete': full['identity'],
-                    'batches_sha256': digest(batches)}
+        for group in groups:
+            for offset in range(0, len(group), DETAIL_BATCH_SIZE):
+                keys = group[offset:offset + DETAIL_BATCH_SIZE]
+                schema = deepcopy(full['schema'])
+                container = schema['properties']['slots']
+                container['properties'] = {key: container['properties'][key] for key in keys}
+                container['required'] = keys
+                batches.append({'key': f'A-details-{len(batches):03}', 'slots': keys,
+                                'schema': schema})
+        if sorted(slot for batch in batches for slot in batch['slots']) != sorted(slots):
+            raise ValueError('Detail modality partition lost or duplicated a frozen Need')
+        identity = {'policy': MODALITY_FAMILY_BATCH_POLICY if modality_family else DETAIL_BATCH_POLICY,
+                    'complete': full['identity'], 'batches_sha256': digest(batches)}
         return {'identity': identity, 'complete': full, 'batches': batches}
 
     def assemble_batches_candidate(self, selection, batch_plan, replies, *, repair_missing_leaves=False):
-        if batch_plan != self.detail_batches(selection):
+        policy = batch_plan.get('identity', {}).get('policy') if isinstance(batch_plan, dict) else None
+        if policy not in (DETAIL_BATCH_POLICY, MODALITY_FAMILY_BATCH_POLICY):
+            raise ValueError('Unknown frozen detail batch policy')
+        if batch_plan != self.detail_batches(selection, modality_family=policy == MODALITY_FAMILY_BATCH_POLICY):
             raise ValueError('Frozen details batch plan changed')
         batches = batch_plan['batches']
         if set(replies) != {batch['key'] for batch in batches}:

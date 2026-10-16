@@ -15,6 +15,7 @@ from pydantic import Field, ValidationError
 from easel.integrations import planning_semantic_review as review
 from easel.integrations import planning_review_support as support
 from easel.integrations import planning_wire as wire
+from easel.integrations import planning_d2_typed_review as d2
 from easel.integrations.planning_authority import digest
 from easel.integrations.planning_result_contract import (
     Carrier, Handle, MAX_B_ANSWERS, MAX_RESULT_BYTES, maximum_compact_bytes,
@@ -56,6 +57,20 @@ class RelationalAnswer(CandidateAnswer):
 
 class RelationalResponse(Carrier):
     answers: Annotated[tuple[RelationalAnswer, ...], Field(min_length=1, max_length=MAX_B_ANSWERS)]
+
+
+class D2RelationalAnswer(RelationalAnswer):
+    issue_code: Literal['none', 'director_replan_needed', 'creator_decision_required',
+                        'material_supply_pending', 'source_or_truth_violation']
+    issue_owner: Literal['none', 'director', 'creator', 'material', 'source_truth']
+
+
+class D2RelationalResponse(Carrier):
+    answers: Annotated[tuple[D2RelationalAnswer, ...], Field(min_length=1, max_length=MAX_B_ANSWERS)]
+
+
+def _d2(batch):
+    return batch.get('d2_review_policy') == d2.POLICY
 
 
 def enabled(scope):
@@ -137,6 +152,22 @@ def batches(directory):
     for batch in result:
         schema = batch['response_schema']
         for question in batch['questions']:
+            if _d2(batch) and 'd2_review' in question:
+                key = support.slot(question)
+                answer = schema['properties'][key]
+                if question['d2_review'].get('policy') != d2.POLICY:
+                    raise ValueError('D2 B Review typed question policy mismatch')
+                answer['properties']['issue_code'] = {
+                    'type': 'string', 'enum': list(d2.ISSUES)}
+                answer['properties']['issue_owner'] = {
+                    'type': 'string', 'enum': sorted({owner for _, owner in d2.ISSUES.values()})}
+                answer['required'].extend(['issue_code', 'issue_owner'])
+                answer.setdefault('allOf', []).extend({
+                    'if': {'properties': {'issue_code': {'const': code}},
+                           'required': ['issue_code']},
+                    'then': {'properties': {'decision': {'const': decision},
+                                           'issue_owner': {'const': owner}}}
+                } for code, (decision, owner) in d2.ISSUES.items())
             triage = question['kind'] == 'unresolved_classification'
             coverage = _relational(batch) and question['kind'] == 'frozen_visual_coverage'
             if not (triage or coverage):
@@ -191,8 +222,10 @@ def message_context(batch):
     return projected
 
 
-def message_for(batch, *, quote_wire_guidance=False):
-    transported = {**message_context(batch), 'response_schema': wire.project(batch['response_schema'], 'B', atomic_framing=True).schema,
+def message_for(batch, *, quote_wire_guidance=False, b_identity=False):
+    presentation = (wire.b_identity_project(batch['response_schema'], 'B-message') if b_identity
+                    else wire.project(batch['response_schema'], 'B', atomic_framing=True))
+    transported = {**message_context(batch), 'response_schema': presentation.schema,
                    'wire_representation': wire.guidance(batch['response_schema'])}
     prefix = review.review_message(transported, quote_wire_guidance=quote_wire_guidance).rsplit('\n', 1)[0]
     instruction = ('\nP3候选审核：候选尚未被正式接受。visual_choices只判断其他头部；necessity独立由need_necessity判断，'
@@ -220,17 +253,53 @@ def message_for(batch, *, quote_wire_guidance=False):
             '完整说明实际依据或不足；support.quote优先选简短且连续的精确原文，不粘贴大段文本。'
             '简短不代表猜测、忽略义务或改写证据；无法在现有原文中判断时用UNRESOLVED。'
             '不要额外撰写总论、重复冻结上下文或输出schema外字段。')
-    if quote_wire_guidance:
+    if quote_wire_guidance and not b_identity:
         instruction += ('\n新增B层Wire格式约束：只提交response_schema.properties中列出的question-XXXX题目键；'
             'schema.title只是说明，不得输出额外的title、summary或metadata顶层键。'
             '每项support.quote必须与同项source所在类型分支一致，直接填写字符串或JSON null。'
             '禁止{"$text":"..."}、{"value":"..."}、{"null":true}等对象包装或增加其他字段。'
             'source与role仍须来自实际冻结依据和允许角色，不因格式示例伪造引用。'
             'quote不是完整蕴含证明；无法确定完整义务时仍选择UNRESOLVED。')
+    if b_identity:
+        # Mechanical shape only: derive from the same outgoing schema, never
+        # infer issue decisions, references or missing model answers.
+        transported['answer_shape_by_question'] = {
+            variant['properties']['question_id']['const']: {
+                'allowed_fields': sorted(variant['properties']['answer']['properties']),
+                'required_fields': variant['properties']['answer']['required'],
+                'field_types': {key: field['type'] for key, field in
+                    variant['properties']['answer']['properties'].items() if 'type' in field}}
+            for variant in presentation.schema['properties']['answers']['items']['oneOf']}
+        instruction += ('\n逐题格式：answer_shape_by_question摘自实际工具Schema。只按当前question_id的字段表回答，'
+            '不能把其他题型的coverage、related_needs、required_kinds带入本题；未列出的字段连空值也不能提交。'
+            '所有required_fields均须显式填写，包括issue_code/issue_owner；不得按默认值省略。'
+            '数组直接使用JSON数组，空数组写[]，不得写空字符串或item对象包装。'
+            'support每项必须同时有source、role、quote；quote仅为该来源的连续原文字符串或合法JSON null，不能省略。'
+            '字段表只说明结构；来源资格、类型分支和语义判断仍严格遵守完整工具Schema与冻结依据。')
+        instruction += ('\nP0显式题目身份：只提交一个answers数组，数组元素仅含question_id和answer。'
+                        'question_id必须是本批真实冻结问题身份，每题恰好一次；不可按位置猜测，'
+                        '不可省略回答、补造身份或改变来源。')
+    if _d2(batch):
+        instruction += ('\nD2类型化审核：本批受D2政策约束的每一题必须填写 issue_code 和 issue_owner，'
+            '严格遵守各题response_schema枚举和decision组合；必须真正审查完整d2_review.claim_records中的'
+            '导演理由与声明，而不是只看Claim SHA。ACCEPT+none+none仅限确认可支持的规划判断；'
+            'material_supply_pending只在原未决报告确实已有合法候选承担全部义务、仅供给事实待定时使用，'
+            '绝不代表MATERIAL_READY或Rights许可；'
+            '必须区分资产许可证据尚待下游核验与Creator用途/人物等授权缺失：'
+            '仅资产未找到、来源方案未选定或许可证据待核验，不能单凭“Rights未确认”判source_or_truth_violation。'
+            '若报告只描述这些供应事实，且现有合法候选完整承担全部义务，才可登记material_supply_pending；'
+            '仍保留原报告，Material的Rights UNKNOWN必须继续阻断实际使用。'
+            '若涉及新增用途/人物许可、真实授权冲突或候选尚未承担的创作决定，必须保持阻断，不能包装为供给待办。'
+            'creator_decision_required不可通过Repair自动确认，'
+            'source_or_truth_violation不可靠标签改判；director_replan_needed才可由原单次Repair处理。'
+            'Need.scope是具体被承接的来源，Header/Condition Claim的creative_goal_ref是模型援引的创作依据；'
+            '两者不必相同，但绝不能仅凭全篇global引用就认定某项frozen_director_rule被真实来源支持。'
+            '须核对真实原文、具体Scene/Mode、导演reason和Hard责任；无合法依据时保持CHALLENGE/UNRESOLVED，'
+            '不能声称Model输出具有Creator授权。')
     if batch.get('candidate_batch_limit') == review.CURRENT_CANDIDATE_BATCH_LIMIT:
         from easel.integrations import planning_request_view as request_view
         from easel.integrations.planning_structured import request_for, b_review_parameters
-        transported['response_schema'] = request_for(b_review_parameters(transported['response_schema']))['schema']
+        transported['response_schema'] = request_for(transported['response_schema'] if b_identity else b_review_parameters(transported['response_schema']))['schema']
         transported = request_view.project(transported, transported['response_schema'], stage='B')
         instruction += request_view.GUIDANCE
     return review.checked_message(prefix + instruction + '\n' + review.compact(transported))
@@ -238,6 +307,9 @@ def message_for(batch, *, quote_wire_guidance=False):
 
 def _row(value, question, batch):
     expected = {'decision', 'support', 'reason'}
+    is_d2 = _d2(batch) and 'd2_review' in question
+    if is_d2:
+        expected.update(('issue_code', 'issue_owner'))
     triage = question['kind'] == 'unresolved_classification'
     relational = _relational(batch)
     coverage = relational and question['kind'] == 'frozen_visual_coverage'
@@ -250,14 +322,17 @@ def _row(value, question, batch):
     if not isinstance(value, dict) or set(value) != expected:
         raise ValueError('Candidate answer fields changed')
     key = support.slot(question)
-    basic = {k: v for k, v in value.items() if k not in {'related_needs', 'coverage', 'required_kinds'}}
+    basic = {k: v for k, v in value.items() if k not in {'related_needs', 'coverage', 'required_kinds', 'issue_code', 'issue_owner'}}
     single = {**batch, 'questions': [question]}
     decoded = support.decode_slots({key: basic}, single)
     review.validate_answers(decoded, single)  # Original provenance/quote checks.
-    answer_type = RelationalAnswer if relational else CandidateAnswer
+    answer_type = D2RelationalAnswer if is_d2 else RelationalAnswer if relational else CandidateAnswer
     answer = answer_type.model_validate({**decoded['answers'][0],
         'related_needs': value.get('related_needs', []),
-        **({'coverage': value.get('coverage'), 'required_kinds': value.get('required_kinds', [])} if relational else {})})
+        **({'coverage': value.get('coverage'), 'required_kinds': value.get('required_kinds', [])} if relational else {}),
+        **({'issue_code': value['issue_code'], 'issue_owner': value['issue_owner']} if is_d2 else {})})
+    if is_d2:
+        d2.validate_typed_issue(question, value)
     needs = answer.related_needs
     if triage:
         if (len(needs) != len(set(needs)) or not set(needs) <= set(batch['candidate_bindings'])
@@ -365,7 +440,7 @@ def _answer_targets(value, batch):
 
 def decode_answers(value, batch):
     _wrapper(value, batch)
-    response_type = RelationalResponse if _relational(batch) else CandidateResponse
+    response_type = D2RelationalResponse if _d2(batch) else RelationalResponse if _relational(batch) else CandidateResponse
     return response_type(answers=tuple(_row(value[support.slot(q)], q, batch) for q in batch['questions']))
 
 
@@ -375,6 +450,12 @@ def semantic_targets(directory, responses, original):
     for question in directory['questions']:
         answer = by_id[question['question']]
         kind = question['kind']
+        if 'd2_review' in question:
+            classification = d2.validate_typed_issue(question, answer.model_dump(mode='json'))
+            if classification.get('issue') in {'creator_decision_required', 'source_or_truth_violation'}:
+                raise ValueError('D2 frozen Creator/Source/Truth requires a new authorized decision')
+            if kind == 'unresolved_classification' and classification.get('issue') != 'material_supply_pending':
+                raise ValueError('D2 unresolved report is not proven to be only pending supply')
         if kind == 'unresolved_classification':
             if answer.decision != 'ACCEPT':
                 raise ValueError('Creative intent or authorization remains unresolved')
@@ -415,6 +496,32 @@ def patch_schema(targets, *, support_batch=None, slots=False):
         else:
             single = review.patch_schema([target], support_batch=support_batch, slots=True)
             field, defs = single['properties']['target-0000'], single.get('$defs', {})
+        if any(name in definitions and definitions[name] != value
+               for name, value in defs.items()):
+            # B batches allocate Support names independently. Preserve each
+            # target's local reference closure instead of merging different
+            # eligibility contracts under the same root definition name.
+            names = {name: f'target-{i:04}__{name}' for name in defs}
+            pointers = {'#/$defs/' + name.replace('~', '~0').replace('/', '~1'):
+                        '#/$defs/' + renamed.replace('~', '~0').replace('/', '~1')
+                        for name, renamed in names.items()}
+            def relocate(value):
+                if isinstance(value, list):
+                    return [relocate(item) for item in value]
+                if not isinstance(value, dict):
+                    return value
+                result = {}
+                for key, item in value.items():
+                    if key in {'$ref', '$dynamicRef'} and isinstance(item, str):
+                        prefix = next((p for p in pointers
+                                       if item == p or item.startswith(p + '/')), None)
+                        result[key] = pointers[prefix] + item[len(prefix):] if prefix else item
+                    else:
+                        # Instance literals are data, never schema references.
+                        result[key] = deepcopy(item) if key in {'const', 'enum', 'default', 'examples'} else relocate(item)
+                return result
+            field = relocate(field)
+            defs = {names[name]: relocate(value) for name, value in defs.items()}
         for name, value in defs.items():
             if name in definitions and definitions[name] != value:
                 raise ValueError('Conflicting patch definitions')
@@ -534,7 +641,7 @@ def _frozen_b_repair_targets(rows):
     return targets, original, {'policy': B_BATCH_REPAIR_POLICY, 'frozen_batches': contexts}
 
 
-def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls, a_calls):
+def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls, a_calls, b_identity=False, claim_binding=None):
     """Same deterministic evaluation for live owner and read-only frozen replay."""
     inputs, catalog = scope['inputs'], scope['catalog']
     intake = scope.get('transport', {}).get('intake_policy')
@@ -542,15 +649,18 @@ def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls, a_ca
     batch_limit = (review.CURRENT_CANDIDATE_BATCH_LIMIT if intake == INTAKE_POLICY else review.CANDIDATE_BATCH_LIMIT) if intake in {BOUNDED_BATCH_INTAKE_POLICY, FRAMING_INTAKE_POLICY, QUOTE_INTAKE_POLICY, ATOMIC_DETAILS_INTAKE_POLICY, SOUND_TEMPO_INTAKE_POLICY, COMPLETE_GUIDANCE_INTAKE_POLICY, ROOT_ECHO_INTAKE_POLICY, SFX_GUIDANCE_INTAKE_POLICY, INTAKE_POLICY} else None
     quote_wire_guidance = intake in {QUOTE_INTAKE_POLICY, ATOMIC_DETAILS_INTAKE_POLICY, SOUND_TEMPO_INTAKE_POLICY, COMPLETE_GUIDANCE_INTAKE_POLICY, ROOT_ECHO_INTAKE_POLICY, SFX_GUIDANCE_INTAKE_POLICY, INTAKE_POLICY}
     lineage = None
+    lineages = []
     repairs = 0
     def fix(stage, original, targets, context=None):
         nonlocal lineage, repairs
-        if repairs:
-            raise ValueError('Whole Planning shared repair allowance exhausted')
-        repairs += 1
+        if repairs >= 3:
+            raise ValueError('Whole Planning shared repair allowance exhausted (3)')
+        # Owner reserves and records the *real* shared slot before dispatch.
         value, output = repair(stage, original, targets, context)
+        repairs += 1
         lineage = {'stage': stage, 'targets': [{k: v for k, v in t.items() if k != 'annotation'} for t in targets],
                    'output': output}
+        lineages.append(deepcopy(lineage))
         return value
     value = deepcopy(initial)
     pending = review.intake_targets(value, inputs, flexible_queries=flexible)
@@ -574,6 +684,8 @@ def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls, a_ca
         raise ValueError('Required BGM cannot fit without removing a Need')
     directory = directory_for(proposal, inputs, catalog, policy=policy_for(scope), candidate_batch_limit=batch_limit)
     view.check_review(directory)
+    if claim_binding is not None:
+        directory = claim_binding(directory)
     initial_directory = directory
     initial_value = deepcopy(value)
     initial_responses, responses = [], []
@@ -584,10 +696,10 @@ def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls, a_ca
         raise ValueError('Current B local repair aggregation identity is missing')
     coverage = sum(q['kind'] == 'frozen_visual_coverage' for q in directory['questions'])
     review_batch_size = batch_limit or MAX_B_ANSWERS
-    if a_calls + len(initial_batches) + 1 + (16 * 14 + coverage + 16 + review_batch_size - 1) // review_batch_size > max_calls:
+    if a_calls + len(initial_batches) + 3 + (16 * 14 + coverage + 16 + review_batch_size - 1) // review_batch_size > max_calls:
         raise ValueError('Complete candidate review/recheck exceeds original call capacity')
     def ask(key, batch, *, recheck=False):
-        message = message_for(batch, quote_wire_guidance=quote_wire_guidance)
+        message = message_for(batch, quote_wire_guidance=quote_wire_guidance, b_identity=b_identity)
         raw = invoke(key, message, batch['response_schema'])
         decoded = candidate(key, raw, batch['response_schema'])
         if aggregate_b and not recheck:
@@ -596,21 +708,21 @@ def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls, a_ca
             invalid_keys = {target['path'][0] for target in faults}
             # The recorded wire schema must locate every error within a target;
             # otherwise collecting only selected keys would launder a rejection.
-            errors = wire.project(batch['response_schema'], key, atomic_framing=True).errors(raw)
+            errors = (wire.b_identity_project(batch['response_schema'], key) if b_identity else wire.project(batch['response_schema'], key, atomic_framing=True)).errors(raw)
             if any(not item['path'] or item['path'][0] not in invalid_keys for item in errors):
                 raise ValueError('Unlocalized B wire error cannot enter shared repair')
-            if faults and (repairs or pending):
-                raise ValueError('B local repair conflicts with an already-needed shared repair')
+            if faults and repairs >= 3:
+                raise ValueError('B local repair exceeds shared three-repair allowance')
             return raw, (decoded, faults)
         faults = _answer_targets(decoded, batch)
         if faults:
             if recheck:
-                raise ValueError('Recheck answer invalid after the single repair')
+                raise ValueError('Recheck answer invalid; no unreviewed additional repair')
             decoded = fix(key, decoded, faults, batch)
         return raw, decode_answers(decoded, batch)
     # Precompute all full messages before any independent review dispatch.
     for batch in initial_batches:
-        message_for(batch, quote_wire_guidance=quote_wire_guidance)
+        message_for(batch, quote_wire_guidance=quote_wire_guidance, b_identity=b_identity)
     collected_b = []
     for i, batch in enumerate(initial_batches):
         stage = f'B-{i:03}'
@@ -658,6 +770,8 @@ def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls, a_ca
         value = proposal.model_dump(mode='json')
         updated = directory_for(proposal, inputs, catalog, policy=policy_for(scope), candidate_batch_limit=batch_limit)
         view.check_review(updated)
+        if claim_binding is not None:
+            updated = claim_binding(updated)
         kept, to_review = review.recheck(directory, responses, updated)
         pending_batches = batches(to_review)
         for batch in pending_batches:
@@ -667,8 +781,8 @@ def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls, a_ca
             for answer in response.answers:
                 kept[answer.question] = answer.model_dump(mode='json')
         directory = updated
-        response_type = RelationalResponse if _relational(directory) else CandidateResponse
-        answer_type = RelationalAnswer if _relational(directory) else CandidateAnswer
+        response_type = D2RelationalResponse if _d2(directory) else RelationalResponse if _relational(directory) else CandidateResponse
+        answer_type = D2RelationalAnswer if _d2(directory) else RelationalAnswer if _relational(directory) else CandidateAnswer
         responses = [response_type(answers=tuple(answer_type.model_validate(kept[q['question']])
                      for q in batch['questions'])) for batch in batches(directory)]
     remaining, dispositions = semantic_targets(directory, responses, value)
@@ -680,6 +794,7 @@ def evaluate(initial, scope, view, invoke, candidate, repair, *, max_calls, a_ca
     return {'proposal': formal, 'directory': directory, 'responses': responses,
         'initial_review_value': initial_value, 'initial_responses': initial_responses,
         'before_semantic': before_semantic, 'repair': lineage,
+        'repairs': lineages,
         'trace': {'policy': policy_for(scope), 'original_sha256': digest(initial),
             'initial_review_sha256': digest(initial_directory), 'reviewed_candidate': value,
             'execution_pending_reports': dispositions, 'repair_calls': repairs}}

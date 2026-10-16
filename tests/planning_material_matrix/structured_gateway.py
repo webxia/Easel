@@ -102,6 +102,56 @@ class EvalHttpBudget:
                                      'state': 'UNKNOWN', **metadata})
             return number
 
+    def completion_preflight(self, plan, *, shared_ledger=None):
+        """Read-only feasibility report, never authorization or a reservation.
+
+        Caller is the evaluator Owner, not model output. Unknown future work is
+        explicit; historical average HTTP counts are not a completion bound.
+        Final reserve/before_send guards must still run after this snapshot.
+        """
+        if (not isinstance(plan, dict) or set(plan) != {'stages', 'repair_reserve'}
+                or not isinstance(plan['stages'], dict) or not plan['stages']
+                or not isinstance(plan['repair_reserve'], dict)
+                or set(plan['repair_reserve']) != {'planning', 'truth'}
+                or any(type(v) is not int or not 0 <= v <= cap
+                    for v, cap in zip((plan['repair_reserve']['planning'], plan['repair_reserve']['truth']), (3, 1)))
+                or any(not isinstance(k, str) or not k or v is not None and
+                    (type(v) is not int or v < 0) for k, v in plan['stages'].items())):
+            raise ValueError('EVAL_COMPLETION_PLAN_INVALID')
+        # Shared lock, no ledger rewrite and no reopening a closed budget.
+        with (self.directory / 'http-budget.lock').open('r') as lock:
+            fcntl.flock(lock, fcntl.LOCK_SH)
+            state = json.loads(self.path.read_text())
+            if state.get('identity') != self.identity:
+                raise ValueError('EVAL_BUDGET_IDENTITY_CHANGED')
+        states = [state]
+        if shared_ledger is not None:
+            # Diagnostic snapshot only; the shared Owner remains responsible
+            # for atomic final reservation. Do not edit historical ledgers.
+            shared = json.loads(Path(shared_ledger).read_text())
+            if (type(shared.get('limit')) is not int or shared['limit'] < 0
+                    or type(shared.get('closed')) is not bool or not isinstance(shared.get('requests'), list)):
+                raise ValueError('EVAL_SHARED_BUDGET_INVALID')
+            states.append({**shared, 'identity': {'limit': shared['limit']}})
+        available = min(s['identity']['limit'] - len(s['requests']) for s in states)
+        known = sum(v for v in plan['stages'].values() if v is not None)
+        reserved = sum(plan['repair_reserve'].values())
+        unknown = [k for k, v in plan['stages'].items() if v is None]
+        first = state['first_reserved_at']
+        now = self.clock()
+        reasons = []
+        if any(s['closed'] for s in states): reasons.append('BUDGET_CLOSED')
+        if any(r.get('state') == 'UNKNOWN' for s in states for r in s['requests']): reasons.append('PENDING_OR_UNKNOWN')
+        if first is not None and (now < first or now - first >= self.identity['seconds']): reasons.append('DEADLINE')
+        if available < known + reserved: reasons.append('INSUFFICIENT_HTTP')
+        if unknown: reasons.append('UNFROZEN_WORK')
+        return {'decision': 'HOLD' if reasons else 'FROZEN_BOUND_FITS',
+            'diagnostic_only': True, 'dispatch_authorized': False,
+            'available_http': available, 'known_work_http': known,
+            'repair_reserve_http': reserved, 'unknown_stages': unknown,
+            'plan_sha256': hashlib.sha256(json.dumps(plan, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+            'reasons': reasons}
+
     def finish(self, number, observation):
         with self.edit() as state:
             row = state['requests'][number - 1]
@@ -681,9 +731,10 @@ net.Socket.prototype.connect=function(...args){
 def main(runtime, workspace, node, raw_path=None, scenario='valid', schema_path=None, *, http_budget=None,
          model_params=None, expected_payload=None, expected_number=None,
          model_max_tokens=16000, expected_model_params=None, model_row=None,
-         argument_chunk_chars=None, response_chunk_bytes=None, check_argument_observation=False):
+         argument_chunk_chars=None, response_chunk_bytes=None, check_argument_observation=False,
+         input_message='Return the semantic plan for one white paper image.'):
     from easel.integrations.planning_result_contract import semantic_tool_schema
-    from easel.integrations.planning_structured import request_for
+    from easel.integrations.planning_structured import request_for, bind_input
     if argument_chunk_chars is not None and (type(argument_chunk_chars) is not int
             or not 1 <= argument_chunk_chars <= 65536):
         raise ValueError('Offline argument chunk size must be a bounded positive integer')
@@ -702,7 +753,7 @@ def main(runtime, workspace, node, raw_path=None, scenario='valid', schema_path=
     schema = semantic_tool_schema({'scene': {'scene-1': '一张白纸'}})
     if schema_path is not None:
         schema = json.loads(schema_path.read_text())
-    structured = request_for(schema)
+    structured = bind_input(request_for(schema), input_message)
     model_row = model_row or {'id': 'MiniMax-M3', 'name': 'offline fixture',
         'reasoning': False, 'input': ['text'], 'contextWindow': 200000, 'maxTokens': model_max_tokens}
     model_id = model_row['id']
@@ -718,7 +769,8 @@ def main(runtime, workspace, node, raw_path=None, scenario='valid', schema_path=
                           'description': payload.get('tools', [{}])[0].get('function', {}).get('description'),
                           'thinking': payload.get('thinking'), 'max_tokens': payload.get('max_tokens'),
                           'max_completion_tokens': payload.get('max_completion_tokens'),
-                          'schema_equal': payload.get('tools', [{}])[0].get('function', {}).get('parameters') == schema})
+                          'schema_equal': payload.get('tools', [{}])[0].get('function', {}).get('parameters') == schema,
+                          'messages_equal': payload.get('messages') == [{'role': 'user', 'content': input_message}]})
             if scenario in {'redirect307', 'redirect308'}:
                 self.send_response(int(scenario[-3:]))
                 self.send_header('Location', f'http://127.0.0.1:{self.server.server_port}/v1/redirected')
@@ -744,6 +796,9 @@ def main(runtime, workspace, node, raw_path=None, scenario='valid', schema_path=
                     'finish_reason': None}]} for i, piece in enumerate(pieces)] + [messages[-1]]
             if scenario in {'terminal_stop', 'terminal_length'}:
                 messages[-1]['choices'][0]['finish_reason'] = scenario.removeprefix('terminal_')
+            if scenario == 'terminal_no_tool':
+                messages = [{'id': 'offline-result', 'choices': [{'index': 0,
+                    'delta': {}, 'finish_reason': 'stop'}]}]
             if scenario == 'sdk_missing_finish':
                 messages = messages[:-1]  # Complete HTTP, absent Provider terminal; external fixture only.
             if scenario == 'multiple_tools':
@@ -836,16 +891,22 @@ net.Socket.prototype.connect=function(...args){
                 time.sleep(.2)
         else:
             raise RuntimeError('Isolated Gateway did not become ready')
-        run_id = 'offline-structured-run'
-        submitted = rpc('agent', {'message': 'Return the semantic plan for one white paper image.',
+        run_id = 'easel-' + 'a' * 32 if scenario == 'terminal_no_tool' else 'offline-structured-run'
+        submitted = rpc('agent', {'message': input_message,
             'agentId': 'main', 'sessionKey': 'agent:main:structured-fixture',
             'sessionId': 'structured-fixture', 'idempotencyKey': run_id,
             'deliver': False, 'timeout': 30, 'easelStructuredResult': structured})
         report['submit_status'] = submitted.get('status')
         terminal = rpc('agent.wait', {'runId': run_id, 'timeoutMs': 35000})
         report.update(terminal=terminal, provider_calls=calls)
+        if scenario == 'terminal_no_tool':
+            report['runtime_release'] = rpc('sessions.abort', {
+                'key': 'agent:main:structured-fixture', 'agentId': 'main', 'clearQueued': True})
+            report['structured_result'] = {key: structured[key] for key in
+                ('version', 'name', 'schemaSha256', 'contextPolicy', 'inputSha256')}
         (workspace / 'result.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
         assert len(calls) == 1 and calls[0]['schema_equal'], 'Actual payload changed or retried'
+        assert calls[0]['messages_equal'], 'Planning original input changed or Agent context leaked'
         assert calls[0]['tool_names'] == ['submit_semantic_plan']
         if scenario == 'valid':
             assert terminal.get('status') == 'ok', 'Original isolated run did not succeed'
@@ -895,7 +956,14 @@ net.Socket.prototype.connect=function(...args){
         'agent_id': 'main', 'session_key': 'agent:main:structured-fixture',
         'session_id': 'structured-fixture', 'run_id': run_id,
         'reply_contract': 'planning-result-v3',
-        'structured_result': {key: structured[key] for key in ('version', 'name', 'schemaSha256')}}, env=env)
+        'structured_result': {key: structured[key] for key in ('version', 'name', 'schemaSha256', 'contextPolicy', 'inputSha256')}}, env=env)
+    if scenario == 'terminal_no_tool':
+        report['no_tool_proof'] = read_original(command, 'fixture', {
+            'agent_id': 'main', 'session_key': 'agent:main:structured-fixture',
+            'session_id': 'structured-fixture', 'run_id': run_id, 'reply_contract': 'planning-result-v3',
+            'structured_result': {key: structured[key] for key in
+                ('version', 'name', 'schemaSha256', 'contextPolicy', 'inputSha256')}},
+            env=env, inspect_terminal_no_tool=True)
     after = snapshot()
     changed = [name for name in sorted(before.keys() | after.keys()) if before.get(name) != after.get(name)]
     report['capture'] = {key: value for key, value in capture.items() if key != 'text'}
@@ -933,7 +1001,7 @@ net.Socket.prototype.connect=function(...args){
         assert capture.get('toolCallId') == 'original-native-call'
     else:
         assert capture.get('state') != 'FOUND'
-    if scenario in {'terminal_stop', 'terminal_length', 'sensitive_debug', 'sdk_missing_finish'}:
+    if scenario in {'terminal_stop', 'terminal_length', 'terminal_no_tool', 'sensitive_debug', 'sdk_missing_finish'}:
         from scripts.patch_openclaw_structured_result import digest
         guard_folder = state / 'easel-structured-requests'
         files = list(guard_folder.glob('rejection-*.json'))
@@ -948,9 +1016,9 @@ net.Socket.prototype.connect=function(...args){
             assert diagnostic['uniqueExpectedTool'] is True
         elif scenario.startswith('terminal_'):
             assert diagnostic['category'] == 'STRUCTURED_TERMINAL_REJECTED'
-            assert diagnostic['providerFinishValue'] == scenario.removeprefix('terminal_')
+            assert diagnostic['providerFinishValue'] == ('stop' if scenario == 'terminal_no_tool' else scenario.removeprefix('terminal_'))
             # length discards the unfinished tool in the installed native reducer.
-            expected_count = 0 if scenario == 'terminal_length' else 1
+            expected_count = 0 if scenario in {'terminal_length', 'terminal_no_tool'} else 1
             assert diagnostic['toolCallCount'] == expected_count
             assert diagnostic['uniqueExpectedTool'] == (expected_count == 1)
         else:

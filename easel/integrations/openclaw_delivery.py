@@ -264,6 +264,9 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
     if flag("--session-id"):
         request["sessionId"] = flag("--session-id")
     if structured_result is not None:
+        from easel.integrations.planning_structured import bind_input
+        structured_result = bind_input(structured_result, request['message'])
+        validate_request(structured_result, dispatch=True)
         request['easelStructuredResult'] = structured_result
     if reply_contract == 'planning-result-v3':
         from easel.integrations.planning_result_contract import MAX_REQUEST_BYTES
@@ -331,7 +334,7 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
                 call['session_id'] = request['sessionId']
             if structured_result is not None:
                 call['structured_result'] = {key: structured_result[key]
-                    for key in ('version', 'name', 'schemaSha256')}
+                    for key in ('version', 'name', 'schemaSha256', 'contextPolicy', 'inputSha256')}
             call.update(stage=stage, stage_ordinal=ordinal, category=category, history=history)
             calls[digest] = call
             if visual_model:
@@ -397,6 +400,64 @@ def run_delivery_agent(command: Sequence[str], *, runner: Callable = subprocess.
     raise DeliveryAgentPending("编排任务已提交，继续等待同一项执行")
 
 
+def inspect_planning_terminal_no_tool(creation_id, session, stage, *, schema_sha256,
+                                      prefix, profile, env=None, runner=subprocess.run):
+    """Evidence-only classification of a *released*, terminal failed run.
+
+    Neither a generic TransportError nor the caller's assertion can authorize
+    regeneration. The installed native transcript AND scoped rejection file
+    must agree on one original Run/Session/Schema. No dispatch occurs here.
+    """
+    from easel.integrations.planning_transcript import read_original
+    from easel.integrations.planning_stage_recovery import TERMINAL_POLICY
+    calls = (creation.get_creation(creation_id).get('delivery') or {}).get('agent_calls', {})
+    matched = [v for v in calls.values() if v.get('session_key') == 'agent:main:' + session]
+    if len(matched) != 1:
+        return None
+    call = matched[0]
+    structured = call.get('structured_result')
+    if (call.get('reply_contract') != 'planning-result-v3'
+            or call.get('status') != 'error' or not call.get('ended_at')
+            or call.get('runtime_release') != 'released'
+            or not isinstance(call.get('terminal_receipt'), dict)
+            or call.get('terminal_reply') is not None
+            or not isinstance(structured, dict)
+            or structured.get('schemaSha256') != schema_sha256
+            or call.get('profile') != profile
+            or not isinstance(call.get('run_id'), str)):
+        return None
+    receipt = call['terminal_receipt']
+    if (receipt.get('runId') != call['run_id']
+            or receipt.get('sessionId') != call.get('session_id')):
+        return None
+    try:
+        observed = read_original(prefix, profile, call, runner=runner, env=env,
+                                 inspect_terminal_no_tool=True)
+    except DeliveryExecutionUncertain:
+        return None
+    if (observed.get('state') != 'CONFIRMED_TERMINAL_NO_TOOL'
+            or observed.get('runId') != call['run_id']
+            or observed.get('sessionId') != call['session_id']
+            or observed.get('schemaSha256') != schema_sha256
+            or observed.get('provider') != 'minimax'
+            or observed.get('providerFinish') != 'stop'
+            or observed.get('nativeStop') != 'stop'
+            or observed.get('toolCallCount') != 0
+            or observed.get('category') != 'STRUCTURED_TERMINAL_REJECTED'
+            or observed.get('model') != receipt.get('effective', {}).get('model')):
+        return None
+    return {'policy': TERMINAL_POLICY, 'state': 'CONFIRMED_TERMINAL_NO_TOOL',
+            'stage': stage, 'session': session, 'schema_sha256': schema_sha256,
+            'original_run_id': call['run_id'],
+            'native_evidence_sha256': observed['nativeEvidenceSha256'],
+            'provider_finish': observed['providerFinish'],
+            'native_stop': observed['nativeStop'],
+            'tool_call_count': observed['toolCallCount'],
+            'native_category': observed['category'],
+            'runtime_release': call['runtime_release'],
+            'terminal_status': call['status']}
+
+
 def _completed_reply(args, call):
     if call.get('reply_contract') not in {None, 'material-result-v1', 'planning-result-v3'}:
         raise ValueError('Historical Planning result is read-only')
@@ -452,6 +513,9 @@ def _capture_original(creation_id, key, prefix, profile, runner, kwargs, reader)
             if (call.get('stop_reason') != 'tool_calls' or value.get('stopReason') != 'toolUse'
                     or value.get('providerFinishReason') != 'tool_calls'
                     or value.get('schemaSha256') != expected['schemaSha256']
+                    or expected['version'] == 'easel-structured-result@2' and (
+                        value.get('contextPolicy') != expected['contextPolicy']
+                        or value.get('inputSha256') != expected['inputSha256'])
                     or value.get('toolName') != expected['name'] or not value.get('toolCallId')):
                 outcome = 'STRUCTURED_OUTPUT_INVALID'
         if outcome is None and (not isinstance(text, str) or not text.strip()): outcome = 'MODEL_NO_RESULT'

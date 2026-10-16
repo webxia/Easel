@@ -19,6 +19,119 @@ from tests.test_creation_preparation import prep_env
 from tests.planning_material_matrix.structured_gateway import main as gateway, EvalHttpBudget
 
 
+def test_native_original_planning_input_isolated(tmp_path):
+    """Full isolated Gateway/SDK path with frozen-style Chinese stage input."""
+    from easel.integrations.planning_structured import verify_runtime
+    runtime = Path(os.environ['EASEL_TEST_RUNTIME']).resolve()
+    assert runtime.parent == Path('/tmp').resolve() and runtime.name.startswith('easel-structured-runtime-')
+    verify_runtime(runtime)
+    report = gateway(runtime, tmp_path / 'isolated-context', shutil.which('node'),
+        input_message='〔Easel Planning〕\n完整中文原文 🖼️\n'
+                      '时间戳文本属于来源时也须保留：[Fri 2026-10-16]\n')
+    assert report['terminal']['status'] == 'ok'
+    assert report['provider_calls'][0]['messages_equal']
+    assert report['capture']['state'] == 'FOUND'
+    assert report['database_and_existing_wal_unchanged']
+
+
+def test_native_zero_tool_rejection_preserves_existing_recovery(tmp_path, monkeypatch):
+    from easel.integrations import openclaw_delivery as delivery, planning_stage_recovery as recovery
+    runtime = Path(os.environ['EASEL_TEST_RUNTIME']).resolve()
+    assert runtime.parent == Path('/tmp').resolve() and runtime.name.startswith('easel-structured-runtime-')
+    report = gateway(runtime, tmp_path / 'no-tool', shutil.which('node'), scenario='terminal_no_tool',
+        model_row={'id': 'MiniMax-M3.1-Flash-Preview', 'name': 'offline fixture', 'reasoning': True,
+            'input': ['text'], 'contextWindow': 1000000, 'maxTokens': 8192},
+        model_params={'params': {'max_completion_tokens': 8192, 'reasoning_effort': 'medium',
+            'extra_body': {'thinking': {'type': 'adaptive'}}}})
+    proof = report['no_tool_proof']
+    assert proof['state'] == 'CONFIRMED_TERMINAL_NO_TOOL'
+    assert report['first_rejection']['version'] == 'easel-structured-rejection@2'
+    assert report['runtime_release']['ok'] is True
+    log = (tmp_path / 'no-tool/gateway.log').read_text()
+    assert '[empty-error-retry]' not in log
+    assert log.count('rawError=STRUCTURED_TERMINAL_REJECTED') == 1
+    terminal = report['terminal']
+    assert terminal['status'] == 'error'
+    call = {'agent_id': 'main', 'session_key': 'agent:main:structured-fixture', 'session_id': 'structured-fixture',
+        'run_id': proof['runId'], 'reply_contract': 'planning-result-v3', 'profile': 'fixture',
+        'status': 'error', 'ended_at': terminal['endedAt'], 'runtime_release': 'released',
+        'terminal_receipt': terminal['terminalReceipt'], 'structured_result': report['structured_result']}
+    # Original private fixture evidence, actual reader in a fresh Native process.
+    from easel.integrations.planning_transcript import read_original
+    read_env = {**os.environ, 'HOME': str(tmp_path / 'no-tool/home'),
+        'OPENCLAW_STATE_DIR': str(tmp_path / 'no-tool/state'),
+        'OPENCLAW_CONFIG_PATH': str(tmp_path / 'no-tool/config.json')}
+    rejection = next((tmp_path / 'no-tool/state/easel-structured-requests').glob('rejection-*.json'))
+    original_bytes = rejection.read_bytes()
+    for key, value in [('version', 'easel-structured-rejection@1'), ('inputSha256', '0' * 64),
+            ('schemaSha256', '0' * 64), ('runId', 'different'), ('sessionId', 'different'),
+            ('toolCallCount', 1), ('storageReason', 'SECRET_PATTERN')]:
+        row = json.loads(original_bytes)
+        row[key] = value
+        rejection.write_text(json.dumps(row))
+        try:
+            refused = read_original([shutil.which('node'), str(runtime / 'openclaw.mjs')],
+                'fixture', call, env=read_env, inspect_terminal_no_tool=True)
+            assert refused['state'] == 'UNAVAILABLE', key
+        finally:
+            rejection.write_bytes(original_bytes)
+    monkeypatch.setattr(delivery.creation, 'get_creation', lambda _: {'delivery': {'agent_calls': {'original': call}}})
+    from easel.integrations import planning_transcript
+    monkeypatch.setattr(planning_transcript, 'read_original', lambda *args, **kwargs: proof)
+    schema_sha = call['structured_result']['schemaSha256']
+    observed = delivery.inspect_planning_terminal_no_tool('fixture', 'structured-fixture', 'A-details-000',
+        schema_sha256=schema_sha, prefix=[], profile='fixture')
+    assert recovery.confirmed_no_tool(observed, stage='A-details-000',
+        schema_sha256=schema_sha, session='structured-fixture')['reason'] == 'TERMINAL_NO_TOOL'
+    call['runtime_release'] = 'pending'
+    assert delivery.inspect_planning_terminal_no_tool('fixture', 'structured-fixture', 'A-details-000',
+        schema_sha256=schema_sha, prefix=[], profile='fixture') is None
+
+
+def test_current_d2_owner_with_isolated_native_capture(material_integration_env, monkeypatch, tmp_path):
+    """Current A/B/Repair/Proof and cold verify; fixture only at Provider exit."""
+    from easel.integrations import semantic_boundary_run as owner
+    from tests.test_creation_preparation import _current_vnext_planning_executor
+    from tests.test_planning_d2_owner_integration import _fresh_d2_attempt, _frozen_context
+    from easel.materials.store import AttemptMaterialStore
+    runtime = Path(os.environ['EASEL_TEST_RUNTIME']).resolve()
+    assert runtime.parent == Path('/tmp').resolve() and runtime.name.startswith('easel-structured-runtime-')
+    owner.structured.verify_runtime(runtime)
+    original = owner.run
+    records = []
+    def native_owner(attempt, context, canonical, mode, route, dispatch):
+        def transported(stage, message, session, **options):
+            raw = dispatch(stage, message, session, **options)
+            index = len(records)
+            response = tmp_path / f'provider-{index}.json'
+            schema = tmp_path / f'schema-{index}.json'
+            response.write_text(raw)
+            schema.write_text(json.dumps(options['structured_result']['schema']))
+            report = gateway(runtime, tmp_path / f'native-{index}', shutil.which('node'),
+                response, schema_path=schema, input_message=message)
+            assert report['capture']['sha256'] == hashlib.sha256(raw.encode()).hexdigest()
+            assert report['capture']['inputSha256'] == hashlib.sha256(message.encode()).hexdigest()
+            assert report['provider_calls'][0]['messages_equal']
+            records.append(session.rsplit('-vnext-', 1)[-1])
+            return raw  # Equals the exact original native capture, checked above.
+        return original(attempt, context, canonical, mode, route, transported)
+    monkeypatch.setattr(owner, 'run', native_owner)
+    attempt = _fresh_d2_attempt(material_integration_env)
+    result = _current_vnext_planning_executor(attempt, _frozen_context(attempt),
+        creative_claims=True, d2_review=True, creative_semantic_probe=True)
+    root = Path(attempt['workspace']['path'])
+    checkpoint = json.loads((root / 'planning/SEMANTIC_CHECKPOINT.json').read_text())
+    assert any(k.startswith('repair-') for k in records)
+    assert any(k.startswith('B-recheck-') for k in records)
+    journal = AttemptMaterialStore(root).read_recovery_record('semantic-planning-vnext')
+    assert journal['repair_count'] == 1
+    assert owner.verify(root, result['plan'], checkpoint['scope']['mode'], result['script'], attempt=attempt)
+    before = len(records)
+    again = _current_vnext_planning_executor(attempt, _frozen_context(attempt),
+        creative_claims=True, d2_review=True, creative_semantic_probe=True)
+    assert again['plan'] == result['plan'] and len(records) == before
+
+
 @pytest.mark.parametrize('risk', ['real_wrapper', 'real_full_creation2', 'structural_repair', 'repair_invalid', 'xml_roundtrip', 'xml_answer_repair', 'frame_header_repair', 'm27_frame_header_repair', 'm27_staged_lifecycle', 'm27_p3_correction'])
 def test_native_harness_lifecycle(authority_runtime, monkeypatch, tmp_path, risk):
     runtime = Path(os.environ['EASEL_TEST_RUNTIME']).resolve()

@@ -897,13 +897,14 @@ def write_drafts(work: dict, directory: Path) -> None:
         (directory / name).write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
 
 
-def _current_vnext_planning_executor(attempt, context):
+def _current_vnext_planning_executor(attempt, context, *, repair_probe=False, creative_claims=False, creative_semantic_probe=False, d2_review=False, wire_root_probe=False, stage_loop_probe=None, b_wrapper_probe=False):
     """Current Planning/Truth owner with only the external model boundary fixed.
 
     All v3 checkpoints, source refs, native Plan and Material writes are real.
     Unexpected model phases fail closed; never route to a paid provider.
     """
     from unittest.mock import patch
+    from copy import deepcopy
     from tests.test_semantic_planning import (
         vnext_proposal, staged_fixture_wire, supported_fixture_answers,
         fixture_review_wire, _r4_current_truth_reply,
@@ -921,7 +922,15 @@ def _current_vnext_planning_executor(attempt, context):
     requested_motion = "镜头从桌面右侧连续平移" in confirmed_plan["scenes"]
     two_still_scenes = "桌面一本蓝色封面笔记本" in confirmed_plan["scenes"]
 
+    repair_candidates = {}
     def fixed_external(message, timeout=None, session=None, **options):
+        recovery_marker = '\n〔Easel Planning Controlled Loop V1：受控整批重新生成〕'
+        regenerating = recovery_marker in message
+        original_model_message = message.split(recovery_marker, 1)[0] if regenerating else message
+        if wire_root_probe and '〔Easel 原A-details的受控局部补答〕' in message:
+            assert options['reply_contract'] == 'planning-result-v3'
+            assert set(options['structured_result']['schema']['properties']) == {'unresolved'}
+            return json.dumps({'unresolved': []}, ensure_ascii=False)
         if message.startswith('〔Easel Semantic Planning vNext A-'):
             assert options['reply_contract'] == 'planning-result-v3'
             value = vnext_proposal()
@@ -954,16 +963,139 @@ def _current_vnext_planning_executor(attempt, context):
                     'conditions': [{'text': '柔和的无歌词钢琴背景音乐',
                                     'strength': 'required', 'responsibility': 'material'}],
                     'sound': {'vocals_allowed': False}})
+            if creative_claims:
+                from easel.integrations.planning_creative_authority import digest
+                raw = json.loads(staged_fixture_wire(original_model_message, value))
+                if 'A-selection〕' in message:
+                    for need in raw['needs']:
+                        if need['modality'] in {'image', 'video'}:
+                            need['header_claim'] = {
+                                'claimed_kind': 'director_local_choice',
+                                'creative_goal_ref': need['scope'],
+                                'reason': 'Fixture Director selects a locally appropriate frame.',
+                            }
+                else:
+                    for key, details in raw['slots'].items():
+                        original_need = value['needs'][int(key.removeprefix('slot_'))]
+                        if original_need['modality'] in {'image', 'video'}:
+                            for condition in details['conditions']:
+                                condition['claim'] = {
+                                    'claimed_kind': 'director_local_choice',
+                                    'creative_goal_ref': json.loads(original_model_message.splitlines()[-1])['candidate_slots'][key]['scope'],
+                                    'reason': 'Fixture Director proposes a source-bound visual decision.',
+                                    'claimed_strength': condition['strength'],
+                                }
+                if wire_root_probe and not regenerating and 'A-details-000' == json.loads(original_model_message.splitlines()[-1]).get('detail_batch', {}).get('key'):
+                    assert 'unresolved' in raw
+                    raw.pop('unresolved')  # Replicate exactly the R04 first shape failure.
+                if stage_loop_probe in {'invalid_source', 'two_invalid_sources', 'always_invalid_sources', 'mixed_source'} and (
+                        'A-details-000' == json.loads(original_model_message.splitlines()[-1]).get('detail_batch', {}).get('key')):
+                    # R06: every other Source/Claim/Slot is valid. Only the
+                    # model-authored creative basis refers to a nonexistent src.
+                    damage = ((not regenerating) or
+                              (stage_loop_probe == 'always_invalid_sources' or
+                                stage_loop_probe == 'two_invalid_sources' and '"attempt":1' in message))
+                    if damage:
+                        raw['slots']['slot_000']['conditions'][0]['claim']['creative_goal_ref'] = 'src_unknown_to_frozen_source_catalog'
+                        if stage_loop_probe == 'mixed_source':
+                            raw.pop('unresolved', None)  # Multiple errors: fail closed.
+                return json.dumps(raw, ensure_ascii=False)
             return staged_fixture_wire(message, value)
         if '有界视觉复核' in message:
             assert options['reply_contract'] == 'planning-result-v3'
             packet = json.loads(message.splitlines()[-1])
-            decisions = supported_fixture_answers(packet, [{
-                'question': q['question'], 'decision': 'ACCEPT',
+            choices = [{
+                'question': q['question'],
+                'decision': ('CHALLENGE' if creative_semantic_probe
+                             and q['kind'] == 'visual_choices'
+                             and not repair_candidates else 'ACCEPT'),
                 'evidence': [0],
                 'reason': '明确离线参考：冻结两张白纸条件与后期叠字。'
-            } for q in packet['questions']])
-            return json.dumps(fixture_review_wire(packet, decisions))
+            } for q in packet['questions']]
+            if creative_semantic_probe and any(r['decision'] == 'CHALLENGE' for r in choices):
+                repair_candidates['semantic_challenge'] = True
+            decisions = supported_fixture_answers(packet, choices)
+            wire_reply = fixture_review_wire(packet, decisions)
+            if d2_review:
+                from easel.integrations.planning_d2_typed_review import POLICY as D2_POLICY
+                assert packet['d2_review_policy'] == D2_POLICY
+                for question in packet['questions']:
+                    value = wire_reply[f"question-{question['question']:04}"]
+                    if question['kind'] == 'unresolved_classification' and value['decision'] == 'ACCEPT':
+                        issue, owner = 'material_supply_pending', 'material'
+                    elif value['decision'] == 'CHALLENGE':
+                        issue, owner = 'director_replan_needed', 'director'
+                    else:
+                        issue, owner = 'none', 'none'
+                    value.update(issue_code=issue, issue_owner=owner)
+            # Current New-Only B P0: the model is explicitly bound to frozen
+            # question IDs; keep the identical fixture judgments and sources.
+            tool = options.get('structured_result') or {}
+            shape = tool.get('schema', {}).get('properties', {})
+            if 'answers' in shape:
+                wire_reply = {'answers': [{'question_id': key, 'answer': value}
+                                          for key, value in wire_reply.items()]}
+                if b_wrapper_probe and '有界视觉复核' in message and wire_reply['answers']:
+                    # Exact R07 accidental shape: one extra array 'item'
+                    # wrapper per answers and support. All semantics stay put.
+                    wrong = deepcopy(wire_reply['answers'])
+                    for item in wrong:
+                        s = item['answer']['support']
+                        item['answer']['support'] = {'item': s}
+                    wire_reply = {'answers': [{'answers': {'item': wrong}}]}
+
+            if repair_probe and not repair_candidates:
+                # One existing target gets one damaged literal quote. Preserve
+                # the exact original model judgment for the frozen repair.
+                first = wire_reply['answers'][0]
+                repair_candidates[first['question_id']] = deepcopy(first['answer'])
+                first['answer']['support'][0]['quote'] = ''
+            return json.dumps(wire_reply)
+        if creative_semantic_probe and message.startswith('〔Easel Planning vNext 单次局部修复〕'):
+            from easel.integrations.planning_creative_authority import digest
+            document = json.loads(message.splitlines()[-1])
+            targets = document['targets']
+            initial = document['original']
+            repaired = {}
+            for i, target in enumerate(targets):
+                assert target['kind'] == 'visual_choices'
+                need = deepcopy(initial['needs'][target['path'][0]])
+                need['role'] += ' · 导演已修正视觉表达'
+                # Current Repair wire exposes a strict narrower Need shape.
+                need.pop('frame', None)
+                need.pop('native_ratio', None)
+                claim = {
+                    'claimed_kind': 'director_local_choice',
+                    'creative_goal_ref': need['scope'],
+                    'reason': 'Fixture repairs the scene-specific directing rationale.',
+                }
+                conditions = [{
+                    'claimed_kind': 'director_local_choice',
+                    'creative_goal_ref': need['scope'],
+                    'reason': 'Fixture preserves the accepted material obligation.',
+                    'claimed_strength': row['strength'],
+                } for row in need['conditions']]
+                repaired[f'target-{i:04d}'] = {
+                    'value': need,
+                    'authority': {'header_claim': claim, 'condition_claims': conditions},
+                }
+            from jsonschema import Draft202012Validator
+            errors = list(Draft202012Validator(options['structured_result']['schema']).iter_errors(repaired))
+            assert not errors, [(e.message, list(e.absolute_path)) for e in errors[:4]]
+            return json.dumps(repaired, ensure_ascii=False)
+        if repair_probe and message.startswith('〔Easel Planning vNext 单次局部修复〕'):
+            from easel.integrations import planning_candidate_review as candidate
+            from easel.integrations.planning_repair_evidence import RepairEvidenceProjection
+            from easel.integrations.planning_structured import request_for
+            document = json.loads(message.splitlines()[-1])
+            targets = document['targets']
+            schema = candidate.patch_schema(targets, slots=True)
+            projection = RepairEvidenceProjection(schema)
+            assert options['structured_result'] == request_for(projection.schema)
+            assert document['evidence_ref_policy'] == projection.identity['repair_evidence_policy']
+            repaired = {f'target-{i:04d}': deepcopy(repair_candidates[target['path'][0]])
+                        for i, target in enumerate(targets)}
+            return json.dumps(projection.encode(repaired), ensure_ascii=False)
         if message.startswith('〔Easel Truth 来源引用审阅〕'):
             _r4_current_truth_reply(message)
             return 'offline source-ref Truth review'
@@ -972,7 +1104,11 @@ def _current_vnext_planning_executor(attempt, context):
     token = active_delivery.set(attempt['creation_id'])
     try:
         with patch.object(web, 'run_agent_sync', fixed_external):
-            return _NATIVE_VNEXT_PLANNING_OWNER(attempt, context)
+            return _NATIVE_VNEXT_PLANNING_OWNER(attempt, {
+                **context,
+                **({'creative_claim_policy': 'planning-creative-owner@1'} if creative_claims else {}),
+                **({'d2_review_policy': 'planning-d2-typed-b@1'} if d2_review else {}),
+            })
     finally:
         active_delivery.reset(token)
 
@@ -1241,6 +1377,107 @@ def test_director_planning_executor_consumes_frozen_current_refs_and_rejects_rew
     assert PlanningIntegration().load(attempt)['plan'] == frozen['plan']
 
 
+
+
+def test_new_only_d1_real_preparation_to_native_owner_cold_verify(prep_env):
+    """One lawful Preparation -> native A/B/Repair/Checkpoint/verify chain."""
+    from easel.integrations.planning_creative_authority import OWNER_POLICY
+    from easel.integrations.semantic_boundary_run import verify
+    from easel.integrations.material_layer import PlanningIntegration
+    from easel.materials.store import AttemptMaterialStore
+    cid = prep_env["work"]["id"]
+
+    def offline_native_d1(attempt, context):
+        assert attempt["creative_claim_policy"] == context["creative_claim_policy"] == OWNER_POLICY
+        return _current_vnext_planning_executor(
+            attempt, context, creative_claims=True, creative_semantic_probe=True)
+    offline_native_d1.planning_contract_version = 3
+    offline_native_d1.creative_claim_policy = OWNER_POLICY
+
+    result = prep.prepare_creation_for_hypit(
+        cid, runtime_profile=None, planning_executor=offline_native_d1)
+    attempt = service.get_film_attempt(result["attempt_id"])
+    assert attempt["creative_claim_policy"] == OWNER_POLICY
+    journal = AttemptMaterialStore(attempt["workspace"]["path"]).read_recovery_record(
+        "semantic-planning-vnext")
+    assert journal["scope"]["creative_authority"]["policy"] == OWNER_POLICY
+    assert journal["repair_used"] is True
+    assert any(key.startswith("B-recheck-") for key in journal["calls"])
+    validated = PlanningIntegration().load(attempt)
+    root = Path(attempt["workspace"]["path"])
+    mode = journal["scope"]["mode"]
+    assert verify(root, validated["plan"], mode, validated["script"],
+                  attempt=attempt)["policy"] == "planning-semantic-boundary@1"
+    prior_calls = {key: (value["request_sha256"], value["reply_sha256"])
+                   for key, value in journal["calls"].items()}
+    assert prep.prepare_creation_for_hypit(
+        cid, runtime_profile=None, planning_executor=offline_native_d1)["attempt_id"] == attempt["attempt_id"]
+    again = AttemptMaterialStore(root).read_recovery_record("semantic-planning-vnext")
+    assert {key: (value["request_sha256"], value["reply_sha256"])
+            for key, value in again["calls"].items()} == prior_calls
+
+
+def test_new_only_preparation_pins_d1_before_first_executor_dispatch(prep_env):
+    """The official Preparation path pins D1 into the freshly created Attempt."""
+    from easel.integrations.planning_creative_authority import OWNER_POLICY
+    assert web._material_planning_executor.creative_claim_policy == OWNER_POLICY
+    cid = prep_env["work"]["id"]
+    seen = []
+
+    def inspect_before_dispatch(attempt, context):
+        persisted = service.get_film_attempt(attempt["attempt_id"])
+        assert attempt["planning_contract_version"] == 3
+        assert persisted["creative_claim_policy"] == OWNER_POLICY
+        assert context["creative_claim_policy"] == OWNER_POLICY
+        seen.append((persisted["attempt_id"], persisted["creative_claim_policy"]))
+        raise prep.PreparationError("expected no external model dispatch")
+    inspect_before_dispatch.planning_contract_version = 3
+    inspect_before_dispatch.creative_claim_policy = OWNER_POLICY
+
+    with pytest.raises(prep.PreparationError, match="expected no external"):
+        prep.prepare_creation_for_hypit(cid, runtime_profile=None,
+                                        planning_executor=inspect_before_dispatch)
+    assert len(seen) == 1
+    frozen = service.get_film_attempt(seen[0][0])
+    assert frozen["creative_claim_policy"] == OWNER_POLICY
+    assert frozen["planning_contract_version"] == 3
+    assert frozen["history"][0]["event"] == "workspace_created"
+
+    # A recovery with the same executor keeps the same Attempt and D1 identity.
+    with pytest.raises(prep.PreparationError, match="expected no external"):
+        prep.prepare_creation_for_hypit(cid, runtime_profile=None,
+                                        planning_executor=inspect_before_dispatch)
+    assert seen == [seen[0], seen[0]]
+    assert len(creation.get_creation(cid)["hypit_attempts"]) == 1
+
+
+def test_existing_pre_d1_attempt_refuses_implicit_upgrade(prep_env):
+    """Existing v3 Attempt remains untouched when the real D1 Owner is enabled."""
+    from easel.integrations.planning_creative_authority import OWNER_POLICY
+    cid = prep_env["work"]["id"]
+    def old_executor(attempt, context):
+        assert "creative_claim_policy" not in context
+        raise prep.PreparationError("legacy fixture stop")
+    old_executor.planning_contract_version = 3
+    with pytest.raises(prep.PreparationError, match="legacy fixture stop"):
+        prep.prepare_creation_for_hypit(cid, runtime_profile=None,
+                                        planning_executor=old_executor)
+    existing = creation.get_creation(cid)["hypit_attempts"][0]
+    assert existing["planning_contract_version"] == 3
+    assert "creative_claim_policy" not in existing
+    called = []
+    def new_executor(attempt, context):
+        called.append(attempt)
+        raise AssertionError("existing Attempt must never dispatch upgraded D1")
+    new_executor.planning_contract_version = 3
+    new_executor.creative_claim_policy = OWNER_POLICY
+    with pytest.raises(HypitIntegrationError, match="cannot upgrade to D1"):
+        prep.prepare_creation_for_hypit(cid, runtime_profile=None,
+                                        planning_executor=new_executor)
+    after = creation.get_creation(cid)["hypit_attempts"]
+    assert len(after) == 1
+    assert "creative_claim_policy" not in after[0]
+    assert not called
 
 
 def test_failed_planning_and_not_ready_retry_reuse_frozen_attempt(prep_env):

@@ -6,6 +6,34 @@ import subprocess
 import pytest
 
 
+def test_completion_preflight_preserves_budget_and_reports_unfrozen_work(tmp_path):
+    from tests.planning_material_matrix.structured_gateway import EvalHttpBudget
+    budget = EvalHttpBudget(tmp_path / 'attempt', 'c' * 64, limit=24)
+    shared = tmp_path / 'task-http.json'
+    shared.write_text(json.dumps({'limit': 60, 'closed': False,
+        'requests': [{'state': 'RESPONSE_COMPLETE'}] * 53}))
+    plan = {'stages': {'A-selection': 1, 'A-details': 3, 'B': 9, 'Truth': 1},
+            'repair_reserve': {'planning': 3, 'truth': 1}}
+    before = (budget.path.read_bytes(), shared.read_bytes())
+    report = budget.completion_preflight(plan, shared_ledger=shared)
+    assert report['decision'] == 'HOLD' and report['available_http'] == 7
+    assert report['reasons'] == ['INSUFFICIENT_HTTP']
+    assert not report['dispatch_authorized'] and report['diagnostic_only']
+    assert (budget.path.read_bytes(), shared.read_bytes()) == before
+    plan['stages']['B'] = None
+    assert 'UNFROZEN_WORK' in budget.completion_preflight(plan)['reasons']
+    plan['stages']['B'] = 9
+    assert budget.completion_preflight(plan)['decision'] == 'FROZEN_BOUND_FITS'
+    number = budget.reserve({})
+    assert 'PENDING_OR_UNKNOWN' in budget.completion_preflight(plan)['reasons']
+    budget.finish(number, {'state': 'RESPONSE_COMPLETE'})
+    budget.close('BATCH_COMPLETE')
+    closed = budget.path.read_bytes()
+    assert 'BUDGET_CLOSED' in budget.completion_preflight(plan)['reasons']
+    assert budget.path.read_bytes() == closed
+    with pytest.raises(ValueError): budget.reserve({})
+
+
 @pytest.mark.parametrize('case', ['complete', 'connect_once', 'connect_exhausted', 'http401', 'http429',
     'after_send', 'partial_response', 'retry_budget', 'retry_deadline', 'retry_authorization'])
 def test_phase_aware_proxy_retries_only_proven_unsent(tmp_path, monkeypatch, case):
@@ -631,7 +659,7 @@ def test_empty_delta_metadata_matches_installed_sdk_without_changing_arguments(t
     import hashlib
     from easel.integrations.planning_structured import verify_runtime
     runtime = Path.home() / '.local/node-v24.21.0-darwin-arm64/lib/node_modules/openclaw'
-    verify_runtime(runtime)
+    verify_runtime(runtime, version='easel-structured-result@1')
     raw = '{"text":"中文🖼️"}'
     frames = [
         {'choices': [{'index': 0, 'delta': {'tool_calls': [{'index': 0, 'id': '', 'type': 'function',
@@ -719,7 +747,8 @@ multi.feed(Buffer.from(event(raw)+event('{}',1,'second')+end));multi.finish('EOF
 assert.equal(multi.result().state,'COMPLETE');
 assert.deepEqual(multi.result().streams.map(s=>s.sha256),[g.sha256(raw),g.sha256('{}')]);
 assert.notEqual(multi.result().streams[0].toolCallIdSha256,multi.result().streams[1].toolCallIdSha256);
-const request={version:g.VERSION,name:g.TOOL,schema:{type:'object'},schemaSha256:g.sha256(g.canonical({type:'object'}))};
+const request={version:g.VERSION,name:g.TOOL,schema:{type:'object'},schemaSha256:g.sha256(g.canonical({type:'object'})),
+ contextPolicy:g.CONTEXT_POLICY,inputSha256:g.sha256('offline input')};
 const originalResponse=new Response(wire);
 const ActualResponse=globalThis.Response;
 globalThis.Response=class {constructor(){throw Error('synthetic constructor failure')}};
@@ -758,6 +787,13 @@ for(const mode of ['normal','terminal_before_eof','diagnostic_conflict','mismatc
 
 
 def test_native_structured_storage_and_concurrent_submission_guard(tmp_path):
+    from easel.integrations.planning_structured import request_for, bind_input, validate_request
+    descriptor = request_for({'type': 'object'})
+    with pytest.raises(ValueError): validate_request(descriptor, dispatch=True)
+    bound = bind_input(descriptor, '原始输入\n')
+    validate_request(bound, dispatch=True)
+    with pytest.raises(ValueError): bind_input(bound, '另一输入\n')
+    with pytest.raises(ValueError): bind_input({**descriptor, 'version': 'easel-structured-result@1'}, '原始输入\n')
     node = shutil.which('node')
     assert node, 'Node is required for the installed-runtime integration boundary'
     helper = Path(__file__).resolve().parents[1] / 'scripts/openclaw_structured_result.mjs'
@@ -775,8 +811,9 @@ const guard = await import(pathToFileURL(process.argv[2]));
 const {safeArguments, canonical, sha256, validatePayload, reserveSubmission} = guard;
 const directory = process.argv[3];
 const schema = {type:'object',properties:{text:{type:'string'}},required:['text'],additionalProperties:false};
-const request = {version:guard.VERSION,name:guard.TOOL,schema,schemaSha256:sha256(canonical(schema))};
-const payload = {tools:[{type:'function',function:{name:guard.TOOL,parameters:schema}}],
+const request = {version:guard.VERSION,name:guard.TOOL,schema,schemaSha256:sha256(canonical(schema)),
+ contextPolicy:guard.CONTEXT_POLICY,inputSha256:sha256('offline input')};
+const payload = {messages:[{role:'user',content:'offline input'}],tools:[{type:'function',function:{name:guard.TOOL,parameters:schema}}],
   tool_choice:{type:'function',function:{name:guard.TOOL}},parallel_tool_calls:false};
 const identity = {runId:'original-run',sessionId:'original-session',provider:'offline',model:'fixture'};
 for (const [title, expected] of [['SemanticProposal','semantic plan candidate'],
@@ -785,12 +822,41 @@ for (const [title, expected] of [['SemanticProposal','semantic plan candidate'],
   const stageRequest={...request,schema:stageSchema,schemaSha256:sha256(canonical(stageSchema))};
   let actual;
   const bound=guard.bindAttempt(async (model,context,options)=>{
-    actual=await options.onPayload({},model);
-  },stageRequest,identity,directory);
+    actual=await options.onPayload({messages:[{role:"user",content:"offline input"}]},model);
+  },stageRequest,identity,directory,"offline input");
   await bound({api:'openai-completions',provider:'offline',id:'fixture'},{});
   assert.ok(actual.tools[0].function.description.includes(expected));
   assert.deepEqual(actual.tools[0].function.parameters,stageSchema);
 }
+
+// A polluted Native context must never be mined for an assumed original input.
+const originalInput='完整中文\\n🖼️ frozen source\\n';
+const isolatedRequest={...request,inputSha256:sha256(originalInput)};
+let isolatedContext;
+const isolate=guard.bindAttempt(async(model,context,options)=>{
+ isolatedContext=context;
+ return options.onPayload({messages:[{role:'user',content:originalInput}]},model);
+},isolatedRequest,identity,directory,originalInput);
+await isolate({api:'openai-completions',provider:'offline',id:'fixture'},
+ {systemPrompt:'BOOTSTRAP persona',messages:[{role:'user',content:'timestamp '+originalInput+' Runtime notes'}],
+ tools:[{name:'exec'}]});
+assert.equal(isolatedContext.systemPrompt,'');
+assert.deepEqual(isolatedContext.messages,[{role:'user',content:originalInput,timestamp:0}]);
+assert.deepEqual(isolatedContext.tools.map(t=>t.name),[guard.TOOL]);
+assert.throws(()=>guard.bindAttempt(()=>{},isolatedRequest,identity,directory,'changed'),/STRUCTURED_INPUT_CHANGED/);
+const isolatedPayload={...payload,messages:[{role:'user',content:originalInput}]};
+for(const messages of [[{role:'system',content:'injected'},...isolatedPayload.messages],
+ [{role:'user',content:originalInput+' altered'}], [...isolatedPayload.messages,{role:'assistant',content:'history'}],
+ [{role:'user',content:[{type:'image_url',image_url:{url:'offline'}}]}]]) {
+ assert.throws(()=>guard.reserveSubmission(directory,identity,{...isolatedPayload,messages},isolatedRequest),/STRUCTURED_INPUT_CHANGED/);
+}
+const reinsert=guard.bindAttempt(async(model,context,options)=>options.onPayload({messages:[{role:'user',content:originalInput}]},model),
+ isolatedRequest,identity,directory,originalInput);
+await assert.rejects(()=>reinsert({api:'openai-completions',provider:'offline',id:'fixture'},{},
+ {onPayload:value=>({...value,messages:[{role:'system',content:'injected'},...value.messages]})}),/STRUCTURED_INPUT_CHANGED/);
+guard.assertSessionProtocol(directory+'-isolation',identity,isolatedRequest);
+assert.throws(()=>guard.assertSessionProtocol(directory+'-isolation',identity,{...isolatedRequest,inputSha256:sha256('changed')}),/STRUCTURED_RECOVERY_REQUIRED/);
+assert.throws(()=>guard.validateRequest({...request,version:'easel-structured-result@1'}),/STRUCTURED_REQUEST_INVALID/);
 
 if (process.argv[4] === 'worker') {
   try { reserveSubmission(directory,identity,payload,request); process.exit(0); }
@@ -798,6 +864,21 @@ if (process.argv[4] === 'worker') {
 }
 const message = {role:'assistant',stopReason:'toolUse',easelProviderFinishReason:'tool_calls',
   content:[{type:'toolCall',name:guard.TOOL,id:'original-call',arguments:{},easelRawArguments:'{}'}]};
+// SDK cleanup cannot erase a first rejection or later convert it to success.
+for(const aborted of [false,true]) {
+ const events=[];
+ const stream=guard.protectedStream({push:e=>events.push(e),end:()=>{}},{request,identity,directory:directory+'-terminal'});
+ assert.throws(()=>stream.push({type:'done',message:{role:'assistant',content:[],stopReason:'stop',easelProviderFinishReason:'stop'}}),/STRUCTURED_TERMINAL_REJECTED/);
+ assert.throws(()=>stream.push({type:'done',message}),/STRUCTURED_EVENT_AFTER_TERMINAL/);
+ stream.push({type:'error',error:{stopReason:aborted?'aborted':'error',errorMessage:'unknown SDK cleanup'}});
+ assert.equal(events[0].error.errorMessage,'STRUCTURED_TERMINAL_REJECTED');
+ assert.equal(events[0].error.stopReason,aborted?'aborted':'error');
+}
+const generic=[];
+guard.protectedStream({push:e=>generic.push(e),end:()=>{}},{request,identity,directory:directory+'-generic'})
+ .push({type:'error',error:{stopReason:'error',errorMessage:'unknown SDK failure'}});
+assert.equal(generic[0].error.errorMessage,'STRUCTURED_EXECUTION_FAILED');
+
 if (process.argv[4] === 'rejection-worker') {
   fs.mkdirSync(directory,{recursive:true,mode:0o700});
   const status=guard.retainRejection({directory,identity,request},
@@ -890,7 +971,7 @@ for (const [name,candidate,finishShape,finishValue] of cases) {
   assert.equal(guard.retainRejection(scope,{...message,easelProviderFinishReason:'length'},
     'STRUCTURED_EXECUTION_FAILED'),'RETAINED');
   stream.push({type:'error',error:{errorMessage:'STRUCTURED_UNTRUSTED_CATEGORY'}});
-  assert.equal(events[0].error.errorMessage,'STRUCTURED_EXECUTION_FAILED');
+  assert.equal(events[0].error.errorMessage,diagnostic.category);
   assert.equal(fs.readFileSync(file,'utf8'),first);
   assert.equal(fs.readdirSync(folder).length,1);
 }
@@ -1569,7 +1650,7 @@ def test_empty_and_multiple_argument_streams_keep_boundary_but_reject_native_can
     node = runtime.parents[2] / 'bin/node'
     if not node.is_file(): pytest.skip('Installed pinned SDK unavailable')
     from easel.integrations.planning_structured import verify_runtime
-    verify_runtime(runtime)
+    verify_runtime(runtime, version='easel-structured-result@1')
     cases = [('single-empty', [''], 'SINGLE_EMPTY'),
              ('multi-empty', [''] * 11, 'MULTIPLE_ALL_EMPTY'),
              ('multi-mixed', ['{"text":"fixed"}', ''], 'MULTIPLE_MIXED'),
@@ -2187,7 +2268,7 @@ def test_r6_transcript_reader_only_consumes_original_structured_tool(tmp_path):
     import hashlib
     from copy import deepcopy
     from easel.integrations.planning_transcript import SELECTOR
-    from easel.integrations.planning_structured import request_for
+    from easel.integrations.planning_structured import request_for, bind_input
     root = tmp_path / 'offline-runtime'
     dist = root / 'dist'
     (dist / 'plugin-sdk').mkdir(parents=True)
@@ -2208,8 +2289,8 @@ export const withOpenClawAgentDatabaseReadOnly=callback=>{
     repo = Path(__file__).resolve().parents[1]
     guard = dist / 'easel-structured-result.mjs'
     guard.write_bytes((repo / 'scripts/openclaw_structured_result.mjs').read_bytes())
-    request = request_for({'type': 'object', 'properties': {'needs': {'type': 'array'}},
-                           'required': ['needs'], 'additionalProperties': False})
+    request = bind_input(request_for({'type': 'object', 'properties': {'needs': {'type': 'array'}},
+                           'required': ['needs'], 'additionalProperties': False}), 'original input')
     raw = '{"needs":[]}'
     digest = hashlib.sha256(raw.encode()).hexdigest()
     message = {'role': 'assistant', '__openclaw': {'runId': 'original'}, 'stopReason': 'toolUse',
@@ -2217,6 +2298,7 @@ export const withOpenClawAgentDatabaseReadOnly=callback=>{
         'content': [{'type': 'toolCall', 'id': 'tool-1', 'name': request['name'],
                      'arguments': {'needs': []}, 'easelRawArguments': raw}],
         'easelStructuredResult': {'version': request['version'], 'schemaSha256': request['schemaSha256'],
+            'contextPolicy': request['contextPolicy'], 'inputSha256': request['inputSha256'],
             'toolCallId': 'tool-1', 'providerFinishReason': 'tool_calls', 'rawSha256': digest,
             'rawBytes': len(raw.encode())}}
     params = {'agentId': 'main', 'sessionKey': 'agent:main:original', 'sessionId': 'session',

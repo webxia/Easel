@@ -2848,6 +2848,18 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
     if (attempt.get('planning_contract_version') != 3
             or attempt.get('creation_id') != work['id']):
         raise PreparationError('新生产 Planning 必须预先冻结唯一 v3 合同')
+    from easel.integrations.planning_creative_authority import OWNER_POLICY
+    pinned = attempt.get('creative_claim_policy')
+    requested = planning_context.get('creative_claim_policy')
+    if (pinned not in (None, OWNER_POLICY) or requested not in (None, OWNER_POLICY)
+            or pinned != requested):
+        raise PreparationError('D1 frozen Attempt/PlanningContext Policy mismatch')
+    from easel.integrations.planning_d2_typed_review import POLICY as D2_POLICY
+    d2_pinned = attempt.get('d2_review_policy')
+    d2_requested = planning_context.get('d2_review_policy')
+    if (d2_pinned not in (None, D2_POLICY) or d2_pinned != d2_requested
+            or (d2_pinned and pinned != OWNER_POLICY)):
+        raise PreparationError('D2 frozen Attempt/PlanningContext typed Policy mismatch')
     try:
         inherited(attempt)
     except ValueError as exc:
@@ -2880,6 +2892,8 @@ def _material_planning_executor(attempt: dict, planning_context: dict) -> dict:
 
 
 _material_planning_executor.planning_contract_version = 3
+_material_planning_executor.creative_claim_policy = 'planning-creative-owner@1'
+_material_planning_executor.d2_review_policy = 'planning-d2-typed-b@1'
 
 
 
@@ -2928,6 +2942,14 @@ def _semantic_material_planning_executor(attempt, planning_context, canonical, r
             options['expected_runtime_sha256'] = expected_runtime_sha256
         return _run_timed_creation_agent(stage, attempt['attempt_id'], message, TIMEOUT_PRODUCE,
                                          session, retry_failed=False, **options)
+    def inspect_terminal_no_tool(stage, session, schema_sha256):
+        from easel.integrations.openclaw_delivery import inspect_planning_terminal_no_tool
+        return inspect_planning_terminal_no_tool(
+            attempt['creation_id'], session, stage, schema_sha256=schema_sha256,
+            prefix=openclaw_base_cmd(), profile=OPENCLAW_PROFILE, env=_proxy_env())
+    # Runtime proof is an observation of the already-failed original Run,
+    # never a new model request. The original Owner alone authorizes recovery.
+    dispatch.inspect_terminal_no_tool = inspect_terminal_no_tool
     try:
         result = run_semantic_planning(attempt, planning_context, canonical,
                                       load_frozen_creative_mode(attempt)[0], route, dispatch, compiler_policy=policy)

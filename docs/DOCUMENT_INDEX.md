@@ -1,13 +1,20 @@
+**当前有效Closure（2026-10-16，覆盖此前进行中/暂停NEXT）：**`RESULT=STOPPED / DRIFT=NO_DRIFT / TRANSITION=HOLD（预算耗尽）`。恢复授权44/44HTTP已用完（R14–R19），新额度总60/60关闭；全部HTTP完整、原生released，无Pending/HTTP UNKNOWN。R14真实Repair正文171450字节已派发并回传，容量修复得到真实验证；完整Planning仍NOT_PASS，Truth/D2 Proof/Cold/PLANNING_ACCEPTED未达。期间仅澄清现行资产许可待供应与Creator授权缺失的提示区别，75项离线回归PASS，@21，合同不放宽。最新R19 A全通过、3批B捕获，下一B调用在总额度guard前被拒绝，无第61次远端HTTP。NEXT=停止真实调用；可另行离线调查5次stop零工具结果，任何后续实调需新预算授权。原件/消耗见唯一E2E账本与Planning§8.38。
+
+**当前有效停点（2026-10-16，覆盖历史NEXT）：**输出合同原件离线排查完成；29批225题中51个局部目标，38个原始结构错误、13个领域引用错误，转换前后答案相同。已消除提示题型字段歧义并补音频header排除说明，实际Schema/领域合同未变；52项集成+3项容量回归PASS，Journal/Checkpoint@20。真实调用仍暂停，新增HTTP=0，新额度仍16/60、余44。NEXT=等待用户明确恢复真实调用，完整Planning仍NOT_PASS；详见Planning实施方案§8.36。
+
 # Easel 文档路由器
+
+**当前调度（2026-10-15续接）：**已获新增60HTTP／仅现有套餐持续Planning调试授权；Repair输入完整可逆去重54PASS，@18新Attempt R12真实复验中，旧停止NEXT已覆盖。首次完整Planning与冷验证成功即停，仍不进入U4/素材/Build/Web/部署/Git。见[Planning §8.34](tasks/planning-creative-authority-implementation-plan-2026-10-15.md)与[唯一E2E账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md)。
+
+**2026-10-15 最新停点：**Planning真实调试29/30 HTTP后停止，余1次不足新完整Attempt。R09定义冲突已修且52PASS；R11受控恢复及全B回执取得，但Repair请求超过1MiB，完整Planning仍NOT_PASS；无Pending/HTTP UNKNOWN。当前只待用户补充累计预算，再在原Task修复Repair上下文无损表示、离线回放及全新Attempt复验。`RESULT=BLOCKED / TRANSITION=ESCALATE`；旧NEXT失效，U4及素材/Build/部署/Git未获准入。详见[Current State](02_CURRENT_STATE.md)、[Planning §8.33](tasks/planning-creative-authority-implementation-plan-2026-10-15.md)与[唯一E2E账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md)。
+
 
 > **2026-10-14 当前唯一状态：**New-Only U2 已于 2026-10-12 达到受控候选 READY，U3-S 本地 50 秒混音 MP4 软件验收 PASS；**U4=BLOCKED**（真实浏览器权限/费用准入缺证），U3-L 900 秒完整资格未通过，U5/U6 未执行。工作区后来有变更，旧指纹资格不自动转移；旧版文档整理已完成；下次行动和权限以当前 Creator Task、Gate 与新的用户授权为准。真实状态见[Current State](02_CURRENT_STATE.md)，唯一运行证据见[E2E 账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md)。
 本索引负责告诉读者“下一步读什么”，不是所有文档的平铺清单。默认上下文应短；历史材料按需打开。
 
-## 默认上下文
+**当前任务入口（2026-10-15）：**唯一Creator Task的Planning Controlled Loop V1软件验收 **53PASS/0FAIL**，原R05 native终态只读核验PASS，新`@16` A-details受控恢复，12文件快照manifest SHA256 `1bd11137372204ee202ce84adb12aa228e6170dfd00426ef284cf0c740a1378c`。参见 [Planning §8.30](tasks/planning-creative-authority-implementation-plan-2026-10-15.md)、[Current State](02_CURRENT_STATE.md) 和 [唯一E2E账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md)。旧R05/R06真实失败不改。**用户新增授权后唯一下步是新独立Attempt的真实MiniMax A→B→Truth→Proof有界调试**，仅此范围，U4仍BLOCKED。每个Capability Goal通常只读以下内容：
 
-每个 Capability Goal 通常只读以下内容：
-
-1. 根目录 [`AGENTS.md`](../AGENTS.md) — 协作、读取与安全规则。
+**当前任务导航（2026-10-15，最新P0-D真实验收）：**现有唯一 Creator Task 的 P0-A/B/C 软件闭环仍冻结，manifest `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-abc-software-freeze-r01/manifest.json` SHA256 `4ea6df0db39df39e0fe5579602ce833024f02900d728e64ebb0e1a52575d237e`，23/23SHA、47PASS/0FAIL，Repair最大3次。已获用户授权的 **P0-D R05真实MiniMax M3.1** 使用旧成功R02持久化EvalGateway/Proxy：HTTP3/3结束、A-selection及A-details-000 PASS，但 A-details-001返回 `provider_finish=stop` 且**零工具参数**，原代理预算 `ENTRY_CAPTURE_UNAVAILABLE` 关闭，Repair0/3，尚无真实B/Truth/Proof，**P0-D=NOT_PASS、TRANSITION=HOLD**。详见 [Planning §8.28](tasks/planning-creative-authority-implementation-plan-2026-10-15.md)、[唯一E2E账本](acceptance/easel-v1-web-real-e2e-2026-10-10.md) 和 [Current State](02_CURRENT_STATE.md)；原R01–R04不重放，U4仍BLOCKED。**唯一NEXT：只读研究R05第三次强制工具调用却 `stop` 无 tool args 的真实证据与修复边界，不能在本轮擅自启动R06。** 每个 Capability Goal 通常只读以下内容：1. 根目录 [`AGENTS.md`](../AGENTS.md) — 协作、读取与安全规则。
 2. [`00_PROJECT.md`](00_PROJECT.md) — 稳定产品目标和职责边界。
 3. [`02_CURRENT_STATE.md`](02_CURRENT_STATE.md) — 当前唯一状态汇总。
 4. [`03_ROADMAP.md`](03_ROADMAP.md) — 阶段顺序和当前 Workstream。

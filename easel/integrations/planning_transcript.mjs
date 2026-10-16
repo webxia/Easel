@@ -52,6 +52,17 @@ try {
       const last=matching.at(-1);
       if (!last) return {state:'MISSING'};
       const message=last.event.message;
+      if (params.inspectTerminalNoTool === true) {
+        // A native rejected terminal is not a successful model reply.
+        // Require the actual last original Run transcript, not a caller flag.
+        if (message.stopReason !== 'error' ||
+            message.errorMessage !== 'STRUCTURED_TERMINAL_REJECTED' ||
+            !Array.isArray(message.content) ||
+            message.content.some(block=>block?.type==='toolCall'))
+          return {state:'NOT_ELIGIBLE'};
+        return {state:'NATIVE_REJECTED_NO_TOOL', sessionId:params.sessionId,
+          runId:params.runId, messageId:last.event.id};
+      }
       const content=message.content;
       if (!Array.isArray(content)) return {state:'INVALID'};
       {
@@ -76,6 +87,9 @@ try {
           return {state:'RESULT_TOO_LARGE'};
         if (!evidence || evidence.version!==params.structured.version ||
             evidence.schemaSha256!==params.structured.schemaSha256 ||
+            params.structured.version==='easel-structured-result@2' &&
+              (evidence.contextPolicy!==params.structured.contextPolicy ||
+               evidence.inputSha256!==params.structured.inputSha256) ||
             evidence.toolCallId!==call.id || call.name!==params.structured.name ||
             evidence.providerFinishReason!=='tool_calls' || message.easelProviderFinishReason!=='tool_calls' ||
             evidence.rawSha256!==crypto.createHash('sha256').update(text).digest('hex') ||
@@ -88,11 +102,57 @@ try {
           messageId:last.event.id,sequence:last.seq,stopReason:message.stopReason,
           text,sha256:evidence.rawSha256,bytes:evidence.rawBytes,runtimeVersion:pkg.version,
           toolName:call.name,toolCallId:call.id,schemaSha256:evidence.schemaSha256,
+          ...(params.structured.version==='easel-structured-result@2' ? {
+            contextPolicy:evidence.contextPolicy,inputSha256:evidence.inputSha256} : {}),
           providerFinishReason:evidence.providerFinishReason};
       }
     } finally {db.exec('ROLLBACK');}
   },{agentId:params.agentId,env:process.env},{throwOnMissingTable:true});
-  answer(result.found?result.value:{state:'MISSING'});
+  if (params.inspectTerminalNoTool === true) {
+    const transcript=result.found?result.value:{state:'MISSING'};
+    if (transcript.state !== 'NATIVE_REJECTED_NO_TOOL')
+      {answer({state:'UNAVAILABLE'});}
+    else {
+      try {
+        // Native OpenClaw itself writes this scoped rejection before sanitizing
+        // the agent error event. Inspect it read-only under the pinned profile.
+        const state=process.env.OPENCLAW_STATE_DIR;
+        if (!state || !path.isAbsolute(state)) throw Error('state directory');
+        const identity=structuredGuard.canonical({runId:params.runId,sessionId:params.sessionId});
+        const key=crypto.createHash('sha256').update(identity).digest('hex');
+        const file=path.join(state,'easel-structured-requests','rejection-'+key+'.json');
+        const stat=fs.lstatSync(file);
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4096 ||
+            (stat.mode & 0o077)!==0) throw Error('rejection file');
+        const bytes=fs.readFileSync(file);
+        const row=JSON.parse(bytes.toString('utf8'));
+        const current = params.structured.version === 'easel-structured-result@2';
+        if (row.version !== (current ? 'easel-structured-rejection@2' : 'easel-structured-rejection@1') ||
+            current && (row.storageReason !== 'UNKNOWN' || row.storageStage !== 'UNKNOWN' ||
+              row.contextPolicy !== params.structured.contextPolicy || row.inputSha256 !== params.structured.inputSha256) ||
+            row.runId !== params.runId || row.sessionId !== params.sessionId ||
+            row.schemaSha256 !== params.structured.schemaSha256 ||
+            row.category !== 'STRUCTURED_TERMINAL_REJECTED' ||
+            row.providerFinishShape !== 'string' || row.providerFinishValue !== 'stop' ||
+            row.nativeStopShape !== 'string' || row.nativeStopValue !== 'stop' ||
+            row.toolCallCount !== 0 || row.uniqueExpectedTool !== false ||
+            row.idPresent !== false || row.rawArgumentsShape !== 'missing' ||
+            row.rawArgumentBytes !== null ||
+            row.provider !== 'minimax' || typeof row.model !== 'string' ||
+            !row.model.startsWith('MiniMax-M3.1-'))
+          throw Error('rejection provenance');
+        answer({state:'CONFIRMED_TERMINAL_NO_TOOL',sessionId:params.sessionId,
+          runId:params.runId,model:row.model,provider:row.provider,
+          schemaSha256:row.schemaSha256,providerFinish:'stop',nativeStop:'stop',
+          category:row.category,toolCallCount:row.toolCallCount,
+          nativeEvidenceSha256:crypto.createHash('sha256').update(bytes).digest('hex'),
+          transcriptMessageId:transcript.messageId});
+      } catch {
+        answer({state:'UNAVAILABLE'});  // No native proof, no new operation.
+      }
+    }
+  } else answer(result.found?result.value:{state:'MISSING'});
+
 } catch {
   // Avoid raw SQLite/Runtime exception strings or message content in diagnostics.
   answer({state:'UNAVAILABLE'});

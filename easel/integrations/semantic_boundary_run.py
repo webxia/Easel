@@ -7,15 +7,20 @@ from pathlib import Path
 from copy import deepcopy
 
 from easel import output_admission as admission
+from easel.integrations import planning_stage_recovery as stage_loop
+from easel.creation_delivery import DeliveryExecutionUncertain
 
 from easel.integrations import planning_authority as authority
 from easel.integrations import planning_semantic_review as review
 from easel.integrations import planning_candidate_review as correction
+from easel.integrations import planning_creative_authority as creative
+from easel.integrations import planning_d2_typed_review as d2
 from easel.integrations.planning_capture import capture
 from easel.integrations.planning_result_contract import MAX_RESULT_BYTES, semantic_tool_schema, FLEXIBLE_QUERY_POLICY
 from easel.integrations import planning_structured as structured
 from easel.integrations import planning_review_support as support
 from easel.integrations import planning_wire as wire
+from easel.integrations import planning_repair_evidence as repair_evidence
 from easel.integrations import planning_staged_proposal as staged
 from easel.integrations import planning_input_view as input_views
 from easel.integrations import planning_request_view as request_view
@@ -32,8 +37,9 @@ STAGE_OWNERSHIP = {
     'source_obligation': 'Each material Need, including optional, requires an actual material/source obligation; a fade or subtitle edit alone does not create an SFX/image asset.',
     'unknown': 'Unknown intent/identity/authorization remains unresolved; never delete or guess it to advance.',
 }
-VIEW_CHECKPOINT = 'semantic-planning-frozen@14'
-VIEW_JOURNAL = 'semantic-planning-checkpoint@14'
+VIEW_CHECKPOINT = 'semantic-planning-frozen@22'
+VIEW_JOURNAL = 'semantic-planning-checkpoint@22'
+MAX_SHARED_REPAIRS = 3
 MAX_CHECKPOINT_BYTES = 32 * MAX_RESULT_BYTES
 # A technical bound, never authorization to spend. The real evaluator's
 # shared submission/time/subscription ledger remains independently binding.
@@ -56,6 +62,7 @@ def transport_identity(catalog, *, intake_inputs=None, intake_policy=None):
     elif intake_policy is not None:
         raise ValueError('An intake policy requires its frozen inputs')
     return {'policy': structured.VERSION, 'reply_contract': structured.CONTRACT,
+            'context_policy': structured.CONTEXT_POLICY,
             **({'intake_policy': intake_policy} if intake_inputs is not None else {}),
             **({'output_admission': admission.policy_identity(admission.SELECTION_PROFILE
                 if intake_policy in {review.ROOT_ECHO_INTAKE_POLICY, review.SFX_GUIDANCE_INTAKE_POLICY, review.SCHEMA_SHAPE_INTAKE_POLICY} else admission.LEGACY_SELECTION_PROFILE)}
@@ -82,7 +89,12 @@ def transport_identity(catalog, *, intake_inputs=None, intake_policy=None):
                 structured.request_for(selection)['schemaSha256']},
             'input_view_policy': input_views.PlanningInputView.POLICY,
             'source_selection_policy': input_views.SourceSelection.POLICY,
-            'detail_batch_policy': staged.DETAIL_BATCH_POLICY,
+            'detail_batch_policy': staged.MODALITY_FAMILY_BATCH_POLICY if intake_policy == review.INTAKE_POLICY else staged.DETAIL_BATCH_POLICY,
+            **({'details_recovery_policy': admission.DETAILS_RECOVERY_POLICY,
+                'shared_repair_limit': MAX_SHARED_REPAIRS,
+                 'stage_regeneration_policy': stage_loop.POLICY,
+                 'max_regenerations_per_details_batch': stage_loop.MAX_STAGE_REGENERATIONS}
+               if intake_policy == review.INTAKE_POLICY else {}),
             **({'request_view_policy': request_view.POLICY, 'planning_call_limit': MAX_PLANNING_CALLS,
                  'b_root_title_policy': structured.B_ROOT_TITLE_POLICY,
                  'b_batch_repair_policy': correction.B_BATCH_REPAIR_POLICY}
@@ -274,6 +286,17 @@ def view_a_message(scope, view, stage, *, selection=None, binding=None, detail_b
                         raise ValueError('Frozen audio input must remain literal text')
                     presented['inputs']['proposal'][field] = proposal[field]
     context = {'input_view': presented, 'stage_ownership': STAGE_OWNERSHIP}
+    if scope.get('creative_authority') is not None:
+        # A chooses creative meaning; Program owns Need source identity,
+        # necessity binding and exact continuity hashes. B reviews authority.
+        context['visual_claim_reference_contract'] = {
+            'policy': creative.SOURCE_BRIDGE_POLICY,
+            'need_scope': '具体Need的已确认场景/事件位置；原SourceSelection只读、不得伪造',
+            'creative_goal_ref': '独立的冻结创作依据src引用；可以是全文global或适用的其他合法范围，不必与Need.scope相同',
+            'model_writes': ['claimed_kind', 'creative_goal_ref', 'reason'],
+            'program_binds': ['need_source_ref', 'claimed_necessity', 'continuity_choices_sha256'],
+            'review': 'Claim是待审主张，不因为引用合法就被证明为Mode/Creator已确认；B分别核实来源支持、委托、必要性与消费责任',
+        }
     if admission_enabled(scope):
         context['output_admission'] = scope['transport']['output_admission']
     if correction.enabled(scope):
@@ -331,11 +354,33 @@ def view_a_message(scope, view, stage, *, selection=None, binding=None, detail_b
             instruction += ('本次只填写candidate_slots中的完整素材；all_candidate_slots和完整冻结输入保留全局上下文。'
                 '不得输出其他批次slot。selection_unresolved原件由程序保留，本批unresolved记录新遇到的未决问题；'
                 '不能忽略跨素材冲突。所有批次报告按固定序保留，程序不会去重、删除或解释。')
+            if scope.get('creative_authority') is not None:
+                family = ('visual' if all(selection['needs'][int(slot.removeprefix('slot_'))]['modality'] in {'image', 'video'}
+                           for slot in detail_batch['slots']) else 'audio')
+                if family == 'audio' and any(selection['needs'][int(slot.removeprefix('slot_'))]['modality'] in {'image', 'video'}
+                                              for slot in detail_batch['slots']):
+                    raise ValueError('A-details mixed visual and audio family is not admissible')
+                context['detail_modality_family'] = family
+                instruction += (('本次仅包含视觉 image/video 的槽位，每条视觉 Condition 必须按闭合Schema提交 claim。'
+                                 if family == 'visual' else
+                                 '本次仅包含非视觉音频 BGM/SFX 的槽位，所有 Condition 严禁包含 claim、Director Claim 或其他额外字段；'
+                                 '只填写对应音频条件的 text/strength/responsibility/meaning，完全遵守闭合工具Schema。'))
     else:
         raise ValueError('Unknown input-view Planning stage')
     if correction.policy_for(scope) == correction.RELATIONAL_POLICY and stage == 'A-selection':
         instruction = ('你负责提出语义素材Need，不是等待程序自动生成候选。先完整承接冻结画面的image/video需求，'
                        '再列独立配乐/音效；仅已确认的程序旁白不重复提出。素材文件尚未检索不等于Need可以省略。' + instruction)
+    if scope.get('creative_authority') is not None:
+        if stage == 'A-selection':
+            instruction += ('只有image/video允许header_claim；bgm/sfx不得填写header_claim，空对象或null也不得提交。'
+                '视觉header_claim只填写Schema的claimed_kind、creative_goal_ref、reason。'
+                'Need.scope定位具体应被承接的冻结场景/事件；creative_goal_ref是你援引的创作依据，'
+                '两者角色不同，可以引用合法全文global。不得将来源引用当成已证实的Director规则。'
+                '不要计算SHA、回填claimed_necessity或伪造任何程序身份；程序从所选Need冻结必要性与连续性摘要。')
+        else:
+            instruction += ('视觉Condition claim中的creative_goal_ref是待审创作依据，不是Need来源身份；'
+                '必须从候选槽位/冻结输入的src_*句柄中选择；不要输出内部event-*/global名称、'
+                '编造引用或替程序换掉Need.scope。独立B将审核引用的真实支持性和Hard消费者。')
     if scope.get('transport', {}).get('intake_policy') in {review.FRAMING_INTAKE_POLICY, review.QUOTE_INTAKE_POLICY, review.ATOMIC_DETAILS_INTAKE_POLICY, review.SOUND_TEMPO_INTAKE_POLICY, review.COMPLETE_GUIDANCE_INTAKE_POLICY, review.ROOT_ECHO_INTAKE_POLICY, review.SFX_GUIDANCE_INTAKE_POLICY, review.SCHEMA_SHAPE_INTAKE_POLICY}:
         # @8 and @9 A requests share exact guidance; existing frozen digests stay unchanged.
         if stage == 'A-selection':
@@ -474,7 +519,7 @@ def detail_binding(scope, selection, raw_sha256, contract, view=None, *, admissi
 
 
 def frozen_detail_plan(scope, codec, selection, raw_sha256, view, receipt):
-    plan = codec.detail_batches(selection)
+    plan = codec.detail_batches(selection, modality_family=scope.get('creative_authority') is not None)
     coverage = 1 + len(scope['catalog'].get('scene', {}))
     visual = sum(need['modality'] in review.VISUAL for need in selection['needs'])
     size = scope['transport']['candidate_batch_policy']['max_questions']
@@ -483,7 +528,7 @@ def frozen_detail_plan(scope, codec, selection, raw_sha256, view, receipt):
     # existing recheck reserve. Reject before the first details dispatch.
     initial_max = (visual * 14 + coverage + 16 + size - 1) // size
     recheck_max = (16 * 14 + coverage + 16 + size - 1) // size
-    maximum = a_calls + initial_max + 1 + recheck_max
+    maximum = a_calls + initial_max + MAX_SHARED_REPAIRS + recheck_max
     if maximum > MAX_PLANNING_CALLS:
         raise ValueError('Complete batched Planning exceeds original call capacity')
     binding = detail_binding(scope, selection, raw_sha256, plan['complete'], view,
@@ -503,24 +548,131 @@ def validate_canonical(catalog, value, *, compiled=False):
         raise ValueError('Complete canonical Planning schema rejected')
 
 
-def repair_message(scope, original, targets, context=None):
+def repair_quote_null_guidance(schema):
+    """Pure hint compiled from frozen per-target source branches; never authority.
+
+    Only emits source IDs that the existing Schema already restricts to a
+    null quote. Validation still uses the complete unchanged wire contract.
+    """
+    hints = {}
+    definitions = schema.get('$defs', {})
+    for target, answer in schema.get('properties', {}).items():
+        if not target.startswith('target-'):
+            continue
+        support = answer.get('properties', {}).get('support', {})
+        item = support.get('items', {})
+        ref = item.get('$ref') if isinstance(item, dict) else None
+        # The wire compiler inlines local $defs before building the request.
+        definition = (definitions.get(ref.removeprefix('#/$defs/'), {})
+                      if isinstance(ref, str) and ref.startswith('#/$defs/')
+                      else item if isinstance(item, dict) else {})
+        null_sources = set()
+        for branch in definition.get('oneOf', []):
+            props = branch.get('properties', {})
+            if props.get('quote', {}).get('type') == 'null':
+                null_sources.update(props.get('source', {}).get('enum', []))
+        if null_sources:
+            hints[target] = sorted(null_sources)
+    return hints
+
+
+
+
+
+def details_root_repair_message(original_message, original, stage, admitted):
+    """Obtain explicit model-authored unresolved semantics from captured Slots.
+
+    The original stage prompt retains the full frozen source context. The
+    original reply remains unchanged and is the only basis for the patch.
+    """
+    if admitted['decision'] != 'BOUNDED_REPAIR' or admitted['repair_path'] != ['unresolved']:
+        raise ValueError('A-details root reply cannot enter shared repair')
+    return review.checked_message(original_message + '\n'
+        + '〔Easel 原A-details的受控局部补答〕\n'
+        + '原始Slots及所有视觉Claim冻结不变。只按工具Schema提交unresolved数组，'
+        + '不可重新输出或更改Slots。请核对冻结全片输入与原始回复，'
+        + '有未决创作语义请明确列出；确实无新增未决项时由模型明确提交空数组。'
+        + '不得假定系统默认空数组，不能制造Creator/Rights授权。\n'
+        + review.compact({'origin_stage': stage,
+            'original_reply_sha256': admitted['original_sha256'],
+            'original_reply': original,
+            'repair_path': ['unresolved'],
+            'admission_policy': admitted['policy']}))
+
+
+
+def reserve_repair_slot(state, stage, identity, save):
+    """Reserve one of three Attempt-wide repair operations before model dispatch.
+
+    Existing reservation with an identical identity is reusable only for
+    replay/reconciliation of the same session; it never grants a fourth call.
+    """
+    rows = state['repair_ledger']
+    if (not isinstance(rows, list) or state['repair_count'] != len(rows)
+            or bool(rows) != state['repair_used']):
+        raise ValueError('Shared repair ledger identity changed')
+    matching = [row for row in rows if row['stage'] == stage]
+    if matching:
+        if len(matching) != 1:
+            raise ValueError('Duplicate shared repair target')
+        row = matching[0]
+        if (row['identity'] != identity or
+                row['reservation_sha256'] != authority.digest(
+                    {k: v for k, v in row.items() if k != 'reservation_sha256'})):
+            raise ValueError('Shared repair target or reservation changed')
+        return row
+    if len(rows) >= MAX_SHARED_REPAIRS:
+        raise ValueError('Whole Planning shared repair allowance exhausted (3)')
+    core = {'stage': stage, 'key': f'repair-{len(rows):03}',
+            'identity': deepcopy(identity)}
+    row = {**core, 'reservation_sha256': authority.digest(core)}
+    rows.append(row)
+    state['repair_count'] = len(rows)
+    state['repair_used'] = True
+    save()
+    return row
+
+def repair_message(scope, original, targets, context=None, *, evidence_ref=False):
+    if evidence_ref is True:
+        evidence_ref = repair_evidence.POLICY
     support_batch = context if context and context.get('support_policy') == support.REVISION else None
     patcher = correction if correction.enabled(scope) else review
     schema = patcher.patch_schema(targets, support_batch=support_batch, slots=True)
-    schema = wire.project(schema, 'repair', atomic_framing=True).schema
+    projection = (repair_evidence.RepairEvidenceProjection(schema, policy=evidence_ref) if evidence_ref
+                  else wire.project(schema, 'repair', atomic_framing=True))
+    schema = projection.schema
     if correction.enabled(scope):
         prefix = ('〔Easel Planning vNext 单次局部修复〕\n'
             '只提交固定target槽位对应的value，不提交整个对象，不删除Need或原未决报告。'
             'confirmed_necessity只允许按独立冻结依据将被挑战字段从optional改required；'
             'visual_choices仍须保持原conditions/queries/necessity，不得借整体头部升降级。'
             'candidate_answer只修该条响应并提供真实冻结引用；其他已接受答案不可变。'
-            '未列出的字段及全部原件不可变，不推定任何授权或素材就绪。修后重新独立核对受影响义务。'
+            + ('candidate_answer每条support只提交合法evidence_ref，文字证据同时提交完整真实quote；'
+               '非文本证据只提交evidence_ref，不允许quote。'
+               '从本目标evidence_choices_by_target表中选择，不允许跨目标、猜测或创造ref。'
+               '模型仍须独立判断该引用是否真正支持当前回答。'
+               if evidence_ref else
+               'candidate_answer的每项support必须同时提交source、role、quote三个字段，不能省略quote。'
+               '当source对应可引用的文本原文时，quote必须是该source的非空连续原文字符串；'
+               '当source对应非文本原件时，quote必须显式填写JSON null（不是字符串null），不可漏字段。'
+               'source必须从本目标冻结候选中选择，role与source必须满足同一Schema分支，'
+               '不要复制其他目标的source或把不合法引用放进修复结果。'
+               '特别注意quote_null_source_ids_by_target：本目标的support只要使用列出的source，'
+               'quote就只能是JSON null，不论原对象里存在何种数字、版本或文本样值。')
+            + '未列出的字段及全部原件不可变，不推定任何授权或素材就绪。修后重新独立核对受影响义务。'
             '不写文件、不供应、不制作。')
         payload = {
                 'schema': schema, 'targets': descriptors(targets), 'original': original,
                 'inputs': scope['inputs'], 'review_context': context,
                 'candidate_review_policy': correction.policy_for(scope),
-                'wire_representation': wire.guidance(schema) + (wire.FRAME_GUIDANCE)}
+                'wire_representation': ('证据必须按evidence_ref专属Schema提交，文本引用保留quote，非文本引用不得填写quote。'
+                    if evidence_ref else wire.guidance(schema)) + wire.FRAME_GUIDANCE,
+                **({'evidence_ref_policy': evidence_ref,
+                    'evidence_choices_by_target': {target: [
+                        {'evidence_ref': ref, 'source': source, 'role': role, 'quote_kind': kind}
+                        for ref, (source, role, kind) in choices.items()]
+                        for target, choices in projection.choices.items()}}
+                   if evidence_ref else {'quote_null_source_ids_by_target': repair_quote_null_guidance(schema)})}
         if scope['transport'].get('request_view_policy') == request_view.POLICY:
             schema = structured.request_for(schema)['schema']
             payload['schema'] = schema
@@ -539,6 +691,16 @@ def repair_message(scope, original, targets, context=None):
             'original': original, 'inputs': scope['inputs'], 'review_context': context}))
 
 
+def bind_d1_d2_review(directory, *, envelope, state, d2_enabled):
+    """One deterministic B directory for live Owner and cold replay."""
+    bound = creative.bind_review_claims(directory, envelope=envelope,
+                                        conditions=state['conditions'], headers=state['headers'])
+    if d2_enabled:
+        bound = d2.bind_directory(bound, envelope=envelope,
+                                  conditions=state['conditions'], headers=state['headers'])
+    return bound
+
+
 def run(attempt, planning_context, canonical, mode, route, dispatch):
     store = AttemptMaterialStore(attempt['workspace']['path'])
     root = store.attempt_root
@@ -547,11 +709,26 @@ def run(attempt, planning_context, canonical, mode, route, dispatch):
         raise ValueError('Historical Planning protocol is read-only; no recovery dispatch')
     if state is not None and state.get('scope', {}).get('transport', {}).get('intake_policy') != review.INTAKE_POLICY:
         raise ValueError('Historical Planning intake is read-only; no recovery dispatch')
+    requested_creative = planning_context.get('creative_claim_policy')
+    if (requested_creative not in (None, creative.OWNER_POLICY)
+            or attempt.get('creative_claim_policy') != requested_creative):
+        raise ValueError('Frozen D1 Attempt and Planning Context policy differ')
+    requested_d2 = planning_context.get('d2_review_policy')
+    if (requested_d2 not in (None, d2.POLICY)
+            or attempt.get('d2_review_policy') != requested_d2
+            or (requested_d2 and requested_creative != creative.OWNER_POLICY)):
+        raise ValueError('Frozen D2 Attempt and Planning Context policy differ')
     inputs = authority.load_inputs(attempt, canonical, planning_context, mode)
     catalog = source_catalog(canonical, {'creator_context': inputs['creator_context'], 'proposal': inputs.get('proposal')})
     scope = {'policy': POLICY, 'creation_id': attempt['creation_id'], 'attempt_id': attempt['attempt_id'],
              'context_refs': planning_context['context_refs'], 'canonical': canonical, 'mode': mode,
              'inputs': inputs, 'catalog': catalog}
+    delegation = (creative.compile_envelope(attempt, canonical, planning_context, mode)
+                  if requested_creative == creative.OWNER_POLICY else None)
+    if delegation is not None:
+        scope['creative_authority'] = {'policy': creative.OWNER_POLICY, 'envelope': delegation}
+    if requested_d2:
+        scope['d2_review_policy'] = d2.POLICY
     if state is not None:
         validate_transport(state.get('schema'), state['scope'])
     view = input_views.PlanningInputView(inputs, catalog)
@@ -562,7 +739,12 @@ def run(attempt, planning_context, canonical, mode, route, dispatch):
                 (root / 'materials/recoveries').glob('planning-structure-repair-*.json')):
             raise ValueError('Historical Planning journal is read-only; no recovery dispatch')
         state = {'schema': VIEW_JOURNAL, 'scope': scope, 'route': route,
-                 'calls': {}, 'repair_used': False, 'input_view_snapshot': view.snapshot()}
+                 'calls': {}, 'repair_used': False, 'repair_count': 0,
+                  'repair_ledger': [], 'wire_admissions': {}, 'wire_repairs': {},
+                   'stage_regenerations': {}, 'b_normalizations': {},
+                  'input_view_snapshot': view.snapshot(),
+                 'b_identity_policy': wire.B_IDENTITY_POLICY if correction.enabled(scope) else None,
+                 'repair_evidence_policy': repair_evidence.POLICY if correction.enabled(scope) else None}
         store.write_recovery_record(STATE_KEY, state)
     elif (state.get('scope') != scope or state.get('route') != route):
         raise ValueError('Frozen vNext input, policy or execution route changed; no refreshed allowance')
@@ -581,12 +763,22 @@ def run(attempt, planning_context, canonical, mode, route, dispatch):
             state['terminal_failure'] = 'FROZEN_SOURCE_CHANGED'
             save()
             raise
+    def b_projection(schema, key):
+        if key.startswith('repair-') and any(row['key'] == key and
+                row['stage'].startswith('regen:') for row in state['repair_ledger']):
+            return wire.project(schema, key, atomic_framing=True)
+        if key.startswith('repair-') and state.get('repair_evidence_policy') in (repair_evidence.POLICY, repair_evidence.LEGACY_POLICY):
+            return repair_evidence.RepairEvidenceProjection(schema, policy=state['repair_evidence_policy'])
+        if (key.startswith('B-') and state.get('b_identity_policy') == wire.B_IDENTITY_POLICY):
+            return wire.b_identity_project(schema, key)
+        return wire.project(schema, key, atomic_framing=True)
+
     def invoke(key, message, schema=None):
         frozen()
         if key not in state['calls'] and len(state['calls']) >= MAX_PLANNING_CALLS:
             raise ValueError('Fixed Planning call range exhausted; no new dispatch')
         try:
-            projection = wire.project(schema, key, atomic_framing=True)
+            projection = b_projection(schema, key)
             binding = state.setdefault('schema_bindings', {}).get(key)
             if binding is not None and binding != projection.identity:
                 raise ValueError('Planning stage wire identity changed')
@@ -594,22 +786,56 @@ def run(attempt, planning_context, canonical, mode, route, dispatch):
             save()  # Exact canonical/wire identity precedes submission.
             schema = projection.schema
             if (scope['transport'].get('b_root_title_policy') == structured.B_ROOT_TITLE_POLICY
-                    and key.startswith('B-')):
+                    and key.startswith('B-') and state.get('b_identity_policy') != wire.B_IDENTITY_POLICY):
                 schema = structured.b_review_parameters(schema)
+            def reconcile_p0(original_key, original_message, original_session):
+                # A prior B submission may already be terminal in the external
+                # owner even if the local capture was marked TRANSPORT_FAILED
+                # while its transcript was temporarily unavailable.
+                from easel import creation
+                calls = (creation.get_creation(attempt['creation_id']).get('delivery') or {}).get('agent_calls', {})
+                matches = [call for call in calls.values()
+                           if call.get('session_key') == 'agent:main:' + original_session]
+                if (len(matches) != 1 or matches[0].get('status') != 'ok'
+                        or matches[0].get('reply_contract') != 'planning-result-v3'
+                        or matches[0].get('runtime_release') != 'released'
+                        or not matches[0].get('terminal_receipt')):
+                    from easel.creation_delivery import DeliveryExecutionUncertain
+                    raise DeliveryExecutionUncertain('P0 original run has no verified terminal receipt')
+                # retry_failed=False at the existing Owner boundary makes
+                # this a read of the same terminal run, never a new model call.
+                return dispatch('structure_repair' if original_key.startswith('repair-') else 'planning',
+                    original_message, original_session,
+                    structured_result=structured.request_for(projection.schema),
+                    expected_runtime_sha256=scope['transport']['runtime_sha256'])
             result = capture(state['calls'], key, review.checked_message(message),
                 f"semantic-{attempt['attempt_id']}-vnext-{key}",
-                lambda key, text, session: dispatch('structure_repair' if key == 'repair' else 'planning', text, session,
+                lambda key, text, session: dispatch('structure_repair' if key.startswith('repair-') else 'planning', text, session,
                     **({'structured_result': structured.request_for(schema)} if schema is not None else {}),
-                    expected_runtime_sha256=scope['transport']['runtime_sha256']), save)
+                    expected_runtime_sha256=scope['transport']['runtime_sha256']), save,
+                refuse_uncertain_reentry=(key.startswith('repair-') or
+                    key.startswith('A-details-') or key.startswith('B-') and state.get('b_identity_policy') == wire.B_IDENTITY_POLICY),
+                reconcile=reconcile_p0 if (key.startswith('repair-') or
+                    key.startswith('A-details-') or key.startswith('B-') and state.get('b_identity_policy') == wire.B_IDENTITY_POLICY) else None)
         finally:
             frozen()  # Async/uncertain results cannot skip source-integrity recording.
         return result
     def candidate(key, original, schema, *, strict=False):
-        projection = wire.project(schema, key, atomic_framing=True)
+        projection = b_projection(schema, key)
         if state['schema_bindings'].get(key) != projection.identity:
             raise ValueError('Planning stage wire identity changed')
         errors = projection.errors(original)
         diagnostic = {'wire_errors': errors, 'original_sha256': state['calls'][key]['reply_sha256']}
+        if isinstance(projection, wire.BIdentityProjection):
+            n = projection.normalization_receipt(original)
+            evidence = {k:v for k,v in n.items() if k!='normalized'} if n else None
+            if evidence is not None:
+                earlier = state['b_normalizations'].get(key)
+                if earlier is not None and earlier != evidence:
+                    raise ValueError('B normalized representation identity changed')
+                state['b_normalizations'][key] = evidence
+            elif key in state['b_normalizations']:
+                raise ValueError('Frozen B normalization silently disappeared')
         previous = state.setdefault('wire_diagnostics', {}).get(key)
         if previous is not None and previous != diagnostic:
             raise ValueError('Original wire validation changed')
@@ -618,31 +844,250 @@ def run(attempt, planning_context, canonical, mode, route, dispatch):
         if strict and errors:
             raise ValueError('Complete Planning wire schema rejected')
         return projection.decode_valid(original) if strict else projection.decode_candidate(original)
+    def reserve_shared_repair(stage, identity):
+        return reserve_repair_slot(state, stage, identity, save)
+    def admitted_details(key, original, schema):
+        """Strict A-details admission or explicit model-authored missing root."""
+        projection = b_projection(schema, key)
+        raw = state['calls'][key]['reply']
+        receipt = admission.classify_details_wire(raw, projection.schema,
+            binding={'attempt_id': attempt['attempt_id'], 'stage': key,
+                     'source_sha256': authority.digest(view.codec.references),
+                     'schema_binding_sha256': authority.digest(projection.identity)})
+        old_receipt = state['wire_admissions'].get(key)
+        if old_receipt is not None and old_receipt != receipt:
+            raise ValueError('Frozen A-details output admission changed')
+        state['wire_admissions'][key] = receipt
+        save()
+        if receipt['decision'] == 'ACCEPT':
+            return candidate(key, original, schema, strict=True)
+        candidate(key, original, schema, strict=False)  # Capture original errors.
+        if receipt['decision'] != 'BOUNDED_REPAIR':
+            raise ValueError('Complete Planning wire schema rejected (not recoverable)')
+        identity = {'policy': admission.DETAILS_RECOVERY_POLICY,
+                    'stage': key, 'origin_sha256': receipt['original_sha256'],
+                    'schema_sha256': receipt['schema_sha256'],
+                    'admission_sha256': authority.digest(receipt),
+                    'target_path': ['unresolved']}
+        row = reserve_shared_repair('wire:' + key, identity)
+        patch_schema = admission.details_repair_schema(projection.schema)
+        message = details_root_repair_message(detail_messages[key], raw, key, receipt)
+        patch_raw = invoke(row['key'], message, patch_schema)
+        patch = candidate(row['key'], patch_raw, patch_schema, strict=True)
+        complete = admission.bind_details_repair(original, patch, projection.schema)
+        evidence = {'policy': admission.DETAILS_RECOVERY_POLICY, 'stage': key,
+                    'repair_stage': row['key'], 'reservation_sha256': row['reservation_sha256'],
+                    'original_reply_sha256': receipt['original_sha256'],
+                    'patch_reply_sha256': state['calls'][row['key']]['reply_sha256'],
+                    'effective_wire_sha256': authority.digest(complete),
+                    'admission_sha256': authority.digest(receipt)}
+        prior = state['wire_repairs'].get(key)
+        if prior is not None and prior != evidence:
+            raise ValueError('Recovered A-details differs from frozen original and patch')
+        state['wire_repairs'][key] = evidence
+        save()
+        return projection.decode_valid(complete)
+
+    def terminal_failure_for(key, schema):
+        # The currently configured dispatch alone may inspect its own native
+        # failed Run; a generic Python exception cannot authorize re-dispatch.
+        inspector = getattr(dispatch, 'inspect_terminal_no_tool', None)
+        if not callable(inspector):
+            return None
+        projection = b_projection(schema, key)
+        session = f"semantic-{attempt['attempt_id']}-vnext-{key}"
+        schema_sha = structured.request_for(projection.schema)['schemaSha256']
+        try:
+            observed = inspector(key, session, schema_sha)
+        except DeliveryExecutionUncertain:
+            return None
+        return stage_loop.confirmed_no_tool(observed, stage=key,
+            schema_sha256=schema_sha, session=session)
+
+    def resolve_details_stage(key, schema, original_message):
+        """Only current D1 A-details receives whole-stage regeneration.
+
+        Original Agent call is retained even if it has no valid model reply.
+        New generations are distinct repair-NNN captures in the *same*
+        Attempt-wide ledger. Any uncertain run still stops at its old identity.
+        """
+        projection = b_projection(schema, key)
+        stage_entry = state['stage_regenerations'].get(key)
+        if stage_entry is None:
+            try:
+                original = invoke(key, original_message, schema)
+            except (RuntimeError, DeliveryExecutionUncertain):
+                decision = terminal_failure_for(key, schema)
+                if decision is None:
+                    raise  # No native terminal proof: never dispatch a new Run.
+                if state['calls'][key].get('reply') is not None:
+                    raise ValueError('Original no-tool operation unexpectedly has a reply')
+                original_admission = {
+                    'policy': stage_loop.POLICY, 'decision': 'STAGE_REGENERATE',
+                    'reason': 'TERMINAL_NO_TOOL',
+                    'terminal_evidence_sha256': authority.digest(decision)}
+                original_diagnostic = {
+                    'wire_errors': [], 'original_sha256': None,
+                    'terminal_failure_sha256': authority.digest(decision)}
+            else:
+                raw_text = state['calls'][key]['reply']
+                decision = stage_loop.source_only_failure(raw_text, projection.schema)
+                if decision is None:
+                    return admitted_details(key, original, schema), key
+                original_admission = admission.classify_details_wire(raw_text, projection.schema,
+                    binding={'attempt_id': attempt['attempt_id'], 'stage': key,
+                        'source_sha256': authority.digest(view.codec.references),
+                        'schema_binding_sha256': authority.digest(projection.identity)})
+                if original_admission['decision'] != 'REJECT':
+                    raise ValueError('Invalid creative source unexpectedly admitted')
+                original_diagnostic = {'wire_errors': projection.errors(original),
+                                       'original_sha256': state['calls'][key]['reply_sha256']}
+                if not original_diagnostic['wire_errors']:
+                    raise ValueError('A-details source regression has no strict errors')
+            state['wire_admissions'][key] = original_admission
+            state['wire_diagnostics'][key] = original_diagnostic
+            stage_entry = {'policy': stage_loop.POLICY, 'original_failure': decision,
+                           'history': [], 'effective_key': None}
+            state['stage_regenerations'][key] = stage_entry
+            save()
+        else:
+            if (stage_entry.get('policy') != stage_loop.POLICY
+                    or not isinstance(stage_entry.get('history'), list)
+                    or len(stage_entry['history']) > stage_loop.MAX_STAGE_REGENERATIONS):
+                raise ValueError('Persisted A-details recovery chain invalid')
+            orig_text = state['calls'].get(key, {}).get('reply')
+            if orig_text is None:
+                observed = stage_loop.confirmed_no_tool(
+                    stage_entry['original_failure'].get('terminal_evidence'),
+                    stage=key, schema_sha256=structured.request_for(projection.schema)['schemaSha256'],
+                    session=f"semantic-{attempt['attempt_id']}-vnext-{key}")
+            else:
+                observed = stage_loop.source_only_failure(orig_text, projection.schema)
+            if observed != stage_entry['original_failure']:
+                raise ValueError('Frozen original A-details recovery reason changed')
+
+        for ordinal in range(stage_loop.MAX_STAGE_REGENERATIONS):
+            prior = (stage_entry['original_failure'] if ordinal == 0 else
+                     stage_entry['history'][ordinal-1].get('failure')
+                     if ordinal-1 < len(stage_entry['history']) else None)
+            if prior is None:
+                raise ValueError('Regeneration decision chain is not reconstructible')
+            identity = stage_loop.recovery_identity(key, prior, ordinal=ordinal,
+                frozen_schema_sha256=structured.request_for(projection.schema)['schemaSha256'],
+                detail_binding_sha256=authority.digest(binding))
+            row = reserve_shared_repair('regen:' + key + ':' + str(ordinal), identity)
+            expected = {'repair_stage': row['key'],
+                        'reservation_sha256': row['reservation_sha256'],
+                        'cause': prior}
+            if ordinal < len(stage_entry['history']):
+                saved = stage_entry['history'][ordinal]
+                if any(saved.get(k) != v for k,v in expected.items()):
+                    raise ValueError('Persisted regeneration operation changed')
+            else:
+                stage_entry['history'].append(expected)
+                save()  # Reserve and lineage must predate real model dispatch.
+            message = stage_loop.regeneration_message(original_message, key, prior, ordinal)
+            try:
+                generated = invoke(row['key'], message, schema)
+            except (RuntimeError, DeliveryExecutionUncertain):
+                failure = terminal_failure_for(row['key'], schema)
+                if failure is None:
+                    raise
+                if state['calls'][row['key']].get('reply') is not None:
+                    raise ValueError('Failed regeneration unexpectedly has model arguments')
+                diagnostic = {'wire_errors': [], 'original_sha256': None,
+                              'terminal_failure_sha256': authority.digest(failure)}
+                if row['key'] in state['wire_diagnostics'] and state['wire_diagnostics'][row['key']] != diagnostic:
+                    raise ValueError('Regeneration terminal diagnostic changed')
+                state['wire_diagnostics'][row['key']] = diagnostic
+            else:
+                full = b_projection(schema, row['key'])
+                diagnostic = {'wire_errors': full.errors(generated),
+                              'original_sha256': state['calls'][row['key']]['reply_sha256']}
+                if row['key'] in state['wire_diagnostics'] and state['wire_diagnostics'][row['key']] != diagnostic:
+                    raise ValueError('Regeneration original wire diagnostic changed')
+                state['wire_diagnostics'][row['key']] = diagnostic
+                if not diagnostic['wire_errors']:
+                    accepted = candidate(row['key'], generated, schema, strict=True)
+                    completed = {**expected, 'result': 'ACCEPT',
+                                 'reply_sha256': state['calls'][row['key']]['reply_sha256']}
+                    if stage_entry['history'][ordinal] not in (expected, completed):
+                        raise ValueError('Persisted regeneration accepted lineage changed')
+                    stage_entry['history'][ordinal] = completed
+                    stage_entry['effective_key'] = row['key']
+                    save()
+                    return accepted, row['key']
+                failure = stage_loop.source_only_failure(
+                    state['calls'][row['key']]['reply'], full.schema)
+                if failure is None:
+                    raise ValueError('Regenerated A-details violates an unrecoverable Schema constraint')
+            rejected = {**expected, 'result': 'STAGE_REGENERATE', 'failure': failure}
+            if stage_entry['history'][ordinal] not in (expected, rejected):
+                raise ValueError('Persisted regeneration rejection changed')
+            stage_entry['history'][ordinal] = rejected
+            save()
+        raise ValueError('A-details regeneration exhausted the per-stage two-attempt limit')
+
     def b_message(batch):
         transported = {**batch, 'response_schema': wire.project(batch['response_schema'], 'B', atomic_framing=True).schema,
                        'wire_representation': wire.guidance(batch['response_schema'])}
         return review.checked_message(review.review_message(transported))
     def repair(stage, original, targets, context=None):
-        message = repair_message(scope, original, targets, context)  # Capacity before consuming allowance.
+        message = repair_message(scope, original, targets, context,
+            evidence_ref=state.get('repair_evidence_policy') if state.get('repair_evidence_policy') in (repair_evidence.POLICY, repair_evidence.LEGACY_POLICY) else False)
+        # Original A captures, not mutable sidecar Claim dictionaries, are
+        # the sole pre-Repair claim authority for this fresh Attempt.
+        d1_carrier = None
+        if delegation is not None and d1_state is not None:
+            creative.verify_a_claim_origin(delegation, d1_bridge, d1_batched,
+                state['calls']['A-selection']['reply'],
+                {batch['key']: state['calls'][effective_capture_keys[batch['key']]]['reply']
+                    for batch in detail_plan['batches']},
+                state['calls'], d1_state['headers'], d1_state['conditions'],
+                effective_batches=details, capture_keys={k:v for k,v in effective_capture_keys.items() if k!=v})
+            if any(t['kind'] in {'complete_obligation', 'visual_choices',
+                                 'frozen_visual_coverage', 'confirmed_necessity'} for t in targets):
+                d1_carrier = creative.ExtendedSharedRepairCarrier(
+                    delegation, original, targets,
+                    d1_state['conditions'], d1_state['headers'])
+                intro, payload = message.rsplit('\n', 1)
+                message = review.checked_message(intro +
+                    '\n当前 D1 每个视觉修复 value 必须同槽提交 authority Claim；'
+                    'Claim 不构成 Creator/Rights 授权。\n' + payload)
         repair_identity = {'stage': stage, 'targets': descriptors(targets),
-                           'original_sha256': authority.digest(original), 'context_sha256': authority.digest(context)}
-        if state['repair_used'] and state.get('repair') != repair_identity:
-            raise ValueError('Whole Planning shared repair allowance exhausted')
-        state.update(repair_used=True, repair=repair_identity)
-        save()  # Written before dispatch; restart never refreshes allowance.
+                           'original_sha256': authority.digest(original), 'context_sha256': authority.digest(context),
+                           **({'creative_policy': creative.OWNER_POLICY,
+                               'claim_state_sha256': authority.digest(d1_state)}
+                              if delegation is not None else {})}
+        reservation = reserve_shared_repair(stage, repair_identity)
+        state['repair'] = repair_identity
+        save()
         support_batch = context if context and context.get('support_policy') == support.REVISION else None
         patcher = correction if correction.enabled(scope) else review
-        schema = patcher.patch_schema(targets, support_batch=support_batch, slots=True)
-        output = invoke('repair', message, schema)
-        decoded = candidate('repair', output, schema, strict=True)
+        schema = d1_carrier.schema if d1_carrier is not None else patcher.patch_schema(
+            targets, support_batch=support_batch, slots=True)
+        output = invoke(reservation['key'], message, schema)
+        decoded = candidate(reservation['key'], output, schema, strict=True)
+        if d1_carrier is not None:
+            result, d1_state['conditions'], d1_state['headers'], evidence = d1_carrier.apply(
+                decoded, d1_carrier.identity)
+            d1_state['repair_evidence'] = evidence
+            previous_claims = state.get('creative_claims')
+            if (previous_claims is not None and previous_claims.get('repair_evidence') is not None
+                    and previous_claims != d1_state):
+                raise ValueError('Persisted D1 repaired Claim differs from original Wire replay')
+            state['creative_claims'] = deepcopy(d1_state)
+            save()
+            return result, output
         patches = patcher.decode_patch_slots(decoded, targets, support_batch=support_batch)
         return patcher.apply_patches(original, patches, targets, support_batch=support_batch), output
-
     codec = staged._read_only_staged(query_schema(scope))
-    selection_schema = intake_selection(scope, view.codec.schema)
+    d1_bridge = (creative.OpaqueHeaderBridge(view.codec, codec, delegation)
+                 if delegation is not None else None)
+    selection_schema = intake_selection(scope, d1_bridge.schema if d1_bridge else view.codec.schema)
     a_message_for = lambda stage, **kw: view_a_message(scope, view, stage, **kw)
     selected = invoke('A-selection', a_message_for('A-selection'), selection_schema)
-    selected = candidate('A-selection', selected, selection_schema)
+    selected = candidate('A-selection', selected, selection_schema, strict=d1_bridge is not None)
     selected_receipt = None
     if admission_enabled(scope):
         admitted = selection_admission(scope, state['calls']['A-selection'], selection_schema,
@@ -654,34 +1099,80 @@ def run(attempt, planning_context, canonical, mode, route, dispatch):
         if previous is not None and previous != admitted:
             raise ValueError('Persisted selection admission or normalized candidate changed')
         state.setdefault('admissions', {})['A-selection'] = admitted
-        save()  # Completed raw capture is reused if this local write fails.
+        save()
         selected = require_selection_admission(admitted, scope=scope)
         selected_receipt = admitted['receipt']
-    selected = view.codec.decode(selected, view.codec.identity, diagnostic=True)
+    d1_state = None
+    if d1_bridge:
+        selected, header_records = d1_bridge.decode(selected, d1_bridge.identity)
+        d1_state = {'policy': creative.OWNER_POLICY, 'envelope': delegation,
+                    'bridge_identity': d1_bridge.identity, 'headers': header_records,
+                    'conditions': {}, 'a_batch': None}
+        if state.get('creative_claims') is not None and state['creative_claims']['bridge_identity'] != d1_bridge.identity:
+            raise ValueError('Frozen D1 source identity changed')
+    else:
+        selected = view.codec.decode(selected, view.codec.identity, diagnostic=True)
     detail_plan, binding, detail_messages = frozen_detail_plan(scope, codec, selected,
         state['calls']['A-selection']['reply_sha256'], view, selected_receipt)
     if state.get('detail_binding') is not None and state['detail_binding'] != binding:
         raise ValueError('Persisted details identity changed')
     state['detail_binding'] = binding
-    save()  # Durable original selection and details identity precede any details dispatch.
+    save()
+    d1_batched = (creative.BatchedVisualClaimCarrier(
+        codec, selected, delegation, source_bridge_identity=d1_bridge.identity,
+        source_codec=view.codec)
+        if d1_bridge is not None else None)
     details = {}
+    effective_capture_keys = {}
     unresolved_count = len(selected['unresolved'])
     for batch in detail_plan['batches']:
         key = batch['key']
-        raw = invoke(key, detail_messages[key], batch['schema'])
-        details[key] = candidate(key, raw, batch['schema'])
-        codec.details_shape(selected, details[key], batch['schema'], repair_missing_leaves=True)
+        schema = d1_batched.batches[key] if d1_batched else batch['schema']
+        if d1_batched is not None:
+            details[key], effective_capture_keys[key] = resolve_details_stage(
+                key, schema, detail_messages[key])
+        else:
+            raw = invoke(key, detail_messages[key], schema)
+            details[key] = candidate(key, raw, schema, strict=False)
+            effective_capture_keys[key] = key
+        if d1_batched is None:
+            codec.details_shape(selected, details[key], batch['schema'], repair_missing_leaves=True)
         unresolved_count += len(details[key]['unresolved'])
         if unresolved_count > 16:
             raise ValueError('Complete unresolved report capacity exceeded')
-    initial = codec.assemble_batches_candidate(selected, detail_plan, details, repair_missing_leaves=True)
+    if d1_batched is not None:
+        initial, d1_state['conditions'], d1_state['a_batch'] = d1_batched.merge(details, d1_batched.identity)
+        creative.verify_a_claim_origin(
+            delegation, d1_bridge, d1_batched, state['calls']['A-selection']['reply'],
+            {key: state['calls'][effective_capture_keys[key]]['reply'] for key in details},
+            state['calls'], d1_state['headers'], d1_state['conditions'],
+            effective_batches=details,
+            capture_keys={k:v for k,v in effective_capture_keys.items() if k!=v})
+        existing = state.get('creative_claims')
+        if existing is not None and existing.get('a_batch') != d1_state['a_batch']:
+            raise ValueError('D1 frozen original A Claim batch changed')
+        if existing is not None and existing.get('repair_evidence') is None and existing != d1_state:
+            raise ValueError('D1 original Claim journal changed')
+        # A completed Repair is frozen until the exact captured Repair replays.
+        # Do not overwrite its identity with a recomputed A snapshot first.
+        if existing is None:
+            state['creative_claims'] = deepcopy(d1_state)
+            save()
+    else:
+        initial = codec.assemble_batches_candidate(selected, detail_plan, details, repair_missing_leaves=True)
     value = initial
     a_keys = ['A-selection', *(batch['key'] for batch in detail_plan['batches'])]
-    invalid_a_wire = any(state['wire_diagnostics'][key]['wire_errors'] for key in a_keys)
+    invalid_a_wire = any(state['wire_diagnostics'][key]['wire_errors']
+                         for key in a_keys if key not in state['stage_regenerations'])
     correction_result = None
     if correction.enabled(scope):
         correction_result = correction.evaluate(initial, scope, view, invoke, candidate, repair,
-                                                max_calls=MAX_PLANNING_CALLS, a_calls=binding['a_calls'])
+                                                max_calls=MAX_PLANNING_CALLS, a_calls=binding['a_calls'],
+                                                b_identity=state.get('b_identity_policy') == wire.B_IDENTITY_POLICY,
+                                                 claim_binding=(lambda directory: bind_d1_d2_review(
+                                                     directory, envelope=delegation, state=d1_state,
+                                                     d2_enabled=bool(requested_d2)))
+                                                 if d1_state is not None else None)
         proposal = correction_result['proposal']
         directory, responses = correction_result['directory'], correction_result['responses']
         initial_review_value = correction_result['initial_review_value']
@@ -707,7 +1198,7 @@ def run(attempt, planning_context, canonical, mode, route, dispatch):
         batches = review.review_batches(directory)
         coverage_count = sum(q['kind'] == 'frozen_visual_coverage' for q in directory['questions'])
         maximum_rechecks = (16 * 13 + coverage_count + 47) // 48
-        if binding['a_calls'] + len(batches) + 1 + maximum_rechecks > MAX_PLANNING_CALLS:
+        if binding['a_calls'] + len(batches) + MAX_SHARED_REPAIRS + maximum_rechecks > MAX_PLANNING_CALLS:
             raise ValueError('Complete review and required recheck exceed fixed Planning call range')
         messages = [b_message(b) for b in batches]
         for index, (batch, message) in enumerate(zip(batches, messages, strict=True)):
@@ -756,15 +1247,33 @@ def run(attempt, planning_context, canonical, mode, route, dispatch):
         **({'admissions': deepcopy(state['admissions'])} if admission_enabled(scope) else {}),
         **({'candidate_correction': correction_result['trace']} if correction_result is not None else {}),
         'initial_responses': initial_responses, 'before_semantic': before_semantic,
-        'repair': lineage, 'draft_sha256': hashlib.sha256(effective).hexdigest(),
+        'repair': lineage,
+        **({'candidate_repairs': correction_result['repairs']}
+           if correction_result is not None else {}),
+        'draft_sha256': hashlib.sha256(effective).hexdigest(),
         'assembled_a_sha256': authority.digest(initial), 'detail_binding': state['detail_binding'],
         'proposal': proposal.model_dump(mode='json'), 'plan': plan.model_dump(mode='json'),
-        'proof': proof, 'review_sha256': authority.digest(directory),
+        'proof': proof, 'review_sha256': authority.digest(directory),        **({'creative_claims': deepcopy(d1_state)} if d1_state is not None else {}),
         'responses': [r.model_dump(mode='json') for r in responses],
         'schema_bindings': state['schema_bindings'], 'wire_diagnostics': state['wire_diagnostics'],
-        'wire_originals': {key: call['reply'] for key, call in state['calls'].items()},
+        'wire_admissions': deepcopy(state['wire_admissions']),
+        'wire_repairs': deepcopy(state['wire_repairs']),
+        'stage_regenerations': deepcopy(state['stage_regenerations']),
+        'b_normalizations': deepcopy(state['b_normalizations']),
+        'repair_count': state['repair_count'],
+        'repair_ledger': deepcopy(state['repair_ledger']),
+        **({'b_identity_policy': wire.B_IDENTITY_POLICY}
+           if state.get('b_identity_policy') == wire.B_IDENTITY_POLICY else {}),
+        **({'repair_evidence_policy': state['repair_evidence_policy']}
+           if state.get('repair_evidence_policy') in (repair_evidence.POLICY, repair_evidence.LEGACY_POLICY) else {}),
+        'wire_originals': {key: call.get('reply') for key, call in state['calls'].items()},
         'capture': {key: {k: v for k, v in call.items() if k != 'reply'}
                     for key, call in state['calls'].items()}}
+    if requested_d2:
+        checkpoint['d2_decision_proof'] = d2.compile_decision_proofs(
+            directory, responses, attempt_id=attempt['attempt_id'],
+            b_captures={key: call['reply'] for key, call in state['calls'].items()
+                        if key.startswith('B-')})
     encoded = review.compact(checkpoint).encode()
     if len(encoded) > MAX_CHECKPOINT_BYTES:
         raise ValueError('Complete frozen checkpoint exceeds local artifact capacity')
@@ -776,7 +1285,7 @@ def run(attempt, planning_context, canonical, mode, route, dispatch):
         for key, name in [('A-selection', 'SEMANTIC_A_SELECTION.json'),
                          *((b['key'], b['key'].replace('A-details-', 'SEMANTIC_A_DETAILS_') + '.json')
                            for b in detail_plan['batches'])]:
-            write_file(root, name, state['calls'][key]['reply'].encode())
+            write_file(root, name, state['calls'][effective_capture_keys.get(key, key)]['reply'].encode())
         if admission_enabled(scope):
             write_file(root, 'SEMANTIC_A_SELECTION_NORMALIZED.json',
                        admission.canonical_json(state['admissions']['A-selection']['candidate']).encode())
@@ -816,6 +1325,15 @@ def verify(root, plan, mode, script, origin=None, *, canonical=None, attempt=Non
         raise ValueError('Unknown vNext frozen contract; no downgrade')
     scope = checkpoint['scope']
     validate_transport(checkpoint.get('schema'), scope, frozen=True)
+    frozen_owner = scope.get('creative_authority')
+    frozen_policy = frozen_owner.get('policy') if isinstance(frozen_owner, dict) else None
+    if (frozen_policy not in (None, creative.OWNER_POLICY)
+            or attempt is None or attempt.get('creative_claim_policy') != frozen_policy):
+        raise ValueError('D1 Checkpoint and frozen Attempt policy differ')
+    if (scope.get('d2_review_policy') not in (None, d2.POLICY)
+            or attempt.get('d2_review_policy') != scope.get('d2_review_policy')
+            or (scope.get('d2_review_policy') and frozen_policy != creative.OWNER_POLICY)):
+        raise ValueError('D2 Checkpoint and frozen Attempt policy differ')
     if not admission_enabled(scope) and ('admissions' in checkpoint or
             (Path(root) / 'planning/SEMANTIC_A_SELECTION_NORMALIZED.json').exists()):
         raise ValueError('Selection admission policy was removed or downgraded')
@@ -846,8 +1364,38 @@ def verify(root, plan, mode, script, origin=None, *, canonical=None, attempt=Non
             != checkpoint['assembled_a_sha256']):
         raise ValueError('vNext original captured A changed')
     used_bindings = set()
+    repair_rows = checkpoint.get('repair_ledger')
+    if (not isinstance(repair_rows, list) or len(repair_rows) > MAX_SHARED_REPAIRS
+            or checkpoint.get('repair_count') != len(repair_rows)
+            or len({row.get('stage') for row in repair_rows}) != len(repair_rows)):
+        raise ValueError('Frozen shared three-repair ledger changed')
+    for i, row in enumerate(repair_rows):
+        if (row.get('key') != f'repair-{i:03}'
+                or row.get('reservation_sha256') != authority.digest(
+                    {k: v for k, v in row.items() if k != 'reservation_sha256'})
+                or row['key'] not in checkpoint.get('capture', {})):
+            raise ValueError('Frozen repair reservation or capture changed')
+    if (set(checkpoint.get('wire_admissions', {})) !=
+            {batch['key'] for batch in checkpoint.get('detail_batch_plan', {}).get('batches', [])}
+            and checkpoint.get('detail_batch_plan') is not None):
+        raise ValueError('Frozen A-details admission coverage changed')
+    def reserved_repair(stage, identity):
+        matches = [row for row in repair_rows if row['stage'] == stage]
+        if len(matches) != 1 or matches[0]['identity'] != identity:
+            raise ValueError('Frozen shared repair target or budget differs')
+        return matches[0]
+
+
+    regenerated_repair_keys = {row['repair_stage'] for entry in checkpoint.get('stage_regenerations', {}).values()
+                               for row in entry.get('history', [])}
     def candidate(key, original, schema, *, strict=False):
-        projection = wire.project(schema, key, atomic_framing=True)
+        projection = (wire.project(schema, key, atomic_framing=True)
+                       if key in regenerated_repair_keys else
+                       repair_evidence.RepairEvidenceProjection(schema, policy=checkpoint['repair_evidence_policy'])
+                      if key.startswith('repair-') and checkpoint.get('repair_evidence_policy') in (repair_evidence.POLICY, repair_evidence.LEGACY_POLICY)
+                      else wire.b_identity_project(schema, key)
+                      if key.startswith('B-') and checkpoint.get('b_identity_policy') == wire.B_IDENTITY_POLICY
+                      else wire.project(schema, key, atomic_framing=True))
         if checkpoint.get('schema_bindings', {}).get(key) != projection.identity:
             raise ValueError('Frozen Planning stage wire identity changed')
         used_bindings.add(key)
@@ -862,6 +1410,11 @@ def verify(root, plan, mode, script, origin=None, *, canonical=None, attempt=Non
             raise ValueError('Frozen wire original or capture hash changed')
         errors = projection.errors(original)
         diagnostic = {'wire_errors': errors, 'original_sha256': hashlib.sha256(raw.encode()).hexdigest()}
+        if isinstance(projection, wire.BIdentityProjection):
+            n = projection.normalization_receipt(original)
+            evidence = {k:v for k,v in n.items() if k!='normalized'} if n else None
+            if checkpoint.get('b_normalizations', {}).get(key) != evidence:
+                raise ValueError('Frozen B lossless normalization receipt changed')
         if checkpoint.get('wire_diagnostics', {}).get(key) != diagnostic:
             raise ValueError('Frozen wire diagnostic changed')
         if strict and errors:
@@ -872,9 +1425,22 @@ def verify(root, plan, mode, script, origin=None, *, canonical=None, attempt=Non
         value = candidate('repair', lineage['output'], canonical_schema, strict=True)
         return review.decode_patch_slots(value, targets, support_batch=batch)
     codec = staged._read_only_staged(query_schema(scope))
-    selection_schema = intake_selection(scope, view.codec.schema)
+    owner = scope.get('creative_authority')
+    delegation = None
+    if owner is not None:
+        if owner.get('policy') != creative.OWNER_POLICY:
+            raise ValueError('Unknown D1 Claim checkpoint policy')
+        delegation = creative.compile_envelope(
+            attempt, actual, {'context_refs': scope['context_refs']}, mode,
+            allow_missing_canonical=origin is not None)
+        if owner['envelope'] != delegation:
+            raise ValueError('D1 frozen creative sources changed')
+    d1_bridge = (creative.OpaqueHeaderBridge(view.codec, codec, delegation)
+                 if delegation is not None else None)
+    selection_schema = intake_selection(scope, d1_bridge.schema if d1_bridge else view.codec.schema)
     a_message_for = lambda stage, **kw: view_a_message(scope, view, stage, **kw)
-    selected = candidate('A-selection', json.loads(checkpoint['wire_originals']['A-selection']), selection_schema)
+    selected = candidate('A-selection', json.loads(checkpoint['wire_originals']['A-selection']),
+                         selection_schema, strict=d1_bridge is not None)
     selected_receipt = None
     if admission_enabled(scope):
         original_call = {**checkpoint['capture']['A-selection'],
@@ -887,7 +1453,14 @@ def verify(root, plan, mode, script, origin=None, *, canonical=None, attempt=Non
         if read_artifact(root, 'SEMANTIC_A_SELECTION_NORMALIZED.json', MAX_RESULT_BYTES) != admission.canonical_json(selected).encode():
             raise ValueError('Frozen normalized selection differs from original replay')
         selected_receipt = admitted['receipt']
-    selected = view.codec.decode(selected, view.codec.identity, diagnostic=True)
+    d1_state = None
+    if d1_bridge is not None:
+        selected, headers = d1_bridge.decode(selected, d1_bridge.identity)
+        d1_state = {'policy': creative.OWNER_POLICY, 'envelope': delegation,
+                    'bridge_identity': d1_bridge.identity, 'headers': headers,
+                    'conditions': {}, 'a_batch': None}
+    else:
+        selected = view.codec.decode(selected, view.codec.identity, diagnostic=True)
     detail_plan, binding, detail_messages = frozen_detail_plan(scope, codec, selected,
         checkpoint['capture']['A-selection']['reply_sha256'], view, selected_receipt)
     if checkpoint.get('detail_binding') != binding:
@@ -897,14 +1470,206 @@ def verify(root, plan, mode, script, origin=None, *, canonical=None, attempt=Non
         if (recorded['request_sha256'] != hashlib.sha256(message.encode()).hexdigest()
                 or recorded['session'] != f"semantic-{scope['attempt_id']}-vnext-{key}"):
             raise ValueError('Frozen staged request cannot be reconstructed')
-    details = {batch['key']: candidate(batch['key'],
-        json.loads(checkpoint['wire_originals'][batch['key']]), batch['schema'])
-        for batch in detail_plan['batches']}
-    value = codec.assemble_batches_candidate(selected, detail_plan, details, repair_missing_leaves=True)
+    d1_batched = (creative.BatchedVisualClaimCarrier(
+        codec, selected, delegation, source_bridge_identity=d1_bridge.identity,
+        source_codec=view.codec)
+        if d1_bridge is not None else None)
+    def replay_regenerated_detail(batch):
+        key = batch['key']
+        entry = checkpoint['stage_regenerations'][key]
+        schema = d1_batched.batches[key]
+        projection = wire.project(schema, key, atomic_framing=True)
+        original_raw = checkpoint['wire_originals'].get(key)
+        original_call = checkpoint['capture'].get(key, {})
+        used_bindings.add(key)
+        if checkpoint['schema_bindings'].get(key) != projection.identity:
+            raise ValueError('Frozen regenerated original Schema binding changed')
+        if original_raw is None:
+            if (original_call.get('reply_sha256') is not None or
+                    original_call.get('result') not in ('REQUESTED', 'TRANSPORT_FAILED')):
+                raise ValueError('Failed original A-details capture was reinterpreted as a reply')
+            evidence = entry.get('original_failure', {}).get('terminal_evidence')
+            decision = stage_loop.confirmed_no_tool(evidence, stage=key,
+                schema_sha256=structured.request_for(projection.schema)['schemaSha256'],
+                session=original_call.get('session'))
+            accepted_receipt = {
+                'policy': stage_loop.POLICY, 'decision': 'STAGE_REGENERATE',
+                'reason': 'TERMINAL_NO_TOOL',
+                'terminal_evidence_sha256': authority.digest(decision)}
+            diagnostic = {'wire_errors': [], 'original_sha256': None,
+                          'terminal_failure_sha256': authority.digest(decision)}
+        else:
+            if (original_call.get('result') not in ('MODEL_COMPLETED', 'ACCEPTED')
+                    or hashlib.sha256(original_raw.encode()).hexdigest()
+                    != original_call.get('reply_sha256')):
+                raise ValueError('Original failed A-details reply identity changed')
+            decision = stage_loop.source_only_failure(original_raw, projection.schema)
+            accepted_receipt = admission.classify_details_wire(original_raw, projection.schema,
+                binding={'attempt_id': scope['attempt_id'], 'stage': key,
+                    'source_sha256': authority.digest(view.codec.references),
+                    'schema_binding_sha256': authority.digest(projection.identity)})
+            if accepted_receipt['decision'] != 'REJECT':
+                raise ValueError('Original invalid source was incorrectly admitted')
+            diagnostic = {'wire_errors': projection.errors(staged.StagedProposal.parse_raw(original_raw)),
+                          'original_sha256': original_call['reply_sha256']}
+        if (decision is None or entry.get('policy') != stage_loop.POLICY
+                or entry.get('original_failure') != decision
+                or checkpoint['wire_admissions'].get(key) != accepted_receipt
+                or checkpoint['wire_diagnostics'].get(key) != diagnostic
+                or not isinstance(entry.get('history'), list)
+                or not 1 <= len(entry['history']) <= stage_loop.MAX_STAGE_REGENERATIONS):
+            raise ValueError('Frozen regenerated A-details original failure changed')
+        prior = decision
+        for ordinal, history in enumerate(entry['history']):
+            identity = stage_loop.recovery_identity(key, prior, ordinal=ordinal,
+                frozen_schema_sha256=structured.request_for(projection.schema)['schemaSha256'],
+                detail_binding_sha256=authority.digest(binding))
+            reservation = reserved_repair('regen:' + key + ':' + str(ordinal), identity)
+            expected = {'repair_stage': reservation['key'],
+                        'reservation_sha256': reservation['reservation_sha256'],
+                        'cause': prior}
+            repair_key = reservation['key']
+            used_bindings.add(repair_key)
+            candidate_projection = wire.project(schema, repair_key, atomic_framing=True)
+            if checkpoint['schema_bindings'].get(repair_key) != candidate_projection.identity:
+                raise ValueError('Frozen A-details regenerated Schema binding changed')
+            message = stage_loop.regeneration_message(
+                detail_messages[key], key, prior, ordinal)
+            captured = checkpoint['capture'].get(repair_key, {})
+            if (captured.get('request_sha256') != hashlib.sha256(
+                    review.checked_message(message).encode()).hexdigest()
+                    or captured.get('session') != f"semantic-{scope['attempt_id']}-vnext-{repair_key}"):
+                raise ValueError('Frozen A-details regenerated request identity changed')
+            raw = checkpoint['wire_originals'].get(repair_key)
+            if raw is None:
+                if (captured.get('reply_sha256') is not None
+                        or captured.get('result') not in ('REQUESTED', 'TRANSPORT_FAILED')):
+                    raise ValueError('Regenerated missing response was forged')
+                failure = stage_loop.confirmed_no_tool(
+                    history.get('failure', {}).get('terminal_evidence'),
+                    stage=repair_key,
+                    schema_sha256=structured.request_for(candidate_projection.schema)['schemaSha256'],
+                    session=captured['session'])
+                diag = {'wire_errors': [], 'original_sha256': None,
+                        'terminal_failure_sha256': authority.digest(failure)}
+            else:
+                if (captured.get('result') not in ('MODEL_COMPLETED', 'ACCEPTED')
+                        or hashlib.sha256(raw.encode()).hexdigest() != captured.get('reply_sha256')):
+                    raise ValueError('A-details recovered Tool bytes differ from frozen capture')
+                parsed = staged.StagedProposal.parse_raw(raw)
+                diag = {'wire_errors': candidate_projection.errors(parsed),
+                        'original_sha256': captured['reply_sha256']}
+                if not diag['wire_errors']:
+                    accepted = candidate(repair_key, parsed, schema, strict=True)
+                    expected.update(result='ACCEPT', reply_sha256=captured['reply_sha256'])
+                    if (history != expected or entry.get('effective_key') != repair_key
+                            or ordinal != len(entry['history']) - 1):
+                        raise ValueError('Frozen accepted A-details generation lineage changed')
+                    if read_artifact(root, key.replace('A-details-', 'SEMANTIC_A_DETAILS_') +
+                            '.json', MAX_RESULT_BYTES).decode() != raw:
+                        raise ValueError('A-details materialized artifact is not effective capture')
+                    return accepted
+                failure = stage_loop.source_only_failure(raw, candidate_projection.schema)
+            if failure is None:
+                raise ValueError('Frozen non-recoverable A-details cannot enter regeneration')
+            if checkpoint['wire_diagnostics'].get(repair_key) != diag:
+                raise ValueError('Frozen failed A-details regeneration diagnosis changed')
+            expected.update(result='STAGE_REGENERATE', failure=failure)
+            if history != expected:
+                raise ValueError('Frozen failed regeneration lineage changed: recorded failure or prior identity')
+            if entry.get('effective_key') == repair_key:
+                raise ValueError('Frozen failed regeneration marked effective')
+            prior = failure
+        raise ValueError('Frozen regeneration has no accepted effective A-details reply')
+
+    def replay_admitted_detail(batch):
+        key = batch['key']
+        if key in checkpoint.get('stage_regenerations', {}):
+            if d1_batched is None:
+                raise ValueError('Regenerated A-details has no frozen D1 authority')
+            return replay_regenerated_detail(batch)
+        schema = d1_batched.batches[key] if d1_batched is not None else batch['schema']
+        raw_text = checkpoint['wire_originals'][key]
+        raw = staged.StagedProposal.parse_raw(raw_text)
+        if d1_batched is None:
+            return candidate(key, raw, schema, strict=False)
+        projection = wire.project(schema, key, atomic_framing=True)
+        receipt = admission.classify_details_wire(raw_text, projection.schema,
+            binding={'attempt_id': scope['attempt_id'], 'stage': key,
+                     'source_sha256': authority.digest(view.codec.references),
+                     'schema_binding_sha256': authority.digest(projection.identity)})
+        if checkpoint['wire_admissions'].get(key) != receipt:
+            raise ValueError('Frozen A-details admission receipt differs')
+        if receipt['decision'] == 'ACCEPT':
+            if key in checkpoint['wire_repairs']:
+                raise ValueError('An accepted A-details has a forged repair receipt')
+            return candidate(key, raw, schema, strict=True)
+        candidate(key, raw, schema, strict=False)  # The original wire errors stay frozen.
+        if receipt['decision'] != 'BOUNDED_REPAIR':
+            raise ValueError('Unsafe A-details original cannot be repaired on replay')
+        identity = {'policy': admission.DETAILS_RECOVERY_POLICY,
+                    'stage': key, 'origin_sha256': receipt['original_sha256'],
+                    'schema_sha256': receipt['schema_sha256'],
+                    'admission_sha256': authority.digest(receipt),
+                    'target_path': ['unresolved']}
+        reservation = reserved_repair('wire:' + key, identity)
+        patch_schema = admission.details_repair_schema(projection.schema)
+        message = details_root_repair_message(detail_messages[key], raw_text, key, receipt)
+        call = checkpoint['capture'][reservation['key']]
+        if (call['request_sha256'] != hashlib.sha256(message.encode()).hexdigest()
+                or call['session'] != f"semantic-{scope['attempt_id']}-vnext-{reservation['key']}"):
+            raise ValueError('Frozen A-details repair request or session changed')
+        patch = staged.StagedProposal.parse_raw(checkpoint['wire_originals'][reservation['key']])
+        patch = candidate(reservation['key'], patch, patch_schema, strict=True)
+        completed = admission.bind_details_repair(raw, patch, projection.schema)
+        receipt_row = {'policy': admission.DETAILS_RECOVERY_POLICY, 'stage': key,
+                       'repair_stage': reservation['key'],
+                       'reservation_sha256': reservation['reservation_sha256'],
+                       'original_reply_sha256': receipt['original_sha256'],
+                       'patch_reply_sha256': call['reply_sha256'],
+                       'effective_wire_sha256': authority.digest(completed),
+                       'admission_sha256': authority.digest(receipt)}
+        if checkpoint['wire_repairs'].get(key) != receipt_row:
+            raise ValueError('Frozen A-details repaired bytes or decision changed')
+        return projection.decode_valid(completed)
+
+    if (not isinstance(checkpoint.get('b_normalizations'), dict)
+            or any(not k.startswith('B-') for k in checkpoint['b_normalizations'])):
+        raise ValueError('Frozen B normalization identity is invalid')
+    if not isinstance(checkpoint.get('stage_regenerations'), dict):
+        raise ValueError('Frozen stage regeneration ledger missing')
+    if set(checkpoint['stage_regenerations']) - {batch['key'] for batch in detail_plan['batches']}:
+        raise ValueError('Frozen unexpected A-details regenerated batch')
+    if set(regenerated_repair_keys) != {row['key'] for row in repair_rows
+                                       if row['stage'].startswith('regen:')}:
+        raise ValueError('Frozen regeneration budget/capture coverage changed')
+    details = {batch['key']: replay_admitted_detail(batch)
+               for batch in detail_plan['batches']}
+    if set(checkpoint.get('wire_admissions', {})) != ({batch['key'] for batch in detail_plan['batches']}
+            if d1_batched is not None else set()):
+        raise ValueError('Frozen A-details admission stage coverage changed')
+    if set(checkpoint.get('wire_repairs', {})) != {row['stage'].removeprefix('wire:')
+            for row in repair_rows if row['stage'].startswith('wire:')}:
+        raise ValueError('Frozen A-details repaired stage coverage changed')
+    if d1_batched is not None:
+        value, d1_state['conditions'], d1_state['a_batch'] = d1_batched.merge(details, d1_batched.identity)
+        effective_source_keys = {key: checkpoint['stage_regenerations'][key]['effective_key']
+                                 for key in checkpoint['stage_regenerations']}
+        raw_batches = {key: checkpoint['wire_originals'][effective_source_keys.get(key, key)]
+                       for key in details}
+        captures = {key: {**checkpoint['capture'][key], 'reply': checkpoint['wire_originals'][key]}
+                    for key in {'A-selection', *raw_batches, *effective_source_keys.values()}}
+        creative.verify_a_claim_origin(delegation, d1_bridge, d1_batched,
+            checkpoint['wire_originals']['A-selection'], raw_batches, captures,
+            d1_state['headers'], d1_state['conditions'], effective_batches=details,
+            capture_keys=effective_source_keys)
+    else:
+        value = codec.assemble_batches_candidate(selected, detail_plan, details, repair_missing_leaves=True)
     if value != initial:
         raise ValueError('Frozen assembly cannot be derived from all original batch captures')
     a_keys = ['A-selection', *(batch['key'] for batch in detail_plan['batches'])]
-    invalid_a_wire = any(checkpoint['wire_diagnostics'][key]['wire_errors'] for key in a_keys)
+    invalid_a_wire = any(checkpoint['wire_diagnostics'][key]['wire_errors']
+                         for key in a_keys if key not in checkpoint['stage_regenerations'])
     if correction.enabled(scope):
         def replay_invoke(key, message, schema):
             recorded = checkpoint['capture'].get(key, {})
@@ -916,18 +1681,69 @@ def verify(root, plan, mode, script, origin=None, *, canonical=None, attempt=Non
                 raise ValueError('Frozen candidate reply missing')
             return staged.StagedProposal.parse_raw(raw_reply)
         def replay_repair(stage, original, targets, context=None):
-            schema = correction.patch_schema(targets, support_batch=context, slots=True)
-            output = replay_invoke('repair', repair_message(scope, original, targets, context), schema)
-            decoded = candidate('repair', output, schema, strict=True)
+            msg = repair_message(scope, original, targets, context,
+                evidence_ref=checkpoint.get('repair_evidence_policy') if checkpoint.get('repair_evidence_policy') in (repair_evidence.POLICY, repair_evidence.LEGACY_POLICY) else False)
+            carrier = None
+            if delegation is not None:
+                creative.verify_a_claim_origin(delegation, d1_bridge, d1_batched,
+                    checkpoint['wire_originals']['A-selection'],
+                    raw_batches, captures, d1_state['headers'], d1_state['conditions'],
+                    effective_batches=details, capture_keys=effective_source_keys)
+                if any(t['kind'] in {'complete_obligation', 'visual_choices',
+                                     'frozen_visual_coverage', 'confirmed_necessity'} for t in targets):
+                    carrier = creative.ExtendedSharedRepairCarrier(
+                        delegation, original, targets,
+                        d1_state['conditions'], d1_state['headers'])
+                    intro, payload = msg.rsplit('\n', 1)
+                    msg = review.checked_message(intro +
+                        '\n当前 D1 每个视觉修复 value 必须同槽提交 authority Claim；'
+                        'Claim 不构成 Creator/Rights 授权。\n' + payload)
+            schema = carrier.schema if carrier is not None else correction.patch_schema(
+                targets, support_batch=context, slots=True)
+            identity = {'stage': stage, 'targets': descriptors(targets),
+                        'original_sha256': authority.digest(original),
+                        'context_sha256': authority.digest(context),
+                        **({'creative_policy': creative.OWNER_POLICY,
+                            'claim_state_sha256': authority.digest(d1_state)}
+                           if delegation is not None else {})}
+            reservation = reserved_repair(stage, identity)
+            output = replay_invoke(reservation['key'], msg, schema)
+            decoded = candidate(reservation['key'], output, schema, strict=True)
+            if carrier is not None:
+                result, d1_state['conditions'], d1_state['headers'], evidence = carrier.apply(
+                    decoded, carrier.identity)
+                d1_state['repair_evidence'] = evidence
+                return result, output
             patches = correction.decode_patch_slots(decoded, targets, support_batch=context)
             return correction.apply_patches(original, patches, targets, support_batch=context), output
         replayed = correction.evaluate(initial, scope, view, replay_invoke, candidate, replay_repair,
-                                       max_calls=MAX_PLANNING_CALLS, a_calls=binding['a_calls'])
+                                       max_calls=MAX_PLANNING_CALLS, a_calls=binding['a_calls'],
+                                       b_identity=checkpoint.get('b_identity_policy') == wire.B_IDENTITY_POLICY,
+                                        claim_binding=(lambda directory: bind_d1_d2_review(
+                                            directory, envelope=delegation, state=d1_state,
+                                            d2_enabled=scope.get('d2_review_policy') == d2.POLICY))
+                                        if d1_state is not None else None)
+        if d1_state is not None:
+            if checkpoint.get('creative_claims') != d1_state:
+                raise ValueError('Frozen D1 Claim/Repair cannot be reconstructed from original calls')
+        elif 'creative_claims' in checkpoint:
+            raise ValueError('D1 Claim policy downgraded on cold replay')
+        if scope.get('d2_review_policy') == d2.POLICY:
+            actual_proofs = d2.compile_decision_proofs(
+                replayed['directory'], replayed['responses'],
+                attempt_id=attempt['attempt_id'],
+                b_captures={key: raw for key, raw in checkpoint['wire_originals'].items()
+                            if key.startswith('B-')})
+            if checkpoint.get('d2_decision_proof') != actual_proofs:
+                raise ValueError('Frozen D2 DecisionProof differs from original B/Repair capture')
+        elif 'd2_decision_proof' in checkpoint:
+            raise ValueError('D2 DecisionProof policy downgraded on cold replay')
         for key in ('initial_review_value', 'initial_responses', 'before_semantic', 'repair'):
             if checkpoint.get(key) != replayed[key]:
                 raise ValueError('Frozen candidate correction evidence changed: ' + key)
-        if checkpoint.get('candidate_correction') != replayed['trace']:
-            raise ValueError('Frozen candidate reports or correction lineage changed')
+        if (checkpoint.get('candidate_repairs') != replayed['repairs']
+                or checkpoint.get('candidate_correction') != replayed['trace']):
+            raise ValueError('Frozen candidate reports or full correction lineage changed')
         proposal, directory = replayed['proposal'], replayed['directory']
         responses = replayed['responses']
         if checkpoint['responses'] != [r.model_dump(mode='json') for r in responses]:

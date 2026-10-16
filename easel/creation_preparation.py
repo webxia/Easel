@@ -689,12 +689,28 @@ def _prepare_creation_for_hypit_locked(
             runtime_error = SecretRedactor.redact_text(str(exc))[:1000]
     else:
         runtime_state = "NOT_CONFIGURED"
+    # Pin D1 in the atomic creation of a *new* Attempt. Reusing the same
+    # preparation_key returns its original policy unchanged (never auto-upgrade).
+    from easel.integrations.planning_creative_authority import OWNER_POLICY
+    requested_creative = getattr(planning_executor, "creative_claim_policy", None)
+    if requested_creative not in (None, OWNER_POLICY):
+        raise PreparationError("Unknown Planning Creative Claim executor policy")
+    from easel.integrations.planning_d2_typed_review import POLICY as D2_POLICY
+    requested_d2 = getattr(planning_executor, "d2_review_policy", None)
+    if requested_d2 not in (None, D2_POLICY) or (requested_d2 and requested_creative != OWNER_POLICY):
+        raise PreparationError("Unknown or unbound D2 typed B Review policy")
     attempt = service.create_film_attempt(
         creation_id, handoff_record["handoff_id"],
         runtime_profile=runtime_profile if runtime_state == "CONFIGURED" else None,
         preparation_key=operation_key,
         runtime_status=runtime_state,
+        creative_claim_policy=requested_creative,
+        d2_review_policy=requested_d2,
     )
+    if requested_d2 and attempt.get('d2_review_policy') != requested_d2:
+        raise PreparationError('Existing Attempt cannot upgrade to D2 typed B Review policy')
+    if requested_creative and attempt.get("creative_claim_policy") != requested_creative:
+        raise PreparationError("Existing Attempt cannot upgrade to D1 Creative Claim policy")
 
     # Product Creation always traverses the Material lifecycle. Local roots
     # configure one supply source; an empty registry produces an auditable
@@ -742,6 +758,16 @@ def _prepare_creation_for_hypit_locked(
                 "creative_mode_sha256": mode.get("hash", ""),
                 },
             }
+            pinned_creative = attempt.get("creative_claim_policy")
+            if pinned_creative is not None:
+                if (pinned_creative != OWNER_POLICY or requested_creative != OWNER_POLICY):
+                    raise MaterialIntegrationError("Frozen D1 Attempt requires its original Creative Owner")
+                planning_context["creative_claim_policy"] = pinned_creative
+            pinned_d2 = attempt.get("d2_review_policy")
+            if pinned_d2 is not None:
+                if pinned_d2 != D2_POLICY or requested_d2 != D2_POLICY:
+                    raise MaterialIntegrationError("Frozen D2 Attempt requires original typed B Review Owner")
+                planning_context["d2_review_policy"] = pinned_d2
             version = attempt.get('planning_contract_version')
             if version is None:
                 # Registration must precede the first request; stale files and
@@ -760,6 +786,8 @@ def _prepare_creation_for_hypit_locked(
                     planning_contract_version=3)
             elif version != 3:
                 raise MaterialIntegrationError('退役 Planning 版本只读保留，不能执行')
+            if requested_creative and attempt.get("creative_claim_policy") != requested_creative:
+                raise MaterialIntegrationError("D1 policy must be frozen before first model dispatch")
             planning = planning_executor(attempt, planning_context)
             attempt = service.get_film_attempt(attempt['attempt_id'])
             if attempt.get('planning_contract_version') != 3:

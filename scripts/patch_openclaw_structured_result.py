@@ -15,6 +15,7 @@ import tempfile
 VERSION = '2026.9.4'
 AI = 'node_modules/@openclaw/ai/dist/'
 PINS = {
+    'dist/embedded-agent-CE9KzQvy.mjs': 'd764d6270d9227498b5197eef25a598c15541c0269e6e9294a95d079ec88e4fa',
     'dist/provider-transport-fetch-C-DHvnM1.mjs': '7a6d3eb1c52dd216ce0f42e48fc5e1c4ad323f22e526b3afd73ef018655c5e39',
     'dist/fetch-guard-C3-bkDI5.mjs': '7427ee4aab7cb7cbc3cc3b3770bc36582107738e54470dab75d06b21d6bc8973',
     AI + 'host-policy-Zcg_cNz8.mjs': '4fd8c9243682dec7901f73bd29885f79bcc97ec301d68ff26e11173e5bc58df8',
@@ -34,6 +35,11 @@ PRIOR_PARTS = {'dist/principal-CweFVZNq.mjs':
                           '96fb39bc4e8c6129783c587a2324071bbb92fff366c2f94c71dbaaa185570ed7'},
     'dist/provider-transport-fetch-C-DHvnM1.mjs':
         {'fe2923d07e202d3c84f1aa1f69fb7f43c3e288a14b9970aef2bab6a32a1e21cd'}}
+# Exact deployed v1 bytes accepted only as an isolated upgrade source.
+PRIOR_PARTS.setdefault('dist/src-7tzZ8j12.mjs', set()).add('02a4796e3fa3407f8ef1390fdc53093fa43a85dfe4c00be1edc23fd762d161cc')
+PRIOR_PARTS.setdefault('dist/principal-CweFVZNq.mjs', set()).add('086a8c6f780f79142716303921cb84e9ab6d20cae9f2879e4276f6a4199e70bd')
+PRIOR_PARTS.setdefault('dist/builtin-openclaw-B-H-7lKk.mjs', set()).add('dadd861cb8ae029e1c40385705a44cb7a1d8c17ae532d26c6e879c5fc5d0e4b0')
+
 PRIOR_HELPER = {'1ab40cf4ec7c495141492d4bf7947c294187dce9c5e11c3bdf169fb2157de805',
                 '03c8406e5c5e1b8fa7828c4358e466ce8de3c84cf300fa8df5eec6f4c2f797c2',
                 'b8664827744dc0bc51e71191e498902b1e3ae6af95510df1d46bddde668961e5',
@@ -52,6 +58,11 @@ def once(source, old, new):
 
 
 def transform(name, source):
+    if name.endswith('embedded-agent-CE9KzQvy.mjs'):
+        return once(source, 'async function handleEmbeddedAssistantFailure(input) {',
+            'async function handleEmbeddedAssistantFailure(input) {\n'
+            '\tif (input.runParams.streamParams?.easelStructuredResult) return buildOutcome(input, {\n'
+            '\t\taction: "proceed", assistantProfileFailureReason: null\n\t});')
     if name.endswith('host-policy-Zcg_cNz8.mjs'):
         return source  # Behavior dependency: forwards options to the real host.
     if name.endswith('provider-transport-fetch-C-DHvnM1.mjs'):
@@ -82,7 +93,9 @@ def transform(name, source):
         return once(source, 'const AgentParamsSchema = closedObject({\n',
             'const AgentParamsSchema = closedObject({\n'
             '\teaselStructuredResult: Type.Optional(closedObject({\n'
-            '\t\tversion: Type.Literal("easel-structured-result@1"),\n'
+            '\t\tversion: Type.Literal("easel-structured-result@2"),\n'
+            '\t\tcontextPolicy: Type.Literal("planning-original-input-only@1"),\n'
+            '\t\tinputSha256: Type.String({pattern: "^[a-f0-9]{64}$"}),\n'
             '\t\tname: Type.Literal("submit_semantic_plan"),\n'
             '\t\tschema: Type.Record(Type.String(), Type.Unknown()),\n'
             '\t\tschemaSha256: Type.String({pattern: "^[a-f0-9]{64}$"})\n\t})),\n')
@@ -103,7 +116,7 @@ def transform(name, source):
             '\t\t\t\t\t...easelStructured ? {\n'
             '\t\t\t\t\t\tclientTools: [{type: "function", function: {name: easelStructured.name,\n'
             '\t\t\t\t\t\t\tdescription: ["PlanningVisualReview", "PlanningLocalRepair"].includes(easelStructured.schema.title) ? "Submit the current stage result using the exact supplied schema" : "Submit semantic plan candidate", parameters: {type: "object", additionalProperties: true}}}],\n'
-            '\t\t\t\t\t\tstreamParams: {easelStructuredResult: easelStructured}\n'
+            '\t\t\t\t\t\tstreamParams: {easelStructuredResult: easelStructured, easelPlanningInput: params.request.message}\n'
             '\t\t\t\t\t} : {},')
     if name.endswith('builtin-openclaw-B-H-7lKk.mjs'):
         source = 'import {bindAttempt as easelBindAttempt, assertSessionProtocol as easelAssertSessionProtocol} from "./easel-structured-result.mjs";\n' + source
@@ -115,7 +128,7 @@ def transform(name, source):
             '\t\tsession.agent.streamFn = easelBindAttempt(session.agent.streamFn,\n'
             '\t\t\tattempt.streamParams.easelStructuredResult, {runId: attempt.runId,\n'
             '\t\t\t\tsessionId: attempt.sessionId, provider: attempt.model.provider, model: attempt.model.id},\n'
-            '\t\t\tpath.join(resolveStateDir(), "easel-structured-requests"));\n\t}\n'
+            '\t\t\tpath.join(resolveStateDir(), "easel-structured-requests"), attempt.streamParams.easelPlanningInput);\n\t}\n'
             '\treturn {\n\t\tserverToolClearingEnabled,')
     if name.endswith('transports.mjs'):
         source = ('import {protectedStream as easelProtectedStream, reserveSubmission as easelReserveSubmission, retainExecutionFailure as easelRetainExecutionFailure}'

@@ -16,13 +16,14 @@ from easel.integrations.planning_result_contract import MAX_RESULT_BYTES, MAX_RE
 from easel.integrations.planning_reply_safety import safe_structured_text
 
 
-def capture(calls, key, message, session, dispatch, save):
+def capture(calls, key, message, session, dispatch, save, *, refuse_uncertain_reentry=False, reconcile=None):
     identity = hashlib.sha256(message.encode()).hexdigest()
     if len(message.encode()) > MAX_REQUEST_BYTES:
         raise PlanningResultError('CONTRACT_REJECTED')
     record = calls.get(key)
     if record is not None and (record['request_sha256'] != identity or record['session'] != session):
         raise ValueError('Planning capture request identity changed')
+    newly_created = record is None
     if record is None:
         record = {'request_sha256': identity, 'session': session, 'input_bytes': len(message.encode()),
                   'result': 'REQUESTED'}
@@ -34,14 +35,23 @@ def capture(calls, key, message, session, dispatch, save):
     if record.get('reply') is None:
         started = time.monotonic()
         try:
-            reply = dispatch(key, message, session)
+            if refuse_uncertain_reentry and not newly_created:
+                # Never dispatch an already-requested P0 operation. Only an
+                # independently verified terminal receipt can be re-read.
+                if reconcile is None:
+                    raise DeliveryExecutionUncertain('P0 original Planning request needs terminal reconciliation')
+                reply = reconcile(key, message, session)
+            else:
+                reply = dispatch(key, message, session)
         except PlanningResultError as exc:
             record['result'] = exc.result
             save()
             raise
         except DeliveryExecutionUncertain:
-            record['result'] = 'TRANSPORT_FAILED'
-            save()
+            if newly_created:
+                record['result'] = 'TRANSPORT_FAILED'
+                save()
+            # An existing uncertain run keeps its durable original state.
             raise
         if not isinstance(reply, str) or not reply.strip():
             record['result'] = 'MODEL_NO_RESULT'

@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-export const VERSION = 'easel-structured-result@1';
+export const VERSION = 'easel-structured-result@2';
+export const CONTEXT_POLICY = 'planning-original-input-only@1';
 export const TOOL = 'submit_semantic_plan';
 export const MAX_ARGUMENT_BYTES = 8 * 1024 * 1024;
 const failure = code => { throw new Error(code); };
@@ -155,7 +156,8 @@ export function safeArguments(raw) {
 export function validateRequest(request) {
   if (!request || request.version !== VERSION || request.name !== TOOL ||
       request.schema?.type !== 'object' ||
-      Object.keys(request).sort().join(',') !== 'name,schema,schemaSha256,version' ||
+      request.contextPolicy !== CONTEXT_POLICY || !/^[a-f0-9]{64}$/.test(request.inputSha256 ?? '') ||
+      Object.keys(request).sort().join(',') !== 'contextPolicy,inputSha256,name,schema,schemaSha256,version' ||
       request.schemaSha256 !== sha256(canonical(request.schema)))
     failure('STRUCTURED_REQUEST_INVALID');
   return request;
@@ -163,6 +165,15 @@ export function validateRequest(request) {
 
 export function validatePayload(payload, request) {
   validateRequest(request);
+  const messages = payload?.messages;
+  const content = messages?.[0]?.content;
+  const text = typeof content === 'string' ? content :
+    Array.isArray(content) && content.length === 1 && content[0]?.type === 'text' &&
+    Object.keys(content[0]).sort().join(',') === 'text,type' ? content[0].text : null;
+  if (!Array.isArray(messages) || messages.length !== 1 || messages[0]?.role !== 'user' ||
+      Object.keys(messages[0]).sort().join(',') !== 'content,role' ||
+      typeof text !== 'string' || sha256(text) !== request.inputSha256)
+    failure('STRUCTURED_INPUT_CHANGED');
   const tools = payload?.tools;
   if (!Array.isArray(tools) || tools.length !== 1 || tools[0]?.type !== 'function' ||
       tools[0].function?.name !== TOOL ||
@@ -185,7 +196,7 @@ export function assertSessionProtocol(directory, identity, request) {
   validateRequest(request);
   const expected = canonical({version: VERSION, runId: identity.runId,
     sessionId: identity.sessionId, provider: identity.provider, model: identity.model,
-    schemaSha256: request.schemaSha256});
+    schemaSha256: request.schemaSha256, contextPolicy: request.contextPolicy, inputSha256: request.inputSha256});
   safeArguments(expected);
   let descriptor;
   try {
@@ -421,12 +432,19 @@ function correlateProviderArguments(scope, message, accepted) {
   } catch { /* Diagnostics are independent of candidate admission. */ }
 }
 
-export function bindAttempt(streamFn, request, identity, directory) {
+export function bindAttempt(streamFn, request, identity, directory, originalInput) {
   validateRequest(request);
+  if (typeof originalInput !== 'string' || !originalInput || sha256(originalInput) !== request.inputSha256)
+    failure('STRUCTURED_INPUT_CHANGED');
   return (model, context, options = {}) => {
     if (model.api !== 'openai-completions' || model.provider !== identity.provider ||
         model.id !== identity.model) failure('STRUCTURED_ROUTE_CHANGED');
-    return streamFn(model, context, {
+    // The RPC's original Harness message is authoritative. Native Agent
+    // bootstrap, time envelopes, history and Runtime notes are not Planning facts.
+    const isolated = {systemPrompt: '',
+      messages: [{role: 'user', content: originalInput, timestamp: 0}],
+      tools: [{name: TOOL, description: 'Submit the current stage result.', parameters: request.schema}]};
+    return streamFn(model, isolated, {
       ...options,
       easelStructuredResult: {request, identity, directory},
       toolChoice: {type: 'function', function: {name: TOOL}},
@@ -459,7 +477,8 @@ export function candidateEvidence(message, request) {
   if (canonical(parsed) !== canonical(call.arguments)) failure('STRUCTURED_ARGUMENTS_CHANGED');
   // Check all additional model text before any Runtime subscriber can persist it.
   storageCheck('MESSAGE_STORAGE', () => safeStoredValue(message));
-  return {version: VERSION, schemaSha256: request.schemaSha256, toolCallId: call.id,
+  return {version: VERSION, schemaSha256: request.schemaSha256,
+    contextPolicy: request.contextPolicy, inputSha256: request.inputSha256, toolCallId: call.id,
     providerFinishReason: message.easelProviderFinishReason,
     rawSha256: sha256(call.easelRawArguments), rawBytes: Buffer.byteLength(call.easelRawArguments)};
 }
@@ -481,7 +500,7 @@ const sdkFailureTypes = new Map([
 const rejectionCodes = new Set(['STRUCTURED_TERMINAL_REJECTED', 'STRUCTURED_STORAGE_REJECTED',
   'STRUCTURED_CAPACITY_REJECTED', 'STRUCTURED_ARGUMENTS_CHANGED', 'STRUCTURED_REQUEST_INVALID',
   'STRUCTURED_EXECUTION_FAILED', ...sdkFailureMessages.values(), ...sdkFailureTypes.values()]);
-const errorCodes = new Set([...rejectionCodes, 'STRUCTURED_PAYLOAD_CHANGED',
+const errorCodes = new Set([...rejectionCodes, 'STRUCTURED_PAYLOAD_CHANGED', 'STRUCTURED_INPUT_CHANGED',
   'STRUCTURED_ROUTE_CHANGED', 'STRUCTURED_IDENTITY_INVALID', 'STRUCTURED_LEDGER_UNSAFE',
   'STRUCTURED_SUBMISSION_UNCERTAIN', 'STRUCTURED_RECOVERY_REQUIRED',
   'STRUCTURED_EVENT_AFTER_TERMINAL']);
@@ -507,6 +526,7 @@ function rejectionRecord(scope, message, category, error) {
   return {version: REJECTION_VERSION, ...storageDiagnostic(error), ...Object.fromEntries(
     ['runId', 'sessionId', 'provider', 'model'].map(key => [key, scope.identity[key]])),
     schemaSha256: scope.request.schemaSha256,
+    contextPolicy: scope.request.contextPolicy, inputSha256: scope.request.inputSha256,
     category: rejectionCodes.has(category) ? category : 'STRUCTURED_EXECUTION_FAILED',
     messageShape: shape(message), contentShape: memberShape(message, 'content'),
     providerFinishShape: memberShape(message, 'easelProviderFinishReason'),
@@ -530,7 +550,8 @@ function existingRejection(file, expected) {
   const keys = Object.keys(expected).filter(key => !legacy || !['storageReason', 'storageStage'].includes(key));
   if (Object.keys(value).sort().join(',') !== keys.sort().join(',')) return false;
   if (!legacy && (!storageReasons.has(value.storageReason) || !storageStages.has(value.storageStage))) return false;
-  for (const key of ['runId', 'sessionId', 'provider', 'model', 'schemaSha256'])
+  for (const key of ['runId', 'sessionId', 'provider', 'model', 'schemaSha256',
+    ...legacy ? [] : ['contextPolicy', 'inputSha256']])
     if (value[key] !== expected[key]) return false;
   if (!rejectionCodes.has(value.category)) return false;
   for (const key of ['messageShape', 'contentShape', 'providerFinishShape', 'nativeStopShape',
@@ -607,14 +628,19 @@ export function retainExecutionFailure(scope, message, error) {
 export function protectedStream(destination, scope) {
   let ended = false;
   let terminal;
+  let rejectedCategory;
   return {
     push(event) {
       if (ended) failure('STRUCTURED_EVENT_AFTER_TERMINAL');
+      if (rejectedCategory && event.type !== 'error') failure('STRUCTURED_EVENT_AFTER_TERMINAL');
       if (event.type !== 'done' && event.type !== 'error') return;
       if (event.type === 'done') {
         let evidence;
         try { evidence = candidateEvidence(event.message, scope.request); }
         catch (error) {
+          // Preserve only our fixed rejection code across SDK cleanup. The
+          // later sanitized error event must not erase this observed terminal.
+          rejectedCategory ??= errorCodes.has(error?.message) ? error.message : 'STRUCTURED_EXECUTION_FAILED';
           correlateProviderArguments(scope, event.message, false);
           retainRejection(scope, event.message, error?.message, error);
           throw error;
@@ -634,8 +660,8 @@ export function protectedStream(destination, scope) {
         ended = true;
         const source = event.error;
         correlateProviderArguments(scope, source, false);
-        const category = errorCodes.has(source?.errorMessage)
-          ? source.errorMessage : 'STRUCTURED_EXECUTION_FAILED';
+        const category = rejectedCategory ?? (errorCodes.has(source?.errorMessage)
+          ? source.errorMessage : 'STRUCTURED_EXECUTION_FAILED');
         retainRejection(scope, source, category);
         terminal = {role: 'assistant', content: [], api: 'openai-completions',
           provider: scope.identity.provider, model: scope.identity.model,
@@ -661,7 +687,7 @@ export function reserveSubmission(directory, identity, payload, request) {
   const record = {version: VERSION, state: 'RESERVED',
     runId: identity.runId, sessionId: identity.sessionId,
     provider: identity.provider, model: identity.model,
-    schemaSha256: request.schemaSha256};
+    schemaSha256: request.schemaSha256, contextPolicy: request.contextPolicy, inputSha256: request.inputSha256};
   // Metadata only. Never write prompt, candidate or credentials to the guard.
   safeArguments(canonical(record));
   let descriptor;

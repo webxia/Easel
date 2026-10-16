@@ -11,9 +11,11 @@ const {n: validateRpc} = await native('dist/src-7tzZ8j12.mjs');
 const {createOpenAICompletionsTransportStreamFn} = await native('node_modules/@openclaw/ai/dist/transports.mjs');
 const {t: configureHost} = await native('node_modules/@openclaw/ai/dist/host-B8YfDGd4.mjs');
 const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
+const originalInput = 'offline semantic input';
 const request = {version: guard.VERSION, name: guard.TOOL, schema,
+  contextPolicy: guard.CONTEXT_POLICY, inputSha256: guard.sha256(originalInput),
   schemaSha256: guard.sha256(guard.canonical(schema))};
-const rpc = {message: 'offline test', agentId: 'main', sessionId: 'offline-test',
+const rpc = {message: originalInput, agentId: 'main', sessionId: 'offline-test',
   sessionKey: 'agent:main:offline-test', idempotencyKey: 'offline-test', easelStructuredResult: request};
 assert.equal(validateRpc(rpc), true);
 assert.equal(validateRpc({...rpc, easelStructuredResult: {...request, name: 'exec'}}), false);
@@ -74,7 +76,7 @@ const cases = [
 for (scenario of cases) {
   const identity = {runId:scenario.name,sessionId:'offline-test',provider:model.provider,model:model.id};
   const bound = guard.bindAttempt(createOpenAICompletionsTransportStreamFn(),request,identity,
-    path.join(workspace,'reservations'));
+    path.join(workspace,'reservations'),originalInput);
   const rejectionCategory = scenario.name === 'over_8MiB' ? 'STRUCTURED_SDK_ARGUMENT_BUFFER_LIMIT'
     : scenario.name === 'invalid_json' ? 'STRUCTURED_SDK_MALFORMED_TOOL_CALL'
     : scenario.lateError ? 'STRUCTURED_EXECUTION_FAILED'

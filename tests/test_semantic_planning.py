@@ -2064,7 +2064,7 @@ def test_vnext_tool_schema_matches_frozen_choices_and_existing_modality_rules():
     'identity', 'late', 'pending', 'missing', 'lost_terminal', 'duplicate_json', 'persist_failure',
     'input_os_capacity', 'escaped_secret', 'sensitive_key',
     'tool_valid', 'tool_wrong_name', 'tool_wrong_schema', 'tool_wrong_terminal',
-    'tool_runtime_upgrade', 'tool_runtime_readback'])
+    'tool_runtime_upgrade', 'tool_runtime_readback', 'tool_wrong_input'])
 def test_vnext_full_capture(prep_env, tmp_path, risk):
     import hashlib
     import subprocess
@@ -2095,7 +2095,7 @@ def test_vnext_full_capture(prep_env, tmp_path, risk):
         method=command[command.index('call')+1]; methods.append(method)
         params=json.loads(command[command.index('--params')+1])
         if method=='agent':
-            assert params.get('easelStructuredResult') == structured
+            assert params.get('easelStructuredResult') == {**structured, 'inputSha256': hashlib.sha256(b'frozen input').hexdigest()}
             run_id=params['idempotencyKey']; result={'runId':run_id,'status':'accepted'}
         elif method=='sessions.abort': result={'ok':True,'status':'no-active-run'}
         elif risk == 'pending' and methods.count('agent.wait') == 1:
@@ -2119,7 +2119,9 @@ def test_vnext_full_capture(prep_env, tmp_path, risk):
         if structured:
             value.update(stopReason='length' if risk == 'length' else 'toolUse', providerFinishReason='tool_calls', toolCallId='original-tool-id',
                 toolName='exec' if risk == 'tool_wrong_name' else structured['name'],
-                schemaSha256='wrong' if risk == 'tool_wrong_schema' else structured['schemaSha256'])
+                schemaSha256='wrong' if risk == 'tool_wrong_schema' else structured['schemaSha256'],
+                contextPolicy=structured['contextPolicy'],
+                inputSha256='0' * 64 if risk == 'tool_wrong_input' else hashlib.sha256(b'frozen input').hexdigest())
         return value
     expected_runtime = [None]
     if risk == 'tool_runtime_upgrade': expected_runtime[0] = '0' * 64
@@ -2152,7 +2154,7 @@ def test_vnext_full_capture(prep_env, tmp_path, risk):
             for _ in range(2):
                 with pytest.raises(DeliveryExecutionUncertain): capture(saved,'A','frozen input','new-vnext',dispatch,lambda:None)
         elif risk in {'length','duplicate_json','missing','escaped_secret','sensitive_key',
-                      'tool_wrong_name','tool_wrong_schema','tool_wrong_terminal'}:
+                      'tool_wrong_name','tool_wrong_schema','tool_wrong_terminal','tool_wrong_input'}:
             if risk=='missing':
                 for _ in range(2):
                     with pytest.raises(DeliveryExecutionUncertain): capture(saved,'A','frozen input','new-vnext',dispatch,lambda:None)
@@ -5692,12 +5694,58 @@ def test_planning_input_projection_keeps_frozen_payload_and_rejects_rebinding(st
         'targets': [{'path': ['answer'], 'old_sha256': 'frozen',
             'answer_schema': {'text': '合法Schema甲' * 120},
             'answer_defs': {'text': '合法Schema乙' * 120}} for _ in range(2)]}
+    if stage == 'repair':
+        shared = {'candidate_bindings': {'candidate_000': {'value': '候选原文' * 200}},
+                  'evidence': [{'id': 0, 'value': '冻结证据' * 200}],
+                  'source_catalog': {'source-0000': {'value': '来源原文' * 200}}}
+        original['evidence_choices_by_target'] = {
+            'target-000': [{'evidence_ref': 'ev-0', 'source': '原文' * 300}],
+            'target-001': [{'evidence_ref': 'ev-0', 'source': '原文' * 300}],
+            'target-002': [{'evidence_ref': 'ev-1', 'source': '另一来源' * 200}]}
+        original['review_context'] = {'frozen_batches': [
+            {'stage': f'B-{i:03d}', 'questions': [{'question': i,
+                'd2_review': {'basis': '完整审查依据' * 200},
+                'creative_dependency': {'unique': str(i) * 600},
+                'candidate_context': {'small': '保留小对象'}}], **deepcopy(shared)}
+            for i in range(3)]}
     projected = view.project(original, schema, stage=stage)
     assert view.restore(projected, schema, stage=stage,
         expected_original_sha256=digest(original)) == original
     assert projected['sources'] == original['sources']
     assert projected['original'] == original['original']
     if stage == 'repair':
+        assert len(projected['context_catalog']) == 5
+        assert projected['evidence_choices_by_target']['target-000'] == projected['evidence_choices_by_target']['target-001']
+        assert projected['evidence_choices_by_target']['target-002'] == original['evidence_choices_by_target']['target-002']
+        assert len(json.dumps(projected, ensure_ascii=False)) < len(json.dumps(original, ensure_ascii=False))
+        assert len(json.dumps(original['evidence_choices_by_target']['target-000'], ensure_ascii=False)) >= 512
+        for i, batch in enumerate(projected['review_context']['frozen_batches']):
+            question = batch['questions'][0]
+            assert set(question['d2_review']) == {view.CONTEXT_REFERENCE}
+            assert question['creative_dependency'] == original['review_context']['frozen_batches'][i]['questions'][0]['creative_dependency']
+            assert question['candidate_context'] == {'small': '保留小对象'}
+        wrong_target = deepcopy(projected)
+        wrong_target['evidence_choices_by_target']['target-002'] = deepcopy(
+            wrong_target['evidence_choices_by_target']['target-000'])
+        wrong_target['input_projection']['projected_sha256'] = digest({
+            k: v for k, v in wrong_target.items() if k != 'input_projection'})
+        with pytest.raises(ValueError, match='frozen original'):
+            view.restore(wrong_target, schema, stage=stage, expected_original_sha256=digest(original))
+        swapped = deepcopy(projected)
+        batch = swapped['review_context']['frozen_batches'][0]
+        batch['evidence'], batch['source_catalog'] = batch['source_catalog'], batch['evidence']
+        swapped['input_projection']['projected_sha256'] = digest({
+            k: v for k, v in swapped.items() if k != 'input_projection'})
+        with pytest.raises(ValueError, match='frozen original'):
+            view.restore(swapped, schema, stage=stage, expected_original_sha256=digest(original))
+        tampered = deepcopy(projected)
+        entry = next(iter(tampered['context_catalog'].values()))
+        entry['value'] = {'fabricated': '不能替代冻结原文'}
+        entry['sha256'] = digest(entry['value'])
+        tampered['input_projection']['projected_sha256'] = digest({
+            k: v for k, v in tampered.items() if k != 'input_projection'})
+        with pytest.raises(ValueError, match='frozen original'):
+            view.restore(tampered, schema, stage=stage, expected_original_sha256=digest(original))
         changed = deepcopy(projected)
         a, b = changed['targets'][0]['answer_schema'], changed['targets'][0]['answer_defs']
         changed['targets'][0]['answer_schema'], changed['targets'][0]['answer_defs'] = b, a
@@ -5715,3 +5763,44 @@ def test_planning_input_projection_keeps_frozen_payload_and_rejects_rebinding(st
     with pytest.raises(ValueError, match='binding changed'):
         view.restore(projected, schema, stage=wrong_stage,
             expected_original_sha256=digest(original))
+
+
+def test_repair_projection_capacity_preserves_full_context_and_hard_limit():
+    from easel.integrations import planning_request_view as view
+    from easel.integrations.planning_authority import digest
+    from easel.integrations.planning_result_contract import MAX_B_ANSWERS, MAX_REQUEST_BYTES
+    from easel.integrations.planning_semantic_review import checked_message, compact
+
+    # Representation stress at the existing 48-target limit, not a fabricated
+    # accepted model reply: unique question identities keep their complete basis.
+    schema = {'type': 'object', 'properties': {}, 'additionalProperties': False}
+    shared = {'basis': '不得删减的来源与创作约束。' * 3000}
+    payload = {'schema': schema, 'targets': [], 'original': {'decision': 'CHALLENGE'},
+        'review_context': {'frozen_batches': [{'questions': [
+            {'question': i, 'd2_review': deepcopy(shared)} for i in range(MAX_B_ANSWERS)]}]}}
+    assert len(compact(payload).encode()) > MAX_REQUEST_BYTES
+    projected = view.project(payload, schema, stage='repair')
+    assert view.restore(projected, schema, stage='repair',
+        expected_original_sha256=digest(payload)) == payload
+    checked_message(view.GUIDANCE + '\n' + compact(projected))
+    assert [q['question'] for q in projected['review_context']['frozen_batches'][0]['questions']] == list(range(MAX_B_ANSWERS))
+
+    # Unique authoritative content cannot be made to fit by clipping or by
+    # raising the limit; Unicode capacity is measured in bytes by the real guard.
+    payload['review_context']['frozen_batches'][0]['questions'] = [
+        {'question': 0, 'd2_review': {'basis': '真' * (MAX_REQUEST_BYTES // 3 + 1)}}]
+    projected = view.project(payload, schema, stage='repair')
+    assert view.restore(projected, schema, stage='repair',
+        expected_original_sha256=digest(payload)) == payload
+    with pytest.raises(ValueError, match='exceeds request capacity'):
+        checked_message(view.GUIDANCE + '\n' + compact(projected))
+    from easel.integrations.planning_capture import capture
+    from easel.integrations.openclaw_delivery import PlanningResultError
+    calls, dispatched = {}, []
+    with pytest.raises(PlanningResultError):
+        capture(calls, 'repair-000', view.GUIDANCE + '\n' + compact(projected),
+                'frozen-session', lambda *a, **kw: dispatched.append(a), lambda: None)
+    assert calls == {} and dispatched == []
+    assert checked_message('x' * MAX_REQUEST_BYTES) == 'x' * MAX_REQUEST_BYTES
+    with pytest.raises(ValueError, match='exceeds request capacity'):
+        checked_message('x' * MAX_REQUEST_BYTES + '真')

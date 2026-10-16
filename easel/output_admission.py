@@ -235,3 +235,63 @@ def admit_json(raw, schema, *, stage, channel, binding, profile=STRICT_PROFILE,
         policy_revision=POLICY)
     receipt['decision']['input_sha256'] = receipt['raw_sha256']
     return {'candidate': candidate, 'receipt': receipt}
+
+# Classification is pure; only the existing Planning Owner can spend on Repair.
+DETAILS_RECOVERY_POLICY = 'planning-a-details-root-admission@1'
+
+
+def classify_details_wire(raw, schema, *, binding):
+    """Describe exact representation errors without inventing missing semantics.
+
+    The only current pre-assembly repair candidate is an omitted root
+    unresolved array when every other Slot/Claim passes the original Schema.
+    All other violations remain reject-only.
+    """
+    admitted = admit_json(raw, schema, stage='A-details', channel='tool',
+                          binding=binding, profile=STRICT_PROFILE)
+    receipt = admitted['receipt']
+    original = admitted['candidate']
+    decision = receipt['decision']['outcome']
+    errors = [] if not isinstance(original, dict) else list(
+        Draft202012Validator(schema).iter_errors(original))
+    permitted = (decision == 'REJECT' and isinstance(original, dict)
+        and set(original) == {'slots'}
+        and schema.get('required') == ['slots', 'unresolved']
+        and len(errors) == 1 and errors[0].validator == 'required'
+        and not list(errors[0].absolute_path)
+        and 'unresolved' in errors[0].validator_value
+        and 'unresolved' in schema.get('properties', {}))
+    if permitted:
+        decision = 'BOUNDED_REPAIR'
+    return {'policy': DETAILS_RECOVERY_POLICY, 'receipt': receipt,
+            'decision': decision,
+            'repair_path': ['unresolved'] if permitted else None,
+            'original_sha256': receipt['raw_sha256'],
+            'schema_sha256': digest(schema)}
+
+
+def details_repair_schema(schema):
+    """Exactly one model-authored field; never substitute a default."""
+    if (schema.get('type') != 'object'
+            or schema.get('additionalProperties') is not False
+            or schema.get('required') != ['slots', 'unresolved']
+            or set(schema.get('properties', {})) != {'slots', 'unresolved'}):
+        raise ValueError('Unexpected A-details root contract')
+    field = deepcopy(schema['properties']['unresolved'])
+    field.pop('default', None)
+    result = {'type': 'object', 'additionalProperties': False,
+              'properties': {'unresolved': field}, 'required': ['unresolved']}
+    Draft202012Validator.check_schema(result)
+    return result
+
+
+def bind_details_repair(original, supplement, schema):
+    """Recombine under the original strict Schema, preserving every Slot."""
+    if not isinstance(original, dict) or set(original) != {'slots'}:
+        raise ValueError('No exact original incomplete A-details to repair')
+    Draft202012Validator(details_repair_schema(schema)).validate(supplement)
+    repaired = {**deepcopy(original), 'unresolved': deepcopy(supplement['unresolved'])}
+    Draft202012Validator(schema).validate(repaired)
+    if repaired['slots'] != original['slots']:
+        raise ValueError('A-details repaired Slot identity changed')
+    return repaired

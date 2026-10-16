@@ -1,7 +1,240 @@
+**2026-10-16 离线修复补记（非真实验收）：**Planning专用原RPC输入隔离、结构化协议@2/Journal@22及已定位拒绝版本/隐式重派修复完成离线验证，78定向回归及本组30项闭合；原R18实际Schema/输入/回执SDK重放、原v1只读、当前Owner A/B/Repair/B-recheck/Proof/冷恢复通过。预算只读预检不等于最终共享准入，整体PARTIAL；真实安装未加载，真实Planning仍NOT_PASS，新增真实HTTP=0、共享60/60与旧29/30封存账本SHA不变。设计、合同简化评估和未闭合项见[Planning§8.40](../tasks/planning-creative-authority-implementation-plan-2026-10-15.md)。
+
+**当前有效Closure（2026-10-16，覆盖此前进行中/暂停NEXT）：**`RESULT=STOPPED / DRIFT=NO_DRIFT / TRANSITION=HOLD（预算耗尽）`。恢复授权44/44HTTP已用完（R14–R19），新额度总60/60关闭；全部HTTP完整、原生released，无Pending/HTTP UNKNOWN。R14真实Repair正文171450字节已派发并回传，容量修复得到真实验证；完整Planning仍NOT_PASS，Truth/D2 Proof/Cold/PLANNING_ACCEPTED未达。期间仅澄清现行资产许可待供应与Creator授权缺失的提示区别，75项离线回归PASS，@21，合同不放宽。最新R19 A全通过、3批B捕获，下一B调用在总额度guard前被拒绝，无第61次远端HTTP。NEXT=停止真实调用；可另行离线调查5次stop零工具结果，任何后续实调需新预算授权。原件/消耗见唯一E2E账本与Planning§8.38。
+
+**当前有效停点（2026-10-16，覆盖历史NEXT）：**输出合同原件离线排查完成；29批225题中51个局部目标，38个原始结构错误、13个领域引用错误，转换前后答案相同。已消除提示题型字段歧义并补音频header排除说明，实际Schema/领域合同未变；52项集成+3项容量回归PASS，Journal/Checkpoint@20。真实调用仍暂停，新增HTTP=0，新额度仍16/60、余44。NEXT=等待用户明确恢复真实调用，完整Planning仍NOT_PASS；详见Planning实施方案§8.36。
+
 
 # Easel V1 Web 真实 E2E：方案、操作手册与执行记录（2026-10-10）
 
 > **文档职责（2026-10-11 主方案正式批准）：本文件是唯一 E2E 历史及未来运行证据账本，不再拥有独立生产执行标准。** 新生产的 R1–R6、U0–U6 唯一标准已由用户批准，见 [`New-Only → Web E2E 统一主方案`](../architecture/web-backend-new-only-cutover-plan-2026-10-11.md) §8（`APPROVED_SINGLE_EXECUTION_STANDARD`）；具体 U2/U5/U6 执行、模型/Provider/Build、服务与费用仍待单独授权。本文件下方旧 Proposal @3、410、旧 Material 链路、E0–E3 手册均为当时的历史事实与证据，**不再作为未来可执行命令**；7 次失败 Attempt、24/24 次调用、15 份原始捕获、现金/UNKNOWN、SHA 保持原样。以后每轮新增真实执行信息**只在本文件顶部**登记，不在 Creator Task 重复写运行流水，不另建平行账本。**
+
+## 2026-10-15授权／10-16续行｜R12非法来源拒绝；同受测版本R13执行中
+
+R12独立原件`~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-controlled-loop-live-r12/`，真实HTTP1/1完成，Token 23539，现金结算UNKNOWN，Pending=false、原Budget已closed。A-selection原raw SHA `dfcae482a2c006e645b0a75899c4f3b5aad782b1b5207b271922c6fec7350253` 的BGM Need scope=`src_37`不在冻结来源enum，原严格Schema拒绝；没有自动补全/替换来源、放宽Schema、改提示词或重派R12。Repair0/3，未到A-details/B/Truth/Proof。这是模型来源身份错误，不是Repair容量修复失败。
+
+同一已验收@18软件以全新R13复验，独立目录`2026-10-15-planning-m31-controlled-loop-live-r13/`、source `dce88741ec533388132ef58bdb56490d5b85507d56a3954d7b5392a95580c85c`。A-selection及A-details-000已通过，后续执行中；使用同一新增60HTTP账本，不跨日重置、不产生媒体/Web/部署/Git授权。最终结果及额度另在顶部收口。
+
+## 2026-10-15｜新增60 HTTP续接：Repair上下文可逆去重54PASS，R12真实复验中
+
+用户明确“再加60次HTTP，还是只用现有套餐”，持续授权修复Repair过大、离线验证后新Attempt调试至首次完整PASS或额度用完，不放宽合同。新共享账本`~/.local/share/easel/creator-task-evidence/2026-10-15-planning-repair-context-dedup-r02/task-http.json`仅启用新增60次，绑定旧账本SHA与已消耗29次；旧30次账本中的未用1次不重开，当前累计消费上界89次。仍无充值/现金fallback，单Attempt24HTTP/2400秒、HTTP300秒、Repair3/单批Regenerate2；历史R07–R11不重派，UNKNOWN只对账。
+
+原件离线重放通过：R11十批75题、13目标，原请求1136224→新892500 bytes，完整原payload可逆恢复严格相等、输出Tool Schema不变、1MiB不放宽。新表示`planning-input-context-dedup@2`、Journal/Checkpoint@18，软件54PASS/0FAIL（46.96秒），60封顶/UNKNOWN预检PASS，源文件快照和派生实验SHA归同目录。正式实现与版本说明见[Planning §8.34](../tasks/planning-creative-authority-implementation-plan-2026-10-15.md)。
+
+全新R12已启动，独立证据`~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-controlled-loop-live-r12/`，source `ec9c93cb60522973e0c3d82124a4876c29a9fadff7be9395ce2230cb50101559`；当前真实结果待收齐，尚不能宣称Planning全链PASS。本段替代下方旧停止NEXT的调度，保留全部历史失败和消耗。
+
+## 2026-10-15｜最终Closure：R11真实受控恢复成功，全B回执齐；Repair请求容量阻断，累计29/30后预算不足停点
+
+**整体 `RESULT=BLOCKED; DRIFT=NO_DRIFT; REAL_PLANNING=NOT_PASS; TRANSITION=ESCALATE（下一真实完整Attempt需新增累计预算决定）`。** 本轮不因普通错误停止：已完成R07/R08对账、隔离设施原生回放、R09真实失败根因修复及52PASS、R10/R11新独立真实复验。当前停止同时存在两个事实：R11的软件请求容量阻断未修；原Attempt Budget已closed，而本轮30累计额度只余1次，不足以开始一个可完成的全新完整Attempt。没有将余1次用于无完成可能的单阶段调用，没有重新打开任何原Budget。本轮整体未完成，绝不把软件修复或全B回执记为完整Planning PASS。
+
+**R11原件：**`~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-controlled-loop-live-r11/`；Creation `cr_aacb9ac985d34ce98bb6ca6304294255`，Attempt `fa_1c32923105e0cfd2fb23f1e35dc19044`；新source `2295814d932766e50aeeee0fcec19a676bef0d1f2b8e0a558e1b559c0c633a4b`，当前全部冻结文件SHA复核匹配。15/15真实HTTP均RESPONSE_COMPLETE，983756输入+51062输出=1034818 tokens；原生15项Run/Session/Schema/Terminal与Provider参数SHA全部只读复核，所有Run released、无Pending/HTTP UNKNOWN。旧失败记录和原始Capture不改，Budget已closed，within_bounds=true，Supply0/禁止阶段0。
+
+**真实恢复事实：**A-selection PASS；A-details-000原操作发生stop+0tool，正式native拒绝SHA `cc20f3a292a1187fd9db843b67557bc971d3eb610de3e1bf5cbb8009da9bd322`，确认error/terminal/released后由唯一Owner使用新repair-000恢复。有效回执SHA `6cf112b3b75de8217a4a93578830080abf144ee526011388443b6dedaa8463f0`，原失败保留且未重派，stage有效身份固定；后续A-details-001/002 PASS。共享Repair实际1/3、该批Regenerate1/2；A-selection及已通过批次未重新生成。此只证明该真实恢复路径生效，不等同原/新回执已完成全链冷验证。
+
+**B及首个最终阻断：**10批共75题（0000–0074）原始回执齐全；B-005有related_needs类型错误，B-007有related_needs/required_kinds类型错误，另有字面quote局部错误；模型ACCEPT不代表严格合同有效。现有跨批目标编译识别13个局部修复目标，已通过修复后的局部定义合并，但在新Repair占额/派发前，正式`review.checked_message`拒绝 **1,136,224 bytes > 1,048,576 bytes**（超87,648），错误`Complete semantic context exceeds request capacity; no clipping`。无新增修复HTTP，没有自动截断或扩大请求上限，B正式NOT_PASS；Truth/D2正式Proof/SEMANTIC_CHECKPOINT/正式冷加载/PLANNING_ACCEPTED均未到达。
+
+**精确离线诊断：**`2026-10-15-planning-takeover-audit-r01/audit_final.py`先逆还原现行Question共享候选引用，再逐批重建与实际发送完全一致的10批Tool Schema、绑定原生回执SHA，沿真实Decoder/目标聚合/patch_schema/RepairEvidenceProjection/repair_message重放容量错误，保留原guard。未派发请求的离线重建SHA `eef20b1b34f13f3fe840c2e121d7de5b219046ffb672f1a380a6061dddca8fce`。review_context=866441字节、evidence_choices_by_target=212811字节；四个冻结批上下文分别重复同一candidate_bindings（17830字节）、evidence（20984）、source_catalog（43059），每类唯一值均1/4。仅这些重复副本就有245619字节可研究无损去重空间；**尚未修改/验收该Request View候选，不以删除依赖或缩短Token宣称解决。** 必须保留完整原文、目标身份和可逆还原/指纹/冷恢复，不改变业务合同。
+
+|本轮新增运行|真实HTTP|输入Token|输出Token|合计Token|共享Repair|最终结果|
+|---|---:|---:|---:|---:|---:|---|
+|R09|13|839668|49811|889479|0/3|跨批Schema定义冲突；已离线修复|
+|R10|1|21420|2283|23703|0/3|BGM越界视觉Header，严格拒绝|
+|R11|15|983756|51062|1034818|1/3|Repair正文超过1MiB，未派发|
+|**累计**|**29/30**|**1844844**|**103156**|**1948000**|按Attempt独立保留|**真实完整Planning NOT_PASS**|
+
+R07/R08既有12HTTP/472226 tokens另列，不重新计入本轮新增30授权；两部分合计41HTTP/2420226 tokens。R01–R06既有历史预算不恢复也不并入新额度。全部费用按现有M Plan订阅权益执行，无充值/现金fallback；实际现金结算UNKNOWN，未记零。共享`task-http.json`以INSUFFICIENT_REMAINING_FOR_NEW_FULL_ATTEMPT关闭，保留29条不可退款占额和未用1次，不通过新Attempt重置。
+
+**软件与未完成项：**当前已验证Loop/B身份/共享Repair/D2Owner/RepairEvidence 52PASS/0FAIL（46.71秒），R09真实9批16目标合同等价回放通过，R11真实no-tool新Operation恢复通过；源码只新增必要的跨批定义冲突修复和一项专门边界测试，没有改模型提示词、Material/声音/业务Schema、职责或架构。未宣称模型稳定、正式Web E2E/U4/Release资格。原生/HTTP/费用对账见`audit.json`、`final-audit.json`、`software-verification.json`、原各Attempt结果与Budget；本轮无素材/Build/Web/服务部署/commit/push/新Agent。
+
+**NEXT_SINGLE_ACTION=用户明确补充足以完成新合法Attempt的累计HTTP/既有套餐额度边界；之后沿现有Task先修复Repair输入的可逆重复上下文表示并做真实原件离线等价回放，再以全新Attempt实调。不得重开R07–R11 Budget、沿原Operation重派、提高1MiB上限或删除语义义务。**
+
+## 2026-10-15｜R10模型越界Header拒绝；同软件新R11复验中
+
+R10独立证据目录 `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-controlled-loop-live-r10/`，Creation `cr_f1138c6e91c34c9f9351ab7171335718`，Manifest SHA `1eb505ab29dcb5e405aff77c6dd2f7526f02393ad62f9ac1bae68eecc81bf4f9`。真实HTTP **1/1 RESPONSE_COMPLETE**，21,420输入+2,283输出=23,703 tokens；Pending=false、within_bounds=true、Budget已closed，现金UNKNOWN。A-selection原raw SHA `2360d07307e8f4db31241509070a0105b423f4418f8fbc2b99020eebbdc7acd1`在needs[7]失败anyOf：该Need是BGM，却包含仅image/video允许的header_claim；实际严格Schema的bgm分支additionalProperties=false准确拒绝。不是Repair定义冲突复发，不修改提示词/代码、不删除模型Claim或扩大声音职责，Repair0/3，后续A-details/B/Truth/Proof未到达，REAL_PLANNING=NOT_PASS。
+
+原操作确证结束，模型错误属于当前A-selection不可恢复范围，按最新持续授权使用全新R11独立Attempt复验（软件与R10完全相同）。当前累计14/30 HTTP、913182 tokens，剩16；R11目录 `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-controlled-loop-live-r11/`，source `2295814d932766e50aeeee0fcec19a676bef0d1f2b8e0a558e1b559c0c633a4b`。共享额度不重置，仍仅现有套餐/no现金fallback，等待R11完整结果。
+
+## 2026-10-15｜R09真实全B到达：跨批局部Repair定义冲突；定点修复后R10复验中
+
+R09证据：`~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-controlled-loop-live-r09/`，Creation `cr_788996efb1c14f9b8a8c3b238ff88ec5`，Manifest SHA `b3ddebb2126bc030206a4ceb3fdecf9ad21232f2367ca593579f42f43b846d5e`，source `53a0a630030c83e7032a4812153271d6595e3db7688adcc7d396f5cd99f1c6fe`。真实HTTP **13/13 RESPONSE_COMPLETE**，839,668输入 +49,811输出 = **889,479 tokens**，原Run均已结束释放、Pending=false、within_bounds=true，原Budget已closed BATCH_FAILED；现金UNKNOWN。A-selection及3个A-details全部通过，9批初始B回执（question-0000–0070）全量取得；共享Repair **0/3**，在派发Repair前编译失败 `Conflicting patch definitions`，Truth/D2正式Proof/Cold未到达，**REAL_PLANNING=NOT_PASS**。
+
+**多因果环节：**B-002有额外字段，B-005及其他题有quote/来源局部问题；B-003 question-0030对A额外“实拍/禁止跳切”给出合法director_replan_needed挑战。全部失败原文保留，未强制ACCEPT。Owner合并16个合法局部Repair目标时，独立B批的同名`Support/Support_001`定义不同，原全局合并代码错误拒绝，因此当前阻断为确定性软件缺陷，不能归因token长度或模型遗漏。
+
+**原件离线复现与修复：**`2026-10-15-planning-takeover-audit-r01/replay_r09.py`从实际9批HTTP请求重建Schema，逐批与原发送工具Schema一致，并校验native raw SHA，沿真实Decoder→局部错误目标→冻结跨批目标→patch_schema复现冲突（16目标）。仅修改`planning_candidate_review.patch_schema`：只在局部定义名称冲突时重命名当前目标的完整局部定义与引用闭包，保留不冲突旧Schema；不改答案、来源/角色/quote准入或Repair额度。修后16目标逐一与独立编译合同完全等价，RepairEvidenceProjection成功构造；新增一项跨目标正反合同测试，定向Loop/B身份/共享Repair/D2Owner/RepairEvidence **52PASS/0FAIL（46.71秒）**，git diff --check PASS。开发中新增的额外集成fixture只有单B批且断言无效，已撤回该冗余测试/辅助扩展；失败及原因保留在software-verification.json，未有第二次生产修复。当前原生Owner/模型提示词不变，无架构改动。
+
+**授权连续执行：**本轮新Attempt已用13/30、剩17，原R07/R08另列12不重计。R10使用全新Creation/Attempt/Run与独立目录 `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-controlled-loop-live-r10/`，新source `784808a21904dab774142f29c5d1bb1b463c4d63fb0e69f406023b866523b8e3`，单Attempt24和共享总预算剩17双上限（实际取较小者）、HTTP300秒、Attempt2400秒、Repair3/单批Regenerate2，仅现有M Plan套餐、不充值/无现金fallback。沿相同已离线验收的隔离Adapter、原Gateway/Proxy和唯一Owner执行，不恢复R09、不另建Planning主链；R10结果尚待收齐，不能提前报PASS。
+
+## 2026-10-15｜Planning 接管对账与持续调试授权（R07/R08 原件已核验，后续执行中）
+
+本轮唯一目标为一个全新 Attempt 首次真实完成 A-selection→全部 A-details→B→Truth→D2 Proof→正式冷验证与 PLANNING_ACCEPTED。用户最新指令覆盖历史“首错即停／下一轮另行授权”的调度限制，禁止新建 Agent、第二执行器、素材/Build/Web/部署/Git 操作。用户随后明确批准 **本轮新增 Attempt 跨轮累计30 HTTP**，仅使用现有 MiniMax M Plan 套餐，不充值、不转现金，套餐不足即停；单 Attempt 沿用24 HTTP/2400秒、单HTTP300秒、共享Repair3/单批Regenerate2。共享持久账本 `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-takeover-audit-r01/task-http.json`；历史R07/R08的12次单列，不重开旧Budget，后续不以新Attempt重置累计额度。
+
+**只读对账证据**：同目录 `audit.py/audit.json`；逐次实际请求文件SHA、Provider-entry参数SHA、OpenClaw native Capture/Terminal Receipt及Run/Session逐一核实。R07/R08原Job均completed（原Exit0不代表业务PASS），所有12次HTTP均RESPONSE_COMPLETE、原Run已released、无HTTP UNKNOWN/Pending，Budget均closed；没有发现更晚真实运行，另一接管指令审查聊天idle，无并行Owner的执行证据。
+
+|运行|Attempt|实际HTTP|Token（输入/输出/合计）|共享Repair|业务终态|
+|---|---|---|---|---|---|
+|R07|`fa_8e362c48c16f099059c7383288a0e905`|8/8|338999/24626/363625|0/3|FAIL，A三批完成，B-003嵌套表示拒绝，Truth/Proof未到达|
+|R08|`fa_25f88f156910904ce2dd0a9afe2f656a`|4/4|94340/14261/108601|1/3|FAIL，A-details-001来源enum拒绝→repair-000无工具终态；Truth/Proof未到达|
+
+两轮总472226 Token；实际现金结算UNKNOWN，不能记零。R07所有四个B批次冻结问题集合、实际发送集合、原始答案ID集合逐一一致（0000–0031），**不存在已证实的缺题或聚合遗漏**：B-003原始`answers[0].answers.item`及support.item额外包装导致长度判定失败；只移除包装后原严格Schema合法，B-001/002另有独立局部字段错误，均保留。R07后已有lossless规范化与冷恢复修正，当前B身份@2、Journal/Checkpoint@17；R08 Manifest的全部冻结文件与接管源码一致。旧Loop V1 12文件manifest仍有9文件匹配，semantic_boundary_run/test_creation_preparation/test_planning_stage_loop三文件变化归上述规范化接线与测试；planning_wire不在旧12文件内但相对R07也变化，不继承旧53PASS资格。
+
+R08原生no-tool只读正式读取为CONFIRMED_TERMINAL_NO_TOOL，原件SHA `d1d29f08fe84bb844de474db4fa589e0c51395510b1a22beb7b3443d28b1e452`。原隔离HTTP设施在SSE stop无参数时关闭Budget，旧drain在native error released时直接FAIL，未给现有Owner恢复机会；这属于设施与Loop调度不匹配，非HTTP UNKNOWN。原失败不修改、不恢复；新Attempt先验证隔离设施只在确证native终态与Owner共享占额后可继续。当前源码定向离线51PASS/0FAIL（47.35秒），涵盖Loop/B身份/共享Repair/D2 Owner/RepairEvidence；真实全链仍NOT_PASS。后续结果追加于本节之前，不把本接管段落当作最终Closure。
+
+## 2026-10-15｜Planning Controlled Loop V1 软件 Closure（非真实MiniMax新调试）
+
+§8.29–8.30实施于唯一Planning Owner：确认原生terminal no-tool或已完整工具回复仅非法creative_goal_ref时允许新Operation的 A-details整批重生；所有FIELD/B/SEMANTIC/REGENERATE共3次、单批至多2次；原R05/R06失败和旧@15不迁移，UNKNOWN禁止重派，原/新回复、D1/B/D2冷恢复严验。最终离线job `wc_job_hZycbaWZ6t7qBxRC` **53 PASS/0 FAIL**；R05历史原生拒绝观察只读PASS（stop、0 toolcall、原Run/Session绑定、拒绝SHA `0dfd228fe8150a9440121fbbb7d0ff2715028ca7eac0d5b56146016bacbf6c2a`）；12源码测试当前/快照12/12 SHA核对，manifest `1bd11137372204ee202ce84adb12aa228e6170dfd00426ef284cf0c740a1378c`，快照 `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-controlled-loop-v1-software-r01/`，版本 `@16`、HEAD `d82bb60b`。旧历史原件/真实HTTP Budget不变，**没有新真实MiniMax、Git commit、服务部署**。软件`RESULT=COMPLETE`，尚未真实跑通Planning/Truth/Proof。用户随后明确授权新独立模型调试，未来运行单独追加证据，绝不把历史R05/R06失败改写为PASS。
+
+
+## 2026-10-15｜R06 授权续接：无外网预检 PASS；新 Operation 返回真实 Tool Arguments，但来源枚举错误，1次后停止
+
+**最终分类 `BLOCKED_OR_UNKNOWN`；具体为确认终结后的严格 Schema 拒绝，`HTTP_UNKNOWN=false`。** 本次用户明确授权修正同一 R06 隔离脚本证据序列化，保留现有安全检查，先无网络预检，再沿原授权最多2次新真实MiniMax操作，成功即停；可修复脚本问题不重复索权。修正仅在 `~/.local/share/easel/creator-task-evidence/planning-loop-recovery-eval-r06/` 内；旧预检脚本另存 `run.preflight-initial.py`，原 `start/result/r05-audit` 等故障原件保留，当前证据归 `offline-preflight/`、`execution/` 和根级 `final-receipt.json`，不是 R07/R08、第二 Owner 或生产 Attempt 恢复。修正后的 `run.py` SHA256 `61e873aabaf40ecbf5851582cefcff038acf4d537a834a33f16e919990b5024a`，原Gateway/Proxy/Budget未改。
+
+**无外网预检：PASS。** 证据指纹改用 `{path,sha256}` 列表，继续调用原 `SecretRedactor.contains_secret`，不移除或放宽规则；按原规则验证敏感键拒绝和公开路径列表可安全保存。Python socket 与隔离 Node 网络规则限制 loopback，未加载真实模型Key；通过**同一脚本、原 EvalGateway/Proxy/HTTP Budget、当前安装OpenClaw、原 A-details-001严格 Schema**，合成外部边界先返回 `stop + 0 tool_calls` 并确认原生error/已终结，再以不同新Operation取得合成Tool Arguments、严格Schema PASS；同时验证缺失 `unresolved` 与多余 Slot 拒绝。合成数据只证明验收设施与格式可用，真实MiniMax请求/Token均0，不冒充业务语义/E2E。预检和live绑定同一脚本SHA。每次原HTTP Budget上限1，R06共享预占账本上限2操作、总Repair最多3；无参终态关闭原子Budget后仅可能进入另一个预分配的新操作，不重开closed Budget。
+
+**R05 终态再次核实：**原第三次HTTP200/SSE DONE、`stop + 0 tool_calls`、`STRUCTURED_TERMINAL_REJECTED`、error/released/timestamped terminal receipt、无Pending，明确不是HTTP UNKNOWN。原 frozen A-details-001 message SHA `04dc7a5a3470296ee3db399d6a143f0e042af2492f4492200b0ff5d501c3d17c`、Schema SHA `29f3474b5fa76e45bc6832904029a1bf39e01ed6ca7fd81b0fef2177ffb3232c` 精确保持。已成功 A-selection、A-details-000 不重做、不改写；保留原 SourceSelection/Creator/Director/Creative Mode、Attempt引用和完整冻结输入。R05正式Repair仍0/3，原Attempt和已关闭Budget未恢复。
+
+| 本次真实操作 | 实际结果 |
+|---|---|
+| Operation / Run ID | `r06-4d6424f95aeb467dbf117dac94e1ff86`，全新且与R05不同 |
+| Session ID | `r06-34b30ee97b8f41e8a1ac89038a9859e6` |
+| 模型与认证 | `MiniMax-M3.1-Flash-Preview` / adaptive / medium / 原M Plan订阅认证来源，未改生产配置 |
+| HTTP / SSE / 原生终态 | 200 / SSE DONE / provider `tool_calls`；原生 `status=ok`、有startedAt/endedAt和匹配terminalReceipt；Pending=false |
+| 实际 Tool Arguments | 1条 `submit_semantic_plan`，8,299字节；原文 `execution/operation-001/tool-arguments.raw.json` |
+| Raw SHA256 | `33235da4b009da19355de44a79c858e634c7decae0a012d608471268ecb83a06`；Provider-entry、Native capture和落盘字节一致 |
+| 字段完整性 | `slots`恰为 `slot_004/005/006`，根级 `unresolved`实际存在；未由程序补造 |
+| 严格 Schema | **FAIL，2个enum错误**：`slots.slot_004.conditions[0/1].claim.creative_goal_ref` 都为非法 `src_7fa913d7de0bf1af55e`，不在原冻结允许集合 |
+| Token用量 | prompt **23,479** + completion **3,418** = **26,897** |
+| 预算 | 真实HTTP **1/2**，同Operation重试0；隔离恢复预占 **1/3**，原R05正式Repair仍0/3；真实现金结算 **UNKNOWN** |
+| 第二次操作 | **未创建、未派发**：首次已返回Tool Arguments，不符合仅 `stop + 0 tool_calls` 才能派发第二次的条件 |
+
+**判定与边界：**新独立模型操作确实将原无工具调用阻塞推进为一份有完整工具参数的结果，但其来源引用不合法，故**不是 `LOOP_RECOVERY_CONFIRMED`**。也未执行“两次合法独立操作均失败”，不能写 `LOOP_RECOVERY_FAILED`；按允许分类记 `BLOCKED_OR_UNKNOWN`，精确原因 `CONFIRMED_TERMINAL_STRICT_SCHEMA_REJECTED_SECOND_CALL_NOT_AUTHORIZED`，不得误报HTTP UNKNOWN。没有替模型选择正确来源、改原reply、补字段、放宽enum、进入FIELD_REPAIR或启动第二次模型调用。原生ok只证明工具候选安全终结，不代表Easel严格合同/语义验收通过。代理在候选已完整读取后的loopback连接关闭出现一次 `ConnectionResetError` 日志；最终HTTP完整观测、Native原文和SHA均齐全，因此不据此重派或抹成UNKNOWN。
+
+**架构评估更新（只建议、不实施）：**下方首次R06记录的7项既有Owner内STAGE_REGENERATE设计仍适用，但真实证据目前只支持“新Operation可重新取得工具参数”，**不支持整阶段恢复一定合法或生产Loop已具备**。保留受控STAGE_REGENERATE作为候选；它必须与FIELD_REPAIR/SEMANTIC_REPAIR共享同Attempt最多3次，确认终结无候选与HTTP_UNKNOWN严格分离，绑定原Schema/SourceSelection/Director/Attempt及批次，留旧失败引用/新Run/Repair Ledger/Checkpoint/Cold Verify，保留成功批次，按新候选身份使不适用B ACCEPT/DecisionProof失效。正式改造仍只考虑既有 `semantic_boundary_run`、`planning_capture`、`openclaw_delivery`、`output_admission`、`planning_repair_evidence`、`planning_candidate_review` 与 `planning_d2_typed_review` 的相关边界和已有集成测试；安装OpenClaw及Tool Schema不因本例修改。非法来源必须拒绝，不增加程序猜测或修复权限。
+
+**冷证据验证：PASS。** 独立只读 `verify_receipt.py` 从落盘raw重跑原Schema，精确复现上述2个错误；重算request/schema/runner/raw与三方SHA，核对Run/Session/预算/终态，确认第二操作不存在。真实运行前后 **R05全部2,802文件SHA一致、P0-A/B/C 23/23冻结一致**。这只是失败证据的冷核验，不是生产Owner的Cold Verify/完整Planning PASS。没有生产代码变更、凭证更换、素材/TTS/Hypit/Web制作、部署或Git commit/push。根级 `final-evidence-manifest.json` 保存本轮具名证据SHA；原故障与真实失败均保留。
+
+`RESULT=BLOCKED（隔离恢复验收未达合法结果，执行已按限制结束）; EXPERIMENT=BLOCKED_OR_UNKNOWN; HTTP_UNKNOWN=false; DRIFT=NO_DRIFT; EVIDENCE=无外网预检PASS、1次真实HTTP终结/实际Tool Arguments、原严格Schema两处来源枚举拒绝、冷证据核验PASS; LESSON=新Operation能取得Tool Arguments与合法阶段恢复必须分别验收；安全证据索引用path/sha列表并保留原检查; NEXT_SINGLE_ACTION=只读评审R06非法creative_goal_ref原文与现有Owner恢复边界，形成最小建议；本轮立即停止，不再调用、不改生产Owner、不进入U4; TRANSITION=HOLD`。
+
+## 2026-10-15｜R06 MiniMax Agent Loop 恢复验证：预检记录格式阻断，0 次真实请求
+
+**`BLOCKED_OR_UNKNOWN`，未取得恢复实验结果。** 用户明确授权本轮仅在永久隔离 R06 中，以最多 2 次新 HTTP / 同 Operation 0 重试 / 全局最多 3 次共享 Repair，重生成 R05 失败的 `A-details-001`，成功即停；不得恢复 R05、改生产 Owner、启动 R07/R08 或 U4。本轮创建 `~/.local/share/easel/creator-task-evidence/planning-loop-recovery-eval-r06/`，保留 `run.py`、`start.json`、`frozen-input.json`、`r05-audit.json`、`result.json`、`evidence-manifest.json` 及纯本地收尾脚本。**执行在模型派发前停止，没有新 Operation ID、Gateway/Proxy 启动或新 HTTP Budget 占额。** 这是验收脚本预检失败，不能解释为 MiniMax Loop 失败或成功。
+
+**第一阶段只读结论：**已审计 `semantic_boundary_run.py`、`planning_capture.py`、`planning_candidate_review.py`、`output_admission.py`、`openclaw_delivery.py`、已安装 `dist/easel-structured-result.mjs` 和 R05 原 `EvalGateway/EvalProviderProxy/EvalHttpBudget`。R05 第三次 `HTTP 200 / RESPONSE_COMPLETE / SSE_DONE / provider_finish=stop / argument_delta_bytes=0 / diagnostic_unknown=false`；原生拒绝记录 `STRUCTURED_TERMINAL_REJECTED / toolCallCount=0`，原 Run `easel-916228bb28184cc2b5a15bfac0b0d8c8` 的 `status=error / runtime_release=released / terminal_receipt` 身份一致，`pending_original_run=false`。**属于确认终结的无工具调用错误，不是 HTTP UNKNOWN。** 原原生 reservation 文件仍是 `RESERVED` 身份留存，不能单看该字段推断运行仍活跃；终态须结合拒绝记录、timestamped terminal、释放记录与 HTTP/SSE。原预算 `closed / ENTRY_CAPTURE_UNAVAILABLE` 保持，原真实 Repair 为 0/3。
+
+现有 `capture → admitted_details` 需要先取得真实候选；白名单补答仅允许其余 Slot/Claim 严格合法而根级缺 `unresolved`，后续候选/B/语义 Repair 也不覆盖无候选终态；`openclaw_delivery` 的 Planning 强制 `retry_failed=False`。所以**当前生产 Owner 尚无这类 STAGE_REGENERATE Loop**。独立实验在新操作、新预算、冻结输入与严格 Schema 下原则上可行，但本轮没有真实执行来证明恢复。R05 原始 user message 已从保存请求去除 Runtime 包装后精确还原，SHA `04dc7a5a3470296ee3db399d6a143f0e042af2492f4492200b0ff5d501c3d17c`，与 Journal 完全一致；Schema SHA `29f3474b5fa76e45bc6832904029a1bf39e01ed6ca7fd81b0fef2177ffb3232c`，固定 `slot_004/005/006` 与根级 `unresolved`，SourceSelection/Director/Creative Mode 上下文保留。已成功 A-selection/A-details-000 的 reply SHA 重算匹配，23/23 冻结源码匹配；没有重判或恢复旧 Attempt。
+
+**实际阻断与止损：**新验收脚本的证据保存函数调用现有 `SecretRedactor.contains_secret`。第一次启动元数据使用 `authorization` 键触发安全规则，改为 `permission` 后预检前进；随后把 R05 全文件路径作为 `originals` 字典键，公共 OpenClaw UI 缓存中含 `secrets-page` 的 12 个文件名触发 parent-key 规则，`r05-audit` 写入前 `AssertionError`。这是 Main 编写的验收记录格式错误，不是已安装 Runtime 或 MiniMax 故障，未发现 Secret 泄露。按用户“环境障碍/无法保存回执立即停止”停止后续执行；未禁用安全规则、未重跑主脚本。收尾仅将公开路径/SHA 使用列表行记录，经相同安全检查保存审计和故障事实，**不据此恢复调用**。未生成模型回执，不能把本地安全校验失败冒充模型输出失败。全树起始指纹未成功落盘，故不宣称全树前后 SHA 验收；关键 R05 请求、成功回复与冻结身份已单独核验。
+
+| 验收项 | 实际结果 |
+|---|---|
+| 新真实 MiniMax HTTP | **0 / 2**，同 Operation 重试 0 |
+| 新 Operation 与终态 | **无新 Operation**；仅本地 preflight `AssertionError` |
+| Tool Arguments / 严格 Schema | 未取得 / 未执行 |
+| 本轮 Token / 新请求预算 | prompt 0、completion 0、total 0；HTTP 0/2；共享恢复 0/3 |
+| 现金 | 无新请求；历史 R05 结算 UNKNOWN 保持，不清零 |
+| A-details-001 恢复 | **未证明**；R05 原失败保留 |
+| 生产 Easel Loop | **未支持、未修改、未验证** |
+
+**条件性架构建议（未获真实成功证据，不实施）：**建议保留 `STAGE_REGENERATE` 为现有唯一 Planning Owner 的候选恢复动作，正式批准前先取得真实隔离证据并按现行规则作必要架构复核。
+
+1. **共享预算**：复用 `semantic_boundary_run.reserve_repair_slot`，在外部提交前预占同 Attempt `repair-000..002`；`FIELD_REPAIR / SEMANTIC_REPAIR / STAGE_REGENERATE` 合计最多 3，不另开阶段额度。新 regeneration 必须包含原失败 Operation 和序号，避免现有同 stage 去重逻辑将两次新操作混为一次；UNKNOWN 已占额度不退还。
+2. **终态分类**：`openclaw_delivery`、`planning_capture` 保存明确传输/原生证据；`HTTP_UNKNOWN`、缺 timestamped terminal/receipt、Pending、429、截断或 Schema 身份异常均停止只对账。仅 HTTP/SSE 确认终结、原生终结且 released、精确 `stop + 0 tool_calls` 可成为 `STRUCTURED_NO_TOOL_CALL` 候选。`output_admission` 继续只验证取得的候选，不以空对象补造候选。
+3. **新身份与失败引用**：原 Call/Capture/HTTP Budget 永不重开；新 Operation/Run/Session、0 自动重试，在现有 ledger 中引用旧拒绝、HTTP观测、终态 SHA 及 Attempt/stage。原 Budget 实现遇无工具参数会关闭；将来需明确同一预算治理如何管理新操作的预分配份额，不能通过重开 closed Budget 或无限新预算扩额。
+4. **批次与冻结依赖**：仅重做失败 `A-details-001`；A-selection 与 A-details-000 的 ACCEPT/raw SHA 不变。绑定 Attempt、SourceSelection、原 message/Schema/codec、Director/Creator/Creative Mode、Canonical 和批次精确 slots；任一指纹变化拒绝恢复，不重新选择 Need 或改其他批次。
+5. **证据与冷恢复**：扩展现有 `planning_capture`、Owner Journal/Checkpoint/`verify`、`planning_repair_evidence`，保留原失败与新 raw/tool SHA、预占/派发/终态/准入链。Cold Verify 从两份原件重建分类、额度及严格 Schema/Claim/身份校验，不能仅信 PASS 标志；旧无结果记录不变 ACCEPT。
+6. **B/Proof 依赖**：`planning_candidate_review` 与 `planning_d2_typed_review` 只接受新 A candidate/Claim SHA 对应的 Review/DecisionProof。任何旧 B ACCEPT、聚合结果、D2 Proof 不适用于新 candidate 时必须失效并重审；不从前一 lineage 继承准入。受影响下游仅通过既有消费者重新验证。
+7. **正式实施模块与验证**：以上既有 Owner、capture/delivery、admission、repair evidence、candidate review、D2 typed review/checkpoint 冷验证及现有高价值 integration 测试；`planning_structured` 只需绑定原严格请求身份，不改变 Tool Schema；安装 OpenClaw 已正确拒绝，不据本次证据修改它。不新增 Owner/生产主链，软件实现须独立授权并覆盖 UNKNOWN 禁重派、额度共享、成功批次保持、Proof 失效和冷恢复。
+
+`RESULT=BLOCKED; EXPERIMENT=BLOCKED_OR_UNKNOWN; DRIFT=NO_DRIFT; EVIDENCE=R05确认终结/原输入与Schema身份匹配/23文件冻结匹配，R06真实调用0，恢复与共享Repair实际效果未验证; LESSON=证据索引不要把含敏感词的公开路径直接作为安全扫描对象键，应使用经相同规则检查的path/sha列表; TRANSITION=HOLD`。
+
+**NEXT_SINGLE_ACTION=审阅本次预检故障，另行明确允许修正 R06 隔离验收脚本并完成无网络预检后，再决定是否执行剩余至多2次的真实调用；本轮立即停止，不自动重启 R06，不建 R07/R08，不修改生产 Owner，不进入 U4。**
+
+## 2026-10-15｜P0-D 真实 MiniMax M3.1 首次验收 R05：A-selection / A-details-000 PASS，A-details-001 无结构化工具参数，按首错停止
+
+**本轮新独立真实调用已经完成，P0-D FULL REAL PLANNING NOT_PASS。** 用户本轮明确授权 P0-D 在 P0-A/B/C **23文件软件冻结**之上实际请求 MiniMax。执行前确认软件 manifest SHA256 `4ea6df0db39df39e0fe5579602ce833024f02900d728e64ebb0e1a52575d237e`，冻结源 **23/23** 字节一致；历史 R01–R04 全部已终结、其旧预算关闭、没有重新派发。沿用历史实际成功的 R02 `run.py`、原 `gateway_harness.py`、`PlanningEvalBoundary/isolated_process/drain_checkpoints`、持久化 `EvalGateway + EvalProviderProxy`，创建**唯一新的隔离证据目录** `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-actual-owner-eval-r05/`，Manifest SHA256 `ddbb91ac1c22713cf85a1f9200bd5ac65bb9e37ad5ac9fa3e136aa1939e82586`；286/286 源码/Runner指纹完成时仍一致、OpenClaw Runtime 指纹通过。MiniMax `MiniMax-M3.1-Flash-Preview`，adaptive/medium，使用已配置 M Plan 订阅凭证类别，**单样本、HTTP硬上限16、共享Repair硬上限3、自动重试0、最大2400秒**；离线原 Gateway Preflight 通过（不发生付费请求）。本次只调用文本Planning，不调用素材、TTS、Hypit、Web/Build/部署。
+
+**真实 R05 结果：**代理 HTTP **3 RESERVED / 3 RESPONSE_COMPLETE / HTTP 200**，但必须严格区分**HTTP 流完整结束**与**工具参数完整有效**。第一次 A-selection：provider `finish=tool_calls`、argument_stream `COMPLETE`，原模型回复 SHA256 `daa18f51c080510a7000a49ab1de0a98bfee90044628325625a1b2c556369206`，模型来源/D1选择身份 PASS。第二次 A-details-000：`finish=tool_calls`、argument_stream `COMPLETE`，原回复 SHA256 `f0ff796c17b1183b72486b9de201c8f95655f600fa52369f990f027f7d62448a`，4 个视觉 Slot、合法 Claim 及显式 `unresolved` 均通过原 Strict Wire/Admission，未消耗 Repair。第三次 A-details-001：请求已明确指定 `submit_semantic_plan` 工具（`tool_choice: {"type":"function","function":{"name":"submit_semantic_plan"}}`），MiniMax HTTP 200/SSE DONE，但原代理观测 `provider_finish=stop`、`argument_delta_bytes=0`、`reasoning_delta_bytes=4919`、`argument_stream_state=INCOMPLETE`、`observation_reasons=[ARGUMENT_STREAM_MISSING,TOOL_FINISH_OTHER]`，**没有任何 tool_calls 或可用于 Schema 校验的工具参数**。原 native Call 显示 status=error、runtime_release=released、terminal_receipt存在；本地 Capture `A-details-001` 为 `TRANSPORT_FAILED`、无 `reply_sha256`，不能伪造原回复/Schema错误、不能申请 `unresolved` 局部补答。**严格在第一不可恢复结构化输出错误处停止**；未触发 B Review、Truth、Plan、D2 Proof 或 Cold Verify 的真实 MiniMax 整链。
+
+**本次账本与保全：**总 Token 为 `prompt=70,167`、`completion=10,030`、`total=80,197`；实际现金结算金额 UNKNOWN，不根据套餐用量推算。代理预算最终 **closed=true / close_reason=ENTRY_CAPTURE_UNAVAILABLE**，`within_bounds=false`、`pending_original_run=false`、无自动重试或新 R06；共享 `repair_count=0 / 3`，所以此运行**未验证真实 Repair 生效**。第一/第二次原始 reply SHA 与保存 Journal 字节匹配；第三次只有原 Proxy SSE 观测及 Native 终态证据，无虚构语义回复。R05 Manifest 286/286 一致，P0-A/B/C 23/23一致，源/历史R04原件无漂移；`production_modified=false`、无生产Git commit/push/部署。绝不将第三次的 `RESPONSE_COMPLETE` 解释为 `STRUCTURED_COMPLETE` 或把软件47PASS冒充真实全链PASS。
+
+`RESULT=PARTIAL（已执行P0-D真实MiniMax并停在首个问题）; REAL_HTTP=3/3_STREAM_COMPLETED; A_SELECTION=PASS; A_DETAILS_000=PASS; A_DETAILS_001=BLOCKED_NO_TOOL_ARGS; SHARED_REPAIR=0_OF_3_NOT_EXERCISED; FULL_PLANNING=NOT_PASS; DRIFT=NO_DRIFT; TRANSITION=HOLD`。
+
+**NEXT_SINGLE_ACTION=针对第三次请求在明确 tool_choice=function 时 provider_finish=stop 且缺失 tool_calls 的真实原始代理观测/Native 终态，做严格只读根因分析（模型真实输出与 M3.1 Gateway 工具调用/推理流兼容、无参回退策略），区分 Provider 与 Runtime；先讨论方案，不重开R05、不在本轮直接修复/扩容/另发M3.1。后续真实R06须另行授权并新建独立持久化身份。** U4继续BLOCKED，U5/U6未准入。
+
+
+## 2026-10-15｜P0-A/B/C 软件受控恢复正式冻结（非真实 MiniMax 运行）
+
+**只归档软件验收，不改变下方真实 R01–R04 失败事实。**原唯一 Planning Owner 新版本内完成严格 A-details 根字段准入、明确模型补答与全 Attempt 最多3次共享Repair；原回执、修复回执、Ledger、Journal/Checkpoint、D1/D2 Proof/Cold Verify 同版验收。最终定向Job `wc_job_NB1RcIUV85nITqQG` **47 PASS / 0 FAIL（81.82秒）**，AST与 `git diff --check` PASS；R04 保存的两个原回复 SHA 仍匹配且 HTTP Budget `closed/BATCH_FAILED`，没有新的模型 HTTP。指定23源码与测试文件只读快照目录 `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-abc-software-freeze-r01/`，manifest SHA256 `4ea6df0db39df39e0fe5579602ce833024f02900d728e64ebb0e1a52575d237e`。当前 Git HEAD `d82bb60b`、其余 dirty 文件不在本冻结承诺范围，未提交/部署。**P0-D独立真实 MiniMax 尚未执行；R04 原失败不能当成模型已恢复。**唯一后续获得新授权后才可运行 P0-D，具体见[Planning §8.27](../tasks/planning-creative-authority-implementation-plan-2026-10-15.md)。
+
+`RESULT=COMPLETE（仅软件P0-A/B/C）; DRIFT=NO_DRIFT; REAL_MINIMAX_P0_D=NOT_EXECUTED; TRANSITION=HOLD`
+
+
+## 2026-10-15｜R04 真实 MiniMax M3.1：模态分批已实施，模型漏掉必填 `unresolved`，按用户指令首错停止
+
+**用户授权和执行边界：**用户明确批准现有唯一 Owner 采取「按模态隔离 A-details 批次」，并要求修正后真实 MiniMax 验收、出现第一个错误即停止。原失败 R03 的 HTTPS 3/3、原 raw/SHA、Closed Budget 未修改或重派。当前 `StagedProposal.detail_batches(selection, modality_family=True)` 仅 New-Only D1 按保留原 ordinal 的视觉(image/video)和音频(BGM/SFX)家族切分，最大4槽/批，使用独立 Policy `planning-modality-family-detail-batches@1`；原 legacy 固定4槽批次仍支持但不会覆盖新身份。`BatchedVisualClaimCarrier` 仍沿原 SourceSelection src_→canonical、Claim SHA 与 D2 Proof/冷恢复，`BATCH_CLAIM_POLICY` 从 @3 到 @4。原 R03 真实 A-selection 原件只读验证分为 `[slot_000..003]视觉`、`[slot_004..006]视觉`、`[slot_007..010]音频`，总批次数仍3，源 Need 身份和固定顺序不变；模型 Prompt 按当前批次显式限制 audio Condition 不能带视觉 Claim。定向原 D1/D2/D4/冷恢复测试 **20 PASS/0 FAIL**，未重复运行全部历史191项目。
+
+**唯一真实 R04：**采用历史已验证真实 MiniMax 的原 R02 `run.py/gateway_harness.py`、`PlanningEvalBoundary + drain_checkpoints`、持久化 EvalGateway+HTTPS Provider Proxy，不开临时一次性假环境。独立证据目录 `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-actual-owner-eval-r04`；本轮冻结 **277** 项源码/Runner指纹，Minimax `MiniMax-M3.1-Flash-Preview`、adaptive/medium、M Plan 订阅 Key 类型已核对，最大8 HTTP、0自动重试；离线原 Gateway预检 PASS（0 MiniMax）。真实执行 **2 HTTP RESERVED/2 RESPONSE_COMPLETE、0 pending、0重派**。A-selection 原始回复SHA256=`b255694ebe622a92e53812a8b25e157b5e9a4b880ed1839aaa951345a85a1367`，SourceSelection/D1头部通过；A-details-000 原始SHA256=`f71667a925366a9247d31c88227d6c27a54ca4cbfd512792f360066965db1dc6`，模型填写4个合法视觉槽，各条件有必要的visual Claim，但原回复 **根对象只有 `slots`，漏掉 Schema 的必填 `unresolved`**。实际 Provider Tool request `submit_semantic_plan` 参数根级 `required=['slots','unresolved']` 且 `additionalProperties=false`，原 Owner `wire_diagnostics` 唯一问题 `{'keyword':'required','path':[]}`，严格抛 `Planning v3合同无效：Complete Planning wire schema rejected`，用户要求下立即停，未发第三次请求、未进入后续音频 A-details/B/Truth/Plan/Proof，不能声称混合模态问题已由**真实音频回复**验证消失。
+
+**证据与占额保护：**原始两个 reply 和本轮 HTTP/Agent/Journal 完整保存，SHA重算可核；当前 R04 Budget `closed=true`, `close_reason=BATCH_FAILED`, `pending_original_run=false`，禁止恢复失败 R04 或人工添加 `unresolved:[]`/删字段伪造合格回执。模型报告 prompt 46,473 + completion 9,416 = 55,889 tokens；真实现金结算仍 UNKNOWN，不能从 M Plan 余额推断。没有启动素材/配音/Hypit Build/Web制作，没有修改旧原件、提交、推送或部署；Git `easel-studio` HEAD `d82bb60b...` 原工作区dirty，不放行 U4/U5。
+
+`RESULT=PARTIAL; MODALITY_FAMILY_SOFTWARE=PASS; R04_REAL_HTTP=PASS; A_SELECTION=PASS; A_DETAILS_000=FAIL_MISSING_REQUIRED_UNRESOLVED; FULL_PLANNING_REAL=NOT_PASS; DRIFT=NO_DRIFT; TRANSITION=HOLD`。
+**NEXT_SINGLE_ACTION=只对这次模型 A-details 根对象漏 `unresolved` 作根因判断（模型给出的Tool Schema/完整性指令、输出容量/截断、生产请求转换或本地 strict handling），比较旧 R03 同类原件；不得直接写 `unresolved=[]` 默认、放宽闭合 Schema 或复用旧失败预算。提出安全修正并由用户另行批准新一轮真实运行；本次按「出现问题立即停止」不继续实现或派发。**
+
+## 2026-10-15｜R03 原 R02 真实 MiniMax Env：A-details src_* Codec 验证 PASS；混合批次 BGM 非法 Claim 阻断
+
+**本轮唯一 Owner、真实环境：**按用户授权，在 `easel-studio` 上将 A-details 视觉 Claim 的模型 Wire 统一为冻结 SourceSelection `src_*`，`BatchedVisualClaimCarrier` 使用同一个 Codec 的 `allowed_scopes` 对每条 visual Claim 限模态枚举，原 raw/tool SHA 不改，译成 canonical `event-*/global` 后继续原 D1 Header/Condition/B Proof；SourceBridge identity、Source mapping SHA、batch schema SHA 均进入新 `BATCH_CLAIM_POLICY=planning-d1-batched-claim-boundary@3` 身份，由原唯一 Owner `run/verify` 调用同一 carrier，不新增状态机/模型 Agent/改 Material V1.3。此修正对上一 R02 真实保存的 A-details-000 **18/18 个 src_* ref 原值**完成校验/无损反向编码，并验证非法 src_* 拒绝、原 Journal 字节未变化；小范围定向回归 **20 PASS（33.16s）**，没有启动大规模重复软件矩阵。
+
+**真实 R03：**复用旧 2026-10-14 R02 正式成功的 `run.py/gateway_harness.py`、`EvalGateway/EvalProviderProxy`、`PlanningEvalBoundary + drain_checkpoints` 及原生等候/对账，在新持久隔离证据目录 `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-actual-owner-eval-r03`，冻结当前代码/配置 **274** 文件指纹与 Runtime 11/11 身份，M3.1-Flash-Preview / adaptive / medium，M Plan 订阅凭证类型确认，最多8个 HTTP / **0 重试**。离线 Gateway preflight PASS（不调用真 MiniMax），随后唯一 `live`。**3 HTTP RESERVED / 3 RESPONSE_COMPLETE，全部保留原始回复，`pending_original_run=false`、`boundary_reached=false`、总 token = 71,358 prompt + 13,251 completion = 84,609；最终预算 closed=BATCH_FAILED、0 重派。** 原 A-selection 回复 SHA256=`4958370cad2bec547827cd865800fc06332bc0d87522c58432647587141ac0ae`；A-details-000 SHA256=`349d032129eadd5a344cd260b67f8e1edc78285c0c6f93444c62db1081eb5ea2`；A-details-001 SHA256=`d9959568066c09fccd49c75d44e701d4ab079bd483efc363bd39f830b77030fe`。全部原文 SHA 重算 MATCH，原 R01/R02 不修改。
+
+**已证实：** A-selection **PASS**；A-details-000 **PASS，完整证明此前 18 个来源枚举错误的模型侧 Codec 已解除**。`A-details-001` 的 `slot_004`～`slot_006`（视觉）合法，但 `slot_007` 是 BGM：7 个 BGM Condition 都被真实模型输出了**非视觉的 `claim` 对象**。实际 miniMax Tool Schema 中该 BGM Condition 只有 `text/strength/responsibility/meaning`，明确 `additionalProperties=false`，并不含 `claim`；原 owner `wire_diagnostics` 对这 7 条报告 `additionalProperties`，fail-closed `Complete Planning wire schema rejected`。仅在内存临时移除这 7 处未知字段后原工具 Schema 错误数为 0，这只是归因验证，**绝不当成成功输出、不要静默删除/清洗原模型证据**。此新问题属于同一次四 Slot batch 混合视觉和音频，模型将视觉专属 Claim 写到 BGM 的**模态字段串扰**；不能据此宣称完整 Planning 模型端可靠，也不是 `src_*` 映射回归。
+
+**权益与止点：**此轮使用后 `mmx quota` 5h 余量约99%、周约93%，只证明订阅窗口百分比，不推断现金明细；金额仍 UNKNOWN。未进入 B/Repair/Truth/Plan/DecisionProof/D3，未运行任何 Material Provider、TTS、Hypit Build、Web E2E，未 commit/push/部署。此轮代码 AST、`git diff --check` PASS；HEAD `d82bb60b07240a3dd0d776ec00a33c68f71cab50`、39 dirty/untracked 保留；关键当前源码 `planning_creative_authority.py` SHA256 `2de2d55db0a07526de9bb434b83f715e07f01f710e5fe09ad1f0dd7c5252c725`，`semantic_boundary_run.py` SHA256 `59287bfdf539ae48c6924319c5eacf28aff361fe786987677f00c809c8f41ffb`。
+
+`RESULT=PARTIAL; REAL_HTTP=PASS; A_SELECTION=PASS; A_DETAILS_000=PASS; A_DETAILS_001=FAIL_NONVISUAL_EXTRA_CLAIM; FULL_REAL_PLANNING=NOT_PASS; DRIFT=NO_DRIFT; TRANSITION=HOLD`。
+**NEXT_SINGLE_ACTION：在同一原 Owner 下确认音频/视觉混合 batch 的模型 Wire/Schema 隔离与非法音频 Claim 安全处理责任，提出可证明 fail-closed 的设计；离线用保存 R03 原始回执验证输入字段、不篡改它。下一次新 R04 真实模型预算需要用户另行授权；严禁重派已封存 R03、隐藏 extra field、将其当成已获 Director 授权。**
+
+## 2026-10-15｜修订后 MiniMax M3.1 真实 Planning 复验 R02：A-selection PASS，A-details Wire FAIL
+
+**EVALUATION=COMPLETE / REAL_MODEL_HTTP=PASS / FULL_REAL_PLANNING=FAIL_A_DETAILS_000 / RESULT=PARTIAL / TRANSITION=HOLD / U4=BLOCKED。** 继续用户已授权的原 R02/R08 成功运行环境，不用临时 pytest。前一新跑 R01 `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-actual-owner-eval-r01` 已终结业务 FAIL，原 Budget `BATCH_FAILED` 并关闭、无 Pending，绝不恢复/重派。以原 `2026-10-14-real-minimax-p0-medium-s5-r02` 的同版 `run.py`/`gateway_harness.py`、`PlanningEvalBoundary`/`isolated_process()`/`drain_checkpoints()`、`EvalGateway`/`EvalProviderProxy`/原 HTTP 预算在 **全新持久化** `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-actual-owner-eval-r02` 单独冻结当前根因修订后的源代码、270 项本轮 source/harness 文件 SHA、11/11 验证通过的 Runtime、M3.1-Flash-Preview/adaptive/medium、订阅 `sk-cp` 类型认证。限 8 次真实 HTTPS、0 自动重试，隔离本机目录；`offline-corrected` 本地预检 PASS，远端模型 0。随后唯一一次 `live`，没有触发 Provider 素材/TTS/Build/Web/部署/commit/push。
+
+**真实运行账本：** 2 次 HTTP RESERVED / **2 次 RESPONSE_COMPLETE**、参数流 COMPLETE、pending_original_run=false、within_bounds=true；原 HTTP Budget 最终 `closed=true / close_reason=BATCH_FAILED`，不可恢复失败身份。A-selection 成功通过原 `SourceSelection`/D1 选择身份，原回复 SHA256 `608dd45278ab300ed95760740e2e4fbaf7e4533171078d8a90d139a2272d2d2d`，进入 `A-details-000`。A-details 原回复 SHA256 `29869dd5a01c0ebca2ab4b20fe9a83c31d80567008df8a9a7d7666167c945e3c`，模型输出合法 JSON、含 4 slots 共 18 条 Condition Claim，但原 `planning_candidate_review`/`planning_capture` 的 `wire_diagnostics` 对 **18/18 条 `conditions[].claim.creative_goal_ref` 报 enum**，原 Owner 报 `Planning v3合同无效：Complete Planning wire schema rejected`，无 B/Repair/Truth/Plan/DecisionProof/D3。原始 reply bytes/SHA、native run IDs、session IDs、HTTP 请求/响应、模型参数、checkpoint/journal 都保存在本轮独立目录，未变更旧 R01 原件，未把局部 PASS 当整条 Planning PASS。
+
+**现已验证的具体技术根因：**原 A-selection 使用 SourceSelection `src_*` opaque handle；A-details 给模型的 `candidate_slots` 仍只显示 `src_*`，且真实模型在 18 条 Condition Claim 中均使用合法 `src_*`（每条指向对应 event 或合法 global 创作依据）。但当前 `BatchedVisualClaimCarrier` 继承 `VisualClaimCarrier` 的 canonical `event-* / global` 枚举 Schema，既没有在发出 A-details 之前经已有 `SourceSelection` 投影为 `src_*` 枚举，也没有在收到原 Wire 后做身份验证的可逆 decode；因此当前阶段出现 **Producer Input View / A-details Output Schema 编码层不一致**。这是上一轮 Header 修订后残留的真实 Codec 合同问题，不能用提示词让模型猜内部 `event-*` 或把所有 Claim 偷偷改写成 Need.scope，也不能直接删除枚举或 auto-accept。原 18 条 `src_*` 引用在本次冻结 `source_mapping` 可证存在，归属合法与主张合理仍须由独立 B 判定。
+
+**费用和软件状态：**模型报告本轮总 tokens：prompt=45,222、completion=7,223、total=52,445，调用后 `mmx quota` 返回 5 小时余量约99%、周余量约93%；套餐凭证为订阅 Key，现金实际结算仍 UNKNOWN。`production_modified=false`、受测 Git `easel-studio` HEAD `d82bb60b07240a3dd0d776ec00a33c68f71cab50`、无新生产代码修改、`git diff --check` PASS。前一 191 PASS 的确定性软件基线不能代表本次真实 A-details 成功。
+
+**NEXT_SINGLE_ACTION=先在当前唯一 Planning Owner 中修复 A-details 的 SourceSelection `src_*` ⇄ canonical `event-* / global` Claim Basis 双向可逆投影，冻结 Schema/Codec identity，保留 `need_source_ref` 与 `creative_goal_ref` 各自来源、严格枚举及原 B Review；用原 A-details 回执离线审计（不改真实原件）、负例与 D0–D4 回归验证；完成后另获授权才可建立 R03 全新独立真实 M3.1 Eval 验收。** 不恢复 R02 FAIL、不新增第二请求绕过关闭的预算；Planning 整链 REAL PASS 尚缺，噪音清理与 U4 主线仍待后续。
+
+## 2026-10-15｜复用历史真实 MiniMax Eval 环境：当前 D1+D2 Planning 原生 A-selection 首次真实验收
+
+**EVALUATION=COMPLETE；REAL_PLANNING_SMOKE=FAIL（已取得真实 MiniMax 原始回复，D1 Claim 身份校验拒绝）；TRANSITION=HOLD；U4=BLOCKED。** 用户明确要求不再用新建临时 pytest 或一次性 Python Gateway 测试，而是调用原先 R02/R08 **实际成功出真实 HTTP 的 Eval 环境**。已只读证实原 R02 14/14 HTTP 完成及 R08（`s5e-once-r08local20261015`）1 条 `RESPONSE_COMPLETE/WIRE_PASS_DOMAIN_NOT_YET_VERIFIED`。同时只读从 OpenClaw `task_runs` 找回前次临时 pending Run `easel-ada23ca229a14d7d88a708a146742330`，其状态 `failed`、有已完成 `ended_at`；未对它重新派发。
+
+**重用的原环境/执行器：**从 `~/.local/share/easel/creator-task-evidence/2026-10-14-real-minimax-p0-medium-s5-r02` 复制原 `run.py`、原 `gateway_harness.py`、原 `sample.json` 到新的永久隔离证据目录 `~/.local/share/easel/creator-task-evidence/2026-10-15-planning-m31-actual-owner-eval-r01`，保留历史目录与样本和原件不变。使用**同一已有** `PlanningEvalBoundary`、`isolated_process()`、`drain_checkpoints()`、`EvalGateway`、`EvalProviderProxy`、原始 RPC 终态轮询与持久化 HTTP Budget；不是另外设计一套模型调用方式。对本轮新副本仅换成当前已验签的 11/11 OpenClaw Runtime、当前 D0–D4 源码 266 个文件指纹和本次授权/订阅配置，原有无界上限收紧为 **最多 8 次真实 HTTP、0 次重试**；保留 0700 目录、原 HTTP request/result/Token 使用情况和独立 Creation/Attempt。原 `offline-corrected` 校验 PASS（1 次本地假响应、0 远端模型调用，证明持久化 Gateway/Proxy/StopBoundary 可用）后才执行唯一 `live`。
+
+**真实运行结果：**当前真实 `MiniMax-M3.1-Flash-Preview`，adaptive/medium/8192 token，`LIVE` 首个 A-selection 使用实际 Provider HTTPS；HTTP Budget **1 RESERVED / 1 RESPONSE_COMPLETE，SDK 参数流 COMPLETE，0 pending、0 retry，原始回复 SHA256=`237817c9d3e1a746fb105513d6a04c1f9f3e38cef2ccf45ceb920a55c5da3951`**；原 native run=`easel-dc965a095e6b4425bcbf3963a4dbe9c5`，请求/回复/Journal/HTTP budget 均持久化于本轮永久目录。已证实当前 D1 Policy=`planning-creative-owner@1`、D2 Policy=`planning-d2-typed-b@1` 真正参与 A-selection。返回 11 个 Need，7 个视觉 Need 的 `header_claim.creative_goal_ref` 都引用 `SCENES.md/whole_document` 对应的同一个冻结 `src_*`，与各视觉 Need 自身的 `need.scope` 不相等（7/7 错配）；`planning_creative_authority.py:795–806` 原合同在本地 fail-closed：`Claim did not reference its actual opaque source handle`。**这是一次真实 A Wire/Claim 跨字段语义合同拒绝**，不是 Gateway 网络调用失败，不可静默覆盖原回复或标为 ACCEPT；B/Repair/Truth/Plan/DecisionProof/D3 没有进入。完整错误在 `live/result.json`；原回执/未决现场不改写。
+
+**额度与边界：**代理仅允许原 M3.1 文本服务，没有 Material Provider/TTS/Hypit Build/Web E2E。真实模型报告用量 `prompt_tokens=21374, completion_tokens=2959, total_tokens=24333`；用后 `mmx quota` 5小时余量约99%、周余量约93%，实际现金结算仍 UNKNOWN，不从订阅用量倒推收费金额。原 HTTP Budget 已 `closed=BATCH_FAILED`，不重放。Git HEAD `d82bb60b`、`easel-studio`，生产代码未修改、无部署/commit/push；这次 Eval 仅额外写了独立证据和本文档。
+
+**结果与唯一下一动作：**`RESULT=PARTIAL（单次真实 Eval 执行完毕且失败）; REAL_MODEL_HTTP=PASS; ORIGINAL_REPLY=CAPTURED; PLANNING_A_CLAIM=FAIL; PLANNING_D0_D4_SOFTWARE=PASS; DRIFT=NO_DRIFT; TRANSITION=HOLD`。先在受控离线审查中核对 D1 `OpaqueHeaderBridge` 是否让模型输入的 `creative_goal_ref` 与 `need.scope` 关系表达模糊（Schema 枚举允许多 handle、跨字段运行时却要求同值），仅针对这一实际复现的根因提出最小合法合同/Prompt 调整并通过固定原回复负例；任何后续第二次真实 MiniMax 调用需重新以**新独立**授权和新持久 Attempt 执行，不自动开新的 R02 批次，不重开泛化 D1–D4 或执行有价媒体。
+
+## 2026-10-15｜按最新 OpenClaw Runtime 重试真实 MiniMax Planning：原 A-selection 仍 PENDING
+
+**RUN_MODE=CONTROLLED_REAL_MODEL_SMOKE / RESULT=PARTIAL / REAL_PLANNING_SMOKE=NOT_PASS / TRANSITION=HOLD / U4=BLOCKED。** 按用户本轮新授权采用当前安装版为准，确认 `dist/easel-structured-result.mjs` 真实 SHA `03c8406e5c5e1b8fa7828c4358e466ce8de3c84cf300fa8df5eec6f4c2f797c2`，Node JS 静态语法 PASS、结构化输出必要入口字段存在；在项目 `easel/integrations/planning_structured.py` 更新仅该 Runtime Pin，不删除 verify_guard。原先 11 个文件中 10/11 一致，调整后由真实 `verify_runtime()` 验证 **11/11 PASS**，OpenClaw 模型配置 `minimax/MiniMax-M3.1-Flash-Preview`、adaptive/medium、8192 tokens，有效 MiniMax auth 为订阅前缀 `sk-cp`。结构化结果相关测试 **37 PASS / 2 FAIL**（旧实验 guidance 与当前视频 Proposal fixture 两项未通过，并非 Runtime Pin），单独保留证据；不以此冒称全项目全绿。
+
+**单次实调结果：**隔离合法新 Creation `cr_f4aee3141d2d434e9f4e69b666292510`，Attempt `fa_d30b1dd5edf0bd0282dc2d38e9ebdf29`；同一真实正式 Owner 软件 A-selection，设置本轮最多 8 个模型 dispatch 上限。实际派发入口计数 **1**，原 `request_sha256` 前 24 字符 `4ef1ffc70c58a3588595acaf`、`session_sha256` 前 16 字符 `6a31540918da6701`；`run_delivery_agent()` 返回 **`DeliveryAgentPending`（已提交，等待同一 operation 终态）**。此次已经通过旧 Runtime 阻断，不能再写作原地 fail-closed。**没有得到 MODEL_COMPLETED、raw reply SHA、B/Repair/Truth/Plan/DecisionProof/消费合同证据；真实 MiniMax 是否实际扣减、是否最终完成尚 UNKNOWN。** 单独只读 `mmx quota` 后再次显示 5 小时 100%、周 93%，这不是结算证据。
+
+**保护与局限：**该次授权的隔离 Python 临时工作目录在进程返回后已经删除，原 Attempt/agent_calls ledger 不能作为可恢复的持久身份继续原流程；不能通过重新创建 Creation/Attempt、不同 session、复制原 request 或人工修改状态伪造幂等恢复。没有进一步模型 dispatch，未启动 Provider/Hypit Build/Web E2E、部署、commit/push。真实适配性依旧 NOT_PASS，`PLANNING_SOFTWARE_COMPLETE=PASS` 原离线结论不受影响。
+
+**NEXT_SINGLE_ACTION=先只读核实该唯一 OpenClaw Gateway operation 的最终状态与原始回执/真实权益扣减（若能从受保护 Gateway ledger 恢复原 run_id，绝不重派）；若无法确认，按 UNKNOWN 保留，不创建第二次真实调用。然后明确采用持久可追溯的新合法沙箱/Attempt 执行下一次有界 MiniMax Smoke 的权限与消费准入。** 此项是实调续接与证据保全，不是重新打开 D1–D4 或绕过 Runtime。
+
+## 2026-10-15｜MiniMax M3.1 真实 Planning 最小验收尝试：本地 Runtime 阻断（无真实服务端模型结果）
+
+**RUN_MODE=CONTROLLED_REAL_MODEL_SMOKE_ATTEMPT；RESULT=BLOCKED / REAL_PLANNING_SMOKE=NOT_EXECUTED；DRIFT=NO_DRIFT；TRANSITION=HOLD；正式 U4 仍 BLOCKED。** 用户本轮明确授权一次 MiniMax 真实 Planning，小规模且只到 A/B/Repair/Truth/Plan，不授权媒体供应/Build/Web E2E。隔离合法新 Attempt：`Creation=cr_136db0d9e4f345a4a9fffc069fb2b5e2`，`Attempt=fa_454a19cbdf5f22ba039978fb71e54416`。本次工具使用临时隔离 workspace，退出即清理；其 ID 和原调用入口审计保留在本记录，不能将临时目录当作持久化 Journal/Checkpoint 或当作可以恢复的原 operation。模型路由本地只读配置为 `MiniMax-M3.1-Flash-Preview` / adaptive / medium / maxTokens=8192；Easel 专用 OpenClaw profile 默认同一模型，认证元数据显示 MiniMax 使用 `sk-cp-…` 订阅类型而非按量 Key。`mmx quota` 只读查询成功，当时 5 小时窗口剩余 100%，周窗口剩余 93%；没有输出完整密钥。
+
+**REAL_FRONTIER=A-selection 入口，未到 Provider 服务端。** 两次本地新沙箱预检在 `planning_authority.load_inputs` 之前因未恢复确认三文件和缺少 Planning 目录被拒绝，各自外部模型调用数 0；第三次只读预检先从合法 Handoff 调用 `_restore_confirmed_planning`，证明确认原文/Mode/Context 可用，然后使用正式 `web._semantic_material_planning_executor` 进入 A-selection。最多 8 次真实请求的本地硬限制下，仅触发 **1 次 A-selection dispatch callback 入口**，记录 `session_sha256` 前 16 字符 `276ee69230cd9530`、`request_sha256` 前 24 字符 `4ef1ffc70c58a3588595acaf`；随后 `planning_structured.verify_runtime()` 在 RPC 正式提交前 fail-closed：`Structured Planning Runtime patch identity is not verified`。这不是 MiniMax A 语义失败、不是成功响应，更不是已发生一次模型账单；现场没有有效回复 SHA，也没有 B/Repair/Truth/Plan/Proof。
+
+**准确根因：** `easel/integrations/planning_structured.py` 固定了 OpenClaw Runtime 11 个结构化输出文件 SHA，当前安装版 10/11 MATCH；唯一不匹配 `dist/easel-structured-result.mjs`：EXPECTED=`73a5029aa9d6e0276b938f3900a516b31132d4c3b00ae56ff117e5502e030cdd`，ACTUAL=`03c8406e5c5e1b8fa7828c4358e466ce8de3c84cf300fa8df5eec6f4c2f797c2`。`planning_transcript.runtime_location()` 已验证 Runtime 版本与结果选择器基线，故是当前结构化补丁这一文件身份漂移，不可修改代码期望 SHA、绕过验签或改用其他通道重派。没有更改 Runtime/服务/源代码、清理原失败/UNKNOWN 或触发 Provider/Build；本次真实 MiniMax 适配性仍 UNVERIFIED。
+
+**NEXT_SINGLE_ACTION=单独核对并受控恢复已审核的 OpenClaw `dist/easel-structured-result.mjs` 正确安装版本，验证全部 11/11 Runtime Pin 且 Gateway 进程实际加载身份一致，再对同一已授权目标新建独立合法受控 Attempt 做一次 MiniMax 实测；如存在非终态真实请求先按原 Operation 对账，绝不重派。** 任何安装文件覆盖/服务重启需独立明确权限；原 Planning D0–D4 `PLANNING_SOFTWARE_COMPLETE=PASS` 不变，真实模型未获 PASS，U4/U5/U6 仍按原 Gate。
 
 ## 2026-10-12 同一 U2 候选受控加载与 U4 复检
 
@@ -247,3 +480,29 @@
 - 尝试通过 WebCodex 浏览器 UI 的 `set_value(10)` 写入页面的「本次自主素材生成总预算（人民币）」控件，但截图证实页面仍为空、React 控件值未实际保存；重复确认会得到相同拒绝，**已停止重复点击**。这是本次浏览器操作入口与页面控件的实际阻塞，不允许通过 Python 直接确认 Creation、写数据库或 API POST 绕过 Web。
 - **最新状态：`E1-S1 = BLOCKED_AT_WEB_CONFIRMATION`，`E1-S2/S3 = NOT_TESTED`。** 下一操作仅需在 Easel Web 现有作品右侧把「本次自主素材生成总预算」实际输入 `10` 元，肉眼确认输入框显示 10，再点击「按这个方案制作」一次，并按 UI 的 Rights/文字使用范围及费用提示确认。完成后继续读取同一 Creation 的阶段投影和预算状态；不重发模型消息、不新建 Attempt、不购买额外套餐。
 - 本轮有真实订阅模型交互，**未查询到可靠的账户现金扣款明细**，因此不得以模型回复成功冒称新增现金一定为 0 元；已知本轮没有主动执行媒体生成或 Hypit Build。
+
+
+### 2026-10-16 用户暂停停点（覆盖此前 NEXT）
+
+用户明确要求“先暂停”，已停止离线测试，不再派发 HTTP/新 Attempt。新增授权已用 16/60 HTTP（R12=1、R13=15），全部 RESPONSE_COMPLETE，无 Pending/UNKNOWN；剩余44次保留，须用户恢复后才执行。旧29/30账本保持关闭。
+
+R13 `fa_91f768503236ec8cc8260239f0ce2323`：A-selection/A-details通过（原 Owner Repair 1/3），10批B原件已收齐；汇总 Repair 请求1,172,075字节，超过未变的1 MiB上限，在派发前严格拒绝。Truth、D2 Proof、Cold Verify及PLANNING_ACCEPTED未通过。
+
+当前未完成修改：request_view @3 将重复 evidence_choices_by_target 完整表纳入原有无损上下文引用，journal @19；R13真实原件离线回放847,290字节、R11回放697,779字节，恢复原文严格相等，Tool Schema未变。最新回归因用户暂停中断，36 PASS/1 FAIL；FAIL为测试期望4个目录项、实际3个（待核实测试数据是否达到512字符去重阈值），不得记为验证完成，不得将当前版本用于真实派发。此前@2版本54 PASS不代表@3验证完成。未修改合同或容量，不新建Agent，无Git/制作/部署动作。
+
+RESULT=PARTIAL；DRIFT=NO_DRIFT；EVIDENCE=真实调用16次全部终态、Repair容量离线回放通过但最新回归未完成；LESSON=相同目标证据选项表也是大请求重复来源；NEXT_SINGLE_ACTION=用户恢复后先核实并修复定向回归，再完成离线验证，之后才允许新Attempt；TRANSITION=HOLD（解除条件：用户明确恢复且当前修改离线回归通过）。
+
+
+**2026-10-16 离线验收补录：**本轮新增HTTP=0。R11/R13完整原件重建Repair分别209218/325946字节，完整恢复/Tool Schema等价；55项相关回归及最终3项容量派发保护通过。真实执行保持暂停；详见[实施方案§8.35](../tasks/planning-creative-authority-implementation-plan-2026-10-15.md)。
+
+
+**2026-10-16 R14真实失败留证：**新Attempt `fa_8c691526c999185477ed4b55f2cd7dfc`，14/14 HTTP完整、原生全部released、无Pending/UNKNOWN，Repair1/3修复5个局部答案，真实Repair正文171450字节已实际派发并返回，容量问题未复现。随后D2按模型source_or_truth_violation拒绝：两份报告仅描述资产许可待核验。原结果保留FAIL，Truth/Proof/Cold未达。累计新账本30/60、剩30；本次tokens 925943，仅现有套餐，现金结算UNKNOWN。按已接受方案§2.2（资产许可待供应不等于Creator用途授权缺失）只澄清提示，未改变Schema/领域/授权判定；离线验证后新Attempt继续，不改原件。原件及audit见2026-10-16-planning-m31-controlled-loop-live-r14。
+
+
+**2026-10-16 R15–R17真实失败留证：**R15 `fa_b8ec714ca5f28c158c46db6e3d0fd87c` 1HTTP，A-selection编造src_75；R16 `fa_90884d5795937301328d825527f20c38` 2HTTP，A-details同时错误来源与缺unresolved，不符合单纯来源错误恢复条件；R17 `fa_a5ff6f28b38fddb8b08f74728d25dda6` 13HTTP，A通过、B-000至007捕获，B-008完整SSE stop零工具，无安全候选，Repair0/3。三次均原生全部released、无Pending/HTTP UNKNOWN、旧Attempt不续派，原错误不补字段不换来源。各次audit与tokens见同名私有证据目录。累计新账本46/60，R18以剩余14次新身份启动，同@21版本，无新业务合同/输出Schema修改。
+
+
+**2026-10-16 R14–R19最终对账：****账本与费用：**恢复44次全部RESPONSE_COMPLETE/SSE_DONE，5次stop零工具保留为真实失败（不冒充安全模型结果）；全部原生操作released，无Pending/HTTP UNKNOWN。恢复期tokens=2442667（prompt2299198/completion143469）；新增60次tokens=3542834（prompt3340809/completion202025）。与前闭合29次合计89HTTP，若另计R07/R08原12则101HTTP。只用现有M Plan、不充值/无现金fallback；现金结算UNKNOWN，不能记0元。私有证据`2026-10-15-planning-repair-context-dedup-r02/final-resumed-audit.json`及R14–R19各final-audit，已关闭共享task-http账本；最新指纹`a9de5296ec905348712902b64ba1664b8bc7269a8fd392315f5b95d65597a205`。
+
+
+逐Attempt完整结果见[实施方案§8.38](../tasks/planning-creative-authority-implementation-plan-2026-10-15.md)。R19因额度耗尽停止，完整Planning NOT_PASS，用户44次恢复授权已耗尽。

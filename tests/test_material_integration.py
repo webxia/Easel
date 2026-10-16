@@ -211,6 +211,16 @@ def test_u2a_material_v13_current_supply_and_rights(material_integration_env, tm
         'creative_mode_sha256': manifest['creative_mode']['hash']}
     planning = _current_vnext_planning_executor(attempt, {**inputs, 'context_refs': refs})
     assert planning['plan'].context_refs == refs
+    # P0 B-only identity must survive the real frozen checkpoint boundary.
+    from easel.integrations.planning_wire import B_IDENTITY_POLICY
+    from easel.materials.store import AttemptMaterialStore
+    checkpoint = AttemptMaterialStore(root).read_recovery_record('semantic-planning-vnext')
+    assert checkpoint['b_identity_policy'] == B_IDENTITY_POLICY
+    b_keys = [key for key in checkpoint['calls'] if key.startswith('B-')]
+    assert b_keys and all(checkpoint['schema_bindings'][key]['b_identity_policy'] == B_IDENTITY_POLICY
+                          for key in b_keys)
+    assert all(set(json.loads(checkpoint['calls'][key]['reply'])) == {'answers'} for key in b_keys)
+
 
     local_root = tmp_path / 'self-created-media'
     local_root.mkdir()
@@ -6809,3 +6819,64 @@ def test_visual_chunks_resume_with_fixed_requests_and_preserve_planning_contract
     with pytest.raises(DeliveryReportError, match='合同无效'):
         webapp._observe_material_frames(attempt, manifest, attachments)
     assert calls == before and len(compilations) == (0 if same_turn_contract else 1)
+
+
+def test_newonly_repair_evidence_checkpoint_cold_verify_and_tamper(material_integration_env):
+    """Legal current @4 -> Owner B repair -> Truth -> cold verify, no Provider."""
+    from copy import deepcopy
+    from easel.integrations import semantic_boundary_run as boundary
+    from easel.integrations.planning_repair_evidence import POLICY as EVIDENCE_POLICY
+    from easel.integrations.hypit.handoff import load_frozen_creative_mode
+    from easel.integrations.hypit import handoff
+    from easel.materials.store import AttemptMaterialStore
+    from tests.test_creation_preparation import _current_vnext_planning_executor
+    attempt = material_integration_env
+    root = Path(attempt['workspace']['path'])
+    _, manifest, _ = handoff.resolve_handoff(attempt['creation_id'], attempt['handoff']['handoff_id'])
+    hr = root / 'handoff'
+    inputs = {key: json.loads((hr / value['path']).read_text(encoding='utf-8'))
+              for key, value in (('content_core', manifest['content']['content_core']),
+                                 ('truth_packet', manifest['content']['truth_packet']),
+                                 ('creator_context', manifest['creator_context']))}
+    refs = {'content_core_sha256': manifest['content']['content_core']['hash'],
+            'truth_packet_sha256': manifest['content']['truth_packet']['hash'],
+            'creator_context_sha256': manifest['creator_context']['hash'],
+            'production_brief_sha256': manifest['production_request']['production_brief_sha256'],
+            'creative_mode_sha256': manifest['creative_mode']['hash']}
+    outcome = _current_vnext_planning_executor(attempt, {**inputs, 'context_refs': refs}, repair_probe=True)
+    assert outcome['plan'].context_refs == refs
+    store = AttemptMaterialStore(root)
+    journal = store.read_recovery_record(boundary.STATE_KEY)
+    assert journal['repair_used'] and 'repair' in journal['calls']
+    assert journal['repair_evidence_policy'] == EVIDENCE_POLICY
+    assert journal['schema_bindings']['repair']['repair_evidence_policy'] == EVIDENCE_POLICY
+    reply = json.loads(journal['calls']['repair']['reply'])
+    assert reply and all('evidence_ref' in item for value in reply.values() for item in value.get('support', []))
+    checkpoint_path = root / 'planning/SEMANTIC_CHECKPOINT.json'
+    frozen = checkpoint_path.read_bytes()
+    checkpoint = json.loads(frozen)
+    assert checkpoint['repair_evidence_policy'] == EVIDENCE_POLICY
+    mode = load_frozen_creative_mode(attempt)[0]
+    canonical = {name: (root / 'planning' / name).read_text()
+                 for name in ('SCRIPT.md', 'SCENES.md', 'TREATMENT.md')}
+    def cold_verify():
+        return boundary.verify(root, outcome['plan'], mode, canonical['SCRIPT.md'], attempt=attempt)
+    cold_verify()
+    for fault in ('version', 'schema_binding', 'mapping_identity', 'evidence_ref', 'receipt_hash'):
+        modified = deepcopy(checkpoint)
+        if fault == 'version': modified['repair_evidence_policy'] = 'wrong-version@9'
+        elif fault == 'schema_binding':
+            modified['schema_bindings']['repair']['wire_schema_sha256'] = '0' * 64
+        elif fault == 'mapping_identity':
+            modified['schema_bindings']['repair']['frozen_mapping_sha256'] = '0' * 64
+        elif fault == 'evidence_ref':
+            content = json.loads(modified['wire_originals']['repair'])
+            content[next(iter(content))]['support'][0]['evidence_ref'] = 'ev_unbound'
+            modified['wire_originals']['repair'] = json.dumps(content)
+        else: modified['capture']['repair']['reply_sha256'] = '0' * 64
+        checkpoint_path.write_text(json.dumps(modified, ensure_ascii=False))
+        try:
+            with pytest.raises(ValueError): cold_verify()
+        finally:
+            checkpoint_path.write_bytes(frozen)
+    cold_verify()
