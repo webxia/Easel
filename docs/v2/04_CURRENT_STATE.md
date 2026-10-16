@@ -1,6 +1,6 @@
 # Easel V2 · 当前状态
 
-> 状态：**S0 — 骨架已提交并推送；远端 CI 文档校验问题修复待复查**；核查日期：2026-10-16。新提交的 GitHub Actions 未通过前，不记为远端全绿。
+> 状态：**S0 — 骨架已推送；CI 文档引用故障已修复并由远端验证通过**；核查日期：2026-10-16。CI 通过记录属于下文列明的提交；新提交仍须独立验证。
 > 本文是当前快照，不是历史运行流水账。阶段结果需指出证据范围，后续更新本段而非在文件顶端追加“最新”。
 
 ## 项目基线与保护范围
@@ -16,19 +16,19 @@
 
 | 阶段 | 事实状态 |
 |---|---|
-| S0 | 骨架、模板及 Git 规则已提交并推送（`939b1184`）；本地定向测试通过；首次远端 CI 因文档引用了未跟踪目录而失败，等待修复提交后的重检 |
+| S0 | 骨架 `939b1184` 与文档路径修复 `5ddac359` 均已推送；本地定向测试通过；修复提交的 GitHub Actions 全部必跑任务 PASS，S0 收口 |
 | S1–S5 | 尚未进入，未获得具体生产执行验收结果 |
 
 ## 本轮 S0 本地验收证据
 
-- `python scripts/validate_document_paths.py`：**本地 PASS**，文档路径校验已执行；远端会在纯净检出环境重跑。
+- `python scripts/validate_document_paths.py`：**本地 PASS**（1045 条路径）；修复提交的 GitHub Actions 纯净检出验证亦已 PASS。
 - `python scripts/validate_skills.py`：**PASS**，114 项 Skills/发布契约；`python scripts/validate_skill_commands.py`：**PASS**，306 条文档命令。
 - `python -m pytest -q tests/test_document_paths.py tests/test_agent_harnesses.py`：**100 PASS**，2 条非阻断依赖弃用警告。
 - `git diff --check` 和 11 个必要文件存在性检查：**PASS**；CI YAML 本地解析 **PASS**，V2 push 范围和 PR 触发配置存在。
 - WebCodex 的 `project.instructions` 已读取到根 `AGENTS.md`，完整加载且未截断；**产品内创作 Agent 实际运行时的指令发现/隔离未做模型调用验证**。
-- 首次 GitHub Actions（[CI #38860788907](https://github.com/webxia/Easel/actions/runs/38860788907)）结论为 **FAIL**：`Skill contracts` 的文档路径校验在干净检出时找不到本地未提交的临时目录；其余已执行的主要任务通过。尚未运行真实创作或媒体制作；未修改业务源码、User Profile、素材及原有未跟踪文件。
+- 首次 GitHub Actions（[CI #38860788907](https://github.com/webxia/Easel/actions/runs/38860788907)）因文档引用了未提交的临时目录而失败；修复后 [CI #38861847307](https://github.com/webxia/Easel/actions/runs/38861847307) 对 `5ddac359` 结论为 **SUCCESS**：全部必跑任务通过，真实安装任务按既有触发条件跳过。未运行真实创作或媒体制作；未修改业务源码、User Profile、素材及原有未跟踪文件。
 
-**NEXT_SINGLE_ACTION**：先核实本次文档修复提交的远端 CI 结果；S0 收口后开展 S1 官方源码能力与创作 Agent 指令加载边界审计，产出各项需求“复用 / 改造 / 缺失”的证据映射。真实付费调用需另行明确授权。
+**NEXT_SINGLE_ACTION**：进入 S1，审计官方源码能力与创作 Agent 指令加载边界，产出各项需求“复用 / 改造 / 缺失”的证据映射。真实付费调用需另行明确授权。
 
 ## 更新这个文件时
 
