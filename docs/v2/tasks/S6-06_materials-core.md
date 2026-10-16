@@ -1,6 +1,6 @@
 # S6-06 · V1素材核心迁入与作用域适配
 
-状态：**NOT_STARTED**；代码/测试目标尚待实现或接入。
+状态：**IMPLEMENTED_OFFLINE_VERIFIED**；素材核心已真实迁入并接入生产供应，真实跨平台/模型服务与生产质量仍按下述范围验收。
 
 - **依赖**：S6-01、S6-02。
 - **需求主/协作覆盖**：V2-EXP-011, V2-EXP-012, V2-EXP-021, V2-EXP-031, V2-EXP-034。
@@ -29,4 +29,16 @@ python -m pytest -q tests/production/test_materials_core.py tests/production/tes
 
 ## 执行记录
 
-**验证：NOT_TESTED。** 实施时记录受测提交、实际命令/结果及未覆盖项。
+实施工作树：`codex/s6-production`，本次验证时 HEAD `e923332a1492b37242855632958daf6bb79ba073` 加当前未提交实现。固定 V1 来源、许可证、逐文件保留/删除边界见 [源码迁入记录](../../../easel/materials/MIGRATION.md)。未读取或迁移旧素材/运行数据。
+
+已实现 `easel/materials/`、`production/materials.py` 与实际 `supply_tasks.py` 适配：入库、资格重验、显式跨作品提升、元数据/语义索引降级、哈希/路径验证、引用保护及明确删除后的安全回收。same-work 恢复允许复用；画像为空不会借用其他人资产。主线以不可混淆的 artifact ID 继续剪辑，必用素材缺证据时返回具体阻塞，不替换成图库。
+
+实际执行（2026-10-17，macOS arm64，Python 3.12）：
+
+```bash
+python -m pytest -q tests/production/test_materials_core.py tests/production/test_materials_reference_guard.py tests/production/test_materials_dedup.py tests/production/test_materials_rights.py tests/production/test_material_supply.py tests/production/test_generation_adapter.py tests/production/test_operations.py tests/production/test_supply_tasks.py tests/production/test_public_facts.py
+```
+
+结果 **122 passed（1.35 秒）**；此命令含 S6-07、S6-08 公共事实检索与操作服务集成。素材负例覆盖越界/symlink/篡改、同内容不同权限记录、同片与同画像授权复用、无画像、参考用途、授权变化、索引缺失、并发入库、共享对象引用及安全回收。
+
+真实 embedding 服务、真实用户库/历史数据迁移、Ubuntu/Windows 和完整生产质量 **NOT_TESTED**。库引用和生产域是两个数据库，先保留引用以防在用文件被删；删除作品后由合法删除流程明确释放对应引用，不自动扫旧数据。

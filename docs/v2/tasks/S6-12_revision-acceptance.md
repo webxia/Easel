@@ -1,6 +1,6 @@
 # S6-12 · 自然语言修订、版本接受与内容库
 
-状态：**NOT_STARTED**；代码/测试目标尚待实现或接入。
+状态：**IMPLEMENTED / OFFLINE_INTEGRATION_VERIFIED**。自然语言局部修订、扩大影响确认、版本接受/比较、内容库和基于具体旧版新作已接通。
 
 - **依赖**：S6-02、S6-05、S6-11。
 - **需求主/协作覆盖**：V2-EXP-007, V2-EXP-008, V2-EXP-017, V2-EXP-026, V2-EXP-027, V2-EXP-034。
@@ -33,4 +33,12 @@ npm --prefix web/frontend run build
 
 ## 执行记录
 
-**验证：NOT_TESTED。** 实施时记录受测提交、实际命令/结果及未覆盖项。
+**删除子项：本地软件检查通过。** `codex/s6-production` 工作区新增 `deletion.py` 与 schema 2（作品/产物 tombstone、持久清理队列）；隔离 Python 3.12 执行 `python -m pytest -q tests/production/test_deletion.py`：15 passed。验证过期影响预览、命令重放、已接受选择移除、共享依赖/原件/导演证据保留、在途回执晚到、符号链接/变更文件保护、v1 schema 前向迁移、API 在清理前拒绝已删成果，以及独立素材库引用释放失败和文件暂时锁定后的持久重试。维护循环将用户取消传给独立渲染器，完成竞争时保存非可审阅回执；服务退出不当成用户取消。没有操作用户现有生产文件。
+
+另运行真实本地 FFmpeg 的 `tests/production/test_render_local.py::test_cancel_is_observed_and_restart_recovers_interrupted_local_job`：1 passed；未调用付费服务。
+
+该记录只覆盖删除服务；自然语言修订、审阅 UI、完整内容库及真实创作验收由本卡其他子项与 S6-14 集成记录补齐。后台清理按队列复核引用，执行命令成功不等于文件清理完成。
+
+### 本轮集成记录（2026-10-17）
+
+test_revision_pipeline真实本地首版→接受→自然语言视觉调整→再渲染/QC→明确接受新版通过；旧文件和接受记录保持到用户切换。test_revision_acceptance覆盖扩大影响新planning run及精确旧版fork：复制为新作参考，不继承旧授权、接受状态或素材使用权。Creator真实接受仍未测。

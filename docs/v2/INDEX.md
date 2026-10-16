@@ -14,6 +14,7 @@
 | 任务顺序、依赖、覆盖关系与验收分工是什么 | [实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md)及各卡；每张卡维护自身执行结果 |
 | S1～S7 如何划分 | [路线图](03_ROADMAP.md)；任务卡编号不等于阶段编号 |
 | 正在做什么，从哪个版本接手 | [当前状态](04_CURRENT_STATE.md)；只汇总并指向证据 |
+| 如何配置并体验新视频制作 | [S6 运行配置](16_RUNTIME_SETUP.md)：启动、服务协议、字体和真实验收边界 |
 | 如何运行检查、交接和操作 Git | [工程说明](05_ENGINEERING.md)、[官方 README](../../README.md)、[贡献指南](../../CONTRIBUTING.md) |
 
 产品内创作 Agent 使用[创作指令](../../agents/workspace/AGENTS.md)，仓库根 `AGENTS.md` 约束研发任务。实际指令加载边界须通过运行证据核验，不能仅凭目录分开宣称隔离完成。

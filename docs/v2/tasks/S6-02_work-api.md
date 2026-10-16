@@ -1,6 +1,6 @@
 # S6-02 · 作品命令、输入登记与旧入口保护
 
-状态：**NOT_STARTED**；代码/测试目标尚待实现或接入。
+状态：**IMPLEMENTED / OFFLINE_INTEGRATION_VERIFIED**。作品命令、输入登记、事件查询与旧入口保护已接通；删除采用影响预览、精确版本确认和延后文件清理。
 
 - **依赖**：S6-01。
 - **需求主/协作覆盖**：V2-EXP-002, V2-EXP-003, V2-EXP-005, V2-EXP-011, V2-EXP-020, V2-EXP-027, V2-EXP-028, V2-EXP-029, V2-EXP-034。
@@ -30,4 +30,8 @@ python -m pytest -q tests/production/test_work_api.py tests/production/test_refe
 
 ## 执行记录
 
-**验证：NOT_TESTED。** 实施时记录受测提交、实际命令/结果及未覆盖项。
+**软件及本地媒体验证：已执行。真实模型/服务、真实自主生产及 Creator 接受不据离线结果宣称通过。** 整批受测代码与回归结果见 [S6-14](S6-14_integration-release.md)。
+
+### 本轮集成记录（2026-10-17）
+
+作品/附件/画像/删除/路径回归见 test_work_api、test_reference_guard、test_deletion 及既有安全用例。删除画像后同名重建产生新身份，不继承旧默认；旧作品快照保留。

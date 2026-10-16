@@ -1,6 +1,6 @@
 # S6-14 · 首次真实生产与完整范围验收
 
-状态：**NOT_STARTED**。第一段通过而第二段未完成时为 PARTIAL；两段结果分别记录。
+状态：**PARTIAL**。软件与本地合成媒体验证通过；真实生产等待具名服务/样本/授权。第一段通过而第二段未完成时为 PARTIAL；两段结果分别记录。
 
 - **依赖**：第一段为 S6-01～11 实际就绪；第二段为 S6-01～13及首次真实闭环就绪。阶段对应见[任务包里程碑](S6_IMPLEMENTATION_PLAN.md#1-基线顺序与交付)。
 - **需求主/协作覆盖**：V2-EXP-009, V2-EXP-018, V2-EXP-022, V2-EXP-023, V2-EXP-028, V2-EXP-029, V2-EXP-030。
@@ -49,7 +49,51 @@ npm --prefix web/frontend run build
 
 交付要求：按两段及能力范围分列软件/真实/自主/接受报告；任一段未完成时整体 PARTIAL。上线、合并、发布不由测试通过自动授权。
 
-## 执行记录
+## 执行记录（2026-10-17）
 
-- 第一段：**NOT_TESTED**。记录受测提交、实际命令/结果、真实媒体和审阅证据、未覆盖项。
-- 第二段：**NOT_TESTED**。记录全范围矩阵、完整 T08、质量/效率及接受结果。
+受测实现：`97ecc67b`，分支 `codex/s6-production`，从 `4525b09d` 接手；基础分批提交为 `e923332a`、`97199284`。[PR #8](https://github.com/webxia/Easel/pull/8) 为草稿，未合并、未发布。测试采用隔离虚拟环境、临时 SQLite/媒体根；没有调用真实付费服务，没有迁移 V1 运行数据。
+
+| 层次 | 第一段：首次真实闭环 | 第二段：完整范围 |
+|---|---|---|
+| 软件实现/离线集成 | PASS：实际 API、持久任务、供料/声音协议、FFmpeg、自检、修订/接受均接通 | PASS：下述软件矩阵；不替代所有真实样片组合 |
+| 本地实际媒体 | PASS：合成画面/音轨的真实编码、播放与版本保留 | PARTIAL：两画幅、四声音、90/900秒等具名用例；不是全部排列组合 |
+| 真实模型/配音/媒体供应服务 | NOT_TESTED | NOT_TESTED |
+| 真实自主完成/质量与效率 | NOT_TESTED | NOT_TESTED |
+| Creator 真实审阅/接受具体成片 | NOT_TESTED | NOT_TESTED |
+
+### 软件检查
+
+在 macOS arm64 / Python 3.12 / FFmpeg 8.1 / Pillow 12.3.0 执行：
+
+```bash
+/tmp/easel-s6-worker-venv/bin/python -m pytest -q -ra --junitxml=/tmp/easel-s6-final-junit.xml
+node --test tests/frontend/*.test.mjs
+npm --prefix web/frontend run lint
+npm --prefix web/frontend run build
+python scripts/validate_skills.py
+python scripts/validate_skill_commands.py
+python scripts/validate_document_paths.py
+```
+
+- 最终全库：**1591 passed、12 skipped、1 warning，77.41秒**。JUnit共1603项，0失败/0错误；包括最后新增的 `test_fork_exact_output_copies_reference_without_old_authority`。
+- 12跳过：Bun未安装5项、OpenClaw实装2项、本机无PowerShell4项、900秒编码默认opt-in 1项（另已实际运行，见下文）。既有 `doctor.py` 的 `python_multipart` 弃用提示1条。
+- 前端 **80 passed**；lint退出0（既有 `linkifyOutputs.ts` 无用转义提示），构建通过（单包超过500kB提示）。没有通过降低规则或删测试制造PASS。
+- 114项Skill和309条文档命令校验通过；路径校验在最终文档更新后再次执行。CI证据按PR的精确提交读取，不把基础提交结果套用到新业务。
+- 本地逐项证据：`/tmp/easel-s6-final-junit.xml`、`/tmp/easel-s6-full-pytest-final.log`；这些临时文件不提交到仓库。可用上述命令重现，路径不是交付依赖。
+
+基础 `97199284` 的 [CI run](https://github.com/webxia/Easel/actions/runs/38936316306) 实际结果：Ubuntu1332 passed/8 skipped、Windows1241/99，三平台×Python3.10/3.12持久层各66 passed。新业务CI应以 [PR #8 检查](https://github.com/webxia/Easel/pull/8/checks) 所绑定SHA为准；最终结果同步在PR验证说明，不继承旧SHA结论。
+
+### 本地媒体和界面证据
+
+- `test_creation_flow`：真实图片→FFmpeg可播放成片→技术检查→实际视频文件分段送入脚本化模型→全片综合→reviewable；未自动接受。image-only模型实际链路保持needs_decision，不能完整通过。
+- `test_quality`：完整时间轴/音轨、分段与综合判定、尾段缺陷、局部失败不可被汇总抹去、缓存复用、一个runner连续持久调用身份；低帧率尾帧回归另覆盖1fps/10fps。媒体提交覆盖不证明远端模型内部逐帧处理或语义判断准确。
+- `test_revision_pipeline`：实际首版→明确接受旧版→自然语言画面调整→重新编码与自检→明确接受新版；旧版字节和原接受选择保持到用户主动切换。扩大范围转新版planning而非死循环；新作复制指定旧版为参考，不复制授权。
+- `test_supported_matrix`：24项设置组合校验和一次实际90秒1920×1080/24fps渲染；不是24种组合都实际编码。
+- 900秒独立真实编码：`EASEL_RUN_LONG_MEDIA=1 ... -m pytest -q tests/production/test_render_local.py::test_900_second_boundary_real_encode`，**1 passed /38.85秒**；1920×1080/24fps/无声合成静态图输入。两画幅/四声音/字幕/修改保留音频的具体证据见 [S6-09](S6-09_editor-adapter.md)、[S6-10](S6-10_voice-subtitles.md)。未扩大为900秒真实模型自主创作通过。
+- 浏览器隔离根 `/tmp/easel-s6-ui-verification` 实测创建作品、缺配置原因、进度连接及重启后恢复入口/零生成次数；截图 `/tmp/easel-s6-ui-verification.png`。测试服务已停止，不占用户生产端口或生产库。
+
+### 尚需用户提供的真实验收条件
+
+已集中询问：可复用本机配置文件路径（不粘贴密钥）、允许模型/配音/素材服务、创作主题与参考/原片样本路径、IMAGE和VIDEO各允许的实际提交次数（可为0）。活动工作树没有这些明确配置与授权组合，因此没有发送真实调用。配音不占两类次数，但不能自动视为已授权。
+
+拿到条件后先执行第一段：真实主题→方案→确认→自主首版→实际审片，并记录错误恢复、调用/耗时及Creator反馈；再按本卡既定完整矩阵执行第二段。不得用本次离线PASS关闭真实未测项。启动与配置见 [运行配置](../16_RUNTIME_SETUP.md)。

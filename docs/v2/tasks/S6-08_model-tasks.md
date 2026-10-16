@@ -1,6 +1,6 @@
 # S6-08 · 任务化模型与受控工具执行
 
-状态：**NOT_STARTED**；代码/测试目标尚待实现或接入。
+状态：**IMPLEMENTED / OFFLINE_INTEGRATION_VERIFIED**。具名模型 HTTP、结构化任务、受控公开事实工具和实际媒体输入已接通。
 
 - **依赖**：S6-02、S6-03、S6-06。
 - **需求主/协作覆盖**：V2-EXP-001, V2-EXP-004, V2-EXP-005, V2-EXP-014, V2-EXP-032, V2-EXP-034。
@@ -30,4 +30,8 @@ python -m pytest -q tests/production/test_model_tasks.py tests/test_direct_api.p
 
 ## 执行记录
 
-**验证：NOT_TESTED。** 实施时记录受测提交、实际命令/结果及未覆盖项。
+**软件及本地媒体验证：已执行。真实模型/服务、真实自主生产及 Creator 接受不据离线结果宣称通过。** 整批受测代码与回归结果见 [S6-14](S6-14_integration-release.md)。
+
+### 本轮集成记录（2026-10-17）
+
+模型与工具合同、未知回执、规划/导演重放、冻结画像和配置身份有正反例。HTTP协议用 MockTransport，业务判断用脚本化模型；实际媒体字节由 FFmpeg 提取。模型、Brave实际服务均未调用。

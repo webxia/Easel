@@ -1,6 +1,6 @@
 # S6-09 · 可编辑工程合同与渲染接入
 
-状态：**NOT_STARTED**；代码/测试目标尚待实现或接入。
+状态：**LOCAL_BACKEND_IMPLEMENTED / INTEGRATED**；真实本地编辑后端及主线接入已实现，正式作品质量和未跑平台仍待对应真实验收。
 
 - **依赖**：S6-01、S6-06。
 - **需求主/协作覆盖**：V2-EXP-009, V2-EXP-015, V2-EXP-022, V2-EXP-025。
@@ -31,4 +31,26 @@ python -m pytest -q tests/production/test_editor_contract.py tests/production/te
 
 ## 执行记录
 
-**验证：NOT_TESTED。** 实施时记录受测提交、实际命令/结果及未覆盖项。
+实施基线：`4525b09da8bfc30ba556dba2198872a23b35a0ae` 上的 `codex/s6-production` 工作区。新增 `editors/base.py`、`ffmpeg.py`、`render_worker.py`、`media.py` 及两个测试文件；具体取舍、版本/许可证和能力范围见 [ADR-S6-009](../decisions/ADR-S6-009-local-editor.md)。未安装依赖、未调用 Hypit 或媒体生成服务、未触碰用户 Runtime/素材。
+
+本机 FFmpeg/ffprobe 8.1、Pillow 12.3.0、Python 3.12.13，macOS arm64。执行 `python -m pytest -q tests/production/test_editor_contract.py tests/production/test_render_local.py` 验证合同与真实短片；另以 `EASEL_RUN_LONG_MEDIA=1` 启用真实 900 秒编码，长片用具名独立用例，不借短片宣称全部组合通过。
+
+启用长片的编辑器整组实际结果为 **20 passed（45.05 秒）**。加入声音/设置 HTTP、真实 worker 和字幕底片保护后，以隔离测试环境执行：
+
+```bash
+EASEL_RUN_LONG_MEDIA=1 /tmp/easel-s6-worker-venv/bin/python -m pytest -q tests/production/test_editor_contract.py tests/production/test_render_local.py tests/production/test_voice_subtitles.py tests/production/test_voice_settings_api.py
+```
+
+当时联合结果 **33 passed（46.32 秒）**，包含真实 900 秒编码。随后新增的固定声音+字幕主线实际导出用例与具体结果见 S6-10；不把其后增加用例伪装成这次联合运行已覆盖。
+
+独立边界用例为 `test_900_second_boundary_real_encode`：实际生成 1920×1080、24fps、900秒、无音轨 MP4，输入是合成静态图片，实测时长误差小于0.1秒。可单独复现：
+
+```bash
+EASEL_RUN_LONG_MEDIA=1 /tmp/easel-s6-worker-venv/bin/python -m pytest -q tests/production/test_render_local.py::test_900_second_boundary_real_encode
+```
+
+最后独立复验实际结果：**1 passed（38.85秒）**。
+
+已覆盖：原声、静音无音轨、音乐/混音、两种 1080 画幅、1 秒/900 秒、视频溶解、明确图片推拉、字幕/裁切修订、幂等、取消、重建 adapter 观察/恢复、坏引用/摘要、伪装播放列表和零音量；字幕修改前后导出 AAC 字节相同。实际导出视频的中文/英文字幕帧人工查看未发现裁切或缺字。输出 receipt 另保存同版无字幕合成底片路径与摘要，供修改字幕预览，防止把新字幕叠在旧烤录字幕上。
+
+真实模型生产、自然声音、跨题材导演效果、Ubuntu/Windows、完整时长/模式组合仍 **NOT_TESTED**。渲染完成不写首版合格或用户接受状态。S6-10/11 已连接素材句柄、音轨设置、编辑工程及结果登记；后续验证应覆盖对应实际题材与平台，不重复实施本后端。
