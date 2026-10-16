@@ -7,9 +7,10 @@
 | 需要解决的问题 | 进入文档 |
 |---|---|
 | 为什么做 V2、当前范围 | [愿景](00_VISION.md) |
-| 要提供什么产品行为、优先级 | [需求](01_REQUIREMENTS.md) |
+| S4 完整创作需求、验收清单与后续实测事项 | [S4 定稿](01_REQUIREMENTS.md)（需求确认不等于验收通过） |
+| 哪些沿用 Easel、迁入 V1、需要新增 | [需求差距与复用清单](11_REQUIREMENT_GAP_MAP.md)（只读源码核查，未迁移） |
 | 模块边界和不变量 | [架构](02_ARCHITECTURE.md) |
-| 下一阶段、里程碑、依赖 | [路线图](03_ROADMAP.md) |
+| 已确认的 S1→S7 顺序 | [固定流程路线图](https://github.com/webxia/Easel/blob/2cd2ddfad8ea2237a7142abc3462b8559e81e057/docs/v2/03_ROADMAP.md)（独立 PR 尚未合流） |
 | 当前证实的事实、正在处理什么 | [当前状态](04_CURRENT_STATE.md) |
 | 如何启动、检查、接续、同步 Git、验证优化 | [工程说明](05_ENGINEERING.md) |
 | 长任务/重大决策如何记录 | [Task 模板](templates/TASK.md) / [ADR 模板](templates/ADR.md) |
