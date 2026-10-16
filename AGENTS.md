@@ -8,7 +8,7 @@
 
 V2 当前聚焦视频：一个 Creator / Profile + 一个 Director / Creative Mode + 不同 Content → 稳定风格、具有创作自由度的可审阅视频。Creator 确认后，系统尽可能自主完成首版，必要时局部修订。先实现真实生产闭环，不因局部工具或协议问题改变产品目标。
 
-- 正式业务需求见 [需求](docs/v2/01_REQUIREMENTS.md)；目标职责见 [架构](docs/v2/02_ARCHITECTURE.md)。
+- [需求草案](docs/v2/01_REQUIREMENTS.md) 尚待正式录入，**S1 只审计现有代码**，不得据此认定新需求已经批准或按草案评价现状；目标讨论资料见 [架构草案](docs/v2/02_ARCHITECTURE.md)。
 - V2 建立在官方 Easel 上；`easel-studio` 只作为只读参考，不是兼容目标或下一步任务清单。
 - 架构图、候选接口和路线图都不等于已实现能力；验收必须使用相应版本的实际证据。
 
@@ -36,4 +36,4 @@ V2 当前聚焦视频：一个 Creator / Profile + 一个 Director / Creative Mo
 - 区分 **软件检查通过 / 真实生产通过 / Creator 接受**；不拿其一冒充其二，也不把未运行记为通过。
 - 小修复记录在 PR 即可；跨会话/跨模块工作使用轻量 [Task 模板](docs/v2/templates/TASK.md)；重大长期设计决定使用 [ADR 模板](docs/v2/templates/ADR.md)。
 - 本地 `main` 跟踪官方 `upstream/main`；`easel-v2-rebuild` 是长期二开主线；`easel-studio` 只作封存参考。**每周一次、每个新阶段开始前**检查官方更新，先 Fetch/Diff/报告；**官方更新合入 V2 必须先报告并获得用户明确确认**，不能因风险低自行合并。禁止静默换基线、自动 force-push 或破坏历史。
-- 当前阶段只建立项目骨架；V2 业务架构字段、数据库、任务图和调用阈值由后续具体需求与证据决定。
+- 先把 [源码现状审计](docs/v2/06_CAPABILITY_AUDIT.md) 与未来正式录入的新需求分离；只有需求确认后才进行差距映射、架构决策及实施。不要把历史设想或代码现状自动升级为已批准的需求。
