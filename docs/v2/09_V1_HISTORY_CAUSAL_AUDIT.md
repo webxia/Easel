@@ -342,3 +342,30 @@ R14–R19 六次共 44 HTTP / **2,442,667** 报告 Token，属于已关闭 60 HT
 - Git 历史观察可用 `git log --first-parent --reverse easel-studio`、`git show 57c8e2ad:<path>` 或 `git -C /Users/xgx/Projects/Easel-V1-Archive show HEAD:<path>`；绝不执行旧 Task 的恢复指令。
 - 私有快照可按 `inventory/final-audit-shas.json` 的相对路径在 `raw-evidence` 中重新哈希；不回写原账、不泄漏密钥/原始私有内容。
 - 每项真正的历史“PASS/FAIL”结论必须回到其原产品、Creation/Attempt、源码/运行指纹和日期。旧目录的“最新 NEXT”不再有指挥权。
+## 9. V1 U7：全链路优化研究方向（历史候选，尚未实施）
+
+**固定来源**：[V1 路线图 U7](https://github.com/webxia/Easel/blob/57c8e2ade21af9fb6abccdab3f7ba8e50132314f/docs/03_ROADMAP.md#L28-L46)；其原始状态明确为 `U7_BACKLOG / NOT_STARTED / NO_CODE_CHANGE`。它提出的是 **在 U0–U6 真实出片之后开展的效率、质量、成本、自动化、恢复性研究**，不是已执行的第七个 Gate，更不是已被验证的 V2 技术方案。
+
+### 9.1 六类值得保留的历史优化问题
+
+| 历史研究领域 | U7 曾提出的优化问题 | 本轮证据结论 |
+|---|---|---|
+| Creator / Director / Web Proposal | 交互轮次、重复确认、冻结信息、人工打断、跨题材风格 | 属体验观察计划；与 C01/C03/C08 关联，未测得全链优化结果 |
+| Preparation / Planning / Truth | 重复上下文、分阶段合法性、Token、推理档位、模型路由、恢复 | C04/C05 有具名失败证据；U7 自身 **NOT_STARTED** |
+| Material / Voice / BGM / Rights | 多 Need 复用、重复观察/供应、音频、版权事实、缓存失效 | C07 有正反例；U7 未形成整体基准或优化增益 |
+| Native Authoring / Hypit | 选材交接、编排/Build 耗时、资源峰值、重复 Build、费用与 UNKNOWN | U3-S 仅软件集成证据；真实 Web 阶段耗时未由 U7 量测 |
+| QC / Review / Content Library | 音画字幕/风格、局部修订、用户反馈次数、可恢复输出 | 9/30 单作品有人审成功；非 U7 优化实验 |
+| 跨阶段量化 | p50/p95、总耗时、Provider HTTP、推理与输出 Token、费用、失败/恢复率、用户干预 | **研究方法候选**；需要多作品、同版样本，不能从同题 R09–R19 得出总体统计 |
+
+### 9.2 Planning 推理强度和重复输入：假设不能误当结论
+
+U7 原文认为当时 OpenClaw 的统一推理强度、B 与 A-details 重复携带大量冻结证据，并使用较高 `reasoning_effort`，**可能**增加延迟与消耗。它列出的 A-selection `medium`、A-details `low/medium`、B `medium`、Repair `low`、Truth `medium` 均为 **HYPOTHESIS / NOT_TESTED_BY_U7**；并无证据证明改用这些档位就会降低 UNKNOWN、解决零工具或通过真实 Planning。
+
+U7 的可吸收方法是：固定输入、Git/Runtime/Schema、模型通道和输出上限，使用新的有效测试身份对照推理参数；单独控制思考档位与输出 Token 上限，记录阶段响应、语义合法性、端到端完成率、耗时与实际资源消耗。历史 `PENDING/UNKNOWN` 不得因为试验而重派，Creator/Director/Truth/来源/Rights 的语义义务不能为了缩短上下文而删减。
+
+### 9.3 S2 能沉淀什么、留给后续什么
+
+- **历史事实**：U7 曾要求对整个 Creator 视频制作链而非单点 Planning 做瓶颈诊断；当时没有启动 U7，也没有生成 p50/p95 性能报告或真实完整优化结论。
+- **经验候选**：先建立真实作品和跨阶段计量，按影响排序选一个瓶颈，做有界对照；不要平均用力重构。区分阶段 Provider HTTP、Agent/RPC、Token、套餐占额、真实现金、重试、轮询与人为干预，不能相互替代。
+- **已知正反证据的连接**：重复输入曾造成本地 Repair 超限，后续可逆去重让 R14 真实 Repair 派发；但这不证明按阶段降低推理强度会提高模型合法性或整体出片率。
+- **后续责任**：S3 可提炼上述研究习惯与适用条件；S4 决定本次 V2 真正需要考核的质量/成本/效率指标；S5 再比较实现与可观测性方案。**不能从 U7 Backlog 直接生成 V2 开发 Task 或宣称优化已实现。**
