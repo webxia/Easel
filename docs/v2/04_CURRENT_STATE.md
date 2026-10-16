@@ -1,35 +1,24 @@
 # Easel V2 · 当前状态
 
-> 状态：**S0 — 骨架已推送；CI 文档引用故障已修复并由远端验证通过**；核查日期：2026-10-16。CI 通过记录属于下文列明的提交；新提交仍须独立验证。
-> 本文是当前快照，不是历史运行流水账。阶段结果需指出证据范围，后续更新本段而非在文件顶端追加“最新”。
+> **S3 历史经验与需求认识文档已完成，待评审；S4/S5 未启动。** 核查日期：2026-10-16。本文记录本次 S3 分支的研究成果，未声称其他文档 PR 已合入 V2。
 
-## 项目基线与保护范围
+## 当前事实与独立成果
 
-- 开发仓库：`/Users/xgx/Projects/Easel`；分支 `easel-v2-rebuild`；官方起点 `4ffdc980`（`upstream/main`），S0 骨架已推送提交 `939b1184`。
-- `easel-studio` 已在自有 GitHub Fork 单独封存；旧协议与 Planning 调试不自动迁入 V2。
-- S0 仅修改研发骨架文档、模板及有限 CI/贡献说明；不修改视频业务源码或用户的运行素材/凭证。
-- 已存在的未跟踪文件（二维码图片、临时技能草稿目录和两个中文创作目录）属于原现场，本轮不删除、不纳入提交。**未将仅存在于本地的目录写成可解析的仓库路径链接。**
-- 官方新代码曾在本机通过 Web HTTP、浏览器页面、Gateway 及 Skills 列表可用性检查；这**不**构成真实 AI 视频创作成功的证明。
-- 上一轮独立配置/安全测试中曾有 183 PASS / 1 FAIL（占位模型 Key 测试在已加载自定义配置环境中未隔离）；属于旧范围证据，不能写成完整仓库全绿。
+- V2 基线仍为 `easel-v2-rebuild@8eeafb6b9bf62b26e2077057cbebe45721f5d464`，本轮只改文档。
+- S0 已交付；历史 [CI 38862531353](https://github.com/webxia/Easel/actions/runs/38862531353) 只对应其受测版本，不代表本轮新提交验证。
+- S1-A [PR #1](https://github.com/webxia/Easel/pull/1)、S1-B [PR #2](https://github.com/webxia/Easel/pull/2)、流程 [PR #3](https://github.com/webxia/Easel/pull/3)、S2 [PR #4](https://github.com/webxia/Easel/pull/4) 本轮核查均 OPEN、未合并，HEAD 与交接一致。固定资料版本及直接入口统一见 [S3 报告 §1](10_V1_LESSONS_AND_REQUIREMENT_INSIGHTS.md#11-实际采用的输入)。
+- S3 报告已区分有界有效经验、真实缺陷、正确阻断、部分修复、集成缺口及假设；包含 HREQ-01～17、C01～C09、原 22 项和 U7 六领域完整映射，以及 12 项 S4 待确认问题。
+- 历史四声音、1～900 秒等仅标“历史文档记载已确认”，不升级为本次 V2 正式需求；[需求讨论稿](01_REQUIREMENTS.md) 和 [架构方向稿](02_ARCHITECTURE.md) 未被本轮批准或修改。
+- 上游检查到 `b29d0d72d7988c7fbacd9f8c6c793c596e4854f9`，相对 V2 基线 24 个上游独有提交，仅 Fetch/Diff，未合并；新增人工审核发布等与现有基线分开记录。
 
-## 当前里程碑与单一下一事项
+## 证据限制与现场保护
 
-| 阶段 | 事实状态 |
-|---|---|
-| S0 | 骨架 `939b1184` 与文档路径修复 `5ddac359` 均已推送；本地定向测试通过；修复提交的 GitHub Actions 全部必跑任务 PASS，S0 收口 |
-| S1–S5 | 尚未进入，未获得具体生产执行验收结果 |
+S1 软件结果、V1 真实局部成功、Creator 接受和完整自主生产资格保持分开。S1-B 两项隔离后测试失败未在本轮重跑；V1 New-Only 完整真实首片、四模式/长片资格、跨题材稳定性仍有缺口。U7 未实施，本轮没有模型、Provider、Build 或性能实验。
 
-## 本轮 S0 本地验收证据
+使用主仓库之外的独立 worktree 与 `codex/s3-v1-lessons` 分支。主目录原 S1 分支及 HEAD 保持，原未跟踪文件/素材、历史归档、运行配置和服务不修改。没有业务源码、正式需求、数据迁移或发布操作。文档检查与 Git 交付回执由本次 PR 记录，不把文档 PASS 当生产 PASS。
 
-- `python scripts/validate_document_paths.py`：**本地 PASS**（1045 条路径）；修复提交的 GitHub Actions 纯净检出验证亦已 PASS。
-- `python scripts/validate_skills.py`：**PASS**，114 项 Skills/发布契约；`python scripts/validate_skill_commands.py`：**PASS**，306 条文档命令。
-- `python -m pytest -q tests/test_document_paths.py tests/test_agent_harnesses.py`：**100 PASS**，2 条非阻断依赖弃用警告。
-- `git diff --check` 和 11 个必要文件存在性检查：**PASS**；CI YAML 本地解析 **PASS**，V2 push 范围和 PR 触发配置存在。
-- WebCodex 的 `project.instructions` 已读取到根 `AGENTS.md`，完整加载且未截断；**产品内创作 Agent 实际运行时的指令发现/隔离未做模型调用验证**。
-- 首次 GitHub Actions（[CI #38860788907](https://github.com/webxia/Easel/actions/runs/38860788907)）因文档引用了未提交的临时目录而失败；修复后 [CI #38861847307](https://github.com/webxia/Easel/actions/runs/38861847307) 对 `5ddac359` 结论为 **SUCCESS**：全部必跑任务通过，真实安装任务按既有触发条件跳过。未运行真实创作或媒体制作；未修改业务源码、User Profile、素材及原有未跟踪文件。
+## 唯一下一动作
 
-**NEXT_SINGLE_ACTION**：进入 S1，审计官方源码能力与创作 Agent 指令加载边界，产出各项需求“复用 / 改造 / 缺失”的证据映射。真实付费调用需另行明确授权。
+**NEXT_SINGLE_ACTION：用户审阅 [S3 报告](10_V1_LESSONS_AND_REQUIREMENT_INSIGHTS.md)。** S4 仅列待确认问题，须另行明确启动；S5 方案比较与架构冻结尚未开始。停止在 S3，不自动推进任何实施。
 
-## 更新这个文件时
-
-只记录当前活动事项、确认的证据、仍存在的风险及下一动作。具体失败日志由测试记录、Task、Git 或 PR 承担，不在本文件复制历史。
+合并文档 PR 时须语义协调 INDEX/CURRENT_STATE 和流程路线图，保留固定证据与真实阶段，不机械覆盖；本轮没有合并任何 PR 或上游变更。
