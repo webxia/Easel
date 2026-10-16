@@ -12,6 +12,7 @@
 | 下一阶段、里程碑、依赖 | [路线图](03_ROADMAP.md) |
 | 当前证实的事实、正在处理什么 | [当前状态](04_CURRENT_STATE.md) |
 | 如何启动、检查、接续、同步 Git、验证优化 | [工程说明](05_ENGINEERING.md) |
+| 当前源码工程质量、风险与现有规范覆盖情况（S1-B） | [工程质量审计](07_ENGINEERING_QUALITY_AUDIT.md) |
 | 长任务/重大决策如何记录 | [Task 模板](templates/TASK.md) / [ADR 模板](templates/ADR.md) |
 | 开源安装与贡献规则 | [官方 README](../../README.md) / [贡献指南](../../CONTRIBUTING.md) |
 
