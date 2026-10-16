@@ -222,6 +222,38 @@ def cmd_web(args) -> int:
     return result.returncode
 
 
+def cmd_production(args) -> int:
+    """Import V2 lazily; status never creates a production database or loads keys."""
+    import json
+    from easel.production.errors import ProductionError
+    from easel.production.store import Store
+    from easel.production.worker import Worker
+
+    try:
+        if args.action == "status":
+            store = Store(args.root / "outputs" / "_production" / "production.sqlite3")
+            print(json.dumps(Worker(store, {}).status() if store.path.is_file() else [], ensure_ascii=False, indent=2))
+            return 0
+        from easel.production.runtime import create_runtime
+        runtime = create_runtime(args.root)
+
+        async def run():
+            try:
+                if args.once:
+                    await runtime.worker.run_once()
+                else:
+                    await runtime.worker.run_forever()
+            finally:
+                runtime.worker.stop()
+        asyncio.run(run())
+        return 0
+    except ProductionError as error:
+        print(error.user_message, file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="easel",
@@ -258,6 +290,12 @@ def main(argv: list[str] | None = None) -> int:
     p_web = sub.add_parser("web", help="启动 Web UI")
     p_web.add_argument("--port", type=int, default=7860, help="端口（默认 7860）")
     p_web.set_defaults(func=cmd_web)
+
+    p_production = sub.add_parser("production", help="V2 视频制作持久执行")
+    p_production.add_argument("action", choices=["worker", "status"])
+    p_production.add_argument("--root", type=Path, default=PROJECT_ROOT, help="Easel 项目目录")
+    p_production.add_argument("--once", action="store_true", help="执行一个可领取运行后退出")
+    p_production.set_defaults(func=cmd_production)
 
     args = parser.parse_args(argv)
     try:

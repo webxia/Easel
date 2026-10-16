@@ -1,6 +1,6 @@
 # S6-04 · 本机worker与LangGraph持久编排
 
-状态：**NOT_STARTED**；代码/测试目标尚待实现或接入。
+状态：**IMPLEMENTED**；本机持久恢复软件检查通过，跨平台 CI 与真实制作待验收。
 
 - **依赖**：S6-01、S6-03。
 - **需求主/协作覆盖**：V2-EXP-006, V2-EXP-024, V2-EXP-025, V2-EXP-029, V2-EXP-033。
@@ -30,4 +30,8 @@ python -m pytest -q tests/production/test_worker.py tests/production/test_graph_
 
 ## 执行记录
 
-**验证：NOT_TESTED。** 实施时记录受测提交、实际命令/结果及未覆盖项。
+**验证：本地软件检查通过。** 在 `codex/s6-production` 的 S6 实施工作区，隔离环境 `/tmp/easel-s6-worker-venv`（macOS arm64 / Python 3.12）运行上述四组用例：127 passed，其中 worker/graph 17 项。真实临时 SQLite 与 LangGraph 检查点覆盖子进程硬退出后接管、未知操作仅查询原任务、双执行者争领、旧 epoch、取消/停服务、领域提交与检查点提交窗口、规划产物保存、生产不重新规划、持久重试上限、只读 CLI 状态与禁云追踪。
+
+受测直接版本：LangGraph 1.2.15、SQLite saver 3.1.2、checkpoint 4.3.0、ormsgpack 1.12.0；保持 Python >=3.10。安装元数据确认这些包及 core/prebuilt/sdk/langsmith 传递层支持 3.10；ormsgpack 固定 1.12，避免 1.13 的 Python 3.11 下限。依赖放入可选 `production` extra，普通聊天不导入图依赖。依据：[LangGraph 发布元数据](https://pypi.org/project/langgraph/1.2.15/)、[SQLite saver 发布元数据](https://pypi.org/project/langgraph-checkpoint-sqlite/3.1.2/)、[持久化文档](https://docs.langchain.com/oss/python/langgraph/persistence)。
+
+CI 已增加 Ubuntu/macOS/Windows × Python 3.10/3.12 的无外部服务持久冒烟入口；本地没有运行远端 CI，不能记作各平台已通过。未调用真实模型/生成服务；业务 handler 的完整制作闭环由后续集成验收。

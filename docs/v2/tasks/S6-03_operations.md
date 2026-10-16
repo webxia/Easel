@@ -1,6 +1,6 @@
 # S6-03 · 外部操作准入、生成次数与未知结果
 
-状态：**NOT_STARTED**；代码/测试目标尚待实现或接入。
+状态：**IMPLEMENTED**；本地软件检查通过，真实服务验收另列。
 
 - **依赖**：S6-01。
 - **需求主/协作覆盖**：V2-EXP-006, V2-EXP-013, V2-EXP-024, V2-EXP-025, V2-EXP-026, V2-EXP-033。
@@ -29,4 +29,6 @@ python -m pytest -q tests/production/test_operations.py
 
 ## 执行记录
 
-**验证：NOT_TESTED。** 实施时记录受测提交、实际命令/结果及未覆盖项。
+**验证：本地软件检查通过；真实 Provider 未调用。** 在 `codex/s6-production` 的 S6 实施工作区，运行 `python -m pytest -q tests/production/test_operations.py`：17 passed。接收计数器使用临时 SQLite，覆盖额度竞争、固定提交身份、旧 epoch、取消、明确未发送与未知状态、查询未找到、模式授权、MODEL/VOICE 不占生成次数，以及实际 adapter 与授权服务身份不一致。
+
+未覆盖：真实服务响应/计费规则、平台网络故障；不得将协议测试解释为真实制作通过。

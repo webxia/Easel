@@ -44,7 +44,7 @@ jobs:
           cache: pip
       - name: Install Easel and test dependencies
         timeout-minutes: 15
-        run: python -m pip install --prefer-binary -e . pytest
+        run: python -m pip install --prefer-binary -e ".[production]" pytest
       # 不要改回 `pytest tests/`：技能自带的用例在 skills/**/tests/ 下，限定目录就把它们
       # （目前 38 个，skill-wechat-publisher 那批）整批排除在 CI 之外 —— 本地 `pytest` 全绿、
       # CI 也全绿，但那部分从来没在 CI 上跑过。从根目录跑一次，两边都覆盖。
@@ -66,9 +66,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: Install settings test dependencies
-        run: python -m pip install pytest fastapi httpx uvicorn sse-starlette python-multipart requests websocket-client cryptography
+        run: python -m pip install pytest fastapi httpx uvicorn sse-starlette python-multipart requests websocket-client cryptography langgraph==1.2.15 langgraph-checkpoint-sqlite==3.1.2 langgraph-checkpoint==4.3.0 ormsgpack==1.12.0
       - name: Verify user installations and settings
         run: python -m pytest -q tests/test_runtime_env.py tests/test_openclaw_cmd_resolution.py tests/test_openclaw_cmd_shim.py tests/test_agent_harnesses.py tests/test_pr1.py tests/test_installation.py tests/test_setup_optional_harness.py
+      - name: Verify durable local graph without external services
+        run: python -m pytest -q tests/production/test_contracts.py tests/production/test_store.py tests/production/test_operations.py tests/production/test_worker.py tests/production/test_graph_resume.py
 
   # 两个安装脚本此前在 CI 里零覆盖 —— setup.ps1 把 setup.sh 的版本假设 bug 原样复刻了一
   # 遍却没人发现，根因就在这里。这个 job 全程在 ubuntu 上跑（shellcheck 与 PSScriptAnalyzer
