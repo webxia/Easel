@@ -6,15 +6,17 @@
 
 | 需要解决的问题 | 进入文档 |
 |---|---|
-| 为什么做 V2、当前范围 | [愿景](00_VISION.md) |
-| 要提供什么产品行为、优先级 | [需求](01_REQUIREMENTS.md) |
-| 模块边界和不变量 | [架构](02_ARCHITECTURE.md) |
-| 下一阶段、里程碑、依赖 | [路线图](03_ROADMAP.md) |
-| 当前证实的事实、正在处理什么 | [当前状态](04_CURRENT_STATE.md) |
-| 如何启动、检查、接续、同步 Git、验证优化 | [工程说明](05_ENGINEERING.md) |
-| 长任务/重大决策如何记录 | [Task 模板](templates/TASK.md) / [ADR 模板](templates/ADR.md) |
-| 开源安装与贡献规则 | [官方 README](../../README.md) / [贡献指南](../../CONTRIBUTING.md) |
-
+| 为什么做 V2、当前方向 | [愿景](00_VISION.md) |
+| 旧讨论中的需求条目（本次**尚未正式批准**） | [历史候选需求](01_REQUIREMENTS.md) |
+| 未冻结的设计方向与职责候选 | [架构方向稿](02_ARCHITECTURE.md) |
+| 阶段与准入（旧版路线等待 PR #3 的 S2～S5 语义合流） | [现有路线图](03_ROADMAP.md) / [S2～S5 正式流程 PR #3](https://github.com/webxia/Easel/pull/3) |
+| **S2-A/B/C/D：V1 完整历史、需求演进、正反证据与深度归因** | [S2 历史研究报告](09_V1_HISTORY_CAUSAL_AUDIT.md) |
+| S1-A 当前代码事实（独立 PR #1） | [S1-A 能力审计](https://github.com/webxia/Easel/pull/1) |
+| S1-B 工程质量与现状规范（独立 PR #2） | [S1-B 工程质量审计](https://github.com/webxia/Easel/pull/2) |
+| 当前证实的事实、下一动作 | [当前状态](04_CURRENT_STATE.md) |
+| 工程与 Git 操作边界 | [工程说明](05_ENGINEERING.md) |
+| 长任务与重大决策记录 | [Task 模板](templates/TASK.md) / [ADR 模板](templates/ADR.md) |
+| 开源安装与贡献 | [官方 README](../../README.md) / [贡献指南](../../CONTRIBUTING.md) |
 产品内创作 Agent 的规则源是 [创作 Agent 指令](../../agents/workspace/AGENTS.md)，**不是**仓库根目录的研发 `AGENTS.md`；工具实际加载范围仍需通过相应环境验证。
 
 ## 权威与冲突处理（不是简单文件优先级）
