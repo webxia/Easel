@@ -7,11 +7,12 @@
 | 需要解决的问题 | 进入文档 |
 |---|---|
 | 为什么做 V2、当前范围 | [愿景](00_VISION.md) |
-| 要提供什么产品行为、优先级 | [需求](01_REQUIREMENTS.md) |
+| 本次尚待正式确认的产品需求 | [需求讨论稿](01_REQUIREMENTS.md)（不因旧状态标签视为已批准） |
 | 模块边界和不变量 | [架构](02_ARCHITECTURE.md) |
-| 下一阶段、里程碑、依赖 | [路线图](03_ROADMAP.md) |
+| 已确认的 S1→S7 顺序（流程 PR 尚未合并） | [固定流程路线图](https://github.com/webxia/Easel/blob/2cd2ddfad8ea2237a7142abc3462b8559e81e057/docs/v2/03_ROADMAP.md)；本地 [路线图](03_ROADMAP.md) 尚待合流 |
 | 当前证实的事实、正在处理什么 | [当前状态](04_CURRENT_STATE.md) |
 | 如何启动、检查、接续、同步 Git、验证优化 | [工程说明](05_ENGINEERING.md) |
+| S3 历史经验、需求确认来源和 S4 待确认问题 | [S3 报告](10_V1_LESSONS_AND_REQUIREMENT_INSIGHTS.md)（包含独立 S1/S2 PR 固定版本入口） |
 | 长任务/重大决策如何记录 | [Task 模板](templates/TASK.md) / [ADR 模板](templates/ADR.md) |
 | 开源安装与贡献规则 | [官方 README](../../README.md) / [贡献指南](../../CONTRIBUTING.md) |
 
