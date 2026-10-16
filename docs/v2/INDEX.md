@@ -1,6 +1,6 @@
 # Easel V2 · 文档导航
 
-状态：**CURRENT — V2 研发骨架入口**。这套文档承载目标、变更与证据，不取代官方 Easel 已有运行说明及产品内 Agent 规则。
+状态：**CURRENT — V2 研发文档入口**。这套文档承载目标、变更与证据，不取代官方 Easel 已有运行说明及产品内 Agent 规则。
 
 ## 从哪里开始
 
@@ -13,6 +13,8 @@
 | 用具体创作案例检查每步输入/输出、模型决策和失败衔接 | [90 秒完整案例](13_PRODUCTION_WALKTHROUGH.md)（衔接方式已认可；纸面推演，非真实运行） |
 | 主线衔接、模型规划与开源选型证据 | [主线研究](12_PRODUCTION_FLOW_RESEARCH.md)（已读官方文档/源码，实验未运行） |
 | 架构选型推荐、替代、理由与风险 | [架构选型建议](14_TECHNOLOGY_SELECTION.md)（推荐待评审，未安装或实施） |
+| 代码复核后的模块、数据、API、状态与接入合同 | [可执行设计](15_IMPLEMENTATION_DESIGN.md)（待实现合同，非现有能力） |
+| 下一步直接交给 Coding Agent 做什么 | [S6 实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md)（14 张卡，首张 S6-01；业务尚未开始） |
 | 选型疑点与实施后验收如何区分 | [重新分类的 T01～T08](tasks/S5_VALIDATION_PLAN.md)（不是选型前置，实验未执行） |
 | 本次设计任务与建议决定 | [S5 Task](tasks/S5_ARCHITECTURE.md) · [ADR-S5-001](decisions/ADR-S5-001-work-production-boundary.md)（ADR 仅接受逻辑边界，技术待验证） |
 | 已确认的 S1→S7 顺序 | [固定流程路线图](https://github.com/webxia/Easel/blob/2cd2ddfad8ea2237a7142abc3462b8559e81e057/docs/v2/03_ROADMAP.md)（独立 PR 尚未合流） |

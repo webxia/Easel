@@ -2,7 +2,7 @@
 
 状态：**RECOMMENDED — 本轮选型建议，待评审；不是已安装、已验证或已实施的技术栈。** 2026-10-16。用户授权基于 Easel、V1 与开源方案做架构选型，并将 T01～T08 重新分类，不作为选型前置；不写业务代码。
 
-本轮只读核查 `edb491d9` 文档工作树中的 Easel 业务代码（业务基线 `8eeafb6b`）、V1 归档 `57c8e2ad` 与官方资料。既有需求、职责与主线由[架构基线](02_ARCHITECTURE.md)及[ADR-S5-001](decisions/ADR-S5-001-work-production-boundary.md)约束。下面每项均给出明确推荐；局部疑点不阻止其他项形成判断，也不把完整产品验收变成选型门槛。
+本轮从 `d25b8f83` 文档工作树再次只读复核 Easel 业务代码（与业务基线 `8eeafb6b` 相同）、V1 归档 `57c8e2ad` 与官方资料。既有需求、职责与主线由[架构基线](02_ARCHITECTURE.md)及[ADR-S5-001](decisions/ADR-S5-001-work-production-boundary.md)约束。下面每项均给出明确推荐；局部疑点不阻止其他项形成判断，也不把完整产品验收变成选型门槛。
 
 ## 1. 推荐组合与模块衔接
 
@@ -12,7 +12,7 @@
 | 执行编排 | **LangGraph 有界状态图**，只承担阶段编排、等待与局部返回 | DBOS；小型显式 Python 执行器；Temporal | 确定阶段与模型选择并存，符合已确认三层规划，避免自研全部检查点机制 | 重放副作用、检查点与业务事务不原子；本地持久后端与现有依赖兼容待小范围核实 |
 | 作品数据 | **SQLite + 本机媒体文件**；已有六维画像仍用原文件 | PostgreSQL + 文件/对象存储；JSON + 文件锁 | 单机范围部署轻；作品版本/授权/操作适合事务；V1 素材目录已有 SQLite 基础 | 单写者、长事务、备份与跨文件登记；不能把 SQLite 等同于外部生成恰好一次 |
 | 模型接入 | **Easel 内任务化模型适配接口**，复用现有配置；程序提供受控工具，语义任务可走直接 API，需工具的任务经受限接入 | 让通用聊天 Harness 全权执行；再引入完整 Agent SDK/多 Agent 框架 | 保留模型可替换和既有入口，减少全会话污染；明确谁能调用收费工具 | 当前直接 API 无工具能力，不能原样承担全流程；实际图像/音频/视频能力与隔离依赖所选服务 |
-| 编辑渲染 | **可编辑原生工程 + 渲染适配器，首选 Hypit 编辑/渲染能力；FFmpeg 作媒体底层工具** | 自有受限时间线 + FFmpeg；直接接入 Remotion | V1 已有 Hypit 原生工程与局部声音/文字保护代码，符合风格自由和局部修订；不复制旧 Delivery | Hypit 当前版本本地纯制作边界、隐式生成、协议及依赖/授权条件待核实；不假称其为已核实开源库 |
+| 编辑渲染 | **可编辑工程 + 渲染适配器；Hypit 保留优先候选但不可直接迁旧 parser，FFmpeg 为明确底层/替代** | 自有受限时间线 + FFmpeg；直接接入 Remotion | V1 已有 Hypit 原生工程与局部声音/文字保护代码，符合风格自由和局部修订；不复制旧 Delivery | Hypit 当前版本本地纯制作边界、隐式生成、协议及依赖/授权条件待核实；不假称其为已核实开源库 |
 | 素材集成 | **迁入 V1 M01～M05 为应用内素材模块**，统一素材句柄与调用准入 | 重写；单独素材服务；让渲染器自带采购 | 用户已指定迁入，源码具备入库/作用域/权益/复用逻辑 | 旧 Attempt/Creation/报价耦合要适配；索引/Provider 当前可用性未证实 |
 | 进度与观测 | **业务状态快照 + 持久关键事件 + SSE；命令用 HTTP**，沿用 React 展示 | WebSocket；仅轮询；框架调试平台当用户 UI | 现有 SSE/回放与媒体预览基础可用，制作主要是服务端向用户推状态 | 断连/重复/乱序、快照游标一致性、事件隐私与保留策略；不能沿用聊天消息作为作品状态权威 |
 
@@ -29,7 +29,7 @@ flowchart TD
   WORKER --> MAT[V1 素材模块适配]
   MAT --> OPS[统一外部操作准入与核实]
   OPS --> DB
-  WORKER --> EDIT[编辑渲染适配：Hypit 首选]
+  WORKER --> EDIT[编辑渲染适配：Hypit 有条件候选]
   EDIT --> FILES[本地原生工程 / 素材 / 视频文件]
   WORKER --> QC[程序检测 + 实际视听语义检查]
   QC --> DB
@@ -48,6 +48,8 @@ flowchart TD
 ### 为什么推荐 LangGraph
 
 [官方概览](https://docs.langchain.com/oss/python/langgraph/overview)支持把确定性代码与模型步骤组合，且不要求使用完整 LangChain。**本项目判断**：用显式节点表示已确认的创作/选材/编辑/检查等产物边界，用条件边处理具体缺口；模型在节点内做有界创作选择，不能任意跳过授权或自报完成。
+
+[官方持久化说明](https://docs.langchain.com/oss/python/langgraph/persistence)将SQLite saver描述为本地开发存储，因此这里的本机产品推荐是Easel自身范围判断，不是厂商生产适用背书。S6-04须落实单worker、检查点访问串行/受支持异步接口、锁与崩溃测试；若该后端在目标环境不可用，保持领域合同，调整编排/检查点方案，不因此直接增加PostgreSQL服务部署。
 
 [持久化](https://docs.langchain.com/oss/python/langgraph/persistence)区分检查点与长期数据；[中断文档](https://docs.langchain.com/oss/python/langgraph/interrupts)说明恢复可能从节点开头重跑。因此：图状态只放当前任务与业务记录引用，确认/额度/产物接受以作品记录为准；提交生成的节点调用幂等操作入口，恢复先查原操作，不因节点重跑重新收费。持久检查点不会自动启动 OS worker，也不提供凭证隔离。
 
@@ -92,15 +94,15 @@ LangGraph 检查点和 V1 素材目录各自使用独立表/文件所有权，�
 
 风险是模型能力、媒体输入上限和服务差异。当前不指定一个未经配置核实的供应商覆盖所有任务；角色可复用同一模型，也可因真实视听能力分别配置，所选版本/能力需记录，不自动降级或换音色。直接 API 与受限 Harness 均须遵守同一授权入口；无法实际限制付费通道的 Harness 不能承担收费工具执行。
 
-## 5. 编辑渲染：推荐 Hypit 原生制作接入，保留明确替代
+## 5. 编辑渲染：原生工程接入与有条件的 Hypit 候选
 
-V1 的[CLI 适配](https://github.com/webxia/Easel/blob/57c8e2ade21af9fb6abccdab3f7ba8e50132314f/easel/integrations/hypit/cli.py)有 check/build/status/get/cancel 接口；[局部修订](https://github.com/webxia/Easel/blob/57c8e2ade21af9fb6abccdab3f7ba8e50132314f/easel/integrations/hypit/native_revision.py)有 `assert_composition_preserves_sound_and_copy`、视频区间与引用检查。它们为可编辑工程、观察渲染与局部保护提供现成证据，故优先推荐这一接入方向。
+V1 的[CLI 适配](https://github.com/webxia/Easel/blob/57c8e2ade21af9fb6abccdab3f7ba8e50132314f/easel/integrations/hypit/cli.py)有 check/build/status/get/cancel 接口；[局部修订](https://github.com/webxia/Easel/blob/57c8e2ade21af9fb6abccdab3f7ba8e50132314f/easel/integrations/hypit/native_revision.py)有 `assert_composition_preserves_sound_and_copy`、视频区间与引用检查。它们为可编辑工程、观察渲染与局部保护提供现成证据，故保留这一接入方向。但本轮深审发现 V1 的 native_source.py 固定 @hypit/hypit 0.2.7 及内部源码摘要，并含 darwin-arm64 组件路径；现有局部保护不能据此宣称可直接迁入当前跨平台环境。
 
 **推荐范围很窄**：Easel 决定素材/授权/任务；导演创作原生工程；Hypit 承担已选媒体的编辑/渲染并返回可观察结果。不能把整个 Hypit 创作 Skill/旧 service 当作总导演或总调度。当前本地 Hypit Skill 带生成媒体优先的创作倾向，而 S4 是外部素材优先，因此不直接继承其产品策略。当前 Runtime 是否能在受限媒体/凭证环境下完成纯制作，是首选尚未确定的关键边界。
 
 | 替代方案 | 优点 | 代价/风险与采用条件 |
 |---|---|---|
-| 自有受限时间线 + FFmpeg | 沿用现有合成器、音视频工具，进程/文件边界直接可控 | 复杂视听表达、字幕布局和局部依赖需自行实现；现有 `assemble.py` 按旁白定总长，不能原样满足所有时长/混音要求。若 Hypit 无法分离生成/渲染，则评估此替代，不静默降为幻灯片 |
+| 自有受限时间线 + FFmpeg | 沿用现有合成器、音视频工具，进程/文件边界直接可控 | 复杂视听表达、字幕布局和局部依赖需自行实现；现有 `assemble.py` 保留显式镜头时长，仅在缺时长时借旁白分配；静音、补帧、缺字幕回退等默认行为仍需显式适配。若 Hypit 无法分离生成/渲染，则评估此替代，不静默降为幻灯片 |
 | Remotion 原生组件 + renderer | 可用 React 组件表达动态字幕/图形，已有前端技术基础和 vendored SDK 的使用经验 | 浏览器/Node 运行依赖、生成代码隔离与渲染性能；需核实所用许可，不把“源码可读”当成无条件免费。若主要缺口是复杂图形表达，作为明确候选 |
 | 整体沿用原片 video-pipeline-sdk | 仓库已经内置版本并有 status/工序入口 | 契约要求自身的风格方式与 design-table/preview 审批，输入偏原片；与跨内容固定导演、一次确认不同，不作为统一主线直接使用 |
 
@@ -148,3 +150,13 @@ Easel [assemble.py](../../skills/builtin/auto-short-video/scripts/assemble.py)�
 - **Q3 渲染器边界**：核实所选 Hypit 版本能否只消费已有媒体、保持指定原声，修改一处字幕/画面后重渲染而不生成收费素材；如证据不足，使用许可测试媒体做最小样片。其余完整质量/长片覆盖留在实施验收。是否启动本地 Runtime/额外依赖须按实际操作范围明确，不在本轮执行。
 
 推荐变更要记录原因和影响，不能静默退化目标。最终具体技术 ADR 在用户认可本轮取舍后记录，条件性未决项明确保留；不把“开始选型”自动写成“全部选型已接受”。
+
+## 9. 本轮可执行性复核修订
+
+本轮对照源码后，具体实施合同由[可执行设计](15_IMPLEMENTATION_DESIGN.md)维护，完整可接手任务见[实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md)。补齐领域记录/状态、命令幂等、API、模型工具边界、旧删除旁路、固定声音、导演形成和引用保护；不把逻辑模块清单当作已可实施的接口。
+
+依赖需按平台受测约束锁定：核查时 PyPI 元数据 langgraph 1.2.15 与 sqlite checkpointer 3.1.2 的最低 Python 为 3.10，但不能据顶层推导全部传递依赖可用；例如 ormsgpack 新版与 1.12.0 的 Python 范围不同。实施卡要求按3.10/3.12分别解析并跑当前跨平台矩阵，不静默提高要求。[LangGraph 元数据](https://pypi.org/pypi/langgraph/json)、[SQLite saver 元数据](https://pypi.org/pypi/langgraph-checkpoint-sqlite/json)、[ormsgpack 1.12.0 元数据](https://pypi.org/pypi/ormsgpack/1.12.0/json)。不需要采用完整 LangChain 应用框架不等于没有 langchain-core 传递依赖；本轮未安装或解完整锁。
+
+现有 output/persona 删除、旧GET媒体入口和聊天TURN_REMINDER 都可能绕过新作品边界，必须在实际入口处理，不只是给新 API 加校验；私有数据库不能仅靠隐藏目录名保护。V1 完整脚本Voice路径不等于句级配音修订，生产要显式指定engine/voice并登记音轨段依赖。Hypit环境白名单仍可能读取HOME中的Runtime凭证，因此无真实凭证和受限媒体执行边界需由独立适配任务落实；只看定价结果不等于阻断收费通道。
+
+S6-09负责提交具体编辑器决策、精确版本和能力矩阵，明确Hypit通过或替代的依据并回写本节；不能以一个简单可播放样片宣布全部编辑能力成立。S6-07分别负责IMAGE和VIDEO接入，S6-10负责VOICE，S6-14负责真实范围验收，不承接未分派的开发缺口。
