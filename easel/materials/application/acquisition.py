@@ -169,7 +169,11 @@ class MediaDownloader:
             if "content-length" in headers and length != len(response.body):
                 raise AcquisitionError("Media body is truncated or has a mismatched length")
             mime = headers.get("content-type", "").split(";", 1)[0].strip().lower()
-            if not mime.startswith(media_type + "/") or not response.body:
+            # Wikimedia frequently serves audio-only Ogg as application/ogg.
+            # Only accept this exact alternate media type for AUDIO: ffprobe
+            # still has to confirm real decodable audio before qualification.
+            compatible = mime.startswith(media_type + "/") or (media_type == "audio" and mime == "application/ogg")
+            if not compatible or not response.body:
                 raise AcquisitionError("Media body is empty or has the wrong content type")
             return DownloadedMedia(response.body, mime, self.policy.redact(current) or "", redirects)
         raise AcquisitionError("Media redirect limit exceeded")

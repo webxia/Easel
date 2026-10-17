@@ -27,4 +27,6 @@
 
 - S6-15 代码审计/架构成果已推送为 `867d471c`，但绑定该提交的跨平台 CI 出现 1 项 Ubuntu 和 2 项 Windows 失败，均已定向归因；本地素材模块修复后 383 passed / 3 skipped。新补丁的跨平台 CI 仍须按精确 SHA 核查，不能以本机测试宣称 Windows 问题关闭；具体见 [S6-15](tasks/S6-15_material-layer-hardening.md)。
 
-**NEXT_SINGLE_ACTION：完成 [S6-15](tasks/S6-15_material-layer-hardening.md) G3 的真实素材服务与本机音源/音色验收条件，随后逐项取得真实证据；G4 仍不开放，S6-14 继续暂停。** [审计](17_MATERIAL_LAYER_AUDIT.md)和[架构选型](18_MATERIAL_LAYER_ARCHITECTURE.md)已落地，内部冻结意图、SFX绑定、来源授权、素材再准入、只选中依赖及原生旁白适配已实施。合成媒体/模拟模型的五模态整链不代表真实创作品质；不重做G0，不重复索取已允许复用的配置，不在未授权时实发模型、配音或生成请求。
+- 2026-10-17 最新范围：按用户明确决定 Unsplash 继续 preview-only，**不新建音频素材管理界面**；S6-15 仅新增 BGM/SFX Wikimedia Commons 公共搜索 Provider、角色隔离、官方文件专属许可/署名校验、下载 SHA-1 和 OGG 合格音频路径。真实无账户查询已有候选，但生产下载受本机私网映射 DNS 阻断，G3 实际音频、用户听感和真实声音服务仍 NOT_TESTED；参见 [S6-15](tasks/S6-15_material-layer-hardening.md)。
+
+**NEXT_SINGLE_ACTION：在能解析 Wikimedia 公网下载地址的环境完成 [S6-15](tasks/S6-15_material-layer-hardening.md) G3 音频真实下载、权限/署名、试听和创作时序验证；其余真实素材/声线证据继续分列。G4 不开放，S6-14 暂停。** [审计](17_MATERIAL_LAYER_AUDIT.md)和[架构选型](18_MATERIAL_LAYER_ARCHITECTURE.md)已落地，内部冻结意图、SFX绑定、来源授权、素材再准入、只选中依赖及原生旁白适配已实施。合成媒体/模拟模型的五模态整链不代表真实创作品质；不重做G0，不重复索取已允许复用的配置，不在未授权时实发模型、配音或生成请求。

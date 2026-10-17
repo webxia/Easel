@@ -1,5 +1,6 @@
 # S6-15 · Material Layer 现状审计与完善（S6-14 前置）
 > **最新来源接入要求**：Unsplash 需完成合规的制作选材与资产入库；BGM/SFX 补足可合法自动使用的来源。见本卡末尾“新的来源完善决策”，新增部分尚未实施，不影响已有 G0/G1/G3 结论。
+> **最新取舍覆盖**：用户随后明确“Unsplash 先不做，重点完善 BGM/SFX，并且不新增音频管理界面”。U1/U2 暂缓，不作为本次 G3 阻断；下文的历史需求保留事实。活动工作为 BGM/SFX 的公共音频来源、权益、自动供料及真实验收。
 
 状态：**PARTIAL — G0/G1 完成；G2 核心软件已实施；G3 本地软件验收通过；G3 真实服务及 G4 未通过**。2026-10-17 用户进一步授权完整审计、架构选型与实现，取代上一轮仅建文档的范围。**当前唯一实施前置任务**；素材层完成验收后才恢复 S6-14 首次真实生产及完整范围验收。本卡任务 ID 是后续补充，不重新编号 01～14，不改变其历史完成记录与 S4 需求责任分配。
 
@@ -133,3 +134,10 @@ Windows 另暴露 SQLite `catalog.db-shm` 并发消失时，`Path.resolve(strict
 官方依据（2026-10-17 查阅）：[Unsplash API 文档](https://unsplash.com/documentation)、[Unsplash API Guidelines](https://help.unsplash.com/en/articles/2511245-unsplash-api-guidelines)、[Triggering a Download](https://help.unsplash.com/en/articles/2511258-guideline-triggering-a-download)、[Unsplash API Terms](https://unsplash.com/api-terms)、[Freesound API](https://freesound.org/docs/api/overview.html)和[开发者 API 许可提示](https://freesound.org/help/developers/)。
 
 **此新增工作包状态：DESIGNED / NOT_IMPLEMENTED**。此前 Unsplash 已实现的仅为主动预览；BGM/SFX 原实现与本机只有一份 MP3 的事实不变。下一步先确保 U1/U2 的合法使用路径及资格证据成立，再按明确合法来源增补 A1/A2，不为当前 G3/G4 补齐进度而伪造供料成功。
+### 最新 A1/A2 实施记录（覆盖上文旧排程）
+
+- **状态：BGM/SFX 自动来源 CORE_IMPLEMENTED / REAL_DOWNLOAD_BLOCKED**。新增 `easel/production/providers/wikimedia_audio.py`：`wikimedia_bgm`、`wikimedia_sfx` 分别限定 audio/music 与 audio/sfx，走同一个官方 Commons API，不需注册或凭证；配置 `EASEL_WIKIMEDIA_AUDIO_ENABLED=1` 且作品内明确授权后才搜索。内部分流及候选 audio_roles 检查阻止音乐和音效互换；沿用本地库、reviewed_public、Director 选择、Rights、录入和音频编辑时序。没有新增任何管理 UI、AI 音乐生成流程或公共合同。
+- **Rights / 字节安全**：只接受 Commons 文件页明确声明的 CC0 1.0 或 CC BY 4.0，CC BY 强制署名；非商业、禁止演绎、相同方式共享等未经适配的许可不自动录用。识别真实 Commons `application/ogg` 音频容器，不放行未知二进制 MIME；下载字节的 SHA-1 必须匹配文件 API 原始 SHA-1，文件变化不能因相同标题进入库。受控下载、SSRF 拒绝、状态/引用/恢复不变。Commons 声明仍有真实性风险，必须保留来源页并遵守使用条件。
+- **公开接口实测（非生成）**：使用不带凭证的 Commons Action API 对 `rain` / `piano` 查询，均能返回 3 条符合当前白名单的候选元数据。一次真实媒体获取尝试被本机 DNS/公网保护拦截：`upload.wikimedia.org` 被解析为 `198.18.x.x`，属于非公网基准测试网段。**没有放宽或绕开防 SSRF 守卫，也未把真实下载、入库或自然听感记 PASS。**
+- **离线证据**：`tests/production/test_wikimedia_audio.py` 覆盖两类搜索、错误/伪造授权、非法域名、CC0 legacy deed、MIME 和 SHA-1、许可署名、源文件变化拒绝、BGM/SFX 身份隔离、真实合成 WAV 受控入库复用、能力目录和默认关闭配置；相关全链检查与原始 assets 保护单独记录。Freesound 尚未申请 API Key/OAuth2 和商业 API 许可，故不是完成能力。Unsplash 按最新决定保持 preview-only。
+- **下一动作**：优先在正常公网 DNS 环境执行合法 Commons 音频下载→FFprobe→素材库→Editor 的真实闭环（并核对导出 credits），然后补足按不同作品主题选择 BGM/SFX 的听感证据；如需要更多音源并决定接 Freesound，须用户注册与核实商业 API 权限。G4 / S6-14 继续阻塞；不继续 U1/U2。

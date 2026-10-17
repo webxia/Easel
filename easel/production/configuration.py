@@ -42,6 +42,14 @@ def capabilities(root: Path):
             'supports_auto_supply': supports_production,
             'reason': 'explicit_selection_required' if configured and not supports_production else
                 ('capability_unavailable' if not configured else None)})
+    wikimedia_enabled = settings.get('EASEL_WIKIMEDIA_AUDIO_ENABLED', '0').strip() == '1'
+    for provider, role in (('wikimedia_bgm', 'music'), ('wikimedia_sfx', 'sfx')):
+        services.append({'provider': provider, 'model': 'stock', 'mode': 'search',
+            'label': 'Wikimedia Commons · ' + ('背景音乐' if role == 'music' else '音效'),
+            'media_types': ['audio'], 'audio_roles': [role],
+            'configured': wikimedia_enabled, 'available': wikimedia_enabled,
+            'supports_auto_supply': True,
+            'reason': None if wikimedia_enabled else 'capability_unavailable'})
     from .public_facts import public_fact_capabilities
     services.extend(public_fact_capabilities(settings))
     # Use the same pure parser as execution; missing keys/unsupported protocols

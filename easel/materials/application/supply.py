@@ -71,6 +71,12 @@ class MaterialSupply:
                 continue
             if len(selected) >= need.desired_options:
                 break
+            # Audio source identities can be role-specific even though their
+            # physical MediaType is always AUDIO. Never search the SFX source
+            # to fill a music need or reverse the roles.
+            source_roles = getattr(provider, 'audio_roles', None)
+            if need.media_type.value == 'audio' and source_roles and need.role not in source_roles:
+                continue
             if check_provider is not None:
                 check_provider(provider.provider_id)
             attempted.append(provider.provider_id)
@@ -91,6 +97,13 @@ class MaterialSupply:
                 if candidate.media_type is not need.media_type:
                     failures.append(SupplyFailure(provider.provider_id, "media_type_mismatch"))
                     continue
+                # An explicitly classified public-audio item cannot be used
+                # as a different role. Selection still requires listening.
+                audio_roles = candidate.semantic.attributes.get('audio_roles')
+                if (need.media_type.value == 'audio' and audio_roles
+                        and need.role not in audio_roles):
+                    failures.append(SupplyFailure(provider.provider_id, 'audio_role_incompatible'))
+                    continue
                 try:
                     admission = self.materials.preflight_external(candidate, need, context)
                     if admission.status not in {RightsAdmissionStatus.ADMITTED, RightsAdmissionStatus.CONDITIONAL}:
@@ -101,6 +114,11 @@ class MaterialSupply:
                         downloaded = downloader.download(candidate.download_url, media_type=need.media_type.value)
                         if check_current is not None:
                             check_current()
+                        # Providers with a source-side file digest must verify
+                        # downloaded bytes against that reviewed revision.
+                        verify = getattr(provider, 'verify_download', None)
+                        if verify is not None:
+                            verify(candidate, downloaded)
                         handle = self.materials.ingest_downloaded(downloaded, visibility=visibility, context=context,
                             media_type=need.media_type, source=candidate.source, rights=candidate.rights, semantic=candidate.semantic)
                     record = self.materials.catalog.get(handle.asset_ref, scope=visibility, context=context)

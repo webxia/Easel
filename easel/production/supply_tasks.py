@@ -118,7 +118,8 @@ class SupplyTasks:
             reference_id=artifact_id, need_ids=tuple(sorted(set(scene_ids) | ({material_use['need_id']} if material_use else set()))),
             attribution=handle.attribution.__dict__ if handle.attribution else None)
         suffix = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp',
-                  'video/mp4': '.mp4', 'audio/mpeg': '.mp3', 'audio/wav': '.wav'}.get(handle.asset.file.mime, handle.local_path.suffix)
+                  'video/mp4': '.mp4', 'audio/mpeg': '.mp3', 'audio/wav': '.wav',
+                  'audio/ogg': '.ogg', 'audio/flac': '.flac'}.get(handle.asset.file.mime, handle.local_path.suffix)
         locator = f'works/{ctx.work_id}/assets/{handle.digest}{suffix}'
         MaterialFileStore(self.service.outputs).stage_object(handle.local_path, locator, handle.digest, handle.asset.file.size)
         metadata = {'schema_version': 1, **handle.artifact_metadata(), 'supply_task_id': ctx.task_id,
@@ -459,6 +460,7 @@ def configured_supply(service,operations,planning,settings):
     """Compose genuine adapters without making a request or granting consent."""
     from .providers.stock import PexelsStockProvider, ReviewedPublicSources
     from .providers.pixabay import PixabayStockProvider
+    from .providers.wikimedia_audio import WikimediaAudioProvider
     from .material_intent import FrozenIntentCompiler
     from .providers.generation_http import MiniMaxImageProvider, MiniMaxVideoProvider
     providers=[]
@@ -466,6 +468,11 @@ def configured_supply(service,operations,planning,settings):
     if settings.get('PIXABAY_API_KEY','').strip():
         providers.append(PixabayStockProvider(settings['PIXABAY_API_KEY'],
             cache_root=service.outputs/'_production'/'provider_cache'/'pixabay'))
+    # Read-only Commons public metadata requires no account. Enabled only by
+    # an explicit config flag; each actual production query additionally needs
+    # the existing per-work stock/search grant.
+    if settings.get('EASEL_WIKIMEDIA_AUDIO_ENABLED', '0').strip() == '1':
+        providers.extend((WikimediaAudioProvider('music'), WikimediaAudioProvider('sfx')))
     source_error=None
     raw=settings.get('EASEL_REVIEWED_PUBLIC_SOURCES_JSON','').strip()
     if raw:

@@ -51,7 +51,9 @@ class MaterialService:
                           semantic: SemanticInfo | None = None) -> MaterialHandle:
         """Inspect and ingest bounded received bytes without granting new rights."""
         suffix = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp",
-                  "video/mp4": ".mp4", "audio/mpeg": ".mp3", "audio/wav": ".wav"}.get(downloaded.mime, ".media")
+                  "video/mp4": ".mp4", "audio/mpeg": ".mp3", "audio/wav": ".wav",
+                  "audio/x-wav": ".wav", "audio/ogg": ".ogg", "application/ogg": ".ogg",
+                  "audio/flac": ".flac"}.get(downloaded.mime, ".media")
         with tempfile.TemporaryDirectory(prefix=".receive-", dir=self.catalog.root) as directory:
             source_root = Path(directory)
             path = source_root / ("received" + suffix)

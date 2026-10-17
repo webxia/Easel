@@ -103,6 +103,7 @@ EASEL_PRODUCTION_MODEL_CAPABILITIES=image,video,audio
 | `PEXELS_API_KEY` | Pexels 图片、视频检索；缺失时不假装已检索。公开来源 URL 也必须有素材专属 Rights 证据 |
 | `PIXABAY_API_KEY` | Pixabay 图片/视频检索；有界 API 搜索响应在 V2 私有 `provider_cache/pixabay` 下缓存 24 小时，配置身份不代表远端已验证 |
 | `UNSPLASH_ACCESS_KEY` | Unsplash 仅显式预览检索，不自动下载/供应制作资产；预览需热链接与摄影师/平台署名，尚未实现选中时下载追踪 |
+| `EASEL_WIKIMEDIA_AUDIO_ENABLED=1` | 显式启用 Wikimedia Commons 公共 API 的音乐/音效来源，无账户/API Key；分别登记 `wikimedia_bgm`、`wikimedia_sfx`，都需作品内按 `model=stock,mode=search` 具名授权；默认 `0` 停用。官方搜索与文件元数据检索只用明确 User-Agent，不抓取页面 |
 | `EASEL_REVIEWED_PUBLIC_SOURCES_JSON` | 显式审查的图片、视频、音频来源清单，JSON 文本或绝对本地 JSON 文件路径，最多 256 KiB；格式见下文，不把任意 URL 当作可用素材 |
 | `MINIMAX_API_KEY` | MiniMax 生成凭证；仅配置不代表可发送 |
 | `EASEL_IMAGE_MODEL` | 当前支持 `image-01`，省略时只声明该适配器默认型号 |
@@ -158,6 +159,16 @@ RightsInfo 至少要有已核实状态、许可名称（KNOWN 时）、来源证
 外部供料须在本方案有效授权中选择 provider/model/mode：Pexels、Pixabay及reviewed_public均为 `model=stock,mode=search`；有配置不是授权，撤销后停止下一次检索/下载。既有本地合格资产可直接复用。Unsplash仍是单独主动预览，不自动供料。
 
 作品素材metadata的material_uses区分视觉、音乐及事件音效用途；同一文件可关联多个cue而不覆盖。供料输出仍只有schema_version和asset_ids。编辑前/选中后/渲染前复验具体素材的来源、Rights、范围、字节与引用，工程/导出仅列真正选中的素材。详细架构见[素材层架构](18_MATERIAL_LAYER_ARCHITECTURE.md)，真实服务及G4状态见[S6-15](tasks/S6-15_material-layer-hardening.md)。
+
+### BGM / SFX 免费音频来源（S6-15 增补）
+
+本次**不新增音频管理界面**。在已实现的本地库优先 + `reviewed_public` 有限清单基础上，新增 `easel/production/providers/wikimedia_audio.py` 两个独立身份：`wikimedia_bgm` 与 `wikimedia_sfx`。由确认 Plan 的 Director MaterialIntent 给出音乐氛围或 cue 查询，Commons 官方 Action API 按 `File:` 音频检索；只处理带官方文件页、音频下载地址、文件 SHA-1 和文件页具体许可元数据的资产。严格仅接受声明为 **CC0 1.0 / CC BY 4.0** 的条目，且许可 URL 必须匹配 Creative Commons 官方域名及相应路径；CC BY 强制保存创作者、原文件页与完整导出署名。ND/NC/SA、未明许可、缺署名或非受信任域名一律不可用于制作。该判断记录的是 Commons 的具体文件页声明，并不代表独立核验创作者拥有全部权利。
+
+下载仍必须经过既有公网 DNS、逐跳重定向、文件大小与 FFprobe 技术检查；Commons 的 `application/ogg` 仅对音频容器开放，**下载字节 SHA-1 也须与查询时的官方文件版本一致**。一旦网络返回私网/保留地址或实际下载不合法，保留音频缺口与原素材，不改为静音、错误用途或无许可 AI 生成。相同来源同许可文件经现有库和 Rights 机制复用，SFX 多事件继续沿用 cue 绑定。该搜索服务不计 IMAGE/VIDEO 生成次数，也不自行授予制作许可。
+
+官方公共 API 不需要注册，但遵守 [Wikimedia API 访问政策](https://www.mediawiki.org/wiki/Wikimedia_APIs/Access_policy)、[2026 限流规则](https://www.mediawiki.org/wiki/Wikimedia_APIs/Rate_limits) 及内容文件页许可。本机公开 API 搜索已观察到雨声、钢琴各 3 个符合本实现白名单的候选；**真实音频下载未验收通过**：本次网络解析将 `upload.wikimedia.org` 映射到不允许的 `198.18.x.x` 地址，安全下载器按原协议拒绝，未规避公网地址守卫。相关离线 MockTransport、角色隔离、Rights、换版 SHA-1、OGG MIME 和素材库恢复证据见 [S6-15](tasks/S6-15_material-layer-hardening.md)。
+
+Freesound 暂不接入：官方要求开发者申请 API Key，原始文件下载需要 OAuth2，商业应用还需 API 商业使用授权。用户将来明确选择后再注册/核权，不通过爬网页、猜测密钥或预览文件绕过官方要求。Mixkit 当前仅作为人工核实许可后导入本地库的候选，不声称有正式自动下载 API。
 
 ## 公共事实检索
 

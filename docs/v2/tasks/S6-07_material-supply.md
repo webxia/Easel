@@ -40,3 +40,5 @@ python -m pytest -q tests/production/test_material_supply.py tests/production/te
 真实 Pexels/MiniMax HTTP、真实生成质量/自然度、素材语义适配、Ubuntu/Windows 均 **NOT_TESTED**；VOICE 属 S6-10。署名 metadata 保留并交给产物依赖，最终 credits 文件/下载入口由制作主线集成验收，不拿单独保存字段冒充已完成用户导出。
 
 2026-10-17 本机配置复用续作：用户允许复用本机既有 Pexels/Pixabay/Unsplash 服务配置。新增 Pixabay 的图片/视频检索适配器与有界 24 小时私有缓存；Unsplash 在 Web「视频创作」中增加用户主动预览检索（官方图片热链、摄影师与平台署名），不加入自动下载供料，因为当前尚无选中时要求的下载追踪与制作素材导入完整能力。V2 `.env` 安全复用原配置且权限 0600，生产 Rights/额度与真实 Provider 成功均不推定。对应受测证据见 [S6-14](S6-14_integration-release.md)，原始用户资产不受影响。
+
+2026-10-17 S6-15 音频续作：用户明确 Unsplash 暂缓、无管理 UI，新增 Wikimedia Commons 官方 BGM/SFX 双源适配器。默认关闭，通过 `EASEL_WIKIMEDIA_AUDIO_ENABLED=1` 和本方案有效 stock/search 授权开启，源码/测试/真实查询与下载阻断见 [S6-15](S6-15_material-layer-hardening.md)。功能仍落到同一个 Material Supply、Rights、音轨事件和 Editor asset_ids；未触及旧 Attempt 或生产数据库，未把公网搜索成功当作真实下载/音乐效果通过。

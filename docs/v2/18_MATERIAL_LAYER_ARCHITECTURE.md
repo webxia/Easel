@@ -78,6 +78,7 @@ G0/G1为本轮审计和内部架构决定；G2/G3软件以实际执行结果记�
 
 不变文件：easel/production/contracts.py、editors/base.py、operations.py；不创建新的生产状态机。可修改内部Supply/Model调用命名空间/素材metadata/Provider/选材准入。不满足当前公共合同的新增要求必须单独提出影响分析，不隐式扩schema。官方技术依据见[审计§5](17_MATERIAL_LAYER_AUDIT.md)。
 ## 5. 来源扩展架构（待实施）
+**最新执行取舍（2026-10-17）**：用户明确暂缓 Unsplash，只保留主动预览；不创建音频素材管理 UI。BGM/SFX 改为优先实现不要求注册的 Wikimedia Commons 公共音频 API，以下 Unsplash 方案保留为历史备选、不是活动任务。
 
 ### Unsplash —— 显式选图与权利就绪，而非直接开启自动下载
 
@@ -95,6 +96,11 @@ G0/G1为本轮审计和内部架构决定；G2/G3软件以实际执行结果记�
 
 ### 保持不变的公共边界与验收
 
-`PlanDocument`、`MaterialNeed`、`OperationService`、`EditProject` 和 `schema_version/asset_ids` 输出不变。外部来源只做合法素材候选与下载；素材层不生成新导演策略、不允许模型替用户授予权限；FFmpeg 与 QC 仍属原主线。测试先使用 MockTransport 与合法本地媒体，再在另行具名许可下做实际来源调用；任何实际来源不可用都保留明确 gap。**本节为待实施设计，不代表 Unsplash 可自动剪入，也不代表音乐/音效源已新增。**
+`PlanDocument`、`MaterialNeed`、`OperationService`、`EditProject` 和 `schema_version/asset_ids` 输出不变。外部来源只做合法素材候选与下载；素材层不生成新导演策略、不允许模型替用户授予权限；FFmpeg 与 QC 仍属原主线。测试先使用 MockTransport 与合法本地媒体，再按实际允许范围验证官方 API；任何实际来源不可用都保留明确 gap。**Unsplash 仍仅预览；音乐/音效新增 Wikimedia provider 的软件实现，但真实文件下载和实际听感未完成，不可视为 G4 通过。**
 
 资料：[Unsplash 官方 API 文档](https://unsplash.com/documentation)、[下载事件指南](https://help.unsplash.com/en/articles/2511258-guideline-triggering-a-download)、[API Terms](https://unsplash.com/api-terms)、[Freesound API](https://freesound.org/docs/api/overview.html)、[商业 API 使用说明](https://freesound.org/help/developers/)。
+### 音频自动来源具体落点（已实施软件，真实下载待验收）
+
+- `WikimediaAudioProvider(role=music/sfx)` 通过单一官方 `generator=search` / `prop=imageinfo` 响应，限定最多 40 个结果并校验官方文件身份（pageid + SHA-1）、`audio/*` 或已识别的 `application/ogg`、原件页、`upload.wikimedia.org`、大小上限和源文件自身 LicenseShortName/LicenseUrl。仅 CC0 1.0 与 CC BY 4.0 进入候选；特定版权声明证据随 Rights 入库，CC BY 署名进入 credits。未知、NC、SA、ND 一律阻断，不因公共 URL 宣称权利。
+- 供料不新增工作状态机：`EASEL_WIKIMEDIA_AUDIO_ENABLED=1` 后，`SupplyTasks._allowed_providers` 按作品既有 stock/search 授权分发；`MaterialSupply` 过滤不适用的 music/sfx 来源，下载后先调用 source SHA-1 对照，随后走共用受控下载、技术检查、入库、恢复和 Editor 绑定。
+- 公共 API 访问无需账号，使用带 Easel 项目公开 URL 的 User-Agent；拒绝 429/503 等异常、不追索无限页。SFX 真实候选的语义匹配和音乐审美仍由导演实际听取后选择；入库许可证明不是自动认定所有权。运行时若 DNS 被代理至非公网地址必须阻塞，不变更防 SSRF 边界。Freesound 的 OAuth/商用 API 作为独立的后续条件，当前没有注册或启用。
