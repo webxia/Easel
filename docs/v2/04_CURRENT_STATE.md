@@ -32,3 +32,5 @@
 **CURRENT_PAUSE：本轮 [G4 正式验收与 NO_GO 报告](19_MATERIAL_LAYER_G4_ACCEPTANCE.md) 已建立，且用户要求完成后停止，不继续自动执行；后续仅在用户再次要求时处理公网安全下载、实际音频/声线和 CI 证据，再重新作 G4 准入判定。S6-14 仍暂停。**
 
 - 用户新指令仅授权修复 Clash Fake-IP 下载卡点。经可信 HTTPS DoH 获得公网 IP、受控 loopback HTTP CONNECT 和源域名 TLS 校验的素材下载适配已实现；Pexels 图/视频、Commons BGM 真实安全下载及隔离库技术验收，Pixabay 图片也已真实下载。Commons SFX CDN 429、实际听感与固定声线仍未通过。见 [G4 网络修复复验](19_MATERIAL_LAYER_G4_ACCEPTANCE.md)；**S6-14 仍暂停**。 [审计](17_MATERIAL_LAYER_AUDIT.md)和[架构选型](18_MATERIAL_LAYER_ARCHITECTURE.md)已落地，内部冻结意图、SFX绑定、来源授权、素材再准入、只选中依赖及原生旁白适配已实施。合成媒体/模拟模型的五模态整链不代表真实创作品质；不重做G0，不重复索取已允许复用的配置，不在未授权时实发模型、配音或生成请求。
+
+- 2026-10-17 用户确认当前 MiniMax Key 为 M Plan 专用订阅 Key；官方套餐余量查询成功，V2 已固定 `speech-2.8-hd` / `male-qn-qingse` 试听声线并真实生成 4.644 秒中文 MP3；用真实视频 + SFX + 旁白 FFmpeg 集成 5.005 秒 MP4、含音视频双流。详见 [G4 续验](19_MATERIAL_LAYER_G4_ACCEPTANCE.md)。这些仅为技术样片，**不等于产品内真实 Director 创意选择 / 真实完整 QC / Creator 接受**。G4 NO_GO，S6-14 暂停。

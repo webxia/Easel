@@ -80,3 +80,20 @@ WebCodex 恢复后保留上次 7 个未提交变更，未覆盖用户资产。�
 **MiniMax Key 检查**：当前 V2 环境已有 `MINIMAX_API_KEY`，但不符合官方 Token Plan 的常见 `sk-cp` 订阅 Key 格式。本轮未执行 `token_plan/remains` 订阅接口验证，更未调用语音生成，避免把非套餐 Key 的调用错误记入 M Plan 免费权益。官方 Token Plan 说明已支持 Speech，但当前账户/Key 权限、固定中文 voice_id 和模型需先具名确认并以实际套餐授权核验。不能用一般 API Key 代替权益依据。
 
 **仍待 G4**：真实导演对已取素材的看听、选材与声效事件时间及成片感官/QC；固定 AI 旁白的套餐 Key/声音身份与真实试听；用户对具体成片的接受属于 S6-14，不能由研发代理代签。G4 仍 NO-GO，S6-14 继续暂停；本次没有启动付费调用。
+
+## 2026-10-17 · M Plan 订阅确认与真实旁白/音画集成续验
+
+用户明确确认当前 `MINIMAX_API_KEY` 属于 MiniMax M Plan Explore 专用订阅 Key。本轮不再以 Key 字符前缀否定用户确认，通过中国站官方 `GET https://www.minimax.cn/v1/token_plan/remains` 读取到 HTTP 200、`base_resp.status_code=0`，确认能查询 Token Plan 套餐余量；不记录凭证或其他隐私数值。官方 M Plan 页明确包含语音模型并声明订阅 Key 只使用套餐额度及积分包，不切到按量计费 Key。
+
+在 V2 Git 忽略、0600 的独立 `.env` 显式配置 `EASEL_VOICE_SERVICES_JSON`：`provider=minimax`、`model=speech-2.8-hd`、`engine=minimax-speech-v1`、`base_url=https://api.minimaxi.com/v1`、`api_key_env=MINIMAX_API_KEY`、`voice_id=male-qn-qingse`，中文青年男声是**固定试听候选**而非用户已最终认可的导演音色。通过现有 `MiniMaxSpeechAdapter`（非流式 JSON/hex）、明确的 request_key 和原本持久 `intent.json/receipt.json`，对一段简短中文进行了**一次真实 TTS 调用，succeeded**，生成 76596 字节 MP3，FFprobe 时长 **4.644 秒**，回执及文件仅留在当前 V2 私有 outputs。没有额外的按量计费 Key/自动重试/覆盖旧资产。
+
+随后使用真实 Pexels 视频、Wikimedia 的声音事件 SFX 与该固定 TTS 音频在 V2 私有临时验证目录执行一次受控 FFmpeg 音画集成：**生成 841309 字节 MP4，FFprobe 约 5.005 秒，实际含 video + audio 双流**。它验证真实文件可以合入同一音轨和剪辑输出，但这是研发控制的技术合成，不是由产品内部 Director 自主听看素材、作出可溯源创意选择、经过真实多模态 QC 并由 Creator 接受的作品。真实音色的自然度、风格匹配及完整作品审阅尚无可代替用户判断的证据。
+
+### 准入结论（不假报 PASS）
+
+- **G4 B1 实体供料**：图片、视频、BGM、SFX 均已具真实合法来源文件的 Rights、技术检查与隔离库代表性证据，软件层完成。
+- **G4 B3 旁白技术**：M Plan 订阅确认、固定音色、真实 TTS 文件/FFprobe、实际与视频 SFX 混音的 MP4 技术证据完成；**自然听感/导演稳定音色未获 Creator 审阅**。
+- **G4 B2 真实导演选材/QC**：仅有 mock 模型 E2E 与上述技术性实录素材合成，没有用户作品内真正 Director 自动裁决、完整有声视频的真实模型全片 QC；继续 NOT_TESTED。
+- **最终决策仍 G4 NO_GO**，S6-14 REAL_PRODUCTION_PAUSED：技术集成进度不得冒充具有导演创作自由度且稳定风格的完整真实作品；更不能自动替用户接受。依本次授权完成真实可执行部分后暂停，不自动触发 S6-14。
+
+MiniMax 官方：[M Plan](https://platform.minimax.cn/subscribe/coding-plan)、[Speech API 调试控制台](https://solutions.minimax.cn/debug/speech)。
