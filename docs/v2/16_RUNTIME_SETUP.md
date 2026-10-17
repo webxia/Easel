@@ -40,6 +40,14 @@ MiniMax M3.1 完整 Planning 可能超过 120 秒；`EASEL_PRODUCTION_MODEL_TIME
 
 **首次后端试片与运行槽**：当创作模型只有真实 `text,image,structured` 能力、没有原生音频输入时，Edit 可对实际 FFmpeg 媒体进行有界音轨技术测量并附注 `technical_only_unverified`，以生成内部待审预览；它不能证明音乐合适、SFX 听感、音画同步。完整语义 QC 仍依下述有声视频协议，没有就保持 `not_tested / needs_decision`。模型写到 `required_features` 中的非 FFmpeg 能力/事实备注不当作已支持能力，改为持久未验证审片备注。启动 V2 Worker 前先核对端口与现有运行作业，一次只保留一个 Web/Worker 服务实例；停止请求必须实际进入终态，不要连续创建多项 `run_detached_process` 长驻 Job 占满 Runner 并发槽。
 
+## 临时人工审核模式（S6-14 明确授权）
+
+当前若只需先把真实视频交给 Creator 人工审核，可以在 V2 独立运行环境的 Git 忽略 `.env` 中设置 `EASEL_PRODUCTION_QC_MODE=manual` 并重启 **唯一 V2 Web/Worker**。默认 `full`；不配置时自动语义 QC 的严格门禁保持原行为。此开关暂时注释/绕过的是**最后自动音视频语义 QC Gate**，并未删除代码和检查合同，后续可把设置改回 `full` 并重启恢复。
+
+仅当实际 FFprobe 视频与音轨技术检查通过、同一成片没有历史 `semantic=fail/partial` 时，任务方可直接 `succeeded`、Run `succeeded`、Work `reviewable`，并记录审计证据 `quality_checks.semantic=not_tested / mode=manual_review_only`。输出本身仍保留 `quality_state=needs_fix`，**不会谎称语义检查通过**。前端明确显示「技术检查通过 · 待人工审核」，必须由 Creator 完整观看音画后确认，提交 `manual_review_confirmed=true` 才可能人工接受；后端和迁移后的 SQLite trigger 均要求实际技术 PASS、未出现明确语义失败以及正式 Run 完成，任何接口调用都不能代替 Creator 本人的接受动作。人工接受独立记录为 `explicit_manual_review`，不会把语义 QC 的 `not_tested` 改成 `pass`。该输出不因人工跳过自动门禁而变成可自动批准的 Director 试片。
+
+本模式不允许略过 Rights、素材、Planning、Creator 明确设置、真实配音、FFmpeg 渲染、文件摘要、技术 QC 或人工确认；不允许自动发布。禁用开关后，新运行恢复严格 QC；已存在的人工审阅证据不被重新解释成自动通过。
+
 ## 固定声音服务
 
 `EASEL_VOICE_SERVICES_JSON` 是具名 HTTP 声音服务数组。未设置时声音列表为空，不从通用 TTS Key、其他画像或 `auto` 引擎猜选声音。

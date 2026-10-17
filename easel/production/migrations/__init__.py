@@ -197,4 +197,35 @@ CREATE TABLE cleanup_jobs (
  reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
 CREATE INDEX cleanup_pending ON cleanup_jobs(state,work_id);
+''', 3: r'''
+-- S6-14 temporary manual review delivery. The baseline FULL-QC condition
+-- remains unchanged; only an explicit Creator-accepted, technical-pass
+-- artifact with an auditable semantic NOT_TESTED marker may be accepted.
+-- An actual semantic FAIL/PARTIAL is never eligible for this bypass.
+DROP TRIGGER acceptance_requires_reviewable;
+CREATE TRIGGER acceptance_requires_reviewable BEFORE INSERT ON acceptances
+WHEN NOT EXISTS (
+  SELECT 1 FROM artifacts a WHERE a.id=NEW.output_id AND a.work_id=NEW.work_id
+    AND a.output_revision IS NOT NULL AND a.displayable=1
+    AND (
+      a.quality_state='passed'
+      OR (
+        NEW.source='explicit_manual_review'
+        AND a.quality_state='needs_fix'
+        AND EXISTS (SELECT 1 FROM runs r WHERE r.id=a.run_id
+                    AND r.work_id=a.work_id AND r.state='succeeded')
+        AND EXISTS (SELECT 1 FROM quality_checks q WHERE q.artifact_id=a.id
+                    AND q.artifact_digest=a.digest AND q.check_kind='technical'
+                    AND q.status='pass')
+        AND EXISTS (SELECT 1 FROM quality_checks q WHERE q.artifact_id=a.id
+                    AND q.artifact_digest=a.digest AND q.check_kind='semantic'
+                    AND q.status='not_tested'
+                    AND json_extract(q.findings_json,'$.mode')='manual_review_only')
+        AND NOT EXISTS (SELECT 1 FROM quality_checks q WHERE q.artifact_id=a.id
+                        AND q.artifact_digest=a.digest AND q.check_kind='semantic'
+                        AND q.status IN ('fail','partial'))
+      )
+    )
+)
+BEGIN SELECT RAISE(ABORT,'output_not_reviewable'); END;
 '''}

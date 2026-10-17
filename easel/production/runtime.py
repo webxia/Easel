@@ -119,7 +119,11 @@ def create_runtime(root: Path, *, service=None, transport=None, handlers=None):
     from .voice_tasks import VoiceTasks
     voice_provider=lambda:configured_voice_service(operations,root=service.outputs/'_production'/'voice',settings=settings)
     voice_tasks=VoiceTasks(service,voice_provider,settings_provider=lambda:settings)
-    creation=CreationTasks(service,planning,voice_tasks=voice_tasks)
+    # S6-14 temporary policy: skip automatic semantic Gate only when the
+    # operator explicitly opts in. Default remains the full AV quality Gate.
+    manual_review_only = settings.get('EASEL_PRODUCTION_QC_MODE','full').strip() == 'manual'
+    creation=CreationTasks(service,planning,voice_tasks=voice_tasks,
+                           manual_review_only=manual_review_only)
     mapping={'plan':planning.plan,'analyze_director':planning.analyze_director,
              'edit':creation.edit,'render':creation.render,'quality':creation.quality}
     # Concrete adapters are composed here; no fallback mock providers are installed.

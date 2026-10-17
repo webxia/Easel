@@ -1,6 +1,6 @@
 # Easel V2 · 当前状态
 
-**当前阶段：S6-01～13 软件主链已接通，S6-15 CLOSED/COMPLETE。唯一进行中的任务为 S6-14 首次真实视频生产。2026-10-17 在 V2 独立 7870 后端同一作品《把想法变成作品》完成 MiniMax 真模型规划（一次人工字段整理）、Pexels/合格音源真实供料、MiniMax 7 段 TTS、Director 真实画面选材与 FFmpeg 输出 45.000 秒 1080×1920 H.264/AAC MP4；技术 QC PASS。当前完整有声视频语义 QC 因 MiniMax 未配置受证实的原生音视频审片协议而 `not_tested`，作品保留 `needs_decision`、首版质量 `needs_fix`，尚无 Creator 审片接受、无人干预自主 E2E PASS 或发布。详见 [S6-14](tasks/S6-14_integration-release.md) 最新运行记录。**
+**当前阶段：S6-01～13 软件主链已接通，S6-15 CLOSED/COMPLETE。唯一进行中的任务 S6-14 已在 V2 后端生成首部 45.000 秒、1080×1920 H.264/AAC 真实视频（MiniMax 创作/7 段 TTS、合格素材、Director 选材、FFmpeg 编码，技术 QC PASS）。用户于 2026-10-17 明确要求暂时跳过最终自动语义 QC，先交人工审核：现已使用 `EASEL_PRODUCTION_QC_MODE=manual` 经正式 `/resume` 将原生产 Run 的全部四步置为 `succeeded`，作品为 **`reviewable`**。语义 QC 实际 **`not_tested`**，输出 `quality_state=needs_fix` 保留真实语义未核验状态，且人工接受标志为空；只有 Creator 明确完整审阅及确认后才可接受，绝不自动发布。此次曾有研发人员辅助整理 Planning 和修复材料，**不称无人干预自主 E2E PASS**。详细真实证据和回滚方式见 [S6-14](tasks/S6-14_integration-release.md)。**
 
 ## 接手入口
 

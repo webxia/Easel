@@ -404,18 +404,52 @@ class WorkService:
         self._event(conn,work['id'],'decision_resolved',{'decision_id':task['id']},run_id=run['id'])
         return {'work_id':work['id'],'run_id':run['id']}
 
+    @staticmethod
+    def _manual_review_ready(conn, artifact) -> bool:
+        """Technical PASS + explicitly skipped semantic Gate, not semantic PASS."""
+        if (artifact['kind'] != 'output' or not artifact['displayable'] or
+                artifact['output_revision'] is None or artifact['quality_state'] != 'needs_fix'):
+            return False
+        checks = conn.execute("""SELECT check_kind,status,findings_json
+            FROM quality_checks WHERE artifact_id=? AND artifact_digest=?
+            ORDER BY created_at DESC,id DESC""",
+            (artifact['id'],artifact['digest'])).fetchall()
+        if any(c['check_kind']=='semantic' and c['status'] in {'fail','partial'} for c in checks):
+            return False
+        latest = {}
+        for c in checks:
+            latest.setdefault(c['check_kind'],c)
+        if latest.get('technical') is None or latest['technical']['status'] != 'pass':
+            return False
+        semantic = latest.get('semantic')
+        return bool(semantic and semantic['status']=='not_tested' and
+                    json.loads(semantic['findings_json']).get('mode')=='manual_review_only')
+
     def _accept(self,conn,work,data):
         artifact=row(conn,'artifacts',data.get('output_id',''))
         if artifact.get('deleted_at') or not artifact['displayable']:fail('not_found','成果已删除或不可接受',404)
-        if artifact['work_id']!=work['id'] or artifact['output_revision'] is None or artifact['quality_state']!='passed':
-            fail('quality_blocked','请选择自检通过的具体成片版本')
+        manual_ready=self._manual_review_ready(conn,artifact)
+        if (artifact['work_id']!=work['id'] or artifact['output_revision'] is None or
+                (artifact['quality_state']!='passed' and not manual_ready)):
+            fail('quality_blocked','请选择可审阅的技术合格版本')
+        if manual_ready:
+            # Explicit human confirmation is mandatory, even though the
+            # automatic semantic Gate was disabled by this work's operator.
+            if data.get('manual_review_confirmed') is not True:
+                fail('manual_review_confirmation_required',
+                    '此版本尚未自动审查音视频语义，须人工看完整片并明确确认')
+            run=row(conn,'runs',artifact['run_id'])
+            if run['state']!='succeeded' or work['state']!='reviewable':
+                fail('quality_blocked','人工审核必须等待正式制作任务成功结束')
         path=(self.outputs/artifact['storage_ref']).resolve()
         if self.outputs not in path.parents or not path.is_file() or self._file_hash(path)!=artifact['digest']:
             fail('quality_blocked','成片缺失或内容已变化，须重新检查')
+        source='explicit_manual_review' if manual_ready else 'explicit_user'
         conn.execute('INSERT INTO acceptances(id,work_id,output_id,source,created_at) VALUES (?,?,?,?,?)',
-                     (new_id(),work['id'],artifact['id'],'explicit_user',now()))
+                     (new_id(),work['id'],artifact['id'],source,now()))
         self._change(conn,work,accepted_output_id=artifact['id'])
-        self._event(conn,work['id'],'output_accepted',{'output_id':artifact['id']})
+        self._event(conn,work['id'],'output_accepted',
+                    {'output_id':artifact['id'],'acceptance_mode':source})
         return {'work_id':work['id'],'output_id':artifact['id']}
 
     def _assignment(self,conn,work,data):
@@ -478,7 +512,9 @@ class WorkService:
             work['artifacts']=[{k:v for k,v in dict(r).items() if k not in {'storage_ref','metadata_json'}} for r in conn.execute('SELECT * FROM artifacts WHERE work_id=? AND displayable=1 AND deleted_at IS NULL',(id,))]
             bundles={json.loads(r['metadata_json']).get('output_id'):r['id'] for r in conn.execute("SELECT id,metadata_json FROM artifacts WHERE work_id=? AND kind='export_bundle' AND displayable=1 AND deleted_at IS NULL",(id,))}
             for artifact in work['artifacts']:
-                if artifact['kind']=='output':artifact['export_artifact_id']=bundles.get(artifact['id'],artifact['id'])
+                if artifact['kind']=='output':
+                    artifact['export_artifact_id']=bundles.get(artifact['id'],artifact['id'])
+                    artifact['manual_review_required']=self._manual_review_ready(conn,artifact)
             work['progress']=[{'kind':r['kind'],'run_id':r['run_id'],'detail':json.loads(r['payload_json'])} for r in conn.execute("SELECT kind,run_id,payload_json FROM events WHERE work_id=? AND kind IN ('render_progress','quality_progress') ORDER BY seq DESC LIMIT 1",(id,))]
             work['reviews']=[{**dict(r),'changes':json.loads(r['changes_json']),'change_hash':digest(json.loads(r['changes_json']))} for r in conn.execute('SELECT * FROM reviews WHERE work_id=? ORDER BY created_at DESC',(id,))]
             work['cursor']=conn.execute('SELECT COALESCE(MAX(seq),0) FROM events WHERE work_id=?',(id,)).fetchone()[0]

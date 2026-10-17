@@ -74,9 +74,12 @@ def project_editor_features(answer: CreativeEdit) -> tuple[CreativeEdit,list[str
     return answer.model_copy(update={'required_features':declared}),unverified
 
 class CreationTasks:
-    def __init__(self,service,planning,editor=None,voice_tasks=None):
+    def __init__(self,service,planning,editor=None,voice_tasks=None,manual_review_only=False):
         self.service,self.planning=service,planning
         self.voice_tasks=voice_tasks
+        # Temporary, explicitly enabled S6-14 release policy. Do not claim the
+        # absent semantic inspection passed or accept a Creator output here.
+        self.manual_review_only=manual_review_only
         self.editor=editor or FFmpegEditor(service.outputs/'_production'/'renders')
 
     def assets(self,ctx,ids):
@@ -245,6 +248,33 @@ class CreationTasks:
         if not technical:
             self._quality_state(ctx,artifact,'needs_fix')
             return TaskResult(work_state='preview_needs_fix',result={'output_id':artifact['id'],'technical':'fail'})
+        if self.manual_review_only:
+            # Temporary S6-14 manual-review policy, enabled ONLY by a private
+            # runtime switch. Keep technical QC mandatory and retain real
+            # negative semantic findings as blockers; never invent a PASS.
+            with self.service.store.connection() as reader:
+                prior = reader.execute("""SELECT status FROM quality_checks
+                    WHERE artifact_id=? AND artifact_digest=? AND check_kind='semantic'""",
+                    (artifact['id'],artifact['digest'])).fetchall()
+            if any(record['status'] in {'fail','partial'} for record in prior):
+                return TaskResult(state='needs_decision',work_state='needs_decision',
+                    error=ProductionError('semantic_findings_require_review',
+                        '已有语义检查失败或不完整，不能用人工审片开关忽略已有问题',
+                        requires_decision=True))
+            self._check(ctx,artifact,'semantic','not_tested',{
+                'mode':'manual_review_only','reason':'creator_requested_temporary_bypass',
+                'technical_check':'pass','automated_semantic_review':'not_executed',
+                'creator_acceptance':'still_required'})
+            # The artifact's semantic quality has NOT been checked. Preserve
+            # needs_fix instead of lying with artifact.quality_state=passed.
+            self._quality_state(ctx,artifact,'needs_fix')
+            with ctx.transaction() as writer:
+                self.service._event(writer,ctx.work_id,'manual_review_required',{
+                    'output_id':artifact['id'],'technical':'pass','semantic':'not_tested',
+                    'mode':'manual_review_only'},run_id=ctx.run_id)
+            return TaskResult(work_state='reviewable',result={
+                'output_id':artifact['id'],'technical':'pass',
+                'semantic':'not_tested','manual_review_required':True})
         try:
             from .quality import review_full_video
             def progress(completed,total,segment):
