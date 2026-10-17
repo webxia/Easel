@@ -16,7 +16,8 @@ def model_configuration(root: Path):
     version=hashlib.sha256(json.dumps({'base':base,'model':model,
         'capabilities':sorted({part.strip() for part in settings.get('EASEL_PRODUCTION_MODEL_CAPABILITIES','image').split(',') if part.strip()}),
         'video_dialect':settings.get('EASEL_PRODUCTION_VIDEO_DIALECT','').strip(),
-        'quality_chunk_seconds':settings.get('EASEL_PRODUCTION_QUALITY_CHUNK_SECONDS','30')},sort_keys=True).encode()).hexdigest()
+        'quality_chunk_seconds':settings.get('EASEL_PRODUCTION_QUALITY_CHUNK_SECONDS','30'),
+        'model_timeout_seconds':settings.get('EASEL_PRODUCTION_MODEL_TIMEOUT_SECONDS','900')},sort_keys=True).encode()).hexdigest()
     service={'provider':'direct-api','model':model,'mode':'structured'}
     return settings,service,version
 

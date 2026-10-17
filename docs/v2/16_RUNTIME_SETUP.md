@@ -36,6 +36,10 @@ EASEL_PRODUCTION_MODEL_CAPABILITIES=image,video,audio
 
 模型、素材供应和声音运行配置在 worker 启动时读取。修改服务、模型能力、协议或字体后，正常停止并重启 V2 Web/worker；界面目录更新不代表旧进程已切换。已有操作仍绑定原配置与授权，不会因重启自动重发未知结果或换服务。
 
+MiniMax M3.1 完整 Planning 可能超过 120 秒；`EASEL_PRODUCTION_MODEL_TIMEOUT_SECONDS` 默认 900 秒，合法区间 120～1800，且纳入模型配置摘要。超时仍按未知结果处理，不能因增加预算而重发原请求。
+
+**首次后端试片与运行槽**：当创作模型只有真实 `text,image,structured` 能力、没有原生音频输入时，Edit 可对实际 FFmpeg 媒体进行有界音轨技术测量并附注 `technical_only_unverified`，以生成内部待审预览；它不能证明音乐合适、SFX 听感、音画同步。完整语义 QC 仍依下述有声视频协议，没有就保持 `not_tested / needs_decision`。模型写到 `required_features` 中的非 FFmpeg 能力/事实备注不当作已支持能力，改为持久未验证审片备注。启动 V2 Worker 前先核对端口与现有运行作业，一次只保留一个 Web/Worker 服务实例；停止请求必须实际进入终态，不要连续创建多项 `run_detached_process` 长驻 Job 占满 Runner 并发槽。
+
 ## 固定声音服务
 
 `EASEL_VOICE_SERVICES_JSON` 是具名 HTTP 声音服务数组。未设置时声音列表为空，不从通用 TTS Key、其他画像或 `auto` 引擎猜选声音。

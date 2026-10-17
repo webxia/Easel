@@ -6,6 +6,7 @@ One persisted, bounded interpretation is shared by all configured providers.
 from __future__ import annotations
 
 import json
+import hashlib
 from typing import Literal
 from pydantic import Field
 from .contracts import Contract, Identifier, PlanDocument, canonical_json
@@ -89,6 +90,9 @@ class FrozenIntentCompiler:
         context_hash = context.fingerprint
         with ctx.store.connection() as reader:
             payload = json.loads(reader.execute('SELECT payload_json FROM tasks WHERE id=?', (ctx.task_id,)).fetchone()[0])
+            second_id = hashlib.sha256(f'{ctx.task_id}:model:material-intent-v1:2'.encode()).hexdigest()
+            prior_second = reader.execute('SELECT state FROM operations WHERE id=?', (second_id,)).fetchone()
+            legacy_replay = bool(prior_second and prior_second['state'] == 'succeeded')
         saved = payload.get('material_intent')
         if saved is not None:
             if payload.get('material_intent_context_hash') != context_hash:
@@ -97,13 +101,23 @@ class FrozenIntentCompiler:
         else:
             intent = fixed_visual_intent(plan,context)
             if intent is None:
-                intent = await self.planning.runner(ctx, namespace='material-intent-v1').run(context,
+                # One extra bounded correction is allowed for this private
+                # projection. Recorded receipts from earlier attempts replay;
+                # only the new correction round can issue another MODEL call.
+                intent = await self.planning.runner(ctx, namespace='material-intent-v1',
+                    max_format_repairs=2, legacy_first_repair=legacy_replay).run(context,
                     '仅把已确认方案翻译成素材检索意图，不重写方案。每个场景给一个visuals项，query最多100字；'
                     '媒体类型根据冻结创作需求选择，options为有限候选数。music/mixed必须给music_query，其余为null。'
                     'sound_cues按本片实际需要提出：给稳定cue_id、已知scene_id、全片时间at/duration、query和basis。'
-                    '已明确要求的音效必须保留并required=true；创作可选的点缀设required=false，不需要则空列表。'
+                    '音效query必须是方便Wikimedia Commons检索的简短英文关键词（如room tone、keyboard typing、city traffic、mouse click）；'
+                    'basis必须明确中文声音用途和与实际画面动作的对应依据，后续仍要实际试听及Rights核验。'
+                    '只有Creator明确指定不可缺少的音效才required=true；方案中因导演建议出现的环境声、'
+                    '按需点缀或交互反馈全部required=false，缺合法候选时可省略，不得把建议变成强制素材。'
+                    '不需要的音效不要提出。'
                     '静音方案禁止音效；固定旁白不交由图库替代。结合完整画像、导演风格、事实、禁区和适配许可，'
-                    '不把候选或文字意图称作已看过/听过素材；真正无法确定的事项放unresolved。', MaterialIntent)
+                    '不把候选或文字意图称作已看过/听过素材。具体候选、许可证、署名、混音与音效动作匹配'
+                    '本来就由后续供料、绑定和审片验证，不能在检索前把这些待执行工作写成阻断问题；'
+                    '仅将需要 Creator 提供、在当前冻结方案中确实缺失的创作信息列入unresolved。', MaterialIntent)
             check_intent(intent, plan)
             with ctx.transaction() as writer:
                 current = json.loads(writer.execute('SELECT payload_json FROM tasks WHERE id=?', (ctx.task_id,)).fetchone()[0])
@@ -115,6 +129,12 @@ class FrozenIntentCompiler:
                 ctx.store.append_event(writer, ctx.work_id, 'material_intent_prepared',
                     {'scene_count': len(intent.visuals), 'sfx_count': len(intent.sound_cues), 'context_hash': context_hash}, run_id=ctx.run_id)
         check_intent(intent, plan)
+        # An intent projection cannot pre-emptively decide that actual assets/rights are
+        # unavailable: finding candidates and checking licenses are Supply's job.
+        # Keep model uncertainty in the persisted projection and trace it, but let
+        # downstream qualified supply / Rights / binding gates decide real gaps.
         if intent.unresolved:
-            raise ModelTaskError('material_intent_unresolved', '素材意图存在未解决事项：' + '；'.join(intent.unresolved))
+            with ctx.transaction() as writer:
+                ctx.store.append_event(writer, ctx.work_id, 'material_intent_deferred_notes',
+                    {'count': len(intent.unresolved), 'verification': 'supply_and_binding'}, run_id=ctx.run_id)
         return intent, context

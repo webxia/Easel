@@ -70,6 +70,51 @@ def observe_media(path: Path, *, include_audio: bool = False, max_frames: int = 
     return tuple(blocks),frozenset(required),{'frame_times':timestamps,'audio_observed':bool(include_audio and info['audio']),'sampling':'bounded_frames_full_audio'}
 
 
+
+def observe_audio_technical(path: Path, *, info: dict | None = None, sample_seconds: float = 10.0) -> dict:
+    """Bounded real local acoustic measurements, NOT audio understanding/listening.
+
+    Supported for text-and-vision edit planning when the configured model cannot
+    accept input_audio. It cannot establish music genre, emotion, lyrics, SFX
+    semantic fitness or audiovisual synchrony; final semantic QC stays separate.
+    """
+    info = info or probe_media(path)
+    if not info['audio']:
+        return {'audio_present': False, 'auditory_semantics': 'not_tested'}
+    if not 0 < sample_seconds <= 15:
+        raise ValueError('audio measurement sample must be bounded')
+    stream = next((x for x in info['streams'] if x.get('codec_type') == 'audio'), {})
+    ffmpeg = shutil.which('ffmpeg')
+    if not ffmpeg:
+        raise ModelTaskError('media_inspection_unavailable', '音轨技术检查需要 FFmpeg')
+    with tempfile.TemporaryDirectory(prefix='easel-audio-measure-') as folder:
+        try:
+            result = subprocess.run([
+                ffmpeg, '-hide_banner', '-nostdin', '-loglevel', 'info',
+                '-protocol_whitelist', 'file,pipe', '-format_whitelist', MEDIA_FORMATS,
+                '-i', str(path), '-map', '0:a:0', '-t', str(min(sample_seconds, info['duration'])),
+                '-af', 'volumedetect', '-f', 'null', '-'
+            ], capture_output=True, timeout=25, env=process_environment(Path(folder)))
+        except subprocess.TimeoutExpired:
+            raise ModelTaskError('audio_measurement_failed', '音轨技术测量超时') from None
+    if result.returncode != 0:
+        raise ModelTaskError('audio_measurement_failed', '音轨技术测量失败') from None
+    stderr = result.stderr.decode('utf-8', 'replace')
+    import re
+    levels = {}
+    for name in ('mean', 'max'):
+        match = re.search(r'\b' + name + r'_volume:\s*(-?(?:\d+(?:\.\d+)?|inf)) dB', stderr)
+        if match:
+            levels[name + '_volume_db'] = match.group(1)
+    return {
+        'audio_present': True, 'duration_seconds': round(info['duration'], 3),
+        'codec': str(stream.get('codec_name', 'unknown'))[:40],
+        'channels': stream.get('channels'), 'sample_rate': str(stream.get('sample_rate',''))[:20],
+        'measured_seconds': round(min(sample_seconds, info['duration']), 3),
+        **levels, 'measurement': 'ffprobe_and_ffmpeg_volumedetect',
+        'heard_by_model': False, 'auditory_semantics': 'not_tested'
+    }
+
 VIDEO_DIALECTS = frozenset({'qwen-omni-video-url', 'qwen-vl-video-url'})
 MAX_VIDEO_BASE64 = 9_900_000  # Qwen's documented encoded payload ceiling is <10 MB.
 INSPECTION_VERSION = 'native-video-1'

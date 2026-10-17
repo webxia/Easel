@@ -44,6 +44,14 @@ class HTTPModelTransport:
         self.capabilities = capabilities
         self.video_dialect = settings.get("EASEL_PRODUCTION_VIDEO_DIALECT", "").strip()
         self.quality_chunk_seconds = settings.get("EASEL_PRODUCTION_QUALITY_CHUNK_SECONDS", "30")
+        # MiniMax M3.1's mandatory reasoning can exceed 120 seconds for a full CreativePlan.
+        # Keep a bounded read timeout; a timeout after send remains an unknown operation.
+        try:
+            self.timeout_seconds = int(settings.get("EASEL_PRODUCTION_MODEL_TIMEOUT_SECONDS", "900"))
+            if not 120 <= self.timeout_seconds <= 1800:
+                raise ValueError
+        except (ValueError, TypeError):
+            raise ModelTaskError("model_timeout_invalid", "模型等待时间必须是120～1800秒") from None
         self.transport = transport
 
     async def complete(self, messages: list[dict], tools: list[dict], schema: dict) -> dict:
@@ -55,18 +63,34 @@ class HTTPModelTransport:
             body["tools"] = tools
         try:
             async with httpx.AsyncClient(transport=self.transport, trust_env=False,
-                                         follow_redirects=False, timeout=120) as client:
+                                         follow_redirects=False,
+                                         timeout=httpx.Timeout(self.timeout_seconds, connect=20.0)) as client:
                 response = await client.post(self.base + "/chat/completions", json=body,
                     headers={"Authorization": "Bearer " + self._key} if self._key else {})
             if response.status_code != 200:
-                raise ModelTaskError("provider_unavailable", f"模型服务返回 HTTP {response.status_code}")
-            payload = response.json()
-            message = payload["choices"][0]["message"]
+                raise ModelTaskError("provider_http_error", f"模型服务返回 HTTP {response.status_code}；请核查请求格式或服务权限",
+                                     diagnostic={"http_status": response.status_code})
+            try:
+                payload = response.json()
+                choice = payload["choices"][0]
+                message = choice["message"]
+            except (ValueError, KeyError, IndexError, TypeError):
+                raise ModelTaskError("provider_response_invalid", "模型返回的响应结构无效",
+                                     diagnostic={"http_status": response.status_code}) from None
             if not isinstance(message, dict):
-                raise ValueError
+                raise ModelTaskError("provider_response_invalid", "模型消息结构无效")
+            finish = choice.get("finish_reason")
+            if finish == "length":
+                raise ModelTaskError("model_output_truncated", "模型输出达到长度限制，未取得完整结果",
+                                     diagnostic={"finish_reason": "length"})
+            if finish not in (None, "stop", "tool_calls"):
+                raise ModelTaskError("model_finish_unexpected", "模型输出未正常结束",
+                                     diagnostic={"finish_reason": str(finish)[:64]})
             return message
-        except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-            raise ModelTaskError("provider_unavailable", "模型响应不可用，请核查服务与模型能力") from None
+        except httpx.TimeoutException:
+            raise ModelTaskError("provider_timeout", "模型请求超时；提交结果尚未确定，禁止自动重发") from None
+        except httpx.HTTPError:
+            raise ModelTaskError("provider_network_error", "模型连接失败；提交结果尚未确定，禁止自动重发") from None
 
 
 T = TypeVar("T", bound=BaseModel)
@@ -95,6 +119,8 @@ class ModelTaskRunner:
     authorize: Callable[[TaskContext], Awaitable[None]]
     max_rounds: int = 6
     max_format_repairs: int = 1
+    # Replay compatibility for an already-recorded first repair request.
+    legacy_first_repair: bool = False
 
     async def run(self, context: TaskContext, task_kind: str, result_type: type[T], *,
                   required: frozenset[str] = frozenset({"text", "structured"}),
@@ -140,12 +166,33 @@ class ModelTaskRunner:
                 value = json.loads(raw)
                 _check_result(value, context.allowed_handles)
                 return result_type.model_validate(value)
-            except (ValueError, TypeError, ValidationError):
+            except (ValueError, TypeError, ValidationError) as exc:
+                # Never relax the strict contract. Tell the model exactly which
+                # schema paths failed, rather than asking it to guess on retry.
+                if isinstance(exc, ValidationError):
+                    issues = exc.errors(include_input=False, include_url=False)
+                    correction = '字段校验错误：' + '；'.join(
+                        '.'.join(map(str, error['loc'])) + ' (' + error['type'] + ')'
+                        for error in issues[:16])
+                elif isinstance(exc, json.JSONDecodeError):
+                    correction = f'JSON语法错误：第{exc.lineno}行、第{exc.colno}列'
+                else:
+                    correction = '存在未知引用、越权字段或无效JSON结构'
                 if repairs >= self.max_format_repairs:
                     raise ModelTaskError("invalid_model_output", "模型未返回有效创作结果",
                                          diagnostic={"response_sha256": hashlib.sha256(str(raw).encode()).hexdigest(),
-                                                     "prompt_version": PROMPT_VERSION}) from None
+                                                     "prompt_version": PROMPT_VERSION,
+                                                     "schema_violations": correction[:2000]}) from None
                 repairs += 1
                 messages.append({"role": "assistant", "content": str(raw)[:16000]})
-                messages.append({"role": "user", "content": "上次结果无效。严格按schema输出JSON；不要包含执行权限字段或不存在的媒体引用。"})
+                if self.legacy_first_repair and repairs == 1:
+                    # Exact old request bytes are mandatory for durable replay.
+                    # New diagnostics apply only to the next, as-yet-unsent round.
+                    feedback = "上次结果无效。严格按schema输出JSON；不要包含执行权限字段或不存在的媒体引用。"
+                else:
+                    feedback = ('上次结果不符合schema：' + correction[:2000] +
+                        '。请按具体字段路径修正，删除extra_forbidden字段、缩短string_too_long字段；'
+                        '不要更改已确认事实、导演、声音及场景身份。只输出schema允许的JSON；'
+                        '不得包含执行权限字段或不存在的媒体引用。')
+                messages.append({"role": "user", "content": feedback})
         raise ModelTaskError("invalid_model_output", "模型达到技术尝试上限，保留现有成果并等待处理")

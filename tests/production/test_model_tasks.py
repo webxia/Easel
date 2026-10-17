@@ -1,7 +1,7 @@
 import asyncio
 import json
 import pytest
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from easel.production.context import TaskContext
 from easel.production.model_tasks import ModelTaskRunner,ModelTaskError,HTTPModelTransport
 from easel.production.tools import ScopedTool
@@ -98,6 +98,91 @@ def test_http_adapter_uses_existing_config_no_redirect_or_tool_execution():
     assert json.loads(requests[0].content)['stream'] is False
 
 
+
+
+@pytest.mark.parametrize('status,payload,expected', [
+    (400, {'base_resp': {'status_code': 1008}}, 'provider_http_error'),
+    (200, {'choices': []}, 'provider_response_invalid'),
+    (200, {'choices': [{'finish_reason': 'length', 'message': {'content': '{}'}}]}, 'model_output_truncated'),
+    (200, {'choices': [{'finish_reason': 'content_filter', 'message': {'content': '{}'}}]}, 'model_finish_unexpected'),
+])
+def test_model_http_failure_classification(status,payload,expected):
+    settings={'EASEL_DIRECT_API_BASE_URL':'https://gateway.example/v1',
+              'EASEL_DIRECT_API_MODEL':'MiniMax-M3.1-Flash-Preview','EASEL_DIRECT_API_KEY':'test-key'}
+    transport=HTTPModelTransport(settings,transport=httpx.MockTransport(lambda _:httpx.Response(status,json=payload)))
+    with pytest.raises(ModelTaskError) as error:
+        asyncio.run(transport.complete([{'role':'user','content':'hello'}],[],{}))
+    assert error.value.code == expected
+
+def test_minimax_reasoning_content_retained_separately():
+    settings={'EASEL_DIRECT_API_BASE_URL':'https://gateway.example/v1',
+              'EASEL_DIRECT_API_MODEL':'MiniMax-M3.1-Flash-Preview','EASEL_DIRECT_API_KEY':'test-key'}
+    def handler(req):
+        assert json.loads(req.content)['model']=='MiniMax-M3.1-Flash-Preview'
+        return httpx.Response(200,json={'choices':[{'finish_reason':'stop','message':{
+            'role':'assistant','reasoning_content':'thinking','content':'{"summary":"ok"}'}}]})
+    message=asyncio.run(HTTPModelTransport(settings,transport=httpx.MockTransport(handler)).complete([{'role':'user','content':'hello'}],[],{}))
+    assert json.loads(message['content']) == {'summary':'ok'}
+    assert message['reasoning_content']=='thinking'
+
+
+def test_long_minimax_planning_timeout_is_bounded_and_configured():
+    settings={'EASEL_DIRECT_API_BASE_URL':'https://gateway.example/v1',
+              'EASEL_DIRECT_API_MODEL':'MiniMax-M3.1-Flash-Preview','EASEL_DIRECT_API_KEY':'test-key'}
+    def handler(req):
+        assert req.extensions['timeout']['read']==900
+        assert req.extensions['timeout']['connect']==20
+        return httpx.Response(200,json={'choices':[{'message':{'content':'{"summary":"ok"}'}}]})
+    transport=HTTPModelTransport(settings,transport=httpx.MockTransport(handler))
+    assert transport.timeout_seconds==900
+    assert asyncio.run(transport.complete([{'role':'user','content':'hello'}],[],{}))['content']=='{"summary":"ok"}'
+    configured=HTTPModelTransport({**settings,'EASEL_PRODUCTION_MODEL_TIMEOUT_SECONDS':'1200'},
+                                  transport=httpx.MockTransport(handler))
+    assert configured.timeout_seconds==1200
+    for invalid in ('119','1801','nan',''):
+        with pytest.raises(ModelTaskError) as error:
+            HTTPModelTransport({**settings,'EASEL_PRODUCTION_MODEL_TIMEOUT_SECONDS':invalid})
+        assert error.value.code=='model_timeout_invalid'
+
+
+def test_schema_specific_errors_guide_bounded_third_repair_without_relaxing_contract():
+    responses=[
+        {'content':'{"summary":"one","title":"extra"}'},
+        {'content':'{"summary":"two","title":"extra"}'},
+        {'content':'{"summary":"valid"}'},
+    ]
+    runner,transport,authorized=run(responses,max_format_repairs=2)
+    result=asyncio.run(runner.run(context(),'material_intent',Answer))
+    assert result.summary=='valid' and len(transport.calls)==3 and len(authorized)==3
+    for call in transport.calls[1:]:
+        feedback=call[-1]['content']
+        assert 'title' in feedback and 'extra_forbidden' in feedback
+
+
+def test_legacy_replay_preserves_first_repair_request_then_uses_specific_feedback():
+    responses=[{'content':'{"summary":"a","title":"unexpected"}'},
+               {'content':'{"summary":"b","title":"unexpected"}'},
+               {'content':'{"summary":"valid"}'}]
+    runner,transport,_=run(responses,max_format_repairs=2,legacy_first_repair=True)
+    answer=asyncio.run(runner.run(context(),'material_intent',Answer))
+    assert answer.summary=='valid'
+    assert len(transport.calls)==3
+    assert transport.calls[1][-1]['content']==('上次结果无效。严格按schema输出JSON；'
+                                               '不要包含执行权限字段或不存在的媒体引用。')
+    assert 'title (extra_forbidden)' in transport.calls[2][-1]['content']
+
+def test_long_field_feedback_names_path_and_violation():
+    class ShortQuery(BaseModel):
+        model_config=ConfigDict(extra='forbid')
+        music_query:str=Field(max_length=10)
+    runner,transport,_=run([
+        {'content':'{"music_query":"this query is too long"}'},
+        {'content':'{"music_query":"room tone"}'}])
+    result=asyncio.run(runner.run(context(),'material_intent',ShortQuery))
+    assert result.music_query=='room tone'
+    assert 'music_query' in transport.calls[1][-1]['content']
+    assert 'string_too_long' in transport.calls[1][-1]['content']
+
 def test_native_video_http_dialect_and_configuration_identity(tmp_path,monkeypatch):
     from easel.production.configuration import model_configuration
     settings={'EASEL_DIRECT_API_BASE_URL':'https://example.invalid/v1','EASEL_DIRECT_API_MODEL':'configured-omni',
@@ -113,7 +198,8 @@ def test_native_video_http_dialect_and_configuration_identity(tmp_path,monkeypat
     assert transport.video_dialect=='qwen-omni-video-url' and transport.quality_chunk_seconds=='20'
     monkeypatch.setattr('easel.production.configuration.read_settings',lambda _:dict(settings))
     first=model_configuration(tmp_path)[2]
-    for key,value in [('EASEL_PRODUCTION_VIDEO_DIALECT','qwen-vl-video-url'),('EASEL_PRODUCTION_QUALITY_CHUNK_SECONDS','10'),('EASEL_PRODUCTION_MODEL_CAPABILITIES','image')]:
-        previous=settings[key];settings[key]=value
+    for key,value in [('EASEL_PRODUCTION_VIDEO_DIALECT','qwen-vl-video-url'),('EASEL_PRODUCTION_QUALITY_CHUNK_SECONDS','10'),('EASEL_PRODUCTION_MODEL_CAPABILITIES','image'),('EASEL_PRODUCTION_MODEL_TIMEOUT_SECONDS','1200')]:
+        previous=settings.get(key);settings[key]=value
         assert model_configuration(tmp_path)[2]!=first
-        settings[key]=previous
+        if previous is None: settings.pop(key)
+        else: settings[key]=previous

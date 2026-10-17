@@ -164,13 +164,15 @@ def test_director_intent_preserves_frozen_context_and_replays_without_another_ca
             value=json.loads(messages[1]['content'][0]['text'])
             assert value['profile']['identity']=='frozen-persona'
             assert value['director']['visual']=='restrained-blue'
-            return {'content':material_intent().model_dump_json()}
+            intent=material_intent().model_copy(update={'unresolved':['素材候选和授权应由供料实际检验']})
+            return {'content':intent.model_dump_json()}
     model=Model();planning=PlanningTasks(service,ops,model,identity,'fixed')
     planning.context=lambda context:creative
     compiler=FrozenIntentCompiler(planning)
     first,_=asyncio.run(compiler.prepare(ctx,plan))
     second,_=asyncio.run(compiler.prepare(ctx,plan))
     assert first==second and model.calls==1 and plan.model_dump_json()==original
+    assert first.unresolved==['素材候选和授权应由供料实际检验']
     # The original default operation namespace remains available, not ordinal1 of the new task.
     asyncio.run(planning.runner(ctx).run(creative,'fixture',MaterialIntent))
     with ctx.store.connection() as reader:

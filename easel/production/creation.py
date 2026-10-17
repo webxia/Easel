@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import replace
 import json
 from pathlib import Path
-from pydantic import Field
+from pydantic import Field, ValidationError
 from .contracts import Contract
 from .editors import AssetManifest, MediaAsset, Scene, AudioClip, Caption, EditProject, FFmpegEditor, EditError
 from .artifacts import register_file, artifact_file
@@ -31,6 +31,47 @@ class SemanticReview(Contract):
     findings: list[str]
     limitations: list[str]
 
+
+def align_editor_frames(answer: CreativeEdit, *, fps: int = 30) -> CreativeEdit:
+    """Snap tiny model timing decimals to output frames, never relax the contract.
+
+    This is a presentation-level exactness correction, not permission to edit
+    the frozen total duration or replace model-chosen scenes/materials.
+    """
+    if fps not in (24, 25, 30):
+        raise ValueError('unsupported output frame rate')
+    aligned=[]
+    for scene in answer.scenes:
+        duration=round(scene.duration*fps)/fps
+        overlap=round(scene.transition_seconds*fps)/fps
+        if duration<=0 or overlap<0:
+            raise ModelTaskError('edit_frame_alignment_invalid','无法在合法视频帧上定位镜头')
+        if ((scene.transition=='cut') != (overlap==0)) or overlap>=duration:
+            raise ModelTaskError('edit_frame_alignment_invalid','转场不满足严格时间合同')
+        if abs(duration-scene.duration)>0.5/fps+1e-8 or abs(overlap-scene.transition_seconds)>0.5/fps+1e-8:
+            raise ModelTaskError('edit_frame_alignment_invalid','镜头修正超过半帧')
+        aligned.append(scene.model_copy(update={'duration':duration,'transition_seconds':overlap}))
+    previous=sum(s.duration-s.transition_seconds for s in answer.scenes)
+    result=sum(s.duration-s.transition_seconds for s in aligned)
+    if abs(result-previous)>0.5/fps+1e-8:
+        raise ModelTaskError('edit_frame_alignment_conflict','镜头归帧会改变作品总时长，请导演修改分镜')
+    return answer.model_copy(update={'scenes':aligned})
+
+def project_editor_features(answer: CreativeEdit) -> tuple[CreativeEdit,list[str]]:
+    """Separate supported engine capability flags from model commentary.
+
+    Unrecognized model strings are never passed to FFmpeg as fake capabilities
+    or declared fulfilled. They remain explicit unverified review obligations
+    attached to the internal preview artifact and its model receipt.
+    """
+    from .editors.ffmpeg import FEATURES
+    if len(answer.required_features)>64 or any(
+            not isinstance(note,str) or not note or len(note)>600
+            for note in answer.required_features):
+        raise ModelTaskError('invalid_editor_features','剪辑模型能力声明超出有界检查范围')
+    declared=list(dict.fromkeys(x for x in answer.required_features if x in FEATURES))
+    unverified=list(dict.fromkeys(x for x in answer.required_features if x not in FEATURES))
+    return answer.model_copy(update={'required_features':declared}),unverified
 
 class CreationTasks:
     def __init__(self,service,planning,editor=None,voice_tasks=None):
@@ -63,13 +104,32 @@ class CreationTasks:
             records,manifest=self.assets(ctx,asset_ids)
             context=replace(context,artifacts=tuple({'asset_id':r['id'],'kind':r['kind'],'metadata':json.loads(r['metadata_json'])} for r in records),allowed_handles=context.allowed_handles|frozenset(manifest.assets))
             observations=[];required={'text','structured'}
+            # M3.1 accepts visual frames but not input_audio. Measured local
+            # acoustic properties may support an EDIT PREVIEW; they do not
+            # substitute for a Director actually listening or for final QC.
+            audio_native=bool(self.planning.transport and 'audio' in self.planning.transport.capabilities)
+            if not audio_native and any(item['usage']=='must_use' and
+                    item.get('constraints',{}).get('original_audio') for item in context.inputs):
+                raise ModelTaskError('capability_unavailable',
+                    '必用原声必须由真实支持听音频的服务校验，不能用技术测量替代')
             for record in records:
                 if record['kind']=='font':continue
-                media,needs,_=await asyncio.to_thread(observe_media,artifact_file(self.service,record),include_audio=record['kind'] in {'video','audio'},max_frames=4)
+                path=artifact_file(self.service,record)
+                media,needs,_=await asyncio.to_thread(observe_media,path,
+                    include_audio=audio_native and record['kind'] in {'video','audio'},max_frames=4)
                 observations.append({'type':'text','text':'候选素材句柄 '+record['id']})
                 observations.extend(media);required.update(needs)
-            answer=await self.planning.runner(ctx).run(context,
-                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可经实际听取后舍弃。音乐/旁白/音效不得互换用途。',CreativeEdit,media=tuple(observations),required=frozenset(required))
+                if not audio_native and record['kind'] in {'video','audio'}:
+                    from .inspection import observe_audio_technical
+                    measured=await asyncio.to_thread(observe_audio_technical,path)
+                    observations.append({'type':'text','text':
+                        '本地FFmpeg技术测量，模型未听取该素材声音。不能据此推断音乐风格、听感、歌词或SFX动作匹配。'
+                        +json.dumps(measured,ensure_ascii=False)})
+            answer=await self.planning.runner(ctx,max_format_repairs=2).run(context,
+                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
+                '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required))
+            answer=align_editor_frames(answer)
+            answer,unverified_editor_notes=project_editor_features(answer)
             settings=context.plan['settings'];horizontal=settings['aspect_ratio']=='16:9'
             from .contracts import SubtitleSettings
             from .subtitles import caption_from_settings
@@ -123,10 +183,15 @@ class CreationTasks:
             temp=self.service.outputs/'_production'/'projects'/ctx.task_id
             temp.mkdir(parents=True,exist_ok=True)
             path=temp/'project.json';path.write_text(project.model_dump_json(),encoding='utf8')
-            artifact=register_file(self.service,ctx,path,kind='edit_project',media_type='application/json',metadata={'plan_revision':ctx.plan_revision},dependencies=list(manifest.assets))
+            artifact=register_file(self.service,ctx,path,kind='edit_project',media_type='application/json',metadata={'plan_revision':ctx.plan_revision,
+                    'audio_observation': 'model_native' if audio_native else 'technical_only_unverified',
+                    'unverified_editor_notes':unverified_editor_notes},
+                    dependencies=list(manifest.assets))
             return TaskResult(result={'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets)})
-        except (ModelTaskError,EditError) as exc:
-            return TaskResult(state='needs_decision',error=ProductionError(getattr(exc,'code','invalid_edit'),getattr(exc,'user_message',str(exc)),requires_decision=True),work_state='needs_decision')
+        except (ModelTaskError,EditError,ValidationError) as exc:
+            message=('剪辑方案不符合严格编辑合同，请检查镜头时间、声音和素材引用'
+                     if isinstance(exc,ValidationError) else getattr(exc,'user_message',str(exc)))
+            return TaskResult(state='needs_decision',error=ProductionError(getattr(exc,'code','invalid_edit'),message,requires_decision=True),work_state='needs_decision')
 
     async def render(self,ctx):
         from .worker import TaskResult

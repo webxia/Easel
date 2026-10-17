@@ -1,6 +1,6 @@
 # Easel V2 · 当前状态
 
-**当前阶段：S6-01～13 软件主链已接通；用户于 2026-10-17 明确下令 S6-15 全部结束，现标记 CLOSED/COMPLETE，G4 已移交。图片/视频/BGM/SFX 真实素材技术校验、MiniMax M Plan 真实旁白和独立 FFmpeg 音画样片已有证据。唯一下一项为 S6-14 第一段真实产品创作验收（READY_FOR_AUTHORIZED_EXECUTION，尚未启动）；真实 Director 选材、完整作品 QC 与 Creator 接受仍未测。**
+**当前阶段：S6-01～13 软件主链已接通，S6-15 CLOSED/COMPLETE。唯一进行中的任务为 S6-14 首次真实视频生产。2026-10-17 在 V2 独立 7870 后端同一作品《把想法变成作品》完成 MiniMax 真模型规划（一次人工字段整理）、Pexels/合格音源真实供料、MiniMax 7 段 TTS、Director 真实画面选材与 FFmpeg 输出 45.000 秒 1080×1920 H.264/AAC MP4；技术 QC PASS。当前完整有声视频语义 QC 因 MiniMax 未配置受证实的原生音视频审片协议而 `not_tested`，作品保留 `needs_decision`、首版质量 `needs_fix`，尚无 Creator 审片接受、无人干预自主 E2E PASS 或发布。详见 [S6-14](tasks/S6-14_integration-release.md) 最新运行记录。**
 
 ## 接手入口
 
@@ -34,3 +34,6 @@
 - 用户新指令仅授权修复 Clash Fake-IP 下载卡点。经可信 HTTPS DoH 获得公网 IP、受控 loopback HTTP CONNECT 和源域名 TLS 校验的素材下载适配已实现；Pexels 图/视频、Commons BGM 真实安全下载及隔离库技术验收，Pixabay 图片也已真实下载。Commons SFX CDN 429、实际听感与固定声线仍未通过。见 [G4 网络修复复验](19_MATERIAL_LAYER_G4_ACCEPTANCE.md)；**S6-14 仍暂停**。 [审计](17_MATERIAL_LAYER_AUDIT.md)和[架构选型](18_MATERIAL_LAYER_ARCHITECTURE.md)已落地，内部冻结意图、SFX绑定、来源授权、素材再准入、只选中依赖及原生旁白适配已实施。合成媒体/模拟模型的五模态整链不代表真实创作品质；不重做G0，不重复索取已允许复用的配置，不在未授权时实发模型、配音或生成请求。
 
 - 2026-10-17 用户确认当前 MiniMax Key 为 M Plan 专用订阅 Key；官方套餐余量查询成功，V2 已固定 `speech-2.8-hd` / `male-qn-qingse` 试听声线并真实生成 4.644 秒中文 MP3；用真实视频 + SFX + 旁白 FFmpeg 集成 5.005 秒 MP4、含音视频双流。详见 [G4 续验](19_MATERIAL_LAYER_G4_ACCEPTANCE.md)。这些仅为技术样片，**不等于产品内真实 Director 创意选择 / 真实完整 QC / Creator 接受**。G4 NO_GO，S6-14 暂停。
+
+- **2026-10-17 S6-14 初始接手快照（历史）**：活动树最初未有 V2 作品及授权；独立 7870 Web 首次启动时模型仍是旧配置。该证据已被后续实测推进覆盖，不代表当前仍缺作品或使用 DeepSeek。
+- **2026-10-17 当前首片真实后端进展**：同一《把想法变成作品》Work 采用六维画像、Human Cinema Director Revision 2、Plan Revision 2、45 秒竖屏混合音轨；MiniMax M Plan 真实文本/图像理解和固定中文语音、合格外部供料、Director 9 镜头剪辑及 FFmpeg MP4 真实产出。文件为 45.000 秒、1080×1920、H.264+AAC，已记录素材署名包；Supply/Edit/Render 全部 succeeded，技术 QC pass。当前语义 QC not_tested / video_protocol_unavailable，Work 为 needs_decision，Creator 未接受具体版本；自主无研发辅助项仍未通过。唯一主线仍是 S6-14 完整音画 QC 与真人审阅，不重开 S6-15。
