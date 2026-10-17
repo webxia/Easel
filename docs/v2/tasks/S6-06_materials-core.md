@@ -48,3 +48,5 @@ python -m pytest -q tests/production/test_materials_core.py tests/production/tes
 整批 Windows CI 在 SQLite `catalog.db-shm` 并发消失时发现 `Path.resolve(strict=False)` 偶尔保留 `\\?\C:` 前缀，同根文件被误判越界。修复仅统一已解析的本地绝对盘符比较形式；保留原始路径包含、跨盘/UNC/设备命名空间拒绝，并补齐 root/组件 junction 与符号链接检查。
 
 `python -m pytest -q tests/production/test_materials_paths.py tests/production/test_materials_core.py tests/production/test_materials_reference_guard.py` 本机 **44 passed、2 skipped**；跳过为新增真实 Windows junction 内/外目标用例，由 Windows CI 执行。完整 guard 的消失边车模拟、目录逃逸与既有并发登记均通过；最终远端结果绑定 [PR #8](https://github.com/webxia/Easel/pull/8/checks) 的补丁提交，不能以之前 Windows 失败运行冒充通过。
+
+2026-10-17 S6-15 Windows 新回归补充：另见 [S6-15](S6-15_material-layer-hardening.md)；旧 `\\?\C:` 归一化未覆盖已删除 shm 被解析成 `C:\\$Extend\\$Deleted` 的竞争窗口。新兼容仅处理**已确认消失**且位于直接 V2 catalog 下的 SQLite sidecar，仍拒绝普通素材越界、存在的重解析路径及其他命名空间。Windows CI 是否修复成功，以新提交的独立运行结果为准。

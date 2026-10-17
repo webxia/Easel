@@ -72,6 +72,32 @@ def _reject_link(path: Path) -> None:
         raise MaterialStoreError("Symlinks and junctions are not allowed in material paths")
 
 
+def _vanished_windows_catalog_sidecar(root: PurePath, path: PurePath, resolved: PurePath) -> bool:
+    """Allow only a vanished SQLite sidecar relocated by Windows deletion races.
+
+    A live path, a reparse point, a different drive/namespace, or an ordinary
+    material file must still be rejected. This is not an alternate root.
+    """
+    if not isinstance(path, PureWindowsPath) or path.parent != root:
+        return False
+    if path.name not in {"catalog.db-shm", "catalog.db-wal", "catalog.db-journal"}:
+        return False
+    original = _comparison_path(root)
+    deleted = _comparison_path(resolved)
+    if (not isinstance(deleted, PureWindowsPath)
+            or not re.fullmatch(r"[A-Za-z]:", original.drive)
+            or original.drive.casefold() != deleted.drive.casefold()
+            or len(deleted.parts) != 4
+            or tuple(part.casefold() for part in deleted.parts[1:3]) != ("$extend", "$deleted")
+            or re.fullmatch(r"[A-Fa-f0-9]{8,64}", deleted.name) is None):
+        return False
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return True
+    return False
+
+
 def reject_symlinks(root: Path, path: Path) -> None:
     try:
         relative = path.relative_to(root)
@@ -82,11 +108,14 @@ def reject_symlinks(root: Path, path: Path) -> None:
     for part in relative.parts:
         current = current / part
         _reject_link(current)
+    resolved = _comparison_path(path.resolve(strict=False))
     try:
-        resolved_relative = _comparison_path(path.resolve(strict=False)).relative_to(_comparison_path(root))
+        resolved_relative = resolved.relative_to(_comparison_path(root))
         if ".." in resolved_relative.parts:
             raise ValueError("Unresolved parent component")
     except ValueError as exc:
+        if _vanished_windows_catalog_sidecar(root, path, resolved):
+            return
         raise MaterialStoreError("Material path escapes its root") from exc
 
 

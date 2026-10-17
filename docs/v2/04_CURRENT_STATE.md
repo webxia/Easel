@@ -25,4 +25,6 @@
 
 - 2026-10-17 用户明确同意复用本机配置及合格的旧本地素材：V2 独立 `.env` 已安全写入现有 Pexels/Pixabay/Unsplash/MiniMax/兼容模型身份；Pixabay 自动供料适配器与缓存、Unsplash 显式 preview-only、经 Rights/技术校验的旧本地 MP3 复制并启用 owner-wide 有界复用。旧 DB/资产原件保留。API 真实供料和完整成片仍未测试，详情见 [S6-14](tasks/S6-14_integration-release.md)。
 
+- S6-15 代码审计/架构成果已推送为 `867d471c`，但绑定该提交的跨平台 CI 出现 1 项 Ubuntu 和 2 项 Windows 失败，均已定向归因；本地素材模块修复后 383 passed / 3 skipped。新补丁的跨平台 CI 仍须按精确 SHA 核查，不能以本机测试宣称 Windows 问题关闭；具体见 [S6-15](tasks/S6-15_material-layer-hardening.md)。
+
 **NEXT_SINGLE_ACTION：完成 [S6-15](tasks/S6-15_material-layer-hardening.md) G3 的真实素材服务与本机音源/音色验收条件，随后逐项取得真实证据；G4 仍不开放，S6-14 继续暂停。** [审计](17_MATERIAL_LAYER_AUDIT.md)和[架构选型](18_MATERIAL_LAYER_ARCHITECTURE.md)已落地，内部冻结意图、SFX绑定、来源授权、素材再准入、只选中依赖及原生旁白适配已实施。合成媒体/模拟模型的五模态整链不代表真实创作品质；不重做G0，不重复索取已允许复用的配置，不在未授权时实发模型、配音或生成请求。

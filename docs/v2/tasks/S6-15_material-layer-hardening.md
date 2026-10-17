@@ -104,6 +104,14 @@
 
 回归中发现的失败已按责任修正并保留语义：原三个公开音源测试补齐明确的fixture方案授权；原生TTS失败断言使用既有failed_after_submit，不修改Operation状态；五模态验证读取实际edit_project文件而非误取metadata；静音零额外调用分支使用既有input_id，不改上游输入字段。最终上述回归已实际通过。
 
+### 2026-10-17 · S6-15 新提交的跨平台 CI 失败归因及定向修复
+
+提交 `867d471c` 的 GitHub CI [run 39002155466](https://github.com/webxia/Easel/actions/runs/39002155466) 已结束为 FAIL（macOS/前端/安装 Lint 等其余项通过）。Ubuntu：1 failed / 1583 passed / 70 skipped；Windows：2 failed / 1493 passed / 159 skipped。两者共同失败的 `test_selected_dependencies_exclude_unselected_candidates` 实际测试的是“只引用已选素材”，但前置媒体观察依赖 FFmpeg/ffprobe；CI 缺少相关媒体可执行文件，触发 `needs_decision`。**修复仅限该测试的观察输入替身**，保留真实生产 `observe_media` 和其他媒体验收的严格要求；显式缺少 FFmpeg/ffprobe 的环境下定向用例 1 passed。
+
+Windows 另暴露 SQLite `catalog.db-shm` 并发消失时，`Path.resolve(strict=False)` 偶发返回同盘 `C:\\$Extend\\$Deleted\\<文件标识>`，被误判为逃逸。修复仅对**本目录已消失的 `catalog.db-shm/-wal/-journal`、同盘删除命名空间、指定文件标识结构**建立有界例外，前置路径逐组件 symlink/junction 检查仍有效；活文件、异盘、UNC、设备命名空间及普通文件仍拒绝。新增可跨平台执行的模拟正反测试，不放宽对素材任意路径的校验。
+
+本机修复后测试：`tests/production` **383 passed、3 skipped**；跨平台路径/两个原 CI 用例 **25 passed、2 skipped**；无 FFmpeg/ffprobe 环境的“只选中依赖”**1 passed**；`git diff --check` 通过。三个 skipped 对应真实 Windows junction 两项与 900 秒 opt-in 一项。**上述只代表本机软件验证**；新提交的 Ubuntu/Windows CI 需要绑定新的精确 SHA 重新判读，不将旧 run FAIL 改写为 PASS。G3 真实服务仍 NOT_TESTED、G4 仍 BLOCKED、S6-14 继续暂停。
+
 ### 真实验收与剩余风险
 
 - 本机仍只有此前具名MP3；本轮没有下载新音源或选用新模型/声线。BGM/SFX的软件供应链就绪不等于音乐/音效库存覆盖不同题材，也不证明语义选材正确。

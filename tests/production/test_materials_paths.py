@@ -42,6 +42,42 @@ def test_disappearing_windows_sidecar_extended_local_drive_is_same_root(root,res
     assert str(path) == str(PureWindowsPath(root) / 'catalog.db-shm')
 
 
+def test_vanished_windows_catalog_sidecar_deleted_namespace_is_not_a_path_escape():
+    # Windows can resolve a deleted SQLite shm file into $Extend/$Deleted
+    # while the directory itself remains inside the trusted catalog root.
+    root, path = windows_paths(r'C:\$Extend\$Deleted\000D00000013C2607ADE10A9')
+    reject_symlinks(root, path)
+
+
+@pytest.mark.parametrize('resolved', [
+    r'D:\$Extend\$Deleted\000D00000013C2607ADE10A9',
+    r'C:\$Extend\$Deleted\not-hex-identity',
+    r'C:\$Extend\$Deleted\000D00000013C2607ADE10A9\nested',
+    r'\\?\GLOBALROOT\Device\HarddiskVolume1\$Extend\$Deleted\000D00000013C2607ADE10A9',
+])
+def test_deleted_namespace_exception_does_not_accept_wrong_volume_or_shape(resolved):
+    with pytest.raises(MaterialStoreError, match='escapes'):
+        reject_symlinks(*windows_paths(resolved))
+
+
+def test_deleted_namespace_exception_rejects_live_sidecar_and_other_files():
+    target = r'C:\$Extend\$Deleted\000D00000013C2607ADE10A9'
+    root, _ = windows_paths(target)
+    with pytest.raises(MaterialStoreError, match='escapes'):
+        reject_symlinks(root, root / 'asset.png')
+
+    class LiveObservation(PureWindowsPath):
+        def lstat(self):
+            return SimpleNamespace(st_mode=stat.S_IFREG, st_reparse_tag=0)
+
+        def resolve(self, *, strict=False):
+            return PureWindowsPath(target)
+
+    live_root = LiveObservation(r'C:\library')
+    with pytest.raises(MaterialStoreError, match='escapes'):
+        reject_symlinks(live_root, live_root / 'catalog.db-shm')
+
+
 @pytest.mark.parametrize('resolved', [
     r'\\?\D:\library\catalog.db-shm',
     r'\\?\C:\library-other\catalog.db-shm',

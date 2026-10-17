@@ -253,7 +253,7 @@ def test_selected_material_revalidation_does_not_accept_a_changed_rights_record(
         validate_material_records(service,ctx,records)
 
 
-def test_selected_dependencies_exclude_unselected_candidates(env):
+def test_selected_dependencies_exclude_unselected_candidates(env,monkeypatch):
     from easel.production.creation import CreationTasks
     from easel.production.artifacts import register_file
     service,ops,ctx,_,image=env
@@ -266,6 +266,10 @@ def test_selected_dependencies_exclude_unselected_candidates(env):
         async def complete(self,messages,tools,schema):
             return {'content':json.dumps({'scenes':[{'scene_id':'s1','asset_id':first['id'],'duration':90}],'audio':[],'captions':[]})}
     planning=PlanningTasks(service,ops,Model(),identity,'fixture')
+    # This test isolates selection/dependency semantics, not FFmpeg availability.
+    # Real-media inspection has separate opt-in, capability-aware tests.
+    monkeypatch.setattr('easel.production.creation.observe_media',
+        lambda _path, **_kwargs: ((),frozenset({'image'}),{'fixture':'selection_only'}))
     creation=CreationTasks(service,planning,editor=SimpleNamespace(check=lambda *_:SimpleNamespace(valid=True)))
     result=asyncio.run(creation.edit(replace(ctx,payload={'asset_ids':[first['id'],unused['id']]})))
     assert result.state=='succeeded' and result.next_payload['asset_ids']==[first['id']]
