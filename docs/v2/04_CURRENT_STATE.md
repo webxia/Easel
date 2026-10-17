@@ -1,6 +1,6 @@
 # Easel V2 · 当前状态
 
-**当前阶段：S6-01～13 已接通本地软件主链；S6-15 G4 审查与书面准入决定已完成，结果为 NO_GO（未通过）；真实素材下载、BGM/SFX 实际试听、固定旁白实测和最终 CI 仍有前置证据缺口。S6-14 保持 PARTIAL / REAL_PRODUCTION_PAUSED。依 2026-10-17 用户明确指令，本轮收尾后暂停。**
+**当前阶段：S6-01～13 软件主链已接通；用户于 2026-10-17 明确下令 S6-15 全部结束，现标记 CLOSED/COMPLETE，G4 已移交。图片/视频/BGM/SFX 真实素材技术校验、MiniMax M Plan 真实旁白和独立 FFmpeg 音画样片已有证据。唯一下一项为 S6-14 第一段真实产品创作验收（READY_FOR_AUTHORIZED_EXECUTION，尚未启动）；真实 Director 选材、完整作品 QC 与 Creator 接受仍未测。**
 
 ## 接手入口
 

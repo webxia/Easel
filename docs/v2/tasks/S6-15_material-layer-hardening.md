@@ -2,7 +2,7 @@
 > **最新来源接入要求**：Unsplash 需完成合规的制作选材与资产入库；BGM/SFX 补足可合法自动使用的来源。见本卡末尾“新的来源完善决策”，新增部分尚未实施，不影响已有 G0/G1/G3 结论。
 > **最新取舍覆盖**：用户随后明确“Unsplash 先不做，重点完善 BGM/SFX，并且不新增音频管理界面”。U1/U2 暂缓，不作为本次 G3 阻断；下文的历史需求保留事实。活动工作为 BGM/SFX 的公共音频来源、权益、自动供料及真实验收。
 
-状态：**PARTIAL — G0/G1 已完成、G2 核心实现已接通、G3 本地软件通过；G4 已执行完整准入审查但决定 NO_GO / BLOCKED，真实下载、声线及最终 CI 证据仍待补齐**。2026-10-17 用户进一步授权完整审计、架构选型与实现，取代上一轮仅建文档的范围。**当前唯一实施前置任务**；素材层完成验收后才恢复 S6-14 首次真实生产及完整范围验收。本卡任务 ID 是后续补充，不重新编号 01～14，不改变其历史完成记录与 S4 需求责任分配。
+状态：**CLOSED / COMPLETE（2026-10-17 用户明确签署 S6-15 全部结束）**。G0/G1 审计与架构、G2 素材核心实施、G3 图片/视频/BGM/SFX 真实代表样本及固定 MiniMax M Plan TTS/音画技术集成、G4 素材层交接和证据归档均收口；**本次是用户批准的任务结案与回接，并非声明真实 Director 选材、完整作品 QC 或 Creator 接受已通过**。历史各阶段 NO_GO 为当时真实判定保留；剩余真实创作品质验证归 S6-14。2026-10-17 用户进一步授权完整审计、架构选型与实现，取代上一轮仅建文档的范围。**S6-15 本次正式结案，不再作为 S6-14 的开放前置任务**；S6-14 进入下一项待明确授权的真实生产验收。本卡任务 ID 是后续补充，不重新编号 01～14，不改变其历史完成记录与 S4 需求责任分配。
 
 - **基线**：工作树 `/Users/xgx/.codex/worktrees/s5-architecture/Easel`，`codex/s6-production`，盘点基线 HEAD `5a87887b3320fcceb9e4c643faea387e4184c25d`，接手 CLEAN；[PR #8](https://github.com/webxia/Easel/pull/8) 仍为 Draft。
 - **关联需求**：V2-EXP-011/012/013/021/025/031/032/033；原主责仍为 S6-02/03/06/07/08/11，本卡只承担素材链收口、补强和集成验证。
@@ -147,3 +147,8 @@ Windows 另暴露 SQLite `catalog.db-shm` 并发消失时，`Path.resolve(strict
 用户要求“完成 G4，完成后暂停”。已经按既定 G4 门禁完成上下游冻结合同 SHA 回查、五模态逐项证据评审、真实免费 Pexels/Pixabay（图片/视频各 3 条）与 Commons（rain/piano 各 3 条）候选检索、CI 失败原因定位及可移植测试修复。完整证据、P0 阻断项和准入结论唯一维护于 [G4 正式报告](../19_MATERIAL_LAYER_G4_ACCEPTANCE.md)。结论 **G4_REVIEW_COMPLETED / NO_GO**：真实媒体安全下载未通过，仍不可把 G3 本机 Mock 视为真实生产；AI 旁白、素材试听及新 SHA CI 门槛需各自闭合。此轮不重做 G0/G1，不放宽 Rights/DNS/Operation，不开展 S6-14。**收尾后暂停，不自动继续。**
 
 2026-10-17 后续专项复验：按用户新授权，Wikimedia 音效因通用 User-Agent 导致的 HTTP 429 已通过源专属识别性 User-Agent 修正，真实 SFX OGG 30423 bytes/1.473923s 完成受控下载、SHA1/Rights/FFprobe/隔离库验收；Pixabay 视频以前诊断用 15MB 上限不代表正式下载能力，真实 MP4 18717171 bytes/30.08s 在原安全边界下入库合格。模型/TTS 仅具通用 Key、缺具名 Voice 服务和真实调用授权，未发送收费请求；Director 真实试听与 Creator 成片未测。完整清单见 [G4 结果](../19_MATERIAL_LAYER_G4_ACCEPTANCE.md)，G4 NO_GO、S6-14 PAUSED。
+
+
+## 7. 正式关闭决定（2026-10-17，最新权威状态）
+
+用户明确命令“我们目前标记 S15 全部结束”。据此 **S6-15 全部结案 CLOSED / COMPLETE；G4 = HANDOFF_CLOSED**。前述旧版 PARTIAL/NO_GO/NOT_TESTED 为相应执行时点的原始审计，不是新的活动任务。软件、真实代表性素材、固定 M Plan TTS 与技术音画验证的逐次证据均见 [G4 交接台账](../19_MATERIAL_LAYER_G4_ACCEPTANCE.md)。**不把“结案”记作 Director 自主选材、整片多模态 QC、Creator 接受通过**；这些是 [S6-14](S6-14_integration-release.md) 的既定验收。解锁下一任务但不自动启动付费生产、不发布、不合并。
