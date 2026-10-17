@@ -162,3 +162,10 @@ python scripts/validate_document_paths.py
 - **合同化修复与再次生产**：使用正式 `/cancel` 结束有卡点生产 Run，保留原 TTS 和资产；经 `/plans` 建 Plan Revision 2，只将场景1从6秒改为7秒、场景2从7秒改为6秒，总时长、旁白、音色和其他内容保持不变；明确记录实际 TTS 时长依据，再次正式 `/plans/2/confirm`。第二条 production Run `5f0947bbf802428c8918d991f7d6d477` 最终 `supply/edit/render/quality` **全部 succeeded**，Work **reviewable**，没有再次人工恢复任务；对第一次冻结 Planning 的真实语音安全裕量仍需产品层改造和全新直通复验。
 - **真实第二首版结果**：`output_id=76ca9b8f243c45f3b2eca9ed8b344606`，Revision 1，文件存在、SHA-256 与持久化登记一致、FFprobe **45.000000秒、1080×1920、H.264视频+AAC音轨**，52,250,838 bytes。`quality_checks.technical=pass`；`quality_checks.semantic=not_tested / manual_review_only`，输出实际 `quality_state=needs_fix` 但可人工审阅，`accepted_output_id=NULL`，没有自动发布。新作品仍需 Creator 完整人工观看并明确接受具体版本。
 - **下一项真实收敛**：在冻结 Planning 前增加可测试的旁白时长安全余量/场景容纳检查，不以字符数直接冒称真实 TTS 时长；无音轨成品前的精确时长需要实测或保守留白，TTS 真实结果仍为最终权威且不足必须合法调节方案。实施后重新创建**新作品**跑第三轮零干预 E2E 验收，不能把第二轮补救称为完整自主成功。
+
+### 2026-10-17 · 主工作区稳定性修复与第三次直通准备
+
+- 唯一开发和运行根目录 `/Users/xgx/Projects/Easel`、分支 `easel-v2-main-workspace`，LaunchAgent `com.easel.web` 运行主端口 7860。原主工作区 `.venv` 因未安装 `langgraph`、`langgraph-checkpoint-sqlite` 无法执行真实 Worker，现按 `pyproject.toml` production pinned versions 补齐依赖；不再依赖 `/tmp` 隔离 Python。
+- 新增 `voice_budget.reserve_narration_slots`：仅在**模型自动生成的 Planning 草稿冻结前**运行，按中文/英文字符保守估算最低配音时间，在原有场景间以30fps时间基重分配时长；始终保留冻结作品的总时长、场景身份/顺序、旁白原文及固定 MiniMax 声线。总预算或场景可用余量不足时在 Planning 阶段返回 `plan_voice_budget_unavailable`，不在真实 TTS 发送后才失败。用户手工提交的确认方案不在此处自动改变；真实 MiniMax TTS 返回时长仍是唯一最终依据，必要时明确改版。
+- 历史真实失败样本 Plan Revision 1：`s01_context` 6秒、MiniMax TTS真实6.653秒；经预冻结预算分配为6.9秒，总45秒不变。保守估算不保证所有语速/情绪/停顿，必须由新真实 E2E 独立验收。
+- 主 `.venv` 全量 `tests/production` 回归 **455 passed / 3 skipped**，旧版 7860 服务数据和既有两部 MP4 均保留；未触发模型调试复发调用。新真实 API 首次零干预验收仍需以运行回执为准。

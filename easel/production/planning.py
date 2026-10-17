@@ -115,7 +115,8 @@ class PlanningTasks:
             proposed=await self.runner(ctx).run(context,'提出完整创作方案；遵守明确时长、画幅、声音设置；全部必用输入须落实到场景。返回摘要、完整脚本、场景和视听设计。',CreativePlan,media=media,required=required,tools=self.tool_factory(ctx))
             with ctx.transaction() as conn:
                 work=row(conn,'works',ctx.work_id)
-                payload=self.service.freeze_plan(conn,work,proposed.model_dump(mode='json'))
+                from .voice_budget import reserve_narration_slots
+                payload=self.service.freeze_plan(conn,work,reserve_narration_slots(proposed.model_dump(mode='json')))
                 if ctx.payload.get('base_plan_revision'):
                     payload['profile_snapshot']=context.plan.get('profile_snapshot')
                     payload['director_revision_id']=context.plan.get('director_revision_id')
