@@ -36,6 +36,9 @@ export default function ProductionPage({ personas, selectedPersona }: { personas
   const [settingsDraft, setSettingsDraft] = useState<VideoSettings | null>(null);
   const [voices, setVoices] = useState<VoiceOption[]>([]); const [fonts, setFonts] = useState<{id:string;label:string}[]>([]);
   const [trial, setTrial] = useState(false); const [rightsConfirmed, setRightsConfirmed] = useState(false);
+  const [stockQuery, setStockQuery] = useState('');
+  const [stockSearching, setStockSearching] = useState(false);
+  const [stockPreviews, setStockPreviews] = useState<{asset_id:string;preview_url:string;source_page:string;creator:string;creator_page:string}[]>([]);
 
   const loadList = useCallback(async (after?: string) => {
     const data = await productionRequest<{ items: WorkSummary[]; next_cursor: string | null }>(`works${after ? '?after=' + encodeURIComponent(after) : ''}`);
@@ -115,6 +118,26 @@ export default function ProductionPage({ personas, selectedPersona }: { personas
             <label>声音<select value={audio} onChange={e => setAudio(e.target.value)}><option value="silent">静音</option><option value="music">纯音乐</option><option value="voice">纯旁白</option><option value="mixed">旁白与音乐</option></select></label></div>
           <button disabled={busy} type="submit">创建作品</button>
         </form>}
+        {services.some(s => s.provider === 'unsplash' && s.available) && <details>
+          <summary>Unsplash 参考图检索（仅预览，不进入制作）</summary>
+          <p>只在点击检索时使用已配置的 Unsplash API；图片使用官方热链接，并保留摄影师与平台署名。当前未支持选中后下载追踪，不能将预览当作已获准的制作素材。</p>
+          <form onSubmit={async e => { e.preventDefault(); if (!stockQuery.trim() || stockSearching) return;
+            setStockSearching(true); setStockPreviews([]); setError('');
+            try {
+              const response = await productionRequest<{results:typeof stockPreviews}>('material-sources/unsplash/preview-search',
+                {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:stockQuery.trim(),limit:8})});
+              setStockPreviews(response.results);
+            } catch(err) {setError(err instanceof Error ? err.message : 'Unsplash 预览检索失败');}
+            finally {setStockSearching(false);}
+          }}>
+            <label>图片关键词<input value={stockQuery} maxLength={140} onChange={e => setStockQuery(e.target.value)} placeholder="例如 城市夜景" /></label>
+            <button disabled={stockSearching || !stockQuery.trim()} type="submit">{stockSearching ? '检索中…' : '检索参考图'}</button>
+          </form>
+          {stockPreviews.map(item => <article className="production-stock-preview" key={item.asset_id}>
+            <img src={item.preview_url} alt={'Unsplash 参考预览 · ' + item.creator} loading="lazy" />
+            <p>摄影师：<a href={item.creator_page} target="_blank" rel="noopener noreferrer">{item.creator}</a> · <a href={item.source_page} target="_blank" rel="noopener noreferrer">Unsplash 原始来源</a> · 不可直接用于本片制作</p>
+          </article>)}
+        </details>}
         {selected && !work && <p>正在读取作品…</p>}
         {work && <>
           <h2>{work.title}</h2><p>{workLabels[work.state] || work.state} · {connected ? '进度已连接' : '连接恢复中，展示最后已知状态'}{work.accepted_output_id ? ' · 已保留接受版本' : ''}</p>
@@ -150,7 +173,7 @@ export default function ProductionPage({ personas, selectedPersona }: { personas
             }); }} />
           </details>
           <details><summary>本次允许使用的服务</summary><p>选择本次规划、配音或制作允许使用的服务。新增调用可能产生费用。</p>
-            {!services.length && <p>尚无可用服务配置。</p>}{services.map(s => { const key = `${s.provider}/${s.model}/${s.mode}`; return <label key={key}><input type="checkbox" disabled={!s.available} checked={approved.includes(key)} onChange={e => setApproved(old => e.target.checked ? [...old,key] : old.filter(k => k !== key))} />{s.label}{!s.available ? '（不可用）' : ''}</label>; })}
+            {!services.length && <p>尚无可用服务配置。</p>}{services.filter(s => s.provider !== 'unsplash').map(s => { const key = `${s.provider}/${s.model}/${s.mode}`; return <label key={key}><input type="checkbox" disabled={!s.available} checked={approved.includes(key)} onChange={e => setApproved(old => e.target.checked ? [...old,key] : old.filter(k => k !== key))} />{s.label}{!s.available ? '（不可用）' : ''}</label>; })}
           </details>
           {!active && <button disabled={busy} onClick={() => perform(() => command('plans',{generate:true,services:permissions}))}>{latest ? '重新提出创作方案' : '请导演提出完整方案'}</button>}
           {latest && <section><h3>创作方案 · 版本{latest.revision}</h3><p>{latest.plan.summary}</p><p>{latest.plan.settings.duration_seconds}秒 · {latest.plan.settings.aspect_ratio} · {latest.plan.scenes.length}个场景</p>

@@ -2,6 +2,8 @@
 
 源仓库仅只读：`/Users/xgx/Projects/Easel-V1-Archive`，固定提交 `57c8e2ade21af9fb6abccdab3f7ba8e50132314f`。原仓库 `LICENSE` 为 Apache-2.0；本仓库同许可证，迁入文件保留来源与改动声明。本次只读源码与测试，不读取或迁移用户素材库、Profile、Attempt、凭证或历史运行数据。
 
+**2026-10-17 后续单独授权事项：** 原上述 V1 *源码* 迁入范围与事实不变。用户另行批准从历史工作树**安全复用本机服务配置并显式复制经核验的独立本地媒体文件**：V2 自身 Git-ignore `.env` 以 0600 保存服务配置；只迁入 SHA-256 匹配并满足 Rights/署名的素材副本，保留旧 SQLite catalog、Profile、Attempt、作品状态及源媒体原件。所有素材复用遵守 V2 owner/profile 作用域，只有源自此明确授权的 `local_import` 可以受限提升为 owner-wide。操作及验收见 `docs/v2/tasks/S6-14_integration-release.md`。
+
 | 能力 | 固定 V1 源文件（相对仓库） | V2 实际落点与适配 |
 | --- | --- | --- |
 | M01 素材、来源、权益、技术/语义合同 | `easel/materials/domain/models.py` | `domain/models.py`；保留相关 Pydantic 类型，删除 MaterialPlan/Bundle/Readiness/SupplyRun 与旧生产状态 |

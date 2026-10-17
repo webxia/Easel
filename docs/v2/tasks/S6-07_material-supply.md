@@ -38,3 +38,5 @@ python -m pytest -q tests/production/test_material_supply.py tests/production/te
 2026-10-17 与 S6-06 联合执行其记录中的 9 文件命令，结果 **122 passed（1.35 秒）**。其中实际 Store + OperationService + HTTP MockTransport 的 supply 主链包含必用资格/无授权零发送/unknown 不重发、模型选择补料、IMAGE 只提交一次、VIDEO 提交→单次查询→下载→真实 ffprobe 入库→edit，以及重复执行复用资产；取消/所有权变化后不发下一次检索或下载，缺外部配置不降级为自动生成。VIDEO 测试使用新造本地四秒视频，不调用生成服务。
 
 真实 Pexels/MiniMax HTTP、真实生成质量/自然度、素材语义适配、Ubuntu/Windows 均 **NOT_TESTED**；VOICE 属 S6-10。署名 metadata 保留并交给产物依赖，最终 credits 文件/下载入口由制作主线集成验收，不拿单独保存字段冒充已完成用户导出。
+
+2026-10-17 本机配置复用续作：用户允许复用本机既有 Pexels/Pixabay/Unsplash 服务配置。新增 Pixabay 的图片/视频检索适配器与有界 24 小时私有缓存；Unsplash 在 Web「视频创作」中增加用户主动预览检索（官方图片热链、摄影师与平台署名），不加入自动下载供料，因为当前尚无选中时要求的下载追踪与制作素材导入完整能力。V2 `.env` 安全复用原配置且权限 0600，生产 Rights/额度与真实 Provider 成功均不推定。对应受测证据见 [S6-14](S6-14_integration-release.md)，原始用户资产不受影响。

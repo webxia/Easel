@@ -107,6 +107,16 @@ python scripts/validate_document_paths.py
 - 本轮 **IMAGE=0 次、VIDEO=0 次、真实模型/配音/外部素材服务调用=0 次**。这是新增的**本机软件运行/启停/备份**证据；没有新增任何真实自主成片、音色自然度、跨题材稳定性或 Creator 接受证据，第一段和第二段相关格子仍为 `NOT_TESTED`。没有重新执行既有全量回归或 CI 真实安装。
 - 后续继续按本卡两段顺序，具名配置、样片和 IMAGE/VIDEO 许可缺失时不发送付费请求，不把离线样片算作真实生产。
 
+### 2026-10-17 · 本机服务配置/素材授权迁入（S6-14 接续）
+
+用户本次明确授权复用本机既有配置，并安全迁入已有多个素材来源和本地素材副本。旧 `/Users/xgx/Projects/Easel/.env` 只读检查并复制可映射项到 V2 自身 Git-ignore 的 `.env`（0600），绝不提交/输出密钥；保留原配置与旧素材/SQLite 数据库。Pexels 继续原适配、Pixabay 新增图/视频 API 检索及 24h 私有缓存、Unsplash 只提供显式预览检索（署名与热链接，选中下载追踪尚未实现）；MiniMax 与直连模型只完成配置身份对齐，不推定视频、音频/声音协议与生成权益。
+
+旧本地素材目录实际仅找到一个 MP3 + 对应来源/权益 JSON。使用独立显式脚本以文件 SHA-256、CC BY 4.0 素材专属证据、来源及署名、真实音频技术检测校验后复制到 V2 内容寻址库，赋予本次授权的 owner-wide 复用；原件未动，不读取或迁移 V1 生产状态。原登记中缺完整归属链接的候选保持被拒，重新归档具备完整信用链的候选，避免以删除历史记录换通过。无画像和另一画像上下文均证实 1 个合格音频候选（`CONDITIONAL`，出口须署名），不代表导演已试听或该 BGM 已用于成片。
+
+离线 MockTransport 供应/素材库/声音规则继续走针对性回归；本轮 **远程模型、配音、Pexels、Pixabay、Unsplash、IMAGE、VIDEO 实际请求均为 0**。本机配置迁入与真实供料/真实自主成片/自然声音/Creator 接受属不同证据层次，后者维持 `NOT_TESTED`。继续要求明确本次创作主题和样本、具名实际服务授权以及 IMAGE、VIDEO 各可提交次数；不重复要求用户给已有本机配置路径。
+
+验证补充（真实本机、无外部调用）：在当前提交前工作树以隔离 Python 执行受影响模块专项测试 **139 passed、2 skipped**，随后运行完整 `tests/production` 两轮，最终含供应商 HTTP 429 负例的确定版本 **355 passed、3 skipped**（跳过不计真实平台通过）；Unsplash preview-only 路由、Pixabay MockTransport 图片/视频/24 小时缓存、owner-wide 作用域与本地样片权利校验均包含其中。实际启动端口 7870 后，`GET /api/production/capabilities` 返回 Pexels/Pixabay 可用且自动供应、Unsplash 可预览但不自动供料、IMAGE/VIDEO 生成 Rights 均不可用；`GET /works` 正常，随后停止测试服务。新增 Web「视频创作」上的 Unsplash 主动预览入口，不自动检索或下载；前端 80 passed、lint 0 error（既有无用转义 1 warning）、build 成功（既有产物大小告警）。文档路径检查 1258 条路径 / 463 文档通过。所有结果仅证明这次改动的本机软件范围，未增加真实远端 Provider / 真实制作或 Creator 接受证据。
+
 ### CI 发现的修复
 
 整批 CI 已推动两项修复：精简设置矩阵补上项目声明的 Pillow 依赖；Windows SQLite 边车文件并发消失时的扩展盘符路径比较修复，并新增真实 junction 和跨命名空间负例。后者本机专项44 passed/2 Windows专属skip，详见 [S6-06](S6-06_materials-core.md)。上文1591是整链基础版本的本地全库结果，未把新增用例计入；最终提交的跨平台完整结果以 PR 验证说明及绑定SHA的CI日志为准。

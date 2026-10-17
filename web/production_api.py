@@ -22,6 +22,12 @@ class Command(BaseModel):
     payload: dict = Field(default_factory=dict)
 
 
+class StockPreviewSearch(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    query: str = Field(min_length=1, max_length=140)
+    limit: int = Field(default=10, ge=1, le=20)
+
+
 def create_router(service_provider: Callable[[], WorkService]) -> APIRouter:
     router = APIRouter(prefix='/api/production')
 
@@ -33,6 +39,22 @@ def create_router(service_provider: Callable[[], WorkService]) -> APIRouter:
     def service_capabilities():
         from easel.production.configuration import capabilities
         return capabilities(service_provider().outputs.parent)
+
+    @router.post('/material-sources/unsplash/preview-search')
+    def unsplash_preview_search(request: StockPreviewSearch):
+        # Read-only discovery from an explicit UI command, never background supply.
+        # No asset is downloaded, tracked or entered into the material catalog.
+        from easel.direct_api import read_settings
+        from easel.production.providers.stock import StockUnavailable
+        from easel.production.providers.unsplash import UnsplashDiscoveryProvider
+        service = service_provider()
+        settings = read_settings(service.outputs.parent / '.env')
+        provider = UnsplashDiscoveryProvider(settings.get('UNSPLASH_ACCESS_KEY', ''))
+        try:
+            results = provider.search(request.query, limit=request.limit)
+        except StockUnavailable as exc:
+            raise ProductionError('source_unavailable', 'Unsplash 预览检索不可用；不会自动下载或重复请求', status_code=503) from exc
+        return {'provider': provider.provider_id, 'production_ready': False, 'results': list(results)}
 
     @router.get('/library')
     def accepted_library():

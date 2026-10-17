@@ -27,6 +27,21 @@ def capabilities(root: Path):
     if model:services.append({**model,'label':'创作模型 · '+model['model'],'available':True})
     from .supply_tasks import supply_capabilities
     services.extend(supply_capabilities(settings))
+    # Unsplash V1 is discovery-only: the API requires hotlinked previews,
+    # photographer credit and a tracked download on explicit selection.
+    for provider, env_key, kinds, supports_production in (
+        ('pexels', 'PEXELS_API_KEY', ('image', 'video'), True),
+        ('pixabay', 'PIXABAY_API_KEY', ('image', 'video'), True),
+        ('unsplash', 'UNSPLASH_ACCESS_KEY', ('image',), False),
+    ):
+        configured = bool(settings.get(env_key, '').strip())
+        services.append({'provider': provider, 'model': 'stock',
+            'mode': 'search' if supports_production else 'discovery',
+            'label': ('素材检索 · ' if supports_production else '素材预览 · ') + provider,
+            'media_types': list(kinds), 'configured': configured, 'available': configured,
+            'supports_auto_supply': supports_production,
+            'reason': 'explicit_selection_required' if configured and not supports_production else
+                ('capability_unavailable' if not configured else None)})
     from .public_facts import public_fact_capabilities
     services.extend(public_fact_capabilities(settings))
     import json

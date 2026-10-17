@@ -96,11 +96,13 @@ EASEL_PRODUCTION_MODEL_CAPABILITIES=image,video,audio
 
 ## 素材、图片和视频生成
 
-素材库是新的 V2 私有库：`outputs/_production/materials/`。只接收当前登记输入和受控下载，不扫描 V1 库或自动迁移历史数据。实际素材复制至作品 `assets/`，来源/许可/署名和稳定句柄进入作品引用；共享库提升需要明确复用许可。
+素材库是新的 V2 私有库：`outputs/_production/materials/`。正常运行只接收本次登记输入和受控下载，不自动扫描 V1 库或迁移旧生产数据库。2026-10-17 用户另行授权的**显式本地素材副本导入**见下节；它不导入旧运行状态。实际素材复制至作品 `assets/`，来源/许可/署名和稳定句柄进入作品引用；共享库提升需要明确复用许可。
 
 | 配置项 | 含义 |
 | --- | --- |
 | `PEXELS_API_KEY` | Pexels 图片、视频检索；缺失时不假装已检索。公开来源 URL 也必须有素材专属 Rights 证据 |
+| `PIXABAY_API_KEY` | Pixabay 图片/视频检索；有界 API 搜索响应在 V2 私有 `provider_cache/pixabay` 下缓存 24 小时，配置身份不代表远端已验证 |
+| `UNSPLASH_ACCESS_KEY` | Unsplash 仅显式预览检索，不自动下载/供应制作资产；预览需热链接与摄影师/平台署名，尚未实现选中时下载追踪 |
 | `EASEL_REVIEWED_PUBLIC_SOURCES_JSON` | 显式审查的图片、视频、音频来源清单，JSON 文本或绝对本地 JSON 文件路径，最多 256 KiB；格式见下文，不把任意 URL 当作可用素材 |
 | `MINIMAX_API_KEY` | MiniMax 生成凭证；仅配置不代表可发送 |
 | `EASEL_IMAGE_MODEL` | 当前支持 `image-01`，省略时只声明该适配器默认型号 |
@@ -131,6 +133,23 @@ RightsInfo 至少要有已核实状态、许可名称（KNOWN 时）、来源证
 `tests/production/test_supply_tasks.py` 已用实际合成 WAV、图片和隔离传输验证主题输入的 music/mixed 候选、库内音频复用、恢复不重取、署名传递、缺来源/损坏音频/无许可/非法 host 阻断，以及历史方案的画像作用域隔离；这些是软件证据，不代表音乐审美或真实公开来源端到端验收。
 
 代码迁入、协议原始来源、许可证与未测边界详见 [素材迁入记录](../../easel/materials/MIGRATION.md)。素材/HTTP 协议和真实本地视频检查通过离线 fixture 与 MockTransport；真实 Pexels/MiniMax 服务和生成质量 **NOT_TESTED**。
+
+
+### 2026-10-17 · 用户授权的本机素材来源与配置复用
+
+本轮用户明确允许把本机已配置服务接入 V2，并迁入经核验的本地素材副本。配置来源为历史工作树 `/Users/xgx/Projects/Easel/.env`，已将 Pexels、Pixabay、Unsplash、MiniMax 及现有 OpenAI 兼容模型的可映射项写入**当前 V2 工作树自身忽略的** `.env`，权限 `0600`；原配置不改，凭证不入代码、日志或 PR。没有因发现模型/Key 而授权调用；`EASEL_PRODUCTION_MODEL_CAPABILITIES` 暂为空，非流式 JSON、视频审片协议与实际声线均待真实验收；MiniMax 视频型号、生成 Rights 和声音目录未从历史配置臆造。
+
+| 来源 | V2 当前行为与限制 |
+| --- | --- |
+| Pexels | 现有图片/视频检索适配器，按素材专属 Rights、域名/下载/技术校验准入 |
+| Pixabay | 新增图片/视频检索适配器；API 搜索回执有界保存于 `outputs/_production/provider_cache/pixabay/`，24 小时内复用；POSIX 下缓存文件模式 0600（Windows 需依赖目录 ACL）；不以有 Key 代表真实服务已经验收 |
+| Unsplash | Web「视频创作」页有主动参考图检索入口，后端 `POST /api/production/material-sources/unsplash/preview-search` 仅在明确操作时请求；返回官方图片热链接、摄影师及 Unsplash 署名链接，不下载、不自动加入制作候选。用户选择后的下载事件追踪/实物导入未接通，不冒充已支持 |
+| MiniMax | 生图 `image-01` 可登记为配置身份，但没有真实 Rights 许可与每片调用次数前不可提交；生视频型号与额度未明确，因此维持不可用 |
+| OpenAI 兼容模型 | 从已有 `OPENAI_BASE_URL/OPENAI_MODEL/OPENAI_API_KEY` 映射到 V2 `EASEL_DIRECT_API_*`，仅静态验证身份，不推断原端点具备多模态/视频审片能力 |
+
+本机旧素材库目录存在历史 SQLite catalog，但没有直接在 V2 打开/升级它。旧本地素材根经只读盘点仅有 1 个 MP3 和素材、Rights JSON sidecars；按实际 SHA-256、来源、CC BY 4.0 署名证据及本机媒体技术检查，经**显式** `python -m scripts.import_local_materials --legacy-env /Users/xgx/Projects/Easel/.env --execute` 安全复制进 V2 内容寻址库。默认不带 `--execute` 时只做 dry-run；脚本不修改原素材或原 SQLite 库。导入的音频仅经用户本次复用授权设为 `owner_shared_import`；其他未明确许可的历史素材和用户上传不扩大作用域。重复执行不会重复拷贝有效字节。曾登记但署名不足的旧候选保留为被拒绝事实，修正后独立记录符合资格的版本，禁止以删除记录换 PASS。
+
+本机实测：新 V2 目录下 Pexels、Pixabay 配置存在且自动供料适配器已装配；Unsplash 仅 preview，生成 Rights 可用计数为 0。唯一 MP3 在**有画像/无画像的不同作品**中均能被检索为 1 个合格候选，使用权状态 `CONDITIONAL`，制作/导出必须继续携带完整署名；不得把命中等于导演已听取选中。此轮远程检索与真实生图/生视频/配音/模型调用均为 0，真实生产和 Creator 接受仍 `NOT_TESTED`。
 
 ## 公共事实检索
 

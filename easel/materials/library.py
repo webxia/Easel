@@ -98,6 +98,8 @@ class MaterialLibraryRecord(BaseModel):
     source_work_id: str
     input_purpose: Literal["reference", "production"]
     reusable: bool = False
+    # Explicit verified owner-wide reuse applies only to imported local materials.
+    owner_shared: bool = False
     lifecycle_status: Literal["ACTIVE", "DELETED"] = "ACTIVE"
     promotion_consent: PromotionConsent | None = None
     created_at: datetime
@@ -179,11 +181,17 @@ class MaterialLibraryCatalog:
 
     @staticmethod
     def _visible(record: MaterialLibraryRecord, scope: LibraryVisibility, context: UseContext) -> bool:
-        if record.scope != scope or record.lifecycle_status != "ACTIVE":
+        if record.lifecycle_status != "ACTIVE" or record.scope.owner_id != scope.owner_id:
             return False
-        if record.source_work_id == context.work_id:
-            return True
-        return bool(scope.profile_ref and record.reusable
+        if record.scope == scope:
+            if record.source_work_id == context.work_id:
+                return True
+            if scope.profile_ref and record.reusable and "current_creation_only" not in record.asset.rights.usage_constraints:
+                return True
+        return bool(record.scope.profile_ref is None and record.owner_shared and record.reusable
+                    and record.promotion_consent is not None and record.promotion_consent.authorized
+                    and record.promotion_consent.purpose == "owner_shared_import"
+                    and record.asset.source.kind == "local_import"
                     and "current_creation_only" not in record.asset.rights.usage_constraints)
 
     def register(self, asset: MaterialAsset, source_store: MaterialFileStore, *,
@@ -226,8 +234,8 @@ class MaterialLibraryCatalog:
     def get(self, library_asset_id: str, *, scope: LibraryVisibility, context: UseContext,
             missing_ok: bool = False) -> MaterialLibraryRecord | None:
         with self._connect() as db:
-            row = db.execute("SELECT record_json FROM library_assets WHERE library_asset_id=? AND owner_id=? AND profile_key=?",
-                             (library_asset_id, scope.owner_id, scope.profile_key)).fetchone()
+            row = db.execute("SELECT record_json FROM library_assets WHERE library_asset_id=? AND owner_id=?",
+                             (library_asset_id, scope.owner_id)).fetchone()
         record = MaterialLibraryRecord.model_validate_json(row[0]) if row else None
         if record is None or not self._visible(record, scope, context):
             if missing_ok:
@@ -244,7 +252,7 @@ class MaterialLibraryCatalog:
         if not 1 <= limit <= 1000:
             raise MaterialLibraryError("Search limit must be between 1 and 1000")
         with self._connect() as db:
-            rows = db.execute("SELECT record_json FROM library_assets WHERE owner_id=? AND profile_key=? AND lifecycle_status='ACTIVE' ORDER BY library_asset_id",
+            rows = db.execute("SELECT record_json FROM library_assets WHERE owner_id=? AND (profile_key=? OR profile_key='') AND lifecycle_status='ACTIVE' ORDER BY library_asset_id",
                               (scope.owner_id, scope.profile_key)).fetchall()
         matches = []
         for row in rows:
@@ -286,13 +294,17 @@ class MaterialLibraryCatalog:
         return path
 
     def promote(self, asset_ref: str, *, scope: LibraryVisibility, context: UseContext,
-                consent: PromotionConsent) -> MaterialLibraryRecord:
+                consent: PromotionConsent, owner_shared: bool = False) -> MaterialLibraryRecord:
         record = self.get(asset_ref, scope=scope, context=context)
         if not consent.authorized:
             raise PromotionRejected("Explicit library promotion consent is required")
         if record.source_work_id != context.work_id:
             raise PromotionRejected("Promotion must refer to the source work")
-        if scope.profile_ref is None:
+        if owner_shared:
+            if (scope.profile_ref is not None or record.asset.source.kind != "local_import"
+                    or consent.purpose != "owner_shared_import"):
+                raise PromotionRejected("Owner-wide reuse requires explicit consented local import")
+        elif scope.profile_ref is None:
             raise PromotionRejected("Unprofiled inputs retain their original work scope")
         self.resolve_physical_locator(record)
         asset = record.asset
@@ -315,10 +327,10 @@ class MaterialLibraryCatalog:
             current = MaterialLibraryRecord.model_validate_json(row[0])
             if current.lifecycle_status != "ACTIVE":
                 raise PromotionRejected("Deleted material cannot be promoted")
-            if current.reusable:
+            if current.reusable and current.owner_shared == owner_shared:
                 return current
-            updated = current.model_copy(update={"reusable": True, "promotion_consent": consent,
-                                                  "updated_at": datetime.now(timezone.utc)})
+            updated = current.model_copy(update={"reusable": True, "owner_shared": owner_shared,
+                "promotion_consent": consent, "updated_at": datetime.now(timezone.utc)})
             db.execute("UPDATE library_assets SET record_json=? WHERE library_asset_id=?", (updated.model_dump_json(), asset_ref))
         return updated
 

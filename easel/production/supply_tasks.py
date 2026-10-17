@@ -382,9 +382,13 @@ def supply_capabilities(settings):
 def configured_supply(service,operations,planning,settings):
     """Compose genuine adapters without making a request or granting consent."""
     from .providers.stock import PexelsStockProvider, ReviewedPublicSources
+    from .providers.pixabay import PixabayStockProvider
     from .providers.generation_http import MiniMaxImageProvider, MiniMaxVideoProvider
     providers=[]
     if settings.get('PEXELS_API_KEY','').strip():providers.append(PexelsStockProvider(settings['PEXELS_API_KEY']))
+    if settings.get('PIXABAY_API_KEY','').strip():
+        providers.append(PixabayStockProvider(settings['PIXABAY_API_KEY'],
+            cache_root=service.outputs/'_production'/'provider_cache'/'pixabay'))
     source_error=None
     raw=settings.get('EASEL_REVIEWED_PUBLIC_SOURCES_JSON','').strip()
     if raw:
