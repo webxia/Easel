@@ -29,4 +29,6 @@
 
 - 2026-10-17 最新范围：按用户明确决定 Unsplash 继续 preview-only，**不新建音频素材管理界面**；S6-15 仅新增 BGM/SFX Wikimedia Commons 公共搜索 Provider、角色隔离、官方文件专属许可/署名校验、下载 SHA-1 和 OGG 合格音频路径。真实无账户查询已有候选，但生产下载受本机私网映射 DNS 阻断，G3 实际音频、用户听感和真实声音服务仍 NOT_TESTED；参见 [S6-15](tasks/S6-15_material-layer-hardening.md)。
 
-**CURRENT_PAUSE：本轮 [G4 正式验收与 NO_GO 报告](19_MATERIAL_LAYER_G4_ACCEPTANCE.md) 已建立，且用户要求完成后停止，不继续自动执行；后续仅在用户再次要求时处理公网安全下载、实际音频/声线和 CI 证据，再重新作 G4 准入判定。S6-14 仍暂停。** [审计](17_MATERIAL_LAYER_AUDIT.md)和[架构选型](18_MATERIAL_LAYER_ARCHITECTURE.md)已落地，内部冻结意图、SFX绑定、来源授权、素材再准入、只选中依赖及原生旁白适配已实施。合成媒体/模拟模型的五模态整链不代表真实创作品质；不重做G0，不重复索取已允许复用的配置，不在未授权时实发模型、配音或生成请求。
+**CURRENT_PAUSE：本轮 [G4 正式验收与 NO_GO 报告](19_MATERIAL_LAYER_G4_ACCEPTANCE.md) 已建立，且用户要求完成后停止，不继续自动执行；后续仅在用户再次要求时处理公网安全下载、实际音频/声线和 CI 证据，再重新作 G4 准入判定。S6-14 仍暂停。**
+
+- 用户新指令仅授权修复 Clash Fake-IP 下载卡点。经可信 HTTPS DoH 获得公网 IP、受控 loopback HTTP CONNECT 和源域名 TLS 校验的素材下载适配已实现；Pexels 图/视频、Commons BGM 真实安全下载及隔离库技术验收，Pixabay 图片也已真实下载。Commons SFX CDN 429、实际听感与固定声线仍未通过。见 [G4 网络修复复验](19_MATERIAL_LAYER_G4_ACCEPTANCE.md)；**S6-14 仍暂停**。 [审计](17_MATERIAL_LAYER_AUDIT.md)和[架构选型](18_MATERIAL_LAYER_ARCHITECTURE.md)已落地，内部冻结意图、SFX绑定、来源授权、素材再准入、只选中依赖及原生旁白适配已实施。合成媒体/模拟模型的五模态整链不代表真实创作品质；不重做G0，不重复索取已允许复用的配置，不在未授权时实发模型、配音或生成请求。

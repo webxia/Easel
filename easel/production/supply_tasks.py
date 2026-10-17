@@ -487,6 +487,16 @@ def configured_supply(service,operations,planning,settings):
             providers.append(ReviewedPublicSources.from_json(raw))
         except (OSError,ValueError,TypeError,ValidationError):
             source_error='已审查公开来源配置无效：请核对明确域名、素材来源、许可及资产专属证据；未发送下载请求'
+    downloaders = None
+    proxy_url = settings.get('EASEL_MATERIAL_HTTP_PROXY', '').strip()
+    if proxy_url:
+        from easel.materials.application.proxy import PublicDNSOverProxy, ProxyPinnedHttpsTransport
+        from easel.materials.application.acquisition import MediaDownloader, RemoteURLPolicy
+        resolver=PublicDNSOverProxy(proxy_url)
+        transport=ProxyPinnedHttpsTransport(proxy_url)
+        downloaders={provider.provider_id: MediaDownloader(
+            RemoteURLPolicy(provider.allowed_hosts, resolver=resolver),transport=transport)
+            for provider in providers}
     generations={}
     if settings.get('MINIMAX_API_KEY','').strip():
         key=settings['MINIMAX_API_KEY']
@@ -497,7 +507,7 @@ def configured_supply(service,operations,planning,settings):
     # Hash public identities and policy configuration, never print credentials.
     version=fingerprint({'services':[(kind,p.provider_id,p.model,p.mode) for kind,p in generations.items()],
         'rights':{k:v.model_dump(mode='json') for k,v in _configured_rights(settings).items()}})
-    return SupplyTasks(service,operations,planning=planning,external_providers=providers,generation_providers=generations,
+    return SupplyTasks(service,operations,planning=planning,external_providers=providers,downloaders=downloaders,generation_providers=generations,
                        generation_rights=_configured_rights(settings),config_version=version,source_configuration_error=source_error,
                        enforce_provider_grants=True,
                        intent_compiler=FrozenIntentCompiler(planning) if planning is not None else None)

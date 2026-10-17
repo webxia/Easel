@@ -54,7 +54,12 @@
 
 **最终判据**：G0/G1/G2 + 本地 G3 软件 PASS、外部搜索成功≠G3 真实文件成功。P0 B1～B4 未闭合时 **G4 决策只能 NO_GO，不得批准 S6-14**。
 
-## 6. 许可参考、暂停与交接
+
+## 2026-10-17 · 新授权：Clash Fake-IP 安全下载修复
+
+用户新指令要求只修复安全代理下载，不执行 S6-14。新增显式 EASEL_MATERIAL_HTTP_PROXY=http://127.0.0.1:7897，仅允许 loopback HTTP CONNECT；通过已验证 TLS 的 Cloudflare 1.1.1.1 HTTPS DoH 查询公网 IP 并校验，然后经代理 CONNECT 到验证过的数字公网 IP:443，继续使用原媒体域名执行 TLS SNI/证书验证。逐跳白名单、非公网地址拒绝、文件大小/MIME/技术核验/Rights 均保持，不读系统环境代理。不配置时原直连方式不变。V2 Git 忽略的 .env（0600）已显式配置，旧项目/历史素材不改。
+
+本次真实下载：Pexels JPEG 481691 字节、MP4 624725 字节/14.531183 秒和 Wikimedia OGG BGM 108207 字节/8.127732 秒均在独立临时素材库验证 Rights ADMITTED、Technical PASSED 和可复用候选 1；Pixabay 图片 JPEG 398639 字节已完成安全代理下载，Pixabay 视频探针超过单次诊断的 15MB 上限；Wikimedia SFX 的 door/water 检索有候选，但 CDN HTTP 429，无实际 SFX 文件。没有调用收费生成服务，没有启动视频制作。此时只证明安全下载通路与部分真实素材的供应资格，缺 SFX 真正下载、作品/音效试听与固定 AI 旁白；因此 G4 原 NO-GO 与 S6-14 暂停不变。对应源码 easel/materials/application/proxy.py，tests/production/test_proxy_material_acquisition.py。## 6. 许可参考、暂停与交接
 
 - [Commons 外部复用](https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia)及[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)：遵守源文件页许可、创作者署名、如有修改须说明；不可把平台声明当作独立版权保证。
 - [Pexels License](https://www.pexels.com/license/)、[Pixabay License](https://pixabay.com/service/license-summary/)：许可通常允许创意合成，但仍需遵守不作独立素材转售、不暗示背书及肖像/商标等限制。

@@ -104,6 +104,7 @@ EASEL_PRODUCTION_MODEL_CAPABILITIES=image,video,audio
 | `PIXABAY_API_KEY` | Pixabay 图片/视频检索；有界 API 搜索响应在 V2 私有 `provider_cache/pixabay` 下缓存 24 小时，配置身份不代表远端已验证 |
 | `UNSPLASH_ACCESS_KEY` | Unsplash 仅显式预览检索，不自动下载/供应制作资产；预览需热链接与摄影师/平台署名，尚未实现选中时下载追踪 |
 | `EASEL_WIKIMEDIA_AUDIO_ENABLED=1` | 显式启用 Wikimedia Commons 公共 API 的音乐/音效来源，无账户/API Key；分别登记 `wikimedia_bgm`、`wikimedia_sfx`，都需作品内按 `model=stock,mode=search` 具名授权；默认 `0` 停用。官方搜索与文件元数据检索只用明确 User-Agent，不抓取页面 |
+| `EASEL_MATERIAL_HTTP_PROXY` | 可选安全代理，如 `http://127.0.0.1:7897`；只允许 loopback HTTP CONNECT，经受信任 HTTPS DoH 获得真实公网 IP 再连接已验证数字 IP，保持源域名 TLS SNI/证书与原下载安全边界；不影响模型或 TTS；未配置则使用原直连 |
 | `EASEL_REVIEWED_PUBLIC_SOURCES_JSON` | 显式审查的图片、视频、音频来源清单，JSON 文本或绝对本地 JSON 文件路径，最多 256 KiB；格式见下文，不把任意 URL 当作可用素材 |
 | `MINIMAX_API_KEY` | MiniMax 生成凭证；仅配置不代表可发送 |
 | `EASEL_IMAGE_MODEL` | 当前支持 `image-01`，省略时只声明该适配器默认型号 |
