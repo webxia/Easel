@@ -1,6 +1,6 @@
 # S5 · 架构选型建议与取舍
 
-状态：**RECOMMENDED — 技术推荐待评审，未锁定依赖，不代表已实现或验证。** 以下来源为 2026-10-16 的核查记录。
+状态：**选型依据与实施取舍。** S5 来源为 2026-10-16 核查；S6 已落实项目以对应 ADR、源码与任务卡为准。编辑器已于 2026-10-17 落实为本地 FFmpeg，见 §5；其余推荐不因该项完成而自动成为已实现能力。
 
 本轮从 `d25b8f83` 文档工作树再次只读复核 Easel 业务代码（与业务基线 `8eeafb6b` 相同）、V1 归档 `57c8e2ad` 与官方资料。既有需求、职责与主线由[架构基线](02_ARCHITECTURE.md)及[ADR-S5-001](decisions/ADR-S5-001-work-production-boundary.md)约束。下面每项均给出明确推荐；局部疑点不阻止其他项形成判断，也不把完整产品验收变成选型门槛。
 
@@ -12,7 +12,7 @@
 | 执行编排 | **LangGraph 有界状态图**，只承担阶段编排、等待与局部返回 | DBOS；小型显式 Python 执行器；Temporal | 确定阶段与模型选择并存，符合已确认三层规划，避免自研全部检查点机制 | 重放副作用、检查点与业务事务不原子；本地持久后端与现有依赖兼容待小范围核实 |
 | 作品数据 | **SQLite + 本机媒体文件**；已有六维画像仍用原文件 | PostgreSQL + 文件/对象存储；JSON + 文件锁 | 单机范围部署轻；作品版本/授权/操作适合事务；V1 素材目录已有 SQLite 基础 | 单写者、长事务、备份与跨文件登记；不能把 SQLite 等同于外部生成恰好一次 |
 | 模型接入 | **Easel 内任务化模型适配接口**，复用现有配置；程序提供受控工具，语义任务可走直接 API，需工具的任务经受限接入 | 让通用聊天 Harness 全权执行；再引入完整 Agent SDK/多 Agent 框架 | 保留模型可替换和既有入口，减少全会话污染；明确谁能调用收费工具 | 当前直接 API 无工具能力，不能原样承担全流程；实际图像/音频/视频能力与隔离依赖所选服务 |
-| 编辑渲染 | **可编辑工程 + 渲染适配器；Hypit 保留优先候选但不可直接迁旧 parser，FFmpeg 为明确底层/替代** | 自有受限时间线 + FFmpeg；直接接入 Remotion | V1 已有 Hypit 原生工程与局部声音/文字保护代码，符合风格自由和局部修订；不复制旧 Delivery | Hypit 当前版本本地纯制作边界、隐式生成、协议及依赖/授权条件待核实；不假称其为已核实开源库 |
+| 编辑渲染 | **已落实：可编辑工程 + 本地 FFmpeg 受限时间线适配器**，决定见 ADR-S6-009 | 将来具备纯制作隔离证据的 Hypit；复杂图形可评估 Remotion | 实际保留原声、混音、视频转场、固定字幕与局部修订；不搬旧 parser/Delivery | 本机 FFmpeg 8.1/macOS arm64 已测；跨平台、所有风格与真实题材质量未借样片宣称通过；未知能力明确拒绝 |
 | 素材集成 | **迁入 V1 M01～M05 为应用内素材模块**，统一素材句柄与调用准入 | 重写；单独素材服务；让渲染器自带采购 | 用户已指定迁入，源码具备入库/作用域/权益/复用逻辑 | 旧 Attempt/Creation/报价耦合要适配；索引/Provider 当前可用性未证实 |
 | 进度与观测 | **业务状态快照 + 持久关键事件 + SSE；命令用 HTTP**，沿用 React 展示 | WebSocket；仅轮询；框架调试平台当用户 UI | 现有 SSE/回放与媒体预览基础可用，制作主要是服务端向用户推状态 | 断连/重复/乱序、快照游标一致性、事件隐私与保留策略；不能沿用聊天消息作为作品状态权威 |
 
@@ -29,7 +29,7 @@ flowchart TD
   WORKER --> MAT[V1 素材模块适配]
   MAT --> OPS[统一外部操作准入与核实]
   OPS --> DB
-  WORKER --> EDIT[编辑渲染适配：Hypit 有条件候选]
+  WORKER --> EDIT[编辑渲染适配：本地 FFmpeg 时间线]
   EDIT --> FILES[本地原生工程 / 素材 / 视频文件]
   WORKER --> QC[程序检测 + 实际视听语义检查]
   QC --> DB
@@ -100,23 +100,25 @@ LangGraph 检查点和 V1 素材目录各自使用独立表/文件所有权，�
 
 现有 output/persona 删除、旧 GET 媒体入口及聊天 TURN_REMINDER 可能绕过作品边界；具体入口保护由[实施合同](15_IMPLEMENTATION_DESIGN.md)与 S6-02/08 落实，私有库不能仅靠隐藏目录名保护。
 
-## 5. 编辑渲染：原生工程接入与有条件的 Hypit 候选
+## 5. 编辑渲染：本地 FFmpeg 与可编辑工程
 
 V1 的[CLI 适配](https://github.com/webxia/Easel/blob/57c8e2ade21af9fb6abccdab3f7ba8e50132314f/easel/integrations/hypit/cli.py)有 check/build/status/get/cancel 接口；[局部修订](https://github.com/webxia/Easel/blob/57c8e2ade21af9fb6abccdab3f7ba8e50132314f/easel/integrations/hypit/native_revision.py)有 `assert_composition_preserves_sound_and_copy`、视频区间与引用检查。它们为可编辑工程、观察渲染与局部保护提供现成证据，故保留这一接入方向。但本轮深审发现 V1 的 native_source.py 固定 @hypit/hypit 0.2.7 及内部源码摘要，并含 darwin-arm64 组件路径；现有局部保护不能据此宣称可直接迁入当前跨平台环境。
 
-**推荐范围很窄**：Easel 决定素材/授权/任务；导演创作原生工程；Hypit 承担已选媒体的编辑/渲染并返回可观察结果。不能把整个 Hypit 创作 Skill/旧 service 当作总导演或总调度。当前本地 Hypit Skill 带生成媒体优先的创作倾向，而 S4 是外部素材优先，因此不直接继承其产品策略。当前 Runtime 是否能在受限媒体/凭证环境下完成纯制作，是首选尚未确定的关键边界。
+**S6-09 实际决定**：首个后端使用 `FFmpegEditor`，精确版本、许可证与能力矩阵见 [ADR-S6-009](decisions/ADR-S6-009-local-editor.md)。本机 FFmpeg/ffprobe 8.1（macOS arm64，含 libx264 的 GPLv3 构建）和 Pillow 12.3.0 已完成真实合成媒体测试。已有片段进入类型化工程，独立进程只执行本地剪辑、音频与字幕，不调用模型或生成服务；build/observe/cancel/collect 保留工程、进度、结果摘要与恢复身份。当前不是仍待选择的 Hypit 接入任务。
+
+Hypit 保留为未来候选：已装 0.2.7 的包内许可带附加条件，V1 内部源码绑定、HOME/Runtime 凭证访问及纯制作隔离尚未证明可迁。不调用其 Skill/旧 service 作为总导演；生成优先的 Skill 策略也不改变 S4 的外部素材优先。未调用或安装 Hypit，不宣称其本身不支持纯制作。
 
 | 替代方案 | 优点 | 代价/风险与采用条件 |
 |---|---|---|
-| 自有受限时间线 + FFmpeg | 沿用现有合成器、音视频工具，进程/文件边界直接可控 | 复杂视听表达、字幕布局和局部依赖需自行实现；现有 `assemble.py` 保留显式镜头时长，仅在缺时长时借旁白分配；静音、补帧、缺字幕回退等默认行为仍需显式适配。若 Hypit 无法分离生成/渲染，则评估此替代，不静默降为幻灯片 |
+| 自有受限时间线 + FFmpeg（已采用） | 公共滤镜/编码器、进程/文件边界可控；已有真实视频、音频、字幕与局部修订证据 | 本次未照搬 `assemble.py` 的隐式补帧/声音/字幕回退；128 场景、24/25/30fps、两种1080画幅，未覆盖效果返回缺失能力，不静默降为幻灯片 |
 | Remotion 原生组件 + renderer | 可用 React 组件表达动态字幕/图形，已有前端技术基础和 vendored SDK 的使用经验 | 浏览器/Node 运行依赖、生成代码隔离与渲染性能；需核实所用许可，不把“源码可读”当成无条件免费。若主要缺口是复杂图形表达，作为明确候选 |
 | 整体沿用原片 video-pipeline-sdk | 仓库已经内置版本并有 status/工序入口 | 契约要求自身的风格方式与 design-table/preview 审批，输入偏原片；与跨内容固定导演、一次确认不同，不作为统一主线直接使用 |
 
 Easel [assemble.py](../../skills/builtin/auto-short-video/scripts/assemble.py)已有 FFmpeg 合成，[SDK 来源](../../skills/builtin/video-production/vendor/VENDOR.md)记录内置版本与本地修改，[SDK 契约](../../skills/builtin/video-production/vendor/video-pipeline-sdk/INTERFACE.md)暴露它自己的生产阶段。若要复用 SDK 能力，通过受支持接口适配或显式维护派生版本；不未经评估绕过其契约抽私有脚本。
 
-[FFmpeg 滤镜](https://ffmpeg.org/ffmpeg-filters.html)可承担裁切、音频混合等机械处理；[Remotion renderer](https://www.remotion.dev/docs/renderer)提供渲染/静帧/取消等 API。发行前按实际构建核对 [FFmpeg 许可](https://ffmpeg.org/legal.html)与 [Remotion 许可](https://www.remotion.dev/license)。Hypit 当前发行与许可未作独立核验，本轮不将其列为已确认开源项目，也不执行其安装/生成。
+[FFmpeg 滤镜](https://ffmpeg.org/ffmpeg-filters.html)承担裁切、音频混合等机械处理；本次未随项目分发 FFmpeg 二进制。[Remotion renderer](https://www.remotion.dev/docs/renderer)仍是候选 API。若今后分发或改用引擎，按实际构建核对 [FFmpeg 许可](https://ffmpeg.org/legal.html)与 [Remotion 许可](https://www.remotion.dev/license)，不能把本机已装版本的测试等同于所有发行环境。
 
-Hypit 环境白名单仍可能读取 HOME 中的 Runtime 凭证，因此无真实凭证和受限媒体执行边界须由 S6-09 落实；只看定价结果不等于阻断收费通道。该卡提交具体编辑器决定、精确版本/许可与能力矩阵，并回写本节；一个简单可播放样片不能证明全部编辑能力。
+FFmpeg 后端的素材摘要、路径/符号链接/伪装播放列表检查、file/pipe 协议限制、无 Provider 凭证的独立 HOME 与受控滤镜已落实。真实证据涵盖 1 秒与独立 900 秒编码、两画幅、四声音模式、字幕/裁切修订和编码音轨复用，详见 [S6-09](tasks/S6-09_editor-adapter.md)；不等于所有风格、Ubuntu/Windows 或正式题材质量已验收。
 
 V1 完整脚本 Voice 路径不等于句级配音修订；生产须显式固定 engine/voice 并登记音轨段依赖，实施合同及 S6-10 负责。
 
@@ -146,6 +148,6 @@ V1 完整脚本 Voice 路径不等于句级配音修订；生产须显式固定 
 
 - **Q1 编排与本机持久后端（S6-04）**：若文档/版本兼容核查仍不能确定，做“等待确认→恢复”和“对端已接受、回执未存→核实原操作”的最小假服务实验。只判断是否需要换后端/编排，不跑 T03 全矩阵。依赖兼容不通过不得静默提高 Easel 的 Python/部署要求。
 - **Q2 模型工具接入边界（S6-08）**：当选择继续使用带任意执行能力的 Harness 时，仅验证是否能关闭付费绕过路径及额外指令注入；不满足则转为程序提供受控工具的任务接入。
-- **Q3 渲染器边界（S6-09）**：核实所选 Hypit 版本能否只消费已有媒体、保持指定原声，修改一处字幕/画面后重渲染而不生成收费素材；如证据不足，使用许可测试媒体做最小样片。其余完整质量/长片覆盖留在实施验收。影响用户 Runtime 的安装/启动按实际授权执行。
+- **Q3 渲染器边界（S6-09 已落实首个后端）**：采用本地 FFmpeg，具体取舍及真实测试见 ADR-S6-009；Hypit 纯制作接入不再是当前主链前置。跨平台、完整规格组合与真实作品质量继续按 S6-14 验收，未知效果不能静默降级。
 
 推荐变更要记录原因和影响，不能静默退化目标。最终具体技术 ADR 在用户认可本轮取舍后记录，条件性未决项明确保留；不把“开始选型”自动写成“全部选型已接受”。

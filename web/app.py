@@ -439,7 +439,19 @@ async def _lifespan(_app: FastAPI):
     """应用生命周期：关机时回收公众号扫码进程（替代已弃用的 on_event）。"""
     global _HARNESS_LOOP
     _HARNESS_LOOP = asyncio.get_running_loop()
+    production_task = None
+    production_runtime = None
+    if os.environ.get("EASEL_PRODUCTION_ENABLED") == "1":
+        from easel.production.runtime import create_runtime
+        production_runtime = create_runtime(PROJECT_ROOT, service=_production_service())
+        _app.state.production_runtime = production_runtime
+        production_task = asyncio.create_task(production_runtime.run_forever())
     yield
+    if production_runtime:
+        production_runtime.stop()
+    if production_task:
+        production_task.cancel()
+        await asyncio.gather(production_task, return_exceptions=True)
     tasks = list(_HARNESS_TASKS)
     for task in tasks:
         task.cancel()
@@ -452,6 +464,31 @@ async def _lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Easel", docs_url=None, redoc_url=None, lifespan=_lifespan)
+
+
+def _production_service():
+    existing = getattr(app.state, "production_service", None)
+    if existing is not None:
+        return existing
+    from easel.production.errors import ProductionError
+    if os.environ.get("EASEL_PRODUCTION_ENABLED") != "1":
+        raise ProductionError("capability_unavailable", "视频制作尚未启用", status_code=503)
+    from easel.production.store import Store
+    from easel.production.service import WorkService
+    store = Store(OUTPUTS_DIR / "_production" / "production.sqlite3")
+    store.initialize()
+    service = WorkService(store, outputs=OUTPUTS_DIR, profiles=PROFILES_DIR)
+    app.state.production_service = service
+    return service
+
+
+from web.production_api import create_router as _production_router, production_error_handler
+from easel.production.errors import ProductionError
+app.add_exception_handler(ProductionError, production_error_handler)
+app.include_router(_production_router(_production_service))
+from web.production_settings_api import create_settings_router
+app.include_router(create_settings_router(_production_service))
+
 
 def _local_ports(env_port: str) -> set[str]:
     """本机写守卫放行的端口集合：固定的 7860/7870/5173，加上 `--port`/EASEL_PORT
@@ -1057,7 +1094,7 @@ def _build_output_node(path: Path, rel: str) -> dict:
     if path.is_dir():
         children = []
         for c in sorted(path.iterdir()):
-            if c.name.startswith('.'):   # 嵌套层只跳隐藏文件；_base.mp4 等以 _ 开头的产物要保留
+            if c.name.startswith('.') or _production_managed_path(c) or c.is_symlink():
                 continue
             children.append(_build_output_node(c, f'{rel}/{c.name}'))
         mtime = max((x['mtime'] for x in children), default=int(path.stat().st_mtime))
@@ -1076,7 +1113,7 @@ def _read_project_meta(proj: Path) -> dict:
     展示头声明的 cover → 首个成品媒体 → 目录内首张图/视频（兜底）。
     """
     mf = proj / ".easel.json"
-    if not mf.is_file():
+    if mf.is_symlink() or not mf.is_file():
         return {}
     try:
         data = json.loads(mf.read_text(encoding="utf-8"))
@@ -1118,7 +1155,7 @@ def get_output_tree() -> list[dict]:
         # 以及根目录散文件（按新规约产物必在项目目录内，根散文件=系统状态/残渣）。
         if e.name.startswith('.') or e.name.startswith('_'):
             continue
-        if not e.is_dir() or e.name in SYSTEM_TOPLEVEL_DIRS:
+        if not e.is_dir() or e.name in SYSTEM_TOPLEVEL_DIRS or _production_managed_path(e) or e.is_symlink():
             continue
         node = _build_output_node(e, e.name)
         meta = _read_project_meta(e)
@@ -1129,12 +1166,38 @@ def get_output_tree() -> list[dict]:
     return sorted(items, key=lambda x: x.get('mtime', 0), reverse=True)
 
 
+def _production_managed_path(path: Path) -> bool:
+    """Production files are served only by the registered-artifact API."""
+    resolved = path.resolve()
+    root = OUTPUTS_DIR.resolve()
+    for name in ("_production", "works"):
+        boundary = (root / name).resolve()
+        if resolved == boundary or boundary in resolved.parents:
+            return True
+    return False
+
+
+def _production_reference_guard(*, path: Path | None = None, profile: str | None = None):
+    """A read-only check: legacy requests never create or migrate a production DB."""
+    database = OUTPUTS_DIR / "_production" / "production.sqlite3"
+    if not database.is_file():
+        return
+    from easel.production.service import reference_guard
+    from easel.production.errors import ProductionError
+    try:
+        reference_guard(database, path=path, profile=profile)
+    except ProductionError as exc:
+        raise HTTPException(409, exc.user_message) from None
+
+
 def _safe_output_path(rel: str) -> Path:
     '把相对路径解析到 outputs/ 内，防路径穿越。'
     full = (OUTPUTS_DIR / rel).resolve()
     root = OUTPUTS_DIR.resolve()
     if root != full and root not in full.parents:
         raise HTTPException(403, '非法路径')
+    if _production_managed_path(full):
+        raise HTTPException(403, '制作文件请通过作品入口访问')
     if not full.is_file():
         raise HTTPException(404, '文件不存在')
     return full
@@ -1358,8 +1421,10 @@ async def api_persona_delete(name: str):
     pd = (PROFILES_DIR / name).resolve()
     if PROFILES_DIR.resolve() not in pd.parents or not pd.is_dir():
         raise HTTPException(404, "画像不存在")
+    _production_reference_guard(profile=name)
     import shutil
-    shutil.rmtree(pd)
+    from easel.production.service import retire_profile_reference
+    retire_profile_reference(OUTPUTS_DIR / "_production" / "production.sqlite3", name, lambda: shutil.rmtree(pd))
     return {"ok": True, "deleted": name}
 
 
@@ -2560,6 +2625,9 @@ class AttachmentRef(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    workId: str | None = None
+    workRevision: int | None = None
+    outputId: str | None = None
     message: str
     persona: str | None = None
     sessionId: str | None = None
@@ -3168,6 +3236,18 @@ async def api_chat_job_stream(turn_id: str, after: int = 0):
     })
 
 
+def _production_chat_command(req: ChatRequest):
+    """An explicit work binding routes only to the durable production service."""
+    if req.workRevision is None or not req.turnId:
+        raise ProductionError("invalid_input", "作品对话须提供当前版本与本轮标识", status_code=400)
+    if req.attachments:
+        raise ProductionError("invalid_input", "请先在作品中登记必用或参考素材，再继续创作", status_code=400)
+    action="revise" if req.outputId else "plan"
+    payload={"output_id":req.outputId,"feedback":req.message} if req.outputId else {"request":req.message}
+    result=_production_service().command(action,payload,command_id=req.turnId,work_id=req.workId,expected_revision=req.workRevision)
+    return {"response":"已交给作品制作任务，请在视频创作工作台查看方案、进度与成果。","sessionKey":req.sessionId,**result}
+
+
 @app.post("/api/chat/stream")
 async def api_chat_stream(req: ChatRequest):
     """SSE 真流式对话。
@@ -3178,6 +3258,12 @@ async def api_chat_stream(req: ChatRequest):
     记下该文件尾偏移、实时 tail 之后追加的行，用 runId 闩锁隔离本轮，把 assistant_text_stream 的
     token delta 转成 SSE `token`、thinking delta 转成 `thinking`。stdout 仅留作错误/兜底。
     """
+    if req.workId:
+        result=await asyncio.to_thread(_production_chat_command,req)
+        async def production_events():
+            yield {"event":"token","data":json.dumps(result["response"],ensure_ascii=False)}
+            yield {"event":"done","data":json.dumps(result,ensure_ascii=False)}
+        return EventSourceResponse(production_events())
     # 每轮末尾追加「先查技能库」提醒，抗长对话指令衰减（对用户不可见）
     runtime = _chat_backend(req.sessionId)
     config = _harness_settings()
@@ -3896,6 +3982,8 @@ async def api_chat_stop(req: StopRequest):
 @app.post("/api/chat")
 async def api_chat(req: ChatRequest):
     """非流式对话（备选）。"""
+    if req.workId:
+        return await asyncio.to_thread(_production_chat_command,req)
     runtime = _chat_backend(req.sessionId)
     if runtime not in ("api", "openclaw"):
         message = _chat_message(req)
@@ -4052,6 +4140,8 @@ def _safe_output_target(rel: str, *, must_exist: bool = True) -> Path:
     root = OUTPUTS_DIR.resolve()
     if full == root or root not in full.parents:
         raise HTTPException(403, '非法路径')
+    if _production_managed_path(full):
+        raise HTTPException(403, '制作文件请通过作品入口访问')
     if must_exist and not full.exists():
         raise HTTPException(404, '不存在')
     return full
@@ -4080,6 +4170,7 @@ async def api_output_delete(path: str):
     full = _safe_output_target(path)
     if _is_protected(full):
         raise HTTPException(403, '系统数据受保护，不可从内容库删除')
+    _production_reference_guard(path=full)
     is_dir = full.is_dir()
     try:
         if is_dir:

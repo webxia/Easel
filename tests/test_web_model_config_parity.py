@@ -80,7 +80,7 @@ def test_primary_ref_never_double_prefixes(model, pkey, expected):
     assert ref == expected
 
 
-def test_placeholder_key_reports_missing(tmp_path, monkeypatch):
+def test_placeholder_key_reports_missing(tmp_path, monkeypatch, oc_cfg):
     """④ .env.example 的占位符必须显示「缺 key」，且不给出假掩码。
 
     这条最关键：安装不再在终端问 key、改为引导到浏览器，若面板谎报「已配置」，

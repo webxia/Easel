@@ -127,9 +127,14 @@ def test_openai_slot_still_unchanged(sandbox):
 # ---- ② 自测必须按 Anthropic 协议探测 ----
 
 
-def _capture_probes(monkeypatch):
+def _capture_probes(monkeypatch, *, shape_only=False):
     """拦住真实网络请求，记录每次探测的 (url, headers)。"""
     seen: list[tuple[str, dict]] = []
+    # Shape cases must not depend on the developer machine's resolver. The
+    # private-target regression below keeps the real DNS/SSRF checks enabled.
+    if shape_only:
+        monkeypatch.setattr(web, "_valid_base_url", lambda _url: True)
+        monkeypatch.setattr(web, "_model_target_allowed", lambda _url, _slot="": True)
 
     class _Resp:
         status = 200
@@ -156,7 +161,7 @@ def test_selftest_uses_anthropic_headers_and_path(sandbox, monkeypatch):
         + "ANTHROPIC_BASE_URL=https://api.anthropic.com\n"
           "ANTHROPIC_API_KEY=sk-ant-test\n",
         encoding="utf-8")
-    seen = _capture_probes(monkeypatch)
+    seen = _capture_probes(monkeypatch, shape_only=True)
 
     resp = sandbox.post("/api/settings/models/selftest", json={"channel": "chat"})
     assert resp.status_code == 200, resp.text
@@ -171,7 +176,7 @@ def test_selftest_uses_anthropic_headers_and_path(sandbox, monkeypatch):
 
 def test_selftest_keeps_openai_shape(sandbox, monkeypatch):
     """零影响保护：OpenAI 兼容通道仍是 Bearer + /models。"""
-    seen = _capture_probes(monkeypatch)
+    seen = _capture_probes(monkeypatch, shape_only=True)
     resp = sandbox.post("/api/settings/models/selftest", json={"channel": "chat"})
     assert resp.status_code == 200, resp.text
 

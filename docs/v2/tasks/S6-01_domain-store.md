@@ -1,6 +1,6 @@
 # S6-01 · 领域合同、事务存储与迁移
 
-状态：**NOT_STARTED**；代码/测试目标尚待实现或接入。
+状态：**IMPLEMENTED — 本地软件检查通过**；基础跨平台 CI 已核验；整链及真实证据见 S6-14。
 
 - **依赖**：无。
 - **需求主/协作覆盖**：V2-EXP-002, V2-EXP-003, V2-EXP-005, V2-EXP-008, V2-EXP-013, V2-EXP-020, V2-EXP-027, V2-EXP-034。
@@ -29,4 +29,12 @@ python -m pytest -q tests/production/test_contracts.py tests/production/test_sto
 
 ## 执行记录
 
-**验证：NOT_TESTED。** 实施时记录受测提交、实际命令/结果及未覆盖项。
+受测工作树：`codex/s6-production`，基于 `4525b09da8bfc30ba556dba2198872a23b35a0ae` 加本任务未提交改动。新增严格合同、20 个物理表族与数据库约束、显式迁移、短事务、幂等命令回执、事件/快照、不可变方案和在线备份；没有读取或迁移用户运行库。
+
+本地 Python 3.12 执行本卡命令，**32 passed**。覆盖并发重复命令、旧修订、事务整体回滚、迁移失败回滚、跨作品/画像引用、未确认方案生产拒绝、接受版本引用保护和 WAL 在线备份。
+
+未覆盖：其他平台/Python 版本 CI、下游服务集成及真实模型/媒体生产。调用方仍负责用户确认、任务状态转换和外部服务准入，存储层不把软件检查冒充真实生产通过。
+
+### 整批集成补充
+
+`97199284` 的 [CI run](https://github.com/webxia/Easel/actions/runs/38936316306) 已实际通过 Ubuntu/Windows 全库 pytest，以及 Ubuntu/macOS/Windows × Python 3.10/3.12 的持久层66项。该结果只绑定此基础提交；新增业务、迁移2、删除及取消渲染的最终证据以 [S6-14](S6-14_integration-release.md) 为准。上述早期未覆盖描述是当时状态，不代表最终未检查。

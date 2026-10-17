@@ -1,6 +1,6 @@
 # S6-11 · 创作主线、首版与自检接通
 
-状态：**NOT_STARTED**；代码/测试目标尚待实现或接入。
+状态：**IMPLEMENTED / OFFLINE_INTEGRATION_VERIFIED**。确认方案后的供料、剪辑、真实渲染、自检与一次有界自修已接通。
 
 - **依赖**：S6-04、S6-05、S6-07、S6-08、S6-09、S6-10。
 - **需求主/协作覆盖**：V2-EXP-001, V2-EXP-004, V2-EXP-005, V2-EXP-006, V2-EXP-014, V2-EXP-015, V2-EXP-016, V2-EXP-032, V2-EXP-033。
@@ -32,4 +32,8 @@ npm --prefix web/frontend run build
 
 ## 执行记录
 
-**验证：NOT_TESTED。** 实施时记录受测提交、实际命令/结果及未覆盖项。
+**软件及本地媒体验证：已执行。真实模型/服务、真实自主生产及 Creator 接受不据离线结果宣称通过。** 整批受测代码与回归结果见 [S6-14](S6-14_integration-release.md)。
+
+### 本轮集成记录（2026-10-17）
+
+test_creation_flow 通过脚本化模型+真实图片/FFmpeg/SQLite/LangGraph验证确认→制作→可播放→reviewable。test_quality覆盖完整时间轴原生视频分段、音轨、全片综合、部分观察和失败不能被抹去；image-only实际主链进入needs_decision而非质量通过。文件覆盖不等于供应商内部逐帧观看。真实模型自主首版仍未测。

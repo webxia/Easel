@@ -1,0 +1,313 @@
+"""Business handlers for edit -> durable render -> technical and semantic review."""
+from __future__ import annotations
+import asyncio
+from dataclasses import replace
+import json
+from pathlib import Path
+from pydantic import Field, ValidationError
+from .contracts import Contract
+from .editors import AssetManifest, MediaAsset, Scene, AudioClip, Caption, EditProject, FFmpegEditor, EditError
+from .artifacts import register_file, artifact_file
+from .inspection import observe_media
+from .model_tasks import ModelTaskError
+from .errors import ProductionError
+from .service import row,encode,now,new_id
+from .material_binding import validate_material_records, validate_audio_bindings, selected_asset_ids
+
+
+class CreativeEdit(Contract):
+    scenes: list[Scene] = Field(min_length=1)
+    audio: list[AudioClip] = Field(default_factory=list)
+    captions: list[Caption] = Field(default_factory=list)
+    required_features: list[str] = Field(default_factory=list)
+
+
+class SemanticReview(Contract):
+    verdict: str = Field(pattern='^(pass|fail|partial)$')
+    factual_fidelity: str = Field(min_length=1)
+    style_consistency: str = Field(min_length=1)
+    narrative_coherence: str = Field(min_length=1)
+    audiovisual_alignment: str = Field(min_length=1)
+    findings: list[str]
+    limitations: list[str]
+
+
+def align_editor_frames(answer: CreativeEdit, *, fps: int = 30) -> CreativeEdit:
+    """Snap tiny model timing decimals to output frames, never relax the contract.
+
+    This is a presentation-level exactness correction, not permission to edit
+    the frozen total duration or replace model-chosen scenes/materials.
+    """
+    if fps not in (24, 25, 30):
+        raise ValueError('unsupported output frame rate')
+    aligned=[]
+    for scene in answer.scenes:
+        duration=round(scene.duration*fps)/fps
+        overlap=round(scene.transition_seconds*fps)/fps
+        if duration<=0 or overlap<0:
+            raise ModelTaskError('edit_frame_alignment_invalid','无法在合法视频帧上定位镜头')
+        if ((scene.transition=='cut') != (overlap==0)) or overlap>=duration:
+            raise ModelTaskError('edit_frame_alignment_invalid','转场不满足严格时间合同')
+        if abs(duration-scene.duration)>0.5/fps+1e-8 or abs(overlap-scene.transition_seconds)>0.5/fps+1e-8:
+            raise ModelTaskError('edit_frame_alignment_invalid','镜头修正超过半帧')
+        aligned.append(scene.model_copy(update={'duration':duration,'transition_seconds':overlap}))
+    previous=sum(s.duration-s.transition_seconds for s in answer.scenes)
+    result=sum(s.duration-s.transition_seconds for s in aligned)
+    if abs(result-previous)>0.5/fps+1e-8:
+        raise ModelTaskError('edit_frame_alignment_conflict','镜头归帧会改变作品总时长，请导演修改分镜')
+    return answer.model_copy(update={'scenes':aligned})
+
+def project_editor_features(answer: CreativeEdit) -> tuple[CreativeEdit,list[str]]:
+    """Separate supported engine capability flags from model commentary.
+
+    Unrecognized model strings are never passed to FFmpeg as fake capabilities
+    or declared fulfilled. They remain explicit unverified review obligations
+    attached to the internal preview artifact and its model receipt.
+    """
+    from .editors.ffmpeg import FEATURES
+    if len(answer.required_features)>64 or any(
+            not isinstance(note,str) or not note or len(note)>600
+            for note in answer.required_features):
+        raise ModelTaskError('invalid_editor_features','剪辑模型能力声明超出有界检查范围')
+    declared=list(dict.fromkeys(x for x in answer.required_features if x in FEATURES))
+    unverified=list(dict.fromkeys(x for x in answer.required_features if x not in FEATURES))
+    return answer.model_copy(update={'required_features':declared}),unverified
+
+class CreationTasks:
+    def __init__(self,service,planning,editor=None,voice_tasks=None,manual_review_only=False):
+        self.service,self.planning=service,planning
+        self.voice_tasks=voice_tasks
+        # Temporary, explicitly enabled S6-14 release policy. Do not claim the
+        # absent semantic inspection passed or accept a Creator output here.
+        self.manual_review_only=manual_review_only
+        self.editor=editor or FFmpegEditor(service.outputs/'_production'/'renders')
+
+    def assets(self,ctx,ids):
+        with self.service.store.connection() as conn:
+            records=[row(conn,'artifacts',id) for id in ids]
+        for item in records:
+            if item['work_id']!=ctx.work_id or item['kind'] not in {'image','video','audio','font'}:
+                raise ModelTaskError('invalid_asset','素材不属于当前作品或类型不可用')
+            try:
+                artifact_file(self.service,item)
+            except (ValueError,OSError):
+                raise ModelTaskError('invalid_asset','所引用素材已删除或发生变化，已保留其余成果') from None
+        validate_material_records(self.service,ctx,records)
+        manifest=AssetManifest(root=self.service.outputs,assets={r['id']:MediaAsset(locator=r['storage_ref'],sha256=r['digest'],kind=r['kind']) for r in records})
+        return records,manifest
+
+    async def edit(self,ctx):
+        from .worker import TaskResult
+        try:
+            context=self.planning.context(ctx)
+            asset_ids=ctx.payload.get('asset_ids',[])
+            if self.voice_tasks:
+                asset_ids,outcome=await self.voice_tasks.prepare_assets(ctx,context.plan,asset_ids)
+                if outcome:return outcome
+            records,manifest=self.assets(ctx,asset_ids)
+            context=replace(context,artifacts=tuple({'asset_id':r['id'],'kind':r['kind'],'metadata':json.loads(r['metadata_json'])} for r in records),allowed_handles=context.allowed_handles|frozenset(manifest.assets))
+            observations=[];required={'text','structured'}
+            # M3.1 accepts visual frames but not input_audio. Measured local
+            # acoustic properties may support an EDIT PREVIEW; they do not
+            # substitute for a Director actually listening or for final QC.
+            audio_native=bool(self.planning.transport and 'audio' in self.planning.transport.capabilities)
+            if not audio_native and any(item['usage']=='must_use' and
+                    item.get('constraints',{}).get('original_audio') for item in context.inputs):
+                raise ModelTaskError('capability_unavailable',
+                    '必用原声必须由真实支持听音频的服务校验，不能用技术测量替代')
+            for record in records:
+                if record['kind']=='font':continue
+                path=artifact_file(self.service,record)
+                media,needs,_=await asyncio.to_thread(observe_media,path,
+                    include_audio=audio_native and record['kind'] in {'video','audio'},max_frames=4)
+                observations.append({'type':'text','text':'候选素材句柄 '+record['id']})
+                observations.extend(media);required.update(needs)
+                if not audio_native and record['kind'] in {'video','audio'}:
+                    from .inspection import observe_audio_technical
+                    measured=await asyncio.to_thread(observe_audio_technical,path)
+                    observations.append({'type':'text','text':
+                        '本地FFmpeg技术测量，模型未听取该素材声音。不能据此推断音乐风格、听感、歌词或SFX动作匹配。'
+                        +json.dumps(measured,ensure_ascii=False)})
+            answer=await self.planning.runner(ctx,max_format_repairs=2).run(context,
+                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
+                '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required))
+            answer=align_editor_frames(answer)
+            answer,unverified_editor_notes=project_editor_features(answer)
+            settings=context.plan['settings'];horizontal=settings['aspect_ratio']=='16:9'
+            from .contracts import SubtitleSettings
+            from .subtitles import caption_from_settings
+            style=SubtitleSettings.model_validate(settings.get('subtitles',{}))
+            fonts={json.loads(r['metadata_json']).get('font_name'):r['id'] for r in records if r['kind']=='font'}
+            if not style.enabled and answer.captions:
+                raise ModelTaskError('subtitle_disabled','方案关闭了字幕，剪辑不能擅自添加')
+            captions=[caption_from_settings(style,caption_id=c.caption_id,text=c.text,start=c.start,end=c.end,fonts=fonts) for c in answer.captions]
+            data=answer.model_dump();data['captions']=captions
+            project=EditProject(work_id=ctx.work_id,plan_revision=ctx.plan_revision,revision=1,
+                width=1920 if horizontal else 1080,height=1080 if horizontal else 1920,
+                duration=settings['duration_seconds'],audio_mode=settings['audio_mode'],**data)
+            used={s.asset_id for s in project.scenes}|{a.asset_id for a in project.audio}
+            mapping={json.loads(r['metadata_json']).get('input_id'):r['id'] for r in records}
+            for input in context.inputs:
+                if input['usage']=='must_use' and input['kind'] in {'image','video','audio'}:
+                    if mapping.get(input['input_id']) not in used:raise ModelTaskError('required_input_missing','剪辑未使用已指定的必用素材')
+                    if input['constraints'].get('original_audio'):
+                        id=mapping[input['input_id']]
+                        ranges=[(s.source_start,s.source_start+s.duration) for s in project.scenes if s.asset_id==id and s.source_audio and s.source_gain>0]
+                        ranges += [(a.source_start,a.source_start+a.duration) for a in project.audio if a.asset_id==id and a.gain>0]
+                        if not ranges:raise ModelTaskError('original_audio_missing','剪辑未保留已指定的原声')
+                        interval=input['constraints'].get('interval')
+                        if interval:
+                            covered=interval['start']
+                            for start,end in sorted(ranges):
+                                if start<=covered+.02:covered=max(covered,end)
+                            if covered<interval['end']-.02:raise ModelTaskError('original_audio_interval_missing','剪辑未覆盖明确指定的完整原声区间')
+            for media in records:
+                metadata=json.loads(media['metadata_json'])
+                if metadata.get('role')=='voice':
+                    clips=[a for a in project.audio if a.asset_id==media['id'] and a.role=='voice']
+                    if len(clips)!=1 or clips[0].source_start!=0 or abs(clips[0].duration-metadata['duration'])>.05 or clips[0].gain<=0:
+                        raise ModelTaskError('narration_changed','剪辑不能丢弃、截短或静音已确认的旁白')
+            from .voice import sentence_segments
+            expected_segments=[scene['id']+'-'+segment['segment_id'] for scene in context.plan['scenes'] for segment in sentence_segments(scene.get('narration',''))]
+            voiced={r['id']:json.loads(r['metadata_json']) for r in records if json.loads(r['metadata_json']).get('role')=='voice'}
+            spoken=sorted((a for a in project.audio if a.asset_id in voiced),key=lambda a:a.at)
+            expected=[segment for segment in expected_segments if segment in {m.get('segment_id') for m in voiced.values()}]
+            if [voiced[a.asset_id].get('segment_id') for a in spoken]!=expected or any(a.at+a.duration>b.at+.02 for a,b in zip(spoken,spoken[1:])):
+                raise ModelTaskError('narration_order_changed','旁白句段不能倒序或互相覆盖播放')
+            if style.enabled and spoken and not project.captions:
+                raise ModelTaskError('subtitles_missing','已开启字幕的旁白不能省略字幕')
+            validate_audio_bindings(project,records)
+            selected = selected_asset_ids(project)
+            records = [r for r in records if r['id'] in selected]
+            manifest = AssetManifest(root=manifest.root,assets={k:v for k,v in manifest.assets.items() if k in selected})
+            validate_material_records(self.service,ctx,records)
+            check=await asyncio.to_thread(self.editor.check,project,manifest)
+            if not check.valid:raise ModelTaskError(check.code or 'editor_rejected','；'.join(check.diagnostics))
+            temp=self.service.outputs/'_production'/'projects'/ctx.task_id
+            temp.mkdir(parents=True,exist_ok=True)
+            path=temp/'project.json';path.write_text(project.model_dump_json(),encoding='utf8')
+            artifact=register_file(self.service,ctx,path,kind='edit_project',media_type='application/json',metadata={'plan_revision':ctx.plan_revision,
+                    'audio_observation': 'model_native' if audio_native else 'technical_only_unverified',
+                    'unverified_editor_notes':unverified_editor_notes},
+                    dependencies=list(manifest.assets))
+            return TaskResult(result={'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets)})
+        except (ModelTaskError,EditError,ValidationError) as exc:
+            message=('剪辑方案不符合严格编辑合同，请检查镜头时间、声音和素材引用'
+                     if isinstance(exc,ValidationError) else getattr(exc,'user_message',str(exc)))
+            return TaskResult(state='needs_decision',error=ProductionError(getattr(exc,'code','invalid_edit'),message,requires_decision=True),work_state='needs_decision')
+
+    async def render(self,ctx):
+        from .worker import TaskResult
+        with self.service.store.connection() as conn:record=row(conn,'artifacts',ctx.payload['project_id'])
+        if record['work_id']!=ctx.work_id:raise ValueError('cross-work project')
+        project=EditProject.model_validate_json(artifact_file(self.service,record).read_text())
+        try:
+            selected = selected_asset_ids(project)
+            records,manifest=self.assets(ctx,[id for id in ctx.payload['asset_ids'] if id in selected])
+            validate_audio_bindings(project,records)
+        except ModelTaskError as exc:
+            return TaskResult(state='needs_decision',work_state='needs_decision',
+                error=ProductionError(exc.code,exc.user_message,requires_decision=True))
+        job=await asyncio.to_thread(self.editor.build,project,manifest,job_id=ctx.task_id)
+        # Worker resumes this exact job ID; editor refuses conflicting content.
+        job=await asyncio.to_thread(self.editor.observe,job.job_id)
+        with ctx.transaction() as conn:
+            self.service._event(conn,ctx.work_id,'render_progress',{'stage':job.stage,'completed_steps':job.completed_steps,'total_steps':job.total_steps},run_id=ctx.run_id)
+        if job.status in {'queued','running'}:return TaskResult(state='waiting_external',result={'render_job_id':job.job_id})
+        if job.status!='completed':return TaskResult(state='needs_decision',error=ProductionError('render_'+job.status,job.error or '渲染中断，请检查本地环境',requires_decision=True),work_state='needs_decision')
+        output=await asyncio.to_thread(self.editor.collect,job.job_id)
+        artifact=register_file(self.service,ctx,output.video_path,kind='output',media_type='video/mp4',metadata={'project_id':record['id'],'render_job_id':job.job_id},dependencies=[record['id'],*manifest.assets],output=True)
+        credits=[]
+        for media in records:
+            credit=json.loads(media['metadata_json']).get('attribution')
+            if credit:
+                if credit.get('destination')!='export_credits' or not credit.get('credit_text'):
+                    raise ModelTaskError('attribution_unavailable','素材署名条件无法落实')
+                credits.append(credit['credit_text']+'\n'+credit.get('source_page',''))
+        if credits:
+            import zipfile
+            bundle=output.video_path.parent/'export.zip'
+            with zipfile.ZipFile(bundle,'w',compression=zipfile.ZIP_STORED) as archive:
+                archive.write(output.video_path,'video.mp4')
+                archive.writestr('credits.txt','\n\n'.join(dict.fromkeys(credits)))
+            register_file(self.service,ctx,bundle,kind='export_bundle',media_type='application/zip',metadata={'output_id':artifact['id']},dependencies=[artifact['id']])
+        return TaskResult(result={'output_id':artifact['id']},next_kind='quality',next_payload={'output_id':artifact['id'],'project_id':record['id'],'repair_round':ctx.payload.get('repair_round',0)})
+
+    async def quality(self,ctx):
+        from .worker import TaskResult
+        from .media import probe_media
+        with self.service.store.connection() as conn:
+            artifact=row(conn,'artifacts',ctx.payload['output_id'])
+            project_record=row(conn,'artifacts',ctx.payload['project_id'])
+        if artifact['work_id']!=ctx.work_id or project_record['work_id']!=ctx.work_id:raise ValueError('cross-work quality input')
+        path=artifact_file(self.service,artifact)
+        project=EditProject.model_validate_json(artifact_file(self.service,project_record).read_text())
+        info=await asyncio.to_thread(probe_media,path)
+        technical=info['video'] and abs(info['duration']-project.duration)<=.1 and (info['width'],info['height'])==(project.width,project.height) and info['audio']==(project.audio_mode!='silent')
+        self._check(ctx,artifact,'technical','pass' if technical else 'fail',{'probe':info,'expected_duration':project.duration})
+        if not technical:
+            self._quality_state(ctx,artifact,'needs_fix')
+            return TaskResult(work_state='preview_needs_fix',result={'output_id':artifact['id'],'technical':'fail'})
+        if self.manual_review_only:
+            # Temporary S6-14 manual-review policy, enabled ONLY by a private
+            # runtime switch. Keep technical QC mandatory and retain real
+            # negative semantic findings as blockers; never invent a PASS.
+            with self.service.store.connection() as reader:
+                prior = reader.execute("""SELECT status FROM quality_checks
+                    WHERE artifact_id=? AND artifact_digest=? AND check_kind='semantic'""",
+                    (artifact['id'],artifact['digest'])).fetchall()
+            if any(record['status'] in {'fail','partial'} for record in prior):
+                return TaskResult(state='needs_decision',work_state='needs_decision',
+                    error=ProductionError('semantic_findings_require_review',
+                        '已有语义检查失败或不完整，不能用人工审片开关忽略已有问题',
+                        requires_decision=True))
+            self._check(ctx,artifact,'semantic','not_tested',{
+                'mode':'manual_review_only','reason':'creator_requested_temporary_bypass',
+                'technical_check':'pass','automated_semantic_review':'not_executed',
+                'creator_acceptance':'still_required'})
+            # The artifact's semantic quality has NOT been checked. Preserve
+            # needs_fix instead of lying with artifact.quality_state=passed.
+            self._quality_state(ctx,artifact,'needs_fix')
+            with ctx.transaction() as writer:
+                self.service._event(writer,ctx.work_id,'manual_review_required',{
+                    'output_id':artifact['id'],'technical':'pass','semantic':'not_tested',
+                    'mode':'manual_review_only'},run_id=ctx.run_id)
+            return TaskResult(work_state='reviewable',result={
+                'output_id':artifact['id'],'technical':'pass',
+                'semantic':'not_tested','manual_review_required':True})
+        try:
+            from .quality import review_full_video
+            def progress(completed,total,segment):
+                with ctx.transaction() as conn:
+                    self.service._event(conn,ctx.work_id,'quality_progress',{'completed_segments':completed,'total_segments':total,
+                        'start':segment['start'],'end':segment['end'],'verdict':segment['review']['verdict']},run_id=ctx.run_id)
+            answer=await review_full_video(path,cache_root=self.service.outputs/'works'/ctx.work_id/'inspection'/ctx.task_id,
+                info=info,transport=self.planning.transport,runner=self.planning.runner(ctx),
+                context=self.planning.context(ctx),review_type=SemanticReview,on_segment=progress)
+            self._check(ctx,artifact,'semantic',answer.verdict,{'review':answer.review,'evidence':answer.evidence})
+            passed=answer.verdict=='pass' and not answer.limitations
+            self._quality_state(ctx,artifact,'passed' if passed else 'needs_fix')
+            if answer.verdict=='fail' and answer.findings and ctx.payload.get('repair_round',0)<1:
+                with ctx.transaction() as conn:
+                    review_id=new_id()
+                    feedback='首版自检发现以下问题。仅修正这些问题，保留已确认内容；不得扩大范围或增加未授权调用：'+encode(answer.findings)
+                    conn.execute('INSERT INTO reviews(id,work_id,output_id,feedback,created_at) VALUES (?,?,?,?,?)',
+                        (review_id,ctx.work_id,artifact['id'],feedback,now()))
+                    self.service._event(conn,ctx.work_id,'quality_repair_requested',{'output_id':artifact['id'],'review_id':review_id},run_id=ctx.run_id)
+                return TaskResult(result={'output_id':artifact['id'],'semantic':'fail'},next_kind='revise',
+                    next_payload={'review_id':review_id,'output_id':artifact['id'],'repair_round':1},work_state='producing')
+            return TaskResult(work_state='reviewable' if passed else 'preview_needs_fix',result={'output_id':artifact['id'],'semantic':answer.verdict})
+        except ModelTaskError as exc:
+            status='partial' if exc.diagnostic.get('evidence',{}).get('reviewed_chunks') else 'not_tested'
+            self._check(ctx,artifact,'semantic',status,{'code':exc.code,**exc.diagnostic})
+            self._quality_state(ctx,artifact,'needs_fix')
+            return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError(exc.code,exc.user_message,requires_decision=True),result={'output_id':artifact['id'],'technical':'pass','semantic':status})
+
+    def _check(self,ctx,artifact,kind,status,findings):
+        with ctx.transaction() as conn:
+            conn.execute('INSERT INTO quality_checks(id,artifact_id,artifact_digest,check_kind,rule_version,status,findings_json,created_at) VALUES (?,?,?,?,?,?,?,?)',
+                (new_id(),artifact['id'],artifact['digest'],kind,'production-1',status,encode(findings),now()))
+            self.service._event(conn,ctx.work_id,'quality_checked',{'output_id':artifact['id'],'kind':kind,'status':status},run_id=ctx.run_id)
+
+    def _quality_state(self,ctx,artifact,state):
+        with ctx.transaction() as conn:conn.execute('UPDATE artifacts SET quality_state=? WHERE id=?',(state,artifact['id']))

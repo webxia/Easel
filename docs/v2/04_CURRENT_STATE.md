@@ -1,24 +1,39 @@
 # Easel V2 · 当前状态
 
-**当前阶段：S5 架构评估与实施方案已整理；研发前入口与任务卡噪音清理已完成。S6 业务实现尚未开始。**
+**当前阶段：S6-01～13 软件主链已接通，S6-15 CLOSED/COMPLETE。唯一进行中的任务 S6-14 已在 V2 后端生成首部 45.000 秒、1080×1920 H.264/AAC 真实视频（MiniMax 创作/7 段 TTS、合格素材、Director 选材、FFmpeg 编码，技术 QC PASS）。用户于 2026-10-17 明确要求暂时跳过最终自动语义 QC，先交人工审核：现已使用 `EASEL_PRODUCTION_QC_MODE=manual` 经正式 `/resume` 将原生产 Run 的全部四步置为 `succeeded`，作品为 **`reviewable`**。语义 QC 实际 **`not_tested`**，输出 `quality_state=needs_fix` 保留真实语义未核验状态，且人工接受标志为空；只有 Creator 明确完整审阅及确认后才可接受，绝不自动发布。此次曾有研发人员辅助整理 Planning 和修复材料，**不称无人干预自主 E2E PASS**。详细真实证据和回滚方式见 [S6-14](tasks/S6-14_integration-release.md)。**
 
 ## 接手入口
 
-- 活动工作树：`/Users/xgx/.codex/worktrees/s5-architecture/Easel`，分支 `codex/s5-architecture`。本次清理起点为 `d7e8562c18e27db47e1e5e74379bcd4f35624fea`；后续以包含本次整理的已审查提交接手，并在任务卡记录实际 HEAD。
-- `/Users/xgx/Projects/Easel` 当前停留在 分支 docs/s1-capability-audit（HEAD `78ed77ed`），其中 S1 状态属于历史分支，不能作为最新实施入口。保持该工作树及其未跟踪资料，不切换或重置来替代文档同步。
-- S5 基于 S4 `201bfc04`；业务代码基线仍为 `easel-v2-rebuild@8eeafb6b`。开始 Coding 时从包含本方案及依赖成果的提交创建自己的开发分支，不从旧业务基线丢弃需求和合同。提交/合并规则见[工程说明](05_ENGINEERING.md#6-git-fork官方同步与成果推送已确认工作规范)。
+- 唯一活动工作树：`/Users/xgx/.codex/worktrees/s5-architecture/Easel`，分支 `codex/s6-production`，从 `4525b09d` 文档整理成果接手。
+- [研发 PR #8](https://github.com/webxia/Easel/pull/8) 为草稿，base 为 `codex/s5-architecture`。已提交领域基础 `e923332a` 和调用/持久执行 `97199284`；整链代码 `97ecc67b` 与最终测试证据见 [S6-14](tasks/S6-14_integration-release.md)。不自动合并或发布。
+- `/Users/xgx/Projects/Easel` 的 分支 docs/s1-capability-audit（HEAD `78ed77ed`） 是历史工作树，保持其画像、输出和未跟踪资料，不切换或清理。V1 归档 `57c8e2ad` 只读；只适配迁入素材核心，没有恢复旧执行链或历史库。
 
-## 已确认与待实施
+## 实现与验收依据
 
-- [S4 需求](01_REQUIREMENTS.md) 001～034 已定稿；主线、模型/程序职责、[案例衔接](13_PRODUCTION_WALKTHROUGH.md)及制作过程可观察已确认。六维画像就是主人设，相关关系不重新访谈。
-- [逻辑架构](02_ARCHITECTURE.md)、[技术推荐](14_TECHNOLOGY_SELECTION.md)、[实施合同](15_IMPLEMENTATION_DESIGN.md)各有唯一职责。已接受的逻辑边界不等于全部技术依赖已批准或能力已实现。
-- [任务包](tasks/S6_IMPLEMENTATION_PLAN.md)覆盖 34 项需求及 T01～T08 测试意图。S6 首次真实生产与 S7 完整范围验收分开记录；任务编号保留。各卡是执行状态与结果的维护位置。
-- 待落实的具体能力：S6-04 的依赖兼容与持久执行；S6-07/08/10 的实际服务、模型与声音；S6-09 的编辑器版本、许可与接入决定。未决项只阻塞其依赖，不把八项验证重新设为开工前置。
+[S4 需求](01_REQUIREMENTS.md) 001～034、[逻辑职责](02_ARCHITECTURE.md)、[技术选型](14_TECHNOLOGY_SELECTION.md)、[实施合同](15_IMPLEMENTATION_DESIGN.md)为正式依据。用户已同意当前推荐作为实施基线；已落实可选 LangGraph 固定依赖、SQLite 领域权威和外部 FFmpeg 编辑后端，许可证/兼容证据保留在对应卡和 ADR。
 
-## 证据与边界
+[任务包](tasks/S6_IMPLEMENTATION_PLAN.md)和各卡维护实施结果；[运行配置](16_RUNTIME_SETUP.md)提供本地启动、模型/视频协议、素材来源、配音、字幕字体及真实调用边界。无配置时明确暂停并保留成果，不用演示模式替代实际服务。
 
-[S5 Task](tasks/S5_ARCHITECTURE.md)保存代码复核及文档检查证据；[S5 草稿 PR #7](https://github.com/webxia/Easel/pull/7)承载本分支变更，基于 S4 分支。CI 结论必须核对具体提交，不沿用旧 SHA 的结果。文档检查不能证明真实视频、自主生产、音色或跨平台媒体能力已通过。
+## 证据与剩余边界
 
-业务、真实服务调用和旧数据迁移未在本次整理中执行。V1 `57c8e2ad` 及私有历史保持只读。S5 开始时已 Fetch 上游 `b29d0d72`，相对 V2 为 3/24，未合入；S6 开始前按工程规则再次 Fetch/Diff/报告，未经确认不合入。
+- 已接通作品命令、持久编排、生成次数/未知回执、可观察工作台、素材供给、固定声音/字幕、制作自检、局部修订、内容库与频道/导演生命周期。
+- 本地实际 FFmpeg 渲染含独立 90 秒、900 秒及两画幅/四声音测试；脚本化模型整链包含接受旧版→视觉局部修改→再渲染→明确选择新版。完整规格组合、真实模型自主生产、自然音色和风格稳定性没有据此宣称通过。
+- 浏览器隔离环境验证创建作品、缺服务原因、重启后的任务与恢复入口；测试服务已停止，未重启用户生产服务。
+- S6 开工已 Fetch 官方上游，仍为 `b29d0d72`，相对长期 V2 3/24；相比 S5 无新增官方提交，未合入。最终 CI 必须按 [S6-14](tasks/S6-14_integration-release.md) 中精确 SHA 解读。
 
-**NEXT_SINGLE_ACTION：用户启动业务实施后执行 [S6-01：领域合同、事务存储与迁移](tasks/S6-01_domain-store.md)。按任务包与实施合同开工，不重做需求访谈或串行先跑八项验证。**
+- 2026-10-17 在精确 HEAD `3c8fa4d2` 的工作树补充了端口 7870 的真实本机 Web 启用/停用检查（关闭为 503 且不建库；开启为 200），新建的空 V2 SQLite 库无作品/任务/操作/授权/素材记录；CLI 状态和 SQLite 在线备份完整性通过。未调用远端模型、声音、素材服务；具体证据见 [S6-14](tasks/S6-14_integration-release.md)，真实生产及 Creator 接受依然未测。
+
+- 2026-10-17 用户明确同意复用本机配置及合格的旧本地素材：V2 独立 `.env` 已安全写入现有 Pexels/Pixabay/Unsplash/MiniMax/兼容模型身份；Pixabay 自动供料适配器与缓存、Unsplash 显式 preview-only、经 Rights/技术校验的旧本地 MP3 复制并启用 owner-wide 有界复用。旧 DB/资产原件保留。API 真实供料和完整成片仍未测试，详情见 [S6-14](tasks/S6-14_integration-release.md)。
+
+- S6-15 代码审计/架构成果已推送为 `867d471c`，但绑定该提交的跨平台 CI 出现 1 项 Ubuntu 和 2 项 Windows 失败，均已定向归因；本地素材模块修复后 383 passed / 3 skipped。新补丁的跨平台 CI 仍须按精确 SHA 核查，不能以本机测试宣称 Windows 问题关闭；具体见 [S6-15](tasks/S6-15_material-layer-hardening.md)。
+
+- 2026-10-17 最新范围：按用户明确决定 Unsplash 继续 preview-only，**不新建音频素材管理界面**；S6-15 仅新增 BGM/SFX Wikimedia Commons 公共搜索 Provider、角色隔离、官方文件专属许可/署名校验、下载 SHA-1 和 OGG 合格音频路径。真实无账户查询已有候选，但生产下载受本机私网映射 DNS 阻断，G3 实际音频、用户听感和真实声音服务仍 NOT_TESTED；参见 [S6-15](tasks/S6-15_material-layer-hardening.md)。
+
+**CURRENT_PAUSE：本轮 [G4 正式验收与 NO_GO 报告](19_MATERIAL_LAYER_G4_ACCEPTANCE.md) 已建立，且用户要求完成后停止，不继续自动执行；后续仅在用户再次要求时处理公网安全下载、实际音频/声线和 CI 证据，再重新作 G4 准入判定。S6-14 仍暂停。**
+
+- 用户新指令仅授权修复 Clash Fake-IP 下载卡点。经可信 HTTPS DoH 获得公网 IP、受控 loopback HTTP CONNECT 和源域名 TLS 校验的素材下载适配已实现；Pexels 图/视频、Commons BGM 真实安全下载及隔离库技术验收，Pixabay 图片也已真实下载。Commons SFX CDN 429、实际听感与固定声线仍未通过。见 [G4 网络修复复验](19_MATERIAL_LAYER_G4_ACCEPTANCE.md)；**S6-14 仍暂停**。 [审计](17_MATERIAL_LAYER_AUDIT.md)和[架构选型](18_MATERIAL_LAYER_ARCHITECTURE.md)已落地，内部冻结意图、SFX绑定、来源授权、素材再准入、只选中依赖及原生旁白适配已实施。合成媒体/模拟模型的五模态整链不代表真实创作品质；不重做G0，不重复索取已允许复用的配置，不在未授权时实发模型、配音或生成请求。
+
+- 2026-10-17 用户确认当前 MiniMax Key 为 M Plan 专用订阅 Key；官方套餐余量查询成功，V2 已固定 `speech-2.8-hd` / `male-qn-qingse` 试听声线并真实生成 4.644 秒中文 MP3；用真实视频 + SFX + 旁白 FFmpeg 集成 5.005 秒 MP4、含音视频双流。详见 [G4 续验](19_MATERIAL_LAYER_G4_ACCEPTANCE.md)。这些仅为技术样片，**不等于产品内真实 Director 创意选择 / 真实完整 QC / Creator 接受**。G4 NO_GO，S6-14 暂停。
+
+- **2026-10-17 S6-14 初始接手快照（历史）**：活动树最初未有 V2 作品及授权；独立 7870 Web 首次启动时模型仍是旧配置。该证据已被后续实测推进覆盖，不代表当前仍缺作品或使用 DeepSeek。
+- **2026-10-17 当前首片真实后端进展**：同一《把想法变成作品》Work 采用六维画像、Human Cinema Director Revision 2、Plan Revision 2、45 秒竖屏混合音轨；MiniMax M Plan 真实文本/图像理解和固定中文语音、合格外部供料、Director 9 镜头剪辑及 FFmpeg MP4 真实产出。文件为 45.000 秒、1080×1920、H.264+AAC，已记录素材署名包；Supply/Edit/Render 全部 succeeded，技术 QC pass。当前语义 QC not_tested / video_protocol_unavailable，Work 为 needs_decision，Creator 未接受具体版本；自主无研发辅助项仍未通过。唯一主线仍是 S6-14 完整音画 QC 与真人审阅，不重开 S6-15。

@@ -1,8 +1,9 @@
 # S6-14 · 首次真实生产与完整范围验收
 
-状态：**NOT_STARTED**。第一段通过而第二段未完成时为 PARTIAL；两段结果分别记录。
+状态：**PARTIAL / READY_FOR_AUTHORIZED_EXECUTION（尚未启动真实生产）**。用户于 2026-10-17 明确命令 [S6-15](S6-15_material-layer-hardening.md) 全部结案；其素材层 G4 审查证据已归档并移交，**不再因 S6-15 未结案而阻止本卡**。第一段真正的 Director 自主选材、真实作品 QC、费用回执及 Creator 审阅仍需在本卡按原验收标准执行；本次仅修改任务状态，不擅自发起生产、合并或发布。
 
 - **依赖**：第一段为 S6-01～11 实际就绪；第二段为 S6-01～13及首次真实闭环就绪。阶段对应见[任务包里程碑](S6_IMPLEMENTATION_PLAN.md#1-基线顺序与交付)。
+- **用户最新排程门禁**：S6-15 已经由用户命令正式结束并完成 G4 移交；原额外前置阻断已解除。下一项是本卡第一段首次真实产品内制作/审阅，必须先核实具体作品、服务授权和权限；不得自动执行。素材 G4 结案不等于 S6-14 通过，Creator 接受只能由用户对具体版本明确选择。
 - **需求主/协作覆盖**：V2-EXP-009, V2-EXP-018, V2-EXP-022, V2-EXP-023, V2-EXP-028, V2-EXP-029, V2-EXP-030。
 - **目标与合同**：[可执行设计](../15_IMPLEMENTATION_DESIGN.md)；[任务包共同约定](S6_IMPLEMENTATION_PLAN.md#2-每张卡开始与完成的共同约定)。
 - **预计落点**：tests/production/test_supported_matrix.py；.github/workflows/ci.yml；README/安装说明；具名运行证据（私有原件不入Git）。
@@ -49,7 +50,115 @@ npm --prefix web/frontend run build
 
 交付要求：按两段及能力范围分列软件/真实/自主/接受报告；任一段未完成时整体 PARTIAL。上线、合并、发布不由测试通过自动授权。
 
-## 执行记录
+## 执行记录（2026-10-17）
 
-- 第一段：**NOT_TESTED**。记录受测提交、实际命令/结果、真实媒体和审阅证据、未覆盖项。
-- 第二段：**NOT_TESTED**。记录全范围矩阵、完整 T08、质量/效率及接受结果。
+受测实现：`97ecc67b`，分支 `codex/s6-production`，从 `4525b09d` 接手；基础分批提交为 `e923332a`、`97199284`。[PR #8](https://github.com/webxia/Easel/pull/8) 为草稿，未合并、未发布。测试采用隔离虚拟环境、临时 SQLite/媒体根；没有调用真实付费服务，没有迁移 V1 运行数据。
+
+| 层次 | 第一段：首次真实闭环 | 第二段：完整范围 |
+|---|---|---|
+| 软件实现/离线集成 | PASS：实际 API、持久任务、供料/声音协议、FFmpeg、自检、修订/接受均接通 | PASS：下述软件矩阵；不替代所有真实样片组合 |
+| 本地实际媒体 | PASS：合成画面/音轨的真实编码、播放与版本保留 | PARTIAL：两画幅、四声音、90/900秒等具名用例；不是全部排列组合 |
+| 真实模型/配音/媒体供应服务 | NOT_TESTED | NOT_TESTED |
+| 真实自主完成/质量与效率 | NOT_TESTED | NOT_TESTED |
+| Creator 真实审阅/接受具体成片 | NOT_TESTED | NOT_TESTED |
+
+### 软件检查
+
+在 macOS arm64 / Python 3.12 / FFmpeg 8.1 / Pillow 12.3.0 执行：
+
+```bash
+/tmp/easel-s6-worker-venv/bin/python -m pytest -q -ra --junitxml=/tmp/easel-s6-final-junit.xml
+node --test tests/frontend/*.test.mjs
+npm --prefix web/frontend run lint
+npm --prefix web/frontend run build
+python scripts/validate_skills.py
+python scripts/validate_skill_commands.py
+python scripts/validate_document_paths.py
+```
+
+- 最终全库：**1591 passed、12 skipped、1 warning，77.41秒**。JUnit共1603项，0失败/0错误；包括最后新增的 `test_fork_exact_output_copies_reference_without_old_authority`。
+- 12跳过：Bun未安装5项、OpenClaw实装2项、本机无PowerShell4项、900秒编码默认opt-in 1项（另已实际运行，见下文）。既有 `doctor.py` 的 `python_multipart` 弃用提示1条。
+- 前端 **80 passed**；lint退出0（既有 `linkifyOutputs.ts` 无用转义提示），构建通过（单包超过500kB提示）。没有通过降低规则或删测试制造PASS。
+- 114项Skill和309条文档命令校验通过；路径校验在最终文档更新后再次执行。CI证据按PR的精确提交读取，不把基础提交结果套用到新业务。
+- 本地逐项证据：`/tmp/easel-s6-final-junit.xml`、`/tmp/easel-s6-full-pytest-final.log`；这些临时文件不提交到仓库。可用上述命令重现，路径不是交付依赖。
+
+基础 `97199284` 的 [CI run](https://github.com/webxia/Easel/actions/runs/38936316306) 实际结果：Ubuntu1332 passed/8 skipped、Windows1241/99，三平台×Python3.10/3.12持久层各66 passed。新业务CI应以 [PR #8 检查](https://github.com/webxia/Easel/pull/8/checks) 所绑定SHA为准；最终结果同步在PR验证说明，不继承旧SHA结论。
+
+### 本地媒体和界面证据
+
+- `test_creation_flow`：真实图片→FFmpeg可播放成片→技术检查→实际视频文件分段送入脚本化模型→全片综合→reviewable；未自动接受。image-only模型实际链路保持needs_decision，不能完整通过。
+- `test_quality`：完整时间轴/音轨、分段与综合判定、尾段缺陷、局部失败不可被汇总抹去、缓存复用、一个runner连续持久调用身份；低帧率尾帧回归另覆盖1fps/10fps。媒体提交覆盖不证明远端模型内部逐帧处理或语义判断准确。
+- `test_revision_pipeline`：实际首版→明确接受旧版→自然语言画面调整→重新编码与自检→明确接受新版；旧版字节和原接受选择保持到用户主动切换。扩大范围转新版planning而非死循环；新作复制指定旧版为参考，不复制授权。
+- `test_supported_matrix`：24项设置组合校验和一次实际90秒1920×1080/24fps渲染；不是24种组合都实际编码。
+- 900秒独立真实编码：`EASEL_RUN_LONG_MEDIA=1 ... -m pytest -q tests/production/test_render_local.py::test_900_second_boundary_real_encode`，**1 passed /38.85秒**；1920×1080/24fps/无声合成静态图输入。两画幅/四声音/字幕/修改保留音频的具体证据见 [S6-09](S6-09_editor-adapter.md)、[S6-10](S6-10_voice-subtitles.md)。未扩大为900秒真实模型自主创作通过。
+- 浏览器隔离根 `/tmp/easel-s6-ui-verification` 实测创建作品、缺配置原因、进度连接及重启后恢复入口/零生成次数；截图 `/tmp/easel-s6-ui-verification.png`。测试服务已停止，不占用户生产端口或生产库。
+
+### 尚需用户提供的真实验收条件
+
+已集中询问：可复用本机配置文件路径（不粘贴密钥）、允许模型/配音/素材服务、创作主题与参考/原片样本路径、IMAGE和VIDEO各允许的实际提交次数（可为0）。活动工作树没有这些明确配置与授权组合，因此没有发送真实调用。配音不占两类次数，但不能自动视为已授权。
+
+拿到条件后先执行第一段：真实主题→方案→确认→自主首版→实际审片，并记录错误恢复、调用/耗时及Creator反馈；再按本卡既定完整矩阵执行第二段。不得用本次离线PASS关闭真实未测项。启动与配置见 [运行配置](../16_RUNTIME_SETUP.md)。
+
+### 2026-10-17 · 本机启停与备份接续证据（HEAD `3c8fa4d2`）
+
+- 精确工作树 `/Users/xgx/.codex/worktrees/s5-architecture/Easel`，`codex/s6-production`，接手时 `CLEAN`，与 `origin/codex/s6-production` 同步；PR #8 仍为草稿，`upstream/main` 仍为 `b29d0d72`，未合入。
+- 仅检查服务配置**是否存在/配置项名称**，未输出或复制凭证。活动工作树无 `.env`、`.env.local` 或 `config/.env`，Runner 进程无生产配置；历史工作树有部分素材服务配置，但没有具名的本次真实调用授权。不能因为存在 Key 就准入。
+- 在本活动树使用已有隔离 Python 和真实本机 Web/worker 执行端口 7870 启停：`EASEL_PRODUCTION_ENABLED=0` 时 `/api/production/capabilities`、`/api/production/works` 均为 HTTP 503，且没有创建 V2 数据库；设置为 `1` 后两接口均为 HTTP 200。试验进程已停止，未重启既有生产服务。
+- 首次启用在本活动树新建 `outputs/_production/production.sqlite3`，保留该资产、不做删除清理。随后检查 `works`、`runs`、`operations`、`authorization_grants`、`artifacts` 均为 **0**；CLI `easel production status --root` 返回空任务列表；以 SQLite Online Backup 创建临时备份，`integrity_check=ok` 且 schema 版本和作品数一致，临时备份随测试目录回收。
+- 本轮 **IMAGE=0 次、VIDEO=0 次、真实模型/配音/外部素材服务调用=0 次**。这是新增的**本机软件运行/启停/备份**证据；没有新增任何真实自主成片、音色自然度、跨题材稳定性或 Creator 接受证据，第一段和第二段相关格子仍为 `NOT_TESTED`。没有重新执行既有全量回归或 CI 真实安装。
+- 后续继续按本卡两段顺序，具名配置、样片和 IMAGE/VIDEO 许可缺失时不发送付费请求，不把离线样片算作真实生产。
+
+### 2026-10-17 · 本机服务配置/素材授权迁入（S6-14 接续）
+
+用户本次明确授权复用本机既有配置，并安全迁入已有多个素材来源和本地素材副本。旧 `/Users/xgx/Projects/Easel/.env` 只读检查并复制可映射项到 V2 自身 Git-ignore 的 `.env`（0600），绝不提交/输出密钥；保留原配置与旧素材/SQLite 数据库。Pexels 继续原适配、Pixabay 新增图/视频 API 检索及 24h 私有缓存、Unsplash 只提供显式预览检索（署名与热链接，选中下载追踪尚未实现）；MiniMax 与直连模型只完成配置身份对齐，不推定视频、音频/声音协议与生成权益。
+
+旧本地素材目录实际仅找到一个 MP3 + 对应来源/权益 JSON。使用独立显式脚本以文件 SHA-256、CC BY 4.0 素材专属证据、来源及署名、真实音频技术检测校验后复制到 V2 内容寻址库，赋予本次授权的 owner-wide 复用；原件未动，不读取或迁移 V1 生产状态。原登记中缺完整归属链接的候选保持被拒，重新归档具备完整信用链的候选，避免以删除历史记录换通过。无画像和另一画像上下文均证实 1 个合格音频候选（`CONDITIONAL`，出口须署名），不代表导演已试听或该 BGM 已用于成片。
+
+离线 MockTransport 供应/素材库/声音规则继续走针对性回归；本轮 **远程模型、配音、Pexels、Pixabay、Unsplash、IMAGE、VIDEO 实际请求均为 0**。本机配置迁入与真实供料/真实自主成片/自然声音/Creator 接受属不同证据层次，后者维持 `NOT_TESTED`。继续要求明确本次创作主题和样本、具名实际服务授权以及 IMAGE、VIDEO 各可提交次数；不重复要求用户给已有本机配置路径。
+
+验证补充（真实本机、无外部调用）：在当前提交前工作树以隔离 Python 执行受影响模块专项测试 **139 passed、2 skipped**，随后运行完整 `tests/production` 两轮，最终含供应商 HTTP 429 负例的确定版本 **355 passed、3 skipped**（跳过不计真实平台通过）；Unsplash preview-only 路由、Pixabay MockTransport 图片/视频/24 小时缓存、owner-wide 作用域与本地样片权利校验均包含其中。实际启动端口 7870 后，`GET /api/production/capabilities` 返回 Pexels/Pixabay 可用且自动供应、Unsplash 可预览但不自动供料、IMAGE/VIDEO 生成 Rights 均不可用；`GET /works` 正常，随后停止测试服务。新增 Web「视频创作」上的 Unsplash 主动预览入口，不自动检索或下载；前端 80 passed、lint 0 error（既有无用转义 1 warning）、build 成功（既有产物大小告警）。文档路径检查 1258 条路径 / 463 文档通过。所有结果仅证明这次改动的本机软件范围，未增加真实远端 Provider / 真实制作或 Creator 接受证据。
+
+### CI 发现的修复
+
+整批 CI 已推动两项修复：精简设置矩阵补上项目声明的 Pillow 依赖；Windows SQLite 边车文件并发消失时的扩展盘符路径比较修复，并新增真实 junction 和跨命名空间负例。后者本机专项44 passed/2 Windows专属skip，详见 [S6-06](S6-06_materials-core.md)。上文1591是整链基础版本的本地全库结果，未把新增用例计入；最终提交的跨平台完整结果以 PR 验证说明及绑定SHA的CI日志为准。
+
+### 2026-10-17 · S6-14 第一段真实 Web 接手与准入核验（本轮）
+
+- **工作树/版本**：`/Users/xgx/.codex/worktrees/s5-architecture/Easel`，分支 `codex/s6-production`，接手 `HEAD 29bfe583710af47f9ba6338c9650574362fdd4c0`，工作区 clean，`origin/codex/s6-production` ahead/behind 均 0；PR #8 保持 Draft。按根 `AGENTS.md` 及本卡权威合同核对；用户已关闭 S6-15，不重新启动 G0～G4。
+- **实际服务/Web**：既有 7860 端口服务属于历史 `/Users/xgx/Projects/Easel` 工作树，V2 `/api/production/capabilities` 返回 404；未干扰该服务。使用本 V2 工作树已有隔离 Python 在独立端口 **7870** 启用 `EASEL_PRODUCTION_ENABLED=1` Web/Worker，`GET /api/production/capabilities`、`/works`、`/directors`、`/channels`、`/voice-options` 均返回 HTTP 200。浏览器真实进入「视频创作」，确认作品表单、画像/频道/导演选择、时长、画幅和四声音模式可见；这属于正式入口准入，不是完整 E2E。
+- **现有作品基线**：V2 `outputs/_production/production.sqlite3` 只读核对，`works`、`directors`、`director_revisions`、`channels`、`plan_revisions`、`authorization_grants`、`runs`、`operations`、`artifacts`、`reviews` 均 **0 条**，浏览器也没有已确认作品/导演可复用。此活动树 `profiles/` 仅有 `_template`；旧工作树有用户画像目录，但本轮没有获得迁入具体画像、选择它或替用户创建导演/作品的决定，因此没有复制或创建替代作品。
+- **配置与服务身份（不披露凭证）**：本 V2 忽略的 `.env` 权限 0600，`direct-api / deepseek-v4-flash / structured` 被运行时列为已配置，但 `EASEL_PRODUCTION_MODEL_CAPABILITIES` 当前为空，未完成真实多模态/整片视频 QC 能力验证。Pexels、Pixabay、Wikimedia BGM/SFX 在服务目录可用，Unsplash 仍仅 preview-only；MiniMax `speech-2.8-hd / male-qn-qingse` 声线目录可用且固定，需作品级真实授权才能在生产中使用。MiniMax 生图因生成 Rights 证据缺失不可用，生视频因型号未配置不可用；不能用已配置 Key 代替调用授权或 Rights。服务目录可用不等于本作品真实远端调用成功。
+- **当前唯一阻断**：没有 Creator 确认的具体主题/可选六维画像及导演参考视频/已确认导演版本，没有作品级 planning / stock / voice 授权及 IMAGE/VIDEO 次数，且实际模型音视频能力和完整 QC 仍待具名验证。下一步须先从正式 Web 选定合法作品输入与导演形成/确认，持久化 planning 授权，展示并确认完整 Plan 后，按已授权服务和次数推进 Material→Director Selection→Voice→Editor/FFmpeg→全片 QC→可审阅版本；不得绕过方案确认、付费边界或 Creator 接受。
+- **本轮分层结果**：软件/Web/API 准入 **PASS**；真实本作品模型调用、外部素材供料、MiniMax TTS、IMAGE/VIDEO 提交 **均 0 次（NOT_TESTED）**；可审阅 MP4、完整技术/语义 QC、无人手工救火的自主闭环与 Creator 审片/接受 **NOT_TESTED**。无用户作品状态修改，无旧资料删除、发布、合并或授权扩张。首次 E2E 仍为 **PARTIAL / WAITING_CREATOR_INPUT_AND_NAMED_AUTHORIZATION**；S6-15 保持 CLOSED/COMPLETE。
+
+### 2026-10-17 · S6-14 首部真实后端试片 / 尚待完整音画 QC（最新记录）
+
+- **唯一作品与冻结上下文**：原 Work `1bc5f5fa797047dabd6e00654ee3675a`《首部电影短章｜把想法变成作品》，`个人经营实践` 六维画像、Director `Human Cinema` Revision 2。冻结正式 Plan Revision **2**：9:16、**45 秒**、mixed、MiniMax `speech-2.8-hd / male-qn-qingse`。Plan 1 因模型自行将按需环境音解释为 8 项必需 SFX 而保留失败；通过正式版本 API 将可选音效明确化后继续同一 Work，不修改原始历史回执。
+- **真实模型及定向恢复**：使用 `MiniMax-M3.1-Flash-Preview` / M Plan 订阅 Key；原第一次 Planning `unknown` 记录保留，不盲发原请求。新的模型 Planning 两次返回有效完整内容但场景多余 `title/type`，本轮只经**人工辅助字段整理**录入正式合法 Plan，不记自主 Planning 通过。Material Intent 因 `unresolved` 预判、长中文 SFX 检索词和超长 `music_query` 先后阻断；修复职责边界、英文短词提示与具体 schema 路径反馈，使用持久回执原请求重放及受限新轮次恢复，不放宽 Rights / 序列身份 / 许可要求。记录一次真实后端端口 7870 的正式 `/confirm` 和 `/resume`，供料最终 **succeeded**。
+- **真实素材与声音**：本作品累计登记 **24 视频、12 音频、1 字体**资产，其中正式 Edit 消费从库中筛选的候选；真实 MiniMax TTS 在相同生产 Run 中完成 **7 次 VOICE succeeded**，没有重新请求已成功回执；累计使用的真实候选遵守作用域/来源/Rights/署名，未触发 IMAGE 或 VIDEO 模型生成（限额均 0）。MiniMax M3.1 文本/画面模型不声明 `input_audio`；在 Director Edit 阶段以真实视频抽帧加有界 FFprobe/FFmpeg 编码、时长、音量证据生成**技术预览**，并明确记录 `audio_observation=technical_only_unverified`，没有声称模型听过声音。该行为不代替音频语义选择与用户听感判断。
+- **合同与渲染**：编辑模型返回 9 镜头、12 音轨条目、7 字幕条目；原始成功 MODEL 回执未改写。对 7.105/1.395 秒两个片段分别按 30fps 作不超半帧归帧，整体保持 45.000 秒并通过严格 `EditProject` 检查。模型把 12 条事实约束/审片备注误用成 `required_features`，已区分真正的 FFmpeg 技术能力与**未验证备注**，后者保留在私有 `edit_project` metadata 中，不算功能已经完成。Editor 实际技术预检查、真实 FFmpeg 编码、保留素材署名的导出包均成功。
+- **输出与质量边界（唯一首版，不是人工拼接）**：`output_id=9cc0cd5d088b47ada3262022f5b51c35`，输出 Revision 1，数据库记录字节数 **44,556,502**，哈希与现存 MP4 文件一致；实际 FFprobe **45.000000 秒、1080×1920、H.264 视频 + AAC 48kHz 双声道音轨**。真实 `/api/production/artifacts/{output_id}/content` 范围下载 HTTP **206** 且 `video/mp4`，`export_bundle=026f59776edc4eef869fff3ca53db2eb` 包含署名并返回 `application/zip`。 `supply/edit/render` 均 **succeeded**，实际 `quality_checks.technical=pass`，但 `quality_checks.semantic=not_tested / video_protocol_unavailable`，`quality_state=needs_fix`，Work `needs_decision`。**不能据此声称真实完整视听 QC、Creator 接受、无人研发辅助自主出片 PASS；S6-14 保持 PARTIAL**。用户可先用现有本机 V2 MP4 预览反馈，正式接受只能在合法质量闭环和具体版本明确审阅后操作。
+- **执行环境与回归**：旧 7860 仍属 V1 工作树，未操作。曾因同 Session 多次运行 `run_detached_process` 长驻 Web 而占满 Runner 4/4 并发槽，停止请求被接受但未及时进入 terminal；后改用**一个持久 Session Shell + 唯一 7870 Web 进程**执行后端真实 API，不再额外创建 WebCodex detached 作业。原积压 Job 的 supervisor 终态与 Runner 控制面根因仍待独立治理。受测代码包括 MiniMax 响应分类/等待上限、精确 JSON 错误修复与回执重放、Material Intent 供料职责、FFmpeg 音轨技术观察、严格镜头归帧及编辑能力分层。相关生产测试与文档路径检查见本卡后续验证；结果不得冒充视频语义测试。
+- **最新验证台账**：修正镜头归帧、非 FFmpeg 能力备注分层、无音频模型的真实声轨技术测量后，在本机真实 Python 3.12/FFmpeg 环境重新执行 `python -m pytest -q tests/production --disable-warnings --maxfail=1`，结果 **449 passed / 3 skipped / 0 failed（28.19 秒）**；`git diff --check` 无空白错误。当前 3 份修改的 S6-14/状态/运行说明文档共 **33** 条路径引用逐文件校验 0 失败。全量文档扫描另发现 **4** 处错误，全部来自其他未跟踪 `docs/research/director-style-architecture-2026-10-17/` 研究资料的缺失链接；没有更改、移除或纳入本次提交，不把全局校验记录为 PASS。
+
+### 2026-10-17 · S6-14 QC 模型排除约束与本地音频取证
+
+- **用户最新显式约束**：当前 S6-14 完整音视频语义 QC **不得使用 `qwen3.8`**。一度为该型号准备了独立 QC 适配器和测试，但用户纠正后，在任何真实 Qwen 调用及 Git 提交前已精确撤回；当前 `codex/s6-production@f07b8256` 保留 MiniMax 主链，不包含该次 Qwen 专用改动。旧文档关于 Qwen 协议的技术参考不构成本作品的服务选择、授权或验收依据。
+- **MiniMax 能力边界**：官方 `MiniMax-M3` 的 Chat Completions 支持实际图像、视频 `video_url` 输入，但其官方说明明确不支持原生音频输入；当前 M3.1 Flash 主创作模型不可因声称多模态而冒充音轨理解。下一步候选是 MiniMax 视频真实观察 + 本地独立音频证据交叉核对，不能把转写/音量等技术结果冒称已听取音乐、音效或完整音画同步。官方协议：https://platform.minimax.io/docs/api-reference/text-openai-api 。
+- **新实测的音频证据（不占远端服务额度）**：在原始已登记 45 秒成片上运行 Mac 本地现有 Whisper Base 中文 ASR，实际产生 **14 段**识别，首段从 **0.00s** 开始，末段在 **44.44s** 结束。合并识别文本与已确认 Plan Revision 2 逐场景 `narration` 对比，去除空格、常见标点及英文大小写后字符相似度 **0.952**，个别技术词存在识别偏差。这一结果仅证实旁白音轨可识别及其大体内容，**不能代替专业声音听感、BGM 风格、音效对应或全片声画语义 QC**；识别详情仅保存在 Git 忽略的 `outputs/_production/av_qc_local/`，不提交音频/转写。
+- **当前状态未改**：原作品、Plan 2、已完成的 Supply/Edit/Render、45.000 秒 MP4、技术 QC PASS 和原始 Operation/历史资产均未修改；业务 `quality_checks.semantic=not_tested`、Work `needs_decision`，Creator 尚未接受。后续若使用 MiniMax M3 视频审片，仍必须具名授权、真实载荷、持久回执，并对听觉证据不足保持 `partial/not_tested`，不得虚报 `passed`。
+
+### 2026-10-17 · S6-14 临时关闭最终自动语义 Gate → 首片交付人工审核（当前）
+
+- **用户明确决策**：先注释/跳过最后自动 QC Gate，以已生成的真实作品交付人工审阅；仍不使用 `qwen3.8`、不更换 MiniMax 创作链、不重新发起 Planning/TTS/素材或视频生成。实现为受控、可逆的 `EASEL_PRODUCTION_QC_MODE=manual`（默认 `full`）而不是删除正式审片实现或伪造语义 PASS。
+- **严格界限**：本次独立 7870 V2 后端技术 QC 对原 MP4 再次 `pass`；新增 `quality_checks.semantic=not_tested`，其中 `mode=manual_review_only`、`reason=creator_requested_temporary_bypass`。旧技术/语义记录原样保留；任何已知 `semantic=fail/partial` 不可直接人工绕过。人工审阅专用作品输出仍记录 `quality_state=needs_fix`，避免误标完整语义质量通过。只有 Web Creator 明确人工完整审核、填写 `manual_review_confirmed=true` 才能接受，SQLite 正式迁移 3 同步收紧受限接受条件；缺此确认的真实 HTTP 接口返回 **422 / manual_review_confirmation_required**，且 `accepted_output_id` 仍为空。
+- **恢复与现状（真实接口）**：已对数据库先行作事务一致备份 `outputs/_production/backups/production_pre_s614_manual_review_20261017.sqlite3`（Git 忽略，0600，quick_check PASS）；原 `7870` V2 独立重启，数据库 schema v3 完成，能力与 Work API 都 HTTP 200。由正式 `/api/production/works/1bc5f5fa797047dabd6e00654ee3675a/resume` 恢复原 Run `25864ab3e88a438693fe146998f35651`，获得 HTTP **202**。实际最终状态：`supply/edit/render/quality` **全部 `succeeded`**，Run **`succeeded`**、Work **`reviewable`**、Plan Revision 2、原 output ID `9cc0cd5d088b47ada3262022f5b51c35`，没有生成替代作品或接受成片。
+- **阶段结论**：真实首片已可供人工完整看画面、声音、字幕、音乐及声画同步；软件执行链与真实 FFmpeg 产物就绪。**自动语义 QC 未执行，Creator 尚未接受，电影质感与完整自主出片仍未验收**。此处“成功”仅指生产工作流到人工审阅的交接完成。旧 7860 及其他研究目录未触碰。恢复自动审片需将 V2 `.env` 的 `EASEL_PRODUCTION_QC_MODE` 改回 `full` 并重新启动唯一 V2 服务；不会替现有作品补写假审片回执。
+
+### 2026-10-17 · 新建独立真实 E2E 重测：API 全链成片，首次零卡点未通过
+
+- **目的/范围**：验证单次从正式 API 创建到 `reviewable` 的真实 MiniMax 自动视频链路，非软件 Mock，不复用首片 EditProject，不偷换回执。验证 Work `f8040a6d153c419aaf1045eadc61bc63`《E2E全链真实直通验收｜把想法变成作品｜20261017》，同一六维画像 + Human Cinema 导演 Revision 2、9:16/45秒/mixed固定MiniMax旁白/BGM，生成配额均0，语义 QC 暂按用户确认的 manual 模式。旧作品和初始 Run 均保持。
+- **第一轮真实结果**：经 `POST /works` 创建、`POST /plans` MiniMax M3.1 首次生成合法 CreativePlan Revision 1（6 场、总 45 秒、无开发者整理 JSON）、正式 `POST /plans/1/confirm`，真实 `supply=succeeded`，但 `edit=needs_decision / voice_timing_exceeds_plan`。真实 MiniMax TTS 7 句约 38.23 秒，第一场 `6.653s > 6.000s`，虽然全片旁白能容纳，局部镜头不足。**该 E2E 严格零卡点结果 FAIL**；不能把后续修复后成功倒写成一次顺畅成功。
+- **合同化修复与再次生产**：使用正式 `/cancel` 结束有卡点生产 Run，保留原 TTS 和资产；经 `/plans` 建 Plan Revision 2，只将场景1从6秒改为7秒、场景2从7秒改为6秒，总时长、旁白、音色和其他内容保持不变；明确记录实际 TTS 时长依据，再次正式 `/plans/2/confirm`。第二条 production Run `5f0947bbf802428c8918d991f7d6d477` 最终 `supply/edit/render/quality` **全部 succeeded**，Work **reviewable**，没有再次人工恢复任务；对第一次冻结 Planning 的真实语音安全裕量仍需产品层改造和全新直通复验。
+- **真实第二首版结果**：`output_id=76ca9b8f243c45f3b2eca9ed8b344606`，Revision 1，文件存在、SHA-256 与持久化登记一致、FFprobe **45.000000秒、1080×1920、H.264视频+AAC音轨**，52,250,838 bytes。`quality_checks.technical=pass`；`quality_checks.semantic=not_tested / manual_review_only`，输出实际 `quality_state=needs_fix` 但可人工审阅，`accepted_output_id=NULL`，没有自动发布。新作品仍需 Creator 完整人工观看并明确接受具体版本。
+- **下一项真实收敛**：在冻结 Planning 前增加可测试的旁白时长安全余量/场景容纳检查，不以字符数直接冒称真实 TTS 时长；无音轨成品前的精确时长需要实测或保守留白，TTS 真实结果仍为最终权威且不足必须合法调节方案。实施后重新创建**新作品**跑第三轮零干预 E2E 验收，不能把第二轮补救称为完整自主成功。
