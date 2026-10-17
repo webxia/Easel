@@ -98,6 +98,15 @@ python scripts/validate_document_paths.py
 
 拿到条件后先执行第一段：真实主题→方案→确认→自主首版→实际审片，并记录错误恢复、调用/耗时及Creator反馈；再按本卡既定完整矩阵执行第二段。不得用本次离线PASS关闭真实未测项。启动与配置见 [运行配置](../16_RUNTIME_SETUP.md)。
 
+### 2026-10-17 · 本机启停与备份接续证据（HEAD `3c8fa4d2`）
+
+- 精确工作树 `/Users/xgx/.codex/worktrees/s5-architecture/Easel`，`codex/s6-production`，接手时 `CLEAN`，与 `origin/codex/s6-production` 同步；PR #8 仍为草稿，`upstream/main` 仍为 `b29d0d72`，未合入。
+- 仅检查服务配置**是否存在/配置项名称**，未输出或复制凭证。活动工作树无 `.env`、`.env.local` 或 `config/.env`，Runner 进程无生产配置；历史工作树有部分素材服务配置，但没有具名的本次真实调用授权。不能因为存在 Key 就准入。
+- 在本活动树使用已有隔离 Python 和真实本机 Web/worker 执行端口 7870 启停：`EASEL_PRODUCTION_ENABLED=0` 时 `/api/production/capabilities`、`/api/production/works` 均为 HTTP 503，且没有创建 V2 数据库；设置为 `1` 后两接口均为 HTTP 200。试验进程已停止，未重启既有生产服务。
+- 首次启用在本活动树新建 `outputs/_production/production.sqlite3`，保留该资产、不做删除清理。随后检查 `works`、`runs`、`operations`、`authorization_grants`、`artifacts` 均为 **0**；CLI `easel production status --root` 返回空任务列表；以 SQLite Online Backup 创建临时备份，`integrity_check=ok` 且 schema 版本和作品数一致，临时备份随测试目录回收。
+- 本轮 **IMAGE=0 次、VIDEO=0 次、真实模型/配音/外部素材服务调用=0 次**。这是新增的**本机软件运行/启停/备份**证据；没有新增任何真实自主成片、音色自然度、跨题材稳定性或 Creator 接受证据，第一段和第二段相关格子仍为 `NOT_TESTED`。没有重新执行既有全量回归或 CI 真实安装。
+- 后续继续按本卡两段顺序，具名配置、样片和 IMAGE/VIDEO 许可缺失时不发送付费请求，不把离线样片算作真实生产。
+
 ### CI 发现的修复
 
 整批 CI 已推动两项修复：精简设置矩阵补上项目声明的 Pillow 依赖；Windows SQLite 边车文件并发消失时的扩展盘符路径比较修复，并新增真实 junction 和跨命名空间负例。后者本机专项44 passed/2 Windows专属skip，详见 [S6-06](S6-06_materials-core.md)。上文1591是整链基础版本的本地全库结果，未把新增用例计入；最终提交的跨平台完整结果以 PR 验证说明及绑定SHA的CI日志为准。
