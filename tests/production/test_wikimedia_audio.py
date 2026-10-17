@@ -166,7 +166,22 @@ class _AudioTransport:
         return DownloadResponse(200,{"content-type":"audio/wav"},wav_bytes())
 
 
-def test_audio_supply_downloads_bgm_only_once_and_retains_source_and_credits(tmp_path):
+def test_audio_supply_downloads_bgm_only_once_and_retains_source_and_credits(tmp_path, monkeypatch):
+    # Tests Rights/stock/reuse without requiring FFprobe in ordinary CI.
+    # Real FFprobe OGG admission is separately covered below, when installed.
+    import wave
+    from easel.materials.application.inspector import TechnicalInspector
+    from easel.materials.domain import TechnicalInfo, TechnicalStatus
+    def inspect_fixture_wav(self, asset):
+        path = self._store.resolve_asset_locator(asset.file.path)
+        with wave.open(str(path), 'rb') as audio:
+            duration = audio.getnframes() / audio.getframerate()
+            assert duration > 0 and audio.getnchannels() > 0
+        assert path.read_bytes() == wav_bytes()
+        return asset.model_copy(update={'technical': TechnicalInfo(
+            status=TechnicalStatus.PASSED, mime='audio/wav',
+            has_audio=True, duration_seconds=duration)})
+    monkeypatch.setattr(TechnicalInspector, 'inspect', inspect_fixture_wav)
     provider,calls=_mock_provider("music",[_file()])
     downstream=_AudioTransport()
     downloader=MediaDownloader(RemoteURLPolicy(provider.allowed_hosts,resolver=lambda *_:("8.8.8.8",)),transport=downstream)
