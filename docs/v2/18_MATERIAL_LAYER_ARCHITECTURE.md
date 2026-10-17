@@ -77,3 +77,24 @@ W1：资格过滤/去重、引用用途合并、来源复用与下载前Rights�
 G0/G1为本轮审计和内部架构决定；G2/G3软件以实际执行结果记账。真实Provider、BGM/SFX实际库存与自然音色不足必须保持未测/阻断，**不自动开放G4或S6-14**。已有Keys不等于生产调用授权，Creator接受单独由用户决定。
 
 不变文件：easel/production/contracts.py、editors/base.py、operations.py；不创建新的生产状态机。可修改内部Supply/Model调用命名空间/素材metadata/Provider/选材准入。不满足当前公共合同的新增要求必须单独提出影响分析，不隐式扩schema。官方技术依据见[审计§5](17_MATERIAL_LAYER_AUDIT.md)。
+## 5. 来源扩展架构（待实施）
+
+### Unsplash —— 显式选图与权利就绪，而非直接开启自动下载
+
+在现有 `UnsplashDiscoveryProvider` 和 Web preview-search 基础上，补一条明确的选图交易：`用户选择 photo.id → 服务端重新核对来源/真实 URLs/下载事件地址 → 适用 Rights 与用途审核 → 追踪下载事件 → 受控取得允许使用的媒体 → catalog 入库 → 作品 asset_ids`。仅当官方 API 规则与用户场景下实际权利同时允许本地用于生成 MP4 时，才发布 production-ready。事件追踪应保存与具体选择/作品相关的幂等证据，**不能在回执未知时盲目再次报下载**；未获使用资格仅展示官方热链预览，不偷渡到现有 `ExternalCandidate` 自动供应列表。
+
+推荐先验收显式选图，再审查是否开放 Director 自动挑选。反例覆盖恶意 photo.id/URL、跳转到非允许主机、Rights 变化、选图取消、未收到成功 tracking 回执、原图与预览来源不同、重复提交/恢复、作品版本变化、取消后无外部请求、仅已用素材署名导出。
+
+### BGM —— 先做真实合法音乐目录，再新增动态搜索源
+
+统一使用已有 `MaterialNeed(media_type=audio, role=music)`；Director 提供情绪、节拍、强弱变化和使用场景，优先从本地已核权利音频检索，再从具名 `reviewed_public` 曲目目录搜索。后续采购或获批的音乐 API 可作为新 Provider，不改变 Edit/Work 外部合同。每个曲目必须有来源/署名/许可/曲长/技术条件；“循环播放、变速、商用视频”分别按 Rights 约束校验，不把搜索结果等于合格曲目。
+
+### SFX —— 专用声音事件索引，不建立第二种音频状态机
+
+使用现有 `sound_cues` 的 `cue_id/scene_id/at/duration/required`，统一音频资产、独立事件绑定；同声效跨多个 cue 可复用文件但不得覆盖事件时间及重要性。初期与 BGM 共用审核来源机制，按事件标签/持续时间检索；未来 Freesound 原始文件下载需 OAuth2，并须确认 API 的商业应用许可，故不默认启用。每条生产 SFX 必须具备真实音频、用途适配、 Rights 和绑定依据。
+
+### 保持不变的公共边界与验收
+
+`PlanDocument`、`MaterialNeed`、`OperationService`、`EditProject` 和 `schema_version/asset_ids` 输出不变。外部来源只做合法素材候选与下载；素材层不生成新导演策略、不允许模型替用户授予权限；FFmpeg 与 QC 仍属原主线。测试先使用 MockTransport 与合法本地媒体，再在另行具名许可下做实际来源调用；任何实际来源不可用都保留明确 gap。**本节为待实施设计，不代表 Unsplash 可自动剪入，也不代表音乐/音效源已新增。**
+
+资料：[Unsplash 官方 API 文档](https://unsplash.com/documentation)、[下载事件指南](https://help.unsplash.com/en/articles/2511258-guideline-triggering-a-download)、[API Terms](https://unsplash.com/api-terms)、[Freesound API](https://freesound.org/docs/api/overview.html)、[商业 API 使用说明](https://freesound.org/help/developers/)。

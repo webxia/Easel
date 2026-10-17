@@ -1,4 +1,5 @@
 # S6-15 · Material Layer 现状审计与完善（S6-14 前置）
+> **最新来源接入要求**：Unsplash 需完成合规的制作选材与资产入库；BGM/SFX 补足可合法自动使用的来源。见本卡末尾“新的来源完善决策”，新增部分尚未实施，不影响已有 G0/G1/G3 结论。
 
 状态：**PARTIAL — G0/G1 完成；G2 核心软件已实施；G3 本地软件验收通过；G3 真实服务及 G4 未通过**。2026-10-17 用户进一步授权完整审计、架构选型与实现，取代上一轮仅建文档的范围。**当前唯一实施前置任务**；素材层完成验收后才恢复 S6-14 首次真实生产及完整范围验收。本卡任务 ID 是后续补充，不重新编号 01～14，不改变其历史完成记录与 S4 需求责任分配。
 
@@ -119,3 +120,16 @@ Windows 另暴露 SQLite `catalog.db-shm` 并发消失时，`Path.resolve(strict
 - `Plan.Scene.id`最多128字符与现有Editor.scene_id最多96字符的边界差异保留并明确记录；未改变公共合同。内部投影不能新增更窄范围，测试不冒充此极端ID范围已渲染通过。
 - 来源复用证明已经登记的同源同许可资产不再下载；不宣称覆盖“收到全部下载字节但尚未持久登记即断电”的所有恢复窗口。既有付费Operation UNKNOWN保护不变。
 - **下一单一动作**：围绕G3确定实际素材源/候选及具名模型和固定声线的验证条件，得到所需明确调用许可后逐项真实验证；完成前不开放G4、不启动S6-14。不重新做G0，也不重复索取已允许复用的本机配置路径。
+## 2026-10-17 · 新的来源完善决策（Unsplash + BGM/SFX）
+
+用户明确要求：**Unsplash 要实现可用于视频制作的接入**，同时完善 BGM 与 SFX。此前 G0/G1 主体已完成，本节作为 S6-15 G2/G3 未闭合工作包的追加要求，不将现有 preview-only 误写为已完成。保持既有 `MaterialNeed → ExternalCandidate → Rights/Library → material_uses → schema_version/asset_ids` 和 Voice 专用路径，不更改公共 Plan/Editor/Operation schema，不恢复 V1 第二状态机。具体选型见[素材层架构](../18_MATERIAL_LAYER_ARCHITECTURE.md)新增“外部来源扩展”。
+
+1. **U1 Unsplash 官方规则核对及方案准入**：官方 API 的 `photo.urls.*` 热链接用于 UI 展示；当用户将照片纳入作品等相当于下载的动作时，使用原始 `links.download_location` 并保持 `ixid` 等原查询参数，认证调用；摄影师、Unsplash 署名、源照片链接始终可达。必须复核 API Terms、商业使用、照片实际版权与人物/商标/限制，保存审查依据。仅补 download tracking **不等于**已获将 API 图片永久下载缓存并剪入 MP4 的完整许可。不能在缺证据时绕过现有 Rights。
+2. **U2 来源选择交易与真实绑定**：以用户明确选定的 `photo.id` 为输入，由服务端依据官方 API 再取来源元数据及允许的 URL，不信任客户端 URL 或 Rights 声明；对选中用途建立可恢复的选择/跟踪记录，限制并发重复；一旦具备允许该使用方式的权利与下载条件，经现有受控下载器、技术核验、catalog、引用、Work artifact 和 Editor `asset_ids` 完成同链路交付。缺明确许可/无法跟踪/不符合 API 约束时返回可观察的 `needs_decision`，不得“自动供料成功”。离线 MockTransport 正反例必须覆盖跟踪/获取失败、取消、来源改变、追踪响应未知/重试、防 SSRF、重启/多次点击、署名导出。自动后台选材是否符合条款单独验证，不由手工选择扩权。
+3. **A1 BGM（优先于新的生成服务）**：沿既有 audio/music Need，通过本地库及人工审查的 `reviewed_public` 有限真实曲目目录供料；建立每条音轨的官方来源页、具体 Rights 版本、商业传播和改编允许范围、必要署名，以及试听音频/正式音频身份。Director 决定主题、情绪、节奏与出现区间，程序校验媒体时长、loop、音量和授权；不将音效冒充配乐、不从 Pixabay 视频 API 假设音频音乐接口。目录证据不足应阻塞，而非随意网络抓取。后续可扩展已证实拥有商用 API/授权的音乐 Provider。
+4. **A2 SFX（按 cue 搜索）**：复用现有 `MaterialIntent.sound_cues` 的 `cue_id/scene_id/at/duration/required` 与 `MaterialNeed(audio,sfx)`、`AudioClip(role=sfx)`。先支持经审核本地/公开音效目录，必要效果缺口阻塞、可选点缀允许省略；同一音效在不同 cue 可复用字节但用途绑定不混淆。Freesound API 具有搜索与预览接口；原始素材下载须 OAuth2，公开开发者文档指出 API 免费使用主要为非商业，商业应用须评估获得额外许可。**未获得相应凭证与适用授权前不视为已接入自动生产**。
+5. **共同验收**：不同题材有实测真实合法的图片/BGM/SFX 候选；来源失效、授权撤销、许可变化后全部依赖重新判断；相同音频多场景只保留有界物理副本；selected-only 依赖和 export credits 正确；远端检索与音效取得不消耗 IMAGE/VIDEO 生成额度，付费模型统一走既有 Operation。用户未授权的真实 API/模型调用维持 NOT_TESTED，G4/S6-14 不开放。
+
+官方依据（2026-10-17 查阅）：[Unsplash API 文档](https://unsplash.com/documentation)、[Unsplash API Guidelines](https://help.unsplash.com/en/articles/2511245-unsplash-api-guidelines)、[Triggering a Download](https://help.unsplash.com/en/articles/2511258-guideline-triggering-a-download)、[Unsplash API Terms](https://unsplash.com/api-terms)、[Freesound API](https://freesound.org/docs/api/overview.html)和[开发者 API 许可提示](https://freesound.org/help/developers/)。
+
+**此新增工作包状态：DESIGNED / NOT_IMPLEMENTED**。此前 Unsplash 已实现的仅为主动预览；BGM/SFX 原实现与本机只有一份 MP3 的事实不变。下一步先确保 U1/U2 的合法使用路径及资格证据成立，再按明确合法来源增补 A1/A2，不为当前 G3/G4 补齐进度而伪造供料成功。
