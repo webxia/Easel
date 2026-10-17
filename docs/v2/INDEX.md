@@ -12,6 +12,7 @@
 | 为什么推荐该技术，有什么替代和风险 | [技术选型](14_TECHNOLOGY_SELECTION.md)：推荐与条件未决项，不冒充全部已获批准 |
 | Coding 应遵守哪些数据、状态、API 和执行规则 | [实施合同](15_IMPLEMENTATION_DESIGN.md)：待实现的唯一合同，不是现有能力声明 |
 | 任务顺序、依赖、覆盖关系与验收分工是什么 | [实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md)及各卡；每张卡维护自身执行结果 |
+| 当前 S6-14 之前要完善什么素材能力 | [S6-15 素材层完善任务](tasks/S6-15_material-layer-hardening.md)：现状、缺口、冻结边界与 G0～G4 验收闸门 |
 | S1～S7 如何划分 | [路线图](03_ROADMAP.md)；任务卡编号不等于阶段编号 |
 | 正在做什么，从哪个版本接手 | [当前状态](04_CURRENT_STATE.md)；只汇总并指向证据 |
 | 如何配置并体验新视频制作 | [S6 运行配置](16_RUNTIME_SETUP.md)：启动、服务协议、字体和真实验收边界 |
