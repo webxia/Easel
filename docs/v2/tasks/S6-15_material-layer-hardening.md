@@ -1,11 +1,11 @@
 # S6-15 · Material Layer 现状审计与完善（S6-14 前置）
 
-状态：**DOCUMENTED / NOT_IMPLEMENTED**。2026-10-17 本轮只建立任务与事实/缺口台账，未改变任何代码、协议、配置或素材。**当前唯一实施前置任务**；素材层完成验收后才恢复 S6-14 首次真实生产及完整范围验收。本卡任务 ID 是后续补充，不重新编号 01～14，不改变其历史完成记录与 S4 需求责任分配。
+状态：**PARTIAL — G0/G1 完成；G2 核心软件已实施；G3 本地软件验收通过；G3 真实服务及 G4 未通过**。2026-10-17 用户进一步授权完整审计、架构选型与实现，取代上一轮仅建文档的范围。**当前唯一实施前置任务**；素材层完成验收后才恢复 S6-14 首次真实生产及完整范围验收。本卡任务 ID 是后续补充，不重新编号 01～14，不改变其历史完成记录与 S4 需求责任分配。
 
 - **基线**：工作树 `/Users/xgx/.codex/worktrees/s5-architecture/Easel`，`codex/s6-production`，盘点基线 HEAD `5a87887b3320fcceb9e4c643faea387e4184c25d`，接手 CLEAN；[PR #8](https://github.com/webxia/Easel/pull/8) 仍为 Draft。
 - **关联需求**：V2-EXP-011/012/013/021/025/031/032/033；原主责仍为 S6-02/03/06/07/08/11，本卡只承担素材链收口、补强和集成验证。
 - **合同依据**：[确认需求](../01_REQUIREMENTS.md)、[职责架构](../02_ARCHITECTURE.md)、[唯一可执行合同](../15_IMPLEMENTATION_DESIGN.md)、[S6-06](S6-06_materials-core.md)、[S6-07](S6-07_material-supply.md)、[S6-11](S6-11_creation-first-cut.md)、[迁入记录](../../../easel/materials/MIGRATION.md)、[运行配置](../16_RUNTIME_SETUP.md)。
-- **执行范围**：先形成缺口与证据，再针对已证实问题提出最小完整实施工作包；用户后续授权实施时按顺序开发和逐项验收。**本轮只写任务文档，不做方案冻结之外的代码实施**。
+- **执行范围**：本轮已获用户明确授权，按[审计](../17_MATERIAL_LAYER_AUDIT.md)和[架构](../18_MATERIAL_LAYER_ARCHITECTURE.md)开展内部实现、适用验证、文档和开发分支提交；保持公共合同与历史资产不变。真实付费调用仍需具名许可。
 - **禁止事项**：不破坏/替换/并行新建 upstream Planning/Director/Creator/Work/Operation/Editor 协议；不自动迁旧数据库；不删除历史素材、Profile、Attempt、output；不自动合并/发布、实发付费调用，不凭凭证或猜测补 Rights/额度。
 
 ## 1. 现状基线（区分配置、实现与实测）
@@ -65,6 +65,49 @@
 
 ## 5. 本轮执行记录
 
-- 2026-10-17：仅创建本 Task 和导航/排程文档，未修改源码、旧素材、配置、运行数据库或外部服务；以上“现状”依赖既有源码/任务及本机只读盘点，尚待 G0 完整字段级审计。
-- 当前结果：**TASK_CREATED / AUDIT_NOT_STARTED**；缺口为初步事实及待验证假设，不宣称 P0 已修复。
-- **下一单一动作**：先做 G0 全链事实审计并产出可复核缺口清单，然后按 G1→G3 推进；完成前不得推进 S6-14 真实生产。
+- 历史记录：2026-10-17 初建本 Task 时仅处理文档；随后用户明确授权“审计→文档→架构/选型→实现”，本轮执行范围据此更新，不能继续按旧的 AUDIT_NOT_STARTED 交接。
+- 审计基线：`09fd994525eeef7d5bcef5c34ae090f379d16fb7`，本轮未合入官方更新。事实与纠正见[审计](../17_MATERIAL_LAYER_AUDIT.md)，技术取舍及内部落点见[架构](../18_MATERIAL_LAYER_ARCHITECTURE.md)。公共Plan、Editor、Operation三个源文件保持基线SHA，供料输出仍只有schema_version/asset_ids。
+
+| 阶段 | 当前结果 | 实际内容及边界 |
+|---|---|---|
+| G0 | COMPLETE | 五类素材逐环节源码审计、13项台账；纠正逻辑记录并非同义重复、record_usage已有合并，保留原件 |
+| G1 | COMPLETE | 保留SQLite/LangGraph/FFmpeg；采用内部冻结意图、用途绑定、分阶段再准入、旁白专用分支；不新增公共方案或V1并行链 |
+| G2 | CORE_IMPLEMENTED | 本轮核心修复已经进入代码，具体见下文；真实源库存/账户可用性和公共边界既有差异未被假报为解决 |
+| G3 软件/本地媒体 | PASS（本轮受测范围） | 隔离库、真实合成媒体与MockTransport；实际worker五模态组合→FFmpeg→模拟完整视频QC→reviewable，无用户接受 |
+| G3 真实供应/声音 | NOT_TESTED | 本轮实际Pexels/Pixabay/模型/TTS/生图/视频请求为0；真实音源库存、声线自然度和供应商失败恢复尚未验证 |
+| G4 | BLOCKED | G3真实项没有证据，S6-14继续REAL_PRODUCTION_PAUSED，不自动恢复 |
+
+### 已实施的软件修复
+
+1. 冻结画像、Director和Plan进入一次任务私有MaterialIntent解释；带上下文摘要缓存及稳定模型调用namespace，避免意图解释与补料决定的ordinal回执冲突；静音且必用视觉已覆盖全部场景时不增加模型请求。
+2. 图片/视频按导演检索意图供料；BGM与SFX使用原音频Need，SFX cue保留独立身份/时间/用途。必要音效缺源明确阻断，可选点缀没有素材时不升级为新的硬门槛。
+3. 外部来源按本方案grant筛选，并在检索和下载前复验授权；无授权零请求，撤销后停止。Rights预查移到下载前；已登记且来源/实质许可一致的素材复用本地字节，不合并不同权益记录。
+4. 合格候选筛选后再做最终top-k和内容去重，失格旧记录不挤占合法新版。artifact material_uses保存多个场景/事件，引用表复用既有need_ids合并实现并传入cue Need ID。
+5. 在供料恢复、编辑输入、选中及渲染前核验具体材料记录的内容/来源/Rights/可见性/引用；实际工程依赖和导出署名只保留选中素材，未选候选保留而不伪称用于成片。
+6. 新增显式minimax-speech-v1非流式JSON/hex适配，复用既有VOICE Operation、句段缓存与真实音频检查。错误响应保持failed_after_submit，未知结果不重发；通用二进制Speech协议保持兼容。
+7. 能力目录与声音执行共用纯配置验证；reviewed_public有可授权的目录项；Pixabay修正q≤100及per_page≥3。
+
+### 本轮实际验收证据（2026-10-17）
+
+基线HEAD为上述09fd9945，以下验证绑定本轮提交前已经冻结的修改源码，提交后的确切SHA及CI另在PR #8记录。执行环境：本机macOS、隔离 `/tmp/easel-s6-worker-venv/bin/python`、已有FFmpeg/ffprobe；没有重跑全仓1600级历史回归，也没有用跳过掩盖真实服务缺失。
+
+| 项目 | 实际结果 |
+|---|---|
+| `python -m pytest -q tests/production --junitxml=/tmp/easel-s6-15-production-final.xml` | **377 passed、3 skipped，29.46秒**；JUnit380项，0failure/0error |
+| 新五模态完整组合用例 | 实际图片/视频/BGM/原生旁白HTTP模拟回执/SFX，经真实worker和FFmpeg生成3秒成片到reviewable；旁白2次MockTransport、IMAGE/VIDEO提交0，accepted_output_id为null |
+| 三项跳过 | 两个Windows专属junction用例；900秒长编码opt-in用例。既有900秒本地历史证据不扩大为本轮五模态900秒实测 |
+| 适用前端回归 | **80 passed、0 failed**，生产UI公开调用形状不变 |
+| 文档路径 | **1289条路径 / 466份文档**通过；修改后按相同入口再次核验 |
+| 外部合同 | `contracts.py`、`editors/base.py`、`operations.py`保持审计基线SHA；供料成功结果仍严格为schema_version/asset_ids |
+| 历史资产/凭证 | 未改用户原素材、Profile、Attempt、旧DB、生产配置；真实Key仅本机原有忽略文件，禁止入Git |
+| 真实供应商/自然音色/创作品质/Creator接受 | **NOT_TESTED**，本轮没有进行真实远端模型、声音或媒体生成/检索 |
+
+回归中发现的失败已按责任修正并保留语义：原三个公开音源测试补齐明确的fixture方案授权；原生TTS失败断言使用既有failed_after_submit，不修改Operation状态；五模态验证读取实际edit_project文件而非误取metadata；静音零额外调用分支使用既有input_id，不改上游输入字段。最终上述回归已实际通过。
+
+### 真实验收与剩余风险
+
+- 本机仍只有此前具名MP3；本轮没有下载新音源或选用新模型/声线。BGM/SFX的软件供应链就绪不等于音乐/音效库存覆盖不同题材，也不证明语义选材正确。
+- Unsplash维持主动preview-only：当前没有足够依据证明其热链接、署名、下载事件及非自动化要求能由本地自动制作路径完整满足，不能只补tracking便认定可用于FFmpeg。
+- `Plan.Scene.id`最多128字符与现有Editor.scene_id最多96字符的边界差异保留并明确记录；未改变公共合同。内部投影不能新增更窄范围，测试不冒充此极端ID范围已渲染通过。
+- 来源复用证明已经登记的同源同许可资产不再下载；不宣称覆盖“收到全部下载字节但尚未持久登记即断电”的所有恢复窗口。既有付费Operation UNKNOWN保护不变。
+- **下一单一动作**：围绕G3确定实际素材源/候选及具名模型和固定声线的验证条件，得到所需明确调用许可后逐项真实验证；完成前不开放G4、不启动S6-14。不重新做G0，也不重复索取已允许复用的本机配置路径。

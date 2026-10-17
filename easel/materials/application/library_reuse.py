@@ -73,6 +73,13 @@ class LibraryReuseService:
                 reason = "reference_only"
             elif record.asset.technical.status is not TechnicalStatus.PASSED:
                 reason = "technical_inspection_not_passed"
+            elif need.media_type.value == "audio" and need.role in {"music", "sfx"}:
+                roles = record.asset.semantic.attributes.get("audio_roles")
+                # Explicit source declarations restrict candidates. Missing
+                # metadata is not a claim of semantic fitness; the director
+                # must still listen before selecting an unclassified track.
+                if isinstance(roles, (list, tuple)) and roles and need.role not in roles:
+                    reason = "audio_role_incompatible"
             try:
                 self.catalog.resolve_physical_locator(record)
             except (MaterialStoreError, OSError):

@@ -1,0 +1,120 @@
+"""Private director-to-supply projection of an already confirmed plan.
+
+This is not a second PlanDocument and never writes plan/authorization records.
+One persisted, bounded interpretation is shared by all configured providers.
+"""
+from __future__ import annotations
+
+import json
+from typing import Literal
+from pydantic import Field
+from .contracts import Contract, Identifier, PlanDocument, canonical_json
+from .model_tasks import ModelTaskError
+
+
+class VisualIntent(Contract):
+    scene_id: Identifier
+    query: str = Field(min_length=1, max_length=100)
+    media_types: list[Literal['image', 'video']] = Field(min_length=1, max_length=2)
+    options: int = Field(default=2, ge=1, le=4)
+
+
+class SoundCue(Contract):
+    cue_id: str = Field(pattern=r'^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$')
+    scene_id: Identifier
+    query: str = Field(min_length=1, max_length=100)
+    at: float = Field(ge=0, le=900, allow_inf_nan=False)
+    duration: float = Field(gt=0, le=900, allow_inf_nan=False)
+    required: bool = False
+    basis: str = Field(min_length=1, max_length=1200)
+
+
+class MaterialIntent(Contract):
+    # Do not silently impose a new scene-count limit on an accepted Plan.
+    # Response size is bounded by the model runner; exact scene identity and
+    # cardinality are checked against the frozen plan below.
+    visuals: list[VisualIntent] = Field(min_length=1)
+    music_query: str | None = Field(default=None, min_length=1, max_length=100)
+    sound_cues: list[SoundCue] = Field(default_factory=list, max_length=64)
+    unresolved: list[str] = Field(default_factory=list, max_length=16)
+
+
+def check_intent(intent: MaterialIntent, plan: PlanDocument) -> None:
+    scenes = {scene.id for scene in plan.scenes}
+    ids = [item.scene_id for item in intent.visuals]
+    if set(ids) != scenes or len(ids) != len(scenes):
+        raise ModelTaskError('invalid_material_intent', '素材意图必须逐一对应已确认场景，不能增删场景')
+    if any(len(set(v.media_types)) != len(v.media_types) or not v.query.strip() for v in intent.visuals):
+        raise ModelTaskError('invalid_material_intent', '素材意图的媒体类型或检索词无效')
+    if plan.settings.audio_mode in {'music', 'mixed'} and not (intent.music_query or '').strip():
+        raise ModelTaskError('invalid_material_intent', '已确认音乐模式必须保留背景音乐意图')
+    if plan.settings.audio_mode not in {'music', 'mixed'} and intent.music_query is not None:
+        raise ModelTaskError('invalid_material_intent', '不得在已确认声音模式之外增加背景音乐')
+    if plan.settings.audio_mode == 'silent' and intent.sound_cues:
+        raise ModelTaskError('invalid_material_intent', '静音方案不能自动增加音效')
+    cue_ids = [cue.cue_id for cue in intent.sound_cues]
+    if len(cue_ids) != len(set(cue_ids)):
+        raise ModelTaskError('invalid_material_intent', '音效事件身份不能重复')
+    for cue in intent.sound_cues:
+        if cue.scene_id not in scenes or cue.at + cue.duration > plan.settings.duration_seconds + 1e-6:
+            raise ModelTaskError('invalid_material_intent', '音效事件必须属于已确认场景且位于作品时间范围内')
+        if not cue.query.strip() or not cue.basis.strip():
+            raise ModelTaskError('invalid_material_intent', '音效意图需要明确用途与创作依据')
+
+
+def fixed_visual_intent(plan: PlanDocument, context) -> MaterialIntent | None:
+    """No semantic call is needed for a silent work fully covered by mandatory inputs."""
+    if plan.settings.audio_mode != 'silent':
+        return None
+    inputs = {item['input_id']:item for item in context.inputs if item.get('usage')=='must_use'
+              and item.get('kind') in {'image','video'}}
+    visuals=[]
+    for scene in plan.scenes:
+        kinds=sorted({inputs[id]['kind'] for id in scene.required_input_ids if id in inputs})
+        if not kinds:
+            return None
+        # This label is never an external query: every scene already has a
+        # fixed visual input. The complete creative plan stays in context.
+        visuals.append(VisualIntent(scene_id=scene.id,query='已确认的必用视觉素材',
+                                    media_types=kinds,options=1))
+    return MaterialIntent(visuals=visuals)
+
+
+class FrozenIntentCompiler:
+    def __init__(self, planning):
+        self.planning = planning
+
+    async def prepare(self, ctx, plan: PlanDocument):
+        context = self.planning.context(ctx)
+        context_hash = context.fingerprint
+        with ctx.store.connection() as reader:
+            payload = json.loads(reader.execute('SELECT payload_json FROM tasks WHERE id=?', (ctx.task_id,)).fetchone()[0])
+        saved = payload.get('material_intent')
+        if saved is not None:
+            if payload.get('material_intent_context_hash') != context_hash:
+                raise ModelTaskError('material_context_changed', '已保存素材意图的冻结上下文已变化，不能复用或自动重发')
+            intent = MaterialIntent.model_validate(saved)
+        else:
+            intent = fixed_visual_intent(plan,context)
+            if intent is None:
+                intent = await self.planning.runner(ctx, namespace='material-intent-v1').run(context,
+                    '仅把已确认方案翻译成素材检索意图，不重写方案。每个场景给一个visuals项，query最多100字；'
+                    '媒体类型根据冻结创作需求选择，options为有限候选数。music/mixed必须给music_query，其余为null。'
+                    'sound_cues按本片实际需要提出：给稳定cue_id、已知scene_id、全片时间at/duration、query和basis。'
+                    '已明确要求的音效必须保留并required=true；创作可选的点缀设required=false，不需要则空列表。'
+                    '静音方案禁止音效；固定旁白不交由图库替代。结合完整画像、导演风格、事实、禁区和适配许可，'
+                    '不把候选或文字意图称作已看过/听过素材；真正无法确定的事项放unresolved。', MaterialIntent)
+            check_intent(intent, plan)
+            with ctx.transaction() as writer:
+                current = json.loads(writer.execute('SELECT payload_json FROM tasks WHERE id=?', (ctx.task_id,)).fetchone()[0])
+                if current.get('material_intent') is not None and (
+                        current.get('material_intent_context_hash') != context_hash or current['material_intent'] != intent.model_dump(mode='json')):
+                    raise ModelTaskError('material_context_changed', '并发素材意图发生冲突，保留原结果')
+                current.update(material_intent=intent.model_dump(mode='json'), material_intent_context_hash=context_hash)
+                writer.execute('UPDATE tasks SET payload_json=? WHERE id=?', (canonical_json(current), ctx.task_id))
+                ctx.store.append_event(writer, ctx.work_id, 'material_intent_prepared',
+                    {'scene_count': len(intent.visuals), 'sfx_count': len(intent.sound_cues), 'context_hash': context_hash}, run_id=ctx.run_id)
+        check_intent(intent, plan)
+        if intent.unresolved:
+            raise ModelTaskError('material_intent_unresolved', '素材意图存在未解决事项：' + '；'.join(intent.unresolved))
+        return intent, context

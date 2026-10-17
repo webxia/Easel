@@ -8,17 +8,21 @@ from .operations import OperationService
 
 
 class RecordedModelTransport:
-    def __init__(self, transport, operations: OperationService, binding, service: dict, config_version: str):
+    def __init__(self, transport, operations: OperationService, binding, service: dict, config_version: str, *, namespace: str | None = None):
         self.transport, self.operations, self.binding = transport, operations, binding
         self.service, self.config_version = service, config_version
         self.capabilities = transport.capabilities
         self.index = 0
+        if namespace is not None and (not namespace or len(namespace) > 64 or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789-_' for c in namespace)):
+            raise ValueError('Invalid model operation namespace')
+        self.namespace = namespace
 
     async def complete(self, messages, tools, schema):
         request = {'messages': messages, 'tools': tools, 'schema': schema}
         ctx = self.binding
         self.index += 1
-        operation_id = hashlib.sha256(f'{ctx.task_id}:model:{self.index}'.encode()).hexdigest()
+        identity = f'{ctx.task_id}:model:{self.index}' if self.namespace is None else f'{ctx.task_id}:model:{self.namespace}:{self.index}'
+        operation_id = hashlib.sha256(identity.encode()).hexdigest()
         # Existing intent keeps its original grant even if another grant was added later.
         with self.operations.store.connection() as conn:
             prior = conn.execute('SELECT grant_id FROM operations WHERE id=?',(operation_id,)).fetchone()

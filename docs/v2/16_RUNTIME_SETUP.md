@@ -66,7 +66,7 @@ EASEL_PRODUCTION_MODEL_CAPABILITIES=image,video,audio
 
 将上述 JSON 压成一行赋给该环境变量；`MY_SPEECH_API_KEY` 另设为实际凭证，不能把凭证放进 JSON、Git 或截图。若 `api_key_env` 指向的值缺失，目录保留原音色身份并标不可用。无需鉴权的自托管服务可省略 `api_key_env`。
 
-当前适配器只实现仓库既有的 `/audio/speech` 合同：POST `model/input/voice/response_format`，可选 `speed/instructions`，响应为音频二进制。`base_url` 不包含 `/audio/speech`；它由适配器追加。不能把不兼容的异步服务、JSON URL 响应、克隆注册 API 配成此适配器后宣称可用。`engine` 是显式固定的实现身份，不能写 `auto` 来期待自动路由。参数能力必须与所选服务真实支持一致；不支持 `instructions` 就不显示或提交情绪表达字段。
+声音协议必须显式配置，不能写 `auto` 猜路由。`http-speech-v1`（兼容既有名称 `speech-http-v1`）沿用 `/audio/speech`：POST model/input/voice/response_format，可选 speed/instructions，返回音频二进制，base_url不带该后缀。S6-15 新增 `minimax-speech-v1`：base_url明确到 `/v1`，适配器追加 `/t2a_v2`，非流式请求 text/voice_setting/audio_setting，读取有界 JSON/hex 音频；当前明确支持 wav/mp3/flac、速度0.5～2，不支持通用instructions。模型与voice_id必须真实配置，不自动选择或换声。两个协议共用原Operation/句段/回执/真实时长校验，未知结果不重发；异步URL响应与克隆注册API不能冒充上述协议。配置目录和执行共用静态校验，缺Key/未知engine不会仅因有voices数组就标可用。原生MiniMax目前只有MockTransport+真实合成音频的软件验证，不代表已向用户账户发送或已验证自然音色。
 
 `provider/model/voice_id/engine/parameters` 一起固定。授权三元组为 `provider/model/mode`；试听创建独立 `preview` 授权与 `voice_preview` 任务，制作使用当前已确认方案的 `production` 授权。VOICE 不占生图/生视频次数，但仍记录操作及实际请求；超时结果未知时只核实本地已持久化回执，不自动重发，也不宣称服务提供远端幂等查询。用户明确选择“重新生成试听（新增调用）”才创建新的生成意图。
 
@@ -150,6 +150,14 @@ RightsInfo 至少要有已核实状态、许可名称（KNOWN 时）、来源证
 本机旧素材库目录存在历史 SQLite catalog，但没有直接在 V2 打开/升级它。旧本地素材根经只读盘点仅有 1 个 MP3 和素材、Rights JSON sidecars；按实际 SHA-256、来源、CC BY 4.0 署名证据及本机媒体技术检查，经**显式** `python -m scripts.import_local_materials --legacy-env /Users/xgx/Projects/Easel/.env --execute` 安全复制进 V2 内容寻址库。默认不带 `--execute` 时只做 dry-run；脚本不修改原素材或原 SQLite 库。导入的音频仅经用户本次复用授权设为 `owner_shared_import`；其他未明确许可的历史素材和用户上传不扩大作用域。重复执行不会重复拷贝有效字节。曾登记但署名不足的旧候选保留为被拒绝事实，修正后独立记录符合资格的版本，禁止以删除记录换 PASS。
 
 本机实测：新 V2 目录下 Pexels、Pixabay 配置存在且自动供料适配器已装配；Unsplash 仅 preview，生成 Rights 可用计数为 0。唯一 MP3 在**有画像/无画像的不同作品**中均能被检索为 1 个合格候选，使用权状态 `CONDITIONAL`，制作/导出必须继续携带完整署名；不得把命中等于导演已听取选中。此轮远程检索与真实生图/生视频/配音/模型调用均为 0，真实生产和 Creator 接受仍 `NOT_TESTED`。
+
+## S6-15：五类素材内部衔接
+
+现有 PlanDocument 和 EditProject/AudioClip 外部结构不变。新的任务内部 MaterialIntent 从冻结画像/导演/计划解释短检索词、媒体类型、BGM意图及SFX事件；结果按上下文摘要持久化，重启不重新解释。图/视频仍使用Pexels/Pixabay；BGM/SFX走本地授权素材和已有reviewed_public音频清单，不存在隐含的Pixabay音频API。必要音效缺口返回needs_decision，可选点缀不升级为新的硬性确认环节。
+
+外部供料须在本方案有效授权中选择 provider/model/mode：Pexels、Pixabay及reviewed_public均为 `model=stock,mode=search`；有配置不是授权，撤销后停止下一次检索/下载。既有本地合格资产可直接复用。Unsplash仍是单独主动预览，不自动供料。
+
+作品素材metadata的material_uses区分视觉、音乐及事件音效用途；同一文件可关联多个cue而不覆盖。供料输出仍只有schema_version和asset_ids。编辑前/选中后/渲染前复验具体素材的来源、Rights、范围、字节与引用，工程/导出仅列真正选中的素材。详细架构见[素材层架构](18_MATERIAL_LAYER_ARCHITECTURE.md)，真实服务及G4状态见[S6-15](tasks/S6-15_material-layer-hardening.md)。
 
 ## 公共事实检索
 

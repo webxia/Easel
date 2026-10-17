@@ -44,14 +44,35 @@ def capabilities(root: Path):
                 ('capability_unavailable' if not configured else None)})
     from .public_facts import public_fact_capabilities
     services.extend(public_fact_capabilities(settings))
-    import json
-    # Voice services expose only identity; configuration credentials stay private.
+    # Use the same pure parser as execution; missing keys/unsupported protocols
+    # must not appear usable merely because a voices array was configured.
+    from .voice import configured_speech_configs
+    from .errors import ProductionError
     try:
-        configs=json.loads(settings.get('EASEL_VOICE_SERVICES_JSON','[]'))
-        for config in configs:
-            services.append({'provider':config['provider'],'model':config['model'],'mode':'speech',
-                'label':'配音 · '+config['model'],'available':bool(config.get('voices'))})
-    except (ValueError,KeyError,TypeError):
-        pass
+        for config in configured_speech_configs(settings):
+            ready=any(option.available for option in config.voices)
+            services.append({'provider':config.provider,'model':config.model,'mode':config.mode,
+                'label':'配音 · '+config.model,'available':ready,
+                'reason':None if ready else 'voice_unavailable'})
+    except ProductionError:
+        services.append({'provider':'voice-configuration','model':'invalid','mode':'speech',
+            'label':'声音配置需要修正','available':False,'reason':'voice_configuration_invalid'})
+    from .providers.stock import ReviewedPublicSources
+    raw=settings.get('EASEL_REVIEWED_PUBLIC_SOURCES_JSON','').strip()
+    ready=False; media=[]; reason='capability_unavailable'
+    if raw:
+        try:
+            if not raw.startswith('{'):
+                path=Path(raw)
+                if not path.is_absolute() or any(p.is_symlink() for p in (path,*path.parents)) or path.stat().st_size>256*1024:
+                    raise ValueError('Invalid source configuration')
+                raw=path.read_text(encoding='utf-8')
+            if len(raw.encode('utf-8'))>256*1024:raise ValueError('Source configuration too large')
+            provider=ReviewedPublicSources.from_json(raw)
+            ready=True; media=sorted(kind.value for kind in provider.media_types); reason=None
+        except (ValueError,OSError,TypeError):
+            reason='source_configuration_invalid'
+    services.append({'provider':'reviewed_public','model':'stock','mode':'search','label':'已审查公开素材',
+        'configured':bool(raw),'available':ready,'media_types':media,'supports_auto_supply':True,'reason':reason})
     return {'services':services,'generation_limits':['IMAGE','VIDEO'],
             'voice_counts_toward_generation':False,'model_configured':bool(model)}

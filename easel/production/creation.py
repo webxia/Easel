@@ -12,6 +12,7 @@ from .inspection import observe_media
 from .model_tasks import ModelTaskError
 from .errors import ProductionError
 from .service import row,encode,now,new_id
+from .material_binding import validate_material_records, validate_audio_bindings, selected_asset_ids
 
 
 class CreativeEdit(Contract):
@@ -43,7 +44,11 @@ class CreationTasks:
         for item in records:
             if item['work_id']!=ctx.work_id or item['kind'] not in {'image','video','audio','font'}:
                 raise ModelTaskError('invalid_asset','素材不属于当前作品或类型不可用')
-            artifact_file(self.service,item)
+            try:
+                artifact_file(self.service,item)
+            except (ValueError,OSError):
+                raise ModelTaskError('invalid_asset','所引用素材已删除或发生变化，已保留其余成果') from None
+        validate_material_records(self.service,ctx,records)
         manifest=AssetManifest(root=self.service.outputs,assets={r['id']:MediaAsset(locator=r['storage_ref'],sha256=r['digest'],kind=r['kind']) for r in records})
         return records,manifest
 
@@ -64,7 +69,7 @@ class CreationTasks:
                 observations.append({'type':'text','text':'候选素材句柄 '+record['id']})
                 observations.extend(media);required.update(needs)
             answer=await self.planning.runner(ctx).run(context,
-                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代。字幕必须有真实字体素材。',CreativeEdit,media=tuple(observations),required=frozenset(required))
+                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可经实际听取后舍弃。音乐/旁白/音效不得互换用途。',CreativeEdit,media=tuple(observations),required=frozenset(required))
             settings=context.plan['settings'];horizontal=settings['aspect_ratio']=='16:9'
             from .contracts import SubtitleSettings
             from .subtitles import caption_from_settings
@@ -108,6 +113,11 @@ class CreationTasks:
                 raise ModelTaskError('narration_order_changed','旁白句段不能倒序或互相覆盖播放')
             if style.enabled and spoken and not project.captions:
                 raise ModelTaskError('subtitles_missing','已开启字幕的旁白不能省略字幕')
+            validate_audio_bindings(project,records)
+            selected = selected_asset_ids(project)
+            records = [r for r in records if r['id'] in selected]
+            manifest = AssetManifest(root=manifest.root,assets={k:v for k,v in manifest.assets.items() if k in selected})
+            validate_material_records(self.service,ctx,records)
             check=await asyncio.to_thread(self.editor.check,project,manifest)
             if not check.valid:raise ModelTaskError(check.code or 'editor_rejected','；'.join(check.diagnostics))
             temp=self.service.outputs/'_production'/'projects'/ctx.task_id
@@ -123,7 +133,13 @@ class CreationTasks:
         with self.service.store.connection() as conn:record=row(conn,'artifacts',ctx.payload['project_id'])
         if record['work_id']!=ctx.work_id:raise ValueError('cross-work project')
         project=EditProject.model_validate_json(artifact_file(self.service,record).read_text())
-        records,manifest=self.assets(ctx,ctx.payload['asset_ids'])
+        try:
+            selected = selected_asset_ids(project)
+            records,manifest=self.assets(ctx,[id for id in ctx.payload['asset_ids'] if id in selected])
+            validate_audio_bindings(project,records)
+        except ModelTaskError as exc:
+            return TaskResult(state='needs_decision',work_state='needs_decision',
+                error=ProductionError(exc.code,exc.user_message,requires_decision=True))
         job=await asyncio.to_thread(self.editor.build,project,manifest,job_id=ctx.task_id)
         # Worker resumes this exact job ID; editor refuses conflicting content.
         job=await asyncio.to_thread(self.editor.observe,job.job_id)

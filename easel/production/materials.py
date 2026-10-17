@@ -109,13 +109,62 @@ class MaterialService:
     def candidates(self, need: MaterialNeed, *, visibility: LibraryVisibility, context: UseContext,
                    query: str = "", limit: int = 100,
                    embedding_provider: EmbeddingProvider | None = None) -> LibraryReuseSearchResult:
+        if not 1 <= limit <= 1000:
+            raise MaterialLibraryError("Candidate limit must be between 1 and 1000")
+        # Rank a bounded pool first, but apply the requested top-k only after
+        # eligibility. An old invalid Rights record must not hide a valid one.
         if not query.strip():
-            return self.reuse.find_candidates(need, scope=visibility, context=context, limit=limit)
-        search = self.index.search(query, scope=visibility, context=context, provider=embedding_provider,
-                                   limit=limit, metadata_filters={"media_type": need.media_type, "limit": 1000})
-        checked = self.reuse.find_candidates(need, scope=visibility, context=context,
-                                             records=tuple(hit.record for hit in search.hits), limit=limit)
-        return LibraryReuseSearchResult(checked.candidates, checked.rejected, search.mode.value, search.fallback_reason)
+            checked = self.reuse.find_candidates(need, scope=visibility, context=context, limit=1000)
+            mode, reason = checked.search_mode, checked.fallback_reason
+        else:
+            search = self.index.search(query, scope=visibility, context=context, provider=embedding_provider,
+                                       limit=1000, metadata_filters={"media_type": need.media_type, "limit": 1000})
+            checked = self.reuse.find_candidates(need, scope=visibility, context=context,
+                records=tuple(hit.record for hit in search.hits), limit=1000)
+            mode, reason = search.mode.value, search.fallback_reason
+        candidates, seen = [], set()
+        for candidate in checked.candidates:
+            if candidate.asset.file.sha256 not in seen:
+                candidates.append(candidate)
+                seen.add(candidate.asset.file.sha256)
+            if len(candidates) == limit:
+                break
+        return LibraryReuseSearchResult(tuple(candidates), checked.rejected, mode, reason)
+
+    def preflight_external(self, candidate, need: MaterialNeed, context: UseContext):
+        """Check source Rights before downloading; this is not media inspection."""
+        pending = MaterialAsset(asset_id=candidate.candidate_id, media_type=candidate.media_type,
+            file=FileInfo(path="pending.media", sha256="0" * 64, size=0, mime="application/octet-stream"),
+            source=candidate.source, rights=candidate.rights, semantic=candidate.semantic)
+        current = need.model_copy(update={"constraints": {**need.constraints, **context.constraints}})
+        policy = RightsService()
+        return policy.evaluate(pending, current, attribution=policy.attribution_condition_for(pending))
+
+    @staticmethod
+    def _rights_identity(rights: RightsInfo) -> str:
+        # Observation time is not a new license. All substantive evidence,
+        # restrictions, credit text and policy versions still participate.
+        data = rights.model_dump(mode="json")
+        data.pop("reviewed_at", None)
+        for evidence in data.get("evidence", []):
+            evidence.pop("observed_at", None)
+        return json.dumps(data, sort_keys=True, ensure_ascii=False)
+
+    def reuse_external(self, candidate, need: MaterialNeed, *, visibility: LibraryVisibility,
+                       context: UseContext) -> MaterialHandle | None:
+        source = candidate.source
+        if not source.provider or not source.provider_asset_id:
+            return None
+        records = self.catalog.list_scope(scope=visibility, context=context,
+            media_type=need.media_type, provider=source.provider, limit=1000)
+        for record in records:
+            if (record.asset.source != source or
+                    self._rights_identity(record.asset.rights) != self._rights_identity(candidate.rights)):
+                continue
+            checked = self.reuse.find_candidates(need, scope=visibility, context=context, records=(record,))
+            if checked.candidates:
+                return self.resolve(record.asset_ref, visibility=visibility, context=context)
+        return None
 
     def select(self, asset_ref: str, need: MaterialNeed, *, visibility: LibraryVisibility,
                context: UseContext, reference_id: str, enforce_attribution: bool = False) -> MaterialHandle:

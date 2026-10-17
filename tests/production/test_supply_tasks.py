@@ -333,6 +333,15 @@ def reviewed_config(*, kinds=('image','audio'), rights=None):
          'rights':rights or RIGHTS,'semantic':{'caption':'Reviewed '+kind+' candidate'}} for kind in kinds]}
 
 
+def authorize_reviewed_source(ctx):
+    """An explicit fixture-only plan grant; configuration alone is not consent."""
+    with ctx.store.transaction() as writer:
+        for row in writer.execute('SELECT id,services_json FROM authorization_grants WHERE work_id=?',(ctx.work_id,)).fetchall():
+            services=json.loads(row['services_json'])
+            services.append({'provider':'reviewed_public','model':'stock','mode':'search'})
+            writer.execute('UPDATE authorization_grants SET services_json=? WHERE id=?',(canonical_json(services),row['id']))
+
+
 @pytest.mark.parametrize('audio_mode',['music','mixed'])
 def test_theme_only_music_has_reviewed_audio_candidates_and_reuses_downloads(env,audio_mode):
     import shutil
@@ -343,6 +352,7 @@ def test_theme_only_music_has_reviewed_audio_candidates_and_reuses_downloads(env
     rights={**RIGHTS,'status':'ATTRIBUTION_REQUIRED','attribution_required':True,
             'attribution_text':'Fixture creator — audio candidate https://media.example/asset/audio'}
     config=reviewed_config();config['candidates'][1]['rights']=rights
+    authorize_reviewed_source(ctx)
     task=configured_supply(service,ops,None,{'EASEL_REVIEWED_PUBLIC_SOURCES_JSON':canonical_json(config)})
     calls=[]
     class Transport:
@@ -399,6 +409,7 @@ def test_corrupt_reviewed_audio_is_an_explicit_music_gap(env):
     class Downloader:
         def download(self,*args,**kwargs):return SimpleNamespace(body=b'corrupt audio',mime='audio/wav')
     task.supplier.downloaders['reviewed_public']=Downloader()
+    authorize_reviewed_source(ctx)
     result=run(task,ctx)
     assert result.error.code=='music_material_gap'
     with ctx.store.connection() as conn:

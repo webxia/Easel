@@ -71,10 +71,10 @@ class PlanningTasks:
         payload['business_result']=result
         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
 
-    def runner(self, ctx):
+    def runner(self, ctx, *, namespace=None):
         if self.transport is None:
             raise ModelTaskError('service_unavailable','请先配置创作模型服务，再授权当前任务使用')
-        recorded=RecordedModelTransport(self.transport,self.operations,ctx,self.model_service,self.config_version)
+        recorded=RecordedModelTransport(self.transport,self.operations,ctx,self.model_service,self.config_version,namespace=namespace)
         async def authorize(_context):
             # Actual per-request authorization and durable receipt happen inside recorded.complete.
             return None

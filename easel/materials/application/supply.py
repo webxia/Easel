@@ -11,6 +11,7 @@ from easel.materials.domain import MaterialNeed
 from easel.materials.library import LibraryVisibility, UseContext
 from easel.materials.application.acquisition import MediaDownloader, RemoteURLPolicy
 from easel.materials.application.library_reuse import LibraryReuseCandidate
+from easel.materials.application.rights import RightsAdmissionStatus
 
 
 @dataclass(frozen=True)
@@ -41,7 +42,7 @@ class MaterialSupply:
     def supply(self, need: MaterialNeed, *, visibility: LibraryVisibility, context: UseContext,
                required_asset_refs: tuple[str, ...] = (), allowed_providers: tuple[str, ...] = (),
                allow_generation: bool = False, excluded_asset_refs: tuple[str, ...] = (),
-               check_current=None) -> MaterialSupplyResult:
+               check_current=None, check_provider=None) -> MaterialSupplyResult:
         selected, failures, attempted = [], [], []
         # Required input cannot be silently replaced by a stock or generated hit.
         for asset_ref in required_asset_refs:
@@ -70,6 +71,8 @@ class MaterialSupply:
                 continue
             if len(selected) >= need.desired_options:
                 break
+            if check_provider is not None:
+                check_provider(provider.provider_id)
             attempted.append(provider.provider_id)
             try:
                 candidates = provider.search(need.intent.description, media_type=need.media_type, limit=self.max_candidates)
@@ -83,13 +86,23 @@ class MaterialSupply:
                     check_current()
                 if len(selected) >= need.desired_options:
                     break
+                if check_provider is not None:
+                    check_provider(provider.provider_id)
                 if candidate.media_type is not need.media_type:
                     failures.append(SupplyFailure(provider.provider_id, "media_type_mismatch"))
                     continue
                 try:
-                    downloaded = downloader.download(candidate.download_url, media_type=need.media_type.value)
-                    handle = self.materials.ingest_downloaded(downloaded, visibility=visibility, context=context,
-                        media_type=need.media_type, source=candidate.source, rights=candidate.rights, semantic=candidate.semantic)
+                    admission = self.materials.preflight_external(candidate, need, context)
+                    if admission.status not in {RightsAdmissionStatus.ADMITTED, RightsAdmissionStatus.CONDITIONAL}:
+                        failures.append(SupplyFailure(provider.provider_id, admission.reason))
+                        continue
+                    handle = self.materials.reuse_external(candidate, need, visibility=visibility, context=context)
+                    if handle is None:
+                        downloaded = downloader.download(candidate.download_url, media_type=need.media_type.value)
+                        if check_current is not None:
+                            check_current()
+                        handle = self.materials.ingest_downloaded(downloaded, visibility=visibility, context=context,
+                            media_type=need.media_type, source=candidate.source, rights=candidate.rights, semantic=candidate.semantic)
                     record = self.materials.catalog.get(handle.asset_ref, scope=visibility, context=context)
                     checked = self.materials.reuse.find_candidates(need, scope=visibility, context=context, records=(record,))
                     if not checked.candidates:

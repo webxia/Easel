@@ -184,7 +184,7 @@ class PixabayStockProvider:
             raise StockUnavailable("capability_unavailable: Pixabay is not configured", code="capability_unavailable")
         if media_type not in self.media_types:
             raise StockUnavailable("capability_unavailable: Pixabay modality is unsupported", code="capability_unavailable")
-        if not query.strip() or len(query) > 300 or not 1 <= limit <= 80:
+        if not query.strip() or len(query) > 100 or not 1 <= limit <= 80:
             raise ValueError("Invalid Pixabay search input")
         query = query.strip()
         key = self._cache_key(query, media_type, limit)
@@ -195,7 +195,7 @@ class PixabayStockProvider:
         try:
             with httpx.Client(transport=self._transport, trust_env=False, follow_redirects=False, timeout=self._timeout) as client:
                 with client.stream("GET", "https://pixabay.com" + path,
-                    params={"key": self._key, "q": query, "per_page": limit, "page": 1, "safesearch": "true"}) as response:
+                    params={"key": self._key, "q": query, "per_page": max(3, limit), "page": 1, "safesearch": "true"}) as response:
                     if response.status_code != 200:
                         raise StockUnavailable(f"Pixabay search returned HTTP {response.status_code}")
                     data = bytearray()

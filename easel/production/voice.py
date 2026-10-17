@@ -80,6 +80,10 @@ class SpeechConfig:
             seen.add(identity.voice_id)
 
 
+class SpeechResponseError(ValueError):
+    """A definitive but unusable response; never expose the provider body."""
+
+
 class VoiceHTTPAdapter:
     """No remote query claim: observation only recovers a locally persisted receipt."""
     capabilities = ProviderCapabilities(query_by_request_key=True)
@@ -122,6 +126,19 @@ class VoiceHTTPAdapter:
     def _directory(self, request_key: str) -> Path:
         return self.root / fingerprint(request_key)
 
+    def _wire_request(self, request, identity):
+        return self.config.base_url.rstrip('/') + '/audio/speech', {
+            'model':identity.model,'voice':identity.voice_id,'input':request['text'],
+            'response_format':self.config.response_format,**identity.parameters}
+
+    def _write_audio(self, response, stream):
+        total = 0
+        for chunk in response.iter_bytes():
+            total += len(chunk)
+            if total > 64 * 1024 * 1024:
+                raise SpeechResponseError('speech response exceeds local limit')
+            stream.write(chunk)
+
     def submit(self, request: dict, *, request_key: str) -> ProviderResult:
         # Validate the complete persisted request before entering the transport.
         try:
@@ -131,6 +148,7 @@ class VoiceHTTPAdapter:
             expected = self.request(identity=identity, text=request["text"], segment_id=request["segment_id"])
             if request != expected:
                 raise ValueError("speech intent changed")
+            endpoint, payload = self._wire_request(request, identity)
         except (KeyError, ValueError, ProductionError) as error:
             raise SubmissionNotSent("invalid speech request") from error
         folder = self._directory(request_key)
@@ -147,14 +165,12 @@ class VoiceHTTPAdapter:
                     raise SubmissionNotSent("speech key conflict")
                 return ProviderResult("unknown")
             atomic_json(intent, {"request_hash": fingerprint(request)})
-            payload = {"model": identity.model, "voice": identity.voice_id, "input": request["text"],
-                       "response_format": self.config.response_format, **identity.parameters}
             headers = {"Content-Type": "application/json", "Idempotency-Key": request_key}
             if self.config.api_key:
                 headers["Authorization"] = f"Bearer {self.config.api_key}"
             with httpx.Client(transport=self.transport, timeout=self.config.timeout_seconds,
                               trust_env=False, follow_redirects=False) as client:
-                with client.stream("POST", self.config.base_url.rstrip("/") + "/audio/speech",
+                with client.stream("POST", endpoint,
                                    json=payload, headers=headers) as response:
                     if response.status_code != 200:
                         # A rejected request still reached the service. Never
@@ -163,16 +179,18 @@ class VoiceHTTPAdapter:
                                                                    "http_status": response.status_code})
                         atomic_json(folder / "receipt.json", {"state": receipt.state, "result": receipt.result})
                         return receipt
-                    total = 0
                     with tempfile.NamedTemporaryFile(prefix="speech-", dir=folder, delete=False) as stream:
                         temporary = Path(stream.name)
                         try:
-                            for chunk in response.iter_bytes():
-                                total += len(chunk)
-                                if total > 64 * 1024 * 1024:
-                                    raise ValueError("speech response exceeds local limit")
-                                stream.write(chunk)
+                            self._write_audio(response, stream)
+                        except SpeechResponseError:
+                            stream.close()
+                            temporary.unlink(missing_ok=True)
+                            receipt = ProviderResult('failed', result={'error_code':'voice_invalid_response'})
+                            atomic_json(folder / 'receipt.json', {'state':receipt.state,'result':receipt.result})
+                            return receipt
                         except BaseException:
+                            stream.close()
                             temporary.unlink(missing_ok=True)
                             raise
             output = folder / f"audio.{self.config.response_format}"
@@ -319,47 +337,56 @@ def sentence_segments(text: str) -> list[dict]:
     return result
 
 
+def configured_speech_configs(settings: dict[str, str]) -> tuple[SpeechConfig, ...]:
+    """Pure identity/capability parsing; no directories, requests or authority."""
+    try:
+        values = json.loads(settings.get('EASEL_VOICE_SERVICES_JSON', '[]') or '[]')
+        if not isinstance(values, list) or len(values) > 30:
+            raise ValueError('invalid service list')
+        configs = []
+        for value in values:
+            if not isinstance(value,dict) or set(value) - {'provider','model','engine','base_url','api_key_env','mode','voices','response_format','timeout_seconds'}:
+                raise ValueError('unsupported service configuration')
+            voices = []
+            if not isinstance(value.get('voices'),list) or len(value['voices']) > 200:
+                raise ValueError('invalid voice list')
+            for item in value['voices']:
+                identity = VoiceIdentity(provider=value['provider'],model=value['model'],engine=value['engine'],
+                    voice_id=item['voice_id'],parameters=item.get('parameters',{}))
+                speed_range = tuple(item['speed_range']) if item.get('speed_range') else None
+                if speed_range and (len(speed_range)!=2 or not 0<speed_range[0]<=speed_range[1]<=4):
+                    raise ValueError('invalid speech parameter range')
+                voices.append(VoiceOption(identity,item['label'],tuple(item.get('tags',[])),tuple(item.get('languages',[])),
+                    speed_range,item.get('instructions_supported',False),item.get('available',True),
+                    item.get('unavailable_reason',''),item.get('fee_notice',VoiceOption.__dataclass_fields__['fee_notice'].default)))
+            key_name = value.get('api_key_env','')
+            missing_key = key_name and (not re.fullmatch(r'[A-Z][A-Z0-9_]*',key_name) or not settings.get(key_name))
+            unsupported = value['engine'] not in {'http-speech-v1','speech-http-v1','minimax-speech-v1'}
+            if missing_key or unsupported:
+                voices = [VoiceOption(v.identity,v.label,v.tags,v.languages,v.speed_range,v.instructions_supported,
+                    False,'服务凭证尚未配置' if missing_key else '声音协议尚未接入',v.fee_notice) for v in voices]
+            if value['engine']=='minimax-speech-v1':
+                if value.get('response_format','wav') not in {'wav','mp3','flac'} or any(v.instructions_supported for v in voices):
+                    raise ValueError('unsupported native speech capabilities')
+                if any(v.speed_range and not .5<=v.speed_range[0]<=v.speed_range[1]<=2 for v in voices):
+                    raise ValueError('native speech speed outside documented range')
+            configs.append(SpeechConfig(provider=value['provider'],model=value['model'],engine=value['engine'],
+                base_url=value['base_url'],config_version=fingerprint(value),voices=tuple(voices),
+                api_key=settings.get(key_name,'') if key_name else '',mode=value.get('mode','speech'),
+                response_format=value.get('response_format','wav'),timeout_seconds=value.get('timeout_seconds',120)))
+        return tuple(configs)
+    except (ValueError,TypeError,KeyError):
+        raise ProductionError('voice_configuration_invalid','声音服务配置格式无效，请检查具名服务配置') from None
+
+
 def configured_voice_service(operations: OperationService, *, root: Path, settings: dict[str, str],
                              transport: httpx.BaseTransport | None = None) -> VoiceService:
-    """Read opt-in JSON config; no inference from a generic TTS key or auto mode.
-
-    EASEL_VOICE_SERVICES_JSON is an array of provider/model/engine/base_url,
-    api_key_env (a key NAME in settings), mode and voices. A voice has voice_id,
-    label and optional tags/languages/speed_range/instructions_supported. Secrets
-    are never accepted inline or included in catalog/config_version receipts.
-    """
-    try:
-        values = json.loads(settings.get("EASEL_VOICE_SERVICES_JSON", "[]") or "[]")
-        if not isinstance(values, list) or len(values) > 30:
-            raise ValueError("invalid service list")
-        adapters = []
-        for value in values:
-            if set(value) - {"provider", "model", "engine", "base_url", "api_key_env", "mode", "voices", "response_format", "timeout_seconds"}:
-                raise ValueError("unsupported service configuration")
-            voices = []
-            for item in value["voices"]:
-                identity = VoiceIdentity(provider=value["provider"], model=value["model"], engine=value["engine"],
-                                         voice_id=item["voice_id"], parameters=item.get("parameters", {}))
-                speed_range = tuple(item["speed_range"]) if item.get("speed_range") else None
-                if speed_range and (len(speed_range) != 2 or not 0 < speed_range[0] <= speed_range[1] <= 4):
-                    raise ValueError("invalid speech parameter range")
-                voices.append(VoiceOption(identity, item["label"], tuple(item.get("tags", [])), tuple(item.get("languages", [])),
-                    speed_range, item.get("instructions_supported", False), item.get("available", True),
-                    item.get("unavailable_reason", ""), item.get("fee_notice", VoiceOption.__dataclass_fields__["fee_notice"].default)))
-            key_name = value.get("api_key_env", "")
-            if key_name and (not re.fullmatch(r"[A-Z][A-Z0-9_]*", key_name) or not settings.get(key_name)):
-                # Preserve configured options and their fixed identity, marked
-                # unavailable, so the UI can explain without choosing another.
-                voices = [VoiceOption(v.identity, v.label, v.tags, v.languages, v.speed_range, v.instructions_supported,
-                                      False, "服务凭证尚未配置", v.fee_notice) for v in voices]
-            config = SpeechConfig(provider=value["provider"], model=value["model"], engine=value["engine"],
-                base_url=value["base_url"], config_version=fingerprint(value), voices=tuple(voices),
-                api_key=settings.get(key_name, "") if key_name else "", mode=value.get("mode", "speech"),
-                response_format=value.get("response_format", "wav"), timeout_seconds=value.get("timeout_seconds", 120))
-            adapters.append(VoiceHTTPAdapter(config, root / "receipts" / fingerprint([config.provider, config.model, config.engine]), transport=transport))
-        return VoiceService(operations, root / "cache", adapters)
-    except (ValueError, TypeError, KeyError):
-        raise ProductionError("voice_configuration_invalid", "声音服务配置格式无效，请检查具名服务配置") from None
+    from .providers.minimax_speech import MiniMaxSpeechAdapter
+    adapters = []
+    for config in configured_speech_configs(settings):
+        adapter = MiniMaxSpeechAdapter if config.engine=='minimax-speech-v1' else VoiceHTTPAdapter
+        adapters.append(adapter(config,root/'receipts'/fingerprint([config.provider,config.model,config.engine]),transport=transport))
+    return VoiceService(operations,root/'cache',adapters)
 
 
 def register_voice_asset(context, *, outputs: Path, result: dict) -> str:

@@ -45,7 +45,8 @@ class SupplyDecision(Contract):
 class SupplyTasks:
     def __init__(self, service, operations, *, planning=None, materials=None,
                  external_providers=(), downloaders=None, generation_providers=None,
-                 generation_rights=None, config_version='production-1', source_configuration_error=None):
+                 generation_rights=None, config_version='production-1', source_configuration_error=None,
+                 intent_compiler=None, enforce_provider_grants=False):
         self.service, self.operations, self.planning = service, operations, planning
         self.materials = materials or MaterialService(service.outputs / '_production' / 'materials')
         self.external_providers = tuple(external_providers)
@@ -54,15 +55,34 @@ class SupplyTasks:
         self.generation_rights = dict(generation_rights or {})
         self.config_version = config_version
         self.source_configuration_error = source_configuration_error
+        self.intent_compiler = intent_compiler
+        self.enforce_provider_grants = enforce_provider_grants
 
-    def _allowed_providers(self, kind):
-        return tuple(p.provider_id for p in self.external_providers
-                     if MediaType(kind) in getattr(p, 'media_types', frozenset(MediaType)))
+    def _allowed_providers(self, kind, ctx=None):
+        providers = [p for p in self.external_providers
+                     if MediaType(kind) in getattr(p, 'media_types', frozenset(MediaType))]
+        if not self.enforce_provider_grants:
+            return tuple(p.provider_id for p in providers)
+        if ctx is None:
+            return ()
+        ctx.assert_current()
+        with ctx.store.connection() as reader:
+            grants = reader.execute("SELECT services_json FROM authorization_grants WHERE work_id=? AND purpose='production' AND plan_revision=? AND revoked_at IS NULL", (ctx.work_id, ctx.plan_revision)).fetchall()
+        allowed = [identity for grant in grants for identity in json.loads(grant[0])]
+        return tuple(p.provider_id for p in providers if
+            {'provider': p.provider_id, 'model': 'stock', 'mode': 'search'} in allowed)
+
+    def _check_provider(self, ctx, kind, provider_id):
+        ctx.assert_current()
+        if self.enforce_provider_grants and provider_id not in self._allowed_providers(kind,ctx):
+            raise ProductionError('permission_missing','本次素材来源授权已撤销，未发送后续检索或下载',requires_decision=True)
 
     @staticmethod
-    def _need(scene_id, visual, kind):
+    def _need(scene_id, visual, kind, *, context=None, options=1):
         return MaterialNeed(need_id=scene_id + ':' + kind, media_type=MediaType(kind), role='visual' if kind != 'audio' else 'audio',
-            scope=NeedScope(type=NeedScopeType.SCENE, ref=scene_id), importance=NeedImportance.REQUIRED, intent=NeedIntent(description=visual))
+            scope=NeedScope(type=NeedScopeType.SCENE, ref=scene_id), importance=NeedImportance.REQUIRED,
+            intent=NeedIntent(description=visual), desired_options=options,
+            constraints=dict(context.constraints) if context is not None else {})
 
     @staticmethod
     def _blocked(code, message, *, ids=(), operation_id=None, result=None):
@@ -82,9 +102,11 @@ class SupplyTasks:
             path = MaterialFileStore(self.service.outputs).resolve_asset_locator(record['storage_ref'])
             if digest_file(path) != record['digest']:
                 raise ProductionError('material_changed', '本次已登记素材发生变化，请核实后继续', affected_ids=[record['id']], requires_decision=True)
+        from .material_binding import validate_material_records
+        validate_material_records(self.service,ctx,records)
         return work, PlanDocument.model_validate_json(plan['payload_json']), inputs, records
 
-    def _register(self, ctx, handle, *, scope, context, scene_ids, input_id=None, operation_id=None, candidate_role=None):
+    def _register(self, ctx, handle, *, scope, context, scene_ids, input_id=None, operation_id=None, candidate_role=None, material_use=None):
         """Keep a durable library reference before copying and fenced DB registration.
 
         Cross-database failure may leave a conservative retained reference; it
@@ -93,7 +115,7 @@ class SupplyTasks:
         identity = fingerprint([ctx.work_id, ctx.task_id, handle.asset_ref, input_id, operation_id])
         artifact_id = 'material_' + identity[:32]
         self.materials.catalog.record_usage(handle.asset_ref, scope=scope, context=context,
-            reference_id=artifact_id, need_ids=tuple(scene_ids),
+            reference_id=artifact_id, need_ids=tuple(sorted(set(scene_ids) | ({material_use['need_id']} if material_use else set()))),
             attribution=handle.attribution.__dict__ if handle.attribution else None)
         suffix = {'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp',
                   'video/mp4': '.mp4', 'audio/mpeg': '.mp3', 'audio/wav': '.wav'}.get(handle.asset.file.mime, handle.local_path.suffix)
@@ -101,7 +123,8 @@ class SupplyTasks:
         MaterialFileStore(self.service.outputs).stage_object(handle.local_path, locator, handle.digest, handle.asset.file.size)
         metadata = {'schema_version': 1, **handle.artifact_metadata(), 'supply_task_id': ctx.task_id,
                     'scene_ids': list(scene_ids), 'input_id': input_id, 'candidate_only': input_id is None,
-                    'material_scope': scope.model_dump(mode='json')}
+                    'material_scope': scope.model_dump(mode='json'), 'use_constraints': context.constraints,
+            'material_uses': [material_use] if material_use else []}
         if candidate_role:
             # A requested use, not a claim that the director has heard or chosen it.
             metadata['candidate_role'] = candidate_role
@@ -113,6 +136,14 @@ class SupplyTasks:
             if previous:
                 old = json.loads(previous['metadata_json'])
                 metadata['scene_ids'] = sorted(set(old.get('scene_ids', [])) | set(scene_ids))
+                uses = old.get('material_uses', [])
+                if material_use and material_use not in uses:
+                    uses = [*uses, material_use]
+                metadata['material_uses'] = uses
+                # Keep the old scalar for older consumers; a multi-use object
+                # no longer loses its music binding when also used as SFX.
+                if old.get('candidate_role'):
+                    metadata['candidate_role'] = old['candidate_role']
                 conn.execute('UPDATE artifacts SET metadata_json=? WHERE id=?', (canonical_json(metadata), artifact_id))
             else:
                 conn.execute('''INSERT INTO artifacts(id,work_id,run_id,operation_id,kind,storage_ref,digest,size_bytes,media_type,displayable,metadata_json,created_at)
@@ -124,7 +155,7 @@ class SupplyTasks:
             # into an artifact edge.
             return dict(conn.execute('SELECT * FROM artifacts WHERE id=?', (artifact_id,)).fetchone())
 
-    def _acquire(self, ctx, plan, inputs, records, scope, context):
+    def _acquire(self, ctx, plan, inputs, records, scope, context, intent=None):
         scenes = {s.id: s for s in plan.scenes}
         mapped = {json.loads(r['metadata_json']).get('input_id'): r for r in records}
         for item in inputs:
@@ -142,7 +173,7 @@ class SupplyTasks:
                 visibility=scope, context=context, media_type=MediaType(item['kind']),
                 source=CandidateSource(kind='user_upload', provider_asset_id=item['id']),rights=rights,
                 semantic=SemanticInfo(caption=item['original_name'] or None),expected_sha256=item['digest'])
-            need = self._need(scene_ids[0],scenes[scene_ids[0]].visual,item['kind'])
+            need = self._need(scene_ids[0],scenes[scene_ids[0]].visual,item['kind'],context=context)
             found = self.materials.reuse.find_candidates(need,scope=scope,context=context,
                 records=(self.materials.catalog.get(handle.asset_ref,scope=scope,context=context),))
             if not found.candidates:
@@ -161,25 +192,29 @@ class SupplyTasks:
             if scene.id in planned_generation:
                 gaps.append(scene.id)
                 continue
-            for kind in ('image','video'):
+            visual = next((v for v in intent.visuals if v.scene_id == scene.id), None) if intent else None
+            for kind in (visual.media_types if visual else ('image','video')):
                 ctx.assert_current()
-                need = self._need(scene.id,scene.visual,kind)
+                need = self._need(scene.id,visual.query if visual else scene.visual,kind,
+                                  context=context,options=visual.options if visual else 1)
                 answer = self.supplier.supply(need,visibility=scope,context=context,
-                    allowed_providers=self._allowed_providers(kind),check_current=ctx.assert_current)
+                    allowed_providers=self._allowed_providers(kind,ctx),check_current=ctx.assert_current,
+                    check_provider=lambda provider_id:self._check_provider(ctx,kind,provider_id))
                 with ctx.transaction() as conn:
                     ctx.store.append_event(conn,ctx.work_id,'material_search_completed',
                         {'scene_id':scene.id,'kind':kind,'candidate_count':len(answer.candidates),
                          'sources':list(answer.attempted_sources),'failures':[{'source':f.source,'code':f.reason} for f in answer.failures]},run_id=ctx.run_id)
                 for candidate in answer.candidates:
                     handle = self.materials.resolve(candidate.library_asset_id,visibility=scope,context=context)
-                    record = self._register(ctx,handle,scope=scope,context=context,scene_ids=[scene.id])
+                    record = self._register(ctx,handle,scope=scope,context=context,scene_ids=[scene.id],
+                        material_use={'need_id':need.need_id,'role':'visual','scene_id':scene.id,'need':need.model_dump(mode='json')})
                     if not any(r['id']==record['id'] for r in records):records.append(record)
                     else:records[:] = [record if r['id']==record['id'] else r for r in records]
             if not any(r['kind'] in {'image','video'} and scene.id in json.loads(r['metadata_json']).get('scene_ids',[]) for r in records):
                 gaps.append(scene.id)
         return records,gaps
 
-    def _acquire_music(self, ctx, plan, records, scope, context):
+    def _acquire_music(self, ctx, plan, records, scope, context, intent=None):
         if plan.settings.audio_mode not in {'music', 'mixed'}:
             return
         if any(r['kind'] == 'audio' and json.loads(r['metadata_json']).get('candidate_role') == 'music' for r in records):
@@ -188,14 +223,18 @@ class SupplyTasks:
             scope=NeedScope(type=NeedScopeType.GLOBAL, ref=ctx.work_id), importance=NeedImportance.REQUIRED,
             intent=NeedIntent(description='为已确认作品选择背景音乐候选：' + plan.title + '。' + plan.summary +
                               '。已确认约束：' + canonical_json(plan.constraints), function='background_music'))
-        allowed = self._allowed_providers('audio')
+        if intent and intent.music_query:
+            need = need.model_copy(update={'intent':NeedIntent(description=intent.music_query,function='background_music'),
+                                          'constraints':dict(context.constraints)})
+        allowed = self._allowed_providers('audio',ctx)
         # Metadata search cannot establish that a track fits a mood or that
         # speech is music. Offer bounded qualified library audio to the director;
         # only actual listening/edit judgement can accept its intended use.
-        prior = self.materials.reuse.find_candidates(need, scope=scope, context=context, limit=8)
+        prior = self.materials.candidates(need, visibility=scope, context=context, limit=8)
         answer = (MaterialSupplyResult(prior.candidates[:8], (), (), ()) if prior.candidates else
                   self.supplier.supply(need, visibility=scope, context=context,
-                                       allowed_providers=allowed, check_current=ctx.assert_current))
+                                       allowed_providers=allowed, check_current=ctx.assert_current,
+                                       check_provider=lambda provider_id:self._check_provider(ctx,'audio',provider_id)))
         with ctx.transaction() as conn:
             ctx.store.append_event(conn, ctx.work_id, 'material_search_completed',
                 {'kind': 'audio', 'role': 'music', 'candidate_count': len(answer.candidates),
@@ -204,7 +243,8 @@ class SupplyTasks:
         for candidate in answer.candidates:
             handle = self.materials.resolve(candidate.library_asset_id, visibility=scope, context=context)
             record = self._register(ctx, handle, scope=scope, context=context,
-                                    scene_ids=[s.id for s in plan.scenes], candidate_role='music')
+                                    scene_ids=[s.id for s in plan.scenes], candidate_role='music',
+                                    material_use={'need_id':need.need_id,'role':'music','need':need.model_dump(mode='json')})
             if not any(r['id'] == record['id'] for r in records):
                 records.append(record)
         if not answer.candidates:
@@ -213,6 +253,36 @@ class SupplyTasks:
                     '本方案需要音乐，库内尚无合格音频，且未配置有使用权依据的外部音频来源；请提供音乐或配置已审查公开来源，不会改成静音或生成 AI 音乐', requires_decision=True)
             raise ProductionError('music_material_gap',
                 '已尝试音乐素材库和已审查公开来源，但未取得可供导演选择的合格音频；请补充素材或使用权依据，保留已取得成果', requires_decision=True)
+
+    def _acquire_sfx(self, ctx, plan, records, scope, context, intent):
+        for cue in intent.sound_cues:
+            if any(use.get('cue_id') == cue.cue_id for record in records
+                   for use in json.loads(record['metadata_json']).get('material_uses', [])):
+                continue
+            need = MaterialNeed(need_id='sfx:'+cue.cue_id,media_type=MediaType.AUDIO,role='sfx',
+                scope=NeedScope(type=NeedScopeType.EVENT,ref=cue.cue_id),
+                importance=NeedImportance.REQUIRED if cue.required else NeedImportance.OPTIONAL,
+                intent=NeedIntent(description=cue.query,function=cue.basis),constraints=dict(context.constraints))
+            answer = self.supplier.supply(need,visibility=scope,context=context,
+                allowed_providers=self._allowed_providers('audio',ctx),check_current=ctx.assert_current,
+                check_provider=lambda provider_id:self._check_provider(ctx,'audio',provider_id))
+            use={'need_id':need.need_id,'role':'sfx','cue_id':cue.cue_id,'scene_id':cue.scene_id,
+                 'at':cue.at,'duration':cue.duration,'required':cue.required,'basis':cue.basis,
+                 'need':need.model_dump(mode='json')}
+            for candidate in answer.candidates:
+                handle=self.materials.resolve(candidate.library_asset_id,visibility=scope,context=context)
+                record=self._register(ctx,handle,scope=scope,context=context,scene_ids=[cue.scene_id],
+                                      candidate_role='sfx',material_use=use)
+                if any(r['id']==record['id'] for r in records):
+                    records[:]=[record if r['id']==record['id'] else r for r in records]
+                else:records.append(record)
+            with ctx.transaction() as writer:
+                ctx.store.append_event(writer,ctx.work_id,'material_search_completed',
+                    {'kind':'audio','role':'sfx','cue_id':cue.cue_id,'candidate_count':len(answer.candidates),
+                     'sources':list(answer.attempted_sources),'required':cue.required},run_id=ctx.run_id)
+            if not answer.candidates and cue.required:
+                raise ProductionError('sfx_material_gap','已确认所需音效缺少合法素材，保留已有成果，不会静默省略',
+                                      affected_ids=[cue.cue_id],requires_decision=True)
 
     def _grant(self, ctx, adapter):
         identity = {'provider':adapter.provider_id,'model':adapter.model,'mode':adapter.mode}
@@ -230,7 +300,7 @@ class SupplyTasks:
         if ctx.payload.get('generation_requests') is not None:
             answer = SupplyDecision(generation_requests=ctx.payload['generation_requests'])
         elif self.planning is not None and gaps:
-            if not (self._allowed_providers('image') or self._allowed_providers('video')):
+            if not (self._allowed_providers('image',ctx) or self._allowed_providers('video',ctx)):
                 raise ProductionError('capability_unavailable','库内素材不足，外部图库或公开来源尚未配置；请先配置外部来源，或明确选择本次 AI 生成',affected_ids=gaps,requires_decision=True)
             capabilities=[]
             for kind,adapter in self.generation_providers.items():
@@ -316,9 +386,15 @@ class SupplyTasks:
             if self.source_configuration_error:
                 return self._blocked('source_configuration_invalid', self.source_configuration_error)
             scope=LibraryVisibility(profile_ref=plan.profile_snapshot.profile_ref if plan.profile_snapshot else None)
-            context=UseContext(work_id=ctx.work_id)
-            records,gaps=await asyncio.to_thread(self._acquire,ctx,plan,inputs,records,scope,context)
-            await asyncio.to_thread(self._acquire_music,ctx,plan,records,scope,context)
+            intent, creative = (await self.intent_compiler.prepare(ctx,plan)) if self.intent_compiler else (None,None)
+            context=UseContext(work_id=ctx.work_id,constraints={
+                'plan_hash':fingerprint(plan), 'confirmed_constraints':plan.constraints,
+                'aspect_ratio':plan.settings.aspect_ratio, 'duration_seconds':plan.settings.duration_seconds,
+                **({'director':creative.director,'creator_context_hash':creative.fingerprint} if creative else {})})
+            records,gaps=await asyncio.to_thread(self._acquire,ctx,plan,inputs,records,scope,context,intent)
+            await asyncio.to_thread(self._acquire_music,ctx,plan,records,scope,context,intent)
+            if intent:
+                await asyncio.to_thread(self._acquire_sfx,ctx,plan,records,scope,context,intent)
             decision=await self._decision(ctx,plan,records,gaps)
             if set(decision.unresolved_scene_ids) & set(gaps):
                 return self._blocked('material_gap','场景素材仍有缺口或需要修改已确认方案，请明确本次调整',ids=decision.unresolved_scene_ids)
@@ -383,6 +459,7 @@ def configured_supply(service,operations,planning,settings):
     """Compose genuine adapters without making a request or granting consent."""
     from .providers.stock import PexelsStockProvider, ReviewedPublicSources
     from .providers.pixabay import PixabayStockProvider
+    from .material_intent import FrozenIntentCompiler
     from .providers.generation_http import MiniMaxImageProvider, MiniMaxVideoProvider
     providers=[]
     if settings.get('PEXELS_API_KEY','').strip():providers.append(PexelsStockProvider(settings['PEXELS_API_KEY']))
@@ -414,4 +491,6 @@ def configured_supply(service,operations,planning,settings):
     version=fingerprint({'services':[(kind,p.provider_id,p.model,p.mode) for kind,p in generations.items()],
         'rights':{k:v.model_dump(mode='json') for k,v in _configured_rights(settings).items()}})
     return SupplyTasks(service,operations,planning=planning,external_providers=providers,generation_providers=generations,
-                       generation_rights=_configured_rights(settings),config_version=version,source_configuration_error=source_error)
+                       generation_rights=_configured_rights(settings),config_version=version,source_configuration_error=source_error,
+                       enforce_provider_grants=True,
+                       intent_compiler=FrozenIntentCompiler(planning) if planning is not None else None)
