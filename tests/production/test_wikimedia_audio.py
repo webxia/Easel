@@ -262,6 +262,19 @@ def test_audio_providers_restrict_role_and_dont_download_wrong_role(tmp_path):
         _need("sfx"),visibility=scope,context=context,allowed_providers=(bgm.provider_id,)).attempted_sources==()
 
 
+def test_wikimedia_download_user_agent_is_configured_for_proxy_and_direct(tmp_path):
+    from easel.materials.application.acquisition import MediaDownloader, RemoteURLPolicy
+    from types import SimpleNamespace
+    output=tmp_path/'outputs';output.mkdir()
+    svc=SimpleNamespace(outputs=output)
+    configured=configured_supply(svc,None,None,{
+        'EASEL_WIKIMEDIA_AUDIO_ENABLED':'1',
+        'EASEL_MATERIAL_HTTP_PROXY':'http://127.0.0.1:7897'})
+    assert configured.supplier.downloaders['wikimedia_sfx'].user_agent == WikimediaAudioProvider.download_user_agent
+    assert configured.supplier.downloaders['wikimedia_bgm'].user_agent == WikimediaAudioProvider.download_user_agent
+    assert MediaDownloader(RemoteURLPolicy(('example.com',),resolver=lambda *_:('8.8.8.8',))).user_agent == 'Easel/2 material acquisition'
+
+
 def test_configuration_adds_two_stock_choices_only_when_enabled(tmp_path):
     outputs=tmp_path/"outputs"
     outputs.mkdir()

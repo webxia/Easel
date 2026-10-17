@@ -86,7 +86,9 @@ class MaterialSupply:
                 code = getattr(exc, "code", None)
                 failures.append(SupplyFailure(provider.provider_id, code if code in {"capability_unavailable", "source_unavailable"} else type(exc).__name__))
                 continue
-            downloader = self.downloaders.get(provider.provider_id) or MediaDownloader(RemoteURLPolicy(provider.allowed_hosts))
+            downloader = self.downloaders.get(provider.provider_id) or MediaDownloader(
+                RemoteURLPolicy(provider.allowed_hosts),
+                user_agent=getattr(provider,'download_user_agent','Easel/2 material acquisition'))
             for candidate in tuple(candidates)[:self.max_candidates]:
                 if check_current is not None:
                     check_current()

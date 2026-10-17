@@ -133,11 +133,15 @@ class MediaDownloader:
     """Download only; it cannot grant rights or submit a generation request."""
 
     def __init__(self, policy: RemoteURLPolicy, *, transport=None, timeout: float = 30,
-                 max_bytes: int = 128 * 1024 * 1024, max_redirects: int = 5):
+                 max_bytes: int = 128 * 1024 * 1024, max_redirects: int = 5,
+                 user_agent: str = 'Easel/2 material acquisition'):
         if timeout <= 0 or max_bytes <= 0 or not 0 <= max_redirects <= 5:
             raise ValueError("Invalid download limits")
         self.policy, self.transport = policy, transport or PinnedHttpsTransport()
         self.timeout, self.max_bytes, self.max_redirects = timeout, max_bytes, max_redirects
+        if not isinstance(user_agent,str) or not 1<=len(user_agent)<=180 or any(c in user_agent for c in '\r\n\x00'):
+            raise ValueError('Invalid media user agent')
+        self.user_agent = user_agent
 
     def download(self, url: str, *, media_type: str) -> DownloadedMedia:
         if media_type not in {"image", "video", "audio"}:
@@ -149,7 +153,7 @@ class MediaDownloader:
             seen.add(current)
             addresses = self.policy.validate(current)
             response = self.transport.get(current, headers={"Accept": media_type + "/*",
-                "Accept-Encoding": "identity", "User-Agent": "Easel/2 material acquisition"},
+                "Accept-Encoding": "identity", "User-Agent": self.user_agent},
                 timeout=self.timeout, max_bytes=self.max_bytes, addresses=addresses)
             headers = {key.lower(): value for key, value in response.headers.items()}
             if response.status_code in {301, 302, 303, 307, 308}:

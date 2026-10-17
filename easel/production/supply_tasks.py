@@ -495,7 +495,8 @@ def configured_supply(service,operations,planning,settings):
         resolver=PublicDNSOverProxy(proxy_url)
         transport=ProxyPinnedHttpsTransport(proxy_url)
         downloaders={provider.provider_id: MediaDownloader(
-            RemoteURLPolicy(provider.allowed_hosts, resolver=resolver),transport=transport)
+            RemoteURLPolicy(provider.allowed_hosts, resolver=resolver),transport=transport,
+            user_agent=getattr(provider,'download_user_agent','Easel/2 material acquisition'))
             for provider in providers}
     generations={}
     if settings.get('MINIMAX_API_KEY','').strip():

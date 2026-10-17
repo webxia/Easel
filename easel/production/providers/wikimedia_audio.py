@@ -59,6 +59,7 @@ class WikimediaAudioProvider:
     media_types = frozenset({MediaType.AUDIO})
     api_url = "https://commons.wikimedia.org/w/api.php"
     contact_url = "https://github.com/webxia/Easel"
+    download_user_agent = 'EaselAudio/0.1 (https://github.com/webxia/Easel)'
     license_urls = {
         "CC0": "https://creativecommons.org/publicdomain/zero/1.0/",
         "CC0 1.0": "https://creativecommons.org/publicdomain/zero/1.0/",

@@ -145,3 +145,5 @@ Windows 另暴露 SQLite `catalog.db-shm` 并发消失时，`Path.resolve(strict
 ## 6. G4 正式执行记录与暂停（2026-10-17）
 
 用户要求“完成 G4，完成后暂停”。已经按既定 G4 门禁完成上下游冻结合同 SHA 回查、五模态逐项证据评审、真实免费 Pexels/Pixabay（图片/视频各 3 条）与 Commons（rain/piano 各 3 条）候选检索、CI 失败原因定位及可移植测试修复。完整证据、P0 阻断项和准入结论唯一维护于 [G4 正式报告](../19_MATERIAL_LAYER_G4_ACCEPTANCE.md)。结论 **G4_REVIEW_COMPLETED / NO_GO**：真实媒体安全下载未通过，仍不可把 G3 本机 Mock 视为真实生产；AI 旁白、素材试听及新 SHA CI 门槛需各自闭合。此轮不重做 G0/G1，不放宽 Rights/DNS/Operation，不开展 S6-14。**收尾后暂停，不自动继续。**
+
+2026-10-17 后续专项复验：按用户新授权，Wikimedia 音效因通用 User-Agent 导致的 HTTP 429 已通过源专属识别性 User-Agent 修正，真实 SFX OGG 30423 bytes/1.473923s 完成受控下载、SHA1/Rights/FFprobe/隔离库验收；Pixabay 视频以前诊断用 15MB 上限不代表正式下载能力，真实 MP4 18717171 bytes/30.08s 在原安全边界下入库合格。模型/TTS 仅具通用 Key、缺具名 Voice 服务和真实调用授权，未发送收费请求；Director 真实试听与 Creator 成片未测。完整清单见 [G4 结果](../19_MATERIAL_LAYER_G4_ACCEPTANCE.md)，G4 NO_GO、S6-14 PAUSED。

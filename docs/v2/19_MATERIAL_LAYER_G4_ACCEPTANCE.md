@@ -59,8 +59,24 @@
 
 用户新指令要求只修复安全代理下载，不执行 S6-14。新增显式 EASEL_MATERIAL_HTTP_PROXY=http://127.0.0.1:7897，仅允许 loopback HTTP CONNECT；通过已验证 TLS 的 Cloudflare 1.1.1.1 HTTPS DoH 查询公网 IP 并校验，然后经代理 CONNECT 到验证过的数字公网 IP:443，继续使用原媒体域名执行 TLS SNI/证书验证。逐跳白名单、非公网地址拒绝、文件大小/MIME/技术核验/Rights 均保持，不读系统环境代理。不配置时原直连方式不变。V2 Git 忽略的 .env（0600）已显式配置，旧项目/历史素材不改。
 
-本次真实下载：Pexels JPEG 481691 字节、MP4 624725 字节/14.531183 秒和 Wikimedia OGG BGM 108207 字节/8.127732 秒均在独立临时素材库验证 Rights ADMITTED、Technical PASSED 和可复用候选 1；Pixabay 图片 JPEG 398639 字节已完成安全代理下载，Pixabay 视频探针超过单次诊断的 15MB 上限；Wikimedia SFX 的 door/water 检索有候选，但 CDN HTTP 429，无实际 SFX 文件。没有调用收费生成服务，没有启动视频制作。此时只证明安全下载通路与部分真实素材的供应资格，缺 SFX 真正下载、作品/音效试听与固定 AI 旁白；因此 G4 原 NO-GO 与 S6-14 暂停不变。对应源码 easel/materials/application/proxy.py，tests/production/test_proxy_material_acquisition.py。## 6. 许可参考、暂停与交接
+本次真实下载：Pexels JPEG 481691 字节、MP4 624725 字节/14.531183 秒和 Wikimedia OGG BGM 108207 字节/8.127732 秒均在独立临时素材库验证 Rights ADMITTED、Technical PASSED 和可复用候选 1；Pixabay 图片 JPEG 398639 字节已完成安全代理下载，Pixabay 视频探针超过单次诊断的 15MB 上限；Wikimedia SFX 的 door/water 检索有候选，但 CDN HTTP 429，无实际 SFX 文件。没有调用收费生成服务，没有启动视频制作。此时只证明安全下载通路与部分真实素材的供应资格，缺 SFX 真正下载、作品/音效试听与固定 AI 旁白；因此 G4 原 NO-GO 与 S6-14 暂停不变。对应源码 easel/materials/application/proxy.py，tests/production/test_proxy_material_acquisition.py。
+## 2026-10-17 · G4 真实音频与 Pixabay 视频问题收口
+
+本轮根据新授权复验：Wikimedia SFX 的 `429` 可由下载请求使用带项目联系地址的官方友好 `User-Agent` 消除；真实 SFX OGG 30423 字节、1.473923 秒，经 Commons SHA-1、Rights `ADMITTED`、FFprobe `PASSED`、隔离库合格候选 1。Pixabay 视频此前受诊断专用 15MB 上限影响；本次经受控代理下载 18717171 字节 MP4、30.08 秒，Rights `ADMITTED`、FFprobe `PASSED`、隔离库合格候选 1；生产默认上限未增加。Pexels 图片/视频、Pixabay 图片和 Commons BGM 保留此前成功下载的证据。
+
+实现仅在 `MediaDownloader` 增加可选并限制 CR/LF、长度的具名 User-Agent，Wikimedia BGM/SFX 官方来源使用 `EaselAudio/0.1 (https://github.com/webxia/Easel)`，其余 Provider 延续原默认；无代理和代理模式均保留已有 host/public-IP/TLS/redirect/MIME/Rights 校验。真实 AI 旁白仍无 `EASEL_VOICE_SERVICES_JSON`，虽然 `MINIMAX_API_KEY` 已配置，但不能据此推断套餐包含 TTS 或自动选取固定音色，更不能未获具名调用授权就发送可能收费的请求。
+
+**更新后的准入结论**：G4-B1 的图片、视频、BGM、SFX 代表性合法素材真实下载与独立入库已取得证据。B2 真人/模型真实听取选材、音轨听感及完整 Creator 编辑/QC 验收，B3 固定 AI 旁白真实自然度/权益仍未通过；现有五模态合成 E2E 不能代替真实视频作品结果。**G4 仍 NO_GO，S6-14 仍暂停**，无需新音频管理界面、不执行 Unsplash 正式入库，也不启动 S6-14。
+## 6. 许可参考、暂停与交接
 
 - [Commons 外部复用](https://commons.wikimedia.org/wiki/Commons:Reusing_content_outside_Wikimedia)及[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)：遵守源文件页许可、创作者署名、如有修改须说明；不可把平台声明当作独立版权保证。
 - [Pexels License](https://www.pexels.com/license/)、[Pixabay License](https://pixabay.com/service/license-summary/)：许可通常允许创意合成，但仍需遵守不作独立素材转售、不暗示背书及肖像/商标等限制。
 - 只有上述 G4 阻断项获得可核查证据，才能另起一轮正式 G4 准入决定。G4 的审查流程与 NO_GO 决策**已完成**；依用户指令**本轮现在暂停**，不得继续推进 S6-14、发布、迁移或启动后台持续验证。
+
+## 2026-10-17 · 恢复 G4 收尾与 M Plan 资格核验
+
+WebCodex 恢复后保留上次 7 个未提交变更，未覆盖用户资产。恢复测试 `tests/production`: **435 passed, 3 skipped**；文档路径 1305/467。前次已得到 Wikimedia SFX 30423 bytes / 1.473923s 和 Pixabay 视频 18717171 bytes / 30.08s 的真实安全获取、Rights 与 FFprobe/隔离入库验证。Wikimedia 正式识别性 User-Agent 的代码及回归由本次提交承接。
+
+**MiniMax Key 检查**：当前 V2 环境已有 `MINIMAX_API_KEY`，但不符合官方 Token Plan 的常见 `sk-cp` 订阅 Key 格式。本轮未执行 `token_plan/remains` 订阅接口验证，更未调用语音生成，避免把非套餐 Key 的调用错误记入 M Plan 免费权益。官方 Token Plan 说明已支持 Speech，但当前账户/Key 权限、固定中文 voice_id 和模型需先具名确认并以实际套餐授权核验。不能用一般 API Key 代替权益依据。
+
+**仍待 G4**：真实导演对已取素材的看听、选材与声效事件时间及成片感官/QC；固定 AI 旁白的套餐 Key/声音身份与真实试听；用户对具体成片的接受属于 S6-14，不能由研发代理代签。G4 仍 NO-GO，S6-14 继续暂停；本次没有启动付费调用。
