@@ -10,5 +10,5 @@ export function trialOutputs(work: Work | null, revisionId: string) {
   if (!work) return [];
   const plans = new Set(work.plans.filter(p => p.plan.director_revision_id === revisionId).map(p => p.revision));
   const runs = new Set(work.runs.filter(r => r.plan_revision && plans.has(r.plan_revision)).map(r => r.id));
-  return work.artifacts.filter(a => a.kind === 'output' && a.quality_state === 'passed' && a.run_id && runs.has(a.run_id));
+  return work.artifacts.filter(a => a.kind === 'output' && (a.quality_state === 'passed' || a.manual_review_required) && a.run_id && runs.has(a.run_id));
 }

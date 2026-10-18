@@ -1,7 +1,7 @@
 """SQLite domain authority, intentionally independent of Web and workflow engines."""
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -131,10 +131,10 @@ class Store:
             connection.close()
 
     def execute_command(self, command_id: str, request: dict, action: Callable[[sqlite3.Connection], dict],
-                        *, work_id: str | None = None, expected_revision: int | None = None) -> dict:
+                        *, work_id: str | None = None, expected_revision: int | None = None, connection=None) -> dict:
         CommandEnvelope(command_id=command_id, expected_revision=expected_revision)
         request_hash = fingerprint({"work_id": work_id, "expected_revision": expected_revision, "request": request})
-        with self.transaction() as connection:
+        with (self.transaction() if connection is None else nullcontext(connection)) as connection:
             prior = connection.execute("SELECT * FROM command_receipts WHERE command_id=?", (command_id,)).fetchone()
             if prior:
                 if prior["request_hash"] != request_hash:

@@ -71,3 +71,15 @@ test('native identity, tool name and ticket forwarded separately from model para
     await assert.rejects(r.tools(ctx)[0].execute('late',{}), /missing_native_call_binding/);
   } finally { globalThis.fetch = original; }
 });
+
+test('protocol 2 exposes eight bounded tools and retains independent lifecycle gates', () => {
+  let factory, route;
+  createWorkBridge({pluginConfig:{baseUrl:'http://127.0.0.1:12345',token:'test-credential-long-enough-32',protocolVersion:2},on(){},registerTool(fn){factory=fn;},registerHttpRoute(value){route=value;}});
+  const tools=factory(ctx);
+  assert.equal(tools.length,8);
+  for(const tool of tools) assert.equal(tool.parameters.additionalProperties,false);
+  for(const name of ['exec','accept','grant','publish','write','sessions_spawn'])assert.ok(!tools.some(t=>t.name===name));
+  let status;route.handler({method:'GET'},{setHeader(){},end(text){status=JSON.parse(text);}});
+  assert.equal(status.protocol,2);
+  assert.equal(status.tools.length,8);
+});

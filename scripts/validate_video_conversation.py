@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""A2–A4 real Web/native-plugin integration on loopback fakes and a new temp DB.
+
+Never imports production configuration, starts a production Worker, or installs
+anything into the user's OpenClaw. --serve keeps ONLY this isolated fixture alive.
+"""
+from __future__ import annotations
+import argparse
+import asyncio
+from contextlib import contextmanager
+import hashlib
+import json
+import os
+import re
+from pathlib import Path
+import secrets
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import uuid
+
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+import httpx
+import uvicorn
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from easel.openclaw_cmd import openclaw_base_cmd
+from easel.production.service import WorkService
+from easel.production.store import Store
+from easel.conversation import ConversationService
+from easel.conversation_bridge import require_persistent_gateway
+from easel.video_workspace import prepare_workspace
+from web.conversation_api import VideoChat, create_router, create_internal_router
+from web.production_api import create_router as production_router,production_error_handler
+from web.production_settings_api import create_settings_router
+from easel.production.errors import ProductionError
+from validate_openclaw_work_bridge import FakeModel,free_port,wait_for,isolated_environment
+
+
+@contextmanager
+def fixture(root):
+    root=root.resolve()
+    if not any(p in root.parents for p in [Path(tempfile.gettempdir()).resolve(),Path('/tmp').resolve()]):raise ValueError('Temporary root required')
+    root.mkdir(exist_ok=False)
+    for folder in ('tmp','home','state','profiles','workspace-main'):(root/folder).mkdir()
+    repo=Path(__file__).resolve().parents[1];node,entry=openclaw_base_cmd();base=[node,entry]
+    plugin=root/'plugin';shutil.copytree(repo/'agents/plugins/easel-work',plugin)
+    (root/'node_modules').mkdir();(root/'node_modules/openclaw').symlink_to(Path(entry).parent,target_is_directory=True)
+    workspace=prepare_workspace(repo,root/'workspace-video')
+    (root/'workspace-main/AGENTS.md').write_text('MAIN_ONLY_FORBIDDEN_SENTINEL')
+    (root/'AGENTS.md').write_text('DEV_ONLY_FORBIDDEN_SENTINEL')
+    for profile in ('one','two'):
+        folder=root/'profiles'/profile;folder.mkdir()
+        (folder/'identity.md').write_text('PROFILE_'+profile+'_SENTINEL')
+        (folder/'preferences.md').write_text('克制、忠于真实经历\n')
+    web_port,gateway_port=free_port(),free_port();token,gateway_token=secrets.token_urlsafe(32),secrets.token_urlsafe(32)
+    guard=root/'guard.mjs'
+    guard.write_text('''import net from 'node:net';import dns from 'node:dns';import fs from 'node:fs';
+const allowed=new Set(PORTS); const original=net.Socket.prototype.connect;const lookup=dns.lookup;
+dns.lookup=function(host,...args){if(['127.0.0.1','localhost','::1'].includes(host))return lookup.call(this,host,...args);fs.appendFileSync(LOG,'dns denied\\n');throw Error('offline DNS');};
+net.Socket.prototype.connect=function(...args){const a=Array.isArray(args[0])?args[0]:args;const o=typeof a[0]==='object'?a[0]:{port:a[0],host:typeof a[1]==='string'?a[1]:'localhost'};
+if(!allowed.has(Number(o.port))||!['127.0.0.1','localhost','::1'].includes(o.host??'localhost')){fs.appendFileSync(LOG,'network denied\\n');throw Error('offline network');}return original.apply(this,args);};
+'''.replace('PORTS',json.dumps([web_port,gateway_port])).replace('LOG',json.dumps(str(root/'denials.log'))))
+    config={'gateway':{'mode':'local','bind':'loopback','port':gateway_port,'auth':{'mode':'token','token':gateway_token},'http':{'endpoints':{'chatCompletions':{'enabled':True}}}},
+        'logging':{'level':'info','file':str(root/'gateway.jsonl'),'consoleStyle':'json'},
+        'agents':{'defaults':{'model':{'primary':'a1fake/a1-fake'},'models':{'a1fake/a1-fake':{}},'timeoutSeconds':40,'heartbeat':{'every':'0m'}},'entries':{'main':{'default':True,'workspace':str(root/'workspace-main'),'tools':{'allow':['session_status']}},'easel-video':{k:v for k,v in workspace.items() if k in {'workspace','skills','tools'}}}},
+        'models':{'mode':'replace','providers':{'a1fake':{'baseUrl':f'http://127.0.0.1:{web_port}/v1','apiKey':'offline-no-payment','api':'openai-completions','models':[{'id':'a1-fake','name':'offline','reasoning':False,'input':['text'],'cost':{'input':0,'output':0,'cacheRead':0,'cacheWrite':0},'contextWindow':65536,'maxTokens':2048}]}}},
+        'skills':{'allowBundled':[]},'cron':{'enabled':False},'update':{'checkOnStart':False,'auto':{'enabled':False}},'telemetry':{'enabled':False},
+        'plugins':{'allow':['easel-work'],'load':{'paths':[str(plugin)]},'slots':{'memory':'none'},'entries':{'easel-work':{'enabled':True,'hooks':{'allowConversationAccess':True},'config':{'baseUrl':f'http://127.0.0.1:{web_port}','token':token,'protocolVersion':2}}}}}
+    config_path=root/'openclaw.json';config_path.write_text(json.dumps(config));config_path.chmod(0o600)
+    store=Store(root/'outputs/_production/db.sqlite3');store.initialize();service=WorkService(store,outputs=root/'outputs',profiles=root/'profiles')
+    # Reuse actual Web chat/replay functions, replacing only providers and test paths in THIS child process.
+    import web.app as web
+    web.OUTPUTS_DIR=service.outputs;web.PROFILES_DIR=service.profiles;web.SESSIONS_DIR=root/'sessions'
+    web._production_service=lambda:service
+    web.app.state.production_service=service
+    os.environ['EASEL_WORK_BRIDGE_TOKEN']=token
+    web._LOCAL_ORIGINS.append(f'http://127.0.0.1:{web_port}')
+    chat=VideoChat(lambda:service,web._job_event_file,web._save_turn,gateway_url=f'http://127.0.0.1:{gateway_port}',gateway_token=gateway_token)
+    web._video_chat=chat
+    app=FastAPI();app.add_exception_handler(ProductionError,production_error_handler)
+    app.middleware('http')(web.local_write_guard)
+    app.include_router(create_router(lambda:service));app.include_router(create_internal_router(lambda:service,lambda:token));app.include_router(production_router(lambda:service));app.include_router(create_settings_router(lambda:service,settings_provider=lambda:{}))
+    app.add_api_route('/api/chat/stream',web.api_chat_stream,methods=['POST']);app.add_api_route('/api/chat/jobs/{turn_id}/stream',web.api_chat_job_stream,methods=['GET']);app.add_api_route('/api/chat/stop',web.api_chat_stop,methods=['POST']);app.add_api_route('/api/chat/last/{session_id}',web.api_chat_last,methods=['GET'])
+    model=FakeModel()
+    def channel_case(body):
+        content=next(m['content'] for m in reversed(body['messages']) if m['role']=='user')
+        refs=re.findall(r'"ref":"([^"]+)"',content)
+        return 'easel_work_propose',{'kind':'channel_create','values':{'name':'创业笔记','creative_basis':{'position':'克制地分享真实创业经历','themes':'创业与产品','audience':'创业者'}},'source_refs':[refs[-1]]}
+    model.extra_cases={'channel':channel_case}
+    app.add_api_route('/v1/chat/completions',model.complete,methods=['POST'])
+    @app.get('/api/status')
+    def status():return {'personas':[{'name':'one'},{'name':'two'}],'gateway':True,'transport':'openclaw','runtime':'openclaw'}
+    @app.get('/api/settings/bootstrap')
+    def bootstrap():return {'modelConfigured':True}
+    @app.get('/api/upload/limits')
+    def limits():return {'max_mb':50}
+    app.mount('/static',StaticFiles(directory=repo/'web/static'),name='static')
+    app.mount('/',StaticFiles(directory=repo/'web/frontend/dist',html=True),name='frontend')
+    server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=web_port,log_level='error'));thread=threading.Thread(target=server.run,daemon=True);thread.start();wait_for(lambda:server.started)
+    env=isolated_environment(root,node,config_path,guard);log=(root/'gateway-console.log').open('w')
+    gateway=subprocess.Popen(base+['gateway','run','--port',str(gateway_port)],cwd=root,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
+    try:
+        def ready():
+            try:require_persistent_gateway(f'http://127.0.0.1:{gateway_port}',gateway_token);return True
+            except (ProductionError,httpx.HTTPError):return False
+        wait_for(ready,60)
+        yield {'root':root,'url':f'http://127.0.0.1:{web_port}','service':service,'model':model,'bridge_token':token,'gateway':gateway,'node':node,'entry':entry,'env':env}
+    finally:
+        gateway.terminate()
+        try:gateway.wait(timeout=12)
+        except subprocess.TimeoutExpired:gateway.kill();gateway.wait(timeout=5)
+        log.close();server.should_exit=True;thread.join(timeout=5)
+
+
+def probe(f):
+    client=httpx.Client(base_url=f['url'],timeout=90,trust_env=False)
+    service=f['service'];c=ConversationService(service);checks=[]
+    def check(name,condition):
+        checks.append({'name':name,'pass':bool(condition)})
+        if not condition:raise AssertionError(name)
+    def enter(session,entry):
+        response=client.post(f'/api/chat/video/{session}/enter',json={'command_id':uuid.uuid4().hex,'entry':entry});response.raise_for_status();return response.json()['segment_id']
+    def chat(session,segment,case):
+        turn=uuid.uuid4().hex;body={'sessionId':session,'turnId':turn,'videoSegmentId':segment,'message':'A1_CASE='+case,'interaction_mode':'video'}
+        response=client.post('/api/chat/stream',json=body);response.raise_for_status()
+        assert 'event: done' in response.text,response.text
+        with service.store.connection() as conn:
+            value=conn.execute('SELECT state FROM conversation_turns WHERE id=?',(turn,)).fetchone()[0]
+        wait_for(lambda:c.view(session)['turns'][-1]['state']=='ended',10)
+        return turn,body,response.text
+    sid=enter('probe',{'profile_ref':'one'})
+    chat('probe',sid,'discuss');chat('probe',sid,'discuss')
+    check('web_discussion_no_work_or_run',service.list_works()['items']==[])
+    _,body,_=chat('probe',sid,'create');view=c.view('probe');p=view['proposals'][-1]
+    check('native_draft_tool_returns_persistent_card_without_side_effect',p['kind']=='draft' and service.list_works()['items']==[])
+    action={'command_id':'apply-draft','hash':p['body_hash']}
+    result=client.post(f"/api/chat/video/probe/proposals/{p['id']}/apply",json=action);result.raise_for_status();work=result.json()['work_id']
+    check('card_replay_one_work',client.post(f"/api/chat/video/probe/proposals/{p['id']}/apply",json=action).json()==result.json() and len(service.list_works()['items'])==1)
+    before=len(f['model'].requests);duplicate=client.post('/api/chat/stream',json=body)
+    check('duplicate_chat_post_replays_without_model',duplicate.status_code==200 and len(f['model'].requests)==before)
+    chat('probe',sid,'plan');view=c.view('probe');plans=[p for p in view['proposals'] if p['kind']=='plan']
+    check('different_tool_call_ids_one_plan_proposal',len(plans)==1 and service.snapshot(work)['runs']==[])
+    p=plans[0];response=client.post(f"/api/chat/video/probe/proposals/{p['id']}/apply",json={'command_id':'plan','hash':p['body_hash']});response.raise_for_status()
+    check('explicit_plan_card_uses_existing_work_service',len(service.snapshot(work)['runs'])==1)
+    for case in ('attack_exec','attack_read','attack_sessions_spawn','attack_voice','forge'):chat('probe',sid,case)
+    check('forbidden_tools_no_new_production',len(service.snapshot(work)['runs'])==1)
+    with service.store.connection() as conn:
+        check('no_paid_operations_or_grants',conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0 and conn.execute('SELECT count(*) FROM authorization_grants').fetchone()[0]==0)
+    # A different Work/Profile gets another native transcript, despite sharing the UI session.
+    start=len(f['model'].requests);other=enter('probe',{'profile_ref':'two'});chat('probe',other,'context')
+    text=json.dumps(f['model'].requests[start:])
+    check('cross_profile_native_session_has_no_previous_sentinel',other!=sid and 'PROFILE_two_SENTINEL' in text and 'PROFILE_one_SENTINEL' not in text)
+    all_requests=json.dumps(f['model'].requests,ensure_ascii=False)
+    check('no_development_main_or_service_credentials',all(x not in all_requests for x in ('MAIN_ONLY_FORBIDDEN_SENTINEL','DEV_ONLY_FORBIDDEN_SENTINEL',f['bridge_token'])))
+    from easel.conversation_bridge import TOOLS
+    check('effective_native_tool_surface_exactly_eight',all({t['function']['name'] for t in b.get('tools',[])}==set(TOOLS) for b in f['model'].requests))
+    check('selected_product_personality_loaded','创作者的社媒内容搭子' in all_requests)
+    old=client.post('/api/chat/stream',json={**body,'turnId':'late-old-segment'});check('old_segment_dispatch_rejected',old.status_code==409)
+    deleted=client.delete('/api/chat/video/probe');check('delete_chat_preserves_work_and_run',deleted.status_code==200 and len(service.snapshot(work)['runs'])==1)
+    check('bridge_credential_cannot_call_authority_api',client.post('/api/production/works',json={'command_id':'forbidden','payload':{'title':'no'}},headers={'Authorization':'Bearer '+f['bridge_token']}).status_code==403)
+    check('all_network_loopback_only',not (f['root']/'denials.log').exists())
+    return {'status':'PASS','checks':checks,'fake_model_requests':len(f['model'].requests),'paid_requests':0,'production_environment_changed':False,'production_worker_started':False,'work_count':1,'planning_runs':1,'openclaw_version':subprocess.run([f['node'],f['entry'],'--version'],capture_output=True,text=True,timeout=15,env=f['env'],cwd=f['root']).stdout.strip()}
+
+
+def main():
+    parser=argparse.ArgumentParser();parser.add_argument('--root',type=Path,required=True);parser.add_argument('--serve',action='store_true');args=parser.parse_args()
+    result={}
+    try:
+        with fixture(args.root) as f:
+            if args.serve:
+                print(json.dumps({'url':f['url'],'root':str(args.root)}),flush=True)
+                while True:time.sleep(1)
+            result=probe(f)
+    finally:
+        if result:
+            result['child_gateway_stopped']=True;(args.root/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2));print(json.dumps(result,ensure_ascii=False))
+
+if __name__=='__main__':main()

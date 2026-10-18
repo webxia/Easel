@@ -18,3 +18,11 @@ node --test tests/production/workBridgePlugin.test.mjs
 原生验证需本机已安装的 OpenClaw 2026.9.x 与 Node 24；不会下载/安装依赖。每次新建系统临时目录，SDK 通过临时符号链接解析，配置/工作区/数据库/假模型都独立；测试关闭自己启动的 Gateway。不要运行 agents/sync.sh 或将测试凭证、原始请求/转录、临时配置提交到 Git。
 
 Python 对应 `easel/work_bridge.py` 不在正式 Web 挂载，其 invocation/ticket 是内存原型。正式启用前必须完成 A2 持久化、真实范围/意图验证和入口保护。本轮不证明真实模型理解、媒体生产、问题桥、OS 沙箱或 Creator 接受。
+
+## S6-14A协议2（A2～A4源码已实现）
+
+设置`protocolVersion=2`启用8个具名工具及持久宿主`easel/conversation_bridge.py`；create_draft/request_plan/request_revision返回待确认卡，实际提交由Web卡操作执行。新增propose只创建频道/导演/长期保存提议，不应用目标。原协议1保留A1兼容，不可用内存探针替代持久宿主。
+
+部署字段与明确边界见[运行说明](../../../docs/v2/16_RUNTIME_SETUP.md)，源码/验证证据见[S6-14A](../../../docs/v2/tasks/S6-14A_conversation-integration.md)。`scripts/prepare_video_workspace.py`只准备新工作区及待合并patch；合并时保留main和原plugins allow/load成员，正式安装、权限合成及服务加载仍须按部署安排验收。本轮未修改实际OpenClaw或生产数据库。
+
+隔离实际Web/原生验证：`.venv/bin/python scripts/validate_video_conversation.py --root <全新系统临时目录>`。使用本机现有OpenClaw/Node，不下载依赖，服务/model/DB均是临时合成环境。不能据此宣称真实模型创作、完整浏览器矩阵或Creator接受通过。

@@ -59,3 +59,17 @@ for (const resumeOnly of [false, true]) {
     assert.match(result.requests[0], resumeOnly ? /jobs\/test-turn\/stream/ : /chat\/stream/);
   });
 }
+
+test('video plugin readiness failure is shown immediately without a replay loop',async()=>{
+  const calls=[];let finish;const result=new Promise(resolve=>{finish=resolve;});
+  const streamChat=runInNewContext(outputText,{AbortController,TextDecoder,Date,Error,setTimeout,BASE:'',fetch:async(url)=>{calls.push(url);return new Response(JSON.stringify({error:{user_message:'受限作品插件不可用'}}),{status:503});}});
+  streamChat('discuss',undefined,'ui',()=>{},()=>finish('unexpected done'),e=>finish(e.message),undefined,undefined,undefined,'turn',false,undefined,[],undefined,undefined,'segment');
+  assert.equal(await result,'受限作品插件不可用');assert.equal(calls.length,1);
+});
+
+test('video transport loss only queries the original job and terminates on absent recovery',async()=>{
+  const calls=[];let finish;const result=new Promise(resolve=>{finish=resolve;});
+  const streamChat=runInNewContext(outputText,{AbortController,TextDecoder,Date,Error,setTimeout:(fn)=>queueMicrotask(fn),BASE:'',fetch:async(url)=>{calls.push(url);if(calls.length===1)throw new Error('network loss');return new Response('{}',{status:404});}});
+  streamChat('discuss',undefined,'ui',()=>{},()=>finish('unexpected done'),e=>finish(e.message),undefined,undefined,undefined,'original-turn',false,undefined,[],undefined,undefined,'segment');
+  assert.match(await result,/不会重新派发/);assert.equal(calls.length,2);assert.match(calls[1],/jobs\/original-turn\/stream/);
+});

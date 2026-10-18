@@ -67,7 +67,10 @@ class FakeModel:
         tool_done = text in self.emitted or any(m['role'] == 'tool' for m in messages[last_user+1:])
         name, args = None, {}
         if not tool_done:
-            if case == 'create':
+            if case in getattr(self,'extra_cases',{}):
+                value=self.extra_cases[case]
+                name,args=value(body) if callable(value) else value
+            elif case == 'create':
                 name, args = TOOLS[1], {'title': '隔离测试作品', 'input_text': '仅假模型：克制地表达失败经历'}
             elif case == 'plan':
                 name, args = TOOLS[2], {'request': '按已讨论的克制方向整理方案'}

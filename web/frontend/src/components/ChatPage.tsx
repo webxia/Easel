@@ -1,4 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
+import { enterVideo } from '../lib/conversationApi';
+import VideoConversation from './VideoConversation';
+import type { PersonaItem } from '../lib/api';
 import MessageBubble from './MessageBubble';
 import QuestionCards from './QuestionCards';
 import BrushEntry from './BrushEntry';
@@ -8,6 +11,9 @@ import type { UploadedFile } from '../lib/api';
 import { IconArrowUp, IconStop, IconPlus, IconFile } from './icons';
 
 interface ChatPageProps {
+  personas: PersonaItem[];
+  onRestoreVideo: (messages:ChatMessage[])=>void;
+  onVideoBound: (id:string)=>void;
   apiDirect: boolean;
   session: ChatSession;
   stream?: StreamState;          // 进行中的流式态（来自 App，切页也不丢）
@@ -36,7 +42,7 @@ function greeting(): string {
   return `${g}，想创作点什么？`;
 }
 
-export default function ChatPage({ apiDirect, session, stream, onSend, onStop, onResend, onQuestionAnswered }: ChatPageProps) {
+export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDirect, session, stream, onSend, onStop, onResend, onQuestionAnswered }: ChatPageProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -48,7 +54,8 @@ export default function ChatPage({ apiDirect, session, stream, onSend, onStop, o
   const isComposingRef = useRef(false);
 
   const isStreaming = !!stream;
-  const isEmpty = session.messages.length === 0 && !isStreaming;
+  const isEmpty = session.messages.length === 0 && !isStreaming && !session.videoSegmentId;
+  const videoPanel=<VideoConversation sessionId={session.id} segmentId={session.videoSegmentId} persona={session.persona} personas={personas} onBound={onVideoBound} onRequest={onSend} onRestore={onRestoreVideo}/>;
 
   useEffect(() => {
     fetch('/api/upload/limits').then((r) => r.json())
@@ -142,7 +149,7 @@ export default function ChatPage({ apiDirect, session, stream, onSend, onStop, o
       )}
       <div className="composer-top">
         {apiDirect ? <span className="composer-hint">API 直连 · 文字与附件分析</span>
-          : <BrushEntry onPick={(t) => { setInput(t); requestAnimationFrame(() => textareaRef.current?.focus()); }} />}
+          : session.videoSegmentId ? <span className="composer-hint">Easel 视频创作 · 讨论与制作分别推进</span> : <BrushEntry onVideo={()=>void enterVideo(session.id,{profile_ref:session.persona,kind:'new_work'}).then(b=>onVideoBound(b.segment_id)).catch(e=>window.alert(e.message))} onPick={(t) => { setInput(t); requestAnimationFrame(() => textareaRef.current?.focus()); }} />}
         <textarea
           ref={textareaRef}
           className="chat-input"
@@ -187,6 +194,7 @@ export default function ChatPage({ apiDirect, session, stream, onSend, onStop, o
           <h1 className="chat-hero-title">{greeting()}</h1>
           <p className="chat-hero-sub">{apiDirect ? 'API 直连：写文案、策划选题、分析附件。本机工具和自动发布未启用。'
             : '从选题到发布，一站式帮你把想法做成能发的内容。'}</p>
+          {videoPanel}
           {inputBox(true)}
           <div className="suggestions">
             {SUGGESTIONS.filter((s) => !apiDirect || ['写小红书文案', '口播脚本'].includes(s.title)).map((s) => (
@@ -254,6 +262,7 @@ export default function ChatPage({ apiDirect, session, stream, onSend, onStop, o
               />
             );
           })}
+          {videoPanel}
           {isStreaming && (stream!.questions?.length ?? 0) > 0 && (
             <QuestionCards questions={stream!.questions || []} onDone={(qid) => onQuestionAnswered?.(qid)} />
           )}

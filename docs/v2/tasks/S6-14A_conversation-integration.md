@@ -1,12 +1,12 @@
 # S6-14A · Easel 对话式创作与生产后端接入
 
 - **所属任务**：S6-14 新增交互子任务；不改变 S6-15 CLOSED/COMPLETE，不开启 S7。
-- **状态**：**A1 ISOLATED_FAKE_PASS / A2～A5 NOT_STARTED**。2026-10-18 用户批准按方案推进 A1；原生 OpenClaw 工具桥、受限工具和会话绑定已在隔离环境验证。正式 Web 未接入，真实模型/媒体及 Creator 验收未执行。
+- **状态**：**A1 ISOLATED_FAKE_PASS / A2～A4 IMPLEMENTED · SOFTWARE_PASS / A5 NOT_STARTED**。代码接入与隔离 Web/OpenClaw 验证已完成；未部署正式运行配置、未迁移正式库、未执行新一轮真实生产或 Creator 接受。
 - **用户来源**：2026-10-18 明确要求基于已确认需求与 Easel，设计前后端交互，先出文档和图，作为 S6-14 新增任务记录。用户指出现有表单交互偏离对话式创作，后端已调顺。
 - **关联需求**：V2-EXP-001、004～008、010～011、019～021、024～029、032～034；不另造同义需求。
 - **目标**：从 Easel 对话完成方向讨论、方案确认、真实进度观察、具体版本审片/修改/接受，调用同一作品后端，不要求用户到独立表单推进创作。
-- **本轮授权**：用户要求补齐频道/导演创建流程的文档和图，并审查本次全部方案、修正后停止。本轮仅文档/图、只读源码核对、相应文档检查和开发分支归档；不改代码、不启动A2或业务调用。此前已授权并完成的A1隔离验证保留原证据，不视为本轮继续实施许可。
-- **基线与现场**：`/Users/xgx/Projects/Easel`，分支`easel-v2-main-workspace`；生产基线`406e523c`，本轮文档审查起点`b92228cb`，当前HEAD以Git为准；主服务7860。原未跟踪 research、scratch、二维码和个人创作目录均保留，不纳入提交。当前聊天运行设置为 OpenClaw，生产模型为 MiniMax；两条路径不能混为已接通。
+- **本轮授权**：用户最新明确要求“直接把A2-A4全部做完，按照规划和设计”，取代上一轮文档修订后停止的范围；本轮实施代码、隔离验证、文档与开发分支归档。继续不改正式运行配置、不重启正式服务、不写正式业务库或发起付费调用；A5完整矩阵/正式部署与真实验收保留后续。
+- **基线与现场**：`/Users/xgx/Projects/Easel`，分支`easel-v2-main-workspace`；生产基线`406e523c`，本轮实施起点`44b3f08c`，当前HEAD以Git为准；主服务7860。原未跟踪 research、scratch、二维码和个人创作目录均保留，不纳入提交。当前聊天运行设置为 OpenClaw，生产模型为 MiniMax；两条路径不能混为已接通。
 - **设计入口**：[交互文档与流程图](../20_CONVERSATIONAL_INTERACTION.md)、[OpenClaw 接入总览 SVG](../diagrams/s6-14a-conversation-flow.svg)、[六步交互分镜 SVG](../diagrams/s6-14a-interaction-storyboard.svg)、[频道与导演创建流程图](../diagrams/s6-14a-creation-flows.svg)、[实施合同 §9](../15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
 
 ## 1. 成功基线与范围
@@ -20,9 +20,9 @@
 | 子项 | 交付与源码落点 | 退出条件 |
 |---|---|---|
 | **A1 · 当前 Harness 接入验证（ISOLATED_FAKE_PASS）** | 临时环境验证同一 Gateway 的内部 easel-video 配置、原生 easel-work 工具插件、Web 具名动作转发和受限产品上下文；验证 HTTP/CLI 共用运行绑定与原生历史；正式问题桥接线留在A2/A3 | 假聊天模型/假 API 证明可信会话与原生run/turn关联、晚到工具拒绝、实际白名单和缺插件/身份不符时阻断；对实际暴露的HTTP/CLI入口验证旧脚本/直接Provider/文件/会话与记忆工具拒绝、研发指令和其他画像隔离；其余终端入口明确未覆盖。不能用配置静态检查冒充运行验收 |
-| A2 · 作品会话与创作依据 | 复用现有 turn/job/转录/命令回执；增加可信运行/作品关联、turn 去重与工具意图映射、带来源 brief 和跨会话附件校验；必要前向兼容迁移及正式问题桥/历史解析绑定；保留交付/反馈/学习提议来源；入口来源/明确覆盖与版本、频道语义依据及导演形成绑定；无Work创建提案/卡、跨作品原生段隔离 | 多轮信息进入 Planning，解释不启动；同 turn/不同 callId/响应丢失/晚到工具不重复或串作品；合法新会话附件可用、越权拒绝；第五轮记录可读 |
-| A3 · 对话卡片与详情 | ChatPage/App/store/api 接入；ProductionPage 提取方案/进度/决定/成片/设置组件；作品与内容库可续接；频道/导演详情主操作回同一对话，区分新作/续作/形成导演；创建提案→确认→回执→本期内容接续 | 同一对话完成全过程，卡片和详情使用同一业务快照；无画像可开始；旧卡失效可见 |
-| A4 · 审片、修订与恢复 | 指定输出反馈、保护项、影响确认、版本比较、明确接受；同一内容库及频道/导演视图回到创作；首版兼试片分别接受、fork明确沿用设置；可选长期保存卡与既有Profile/频道/Director适配；分离停止回答与取消制作 | 修改命中指定版本，授权内局部改不重复审批，旧接受保留；删除聊天不删作品；UNKNOWN不重发；单片反馈不污染长期默认，保存有明确目标/差异/版本/幂等回执 |
+| **A2 · 作品会话与创作依据（IMPLEMENTED / SOFTWARE_PASS）** | 复用现有 turn/job/转录/命令回执；增加可信运行/作品关联、turn 去重与工具意图映射、带来源 brief 和跨会话附件校验；必要前向兼容迁移及正式问题桥/历史解析绑定；保留交付/反馈/学习提议来源；入口来源/明确覆盖与版本、频道语义依据及导演形成绑定；无Work创建提案/卡、跨作品原生段隔离 | 多轮信息进入 Planning，解释不启动；同 turn/不同 callId/响应丢失/晚到工具不重复或串作品；合法新会话附件可用、越权拒绝；第五轮记录可读 |
+| **A3 · 对话卡片与详情（IMPLEMENTED / SOFTWARE_PASS）** | ChatPage/App/store/api 接入；ProductionPage 提取方案/进度/决定/成片/设置组件；作品与内容库可续接；频道/导演详情主操作回同一对话，区分新作/续作/形成导演；创建提案→确认→回执→本期内容接续 | 同一对话完成全过程，卡片和详情使用同一业务快照；无画像可开始；旧卡失效可见 |
+| **A4 · 审片、修订与恢复（IMPLEMENTED / SOFTWARE_PASS）** | 指定输出反馈、保护项、影响确认、版本比较、明确接受；同一内容库及频道/导演视图回到创作；首版兼试片分别接受、fork明确沿用设置；可选长期保存卡与既有Profile/频道/Director适配；分离停止回答与取消制作 | 修改命中指定版本，授权内局部改不重复审批，旧接受保留；删除聊天不删作品；UNKNOWN不重发；单片反馈不污染长期默认，保存有明确目标/差异/版本/幂等回执 |
 | A5 · 交互集成验收 | 先用隔离数据/假模型跑 Web 到本地媒体完整流程，再按另行授权验证真实 Web | 软件、实际 Web、真实模型/媒体、Creator 接受分列。不得使用第五轮 API PASS 代替 Web 对话验证 |
 
 A1/A2 优先解决真实接入，A3 在接口明确后实施。推荐先用隔离配置完成“连续讨论 → 具名工具 → 持久回执 → 卡片更新”纵向最小切片，再补全旅程；普通 main 对话转入视频须明确进入作品模式并保存运行段。模型/工具能力不兼容不能以静默切底座消除。
@@ -138,3 +138,38 @@ A2/A4/A5增加来源/卡片/目标差异/版本与幂等验收，未新增学习
 A1 已证明当前版本在隔离 HTTP/CLI 下可接通受限工具，下一风险集中在持久绑定/崩溃恢复、正式入口的就绪检查与上下文装配、摘要来源和跨会话附件权限，以及交付后长期保存的目标/版本与来源保护。原生内存探针不能直接作为正式启用实现；它也不天然构成 OS 或凭证物理隔离。
 
 **本轮完成文档审查后停止。后续待启动事项仍为A2持久会话/运行绑定、turn/工具命令映射与创作依据，须按用户后续指令实施；本轮不推进代码、正式接入或付费验证。** 第五轮 Creator 审片独立待反馈；S7 风格/品质/成本/跨题材矩阵保持后续事项。
+
+
+### 2026-10-18 · A2～A4 实施与隔离验证完成
+
+**结论：A2～A4 IMPLEMENTED / SOFTWARE_PASS；A5 NOT_STARTED。** 本轮由用户新的明确实施指令启动，不再受上一轮“只改文档、完成后停止”的旧范围限制。实现基线44b3f08c，实际提交SHA以Git为准；正式运行配置、库、第五轮作品/成功或UNKNOWN回执均未改。
+
+| 子项 | 本轮实现 | 具名证据 |
+|---|---|---|
+| A2 持久接入 | 同一生产库中的运行段/turn/提案/brief/附件关联与参考导入记录；原生run认领、票据和工具意图回执原子提交；同turn重放、跨Work/Profile新原生段、撤销及UNKNOWN保留；有来源brief进入Planning任务和冻结Plan；频道语义字段；8个协议2工具 | `easel/conversation.py`、`conversation_bridge.py`、schema4；新增28个Python用例；原生Web探针16项 |
+| A3 对话与入口 | ChatPage/App/api接线；普通笔入口/作品/频道/导演/内容库进入同一对话；程序提案卡、共享WorkCards和独立Work SSE；目录浏览不建Work；刷新恢复视频对话和卡片；可恢复本段可见讨论；本片声音/字幕/规格与附件控件 | 实际浏览器：目录→聊天→草稿卡→明确创建→同页作品详情；频道提案→保存→刷新直接恢复；隔离截图如下 |
+| A4 闭环 | 指定输出反馈、原影响确认与局部复用；版本对比、独立作品/导演接受、已接受库续接；明确fork继承项且不复制授权；Profile只追加1～3项、有hash/锁/原子替换/回执恢复；频道默认/导演新版本明确保存；参考直链受控导入及同导演重拆；停止回答不取消生产 | 原有生产回归、新增画像冲突/重复/文件先写恢复、精确试片/人工资格/语义FAIL负例、fork/导入/旧Plan不变用例 |
+
+**实际检查：**
+
+- `.venv/bin/python -m pytest -q tests/production tests/test_chat_question_replay.py tests/test_harness_workspace.py tests/test_workspace_resolution.py`：**545 passed / 4 skipped / 0 failed**；其中`test_conversation.py`新增**28 passed**。4个skip维持原条件，未记成通过。
+- `EASEL_RUN_OPENCLAW_A1=1 .venv/bin/python -m pytest -q tests/production/test_openclaw_work_bridge_native.py --basetemp=/tmp/easel-a1-compat-a2a4-20261018`：**1 passed**，确认原协议1探针兼容。本轮复测不覆盖或改写原A1历史JSON。
+- `.venv/bin/python scripts/validate_video_conversation.py --root /tmp/easel-a2-a4-final3-native-20261018`：实际 **OpenClaw 2026.9.4 (3a9d69d)**、实际Web SSE/原生插件、临时SQLite、假模型，**16项PASS**；18次假模型请求全在本地，1个Work/1个未执行Planning Run，付费Operation和服务授权均0，子Gateway正常关闭。
+- `node --test tests/production/workBridgePlugin.test.mjs tests/frontend/*.test.mjs`：**90 passed / 0 failed**；含协议2八工具、刷新/重复点击保持命令身份及原普通前端回归。
+- `npm run build --prefix web/frontend`通过；`npm run lint --prefix web/frontend`通过，仅保留原`linkifyOutputs.ts`无用转义警告；构建仍有既有大bundle提示。Python编译、`git diff --check`通过；8份相关Markdown的175条本地引用/27个锚点和39张表通过检查，UI01～UI28连续，41份受测源码摘要与隔离截图SHA一致。
+- [脱敏原生证据及源码摘要](../evidence/S6-14A_A2-A4_validation.json)绑定本轮源码SHA；[浏览器截图](../evidence/S6-14A_A3_channel-browser.png)来自合成画像/内容，非生产用户数据。
+
+**实现时明确收敛：**
+
+1. 不增加另一套生产状态机。Store支持在调用者既有事务中写原command_receipts，因此意图/业务命令/运行段首次绑定能一同提交；SQLite迁移4只增加字段/接入记录，旧作品和回执迁移兼容有用例。
+2. 协议2的create_draft/request_plan/request_revision先产生程序校验的提案，用户卡操作才实际提交；另加只创建提案的`easel_work_propose`承载频道/导演/长期保存。模型没有grant/confirm/accept/publish/文件写权限；原协议1仍仅供A1。
+3. 复用`/api/chat/video/{session}/enter`完成关联，复用其GET投影恢复上下文；没有额外创建原候选的三条conversation-links/briefs/context外部路由。brief仅由受限工具调用同一服务；卡片类型来自程序。作品快照/SSE仍为生产事实权威。
+4. 首期视频对话采用已验证的HTTP传输，原生澄清使用对话追问；不开放通用ask_user/管理命令，不以“问题桥”放行授权。普通聊天的QuestionCards和原桥保持原回归。未启用CLI自动兜底，UNKNOWN不重派。
+5. 参考导入只支持无需登录的公开HTTPS视频直链，限制100MB、DNS/IP固定及逐跳校验，使用现有ffprobe确认视频；不提供任意网页下载器。失败/UNKNOWN导入保留待核实，不自动重抓；用户可改为上传已取得的视频。没有真实外网导入实测。
+6. 人工模式导演接受复用技术pass/语义not_tested/manual_review_only及无语义fail/partial条件，还要求成功Run、reviewable Work、准确导演Plan版本、实际文件hash和独立人工确认；只留`director_accepted`回执，不改QC为PASS。
+7. Profile保存目标与冻结创作画像分开：长期提案读取当前目标文件/hash，旧Plan继续持有原快照。未接受/拒绝/忽略不写；已有并发编辑返回409。频道设置变更和导演新版本也不回改旧Plan。
+8. 目录修改、作品接受、导演接受、设频道默认是独立卡动作。设默认必须关联已接受版本并保留已有关系，不默认全选，单项成功不会因其他项失败重新执行。
+
+**实际范围与后续：** 这次完成研发实现及具名隔离验证，不是A5完整28项浏览器矩阵或真实生产验收。尚未在正式Gateway合并插件配置、验证实际既有插件/自动记忆组合权限，未重启com.easel.web、迁移正式库、发起第六轮或接受第五轮。正式源码已变更，部署时必须受控重载并核实`backend.reload_required=false`；本轮不宣称旧服务已加载新代码。A5应先验收离线完整Web流程/并发断线和全矩阵，再按对应授权安排正式安装与真实调用。发布/归因适配继续为后续具名任务；S6-15不重开，S7不自动启动。
+
+![隔离浏览器：频道保存与刷新恢复](../evidence/S6-14A_A3_channel-browser.png)

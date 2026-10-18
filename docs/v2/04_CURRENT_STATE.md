@@ -8,13 +8,13 @@
 
 S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardening.md) **CLOSED / COMPLETE**，不重开历史G4。前三部成片的研发协助记录、第四轮FAIL均保留，第五轮是独立成功样本。
 
-用户已明确要求回到 **Easel 对话式创作**，参考其管线，沿用现有创作能力与成功后端。新增 [S6-14A](tasks/S6-14A_conversation-integration.md)：**A1 ISOLATED_FAKE_PASS；A2～A5 尚未实施**。入口为[交互设计](20_CONVERSATIONAL_INTERACTION.md)，已补充[创作完成与回写闭环](20_CONVERSATIONAL_INTERACTION.md#10-创作结束后的闭环与回写2026-10-18补充设计)，区分自动事实登记、明确长期保存及可选发布复盘；另补齐[导演/频道入口与统一创作闭环](20_CONVERSATIONAL_INTERACTION.md#11-导演频道入口与统一创作闭环)及新图，登记频道语义字段、首版兼试片和fork设置沿用的接入缺口；本轮进一步补齐[创建流程图](diagrams/s6-14a-creation-flows.svg)并完成[整体方案文档审查](20_CONVERSATIONAL_INTERACTION.md#12-本次整体方案审查与修正2026-10-18)，修正草稿/目录卡、确认、会话隔离与恢复合同；补充设计未实现。候选接口只维护在[实施合同 §9](15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
+用户已明确要求回到 **Easel 对话式创作**，并于本轮授权完成A2～A4。[S6-14A](tasks/S6-14A_conversation-integration.md)现为 **A1 ISOLATED_FAKE_PASS；A2～A4 IMPLEMENTED / SOFTWARE_PASS；A5 NOT_STARTED**。已实现持久OpenClaw桥、带来源创作依据、统一对话/卡片/频道导演入口及审片/版本/明确长期保存闭环；实际实现映射见[实施合同§9.10](15_IMPLEMENTATION_DESIGN.md#910-a2a4实际落地与部署边界)，隔离原生与浏览器证据见任务卡。正式配置和第五轮生产数据未改，不能将本轮软件结果当成正式部署或真实Web生产通过。
 
 ## 唯一执行入口
 
-- 工作区 `/Users/xgx/Projects/Easel`；分支 `easel-v2-main-workspace`。第五轮成功生产基线 `406e523c035fe8da0f1435f4d813defa63653692`，当前文档提交HEAD以Git为准。
+- 工作区 `/Users/xgx/Projects/Easel`；分支 `easel-v2-main-workspace`。第五轮成功生产基线 `406e523c035fe8da0f1435f4d813defa63653692`，本轮实施基线44b3f08c，当前HEAD以Git为准。
 - 服务 [本机7860](http://127.0.0.1:7860/)，唯一 `com.easel.web`。此前A1收口时只读能力检查HTTP200，`backend.reload_required=false`；未重启服务。生产源码后续有改动须先核实服务版本，禁止旧worker处理新命令。
-- 当前聊天运行设置实测 **OpenClaw**，V2生产走 **MiniMax任务调用**；受限作品工具桥尚未接通。A1 已在独立临时 Gateway/工作区、假聊天模型与临时 WorkService 下验证原生插件、受限工具和 HTTP/CLI 会话绑定；正式 Web 尚未挂载，不能混为已接通的产品交互链。
+- 当前聊天运行设置实测 **OpenClaw**，V2生产走 **MiniMax任务调用**；本轮已在源码挂载协议2持久工具桥并完成隔离Web/原生插件接线验证；正式Gateway未安装配置，正式服务未重载，不能混为已部署。
 - [PR #8](https://github.com/webxia/Easel/pull/8) 仍是历史 `codex/s6-production` Draft，不包含主工作区最新修复；本轮不合并或汇合PR。
 - 真实服务保持具名授权；不使用qwen3.8或DeepSeek替代，不重发成功/UNKNOWN请求。本轮不创建第六轮、不迁移业务数据、不自动接受或发布。
 
@@ -34,7 +34,8 @@ S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardeni
 
 ## 唯一研发下一动作
 
-**本轮文档修订与整体审查完成后停止；后续待启动事项为 A2 持久绑定与创作依据。** A1 的未挂载适配模块和原生插件只在隔离假服务中运行；需继续实现 turn/运行段持久化、来源/附件校验和恢复，再接正式聊天/UI。现有代码实施范围停在 A1；本轮已补齐频道/导演创建流程并修正文档审查发现，遵照用户要求停止，不继续实施A2、安装正式插件、重启或发起真实调用。
+**A2～A4研发与隔离验证完成，下一事项为A5完整交互集成验收。** 本轮具名检查：Python **545 passed / 4 skipped**、原协议1原生复测 **1 passed**、协议2实际Web/OpenClaw探针 **16项PASS**、Node **90 passed**、前端build/lint通过；具体边界与脱敏源码摘要只维护在[S6-14A](tasks/S6-14A_conversation-integration.md)。正式部署/库迁移/服务重启和真实调用未执行，本轮不自动扩大为A5或付费生产。当前源码已变更，后续部署须受控重载并再次核实服务版本，不能沿用此前A1的reload_required=false结论。
+
 
 Creator可同时通过上方视频入口审片，反馈故事/风格、画面匹配、旁白/字幕、音乐/音效与节奏；未明确接受不标CREATOR_ACCEPTED。跨题材风格、质量、耗时/成本及完整规格矩阵归后续S7，不以此次交互设计自动启动。
 

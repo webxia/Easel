@@ -556,6 +556,11 @@ async def local_write_guard(request: Request, call_next):
     不受信任的网络（公共 WiFi、无防火墙的公网主机）上。
     """
     origin = request.headers.get('origin')
+    bridge_token=os.environ.get('EASEL_WORK_BRIDGE_TOKEN','')
+    if bridge_token and request.headers.get('authorization') == 'Bearer '+bridge_token and request.url.path not in {'/api/chat/work-tools/claim','/api/chat/work-tools/prepare','/api/chat/work-tools/dispatch','/api/chat/work-tools/end'}:
+        return JSONResponse({'detail':'作品插件凭证不可用于此入口'},status_code=403)
+    if request.url.path.startswith('/api/chat/work-tools/') and not _loopback_peer(request):
+        return JSONResponse({'detail':'作品工具桥仅允许本地传输'},status_code=403)
     if request.url.path == '/api/clipper' and origin and re.fullmatch(r'chrome-extension://[a-p]{32}', origin):
         headers = {
             'Access-Control-Allow-Origin': origin,
@@ -2625,6 +2630,8 @@ class AttachmentRef(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    videoSegmentId: str | None = None
+    interaction_mode: str | None = None
     workId: str | None = None
     workRevision: int | None = None
     outputId: str | None = None
@@ -3236,16 +3243,30 @@ async def api_chat_job_stream(turn_id: str, after: int = 0):
     })
 
 
+from web.conversation_api import create_router as conversation_router, create_internal_router, VideoChat
+app.include_router(conversation_router(_production_service))
+app.include_router(create_internal_router(_production_service, lambda: os.environ.get('EASEL_WORK_BRIDGE_TOKEN', '')))
+_video_chat = VideoChat(_production_service, _job_event_file, _save_turn)
+
+
+def _video_session_bound(session):
+    """Do not initialize a production DB just to route ordinary chat."""
+    if not session:return False
+    database=OUTPUTS_DIR/'_production'/'production.sqlite3'
+    existing=getattr(app.state,'production_service',None)
+    if existing:database=existing.store.path
+    if not database.is_file():return False
+    import sqlite3
+    try:
+        with sqlite3.connect(database.resolve().as_uri()+'?mode=ro',uri=True) as conn:
+            if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='conversation_segments'").fetchone():return False
+            return bool(conn.execute('SELECT 1 FROM conversation_segments WHERE ui_session=?',(session,)).fetchone())
+    except sqlite3.DatabaseError:
+        raise ProductionError('storage_unavailable','无法核实作品会话，暂不派发对话',status_code=503)
+
+
 def _production_chat_command(req: ChatRequest):
-    """An explicit work binding routes only to the durable production service."""
-    if req.workRevision is None or not req.turnId:
-        raise ProductionError("invalid_input", "作品对话须提供当前版本与本轮标识", status_code=400)
-    if req.attachments:
-        raise ProductionError("invalid_input", "请先在作品中登记必用或参考素材，再继续创作", status_code=400)
-    action="revise" if req.outputId else "plan"
-    payload={"output_id":req.outputId,"feedback":req.message} if req.outputId else {"request":req.message}
-    result=_production_service().command(action,payload,command_id=req.turnId,work_id=req.workId,expected_revision=req.workRevision)
-    return {"response":"已交给作品制作任务，请在视频创作工作台查看方案、进度与成果。","sessionKey":req.sessionId,**result}
+    raise ProductionError('conversation_binding_required', '请从作品入口继续对话；普通消息不会直接启动规划或修订', status_code=409)
 
 
 @app.post("/api/chat/stream")
@@ -3258,12 +3279,10 @@ async def api_chat_stream(req: ChatRequest):
     记下该文件尾偏移、实时 tail 之后追加的行，用 runId 闩锁隔离本轮，把 assistant_text_stream 的
     token delta 转成 SSE `token`、thinking delta 转成 `thinking`。stdout 仅留作错误/兜底。
     """
+    if req.videoSegmentId or req.interaction_mode == 'video' or _video_session_bound(req.sessionId):
+        return await _video_chat.stream(req, api_chat_job_stream)
     if req.workId:
-        result=await asyncio.to_thread(_production_chat_command,req)
-        async def production_events():
-            yield {"event":"token","data":json.dumps(result["response"],ensure_ascii=False)}
-            yield {"event":"done","data":json.dumps(result,ensure_ascii=False)}
-        return EventSourceResponse(production_events())
+        _production_chat_command(req)
     # 每轮末尾追加「先查技能库」提醒，抗长对话指令衰减（对用户不可见）
     runtime = _chat_backend(req.sessionId)
     config = _harness_settings()
@@ -3953,6 +3972,8 @@ class StopRequest(BaseModel):
 
 @app.post("/api/chat/stop")
 async def api_chat_stop(req: StopRequest):
+    if req.sessionId in _video_chat.tasks:
+        return _video_chat.stop(req.sessionId)
     """用户显式停止当前会话正在跑的对话 agent：终止进程 → supervisor 收尾释放会话锁 →
     下一句立刻能发（不再卡「上一条还在跑」）。仅此显式入口会杀进程；客户端断线不经此路径。"""
     sk = (req.sessionId or "").strip()
@@ -3981,6 +4002,8 @@ async def api_chat_stop(req: StopRequest):
 
 @app.post("/api/chat")
 async def api_chat(req: ChatRequest):
+    if req.videoSegmentId or req.interaction_mode == 'video' or _video_session_bound(req.sessionId):
+        raise ProductionError('conversation_stream_required','作品对话请使用可恢复的流式入口',status_code=409)
     """非流式对话（备选）。"""
     if req.workId:
         return await asyncio.to_thread(_production_chat_command,req)
@@ -5221,6 +5244,13 @@ def _write_baseline_profile(name: str, form: dict) -> None:
 @app.delete("/api/session/{session_key}")
 async def api_delete_session(session_key: str):
     """删除 OpenClaw 本地的 session 记录。"""
+    database = OUTPUTS_DIR / '_production' / 'production.sqlite3'
+    if database.is_file():
+        import sqlite3
+        with sqlite3.connect(database.resolve().as_uri() + '?mode=ro', uri=True) as conn:
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE name='conversation_segments'").fetchone() and conn.execute('SELECT 1 FROM conversation_segments WHERE ui_session=?',(session_key,)).fetchone():
+                from easel.conversation import ConversationService
+                return ConversationService(_production_service()).revoke(session_key)
     if session_key in _RUNNING_CHAT or _session_lock(session_key).locked():
         raise HTTPException(409, "请先停止当前对话再删除")
     record = harness_store.binding(SESSIONS_DIR, session_key)

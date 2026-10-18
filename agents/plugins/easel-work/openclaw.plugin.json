@@ -2,17 +2,52 @@
   "id": "easel-work",
   "name": "Easel Work Bridge",
   "description": "Restricted work tools. Must be explicitly configured; not installed by Easel sync.",
-  "categories": ["tools"],
-  "contracts": { "tools": ["easel_work_context", "easel_work_create_draft", "easel_work_request_plan"] },
-  "activation": { "onStartup": true },
+  "categories": [
+    "tools"
+  ],
+  "contracts": {
+    "tools": [
+      "easel_work_context",
+      "easel_work_create_draft",
+      "easel_work_request_plan",
+      "easel_work_input_evidence",
+      "easel_work_register_inputs",
+      "easel_work_update_brief",
+      "easel_work_request_revision",
+      "easel_work_propose"
+    ]
+  },
+  "activation": {
+    "onStartup": true
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["baseUrl", "token"],
+    "required": [
+      "baseUrl",
+      "token"
+    ],
     "properties": {
-      "baseUrl": { "type": "string", "pattern": "^http://127\\.0\\.0\\.1:[0-9]+$" },
-      "token": { "type": "string", "minLength": 24 },
-      "agentId": { "type": "string", "default": "easel-video" }
+      "baseUrl": {
+        "type": "string",
+        "pattern": "^http://127\\.0\\.0\\.1:[0-9]+$"
+      },
+      "token": {
+        "type": "string",
+        "minLength": 24
+      },
+      "agentId": {
+        "type": "string",
+        "default": "easel-video"
+      },
+      "protocolVersion": {
+        "type": "integer",
+        "enum": [
+          1,
+          2
+        ],
+        "default": 1
+      }
     }
   }
 }

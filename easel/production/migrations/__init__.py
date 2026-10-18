@@ -229,3 +229,6 @@ WHEN NOT EXISTS (
 )
 BEGIN SELECT RAISE(ABORT,'output_not_reviewable'); END;
 '''}
+
+from .conversation import SQL as CONVERSATION_SQL
+MIGRATIONS[4] = CONVERSATION_SQL

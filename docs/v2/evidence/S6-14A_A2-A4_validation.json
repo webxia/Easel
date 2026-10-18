@@ -1,0 +1,170 @@
+{
+  "task": "S6-14A A2-A4",
+  "implementation_base": "44b3f08cc6d6bc6a8011b2fd764e6c61facc50d8",
+  "date": "2026-10-18",
+  "status": "IMPLEMENTED_SOFTWARE_PASS",
+  "native_protocol_2_web": {
+    "status": "PASS",
+    "checks": [
+      {
+        "name": "web_discussion_no_work_or_run",
+        "pass": true
+      },
+      {
+        "name": "native_draft_tool_returns_persistent_card_without_side_effect",
+        "pass": true
+      },
+      {
+        "name": "card_replay_one_work",
+        "pass": true
+      },
+      {
+        "name": "duplicate_chat_post_replays_without_model",
+        "pass": true
+      },
+      {
+        "name": "different_tool_call_ids_one_plan_proposal",
+        "pass": true
+      },
+      {
+        "name": "explicit_plan_card_uses_existing_work_service",
+        "pass": true
+      },
+      {
+        "name": "forbidden_tools_no_new_production",
+        "pass": true
+      },
+      {
+        "name": "no_paid_operations_or_grants",
+        "pass": true
+      },
+      {
+        "name": "cross_profile_native_session_has_no_previous_sentinel",
+        "pass": true
+      },
+      {
+        "name": "no_development_main_or_service_credentials",
+        "pass": true
+      },
+      {
+        "name": "effective_native_tool_surface_exactly_eight",
+        "pass": true
+      },
+      {
+        "name": "selected_product_personality_loaded",
+        "pass": true
+      },
+      {
+        "name": "old_segment_dispatch_rejected",
+        "pass": true
+      },
+      {
+        "name": "delete_chat_preserves_work_and_run",
+        "pass": true
+      },
+      {
+        "name": "bridge_credential_cannot_call_authority_api",
+        "pass": true
+      },
+      {
+        "name": "all_network_loopback_only",
+        "pass": true
+      }
+    ],
+    "fake_model_requests": 18,
+    "paid_requests": 0,
+    "production_environment_changed": false,
+    "production_worker_started": false,
+    "work_count": 1,
+    "planning_runs": 1,
+    "openclaw_version": "OpenClaw 2026.9.4 (3a9d69d)",
+    "child_gateway_stopped": true
+  },
+  "checks": {
+    "python": {
+      "passed": 545,
+      "skipped": 4,
+      "failed": 0,
+      "new_conversation_cases": 28
+    },
+    "protocol_1_native_compatibility": {
+      "passed": 1
+    },
+    "node": {
+      "passed": 90,
+      "failed": 0
+    },
+    "frontend_build": "PASS",
+    "frontend_lint": "PASS_WITH_PREEXISTING_LINKIFY_WARNING",
+    "git_diff_check": "PASS"
+  },
+  "browser": {
+    "environment": "isolated_loopback",
+    "profile_data": "synthetic",
+    "journeys": [
+      "directory_to_conversation_to_native_draft_proposal_to_explicit_create_and_work_cards",
+      "channel_discussion_to_proposal_to_explicit_save_without_work",
+      "reload_restores_video_conversation_and_persisted_channel_card"
+    ],
+    "channel_fixture_counts": {
+      "channels": 1,
+      "works": 0,
+      "runs": 0,
+      "operations": 0,
+      "authorization_grants": 0
+    },
+    "screenshot": "S6-14A_A3_channel-browser.png",
+    "screenshot_sha256": "618ba2818d671d2db43fda8fda4f49e876e35fa849d26426104587605e5a5327"
+  },
+  "limits": [
+    "A5 complete 28-row browser matrix not executed",
+    "No production runtime/configuration/database changes",
+    "No production worker in fixtures or paid external calls",
+    "No new real production or Creator acceptance",
+    "Public HTTPS import tested offline only; no external fetch",
+    "Actual installed production plugin/memory composition not validated"
+  ],
+  "file_sha256": {
+    "agents/plugins/easel-work/README.md": "f7c24fde238b145aea2936f44728ee9786e9c77ef195fbc90013664b16a6de40",
+    "agents/plugins/easel-work/openclaw.plugin.json": "4ae9690b92d642cae353981968d3e845879e81015a30fb4fe992543220eccc1f",
+    "agents/plugins/easel-work/tools.mjs": "c49a7e293d5fc607797a49f4ae878c393eff81cad2ca54e0fb5055596ea4704b",
+    "easel/conversation.py": "be52fbc43b2f31752a528e2a22257587172bc7ecaedceaa9ed35d6a143ec73b8",
+    "easel/conversation_bridge.py": "5269384d54f9143ab03726e662342b193b8239f81876e837b4e04dca4b246eba",
+    "easel/conversation_inputs.py": "401cbd4aa746caa8923776ed2add05fc9dc7a0dc737636084460641387c53809",
+    "easel/production/catalog.py": "a3d1a5f9b7593483b491f0ee4469ca79b9db658029fde145f43bbf3a91fd43c4",
+    "easel/production/contracts.py": "200aec68ebb7c95dc458657b2c4f444f7cf5b4bb9dfdcbea18ea3e44bee0d961",
+    "easel/production/migrations/__init__.py": "676dc95f7f068d7a0b16e378ed280224b82e64a4eaa2dbcca5c8f9d1b8366624",
+    "easel/production/migrations/conversation.py": "38efe1cb67bd994192148c8b6b9c9a8f5aa0dc97a3981236bcb07396f529a59e",
+    "easel/production/planning.py": "fd97352ce56bc297fcb65b12f6c0a5479d381323dd00d548cd1026ed4901f868",
+    "easel/production/service.py": "d117571a3b243768355e370c66f9f7b4bb04ad42e1bfa3afa7e175e84914d804",
+    "easel/production/store.py": "62a9332e98a21e085fa3022b76abd54df5f010c7ce5a2df2cc24b98d1eb302d6",
+    "easel/reference_import.py": "f8e729d20fb7a205934bd7b4ea240f84d14bd5d62d403d093c2978be5fd4eddc",
+    "easel/video_workspace.py": "56f8ad9efede75376aa92792b7b1a0a70bf058904233bae043d6ebcc2b5c7299",
+    "easel/work_bridge.py": "40688ba12a689a80da9a1816fc0a5684a21db3b2322f2888a141c8e14d32e51a",
+    "scripts/prepare_video_workspace.py": "ac1a6ba61afa318d1c826da26c9d17053bc49389eedda92be72528be08fe12cd",
+    "scripts/validate_openclaw_work_bridge.py": "3329cd1c3665bc184adce82a0a158ececc1a635320940b44bbe74ec274488990",
+    "scripts/validate_video_conversation.py": "c77c00f68b3846ca945aa1767662682b9b2e7f3dd837289ae9a1a7e56cad1d5f",
+    "tests/frontend/chatQuestionReplay.test.mjs": "45e48719006fce22b3e0be58260d382d6eeae623d3933534b2f3dee9110955ae",
+    "tests/frontend/conversationCommands.test.mjs": "23fd7af424ab51f9eee26067af4aa6cc3e920a02950c14b0f5e541e1989bd8c3",
+    "tests/production/test_conversation.py": "20a527190aa29f7b049801d33d7acd229398ca7512264a0b3e33b51332324d33",
+    "tests/production/workBridgePlugin.test.mjs": "8b2d2ae8b4cfe0ed135b8f27c452386b7759b3de6d20d391eb3fc3c8241b9a04",
+    "web/app.py": "07e3b1ae9cdcd7f04cd208b111605652cde5287dc130ce5aa9aa20fd896110c0",
+    "web/conversation_api.py": "bff81755ddd6fa977169621da045af77899d4de371cd2d8a663f12aae323e175",
+    "web/frontend/src/App.tsx": "cde697da7cc245309a9121a6626a5a3fcb9cf60ba3250e47123a3a7961e21b96",
+    "web/frontend/src/components/BrushEntry.tsx": "abbf57c8355780c26a54211690a3aa13fe9520b2e90889e62c9b36432ce1be6e",
+    "web/frontend/src/components/ChatPage.tsx": "034f2e9778c8c4972f657324dafa3c7e336f4d6d7aa69371dcdf6a5ae0decbdc",
+    "web/frontend/src/components/OutputsPage.tsx": "5bf77718f496c1558e9caaa4a6e52903eb2a30f2d43b3d20fc814812cadf4bc7",
+    "web/frontend/src/components/ProductionPage.tsx": "d6813c96622d54d2fbe1cb795a2c38b65559ed5a4db1994b7195753b71ff4ecc",
+    "web/frontend/src/components/VideoConversation.tsx": "2d60692bbda7b90aac689c60c1d07b7a929160c915b7adeb8fcb006eec51a2bf",
+    "web/frontend/src/components/WorkCards.tsx": "896acceadd6911e0c1719718e1206423c6fec2439c31b4f84b4a2fe07073b1f5",
+    "web/frontend/src/components/production.css": "2dec474103cd5ca54785aa081bcc5984e941f1e0b9bc7a44f527e542f06541b6",
+    "web/frontend/src/lib/api.ts": "94d5697fa0c114b2098b820732bcdba20310fa66e77126e4e8ef70ed71635798",
+    "web/frontend/src/lib/conversationApi.ts": "76c19bc524d4a148ae9f28b4da11f51df35c18b2ab032e604f8de5b6d506a25b",
+    "web/frontend/src/lib/directorLifecycle.ts": "258dfbf8189bf0d68db3cf65b56eb511de403c1553aaf9ad1a375159cda12f40",
+    "web/frontend/src/lib/productionApi.ts": "99f22450c903b43f2e02c1e3ac781c04d29daf50cb1269fa6a9f155a8b5e1df4",
+    "web/frontend/src/lib/store.ts": "2310074c7e2bfac91c8cc677faf0848f662d72eb1e797a3c59a6e967e0b83ab6",
+    "web/frontend/src/lib/useWork.ts": "41f5634c333758a778e40020bb85d872ccacc91fd2991614e773731fdc92b3bd",
+    "web/production_api.py": "4fb04815866a306953009675d10b2f46e0869284fca892c517288357a3e20665",
+    "web/production_settings_api.py": "5bd5e4970785ffd1e6073ecf89816f6aa45ae1da16e2c4d7134a4e5f79e1ab1c"
+  }
+}

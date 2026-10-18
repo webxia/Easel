@@ -602,6 +602,7 @@ export function streamChat(
   attachments: UploadedFile[] = [],
   onQuestion?: (q: ChatQuestion) => void,
   onHeartbeat?: (note: string) => void,
+  videoSegmentId?: string,
 ): AbortController {
   const controller = new AbortController();
   let lastEventId = 0;
@@ -610,8 +611,9 @@ export function streamChat(
       if (!res.ok) {
         let detail = `Stream error: ${res.status}`;
         try {
-          const payload = await res.json() as { detail?: string };
-          if (payload.detail) detail = payload.detail;
+          const payload = await res.json() as { detail?: string; error?:{user_message?:string} };
+          if (payload.error?.user_message) detail=payload.error.user_message;
+          else if (payload.detail) detail = payload.detail;
         } catch { /* non-JSON error */ }
         const error = new Error(detail) as Error & { status?: number };
         error.status = res.status;
@@ -695,21 +697,22 @@ export function streamChat(
         const res = first
           ? await fetch(`${BASE}/api/chat/stream`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ message, persona: persona || undefined, sessionId, turnId, attachments }),
+              body: JSON.stringify({ message, persona: persona || undefined, sessionId, turnId, attachments, videoSegmentId, ...(videoSegmentId ? {interaction_mode:'video'} : {}) }),
               signal: controller.signal,
             })
           : await fetch(`${BASE}/api/chat/jobs/${encodeURIComponent(turnId || '')}/stream?after=${lastEventId}`, {
               signal: controller.signal,
             });
-        if (!first && res.status === 404 && onRecoveryUnavailable) {
-          onRecoveryUnavailable();
+        if (!first && res.status === 404 && (onRecoveryUnavailable || videoSegmentId)) {
+          if (onRecoveryUnavailable) onRecoveryUnavailable();
+          else onError(new Error('未找到本轮回放，请核实对话状态；不会重新派发。'));
           return;
         }
         if (await consume(res)) return;
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') return;
         const status = (err as Error & { status?: number })?.status;
-        if (first && status && status >= 400 && status < 500) {
+        if (first && status && status >= 400 && (status < 500 || videoSegmentId)) {
           onError(err instanceof Error ? err : new Error('请求失败'));
           return;
         }

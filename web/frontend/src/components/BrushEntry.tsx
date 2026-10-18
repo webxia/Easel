@@ -5,7 +5,7 @@ import type { CapabilityItem } from '../lib/capabilityMenu';
 const DOT: Record<string, string> = { done: 's-done', ready: 's-ready', need: 's-need', incoming: 's-incoming' };
 
 /** 笔入口：点开「能做的都在这」→ 选一项自动填进输入框。纯前端，选中即预填，不自动发送。 */
-export default function BrushEntry({ onPick }: { onPick: (text: string) => void }) {
+export default function BrushEntry({ onPick, onVideo }: { onPick: (text: string) => void; onVideo?:()=>void }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState(0);
   const [q, setQ] = useState('');
@@ -32,6 +32,7 @@ export default function BrushEntry({ onPick }: { onPick: (text: string) => void 
   const hit = (it: CapabilityItem) => !ql || `${it.label}${it.desc || ''}${it.skill || ''}`.toLowerCase().includes(ql);
 
   const pick = (it: CapabilityItem, pipe?: boolean) => {
+    if(pipe && onVideo){onVideo();setOpen(false);return;}
     onPick(pipe ? '用「视频产线」做一支整片：' : `帮我做「${it.label}」`);
     setOpen(false);
   };

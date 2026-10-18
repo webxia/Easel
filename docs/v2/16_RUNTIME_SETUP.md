@@ -4,7 +4,7 @@
 
 ## 本地启动与体验
 
-当前唯一开发/运行根为 `/Users/xgx/Projects/Easel`，服务为 `com.easel.web` / 7860，已有 `.venv`。下列仅供首次配置参考，已有服务运行时不再启动第二个 Web/worker；当前任务为文档与只读验收，不执行安装或重启：
+当前唯一开发/运行根为 `/Users/xgx/Projects/Easel`，服务为 `com.easel.web` / 7860，已有 `.venv`。下列仅供首次配置参考，已有服务运行时不再启动第二个 Web/worker；本轮A2～A4只在隔离环境运行，未对正式服务执行安装或重启：
 
 ```sh
 cd /Users/xgx/Projects/Easel
@@ -17,11 +17,21 @@ EASEL_PRODUCTION_ENABLED=1 .venv/bin/easel web --port 7860
 
 Windows 首次配置时使用相应 `.venv\Scripts\python.exe` / `easel.exe`，PowerShell 先设置 `$env:EASEL_PRODUCTION_ENABLED="1"`。外部 `ffmpeg` 与 `ffprobe` 须在 PATH，字体须按下文明确配置。Web 已运行持久 worker，无须同时再启动 CLI worker。无 Web 时可运行 `easel production worker --root <项目绝对路径>`；`easel production status --root <项目绝对路径>` 为只读状态检查。
 
-访问 `http://127.0.0.1:7860` →「视频制作」。创建作品并选用已有六维画像（可不选）、频道/导演，登记本次主题和素材，检查声音/字幕，选择服务授权并请求完整方案。确认方案及生图/生视频次数后，制作任务自动推进；工作台显示每步产物、错误和恢复入口。审阅具体输出版本，可自然语言局部修改、对比版本，明确接受后才进入内容库。未配置服务时可以浏览和创建作品，但不能生成真实方案或把缺失服务当作通过。
-
-上段描述当前表单界面，尚未达到用户要求的完整对话体验。[S6-14A](tasks/S6-14A_conversation-integration.md) 已登记其改造设计；不能将提案入口当成已上线功能。第五轮正式 API 自动成片/零人工恢复已通过，语义 QC 仍未测、Creator 审阅待反馈，实际证据见 [S6-14](tasks/S6-14_integration-release.md)。下文各历史软件验证的“真实未测”仅限其当时范围，不覆盖此后具名生产证据。
+新源码的「视频创作」改为作品/频道/导演目录与对话入口，方案/进度/审片共用卡片。A2～A4源码和隔离验证完成，正式服务仍需受控部署，不能通过刷新旧服务宣称已经上线。第五轮正式API自动成片、零人工恢复的证据保持独立；Creator尚未接受，自动语义QC仍未测，见[S6-14](tasks/S6-14_integration-release.md)。
 
 新 V2 数据存于本项目 `outputs/_production` 和 `outputs/works`；首次启用创建新库，不读取 V1 历史运行库。停止 Web 后任务可由同库 worker 恢复；取消按钮才表示用户取消。不要手动删除这两个目录来解决失败。设置 `EASEL_PRODUCTION_ENABLED=0` 停用新入口，不卸载旧聊天能力。
+
+## S6-14A受限视频对话（源码已实现，正式部署未执行）
+
+- Web需`EASEL_PRODUCTION_ENABLED=1`及协议2持久桥；设置独立`EASEL_WORK_BRIDGE_TOKEN`（至少24字符），仅插件可用，不授予confirm/grant/accept等普通API权限。
+- 视频对话显式读取进程环境`EASEL_VIDEO_GATEWAY_URL`（`http://127.0.0.1:<实际Gateway端口>`）与`EASEL_VIDEO_GATEWAY_TOKEN`。不得把示例端口或其他环境凭证直接复制到正式运行；缺配置/插件或协议不符返回明确不可用，不切普通main或CLI。
+- 原生插件`agents/plugins/easel-work`配置`protocolVersion=2`，内部Agent为`easel-video`，工具白名单严格为8个具名工具。HTTP目标`openclaw/easel-video`，原生session绑定来自可信钩子，不能用自造session-id请求头代替。
+- `scripts/prepare_video_workspace.py --destination <全新目录> --patch-file <全新补丁文件>`只生成受审查的SOUL/产品规则及**待合并补丁**，不安装、不覆盖原配置、不启动服务。补丁里的凭证是占位值；合并时须保留原main配置、模型、plugins.allow及load.paths已有成员，不能直接整体覆盖数组或运行全量sync。本轮没有在正式路径运行该准备器。
+- 正式部署前需核实实际既有插件、自动记忆和工具策略合成结果，不能把隔离探针的无其他插件组合当成正式环境权限已验收。源码迁移4已验证旧记录兼容，但未在正式库执行；按部署安排备份、重载唯一com.easel.web并核对`backend.reload_required=false`。不另启7870。
+- 无Work时可持久保存频道/导演创建提议；频道保存不建空Work。参考视频分析/首版生产仍由原Worker和服务授权决定。模型只能提出长期变更，实际保存由显示目标/差异的卡操作完成。
+- 参考导入仅支持公开HTTPS视频直链、最多100MB；内网/保留地址、凭证URL及重定向越界拒绝。失败/UNKNOWN不自动重抓；平台网页、登录媒体和其他来源可改为本地上传，本轮未实际访问外网参考。
+
+离线验证命令：`.venv/bin/python scripts/validate_video_conversation.py --root <全新系统临时目录>`。该脚本使用临时原生Gateway、Web、SQLite和本地假模型，关闭子进程后输出脱敏结果；不读取项目.env、不启动生产Worker。`--serve`仅供隔离浏览器检查，用完停止其测试进程；不得当生产启动器。
 
 ## 创作模型
 

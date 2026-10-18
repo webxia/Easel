@@ -14,6 +14,7 @@ class CreativeCatalog:
             for value in values:
                 if kind=='channels':
                     value['settings']=json.loads(value.pop('settings_json'))
+                    value['creative_basis']=json.loads(value.pop('creative_basis_json'))
                     value['director_ids']=[r[0] for r in conn.execute('SELECT director_id FROM channel_directors WHERE channel_id=?',(value['id'],))]
                     value['profile_name']=row(conn,'profile_refs',value['profile_ref'])['name']
                 else:
@@ -23,20 +24,22 @@ class CreativeCatalog:
                         value['versions'].append(version)
             return values
 
-    def command(self,kind,action,payload,*,command_id,id=None,expected_revision=None):
+    def command(self,kind,action,payload,*,command_id,id=None,expected_revision=None,_connection=None):
         if kind not in {'channels','directors'}:fail('invalid_input','无效配置类型',400)
         def execute(conn):
             existing=row(conn,kind,id) if id else None
             if existing and existing['revision']!=expected_revision:fail('stale_revision','设置已变化，请刷新',409)
             result=self._channel(conn,existing,payload) if kind=='channels' else self._director(conn,existing,action,payload)
             return result
-        return self.store.execute_command(command_id,{'catalog':kind,'action':action,'id':id,'revision':expected_revision,'payload':payload},execute)
+        return self.store.execute_command(command_id,{'catalog':kind,'action':action,'id':id,'revision':expected_revision,'payload':payload},execute,connection=_connection)
 
     def _channel(self,conn,existing,data):
         title=str(data.get('name',existing['name'] if existing else '')).strip()
         if not title or len(title)>200:fail('invalid_input','请输入频道名称')
         settings=data.get('settings',json.loads(existing['settings_json']) if existing else {'schema_version':1})
         self.service._validate_settings(settings)
+        if set(settings)&{'director_revision','director_trial'}:fail('invalid_input','频道导演请使用已接受的默认导演版本字段')
+        settings={'schema_version':1,**settings}
         if existing:
             id=existing['id'];profile=existing['profile_ref']
             if 'profile_ref' in data and self.service._profile(conn,data['profile_ref'])!=profile:
@@ -49,6 +52,12 @@ class CreativeCatalog:
             id=new_id();stamp=now()
             conn.execute('INSERT INTO channels(id,profile_ref,name,settings_json,created_at,updated_at) VALUES (?,?,?,?,?,?)',
                          (id,profile,title,encode(settings),stamp,stamp))
+        if 'creative_basis' in data:
+            basis=data['creative_basis']
+            if (not isinstance(basis,dict) or set(basis)-{'position','themes','audience'}
+                    or any(not isinstance(v,str) or len(v)>10000 for v in basis.values())):
+                fail('invalid_input','频道创作依据须为定位、主题和受众文字')
+            conn.execute('UPDATE channels SET creative_basis_json=? WHERE id=?',(encode(basis),id))
         if 'director_ids' in data:
             ids=data['director_ids']
             if not isinstance(ids,list) or len(set(ids))!=len(ids):fail('invalid_input','导演关联无效')
@@ -66,8 +75,8 @@ class CreativeCatalog:
         return {'id':id,'revision':row(conn,'channels',id)['revision']}
 
     def _director(self,conn,existing,action,data):
-        if existing is None:
-            name=str(data.get('name','')).strip()
+        if existing is None or action=='analyze':
+            name=str(data.get('name') or (existing['name'] if existing else '')).strip()
             if not name or len(name)>200:fail('invalid_input','请输入导演名称')
             work=row(conn,'works',data.get('work_id',''))
             if work['revision']!=data.get('work_revision'):fail('stale_revision','参考作品输入已变化',409)
@@ -78,12 +87,15 @@ class CreativeCatalog:
             for ref in refs:
                 input=row(conn,'work_inputs',ref)
                 if input['work_id']!=work['id'] or input['kind']!='video':fail('invalid_input','导演拆解须使用本作品中的视频参考')
-            id=new_id();stamp=now()
-            conn.execute('INSERT INTO directors(id,name,created_at,updated_at) VALUES (?,?,?,?)',(id,name,stamp,stamp))
+            id=existing['id'] if existing else new_id();stamp=now()
+            if existing:
+                if existing['archived']:fail('invalid_input','导演已归档')
+                conn.execute('UPDATE directors SET revision=revision+1,updated_at=? WHERE id=?',(stamp,id))
+            else:conn.execute('INSERT INTO directors(id,name,created_at,updated_at) VALUES (?,?,?,?)',(id,name,stamp,stamp))
             if data.get('services'):self.service._insert_grant(conn,work,'planning',data)
             run=self.service._run(conn,work,'planning',target=id,payload={'director_id':id,'reference_input_ids':refs})
             conn.execute("UPDATE tasks SET kind='analyze_director' WHERE run_id=?",(run,))
-            return {'id':id,'revision':1,'work_id':work['id'],'run_id':run}
+            return {'id':id,'revision':existing['revision']+1 if existing else 1,'work_id':work['id'],'run_id':run}
         id=existing['id']
         if action=='revision':
             style=data.get('style');evidence=data.get('evidence')
@@ -100,7 +112,13 @@ class CreativeCatalog:
         elif action=='accept':
             version=row(conn,'director_revisions',data.get('revision_id',''))
             artifact=row(conn,'artifacts',data.get('trial_artifact_id',''))
-            if version['director_id']!=id or not version['style_confirmed'] or artifact['quality_state']!='passed' or artifact['output_revision'] is None:
+            manual=self.service._manual_review_ready(conn,artifact)
+            if manual:
+                work=row(conn,'works',artifact['work_id'])
+                run=row(conn,'runs',artifact['run_id'])
+                if data.get('manual_review_confirmed') is not True or work['state']!='reviewable' or run['state']!='succeeded':
+                    fail('manual_review_confirmation_required','导演试片须人工完整审阅并明确确认')
+            if artifact['kind']!='output' or artifact.get('deleted_at') or version['director_id']!=id or not version['style_confirmed'] or (artifact['quality_state']!='passed' and not manual) or artifact['output_revision'] is None:
                 fail('invalid_input','请先确认风格并审阅该版本的合格试片')
             run=row(conn,'runs',artifact['run_id'])
             plan=conn.execute('SELECT payload_json FROM plan_revisions WHERE work_id=? AND revision=?',(artifact['work_id'],run['plan_revision'])).fetchone()
@@ -108,6 +126,7 @@ class CreativeCatalog:
                 fail('invalid_input','试片并非使用该导演版本制作')
             self.service.artifact_path(artifact['id'])
             conn.execute('UPDATE director_revisions SET trial_artifact_id=?,accepted_at=? WHERE id=?',(artifact['id'],now(),version['id']))
+            self.service._event(conn,artifact['work_id'],'director_accepted',{'director_revision_id':version['id'],'output_id':artifact['id'],'mode':'explicit_manual_review' if manual else 'explicit_user'})
         else:
             if 'name' in data:
                 if not str(data['name']).strip():fail('invalid_input','导演名称不能为空')

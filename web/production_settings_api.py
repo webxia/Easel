@@ -102,6 +102,8 @@ def create_settings_router(service_provider: Callable[[], WorkService], *, voice
             service._ensure_idle(writer, work)
             scope = selected["scope"]
             if scope == "work":
+                if writer.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(work_id,)).fetchone():
+                    raise ProductionError('revision_required','已确认方案的本片设置变更请通过指定版本修订',status_code=409)
                 current = json.loads(work["settings_json"])
                 if "subtitles" in values:
                     current["subtitles"] = {**current.get("subtitles", {}), **values["subtitles"]}
@@ -109,7 +111,7 @@ def create_settings_router(service_provider: Callable[[], WorkService], *, voice
                 current.update(values)
                 if subtitles is not None:
                     current["subtitles"] = subtitles
-                updated = service.store.bump_work(writer, work_id, work["revision"], settings_json=current)
+                updated = service.store.bump_work(writer, work_id, work["revision"], settings_json=current,current_plan_revision=None,state="discussing")
             else:
                 table = "channels" if scope == "channel" else "profile_refs"
                 target = row(writer, table, selected["target_ref"])

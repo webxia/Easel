@@ -79,6 +79,9 @@ def create_router(service_provider: Callable[[], WorkService]) -> APIRouter:
     def get_work(work_id:str):
         return service_provider().snapshot(work_id)
 
+    @router.post('/works/{work_id}/basis',status_code=202)
+    def basis(work_id:str,request:Command):return command('basis',request,work_id)
+
     @router.post('/works/{work_id}/inputs',status_code=202)
     def add_input(work_id:str,request:Command):return command('input',request,work_id)
 
@@ -163,6 +166,10 @@ def create_router(service_provider: Callable[[], WorkService]) -> APIRouter:
     @router.post('/directors/{id}/revisions',status_code=202)
     def director_revision(id:str,request:Command):
         return CreativeCatalog(service_provider()).command('directors','revision',request.payload,command_id=request.command_id,id=id,expected_revision=request.expected_revision)
+
+    @router.post('/directors/{id}/analyses',status_code=202)
+    def reanalyze_director(id:str,request:Command):
+        return CreativeCatalog(service_provider()).command('directors','analyze',request.payload,command_id=request.command_id,id=id,expected_revision=request.expected_revision)
 
     @router.post('/directors/{id}/accept',status_code=202)
     def accept_director(id:str,request:Command):

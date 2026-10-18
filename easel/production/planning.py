@@ -80,12 +80,12 @@ class PlanningTasks:
                 director=json.loads(row(conn,'director_revisions',director_id)['style_json']) if director_id else {}
                 basis={'profile':profile,'director':director,'settings':plan['settings']}
             else:
-                basis=self.service._basis(conn,work)
+                basis=ctx.payload.get('creation_basis') or self.service._basis(conn,work)
         safe_inputs=tuple({'input_id':i['id'],'kind':i['kind'],'usage':i['usage'],'text':i['text_content'],
             'name':i['original_name'],'constraints':json.loads(i['metadata_json'])} for i in inputs)
         return TaskContext(work_id=ctx.work_id,run_id=ctx.run_id,task_id=ctx.task_id,
             profile_ref=profile_ref,profile=basis['profile'],director=basis['director'],
-            brief=work['input_text']+'\n本次明确设置：'+encode(basis['settings'])+'\n本次补充：'+str(ctx.payload.get('request','')),
+            brief=work['input_text']+'\n本次明确设置：'+encode(basis['settings'])+'\n本次对话依据：'+encode(basis.get('conversation_brief'))+'\n频道定位：'+encode(basis.get('channel_basis',{}))+'\n本次补充：'+str(ctx.payload.get('request','')),
             inputs=safe_inputs,allowed_handles=frozenset(i['id'] for i in inputs),plan=plan,
             facts=tuple(plan.get('facts',[])),prohibitions=tuple(plan.get('constraints',[])),
             adaptation_permissions=tuple(plan.get('adaptation_permissions',[])))
@@ -155,7 +155,7 @@ class PlanningTasks:
             with ctx.transaction() as conn:
                 work=row(conn,'works',ctx.work_id)
                 from .voice_budget import reserve_narration_slots
-                payload=self.service.freeze_plan(conn,work,reserve_narration_slots(proposed.model_dump(mode='json')))
+                payload=self.service.freeze_plan(conn,work,reserve_narration_slots(proposed.model_dump(mode='json')),basis=ctx.payload.get('creation_basis'))
                 if ctx.payload.get('base_plan_revision'):
                     payload['profile_snapshot']=context.plan.get('profile_snapshot')
                     payload['director_revision_id']=context.plan.get('director_revision_id')

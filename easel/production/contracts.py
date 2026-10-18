@@ -173,6 +173,7 @@ class PlanDocument(Contract):
     core_views: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     adaptation_permissions: list[str] = Field(default_factory=list)
+    conversation_basis: dict | None = None
     profile_snapshot: ProfileSnapshot | None = None
     director_revision_id: Identifier | None = None
 

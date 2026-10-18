@@ -14,8 +14,18 @@ export const toolDefinitions = [
   },
 ];
 
+
+export const persistentToolDefinitions = [...toolDefinitions,
+  { name:'easel_work_input_evidence', description:'Read scoped input metadata. Media is unanalysed unless actual analysis evidence exists.', parameters:{type:'object',properties:{input_ids:{type:'array',items:{type:'string'},maxItems:100}},additionalProperties:false} },
+  { name:'easel_work_register_inputs', description:'Register a current turn upload handle as reference or must-use. Does not grant rights or original audio permission.', parameters:{type:'object',properties:{attachment_id:{type:'string'},usage:{type:'string',enum:['reference','must_use']},original_audio:{type:'boolean'},rights:{type:'object'}},required:['attachment_id'],additionalProperties:false} },
+  { name:'easel_work_update_brief', description:'Save sourced discussion. user_requirement must quote visible user text verbatim; summaries are suggestions. No production.', parameters:{type:'object',properties:{entries:{type:'array',minItems:1,maxItems:100,items:{type:'object',properties:{kind:{type:'string',enum:['user_requirement','suggestion','unresolved']},text:{type:'string'},source_refs:{type:'array',items:{type:'string'}}},required:['kind','text','source_refs'],additionalProperties:false}}},required:['entries'],additionalProperties:false} },
+  { name:'easel_work_request_revision', description:'Propose revision of the selected output only. User confirms the card before any work is scheduled.', parameters:{type:'object',properties:{feedback:{type:'string',minLength:1,maxLength:10000},protected:{type:'array',items:{type:'string'}},interval:{type:['object','null']}},required:['feedback'],additionalProperties:false} },
+  { name:'easel_work_propose', description:'Propose channel creation/defaults, director formation/style or 1–3 reusable Profile preferences. Candidate only; never saves targets. Bind sources to visible user turn refs.', parameters:{type:'object',properties:{kind:{type:'string',enum:['channel_create','channel_defaults','director_formation','profile','director_revision']},values:{type:'object'},source_refs:{type:'array',minItems:1,items:{type:'string'}}},required:['kind','values','source_refs'],additionalProperties:false} },
+];
+
 export function createWorkBridge(api) {
-  const { baseUrl, token, agentId = 'easel-video' } = api.pluginConfig ?? {};
+  const { baseUrl, token, agentId = 'easel-video', protocolVersion = 1 } = api.pluginConfig ?? {};
+  const definitions = protocolVersion === 2 ? persistentToolDefinitions : toolDefinitions;
   const url = new URL(baseUrl);
   if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.pathname !== '/' || url.search || url.hash || url.username || url.password || !token || token.length < 24) {
     throw new Error('Easel bridge requires an explicit loopback endpoint and service credential');
@@ -25,11 +35,11 @@ export function createWorkBridge(api) {
     handler(req, res) {
       if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ protocol: 1, agent_id: agentId, tools: toolDefinitions.map(t => t.name) }));
+      res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, tools: definitions.map(t => t.name) }));
     },
   });
   const calls = new Map();
-  const names = new Set(toolDefinitions.map(t => t.name));
+  const names = new Set(definitions.map(t => t.name));
   const identity = (ctx, event = {}) => ({ agent_id: ctx.agentId, session_key: ctx.sessionKey, session_id: ctx.sessionId, run_id: ctx.runId ?? event.runId });
   const key = (ctx, id, name) => `${ctx.sessionKey}\0${ctx.sessionId}\0${name}\0${id}`;
   async function send(path, body, signal) {
@@ -68,7 +78,7 @@ export function createWorkBridge(api) {
   });
   api.registerTool(ctx => {
     if (ctx.agentId !== agentId) return null;
-    return toolDefinitions.map(definition => ({
+    return definitions.map(definition => ({
       ...definition, label: definition.name,
       async execute(toolCallId, params, signal) {
         const call = calls.get(key(ctx, toolCallId, definition.name));

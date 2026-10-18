@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { enterVideo, type VideoEntry } from './lib/conversationApi';
 import Sidebar from './components/Sidebar';
 import ProductionPage from './components/ProductionPage';
 import type { Page } from './components/Sidebar';
@@ -96,6 +97,7 @@ export default function App() {
       setActiveSessionId(id);
       const s = sess.find((x) => x.id === id);
       if (s) setSelectedPersona(s.persona || '');
+      if (s?.videoSegmentId) setCurrentPage('chat');
       try { sessionStorage.setItem(TAB_SESSION_KEY, id); } catch { /* ignore */ }
       ch?.postMessage({ type: 'claim', sessionId: id });
     };
@@ -372,6 +374,7 @@ export default function App() {
       },
       // onHeartbeat：防呆心跳（30s 静默）。只设独立的「未卡住」提示，绝不写 activity/thinking → 不顶掉真实状态。
       (note) => setStreams((p) => (p[sessionId] ? { ...p, [sessionId]: { ...p[sessionId], stillWorking: note } } : p)),
+      loadSessions().find(s=>s.id===sessionId)?.videoSegmentId,
     );
   }, [appendAssistant, clearStream]);
 
@@ -635,10 +638,10 @@ export default function App() {
     clearStream(id);
     try { sessionStorage.removeItem(`easel_pending_turn:${id}`); } catch { /* ignore */ }
 
-    if (target?.sessionKey) {
+    if (target?.sessionKey || target?.videoSegmentId) {
       // Do not delete OpenClaw's session record while its agent is still
       // writing to it; the stop endpoint waits for backend cleanup first.
-      void stopped.then(() => deleteRemoteSession(target.sessionKey as string)).catch(() => {});
+      void stopped.then(() => deleteRemoteSession(target.sessionKey || id)).catch(() => {});
     }
 
     setSessions((prev) => {
@@ -698,6 +701,18 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
+  const openVideo = async (entry: VideoEntry) => {
+    const next=createSession(selectedPersona||undefined);
+    try {
+      const binding=await enterVideo(next.id,entry);
+      next.videoSegmentId=binding.segment_id;
+      next.title=entry.kind==='channel_create'?'创建频道':entry.kind==='director_formation'?'形成导演':'视频创作';
+      setSessions(prev=>{const updated=[next,...prev];saveSessions(updated);return updated;});
+      setActiveSessionId(next.id);setCurrentPage('chat');
+    } catch(e) { window.alert((e as Error).message); }
+  };
+  const videoBound=useCallback((id:string)=>setSessions(prev=>{const next=prev.map(s=>s.id===activeSessionId?{...s,videoSegmentId:id}:s);saveSessions(next);return next;}),[activeSessionId]);
+
   // 流式生命周期在 App，页面切换随意——ChatPage 可自由卸载/重挂，回来从 props 读流式态即可。
   const renderPage = () => {
     switch (currentPage) {
@@ -715,6 +730,9 @@ export default function App() {
       case 'chat':
         return activeSession ? (
           <ChatPage
+            personas={personas}
+            onRestoreVideo={messages=>setSessions(prev=>{const next=prev.map(s=>s.id===activeSession.id?{...s,messages}:s);saveSessions(next);return next;})}
+            onVideoBound={videoBound}
             apiDirect={apiDirect}
             key={activeSession.id}
             session={activeSession}
@@ -754,11 +772,11 @@ export default function App() {
       case 'breakdown':
         return <BreakdownPage persona={selectedPersona} />;
       case 'production':
-        return <ProductionPage personas={personas} selectedPersona={selectedPersona} />;
+        return <ProductionPage personas={personas} selectedPersona={selectedPersona} onOpen={entry=>void openVideo(entry)} />;
       case 'skills':
         return <SkillPage persona={selectedPersona} />;
       case 'outputs':
-        return <OutputsPage jumpPath={outputsJump} onJumpHandled={clearOutputsJump} />;
+        return <OutputsPage jumpPath={outputsJump} onJumpHandled={clearOutputsJump} onContinue={entry=>void openVideo(entry)} />;
       case 'accounts':
         return <AccountsPage />;
       case 'profile':
@@ -772,7 +790,7 @@ export default function App() {
     setSelectedPersona(persona);
     setCurrentPage('chat');
     const cur = sessionsRef.current.find((s) => s.id === activeSessionId);
-    if (cur && cur.messages.length === 0) {
+    if (cur && cur.messages.length === 0 && !cur.videoSegmentId) {
       setSessions((prev) => {
         const updated = prev.map((s) =>
           s.id === activeSessionId ? { ...s, persona: persona || undefined } : s);

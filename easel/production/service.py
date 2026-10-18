@@ -131,11 +131,11 @@ class WorkService:
         return self.store.bump_work(conn, work['id'], work['revision'], **updates)
 
     def command(self, action: str, payload: dict, *, command_id: str,
-                work_id: str | None = None, expected_revision: int | None = None) -> dict:
+                work_id: str | None = None, expected_revision: int | None = None, _connection=None) -> dict:
         handlers = {'create': self._create, 'input': self._input, 'plan': self._plan,
                     'confirm': self._confirm, 'cancel': self._cancel, 'grant': self._grant,
                     'resume': self._resume, 'accept': self._accept, 'assignment': self._assignment,
-                    'fork': self._fork, 'revise': self._revise, 'confirm_revision': self._confirm_revision}
+                    'basis':self._update_basis, 'fork': self._fork, 'revise': self._revise, 'confirm_revision': self._confirm_revision}
         if action not in handlers:
             fail('invalid_input', '不支持的作品命令', 400)
         # Prevent stale in-memory source from accepting a new production or
@@ -157,7 +157,7 @@ class WorkService:
             return result
         return self.store.execute_command(command_id, {'action': action, 'work_id': work_id,
             'expected_revision': expected_revision, 'payload': payload}, execute,
-            work_id=work_id, expected_revision=expected_revision)
+            work_id=work_id, expected_revision=expected_revision, connection=_connection)
 
     def _create(self, conn, work, data):
         title = str(data.get('title', '')).strip()
@@ -179,7 +179,6 @@ class WorkService:
                 fail('invalid_input', '频道须属于本次选用画像')
             merge_settings(json.loads(channel['settings_json']))
             if channel['default_director_revision']:
-                self._director_version(conn, channel['default_director_revision'])
                 settings['director_revision'] = channel['default_director_revision']
         own_settings = data.get('settings', {})
         self._validate_settings(own_settings)
@@ -190,6 +189,10 @@ class WorkService:
         conn.execute('''INSERT INTO works(id,title,input_text,profile_ref,channel_id,settings_json,source_session_id,created_at,updated_at)
                         VALUES (?,?,?,?,?,?,?,?,?)''',
                      (id,title,brief,profile,channel_id,encode(settings),data.get('session_id'),stamp,stamp))
+        context={'channel_basis':json.loads(channel['creative_basis_json']) if channel_id else {},
+                 'channel_revision':channel['revision'] if channel_id else None,
+                 'settings_source':{'profile_ref':profile,'channel_id':channel_id,'explicit':own_settings}}
+        conn.execute('UPDATE works SET creation_context_json=? WHERE id=?',(encode(context),id))
         self._event(conn,id,'work_created',{'title':title})
         return {'work_id':id}
 
@@ -243,7 +246,8 @@ class WorkService:
             source='text:'+checksum
         else:
             session=data.get('session_id')
-            if not session or session != work['source_session_id']:
+            if not session or (session != work['source_session_id'] and not conn.execute(
+                'SELECT 1 FROM work_conversation_links WHERE work_id=? AND ui_session=?',(work['id'],session)).fetchone()):
                 fail('permission_missing','附件不属于本作品的来源会话',403)
             attachment=data.get('attachment') or {}
             relative=Path(attachment.get('path',''))
@@ -261,7 +265,7 @@ class WorkService:
             original=target.name
             extension=target.suffix.lower()
             kind='image' if extension in {'.png','.jpg','.jpeg','.webp'} else 'video' if extension in {'.mp4','.mov','.webm','.mkv'} else 'audio' if extension in {'.mp3','.wav','.m4a','.flac'} else 'document'
-            metadata['source']={'kind':'user_upload','rights':data.get('rights',{})}
+            metadata['source']={'kind':'user_upload','session_id':session,'rights':data.get('rights',{})}
         id=new_id()
         conn.execute('''INSERT INTO work_inputs(id,work_id,kind,usage,source_ref,digest,original_name,text_content,metadata_json,created_at)
                         VALUES (?,?,?,?,?,?,?,?,?,?)''',(id,work['id'],kind,usage,source,checksum,original,text or '',encode(metadata),now()))
@@ -297,7 +301,7 @@ class WorkService:
         if data.get('generate',True):
             if data.get('services'):
                 self._insert_grant(conn,work,'planning',data)
-            run_id=self._run(conn,work,'planning',payload={'request':data.get('request','')})
+            run_id=self._run(conn,work,'planning',payload={'request':data.get('request',''),'creation_basis':self._basis(conn,work)})
             return {'work_id':work['id'],'run_id':run_id}
         payload=data.get('plan')
         self.validate_plan(conn,work,payload)
@@ -314,13 +318,18 @@ class WorkService:
         director={}
         if settings.get('director_revision'):
             director=json.loads(self._director_version(conn,settings['director_revision'],bool(settings.get('director_trial')))['style_json'])
-        return {'profile_ref':work['profile_ref'],'profile':self.profile_snapshot(conn,work['profile_ref']),
+        brief=conn.execute('SELECT * FROM work_briefs WHERE work_id=? ORDER BY revision DESC LIMIT 1',(work['id'],)).fetchone()
+        channel=row(conn,'channels',work['channel_id']) if work['channel_id'] else None
+        return {'conversation_brief': None if not brief else {'revision':brief['revision'],'hash':brief['body_hash'],'body':json.loads(brief['body_json'])},
+                'channel_basis':json.loads(work.get('creation_context_json','{}')).get('channel_basis',json.loads(channel['creative_basis_json']) if channel else {}),
+                'profile_ref':work['profile_ref'],'profile':self.profile_snapshot(conn,work['profile_ref']),
                 'channel_id':work['channel_id'],'settings':settings,'director':director}
 
-    def freeze_plan(self,conn,work,payload):
-        basis=self._basis(conn,work)
+    def freeze_plan(self,conn,work,payload,*,basis=None):
+        basis=basis or self._basis(conn,work)
         payload={**payload,'schema_version':1,'profile_snapshot':None,
-                 'director_revision_id':basis['settings'].get('director_revision')}
+                 'director_revision_id':basis['settings'].get('director_revision'),
+                 'conversation_basis':{k:basis.get(k) for k in ('conversation_brief','channel_basis')}}
         if work['profile_ref']:
             content=encode(basis['profile'])
             payload['profile_snapshot']={'profile_ref':work['profile_ref'],'content':content,
@@ -476,10 +485,36 @@ class WorkService:
         from .revisions import request_revision
         return request_revision(self,conn,work,data)
 
+    def _update_basis(self,conn,work,data):
+        self._ensure_idle(conn,work)
+        if conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(work['id'],)).fetchone():
+            fail('revision_required','已确认方案的创作变更须走修订，原方案保持不变',409)
+        if set(data)-{'settings','input_text'}:fail('invalid_input','只能调整本片设置与内容')
+        settings=json.loads(work['settings_json']);patch=data.get('settings',{})
+        self._validate_settings(patch)
+        if patch.get('director_revision'):self._director_version(conn,patch['director_revision'],bool(patch.get('director_trial')))
+        if 'subtitles' in patch:patch={**patch,'subtitles':{**settings.get('subtitles',{}),**patch['subtitles']}}
+        settings.update(patch)
+        text=data.get('input_text',work['input_text'])
+        if not isinstance(text,str) or len(text)>100000:fail('invalid_input','本期内容无效')
+        self._change(conn,work,settings_json=settings,input_text=text,current_plan_revision=None,state='discussing')
+        self._event(conn,work['id'],'basis_updated',{'settings':settings})
+        return {'work_id':work['id']}
+
+    @staticmethod
+    def _fork_settings(work,data):
+        inherited=data.get('inherit_settings',[])
+        if not isinstance(inherited,list) or set(inherited)-{'director_revision','voice','subtitles','duration_seconds','aspect_ratio','audio_mode'}:
+            fail('invalid_input','请选择明确沿用的设置')
+        original=json.loads(work['settings_json'])
+        result={k:original[k] for k in inherited if k in original}
+        if 'director_revision' in result and original.get('director_trial'):result['director_trial']=True
+        return result
+
     def _fork(self,conn,work,data):
         profile=row(conn,'profile_refs',work['profile_ref'])['name'] if work['profile_ref'] else None
         result=self._create(conn,None,{'title':data.get('title',work['title']+' · 新作'),'input_text':data.get('input_text',work['input_text']),
-            'profile_ref':profile,'channel_id':work['channel_id'],'session_id':data.get('session_id')})
+            'profile_ref':profile,'channel_id':work['channel_id'],'session_id':data.get('session_id'),'settings':self._fork_settings(work,data)})
         # Copy the explicitly selected movie as a reference, not permission to
         # cut its third-party assets into a new export. No grant is inherited.
         output_id=data.get('output_id')
@@ -510,6 +545,9 @@ class WorkService:
             if work.get('deleted_at'):fail('not_found','作品已删除',404)
             work.pop('source_session_id',None)
             work['settings']=json.loads(work.pop('settings_json'))
+            work['creation_context']=json.loads(work.pop('creation_context_json'))
+            brief=conn.execute('SELECT * FROM work_briefs WHERE work_id=? ORDER BY revision DESC LIMIT 1',(id,)).fetchone()
+            work['conversation_brief']=json.loads(brief['body_json']) if brief else None
             work['inputs']=[{k:v for k,v in dict(r).items() if k!='source_ref'} for r in conn.execute('SELECT * FROM work_inputs WHERE work_id=? ORDER BY created_at,id',(id,))]
             plans=conn.execute('SELECT * FROM plan_revisions WHERE work_id=? ORDER BY revision DESC',(id,)).fetchall()
             work['plans']=[{**{k:r[k] for k in ('revision','plan_hash','confirmed_at')},'plan':json.loads(r['payload_json'])} for r in plans]
@@ -530,6 +568,7 @@ class WorkService:
                 used[kind]=sum(r[0] in {'submitted','succeeded','failed_after_submit'} for r in records)
                 pending[kind]=sum(r[0] in {'sending','unknown'} for r in records)
                 reserved[kind]=sum(r[0]=='reserved' for r in records)
+            work['pending_operations']=[dict(r) for r in conn.execute("SELECT id,kind,state FROM operations WHERE work_id=? AND state IN ('sending','unknown')",(id,))]
             work['quota']={k:{'limit':work[k.lower()+'_limit'],'used':used[k],'unknown':pending[k],'reserved':reserved[k],
                               'available':max(0,work[k.lower()+'_limit']-used[k]-pending[k]-reserved[k])} for k in used}
             return work

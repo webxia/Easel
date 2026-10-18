@@ -10,10 +10,10 @@ export interface CreativePlan {
   settings: VideoSettings; facts: string[]; core_views: string[]; constraints: string[]; adaptation_permissions: string[];
 }
 export interface ProductionArtifact { id: string; run_id?: string; kind: string; media_type: string; output_revision?: number; quality_state: string; manual_review_required?: boolean; export_artifact_id?: string }
-export interface ProductionTask { id: string; run_id: string; kind: string; state: string; error_json?: string; result_json?: string }
-export interface WorkSummary { id: string; title: string; revision: number; state: string; updated_at: string; accepted_output_id?: string }
+export interface ProductionTask { id: string; run_id: string; kind: string; state: string; payload_json?: string; error_json?: string; result_json?: string }
+export interface WorkSummary { channel_id?:string; id: string; title: string; revision: number; state: string; updated_at: string; accepted_output_id?: string }
 export interface Work extends WorkSummary {
-  active_run_id?: string; profile_ref?: string; channel_id?: string; cursor: number; input_text: string; settings: Partial<VideoSettings>;
+  conversation_brief?:{entries:{kind:string;text:string;source_refs:string[]}[]}; current_plan_revision?: number; pending_operations: {id:string;state:string;kind:string}[]; active_run_id?: string; profile_ref?: string; channel_id?: string; cursor: number; input_text: string; settings: Partial<VideoSettings>;
   inputs: { id: string; kind: string; usage: string; original_name: string; text_content: string }[];
   plans: { revision: number; plan_hash: string; confirmed_at?: string; plan: CreativePlan }[];
   runs: { id: string; plan_revision?: number; kind: string; state: string }[]; tasks: ProductionTask[]; artifacts: ProductionArtifact[];
@@ -21,7 +21,7 @@ export interface Work extends WorkSummary {
   reviews: {id:string;output_id:string;feedback:string;change_hash:string;changes:{summary?:string;reason?:string;affected?:string[];expands_scope?:boolean;requires_new_generation?:boolean}}[];
   quota: Record<string, { limit: number; used: number; unknown: number; reserved: number; available: number }>;
 }
-export interface Channel { id: string; name: string; revision: number; profile_ref: string; profile_name: string; archived: boolean; director_ids: string[]; default_director_revision?: string; settings: Json }
+export interface Channel { id: string; name: string; revision: number; profile_ref: string; profile_name: string; archived: boolean; director_ids: string[]; default_director_revision?: string; settings: Json; creative_basis?:Record<string,string> }
 export interface Director { id: string; name: string; revision: number; archived: boolean; versions: { id: string; revision: number; style_confirmed: boolean; accepted_at?: string; style: Json; evidence: Json[] }[] }
 export interface ServiceChoice { provider: string; model: string; mode: string; label: string; available: boolean }
 
@@ -33,7 +33,7 @@ export async function productionRequest<T>(path: string, options?: RequestInit):
   if (!response.ok) throw new Error(result.error?.user_message || (typeof result.detail === 'string' ? result.detail : '请求失败，请检查输入'));
   return result as T;
 }
-export function productionCommand<T = { work_id?: string; id?: string; revision: number }>(path: string, payload: Json, revision?: number, method = 'POST', commandId = crypto.randomUUID()): Promise<T> {
+export function productionCommand<T = { work_id?: string; id?: string; revision: number }>(path: string, payload: Json, revision?: number, method = 'POST', commandId: string = crypto.randomUUID()): Promise<T> {
   return productionRequest(path, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command_id: commandId, expected_revision: revision ?? null, payload }) });
 }
 export const artifactURL = (id: string) => productionURL(`artifacts/${encodeURIComponent(id)}/content`);

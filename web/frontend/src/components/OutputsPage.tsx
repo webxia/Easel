@@ -1,3 +1,4 @@
+import type { VideoEntry } from '../lib/conversationApi';
 import { artifactURL, productionRequest } from '../lib/productionApi';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type { CSSProperties } from 'react';
@@ -77,12 +78,13 @@ function Thumb({ f, big }: { f: OutputNode | null; big?: boolean }) {
 }
 
 interface OutputsPageProps {
+  onContinue?:(entry:VideoEntry)=>void;
   /** 从对话跳转进来的目录（outputs 相对路径，不含 outputs/ 前缀）；消费后由父层清空 */
   jumpPath?: string;
   onJumpHandled?: () => void;
 }
 
-export default function OutputsPage({ jumpPath, onJumpHandled }: OutputsPageProps) {
+export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: OutputsPageProps) {
   const [acceptedVideos,setAcceptedVideos] = useState<{work_id:string;title:string;artifact_id:string;output_revision:number}[]>([]);
   const [roots, setRoots] = useState<OutputNode[]>([]);
   const [treeError, setTreeError] = useState('');
@@ -264,7 +266,7 @@ export default function OutputsPage({ jumpPath, onJumpHandled }: OutputsPageProp
         <button className="btn btn-sm" onClick={load}><IconRefresh size={14} /> 刷新</button>
       </div>
 
-      {atTop && acceptedVideos.length > 0 && <section><h2>已接受的视频作品</h2><p>保存的是明确接受的版本；继续修改或比较历史版本请进入视频创作工作台。</p><div className="gallery-grid">{acceptedVideos.map(item => <article className="card" key={item.work_id}><h3>{item.title} · 版本{item.output_revision}</h3><video controls preload="metadata" src={artifactURL(item.artifact_id)} style={{width:'100%',maxHeight:360}} /></article>)}</div></section>}
+      {atTop && acceptedVideos.length > 0 && <section><h2>已接受的视频作品</h2><p>保存的是明确接受的版本；可回到对话继续修改、比较或创作新作。</p><div className="gallery-grid">{acceptedVideos.map(item => <article className="card" key={item.work_id}><h3>{item.title} · 版本{item.output_revision}</h3><video controls preload="metadata" src={artifactURL(item.artifact_id)} style={{width:'100%',maxHeight:360}} /><button onClick={()=>onContinue?.({work_id:item.work_id,output_id:item.artifact_id,kind:'continue'})}>围绕此版本继续创作</button></article>)}</div></section>}
       {treeError && <div className="notice-error">{treeError}</div>}
 
       {/* 项目主题标签（进入项目根时展示） */}
