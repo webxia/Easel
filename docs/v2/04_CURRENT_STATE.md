@@ -8,7 +8,7 @@
 
 S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardening.md) **CLOSED / COMPLETE**，不重开历史G4。前三部成片的研发协助记录、第四轮FAIL均保留，第五轮是独立成功样本。
 
-用户已明确要求回到 **Easel 对话式创作**，并已授权完成A2～A4及本轮A5离线验收。[S6-14A](tasks/S6-14A_conversation-integration.md)现为 **A1 ISOLATED_FAKE_PASS；A2～A4 IMPLEMENTED / SOFTWARE_PASS；A5 ISOLATED_INTERACTION_PASS（28/28离线判据）**。已实现持久OpenClaw桥、带来源创作依据、统一对话/卡片/频道导演入口及审片/版本/明确长期保存闭环；已跑通频道创建→参考形成导演→方案→本地出片→独立接受→局部修订→长期保存→内容库续作。实际实现映射见[实施合同§9.10](15_IMPLEMENTATION_DESIGN.md#910-a2a4实际落地与部署边界)，隔离原生与浏览器证据见任务卡。正式配置和第五轮生产数据未改，不能将本轮软件结果当成正式部署或真实Web生产通过。
+用户已明确要求回到 **Easel 对话式创作**，并已授权完成A2～A4及本轮A5离线验收。[S6-14A](tasks/S6-14A_conversation-integration.md)现为 **A1 ISOLATED_FAKE_PASS；A2～A4 IMPLEMENTED / SOFTWARE_PASS；A5 ISOLATED_INTERACTION_PASS（28/28离线判据）；A6 COMPLETE / SOFTWARE_PASS（对话管线入口统一，6项隔离入口判据）**。已实现持久OpenClaw桥、带来源创作依据、统一对话/卡片/频道导演入口及审片/版本/明确长期保存闭环；已跑通频道创建→参考形成导演→方案→本地出片→独立接受→局部修订→长期保存→内容库续作。实际实现映射见[实施合同§9.10](15_IMPLEMENTATION_DESIGN.md#910-a2a4实际落地与部署边界)，隔离原生与浏览器证据见任务卡。正式配置和第五轮生产数据未改，不能将本轮软件结果当成正式部署或真实Web生产通过。
 
 ## 唯一执行入口
 
@@ -34,7 +34,9 @@ S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardeni
 
 ## 唯一研发下一动作
 
-**A5离线交互验收完成；下一待办为正式Gateway配置合成与受控部署前检查，须另行取得正式环境变更授权。** UI01～UI28离线判据全部执行通过，证据由实际浏览器主旅程、原生OpenClaw/API和自动化负例组合构成；不等于28条均用真实模型逐项实测。本轮Python **557 passed / 4 skipped**、原协议1原生兼容 **1 passed**、完整本地媒体探针 **42项PASS**、含memory-core的原生权限探针 **16项PASS**、Node **91 passed**、build/lint通过。修复及逐项证据只维护在[S6-14A](tasks/S6-14A_conversation-integration.md)。正式安装/重载/库迁移、真实付费Web生产和第五轮Creator接受均未执行；当前源码有变更，不能沿用A1历史reload_required=false。
+**A6已完成；当前等待用户体验反馈与正式Gateway配置合成、受控部署的另行授权。** 对话笔入口的管线区域已并列视频创作、创建导演、创建频道；同聊天继续、保留主题/附件，不自动发送或生产。A6浏览器与单测组合完成6项补充判据，Node97 passed，build/lint通过；菜单选择产生0 Work/Run/Operation，隔离服务已回收。证据见[S6-14A A6](tasks/S6-14A_conversation-integration.md#2026-10-18--a6对话管线入口统一用户澄清software_pass)。
+
+A5的UI01～UI28仍保留其原离线范围：Python557 passed / 4 skipped、原协议1原生兼容1 passed、完整本地媒体探针42项PASS、含memory-core的原生权限探针16项PASS、Node91 passed。A6没有重新执行这些Python/媒体探针，也不将6项入口验证并入原28项分母。正式安装/重载/库迁移、真实付费Web生产和第五轮Creator接受均未执行；当前源码有变更，不能沿用A1历史reload_required=false。
 
 
 Creator可同时通过上方视频入口审片，反馈故事/风格、画面匹配、旁白/字幕、音乐/音效与节奏；未明确接受不标CREATOR_ACCEPTED。跨题材风格、质量、耗时/成本及完整规格矩阵归后续S7，不以此次交互设计自动启动。

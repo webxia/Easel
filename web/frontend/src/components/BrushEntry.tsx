@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CAPABILITY_MENU } from '../lib/capabilityMenu';
 import type { CapabilityItem } from '../lib/capabilityMenu';
+import { CONVERSATION_WORKFLOWS, type ConversationWorkflowKind } from '../lib/conversationWorkflows';
 
 const DOT: Record<string, string> = { done: 's-done', ready: 's-ready', need: 's-need', incoming: 's-incoming' };
 
-/** 笔入口：点开「能做的都在这」→ 选一项自动填进输入框。纯前端，选中即预填，不自动发送。 */
-export default function BrushEntry({ onPick, onVideo }: { onPick: (text: string) => void; onVideo?:()=>void }) {
+/** 笔入口：管线先绑定当前对话再预填，普通能力直接预填；均不自动发送。 */
+export default function BrushEntry({ onPick, onVideo, disabled=false }: { onPick: (text: string) => void; onVideo?:(kind:ConversationWorkflowKind)=>void|Promise<void>; disabled?:boolean }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState(0);
   const [q, setQ] = useState('');
+  const [entering, setEntering] = useState(false);
+  const [error, setError] = useState('');
   const wrapRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -32,14 +35,21 @@ export default function BrushEntry({ onPick, onVideo }: { onPick: (text: string)
   const hit = (it: CapabilityItem) => !ql || `${it.label}${it.desc || ''}${it.skill || ''}`.toLowerCase().includes(ql);
 
   const pick = (it: CapabilityItem, pipe?: boolean) => {
-    if(pipe && onVideo){onVideo();setOpen(false);return;}
     onPick(pipe ? '用「视频产线」做一支整片：' : `帮我做「${it.label}」`);
     setOpen(false);
   };
+  const pickWorkflow = async (kind:ConversationWorkflowKind) => {
+    if(entering||disabled||!onVideo)return;
+    setEntering(true);setError('');
+    try { await onVideo(kind);setOpen(false); }
+    catch(e) { setError((e as Error).message); }
+    finally { setEntering(false); }
+  };
+  const workflows = CONVERSATION_WORKFLOWS.filter(w=>!ql||`${w.label}${w.desc}${w.aliases}`.toLowerCase().includes(ql));
 
   return (
     <div className={`brush-entry${open ? ' open' : ''}`} ref={wrapRef}>
-      <button type="button" className="brush-btn" onClick={() => setOpen((v) => !v)}
+      <button type="button" className="brush-btn" disabled={disabled||entering} onClick={() => setOpen((v) => !v)}
         aria-label="看看能做什么" title="看看能做什么">
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <defs>
@@ -66,7 +76,7 @@ export default function BrushEntry({ onPick, onVideo }: { onPick: (text: string)
           <div className="brush-panel-head">
             <div className="brush-panel-headline">
               <div className="brush-panel-title">能做的都在这</div>
-              <div className="brush-panel-sub">{onVideo?'选择视频创作进入对话；其他能力会填入输入框':'选一个 → 自动填进输入框；「管线」件走整片产线'}</div>
+              <div className="brush-panel-sub">{onVideo?'选择管线 → 当前对话继续；引导语可编辑后发送':'选一个 → 自动填进输入框；「管线」件走整片产线'}</div>
             </div>
             <input ref={searchRef} className="brush-search" placeholder="搜索…" value={q}
               onChange={(e) => setQ(e.target.value)} />
@@ -79,14 +89,21 @@ export default function BrushEntry({ onPick, onVideo }: { onPick: (text: string)
             ))}
           </div>
           <div className="brush-body">
-            {pipeline && hit(pipeline) && (
+            {error&&<p role="alert">{error}</p>}
+            {onVideo&&workflows.length>0&&<div className="brush-grp" aria-label="创作管线">
+              <div className="brush-grp-name">管线 · 完整创作流程</div>
+              {workflows.map(w=><button type="button" key={w.kind} aria-label={w.label} disabled={disabled||entering} className="brush-item brush-item-pipe" onClick={()=>void pickWorkflow(w.kind)}>
+                <span className="brush-dot s-ready"/><span className="brush-il">{w.label}</span><span className="brush-chip-pipe">管线</span><span className="brush-idesc">{w.desc}</span><span className="brush-iadd">＋</span>
+              </button>)}
+            </div>}
+            {!onVideo&&pipeline && hit(pipeline) && (
               <div className="brush-grp">
-                <div className="brush-grp-name">{onVideo?'视频创作 · 从想法到成片':'整片级 · 走独立管线'}</div>
+                <div className="brush-grp-name">整片级 · 走独立管线</div>
                 <button type="button" className="brush-item brush-item-pipe" onClick={() => pick(pipeline, true)}>
                   <span className={`brush-dot ${DOT[pipeline.status || 'ready'] || 's-ready'}`} />
-                  <span className="brush-il">{onVideo?'对话式视频创作':pipeline.label}</span>
-                  <span className="brush-chip-pipe">{onVideo?'创作':'管线'}</span>
-                  <span className="brush-idesc">{onVideo?'讨论创意 → 确认完整方案 → 进度与成片 → 审片修改与接受':pipeline.desc}</span>
+                  <span className="brush-il">{pipeline.label}</span>
+                  <span className="brush-chip-pipe">管线</span>
+                  <span className="brush-idesc">{pipeline.desc}</span>
                   <span className="brush-iadd">＋</span>
                 </button>
               </div>
@@ -98,7 +115,7 @@ export default function BrushEntry({ onPick, onVideo }: { onPick: (text: string)
                 <div key={g.label} className="brush-grp">
                   <div className="brush-grp-name">{g.label} · {items.length}</div>
                   {items.map((it) => (
-                    <button type="button" key={it.skill || it.label} className="brush-item" onClick={() => pick(it)}>
+                    <button type="button" disabled={disabled||entering} key={it.skill || it.label} className="brush-item" onClick={() => pick(it)}>
                       <span className={`brush-dot ${DOT[it.status || 'ready'] || 's-ready'}`} />
                       <span className="brush-il">{it.label}</span>
                       <span className="brush-idesc">{it.desc}</span>

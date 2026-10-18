@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { enterVideo } from '../lib/conversationApi';
+import { enterConversationWorkflow, workflowDraft, type ConversationWorkflowKind } from '../lib/conversationWorkflows';
 import VideoConversation from './VideoConversation';
 import type { PersonaItem } from '../lib/api';
 import MessageBubble from './MessageBubble';
@@ -56,6 +56,12 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
   const isStreaming = !!stream;
   const isEmpty = session.messages.length === 0 && !isStreaming && !session.videoSegmentId;
   const videoPanel=session.videoSegmentId?<VideoConversation sessionId={session.id} segmentId={session.videoSegmentId} persona={session.persona} personas={personas} onBound={onVideoBound} onRequest={onSend} onRestore={onRestoreVideo}/>:null;
+  const chooseWorkflow=async(kind:ConversationWorkflowKind)=>{
+    const binding=await enterConversationWorkflow(session,kind);
+    onVideoBound(binding.segment_id);
+    setInput(current=>workflowDraft(kind,current));
+    requestAnimationFrame(()=>textareaRef.current?.focus());
+  };
 
   useEffect(() => {
     fetch('/api/upload/limits').then((r) => r.json())
@@ -149,7 +155,7 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
       )}
       <div className="composer-top">
         {apiDirect ? <span className="composer-hint">API 直连 · 文字与附件分析</span>
-          : session.videoSegmentId ? <span className="composer-hint">Easel 视频创作 · 讨论与制作分别推进</span> : <BrushEntry onVideo={()=>void enterVideo(session.id,{profile_ref:session.persona,kind:'new_work'}).then(b=>onVideoBound(b.segment_id)).catch(e=>window.alert(e.message))} onPick={(t) => { setInput(t); requestAnimationFrame(() => textareaRef.current?.focus()); }} />}
+          : <BrushEntry disabled={isStreaming||uploading} onVideo={chooseWorkflow} onPick={(t) => { setInput(t); requestAnimationFrame(() => textareaRef.current?.focus()); }} />}
         <textarea
           ref={textareaRef}
           className="chat-input"

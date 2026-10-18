@@ -3,6 +3,7 @@ import { actionId, catalogCommand, workCommand, enterVideo, videoRequest, applyP
 import { productionRequest, workLabels, type Work, type Channel, type Director } from '../lib/productionApi';
 import type { PersonaItem } from '../lib/api';
 import WorkCards from './WorkCards';
+import { CONVERSATION_WORKFLOWS } from '../lib/conversationWorkflows';
 
 const labels:Record<string,string>={draft:'创建作品草稿',plan:'整理完整方案',revision:'修改指定成片',channel_create:'保存新频道',channel_defaults:'保存频道默认',director_formation:'分析参考并形成导演',profile:'保存长期画像偏好',director_revision:'另存导演风格版本'};
 function ProposalCard({proposal:p,onApply,busy,inputs=[]}:{inputs?:Work['inputs'];proposal:Proposal;onApply:(p:Proposal,dismiss?:boolean)=>void;busy:boolean}) {
@@ -20,14 +21,31 @@ export default function VideoConversation({sessionId,segmentId,persona,personas,
   const [work,setWork]=useState<Work|null>(null);
   const [channels,setChannels]=useState<Channel[]>([]);const [directors,setDirectors]=useState<Director[]>([]);
   const sequence=useRef(0);
-  const load=useCallback(async()=>{const request=++sequence.current;try{const next=await videoRequest<ConversationView>(encodeURIComponent(sessionId));const snapshot=next.work_id?await productionRequest<Work>(`works/${next.work_id}`):null;if(request!==sequence.current)return;setView(next);setWork(snapshot);if(next.segment_id!==segmentId)onBound(next.segment_id);}catch(e){if(request===sequence.current&&segmentId)setError((e as Error).message);}},[sessionId,segmentId,onBound]);
-  useEffect(()=>{void load();const poll=setInterval(()=>void load(),2500);return()=>{clearInterval(poll);};},[load]);
+  const load=useCallback(async(isCurrent:()=>boolean=()=>true)=>{
+    const request=++sequence.current;
+    try {
+      const next=await videoRequest<ConversationView>(encodeURIComponent(sessionId));
+      const snapshot=next.work_id?await productionRequest<Work>(`works/${next.work_id}`):null;
+      if(request!==sequence.current||!isCurrent())return;
+      setView(next);setWork(snapshot);
+      if(next.segment_id!==segmentId)onBound(next.segment_id);
+    } catch(e) {
+      if(request===sequence.current&&isCurrent()&&segmentId)setError((e as Error).message);
+    }
+  },[sessionId,segmentId,onBound]);
+  useEffect(()=>{
+    let active=true;
+    const refresh=()=>void load(()=>active);
+    refresh();const poll=setInterval(refresh,2500);
+    return()=>{active=false;clearInterval(poll);};
+  },[load]);
   const appliedCount=view?.proposals.filter(p=>p.state==='applied').length;
   useEffect(()=>{Promise.all([productionRequest<Channel[]>('channels').then(setChannels),productionRequest<Director[]>('directors').then(setDirectors)]).catch(()=>{});},[view?.work_id,work?.revision,appliedCount]);
   const enter=async(entry:VideoEntry)=>{setBusy(true);setError('');try{const result=await enterVideo(sessionId,entry);onBound(result.segment_id);await load();}catch(e){setError((e as Error).message);}finally{setBusy(false);}};
   const selectedDirectorId=String((work?.settings as Record<string,unknown>|undefined)?.director_revision || (view?.context.settings as Record<string,unknown>|undefined)?.director_revision || '');
   const selectedDirector=directors.flatMap(d=>d.versions.map(v=>({name:d.name,version:v.revision,id:v.id}))).find(v=>v.id===selectedDirectorId);
   const pending=view?.turns.some(t=>['reserved','active','dispatching','unknown'].includes(t.state));
+  const workflow=CONVERSATION_WORKFLOWS.find(w=>w.kind===view?.context.kind);
   const apply=async(p:Proposal,dismiss=false)=>{setBusy(true);setError('');try{await applyProposal(sessionId,p,dismiss);await load();}catch(e){setError((e as Error).message);}finally{setBusy(false);}};
   return <section className="video-conversation" aria-label="视频创作对话">
     <details open={!segmentId}><summary>{segmentId?'视频创作 · 查看／切换创作依据':'进入对话式视频创作'}</summary><p>先讨论内容与风格；制作和长期保存由明确卡片确认。</p>
@@ -38,6 +56,7 @@ export default function VideoConversation({sessionId,segmentId,persona,personas,
       {view?.work_id&&<p>现有作品的方案保持原依据；新作品会使用独立对话运行段。</p>}
     </details>
     {error&&<p role="alert">{error}</p>}
+    {workflow&&!view?.work_id&&<p role="status">当前管线：{workflow.label} · {workflow.desc}</p>}
     {view&&<><p>本次：{String(view.context.profile_name||'通用画像')} · {view.context.channel?.name||'独立创作'} · {selectedDirector?`导演：${selectedDirector.name} · 版本${selectedDirector.version}`:'采用入口选定依据'}{pending?' · 本轮正在运行／待核实':''}</p><button disabled={!!pending} onClick={()=>onRestore(view.messages)}>恢复本段可见讨论</button>
       {!view.work_id&&<div><button disabled={busy||!!pending} onClick={()=>onRequest('我想创建一个频道，请先和我讨论名称、定位、主题和受众，整理未保存的频道提案。')}>讨论创建频道</button><button disabled={busy||!!pending} onClick={()=>onRequest('我想用参考视频形成一个导演，请先说明参考与风格要求；分析和制作都等我确认。')}>讨论创建导演</button></div>}
       {directors.filter(d=>work?.tasks.some(t=>t.kind==='analyze_director'&&JSON.parse(t.payload_json||'{}').director_id===d.id)).map(d=><article className="work-card" key={d.id}><h3>{d.name} · 参考形成的导演</h3>{d.versions.map(v=><div key={v.id}><h4>风格版本{v.revision}</h4><p>{String(v.style.visual_style||'')}</p><p>{String(v.style.storytelling||'')}</p><details><summary>完整风格与参考证据</summary><pre>{JSON.stringify({style:v.style,evidence:v.evidence},null,2)}</pre></details>
