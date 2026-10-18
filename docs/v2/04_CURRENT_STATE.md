@@ -1,39 +1,45 @@
 # Easel V2 · 当前状态
 
-> 最后核实：2026-10-18。本文仅记录**当前事实、唯一主线和下一动作**；历史失败与完整运行回执保留在 [S6-14](tasks/S6-14_integration-release.md)，不得以早期 G4 NO_GO 或过期「暂停」记录覆盖现状。
+> 最后核实：2026-10-18。本文仅汇总当前事实与唯一研发下一动作；完整运行及失败证据见 [S6-14](tasks/S6-14_integration-release.md)。
 
 ## 当前结论
 
-**S6-14 · PARTIAL（真实视频已跑通；一次无人工恢复的自主直通及 Creator 接受仍未通过）。** S6-01～13 的软件视频主链已接通；[S6-15 素材层完善](tasks/S6-15_material-layer-hardening.md) 已 **CLOSED / COMPLETE**，不再重开为当前前置任务。
+**S6-14 · PARTIAL：第五轮已达到 REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING。** 在固定生产源码 `406e523c` 上，正式 API 从新建作品、Planning到真实素材/TTS、剪辑、FFmpeg、技术QC自动完成，无人工 `/resume`。自动音视频语义QC仍 **NOT_TESTED / manual_review_only**，Creator尚未接受；不能据此宣称完整Web对话或S7矩阵通过。
 
-已通过正式后端 API、MiniMax M3.1 创作与固定声音、真实素材 Rights 供给、Director 选材和 FFmpeg 产出 **3 部独立 45 秒、1080×1920 H.264/AAC 视频**。各自的 Production Run 均为 `succeeded`、作品 `reviewable`，技术 QC `pass`。这些成功包含研发修复与人工 `/resume`，**不是零卡点自主 E2E PASS**。已按用户决定临时启用 `EASEL_PRODUCTION_QC_MODE=manual`：自动音视频语义 QC 实际 `not_tested`，输出仍保留 `quality_state=needs_fix`，三部作品均未由 Creator 接受，也没有自动发布。
+S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardening.md) **CLOSED / COMPLETE**，不重开历史G4。前三部成片的研发协助记录、第四轮FAIL均保留，第五轮是独立成功样本。
+
+用户已明确要求回到 **Easel 对话式创作**，参考其管线，沿用现有创作能力与成功后端。新增 [S6-14A](tasks/S6-14A_conversation-integration.md)：**交互设计文档/图/任务登记已完成；设计待评审，代码尚未实施**。入口为[交互设计](20_CONVERSATIONAL_INTERACTION.md)，候选接口只维护在[实施合同 §9](15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
 
 ## 唯一执行入口
 
-- **工作区**：`/Users/xgx/Projects/Easel`；当前开发分支 `easel-v2-main-workspace`（盘点前基线 `7ca6806d`，实际 HEAD 以 `git rev-parse HEAD` 为准）；隔离旧工作树只作历史参考，不再运行。
-- **服务**：<http://127.0.0.1:7860/>；唯一主工作区 LaunchAgent `com.easel.web`。最近实际检查 `GET /api/production/capabilities` 为 HTTP 200，`backend.reload_required=false`。任何生产源码更改后须先核实并重启，不得让旧 Worker 处理新命令。
-- **Git 审查**：[PR #8](https://github.com/webxia/Easel/pull/8) 仍为 Draft，指向历史 `codex/s6-production` 分支，**未包括主工作区 `easel-v2-main-workspace` 最新修复**。后续单独评审分支/PR 汇合方案；未经用户确认不合并上游或受保护分支。
-- **真实调用边界**：MiniMax 创作/配音 + 合法外部素材；禁用 `qwen3.8`、不以 DeepSeek 替代；`UNKNOWN` 不盲重发，模型/媒体/用户确认分层记录。
+- 工作区 `/Users/xgx/Projects/Easel`；分支 `easel-v2-main-workspace`。第五轮成功生产基线 `406e523c035fe8da0f1435f4d813defa63653692`，当前文档提交HEAD以Git为准。
+- 服务 [本机7860](http://127.0.0.1:7860/)，唯一 `com.easel.web`。本轮只读能力检查HTTP200，`backend.reload_required=false`；未重启服务。生产源码后续有改动须先核实服务版本，禁止旧worker处理新命令。
+- 当前聊天运行设置实测 **OpenClaw**，V2生产走 **MiniMax任务调用**；受限作品工具桥尚未接通。普通聊天与生产能力不能混为已验证的同一条交互链。
+- [PR #8](https://github.com/webxia/Easel/pull/8) 仍是历史 `codex/s6-production` Draft，不包含主工作区最新修复；本轮不合并或汇合PR。
+- 真实服务保持具名授权；不使用qwen3.8或DeepSeek替代，不重发成功/UNKNOWN请求。本轮不创建第六轮、不迁移业务数据、不自动接受或发布。
 
 ## 已核实的真实作品
 
-| Work ID | 结果 | 当前人工审核 |
+| Work ID | 结果 | 人工审阅 |
 |---|---|---|
-| `1bc5f5fa797047dabd6e00654ee3675a` | 第一次真实成片；经历 Planning/供料/剪辑研发协助 | `reviewable`；未接受 |
-| `f8040a6d153c419aaf1045eadc61bc63` | 第二次实际 API E2E；首次卡在 `voice_timing_exceeds_plan`，修订后完成 | `reviewable`；未接受 |
-| `59a27d8fb2f54be0a43507e2f78b9a02` | 第三次实际 API E2E；首次卡在 `invalid_edit`，后端重载并正式恢复完成 | `reviewable`；未接受 |
+| `1bc5f5fa797047dabd6e00654ee3675a` | 第一次成片，经历研发协助 | reviewable，未接受 |
+| `f8040a6d153c419aaf1045eadc61bc63` | 第二次成片，首次配音时长阻断后修订完成 | reviewable，未接受 |
+| `59a27d8fb2f54be0a43507e2f78b9a02` | 第三次成片，Edit阻断后重载/恢复完成 | reviewable，未接受 |
+| `18a20ed1fe9241168fd13c16648c1742` | 第四轮Planning口播字段治理前失败，零人工直通FAIL保留 | 未出片 |
+| `9b9ed8da98e4437e89618ceee1cb7731` | **第五轮正式API自主完成，零人工恢复PASS** | reviewable，Creator审阅待反馈 |
 
-主工作区最新生产模块软件回归 **465 passed、3 skipped、0 failed**；前端、真实 MP4、技术 QC 和持久回执的结论必须分别读取对应证据，不把软件 PASS 冒充创作品质验收。
+第五轮输出 `f06e9604f6134039b5c22ae1303df323`：[播放视频](http://127.0.0.1:7860/api/production/artifacts/f06e9604f6134039b5c22ae1303df323/content)。45.000秒、1080×1920、H.264/AAC、51,940,170 bytes；SHA与登记一致。4次MODEL（Planning含一次自动格式修复）+7次VOICE全部成功，无UNKNOWN；技术QC pass，语义QC未测，quality_state仍needs_fix，接受记录为空。详细素材/命令/回执证据见父任务。
 
-## 唯一下一任务
+生产模块最近软件回归仍为 **465 passed / 3 skipped / 0 failed**，绑定上述生产源码；本轮文档任务未重跑软件生产测试。
 
-**P0：S6-14 第五轮全新作品、固定修复版本的一次直通 E2E**。启动前冻结 HEAD、授权、输入和观测条件；用正式后端 API 从 Planning → Supply/真实 TTS → Director Edit → FFmpeg Render → 技术 QC → `reviewable`。必须 **0 次 `needs_decision`、0 次人工 `/resume`、0 次运行中研发补丁、0 次重复未知付费请求**，并核实片长、声画轨道、SHA、Rights/credits 和实际回执；不自动执行 Creator 接受或发布。若出现问题，保留该轮 FAIL，修复后另建样本，不回填一次通过。
+## 唯一研发下一动作
 
-后续再处理 Creator 对现有三片的真实审片/接受、MiniMax 耗时与成本分析、Git/PR 统一入口；跨题材、画幅、声音、时长等完整矩阵归 [S7](03_ROADMAP.md)。第四轮 `18a20ed1fe9241168fd13c16648c1742` 因 MiniMax 把时间码/舞台指令写入 `Scene.narration` 而触发 `plan_voice_budget_unavailable`，**零人工直通 FAIL、记录保留**；已补自动字段语义检查和最多2轮模型修复，第五轮须使用独立 Work 验证，不能修改第四轮结论。
+**评审 S6-14A 对话式创作设计及 Easel 管线适配方案。** 重点确认对话主区+作品详情布局、版本卡一次确认、当前OpenClaw受限工具桥与现有生产后端的分工；通过设计评审并启动实施后，先完成A1接入验证，再按任务卡推进。
+
+Creator可同时通过上方视频入口审片，反馈故事/风格、画面匹配、旁白/字幕、音乐/音效与节奏；未明确接受不标CREATOR_ACCEPTED。跨题材风格、质量、耗时/成本及完整规格矩阵归后续S7，不以此次交互设计自动启动。
 
 ## 权威参考
 
-- [S6-14 实际运行与正反证据](tasks/S6-14_integration-release.md)
-- [S6 任务依赖与验收口径](tasks/S6_IMPLEMENTATION_PLAN.md)
-- [V2 需求](01_REQUIREMENTS.md) · [架构](02_ARCHITECTURE.md) · [运行配置](16_RUNTIME_SETUP.md)
-- [S6-15 结案和历史 G4 归因](tasks/S6-15_material-layer-hardening.md) · [G4 旧阶段判定](19_MATERIAL_LAYER_G4_ACCEPTANCE.md)
+- [S6-14 真实证据与本轮验收](tasks/S6-14_integration-release.md)
+- [S6-14A 新增交互任务](tasks/S6-14A_conversation-integration.md) · [交互设计与图](20_CONVERSATIONAL_INTERACTION.md)
+- [任务包](tasks/S6_IMPLEMENTATION_PLAN.md) · [需求](01_REQUIREMENTS.md) · [架构](02_ARCHITECTURE.md) · [运行配置](16_RUNTIME_SETUP.md)

@@ -4,20 +4,22 @@
 
 ## 本地启动与体验
 
-在当前开发工作树执行；使用单独虚拟环境，不覆盖其他工作树的环境或运行数据：
+当前唯一开发/运行根为 `/Users/xgx/Projects/Easel`，服务为 `com.easel.web` / 7860，已有 `.venv`。下列仅供首次配置参考，已有服务运行时不再启动第二个 Web/worker；当前任务为文档与只读验收，不执行安装或重启：
 
 ```sh
-cd /Users/xgx/.codex/worktrees/s5-architecture/Easel
-python3 -m venv .venv-s6
-.venv-s6/bin/python -m pip install -e '.[production]'
+cd /Users/xgx/Projects/Easel
+python3 -m venv .venv
+.venv/bin/python -m pip install -e '.[production]'
 npm --prefix web/frontend ci
 npm --prefix web/frontend run build
-EASEL_PRODUCTION_ENABLED=1 .venv-s6/bin/easel web --port 7860
+EASEL_PRODUCTION_ENABLED=1 .venv/bin/easel web --port 7860
 ```
 
-Windows 使用 `.venv-s6\Scripts\python.exe` / `easel.exe`，PowerShell 先设置 `$env:EASEL_PRODUCTION_ENABLED="1"`。外部 `ffmpeg` 与 `ffprobe` 须在 PATH，字体须按下文明确配置。Web 已运行持久 worker，无须同时再启动 CLI worker。无 Web 时可运行 `easel production worker --root <项目绝对路径>`；`easel production status --root <项目绝对路径>` 为只读状态检查。
+Windows 首次配置时使用相应 `.venv\Scripts\python.exe` / `easel.exe`，PowerShell 先设置 `$env:EASEL_PRODUCTION_ENABLED="1"`。外部 `ffmpeg` 与 `ffprobe` 须在 PATH，字体须按下文明确配置。Web 已运行持久 worker，无须同时再启动 CLI worker。无 Web 时可运行 `easel production worker --root <项目绝对路径>`；`easel production status --root <项目绝对路径>` 为只读状态检查。
 
 访问 `http://127.0.0.1:7860` →「视频制作」。创建作品并选用已有六维画像（可不选）、频道/导演，登记本次主题和素材，检查声音/字幕，选择服务授权并请求完整方案。确认方案及生图/生视频次数后，制作任务自动推进；工作台显示每步产物、错误和恢复入口。审阅具体输出版本，可自然语言局部修改、对比版本，明确接受后才进入内容库。未配置服务时可以浏览和创建作品，但不能生成真实方案或把缺失服务当作通过。
+
+上段描述当前表单界面，尚未达到用户要求的完整对话体验。[S6-14A](tasks/S6-14A_conversation-integration.md) 已登记其改造设计；不能将提案入口当成已上线功能。第五轮正式 API 自动成片/零人工恢复已通过，语义 QC 仍未测、Creator 审阅待反馈，实际证据见 [S6-14](tasks/S6-14_integration-release.md)。下文各历史软件验证的“真实未测”仅限其当时范围，不覆盖此后具名生产证据。
 
 新 V2 数据存于本项目 `outputs/_production` 和 `outputs/works`；首次启用创建新库，不读取 V1 历史运行库。停止 Web 后任务可由同库 worker 恢复；取消按钮才表示用户取消。不要手动删除这两个目录来解决失败。设置 `EASEL_PRODUCTION_ENABLED=0` 停用新入口，不卸载旧聊天能力。
 

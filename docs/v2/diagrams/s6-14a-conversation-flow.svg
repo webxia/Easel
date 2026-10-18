@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1460" height="900" viewBox="0 0 1460 900" role="img" aria-labelledby="title desc"><title id="title">Easel 对话式创作：前后端交互设计</title><desc id="desc">用户在现有 Easel 对话中讨论、确认和审片。新增作品会话适配调用现有 WorkService，业务快照与事件返回界面。原 MiniMax、素材、配音、剪辑、渲染生产链继续运行。设计提案，尚未实施。</desc><defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10Z" fill="#52677b"/></marker></defs><rect width="1460" height="900" fill="#f4f7fb"/><style>text{font-family:"PingFang SC","Microsoft YaHei",sans-serif;fill:#172d43}.title{font-size:33px;font-weight:600}.sub{font-size:18px;fill:#52677b}.h{font-size:24px;font-weight:600}.body{font-size:19px}.tag{font-size:16px;font-weight:600}.line{stroke:#52677b;stroke-width:2.5;fill:none;marker-end:url(#arrow)}</style>
+<text x="50" y="65" class="title">Easel · 对话式视频创作</text>
+<text x="50" y="103" class="sub">S6-14A 交互设计提案 · 2026-10-18 · 尚未实施</text>
+<rect x="50" y="160" width="360" height="330" rx="18" fill="#fff" stroke="#d4deea"/>
+<rect x="68" y="179" width="324" height="36" rx="18" fill="#e6f0ff" stroke="#e6f0ff"/>
+<text x="82" y="203" class="tag">沿用 Easel，补齐作品交互</text>
+<text x="75" y="255" class="h">用户界面</text>
+<rect x="550" y="160" width="360" height="330" rx="18" fill="#fff" stroke="#d4deea"/>
+<rect x="568" y="179" width="324" height="36" rx="18" fill="#fff1dc" stroke="#fff1dc"/>
+<text x="582" y="203" class="tag">新增接入，不另建生产编排</text>
+<text x="575" y="255" class="h">作品会话适配</text>
+<rect x="1050" y="160" width="360" height="330" rx="18" fill="#fff" stroke="#d4deea"/>
+<rect x="1068" y="179" width="324" height="36" rx="18" fill="#e2f4e9" stroke="#e2f4e9"/>
+<text x="1082" y="203" class="tag">沿用已验证的生产基础</text>
+<text x="1075" y="255" class="h">作品后端</text>
+<text x="75" y="300" class="body">自然语言讨论与附件</text>
+<text x="75" y="343" class="body">方案卡 · 一次确认</text>
+<text x="75" y="386" class="body">真实进度与需要决定的事项</text>
+<text x="75" y="429" class="body">成片播放 · 局部修改 · 接受</text>
+<text x="575" y="300" class="body">绑定会话、作品与具体版本</text>
+<text x="575" y="343" class="body">组装有来源的创作依据</text>
+<text x="575" y="386" class="body">OpenClaw 受限作品工具桥</text>
+<text x="575" y="429" class="body">程序校验动作并记录命令</text>
+<text x="1075" y="300" class="body">WorkService + 领域存储</text>
+<text x="1075" y="343" class="body">方案 / 授权 / Run / 回执</text>
+<text x="1075" y="386" class="body">唯一持久 Worker</text>
+<text x="1075" y="429" class="body">素材引用 / 输出 / 接受记录</text>
+<path class="line" d="M410 315 H550"/>
+<text x="435" y="290" class="tag">消息 / 动作</text>
+<path class="line" d="M910 315 H1050"/>
+<text x="932" y="290" class="tag">受控命令</text>
+<path class="line" d="M1230 490 V548 H230 V490"/>
+<text x="520" y="536" class="sub">业务快照 + SSE → 更新同一作品卡片</text>
+<rect x="50" y="610" width="1360" height="170" rx="18" fill="#ffffff" stroke="#d4deea"/>
+<text x="75" y="650" class="h">现有真实生产链 · 第五轮已验证到人工审阅</text>
+<text x="75" y="699" class="body">MiniMax 规划 → 素材供应 / 固定 TTS → Director Edit → FFmpeg → 技术 QC → 可审阅成片</text>
+<text x="75" y="747" class="sub">生产状态不依赖聊天连接；人工语义审片与明确接受仍由 Creator 完成。</text>
+<path class="line" d="M1230 548 V610"/>
+<text x="1250" y="588" class="tag">后台执行</text>
+<text x="50" y="831" class="body">首期交互：说想法 → 讨论方向 → 看方案并确认 → 看进度 → 审片与修改 → 接受具体版本</text>
+<text x="50" y="868" class="sub">实线表示目标职责衔接；新增会话桥、工具权限、卡片回放仍须按 S6-14A 验证。</text>
+</svg>

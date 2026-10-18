@@ -171,3 +171,60 @@ RevisionPlanner输出ChangeSet：base_output、affected_scene_ids、changed_audi
 依赖兼容与持久执行归 S6-04；外部 IMAGE/VIDEO 服务归 S6-07，任务化模型与实际多模态能力归 S6-08；编辑器版本/许可与纯制作边界归 S6-09；固定音色与字幕归 S6-10。未就绪能力必须明确不可用，不能用替身标记真实首版。
 
 长片、四声音、跨题材及完整体验由[任务包](tasks/S6_IMPLEMENTATION_PLAN.md)分批实施验收；首个可播放样片不缩减 34 项需求。执行与授权遵守任务包共同约定，实际进展和证据见[当前状态](04_CURRENT_STATE.md)。
+
+## 9. S6-14A 对话接入增量（提案，待评审，未实现）
+
+2026-10-18 增补，关联 [S6-14A](tasks/S6-14A_conversation-integration.md) 和[交互设计](20_CONVERSATIONAL_INTERACTION.md)。以下是候选实施合同，不宣称现有 HTTP/schema 已支持；§3～6 的已确认版本、权限、引用、恢复和生产链约束持续生效。当前源码基线 `406e523c`。
+
+### 9.1 会话、依据与命令身份
+
+复用现有 chat session/turn/job，不建立另一套生产队列。最小增加以下逻辑记录，物理表/迁移在实施前确定并测试：
+
+| 记录 | 最少字段 | 权威边界 |
+|---|---|---|
+| conversation_work_links | session_id、work_id、关联时间/解除时间 | 一段对话可关联多作品；每轮固定 work_id，切换焦点不改变已提交轮次；source_session_id 仅记录来源，不能代替多对话续接关系 |
+| work_conversation_turns | turn_id、session_id、work_id、role、用户可见正文或可恢复引用、context_revision、提交状态、结构化卡片/命令引用、created_at | 只持久化本片必要交流，不搬入其他聊天/画像或隐藏思考；现有聊天转录可引用时不重复复制；解除绑定不丢已冻结方案依据 |
+| creative_brief_revisions | work_id、revision、用户事实/核心观点/限制、设置建议、input_ids、每项来源引用、未决项、hash | 可由模型提出摘要，程序验证来源/作用域并保存；不是授权表或另一份 Profile。已冻结引用不可原地改写 |
+
+Planning payload 增补可选 `brief_revision` / `brief_hash`；存在时由服务端核验并组装 TaskContext。Plan 保存其依据引用，摘要变化或新增输入使旧候选方案失效，旧确认请求拒绝。已有作品和第五轮 Plan 没有这些字段仍按原合同读取。用户显式规格继续优先；未指定项是导演建议，不能用表单初始值冒充用户要求。
+
+每轮用户消息先持久接收，再调用聊天运行时；同 turn_id、同内容仅处理一次，同 ID 不同内容409。现有聊天 job 回放承担断线续接，刷新不重发模型请求；若模型请求已发出但结果无法核实，记录当轮待核实并停止自动重推。该聊天调用记录不等同于生产 Operation；制作 MODEL/VOICE/IMAGE/VIDEO 继续只走原 OperationService。对话授权不自动成为制作授权。
+
+工具派生 command_id 由服务端绑定 turn_id、动作序号和请求指纹并持久保存，避免同一轮恢复再建 Work。显式确认按钮使用前端首次产生并持久保留的 command_id；超时后原样重放取回执，不能换 ID。跨存储的“聊天回执已写/业务命令未写”窗口由同命令重放收敛，不以浏览器消息落盘作为执行成功。
+
+### 9.2 请求、工具与事件
+
+| 接口/能力 | 现有能力 | 拟增加语义 |
+|---|---|---|
+| POST `/api/chat/stream` | message、persona、sessionId、turnId、attachments；后端已有 workId/workRevision/outputId 简单命令分支 | 前端连通这些字段；替换“带 workId 就 plan/revise”为作品对话适配。显式视频入口可带 `interaction_mode=video`；普通聊天的制作意图经语义提案建立草稿，不靠正则强转 |
+| GET `/api/chat/jobs/{turn_id}/stream?after=...` | 既有当轮事件回放 | 回放新增作品引用/卡片事件，禁止重放时再次派发工具；不存在的 job 不触发生产 |
+| GET `/api/production/works/{id}/conversation`（拟新增） | 无 | 返回该作品必要讨论及卡片引用、绑定信息、分页游标。无原聊天时仍能续接；不返回其他会话全文或内部模型回执 |
+| POST `/api/production/works/{id}/conversation-links`（拟新增） | 无 | 用既有 Command envelope 关联当前会话，沿用本机写保护、可见性和版本核验；只建立关联，不启动生产 |
+| POST `/works/{id}/briefs`（同 production 前缀，拟新增） | 无 | 受控保存带来源的摘要修订；更新作品修订、失效旧未确认提案；活动制作期间只保留修改建议，不能改冻结依据 |
+| POST `/works`、`.../inputs`、`.../plans`、`.../revisions` | 已有业务命令 | 工具桥适配到这些入口/同一 service，使用现有 envelope；不再增加同义生产端点 |
+| 确认、追加授权、取消、接受、删除 | 已有明确命令 | 首期直接由版本卡提交，不作为模型可自由调用的写工具；绑定具体版本/动作及用户可见范围 |
+| GET Work snapshot + events | 已有 cursor 与 SSE | 作为卡片业务状态的唯一事实源；聊天 token/done 不能覆盖它 |
+
+上述短路由均相对 `/api/production`，仅 `/api/chat/...` 为完整旧聊天路由。请求写入继续使用 `{command_id, expected_revision, payload}`。新 API 保持本机 Origin/Host/write guard；session_id 不是新的账户授权，不能因知道字符串而跨作用域读取附件。
+
+作品会话工具白名单：查询本片/目录、读取已校验媒体证据、建立明确请求的草稿、登记本片附件、提出/保存创作摘要、请求完整方案、请求具体版本修订。讨论/解释只返回正文或提案。原始附件必须经现有 upload 和 ownership 校验后登记；未知使用权不能由模型填写为 KNOWN。后台每次媒体操作继续验证已持久授权，不从工具参数中的“用户同意”推导。
+
+聊天 SSE 增加 `work_linked`、`work_card` 两种候选事件，均由程序生成；保留既有 token/question/activity/done。卡片 envelope：`schema_version, card_id, kind, work_id, entity_ref, source_cursor`；entity_ref 指向具体 Plan/Run/Task/Output/Review，不承载第二套可写状态。卡片 action 显式携带目标版本及 hash，UI 提交前读取当前快照；有冲突时失效而非自动升级用户确认。
+
+`card_id` 由业务实体和卡片种类确定，重复事件更新原卡而不追加大量重复消息。普通聊天回放序号与作品 seq 分开存储，不比较两种游标大小。后端只有落库确认的实体才能生成可操作卡；模型 Markdown 中伪造的卡片/命令永远只是文字。
+
+借鉴现有 video-production 的结构化问答协议，决定卡还需持有 `decision_ref`（具体 task/review）、版本、用户可见问题、选项及对应允许动作；选项 value 是程序定义的有限值，不能作为 shell/URL/任意工具参数执行。回答经 action adapter 转成现有 grant/resume/revisions/confirm 等命令；必要时连续命令分别幂等，授权成功而恢复失败时只恢复，不重复授权。沿用 QuestionCards 的呈现方式，但卡片生命期绑定业务决定，不依赖聊天流仍在运行，也不复用旧 SDK 的文件状态或 gateway question.resolve 作为作品授权。
+
+### 9.3 当前 OpenClaw 与生产边界
+
+当前运行设置只读核实为 OpenClaw；现有 `_production_chat_command` 绕过它直接执行任务。新适配须让其参与创作对话，并实际限制作品会话的工具与执行权限。程序在工具注册/分发处拒绝任意 shell、旧独立视频 Skill 执行及 Provider 直接调用；作品会话的执行环境不能拿到可绕过这些限制的媒体凭证。既有 worker 保有必要 Provider 配置。
+
+受控工具桥复用 WorkService，不接受模型指定 command_id、授权、owner_epoch 或 accepted_output_id。会话与作品/画像作用域由服务端绑定。当前 OpenClaw 的按会话工具限制、上下文加载和可执行环境隔离尚未验证，列为 S6-14A 第一实施项；不能仅靠提示词宣称达标。普通非视频聊天维持原 Harness；不静默切换会话所属底座，不为接入全局关闭其他技能。若当前底座做不到，报告限制并评审替代适配后再实现。
+
+技能复用以经审查的创作知识和受控函数/adapter 为单位；旧技能内的任意命令、独立媒体生成、发布与全局 Profile 写入不自动获得本作品授权。配置/提示词来自产品指令源，禁止加载研发 AGENTS 和 Task；六维画像的 V2 语义以正式需求为准，不能继承旧“制作忽略平台维度”而丢失用户约束。
+
+### 9.4 恢复与验证要求
+
+新绑定/摘要/回放信息走前向兼容迁移，历史 Work、Plan、Operation 与成功回执保持原语义；迁移只在后续实施获得相应运行授权时进行。新前端以快照 cursor 起订，重复/乱序/旧 Run 事件不覆盖当前状态；断线仅改变连接提示。
+
+必须覆盖：多轮讨论不意外调用 Planning、明确方案请求、一次确认仅一个 Run、响应丢失重放、旧卡/双窗口冲突、暂停聊天不取消制作、删除聊天后找回作品、指定旧输出局部修改、UNKNOWN 不重发、禁止旧 Skill 旁路、跨画像/附件作用域负例。具体验收表由 S6-14A 维护，不把上述提案写成已通过。

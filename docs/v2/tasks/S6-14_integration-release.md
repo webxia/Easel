@@ -1,12 +1,12 @@
 # S6-14 · 首次真实生产与完整范围验收
 
-状态：**PARTIAL / 真实 API 生产已完成 3 部 45 秒可审阅视频；首次零人工恢复的自主 E2E、Creator 审阅接受及 S7 完整矩阵未通过。** S6-15 已正式 CLOSED/COMPLETE，不再作为开放前置。最近第三轮在主工作区修复 `invalid_edit`、重启旧 Worker 并通过正式 `/resume` 后达到 `reviewable`；本卡历史运行记录均保留。**唯一 P0 下一项为第四轮新作品的固定代码零人工恢复 E2E**，本次噪音清理不启动真实生产。
+状态：**PARTIAL / 第五轮 REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING。** 自动音视频语义 QC 保持 NOT_TESTED，完整 Web 对话与 S7 矩阵仍未通过。S6-15 已 CLOSED/COMPLETE；历史失败保留。本次完成第五轮只读验收归档，并新增 [S6-14A 对话式创作接入](S6-14A_conversation-integration.md)：设计文档与图已交付，待评审，代码尚未实施。
 - **依赖**：第一段为 S6-01～11 实际就绪；第二段为 S6-01～13及首次真实闭环就绪。阶段对应见[任务包里程碑](S6_IMPLEMENTATION_PLAN.md#1-基线顺序与交付)。
-- **当前排程**：S6-01～13 软件主链已接通、S6-15 结案；S6-14 第一段真实成片产出已多次验证，但一次自主直通及 Creator 真实审阅仍未满足验收。下一次只推进有明确授权与冻结口径的第四轮独立 E2E；模型调用和实际接受不得因本任务卡自动触发。
+- **当前排程**：第五轮 API 自主到人工审核已通过，Creator 审片独立待反馈；唯一研发下一动作是评审 S6-14A 交互设计和前后端接入边界。不自动启动第六轮付费 E2E，不以 API 成功代替对话体验验收。
 - **需求主/协作覆盖**：V2-EXP-009, V2-EXP-018, V2-EXP-022, V2-EXP-023, V2-EXP-028, V2-EXP-029, V2-EXP-030。
 - **目标与合同**：[可执行设计](../15_IMPLEMENTATION_DESIGN.md)；[任务包共同约定](S6_IMPLEMENTATION_PLAN.md#2-每张卡开始与完成的共同约定)。
 - **现有实现及验证落点**：`easel/production/`、`tests/production/`、正式后端 API 与 [运行配置](../16_RUNTIME_SETUP.md)；精确软件/真实/人工证据按本卡后续记录读取。
-- **当前开发入口**：`/Users/xgx/Projects/Easel` / `easel-v2-main-workspace`（本次盘点前基线 `7ca6806d`，最新 HEAD 以 Git 为准）；[旧 PR #8](https://github.com/webxia/Easel/pull/8) 为 Draft，指向历史 `codex/s6-production`，不自动合并或移交为主分支。
+- **当前开发入口**：`/Users/xgx/Projects/Easel` / `easel-v2-main-workspace`；第五轮生产源码基线 `406e523c035fe8da0f1435f4d813defa63653692`，本次只改文档/图，当前 HEAD 以 Git 为准。[旧 PR #8](https://github.com/webxia/Easel/pull/8) 仍为历史分支 Draft，不自动合并。
 
 ## 第一段：S6 首次真实生产与审阅
 
@@ -184,3 +184,33 @@ python scripts/validate_document_paths.py
 - **本轮首次零人工结论：FAIL**。Worker 在 CreativePlan 严格 JSON 模型验证后执行冻结前声轨预算门禁时返回 `plan_voice_budget_unavailable`，Work/Task 为 `needs_decision`，未创建 Plan Revision、未执行 TTS/Supply/Render。模型把 `旁白窗口 00:00.8–00:04.5：…`、语速/换气/停顿等**导演说明**塞进 `Scene.narration`，即使第二轮自动模型格式修复仍保留时间标记；保守预算把这些非口播字数作为实际朗读，导致总长45秒无法分配。这是 schema 字段语义失守，不是音频实际超时。原始 MODEL 回执和失败 Task 保留，不借人工调整把本次改为PASS。
 - **生产逻辑收敛（用于下一新 Work）**：新增仅适用于**模型新生 Planning 草稿**的 `VoiceReadyCreativePlan` 校验器，拒绝时间码和导演备注出现在 `narration`；在模型结果入库前同步执行确定性声轨时长预算检查。发生违规时在 bounded format repair 中反馈字段级中文错误说明，允许最多 **2轮修正、3次模型响应**，输出仍须满足冻结 Creator 设置、总时长及原有 PlanDocument 严格合同。人工提交的原 Plan 合同、历史模型 Operation 和 Rights 均未改变；不可把自动格式修复说成0模型重试。修复后的新独立 Work 才可以检验零**人工**恢复，不抹掉第四轮 FAIL。
 - **离线验证**：新增 `test_planning_narration_budget.py`，实际模拟回执覆盖时间戳注释拒绝、真实口播恢复、预算超额、最多3次模型尝试、静音模式豁免；相关专项27 passed，主工作区 `tests/production` **465 passed / 3 skipped**。第五轮启动前须固定并提交此版本、核对 `backend.reload_required=false`，不能在第五轮中途修代码或调用 `/resume`。
+
+### 2026-10-18 · 第五轮成功基线只读核验与验收归档
+
+**结论：REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING。** 第四轮零人工直通 FAIL 保留；本轮使用独立 Work，在固定生产代码 `406e523c` 上自动到达人工审阅。该结论只针对正式 API 路径、当前输入和 manual QC 模式，不代表完整 Web 对话体验、自动语义 QC 或电影质感通过。
+
+| 对象 | 已核实事实 |
+|---|---|
+| Work | `9b9ed8da98e4437e89618ceee1cb7731`；API/SQLite 均 `reviewable`；revision 6；accepted_output_id=NULL |
+| Planning Run | `3e749e3626824cdc8af0477c1b66e22e`；succeeded；plan Task succeeded；产生且仅产生 Plan Revision 1 |
+| Production Run | `15768e8affc24f23af23faea69e7d942`；succeeded；supply/edit/render/quality 四个 Task 均 succeeded |
+| Output | `f06e9604f6134039b5c22ae1303df323`；输出版本1；quality_state=needs_fix（人工审核模式的如实标记） |
+| MODEL / VOICE | 4 MODEL + 7 VOICE，全部 succeeded、均有 submitted_at 与持久成功回执；IMAGE/VIDEO 各0 |
+| QC | 同一成片 digest 上 technical=pass；semantic=not_tested，mode=manual_review_only；acceptances表无本片接受记录 |
+
+**证据方法**：正式 GET capabilities/Work/媒体 Range；SQLite URI `mode=ro` 加 `PRAGMA query_only=ON`，读取 runs/tasks/operations/plan_revisions/events/artifacts/artifact_edges/quality_checks/acceptances；对已登记本地文件运行 SHA-256、FFprobe 和 ZIP 内容核对。仅输出聚合状态及必要验收标识，不将原始模型消息、用户素材、凭证或私人回执复制入 Git。
+
+- **模型自动修复与无人工恢复**：4次 MODEL 分别为 Planning 两次（首次响应后附格式修复反馈）、Material Intent 一次、Director Edit 一次。Planning 自动修复一次不等于0模型重试，但属于0人工恢复。11个 Operation 的 request_key 无重复，同 task/kind/input_hash 组合也无重复；全部终态成功，UNKNOWN/发送中/未决操作均0。事件中命令只有 `create / plan / confirm` 各一次；`resume / cancel / revise / grant / accept` 均无，needs_decision/failed事件均0。17次 `task_waiting_external` 是后台正常等待/观察，不是人工恢复；不能把22次task_started误记成22次模型请求。
+- **人工改动边界**：本轮只读现场没有修改代码、Plan或数据库。第五轮运行中0人工修改代码/数据库/Plan由上一窗口交接声明，且与单一Plan版本、无恢复/改版命令、当前生产源码仍为406e523c相符；SQLite业务事件不能独立证明操作系统层从未有人手工改文件，不虚构额外审计覆盖。
+- **实际成片**：FFprobe **45.000000秒，1080×1920，H.264 + AAC 48kHz双声道**；文件大小 **51,940,170 bytes**；实算 SHA-256 与登记及QC引用一致，为 `7690b7dc45e6215e88f18f7b791476b096372ebadde54fdbbabbacc918d79904`。正式内容接口 Range 响应 **206 / video/mp4**，Content-Range 总长与文件一致。
+- **实际素材与导出**：EditProject 引用16项资产：7视频、1外部音乐、7条生成旁白、1字体；引用文件逐项SHA一致。7视频登记 Rights=KNOWN 且有source；所选音乐 Rights=ATTRIBUTION_REQUIRED，credit_text与source_page均出现在导出 credits.txt；7条VOICE成功回执与音频资产相连，字体保留登记摘要。ZIP包含 video.mp4 和 credits.txt。未用本次检查宣称独立完成供应商版权法律核验或听感审片。
+- **时间（Asia/Shanghai）**：Planning约12:21:37～12:24:39；方案确认/Production开始12:25:48，Run成功12:31:24。确认到成功约336.4秒，仅此样本，不设全局时延目标。
+- **软件及运行环境**：生产模块最近已有软件证据为 `406e523c` 的 **465 passed / 3 skipped / 0 failed**（本次文档轮未重跑）。当前正式 capabilities HTTP200 且 **backend.reload_required=false**；未重启唯一主服务，不运行7870旧工作区。
+
+Creator 人工审片入口：[播放第五轮视频](http://127.0.0.1:7860/api/production/artifacts/f06e9604f6134039b5c22ae1303df323/content)。待用户评价故事与导演风格、画面/内容匹配、中文旁白与字幕、BGM/音效、节奏及电影质感；没有用户明确接受不写 CREATOR_ACCEPTED、不调用接受接口、不发布。
+
+### 2026-10-18 · 新增 S6-14A 交互设计任务与本轮工程收口
+
+用户要求优先设计前后端对话交互，并补充参考 Easel 管线。已登记 [S6-14A](S6-14A_conversation-integration.md)，形成[交互文档](../20_CONVERSATIONAL_INTERACTION.md)、独立SVG总览、Easel管线映射图、时序图和状态图；[实施合同 §9](../15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)集中记录拟新增接口/上下文/卡片合同。设计状态为待评审、实现未开始，不能以文档交付宣称前端改造完成。
+
+本次只改权威文档、任务卡与图；保护所有既有未跟踪资料和生产证据。本轮10份相关Markdown的183条路径引用检查0错误，git diff --check通过；SVG通过XML解析并经渲染目视检查，附PNG预览。全库路径扫描仍发现原未跟踪research目录的4处既有坏链接（共1356条引用），没有修改无关研究文件，故不记全库检查PASS。生产源码未变，本轮不重复跑生产回归。未启动新创作、模型/媒体调用、业务迁移、服务重启或Creator接受。下一步为评审 S6-14A，人工审片可同时进行；S7和Git/PR汇合仍为后续事项。
