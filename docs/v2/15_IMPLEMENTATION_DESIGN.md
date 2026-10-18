@@ -172,9 +172,11 @@ RevisionPlanner输出ChangeSet：base_output、affected_scene_ids、changed_audi
 
 长片、四声音、跨题材及完整体验由[任务包](tasks/S6_IMPLEMENTATION_PLAN.md)分批实施验收；首个可播放样片不缩减 34 项需求。执行与授权遵守任务包共同约定，实际进展和证据见[当前状态](04_CURRENT_STATE.md)。
 
-## 9. S6-14A 对话接入增量（提案，待评审，未实现）
+<a id="9-s6-14a-对话接入增量提案待评审未实现"></a>
 
-2026-10-18 研究修订，关联 [S6-14A](tasks/S6-14A_conversation-integration.md) 与[交互设计 §4.4～4.6](20_CONVERSATIONAL_INTERACTION.md#44-openclaw-研究结论与方案选择)。研究基线 `bac81d99`；成功生产源码仍为 `406e523c`。下述插件、运行绑定、字段和入口均未实现。§3～6 的生产身份、版本、授权、引用、恢复约束持续生效。
+## 9. S6-14A 对话接入合同（A1隔离验证，A2～A5待实施）
+
+2026-10-18 研究修订，关联 [S6-14A](tasks/S6-14A_conversation-integration.md) 与[交互设计 §4.4～4.6](20_CONVERSATIONAL_INTERACTION.md#44-openclaw-研究结论与方案选择)。研究基线 `bac81d99`；成功生产源码仍为 `406e523c`。A1 已实现并隔离验证原生插件、3个工具与未挂载的内存绑定适配；[任务卡](tasks/S6-14A_conversation-integration.md)记录证据。下述正式持久绑定、全量工具/字段与产品入口仍待 A2～A5；不得直接启用内存探针为正式服务。§3～6 的生产身份、版本、授权、引用、恢复约束持续生效。
 
 ### 9.1 最少持久化与命令身份
 
@@ -190,7 +192,7 @@ turn 在调用 OpenClaw 前持久接收：同 ID/同请求返回已有 job/回�
 
 每轮固定运行绑定、作品/输出、Profile/Director 及观察到的版本。沿用会话锁，增加跨进程可恢复的活动 turn 校验；晚到工具不借用下一轮目标。插件从可信 toolContext 取 agentId/sessionKey/sessionId，execute 取 toolCallId；Web 以持久绑定解析 turn 和范围，不接收模型指定 turn_id、command_id、授权或 owner_epoch。
 
-**必须区分同一会话的不同运行**：tool factory 的 session 上下文没有 Web turn_id，不能每次按“该会话当前 turn”猜归属。首期插件使用支持工具与生命周期 hooks 的混合入口：Web 在派发前预留 invocation；原生 run-start hook 以可信 agent/session/原生 runId 原子认领该预留，取得只绑定此 invocation 的内部引用；before_tool_call 以 runId + toolCallId 建立执行关联，execute 只使用该关联。引用不经过模型参数，结束/撤销后晚到调用拒绝。前一派发未知或取消后尚未确认原生结束时，不允许新运行认领其预留。全局 raw stream 的首事件闩锁只能用于展示，不能作为授权证据。原生运行指 OpenClaw runId，与生产 Run ID 分开。若 A1 无法证明该生命周期关联，接入不通过，不能仅靠 sessionKey 或提示词补齐。
+**必须区分同一会话的不同运行**：tool factory 的 session 上下文没有 Web turn_id，不能每次按“该会话当前 turn”猜归属。A1 使用 before_agent_run / before_tool_call / agent_end 的混合插件入口；sessionKey由宿主预留，原生session UUID首次从可信钩子绑定并在后续核对，本版本HTTP请求头 x-openclaw-session-id 未被采用，不能以客户端计算值替代。正式持久合同：Web 在派发前预留 invocation；原生 run-start hook 以可信 agent/session/原生 runId 原子认领该预留，取得只绑定此 invocation 的内部引用；before_tool_call 以 runId + toolCallId 建立执行关联，execute 只使用该关联。引用不经过模型参数，结束/撤销后晚到调用拒绝。前一派发未知或取消后尚未确认原生结束时，不允许新运行认领其预留。全局 raw stream 的首事件闩锁只能用于展示，不能作为授权证据。原生运行指 OpenClaw runId，与生产 Run ID 分开。若 A1 无法证明该生命周期关联，接入不通过，不能仅靠 sessionKey 或提示词补齐。
 
 同一 turn 内串行成功的自身命令可用已持久回执更新观察版本；外部冲突仍须停止并刷新，不能自动改版本重发。
 
@@ -200,7 +202,7 @@ turn 在调用 OpenClaw 前持久接收：同 ID/同请求返回已有 job/回�
 
 ### 9.2 具名工具、内部转发与现有 API 映射
 
-推荐插件 ID `easel-work`，首期工具名如下；名称和请求形状为候选合同，不是当前已安装能力。每个工具只接受其业务字段，不暴露任意 HTTP URL/path、SQL、shell、Provider 参数或自由 action 字符串。
+推荐插件 ID `easel-work`，工具名如下；A1仅实现 context/create_draft/request_plan 三个，其余待A2。插件未安装到正式运行环境，每个工具的业务字段合同持续有效。每个工具只接受其业务字段，不暴露任意 HTTP URL/path、SQL、shell、Provider 参数或自由 action 字符串。
 
 | 工具 | 模型可给的业务参数 | 程序补齐/核验 | 复用的现有能力 |
 |---|---|---|---|
@@ -214,7 +216,7 @@ turn 在调用 OpenClaw 前持久接收：同 ID/同请求返回已有 job/回�
 
 上述路径相对 `/api/production`，继续使用 `{command_id, expected_revision, payload}`。只读查询可取新快照；写入必须针对固定/明确更新的版本，不能在冲突后悄悄接受新版本。create 不允许模型重新指定另一画像；改变当前画像/导演通过 UI 或明确的版本化设置动作。
 
-**进程间转发**：拟在现有 Web 内增加 POST `/api/chat/work-tools/dispatch`。插件以固定具名动作、可信运行身份、已绑定 invocation/原生 runId、toolCallId 和 schema 参数转发；服务端调用同一 WorkService/只读目录，不复制路由或生产逻辑。插件工厂可按 agentId/绑定状态返回工具或不注册。转发只返回结构化回执、业务引用或已验证缺口；作品卡由 Web/业务投影生成，不信任模型自写卡片。
+**进程间转发**：A1已提供未挂载 router 的 claim/prepare/dispatch/end 四个固定入口，位于 `/api/chat/work-tools/`；正式 Web 未接入。插件以固定具名动作、可信运行身份、已绑定 invocation/原生 runId、toolCallId 和 schema 参数转发；服务端调用同一 WorkService/只读目录，不复制路由或生产逻辑。插件工厂可按 agentId/绑定状态返回工具或不注册。转发只返回结构化回执、业务引用或已验证缺口；作品卡由 Web/业务投影生成，不信任模型自写卡片。
 
 该内部入口须使用独立、最小权限的插件服务凭证及本地传输限制，凭证留在插件/服务端，绝不成为模型参数或工具结果。只允许本入口的有限动作，不允许该凭证调用 confirm/grant/accept/delete 或任意 Web 路由。现有浏览器 Origin/Host/local-write guard 保留；需要独立入口鉴权时做精确路径策略，不能全局放行无 Origin 请求或伪造浏览器 Origin。插件是可信安装代码，不抵御恶意本机运维者；sessionKey 由可信运行时提供而非浏览器或模型声明。
 
@@ -242,7 +244,7 @@ brief 需要时增加 `brief_revision/brief_hash` 引用，由服务端验证消
 
 ### 9.4 OpenClaw 运行配置与上下文合同
 
-首期推荐同一现有 Gateway 中新增内部 `easel-video` 配置（待实施、待验证）；不是新产品人格、模型替换或 Agent 委派。HTTP 目标 `openclaw/easel-video`，session key 固定 `agent:easel-video:<runtime_session_key>`。HTTP、CLI fallback、问题桥、历史解析、会话重置必须使用同一持久绑定；不能一条路径回 main。外部派发结果不明时禁止切换 CLI 重发。
+首期推荐同一现有 Gateway 中新增内部 `easel-video` 配置（待实施、待验证）；不是新产品人格、模型替换或 Agent 委派。HTTP 目标 `openclaw/easel-video`，session key 固定 `agent:easel-video:<runtime_session_key>`。A1 已验证 HTTP/CLI 共用同一原生会话和绑定；正式问题桥、历史解析、会话重置仍须接入同一持久绑定；不能一条路径回 main。外部派发结果不明时禁止切换 CLI 重发。
 
 新视频对话从首轮使用受限配置。普通 main 对话进入视频创作时，在 UI 明确进入作品模式并开启受限运行段，保留原 UI 会话及本片必要可见内容；不复制 main 原生内部转录、秘密、工具执行上下文。两段历史按运行绑定分别读取。同一运行段内不因卡片选择切换到另一 Agent。普通 Easel main 功能继续使用其原配置，内部配置不可用时只拒绝作品动作。
 
@@ -252,11 +254,11 @@ brief 需要时增加 `brief_revision/brief_hash` 引用，由服务端验证消
 
 ### 9.5 候选实施落点与最小纵向切片
 
-下表只约定职责，新增目录/模块名称为候选，未创建代码文件：
+A1 已创建插件、easel/work_bridge.py 和隔离探针，均未在正式入口安装或挂载。下表其余正式落点仍为候选：
 
 | 落点 | 改动范围 | 复用边界 |
 |---|---|---|
-| agents/plugins/easel-work/（拟新增） | 原生工具 schema/factory、run生命周期/tool-call关联、固定本地转发、回执转换 | 使用已安装 OpenClaw SDK，不引入生产/重试状态机 |
+| agents/plugins/easel-work/（A1已有） | 原生工具 schema/factory、run生命周期/tool-call关联、固定本地转发、回执转换 | 使用已安装 OpenClaw SDK，不引入生产/重试状态机 |
 | agents/ 下受限产品工作区装配（拟新增） | 从权威产品人格/知识源选择并固定版本，配置原生工具白名单；不运行全量 sync | 不复制一套主人设；正常 main 同步不受影响 |
 | web/app.py 与独立薄接入模块（拟提取） | 替换 workId 短路；运行绑定/turn 接收/固定转发鉴权；统一 HTTP/CLI/问题桥/历史路由 | 沿用聊天 supervisor、流式和会话锁，不另起服务 |
 | easel/production/service.py、store 与 planning.py | 绑定与依据保存/引用、跨会话附件检查、生成 Plan 时携带依据；必要 schema 迁移 | 原命令准入、Operation、Worker 和成功生产步骤保持职责 |
@@ -266,8 +268,10 @@ brief 需要时增加 `brief_revision/brief_hash` 引用，由服务端验证消
 
 ### 9.6 验证、兼容与回退
 
-A1 在临时配置/工作区和假聊天模型/假作品 API 下证明：指定 Agent/session 真实一致、原生 run 与 Web invocation 可可靠关联、晚到调用拒绝、实际可用工具只有白名单、可信身份可取、插件鉴权拒绝伪造/越权、禁用插件或绑定失效不回退 main；负例含 shell/别名/直接 Provider/文件凭证/研发指令/其他画像/自动记忆/内建命令。源码可行性不等于这些测试通过。
+A1 已在临时配置/工作区和假聊天模型/临时 WorkService 下验证下列核心项，证据见任务卡；正式产品入口仍须执行同等检查：指定 Agent/session 真实一致、原生 run 与 Web invocation 可可靠关联、晚到调用拒绝、实际可用工具只有白名单、可信身份可取、插件鉴权拒绝伪造/越权、禁用插件或绑定失效不回退 main；负例含 shell/别名/直接 Provider/文件凭证/研发指令/其他画像/自动记忆/内建命令。源码可行性不等于这些测试通过。
 
 A2 验证同 turn 同内容/不同内容、同工具意图不同 callId、提交后响应丢失、晚到工具、双窗口/旧卡冲突、跨会话附件合法续作与越权拒绝、brief 来源/更正/失效以及旧 Work 兼容。A3/A4 验证聊天 done 后决定卡可用、关页后继续制作、删聊天后业务依据和版本仍可恢复、指定旧输出修改、UNKNOWN 不重发。
 
 迁移只在后续实施范围授权内运行，当前成功作品、Operation 回执和 Creator 接受状态不改变。回退时停用新入口/插件，保留主聊天、旧作品读取和所有证据；未知已派发请求先核实，不通过降级入口重跑。A5 先做离线完整交互；真实模型/媒体与服务安装重启需对应授权，软件/Web/真实生产/Creator 接受分列记录。
+
+A1 新增运行就绪合同：Gateway /health=200 不证明插件已就绪。宿主派发前通过受 Gateway 认证保护的 GET `/plugins/easel-work/status` 核对协议、Agent 与工具清单，缺插件/不兼容返回不可用，不发起模型调用或回退main；该检查是插件存活证据，实际合成权限仍由运行时用例验证。内存 invocation/ticket 及测试驱动的意图 allowlist 只用于 A1，A2 必须持久化并接入真实用户意图/来源，不把内存丢失当可安全重发。

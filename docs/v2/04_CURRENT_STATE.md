@@ -8,13 +8,13 @@
 
 S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardening.md) **CLOSED / COMPLETE**，不重开历史G4。前三部成片的研发协助记录、第四轮FAIL均保留，第五轮是独立成功样本。
 
-用户已明确要求回到 **Easel 对话式创作**，参考其管线，沿用现有创作能力与成功后端。新增 [S6-14A](tasks/S6-14A_conversation-integration.md)：**OpenClaw 接入研究、交互文档/图与任务登记已完成修订；推荐方案待评审，代码尚未实施**。入口为[交互设计](20_CONVERSATIONAL_INTERACTION.md)，候选接口只维护在[实施合同 §9](15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
+用户已明确要求回到 **Easel 对话式创作**，参考其管线，沿用现有创作能力与成功后端。新增 [S6-14A](tasks/S6-14A_conversation-integration.md)：**A1 ISOLATED_FAKE_PASS；A2～A5 尚未实施**。入口为[交互设计](20_CONVERSATIONAL_INTERACTION.md)，候选接口只维护在[实施合同 §9](15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
 
 ## 唯一执行入口
 
 - 工作区 `/Users/xgx/Projects/Easel`；分支 `easel-v2-main-workspace`。第五轮成功生产基线 `406e523c035fe8da0f1435f4d813defa63653692`，当前文档提交HEAD以Git为准。
 - 服务 [本机7860](http://127.0.0.1:7860/)，唯一 `com.easel.web`。本轮只读能力检查HTTP200，`backend.reload_required=false`；未重启服务。生产源码后续有改动须先核实服务版本，禁止旧worker处理新命令。
-- 当前聊天运行设置实测 **OpenClaw**，V2生产走 **MiniMax任务调用**；受限作品工具桥尚未接通。研究推荐同一 Gateway 内的内部受限视频配置 + 原生工具插件 + Web 薄转发；接口依据已核对，实际权限/上下文/接通仍未测试，不能混为同一条已验证交互链。
+- 当前聊天运行设置实测 **OpenClaw**，V2生产走 **MiniMax任务调用**；受限作品工具桥尚未接通。A1 已在独立临时 Gateway/工作区、假聊天模型与临时 WorkService 下验证原生插件、受限工具和 HTTP/CLI 会话绑定；正式 Web 尚未挂载，不能混为已接通的产品交互链。
 - [PR #8](https://github.com/webxia/Easel/pull/8) 仍是历史 `codex/s6-production` Draft，不包含主工作区最新修复；本轮不合并或汇合PR。
 - 真实服务保持具名授权；不使用qwen3.8或DeepSeek替代，不重发成功/UNKNOWN请求。本轮不创建第六轮、不迁移业务数据、不自动接受或发布。
 
@@ -30,11 +30,11 @@ S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardeni
 
 第五轮输出 `f06e9604f6134039b5c22ae1303df323`：[播放视频](http://127.0.0.1:7860/api/production/artifacts/f06e9604f6134039b5c22ae1303df323/content)。45.000秒、1080×1920、H.264/AAC、51,940,170 bytes；SHA与登记一致。4次MODEL（Planning含一次自动格式修复）+7次VOICE全部成功，无UNKNOWN；技术QC pass，语义QC未测，quality_state仍needs_fix，接受记录为空。详细素材/命令/回执证据见父任务。
 
-生产模块最近软件回归仍为 **465 passed / 3 skipped / 0 failed**，绑定上述生产源码；本轮文档任务未重跑软件生产测试。
+第五轮生产基线最近软件回归为 **465 passed / 3 skipped / 0 failed**。本次 A1 新增边界用例后生产模块回归 **479 passed / 4 skipped / 0 failed**，原生安装集成用例已单独显式执行 **1 passed**，插件 Node 用例 **5 passed**；[A1记录](tasks/S6-14A_conversation-integration.md)区分其隔离范围与正式验收。
 
 ## 唯一研发下一动作
 
-**评审 S6-14A 研究修订后的具体方案与交互图。** 推荐“同一 OpenClaw Gateway 内部受限视频配置 + 原生工具插件 + 现有 WorkService/Worker”，详见[设计 §4.4](20_CONVERSATIONAL_INTERACTION.md#44-openclaw-研究结论与方案选择)和[六步交互分镜](diagrams/s6-14a-interaction-storyboard.svg)。启动代码实施后，先用临时配置/假服务完成 A1 接入与权限验证，再推进绑定和持久卡；本轮没有实施、安装、重启或真实调用。
+**A1 已完成，下一事项为 A2 持久绑定与创作依据。** A1 的未挂载适配模块和原生插件只在隔离假服务中运行；需继续实现 turn/运行段持久化、来源/附件校验和恢复，再接正式聊天/UI。用户本次仅授权 A1，不在本轮自动实施 A2、安装正式插件、重启或发起真实调用。
 
 Creator可同时通过上方视频入口审片，反馈故事/风格、画面匹配、旁白/字幕、音乐/音效与节奏；未明确接受不标CREATOR_ACCEPTED。跨题材风格、质量、耗时/成本及完整规格矩阵归后续S7，不以此次交互设计自动启动。
 

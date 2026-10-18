@@ -1,0 +1,81 @@
+{
+  "status": "PASS",
+  "checks": [
+    "two_discussion_turns_no_work_or_run",
+    "native_tool_creates_one_bound_draft",
+    "repeated_tool_intent_creates_one_planning_run",
+    "no_worker_or_paid_operation",
+    "native_second_session_has_no_first_profile_context",
+    "cli_preserves_agent_and_native_session",
+    "cli_tool_uses_bound_work",
+    "forbidden_and_forged_calls_make_no_new_run",
+    "effective_native_tool_surface_exactly_three",
+    "service_credentials_absent_from_model_input",
+    "curated_video_bootstrap_loaded",
+    "no_main_dev_other_profile_or_file_credential_context",
+    "native_run_identity_observed",
+    "native_uuid_is_observed_not_assumed_from_header",
+    "unbound_native_chat_blocked_before_model",
+    "ordinary_main_surface_preserved",
+    "http_history_continues_previous_turns",
+    "all_invocations_ended",
+    "missing_plugin_preflight_blocks_without_main_or_model"
+  ],
+  "production_runtime_used": false,
+  "paid_requests": 0,
+  "openclaw_version": "OpenClaw 2026.9.4 (3a9d69d)",
+  "product_context_source": "agents/workspace/SOUL.md",
+  "product_context_source_sha256": "318b09683c03d9686d8d6c1af18cae0183d38a095bda6075fd2a878b997d34b5",
+  "fake_model_requests": 39,
+  "work_count": 1,
+  "planning_runs": 1,
+  "command_count": 2,
+  "child_gateway_stopped": true,
+  "outbound_attempts_blocked": 0,
+  "allowed_network_destinations": [
+    "isolated_gateway",
+    "loopback_fake_model_and_work_api"
+  ],
+  "task": "S6-14A/A1",
+  "classification": "ISOLATED_FAKE_PASS",
+  "source_base": "1eeb1a09dff4cd84c8824bffeedbfc2cc88f3f93",
+  "file_sha256": {
+    "agents/plugins/easel-work/index.mjs": "6623a362c3b9d6d03a7bc1bf3cc4e0e635d68ccd9133ce719429feb5b10614cd",
+    "agents/plugins/easel-work/tools.mjs": "b7496cac4727a361905758c6c0afc7f2c04906ae5506874256c70bda09b5cd9f",
+    "agents/plugins/easel-work/openclaw.plugin.json": "c970d582d2cb4347fae233567cffe7c9247675fab4399b1134b050a5fe01df03",
+    "agents/plugins/easel-work/package.json": "8cab2fd8393eb28222c235672ada54cd2c586692bcb73bad60e20c989fde9ed7",
+    "easel/work_bridge.py": "6b91e53b80936639d9281687427431692147e6cef882c042bcbbd9b86281cdac",
+    "scripts/validate_openclaw_work_bridge.py": "c032a47bc55d9d27e252bd834323fd99b0dd41183c1cb773239b8a0afda7d01f",
+    "tests/production/test_work_bridge.py": "7e10f008789c030a0fdcfc9be7fdd330519061fbbc58176cb60e5baa1ac20504",
+    "tests/production/test_openclaw_work_bridge_native.py": "52fd1ad177b6d35d96373bc1dd330fb808fe8c75279923d63aa5eeb56c720e39",
+    "tests/production/workBridgePlugin.test.mjs": "0b0e538deb546d72d4c249496e9ba41c7455e67eddc70d4b2a879ae3a179e73b"
+  },
+  "verification": {
+    "native_pytest": {
+      "passed": 1,
+      "failed": 0
+    },
+    "bridge_pytest": {
+      "passed": 14,
+      "failed": 0
+    },
+    "plugin_node": {
+      "passed": 5,
+      "failed": 0
+    },
+    "production_regression": {
+      "passed": 479,
+      "skipped": 4,
+      "failed": 0
+    }
+  },
+  "limitations": [
+    "not mounted in production Web",
+    "in-memory invocation/ticket registry; A2 persistence pending",
+    "only three A1 tools implemented",
+    "scripted fake model; no semantic/creative-quality acceptance",
+    "no OS sandbox or physical credential isolation claim",
+    "question bridge and UI/SSE integration pending"
+  ],
+  "evidence_policy": "Synthetic fixture counts and source hashes only; no credentials, raw transcripts or personal runtime data"
+}

@@ -1,8 +1,8 @@
 # S6-14 · 首次真实生产与完整范围验收
 
-状态：**PARTIAL / 第五轮 REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING。** 自动音视频语义 QC 保持 NOT_TESTED，完整 Web 对话与 S7 矩阵仍未通过。S6-15 已 CLOSED/COMPLETE；历史失败保留。本次完成第五轮只读验收归档，并新增 [S6-14A 对话式创作接入](S6-14A_conversation-integration.md)：设计文档与图已交付，待评审，代码尚未实施。
+状态：**PARTIAL / 第五轮 REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING。** 自动音视频语义 QC 保持 NOT_TESTED，完整 Web 对话与 S7 矩阵仍未通过。S6-15 已 CLOSED/COMPLETE；历史失败保留。本次完成第五轮只读验收归档，并新增 [S6-14A 对话式创作接入](S6-14A_conversation-integration.md)：设计已获准推进 A1，隔离原生工具桥验证通过；正式 Web 与 A2～A5 尚未接入。
 - **依赖**：第一段为 S6-01～11 实际就绪；第二段为 S6-01～13及首次真实闭环就绪。阶段对应见[任务包里程碑](S6_IMPLEMENTATION_PLAN.md#1-基线顺序与交付)。
-- **当前排程**：第五轮 API 自主到人工审核已通过，Creator 审片独立待反馈；唯一研发下一动作是评审 S6-14A 交互设计和前后端接入边界。不自动启动第六轮付费 E2E，不以 API 成功代替对话体验验收。
+- **当前排程**：第五轮 API 自主到人工审核已通过，Creator 审片独立待反馈；S6-14A 的 A1 隔离验证已通过，下一事项为 A2 持久绑定与创作依据。不自动启动第六轮付费 E2E，不以 API 成功代替对话体验验收。
 - **需求主/协作覆盖**：V2-EXP-009, V2-EXP-018, V2-EXP-022, V2-EXP-023, V2-EXP-028, V2-EXP-029, V2-EXP-030。
 - **目标与合同**：[可执行设计](../15_IMPLEMENTATION_DESIGN.md)；[任务包共同约定](S6_IMPLEMENTATION_PLAN.md#2-每张卡开始与完成的共同约定)。
 - **现有实现及验证落点**：`easel/production/`、`tests/production/`、正式后端 API 与 [运行配置](../16_RUNTIME_SETUP.md)；精确软件/真实/人工证据按本卡后续记录读取。
@@ -218,3 +218,7 @@ Creator 人工审片入口：[播放第五轮视频](http://127.0.0.1:7860/api/p
 ### 2026-10-18 · S6-14A 接入研究与具体方案补充
 
 按用户“先研究、补充文档并形成交互图”的指令，完成 OpenClaw 本机版本/原生插件/路由/工具策略研究；推荐内部受限视频运行配置 + 原生作品工具插件 + Web 薄转发，复用现有生产后端。已更新[交互设计](../20_CONVERSATIONAL_INTERACTION.md)、[实施合同 §9](../15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)、[接入图](../diagrams/s6-14a-conversation-flow.svg)和[六步交互分镜](../diagrams/s6-14a-interaction-storyboard.svg)，具体研究/验证记录只维护在 [S6-14A](S6-14A_conversation-integration.md)。推荐可行性有文档/源码依据，组合接入与实际权限仍 NOT_TESTED；未改业务代码/配置、未发起生产。第五轮结果与 Creator 审阅状态保持原记录。
+
+### 2026-10-18 · S6-14A A1 隔离工具桥验证
+
+用户授权仅推进 A1。独立临时 OpenClaw + 假聊天模型 + 临时 WorkService 的原生工具桥/权限/会话绑定验证通过；记录与软件检查见 [S6-14A](S6-14A_conversation-integration.md)。正式 Web 未挂载、主服务/配置未重启修改、付费调用0；第五轮作品/回执/人工接受不变。S6-14整体仍 PARTIAL，下一事项为 A2 持久绑定与创作依据，不以 A1 替代 Web/真实生产验收。

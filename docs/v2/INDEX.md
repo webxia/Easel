@@ -11,7 +11,7 @@
 | 模型、程序、用户分别负责什么 | [逻辑架构](02_ARCHITECTURE.md)及[已接受的逻辑边界 ADR](decisions/ADR-S5-001-work-production-boundary.md) |
 | 为什么推荐该技术，有什么替代和风险 | [技术选型](14_TECHNOLOGY_SELECTION.md)：推荐与条件未决项，不冒充全部已获批准 |
 | Coding 应遵守哪些数据、状态、API 和执行规则 | [实施合同](15_IMPLEMENTATION_DESIGN.md)：待实现的唯一合同，不是现有能力声明 |
-| 如何回到 Easel 对话式视频创作、前后端怎样衔接 | [交互设计与图](20_CONVERSATIONAL_INTERACTION.md)：参考 Easel 管线、含 OpenClaw 插件/受限运行配置研究与[交互分镜](diagrams/s6-14a-interaction-storyboard.svg)的设计提案；[S6-14A](tasks/S6-14A_conversation-integration.md) 登记新增交互任务，尚未实施 |
+| 如何回到 Easel 对话式视频创作、前后端怎样衔接 | [交互设计与图](20_CONVERSATIONAL_INTERACTION.md)：参考 Easel 管线、含 OpenClaw 插件/受限运行配置研究与[交互分镜](diagrams/s6-14a-interaction-storyboard.svg)的设计提案；[S6-14A](tasks/S6-14A_conversation-integration.md) 登记新增交互任务；A1 隔离原生验证已通过，正式 Web 和 A2～A5 尚未接入 |
 | 任务顺序、依赖、覆盖关系与验收分工是什么 | [实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md)及各卡；每张卡维护自身执行结果 |
 | S6-15 素材层完善完成了什么 | [S6-15 结案任务](tasks/S6-15_material-layer-hardening.md)：G0～G4 历史正反证据；**CLOSED/COMPLETE，不是当前开放前置** |
 | 五类素材有哪些实证缺口、如何补齐 | [素材层审计](17_MATERIAL_LAYER_AUDIT.md)固定事实；[素材层架构与选型](18_MATERIAL_LAYER_ARCHITECTURE.md)定义内部方案，执行结果仍在 S6-15 |
