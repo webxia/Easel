@@ -41,7 +41,10 @@ def observe_media(path: Path, *, include_audio: bool = False, max_frames: int = 
             # Spread the actual count across the full span, including the tail.
             at=index*last/(count-1) if count>1 else last/2
             frame=Path(folder)/f'{index}.jpg'
-            result=subprocess.run([ffmpeg,'-hide_banner','-loglevel','error','-ss',str(at),'-protocol_whitelist','file,pipe','-format_whitelist',MEDIA_FORMATS,'-i',str(path),'-frames:v','1','-vf','scale=768:-2','-y',str(frame)],capture_output=True,timeout=30,env=process_environment(Path(folder)))
+            # Seeking even to zero can discard the sole frame in a still-image
+            # demuxer. Decode from the beginning when the requested time is zero.
+            seek=['-ss',str(at)] if at>0 else []
+            result=subprocess.run([ffmpeg,'-hide_banner','-loglevel','error',*seek,'-protocol_whitelist','file,pipe','-format_whitelist',MEDIA_FORMATS,'-i',str(path),'-frames:v','1','-vf','scale=768:-2','-y',str(frame)],capture_output=True,timeout=30,env=process_environment(Path(folder)))
             if not result.returncode and not frame.is_file():
                 # VFR timestamps can be sparse. Decode a bounded tail and retain
                 # its last frame; never silently reuse an early screenshot.

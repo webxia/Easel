@@ -477,3 +477,28 @@ def test_public_source_configuration_file_is_explicit_and_symlinks_rejected(env,
     assert len(configured_supply(service,ops,None,{'EASEL_REVIEWED_PUBLIC_SOURCES_JSON':str(path)}).external_providers)==1
     link=tmp_path/'link.json';link.symlink_to(path)
     assert run(configured_supply(service,ops,None,{'EASEL_REVIEWED_PUBLIC_SOURCES_JSON':str(link)}),ctx).error.code=='source_configuration_invalid'
+
+
+def test_revision_stock_search_is_scoped_persisted_and_never_generates(env):
+    from .test_material_supply import Provider, Transport, downloader
+    from easel.production.model_tasks import ModelTaskError
+    service,ops,ctx,_,_=env
+    provider=Provider();transport=Transport()
+    task=SupplyTasks(service,ops,external_providers=(provider,),downloaders={provider.provider_id:downloader(transport)})
+    searches=[{'scene_id':'s1','query':'phone','media_types':['image'],'options':1}]
+    first=task.revision_visuals(ctx,searches)
+    assert len(first)==1 and task.revision_visuals(ctx,searches)==first
+    assert provider.calls==len(transport.calls)==1
+    with ctx.store.connection() as conn:
+        assert len(json.loads(conn.execute('select payload_json from tasks where id=?',(ctx.task_id,)).fetchone()[0])['revision_search_results'])==1
+        assert conn.execute('select count(*) from operations').fetchone()[0]==0
+    with pytest.raises(ModelTaskError,match='本方案'):task.revision_visuals(ctx,[{**searches[0],'scene_id':'foreign'}])
+    assert provider.calls==1
+
+
+def test_revision_stock_search_respects_existing_source_grants(env):
+    from .test_material_supply import Provider
+    service,ops,ctx,_,_=env;provider=Provider()
+    task=SupplyTasks(service,ops,external_providers=(provider,),enforce_provider_grants=True)
+    assert task.revision_visuals(ctx,[{'scene_id':'s1','query':'phone','media_types':['image'],'options':1}])==[]
+    assert provider.calls==0

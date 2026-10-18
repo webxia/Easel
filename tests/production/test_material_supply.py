@@ -179,3 +179,46 @@ def test_pexels_http_mapping_keeps_source_terms_and_supports_image_and_video():
 def test_pexels_missing_configuration_never_calls_network():
     with pytest.raises(StockUnavailable, match="capability_unavailable"):
         PexelsStockProvider("").search("city", media_type=MediaType.IMAGE, limit=2)
+
+
+def test_exact_pexels_video_page_uses_fixed_provider_lookup_and_license_mapping():
+    requests=[]
+    def answer(request):
+        requests.append(request)
+        return httpx.Response(200,json={'id':123,'url':'https://www.pexels.com/video/book-123/',
+            'user':{'name':'Creator'},'video_files':[{'file_type':'video/mp4','width':640,'height':360,'link':'https://videos.pexels.com/sd.mp4'}, {'file_type':'video/mp4','width':3840,'height':2160,'link':'https://videos.pexels.com/123.mp4'}]})
+    provider=PexelsStockProvider('fixture',transport=httpx.MockTransport(answer))
+    found=provider.search('https://www.pexels.com/video/book-123/',media_type=MediaType.VIDEO,limit=1)
+    assert requests[0].url.host=='api.pexels.com' and requests[0].url.path=='/v1/videos/videos/123'
+    assert not requests[0].url.query and found[0].source.provider_asset_id=='123'
+    assert found[0].rights.status==RightsStatus.KNOWN and found[0].rights.evidence
+    assert found[0].download_url=='https://videos.pexels.com/123.mp4'
+    wrong=PexelsStockProvider('fixture',transport=httpx.MockTransport(lambda r:httpx.Response(200,json={'id':456})))
+    with pytest.raises(StockUnavailable,match='identity'):wrong.search('https://www.pexels.com/video/123/',media_type=MediaType.VIDEO,limit=1)
+
+
+@pytest.mark.parametrize('url',['http://www.pexels.com/video/123/','https://127.0.0.1/video/123/',
+    'https://www.pexels.com.evil.example/video/123/','https://secret@www.pexels.com/video/123/',
+    'https://www.pexels.com/video/123/?token=secret','https://www.pexels.com/video/123/#secret'])
+def test_exact_pexels_page_rejects_noncanonical_input_before_network(url):
+    provider=PexelsStockProvider('fixture',transport=httpx.MockTransport(lambda _:pytest.fail('must not send')))
+    with pytest.raises(ValueError):provider.search(url,media_type=MediaType.VIDEO,limit=1)
+
+
+def test_explicit_source_page_never_falls_back_to_semantic_library_rank(env,monkeypatch):
+    service,scope,context=env
+    def wrong_rank(*args,**kwargs):raise AssertionError('a source URL is not a keyword query')
+    monkeypatch.setattr(service,'candidates',wrong_rank)
+    class IdentifiedProvider(Provider):
+        def search(self,*args,**kwargs):
+            from dataclasses import replace
+            candidate=super().search(*args,**kwargs)[0]
+            return (replace(candidate,source=candidate.source.model_copy(update={'provider_asset_id':'fixture-1'})),)
+    provider,transport=IdentifiedProvider(),Transport()
+    supply=MaterialSupply(service,providers=(provider,),downloaders={provider.provider_id:downloader(transport)})
+    exact=need().model_copy(update={'intent':NeedIntent(description='https://www.pexels.com/video/9568957/')})
+    first=supply.supply(exact,visibility=scope,context=context,allowed_providers=(provider.provider_id,))
+    second=supply.supply(exact,visibility=scope,context=context,allowed_providers=(provider.provider_id,))
+    assert first.candidates and second.candidates
+    assert first.candidates[0].library_asset_id==second.candidates[0].library_asset_id
+    assert provider.calls==2 and len(transport.calls)==1

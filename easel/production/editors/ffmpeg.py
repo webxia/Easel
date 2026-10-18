@@ -518,7 +518,11 @@ class LocalRender:
     def finish(self, video: Path, audio: Path | None, captions: Path | None) -> Path:
         p = self.project
         target = self.path / ("final-" + self.attempt_token + ".partial.mp4")
-        args = self.input(video)
+        # The montage has fixed geometry/pixel format, but stock clips can carry
+        # different color tags across cuts. Reinitializing the overlay graph at
+        # those metadata changes discards buffered sparse caption frames.
+        video_input = ["-reinit_filter", "0", *self.input(video)] if captions else self.input(video)
+        args = video_input.copy()
         audio_index = 1
         if captions:
             args += ["-protocol_whitelist", "file,pipe", "-safe", "0", "-f", "concat", "-i", str(captions)]
@@ -529,7 +533,7 @@ class LocalRender:
             args += ["-map", "0:v"]
         if audio:
             # All -i must precede output options; assemble again for strict FFmpeg parsing.
-            input_args = self.input(video)
+            input_args = video_input.copy()
             if captions:
                 input_args += ["-protocol_whitelist", "file,pipe", "-safe", "0", "-f", "concat", "-i", str(captions)]
             input_args += self.input(audio)

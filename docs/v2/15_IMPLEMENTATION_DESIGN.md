@@ -152,6 +152,13 @@ EditProject 保存编辑器类型/版本、可编辑工程、稳定scene_id、�
 
 RevisionPlanner输出ChangeSet：base_output、affected_scene_ids、changed_audio/text/settings、expected_new_image/video_calls、scope_expansion、new_permissions、reusable_artifacts。用户清楚授权的局部低影响修改无需二次审批；扩大范围/新增生成说明随修改确认，额度不够再追加。active run期间的新修改先形成请求，不改写正在消费的P1；确需重定向则停止新派发并保留在途结果，创建新修订/run后重算依赖。
 
+**A8局部修订实际合同补正（2026-10-19）：** `POST works/{id}/revisions` 可显式传`preserve_audio`布尔值（旧请求缺省false；Web默认勾选保留声音），持久到修订task。该选项为true时，程序比较全部AudioClip及场景原声开关/增益，任何改动均阻断；不调度TTS。固定所选输出及同方案最多32个既有视觉候选后才调用模型，恢复不改变已发送请求指纹。RevisionProposal可提出最多4个已确认scene的`material_searches`（复用VisualIntent，每项候选最多4），仅执行一次有限库存检索，复用原Supply的授权、Rights、下载/入库/引用校验并排除本轮已观察不合用的原候选；结果持久化。后续选择使用独立MODEL命名空间，重复/UNKNOWN仍按原Operation规则处理。不重跑Planning或全片Supply，不进入AI生成。替换静音画面允许选定新素材及source_start，原声音和场景时间结构保持不变；未选素材不进入新工程依赖。
+
+同一`revisions`命令可显式传严格布尔`render_only=true`，绑定选定输出及其不可变已登记EditProject、同Work/已确认Plan和实际依赖；创建revision Run后首任务为render，跳过修订MODEL/素材/TTS，不接受客户端工程或路径。旧工程含PENDING_VISUAL_MATCH或该输出已有semantic fail/partial时拒绝纯导出；活动Run及命令幂等/版本守卫沿用原合同。QC仍遵循正式配置，本轮manual_review_only因此重新导出无MODEL，不以此声称语义PASS。Web每版本提供“只重新导出此版本”，产生新输出并保留原版/接受选择。字幕合成对已固定尺寸/像素格式的montage禁用FFmpeg滤镜图重建，防止切换素材色彩标签丢失后续字幕；真实编码测试覆盖跨标签、多段及空白间隔。
+
+
+模型缺audio能力时，局部画面/字幕修订可用真实帧并按程序保护已有音频，不声称听过；完整语义QC要求不变。CreativeEdit新增只用于决策的`unresolved_scene_ids`（不编入EditProject）；导演明确缺关键画面或保留旧`PENDING_VISUAL_MATCH`标记时在渲染前阻断，不能将其降格为普通备注。素材搜索仍只返回候选，程序不替模型判断动作/风格是否匹配。明确给出的Pexels具体视频页可作为VisualIntent.query（options=1）：供应器只路由已授权Pexels，严格匹配规范HTTPS页提取数字ID，调用固定官方API取回该ID；拒绝任意URL、凭证/查询/fragment或错ID回执，复用原许可、域名、下载、入库与引用校验。具体页模式优先高分辨率MP4，不沿用API任意的SD优先排序。
+
 进度概览持续显示阶段/具体动作、并行任务、成果预览、消耗/待核实、阻塞及下一步；展开输入/输出和面向用户的选择摘要，不暴露模型内部思维或凭证。事件至少包括 command_accepted、task_started、artifact_registered、operation_waiting、decision_required、revision_created、quality_result、run_completed/cancelled。模型token流不是业务事件真相；长期无更新显示最后时间/状态待核实，不模拟百分比。
 
 ## 7. UI、默认与长期资产

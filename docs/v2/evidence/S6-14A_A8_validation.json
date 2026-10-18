@@ -1,0 +1,216 @@
+{
+  "task": "S6-14A A8",
+  "verified_at": "2026-10-18T17:31:05.772882+00:00",
+  "status": "LOCAL_REVISION_PASS / CREATOR_REVIEW_PENDING",
+  "baseline_commit": "91df587cc36d43fad40d050644b1d171fbbfa2d0",
+  "acceptance_route": "actual original Web per-output revision/re-export cards; API and SQLite read-only verification",
+  "schema_version": 4,
+  "backend": {
+    "reload_required": false
+  },
+  "diagnosis": [
+    "stock queries mixed long director notes with omitted core actions",
+    "acknowledged PENDING_VISUAL_MATCH was projected as a preview note",
+    "revision could not use same-plan unselected stock and forced unsupported native audio input",
+    "transparent captions had inadequate contrast",
+    "FFmpeg filter graph reinitialization at color metadata changes discarded buffered caption frames",
+    "selected S3 source_start=7 skipped actual phone placement at approximately 3 seconds"
+  ],
+  "attempts": [
+    {
+      "alias": "revision_1",
+      "model_succeeded": 2,
+      "new_stock_candidates": 16,
+      "result": "visual_material_gap correctly blocked; cancelled in Web; no output"
+    },
+    {
+      "alias": "revision_2",
+      "model_succeeded": 2,
+      "new_stock_candidates": 4,
+      "result": "visual_material_gap correctly blocked; cancelled in Web; no output"
+    },
+    {
+      "alias": "revision_3",
+      "model_succeeded": 2,
+      "new_stock_candidates": 1,
+      "result": "output version 2; post-render review found missing late captions"
+    },
+    {
+      "alias": "render_only",
+      "model_succeeded": 0,
+      "new_stock_candidates": 0,
+      "operations": 0,
+      "tasks": [
+        "render:succeeded",
+        "quality:succeeded"
+      ],
+      "result": "output version 3; all five captions visible"
+    },
+    {
+      "alias": "precise_S3_revision",
+      "model_succeeded": 1,
+      "new_stock_candidates": 0,
+      "tasks": [
+        "revise:succeeded",
+        "render:succeeded",
+        "quality:succeeded"
+      ],
+      "result": "output version 4; only S3 source_start 7 to 0 plus project revision counter changed"
+    }
+  ],
+  "new_operations": {
+    "MODEL": {
+      "succeeded": 7
+    },
+    "VOICE": 0,
+    "IMAGE": 0,
+    "VIDEO": 0,
+    "unknown": 0,
+    "in_flight_for_target_work": 0
+  },
+  "cost": "Paid model calls occurred; actual amount unavailable without provider billing receipt; no zero-cost claim",
+  "reuse": {
+    "new_work": 0,
+    "new_planning": 0,
+    "new_voice_assets": 0,
+    "original_voice_file_digests_unchanged": 5,
+    "frozen_plan_revisions_unchanged": 2,
+    "caption_text_and_times_unchanged": true,
+    "scene_durations_and_transitions_unchanged": true,
+    "pcm_bytes": 5763072,
+    "full_decoded_pcm_equal_to_original": true,
+    "pcm_sha256": "9b24d72fa04d726aae804fbc707a981a8387acc1a1425efabf5d9cdad1a1e61b",
+    "new_stock_candidates_total": 21,
+    "final_visual_assets": 4,
+    "final_visuals_reused_from_prior_A8_candidates": 3,
+    "final_visuals_from_exact_source_repair": 1,
+    "original_A7_visuals_not_claimed_reused": true
+  },
+  "final_output": {
+    "alias": "version_4",
+    "duration": 30.0,
+    "width": 1080,
+    "height": 1920,
+    "video_codec": "h264",
+    "audio_codec": "aac",
+    "bytes": 28816609,
+    "sha256": "774a578ab4329657dd2d55b1f763801fbb892f72e463939ab75a3383db5d1fc8",
+    "technical_qc": "pass",
+    "semantic_qc": "not_tested",
+    "work_state": "reviewable",
+    "creator_accepted": false,
+    "published": false
+  },
+  "actual_review": {
+    "frame_times": [
+      2,
+      8,
+      14,
+      16,
+      18,
+      23,
+      25,
+      29
+    ],
+    "all_five_captions_visible": true,
+    "phone_placement_present_in_selected_segment": true,
+    "book_closing_present_in_selected_segment": true,
+    "end_gap_has_no_caption": true,
+    "browser": {
+      "output_alias": "version_4",
+      "current_time": 15.975926,
+      "duration": 30,
+      "ready_state": 4,
+      "error": null,
+      "paused": false,
+      "manual_review_checkbox_checked": false
+    },
+    "full_automated_audio_video_semantic_review": "NOT_TESTED",
+    "creator_review": "PENDING"
+  },
+  "preserved_original_rows": {
+    "original_runs": 4,
+    "original_tasks": 7,
+    "original_operations": 10,
+    "original_artifacts": 21,
+    "original_qc": 2,
+    "fifth_works": 1,
+    "fifth_runs": 2,
+    "fifth_tasks": 5,
+    "fifth_operations": 11,
+    "fifth_artifacts": 37
+  },
+  "original_unknown_receipts_unchanged": true,
+  "limitations": [
+    "S3 source is only 240x426 and upscaled; bright bedroom does not reproduce the original night/warm-lamp atmosphere",
+    "Phone put-down substitutes for exact face-down flip; the following shot closes the book rather than requiring both actions in one frame",
+    "Original Plan is preserved; complete shot-by-shot fidelity or cinematic quality is not claimed",
+    "Versions 2 and 3 remain as intermediate outputs with observed caption/timing issues; review version 4",
+    "Development fixes, cancellations and precise feedback were needed; ZERO_MANUAL_RECOVERY_PASS not claimed"
+  ],
+  "software": {
+    "python": {
+      "passed": 706,
+      "skipped": 4,
+      "failed": 0
+    },
+    "node": {
+      "passed": 99,
+      "failed": 0
+    },
+    "frontend_build": "pass",
+    "frontend_lint": "pass",
+    "skips": [
+      "2 native Windows junctions",
+      "opt-in installed OpenClaw probe",
+      "opt-in 900-second real encode"
+    ],
+    "warnings": [
+      "existing Starlette deprecation",
+      "Pillow getdata deprecation in pixel check",
+      "existing frontend escape/chunk-size warnings"
+    ]
+  },
+  "source_sha256": {
+    "easel/materials/application/supply.py": "93484f9ef003815a4359f751ad28102e64331130c8a02b6472cecf9110ba862e",
+    "easel/production/creation.py": "a7324f95fa77d77d20206224f06ef87e34c0968157970e5fd3d3623056fc8532",
+    "easel/production/editors/ffmpeg.py": "4440673db5f633376f54ba28ca3998ab27c1976c24f384e80f2567aea4457128",
+    "easel/production/inspection.py": "c840c5ee34c0a227e1b76376be2810b7f387b9b6f5ffeda13efc7e2048b7dcb7",
+    "easel/production/material_intent.py": "4de4387a5d9f89f89e5d82d645867cc9a0e2596beee023f2d0f6c5253670ae6e",
+    "easel/production/providers/stock.py": "d33cac5b7c91c4a9a9ccfd14060b66e70644b0bb7db31e89a558bdb8d300e1c2",
+    "easel/production/revisions.py": "1654aba6b539196f5d285c4896821597f94da09bff8ffeffebc17e4a2b5aa0df",
+    "easel/production/runtime.py": "a77801d351a5c31c31639fe27a561836187bcedaf5695de24b5755522f8b9d82",
+    "easel/production/supply_tasks.py": "cf47d517e3406b8ef6b575dd755acc9974cdd346b0a2e6a60f0b7206fbc82bed",
+    "tests/production/test_edit_preview_projection.py": "538a89cf6799025bd559d72c78d2f20b49e356d25030caf1fc46b295b762714b",
+    "tests/production/test_material_supply.py": "aadf4663a29d086a6abee9fc3bd00946247336b7c1428d90e513315d46f94d1b",
+    "tests/production/test_render_local.py": "dc9711e9bceb68b10c69a0c6fca8e9642deaedaeb27b2c82f4bf1dd7d31753cb",
+    "tests/production/test_revision_pipeline.py": "b12a17b3d0629931198104b0f4d67d12790dfc8bab317f8eaba578c5be0e52ea",
+    "tests/production/test_still_observation.py": "dd8f2ea274adbee193b99616945d20dac0fe9b5e1f40f17bfdaf11784521e14c",
+    "tests/production/test_supply_tasks.py": "21a0905097972bf3adaa1776f19bc3ef1a04733a7a1a58fd4fe7671941bace97",
+    "web/frontend/src/components/WorkCards.tsx": "7ac17bc4e4c119adc22c4b29a6c9dfc74c9954b5f33de13f2283ac88e91902d4"
+  },
+  "earlier_revision_3_selected_source_sha256": {
+    "easel/production/creation.py": "a7324f95fa77d77d20206224f06ef87e34c0968157970e5fd3d3623056fc8532",
+    "easel/production/material_intent.py": "4de4387a5d9f89f89e5d82d645867cc9a0e2596beee023f2d0f6c5253670ae6e",
+    "easel/production/providers/stock.py": "d33cac5b7c91c4a9a9ccfd14060b66e70644b0bb7db31e89a558bdb8d300e1c2",
+    "easel/production/revisions.py": "9f61b93b6d30eaee05280676d3c0c6165bc465628112d0e75c6dc452ea9c652a",
+    "easel/production/runtime.py": "a77801d351a5c31c31639fe27a561836187bcedaf5695de24b5755522f8b9d82",
+    "easel/production/supply_tasks.py": "c7d002557e5ea4086cb5283b68736feb3435f2e7c5a621611c5e6a26c827945b"
+  },
+  "screenshots_sha256": {
+    "final-browser.png": "67b00d50dffac5d9a6a6fb2c65c0f6be7f128e5011e04ab8abc0639636659128",
+    "final-verified-contact.jpg": "18a3ffec5c1a5ea48db2dc06b341c8c535fc4ffb6969357fa69a29a9f1d13aad",
+    "source-phone-action-check.jpg": "4a55e2165250e061423e9c22ff025fd63d0d829e2100069ff06e038a472f23d9",
+    "subtitle-comparison.jpg": "1e6147bc238dead9fcd2980e67b990cb5cb8ecb4b149855210331a52cf23b328"
+  },
+  "private_runtime_evidence": "ignored outputs/_debug/s6-14a-a8; runtime identifiers, full receipts, media, consistent database backup and review images not committed",
+  "documentation_checks": {
+    "changed_local_references_checked": 105,
+    "issues": 0,
+    "whole_workspace_audit": "4 existing broken references in unrelated untracked docs/research; untouched"
+  },
+  "configured_credential_scan": {
+    "values_checked": 8,
+    "hits": 0
+  }
+}

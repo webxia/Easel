@@ -196,3 +196,32 @@ def test_900_second_boundary_real_encode(tmp_path, sources):
     assert wait(editor, "boundary900", timeout=900).status == "completed"
     output = editor.collect("boundary900")
     assert abs(output.duration - 900) < 0.1 and not output.audio_present
+
+
+@pytest.mark.parametrize('with_audio',[False,True])
+def test_captions_survive_color_metadata_changes_across_cuts(tmp_path,sources,with_audio):
+    if 'font' not in sources.assets:pytest.skip('test host has no known font')
+    assets=dict(sources.assets)
+    for asset in assets.values():shutil.copyfile(sources.root/asset.locator,tmp_path/asset.locator)
+    for index,color_space in enumerate(('bt709','smpte170m','bt470bg')):
+        path=tmp_path/f'color-{index}.mp4'
+        run(['-f','lavfi','-i','color=blue:size=640x360:rate=30:duration=1',
+             '-c:v','libx264','-preset','ultrafast','-colorspace',color_space,str(path)])
+        assets[f'color-{index}']=MediaAsset(locator=path.name,sha256=file_sha256(path),kind='video')
+    manifest=AssetManifest(root=tmp_path,assets=assets)
+    p=project(duration=3,audio_mode='music' if with_audio else 'silent',
+        scenes=tuple(Scene(scene_id=f's{i}',asset_id=f'color-{i}',duration=1) for i in range(3)),
+        audio=(AudioClip(clip_id='m',asset_id='music',role='music',at=0,duration=3),) if with_audio else (),
+        captions=tuple(Caption(caption_id=f'c{i}',text=f'VISIBLE CAPTION {i+1}',font_asset_id='font',
+            start=.1+i*.5,end=.4+i*.5,size=64,background='#000000C0') for i in range(5)))
+    editor=FFmpegEditor(tmp_path/'jobs');editor.build(p,manifest,job_id='color-cuts')
+    assert wait(editor,'color-cuts').status=='completed'
+    output=editor.collect('color-cuts')
+    from PIL import Image
+    from io import BytesIO
+    for at in (.2,.7,1.2,1.7,2.2,2.8):
+        decoded=subprocess.check_output([FFMPEG,'-v','error','-ss',str(at),'-i',str(output.video_path),
+            '-frames:v','1','-f','image2pipe','-vcodec','png','-'])
+        frame=Image.open(BytesIO(decoded)).convert('RGB')
+        white=sum(min(pixel)>200 for pixel in frame.crop((0,int(p.height*.65),p.width,p.height)).getdata())
+        assert (white>500)==(at<2.8),(at,white)

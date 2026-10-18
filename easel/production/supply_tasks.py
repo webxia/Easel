@@ -156,7 +156,7 @@ class SupplyTasks:
             # into an artifact edge.
             return dict(conn.execute('SELECT * FROM artifacts WHERE id=?', (artifact_id,)).fetchone())
 
-    def _acquire(self, ctx, plan, inputs, records, scope, context, intent=None):
+    def _acquire(self, ctx, plan, inputs, records, scope, context, intent=None, *, excluded_asset_refs=()):
         scenes = {s.id: s for s in plan.scenes}
         mapped = {json.loads(r['metadata_json']).get('input_id'): r for r in records}
         for item in inputs:
@@ -199,7 +199,9 @@ class SupplyTasks:
                 need = self._need(scene.id,visual.query if visual else scene.visual,kind,
                                   context=context,options=visual.options if visual else 1)
                 answer = self.supplier.supply(need,visibility=scope,context=context,
-                    allowed_providers=self._allowed_providers(kind,ctx),check_current=ctx.assert_current,
+                    excluded_asset_refs=excluded_asset_refs,
+                    allowed_providers=tuple(p for p in self._allowed_providers(kind,ctx)
+                        if not need.intent.description.strip().lower().startswith(('https://','http://')) or p=='pexels'),check_current=ctx.assert_current,
                     check_provider=lambda provider_id:self._check_provider(ctx,kind,provider_id))
                 with ctx.transaction() as conn:
                     ctx.store.append_event(conn,ctx.work_id,'material_search_completed',
@@ -415,6 +417,47 @@ class SupplyTasks:
             return self._blocked(exc.code,exc.user_message)
         except (MaterialStoreError,ValidationError,ValueError,OSError,KeyError):
             return self._blocked('material_invalid','素材文件、来源或使用权记录无效，请核实后继续')
+
+    def revision_visuals(self,ctx,searches):
+        """Use existing fenced stock acquisition for specified revision scenes only.
+
+        No intent recompilation, generation decision, voice preparation or new
+        Plan. Persist each search result so resume cannot redo a completed one.
+        """
+        from .material_intent import VisualIntent, MaterialIntent
+        _,plan,_,records=self._snapshot(ctx)
+        if self.source_configuration_error:
+            raise ProductionError('source_configuration_invalid',self.source_configuration_error,requires_decision=True)
+        searches=[VisualIntent.model_validate(s) for s in searches]
+        ids=[s.scene_id for s in searches]
+        if len(ids)>4 or len(ids)!=len(set(ids)) or not set(ids)<={s.id for s in plan.scenes}:
+            raise ModelTaskError('invalid_revision_search','局部补料只能引用本方案不重复的场景，单次最多4场')
+        scope=LibraryVisibility(profile_ref=plan.profile_snapshot.profile_ref if plan.profile_snapshot else None)
+        context=UseContext(work_id=ctx.work_id,constraints={'plan_hash':fingerprint(plan),
+            'confirmed_constraints':plan.constraints,'aspect_ratio':plan.settings.aspect_ratio,
+            'duration_seconds':plan.settings.duration_seconds})
+        for search in searches:
+            ctx.assert_current()
+            key=fingerprint(search)
+            with ctx.store.connection() as conn:
+                payload=json.loads(conn.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()[0])
+            if key in payload.get('revision_search_results',{}):continue
+            with ctx.store.connection() as conn:
+                excluded=tuple(json.loads(row['metadata_json']).get('asset_ref') for row in
+                    conn.execute('SELECT id,metadata_json FROM artifacts WHERE work_id=?',(ctx.work_id,))
+                    if row['id'] in payload.get('revision_asset_ids',[]) and json.loads(row['metadata_json']).get('asset_ref'))
+            # Existing candidates were actually observed and found unsuitable
+            # before the director requests this bounded replacement search.
+            scene_plan=plan.model_copy(update={'scenes':[s for s in plan.scenes if s.id==search.scene_id]})
+            current=[r for r in records if search.scene_id in json.loads(r['metadata_json']).get('scene_ids',[])]
+            acquired,gaps=self._acquire(ctx,scene_plan,[],current,scope,context,MaterialIntent(visuals=[search]),excluded_asset_refs=excluded)
+            records.extend(r for r in acquired if r['id'] not in {v['id'] for v in records})
+            with ctx.transaction() as conn:
+                payload=json.loads(conn.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()[0])
+                payload.setdefault('revision_search_results',{})[key]={'scene_id':search.scene_id,
+                    'asset_ids':[r['id'] for r in acquired],'gap':bool(gaps)}
+                conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(canonical_json(payload),ctx.task_id))
+        return [r['id'] for r in records]
 
 
 def _configured_rights(settings):

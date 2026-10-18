@@ -20,6 +20,8 @@ class CreativeEdit(Contract):
     audio: list[AudioClip] = Field(default_factory=list)
     captions: list[Caption] = Field(default_factory=list)
     required_features: list[str] = Field(default_factory=list)
+    # Director's explicit gap report is not part of an executable timeline.
+    unresolved_scene_ids: list[str] = Field(default_factory=list, max_length=1000, exclude=True)
 
 
 class SemanticReview(Contract):
@@ -92,6 +94,8 @@ def project_editor_features(answer: CreativeEdit) -> tuple[CreativeEdit,list[str
     attached to the internal preview artifact and its model receipt.
     """
     from .editors.ffmpeg import FEATURES
+    if answer.unresolved_scene_ids or any(note.startswith('PENDING_VISUAL_MATCH') for note in answer.required_features):
+        raise ModelTaskError('visual_material_gap','导演已确认画面不能落实方案；请补充对应素材，不能用无关画面继续渲染')
     if len(answer.required_features)>64 or any(
             not isinstance(note,str) or not note or len(note)>600
             for note in answer.required_features):
@@ -156,7 +160,7 @@ class CreationTasks:
                         '本地FFmpeg技术测量，模型未听取该素材声音。不能据此推断音乐风格、听感、歌词或SFX动作匹配。'
                         +json.dumps(measured,ensure_ascii=False)})
             answer=await self.planning.runner(ctx,max_format_repairs=2).run(context,
-                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
+                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required))
             answer=align_editor_frames(answer)
             settings=context.plan['settings']

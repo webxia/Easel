@@ -132,7 +132,7 @@ def create_runtime(root: Path, *, service=None, transport=None, handlers=None):
     mapping['supply']=supply.supply
     mapping['voice_preview']=voice_preview_handler(voice_provider,outputs=service.outputs)
     from .revisions import RevisionTasks
-    mapping['revise']=RevisionTasks(service,planning,creation).revise
+    mapping['revise']=RevisionTasks(service,planning,creation,supply=supply).revise
     mapping.update(handlers or {})
     worker=Worker(service.store,mapping)
     return ProductionRuntime(service,worker,planning,creation)

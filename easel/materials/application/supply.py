@@ -52,11 +52,14 @@ class MaterialSupply:
             if not result.candidates:
                 return MaterialSupplyResult((), required_asset_refs, (), (), gap="required_material_unavailable")
             selected.append(result.candidates[0])
-        prior = self.materials.candidates(need, visibility=visibility, context=context,
+        # An explicit source page identifies a particular item, not semantic
+        # search terms. Reuse by provider identity below after exact lookup.
+        exact_source = need.intent.description.strip().lower().startswith(('http://', 'https://'))
+        prior = None if exact_source else self.materials.candidates(need, visibility=visibility, context=context,
                                           query=need.intent.description, limit=self.max_candidates)
         seen = {c.library_asset_id for c in selected}
         digests = {c.asset.file.sha256 for c in selected}
-        for candidate in prior.candidates:
+        for candidate in prior.candidates if prior else ():
             if candidate.library_asset_id in seen or candidate.library_asset_id in excluded_asset_refs or candidate.asset.file.sha256 in digests:
                 continue
             selected.append(candidate)

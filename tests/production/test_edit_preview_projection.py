@@ -36,6 +36,14 @@ def test_unbounded_unrecognized_editor_requirements_are_rejected():
         project_editor_features(proposal)
     assert error.value.code=='invalid_editor_features'
 
+
+@pytest.mark.parametrize('report',[{'unresolved_scene_ids':['s']},
+    {'required_features':['PENDING_VISUAL_MATCH: phone action absent']}])
+def test_director_explicit_visual_gap_cannot_be_downgraded_to_preview_note(report):
+    answer=CreativeEdit(scenes=[{'scene_id':'s','asset_id':'unrelated','duration':1}],**report)
+    with pytest.raises(ModelTaskError) as exc:project_editor_features(answer)
+    assert exc.value.code=='visual_material_gap'
+
 def test_overlapping_transitions_are_compensated_without_erasing_dissolves():
     from easel.production.creation import compensate_edit_overlap
     from easel.production.editors.base import EditProject

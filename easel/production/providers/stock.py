@@ -79,11 +79,20 @@ class PexelsStockProvider:
             raise StockUnavailable("capability_unavailable: Pexels modality is unsupported", code="capability_unavailable")
         if not query.strip() or not 1 <= limit <= 80:
             raise ValueError("Invalid Pexels search input")
+        # An explicitly supplied licensed stock page is an exact provider lookup,
+        # never an arbitrary URL fetch or another broad keyword search.
+        exact = None
+        if query.strip().lower().startswith(('http://','https://')):
+            match = re.fullmatch(r'https://(?:www\.)?pexels\.com/video/(?:[a-z0-9-]+-)?([0-9]{1,12})/?',query.strip())
+            if media_type is not MediaType.VIDEO or not match:
+                raise ValueError('Expected a canonical Pexels video page without credentials, query or fragment')
+            exact = match[1]
         endpoint = "/v1/search" if media_type is MediaType.IMAGE else "/videos/search"
+        if exact:endpoint = '/v1/videos/videos/' + exact
         try:
             with httpx.Client(transport=self._transport, trust_env=False, follow_redirects=False, timeout=self._timeout) as client:
                 with client.stream("GET", "https://api.pexels.com" + endpoint,
-                    params={"query": query, "per_page": limit, "page": 1}, headers={"Authorization": self._key}) as response:
+                    params={} if exact else {"query": query, "per_page": limit, "page": 1}, headers={"Authorization": self._key}) as response:
                     if response.status_code != 200:
                         raise StockUnavailable(f"Pexels search returned HTTP {response.status_code}")
                     body = bytearray()
@@ -95,7 +104,9 @@ class PexelsStockProvider:
             payload = json.loads(body)
         except (httpx.HTTPError, ValueError) as exc:
             raise StockUnavailable("Pexels search did not return a valid response") from exc
-        values = payload.get("photos" if media_type is MediaType.IMAGE else "videos") if isinstance(payload, dict) else None
+        if exact and (not isinstance(payload,dict) or str(payload.get('id'))!=exact):
+            raise StockUnavailable('Pexels returned a different stock identity')
+        values = [payload] if exact else payload.get("photos" if media_type is MediaType.IMAGE else "videos") if isinstance(payload, dict) else None
         if not isinstance(values, list):
             raise StockUnavailable("Pexels search response has an invalid shape")
         candidates = []
@@ -112,6 +123,10 @@ class PexelsStockProvider:
             else:
                 files = item.get("video_files")
                 options = [f for f in files if isinstance(f, dict) and f.get("file_type") == "video/mp4"] if isinstance(files, list) else []
+                if exact:
+                    # Provider order is arbitrary (often SD first). An explicit
+                    # repair source should retain detail for the portrait crop.
+                    options.sort(key=lambda f:(f.get('width') or 0)*(f.get('height') or 0),reverse=True)
                 download = next((_https_url(f.get("link"), self.allowed_hosts) for f in options
                                  if _https_url(f.get("link"), self.allowed_hosts)), None)
                 creator = item.get("user", {}).get("name") if isinstance(item.get("user"), dict) else None

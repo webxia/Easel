@@ -245,3 +245,8 @@ Freesound 暂不接入：官方要求开发者申请 API Key，原始文件下�
 浏览器使用`--serve`；若检查代码后需要重启隔离fixture，先向该脚本的确切PID发送SIGINT，等待其finally关闭Gateway/Web，再用相同root加`--serve --resume-isolated`。只允许带隔离标记的临时根，沿用原临时端口、DB、上传、Profile、会话与原生运行段，生成新的测试凭证和工作区；不得将该选项用于正式数据。测试完成同样用SIGINT回收，不留下第二套常驻生产服务。
 
 组合权限探针：`.venv/bin/python scripts/validate_video_conversation.py --root /tmp/easel-a5-bridge-<new-id> --memory-plugin`。该选项仅在临时配置启用原生memory-core并尝试其工具旁路；实际清单仍须严格8项。正式已安装插件/slash/自动记忆组合与真实模型的完整交互仍需受控部署验收；A5离线通过不授权安装、重载或付费。运行结果与截图见[S6-14A](tasks/S6-14A_conversation-integration.md)。
+
+
+### A8局部修订与纯重新导出（2026-10-19）
+
+原Web具体版本可勾选保留声音后提交局部反馈；缺口只补该Plan指定场景库存，不重新Planning/TTS。导出修复可使用版本卡“只重新导出此版本”，精确复用登记工程，不调用修订模型/素材/配音；既有语义失败或明确画面缺口不能通过重新导出绕过。QC沿用正式配置，本次仍manual_review_only，技术pass不表示自动语义pass。A8最终建议审阅原对话版本4，中间版保留；完整PCM与原版一致。部署仍先核查全库在途再重载唯一com.easel.web，backend.reload_required=false；不新建7870或修改Gateway配置。完整数据与限制见[S6-14A A8](tasks/S6-14A_conversation-integration.md)。

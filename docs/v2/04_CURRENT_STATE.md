@@ -1,6 +1,6 @@
 # Easel V2 · 当前状态
 
-> 最后核实：2026-10-18。本文仅汇总当前事实与唯一研发下一动作；完整运行及失败证据见 [S6-14](tasks/S6-14_integration-release.md)。
+> 最后核实：2026-10-19。本文仅汇总当前事实与唯一研发下一动作；完整运行及失败证据见 [S6-14](tasks/S6-14_integration-release.md)。
 
 ## 当前结论
 
@@ -35,7 +35,9 @@ S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardeni
 
 ## 唯一研发下一动作
 
-**A7真实Web接入已收口；下一步为Creator审片并决定质量修订。** 实际Web已完成新频道「留白实验室」、Coffee Run真实画面形成导演并另存版本2、Planning、库存供应、真实配音、导演剪辑、渲染与技术QC，同一对话显示可审阅首版。《把注意力还给自己》30秒、1080×1920、H.264/AAC、27,117,848bytes；5 MODEL+5 VOICE全部成功，新UNKNOWN0，AI图/视频0。抽帧已发现部分库存镜头未落实手机动作、亮背景字幕偏弱；不记审美/完整语义质量通过。作品与导演未接受、未设频道默认、未发布；A7并非零人工恢复。证据见[S6-14A A7](tasks/S6-14A_conversation-integration.md)和[脱敏验收](evidence/S6-14A_A7_validation.json)。
+**A8已完成局部修复与真实Web出片（LOCAL_REVISION_PASS / CREATOR_REVIEW_PENDING）；唯一下一步为Creator审阅原对话版本4。** A7真实Web接入已收口。 实际Web已完成新频道「留白实验室」、Coffee Run真实画面形成导演并另存版本2、Planning、库存供应、真实配音、导演剪辑、渲染与技术QC，同一对话显示可审阅首版。《把注意力还给自己》30秒、1080×1920、H.264/AAC、27,117,848bytes；5 MODEL+5 VOICE全部成功，新UNKNOWN0，AI图/视频0。抽帧已发现部分库存镜头未落实手机动作、亮背景字幕偏弱；不记审美/完整语义质量通过。作品与导演未接受、未设频道默认、未发布；A7并非零人工恢复。证据见[S6-14A A7](tasks/S6-14A_conversation-integration.md)和[脱敏验收](evidence/S6-14A_A7_validation.json)。
+
+A8已查明素材query丢动作、已知画面缺口未阻断、修订看不到同方案候选及字幕合成跨镜头重建问题；现有Supply/授权/Rights/编辑渲染链内修复。版本4为30秒竖屏，核心手机/合书动作与五条高对比字幕实际抽帧核验；完整解码PCM及原5条配音与A7原版完全一致，Plan/文案/时序保留，无新Work/Planning/TTS/AI媒体生成。7条真实MODEL成功，库存有限补查21条；原版/中间版保留，非零人工恢复。第三镜头低清及夜景氛围仍有限，不冒称完整分镜/电影质感通过。Python706 passed / 4 skipped，Node99 passed，build/lint通过，backend.reload_required=false。实际输出/调用证据见[A8验收](evidence/S6-14A_A8_validation.json)，原对话查看版本4；Creator未接受，语义QC仍NOT_TESTED。
 
 A5的UI01～UI28仍保留其原离线范围：Python557 passed / 4 skipped、原协议1原生兼容1 passed、完整本地媒体探针42项PASS、含memory-core的原生权限探针16项PASS、Node91 passed。A6没有重新执行这些Python/媒体探针，也不将6项入口验证并入原28项分母。前端展示时的backend.reload_required=true属于A6历史快照。A7已安装正式工具桥、备份迁移schema4并重载Web/Worker，最近capabilities为backend.reload_required=false；新作品已由真实Web确认制作并完成，Work reviewable，自动语义QC仍not_tested。第五轮Creator接受仍未执行。
 
