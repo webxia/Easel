@@ -1,13 +1,12 @@
 # S6-14 · 首次真实生产与完整范围验收
 
-状态：**PARTIAL / READY_FOR_AUTHORIZED_EXECUTION（尚未启动真实生产）**。用户于 2026-10-17 明确命令 [S6-15](S6-15_material-layer-hardening.md) 全部结案；其素材层 G4 审查证据已归档并移交，**不再因 S6-15 未结案而阻止本卡**。第一段真正的 Director 自主选材、真实作品 QC、费用回执及 Creator 审阅仍需在本卡按原验收标准执行；本次仅修改任务状态，不擅自发起生产、合并或发布。
-
+状态：**PARTIAL / 真实 API 生产已完成 3 部 45 秒可审阅视频；首次零人工恢复的自主 E2E、Creator 审阅接受及 S7 完整矩阵未通过。** S6-15 已正式 CLOSED/COMPLETE，不再作为开放前置。最近第三轮在主工作区修复 `invalid_edit`、重启旧 Worker 并通过正式 `/resume` 后达到 `reviewable`；本卡历史运行记录均保留。**唯一 P0 下一项为第四轮新作品的固定代码零人工恢复 E2E**，本次噪音清理不启动真实生产。
 - **依赖**：第一段为 S6-01～11 实际就绪；第二段为 S6-01～13及首次真实闭环就绪。阶段对应见[任务包里程碑](S6_IMPLEMENTATION_PLAN.md#1-基线顺序与交付)。
-- **用户最新排程门禁**：S6-15 已经由用户命令正式结束并完成 G4 移交；原额外前置阻断已解除。下一项是本卡第一段首次真实产品内制作/审阅，必须先核实具体作品、服务授权和权限；不得自动执行。素材 G4 结案不等于 S6-14 通过，Creator 接受只能由用户对具体版本明确选择。
+- **当前排程**：S6-01～13 软件主链已接通、S6-15 结案；S6-14 第一段真实成片产出已多次验证，但一次自主直通及 Creator 真实审阅仍未满足验收。下一次只推进有明确授权与冻结口径的第四轮独立 E2E；模型调用和实际接受不得因本任务卡自动触发。
 - **需求主/协作覆盖**：V2-EXP-009, V2-EXP-018, V2-EXP-022, V2-EXP-023, V2-EXP-028, V2-EXP-029, V2-EXP-030。
 - **目标与合同**：[可执行设计](../15_IMPLEMENTATION_DESIGN.md)；[任务包共同约定](S6_IMPLEMENTATION_PLAN.md#2-每张卡开始与完成的共同约定)。
-- **预计落点**：tests/production/test_supported_matrix.py；.github/workflows/ci.yml；README/安装说明；具名运行证据（私有原件不入Git）。
-- **执行分支建议**：`codex/s6-14-integration-release`。
+- **现有实现及验证落点**：`easel/production/`、`tests/production/`、正式后端 API 与 [运行配置](../16_RUNTIME_SETUP.md)；精确软件/真实/人工证据按本卡后续记录读取。
+- **当前开发入口**：`/Users/xgx/Projects/Easel` / `easel-v2-main-workspace`（本次盘点前基线 `7ca6806d`，最新 HEAD 以 Git 为准）；[旧 PR #8](https://github.com/webxia/Easel/pull/8) 为 Draft，指向历史 `codex/s6-production`，不自动合并或移交为主分支。
 
 ## 第一段：S6 首次真实生产与审阅
 
@@ -50,9 +49,9 @@ npm --prefix web/frontend run build
 
 交付要求：按两段及能力范围分列软件/真实/自主/接受报告；任一段未完成时整体 PARTIAL。上线、合并、发布不由测试通过自动授权。
 
-## 执行记录（2026-10-17）
+## 历次执行记录（自 2026-10-17 起，按时间顺序）
 
-受测实现：`97ecc67b`，分支 `codex/s6-production`，从 `4525b09d` 接手；基础分批提交为 `e923332a`、`97199284`。[PR #8](https://github.com/webxia/Easel/pull/8) 为草稿，未合并、未发布。测试采用隔离虚拟环境、临时 SQLite/媒体根；没有调用真实付费服务，没有迁移 V1 运行数据。
+**2026-10-17 软件实施初始快照（历史，不代表当前状态）**：受测实现 `97ecc67b`，分支 `codex/s6-production`，从 `4525b09d` 接手；基础分批提交 `e923332a`、`97199284`。该时点仅做软件/本地媒体验证、真实付费服务未测；其后同一 Task 已记录真实 MiniMax、素材、TTS、三部 MP4、人工 QC 与恢复证据，最终结论以文末最新记录和 [当前状态](../04_CURRENT_STATE.md) 为准。旧 PR #8 保持 Draft，未合并或发布。
 
 | 层次 | 第一段：首次真实闭环 | 第二段：完整范围 |
 |---|---|---|

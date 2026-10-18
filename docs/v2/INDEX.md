@@ -12,9 +12,9 @@
 | 为什么推荐该技术，有什么替代和风险 | [技术选型](14_TECHNOLOGY_SELECTION.md)：推荐与条件未决项，不冒充全部已获批准 |
 | Coding 应遵守哪些数据、状态、API 和执行规则 | [实施合同](15_IMPLEMENTATION_DESIGN.md)：待实现的唯一合同，不是现有能力声明 |
 | 任务顺序、依赖、覆盖关系与验收分工是什么 | [实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md)及各卡；每张卡维护自身执行结果 |
-| 当前 S6-14 之前要完善什么素材能力 | [S6-15 素材层完善任务](tasks/S6-15_material-layer-hardening.md)：现状、缺口、冻结边界与 G0～G4 验收闸门 |
+| S6-15 素材层完善完成了什么 | [S6-15 结案任务](tasks/S6-15_material-layer-hardening.md)：G0～G4 历史正反证据；**CLOSED/COMPLETE，不是当前开放前置** |
 | 五类素材有哪些实证缺口、如何补齐 | [素材层审计](17_MATERIAL_LAYER_AUDIT.md)固定事实；[素材层架构与选型](18_MATERIAL_LAYER_ARCHITECTURE.md)定义内部方案，执行结果仍在 S6-15 |
-| G4 最终验收能否回接 S6-14 | [G4 准入审查与决策](19_MATERIAL_LAYER_G4_ACCEPTANCE.md)：已完成审查，NO_GO，逐项保留真实证据与阻断点 |
+| G4 当时为何 NO_GO、如何回接 S6-14 | [G4 历史审查与判定](19_MATERIAL_LAYER_G4_ACCEPTANCE.md)：保留当时的 NO_GO 和恢复证据，不能当作当前 S6-14 未启动或仍暂停的状态 |
 | S1～S7 如何划分 | [路线图](03_ROADMAP.md)；任务卡编号不等于阶段编号 |
 | 正在做什么，从哪个版本接手 | [当前状态](04_CURRENT_STATE.md)；只汇总并指向证据 |
 | 如何配置并体验新视频制作 | [S6 运行配置](16_RUNTIME_SETUP.md)：启动、服务协议、字体和真实验收边界 |
