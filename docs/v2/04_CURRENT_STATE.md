@@ -4,7 +4,7 @@
 
 ## 接手入口
 
-- 唯一活动工作树：`/Users/xgx/.codex/worktrees/s5-architecture/Easel`，分支 `codex/s6-production`，从 `4525b09d` 文档整理成果接手。
+- **唯一当前开发与运行主工作区**：`/Users/xgx/Projects/Easel`，分支 `easel-v2-main-workspace`，LaunchAgent 服务端口 7860；原 `s5-architecture` 隔离树仅为保留的历史开发参考，不再作为执行入口。
 - [研发 PR #8](https://github.com/webxia/Easel/pull/8) 为草稿，base 为 `codex/s5-architecture`。已提交领域基础 `e923332a` 和调用/持久执行 `97199284`；整链代码 `97ecc67b` 与最终测试证据见 [S6-14](tasks/S6-14_integration-release.md)。不自动合并或发布。
 - `/Users/xgx/Projects/Easel` 的 分支 docs/s1-capability-audit（HEAD `78ed77ed`） 是历史工作树，保持其画像、输出和未跟踪资料，不切换或清理。V1 归档 `57c8e2ad` 只读；只适配迁入素材核心，没有恢复旧执行链或历史库。
 

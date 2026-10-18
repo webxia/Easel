@@ -57,6 +57,33 @@ def align_editor_frames(answer: CreativeEdit, *, fps: int = 30) -> CreativeEdit:
         raise ModelTaskError('edit_frame_alignment_conflict','镜头归帧会改变作品总时长，请导演修改分镜')
     return answer.model_copy(update={'scenes':aligned})
 
+def compensate_edit_overlap(answer: CreativeEdit, *, target_seconds: float, fps: int = 30) -> CreativeEdit:
+    """Compile model's per-scene screen slots into physical source clip lengths.
+
+    If the model summed its scene durations to the film duration but then also
+    specified dissolves, adding the same transition frames to each involved
+    clip preserves all intended screen slots and makes the actual overlapped
+    timeline equal the confirmed duration. Never remove, invent or enlarge a
+    dissolve; never fix an otherwise inconsistent total.
+    """
+    requested_frames = round(target_seconds * fps)
+    scenes = answer.scenes
+    rendered_frames = sum(round((s.duration - s.transition_seconds) * fps) for s in scenes)
+    raw_frames = sum(round(s.duration * fps) for s in scenes)
+    if rendered_frames == requested_frames:
+        return answer
+    if raw_frames != requested_frames or rendered_frames > requested_frames:
+        raise ModelTaskError('edit_duration_mismatch','分镜时长或转场无法落实到确认总片长')
+    overlap_frames = sum(round(s.transition_seconds * fps) for s in scenes)
+    if rendered_frames + overlap_frames != requested_frames:
+        raise ModelTaskError('edit_duration_mismatch','转场帧计算不一致')
+    corrected = [
+        s.model_copy(update={'duration':(round(s.duration*fps) +
+                    round(s.transition_seconds*fps))/fps})
+        for s in scenes
+    ]
+    return answer.model_copy(update={'scenes':corrected})
+
 def project_editor_features(answer: CreativeEdit) -> tuple[CreativeEdit,list[str]]:
     """Separate supported engine capability flags from model commentary.
 
@@ -132,8 +159,10 @@ class CreationTasks:
                 '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required))
             answer=align_editor_frames(answer)
+            settings=context.plan['settings']
+            answer=compensate_edit_overlap(answer,target_seconds=settings['duration_seconds'])
             answer,unverified_editor_notes=project_editor_features(answer)
-            settings=context.plan['settings'];horizontal=settings['aspect_ratio']=='16:9'
+            horizontal=settings['aspect_ratio']=='16:9'
             from .contracts import SubtitleSettings
             from .subtitles import caption_from_settings
             style=SubtitleSettings.model_validate(settings.get('subtitles',{}))

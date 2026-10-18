@@ -11,6 +11,7 @@ import uuid
 
 from easel.persona import valid_persona_name
 from .errors import ProductionError
+from .runtime_readiness import require_current_backend
 from .store import Store
 from .contracts import PlanDocument, VideoSettings, SubtitleSettings, VoiceIdentity
 from pydantic import ValidationError
@@ -137,6 +138,11 @@ class WorkService:
                     'fork': self._fork, 'revise': self._revise, 'confirm_revision': self._confirm_revision}
         if action not in handlers:
             fail('invalid_input', '不支持的作品命令', 400)
+        # Prevent stale in-memory source from accepting a new production or
+        # task resume after code changed on disk. Cancel and Creator acceptance
+        # remain available to avoid trapping an existing Work.
+        if action not in {'cancel', 'accept'}:
+            require_current_backend()
         if action != 'create' and (not work_id or expected_revision is None):
             fail('invalid_input', '修改作品须提供当前版本', 400)
         def execute(conn):

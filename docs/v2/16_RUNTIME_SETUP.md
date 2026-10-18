@@ -35,6 +35,7 @@ EASEL_PRODUCTION_MODEL_CAPABILITIES=image,video,audio
 仅填写服务实际支持的能力；配置不构成真实调用授权。模型须支持非流式 `/chat/completions`、JSON 输出；需要公开事实工具时还须支持 tools。图片、音频和视频输入协议不同，不能用名称猜测兼容。有声成片完整审查还须配置下文的实际视频协议。没有视频能力时仍可保存已有产物并展示阻塞原因，但不能标记完整质量通过。凭证放在本机环境或忽略的 `.env`，不要提交、截图或粘贴到对话。
 
 模型、素材供应和声音运行配置在 worker 启动时读取。修改服务、模型能力、协议或字体后，正常停止并重启 V2 Web/worker；界面目录更新不代表旧进程已切换。已有操作仍绑定原配置与授权，不会因重启自动重发未知结果或换服务。
+**主工作区代码版本检查（防旧 Worker）**：V2 仅由 `/Users/xgx/Projects/Easel` 的 `com.easel.web` 启动，修改任何 `easel/production/**/*.py` 后，进程内 Python 对象并不会自动热重载。正式 `GET http://127.0.0.1:7860/api/production/capabilities` 的 `backend.reload_required` 专门指示启动后有无生产源码变更；`true` 时，创建/规划/确认/恢复等新业务命令应返回 `503 / backend_reload_required`，不可继续用旧模型处理。应先核实数据库无在途调用，再执行 `launchctl kickstart -k gui/$(id -u)/com.easel.web` 重启唯一服务，直至 `backend.reload_required=false`。单独的 HTTP 200 不代表新代码已加载；取消及人工接受入口仍可用于已有作品恢复。此检测不对 `.env`、凭证、资产和文件渲染缓存作快照，修改配置仍按上述规则重启服务。
 
 MiniMax M3.1 完整 Planning 可能超过 120 秒；`EASEL_PRODUCTION_MODEL_TIMEOUT_SECONDS` 默认 900 秒，合法区间 120～1800，且纳入模型配置摘要。超时仍按未知结果处理，不能因增加预算而重发原请求。
 

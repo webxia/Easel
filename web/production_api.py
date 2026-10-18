@@ -38,7 +38,9 @@ def create_router(service_provider: Callable[[], WorkService]) -> APIRouter:
     @router.get('/capabilities')
     def service_capabilities():
         from easel.production.configuration import capabilities
-        return capabilities(service_provider().outputs.parent)
+        from easel.production.runtime_readiness import backend_code_freshness
+        return {**capabilities(service_provider().outputs.parent),
+                'backend':backend_code_freshness()}
 
     @router.post('/material-sources/unsplash/preview-search')
     def unsplash_preview_search(request: StockPreviewSearch):

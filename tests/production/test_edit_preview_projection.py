@@ -35,3 +35,25 @@ def test_unbounded_unrecognized_editor_requirements_are_rejected():
     with pytest.raises(ModelTaskError) as error:
         project_editor_features(proposal)
     assert error.value.code=='invalid_editor_features'
+
+def test_overlapping_transitions_are_compensated_without_erasing_dissolves():
+    from easel.production.creation import compensate_edit_overlap
+    from easel.production.editors.base import EditProject
+    answer=CreativeEdit(scenes=[
+        {'scene_id':'a','asset_id':'real-a','duration':7,'transition':'cut','transition_seconds':0},
+        {'scene_id':'b','asset_id':'real-b','duration':8,'transition':'dissolve','transition_seconds':.4},
+    ])
+    normalized=compensate_edit_overlap(align_editor_frames(answer),target_seconds=15)
+    assert normalized.scenes[1].transition=='dissolve'
+    assert abs(normalized.scenes[1].duration-8.4)<1e-8
+    project=EditProject(work_id='w',plan_revision=1,revision=1,width=1080,height=1920,
+                        duration=15,audio_mode='silent',**normalized.model_dump())
+    assert abs(sum(s.duration-s.transition_seconds for s in project.scenes)-15)<1e-8
+
+
+def test_invalid_model_timeline_cannot_be_covered_up_by_transition_compensation():
+    from easel.production.creation import compensate_edit_overlap
+    answer=CreativeEdit(scenes=[{'scene_id':'a','asset_id':'real-a','duration':10,'transition':'cut'}])
+    with pytest.raises(ModelTaskError) as error:
+        compensate_edit_overlap(answer,target_seconds=15)
+    assert error.value.code=='edit_duration_mismatch'
