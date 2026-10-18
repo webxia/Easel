@@ -236,7 +236,7 @@ brief 需要时增加 `brief_revision/brief_hash` 引用，由服务端验证消
 
 跨会话附件检查从“必须等于 Work.source_session_id”细化为“上传来源属于已校验的当前关联会话，且句柄/路径/hash满足该来源作用域”；保留来源 provenance，不覆盖原 source_session_id，不扩大到其他关联会话的任意文件。主动切换当前 Work 不转移已提交 turn 的归属。活动 Run 期间的新附件只留在会话待登记区，不能自动 cancel。
 
-聊天 SSE 候选新增 work_linked、work_card，保留 token/question/activity/done。卡片 envelope：`schema_version, card_id, kind, work_id, entity_ref, source_cursor`；entity_ref 指向 Plan/Run/Task/Output/Review，kind 只允许程序定义枚举。card_id 按实体和种类稳定生成；重复更新原卡。操作带具体版本/hash，过期卡409并提示刷新，不自动接受新版。
+聊天 SSE 候选新增 work_linked、work_card，保留 token/question/activity/done。作品卡片 envelope：`schema_version, card_id, kind, work_id, entity_ref, source_cursor`；entity_ref 指向 Plan/Run/Task/Output/Review，kind 只允许程序定义枚举。未有Work的目录创建提案及其持久卡合同见§9.9，不能强造Work或伪造Work cursor。card_id 按实体和种类稳定生成；重复更新原卡。操作带具体版本/hash，过期卡409并提示刷新，不自动接受新版。
 
 聊天事件序号与 Work cursor 分开。QuestionCards 可复用呈现；制作决定卡包含具体 decision_ref、有限合法动作和目标版本，生命周期绑定业务记录，聊天 done 后继续显示。gateway question.resolve 只回答创作澄清，不写制作授权。卡片恢复由快照投影完成，不要求后台主动再次调用 OpenClaw。
 
@@ -246,7 +246,7 @@ brief 需要时增加 `brief_revision/brief_hash` 引用，由服务端验证消
 
 首期推荐同一现有 Gateway 中新增内部 `easel-video` 配置（待实施、待验证）；不是新产品人格、模型替换或 Agent 委派。HTTP 目标 `openclaw/easel-video`，session key 固定 `agent:easel-video:<runtime_session_key>`。A1 已验证 HTTP/CLI 共用同一原生会话和绑定；正式问题桥、历史解析、会话重置仍须接入同一持久绑定；不能一条路径回 main。外部派发结果不明时禁止切换 CLI 重发。
 
-新视频对话从首轮使用受限配置。普通 main 对话进入视频创作时，在 UI 明确进入作品模式并开启受限运行段，保留原 UI 会话及本片必要可见内容；不复制 main 原生内部转录、秘密、工具执行上下文。两段历史按运行绑定分别读取。同一运行段内不因卡片选择切换到另一 Agent。普通 Easel main 功能继续使用其原配置，内部配置不可用时只拒绝作品动作。
+新视频对话从首轮使用受限配置。普通 main 对话进入视频创作时，在 UI 明确进入作品模式并开启受限运行段，保留原 UI 会话及本片必要可见内容；不复制 main 原生内部转录、秘密、工具执行上下文。两段历史按运行绑定分别读取。同一运行段内不因卡片选择切换到另一 Agent。切换到新Work或另一Profile时沿用同一受限Agent配置，但必须新建原生session/运行段；不把上一个Work的原生转录继续用于新作。返回原Work可恢复其匹配运行段，失效时只带允许的可见依据另开段。目录设置阶段向它首次创建的同画像Work绑定可以保留该段，绑定转移须持久、幂等且无旧调用在途；不能将已有Work的段重新绑定给另一Work。普通 Easel main 功能继续使用其原配置，内部配置不可用时只拒绝作品动作。
 
 配置使用严格工具 allowlist，仅加入上述作品工具和已验证安全的创作澄清能力。不得继承 coding profile 中的 exec/read/write、浏览器、任意网络、直接媒体生成、会话委派、发布或长期 Profile 写入。工具策略按本机实际版本核实合成后的结果，不套用旧模板。受限工作区不运行现有全量 sync，而只装配产品指令与审查后的知识；画像/目录/素材经服务端 scope 投影提供。启动文件、自动记忆、slash/管理命令与媒体自动处理也需验证，不能只检查模型可见工具名。
 
@@ -330,3 +330,24 @@ A1 新增运行就绪合同：Gateway /health=200 不证明插件已就绪。宿
 - 频道历史/导演使用视图从原Work、Plan、acceptance、导演代表试片引用投影；未接受作品保持待审/进行中分区，导演代表试片仅由合法导演accept更新。切换UI选择不改变既有学习提议目标或误写其他频道。归档/默认失效与并发保存返回明确错误，不静默替换版本。
 
 验收加入S6-14A UI19～UI25：三入口同链、默认优先级、跨画像/归档拒绝、频道语义依据、同Work正式首版兼试片与双接受、历史恢复/仅归属变更、fork设置与新授权。以上均为待执行验收，不能由A1隔离PASS或S6-13离线管理功能证明已通过。
+
+
+### 9.9 创建提案、目录卡与恢复（整体审查补充，未实现）
+
+创建流程见[交互设计§11](20_CONVERSATIONAL_INTERACTION.md#11-导演频道入口与统一创作闭环)，本节补齐尚无Work时的合同。目录写入仍复用CreativeCatalog，生产仍复用WorkService；不新增目录Agent/生产队列，也不将候选协议冒充A1已经提供的工具。
+
+**无Work阶段**：在既有会话/turn/卡片记录中保存有类型的设置提案，最少逻辑信息为proposal_id、kind（channel_create/director_formation）、revision/hash、来源消息/附件、目标Profile及可选channel/director、用户值/系统建议、状态及applied_entity_ref/receipt_ref。work_id此时可空。宿主以受限运行段与明确Profile/目录目标校验范围，只给所选信息；不能为取得工具上下文先创建无内容Work。模型结构化候选由宿主按schema/来源校验后保存为提案，不从自由Markdown推导执行卡/授权，候选本身不写catalog。
+
+**目录卡**：沿用持久卡投影，但entity_ref可为有类型的创建提案、Channel、DirectorRevision或分析Task；work_id仅在有关联Work时出现。提案使用自己的revision/hash，已存在目录对象使用catalog revision，分析进度使用所属Work cursor。不得把三种版本混用。kind/动作固定枚举；模型不能定义按钮动作/URL。每次修改生成提案新版本，旧卡不可提交；卡片显示未保存、提交中、待核实、已保存及真实实体引用，成功状态来自命令回执。关闭/刷新从持久记录恢复。
+
+**确认动作**：首期channel_create、director_analysis、style_confirm、director_accept和channel_default与生产confirm一样，只由明确卡操作提交，正文同意只定位卡片，不自行生成执行权限。服务器重新核对提案hash、目标范围、目录/输入版本与授权；首次动作固定command_id，响应丢失复用原ID取回执。同一已应用提案不因重复点击/另一窗口/新的toolCallId再次创建。服务端语义校验、允许值和来源仍必要，用户点击不把模型生成的任意路径/字段合法化。
+
+**分步创建与衔接**：频道保存独立于Work，不启动生产；后续进入新作若失败只恢复绑定，不能重建频道。导演分析需Work→输入登记→catalog create/analyze，这些沿用各自固定命令并保留步骤回执/输入映射；中途失败从未完成步骤续接，成功/UNKNOWN分析不重发。参考专用Work的初始主题取用户实际“分析这些参考并形成风格”的请求，不编造其经历或正式脚本；以后在空闲状态用来源明确的本期brief承接正式首版。现有API直接创建导演时即创建分析Run，不存在“先建一个空导演就可用”的阶段。
+
+**目录关联与组合动作**：显式“关联并设为频道默认”提交准确channel revision、完整保留后的director_ids及已接受的default_director_revision；只设置默认而缺关联的请求由适配校验/补齐用户已确认的那一个关联，不清除其他关联。现有catalog只检查默认版本可用，没有完整强制默认属于关联集合，须在实施时补一致性校验。试片收尾若用户选择多项，作品accept与导演accept分别留回执；设置默认依赖导演accept实际成功，否则保持待处理，不伪造全组成功或重跑已成功动作。失败提示目标和可恢复动作，不自动扩大选择范围。
+
+**输入与权限**：上传归属/句柄/hash/symlink检查必须通过；Rights UNKNOWN可以作为合法登记的风格参考，不赋予剪入成片/原声复用的许可。远端链接须通过既有受控获取/媒体输入适配解析为句柄，受限聊天工具不接受任意URL/文件路径。下载/分析本身遵守允许来源与服务授权，无法取得媒体显示未分析。新增参考重拆同一导演需明确target director/base revision、空闲Work和新输入证据，保留旧已接受版本；当前catalog没有该完整入口，留待A2/A4适配，不通过revision接口替换evidence绕过分析。
+
+**终止与恢复**：删除聊天撤销继续工具调用的能力，清理聊天正文副本；在途invocation/command与结果待核实映射作为最小业务核实记录保留至结清，不能删除后遗忘UNKNOWN再重发。任务/成果/目录对象独立存续。原生段与Work/Profile绑定的恢复遵守§9.4，跨作品不能共用旧原生转录。拒绝/丢弃未保存提案不删除既有频道、导演、原素材或成功任务；不能把关闭页面当cancel。
+
+人工模式导演接受继续按§9.7保留为A4资格适配事项：当前不具备时卡片如实提示，保留待接受草稿，用户仍可独立接受符合条件的作品；不把semantic not_tested写成PASS，也不为解锁按钮自动运行收费检查。完成创建后回到新作讨论，不自动执行Planning/TTS/发布。

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1660" height="1080" viewBox="0 0 1660 1080" role="img" aria-labelledby="title"><title id="title">Easel 与 OpenClaw、现有生产后端的接入方案</title><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#54718b"/></marker><marker id="green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#27836a"/></marker></defs><style>text{font-family:"PingFang SC","Microsoft YaHei",sans-serif;fill:#19344a}.title{font-size:34px;font-weight:650}.sub{font-size:19px;fill:#60798e}.head{font-size:25px;font-weight:600}.body{font-size:20px}.small{font-size:17px;fill:#60798e}.tag{font-size:17px;font-weight:600}.button{font-size:18px;font-weight:600;fill:#fff}</style><rect width="100%" height="100%" fill="#f3f6fa"/>
 <text x="40" y="60" class="title">Easel · OpenClaw 与现有后端如何衔接</text>
-<text x="40" y="100" class="sub">S6-14A 研究修订 · 2026-10-18 · 目标方案，尚未实施或运行验收</text>
+<text x="40" y="100" class="sub">S6-14A · 2026-10-18 · A1隔离工具桥已通过；图中正式Web接线尚未实施</text>
 <rect x="40" y="128" width="1580" height="42" rx="12" fill="#e9f1fd" stroke="#e9f1fd"/>
 <text x="60" y="156" class="tag">一个助手界面 · 一个作品后端 · 普通聊天保留原能力 · 视频模式使用内部受限运行配置</text>
 <rect x="40" y="200" width="390" height="570" rx="18" fill="#fff" stroke="#d4dfe8"/>
@@ -60,5 +60,5 @@
 <text x="65" y="906" class="head">沿用已验证生产链</text>
 <text x="65" y="946" class="body">MiniMax Planning → 素材供应 / 固定 TTS → Director Edit → FFmpeg → 技术 QC → 可审阅成片</text>
 <text x="65" y="985" class="small">复用执行与回执；自动语义 QC 仍未测，Creator 审片与明确接受单独记录。</text>
-<text x="40" y="1050" class="small">验证入口：A1 先用临时配置与假服务证明接入和权限；本轮只形成文档，不安装、不重启、不发起付费制作。</text>
+<text x="40" y="1050" class="small">当前范围：A1隔离验证已通过；A2～A5尚未实施。本轮仅修订文档与图，完成后停止。</text>
 </svg>

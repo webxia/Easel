@@ -9,14 +9,14 @@
 <rect x="62" y="306" width="238" height="40" rx="10" fill="#225ec7" stroke="#225ec7"/>
 <text x="77" y="332" class="button">开始讨论本次内容</text>
 <rect x="580" y="132" width="500" height="233" rx="18" fill="#fff" stroke="#d4dfe8"/>
-<text x="602" y="171" class="head">频道 → 在此频道创作</text>
+<text x="602" y="171" class="head">频道 → 创建 / 在此频道创作</text>
 <text x="602" y="210" class="body">所属画像 + 创作定位 / 主题 / 受众</text>
 <text x="602" y="241" class="body">具体默认导演版本 + 声音 / 字幕</text>
 <text x="602" y="272" class="body">进行中 / 待审 / 已接受作品可找回</text>
 <rect x="602" y="306" width="238" height="40" rx="10" fill="#225ec7" stroke="#225ec7"/>
 <text x="617" y="332" class="button">带入频道，讨论新主题</text>
 <rect x="1120" y="132" width="500" height="233" rx="18" fill="#fff" stroke="#d4dfe8"/>
-<text x="1142" y="171" class="head">导演 → 用此导演创作</text>
+<text x="1142" y="171" class="head">导演 → 创建 / 用此导演创作</text>
 <text x="1142" y="210" class="body">摘要 / 版本 / 代表试片 / 适用限制</text>
 <text x="1142" y="241" class="body">明确选择某个已接受版本</text>
 <text x="1142" y="272" class="body">参考形成草稿 → 风格确认 → 试片</text>
@@ -66,5 +66,5 @@
 <rect x="40" y="1371" width="1580" height="85" rx="18" fill="#e9f1fd" stroke="#cdddf5"/>
 <text x="64" y="1405" class="head">下一条内容：回频道 / 选导演 / 基于此版新作 → 新 Work，讨论新主题与确认新方案</text>
 <text x="64" y="1438" class="small">带入有效且明确选择的设置与必要经验；新版本不自动升级旧默认，不继承旧付费或素材许可。发布 / 复盘为可选后续。</text>
-<text x="40" y="1484" class="small">待补接口：频道定位等语义依据、入口持久绑定、fork 明确沿用设置；图中目录与完整交互不属于 A1 已实现范围。</text>
+<text x="40" y="1484" class="small">创建步骤见配套“频道与导演创建流程图”。目录、持久提案、完整交互仍待实施；A1仅隔离工具桥通过。</text>
 </svg>

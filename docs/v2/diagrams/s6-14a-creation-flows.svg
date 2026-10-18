@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="1540" viewBox="0 0 1660 1540" role="img" aria-labelledby="title"><title id="title">Easel 频道与导演创建：入口、对话确认、保存与后续创作</title><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#54718b"/></marker><marker id="green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#27836a"/></marker></defs><style>text{font-family:"PingFang SC","Microsoft YaHei",sans-serif;fill:#19344a}.title{font-size:34px;font-weight:650}.sub{font-size:19px;fill:#60798e}.head{font-size:25px;font-weight:600}.body{font-size:20px}.small{font-size:17px;fill:#60798e}.tag{font-size:17px;font-weight:600}.button{font-size:18px;font-weight:600;fill:#fff}</style><rect width="100%" height="100%" fill="#f3f6fa"/>
+<text x="40" y="58" class="title">Easel · 频道与导演如何创建，再接回创作</text>
+<text x="40" y="100" class="sub">S6-14A · 2026-10-18 · 创建交互设计；正式入口尚未实施，A1仅隔离工具桥验证通过</text>
+<rect x="40" y="128" width="760" height="56" rx="12" fill="#e9f1fd" stroke="#cdddf5"/>
+<text x="64" y="165" class="head">频道：确认定位与默认项后即可保存</text>
+<rect x="860" y="128" width="760" height="56" rx="12" fill="#eef6f3" stroke="#c7ded4"/>
+<text x="884" y="165" class="head">导演：参考形成草稿，试片接受后可复用</text>
+<rect x="40" y="202" width="760" height="146" rx="14" fill="#fff" stroke="#d4dfe8"/>
+<text x="62" y="236" class="head">1  入口：频道列表 / 直接对话</text>
+<text x="62" y="271" class="body">点“创建频道”，或说“建一个分享产品经历的频道”</text>
+<text x="62" y="301" class="body">带入当前画像；未选也可先讨论</text>
+<text x="62" y="329" class="small">仅打开入口不创建频道或空作品</text>
+<rect x="860" y="202" width="760" height="146" rx="14" fill="#fff" stroke="#c7ded4"/>
+<text x="882" y="236" class="head">1  入口：导演列表 / 直接对话</text>
+<text x="882" y="271" class="body">点“从参考创建导演”，或说“形成这个视频的风格”</text>
+<text x="882" y="301" class="body">画像 / 频道可选；不要求先创建频道</text>
+<text x="882" y="329" class="small">命名可由Easel建议；只有名字不成为可用导演</text>
+<path d="M420 348 V368" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1240 348 V368" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="40" y="374" width="760" height="146" rx="14" fill="#fff" stroke="#d4dfe8"/>
+<text x="62" y="408" class="head">2  对话：提出并修改设置</text>
+<text x="62" y="443" class="body">名称、定位、主题 / 受众；默认导演、声音 / 字幕可选</text>
+<text x="62" y="473" class="body">“重点讲踩坑，表达克制一点。”</text>
+<text x="62" y="501" class="small">未保存提案可恢复；保存必填：名称 + 所属已有画像</text>
+<rect x="860" y="374" width="760" height="146" rx="14" fill="#fff" stroke="#c7ded4"/>
+<text x="882" y="408" class="head">2  参考：说清喜欢与排除项</text>
+<text x="882" y="443" class="body">视频 / 链接 / 片段；“保留克制旁白，不要快切”</text>
+<text x="882" y="473" class="body">显示可读取状态、建议名称、分析所需服务</text>
+<text x="882" y="501" class="small">无法观看不假装拆解；参考不自带重剪 / 原声许可</text>
+<path d="M420 520 V540" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1240 520 V540" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="40" y="546" width="760" height="146" rx="14" fill="#fff" stroke="#d4dfe8"/>
+<text x="62" y="580" class="head">3  确认：保存这份频道设置</text>
+<text x="62" y="615" class="body">卡片列明目标画像、具体设置及默认项来源</text>
+<text x="62" y="645" class="body">主要操作：“保存频道”；可继续用自然语言修改</text>
+<text x="62" y="673" class="small">一次卡操作提交；不以模型正文“已保存”代替回执</text>
+<rect x="860" y="546" width="760" height="146" rx="14" fill="#fff" stroke="#c7ded4"/>
+<text x="882" y="580" class="head">3  拆解：明确提交，结果存为草稿</text>
+<text x="882" y="615" class="body">“拆解这些参考” → 原后端分析 → 有依据的风格提案</text>
+<text x="882" y="645" class="body">讨论叙事 / 视听 / 适用限制，观察与推测分开</text>
+<text x="882" y="673" class="small">有效授权不重复询问；失败可恢复，UNKNOWN不重发</text>
+<path d="M420 692 V712" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1240 692 V712" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="40" y="718" width="760" height="146" rx="14" fill="#fff" stroke="#d4dfe8"/>
+<text x="62" y="752" class="head">4  保存：返回真实频道与默认项</text>
+<text x="62" y="787" class="body">“频道已保存” → 目录 / 设置卡同步更新</text>
+<text x="62" y="817" class="body">可选“在此频道创作”或“查看频道”，也可暂时离开</text>
+<text x="62" y="845" class="small">响应未知先核实；保存频道不启动Planning、配音或制作</text>
+<rect x="860" y="718" width="760" height="146" rx="14" fill="#fff" stroke="#c7ded4"/>
+<text x="882" y="752" class="head">4  风格：确认候选版本，仍待试片</text>
+<text x="882" y="787" class="body">“确认此风格” → 风格已确认、待试片</text>
+<text x="882" y="817" class="body">草稿与依据已保存，可晚点从导演详情继续</text>
+<text x="882" y="845" class="small">确认风格不自动制片；未接受版本不能作为频道默认</text>
+<path d="M420 864 V884" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1240 864 V884" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="40" y="890" width="760" height="146" rx="14" fill="#fff" stroke="#d4dfe8"/>
+<text x="62" y="924" class="head">5  接续：讨论本期内容</text>
+<text x="62" y="959" class="body">同一界面带入画像 + 频道 + 具体默认导演版本</text>
+<text x="62" y="989" class="body">接住已经提供的主题；用户明确整理方案后进入规划</text>
+<text x="62" y="1017" class="small">先讨论内容，再一次确认完整方案与制作授权</text>
+<rect x="860" y="890" width="760" height="146" rx="14" fill="#fff" stroke="#c7ded4"/>
+<text x="882" y="924" class="head">5  试片：用本人新内容，首版可以兼任</text>
+<text x="882" y="959" class="body">给出本期主题 → 整理方案 → 明确确认方案与授权</text>
+<text x="882" y="989" class="body">现有后端自主制作 → 同一对话审片 / 局部修订</text>
+<text x="882" y="1017" class="small">同一Work正式首版可兼试片；不强制另做固定时长视频</text>
+<path d="M420 1036 V1056" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1240 1036 V1056" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="40" y="1062" width="760" height="146" rx="14" fill="#fff" stroke="#d4dfe8"/>
+<text x="62" y="1096" class="head">6  回流：作品可找回，默认另行保存</text>
+<text x="62" y="1131" class="body">审片接受后 → 内容库与频道已接受作品区</text>
+<text x="62" y="1161" class="body">下次新主题沿用有效默认；继续旧作恢复原快照</text>
+<text x="62" y="1189" class="small">本片变化默认只留本片；长期默认须明确保存</text>
+<rect x="860" y="1062" width="760" height="146" rx="14" fill="#fff" stroke="#c7ded4"/>
+<text x="882" y="1096" class="head">6  接受：作品、导演与默认分别处理</text>
+<text x="882" y="1131" class="body">“接受作品此版” / “接受并保存导演D v1”分别留回执</text>
+<text x="882" y="1161" class="body">导演接受成功后，可选“关联并设为频道C默认”</text>
+<text x="882" y="1189" class="small">验证实际导演版本与试片资格；条件不足保留草稿</text>
+<path d="M420 1208 V1240 H830 V1260" stroke="#27836a" stroke-width="2.5" fill="none" marker-end="url(#green)"/>
+<path d="M1240 1208 V1240 H830" stroke="#27836a" stroke-width="2.5" fill="none" marker-end="url(#green)"/>
+<rect x="40" y="1260" width="1580" height="112" rx="14" fill="#e9f1fd" stroke="#cdddf5"/>
+<text x="64" y="1301" class="head">汇入同一创作对话：新内容 → 完整方案确认 → 自主制作 → 审片接受 → 内容库 / 频道 → 下一作</text>
+<text x="64" y="1342" class="body">频道带入画像与默认；导演带入具体风格版本。无需两者都先建好；接受作品不自动接受导演、改默认或发布。</text>
+<rect x="40" y="1394" width="1580" height="98" rx="14" fill="#fffaf0" stroke="#e6d9b7"/>
+<text x="64" y="1431" class="body">中断后继续：未保存提案回会话，已有频道 / 导演草稿回详情，试片与成片回原作品。</text>
+<text x="64" y="1470" class="small">先读回执再恢复未完成步骤；不重建已保存对象、不重发成功或未知调用。正式人工模式导演接受仍有待适配条件。</text>
+<text x="40" y="1521" class="small">本轮仅完善文档与图；卡片、持久提案、目录语义字段与完整Web链待实施。审查修订完成后停止，不自动启动A2。</text>
+</svg>
