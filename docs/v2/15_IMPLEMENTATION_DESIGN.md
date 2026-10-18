@@ -275,3 +275,40 @@ A2 验证同 turn 同内容/不同内容、同工具意图不同 callId、提交
 迁移只在后续实施范围授权内运行，当前成功作品、Operation 回执和 Creator 接受状态不改变。回退时停用新入口/插件，保留主聊天、旧作品读取和所有证据；未知已派发请求先核实，不通过降级入口重跑。A5 先做离线完整交互；真实模型/媒体与服务安装重启需对应授权，软件/Web/真实生产/Creator 接受分列记录。
 
 A1 新增运行就绪合同：Gateway /health=200 不证明插件已就绪。宿主派发前通过受 Gateway 认证保护的 GET `/plugins/easel-work/status` 核对协议、Agent 与工具清单，缺插件/不兼容返回不可用，不发起模型调用或回退main；该检查是插件存活证据，实际合成权限仍由运行时用例验证。内存 invocation/ticket 及测试驱动的意图 allowlist 只用于 A1，A2 必须持久化并接入真实用户意图/来源，不把内存丢失当可安全重发。
+
+### 9.7 交付闭环与长期回写（补充提案，未实现）
+
+2026-10-18 用户补充要求核对 Easel 原生完成/回写设计。行为与来源分析见[交互设计 §10](20_CONVERSATIONAL_INTERACTION.md#10-创作结束后的闭环与回写2026-10-18补充设计)。本节是后续增量合同，不更改 A1 的3工具/内存探针，不宣称已接通长期写入、发布或归因。
+
+**现有权威与投影**：Artifact/QC/Run事实、reviews、acceptances/accepted_output_id、频道/导演版本继续由现有生产库维护；旧内容项目由 `.easel.json` 展示头/steps维护。内容库在现有 OutputsPage 中分别读取目录树与production/library。V2卡片/跨层交接按“实际产物引用+必要结论”生成，不将Run成功写成accepted/published，不把metadata/聊天或OpenClaw全局MEMORY作为新的授权/接受权威。
+
+| 触发 | 复用写入 | 补充合同 |
+|---|---|---|
+| 真正产物/QC/运行终态 | 原 Artifact/quality_checks/Task/Run/event | 完成摘要和卡片只做投影；索引/封面失败独立补建，不重跑生产或再付费调用模型 |
+| 明确修改某成片 | 原 reviews + revise | 引用具体output_id/基准digest/反馈；未要求修改的闲聊不自动开启revision |
+| 明确接受某版本 | 原 acceptances + accepted_output_id | 已接受库读取选择，而非最新文件；Creator人工确认不篡改semantic not_tested记录 |
+| 建议长期保存 | A2持久对话/卡片中的必要提议引用 | 程序保存模型提出的候选，不修改长期目标；只有有用的1～3条；没有就不提议 |
+| 明确保存长期项 | 现有Profile文件编辑、频道设置或Director版本机制的受控适配 | 必须绑定目标版本/差异与来源，一次明确操作对应一个确定写入，模型不直接执行全局文件写 |
+| 明确另行发布/查询复盘 | 原publisher、calendar/publish-log、data-tracker/归因脚本 | 另行任务/授权；保持具体成片、平台账号、真实回执与分析来源关联；本轮仅定义衔接 |
+
+**长期提议的最少逻辑信息**：`proposal_id, work_id, output_id?, source_refs[], target_kind, target_ref, target_version_or_hash, entries[], proposed_patch, patch_hash, status, applied_receipt_ref?`。source_refs指向本片可见用户消息、Review、明确接受、实际发布/指标/报告；entries区分用户明确要求、观察、建议和待验证推测。不保存隐藏思考或全量转录。提议由会话适配接收结构化候选并验证来源/目标，模型正文中的“记住/已保存”不构成写命令；如需模型工具也仅能创建提议，不能应用长期变更。复用A2持久卡/依据记录；是否独立物理表在实施时确定，不先新增学习Agent、后台模型任务或通用记忆数据库。
+
+- `target_kind=profile`：绑定明确的Profile ref，只允许本次提议显示的style/preferences/memory目标；利用现有路径校验和原子替换原语，补输入摘要/前置文件hash/幂等检查。默认不写identity/经历、不写其他画像、共享context或全局MEMORY。无画像不自动建一个。用户主动编辑其他六维字段仍走原有画像编辑语义。
+- `target_kind=channel_defaults`：复用频道版本命令，仅保存明确选择的默认项；不将本片规格自动变全频道默认，不增加付费许可。提议产生后切换UI画像/频道不改变其目标；目标或内容过期时409并展示变化。
+- `target_kind=director_revision`：沿用既有参考/证据、风格确认、试片及accept流程；只保存新版本，不改旧revision和历史Plan。单个成片的接受不替代Director接受，也不能用未按新Director版本制作的旧输出充当该版本试片。新试片/外部分析所需调用按原授权，不能因学习提议触发。
+
+**确认与幂等**：首次保存操作固定 command_id、proposal/patch hash、目标前置版本；程序验证来源/作用域后对指定目标应用。用户改提议内容则生成新hash，旧卡不可继续保存。Profile文件与SQLite不是一个事务：持有目标文件锁后比较 before/after hash，原子替换并落应用回执；重放若命中同一已写after hash只补回执、不重复追加。若目标既非已知before也非after，返回冲突，不覆盖用户并发编辑。不得用普通append后再盲目重试。跨多个目标分别留回执、明确部分结果，不假称整组原子成功。该恢复协议尚未实现，现有PUT本身不提供它。
+
+未确认、拒绝或忽略的提议不改变长期数据，也不影响成片接受/下载/复用。已确认条目成为后续新Work的输入依据；已有Profile/Director快照与进行中已确认Plan保持不变。新作查询可沿用已有Profile/频道目录读取，不需要再次读全历史聊天。撤销/删除已保存内容按当前目标版本作显式增量修改，保留必要来源/回执，不能整文件回滚覆盖后续合法编辑；来源作品删除按现有影响检查处理，不能把不可用证据仍展示为可播放。
+
+**发布接入的后续边界**：现有PublishPage只选旧目录媒体，旧安全路径检查拒绝V2受管目录。必须经业务适配将已选具体Output解析为通过权限/Rights/署名/hash检查的发布输入，再交原publisher，不能放宽旧media路径或让模型自由提供内部文件路径。平台改版/转码若改变视频字节，登记为派生发布版本并保留来源；发布时选择快照不随之后的accepted_output_id变化。
+
+后续发布关联最少包含 `work_id, output_id, digest, acceptance_ref_at_request, profile_ref?, platform_account_ref, platform, request_ref, remote_post_or_draft_ref?, url?, receipt_state, published_or_saved_at`。只有真实平台回执才是success；公开发布、平台草稿、失败、未知分别记录。一个跨平台动作按平台账号分别留结果；成功一端不重发，未知不盲目重推。现有日历/publish-log作既有兼容底座，关联/去重信息可由适配维护；不另建指标副本。
+
+记录重放以发布请求/远端帖子身份和实际输出为依据，不能只按标题/日期猜作品。Web和脚本只能有一个主记录入口；日志补写失败单独显示待补，不重做真实发布。旧log.record是追加、calendar转发是best-effort，不具备本合同，需要实施时补齐，不能当作已保证exactly-once。
+
+**复盘回流**：查询范围固定账号/画像与实际发布记录；data-tracker快照/publish-log为数据底座，分析脚本只做消费，报告保存在该作品或明确分析范围。用户提供截图/口述时保留来源和日期，缺指标不补造；相关性不当因果性。多版本发布的指标归各自output，不自动归最新接受版。可生成长期提议，但真正写画像/频道/导演仍按上述明确保存；不直接复用旧共享context文件进行跨画像增量写。未授权的新抓取/定时任务/模型调用不得因交付结束自动发生。
+
+**实现验收**：A2留可恢复来源/提议引用；A3/A4共用内容库和版本入口并实现受控长期保存；A5正反例覆盖自动事实登记、明确接受A/产生B、提议忽略/拒绝/重复保存、并发文件变更、跨画像、无画像、默认变化与旧Plan不变。发布/归因适配保留为后续具名任务，不自动扩大本轮实施。
+
+当前导演闭环还有一个待验收差异：WorkService允许符合条件的manual_review_only成片经明确人工审阅接受，但CreativeCatalog的Director接受目前要求试片quality_state=passed。A1未覆盖此路径；A4须按已确认导演需求核实人工审片资格与独立接受回执，不能把作品已接受直接写成自动质量PASS。

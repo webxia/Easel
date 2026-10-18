@@ -8,7 +8,7 @@
 
 S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardening.md) **CLOSED / COMPLETE**，不重开历史G4。前三部成片的研发协助记录、第四轮FAIL均保留，第五轮是独立成功样本。
 
-用户已明确要求回到 **Easel 对话式创作**，参考其管线，沿用现有创作能力与成功后端。新增 [S6-14A](tasks/S6-14A_conversation-integration.md)：**A1 ISOLATED_FAKE_PASS；A2～A5 尚未实施**。入口为[交互设计](20_CONVERSATIONAL_INTERACTION.md)，候选接口只维护在[实施合同 §9](15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
+用户已明确要求回到 **Easel 对话式创作**，参考其管线，沿用现有创作能力与成功后端。新增 [S6-14A](tasks/S6-14A_conversation-integration.md)：**A1 ISOLATED_FAKE_PASS；A2～A5 尚未实施**。入口为[交互设计](20_CONVERSATIONAL_INTERACTION.md)，已补充[创作完成与回写闭环](20_CONVERSATIONAL_INTERACTION.md#10-创作结束后的闭环与回写2026-10-18补充设计)，区分自动事实登记、明确长期保存及可选发布复盘；补充设计未实现。候选接口只维护在[实施合同 §9](15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
 
 ## 唯一执行入口
 
@@ -34,7 +34,7 @@ S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardeni
 
 ## 唯一研发下一动作
 
-**A1 已完成，下一事项为 A2 持久绑定与创作依据。** A1 的未挂载适配模块和原生插件只在隔离假服务中运行；需继续实现 turn/运行段持久化、来源/附件校验和恢复，再接正式聊天/UI。用户本次仅授权 A1，不在本轮自动实施 A2、安装正式插件、重启或发起真实调用。
+**A1 已完成，下一事项为 A2 持久绑定与创作依据。** A1 的未挂载适配模块和原生插件只在隔离假服务中运行；需继续实现 turn/运行段持久化、来源/附件校验和恢复，再接正式聊天/UI。现有代码实施范围停在 A1；本轮追加完成/回写闭环文档与图，不自动实施 A2、安装正式插件、重启或发起真实调用。
 
 Creator可同时通过上方视频入口审片，反馈故事/风格、画面匹配、旁白/字幕、音乐/音效与节奏；未明确接受不标CREATOR_ACCEPTED。跨题材风格、质量、耗时/成本及完整规格矩阵归后续S7，不以此次交互设计自动启动。
 
