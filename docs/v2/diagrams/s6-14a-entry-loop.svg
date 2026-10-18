@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="1500" viewBox="0 0 1660 1500" role="img" aria-labelledby="title"><title id="title">Easel 导演、频道入口与统一创作闭环</title><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#54718b"/></marker><marker id="green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#27836a"/></marker></defs><style>text{font-family:"PingFang SC","Microsoft YaHei",sans-serif;fill:#19344a}.title{font-size:34px;font-weight:650}.sub{font-size:19px;fill:#60798e}.head{font-size:25px;font-weight:600}.body{font-size:20px}.small{font-size:17px;fill:#60798e}.tag{font-size:17px;font-weight:600}.button{font-size:18px;font-weight:600;fill:#fff}</style><rect width="100%" height="100%" fill="#f3f6fa"/>
+<text x="40" y="58" class="title">Easel · 导演 / 频道入口与统一创作闭环</text>
+<text x="40" y="98" class="sub">S6-14A · 2026-10-18 · 目标交互设计，尚未实施；A1仅隔离工具桥验证通过</text>
+<rect x="40" y="132" width="500" height="233" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="62" y="171" class="head">普通对话 / 视频快捷入口</text>
+<text x="62" y="210" class="body">直接说主题、经历或发素材</text>
+<text x="62" y="241" class="body">画像 / 频道 / 导演均可选</text>
+<text x="62" y="272" class="body">咨询不建作品，推荐不自动归属</text>
+<rect x="62" y="306" width="238" height="40" rx="10" fill="#225ec7" stroke="#225ec7"/>
+<text x="77" y="332" class="button">开始讨论本次内容</text>
+<rect x="580" y="132" width="500" height="233" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="602" y="171" class="head">频道 → 在此频道创作</text>
+<text x="602" y="210" class="body">所属画像 + 创作定位 / 主题 / 受众</text>
+<text x="602" y="241" class="body">具体默认导演版本 + 声音 / 字幕</text>
+<text x="602" y="272" class="body">进行中 / 待审 / 已接受作品可找回</text>
+<rect x="602" y="306" width="238" height="40" rx="10" fill="#225ec7" stroke="#225ec7"/>
+<text x="617" y="332" class="button">带入频道，讨论新主题</text>
+<rect x="1120" y="132" width="500" height="233" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="1142" y="171" class="head">导演 → 用此导演创作</text>
+<text x="1142" y="210" class="body">摘要 / 版本 / 代表试片 / 适用限制</text>
+<text x="1142" y="241" class="body">明确选择某个已接受版本</text>
+<text x="1142" y="272" class="body">参考形成草稿 → 风格确认 → 试片</text>
+<rect x="1142" y="306" width="238" height="40" rx="10" fill="#225ec7" stroke="#225ec7"/>
+<text x="1157" y="332" class="button">带入导演，讨论新内容</text>
+<path d="M290 365 V403 H830 V426" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M830 365 V426" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1370 365 V403 H830" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="40" y="426" width="1580" height="147" rx="18" fill="#e9f1fd" stroke="#cdddf5"/>
+<text x="64" y="466" class="head">同一个 Easel 创作对话 · 清楚显示本片上下文与来源</text>
+<text x="64" y="504" class="body">[画像 P]  [频道 C]  [导演 D v2 · 明确选择 / 频道默认]   用户：这次讲上线延期，别太鸡汤。</text>
+<text x="64" y="544" class="small">本片明确要求优先；频道默认补空缺；导演不覆盖固定音色 / 字幕。服务端校验归属、版本与会话绑定。</text>
+<path d="M830 573 V608" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="40" y="608" width="1000" height="244" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="64" y="649" class="head">对话 → 有来源的完整方案 → 一次确认 → 自主制作</text>
+<text x="64" y="690" class="body">讨论想法 / 补充附件 / 解释取舍：不自动启动完整 Planning</text>
+<text x="64" y="724" class="body">明确整理方案：统一展示内容、画像、频道、导演版本及本次授权</text>
+<text x="64" y="758" class="body">确认方案后：沿用现有 WorkService / Worker / MiniMax 生产链</text>
+<text x="64" y="820" class="small">同一受限 OpenClaw 会话桥；真实步骤 / 成果持续更新，关页不取消制作。</text>
+<rect x="1080" y="608" width="540" height="244" rx="18" fill="#fffaf0" stroke="#e6d9b7"/>
+<text x="1102" y="649" class="head">如果要从参考形成导演</text>
+<text x="1102" y="690" class="body">明确请求参考拆解并授权后才执行</text>
+<text x="1102" y="724" class="body">拆解 → 讨论 / 确认风格 → 本人新主题</text>
+<text x="1102" y="758" class="body">同一 Work 的正式首版可兼试片</text>
+<text x="1102" y="820" class="small">已有导演直接复用，不强制重新形成或另做试片。</text>
+<path d="M1080 764 H1040" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M830 852 V888" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="40" y="888" width="1580" height="158" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="64" y="929" class="head">同一对话审片：播放具体版本、局部修改、明确接受</text>
+<text x="64" y="969" class="body">反馈绑定正在看的 Output 与时间点 → 按范围修订并复用成果 → 旧版保留 → Creator 选择接受哪一版。</text>
+<text x="64" y="1009" class="small">技术 QC / 自动语义 QC / Creator 接受分别显示；制作成功、下载或接受作品均不自动接受导演或发布。</text>
+<path d="M830 1046 V1080" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="40" y="1080" width="755" height="223" rx="18" fill="#eef6f3" stroke="#c7ded4"/>
+<text x="64" y="1121" class="head">自动回流：作品事实与可找回成果</text>
+<text x="64" y="1161" class="body">Work / QC / 回执 / 引用自动登记</text>
+<text x="64" y="1195" class="body">明确接受 → 统一内容库 + 频道已接受区</text>
+<text x="64" y="1229" class="body">原导演版本 / 方案 / 历史输出保持可追溯</text>
+<text x="64" y="1281" class="small">频道 / 导演视图读取同一作品事实，不再建第二份作品库。</text>
+<rect x="835" y="1080" width="785" height="223" rx="18" fill="#fffaf0" stroke="#e6d9b7"/>
+<text x="859" y="1121" class="head">明确选择后回写：各目标独立</text>
+<text x="859" y="1161" class="body">画像偏好 / 频道默认：展示具体差异后保存</text>
+<text x="859" y="1195" class="body">导演新版本：原参考依据 → 风格 / 试片接受</text>
+<text x="859" y="1229" class="body">设为频道默认：明确选择已接受的具体版本</text>
+<text x="859" y="1281" class="small">不默认全选；本片意见先留本片，忽略提议不改长期设置。</text>
+<path d="M417 1303 V1340 H830 V1371" stroke="#27836a" stroke-width="2.5" fill="none" marker-end="url(#green)"/>
+<path d="M1227 1303 V1340 H830" stroke="#27836a" stroke-width="2.5" fill="none" marker-end="url(#green)"/>
+<rect x="40" y="1371" width="1580" height="85" rx="18" fill="#e9f1fd" stroke="#cdddf5"/>
+<text x="64" y="1405" class="head">下一条内容：回频道 / 选导演 / 基于此版新作 → 新 Work，讨论新主题与确认新方案</text>
+<text x="64" y="1438" class="small">带入有效且明确选择的设置与必要经验；新版本不自动升级旧默认，不继承旧付费或素材许可。发布 / 复盘为可选后续。</text>
+<text x="40" y="1484" class="small">待补接口：频道定位等语义依据、入口持久绑定、fork 明确沿用设置；图中目录与完整交互不属于 A1 已实现范围。</text>
+</svg>
