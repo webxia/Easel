@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="1190" viewBox="0 0 1660 1190" role="img" aria-labelledby="title"><title id="title">Easel 对话式视频创作六步交互分镜</title><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#54718b"/></marker><marker id="green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#27836a"/></marker></defs><style>text{font-family:"PingFang SC","Microsoft YaHei",sans-serif;fill:#19344a}.title{font-size:34px;font-weight:650}.sub{font-size:19px;fill:#60798e}.head{font-size:25px;font-weight:600}.body{font-size:20px}.small{font-size:17px;fill:#60798e}.tag{font-size:17px;font-weight:600}.button{font-size:18px;font-weight:600;fill:#fff}</style><rect width="100%" height="100%" fill="#f3f6fa"/>
+<text x="40" y="60" class="title">Easel · 六步对话交互分镜</text>
+<text x="40" y="102" class="sub">界面内容示意，非真实制作回执 · S6-14A 目标方案 · 2026-10-18 · 尚未实施</text>
+<rect x="40" y="142" width="500" height="448" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<rect x="58" y="160" width="464" height="40" rx="10" fill="#eaf0fb" stroke="#eaf0fb"/>
+<text x="73" y="187" class="head">01  直接说想法，继续讨论</text>
+<text x="65" y="230" class="small">作品：第一次做产品的经历   ·   导演：已选风格</text>
+<text x="65" y="562" class="small">后端：草稿与本片上下文；不启动完整规划</text>
+<rect x="65" y="246" width="450" height="94" rx="12" fill="#f3f6fa" stroke="#f3f6fa"/>
+<text x="80" y="272" class="tag">你</text>
+<text x="80" y="303" class="body">别太励志，保留我失败的部分。</text>
+<rect x="65" y="356" width="450" height="124" rx="12" fill="#f3f6fa" stroke="#f3f6fa"/>
+<text x="80" y="382" class="tag">Easel</text>
+<text x="80" y="413" class="body">从一个具体失误切入，</text>
+<text x="80" y="443" class="body">用后来的行动收尾。你想保留哪件事？</text>
+<rect x="65" y="500" width="164" height="40" rx="10" fill="#225ec7" stroke="#225ec7"/>
+<text x="80" y="526" class="button">整理完整方案</text>
+<text x="248" y="527" class="small">也可继续输入讨论</text>
+<rect x="580" y="142" width="500" height="448" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<rect x="598" y="160" width="464" height="40" rx="10" fill="#eaf0fb" stroke="#eaf0fb"/>
+<text x="613" y="187" class="head">02  看完整方案，一次确认</text>
+<text x="605" y="230" class="small">作品：第一次做产品的经历   ·   导演：已选风格</text>
+<text x="605" y="562" class="small">后端：正式 Plan 版本 / hash / 制作授权</text>
+<rect x="605" y="246" width="450" height="124" rx="12" fill="#f3f6fa" stroke="#f3f6fa"/>
+<text x="620" y="272" class="tag">方案 · 第 2 版</text>
+<text x="620" y="303" class="body">开场冲突 → 失败经历 → 克制收尾</text>
+<text x="620" y="333" class="body">45 秒 · 竖屏 · 固定声音 · 中文字幕</text>
+<text x="605" y="408" class="small">展开：脚本 / 场景 / 素材方向 / 服务与次数</text>
+<text x="605" y="448" class="body">明确指定内容、许可和本次制作范围</text>
+<rect x="605" y="500" width="192" height="40" rx="10" fill="#225ec7" stroke="#225ec7"/>
+<text x="620" y="526" class="button">确认此方案并制作</text>
+<text x="814" y="527" class="small">继续讨论修改</text>
+<rect x="1120" y="142" width="500" height="448" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<rect x="1138" y="160" width="464" height="40" rx="10" fill="#eaf0fb" stroke="#eaf0fb"/>
+<text x="1153" y="187" class="head">03  制作进行中，聊天可结束</text>
+<text x="1145" y="230" class="small">作品：第一次做产品的经历   ·   导演：已选风格</text>
+<text x="1145" y="562" class="small">后端：现有 Worker；作品 SSE 独立更新</text>
+<rect x="1145" y="246" width="450" height="124" rx="12" fill="#f3f6fa" stroke="#f3f6fa"/>
+<text x="1160" y="272" class="tag">制作进度</text>
+<text x="1160" y="303" class="body">素材已就绪，正在配音。</text>
+<text x="1160" y="333" class="body">已完成成果可展开查看。</text>
+<text x="1145" y="414" class="body">可继续问：“为什么选择这组画面？”</text>
+<text x="1145" y="456" class="body">关闭页面后制作仍继续</text>
+<rect x="1145" y="500" width="128" height="40" rx="10" fill="#225ec7" stroke="#225ec7"/>
+<text x="1160" y="526" class="button">查看步骤</text>
+<text x="1300" y="527" class="small">取消制作是独立动作</text>
+<rect x="40" y="636" width="500" height="448" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<rect x="58" y="654" width="464" height="40" rx="10" fill="#eaf0fb" stroke="#eaf0fb"/>
+<text x="73" y="681" class="head">04  有具体缺口时集中决定</text>
+<text x="65" y="724" class="small">作品：第一次做产品的经历   ·   导演：已选风格</text>
+<text x="65" y="1056" class="small">后端：真实决定项 → 原 grant / resume 等命令</text>
+<rect x="65" y="740" width="450" height="124" rx="12" fill="#fff4e1" stroke="#fff4e1"/>
+<text x="80" y="766" class="tag">需要你决定 · 示例</text>
+<text x="80" y="797" class="body">本步骤缺少所需媒体服务授权。</text>
+<text x="80" y="827" class="body">尚未发送调用，已有配音会保留。</text>
+<text x="65" y="905" class="body">卡片说明用途、服务和已保留的成果</text>
+<text x="65" y="944" class="body">已有有效授权时不重复询问</text>
+<rect x="65" y="992" width="166" height="40" rx="10" fill="#225ec7" stroke="#225ec7"/>
+<text x="80" y="1018" class="button">授权此服务并继续</text>
+<rect x="580" y="636" width="500" height="448" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<rect x="598" y="654" width="464" height="40" rx="10" fill="#eaf0fb" stroke="#eaf0fb"/>
+<text x="613" y="681" class="head">05  在对话内审片和局部修改</text>
+<text x="605" y="724" class="small">作品：第一次做产品的经历   ·   导演：已选风格</text>
+<text x="605" y="1056" class="small">后端：绑定此 Output；影响分析与成果复用</text>
+<rect x="605" y="740" width="450" height="145" rx="12" fill="#1c314a" stroke="#1c314a"/>
+<text x="773" y="805" class="head" style="fill:#fff">▶  成片 · 第 1 版</text>
+<text x="638" y="853" class="small" style="fill:#dae5ef">技术检查通过 · 语义未测 · 待人工审核</text>
+<text x="605" y="923" class="body">你：“12 秒这处换画面，声音保持。”</text>
+<text x="605" y="958" class="small">反馈绑定正在看的版本与时间点</text>
+<rect x="605" y="992" width="166" height="40" rx="10" fill="#225ec7" stroke="#225ec7"/>
+<text x="620" y="1018" class="button">明确接受此版本</text>
+<text x="790" y="1019" class="small">或继续提出修改</text>
+<rect x="1120" y="636" width="500" height="448" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<rect x="1138" y="654" width="464" height="40" rx="10" fill="#eaf0fb" stroke="#eaf0fb"/>
+<text x="1153" y="681" class="head">06  找回作品，继续同一创作</text>
+<text x="1145" y="724" class="small">作品：第一次做产品的经历   ·   导演：已选风格</text>
+<text x="1145" y="1056" class="small">后端：恢复快照与依据；新附件重新校验归属</text>
+<rect x="1145" y="740" width="450" height="124" rx="12" fill="#f3f6fa" stroke="#f3f6fa"/>
+<text x="1160" y="766" class="tag">从作品列表 / 内容库打开</text>
+<text x="1160" y="797" class="body">恢复方案、进度、版本与审核状态。</text>
+<text x="1160" y="827" class="body">可在新对话继续，不重跑已有制作。</text>
+<text x="1145" y="907" class="body">新对话上传素材 → 校验关联 → 登记</text>
+<text x="1145" y="946" class="small">保留旧成片和原始来源，不覆盖回执</text>
+<rect x="1145" y="992" width="128" height="40" rx="10" fill="#225ec7" stroke="#225ec7"/>
+<text x="1160" y="1018" class="button">继续讨论</text>
+<text x="1290" y="1019" class="small">恢复必要依据和业务卡</text>
+<text x="40" y="1141" class="sub">普通聊天转入视频：明确进入作品模式 → 服务端开启受限运行段；UI 保持同一助手，旧聊天历史保留。</text>
+<text x="40" y="1174" class="small">作品详情可展开脚本、素材与版本；授权和接受通过明确卡操作提交。布局、文案与权限需在 A1～A5 中实际验证。</text>
+</svg>

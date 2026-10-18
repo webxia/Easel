@@ -8,13 +8,13 @@
 
 S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardening.md) **CLOSED / COMPLETE**，不重开历史G4。前三部成片的研发协助记录、第四轮FAIL均保留，第五轮是独立成功样本。
 
-用户已明确要求回到 **Easel 对话式创作**，参考其管线，沿用现有创作能力与成功后端。新增 [S6-14A](tasks/S6-14A_conversation-integration.md)：**交互设计文档/图/任务登记已完成；设计待评审，代码尚未实施**。入口为[交互设计](20_CONVERSATIONAL_INTERACTION.md)，候选接口只维护在[实施合同 §9](15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
+用户已明确要求回到 **Easel 对话式创作**，参考其管线，沿用现有创作能力与成功后端。新增 [S6-14A](tasks/S6-14A_conversation-integration.md)：**OpenClaw 接入研究、交互文档/图与任务登记已完成修订；推荐方案待评审，代码尚未实施**。入口为[交互设计](20_CONVERSATIONAL_INTERACTION.md)，候选接口只维护在[实施合同 §9](15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
 
 ## 唯一执行入口
 
 - 工作区 `/Users/xgx/Projects/Easel`；分支 `easel-v2-main-workspace`。第五轮成功生产基线 `406e523c035fe8da0f1435f4d813defa63653692`，当前文档提交HEAD以Git为准。
 - 服务 [本机7860](http://127.0.0.1:7860/)，唯一 `com.easel.web`。本轮只读能力检查HTTP200，`backend.reload_required=false`；未重启服务。生产源码后续有改动须先核实服务版本，禁止旧worker处理新命令。
-- 当前聊天运行设置实测 **OpenClaw**，V2生产走 **MiniMax任务调用**；受限作品工具桥尚未接通。普通聊天与生产能力不能混为已验证的同一条交互链。
+- 当前聊天运行设置实测 **OpenClaw**，V2生产走 **MiniMax任务调用**；受限作品工具桥尚未接通。研究推荐同一 Gateway 内的内部受限视频配置 + 原生工具插件 + Web 薄转发；接口依据已核对，实际权限/上下文/接通仍未测试，不能混为同一条已验证交互链。
 - [PR #8](https://github.com/webxia/Easel/pull/8) 仍是历史 `codex/s6-production` Draft，不包含主工作区最新修复；本轮不合并或汇合PR。
 - 真实服务保持具名授权；不使用qwen3.8或DeepSeek替代，不重发成功/UNKNOWN请求。本轮不创建第六轮、不迁移业务数据、不自动接受或发布。
 
@@ -34,7 +34,7 @@ S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardeni
 
 ## 唯一研发下一动作
 
-**评审 S6-14A 对话式创作设计及 Easel 管线适配方案。** 重点确认对话主区+作品详情布局、版本卡一次确认、当前OpenClaw受限工具桥与现有生产后端的分工；通过设计评审并启动实施后，先完成A1接入验证，再按任务卡推进。
+**评审 S6-14A 研究修订后的具体方案与交互图。** 推荐“同一 OpenClaw Gateway 内部受限视频配置 + 原生工具插件 + 现有 WorkService/Worker”，详见[设计 §4.4](20_CONVERSATIONAL_INTERACTION.md#44-openclaw-研究结论与方案选择)和[六步交互分镜](diagrams/s6-14a-interaction-storyboard.svg)。启动代码实施后，先用临时配置/假服务完成 A1 接入与权限验证，再推进绑定和持久卡；本轮没有实施、安装、重启或真实调用。
 
 Creator可同时通过上方视频入口审片，反馈故事/风格、画面匹配、旁白/字幕、音乐/音效与节奏；未明确接受不标CREATOR_ACCEPTED。跨题材风格、质量、耗时/成本及完整规格矩阵归后续S7，不以此次交互设计自动启动。
 

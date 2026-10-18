@@ -214,3 +214,7 @@ Creator 人工审片入口：[播放第五轮视频](http://127.0.0.1:7860/api/p
 用户要求优先设计前后端对话交互，并补充参考 Easel 管线。已登记 [S6-14A](S6-14A_conversation-integration.md)，形成[交互文档](../20_CONVERSATIONAL_INTERACTION.md)、独立SVG总览、Easel管线映射图、时序图和状态图；[实施合同 §9](../15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)集中记录拟新增接口/上下文/卡片合同。设计状态为待评审、实现未开始，不能以文档交付宣称前端改造完成。
 
 本次只改权威文档、任务卡与图；保护所有既有未跟踪资料和生产证据。本轮10份相关Markdown的183条路径引用检查0错误，git diff --check通过；SVG通过XML解析并经渲染目视检查，附PNG预览。全库路径扫描仍发现原未跟踪research目录的4处既有坏链接（共1356条引用），没有修改无关研究文件，故不记全库检查PASS。生产源码未变，本轮不重复跑生产回归。未启动新创作、模型/媒体调用、业务迁移、服务重启或Creator接受。下一步为评审 S6-14A，人工审片可同时进行；S7和Git/PR汇合仍为后续事项。
+
+### 2026-10-18 · S6-14A 接入研究与具体方案补充
+
+按用户“先研究、补充文档并形成交互图”的指令，完成 OpenClaw 本机版本/原生插件/路由/工具策略研究；推荐内部受限视频运行配置 + 原生作品工具插件 + Web 薄转发，复用现有生产后端。已更新[交互设计](../20_CONVERSATIONAL_INTERACTION.md)、[实施合同 §9](../15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)、[接入图](../diagrams/s6-14a-conversation-flow.svg)和[六步交互分镜](../diagrams/s6-14a-interaction-storyboard.svg)，具体研究/验证记录只维护在 [S6-14A](S6-14A_conversation-integration.md)。推荐可行性有文档/源码依据，组合接入与实际权限仍 NOT_TESTED；未改业务代码/配置、未发起生产。第五轮结果与 Creator 审阅状态保持原记录。

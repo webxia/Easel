@@ -1,6 +1,6 @@
 # Easel V2 · 对话式视频创作交互设计
 
-状态：**DESIGN PROPOSAL / 待评审，尚未实施**。2026-10-18，源码基线 `406e523c`。用户已明确要求回到对话式创作、沿用 Easel 创作能力，并以已跑通的生产后端为基础；本文件提出具体交互方案。任务登记见 [S6-14A](tasks/S6-14A_conversation-integration.md)，第五轮生产证据见 [S6-14](tasks/S6-14_integration-release.md)。数据、API 和事件增量仅在[实施合同 §9](15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)定义。
+状态：**DESIGN PROPOSAL / 待评审，尚未实施**。2026-10-18 研究修订；文档研究基线 `bac81d99`，成功生产源码基线仍为 `406e523c`。用户已明确要求回到对话式创作、沿用 Easel 创作能力，并以已跑通的生产后端为基础；本文件提出具体交互方案。任务登记见 [S6-14A](tasks/S6-14A_conversation-integration.md)，第五轮生产证据见 [S6-14](tasks/S6-14_integration-release.md)。数据、API 和事件增量仅在[实施合同 §9](15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)定义。
 
 ## 1. 目标与设计依据
 
@@ -24,7 +24,7 @@
 | [ChatPage](../../web/frontend/src/components/ChatPage.tsx)、[App](../../web/frontend/src/App.tsx)、[streamChat](../../web/frontend/src/lib/api.ts) 未连接作品参数 | 普通聊天与生产作品没有连续上下文 | 明确绑定作品和当前版本，消息与作品引用一起回放 |
 | [现有作品聊天桥](../../web/app.py) 遇到 workId 就将消息交给 plan/revise，再提示去工作台 | “解释一下”“换个方向”等讨论也可能变成执行命令 | 增加讨论/提案/命令区分，不因存在 workId 就执行 Planning |
 | [PlanningTasks.context](../../easel/production/planning.py) 读取本片输入及 request，不读取完整聊天 | 多轮讨论中的事实、限制可能未进入规划依据 | 提交有来源的创作摘要和附件句柄，冻结时绑定具体摘要版本 |
-| [普通聊天存储](../../web/frontend/src/lib/store.ts) 主要在浏览器，另有后端聊天回放 | 清理本地缓存或删聊天后不能据此恢复完整作品讨论 | 后端持久保存本作品必要讨论记录、卡片引用和绑定；业务状态继续只读作品库 |
+| [普通聊天存储](../../web/frontend/src/lib/store.ts) 主要在浏览器，另有后端聊天回放 | 清理本地缓存或删聊天后不能据此恢复完整作品讨论 | 优先引用既有转录；只新增本片必要绑定、消息/卡片索引与冻结依据，避免复制完整聊天；业务状态继续只读作品库 |
 | [direct API](../../easel/direct_api.py) 无工具执行；当前运行设置只读实测为 **OpenClaw** | 不能把任一聊天底座等同于已具备 V2 工具桥 | 首先验证当前 OpenClaw 的受限工具接入；API/其他 Harness 各自声明能力，不静默切底座 |
 
 第五轮证明现有 MiniMax Planning → Supply/TTS → Edit → FFmpeg → 技术 QC 可自主到人工审阅。它没有验证上述 Web 对话链。交互改造不能以第五轮 API PASS 代替自己的验收。
@@ -70,6 +70,10 @@ flowchart TB
 
 沿用 Easel 的聊天主界面、会话历史、画像选择、附件输入、媒体预览与内容库。侧栏的“视频创作”进入作品列表；新建作品打开带视频上下文的对话。普通聊天明确提出制作视频时，可在原对话建立作品草稿；仅咨询视频知识不建作品。作品名可由当前内容建议，随后可改，不阻塞第一句话。
 
+[六步交互分镜图](diagrams/s6-14a-interaction-storyboard.svg)展示讨论、方案、制作、决定、审片与续作。
+
+![六步交互分镜](diagrams/s6-14a-interaction-storyboard.svg)
+
 桌面布局草图（交互示意，非已实现界面）：
 
 ```text
@@ -113,17 +117,17 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-  U[Creator] --> UI[Easel 聊天与作品卡]
-  UI --> CHAT[现有聊天运行时 + 作品会话适配]
-  CHAT --> CTX[本片讨论依据与受控工具桥]
-  CTX --> CMD[现有 WorkService 命令与查询]
-  UI -->|确认 / 取消 / 接受| CMD
-  CMD --> DB[(作品版本 / 授权 / 回执)]
-  CMD --> WORKER[现有持久 Worker]
-  WORKER --> PROD[MiniMax / 素材 / TTS / Edit / FFmpeg / QC]
-  PROD --> DB
-  DB -->|快照与事件| UI
-  UI --> REVIEW[播放器 / 版本比较 / 内容库]
+  UI[Easel 对话与持久作品卡] --> WEB[Web 接入：绑定 / turn 去重]
+  WEB --> OC["现有 OpenClaw Gateway<br/>内部受限视频运行配置"]
+  OC --> PL[新增原生作品工具插件]
+  PL --> BR["Web 内薄适配<br/>身份 / 版本 / 命令校验"]
+  BR --> CMD[现有 WorkService]
+  UI -->|确认 / 授权 / 取消 / 接受| CMD
+  CMD --> WK[现有持久 Worker]
+  WK --> PROD[现有规划 / 素材 / 配音 / 剪辑 / FFmpeg / QC]
+  CMD --> SNAP[现有作品快照与事件]
+  PROD --> SNAP
+  SNAP -->|独立 SSE| UI
 ```
 
 ### 4.1 前端
@@ -136,11 +140,11 @@ flowchart LR
 
 ### 4.2 聊天与作品接入层（新增适配，非第二套生产编排）
 
-同一个面向用户的 Easel 创作助手负责讨论、解释与调用有限的作品工具。Director 是风格和创作职责，不新增一个用户必须切换或单独部署的聊天 Agent。规划/选材/剪辑仍由现有任务化模型执行。
+同一个面向用户的 Easel 创作助手负责讨论、解释与调用有限的作品工具。Director 是风格和创作职责，用户不切换聊天 Agent。下述内部受限运行配置与普通聊天共用 OpenClaw Gateway，不增加用户人格、Agent 互相委派或生产编排。规划/选材/剪辑仍由现有任务化模型执行。
 
 接入层组装本片上下文、校验工具参数和业务动作、登记对话引用，并调用既有 WorkService。对话历史用于理解；已确认方案、授权与实际运行记录决定能做什么。普通聊天回复结束只代表本轮回答结束。
 
-**当前 OpenClaw 接入要求**：复用其已有会话、流式输出、附件理解和创作对话能力，作品会话仅开放受限的作品查询/草稿/规划/修订工具。必须在工具注册、执行权限及凭证访问上实际禁止该会话绕过后端运行旧视频生产脚本、任意 shell 或直接调用媒体 Provider；仅追加“请使用 V2”提示词不构成通过。采用现有 Harness 的按会话权限配置/隔离运行上下文，先用假服务验证。若当前版本无法实现该限制，应如实报告具体缺口并评审适配方案，不静默改用其他底座、关闭普通 Easel 功能或开放收费旁路。
+**当前 OpenClaw 接入要求**：复用其已有会话、流式输出、附件理解和创作对话能力，作品会话仅开放受限的作品查询/草稿/规划/修订工具。必须在工具注册、执行权限及凭证访问上实际禁止该会话绕过后端运行旧视频生产脚本、任意 shell 或直接调用媒体 Provider；仅追加“请使用 V2”提示词不构成通过。现有 Easel 尚未接入按作品切换权限的能力，不能视为已具备。研究后推荐复用 OpenClaw 原生指定 Agent 路由和静态工具白名单，增加内部 `easel-video` 运行配置与薄工具插件，具体见下文。先用假服务验证实际工具、启动上下文和失败路径；不以配置声明代替通过证据。
 
 API 直连目前只有文本/图片对话，不具有完整技能执行。若后续支持它，须明确实现有限工具调用和回放；不能把“与 MiniMax 共用配置”写成“已复用 Easel 全部创作能力”。本任务先覆盖当前实际 OpenClaw 入口，其他 Harness 的兼容性逐个记录。
 
@@ -157,41 +161,106 @@ API 直连目前只有文本/图片对话，不具有完整技能执行。若后
 
 研发 AGENTS、Git/Task 清单与个人调试资料不得进入产品创作上下文。产品 AGENTS 里与 V2 冲突的旧工作流也不能不加区分地继承。实际加载清单、工具权限和跨画像隔离都作为后续运行验收项。
 
+### 4.4 OpenClaw 研究结论与方案选择
+
+研究核对本机已安装 **OpenClaw 2026.9.4（3a9d69d）/ Node 24.21.0**、当前实际配置的非敏感字段、Easel 调用源码及 OpenClaw 官方文档。没有加载凭证正文、修改配置、安装插件或运行模型。以下区分接口/源码事实与尚未验证的组合能力：
+
+| 核实依据 | 已知事实 | 对本方案的影响 |
+|---|---|---|
+| [Easel 聊天入口](../../web/app.py)：`_production_chat_command`、`_run_gateway_http` 及 CLI fallback | 有 workId 时先短路为 plan/revise；普通请求用 `openclaw/default`、`agent:main:...`，CLI 同样固定 main | 替换短路；HTTP/CLI/问题桥/历史解析共同使用服务端保存的运行绑定，不能只改一个 model 字段 |
+| 当前实际 main 配置；[同步脚本](../../agents/sync.sh) | main 具有 shell、文件和直接媒体工具；同步脚本向其工作区复制全量技能，并附项目根和画像/输出访问说明 | 不复用该宽权限执行环境；普通 main 保留，新作品配置使用受限工具和经审查的产品上下文 |
+| OpenClaw 本机 `docs/gateway/openai-http-api.md`；[官方 HTTP 合同](https://docs.openclaw.ai/gateway/openai-http-api) | 可显式路由到指定 Agent，并固定会话；现有 HTTP 流式入口可沿用 | 目标 `openclaw/easel-video`，服务端固定 `agent:easel-video:<runtime_session_key>`；不换 Gateway、不换聊天底座、不指定替代生产模型 |
+| 本机 `docs/plugins/tool-plugins.md` 与 SDK `OpenClawPluginToolContext`；[官方工具插件](https://docs.openclaw.ai/plugins/tool-plugins) | 工具 factory 可读取运行时 agentId/sessionKey/sessionId；execute 有 toolCallId | 注册受限、具名作品工具；身份来自运行时和服务端绑定，不让模型传任意作品范围或命令 ID |
+| 本机 `docs/tools/multi-agent-sandbox-tools.md`；[官方工具策略](https://docs.openclaw.ai/tools/multi-agent-sandbox-tools) | 工具策略/工作区可按 Agent 配置；这不等于 Easel 已有动态逐会话白名单 | 首期选择固定受限配置，减少对自定义逐轮拦截的依赖 |
+| 本机插件 SDK 的 Agent/Tool hook context 与 `agent-tools.before-tool-call` 实现 | hook 有原生 runId/工具调用身份；factory 的会话信息本身没有 Web turn_id；执行前 hook 可阻断 | 插件采用工具+最小生命周期 hooks 的混合入口，绑定原生运行与 Web turn；仅按当前 session 找 turn 会误接晚到工具。所有入口覆盖仍待验证 |
+
+**推荐方案：同一 Gateway 内的受限运行配置 + 一个原生作品工具插件 + Web 内的薄命令适配。** `easel-video` 是内部配置名，继承同一 Easel 助手表达与经审查的创作知识，Director 仍来自作品设置。它不是新增产品人格或第二个导演，不另起常驻服务，也不要求用户选模型。
+
+| 候选 | 复用程度与代价 | 结论 |
+|---|---|---|
+| 旧 Skill 用 exec 调 V2 HTTP/脚本 | 最少封装，但 main 仍可绕过 API 直接生产，启动上下文也宽 | 不作为作品接入方案 |
+| main 动态逐会话工具/启动上下文过滤 | 保留原生 main 转录，但须同时覆盖工具、bootstrap、自动能力和所有恢复入口 | 保留候选；当前 Easel 未接线，不将其写成现成功能 |
+| 内部受限配置 + 原生工具插件 | 复用 Gateway、会话、流式、模型和工具 SDK；明确白名单与独立启动上下文 | **首期推荐，待 A1 离线验证** |
+| 新建聊天服务/另做生产 Agent | 重复上下文、权限和生产恢复职责 | 当前没有必要 |
+
+受限工作区只含产品人格、V2 作品协议、已审查创作知识；无仓库根研发 AGENTS、`.env`、全画像目录、outputs 软链或旧产线执行指令。所选六维画像、导演版本、附件证据由受控上下文接口提供。默认不开放 read/exec/process/browser、任意网络/文件工具、直接媒体插件、会话委派、发布及全局画像写入；所需知识/输入读取通过限定句柄的作品工具完成。还须核对内建 slash 命令、自动记忆/检索、自动媒体和启动注入；工具清单不是全部边界。
+
+这是一条防止模型绕过业务权限的能力边界，**不是已验证的 OS 或凭证物理隔离**。Gateway 本身仍需要聊天模型凭证，OpenClaw 文档也说明部分授权可能读取默认 Agent 配置；不能宣称内部配置天然消除了所有凭证继承。插件不向模型返回任何凭证，Worker 的制作凭证不进入作品上下文；A1 用替代值验证无文件/网络/Provider 旁路，不能暴露真实 Key。若无法限制启动注入或隐式能力，A1 判失败并报告，不能开放 main 兜底。
+
+### 4.5 运行绑定、工具与后台状态如何连接
+
+1. Web 在调用 OpenClaw 前，持久接受 turn 并保存 `chat_session → runtime_agent/runtime_session` 绑定，以及本轮固定的 Work/Output/版本/画像范围。模型正文中的 ID 不是权限来源。受限配置健康检查通过后才派发；既有普通聊天不静默换运行历史。
+2. 显式视频入口从首轮使用受限配置。普通聊天提出制作意图时，先展示方向和“进入视频创作”；该明确动作在原 UI 对话开启受限运行段，只带本片必要的用户可见消息、附件引用及来源。旧 main 转录保留，原生运行段分开，后续按持久绑定取历史；切换失败不在 main 执行制作。此处产品交互需要评审，不能假称原生 transcript 无缝迁移。
+3. 原生插件负责具名工具的参数解析、通过最小生命周期 hooks 关联可信原生 run 与 Web turn、向 Web 内部适配入口转发并返回回执。服务端再检查绑定、动作、版本、附件和命令身份，然后调用现有 WorkService。插件与 Python 服务分进程，因此这里有一层本地传输适配；不另建生产 HTTP 服务。
+4. 多轮讨论不触发完整 Planning。明确“整理方案”时将有来源的创作依据与 input handles 交给后端，正式 Plan 仍由现有 MiniMax Planning 生成。缺规划授权时复用现有 needs_decision/grant/resume 路径，呈现具体服务授权卡；聊天模型授权不能替代它。方案卡确认时一次提交制作授权。
+5. 工具拿到持久回执后结束当轮，不等待整片完成。前端用既有 snapshot/cursor/SSE 更新持久卡片；不依赖插件 delivery，后者只适合活跃回合且在 Gateway HTTP 场景可能不可用。关页后 Worker 继续，重进取快照即可。
+6. 修订绑定用户所看的具体 Output，复用既有 revise/影响分析/授权；已有输入不能在活动 Run 中追加。制作中的新素材暂存为未提交建议，等完成或明确取消后再登记，不能自动取消或改冻结方案。
+
+跨会话续作时，服务端验证新会话可关联该作品，并保存附件自己的上传来源；不能覆盖 Work.source_session_id。现有 `_input` 只接受原会话附件，因此须增加“已关联会话可提交本会话附件”的受控检查，继续保留路径、hash、symlink 和用途/Rights 校验。这是必要后端增量，不是前端传一个 workId 就已支持。
+
+### 4.6 首期范围与复用清单
+
+| 直接复用 | 必要适配 | 首期不新增 |
+|---|---|---|
+| OpenClaw Gateway/模型配置/流式/会话；Easel ChatPage、附件上传、画像和导演目录 | 内部受限运行配置、产品上下文装配、原生工具插件及其本地转发 | 新聊天服务、独立编排 Agent、第二个生产队列 |
+| WorkService 命令、版本校验、command_receipts、Operation 准入与 Worker | 服务端运行/作品绑定、聊天入口去重、稳定工具命令映射 | 全量聊天副本、让每个制作 Task 重读完整对话 |
+| Planning、素材、固定 TTS、Edit、FFmpeg、QC、Artifacts | 有来源的 brief 快照引用、跨会话附件归属 | 替换成功的生产 Provider/渲染器、重接旧 SDK 出片 |
+| 现有 snapshot/SSE、ProductionPage 业务组件、媒体与版本接口 | 持久作品卡、侧栏、业务决定 action adapter | 用 Gateway question.resolve 代替制作授权 |
+
+首期一个对话只设置一个当前作品；历史卡仍固定原作品/版本。后端关联信息允许保留多个历史关系，但不先做复杂多作品调度器。新对话续作可以恢复冻结依据和真实业务卡，不承诺找回已删除的全部聊天正文。数据/API 的精确候选字段和工具映射见[实施合同 §9](15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
+
 ## 5. 前后端交互时序
 
 ```mermaid
 sequenceDiagram
   actor C as Creator
-  participant UI as Easel 对话界面
-  participant Chat as 聊天与作品适配
-  participant API as WorkService
+  participant UI as Easel 对话 / 作品卡
+  participant Web as Web 绑定与 turn 接入
+  participant OC as OpenClaw 受限运行配置
+  participant P as 原生工具插件
+  participant API as 现有 WorkService
   participant W as 现有 Worker
-  C->>UI: 主题 / 素材 / 修改方向
-  UI->>Chat: 本轮消息 + 会话及作品引用
-  Chat-->>UI: 流式讨论 / 关键问题
-  Note over Chat,API: 仅明确创作意图建立草稿；讨论不自动执行完整规划
+  C->>UI: 主题、素材、继续讨论
+  UI->>Web: turn_id / 绑定引用 / 用户消息
+  Web->>Web: 持久接收并去重，固定本轮作用域
+  Web->>OC: 固定 Agent 与运行会话；本片必要上下文
+  OC-->>UI: 经 Web 流式回复 / 创作澄清
+  Note over OC,API: 讨论与解释不启动完整规划
   C->>UI: 整理完整方案
-  UI->>Chat: 明确规划请求
-  Chat->>API: 绑定讨论依据和素材，提交 plan 命令
-  API-->>Chat: 持久命令回执
-  API->>W: planning run
-  W->>API: 保存不可变方案修订
-  API-->>UI: 快照 / 事件 → 当前方案卡
-  C->>UI: 确认完整方案与制作授权
-  UI->>API: 指定版本、hash、授权与幂等命令
-  API->>W: production run
-  loop 制作期间
-    W->>API: 真实阶段 / 成果 / 决定项
-    API-->>UI: SSE 更新进度卡
+  UI->>Web: 明确规划请求
+  Web->>OC: 继续同一受限运行段
+  OC->>P: request_plan（创作依据 / 来源 / 输入句柄）
+  P->>Web: 可信运行身份 / toolCallId / 具名动作
+  Web->>API: 稳定 command_id / expected_revision / plan
+  API-->>P: 经 Web 返回持久回执与实体引用
+  P-->>OC: 已提交；结束本轮，不等待整片
+  API->>W: 既有 planning run
+  opt 缺少有效规划服务授权
+    W->>API: needs_decision，无外部调用
+    API-->>UI: 授权决定卡
+    C->>UI: 明确授权指定规划服务
+    UI->>API: grant + resume，各自稳定幂等命令
   end
-  API-->>UI: 可播放输出与真实 QC 状态
-  C->>UI: 对指定版本提出局部修改
-  UI->>Chat: output 引用 + 反馈
-  Chat->>API: revision 命令
-  Note over API,W: 依影响复用成果；需要扩大范围时集中确认
-  C->>UI: 明确接受具体版本
-  UI->>API: accept（人工模式含完整审阅确认）
-  API-->>UI: 已接受回执 / 内容库引用
+  W->>API: 保存 Plan Revision 与 hash
+  API-->>UI: 快照 / SSE 更新完整方案卡
+  C->>UI: 确认此方案及制作授权
+  UI->>API: 指定版本 / hash / 授权 / 幂等命令
+  API->>W: production run
+  loop 无需保持聊天连接
+    W->>API: 持久进度 / 成果 / 决定项
+    API-->>UI: 独立作品 SSE / 快照
+  end
+  API-->>UI: 实际成片 / QC / 待人工审核
+  C->>UI: 基于此版局部修改
+  UI->>Web: output 引用 + 反馈
+  Web->>OC: 固定具体 Output，讨论或明确修订
+  OC->>P: request_revision
+  P->>Web: 经校验映射到既有 revise 命令
+  Web->>API: 指定版本与保护项
+  Note over API,W: 复用已有成果；扩大影响/新增消耗时集中确认
+  C->>UI: 明确接受所看版本
+  UI->>API: 既有 accept 命令与人工审阅确认
+  API-->>UI: 接受回执 / 内容库引用
 ```
 
 ## 6. 上下文、卡片与状态规则
