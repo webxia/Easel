@@ -1,7 +1,8 @@
 """Planning tasks bind creative answers to program-owned immutable plan revisions."""
 from __future__ import annotations
 import json
-from pydantic import Field
+import re
+from pydantic import Field, model_validator
 from .contracts import Contract, Scene, VideoSettings
 from .context import TaskContext
 from .model_tasks import ModelTaskRunner, ModelTaskError
@@ -20,6 +21,38 @@ class CreativePlan(Contract):
     core_views: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     adaptation_permissions: list[str] = Field(default_factory=list)
+
+
+# Validation-only wrapper for generated drafts. Existing frozen plans and
+# manually entered Creator content retain their original public contract.
+_SPOKEN_STAGE_DIRECTIONS = re.compile(
+    r'\d{1,2}:\d{2}(?:\.\d+)?|旁白窗口|窗口前后|句前后|语速中慢|句末留白'
+)
+
+
+class VoiceReadyCreativePlan(CreativePlan):
+    @model_validator(mode='after')
+    def narration_and_budget(self):
+        if self.settings.audio_mode not in {'voice', 'mixed'}:
+            return self
+        for scene in self.scenes:
+            if _SPOKEN_STAGE_DIRECTIONS.search(scene.narration):
+                raise ValueError(
+                    f'场景 {scene.id} 的 narration 包含时间码或导演注释。'
+                    'narration 只能是最终真实 TTS 要朗读的短句，'
+                    '不要放旁白窗口、时间段、语速、停顿、换气、字幕或镜头说明；'
+                    '这些说明请写在 script 或 visual 字段。'
+                )
+        from .voice_budget import reserve_narration_slots
+        try:
+            reserve_narration_slots(self.model_dump(mode='json'))
+        except ModelTaskError as exc:
+            raise ValueError(
+                f'45秒分镜旁白预留失败（{exc.code}）：{exc.user_message}。'
+                '请大幅压缩每个场景 narration 的真实口播字数，'
+                '确保所有场景总长仍为45秒，并保留固定音色与导演风格。'
+            ) from None
+        return self
 
 
 class PlanningTasks:
@@ -112,7 +145,13 @@ class PlanningTasks:
                 return TaskResult(result=cached,work_state='awaiting_confirmation')
             context=self.context(ctx)
             media,required=await self.observe_inputs(ctx)
-            proposed=await self.runner(ctx).run(context,'提出完整创作方案；遵守明确时长、画幅、声音设置；全部必用输入须落实到场景。返回摘要、完整脚本、场景和视听设计。',CreativePlan,media=media,required=required,tools=self.tool_factory(ctx))
+            proposed=await self.runner(ctx,max_format_repairs=2).run(context,
+                '提出完整创作方案；遵守明确时长、画幅、声音设置；全部必用输入须落实到场景。'
+                'Scene.narration 只能是将由 TTS 实际朗读的简短口播原文，不能包含时间码、朗读窗口、'
+                '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明写入 script/visual。'
+                '中文口播要有明显时间余量，不超过冻结时长预算；所有镜头累计时长仍须精确。'
+                '返回摘要、完整脚本、场景和视听设计。',VoiceReadyCreativePlan,
+                media=media,required=required,tools=self.tool_factory(ctx))
             with ctx.transaction() as conn:
                 work=row(conn,'works',ctx.work_id)
                 from .voice_budget import reserve_narration_slots

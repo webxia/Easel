@@ -23,13 +23,13 @@
 | `f8040a6d153c419aaf1045eadc61bc63` | 第二次实际 API E2E；首次卡在 `voice_timing_exceeds_plan`，修订后完成 | `reviewable`；未接受 |
 | `59a27d8fb2f54be0a43507e2f78b9a02` | 第三次实际 API E2E；首次卡在 `invalid_edit`，后端重载并正式恢复完成 | `reviewable`；未接受 |
 
-主工作区最近生产模块软件回归 **460 passed、3 skipped、0 failed**；前端、真实 MP4、技术 QC 和持久回执的结论必须分别读取对应证据，不把软件 PASS 冒充创作品质验收。
+主工作区最新生产模块软件回归 **465 passed、3 skipped、0 failed**；前端、真实 MP4、技术 QC 和持久回执的结论必须分别读取对应证据，不把软件 PASS 冒充创作品质验收。
 
 ## 唯一下一任务
 
-**P0：S6-14 第四轮全新作品、固定代码版本的一次直通 E2E**。启动前冻结 HEAD、授权、输入和观测条件；用正式后端 API 从 Planning → Supply/真实 TTS → Director Edit → FFmpeg Render → 技术 QC → `reviewable`。必须 **0 次 `needs_decision`、0 次人工 `/resume`、0 次运行中研发补丁、0 次重复未知付费请求**，并核实片长、声画轨道、SHA、Rights/credits 和实际回执；不自动执行 Creator 接受或发布。若出现问题，保留该轮 FAIL，修复后另建样本，不回填一次通过。
+**P0：S6-14 第五轮全新作品、固定修复版本的一次直通 E2E**。启动前冻结 HEAD、授权、输入和观测条件；用正式后端 API 从 Planning → Supply/真实 TTS → Director Edit → FFmpeg Render → 技术 QC → `reviewable`。必须 **0 次 `needs_decision`、0 次人工 `/resume`、0 次运行中研发补丁、0 次重复未知付费请求**，并核实片长、声画轨道、SHA、Rights/credits 和实际回执；不自动执行 Creator 接受或发布。若出现问题，保留该轮 FAIL，修复后另建样本，不回填一次通过。
 
-后续再处理 Creator 对现有三片的真实审片/接受、MiniMax 耗时与成本分析、Git/PR 统一入口；跨题材、画幅、声音、时长等完整矩阵归 [S7](03_ROADMAP.md)。**本次清理阶段不启动新 E2E。**
+后续再处理 Creator 对现有三片的真实审片/接受、MiniMax 耗时与成本分析、Git/PR 统一入口；跨题材、画幅、声音、时长等完整矩阵归 [S7](03_ROADMAP.md)。第四轮 `18a20ed1fe9241168fd13c16648c1742` 因 MiniMax 把时间码/舞台指令写入 `Scene.narration` 而触发 `plan_voice_budget_unavailable`，**零人工直通 FAIL、记录保留**；已补自动字段语义检查和最多2轮模型修复，第五轮须使用独立 Work 验证，不能修改第四轮结论。
 
 ## 权威参考
 

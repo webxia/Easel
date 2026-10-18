@@ -172,7 +172,8 @@ class ModelTaskRunner:
                 if isinstance(exc, ValidationError):
                     issues = exc.errors(include_input=False, include_url=False)
                     correction = '字段校验错误：' + '；'.join(
-                        '.'.join(map(str, error['loc'])) + ' (' + error['type'] + ')'
+                        '.'.join(map(str, error['loc'])) + ' (' + error['type'] + '): '
+                        + str(error.get('msg', ''))[:350]
                         for error in issues[:16])
                 elif isinstance(exc, json.JSONDecodeError):
                     correction = f'JSON语法错误：第{exc.lineno}行、第{exc.colno}列'
