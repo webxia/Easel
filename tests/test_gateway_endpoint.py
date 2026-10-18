@@ -249,3 +249,19 @@ def test_no_hardcoded_gateway_endpoint(rel):
 def test_port_comes_from_resolver(rel, needle):
     """每个入口都必须真的去查端口，而不是自己造一个。"""
     assert needle in (PROJECT_ROOT / rel).read_text(encoding="utf-8")
+
+
+def test_gateway_authentication_uses_explicit_token_config(isolated, monkeypatch):
+    monkeypatch.delenv('OPENCLAW_GATEWAY_TOKEN', raising=False)
+    write_config(isolated, {'auth': {'mode': 'token', 'token': 'test-config-secret'}})
+    assert ge.gateway_auth_headers() == {'Authorization': 'Bearer test-config-secret'}
+    monkeypatch.setenv('OPENCLAW_GATEWAY_TOKEN', 'test-process-secret')
+    assert ge.gateway_auth_headers() == {'Authorization': 'Bearer test-process-secret'}
+
+
+def test_gateway_authentication_ignores_inactive_or_invalid_credentials(isolated, monkeypatch):
+    monkeypatch.delenv('OPENCLAW_GATEWAY_TOKEN', raising=False)
+    write_config(isolated, {'auth': {'mode': 'none', 'token': 'inactive-secret'}})
+    assert ge.gateway_auth_headers() == {}
+    monkeypatch.setenv('OPENCLAW_GATEWAY_TOKEN', 'secret\r\nInjected: bad')
+    assert ge.gateway_auth_headers() == {}

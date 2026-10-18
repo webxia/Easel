@@ -603,3 +603,29 @@ flowchart TD
 ```
 
 选择入口只建立/切换可信运行段、显示当前流程并预填文字；不创建空作品、不发送聊天或发起分析/制作。原文字和附件保留，用户可编辑后发送；在途/UNKNOWN无法切换时明确报错，原输入和绑定不丢。切换到新作品/创建流程不复制旧原生转录，现有作品继续由后台运行。普通技能菜单维持原预填行为。A6实施与验收见[任务卡](tasks/S6-14A_conversation-integration.md)。
+
+
+## 16. 自有创作管线与原 Easel 的边界（A7）
+
+普通对话保留两类入口：自有的画像/导演/频道创作管线，以及Easel原片包装和普通技能。前者进入可信作品运行段后，菜单只展示该段可执行的作品流程；原片包装及通用技能在新普通对话使用，避免展示能力与实际工具不一致。复用Easel的可见提案、确认、预览和交付经验，生产继续复用已经调通的Planning、供应、TTS、Edit、FFmpeg与QC，不让旧SDK成为第二个作品权威。
+
+```mermaid
+flowchart LR
+  Chat[普通对话笔入口] --> Own[自有创作管线]
+  Own --> Video[视频创作]
+  Own --> Director[创建导演]
+  Own --> Channel[创建频道]
+  Video --> Bridge[受限OpenClaw作品工具桥]
+  Director --> Bridge
+  Channel --> Bridge
+  Bridge --> Cards[持久提案与明确程序确认卡]
+  Cards --> Work[现有Work / Plan / Run / Operation后端]
+  Work --> Review[同对话成片与审片修改]
+  Chat --> Original[Easel原片包装]
+  Original --> SDK[原video-production技能与SDK]
+  Chat --> Skills[其他原有技能]
+```
+
+导演分析范围在确认卡明确显示：默认full提交实际画面与音轨，缺能力时阻断；visual是明确选择的画面/叙事/视觉节奏参考，仅允许reference用途，保留原文件与音轨未分析的事实。本期声音可独立设计，但不冒充参考听觉证据。后续Planning遵守同一参考范围；必用素材、实际原声使用及完整语义QC的能力要求不因visual变更。
+
+模型内部字段按真实合同展开：频道定位/主题/受众为文字，参考ID为数组，提案前保存依据、最后提卡；程序在生成卡前校验类型与归属，依据变化使旧卡失效。真实运行中的失败、修复和结果只在[A7任务记录](tasks/S6-14A_conversation-integration.md)维护，不把模型自述当成执行回执。

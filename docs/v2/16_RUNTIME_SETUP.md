@@ -4,7 +4,7 @@
 
 ## 本地启动与体验
 
-当前唯一开发/运行根为 `/Users/xgx/Projects/Easel`，服务为 `com.easel.web` / 7860，已有 `.venv`。下列仅供首次配置参考，已有服务运行时不再启动第二个 Web/worker；本轮A2～A4只在隔离环境运行，未对正式服务执行安装或重启：
+当前唯一开发/运行根为 `/Users/xgx/Projects/Easel`，服务为 `com.easel.web` / 7860，已有 `.venv`。下列仅供首次配置参考，已有服务运行时不再启动第二个 Web/worker；A2～A4最初只在隔离环境运行；A7正式部署状态见下节：
 
 ```sh
 cd /Users/xgx/Projects/Easel
@@ -17,27 +17,35 @@ EASEL_PRODUCTION_ENABLED=1 .venv/bin/easel web --port 7860
 
 Windows 首次配置时使用相应 `.venv\Scripts\python.exe` / `easel.exe`，PowerShell 先设置 `$env:EASEL_PRODUCTION_ENABLED="1"`。外部 `ffmpeg` 与 `ffprobe` 须在 PATH，字体须按下文明确配置。Web 已运行持久 worker，无须同时再启动 CLI worker。无 Web 时可运行 `easel production worker --root <项目绝对路径>`；`easel production status --root <项目绝对路径>` 为只读状态检查。
 
-新前端的主创作入口位于对话笔菜单，视频创作、创建导演、创建频道三项并列；左侧独立视频创作菜单已移除，方案/进度/审片共用卡片。A2～A4源码和隔离验证完成，正式服务仍需受控部署，不能通过刷新旧服务宣称已经上线。第五轮正式API自动成片、零人工恢复的证据保持独立；Creator尚未接受，自动语义QC仍未测，见[S6-14](tasks/S6-14_integration-release.md)。
+新前端的主创作入口位于对话笔菜单，视频创作、创建导演、创建频道三项并列；左侧独立视频创作菜单已移除，方案/进度/审片共用卡片。A2～A4源码与隔离验证完成，A7已受控部署正式桥及后端；不能仅通过刷新旧服务宣称完成验收。第五轮正式API自动成片、零人工恢复的证据保持独立；Creator尚未接受，自动语义QC仍未测，见[S6-14](tasks/S6-14_integration-release.md)。
 
 新 V2 数据存于本项目 `outputs/_production` 和 `outputs/works`；首次启用创建新库，不读取 V1 历史运行库。停止 Web 后任务可由同库 worker 恢复；取消按钮才表示用户取消。不要手动删除这两个目录来解决失败。设置 `EASEL_PRODUCTION_ENABLED=0` 停用新入口，不卸载旧聊天能力。
 
-### 2026-10-18 · 仅前端本机展示已生效
+### 2026-10-18 · A6仅前端本机展示（历史快照）
 
 用户授权部署本次前端供实际查看，暂不调用付费服务。界面版本231b5993：本机7860直接从web/frontend/dist按请求提供文件，已核对HTTP200的index及JS/CSS字节与该版本构建一致；三个对话管线入口可见，侧栏独立视频创作项已移除。无需重启Web或Worker；浏览器只新建空聊天并打开笔菜单，未选择管线、发送聊天或提交制作/保存/接受动作。查看入口为[本机Easel](http://127.0.0.1:7860/)→新对话→笔按钮“看看能做什么”。
 
 此处仅表示静态前端已生效：正式capabilities仍返回backend.reload_required=true；后端未重载，正式OpenClaw受限配置未部署，不能把可见菜单当作正式工具桥可用或完整创作验收。后端部署与真实调用继续独立授权。
 
-## S6-14A受限视频对话（后端源码已实现，正式接入部署未执行）
+## S6-14A受限视频对话配置合同
 
 - Web需`EASEL_PRODUCTION_ENABLED=1`及协议2持久桥；设置独立`EASEL_WORK_BRIDGE_TOKEN`（至少24字符），仅插件可用，不授予confirm/grant/accept等普通API权限。
-- 视频对话显式读取进程环境`EASEL_VIDEO_GATEWAY_URL`（`http://127.0.0.1:<实际Gateway端口>`）与`EASEL_VIDEO_GATEWAY_TOKEN`。不得把示例端口或其他环境凭证直接复制到正式运行；缺配置/插件或协议不符返回明确不可用，不切普通main或CLI。
+- 视频对话显式读取项目.env与进程环境（环境优先）的`EASEL_VIDEO_GATEWAY_URL`（`http://127.0.0.1:<实际Gateway端口>`）与`EASEL_VIDEO_GATEWAY_TOKEN`。不得把示例端口或其他环境凭证直接复制到正式运行；缺配置/插件或协议不符返回明确不可用，不切普通main或CLI。
 - 原生插件`agents/plugins/easel-work`配置`protocolVersion=2`，内部Agent为`easel-video`，工具白名单严格为8个具名工具。HTTP目标`openclaw/easel-video`，原生session绑定来自可信钩子，不能用自造session-id请求头代替。
-- `scripts/prepare_video_workspace.py --destination <全新目录> --patch-file <全新补丁文件>`只生成受审查的SOUL/产品规则及**待合并补丁**，不安装、不覆盖原配置、不启动服务。补丁里的凭证是占位值；合并时须保留原main配置、模型、plugins.allow及load.paths已有成员，不能直接整体覆盖数组或运行全量sync。本轮没有在正式路径运行该准备器。
-- 正式部署前需核实实际既有插件、自动记忆和工具策略合成结果，不能把隔离探针的无其他插件组合当成正式环境权限已验收。源码迁移4已验证旧记录兼容，但未在正式库执行；按部署安排备份、重载唯一com.easel.web并核对`backend.reload_required=false`。不另启7870。
+- `scripts/prepare_video_workspace.py --destination <全新目录> --patch-file <全新补丁文件>`只生成受审查的SOUL/产品规则及**待合并补丁**，不安装、不覆盖原配置、不启动服务。补丁里的凭证是占位值；合并时须保留原main配置、模型、plugins.allow及load.paths已有成员，不能直接整体覆盖数组或运行全量sync。A7只将审查后的增量合并到正式配置，未用全量sync覆盖main。
+- 正式部署前需核实实际既有插件、自动记忆和工具策略合成结果，不能把隔离探针的无其他插件组合当成正式环境权限已验收。A7迁移4已在一致性备份后执行；后续部署仍须备份、重载唯一com.easel.web并核对`backend.reload_required=false`。不另启7870。
 - 无Work时可持久保存频道/导演创建提议；频道保存不建空Work。参考视频分析/首版生产仍由原Worker和服务授权决定。模型只能提出长期变更，实际保存由显示目标/差异的卡操作完成。
-- 参考导入仅支持公开HTTPS视频直链、最多100MB；内网/保留地址、凭证URL及重定向越界拒绝。失败/UNKNOWN不自动重抓；平台网页、登录媒体和其他来源可改为本地上传，本轮未实际访问外网参考。
+- 参考导入仅支持公开HTTPS视频直链、最多100MB；内网/保留地址、凭证URL及重定向越界拒绝。失败/UNKNOWN不自动重抓；平台网页、登录媒体和其他来源可改为本地上传，A7实际使用官方公开参考的本地Web上传；受控直链导入仍按上述限制执行。
 
 离线验证命令：`.venv/bin/python scripts/validate_video_conversation.py --root <全新系统临时目录>`。该脚本使用临时原生Gateway、Web、SQLite和本地假模型，关闭子进程后输出脱敏结果；不读取项目.env、不启动生产Worker。`--serve`仅供隔离浏览器检查，用完停止其测试进程；不得当生产启动器。
+
+### A7正式接入与自有管线
+
+A7用户已授权正式配置合成与真实模型创作。当前easel-video受限工作区与协议2工具桥已安装到既有Easel Gateway，新增独立桥凭证、启用带认证的HTTP聊天端点；原main的模型/技能/工具配置保留。普通聊天HTTP探针与发送同步带Gateway认证，避免原入口因启用认证退化。配置、.env与SQLite已一致性备份到本机私有目录，正式库迁移4并重载唯一com.easel.web；加载状态仍以capabilities为准。
+
+工具仍为8项。正式插件组合存在多注册实例，票据按端点/Agent/协议/凭证共享，并保持原生会话/调用身份匹配、单次消费与end撤销；未放宽模型授权或让其直接执行旧产线。自有管线与原片包装入口区分，受限作品聊天不展示通用技能。
+
+导演参考可明确选择analysis_scope=visual，仅reference输入允许，提交真实抽样画面并记录音轨未分析；后续Planning遵守此参考范围。默认full仍提交实际音轨并校验模型audio能力。visual不等同于完整视听分析、逐帧理解或自动语义QC；必用素材不能降低观察范围，首版与导演接受仍由Creator审阅。真实结果及历史失败只维护在[S6-14A A7](tasks/S6-14A_conversation-integration.md)。
 
 ## 创作模型
 

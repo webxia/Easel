@@ -90,6 +90,21 @@ def _env_port() -> tuple[int, str] | None:
     return None
 
 
+def gateway_auth_headers() -> dict[str, str]:
+    """Authenticate ordinary chat as well as the restricted production bridge."""
+    token = os.environ.get('OPENCLAW_GATEWAY_TOKEN', '').strip()
+    if not token:
+        try:
+            config = json.loads((state_dir() / CONFIG_FILENAME).read_text(encoding='utf-8'))
+            auth = config.get('gateway', {}).get('auth', {})
+            token = auth.get('token', '') if auth.get('mode') == 'token' else ''
+        except (OSError, ValueError, AttributeError):
+            token = ''
+    if not isinstance(token, str) or not token.strip() or '\r' in token or '\n' in token:
+        return {}
+    return {'Authorization': 'Bearer ' + token.strip()}
+
+
 def configured_port() -> int | None:
     """``<state dir>/openclaw.json`` 里的 ``gateway.port``；读不到 / 不合法 → None。
 

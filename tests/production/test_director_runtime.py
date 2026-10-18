@@ -61,14 +61,14 @@ def add_media(service,work,path,*,name=None,usage='reference',session='test-refe
     return result['input_id'],target
 
 
-def director_setup(tmp_path,clips,*,authorized=True,audio=True,answer=None):
+def director_setup(tmp_path,clips,*,authorized=True,audio=True,answer=None,analysis_scope="full"):
     service=service_at(tmp_path)
     work=service.command('create',{'title':'风格参考拆解','profile_ref':'selected','session_id':'test-reference-session'},command_id='create')['work_id']
     # The misleading file names are intentionally not the actual media contents.
     inputs=[add_media(service,work,path,name='另一位创作者经历-'+str(i)+'.mp4') for i,path in enumerate(clips)]
     catalog=CreativeCatalog(service)
     created=catalog.command('directors','create',{'name':'保持构图与叙事自由','work_id':work,
-        'work_revision':service.store.get_work(work)['revision'],'reference_input_ids':[i[0] for i in inputs]},command_id='director-create')
+        'work_revision':service.store.get_work(work)['revision'],'reference_input_ids':[i[0] for i in inputs],'analysis_scope':analysis_scope},command_id='director-create')
     if authorized:service.command('grant',{'purpose':'planning','services':[IDENTITY],'target_ref':created['run_id']},
         command_id='grant',work_id=work,expected_revision=service.store.get_work(work)['revision'])
     transport=Transport(answer or ANALYSIS)
@@ -174,3 +174,29 @@ def test_model_cannot_add_personal_profile_fields_to_director_result(tmp_path,cl
     assert json.loads(service.snapshot(work)['tasks'][0]['error_json'])['code']=='invalid_model_output'
     assert not catalog.list('directors')[0]['versions'] and transport.calls==2
     assert '参考人物经历' not in (service.profiles/'selected'/'identity.md').read_text(encoding='utf8')
+
+
+
+def test_explicit_visual_director_scope_uses_real_frames_without_claiming_reference_audio(tmp_path,clips):
+    service,work,inputs,catalog,created,transport,planning,worker=director_setup(tmp_path,clips,audio=False,analysis_scope='visual')
+    before=[service._file_hash(path) for _,path in inputs]
+    assert asyncio.run(worker.run_once())
+    version=catalog.list('directors')[0]['versions'][0]
+    assert all(e['analysis_scope']=='visual' and not e['audio_observed'] and e['audio_semantics']=='not_tested' for e in version['evidence'])
+    assert '参考音轨未分析' in version['style']['sound']
+    content=transport.requests[0][0][1]['content']
+    assert any(b['type']=='image_url' for b in content)
+    assert not any(b['type']=='input_audio' for b in content)
+    from types import SimpleNamespace
+    blocks,required=asyncio.run(planning.observe_inputs(SimpleNamespace(work_id=work)))
+    assert 'audio' not in required and not any(b['type']=='input_audio' for b in blocks)
+    assert [service._file_hash(path) for _,path in inputs]==before
+
+
+def test_visual_scope_cannot_remove_observation_from_must_use_input(tmp_path,clips):
+    service=service_at(tmp_path)
+    work=service.command('create',{'title':'must use','session_id':'test-reference-session'},command_id='create')['work_id']
+    ref,_=add_media(service,work,clips[0],usage='must_use')
+    with pytest.raises(ProductionError,match='必用素材'):
+        CreativeCatalog(service).command('directors','create',{'name':'director','work_id':work,'work_revision':service.store.get_work(work)['revision'],'reference_input_ids':[ref],'analysis_scope':'visual'},command_id='invalid-scope')
+    assert not service.snapshot(work)['runs']

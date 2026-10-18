@@ -1,4 +1,11 @@
 // Native OpenClaw integration. No production orchestration or provider credentials.
+import { createHash } from 'node:crypto';
+
+// OpenClaw can load tool factories and lifecycle hooks through separate plugin
+// registrations. Keep native tickets in one process registry, scoped to the
+// exact endpoint/agent/protocol/credential; no identity comes from model params.
+const registryKey = Symbol.for('easel.workBridge.nativeCalls.v1');
+const registries = globalThis[registryKey] ??= new Map();
 export const toolDefinitions = [
   {
     name: 'easel_work_context', description: 'Read the currently bound work and selected creative context.',
@@ -9,7 +16,7 @@ export const toolDefinitions = [
     parameters: { type: 'object', properties: { title: { type: 'string', minLength: 1, maxLength: 200 }, input_text: { type: 'string', minLength: 1, maxLength: 100000 } }, required: ['title', 'input_text'], additionalProperties: false },
   },
   {
-    name: 'easel_work_request_plan', description: 'Request formal planning for the bound work only when explicitly requested. Does not authorize paid services.',
+    name: 'easel_work_request_plan', description: 'Propose the full video production plan ONLY. Never use for reference analysis. To analyse a reference, use easel_work_propose kind=director_formation with values {name, reference_input_ids}; confirming that card schedules analysis. Does not authorize paid services.',
     parameters: { type: 'object', properties: { request: { type: 'string', minLength: 1, maxLength: 100000 } }, required: ['request'], additionalProperties: false },
   },
 ];
@@ -17,10 +24,10 @@ export const toolDefinitions = [
 
 export const persistentToolDefinitions = [...toolDefinitions,
   { name:'easel_work_input_evidence', description:'Read scoped input metadata. Media is unanalysed unless actual analysis evidence exists.', parameters:{type:'object',properties:{input_ids:{type:'array',items:{type:'string'},maxItems:100}},additionalProperties:false} },
-  { name:'easel_work_register_inputs', description:'Register a current turn upload handle as reference or must-use. Does not grant rights or original audio permission.', parameters:{type:'object',properties:{attachment_id:{type:'string'},usage:{type:'string',enum:['reference','must_use']},original_audio:{type:'boolean'},rights:{type:'object'}},required:['attachment_id'],additionalProperties:false} },
+  { name:'easel_work_register_inputs', description:'Register a current turn upload handle as reference or must-use. Does not grant rights or original audio permission.', parameters:{type:'object',properties:{attachment_id:{type:'string'},usage:{type:'string',enum:['reference','must_use']}},required:['attachment_id'],additionalProperties:false} },
   { name:'easel_work_update_brief', description:'Save sourced discussion. user_requirement must quote visible user text verbatim; summaries are suggestions. No production.', parameters:{type:'object',properties:{entries:{type:'array',minItems:1,maxItems:100,items:{type:'object',properties:{kind:{type:'string',enum:['user_requirement','suggestion','unresolved']},text:{type:'string'},source_refs:{type:'array',items:{type:'string'}}},required:['kind','text','source_refs'],additionalProperties:false}}},required:['entries'],additionalProperties:false} },
   { name:'easel_work_request_revision', description:'Propose revision of the selected output only. User confirms the card before any work is scheduled.', parameters:{type:'object',properties:{feedback:{type:'string',minLength:1,maxLength:10000},protected:{type:'array',items:{type:'string'}},interval:{type:['object','null']}},required:['feedback'],additionalProperties:false} },
-  { name:'easel_work_propose', description:'Propose channel creation/defaults, director formation/style or 1–3 reusable Profile preferences. Candidate only; never saves targets. Bind sources to visible user turn refs.', parameters:{type:'object',properties:{kind:{type:'string',enum:['channel_create','channel_defaults','director_formation','profile','director_revision']},values:{type:'object'},source_refs:{type:'array',minItems:1,items:{type:'string'}}},required:['kind','values','source_refs'],additionalProperties:false} },
+  { name:'easel_work_propose', description:'Propose channel creation/defaults, director formation/style or 1–3 reusable Profile preferences. Candidate only; never saves targets. Bind sources to visible user turn refs.', parameters:{type:'object',properties:{kind:{type:'string',enum:['channel_create','channel_defaults','director_formation','profile','director_revision']},values:{type:'object',description:'director_revision: ONLY style and base_revision; omit name and base_director_id because selected director identity comes from the server. director_formation: name, reference_input_ids and optional analysis_scope.',properties:{name:{type:'string'},analysis_scope:{type:'string',enum:['full','visual'],description:'full observes reference audio and images; visual explicitly observes images/story only, reference audio remains unanalysed.'},reference_input_ids:{type:'array',minItems:1,uniqueItems:true,items:{type:'string'}},creative_basis:{type:'object',properties:{position:{type:'string'},themes:{type:'string'},audience:{type:'string'}},additionalProperties:false},settings:{type:'object'},base_director_id:{type:'string'},base_revision:{type:'integer'},style:{type:'object',properties:{schema_version:{type:'integer',enum:[1]},visual_style:{type:'string'},storytelling:{type:'string'},rhythm:{type:'string'},sound:{type:'string'},typography:{type:'string'},invariants:{type:'array',items:{type:'string'}},freedom:{type:'array',items:{type:'string'}},evidence_notes:{type:'array',items:{type:'string'}}},additionalProperties:false},file:{type:'string',enum:['style','preferences','memory']},before_hash:{type:'string'},after:{type:'string'},entries:{type:'array',items:{type:'string'}}},additionalProperties:false},source_refs:{type:'array',minItems:1,items:{type:'string'}}},required:['kind','values','source_refs'],additionalProperties:false} },
 ];
 
 export function createWorkBridge(api) {
@@ -38,7 +45,9 @@ export function createWorkBridge(api) {
       res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, tools: definitions.map(t => t.name) }));
     },
   });
-  const calls = new Map();
+  const scope = createHash('sha256').update(JSON.stringify([baseUrl, agentId, protocolVersion, token])).digest('hex');
+  const calls = registries.get(scope) ?? new Map();
+  registries.set(scope, calls);
   const names = new Set(definitions.map(t => t.name));
   const identity = (ctx, event = {}) => ({ agent_id: ctx.agentId, session_key: ctx.sessionKey, session_id: ctx.sessionId, run_id: ctx.runId ?? event.runId });
   const key = (ctx, id, name) => `${ctx.sessionKey}\0${ctx.sessionId}\0${name}\0${id}`;
@@ -48,7 +57,11 @@ export function createWorkBridge(api) {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify(body),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result?.error?.code ?? 'work_bridge_unavailable');
+    if (!response.ok) {
+      const code = result?.error?.code ?? 'work_bridge_unavailable';
+      const hint = ['invalid_input','invalid_source','work_not_bound'].includes(code) ? result?.error?.user_message : undefined;
+      throw new Error(code + (typeof hint === 'string' ? ': ' + hint : ''));
+    }
     return result;
   }
   api.on('before_agent_run', async (event, ctx) => {

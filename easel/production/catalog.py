@@ -4,6 +4,21 @@ import json
 from .service import WorkService, encode, fail, new_id, now, row
 
 
+def validate_channel_basis(basis):
+    if (not isinstance(basis,dict) or set(basis)-{'position','themes','audience'}
+            or any(not isinstance(v,str) or len(v)>10000 for v in basis.values())):
+        fail('invalid_input','creative_basis.position、themes、audience须为纯文字，不能使用数组或对象')
+
+
+def validate_director_references(conn, work_id, refs):
+    if not isinstance(refs,list) or not refs or any(not isinstance(ref,str) or not ref for ref in refs) or len(set(refs))!=len(refs):
+        fail('invalid_input','values.reference_input_ids须为不重复的视频输入ID数组，例如["input_id"]，不能是item对象')
+    for ref in refs:
+        input=row(conn,'work_inputs',ref)
+        if input['work_id']!=work_id or input['kind']!='video':
+            fail('invalid_input','导演拆解须使用本作品中的视频参考')
+
+
 class CreativeCatalog:
     def __init__(self,service:WorkService): self.service=service; self.store=service.store
 
@@ -55,9 +70,7 @@ class CreativeCatalog:
                          (id,profile,title,encode(settings),stamp,stamp))
         if 'creative_basis' in data:
             basis=data['creative_basis']
-            if (not isinstance(basis,dict) or set(basis)-{'position','themes','audience'}
-                    or any(not isinstance(v,str) or len(v)>10000 for v in basis.values())):
-                fail('invalid_input','频道创作依据须为定位、主题和受众文字')
+            validate_channel_basis(basis)
             conn.execute('UPDATE channels SET creative_basis_json=? WHERE id=?',(encode(basis),id))
         if 'director_ids' in data:
             ids=data['director_ids']
@@ -83,18 +96,22 @@ class CreativeCatalog:
             if work['revision']!=data.get('work_revision'):fail('stale_revision','参考作品输入已变化',409)
             self.service._ensure_idle(conn,work)
             refs=data.get('reference_input_ids',[])
-            if not isinstance(refs,list) or not refs or any(not isinstance(ref,str) or not ref for ref in refs) or len(set(refs))!=len(refs):
-                fail('invalid_input','请提供本作品中不重复的视频参考句柄')
+            validate_director_references(conn,work['id'],refs)
+            scope=data.get('analysis_scope','full')
+            if scope not in {'full','visual'}:fail('invalid_input','导演分析范围须为full或visual')
             for ref in refs:
-                input=row(conn,'work_inputs',ref)
-                if input['work_id']!=work['id'] or input['kind']!='video':fail('invalid_input','导演拆解须使用本作品中的视频参考')
+                item=row(conn,'work_inputs',ref)
+                if scope=='visual' and item['usage']!='reference':fail('invalid_input','仅画面分析只能用于风格参考，不能减少必用素材的观察范围')
+                if item['usage']=='reference':
+                    metadata=json.loads(item['metadata_json']);metadata['observation_scope']=scope
+                    conn.execute('UPDATE work_inputs SET metadata_json=? WHERE id=?',(encode(metadata),ref))
             id=existing['id'] if existing else new_id();stamp=now()
             if existing:
                 if existing['archived']:fail('invalid_input','导演已归档')
                 conn.execute('UPDATE directors SET revision=revision+1,updated_at=? WHERE id=?',(stamp,id))
             else:conn.execute('INSERT INTO directors(id,name,created_at,updated_at) VALUES (?,?,?,?)',(id,name,stamp,stamp))
             if data.get('services'):self.service._insert_grant(conn,work,'planning',data)
-            run=self.service._run(conn,work,'planning',target=id,payload={'director_id':id,'reference_input_ids':refs})
+            run=self.service._run(conn,work,'planning',target=id,payload={'director_id':id,'reference_input_ids':refs,'analysis_scope':scope})
             conn.execute("UPDATE tasks SET kind='analyze_director' WHERE run_id=?",(run,))
             return {'id':id,'revision':existing['revision']+1 if existing else 1,'work_id':work['id'],'run_id':run}
         id=existing['id']

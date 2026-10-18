@@ -1,11 +1,11 @@
 # S6-14A · Easel 对话式创作与生产后端接入
 
 - **所属任务**：S6-14 新增交互子任务；不改变 S6-15 CLOSED/COMPLETE，不开启 S7。
-- **状态**：**A1 ISOLATED_FAKE_PASS / A2～A4 IMPLEMENTED · SOFTWARE_PASS / A5 ISOLATED_INTERACTION_PASS（28/28 离线判据）**。完整隔离 Web/OpenClaw/Worker/本地媒体闭环已完成；未部署正式运行配置、未迁移正式库、未执行新一轮真实生产或 Creator 接受。
+- **状态**：A1～A6软件/隔离结果保留；**A7 REAL_WEB_PRODUCTION_PASS / QUALITY_ISSUES_OBSERVED / CREATOR_REVIEW_PENDING**。正式库已备份迁移4，服务已重载；真实首版已完成并回写同对话；Creator接受未执行，成片质量问题单列。
 - **用户来源**：2026-10-18 明确要求基于已确认需求与 Easel，设计前后端交互，先出文档和图，作为 S6-14 新增任务记录。用户指出现有表单交互偏离对话式创作，后端已调顺。
 - **关联需求**：V2-EXP-001、004～008、010～011、019～021、024～029、032～034；不另造同义需求。
 - **目标**：从 Easel 对话完成方向讨论、方案确认、真实进度观察、具体版本审片/修改/接受，调用同一作品后端，不要求用户到独立表单推进创作。
-- **本轮授权**：用户最新明确要求推进 A5、跑完完整流程和28项判据、直接修复并更新文档，且不发起真实付费调用。本轮实施隔离完整链路/浏览器/负例验收、必要修复与开发分支归档；不改正式配置、不重启正式服务、不写正式业务库。正式部署、真实模型/媒体与 Creator 验收仍单列。
+- **本轮授权**：用户最新授权复用Easel交互经验与适用制作能力，建立自有管线，并在真实环境调通频道/导演/视频创作、真实调用大模型；主题与参考选择已全权委托。A7允许正式配置合成、备份迁移/重载和新作品具名调用；历史A5/A6禁付费范围保留为历史证据。不自动接受或发布，不重发历史UNKNOWN。
 - **基线与现场**：`/Users/xgx/Projects/Easel`，分支`easel-v2-main-workspace`；生产基线`406e523c`，A2～A4起点`44b3f08c`，A5起点`6efb91e9`，当前HEAD以Git为准；主服务7860。原未跟踪 research、scratch、二维码和个人创作目录均保留，不纳入提交。当前聊天运行设置为 OpenClaw，生产模型为 MiniMax；两条路径不能混为已接通。
 - **设计入口**：[交互文档与流程图](../20_CONVERSATIONAL_INTERACTION.md)、[OpenClaw 接入总览 SVG](../diagrams/s6-14a-conversation-flow.svg)、[六步交互分镜 SVG](../diagrams/s6-14a-interaction-storyboard.svg)、[频道与导演创建流程图](../diagrams/s6-14a-creation-flows.svg)、[实施合同 §9](../15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
 
@@ -25,6 +25,7 @@
 | **A4 · 审片、修订与恢复（IMPLEMENTED / SOFTWARE_PASS）** | 指定输出反馈、保护项、影响确认、版本比较、明确接受；同一内容库及频道/导演视图回到创作；首版兼试片分别接受、fork明确沿用设置；可选长期保存卡与既有Profile/频道/Director适配；分离停止回答与取消制作 | 修改命中指定版本，授权内局部改不重复审批，旧接受保留；删除聊天不删作品；UNKNOWN不重发；单片反馈不污染长期默认，保存有明确目标/差异/版本/幂等回执 |
 | **A5 · 交互集成验收（ISOLATED_INTERACTION_PASS）** | 先用隔离数据/假模型跑 Web 到本地媒体完整流程，再按另行授权验证真实 Web | 软件、实际 Web、真实模型/媒体、Creator 接受分列。不得使用第五轮 API PASS 代替 Web 对话验证 |
 | **A6 · 对话管线入口统一（COMPLETE / SOFTWARE_PASS）** | 在现有笔入口/能力菜单的管线区域并列视频创作、创建导演、创建频道；当前聊天预填引导并沿用持久桥和卡片 | 三入口在普通/已有视频聊天均可选择；不跳目录、不建空Work、不自动发送，保留文字和附件，失败/在途不切错段 |
+| **A7 · 自有管线与真实接入（REAL_WEB_PRODUCTION_PASS）** | 分开原片包装/普通技能与画像导演频道创作；复用既有Work后端与Easel交互知识；正式插件权限合成、会话、真实模型/素材/配音/出片 | 正式真实对话创建频道、形成导演、创作新视频；逐项记录失败/费用/产物；Creator接受独立 |
 
 
 A1/A2 优先解决真实接入，A3 在接口明确后实施。推荐先用隔离配置完成“连续讨论 → 具名工具 → 持久回执 → 卡片更新”纵向最小切片，再补全旅程；普通 main 对话转入视频须明确进入作品模式并保存运行段。模型/工具能力不兼容不能以静默切底座消除。
@@ -286,3 +287,51 @@ A6后续微调（2026-10-18，起点c9778bee）：按用户要求移除左侧导
 
 
 A6本机前端展示（2026-10-18，界面版本231b5993）：用户明确授权本机部署前端且禁止付费调用。正式7860的index/JS/CSS均HTTP200；JS `index-C6RDoC8f.js` SHA-256为6862e18f81897c60078d292817ebc230e567443ff04b1d0e33099be55b9fdfe5，CSS `index-CVYQEL-L.css` SHA-256为3893632fb2fdcb3e392d846be61036feda60594c75aa5cfd265f5ccb7fd67d8a，HTTP字节与本地构建相同。实际浏览器打开新空聊天及笔菜单，视频创作/创建导演/创建频道三项可见，侧栏独立菜单已移除，并保留展示标签页。Web PID65084保持原进程，不重启或装配正式OpenClaw，不迁移库；只展示菜单，未发送聊天或发起付费调用。capabilities的backend.reload_required=true仍如实保留，后端正式接入未验收。上述结果补充前端展示状态，不覆盖原隔离验收或历史截图。
+
+
+### 2026-10-18 · A7自有管线与真实接入（真实Web生产通过，质量待审阅）
+
+起点17fa4df9。用户明确授权正式环境调通、真实大模型创作，并委托主题/风格/参考选择。本轮选择约30秒《把注意力还给自己》，新建频道与参考形成导演；只做一个新试片作品，优先合法库存，首轮不授权付费IMAGE/VIDEO生成。参考选择Blender Coffee Run，具体来源、许可和实际分析待记录。新旧管线独立身份/执行路径，不重接旧SDK为V2后端；保留原Easel原片包装入口，在受限作品聊天中不展示无法执行的通用技能。
+
+正式预检：库schema3，6个Work/13个Run/49个Operation；无active/running任务，48成功/1历史unknown，历史unknown不重发。原Gateway无认证、未开HTTP创作端点、无easel-work插件；正式库无conversation表。配置/环境文件和SQLite一致性备份已放本机私有目录，凭证不入Git。先修复普通聊天的Gateway认证头兼容，保证启用认证后不使旧聊天退化。
+
+
+A7真实接入中间记录：Web确认卡已保存新频道「留白实验室」与新Work（本机私有运行记录保存实际ID），官方Coffee Run完整184.67秒/22,518,840bytes参考已通过Web上传并登记；SHA-256 b022251a6812342178bd635315ad3420e0d03cd7185354f59d2bd852890b86bb。原素材未剪入新片。下载复用现有公网DoH/固定IP/TLS代理传输，整文件传输截断时改用精确Content-Range分片校验完整长度，未规避公网守卫。许可来源以Blender项目CC BY4.0页面为准，PeerTube条目许可字段Unknown也如实保留；作品输入Rights仍UNKNOWN，仅参考。
+
+真实环境发现并修复：插件钩子与工具不同注册实例的票据共享（按端点/Agent/协议/凭证隔离）；通用提案内部JSON Schema缺失导致MiniMax将数组包装为item对象；频道纯文字/导演参考输入在生成卡前按同一领域合同校验；brief更新使旧Work卡失效；卡片错误改在本卡显示。实际首轮模型服务错误、错误工具选择、失效卡与非法字段均保留，不以重写DB或弱化权限制造通过。
+
+当前模型只有文字/图像能力，全视听导演任务在发送前合法阻断并经Web取消，无该任务付费Operation。新增明确analysis_scope：full仍要求实际音轨输入；visual仅限reference用途、原文件不改，提交真实画面，记录原音轨语义NOT_TESTED，sound单列本期声音建议；必用素材不可借此少观察。范围由新确认卡显示并明确选择，后续Planning沿用同一参考范围。真实visual分析已成功：提交12张实际参考帧，原音轨未分析；随后经真实对话另存实拍适用的导演版本2，Web确认风格并选作本期试片。Planning真实MiniMax首稿出现4处多余scenes.title，自动字段修复成功；Web保存Plan2只调整本机可用sans-serif及对应文字，旁白、分镜、导演版本和声音身份完全保留。Web已勾选MiniMax/pexels/pixabay/固定配音并确认正式制作，AI图/视频额度0；该中间阶段Supply执行中；最终完整产线结果见下表。第五轮成功/UNKNOWN历史不重发，Creator接受和发布未执行。
+
+
+#### A7最终真实验收
+
+主验收从7860实际Web操作：对话笔菜单→创建频道提案→确认保存→创建导演/作品草稿→上传公开参考→导演分析确认与具名授权→真实画面拆解→确认风格并另存实拍适用版本2→选择本期试片→多轮brief→Planning确认→审阅Plan→制作确认→原Worker生产→同对话审片卡。API和SQLite只读用于核验回执，不以开发脚本代替Web业务动作。
+
+| 项目 | 实际结果与边界 |
+|---|---|
+| 正式装配 | 原main/default模型/Provider配置与备份逐项相同；独立easel-video工作区、协议2、实际systemPromptReport严格8工具、skills为空，注入仅专用AGENTS/SOUL及原生空白IDENTITY/USER。无OS物理沙箱声明 |
+| 频道与导演 | 新频道1个；全视听分析因无audio能力在调用前阻断并Web取消，空导演历史保留。视觉导演真实12帧分析成功，版本2经对话保留证据并适配实拍；风格已确认，试片待Creator接受，未设频道默认 |
+| 方案 | 真实MiniMax草稿经一次自动字段修复生成Plan1；Web发现未配置字体，补充既有编辑器字体选项后保存Plan2，仅字体与对应说明改变，旁白/场景/导演/音色不变。随后Web确认Plan2 |
+| 正式制作 | 单个新Work，production Run succeeded；Supply/Edit/Render/Quality均succeeded，13条真实库存候选，5条真实VOICE成功；生产侧MODEL共5次成功（分析1、Planning2、素材意图1、剪辑1），IMAGE/VIDEO0；新UNKNOWN/在途0 |
+| 成片与回写 | 《把注意力还给自己》30.000秒，1080×1920，H.264/AAC，27,117,848bytes；SHA256 `63744d78fc05024df6df726f9c2554478b8913a8bf3429682ab49f2853f93730`与实际文件一致；technical pass / semantic not_tested / quality_state needs_fix；Work reviewable。事件、Artifact和同对话审片卡一致；实际Web播放23.87秒处无error，duration30/readyState4 |
+| 历史保护 | 备份中6 Work、13 Run、26 Task、49 Operation、159 Artifact、10 QC原字段逐行完全相同；包括第五轮及原1条UNKNOWN。未修改成功回执、手工改库、接受或发布 |
+| 软件 | Python686 passed / 4 skipped / 0 failed；Node99 passed；现装OpenClaw含memory-core隔离权限探针16/16、零付费且子Gateway已停止；build/lint通过（既有转义/包体警告）。最新正式backend.reload_required=false |
+
+**质量问题与未测项：** 抽帧可见晨景城市天际线、午间教室等素材，没有完整落实Plan的手机亮屏/翻扣动作；亮背景字幕对比偏弱。不能把技术通过当成故事/导演风格/画面匹配或电影质感通过，后续修订应针对这些实际问题。原视觉分析成功证据的sampling标签仍是旧字面bounded_frames_full_audio，但analysis_scope=visual、audio_observed=false、audio_semantics=not_tested及实际请求均指向仅画面；保留成功历史不改写，源码已修正未来标签。当前没有完整音视频语义QC、Creator作品/导演接受或频道默认晋升；A5的28项依然是历史离线判据，未冒称28项真实付费验收。
+
+**费用：** 真实付费调用已发生。以上生产Operation数量可核实；原生聊天usage返回0/缺失，不能据此记为零费用，实际金额暂无供应商账单回执。15条已结束的持久对话turn不等同于所有HTTP请求或计费调用总数，早期服务错误与工具修复记录保留。本次经历研发修复、授权恢复及Web字体改版，不记ZERO_MANUAL_RECOVERY_PASS。
+
+[脱敏验收与源码指纹](../evidence/S6-14A_A7_validation.json)入Git；详细ID/Operation回执、截图及原始运行证据保留忽略的本机outputs/_debug/s6-14a-a7，凭证、原生历史和个人画像不入Git。A7接入范围收口，下一步由Creator在原对话审片并决定具体质量修订；不自动接受、发布、重建旧作品或进入S7。
+
+工程检查：本轮Fetch官方upstream/main至8d08b216，本地main之后有42个官方提交，触及web/app、Gateway/会话与前端；存在集成重叠，应在单独同步窗口评估，未合并、未改V2基线。
+
+本轮可复核检查命令：
+
+```sh
+.venv/bin/python -m pytest -q -rs tests/production tests/test_gateway_endpoint.py tests/test_web_security.py tests/test_chat_question_replay.py tests/test_harness_workspace.py tests/test_workspace_resolution.py
+node --test tests/production/workBridgePlugin.test.mjs tests/frontend/*.test.mjs
+npm --prefix web/frontend run build
+npm --prefix web/frontend run lint
+```
+
+受影响文档174条本地路径引用无缺失；受测源码指纹与脱敏JSON一致，配置中实际凭证值扫描无命中，git diff --check通过。原未跟踪资料与真实媒体未暂存。

@@ -43,7 +43,7 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(PROJECT_ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
-from easel.gateway_endpoint import chat_completions_url, healthz_url, port_source
+from easel.gateway_endpoint import chat_completions_url, healthz_url, port_source, gateway_auth_headers
 from easel.openclaw_cmd import openclaw_base_cmd
 from easel.persona import (load_profile_text, persona_prefix, chat_turn_message,
                            profile_exists, valid_persona_name, _FILE_ORDER)
@@ -172,7 +172,7 @@ def _gateway_http_ready(force: bool = False) -> bool:
         import httpx  # noqa: F401  HTTP 路径全靠它做 SSE；没装就当端点不可用，回退 CLI
         rq = urllib.request.Request(
             chat_completions_url(), data=b"{}",
-            headers={"Content-Type": "application/json"}, method="POST")
+            headers={"Content-Type": "application/json", **gateway_auth_headers()}, method="POST")
         try:
             with urllib.request.urlopen(rq, timeout=3):
                 ok = False       # 空 body 还给 200 说明这不是我们要的端点，不敢用
@@ -3245,8 +3245,11 @@ async def api_chat_job_stream(turn_id: str, after: int = 0):
 
 from web.conversation_api import create_router as conversation_router, create_internal_router, VideoChat
 app.include_router(conversation_router(_production_service))
-app.include_router(create_internal_router(_production_service, lambda: os.environ.get('EASEL_WORK_BRIDGE_TOKEN', '')))
-_video_chat = VideoChat(_production_service, _job_event_file, _save_turn)
+app.include_router(create_internal_router(_production_service, lambda: read_settings(ENV_FILE).get('EASEL_WORK_BRIDGE_TOKEN', '')))
+_video_settings = read_settings(ENV_FILE)
+_video_chat = VideoChat(_production_service, _job_event_file, _save_turn,
+    gateway_url=_video_settings.get('EASEL_VIDEO_GATEWAY_URL'),
+    gateway_token=_video_settings.get('EASEL_VIDEO_GATEWAY_TOKEN'))
 
 
 def _video_session_bound(session):
@@ -3371,7 +3374,7 @@ async def api_chat_stream(req: ChatRequest):
             # session-id 必须跟 CLI 路径钉死同一个（见 _openclaw_session_id）：只带 session-key
             # 的话网关会自己另起一个 transcript —— 跨天空闲后丢历史，且万一本轮回退 CLI，
             # 两条路径会写进不同的会话文件，对话历史直接劈叉。
-            headers = {"x-openclaw-session-key": f"agent:main:{sk}",
+            headers = {**gateway_auth_headers(), "x-openclaw-session-key": f"agent:main:{sk}",
                        "x-openclaw-session-id": _openclaw_session_id(sk)}
             tool_noted = False
             saw_done = False

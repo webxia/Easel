@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from .production.service import digest, encode, fail, new_id, now, row
-from .production.catalog import CreativeCatalog
+from .production.catalog import CreativeCatalog, validate_channel_basis, validate_director_references
 
 PROPOSALS = {'draft', 'plan', 'revision', 'channel_create', 'channel_defaults', 'director_formation', 'profile', 'director_revision'}
 
@@ -130,12 +130,21 @@ class ConversationService:
         body={'entries':entries,'sources':{ref:json.loads(row(conn,'conversation_turns',ref)['payload_json']).get('message','') for entry in entries for ref in entry['source_refs']}};revision=conn.execute('SELECT COALESCE(MAX(revision),0)+1 FROM work_briefs WHERE work_id=?',(work['id'],)).fetchone()[0]
         conn.execute('INSERT INTO work_briefs VALUES (?,?,?,?,?)',(work['id'],revision,encode(body),digest(body),now()))
         self.service._change(conn,work,current_plan_revision=None,state='discussing')
+        conn.execute("UPDATE conversation_proposals SET state='stale' WHERE state='proposed' AND kind IN ('plan','revision','director_formation') AND json_extract(body_json,'$.work_id')=?",(work['id'],))
         self.service._event(conn,work['id'],'brief_updated',{'brief_revision':revision,'brief_hash':digest(body)})
         return {'work_id':work['id'],'revision':row(conn,'works',work['id'])['revision'],'brief_revision':revision,'brief_hash':digest(body)}
 
     def proposal(self,conn,segment,kind,values,refs):
         if kind not in PROPOSALS or not isinstance(values,dict) or len(encode(values))>100000:fail('invalid_input','提议类型或内容无效')
         refs=self.source_refs(conn,segment,refs)
+        if kind in {'channel_create','channel_defaults'} and 'creative_basis' in values:
+            validate_channel_basis(values['creative_basis'])
+        if kind=='director_revision' and set(values)-{'style','base_revision'}:
+            fail('invalid_input','director_revision.values只能含style和base_revision；导演目标来自当前选择，不得包含name或base_director_id')
+        if kind=='director_formation':
+            if values.get('analysis_scope','full') not in {'full','visual'}:fail('invalid_input','导演分析范围须为full或visual')
+            if not segment['work_id']:fail('work_not_bound','请先确认参考作品并登记视频',409)
+            validate_director_references(conn,segment['work_id'],values.get('reference_input_ids'))
         if kind=='plan' and segment['work_id'] and conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(segment['work_id'],)).fetchone():
             fail('revision_required','已有确认方案；请指定成片修订或基于旧版创建新作',409)
         # Proposed target comes only from the selected entry/Work, never free model IDs/paths.
@@ -220,14 +229,14 @@ class ConversationService:
                     target['channel_id']=result['id'];target['channel']={'id':result['id'],'revision':result['revision'],'name':values.get('name'),'creative_basis':values.get('creative_basis',{})}
                     conn.execute('UPDATE conversation_segments SET context_json=? WHERE id=?',(encode(target),segment['id']))
             elif kind=='director_formation':
-                if set(values)-{'name','reference_input_ids','base_director_id','base_revision'}:fail('invalid_input','导演提案字段无效')
+                if set(values)-{'name','reference_input_ids','analysis_scope','base_director_id','base_revision'}:fail('invalid_input','导演提案字段无效')
                 if not segment['work_id']:fail('work_not_bound','请先确认参考作品并登记视频',409)
                 if values.get('base_director_id'):
                     selected=target.get('settings',{}).get('director_revision')
                     if not selected or row(conn,'director_revisions',selected)['director_id']!=values['base_director_id']:
                         fail('permission_missing','重新拆解只能针对本次明确选择的导演',403)
                 result=CreativeCatalog(self.service).command('directors','analyze' if values.get('base_director_id') else 'create',
-                    {'name':values.get('name'),'reference_input_ids':values.get('reference_input_ids',[]),'work_id':segment['work_id'],'work_revision':body['work_revision']},
+                    {'name':values.get('name'),'reference_input_ids':values.get('reference_input_ids',[]),'analysis_scope':values.get('analysis_scope','full'),'work_id':segment['work_id'],'work_revision':body['work_revision']},
                     command_id=command_id+'_catalog',id=values.get('base_director_id'),expected_revision=values.get('base_revision'),_connection=conn)
             elif kind=='profile':
                 result=self._profile_save(conn,segment,body,command_id)

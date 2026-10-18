@@ -133,7 +133,9 @@ class PlanningTasks:
                 if len(text)>100000:raise ModelTaskError('input_too_large','文档超出单次读取范围，请拆分输入')
                 blocks.append({'type':'text','text':text})
             else:
-                media,needs,_=await asyncio.to_thread(observe_media,path,include_audio=True,max_frames=8)
+                visual_only=record['usage']=='reference' and json.loads(record['metadata_json']).get('observation_scope')=='visual'
+                if visual_only:blocks.append({'type':'text','text':'此输入仅作画面与叙事参考，原音轨未分析，不能据此判断声音。'})
+                media,needs,_=await asyncio.to_thread(observe_media,path,include_audio=not visual_only,max_frames=8)
                 blocks.extend(media);required.update(needs)
         return tuple(blocks),frozenset(required)
 
@@ -192,6 +194,8 @@ class PlanningTasks:
             if not isinstance(references,list) or not references or any(not isinstance(ref,str) or not ref for ref in references) or len(set(references))!=len(references):
                 raise ModelTaskError('invalid_reference','导演拆解需要本作品中不重复的视频参考句柄')
             blocks=[]; observations=[]; required={'image','structured'}
+            scope=ctx.payload.get('analysis_scope','full')
+            if scope not in {'full','visual'}:raise ModelTaskError('invalid_reference','导演分析范围无效')
             with self.service.store.connection() as conn:
                 records=[row(conn,'work_inputs',id) for id in references]
             for item in records:
@@ -202,7 +206,12 @@ class PlanningTasks:
                 path=local_path(self.service.outputs,item['source_ref'])
                 if self.service._file_hash(path)!=item['digest']:
                     raise ModelTaskError('reference_changed','参考视频已变化，请重新登记')
-                media,needs,evidence=await asyncio.to_thread(observe_media,path,include_audio=True)
+                media,needs,evidence=await asyncio.to_thread(observe_media,path,include_audio=scope!='visual')
+                evidence['analysis_scope']=scope
+                if scope=='visual':
+                    evidence['sampling']='bounded_frames_visual_only'
+                    evidence['audio_semantics']='not_tested'
+                    blocks.append({'type':'text','text':'此任务明确仅分析画面与叙事；原音轨未分析。sound字段只写独立的本期声音建议，不得声称听过参考音轨。'})
                 blocks.append({'type':'text','text':'导演参考输入句柄 '+item['id']+'；以下实际媒体仅用于风格证据，不代表主人设经历。'})
                 blocks.extend(media);required.update(needs)
                 observations.append({'input_id':item['id'],'digest':item['digest'],**evidence})
@@ -210,6 +219,9 @@ class PlanningTasks:
                 '根据实际参考画面和音轨拆解可跨题材复用的视听风格、叙事方式和变化边界。不要将参考中的人物事实变成主人设，也不要固定脚本套路。',
                 DirectorAnalysis,required=frozenset(required),media=tuple(blocks))
             with ctx.transaction() as conn:
+                if scope=='visual':
+                    answer.sound='本期声音建议（参考音轨未分析）：'+answer.sound
+                    answer.evidence_notes.append('analysis_scope=visual；原音轨语义NOT_TESTED，不作为听觉风格观察证据')
                 id=new_id();director_id=ctx.payload['director_id']
                 revision=conn.execute('SELECT COALESCE(MAX(revision),0)+1 FROM director_revisions WHERE director_id=?',(director_id,)).fetchone()[0]
                 conn.execute('INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,created_at) VALUES (?,?,?,?,?,?)',

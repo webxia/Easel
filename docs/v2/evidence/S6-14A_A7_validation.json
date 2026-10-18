@@ -1,0 +1,222 @@
+{
+  "task": "S6-14A A7",
+  "verified_at": "2026-10-18T15:54:53.512607+00:00",
+  "status": "REAL_WEB_PRODUCTION_PASS / QUALITY_ISSUES_OBSERVED / CREATOR_REVIEW_PENDING",
+  "acceptance_route": "actual Web chat, uploads and confirmation cards; API/SQLite used read-only for verification",
+  "schema_version": 4,
+  "backend": {
+    "reload_required": false
+  },
+  "formal_native_surface": {
+    "tool_names": [
+      "easel_work_context",
+      "easel_work_create_draft",
+      "easel_work_request_plan",
+      "easel_work_input_evidence",
+      "easel_work_register_inputs",
+      "easel_work_update_brief",
+      "easel_work_request_revision",
+      "easel_work_propose"
+    ],
+    "skills_entries": [],
+    "injected_files": [
+      "AGENTS.md",
+      "SOUL.md",
+      "IDENTITY.md",
+      "USER.md"
+    ],
+    "workspace_is_dedicated": true,
+    "os_sandbox_claimed": false,
+    "main_unchanged": true,
+    "default_models_unchanged": true
+  },
+  "historical_rows_preserved": {
+    "works": {
+      "baseline": 6,
+      "unchanged": 6
+    },
+    "runs": {
+      "baseline": 13,
+      "unchanged": 13
+    },
+    "tasks": {
+      "baseline": 26,
+      "unchanged": 26
+    },
+    "operations": {
+      "baseline": 49,
+      "unchanged": 49
+    },
+    "artifacts": {
+      "baseline": 159,
+      "unchanged": 159
+    },
+    "quality_checks": {
+      "baseline": 10,
+      "unchanged": 10
+    },
+    "acceptances": {
+      "baseline": 0,
+      "unchanged": 0
+    }
+  },
+  "new_work_state": "reviewable",
+  "production_run_state": "succeeded",
+  "production_tasks": [
+    {
+      "kind": "supply",
+      "state": "succeeded"
+    },
+    {
+      "kind": "edit",
+      "state": "succeeded"
+    },
+    {
+      "kind": "render",
+      "state": "succeeded"
+    },
+    {
+      "kind": "quality",
+      "state": "succeeded"
+    }
+  ],
+  "operation_counts": [
+    {
+      "kind": "MODEL",
+      "state": "succeeded",
+      "count": 5
+    },
+    {
+      "kind": "VOICE",
+      "state": "succeeded",
+      "count": 5
+    }
+  ],
+  "new_pending_operations": 0,
+  "new_unknown_operations": 0,
+  "historical_unknown_unchanged": true,
+  "production_plan_revision": 2,
+  "director_version": 2,
+  "analysis_scope": "visual",
+  "reference_audio_semantics": "not_tested",
+  "reference_frames": 12,
+  "reference": {
+    "title": "Coffee Run",
+    "source": "https://video.blender.org/w/ff8fe61b-026f-4f07-b66b-2a790d6f6ab1",
+    "license_source": "https://studio.blender.org/projects/coffee-run/pages/licensing/",
+    "license_page": "CC BY 4.0",
+    "peertube_license_field": "Unknown",
+    "work_rights": "UNKNOWN/reference-only/no source reuse",
+    "duration_seconds": 184.67,
+    "size_bytes": 22518840,
+    "sha256": "b022251a6812342178bd635315ad3420e0d03cd7185354f59d2bd852890b86bb"
+  },
+  "output": {
+    "probe": {
+      "programs": [],
+      "stream_groups": [],
+      "streams": [
+        {
+          "codec_name": "h264",
+          "codec_type": "video",
+          "width": 1080,
+          "height": 1920
+        },
+        {
+          "codec_name": "aac",
+          "codec_type": "audio"
+        }
+      ],
+      "format": {
+        "duration": "30.000000",
+        "size": "27117848"
+      }
+    },
+    "sha256": "63744d78fc05024df6df726f9c2554478b8913a8bf3429682ab49f2853f93730",
+    "local_sha_matches": true,
+    "size_matches": true,
+    "technical_qc": "pass",
+    "semantic_qc": "not_tested",
+    "quality_state": "needs_fix",
+    "creator_accepted": false,
+    "director_accepted": false,
+    "published": false
+  },
+  "web_video": {
+    "duration": 30,
+    "width": 1080,
+    "height": 1920,
+    "readyState": 4,
+    "error": null,
+    "observed_playback_seconds": 23.869729
+  },
+  "stock_candidate_count": 13,
+  "paid_image_video_operations": 0,
+  "billing": {
+    "actual_amount": null,
+    "reason": "Native chat reported zero/omitted usage; no provider billing receipt. Production operation count is not monetary cost."
+  },
+  "test_results": {
+    "python": {
+      "passed": 686,
+      "skipped": 4,
+      "failed": 0,
+      "skip_reasons": [
+        "two Windows native junction tests",
+        "opt-in installed native integration",
+        "opt-in 900-second real encode"
+      ]
+    },
+    "node": {
+      "passed": 99,
+      "failed": 0
+    },
+    "native_isolated_permission_probe": {
+      "passed": 16,
+      "total": 16,
+      "paid_requests": 0,
+      "child_gateway_stopped": true
+    },
+    "frontend_build": "pass",
+    "frontend_lint": "pass with existing useless-escape warning",
+    "bundle_warning": "existing >500kB chunk"
+  },
+  "evidence_boundaries": [
+    "This run required engineering fixes, permission grant/resume, explicit visual-only analysis and a Web font-only Plan revision; no zero-recovery claim.",
+    "Visual analysis is sampled images, not full audio or continuous video understanding.",
+    "Successful original director evidence retains old sampling label bounded_frames_full_audio; scope=visual, audio_observed=false and audio_semantics=not_tested are authoritative. Future visual evidence label corrected; successful historical evidence not rewritten.",
+    "Rendered footage does not fully enact planned phone actions (morning skyline and classroom footage); subtitle contrast is weak on bright backgrounds. Technical PASS is not creative acceptance.",
+    "A5 UI01-28 remain historical isolated tests, not 28 real paid acceptance cases.",
+    "No Creator/director acceptance, channel default promotion or publication performed.",
+    "No OS-level sandbox isolation claim."
+  ],
+  "source_sha256": {
+    "agents/plugins/easel-work/tools.mjs": "63576a082484f6bd364130965a38567c308edbe34f8653340df994fd5f35e913",
+    "easel/conversation.py": "4b2c546c83fb392b1d0efd61054cfe2c2eee2ca62698f2168119e1d08e4ea045",
+    "easel/gateway_endpoint.py": "0fce0e28d61853aa295321d30439c961895c340878de0a80821781e937725e6c",
+    "easel/production/catalog.py": "2ff839f829c93ee7feca420737ec788b5d0ea8ab6deb0e3c29751e72d74db146",
+    "easel/production/planning.py": "f0ca1c7364b00148e21ad0aa50faa062f23f37d5cce2cf93f8333b88384bc264",
+    "easel/video_workspace.py": "1c780e3d7a292f2c7bb5460039d2762fc6dedbed564ba81d7098bd5368e12ab8",
+    "tests/production/test_conversation.py": "cb56a3ebcf4284bb71a6986e7811555db50d47c593a4bf1c8003609500d95179",
+    "tests/production/test_director_runtime.py": "293dbe95c2a309fa09246f2671287eed96b8cf1a1e0f5c041f3c9db63f72725c",
+    "tests/production/workBridgePlugin.test.mjs": "8557c5abd9ff2270ba0a4d45f9ee17e0c838750c2d05e0e0a31a131147e4e99e",
+    "tests/test_gateway_endpoint.py": "cf4ff96fde839bdd313d7ce06227e386e5c48aeb70b545fcdf3cc03d904a3085",
+    "web/app.py": "8f11bd88573723de8323a3a3745abade1070fbb1ab7479a5a38d9703ef3e84a2",
+    "web/frontend/src/components/BrushEntry.tsx": "befebcd8b29489322312de51355c555aa891a711f3a69c8b4ddac88b1de79301",
+    "web/frontend/src/components/ChatPage.tsx": "f2f17a703f84600fa4acc5deadbe78493ea9b22e3728dc74f52878d626f30b07",
+    "web/frontend/src/components/VideoConversation.tsx": "ce0e873ecb1dad9de4eefd9abff8e3a3ce75e3dac3291c6e8a31af1f0e814fc4",
+    "web/frontend/src/components/WorkCards.tsx": "d5eb2c0da9605f94ddc209cc6cfc866f7551d4387174ee33d2858d2b834c7fde"
+  },
+  "screenshots_sha256": {
+    "web_review": "02f2a16555c81376be67edac6f87ee74318b644ad7fd6e483471a274d65bb331",
+    "contact_sheet": "53c8d93293f0622d6f97d6c00d8a3d15a9a98ac5eaaf68b957aca8d2d2de2cd3"
+  },
+  "entity_sha256": {
+    "work_id": "d0173994ab108a3f72e0e1d7699e87ccd0987c67cf3ef1f79b48b46d447302c0",
+    "channel_id": "86a5bbe929e27afcf479d33ead6e0d1466a2e1d0c4cc65da87bf9f5e8a67ad36",
+    "director_id": "43adeff3bf78e8c3c52c2437ae3d1542436b8a9010c08e1260d935e7854ad3f6",
+    "director_revision_id": "4a1b8c016dacb0104581d70eb8c04e36b9f0caf63cde92add19f3fd0564e12a6",
+    "output_id": "cc99ac622892cb6704a111b42ac2d73f9dc2a48f2e026090924b497581c9b510",
+    "production_run_id": "0e3b50c90b7639b845cfd7427c9fa415264297f209f4a5e2552435b646db0515"
+  }
+}

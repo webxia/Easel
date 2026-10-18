@@ -487,3 +487,34 @@ def test_prework_symlink_cannot_supply_an_allowed_attachment(env):
     path.unlink();target=service.outputs/'foreign.mp4';target.write_bytes(b'foreign');path.symlink_to(target)
     raises('permission_missing',lambda:turn(service,c,segment,attachments=[a]))
     with service.store.connection() as conn:assert conn.execute('SELECT count(*) FROM conversation_turns').fetchone()[0]==0
+
+
+def test_channel_proposal_rejects_non_text_basis_before_showing_save_card(env):
+    service,c=env
+    segment=entry(c,profile_ref='one',kind='channel_create')
+    turn(service,c,segment,message='频道主题是注意力与选择')
+    with pytest.raises(ProductionError,match='themes'):
+        proposal(service,c,segment,'channel_create',{'name':'频道','creative_basis':{'themes':{'item':['注意力','选择']}}})
+    assert c.view('ui')['proposals']==[]
+    with service.store.connection() as conn:
+        assert conn.execute('select count(*) from channels').fetchone()[0]==0
+
+
+def test_brief_update_marks_old_work_confirmation_card_stale(env):
+    service,c,segment,work=draft(env)
+    b,i,_=turn(service,c,segment,'把内容重点改成注意力',id='new-basis')
+    pending=tool(b,i,'easel_work_request_plan',{'request':'整理本期方案'},call='plan-before-change')
+    tool(b,i,'easel_work_update_brief',{'entries':[{'kind':'user_requirement','text':'把内容重点改成注意力','source_refs':['new-basis']}]},call='change-after-plan')
+    card=next(p for p in c.view('ui')['proposals'] if p['id']==pending['proposal_id'])
+    assert card['state']=='stale'
+    b.end(Identity(**i))
+    raises('stale_revision',lambda:apply(c,pending))
+    assert service.snapshot(work)['runs']==[]
+
+
+def test_director_proposal_rejects_object_wrapped_references_before_card(env):
+    service,c,segment,work=draft(env)
+    with pytest.raises(ProductionError,match='reference_input_ids'):
+        proposal(service,c,segment,'director_formation',{'name':'导演','reference_input_ids':{'item':'not-an-array'}})
+    assert not [p for p in c.view('ui')['proposals'] if p['kind']=='director_formation']
+    assert service.snapshot(work)['runs']==[]

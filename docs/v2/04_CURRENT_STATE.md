@@ -4,19 +4,20 @@
 
 ## 当前结论
 
-**S6-14 · PARTIAL：第五轮已达到 REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING。** 在固定生产源码 `406e523c` 上，正式 API 从新建作品、Planning到真实素材/TTS、剪辑、FFmpeg、技术QC自动完成，无人工 `/resume`。自动音视频语义QC仍 **NOT_TESTED / manual_review_only**，Creator尚未接受；不能据此宣称完整Web对话或S7矩阵通过。
+**S6-14 · PARTIAL：第五轮已达到 REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING。** 在固定生产源码 `406e523c` 上，正式 API 从新建作品、Planning到真实素材/TTS、剪辑、FFmpeg、技术QC自动完成，无人工 `/resume`。自动音视频语义QC仍 **NOT_TESTED / manual_review_only**，Creator尚未接受；该第五轮证据不代表Web对话或S7矩阵；A7独立Web样本见下文。
 
 S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardening.md) **CLOSED / COMPLETE**，不重开历史G4。前三部成片的研发协助记录、第四轮FAIL均保留，第五轮是独立成功样本。
 
-用户已明确要求回到 **Easel 对话式创作**，并已授权完成A2～A4及本轮A5离线验收。[S6-14A](tasks/S6-14A_conversation-integration.md)现为 **A1 ISOLATED_FAKE_PASS；A2～A4 IMPLEMENTED / SOFTWARE_PASS；A5 ISOLATED_INTERACTION_PASS（28/28离线判据）；A6 COMPLETE / SOFTWARE_PASS（对话管线入口统一，6项隔离入口判据）**。已实现持久OpenClaw桥、带来源创作依据、统一对话/卡片/频道导演入口及审片/版本/明确长期保存闭环；已跑通频道创建→参考形成导演→方案→本地出片→独立接受→局部修订→长期保存→内容库续作。实际实现映射见[实施合同§9.10](15_IMPLEMENTATION_DESIGN.md#910-a2a4实际落地与部署边界)，隔离原生与浏览器证据见任务卡。正式配置和第五轮生产数据未改，不能将本轮软件结果当成正式部署或真实Web生产通过。
+用户已明确要求回到 **Easel 对话式创作**，并已授权完成A2～A4及本轮A5离线验收。[S6-14A](tasks/S6-14A_conversation-integration.md)现为 **A1 ISOLATED_FAKE_PASS；A2～A4 IMPLEMENTED / SOFTWARE_PASS；A5 ISOLATED_INTERACTION_PASS（28/28离线判据）；A6 COMPLETE / SOFTWARE_PASS（对话管线入口统一，6项隔离入口判据）**。已实现持久OpenClaw桥、带来源创作依据、统一对话/卡片/频道导演入口及审片/版本/明确长期保存闭环；已跑通频道创建→参考形成导演→方案→本地出片→独立接受→局部修订→长期保存→内容库续作。实际实现映射见[实施合同§9.10](15_IMPLEMENTATION_DESIGN.md#910-a2a4实际落地与部署边界)，隔离原生与浏览器证据见任务卡。上述A5/A6为隔离历史范围。A7正式配置与schema4迁移已执行；第五轮生产数据保持原样，A7现已REAL_WEB_PRODUCTION_PASS，质量问题与Creator审阅单列。
 
 ## 唯一执行入口
 
 - 工作区 `/Users/xgx/Projects/Easel`；分支 `easel-v2-main-workspace`。第五轮成功生产基线 `406e523c035fe8da0f1435f4d813defa63653692`，A2～A4实施基线44b3f08c，A5起点6efb91e9，当前HEAD以Git为准。
-- 服务 [本机7860](http://127.0.0.1:7860/)，唯一 `com.easel.web`。此前A1收口时只读能力检查HTTP200，`backend.reload_required=false`；未重启服务。生产源码后续有改动须先核实服务版本，禁止旧worker处理新命令。
-- 当前聊天运行设置实测 **OpenClaw**，V2生产走 **MiniMax任务调用**；本轮已在源码挂载协议2持久工具桥并完成隔离Web/原生插件接线验证；正式Gateway未安装配置，正式服务未重载，不能混为已部署。
+- 服务 [本机7860](http://127.0.0.1:7860/)，唯一 `com.easel.web`。A7已在一致性备份后迁移正式库至schema4并重载唯一服务，当前需以正式capabilities核实加载状态。生产源码后续有改动须先核实服务版本，禁止旧worker处理新命令。
+- 当前聊天运行设置实测 **OpenClaw**，V2生产走 **MiniMax任务调用**；本轮已在源码挂载协议2持久工具桥并完成隔离Web/原生插件接线验证；A7已合成正式easel-video配置与协议2工具桥，真实Web对话及程序卡已执行；完整真实生产与Creator接受仍单列。
+- 上游检查：已Fetch官方至`8d08b216`，本地main之后42提交，涉及聊天/Gateway与前端重叠；仅报告未合并，后续同步需另行明确确认。
 - [PR #8](https://github.com/webxia/Easel/pull/8) 仍是历史 `codex/s6-production` Draft，不包含主工作区最新修复；本轮不合并或汇合PR。
-- 真实服务保持具名授权；不使用qwen3.8或DeepSeek替代，不重发成功/UNKNOWN请求。本轮不创建第六轮、不迁移业务数据、不自动接受或发布。
+- 真实服务保持具名授权；不使用qwen3.8或DeepSeek替代，不重发成功/UNKNOWN请求。不重建第五轮；A7只创建一个独立真实验收作品。正式库schema4迁移已备份执行，不自动接受或发布。
 
 ## 已核实的真实作品
 
@@ -34,9 +35,9 @@ S6-01～13 的软件主链已接通；[S6-15](tasks/S6-15_material-layer-hardeni
 
 ## 唯一研发下一动作
 
-**A6已完成，界面版本231b5993已在本机7860生效并打开三条管线供用户查看；当前等待界面反馈，正式后端/Gateway部署继续独立授权。** 左侧独立“视频创作”菜单已按用户要求移除；对话笔入口的管线区域已并列视频创作、创建导演、创建频道；同聊天继续、保留主题/附件，不自动发送或生产。A6浏览器与单测组合完成6项补充判据，Node97 passed，build/lint通过；菜单选择产生0 Work/Run/Operation，隔离服务已回收。证据见[S6-14A A6](tasks/S6-14A_conversation-integration.md#2026-10-18--a6对话管线入口统一用户澄清software_pass)。
+**A7真实Web接入已收口；下一步为Creator审片并决定质量修订。** 实际Web已完成新频道「留白实验室」、Coffee Run真实画面形成导演并另存版本2、Planning、库存供应、真实配音、导演剪辑、渲染与技术QC，同一对话显示可审阅首版。《把注意力还给自己》30秒、1080×1920、H.264/AAC、27,117,848bytes；5 MODEL+5 VOICE全部成功，新UNKNOWN0，AI图/视频0。抽帧已发现部分库存镜头未落实手机动作、亮背景字幕偏弱；不记审美/完整语义质量通过。作品与导演未接受、未设频道默认、未发布；A7并非零人工恢复。证据见[S6-14A A7](tasks/S6-14A_conversation-integration.md)和[脱敏验收](evidence/S6-14A_A7_validation.json)。
 
-A5的UI01～UI28仍保留其原离线范围：Python557 passed / 4 skipped、原协议1原生兼容1 passed、完整本地媒体探针42项PASS、含memory-core的原生权限探针16项PASS、Node91 passed。A6没有重新执行这些Python/媒体探针，也不将6项入口验证并入原28项分母。本次仅展示前端，Web/Worker未重启；最新正式capabilities为backend.reload_required=true。正式工具桥安装/后端重载/库迁移、真实付费Web生产和第五轮Creator接受均未执行。
+A5的UI01～UI28仍保留其原离线范围：Python557 passed / 4 skipped、原协议1原生兼容1 passed、完整本地媒体探针42项PASS、含memory-core的原生权限探针16项PASS、Node91 passed。A6没有重新执行这些Python/媒体探针，也不将6项入口验证并入原28项分母。前端展示时的backend.reload_required=true属于A6历史快照。A7已安装正式工具桥、备份迁移schema4并重载Web/Worker，最近capabilities为backend.reload_required=false；新作品已由真实Web确认制作并完成，Work reviewable，自动语义QC仍not_tested。第五轮Creator接受仍未执行。
 
 
 Creator可同时通过上方视频入口审片，反馈故事/风格、画面匹配、旁白/字幕、音乐/音效与节奏；未明确接受不标CREATOR_ACCEPTED。跨题材风格、质量、耗时/成本及完整规格矩阵归后续S7，不以此次交互设计自动启动。

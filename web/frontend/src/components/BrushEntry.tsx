@@ -6,7 +6,7 @@ import { CONVERSATION_WORKFLOWS, type ConversationWorkflowKind } from '../lib/co
 const DOT: Record<string, string> = { done: 's-done', ready: 's-ready', need: 's-need', incoming: 's-incoming' };
 
 /** 笔入口：管线先绑定当前对话再预填，普通能力直接预填；均不自动发送。 */
-export default function BrushEntry({ onPick, onVideo, disabled=false }: { onPick: (text: string) => void; onVideo?:(kind:ConversationWorkflowKind)=>void|Promise<void>; disabled?:boolean }) {
+export default function BrushEntry({ onPick, onVideo, disabled=false, videoMode=false }: { onPick: (text: string) => void; onVideo?:(kind:ConversationWorkflowKind)=>void|Promise<void>; disabled?:boolean; videoMode?:boolean }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState(0);
   const [q, setQ] = useState('');
@@ -91,24 +91,25 @@ export default function BrushEntry({ onPick, onVideo, disabled=false }: { onPick
           <div className="brush-body">
             {error&&<p role="alert">{error}</p>}
             {onVideo&&workflows.length>0&&<div className="brush-grp" aria-label="创作管线">
-              <div className="brush-grp-name">管线 · 完整创作流程</div>
+              <div className="brush-grp-name">我们的创作管线 · 画像、导演与频道</div>
               {workflows.map(w=><button type="button" key={w.kind} aria-label={w.label} disabled={disabled||entering} className="brush-item brush-item-pipe" onClick={()=>void pickWorkflow(w.kind)}>
                 <span className="brush-dot s-ready"/><span className="brush-il">{w.label}</span><span className="brush-chip-pipe">管线</span><span className="brush-idesc">{w.desc}</span><span className="brush-iadd">＋</span>
               </button>)}
             </div>}
-            {!onVideo&&pipeline && hit(pipeline) && (
+            {videoMode&&<p>当前对话使用作品管线。原片包装及其他 Easel 技能请在新对话使用。</p>}
+            {!videoMode&&pipeline && hit(pipeline) && (
               <div className="brush-grp">
-                <div className="brush-grp-name">整片级 · 走独立管线</div>
+                <div className="brush-grp-name">Easel 原有管线 · 原片包装</div>
                 <button type="button" className="brush-item brush-item-pipe" onClick={() => pick(pipeline, true)}>
                   <span className={`brush-dot ${DOT[pipeline.status || 'ready'] || 's-ready'}`} />
-                  <span className="brush-il">{pipeline.label}</span>
-                  <span className="brush-chip-pipe">管线</span>
-                  <span className="brush-idesc">{pipeline.desc}</span>
+                  <span className="brush-il">原片包装</span>
+                  <span className="brush-chip-pipe">原产线</span>
+                  <span className="brush-idesc">已有整条原片 → 分场、动效、字幕与调色；按原技能流程执行</span>
                   <span className="brush-iadd">＋</span>
                 </button>
               </div>
             )}
-            {CAPABILITY_MENU.tabs[tab] && CAPABILITY_MENU.tabs[tab].groups.map((g) => {
+            {!videoMode&&CAPABILITY_MENU.tabs[tab] && CAPABILITY_MENU.tabs[tab].groups.map((g) => {
               const items = g.items.filter((it) => it.status !== 'incoming' && hit(it));
               if (!items.length) return null;
               return (

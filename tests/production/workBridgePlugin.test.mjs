@@ -2,10 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createWorkBridge, toolDefinitions } from '../../agents/plugins/easel-work/tools.mjs';
 
-function runtime(baseUrl = 'http://127.0.0.1:12345') {
+function runtime(baseUrl = 'http://127.0.0.1:12345', token = 'test-only-credential-32-characters') {
   const hooks = new Map(); let factory; let route;
   createWorkBridge({
-    pluginConfig: { baseUrl, token: 'test-only-credential-32-characters' },
+    pluginConfig: { baseUrl, token },
     on(name, fn) { hooks.set(name, fn); },
     registerTool(fn) { factory = fn; },
     registerHttpRoute(value) { route = value; },
@@ -77,9 +77,48 @@ test('protocol 2 exposes eight bounded tools and retains independent lifecycle g
   createWorkBridge({pluginConfig:{baseUrl:'http://127.0.0.1:12345',token:'test-credential-long-enough-32',protocolVersion:2},on(){},registerTool(fn){factory=fn;},registerHttpRoute(value){route=value;}});
   const tools=factory(ctx);
   assert.equal(tools.length,8);
+  const proposalValues=tools.find(t=>t.name==='easel_work_propose').parameters.properties.values;
+  assert.equal(proposalValues.properties.reference_input_ids.type,'array');
+  assert.equal(proposalValues.properties.creative_basis.properties.themes.type,'string');
+  assert.deepEqual(Object.keys(tools.find(t=>t.name==='easel_work_register_inputs').parameters.properties),['attachment_id','usage']);
   for(const tool of tools) assert.equal(tool.parameters.additionalProperties,false);
   for(const name of ['exec','accept','grant','publish','write','sessions_spawn'])assert.ok(!tools.some(t=>t.name===name));
   let status;route.handler({method:'GET'},{setHeader(){},end(text){status=JSON.parse(text);}});
   assert.equal(status.protocol,2);
   assert.equal(status.tools.length,8);
+});
+
+
+test('separate native registrations share tickets only within the same credential and session scope', async () => {
+  const original=globalThis.fetch;
+  globalThis.fetch=async url=>new Response(JSON.stringify(url.endsWith('/prepare')?{ticket:'server-native-ticket-32-characters'}:{read:true}),{status:200});
+  try {
+    const hooks=runtime('http://127.0.0.1:12346');
+    const tools=runtime('http://127.0.0.1:12346');
+    const other=runtime('http://127.0.0.1:12346','another-credential-32-characters');
+    const event={toolName:'easel_work_context',toolCallId:'split-registration',params:{}};
+    await hooks.hooks.get('before_tool_call')(event,ctx);
+    await assert.rejects(other.tools(ctx)[0].execute(event.toolCallId,{}),/missing_native_call_binding/);
+    await assert.rejects(tools.tools({...ctx,sessionId:'other-native'})[0].execute(event.toolCallId,{}),/missing_native_call_binding/);
+    assert.equal((await tools.tools(ctx)[0].execute(event.toolCallId,{})).details.read,true);
+    await assert.rejects(hooks.tools(ctx)[0].execute(event.toolCallId,{}),/missing_native_call_binding/);
+    await hooks.hooks.get('before_tool_call')({...event,toolCallId:'after-end'},ctx);
+    await tools.hooks.get('agent_end')({},ctx);
+    await assert.rejects(hooks.tools(ctx)[0].execute('after-end',{}),/missing_native_call_binding/);
+  } finally {globalThis.fetch=original;}
+});
+
+
+test('safe validation hints reach the model without forwarding private errors', async()=>{
+  const original=globalThis.fetch;let code='invalid_input';
+  globalThis.fetch=async url=>url.endsWith('/prepare')
+    ?new Response(JSON.stringify({ticket:'server-native-ticket-32-characters'}),{status:200})
+    :new Response(JSON.stringify({error:{code,user_message:'creative_basis.themes must be text',private:'do not expose'}}),{status:422});
+  try {
+    const r=runtime('http://127.0.0.1:12347');const event={toolName:'easel_work_context',toolCallId:'invalid-channel',params:{}};
+    await r.hooks.get('before_tool_call')(event,ctx);
+    await assert.rejects(r.tools(ctx)[0].execute(event.toolCallId,{}),/invalid_input: creative_basis.themes must be text/);
+    code='internal_error';await r.hooks.get('before_tool_call')({...event,toolCallId:'private-error'},ctx);
+    await assert.rejects(r.tools(ctx)[0].execute('private-error',{}),error=>error.message==='internal_error');
+  } finally {globalThis.fetch=original;}
 });

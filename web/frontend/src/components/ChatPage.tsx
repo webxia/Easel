@@ -155,7 +155,7 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
       )}
       <div className="composer-top">
         {apiDirect ? <span className="composer-hint">API 直连 · 文字与附件分析</span>
-          : <BrushEntry disabled={isStreaming||uploading} onVideo={chooseWorkflow} onPick={(t) => { setInput(t); requestAnimationFrame(() => textareaRef.current?.focus()); }} />}
+          : <BrushEntry videoMode={!!session.videoSegmentId} disabled={isStreaming||uploading} onVideo={chooseWorkflow} onPick={(t) => { setInput(t); requestAnimationFrame(() => textareaRef.current?.focus()); }} />}
         <textarea
           ref={textareaRef}
           className="chat-input"
