@@ -1,8 +1,8 @@
 # S6-14 · 首次真实生产与完整范围验收
 
-状态：**PARTIAL / 第五轮 REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING。** 自动音视频语义 QC 保持 NOT_TESTED，完整 Web 对话与 S7 矩阵仍未通过。S6-15 已 CLOSED/COMPLETE；历史失败保留。本次完成第五轮只读验收归档，并新增 [S6-14A 对话式创作接入](S6-14A_conversation-integration.md)：设计已获准推进 A1，隔离原生工具桥验证通过；正式 Web 与 A2～A5 尚未接入。
+状态：**PARTIAL / 第五轮 REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING。** 自动音视频语义 QC 保持 NOT_TESTED，正式真实 Web 对话生产与 S7 矩阵仍未通过。S6-15 已 CLOSED/COMPLETE；历史失败保留。本次完成第五轮只读验收归档，并新增 [S6-14A 对话式创作接入](S6-14A_conversation-integration.md)：设计已获准推进 A1，隔离原生工具桥验证通过；A2～A4源码接入已完成，A5完整隔离交互与28项离线判据通过；正式部署和真实模型Web生产未执行。
 - **依赖**：第一段为 S6-01～11 实际就绪；第二段为 S6-01～13及首次真实闭环就绪。阶段对应见[任务包里程碑](S6_IMPLEMENTATION_PLAN.md#1-基线顺序与交付)。
-- **当前排程**：第五轮 API 自主到人工审核已通过，Creator 审片独立待反馈；S6-14A 的 A1 隔离验证已通过，下一事项为 A2 持久绑定与创作依据。不自动启动第六轮付费 E2E，不以 API 成功代替对话体验验收。
+- **当前排程**：第五轮 API 自主到人工审核已通过，Creator 审片独立待反馈；S6-14A 的 A1～A5研发/离线验收已完成，正式配置与受控部署须另行授权。不自动启动第六轮付费 E2E，不以 API 成功代替对话体验验收。
 - **需求主/协作覆盖**：V2-EXP-009, V2-EXP-018, V2-EXP-022, V2-EXP-023, V2-EXP-028, V2-EXP-029, V2-EXP-030。
 - **目标与合同**：[可执行设计](../15_IMPLEMENTATION_DESIGN.md)；[任务包共同约定](S6_IMPLEMENTATION_PLAN.md#2-每张卡开始与完成的共同约定)。
 - **现有实现及验证落点**：`easel/production/`、`tests/production/`、正式后端 API 与 [运行配置](../16_RUNTIME_SETUP.md)；精确软件/真实/人工证据按本卡后续记录读取。
@@ -241,3 +241,7 @@ Creator 人工审片入口：[播放第五轮视频](http://127.0.0.1:7860/api/p
 ### 2026-10-18 · S6-14A A2～A4研发完成
 
 用户新授权完成A2～A4；已实现持久OpenClaw/创作依据、对话卡片/目录入口，以及审片/独立接受/明确回写/续作闭环。软件检查、实际隔离Web/OpenClaw与浏览器证据只维护在[S6-14A](S6-14A_conversation-integration.md)。A2～A4为IMPLEMENTED / SOFTWARE_PASS，A5完整交互验收未开始；无正式插件安装、服务重启、正式库迁移、付费生产或第五轮接受。S6-14保持PARTIAL，既有第五轮真实证据不被本轮软件结果替代。
+
+### 2026-10-18 · S6-14A A5离线完整交互验收
+
+按用户新授权执行完整隔离流程与UI01～UI28，直接修复发现的问题。实际Web/原生OpenClaw/WorkService/Worker/本地FFmpeg完成首版、指定版本修订、独立接受、明确回写及内容库续接；28项离线判据通过，逐项映射/截图/源码摘要见[S6-14A](S6-14A_conversation-integration.md)。本轮所有模型答案为本地脚本，媒体为合成测试素材；未改正式环境或发起付费调用。第五轮接受仍待Creator，S6-14整体仍PARTIAL，自动语义QC仍NOT_TESTED；不能将隔离测试中的模拟接受写成真实Creator接受。

@@ -28,6 +28,18 @@ profile before_hash 使用服务端 profile_save_target.hashes，after 保留 pr
 需要澄清时直接在对话提问，等下一轮；不调用普通 main、终端、会话/记忆或发布工具。
 '''
 
+# Reviewed product knowledge adapted from the bundled Easel pipeline. Keep the
+# legacy executable skill out of this tool-limited workspace: its script paths,
+# ask_user gates and provider instructions are not the V2 execution contract.
+KNOWLEDGE = '''\n## Easel 视频产线的交互知识（只作创作参考）
+来源：skills/builtin/video-production/SKILL.md 的“让用户看得见”和“交互循环”。
+让创作者看见摘要、完整脚本和分镜，再确认制作；预览和成片回到当前对话，并说明实际检查结果。
+发生缺素材、检查未过或待决定时解释具体原因，保留有效成果，不从回答结束推断任务完成。
+来源：skills/builtin/video-editing/SKILL.md 的“与 clipify 的边界”和“组合操作”。
+围绕具体版本说明裁剪、画幅、字幕、音轨及局部调整，未要求的部分保持不变；参考许可不是素材使用权。
+V2 的身份、授权、方案确认、检查与接受始终由作品工具及程序卡片执行；不执行旧产线命令。
+'''
+
 
 def prepare_workspace(repo: Path, destination: Path):
     """Destination must be new; no credentials or real user files are read."""
@@ -37,8 +49,9 @@ def prepare_workspace(repo: Path, destination: Path):
     soul=(repo/'agents/workspace/SOUL.md').read_text()
     selected=soul.split('## 你能做的事')[0]+'## 沟通风格'+soul.split('## 沟通风格',1)[1]
     (destination/'SOUL.md').write_text(selected)
-    (destination/'AGENTS.md').write_text(POLICY)
-    metadata={'source':'agents/workspace/SOUL.md','sha256':hashlib.sha256(soul.encode()).hexdigest(),'knowledge_policy_sha256':hashlib.sha256(POLICY.encode()).hexdigest()}
+    (destination/'AGENTS.md').write_text(POLICY+KNOWLEDGE)
+    metadata={'source':'agents/workspace/SOUL.md','sha256':hashlib.sha256(soul.encode()).hexdigest(),'knowledge_policy_sha256':hashlib.sha256((POLICY+KNOWLEDGE).encode()).hexdigest(),
+        'knowledge_sources':{name:hashlib.sha256((repo/name).read_bytes()).hexdigest() for name in ('skills/builtin/video-production/SKILL.md','skills/builtin/video-editing/SKILL.md')}}
     (destination/'context-sources.json').write_text(json.dumps(metadata,ensure_ascii=False,indent=2))
     return {'agent_id':'easel-video','workspace':str(destination),'skills':[],
             'tools':{'profile':'full','allow':list(TOOLS)},'plugin_protocol':2}

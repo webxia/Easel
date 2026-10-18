@@ -51,6 +51,28 @@ def test_worker_creates_proposal_and_records_model_receipt(tmp_path):
     assert transport.calls==1
 
 
+@pytest.mark.parametrize('changes_enabled',[False,True])
+@pytest.mark.parametrize('field',['subtitles','voice'])
+def test_partial_settings_compare_as_contract_values(tmp_path,changes_enabled,field):
+    service,work,transport,worker=setup(tmp_path)
+    # The entry API legitimately stores a partial subtitle patch. The model's
+    # validated response expands its defaults; equivalent values must pass.
+    with service.store.transaction() as conn:
+        settings=json.loads(conn.execute('SELECT settings_json FROM works WHERE id=?',(work,)).fetchone()[0])
+        settings[field]={'enabled':False} if field=='subtitles' else {'provider':'local','model':'offline','voice_id':'fixed','engine':'local'}
+        conn.execute('UPDATE works SET settings_json=? WHERE id=?',(json.dumps(settings),work))
+    transport.answer['settings'][field]={'enabled':changes_enabled} if field=='subtitles' else {**settings[field],'voice_id':'changed' if changes_enabled else 'fixed'}
+    asyncio.run(worker.run_once())
+    snapshot=service.snapshot(work)
+    assert snapshot['state']==('needs_decision' if changes_enabled else 'awaiting_confirmation')
+    if changes_enabled:
+        assert json.loads(snapshot['tasks'][0]['error_json'])['code']=='plan_constraint_changed'
+        assert snapshot['plans']==[]
+    else:
+        saved=snapshot['plans'][0]['plan']['settings'][field]
+        assert (saved['enabled'] is False) if field=='subtitles' else (saved['voice_id']=='fixed' and saved['parameters']=={})
+
+
 def test_uncertain_model_call_is_not_reissued_on_resume(tmp_path):
     service,id,transport,worker=setup(tmp_path,True)
     asyncio.run(worker.run_once())

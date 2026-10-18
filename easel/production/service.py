@@ -168,9 +168,8 @@ class WorkService:
         channel_id = data.get('channel_id') or None
         settings = {'schema_version': 1}
         def merge_settings(values):
-            if 'subtitles' in values:
-                values={**values,'subtitles':{**settings.get('subtitles',{}),**values['subtitles']}}
-            settings.update(values)
+            from .settings import merge_creation_settings
+            settings.update(merge_creation_settings(settings,values))
         if profile:
             merge_settings(json.loads(row(conn, 'profile_refs', profile)['settings_json']))
         if channel_id:

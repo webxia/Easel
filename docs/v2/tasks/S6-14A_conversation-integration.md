@@ -1,12 +1,12 @@
 # S6-14A · Easel 对话式创作与生产后端接入
 
 - **所属任务**：S6-14 新增交互子任务；不改变 S6-15 CLOSED/COMPLETE，不开启 S7。
-- **状态**：**A1 ISOLATED_FAKE_PASS / A2～A4 IMPLEMENTED · SOFTWARE_PASS / A5 NOT_STARTED**。代码接入与隔离 Web/OpenClaw 验证已完成；未部署正式运行配置、未迁移正式库、未执行新一轮真实生产或 Creator 接受。
+- **状态**：**A1 ISOLATED_FAKE_PASS / A2～A4 IMPLEMENTED · SOFTWARE_PASS / A5 ISOLATED_INTERACTION_PASS（28/28 离线判据）**。完整隔离 Web/OpenClaw/Worker/本地媒体闭环已完成；未部署正式运行配置、未迁移正式库、未执行新一轮真实生产或 Creator 接受。
 - **用户来源**：2026-10-18 明确要求基于已确认需求与 Easel，设计前后端交互，先出文档和图，作为 S6-14 新增任务记录。用户指出现有表单交互偏离对话式创作，后端已调顺。
 - **关联需求**：V2-EXP-001、004～008、010～011、019～021、024～029、032～034；不另造同义需求。
 - **目标**：从 Easel 对话完成方向讨论、方案确认、真实进度观察、具体版本审片/修改/接受，调用同一作品后端，不要求用户到独立表单推进创作。
-- **本轮授权**：用户最新明确要求“直接把A2-A4全部做完，按照规划和设计”，取代上一轮文档修订后停止的范围；本轮实施代码、隔离验证、文档与开发分支归档。继续不改正式运行配置、不重启正式服务、不写正式业务库或发起付费调用；A5完整矩阵/正式部署与真实验收保留后续。
-- **基线与现场**：`/Users/xgx/Projects/Easel`，分支`easel-v2-main-workspace`；生产基线`406e523c`，本轮实施起点`44b3f08c`，当前HEAD以Git为准；主服务7860。原未跟踪 research、scratch、二维码和个人创作目录均保留，不纳入提交。当前聊天运行设置为 OpenClaw，生产模型为 MiniMax；两条路径不能混为已接通。
+- **本轮授权**：用户最新明确要求推进 A5、跑完完整流程和28项判据、直接修复并更新文档，且不发起真实付费调用。本轮实施隔离完整链路/浏览器/负例验收、必要修复与开发分支归档；不改正式配置、不重启正式服务、不写正式业务库。正式部署、真实模型/媒体与 Creator 验收仍单列。
+- **基线与现场**：`/Users/xgx/Projects/Easel`，分支`easel-v2-main-workspace`；生产基线`406e523c`，A2～A4起点`44b3f08c`，A5起点`6efb91e9`，当前HEAD以Git为准；主服务7860。原未跟踪 research、scratch、二维码和个人创作目录均保留，不纳入提交。当前聊天运行设置为 OpenClaw，生产模型为 MiniMax；两条路径不能混为已接通。
 - **设计入口**：[交互文档与流程图](../20_CONVERSATIONAL_INTERACTION.md)、[OpenClaw 接入总览 SVG](../diagrams/s6-14a-conversation-flow.svg)、[六步交互分镜 SVG](../diagrams/s6-14a-interaction-storyboard.svg)、[频道与导演创建流程图](../diagrams/s6-14a-creation-flows.svg)、[实施合同 §9](../15_IMPLEMENTATION_DESIGN.md#9-s6-14a-对话接入增量提案待评审未实现)。
 
 ## 1. 成功基线与范围
@@ -23,7 +23,7 @@
 | **A2 · 作品会话与创作依据（IMPLEMENTED / SOFTWARE_PASS）** | 复用现有 turn/job/转录/命令回执；增加可信运行/作品关联、turn 去重与工具意图映射、带来源 brief 和跨会话附件校验；必要前向兼容迁移及正式问题桥/历史解析绑定；保留交付/反馈/学习提议来源；入口来源/明确覆盖与版本、频道语义依据及导演形成绑定；无Work创建提案/卡、跨作品原生段隔离 | 多轮信息进入 Planning，解释不启动；同 turn/不同 callId/响应丢失/晚到工具不重复或串作品；合法新会话附件可用、越权拒绝；第五轮记录可读 |
 | **A3 · 对话卡片与详情（IMPLEMENTED / SOFTWARE_PASS）** | ChatPage/App/store/api 接入；ProductionPage 提取方案/进度/决定/成片/设置组件；作品与内容库可续接；频道/导演详情主操作回同一对话，区分新作/续作/形成导演；创建提案→确认→回执→本期内容接续 | 同一对话完成全过程，卡片和详情使用同一业务快照；无画像可开始；旧卡失效可见 |
 | **A4 · 审片、修订与恢复（IMPLEMENTED / SOFTWARE_PASS）** | 指定输出反馈、保护项、影响确认、版本比较、明确接受；同一内容库及频道/导演视图回到创作；首版兼试片分别接受、fork明确沿用设置；可选长期保存卡与既有Profile/频道/Director适配；分离停止回答与取消制作 | 修改命中指定版本，授权内局部改不重复审批，旧接受保留；删除聊天不删作品；UNKNOWN不重发；单片反馈不污染长期默认，保存有明确目标/差异/版本/幂等回执 |
-| A5 · 交互集成验收 | 先用隔离数据/假模型跑 Web 到本地媒体完整流程，再按另行授权验证真实 Web | 软件、实际 Web、真实模型/媒体、Creator 接受分列。不得使用第五轮 API PASS 代替 Web 对话验证 |
+| **A5 · 交互集成验收（ISOLATED_INTERACTION_PASS）** | 先用隔离数据/假模型跑 Web 到本地媒体完整流程，再按另行授权验证真实 Web | 软件、实际 Web、真实模型/媒体、Creator 接受分列。不得使用第五轮 API PASS 代替 Web 对话验证 |
 
 A1/A2 优先解决真实接入，A3 在接口明确后实施。推荐先用隔离配置完成“连续讨论 → 具名工具 → 持久回执 → 卡片更新”纵向最小切片，再补全旅程；普通 main 对话转入视频须明确进入作品模式并保存运行段。模型/工具能力不兼容不能以静默切底座消除。
 
@@ -133,7 +133,7 @@ A2/A4/A5增加来源/卡片/目标差异/版本与幂等验收，未新增学习
 
 本轮设计文档修订与审查完成后停止，不推进A2；发布/归因仍是后续可选接入，不新增自动任务或付费调用。检查结果：6份受影响Markdown的161条本地链接、34个锚点及35个表格通过校验；UI01～UI28连续且无重复，代码围栏和git diff --check通过。全部5张SVG/PNG的XML与尺寸匹配，新增创建图和3张更新图已重新渲染，全部5图已目视复核。A1证据绑定的9份源码SHA未变化，改动范围仅docs/v2文档与图片。未运行代码/浏览器/真实服务验收，新增UI26～UI28不记为通过。
 
-## 5. 风险与唯一下一动作
+## 5. 历史设计阶段风险与停止指令（已被后续实施授权替代）
 
 A1 已证明当前版本在隔离 HTTP/CLI 下可接通受限工具，下一风险集中在持久绑定/崩溃恢复、正式入口的就绪检查与上下文装配、摘要来源和跨会话附件权限，以及交付后长期保存的目标/版本与来源保护。原生内存探针不能直接作为正式启用实现；它也不天然构成 OS 或凭证物理隔离。
 
@@ -173,3 +173,82 @@ A1 已证明当前版本在隔离 HTTP/CLI 下可接通受限工具，下一风�
 **实际范围与后续：** 这次完成研发实现及具名隔离验证，不是A5完整28项浏览器矩阵或真实生产验收。尚未在正式Gateway合并插件配置、验证实际既有插件/自动记忆组合权限，未重启com.easel.web、迁移正式库、发起第六轮或接受第五轮。正式源码已变更，部署时必须受控重载并核实`backend.reload_required=false`；本轮不宣称旧服务已加载新代码。A5应先验收离线完整Web流程/并发断线和全矩阵，再按对应授权安排正式安装与真实调用。发布/归因适配继续为后续具名任务；S6-15不重开，S7不自动启动。
 
 ![隔离浏览器：频道保存与刷新恢复](../evidence/S6-14A_A3_channel-browser.png)
+
+### 2026-10-18 · A5完整离线交互验收完成
+
+**结论：A5 ISOLATED_INTERACTION_PASS；UI01～UI28为28/28 OFFLINE_PASS。** 起点`6efb91e9`，实际归档提交以Git为准。判据分母保持原28条；证据组合为实际浏览器主旅程、原生OpenClaw/API完整本地媒体流程及可执行负例/恢复回归，不是28条真实模型浏览器E2E。付费调用0，正式配置/服务/数据库及第五轮作品均未改。
+
+**完整链路：** 临时Web→实际OpenClaw 2026.9.4(3a9d69d)/8工具→持久提案→明确卡操作→原WorkService/Worker→本地合成素材供应→脚本化导演剪辑→实际FFmpeg→技术QC→人工审片卡→独立作品/导演接受→可选频道默认→指定输出局部修订→可选长期保存→已接受内容库续作。只有聊天/创作答案与供料为本地脚本/合成媒体；没有用手改任务/Run状态制造该链路通过。测试库中的模拟接受不代表真实Creator接受。
+
+**发现并修复：**
+
+- 永久复用入口导航回执导致再次进入时未实际选中对应运行段：每次导航生成新的enter身份，服务端仍复用精确匹配段；生产/保存动作保留持久幂等。
+- 固定字幕/音色的部分设置与合同展开后的默认值直接比较产生假冲突：按同一合同归一化；等价通过，改变明确设置仍阻断。
+- 创建前上下文按频道浅覆盖字幕，漏画像中未被覆盖字段：与Work创建共用设置合并函数，显式导演/固定音色身份仍整体保留。
+- 频道非法类型名称可能被转为文字保存：非空文字校验，失败卡保留proposed、无catalog/Work/Run副作用。
+- 受限工作区补充来源可追踪的Easel产线交互知识；模型仍无旧脚本/文件/记忆/直接媒体权限。
+- 普通聊天不默认展开视频表单；明确视频入口后使用对话。入口文案对齐V2单次完整方案确认；导演/参考/任务显示可读名称与版本。
+- 当前接受版及已生效频道默认显示完成并禁用重复提交；后续独立失败项仍可处理。内容库有接受版时不再显示“没有产物”。
+
+**实际运行：**
+
+| 检查 | 命令 / 结果 |
+|---|---|
+| 完整原生Web/本地媒体 | `.venv/bin/python scripts/validate_conversation_a5.py --root /tmp/easel-a5-release-final-20261018`：42项PASS；2个Work（含fork）、6个Run、6个脚本MODEL成功回执、0个真实付费请求；34次聊天请求均到本地假API；子Gateway关闭 |
+| 媒体/局部修订 | 15秒1920×1080 H.264/AAC；A450,137bytes、B1,066,760bytes，SHA不同；完整解码音轨一致，2秒画面一致/13秒画面不同；旧A文件/接受选择保持；扩大影响后先等待确认，再创建未确认新Plan |
+| QC真相 | A/B均technical=pass、semantic=not_tested/manual_review_only；接受不改写为语义PASS |
+| 原生组合权限 | `validate_video_conversation.py --root /tmp/easel-a5-memory-composition-20261018 --memory-plugin`：16项PASS，实际加载easel-work+memory-core；24次本地假请求；显式exec/read/session/memory/旧管线/直接媒体攻击未执行；仍8工具 |
+| 原协议兼容 | `EASEL_RUN_OPENCLAW_A1=1 .venv/bin/python -m pytest -q tests/production/test_openclaw_work_bridge_native.py --basetemp=/tmp/easel-a5-a1-compat-20261018`：1 passed |
+| Python回归 | `.venv/bin/python -m pytest -q tests/production tests/test_chat_question_replay.py tests/test_harness_workspace.py tests/test_workspace_resolution.py`：557 passed / 4 skipped / 0 failed；4个skip不算PASS：2个Windows原生junction、900秒长片编码、默认关闭的原生集成；最后一项已在上行单独显式执行通过 |
+| Node回归 | `node --test tests/production/workBridgePlugin.test.mjs tests/frontend/*.test.mjs`：91 passed / 0 failed |
+| 前端 | build/lint通过；保留原linkifyOutputs转义警告和约559kB bundle提示 |
+| 实际浏览器 | 本地合成画像/媒体走完上述创建、导演、方案、制作、审片、修订、明确回写、内容库与fork；刷新/关页/隔离服务重启后恢复。视频DOM duration15、1920×1080、readyState4、error空。模拟授权仅本地脚本模型 |
+
+排障留痕：早期探针读错输入Rights字段、误按升序读取导演版本，新测试种子缺schema/试片约束，均为测试夹具错误并修正，失败运行未纳入PASS统计。部分设置比较则是真实业务缺陷，修复后重新跑通。早期纯色素材不能观察推近差异，最终探针改用自制图形，验证B画面真正变化。最终42项结果和557/91回归均为修复后实跑。
+
+[脱敏结构化证据与受测源码SHA](../evidence/S6-14A_A5_validation.json)保留原生运行与最终浏览器前端各自的源码指纹，不重写A1/A2～A4历史证据。临时随机凭证、原生历史、完整模型请求和本地DB不入Git。
+
+#### UI01～UI28逐项结果
+
+N=完整原生Web/API/本地Worker媒体探针；B=实际浏览器主旅程；R=557个Python及91个Node回归。下表每行均为离线判据通过，源码中的确切测试名及具体原生检查名可在JSON按UI编号定位；没有把R中的合成验收资格种子当作N的真实任务执行证据。
+
+| 编号 | 结果/层次 | 本轮证据与观察 |
+|---|---|---|
+| UI01 | OFFLINE_PASS · N/B/R组合 | 有/无画像主题和附件可讨论；咨询不建作品 |
+| UI02 | OFFLINE_PASS · N/B/R组合 | 讨论、解释与brief无Run；明确卡操作才规划 |
+| UI03 | OFFLINE_PASS · N/B/R组合 | 六维画像/频道/导演及受审查知识实际进入原生请求；跨画像哨兵不泄漏 |
+| UI04 | OFFLINE_PASS · N/B/R组合 | memory-core组合下仍严格8工具；exec/read/记忆/旧脚本/直接媒体拒绝，缺插件不兜底 |
+| UI05 | OFFLINE_PASS · N/B/R组合 | 多轮来源brief进入Planning并冻结；硬要求伪造被拒绝，建议单列 |
+| UI06 | OFFLINE_PASS · N/B/R组合 | 断流同turn重放、不再调用；不同callId去重；确认重放同Run，第二窗口旧revision409 |
+| UI07 | OFFLINE_PASS · N/B/R组合 | 真实Work SSE快照/游标事件重连一致；前端旧作品/旧cursor快照拒绝 |
+| UI08 | OFFLINE_PASS · N/B/R组合 | 真实断流/停止回答不取消生产；关页/重启后恢复；删聊天保留作品/媒体 |
+| UI09 | OFFLINE_PASS · N/B/R组合 | 实际上传参考；跨会话正例、伪造/越界/symlink/hash负例；未知Rights不可供剪辑，活动Run拒绝改输入 |
+| UI10 | OFFLINE_PASS · N/B/R组合 | 指定A只改12～15秒，0～12秒取样画面/完整解码音轨不变；扩大范围先暂停再出未确认新Plan |
+| UI11 | OFFLINE_PASS · N/B/R组合 | 实际技术pass/语义not_tested；未勾选接受禁用/API拒绝；测试库明确接受才入库 |
+| UI12 | OFFLINE_PASS · N/B/R组合 | 557个Python回归、91个Node回归；普通聊天/附件/问题卡/技能目录/内容库检查；未测边界单列 |
+| UI13 | OFFLINE_PASS · N/B/R组合 | 普通聊天笔入口明确进入视频；持久绑定恢复；缺字段不落main；问题卡旧入口回归；CLI仅A1兼容 |
+| UI14 | OFFLINE_PASS · N/B/R组合 | 本地成片自动登记Artifact/QC/event；未接受库为空；接受A后B不替换选择，QC不改写 |
+| UI15 | OFFLINE_PASS · N/B/R组合 | 本片修订不改长期项；1条长期建议在显式保存前零文件写入；拒绝/无画像负例 |
+| UI16 | OFFLINE_PASS · N/B/R组合 | 明确目标/差异/hash保存一次；重复/文件先写崩溃恢复；并发hash冲突不覆盖 |
+| UI17 | OFFLINE_PASS · N/B/R组合 | 频道新默认和Profile保存不变旧Plan；导演另存2版仍待风格确认/试片，未自动出片 |
+| UI18 | OFFLINE_PASS · N/B/R组合 | 实际同一内容库展示A并续接具体A；fork来源保留且无旧授权；发布/日志/归因按原合同另测 |
+| UI19 | OFFLINE_PASS · N/B/R组合 | 普通笔/频道/已接受导演入口汇入视频对话；浏览/进入无空Work/分析Run |
+| UI20 | OFFLINE_PASS · N/B/R组合 | 频道默认/明确导演优先，固定设置不丢；字幕字段继承一致；跨画像/归档默认拒绝 |
+| UI21 | OFFLINE_PASS · N/B/R组合 | 频道定位/主题/受众进入Work/Plan；无画像频道保存拒绝、临时无画像可讨论 |
+| UI22 | OFFLINE_PASS · N/B/R组合 | 上传参考→实际媒体帧/音轨分析任务→风格确认→同Work正式试片；缺权限暂停；直链负例 |
+| UI23 | OFFLINE_PASS · N/B/R组合 | 同一输出作品/导演/频道默认三步独立、完成项显示禁用；精确试片和QC负例 |
+| UI24 | OFFLINE_PASS · N/B/R组合 | 旧Plan/输出字节保留；确认前设置变更使旧Plan失效；确认后设置变更要求修订；收纳仅改归属 |
+| UI25 | OFFLINE_PASS · N/B/R组合 | 实际fork选择继承导演/字幕，来源输出UNKNOWN参考且无旧grant；新主题采用有效默认 |
+| UI26 | OFFLINE_PASS · N/B/R组合 | 实际频道按钮/NL提案/保存/刷新/主题接续；重复只1频道，无Work/Run；非法名称失败不报保存 |
+| UI27 | OFFLINE_PASS · N/B/R组合 | 导演按钮与NL形成链分步恢复；分析需授权；风格草稿不可默认，试片后独立接受；UNKNOWN不重派 |
+| UI28 | OFFLINE_PASS · N/B/R组合 | 同UI跨Profile新原生段无旧哨兵；旧段409；删除在途后native end仍核实，保留最小身份不重发 |
+
+**未覆盖边界保留：** 正式Gateway现有全部插件/slash/自动记忆权限合成、正式库迁移及服务加载；真实聊天意图理解与Planning/TTS/外部供料、真实外网参考导入；真实成片审美/完整音视频语义QC、Creator接受；V2发布/日志/归因适配；所有终端入口/OS凭证物理隔离。协议2使用HTTP和自然语言追问，不启用CLI兜底或通用问题授权工具；A1的HTTP/CLI与普通QuestionCards分别兼容复测，不冒称协议2已有这些入口。以上不改变原判据中明确另测的范围，也不允许自动发起付费任务。
+
+本轮研发/离线验收收口；唯一下一事项以[当前状态](../04_CURRENT_STATE.md)为准，正式部署与真实调用保持独立授权。第五轮仍CREATOR_REVIEW_PENDING，S6-14仍PARTIAL，S6-15不重开，S7不自动启动。
+
+![A5隔离浏览器：明确长期保存](../evidence/S6-14A_A5_learning-browser.png)
+
+![A5隔离浏览器：同一内容库只展示接受版](../evidence/S6-14A_A5_library-browser.png)
+
+收口检查：8份受影响Markdown的209条本地引用、29个锚点、43张表及UI01～UI28连续性通过；110份原生受测源码SHA与最终文件一致，最终浏览器前端与3张截图SHA匹配，Python编译/git diff --check通过。临时Web/Gateway已回收，7860正式服务未重启；未跟踪个人资料未纳入提交。

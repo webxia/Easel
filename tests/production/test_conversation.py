@@ -443,3 +443,47 @@ def test_channel_defaults_proposals_preserve_other_settings_and_use_current_targ
     b,i,_=turn(service,c,seg,'主题再加设计',id='settings2')
     p=proposal(service,c,seg,'channel_defaults',{'creative_basis':{'themes':'产品与设计'}},'settings2');b.end(Identity(**i));apply(c,p)
     assert cat.list('channels')[0]['creative_basis']['themes']=='产品与设计'
+
+
+def test_entry_subtitle_layers_match_work_and_explicit_director_keeps_fixed_settings(env):
+    service,c=env;cat=CreativeCatalog(service)
+    fixture_work=service.command('create',{'title':'fixture identities'},command_id='fixture-work')['work_id']
+    with service.store.transaction() as conn:
+        profile=service._profile(conn,'one')
+        conn.execute('UPDATE profile_refs SET settings_json=? WHERE id=?',(encode({'schema_version':1,'subtitles':{'enabled':True,'size':62,'color':'#EFEFEF'},'audio_mode':'silent'}),profile))
+        # Accepted versions are fixture identities here; native analysis/render is
+        # separately exercised by the A5 local production journey.
+        conn.execute("INSERT INTO artifacts(id,work_id,kind,storage_ref,digest,size_bytes,created_at) VALUES ('fixture-trial',?,'output','works/fixture.mp4',?,1,?)",(fixture_work,'0'*64,now()))
+        for n in ('default','explicit'):
+            conn.execute('INSERT INTO directors(id,name,created_at,updated_at) VALUES (?,?,?,?)',(n,n,now(),now()))
+            conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,trial_artifact_id,accepted_at,created_at) VALUES (?,?,1,?,?,1,'fixture-trial',?,?)",(n+'-v',n,encode({'schema_version':1,'visual_style':n}),'[]',now(),now()))
+    channel=cat.command('channels','create',{'name':'频道','profile_ref':'one','settings':{'subtitles':{'enabled':False},'duration_seconds':35},'director_ids':['default'],'default_director_revision':'default-v'},command_id='channel-settings')
+    segment=entry(c,profile_ref='one',channel_id=channel['id'],director_revision='explicit-v')
+    context=c.view('ui')['context'];assert context['settings']['subtitles']=={'enabled':False,'size':62,'color':'#EFEFEF'}
+    assert context['settings']['director_revision']=='explicit-v'
+    b,i,_=turn(service,c,segment);p=tool(b,i,'easel_work_create_draft',{'title':'本期','input_text':'具体内容'});b.end(Identity(**i))
+    work=service.snapshot(apply(c,p)['work_id']);assert work['settings']['subtitles']==context['settings']['subtitles']
+    assert work['settings']['director_revision']=='explicit-v' and work['settings']['duration_seconds']==35
+    # A different profile cannot borrow the channel. Archived defaults never
+    # silently fall through to another director.
+    raises('invalid_input',lambda:c.enter('other',{'profile_ref':'two','channel_id':channel['id']},'other-profile'))
+    cat.command('directors','edit',{'archived':True},command_id='archive-default',id='default',expected_revision=1)
+    raises('invalid_input',lambda:c.enter('later',{'profile_ref':'one','channel_id':channel['id']},'archived-default'))
+    assert service.snapshot(work['id'])['settings']['director_revision']=='explicit-v'
+
+
+@pytest.mark.parametrize('name',[None,12,[],{},'', ' '*4])
+def test_channel_proposal_invalid_name_is_not_saved_or_reported_applied(env,name):
+    service,c=env;segment=entry(c,profile_ref='one');b,i,_=turn(service,c,segment)
+    p=tool(b,i,'easel_work_propose',{'kind':'channel_create','values':{'name':name},'source_refs':['turn']});b.end(Identity(**i))
+    raises('invalid_input',lambda:apply(c,p))
+    assert c.view('ui')['proposals'][0]['state']=='proposed'
+    assert CreativeCatalog(service).list('channels')==[]
+    assert service.list_works()['items']==[]
+
+
+def test_prework_symlink_cannot_supply_an_allowed_attachment(env):
+    service,c=env;segment=entry(c);a=attachment(service);path=service.outputs/a['path']
+    path.unlink();target=service.outputs/'foreign.mp4';target.write_bytes(b'foreign');path.symlink_to(target)
+    raises('permission_missing',lambda:turn(service,c,segment,attachments=[a]))
+    with service.store.connection() as conn:assert conn.execute('SELECT count(*) FROM conversation_turns').fetchone()[0]==0

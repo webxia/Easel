@@ -41,22 +41,30 @@ from validate_openclaw_work_bridge import FakeModel,free_port,wait_for,isolated_
 
 
 @contextmanager
-def fixture(root):
+def fixture(root, *, configure=None, resume=False, memory_plugin=False):
     root=root.resolve()
     if not any(p in root.parents for p in [Path(tempfile.gettempdir()).resolve(),Path('/tmp').resolve()]):raise ValueError('Temporary root required')
-    root.mkdir(exist_ok=False)
-    for folder in ('tmp','home','state','profiles','workspace-main'):(root/folder).mkdir()
+    marker=root/'isolated-fixture.json'
+    if resume and (not marker.is_file() or marker.read_text()!='easel-isolated-v1' or root.is_symlink()):raise ValueError('Only an existing isolated fixture can resume')
+    previous=json.loads((root/'openclaw.json').read_text()) if resume else None
+    root.mkdir(exist_ok=resume);marker.write_text('easel-isolated-v1')
+    for folder in ('tmp','home','state','profiles','workspace-main'):(root/folder).mkdir(exist_ok=resume)
     repo=Path(__file__).resolve().parents[1];node,entry=openclaw_base_cmd();base=[node,entry]
-    plugin=root/'plugin';shutil.copytree(repo/'agents/plugins/easel-work',plugin)
-    (root/'node_modules').mkdir();(root/'node_modules/openclaw').symlink_to(Path(entry).parent,target_is_directory=True)
-    workspace=prepare_workspace(repo,root/'workspace-video')
+    plugin=root/('plugin-'+uuid.uuid4().hex if resume else 'plugin');shutil.copytree(repo/'agents/plugins/easel-work',plugin)
+    (root/'node_modules').mkdir(exist_ok=resume)
+    if not resume:(root/'node_modules/openclaw').symlink_to(Path(entry).parent,target_is_directory=True)
+    workspace=prepare_workspace(repo,root/('workspace-video-'+uuid.uuid4().hex if resume else 'workspace-video'))
     (root/'workspace-main/AGENTS.md').write_text('MAIN_ONLY_FORBIDDEN_SENTINEL')
     (root/'AGENTS.md').write_text('DEV_ONLY_FORBIDDEN_SENTINEL')
     for profile in ('one','two'):
-        folder=root/'profiles'/profile;folder.mkdir()
-        (folder/'identity.md').write_text('PROFILE_'+profile+'_SENTINEL')
-        (folder/'preferences.md').write_text('克制、忠于真实经历\n')
+        folder=root/'profiles'/profile;folder.mkdir(exist_ok=resume)
+        for dimension in ('identity','style','audience','platforms','preferences','memory'):
+            path=folder/(dimension+'.md')
+            if not path.exists():path.write_text('PROFILE_'+profile+'_'+dimension+'_SENTINEL\n克制、忠于真实经历\n')
     web_port,gateway_port=free_port(),free_port();token,gateway_token=secrets.token_urlsafe(32),secrets.token_urlsafe(32)
+    if previous:
+        from urllib.parse import urlsplit
+        gateway_port=previous['gateway']['port'];web_port=urlsplit(previous['plugins']['entries']['easel-work']['config']['baseUrl']).port
     guard=root/'guard.mjs'
     guard.write_text('''import net from 'node:net';import dns from 'node:dns';import fs from 'node:fs';
 const allowed=new Set(PORTS); const original=net.Socket.prototype.connect;const lookup=dns.lookup;
@@ -70,6 +78,9 @@ if(!allowed.has(Number(o.port))||!['127.0.0.1','localhost','::1'].includes(o.hos
         'models':{'mode':'replace','providers':{'a1fake':{'baseUrl':f'http://127.0.0.1:{web_port}/v1','apiKey':'offline-no-payment','api':'openai-completions','models':[{'id':'a1-fake','name':'offline','reasoning':False,'input':['text'],'cost':{'input':0,'output':0,'cacheRead':0,'cacheWrite':0},'contextWindow':65536,'maxTokens':2048}]}}},
         'skills':{'allowBundled':[]},'cron':{'enabled':False},'update':{'checkOnStart':False,'auto':{'enabled':False}},'telemetry':{'enabled':False},
         'plugins':{'allow':['easel-work'],'load':{'paths':[str(plugin)]},'slots':{'memory':'none'},'entries':{'easel-work':{'enabled':True,'hooks':{'allowConversationAccess':True},'config':{'baseUrl':f'http://127.0.0.1:{web_port}','token':token,'protocolVersion':2}}}}}
+    if memory_plugin:
+        config['plugins']['allow'].append('memory-core')
+        config['plugins']['slots']['memory']='memory-core'
     config_path=root/'openclaw.json';config_path.write_text(json.dumps(config));config_path.chmod(0o600)
     store=Store(root/'outputs/_production/db.sqlite3');store.initialize();service=WorkService(store,outputs=root/'outputs',profiles=root/'profiles')
     # Reuse actual Web chat/replay functions, replacing only providers and test paths in THIS child process.
@@ -85,6 +96,10 @@ if(!allowed.has(Number(o.port))||!['127.0.0.1','localhost','::1'].includes(o.hos
     app.middleware('http')(web.local_write_guard)
     app.include_router(create_router(lambda:service));app.include_router(create_internal_router(lambda:service,lambda:token));app.include_router(production_router(lambda:service));app.include_router(create_settings_router(lambda:service,settings_provider=lambda:{}))
     app.add_api_route('/api/chat/stream',web.api_chat_stream,methods=['POST']);app.add_api_route('/api/chat/jobs/{turn_id}/stream',web.api_chat_job_stream,methods=['GET']);app.add_api_route('/api/chat/stop',web.api_chat_stop,methods=['POST']);app.add_api_route('/api/chat/last/{session_id}',web.api_chat_last,methods=['GET'])
+    app.add_api_route('/api/upload',web.api_upload,methods=['POST'])
+    app.add_api_route('/api/upload/local',web.api_upload_local,methods=['POST'])
+    app.add_api_route('/api/outputs',web.api_outputs,methods=['GET'])
+    app.add_api_route('/api/skills',web.api_skills,methods=['GET'])
     model=FakeModel()
     def channel_case(body):
         content=next(m['content'] for m in reversed(body['messages']) if m['role']=='user')
@@ -98,6 +113,7 @@ if(!allowed.has(Number(o.port))||!['127.0.0.1','localhost','::1'].includes(o.hos
     def bootstrap():return {'modelConfigured':True}
     @app.get('/api/upload/limits')
     def limits():return {'max_mb':50}
+    extension=configure(app,service,model,web) if configure else {}
     app.mount('/static',StaticFiles(directory=repo/'web/static'),name='static')
     app.mount('/',StaticFiles(directory=repo/'web/frontend/dist',html=True),name='frontend')
     server=uvicorn.Server(uvicorn.Config(app,host='127.0.0.1',port=web_port,log_level='error'));thread=threading.Thread(target=server.run,daemon=True);thread.start();wait_for(lambda:server.started)
@@ -108,7 +124,7 @@ if(!allowed.has(Number(o.port))||!['127.0.0.1','localhost','::1'].includes(o.hos
             try:require_persistent_gateway(f'http://127.0.0.1:{gateway_port}',gateway_token);return True
             except (ProductionError,httpx.HTTPError):return False
         wait_for(ready,60)
-        yield {'root':root,'url':f'http://127.0.0.1:{web_port}','service':service,'model':model,'bridge_token':token,'gateway':gateway,'node':node,'entry':entry,'env':env}
+        yield {'root':root,'url':f'http://127.0.0.1:{web_port}','service':service,'model':model,'bridge_token':token,'gateway':gateway,'node':node,'entry':entry,'env':env,**extension}
     finally:
         gateway.terminate()
         try:gateway.wait(timeout=12)
@@ -146,14 +162,14 @@ def probe(f):
     check('different_tool_call_ids_one_plan_proposal',len(plans)==1 and service.snapshot(work)['runs']==[])
     p=plans[0];response=client.post(f"/api/chat/video/probe/proposals/{p['id']}/apply",json={'command_id':'plan','hash':p['body_hash']});response.raise_for_status()
     check('explicit_plan_card_uses_existing_work_service',len(service.snapshot(work)['runs'])==1)
-    for case in ('attack_exec','attack_read','attack_sessions_spawn','attack_voice','forge'):chat('probe',sid,case)
+    for case in ('attack_exec','attack_read','attack_sessions_spawn','attack_voice','attack_memory_search','attack_old_pipeline','attack_video','forge'):chat('probe',sid,case)
     check('forbidden_tools_no_new_production',len(service.snapshot(work)['runs'])==1)
     with service.store.connection() as conn:
         check('no_paid_operations_or_grants',conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0 and conn.execute('SELECT count(*) FROM authorization_grants').fetchone()[0]==0)
     # A different Work/Profile gets another native transcript, despite sharing the UI session.
     start=len(f['model'].requests);other=enter('probe',{'profile_ref':'two'});chat('probe',other,'context')
     text=json.dumps(f['model'].requests[start:])
-    check('cross_profile_native_session_has_no_previous_sentinel',other!=sid and 'PROFILE_two_SENTINEL' in text and 'PROFILE_one_SENTINEL' not in text)
+    check('cross_profile_native_session_has_no_previous_sentinel',other!=sid and 'PROFILE_two_identity_SENTINEL' in text and 'PROFILE_one_identity_SENTINEL' not in text)
     all_requests=json.dumps(f['model'].requests,ensure_ascii=False)
     check('no_development_main_or_service_credentials',all(x not in all_requests for x in ('MAIN_ONLY_FORBIDDEN_SENTINEL','DEV_ONLY_FORBIDDEN_SENTINEL',f['bridge_token'])))
     from easel.conversation_bridge import TOOLS
@@ -167,10 +183,10 @@ def probe(f):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--root',type=Path,required=True);parser.add_argument('--serve',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--root',type=Path,required=True);parser.add_argument('--serve',action='store_true');parser.add_argument('--memory-plugin',action='store_true');args=parser.parse_args()
     result={}
     try:
-        with fixture(args.root) as f:
+        with fixture(args.root,memory_plugin=args.memory_plugin) as f:
             if args.serve:
                 print(json.dumps({'url':f['url'],'root':str(args.root)}),flush=True)
                 while True:time.sleep(1)

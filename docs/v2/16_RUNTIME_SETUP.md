@@ -223,3 +223,11 @@ Freesound 暂不接入：官方要求开发者申请 API Key，原始文件下�
 审片副本采用原分辨率、原帧率 H.264 CRF18 和 AAC 192k 编码，原交付成片不变；副本保存于作品 `inspection/` 目录。先完成区间、实际时长、画面/声音和文件摘要校验，再发模型请求。缓存用于重启后复用完全相同的请求字节，缓存变化不能自动重建后复用旧回执。每段记录开始/结束时间、SHA-256 和审阅结论；可观察事件提供已完成段数和本段范围。所有分段及全局语义综合均通过且没有局限，才标记 `passed`；任何未审完、片尾缺陷、局部失败、跨段冲突或观察不足都不会被汇总中的一次“通过”抹去。
 
 这里的 `coverage_complete` 表示提交的实际视频区间完整覆盖时间轴，**不等于已验证供应商内部逐帧采样或模型判断正确**。本轮仅用本地合成视频和 scripted/MockTransport 验证完整字节提交、尾部缺陷负例、声音/方言能力检查、缓存与操作身份；未调用真实视频理解服务，真实审片准确度、音色自然度和创作质量仍未验收。相关测试：`tests/production/test_quality.py`、`test_creation_flow.py`、`test_voice_settings_api.py`。
+
+## S6-14A A5离线复现（不操作正式服务）
+
+完整探针：`.venv/bin/python scripts/validate_conversation_a5.py --root /tmp/easel-a5-<new-id>`。必须使用全新系统临时目录；脚本创建实际Web、原生Gateway、临时库和Worker，以本地脚本模型/合成图片与音轨运行真实FFmpeg、技术QC、模拟审片和续作。聊天模型仅允许回环测试端口，执行模型为进程内脚本；不读取项目.env运行生产、不部署插件或修改正式库。模拟授权与接受只作用于临时库。
+
+浏览器使用`--serve`；若检查代码后需要重启隔离fixture，先向该脚本的确切PID发送SIGINT，等待其finally关闭Gateway/Web，再用相同root加`--serve --resume-isolated`。只允许带隔离标记的临时根，沿用原临时端口、DB、上传、Profile、会话与原生运行段，生成新的测试凭证和工作区；不得将该选项用于正式数据。测试完成同样用SIGINT回收，不留下第二套常驻生产服务。
+
+组合权限探针：`.venv/bin/python scripts/validate_video_conversation.py --root /tmp/easel-a5-bridge-<new-id> --memory-plugin`。该选项仅在临时配置启用原生memory-core并尝试其工具旁路；实际清单仍须严格8项。正式已安装插件/slash/自动记忆组合与真实模型的完整交互仍需受控部署验收；A5离线通过不授权安装、重载或付费。运行结果与截图见[S6-14A](tasks/S6-14A_conversation-integration.md)。

@@ -4,10 +4,10 @@
 
 ## 1. 基线、顺序与交付
 
-- 从**包含本实施设计及已完成依赖代码**的已审查提交开工，实际工作树与基线见[当前状态](../04_CURRENT_STATE.md#接手入口)。S5 基于 S4，业务事实仍为 `8eeafb6b`，V1 只读 `57c8e2ad`。依赖尚未合入时可从具备成果的父分支创建叠加分支，PR base 指向父开发分支，不绕过主线合并授权。
+- 从**包含本实施设计及已完成依赖代码**的已审查提交开工，实际工作树与基线见[当前状态](../04_CURRENT_STATE.md#唯一执行入口)。S5 基于 S4，业务事实仍为 `8eeafb6b`，V1 只读 `57c8e2ad`。依赖尚未合入时可从具备成果的父分支创建叠加分支，PR base 指向父开发分支，不绕过主线合并授权。
 - 首张卡为 **S6-01 领域合同/事务存储**。02 与 03 可在依赖满足后分工，06/08/09 按表中依赖推进；同文件或合同变更须协调。依赖按可用产物判定，不只看文档状态。
 - **S6-01～S6-14 是保留的任务 ID，不代表全部必须在路线图 S6 阶段一次完成。** 阶段定义以[路线图](../03_ROADMAP.md)为准，分批验证不能缩减 S4 正式范围。
-- **2026-10-18 当前主线决定**：S6-01～13 已完成软件主链，S6-15 素材层 **CLOSED / COMPLETE**。S6-14 第五轮已核实 **REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING**，自动语义 QC 仍 NOT_TESTED；整体仍 PARTIAL，不能宣称完整 Web 交互或 S7 验收通过。用户新增 [S6-14A 对话式创作接入](S6-14A_conversation-integration.md)，设计文档/图已交付，用户批准后的 A1 原生隔离工具桥验证通过；A2～A5 与正式 Web 接入待后续实施。当前唯一研发下一动作见 [CURRENT STATE](../04_CURRENT_STATE.md)；不自动启动第六轮生产。
+- **2026-10-18 当前主线决定**：S6-01～13 已完成软件主链，S6-15 素材层 **CLOSED / COMPLETE**。S6-14 第五轮已核实 **REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING**，自动语义 QC 仍 NOT_TESTED；整体仍 PARTIAL，不能宣称完整 Web 交互或 S7 验收通过。用户新增 [S6-14A 对话式创作接入](S6-14A_conversation-integration.md)，设计文档/图已交付，用户批准后的 A1 原生隔离工具桥验证通过；A2～A4源码接入已完成，A5完整隔离Web流程与28项离线判据通过；正式部署和真实模型Web验收待后续授权。当前唯一研发下一动作见 [CURRENT STATE](../04_CURRENT_STATE.md)；不自动启动第六轮生产。
 
 | 里程碑 | 任务与证据 | 能证明什么 |
 |---|---|---|

@@ -66,7 +66,7 @@ export default function BrushEntry({ onPick, onVideo }: { onPick: (text: string)
           <div className="brush-panel-head">
             <div className="brush-panel-headline">
               <div className="brush-panel-title">能做的都在这</div>
-              <div className="brush-panel-sub">选一个 → 自动填进输入框；「管线」件走整片产线</div>
+              <div className="brush-panel-sub">{onVideo?'选择视频创作进入对话；其他能力会填入输入框':'选一个 → 自动填进输入框；「管线」件走整片产线'}</div>
             </div>
             <input ref={searchRef} className="brush-search" placeholder="搜索…" value={q}
               onChange={(e) => setQ(e.target.value)} />
@@ -81,12 +81,12 @@ export default function BrushEntry({ onPick, onVideo }: { onPick: (text: string)
           <div className="brush-body">
             {pipeline && hit(pipeline) && (
               <div className="brush-grp">
-                <div className="brush-grp-name">整片级 · 走独立管线</div>
+                <div className="brush-grp-name">{onVideo?'视频创作 · 从想法到成片':'整片级 · 走独立管线'}</div>
                 <button type="button" className="brush-item brush-item-pipe" onClick={() => pick(pipeline, true)}>
                   <span className={`brush-dot ${DOT[pipeline.status || 'ready'] || 's-ready'}`} />
-                  <span className="brush-il">{pipeline.label}</span>
-                  <span className="brush-chip-pipe">管线</span>
-                  <span className="brush-idesc">{pipeline.desc}</span>
+                  <span className="brush-il">{onVideo?'对话式视频创作':pipeline.label}</span>
+                  <span className="brush-chip-pipe">{onVideo?'创作':'管线'}</span>
+                  <span className="brush-idesc">{onVideo?'讨论创意 → 确认完整方案 → 进度与成片 → 审片修改与接受':pipeline.desc}</span>
                   <span className="brush-iadd">＋</span>
                 </button>
               </div>

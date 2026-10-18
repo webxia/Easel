@@ -259,14 +259,14 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
           </h1>
           <p className="page-subtitle">
             {atTop
-              ? `按项目归档，共 ${roots.length} 个项目。点项目进去看成品与素材。`
+              ? `已接受视频 ${acceptedVideos.length} 部 · 文件项目 ${roots.length} 个。可打开具体版本继续创作。`
               : `${dirs.length} 个文件夹 · ${files.length} 个文件（可继续点开子文件夹）`}
           </p>
         </div>
         <button className="btn btn-sm" onClick={load}><IconRefresh size={14} /> 刷新</button>
       </div>
 
-      {atTop && acceptedVideos.length > 0 && <section><h2>已接受的视频作品</h2><p>保存的是明确接受的版本；可回到对话继续修改、比较或创作新作。</p><div className="gallery-grid">{acceptedVideos.map(item => <article className="card" key={item.work_id}><h3>{item.title} · 版本{item.output_revision}</h3><video controls preload="metadata" src={artifactURL(item.artifact_id)} style={{width:'100%',maxHeight:360}} /><button onClick={()=>onContinue?.({work_id:item.work_id,output_id:item.artifact_id,kind:'continue'})}>围绕此版本继续创作</button></article>)}</div></section>}
+      {atTop && acceptedVideos.length > 0 && <section><h2>已接受的视频作品</h2><p>保存的是明确接受的版本；可回到对话继续修改、比较或创作新作。</p><div className="gallery-grid">{acceptedVideos.map(item => <article className="card" key={item.work_id}><h3>{item.title} · 版本{item.output_revision}</h3><video controls preload="metadata" src={artifactURL(item.artifact_id)} style={{width:'100%',maxHeight:360}} /><button className="btn btn-sm" onClick={()=>onContinue?.({work_id:item.work_id,output_id:item.artifact_id,kind:'continue'})}>围绕此版本继续创作</button></article>)}</div></section>}
       {treeError && <div className="notice-error">{treeError}</div>}
 
       {/* 项目主题标签（进入项目根时展示） */}
@@ -288,7 +288,7 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
         </div>
       )}
 
-      {empty && !treeError ? (
+      {empty && !treeError && !(atTop && acceptedVideos.length > 0) ? (
         <div className="empty-state" style={{ height: 300 }}>
           <div className="empty-icon"><IconOutputs size={44} /></div>
           <p>{atTop ? '还没有产物——去对话或技能库生成第一条内容吧' : '这个文件夹是空的'}</p>

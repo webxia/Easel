@@ -34,8 +34,9 @@ class CreativeCatalog:
         return self.store.execute_command(command_id,{'catalog':kind,'action':action,'id':id,'revision':expected_revision,'payload':payload},execute,connection=_connection)
 
     def _channel(self,conn,existing,data):
-        title=str(data.get('name',existing['name'] if existing else '')).strip()
-        if not title or len(title)>200:fail('invalid_input','请输入频道名称')
+        title=data.get('name',existing['name'] if existing else '')
+        if not isinstance(title,str) or not title.strip() or len(title.strip())>200:fail('invalid_input','请输入频道名称')
+        title=title.strip()
         settings=data.get('settings',json.loads(existing['settings_json']) if existing else {'schema_version':1})
         self.service._validate_settings(settings)
         if set(settings)&{'director_revision','director_trial'}:fail('invalid_input','频道导演请使用已接受的默认导演版本字段')

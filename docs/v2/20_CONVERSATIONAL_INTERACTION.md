@@ -1,6 +1,6 @@
 # Easel V2 · 对话式视频创作交互设计
 
-状态：**A2～A4已获准实施并完成 SOFTWARE_PASS；A5完整集成验收/正式部署未执行。** 本轮实施起点44b3f08c，成功生产基线仍为406e523c。本文件保留交互目标与设计推演；早期“尚未实现/停止”的段落描述各次设计时点，不是当前任务状态。当前落地路径及有限调整统一见[实施合同§9.10](15_IMPLEMENTATION_DESIGN.md#910-a2a4实际落地与部署边界)，具名证据见[S6-14A](tasks/S6-14A_conversation-integration.md)，第五轮生产证据见[S6-14](tasks/S6-14_integration-release.md)。本轮未改正式配置或数据，也未启动真实付费制作。
+状态：**A2～A4已获准实施并完成 SOFTWARE_PASS；A5完整隔离流程与28项离线判据已通过；正式部署/真实模型验收未执行。** 本轮实施起点44b3f08c，成功生产基线仍为406e523c。本文件保留交互目标与设计推演；早期“尚未实现/停止”的段落描述各次设计时点，不是当前任务状态。当前落地路径及有限调整统一见[实施合同§9.10](15_IMPLEMENTATION_DESIGN.md#910-a2a4实际落地与部署边界)，具名证据见[S6-14A](tasks/S6-14A_conversation-integration.md)，第五轮生产证据见[S6-14](tasks/S6-14_integration-release.md)。本轮未改正式配置或数据，也未启动真实付费制作。
 
 
 ## 1. 目标与设计依据
@@ -170,9 +170,9 @@ API 直连目前只有文本/图片对话，不具有完整技能执行。若后
 |---|---|---|
 | [Easel 聊天入口](../../web/app.py)：`_production_chat_command`、`_run_gateway_http` 及 CLI fallback | 有 workId 时先短路为 plan/revise；普通请求用 `openclaw/default`、`agent:main:...`，CLI 同样固定 main | 替换短路；HTTP/CLI/问题桥/历史解析共同使用服务端保存的运行绑定，不能只改一个 model 字段 |
 | 当前实际 main 配置；[同步脚本](../../agents/sync.sh) | main 具有 shell、文件和直接媒体工具；同步脚本向其工作区复制全量技能，并附项目根和画像/输出访问说明 | 不复用该宽权限执行环境；普通 main 保留，新作品配置使用受限工具和经审查的产品上下文 |
-| OpenClaw 本机 `docs/gateway/openai-http-api.md`；[官方 HTTP 合同](https://docs.openclaw.ai/gateway/openai-http-api) | 可显式路由到指定 Agent，并固定会话；现有 HTTP 流式入口可沿用 | 目标 `openclaw/easel-video`，服务端固定 `agent:easel-video:<runtime_session_key>`；不换 Gateway、不换聊天底座、不指定替代生产模型 |
-| 本机 `docs/plugins/tool-plugins.md` 与 SDK `OpenClawPluginToolContext`；[官方工具插件](https://docs.openclaw.ai/plugins/tool-plugins) | 工具 factory 可读取运行时 agentId/sessionKey/sessionId；execute 有 toolCallId | 注册受限、具名作品工具；身份来自运行时和服务端绑定，不让模型传任意作品范围或命令 ID |
-| 本机 `docs/tools/multi-agent-sandbox-tools.md`；[官方工具策略](https://docs.openclaw.ai/tools/multi-agent-sandbox-tools) | 工具策略/工作区可按 Agent 配置；这不等于 Easel 已有动态逐会话白名单 | 首期选择固定受限配置，减少对自定义逐轮拦截的依赖 |
+| OpenClaw 安装包文档 `gateway/openai-http-api.md`；[官方 HTTP 合同](https://docs.openclaw.ai/gateway/openai-http-api) | 可显式路由到指定 Agent，并固定会话；现有 HTTP 流式入口可沿用 | 目标 `openclaw/easel-video`，服务端固定 `agent:easel-video:<runtime_session_key>`；不换 Gateway、不换聊天底座、不指定替代生产模型 |
+| 安装包文档 `plugins/tool-plugins.md` 与 SDK `OpenClawPluginToolContext`；[官方工具插件](https://docs.openclaw.ai/plugins/tool-plugins) | 工具 factory 可读取运行时 agentId/sessionKey/sessionId；execute 有 toolCallId | 注册受限、具名作品工具；身份来自运行时和服务端绑定，不让模型传任意作品范围或命令 ID |
+| 安装包tools目录中的 `multi-agent-sandbox-tools.md`；[官方工具策略](https://docs.openclaw.ai/tools/multi-agent-sandbox-tools) | 工具策略/工作区可按 Agent 配置；这不等于 Easel 已有动态逐会话白名单 | 首期选择固定受限配置，减少对自定义逐轮拦截的依赖 |
 | 本机插件 SDK 的 Agent/Tool hook context 与 `agent-tools.before-tool-call` 实现 | hook 有原生 runId/工具调用身份；factory 的会话信息本身没有 Web turn_id；执行前 hook 可阻断 | 插件采用工具+最小生命周期 hooks 的混合入口，绑定原生运行与 Web turn；仅按当前 session 找 turn 会误接晚到工具。所有入口覆盖仍待验证 |
 
 **推荐方案：同一 Gateway 内的受限运行配置 + 一个原生作品工具插件 + Web 内的薄命令适配。** `easel-video` 是内部配置名，继承同一 Easel 助手表达与经审查的创作知识，Director 仍来自作品设置。它不是新增产品人格或第二个导演，不另起常驻服务，也不要求用户选模型。
@@ -569,3 +569,11 @@ flowchart LR
 频道可先讨论并独立保存，然后在同一对话承接本期内容。导演仍须取得真实参考、分析结果、确认风格，正式首版可兼试片；作品、导演和频道默认分别明确接受/保存。没有画像、频道或导演也能开始普通视频讨论。当前受限对话采用HTTP，澄清直接跨轮提问；原普通聊天QuestionCards保留。公开参考导入仅支持受控HTTPS视频直链，不假装解析任意平台网页。
 
 [任务卡](tasks/S6-14A_conversation-integration.md)登记实际代码与测试；[浏览器截图](evidence/S6-14A_A3_channel-browser.png)展示隔离合成数据的频道保存与刷新恢复。没有把所有28项界面矩阵标为PASS，也没有用假模型评价电影质感、自然语言理解质量或真实费用。正式部署、完整Web流程及真实调用归A5对应验收，Creator接受继续独立。
+
+## 14. A5完整离线交互验收与闭环复核
+
+实际浏览器已完成频道提案→保存→刷新恢复→本期草稿→上传参考→导演分析授权→风格确认→同Work试片→完整方案确认→本地成片→作品/导演分别接受→可选频道默认→指定输出局部修改→比较→可选长期保存→同一内容库继续创作→明确继承项的新主题。原生/API负例与回归补足并发、断线、UNKNOWN、越权、冲突和跨画像；28项判据的逐项证据只维护在[任务卡](tasks/S6-14A_conversation-integration.md)。
+
+本轮修复入口恢复、固定设置合同比较、字幕继承、频道名称校验、已完成动作重复提交与内容库空态等问题。普通聊天保留直接输入，视频依据选项在明确进入视频模式后展开；参考卡显示文件名，进度显示可读动作与状态。交互图的主路径不变，实际分工与来源边界见[实施合同§9.11](15_IMPLEMENTATION_DESIGN.md#911-a5验收后的合同补正)。
+
+这是一套实际Web/原生插件/本地Worker与FFmpeg的软件验收，模型答案与媒体供应为本地合成测试。真实模型意图理解、真实配音/素材供应、成片审美及Creator接受未由本轮验证；发布/日志/归因仍是另行具名接入。

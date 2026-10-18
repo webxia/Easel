@@ -17,7 +17,10 @@ export function actionId(scope:string, payload:unknown):string {
   return value;
 }
 export function enterVideo(session:string,entry:VideoEntry) {
-  return videoRequest<{segment_id:string;work_id?:string}>(`${encodeURIComponent(session)}/enter`,'POST',{command_id:actionId(session+':entry',entry),entry});
+  // Navigation must select the segment again after visiting another entry.
+  // A permanent actionId would replay an old receipt without selecting it.
+  // enter itself reuses matching segments and never creates a Work or Run.
+  return videoRequest<{segment_id:string;work_id?:string}>(`${encodeURIComponent(session)}/enter`,'POST',{command_id:crypto.randomUUID(),entry});
 }
 export function applyProposal(session:string,p:Proposal,dismiss=false) {
   return videoRequest(`${encodeURIComponent(session)}/proposals/${p.id}/apply`,'POST',{command_id:actionId(p.id,{hash:p.body_hash,dismiss}),hash:p.body_hash,dismiss});

@@ -161,7 +161,14 @@ class PlanningTasks:
                     payload['director_revision_id']=context.plan.get('director_revision_id')
                 requested=json.loads(work['settings_json'])
                 for field in ('duration_seconds','aspect_ratio','audio_mode','voice','subtitles'):
-                    if field in requested and requested[field] != payload['settings'].get(field):
+                    expected=requested.get(field)
+                    if field=='subtitles' and field in requested:
+                        from .contracts import SubtitleSettings
+                        expected=SubtitleSettings.model_validate(expected).model_dump(mode='json')
+                    if field=='voice' and expected is not None:
+                        from .contracts import VoiceIdentity
+                        expected=VoiceIdentity.model_validate(expected).model_dump(mode='json')
+                    if field in requested and expected != payload['settings'].get(field):
                         raise ModelTaskError('plan_constraint_changed','模型方案改变了本次明确设置，需要修正方案')
                 rev=conn.execute('SELECT COALESCE(MAX(revision),0)+1 FROM plan_revisions WHERE work_id=?',(ctx.work_id,)).fetchone()[0]
                 conn.execute('INSERT INTO plan_revisions(id,work_id,revision,payload_json,plan_hash,created_at) VALUES (?,?,?,?,?,?)',

@@ -28,3 +28,11 @@ test('proposal confirmation and dismissal retain separate fixed identities with 
   assert.equal(r.calls[0][1].hash,'content-v1');assert.equal(r.calls[2][1].dismiss,true);
   assert.ok(r.calls[0][0].startsWith('/studio/api/chat/video/'));
 });
+test('returning to an entry selects it again instead of replaying an obsolete navigation receipt',async()=>{
+  const r=runtime();
+  await r.api.enterVideo('ui',{work_id:'first'});
+  await r.api.enterVideo('ui',{profile_ref:'other'});
+  await r.reload().enterVideo('ui',{work_id:'first'});
+  assert.notEqual(r.calls[0][1].command_id,r.calls[2][1].command_id);
+  assert.deepEqual(r.calls[0][1].entry,r.calls[2][1].entry);
+});

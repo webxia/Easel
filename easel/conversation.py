@@ -45,10 +45,11 @@ class ConversationService:
             if work:
                 settings=json.loads(work['settings_json'])
             else:
+                from .production.settings import merge_creation_settings
                 settings={}
                 if profile:settings.update(json.loads(row(conn,'profile_refs',profile)['settings_json']))
                 if channel:
-                    settings.update(json.loads(ch['settings_json']))
+                    settings=merge_creation_settings(settings,json.loads(ch['settings_json']))
                     if ch['default_director_revision']:settings['director_revision']=ch['default_director_revision']
                 if entry.get('director_revision'):
                     settings['director_revision']=entry['director_revision'];settings['director_trial']=bool(entry.get('director_trial'))

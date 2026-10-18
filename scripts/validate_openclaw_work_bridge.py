@@ -64,6 +64,9 @@ class FakeModel:
         text = json.dumps(messages[last_user].get('content', ''), ensure_ascii=False) if last_user >= 0 else ''
         case = re.search(r'A1_CASE=([a-z_]+)', text)
         case = case[1] if case else 'discuss'
+        if case in getattr(self, 'delays', {}):
+            import asyncio
+            await asyncio.sleep(self.delays[case])
         tool_done = text in self.emitted or any(m['role'] == 'tool' for m in messages[last_user+1:])
         name, args = None, {}
         if not tool_done:

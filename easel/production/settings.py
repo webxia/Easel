@@ -11,6 +11,21 @@ SettingsScope = Literal["work", "channel", "profile"]
 _KEYS = {"duration_seconds", "aspect_ratio", "audio_mode", "voice", "subtitles"}
 
 
+def merge_creation_settings(*layers: dict) -> dict:
+    """Merge already-validated creation layers, preserving subtitle field choices.
+
+    Voice and director versions are indivisible identities. Used both before a
+    conversation creates a Work and by the authoritative Work creation path.
+    """
+    result = {}
+    for values in layers:
+        patch = deepcopy(values)
+        if "subtitles" in patch:
+            patch["subtitles"] = {**result.get("subtitles", {}), **patch["subtitles"]}
+        result.update(patch)
+    return result
+
+
 def validate_settings_patch(settings: dict) -> dict:
     """Validate partial defaults without inventing missing per-work choices."""
     if not isinstance(settings, dict) or set(settings) - _KEYS:

@@ -55,7 +55,7 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
 
   const isStreaming = !!stream;
   const isEmpty = session.messages.length === 0 && !isStreaming && !session.videoSegmentId;
-  const videoPanel=<VideoConversation sessionId={session.id} segmentId={session.videoSegmentId} persona={session.persona} personas={personas} onBound={onVideoBound} onRequest={onSend} onRestore={onRestoreVideo}/>;
+  const videoPanel=session.videoSegmentId?<VideoConversation sessionId={session.id} segmentId={session.videoSegmentId} persona={session.persona} personas={personas} onBound={onVideoBound} onRequest={onSend} onRestore={onRestoreVideo}/>:null;
 
   useEffect(() => {
     fetch('/api/upload/limits').then((r) => r.json())
