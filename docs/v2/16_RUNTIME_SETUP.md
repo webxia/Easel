@@ -17,11 +17,17 @@ EASEL_PRODUCTION_ENABLED=1 .venv/bin/easel web --port 7860
 
 Windows 首次配置时使用相应 `.venv\Scripts\python.exe` / `easel.exe`，PowerShell 先设置 `$env:EASEL_PRODUCTION_ENABLED="1"`。外部 `ffmpeg` 与 `ffprobe` 须在 PATH，字体须按下文明确配置。Web 已运行持久 worker，无须同时再启动 CLI worker。无 Web 时可运行 `easel production worker --root <项目绝对路径>`；`easel production status --root <项目绝对路径>` 为只读状态检查。
 
-新源码的「视频创作」改为作品/频道/导演目录与对话入口，方案/进度/审片共用卡片。A2～A4源码和隔离验证完成，正式服务仍需受控部署，不能通过刷新旧服务宣称已经上线。第五轮正式API自动成片、零人工恢复的证据保持独立；Creator尚未接受，自动语义QC仍未测，见[S6-14](tasks/S6-14_integration-release.md)。
+新前端的主创作入口位于对话笔菜单，视频创作、创建导演、创建频道三项并列；左侧独立视频创作菜单已移除，方案/进度/审片共用卡片。A2～A4源码和隔离验证完成，正式服务仍需受控部署，不能通过刷新旧服务宣称已经上线。第五轮正式API自动成片、零人工恢复的证据保持独立；Creator尚未接受，自动语义QC仍未测，见[S6-14](tasks/S6-14_integration-release.md)。
 
 新 V2 数据存于本项目 `outputs/_production` 和 `outputs/works`；首次启用创建新库，不读取 V1 历史运行库。停止 Web 后任务可由同库 worker 恢复；取消按钮才表示用户取消。不要手动删除这两个目录来解决失败。设置 `EASEL_PRODUCTION_ENABLED=0` 停用新入口，不卸载旧聊天能力。
 
-## S6-14A受限视频对话（源码已实现，正式部署未执行）
+### 2026-10-18 · 仅前端本机展示已生效
+
+用户授权部署本次前端供实际查看，暂不调用付费服务。界面版本231b5993：本机7860直接从web/frontend/dist按请求提供文件，已核对HTTP200的index及JS/CSS字节与该版本构建一致；三个对话管线入口可见，侧栏独立视频创作项已移除。无需重启Web或Worker；浏览器只新建空聊天并打开笔菜单，未选择管线、发送聊天或提交制作/保存/接受动作。查看入口为[本机Easel](http://127.0.0.1:7860/)→新对话→笔按钮“看看能做什么”。
+
+此处仅表示静态前端已生效：正式capabilities仍返回backend.reload_required=true；后端未重载，正式OpenClaw受限配置未部署，不能把可见菜单当作正式工具桥可用或完整创作验收。后端部署与真实调用继续独立授权。
+
+## S6-14A受限视频对话（后端源码已实现，正式接入部署未执行）
 
 - Web需`EASEL_PRODUCTION_ENABLED=1`及协议2持久桥；设置独立`EASEL_WORK_BRIDGE_TOKEN`（至少24字符），仅插件可用，不授予confirm/grant/accept等普通API权限。
 - 视频对话显式读取进程环境`EASEL_VIDEO_GATEWAY_URL`（`http://127.0.0.1:<实际Gateway端口>`）与`EASEL_VIDEO_GATEWAY_TOKEN`。不得把示例端口或其他环境凭证直接复制到正式运行；缺配置/插件或协议不符返回明确不可用，不切普通main或CLI。
