@@ -280,3 +280,6 @@ Node全量相关回归97 passed / 0 failed（新增6条）；build/lint通过，
 ![A6对话笔入口：三条管线并列](../evidence/S6-14A_A6_chat-pipelines.png)
 
 ![A6在途切换：保留原段与输入并显示原因](../evidence/S6-14A_A6_pending-browser.png)
+
+
+A6后续微调（2026-10-18，起点c9778bee）：按用户要求移除左侧导航独立“视频创作”菜单，对话笔入口的三条管线保留，既有目录组件未删除。仅调整Sidebar导航项；build/lint通过（既有转义/包体警告保留），未重跑A5/A6完整流程，历史截图保留其对应版本。正式环境未部署，无付费调用。
