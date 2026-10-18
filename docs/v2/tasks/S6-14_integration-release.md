@@ -1,8 +1,8 @@
 # S6-14 · 首次真实生产与完整范围验收
 
-状态：**PARTIAL / 第五轮 REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING。** 自动音视频语义 QC 保持 NOT_TESTED，A7独立真实Web生产已通过，质量问题与Creator接受仍待审阅，S7矩阵未执行。S6-15 已 CLOSED/COMPLETE；历史失败保留。本次完成第五轮只读验收归档，并新增 [S6-14A 对话式创作接入](S6-14A_conversation-integration.md)：设计已获准推进 A1，隔离原生工具桥验证通过；A2～A4源码接入已完成，A5完整隔离交互与28项离线判据通过；A7已独立完成正式部署与真实模型Web生产；详见子任务最新记录。
+状态：**PARTIAL**。第五轮REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING；后续[S6-14A](S6-14A_conversation-integration.md) A1～A6软件/隔离、A7真实Web、A8局部画面/字幕修订已完成各自验收。完整自动音视频语义QC仍NOT_TESTED，Creator接受与S7矩阵未整体完成；S6-15 CLOSED。历史失败与旧记录保留，当前任务顺序只看[当前状态](../04_CURRENT_STATE.md)。
 - **依赖**：第一段为 S6-01～11 实际就绪；第二段为 S6-01～13及首次真实闭环就绪。阶段对应见[任务包里程碑](S6_IMPLEMENTATION_PLAN.md#1-基线顺序与交付)。
-- **当前排程**：第五轮 API 自主到人工审核已通过，Creator 审片独立待反馈；S6-14A 的 A1～A6研发/隔离验收及A7已授权正式部署/真实Web生产已完成，下一步Creator审片与按具体意见修订。不自动启动第六轮付费 E2E，不以 API 成功代替对话体验验收。
+- **当前排程**：首次真实生产与对话接入的软件工作已有证据；当前用户主画像的配置/创作在独立窗口推进，个人映射留本机。围绕实际作品反馈修复，不重新启动历史轮次或把旧演示频道当默认。Creator审片、V3研究、S7完整验证分别记录。
 - **需求主/协作覆盖**：V2-EXP-009, V2-EXP-018, V2-EXP-022, V2-EXP-023, V2-EXP-028, V2-EXP-029, V2-EXP-030。
 - **目标与合同**：[可执行设计](../15_IMPLEMENTATION_DESIGN.md)；[任务包共同约定](S6_IMPLEMENTATION_PLAN.md#2-每张卡开始与完成的共同约定)。
 - **现有实现及验证落点**：`easel/production/`、`tests/production/`、正式后端 API 与 [运行配置](../16_RUNTIME_SETUP.md)；精确软件/真实/人工证据按本卡后续记录读取。

@@ -1,6 +1,6 @@
 # S6-04 · 本机worker与LangGraph持久编排
 
-状态：**IMPLEMENTED**；本机持久恢复软件检查通过，基础跨平台 CI 已核验，真实制作待授权验收。
+状态：**IMPLEMENTED**；本卡保存本机持久恢复与基础跨平台软件证据。后续真实生产/恢复结果见[S6-14](S6-14_integration-release.md)及[S6-14A](S6-14A_conversation-integration.md)，不再将最早的待授权状态作为当前阻断。
 
 - **依赖**：S6-01、S6-03。
 - **需求主/协作覆盖**：V2-EXP-006, V2-EXP-024, V2-EXP-025, V2-EXP-029, V2-EXP-033。

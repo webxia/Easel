@@ -10,14 +10,14 @@
 | 已确认的行为和验收要求是什么 | [S4 需求](01_REQUIREMENTS.md)：V2-EXP-001～034；确认不等于实现 |
 | 模型、程序、用户分别负责什么 | [逻辑架构](02_ARCHITECTURE.md)及[已接受的逻辑边界 ADR](decisions/ADR-S5-001-work-production-boundary.md) |
 | 为什么推荐该技术，有什么替代和风险 | [技术选型](14_TECHNOLOGY_SELECTION.md)：推荐与条件未决项，不冒充全部已获批准 |
-| Coding 应遵守哪些数据、状态、API 和执行规则 | [实施合同](15_IMPLEMENTATION_DESIGN.md)：待实现的唯一合同，不是现有能力声明 |
+| Coding 应遵守哪些数据、状态、API 和执行规则 | [实施合同](15_IMPLEMENTATION_DESIGN.md)：唯一实施合同；设计条款与已具名落地项分开，当前结果以Task/证据为准 |
 | 如何回到 Easel 对话式视频创作、前后端怎样衔接 | [交互设计与图](20_CONVERSATIONAL_INTERACTION.md)：参考 Easel 管线、含 OpenClaw 插件/受限运行配置研究、[完成与回写闭环](20_CONVERSATIONAL_INTERACTION.md#10-创作结束后的闭环与回写2026-10-18补充设计)、[导演/频道入口与整条闭环](20_CONVERSATIONAL_INTERACTION.md#11-导演频道入口与统一创作闭环)、[创建流程](diagrams/s6-14a-creation-flows.svg)及[交互分镜](diagrams/s6-14a-interaction-storyboard.svg)的设计提案，整体文档审查见[§12](20_CONVERSATIONAL_INTERACTION.md#12-本次整体方案审查与修正2026-10-18)；[S6-14A](tasks/S6-14A_conversation-integration.md) 登记新增交互任务；A1隔离验证保留；A2～A4已实现并通过具名软件/隔离Web验证，A5完整隔离流程与28项离线判据通过；[A6对话内三条管线入口](20_CONVERSATIONAL_INTERACTION.md#15-对话管线区域的统一入口用户澄清)及6项隔离入口验证完成；A7正式桥接/schema4迁移及真实Web频道→导演→完整生产→同对话审片回写通过；A8已通过真实Web局部修复画面动作、字幕对比及跨镜头合成，完整音轨复用不变；源片清晰度/夜景氛围限度与Creator待审独立记录 |
 | 任务顺序、依赖、覆盖关系与验收分工是什么 | [实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md)及各卡；每张卡维护自身执行结果 |
 | S6-15 素材层完善完成了什么 | [S6-15 结案任务](tasks/S6-15_material-layer-hardening.md)：G0～G4 历史正反证据；**CLOSED/COMPLETE，不是当前开放前置** |
 | 五类素材有哪些实证缺口、如何补齐 | [素材层审计](17_MATERIAL_LAYER_AUDIT.md)固定事实；[素材层架构与选型](18_MATERIAL_LAYER_ARCHITECTURE.md)定义内部方案，执行结果仍在 S6-15 |
 | G4 当时为何 NO_GO、如何回接 S6-14 | [G4 历史审查与判定](19_MATERIAL_LAYER_G4_ACCEPTANCE.md)：保留当时的 NO_GO 和恢复证据，不能当作当前 S6-14 未启动或仍暂停的状态 |
 | S1～S7 如何划分 | [路线图](03_ROADMAP.md)；任务卡编号不等于阶段编号 |
-| 正在做什么，从哪个版本接手 | [当前状态](04_CURRENT_STATE.md)；只汇总并指向证据 |
+| 正在做什么、全部任务如何归类、从哪个版本接手 | [当前状态](04_CURRENT_STATE.md)；统一任务/待办/历史/候选边界，主画像映射仅留本机 |
 | 如何配置并体验新视频制作 | [S6 运行配置](16_RUNTIME_SETUP.md)：启动、服务协议、字体和真实验收边界 |
 | 如何运行检查、交接和操作 Git | [工程说明](05_ENGINEERING.md)、[官方 README](../../README.md)、[贡献指南](../../CONTRIBUTING.md) |
 

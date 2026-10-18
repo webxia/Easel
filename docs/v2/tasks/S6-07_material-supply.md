@@ -1,6 +1,6 @@
 # S6-07 · 外部供应、权益与生成适配
 
-状态：**IMPLEMENTED_OFFLINE_VERIFIED**；外部供应、IMAGE/VIDEO 实际 HTTP 适配和主线衔接已实现；真实供应商调用仍 NOT_TESTED。
+状态：**IMPLEMENTED_OFFLINE_VERIFIED**；本卡保存外部供应与IMAGE/VIDEO HTTP适配的软件证据。后续真实素材/模型代表样本见[S6-15](S6-15_material-layer-hardening.md)，真实生产及局部补料见[S6-14](S6-14_integration-release.md)/[S6-14A](S6-14A_conversation-integration.md)；未覆盖Provider/模式仍NOT_TESTED，不把已实测项统称未调用。
 
 - **依赖**：S6-03、S6-06。
 - **需求主/协作覆盖**：V2-EXP-012, V2-EXP-013, V2-EXP-021, V2-EXP-025, V2-EXP-031, V2-EXP-033。

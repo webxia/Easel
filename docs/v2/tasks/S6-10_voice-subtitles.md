@@ -1,6 +1,6 @@
 # S6-10 · 固定音色、句段资产与字幕预览
 
-状态：**IMPLEMENTED / OFFLINE_INTEGRATION_VERIFIED**；真实 HTTP 配音适配、设置 UI/接口、句段资产及本地字幕媒体处理已接通。尚未实际调用声音服务，自然听感与真实音画对齐不报通过。
+状态：**IMPLEMENTED / OFFLINE_INTEGRATION_VERIFIED**；本卡保存配音适配、设置及本地字幕处理的软件证据。后续真实TTS出片、配音复用与字幕合成修复见[S6-14](S6-14_integration-release.md)/[S6-14A](S6-14A_conversation-integration.md)；自然听感与完整音画语义仍不能由软件或技术检查代替。
 
 - **依赖**：S6-02、S6-06、S6-08、S6-09。
 - **需求主/协作覆盖**：V2-EXP-010, V2-EXP-015, V2-EXP-023, V2-EXP-026。
