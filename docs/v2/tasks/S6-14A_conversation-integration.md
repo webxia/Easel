@@ -555,3 +555,12 @@ S6 F2 / CURRENT_BLOCKER：用户要求检查三条既有对话管线是否仍依
 隔离回归55项通过（含新增3项：素材权益/原声文字确认与幂等、跨会话/变更素材拒绝、缺单项选择及频道修改）；完整生产模块610 passed / 4 skipped，前端95 passed，原生假模型18项PASS、0付费请求。真实模型语义、真人交互和成片保持未验收。
 
 部署核验：正式有效运行、发送中Operation、未撤销活动对话和Gateway活动任务均为0后，同步既有受限工作区指令及input动作schema，重载Gateway和Web；正式9工具握手通过、backend.reload_required=false。9张业务表及画像文件前后hash一致，未改变用户配置/接受状态、未创建实际作品或模型/媒体调用。私有校验清单留本机忽略目录；工作区已有的存储清理候选补记属于其他在途改动，本提交保留且不纳入。
+
+
+### 2026-10-19 · image-01“缺权益凭证”只读诊断
+
+S6 F2 / RESEARCH（用户要求调查；没有实际生图失败回执，不冒充Provider拒绝）：本地及正式capabilities均返回image-01/available=false/reason=rights_evidence_missing。MINIMAX_API_KEY已配置、模型有效，但EASEL_GENERATION_RIGHTS_JSON为空，_configured_rights返回空；supply_capabilities将Key、型号和本地许可依据合并为available，_generate发送前还有相同检查。因此当前提示出自Easel本地配置，并非MiniMax账户/套餐权限校验结果，也不是官方要求随API提交的额外证书。
+
+官方MiniMax调试台 https://solutions.minimaxi.com/debug/image 的接口示例为Authorization Bearer Key及model/prompt/response_format/n/aspect_ratio等参数，没有本地Rights配置字段；开放平台用户协议 https://platform.minimaxi.com/zh/protocol/user-agreement 涉及输入/输出权利、第三方权利和标识义务，不能据此宣称全部输出当然享有无条件商用许可。官方接口文档直读失败，接口字段依据官方调试台，不伪称已读完整接口规范。没有远端账户读取或生成调用，实际额度/Key有效性及可用计费通道均未验证。
+
+结论建议：将技术凭证/账户调用资格、供应商条款依据、作品内次数费用授权及具体素材来源记录分别表达；将此提示解释为“生成素材使用许可依据未登记”。核实实际适用的服务条款/用途后可保存真实本地依据，不应为消掉提示写虚假许可或直接删除权益检查。通用条款不是逐张素材无侵权证明；成功回执仍按既有逻辑追加asset_generation_receipt。此轮不改源码/配置、不中断服务、不生图、不启动S7或新任务。
