@@ -8,12 +8,15 @@ def approved_overlay_texts(plan):
                    for text in re.findall(r'[“「]([^”」\n]{1,100})[”」]', scene.get('visual', ''))})
 
 
-def assert_visual_repair(base, revised, *, overlay_texts, protected_caption_style_ids=frozenset()):
+def assert_visual_repair(base, revised, *, overlay_texts, protected_caption_style_ids=frozenset(), allow_retiming=False):
     if base.audio != revised.audio or any(s.source_audio for s in base.scenes + revised.scenes):
         raise EditError('原生视觉修复必须保留完整音轨，不改含原声的镜头')
     for field in ('work_id','plan_revision','width','height','duration','audio_mode','fps'):
         if getattr(base, field) != getattr(revised, field):
             raise EditError('视觉修复不能改变作品身份、规格或总时长')
+    if abs(sum(s.duration-s.transition_seconds for s in revised.scenes) -
+           sum(s.duration-s.transition_seconds for s in base.scenes)) > .04:
+        raise EditError('视觉修复不能改变实际镜头净总长')
     old={s.scene_id:s for s in base.scenes}
     groups={s.scene_id:[] for s in base.scenes}
     order=[]
@@ -27,7 +30,7 @@ def assert_visual_repair(base, revised, *, overlay_texts, protected_caption_styl
         raise EditError('视觉修复不能删掉或重排已确认场景')
     for key, scenes in groups.items():
         duration=sum(s.duration-s.transition_seconds for s in scenes)
-        if abs(duration-(old[key].duration-old[key].transition_seconds))>.04:
+        if not allow_retiming and abs(duration-(old[key].duration-old[key].transition_seconds))>.04:
             raise EditError('原场景可拆镜，但净时长与声音位置必须保留')
     captions={c.caption_id:c for c in revised.captions}
     for before in base.captions:

@@ -68,6 +68,7 @@ class VoiceReadyCreativePlan(CreativePlan):
 
 
 class DraftReview(Contract):
+    suggestions: list[str] = Field(default_factory=list, max_length=16, description='非阻断的审美或表达建议；不能用于隐藏事实错误、明确要求冲突或已证实质量缺陷')
     verdict: str = Field(pattern='^(pass|fail)$')
     findings: list[str] = Field(default_factory=list,max_length=12)
     observations: list[str] = Field(default_factory=list,max_length=24)
@@ -352,7 +353,7 @@ class PlanningTasks:
                         replace(context,plan=draft.model_dump(mode='json'),
                             brief=context.brief+'\n原生既有审查记录，请逐项核对本次是否已解决；若原判断被实际像素否定，明确依据，不照搬：'+encode(history)),
                         '独立审查尚未确认草稿；只返回有依据的观察和必须修正的问题，不改稿、不声称已看过未选的库存或听过声音。'
-                        '核对是否回应一句想法、具体例子能否解释原因与边界，口语是否有鲜活的分析而非课程讲义。'
+                        '核对是否回应一句想法及画像表达目标。分析内容核对依据、逻辑与边界；感悟可以保留问题，不强制案例、教程、结论或升华。'
                         '逐项检查图解所有状态：每张卡与所在列的字面含义一致，结果、行为和结论不能混装成错误分类；'
                         '类别重命名必须在对应状态的column_titles真实填写，不能只在visual里口头说会改。'
                         '收到的PNG是当前草稿按实际字体与固定字幕样式渲染的真实像素，结合JSON及实际字幕样例边界检查文字、数量、留白及安全区；'
@@ -362,7 +363,7 @@ class PlanningTasks:
                         '核对production_capabilities与供料可行性：不能凭空承诺库存必然没有品牌或有指定屏幕数据；'
                         '不新增用户没有要求的品牌禁令或匿名条件，也不放宽用户实际隐私要求；公开库存只作示意、不能伪装用户经历。'
                         '未选素材和未试听声音留到实际生产检查，不将这些正常未执行步骤列成草稿缺陷。'
-                        '有明确问题时verdict=fail并在findings写具体字段/状态及依据；无明确问题时pass。',
+                        'findings只记录事实矛盾、明确用户要求冲突、错误示意或已证实不可执行问题，注明字段、依据与受损要求；审美取舍和可选优化放suggestions，不因建议返回fail。未选素材的效果未知放limitations，留到生产观察。无明确阻断问题时pass。',
                         DraftReview,media=(*media,*board_media),required=required|board_needs)
                 round_=recovered['correction_round'] if recovered else 0
                 history=list(recovered.get('history',[])) if recovered else []

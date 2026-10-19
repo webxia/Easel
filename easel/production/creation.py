@@ -26,6 +26,7 @@ class CreativeEdit(Contract):
 
 
 class SemanticReview(Contract):
+    suggestions: list[str] = Field(default_factory=list, max_length=16, description='非阻断的审美或表达建议；不能用于隐藏事实错误、明确要求冲突或已证实质量缺陷')
     verdict: str = Field(pattern='^(pass|fail|partial)$')
     factual_fidelity: str = Field(min_length=1)
     style_consistency: str = Field(min_length=1)
@@ -196,17 +197,22 @@ class CreationTasks:
                     raise ValueError('分镜必须按实测成片长度编排：' + str(timing['duration']))
                 if candidate.unresolved_scene_ids:
                     raise ValueError('仍有未落实场景：' + ','.join(candidate.unresolved_scene_ids))
+            from .edit_observation import edit_observation_tools
+            observation_tools = (edit_observation_tools({r['id']: artifact_file(self.service,r)
+                for r in records if r['kind']=='video'})
+                if self.planning.transport and 'tools' in self.planning.transport.capabilities else ())
             answer=await self.planning.runner(ctx,max_format_repairs=2).run(context,
+                '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
                 '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '连续旁白应跨镜头讲完，严格遵守给定voice_schedule，不为草稿分镜时长加入静默；'
                 '字幕短行分语义显示，不能将整段连续旁白一次堆在画面上。选择画质与景别适合、光线与动作相接的素材，'
                 '每条文字明确role：narration只显示旁白并继承频道字幕样式；overlay为独立解释文字，保留设计的字体、位置、字号，避开底部旁白区，不能叠字。'
                 '同时查看素材画面里原有的字幕、标题和图表文字；避开口播字幕区域，必要时换片段、调整构图或移开独立解释字，不要在已有文字上重复叠字。'
-                'material_uses含board_id的图解素材是已确认的连续状态：首次出现按board_frame_index顺序，每个状态至少有一次全幅呈现类别和数量；'
+                'material_uses含board_id的图解素材是已确认的连续状态：首次出现按board_frame_index顺序，应使必要类别、数量和关系可理解，不强制每态全幅，允许有意义的特写；'
                 '同一图解可跨段落复用、回看或加局部特写，board_scene_ids是本次素材映射提示，图解定义所在的scene_id不是排他的使用限制。'
-                '图解已画出标题、卡片、类别和假设/概念标识，不要只剩裁切而失去全貌，也不要在图解上重复叠同义解释字；保留底部旁白即可。'
+                '图解已画出标题、卡片、类别和假设/概念标识，不要只剩裁切而失去全貌，避免重复叠同义解释字；有必要时可以安排不遮挡证据的补充标注。'
                 '避免同义空镜反复堆积，旁白说到具体关系时应让画面或必要字幕提供相应信息。'
-                '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),validate_result=check_measured_edit)
+                '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),tools=observation_tools,validate_result=check_measured_edit)
             answer=align_editor_frames(answer)
             settings=context.plan['settings']
             answer=compensate_edit_overlap(answer,target_seconds=settings['duration_seconds'])

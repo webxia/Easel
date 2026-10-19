@@ -14,7 +14,7 @@ from .media import probe_media, process_environment, MEDIA_FORMATS, file_sha256,
 from .model_tasks import ModelTaskError
 
 
-def observe_media(path: Path, *, include_audio: bool = False, max_frames: int = 12) -> tuple[tuple[dict,...],frozenset[str],dict]:
+def observe_media(path: Path, *, include_audio: bool = False, max_frames: int = 12, frame_times: tuple[float, ...] | None = None) -> tuple[tuple[dict,...],frozenset[str],dict]:
     info=probe_media(path)
     ffmpeg=shutil.which('ffmpeg')
     if not ffmpeg:raise ModelTaskError('media_inspection_unavailable','本地媒体检查需要 FFmpeg')
@@ -36,10 +36,15 @@ def observe_media(path: Path, *, include_audio: bool = False, max_frames: int = 
         if frame_count>0:
             last=min(last,max(0,(frame_count-1)/fps-.000001))
             count=min(count,frame_count)
+    if frame_times is not None:
+        if (not info['video'] or not 1 <= len(frame_times) <= 8 or
+                any(not math.isfinite(t) or t < 0 or t > last for t in frame_times)):
+            raise ValueError('Frame times outside actual video bounds')
+        count = len(frame_times)
     with tempfile.TemporaryDirectory(prefix='easel-observe-') as folder:
         for index in range(count):
             # Spread the actual count across the full span, including the tail.
-            at=index*last/(count-1) if count>1 else last/2
+            at=frame_times[index] if frame_times is not None else (index*last/(count-1) if count>1 else last/2)
             frame=Path(folder)/f'{index}.jpg'
             # Seeking even to zero can discard the sole frame in a still-image
             # demuxer. Decode from the beginning when the requested time is zero.

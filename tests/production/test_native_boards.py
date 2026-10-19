@@ -79,10 +79,11 @@ def test_native_board_supply_has_authorship_rights_replays_and_uses_no_generatio
     assert all(json.loads(r['metadata_json'])['source']['kind']=='authored_graphic' for r in records)
     clips=[Scene(scene_id='s1-state'+str(i),asset_id=r['id'],duration=3) for i,r in enumerate(records)]
     check_board_usage(clips,records)
-    # Cross-scene reuse and a detail cut are valid once the complete states
-    # have been shown; the program does not rewrite the director's narrative.
+    # Framing is creative; frozen state coverage/order remain protected.
     detail=clips[0].model_copy(update={'scene_id':'conclusion','crop':clips[0].crop.model_copy(update={'width':.5})})
     check_board_usage([*clips,detail],records)
+    from types import SimpleNamespace
+    check_board_usage([detail,clips[1]],records,overlays=[SimpleNamespace(start=0,end=1)])
     with pytest.raises(ValueError):check_board_usage(clips[::-1],records)
     with pytest.raises(ValueError):check_board_usage(clips[:1],records)
 

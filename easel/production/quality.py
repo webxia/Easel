@@ -14,6 +14,7 @@ from pydantic import Field
 
 
 class VisualPreviewReview(Contract):
+    suggestions: list[str] = Field(default_factory=list, max_length=16, description='非阻断的审美或表达建议；不能用于隐藏事实错误、明确要求冲突或已证实质量缺陷')
     verdict: str = Field(pattern='^(pass|fail|partial)$')
     observations: list[str] = Field(min_length=1, max_length=32)
     findings: list[str] = Field(max_length=32)
@@ -29,7 +30,7 @@ async def review_visual_preview(path, *, runner, context):
         '主体、动作、物件的实际用途是否与解释相符，是否用表面关键词相近但含义不同的镜头冒充所需材料；'
         '检查字幕可读、构图、镜头联系和信息密度，长镜头需有实际动作或阅读价值。'
         '允许明确标注的示意与假设案例，不要求库存逐字重现非核心道具设想；不能把不相干画面当自由适配。'
-        'observations按实际时间描述看到了什么；findings只列必须修复且有画面依据的问题，并标时间/场景。'
+        'observations按实际时间描述看到了什么；findings只列必须修复且有画面依据的问题，并标时间/场景及违反的内容或明确要求；可选节奏、构图等审美优化放suggestions，不因建议返回fail。'
         '缺重要说明、误导性示意或关键动作不可见须明确指出，不因工程能导出就pass。'
         '本轮仅有离散画面，未听声音、未观察完整动作，limitations必须说明；'
         'verdict只表示本次视觉抽样，不是全片语义、电影感或Creator接受通过。',
@@ -68,7 +69,7 @@ async def review_full_video(path: Path, *, cache_root: Path, info: dict, transpo
                 '视频音轨随文件提供（无声模式除外）。核对这段与方案对应的事实、观点、必用内容、导演风格、'
                 '叙事、声音、字幕及音画同步。描述本段真实可见/可听内容及开头结尾以供跨段综合；'
                 '不得用文件名、计划或字幕文本代替观看收听。不得将本段结果称为全片已通过。'
-                'findings 只列必须修复的问题并标全片时间；观察不足、采样漏掉关键动作或无法听到音轨时'
+                'findings 只列有证据的必须修复问题、受损要求及全片时间；可选审美优化放suggestions，不因建议返回fail；观察不足、采样漏掉关键动作或无法听到音轨时'
                 '返回 partial 并说明 limitations。不得声称 Creator 已接受。',
                 review_type, required=required, media=blocks)
             data = {'start': chunk.start, 'end': chunk.end, 'review': answer.model_dump()}
