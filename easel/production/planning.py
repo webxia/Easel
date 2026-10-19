@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import re
+from dataclasses import replace
 from pydantic import Field, model_validator
 from .contracts import Contract, Scene, VideoSettings
 from .context import TaskContext
@@ -48,9 +49,9 @@ class VoiceReadyCreativePlan(CreativePlan):
             reserve_narration_slots(self.model_dump(mode='json'))
         except ModelTaskError as exc:
             raise ValueError(
-                f'45秒分镜旁白预留失败（{exc.code}）：{exc.user_message}。'
-                '请大幅压缩每个场景 narration 的真实口播字数，'
-                '确保所有场景总长仍为45秒，并保留固定音色与导演风格。'
+                f'分镜旁白预留失败（{exc.code}）：{exc.user_message}。'
+                '请调整口播量或分镜分配，'
+                '遵守本次真实片长与明确设置，并保留固定音色与导演风格。'
             ) from None
         return self
 
@@ -60,6 +61,11 @@ class PlanningTasks:
         self.service, self.operations, self.transport = service, operations, transport
         self.model_service, self.config_version = model_service, config_version
         self.tool_factory=lambda ctx: ()
+        self.execution_capabilities = {
+            'visuals': ['licensed stock footage', 'licensed images', 'captions', 'crop', 'pan_zoom', 'transitions'],
+            'unavailable': ['drawing graphics', 'recording the user screen', 'unprovided personal footage'],
+            'narration': 'continuous speech; measured duration can drive unfixed-length films',
+        }
 
     def context(self, ctx):
         with self.service.store.connection() as conn:
@@ -87,6 +93,7 @@ class PlanningTasks:
             profile_ref=profile_ref,profile=basis['profile'],director=basis['director'],
             brief=work['input_text']+'\n本次明确设置：'+encode(basis['settings'])+'\n本次对话依据：'+encode(basis.get('conversation_brief'))+'\n频道定位：'+encode(basis.get('channel_basis',{}))+'\n本次补充：'+str(ctx.payload.get('request','')),
             inputs=safe_inputs,allowed_handles=frozenset(i['id'] for i in inputs),plan=plan,
+            capabilities=self.execution_capabilities,
             facts=tuple(plan.get('facts',[])),prohibitions=tuple(plan.get('constraints',[])),
             adaptation_permissions=tuple(plan.get('adaptation_permissions',[])))
 
@@ -154,10 +161,48 @@ class PlanningTasks:
                 '中文口播要有明显时间余量，不超过冻结时长预算；所有镜头累计时长仍须精确。'
                 '返回摘要、完整脚本、场景和视听设计。',VoiceReadyCreativePlan,
                 media=media,required=required,tools=self.tool_factory(ctx))
+            with self.service.store.connection() as reader:
+                requested = json.loads(row(reader, 'works', ctx.work_id)['settings_json'])
+            autonomous = ('duration_seconds' not in requested and
+                          proposed.settings.audio_mode in {'voice', 'mixed'})
+            if autonomous:
+                from .contracts import SubtitleSettings, VoiceIdentity
+                def preserve_choices(answer):
+                    for field in ('voice', 'subtitles', 'aspect_ratio', 'audio_mode'):
+                        if field not in requested:
+                            continue
+                        expected = requested[field]
+                        if field == 'voice' and expected is not None:
+                            expected = VoiceIdentity.model_validate(expected).model_dump(mode='json')
+                        elif field == 'subtitles':
+                            expected = SubtitleSettings.model_validate(expected).model_dump(mode='json')
+                        if answer.model_dump(mode='json')['settings'][field] != expected:
+                            raise ValueError('不得改变已选设置：' + field)
+                # The creator has not confirmed this draft. Let the creative
+                # model review and improve its own concrete reasoning and
+                # realizable pictures, rather than an operator rewriting it.
+                review_context = replace(context, plan=proposed.model_dump(mode='json'))
+                proposed = await self.runner(ctx, namespace='creative-review-v1', max_format_repairs=2).run(
+                    review_context,
+                    '审阅并完善尚未确认的创作草稿，直接返回可执行的完整方案。'
+                    '先检查是否真正回应一句想法：解释型内容须用具体的假设例子、对照或推演讲清因果与适用边界，'
+                    '避免只列抽象自检口号；感悟类按题意保留开放性，不强塞教程。'
+                    '检查口语是否像与具体的人聊天，有观察、有变化，不写成课程讲义或逐句播报。'
+                    '画面要承担解释、证据或明确环境作用；不要把隐喻硬译成无关道具素材。'
+                    '按实际production_capabilities设计可检索的连续场景和景别，保留光线、动作、空间关系，'
+                    '不用不存在的图解、录屏或个人素材，也不把全片变成同类办公空镜。'
+                    '未指定片长时给紧凑的估计时长，不逐句分配长停顿；成片将依据完整旁白实测编排。'
+                    '不得编造个人经历、来源或研究结论，遵守画像和已选设置。',
+                    VoiceReadyCreativePlan, media=media, required=required,
+                    tools=self.tool_factory(ctx), validate_result=preserve_choices)
             with ctx.transaction() as conn:
                 work=row(conn,'works',ctx.work_id)
                 from .voice_budget import reserve_narration_slots
                 payload=self.service.freeze_plan(conn,work,reserve_narration_slots(proposed.model_dump(mode='json')),basis=ctx.payload.get('creation_basis'))
+                if autonomous:
+                    protected = any(i.get('constraints', {}).get('original_audio') for i in context.inputs)
+                    payload['narration_policy'] = {'continuous': not protected,
+                        'duration_mode': 'voice_driven' if not protected and proposed.settings.audio_mode == 'voice' else 'fixed'}
                 if ctx.payload.get('base_plan_revision'):
                     payload['profile_snapshot']=context.plan.get('profile_snapshot')
                     payload['director_revision_id']=context.plan.get('director_revision_id')

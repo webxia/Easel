@@ -106,6 +106,9 @@ def _check_result(value: Any, allowed_handles: frozenset[str]) -> None:
         for key, item in value.items():
             if key in {"asset_id", "artifact_id", "input_id"} and item not in allowed_handles:
                 raise ValueError("Unknown media reference")
+            if key == "required_input_ids" and (
+                    not isinstance(item, list) or any(ref not in allowed_handles for ref in item)):
+                raise ValueError("Unknown required_input_ids; use only actual input handles, never brief")
             _check_result(item, allowed_handles)
     elif isinstance(value, list):
         for item in value:
@@ -124,7 +127,8 @@ class ModelTaskRunner:
 
     async def run(self, context: TaskContext, task_kind: str, result_type: type[T], *,
                   required: frozenset[str] = frozenset({"text", "structured"}),
-                  tools: tuple[ScopedTool, ...] = (), media: tuple[dict, ...] = ()) -> T:
+                  tools: tuple[ScopedTool, ...] = (), media: tuple[dict, ...] = (),
+                  validate_result: Callable[[T], None] | None = None) -> T:
         if not required <= self.transport.capabilities:
             raise ModelTaskError("capability_unavailable", "当前模型缺少本任务所需的媒体或结构化能力")
         registry = tool_registry(tools)
@@ -165,7 +169,10 @@ class ModelTaskRunner:
             try:
                 value = json.loads(raw)
                 _check_result(value, context.allowed_handles)
-                return result_type.model_validate(value)
+                answer = result_type.model_validate(value)
+                if validate_result:
+                    validate_result(answer)
+                return answer
             except (ValueError, TypeError, ValidationError) as exc:
                 # Never relax the strict contract. Tell the model exactly which
                 # schema paths failed, rather than asking it to guess on retry.
@@ -178,7 +185,7 @@ class ModelTaskRunner:
                 elif isinstance(exc, json.JSONDecodeError):
                     correction = f'JSON语法错误：第{exc.lineno}行、第{exc.colno}列'
                 else:
-                    correction = '存在未知引用、越权字段或无效JSON结构'
+                    correction = '存在未知引用、越权字段或无效JSON结构：' + str(exc)[:350]
                 if repairs >= self.max_format_repairs:
                     raise ModelTaskError("invalid_model_output", "模型未返回有效创作结果",
                                          diagnostic={"response_sha256": hashlib.sha256(str(raw).encode()).hexdigest(),

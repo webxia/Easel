@@ -66,6 +66,16 @@ def test_ingest_copies_verifies_and_persists_stable_identity(env):
     assert len(service.catalog.usage_for_asset(first.asset_ref, scope=scope, context=context)) == 1
 
 
+def test_new_full_hd_need_does_not_reuse_old_low_resolution_bytes(env):
+    service, _, scope, context = env
+    old = ingest(env)
+    assert service.candidates(need(), visibility=scope, context=context).candidates
+    rejected = service.reuse.find_candidates(need(min_short_edge=1080), scope=scope, context=context)
+    assert not rejected.candidates
+    assert rejected.rejected[0].reason == 'visual_resolution_below_need'
+    assert service.resolve(old.asset_ref, visibility=scope, context=context).local_path.is_file()
+
+
 def test_scope_and_metadata_are_mandatory_and_exact(env):
     service, _, scope, context = env
     h = ingest(env)

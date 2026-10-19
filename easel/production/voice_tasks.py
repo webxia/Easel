@@ -9,7 +9,8 @@ from .contracts import SubtitleSettings, VoiceIdentity
 from .editors.base import EditError
 from .errors import ProductionError
 from .subtitles import configured_fonts, stage_fonts
-from .voice import prepare_voice_segments, sentence_segments
+from .voice import prepare_voice_segments
+from .model_tasks import ModelTaskError
 from .worker import TaskResult
 
 
@@ -46,12 +47,8 @@ class VoiceTasks:
                 protected = {item["id"] for item in reader.execute("SELECT * FROM work_inputs WHERE work_id=?", (context.work_id,))
                              if json.loads(item["metadata_json"]).get("original_audio")}
             scenes = plan["scenes"]
-            segments = []
-            for scene in scenes:
-                if protected.intersection(scene.get("required_input_ids", [])):
-                    continue
-                for segment in sentence_segments(scene.get("narration", "")):
-                    segments.append({**segment, "segment_id": scene["id"] + "-" + segment["segment_id"], "scene_id": scene["id"]})
+            from .narration import narration_segments
+            segments = narration_segments(plan, protected)
             if not segments:
                 if protected:
                     return identifiers, None
@@ -88,12 +85,14 @@ class VoiceTasks:
                 totals[scene_id] = totals.get(scene_id, 0) + segment["duration"]
             for scene in scenes:
                 available = scene.get("duration_seconds")
-                if available is not None and totals.get(scene["id"], 0) > available + .02:
+                if (not (plan.get('narration_policy') or {}).get('continuous')
+                        and available is not None and totals.get(scene["id"], 0) > available + .02):
                     raise ProductionError("voice_timing_exceeds_plan", "实际旁白长于已确认场景时段，已保留配音，需要明确调整时长或表达", requires_decision=True)
-            if sum(totals.values()) > settings["duration_seconds"] + .02:
+            if ((plan.get('narration_policy') or {}).get('duration_mode') != 'voice_driven'
+                    and sum(totals.values()) > settings["duration_seconds"] + .02):
                 raise ProductionError("voice_timing_exceeds_plan", "实际旁白长于已确认作品时长，未截断或加速", requires_decision=True)
             return identifiers, None
-        except (ProductionError, EditError) as error:
+        except (ProductionError, EditError, ModelTaskError) as error:
             public = error if isinstance(error, ProductionError) else ProductionError(error.code, str(error), requires_decision=True)
             return identifiers, TaskResult(state="needs_decision", result={"asset_ids": identifiers}, error=public)
 

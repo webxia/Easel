@@ -107,6 +107,11 @@ class RevisionTasks:
                     conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
             records,_=self.creation.assets(ctx,payload['revision_asset_ids'])
             context=self.planning.context(ctx)
+            if (context.plan.get('narration_policy') or {}).get('duration_mode') == 'voice_driven':
+                from copy import deepcopy
+                measured = deepcopy(context.plan)
+                measured['settings']['duration_seconds'] = base.duration
+                context = replace(context, plan=measured)
             base_data={'base_edit':{k:v for k,v in base.model_dump(mode='json').items() if k not in {'work_id','plan_revision','revision'}},
                        'protected':'未指出部分保持不变','preserve_audio':payload.get('preserve_audio',False)}
             def candidate_context(items):
@@ -170,6 +175,7 @@ class RevisionTasks:
             folder=self.service.outputs/'_production'/'projects'/ctx.task_id;folder.mkdir(parents=True,exist_ok=True)
             path=folder/'revision.json';path.write_text(revised.model_dump_json(),encoding='utf8')
             artifact=register_file(self.service,ctx,path,kind='edit_project',media_type='application/json',metadata={'base_project_id':project_record['id'],'review_id':review['id'],
+                'execution_timing':json.loads(project_record['metadata_json']).get('execution_timing'),
                 'audio_observation':'model_native' if audio_native else 'technical_only_unverified','audio_preserved':revised.audio==base.audio,'unverified_editor_notes':notes},dependencies=list(manifest.assets))
             return TaskResult(result={'review_id':review['id'],'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets),'repair_round':ctx.payload.get('repair_round',0)})
         except StaleRevision:

@@ -73,6 +73,10 @@ class LibraryReuseService:
                 reason = "reference_only"
             elif record.asset.technical.status is not TechnicalStatus.PASSED:
                 reason = "technical_inspection_not_passed"
+            elif (need.media_type.value in {'image', 'video'}
+                  and need.constraints.get('min_short_edge', 0) >
+                      min(record.asset.technical.width or 0, record.asset.technical.height or 0)):
+                reason = 'visual_resolution_below_need'
             elif need.media_type.value == "audio" and need.role in {"music", "sfx"}:
                 roles = record.asset.semantic.attributes.get("audio_roles")
                 # Explicit source declarations restrict candidates. Missing

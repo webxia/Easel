@@ -109,6 +109,8 @@ class FrozenIntentCompiler:
                     '仅把已确认方案翻译成素材检索意图，不重写方案。每个场景给一个visuals项，query最多100字；'
                     'visuals.query使用简短英文主体和关键动作（如 using phone in bed、eating while using phone、putting phone down），不要把中文导演说明、许可条款、灯光和构图整段塞进搜索词；必须保留方案要求的核心物件及动作。'
                     '媒体类型根据冻结创作需求选择，options为有限候选数。music/mixed必须给music_query，其余为null。'
+                    '需要真实动作和场景连续性的镜头优先检索video，资料证据或静物关系适合时再用image；'
+                    '不要把比喻或抽象判断按字面变成无关道具查询。'
                     'sound_cues按本片实际需要提出：给稳定cue_id、已知scene_id、全片时间at/duration、query和basis。'
                     '音效query必须是方便Wikimedia Commons检索的简短英文关键词（如room tone、keyboard typing、city traffic、mouse click）；'
                     'basis必须明确中文声音用途和与实际画面动作的对应依据，后续仍要实际试听及Rights核验。'
