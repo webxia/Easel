@@ -8,7 +8,7 @@ def approved_overlay_texts(plan):
                    for text in re.findall(r'[“「]([^”」\n]{1,100})[”」]', scene.get('visual', ''))})
 
 
-def assert_visual_repair(base, revised, *, overlay_texts):
+def assert_visual_repair(base, revised, *, overlay_texts, protected_caption_style_ids=frozenset()):
     if base.audio != revised.audio or any(s.source_audio for s in base.scenes + revised.scenes):
         raise EditError('原生视觉修复必须保留完整音轨，不改含原声的镜头')
     for field in ('work_id','plan_revision','width','height','duration','audio_mode','fps'):
@@ -34,6 +34,8 @@ def assert_visual_repair(base, revised, *, overlay_texts):
         after=captions.get(before.caption_id)
         if not after or (after.text,after.start,after.end)!=(before.text,before.start,before.end):
             raise EditError('原旁白字幕的字句与时间不得修改')
+        if before.caption_id in protected_caption_style_ids and before!=after:
+            raise EditError('自动视觉修复不能改变已固定的旁白字幕样式、透明背景或位置')
     original_ids={c.caption_id for c in base.captions}
     if any(c.text not in overlay_texts for c in revised.captions if c.caption_id not in original_ids):
         raise EditError('补充解释字只能来自已确认方案的明确提示语')

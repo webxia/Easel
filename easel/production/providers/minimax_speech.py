@@ -7,14 +7,33 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from urllib.parse import urlsplit
 import httpx
 from ..voice import VoiceHTTPAdapter, SpeechResponseError
 from ..errors import ProductionError
+from ..media import atomic_json
+from .base import ProviderResult
 
 
 class MiniMaxSpeechAdapter(VoiceHTTPAdapter):
     additional_parameters = frozenset({'emotion', 'subtitle_enable'})
+    subtitle_hosts = ('minimax.chat', 'minimaxi.chat', 'minimax.cn', 'minimaxi.com')
+
+    def observe(self, *, task_id, request_key):
+        received=super().observe(task_id=task_id,request_key=request_key)
+        if received.state!='succeeded' or received.result.get('alignment',{}).get('status')=='received':return received
+        locator=self._directory(request_key)/'subtitle-locator.json'
+        if not locator.is_file() or locator.is_symlink() or locator.stat().st_size>16384:return received
+        try:
+            url=json.loads(locator.read_text())['url']
+            alignment=self._alignment(url)
+            if alignment and alignment!=received.result.get('alignment'):
+                result={**received.result,'alignment':alignment}
+                atomic_json(self._directory(request_key)/'receipt.json',{'state':'succeeded','result':result})
+                return ProviderResult('succeeded',result=result)
+        except (OSError,ValueError,KeyError,TypeError):pass
+        return received
 
     def option(self, identity, *, require_available=True):
         option = super().option(identity, require_available=require_available)
@@ -64,6 +83,18 @@ class MiniMaxSpeechAdapter(VoiceHTTPAdapter):
             if re.fullmatch(r'[0-9a-fA-F]+',audio) is None:
                 raise ValueError('invalid native audio encoding')
             stream.write(bytes.fromhex(audio))
+            # Private ephemeral download locator, never returned as an asset
+            # field or exported in logs. This permits read-only reconciliation
+            # after admitting a real provider CDN, without paying for TTS twice.
+            url=value.get('subtitle_file')
+            try:
+                parsed=urlsplit(url) if isinstance(url,str) and len(url)<=8192 else None
+                name=getattr(stream,'name',None)
+                if (parsed and parsed.scheme in {'http','https'} and parsed.hostname and not parsed.username and not parsed.password
+                        and parsed.port in (None,80,443) and isinstance(name,str)
+                        and Path(name).resolve().is_relative_to(self.root.resolve())):
+                    atomic_json(Path(name).parent/'subtitle-locator.json',{'url':url})
+            except (OSError,ValueError,TypeError):pass
             # Timestamp retrieval is read-only. Losing it must never cause a
             # second paid TTS request or discard already received audio bytes.
             return self._alignment(value.get('subtitle_file'))
@@ -78,8 +109,9 @@ class MiniMaxSpeechAdapter(VoiceHTTPAdapter):
             host = parsed.hostname or ''
             if (parsed.scheme != 'https' or parsed.username or parsed.password or parsed.port not in (None, 443)
                     or not any(host == h or host.endswith('.' + h) for h in
-                               ('minimax.chat', 'minimaxi.chat', 'minimax.cn', 'minimaxi.com'))):
-                return {'status': 'unavailable', 'reason': 'subtitle_host_not_admitted'}
+                           self.subtitle_hosts)):
+                return {'status': 'unavailable', 'reason': 'subtitle_host_not_admitted',
+                        'host':host if re.fullmatch(r'[a-zA-Z0-9.-]{1,253}',host) else ''}
             with httpx.Client(transport=self.transport, timeout=20, trust_env=False, follow_redirects=False) as client:
                 with client.stream('GET', url) as response:
                     if response.status_code != 200:
