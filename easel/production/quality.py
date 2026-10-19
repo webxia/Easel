@@ -9,6 +9,34 @@ from pathlib import Path
 from .inspection import native_video_requirements, prepare_video_chunks
 from .model_tasks import ModelTaskError
 from .editors import EditError
+from .contracts import Contract
+from pydantic import Field
+
+
+class VisualPreviewReview(Contract):
+    verdict: str = Field(pattern='^(pass|fail|partial)$')
+    observations: list[str] = Field(min_length=1, max_length=32)
+    findings: list[str] = Field(max_length=32)
+    limitations: list[str] = Field(max_length=16)
+
+
+async def review_visual_preview(path, *, runner, context):
+    """Actual stamped frames, explicitly narrower than full audiovisual QC."""
+    from .inspection import observe_media
+    blocks, required, evidence = await asyncio.to_thread(observe_media, path, include_audio=False, max_frames=24)
+    answer = await runner.run(context,
+        '独立复核实际导出的抽样画面，不是复述计划或素材元数据。逐项检查画面是否帮助理解旁白，'
+        '主体、动作、物件的实际用途是否与解释相符，是否用表面关键词相近但含义不同的镜头冒充所需材料；'
+        '检查字幕可读、构图、镜头联系和信息密度，长镜头需有实际动作或阅读价值。'
+        '允许明确标注的示意与假设案例，不要求库存逐字重现非核心道具设想；不能把不相干画面当自由适配。'
+        'observations按实际时间描述看到了什么；findings只列必须修复且有画面依据的问题，并标时间/场景。'
+        '缺重要说明、误导性示意或关键动作不可见须明确指出，不因工程能导出就pass。'
+        '本轮仅有离散画面，未听声音、未观察完整动作，limitations必须说明；'
+        'verdict只表示本次视觉抽样，不是全片语义、电影感或Creator接受通过。',
+        VisualPreviewReview, media=blocks, required=required | frozenset({'text'}))
+    status = 'fail' if answer.findings else answer.verdict
+    return status, {'review': answer.model_dump(), 'evidence': evidence,
+                    'scope': 'sampled_visual_only', 'audio_reviewed': False, 'full_av_reviewed': False}
 
 
 @dataclass(frozen=True)

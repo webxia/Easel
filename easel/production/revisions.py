@@ -107,6 +107,8 @@ class RevisionTasks:
                     conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
             records,_=self.creation.assets(ctx,payload['revision_asset_ids'])
             context=self.planning.context(ctx)
+            creative_repair=bool(payload.get('creative_visual_repair') and context.plan.get('narration_policy'))
+            from .visual_repair import approved_overlay_texts, assert_visual_repair
             if (context.plan.get('narration_policy') or {}).get('duration_mode') == 'voice_driven':
                 from copy import deepcopy
                 measured = deepcopy(context.plan)
@@ -132,8 +134,22 @@ class RevisionTasks:
                 '这里只补指定镜头的库存，不重做方案、配音或生成媒体。此时edit先保持原版，说明缺口而非给无关概念画面；没有缺口则material_searches=[]。'
                 '仅实际新增文案/时长/生成需求才设expands_scope/requires_new_generation；不要把本次已明确要求的现有素材替换与字幕样式修复误作整片重建。'
                 '字幕对比不足时可以使用明确的深色半透明背景与较清楚的描边，保留文字和时间。')
-            proposal=await self.planning.runner(ctx).run(candidate_context(records),instruction,RevisionProposal,
-                media=(*media,*observations),required=frozenset(set(required)|needs))
+            if creative_repair:
+                instruction += ('本次是原生视觉复核触发的画面修复：保留完整AudioClip、原字幕字句和时码、总长度及原场景顺序。'
+                    '允许原场景拆成多个镜头，scene_id采用原ID或原ID-cut1、原ID-cut2等，每组净时长与原场景相同；'
+                    '这属于既有视觉修复，不因拆镜就扩大内容范围。只用实际候选或有界补料，不能用相似关键词的错误物件冒充所需画面。'
+                    '解释不足时可以补方案中已有的提示语，文字仅可取自以下列表，不能新增事实或观点：'
+                    +encode(approved_overlay_texts(context.plan)))
+            def check_creative_repair(candidate):
+                if not creative_repair or candidate.material_searches or candidate.expands_scope or candidate.requires_new_generation:
+                    return
+                try:
+                    draft=EditProject.model_validate({**base.model_dump(),'revision':base.revision+1,**candidate.edit.model_dump()})
+                    assert_visual_repair(base,draft,overlay_texts=approved_overlay_texts(context.plan))
+                except (EditError,ValueError) as exc:
+                    raise ValueError(str(exc)) from None
+            proposal=await self.planning.runner(ctx,max_format_repairs=2 if creative_repair else 1).run(candidate_context(records),instruction,RevisionProposal,
+                media=(*media,*observations),required=frozenset(set(required)|needs),validate_result=check_creative_repair)
             if proposal.material_searches and not (proposal.expands_scope or proposal.requires_new_generation):
                 if not self.supply:raise ModelTaskError('material_gap','局部库存补料尚不可用，原版与配音已保留')
                 new_ids=await asyncio.to_thread(self.supply.revision_visuals,ctx,[s.model_dump(mode='json') for s in proposal.material_searches])
@@ -141,7 +157,7 @@ class RevisionTasks:
                 observations,needs=await self._observe(records,audio_native=audio_native)
                 proposal=await self.planning.runner(ctx,namespace='revision-stock-selection-v1',max_format_repairs=2).run(
                     candidate_context(records),instruction+'本轮有限库存补料已经完成，不能再次请求检索。根据实际新候选完成修订；仍缺关键动作时在edit.unresolved_scene_ids明确报告并停止，不能改用无关画面。',
-                    RevisionProposal,media=(*media,*observations),required=frozenset(set(required)|needs))
+                    RevisionProposal,media=(*media,*observations),required=frozenset(set(required)|needs),validate_result=check_creative_repair)
                 if proposal.material_searches:raise ModelTaskError('visual_material_gap','有限库存补料后仍缺所需画面，保留原片并等待处理')
             with ctx.transaction() as conn:
                 conn.execute('UPDATE reviews SET changes_json=? WHERE id=?',(encode({'schema_version':1,**proposal.model_dump(mode='json'),'base_digest':output['digest']}),review['id']))
@@ -156,7 +172,7 @@ class RevisionTasks:
             protected=base
             allowed=set(proposal.affected)-{'materials'}
             if 'materials' in proposal.affected:allowed.add('visual')
-            if 'visual' in allowed:
+            if 'visual' in allowed and not creative_repair:
                 # Replacing a silent picture can reuse every audio byte. A source-audio
                 # clip is protected because swapping its media would also swap speech.
                 adjusted=[]
@@ -167,7 +183,10 @@ class RevisionTasks:
                         before=before.model_copy(update={'asset_id':after.asset_id,'source_start':after.source_start})
                     adjusted.append(before)
                 protected=base.model_copy(update={'scenes':tuple(adjusted)})
-            assert_local_revision(protected,revised,allowed=allowed)
+            if creative_repair:
+                assert_visual_repair(base,revised,overlay_texts=approved_overlay_texts(context.plan))
+            else:
+                assert_local_revision(protected,revised,allowed=allowed)
             from .material_binding import selected_asset_ids
             records,manifest=self.creation.assets(ctx,[r['id'] for r in records if r['id'] in selected_asset_ids(revised)])
             check=self.creation.editor.check(revised,manifest)

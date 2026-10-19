@@ -124,7 +124,8 @@ def create_runtime(root: Path, *, service=None, transport=None, handlers=None):
     # operator explicitly opts in. Default remains the full AV quality Gate.
     manual_review_only = settings.get('EASEL_PRODUCTION_QC_MODE','full').strip() == 'manual'
     creation=CreationTasks(service,planning,voice_tasks=voice_tasks,
-                           manual_review_only=manual_review_only)
+                           manual_review_only=manual_review_only,
+                           visual_review=settings.get('EASEL_PRODUCTION_VISUAL_REVIEW','').strip()=='1')
     mapping={'plan':planning.plan,'analyze_director':planning.analyze_director,
              'edit':creation.edit,'render':creation.render,'quality':creation.quality}
     # Concrete adapters are composed here; no fallback mock providers are installed.
