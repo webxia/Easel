@@ -170,6 +170,16 @@ class ConversationService:
             target['channel']={'id':channel['id'],'name':channel['name'],'revision':channel['revision'],'settings':json.loads(channel['settings_json']),'creative_basis':json.loads(channel['creative_basis_json'])}
         body={'values':values,'source_refs':refs,'target':target,
               'work_id':segment['work_id'],'work_revision':row(conn,'works',segment['work_id'])['revision'] if segment['work_id'] else None}
+        # Repeating an unchanged pending production question does not create a
+        # new question. Keep its original sources, so a later human answer is
+        # still answering what was already shown. Changed scope remains new.
+        if kind=='pipeline' and values.get('action')=='confirm':
+            for pending in conn.execute("SELECT * FROM conversation_proposals WHERE segment_id=? AND kind='pipeline' AND state='proposed'",(segment['id'],)):
+                prior=json.loads(pending['body_json'])
+                if (all(prior.get(k)==body[k] for k in ('target','work_id','work_revision'))
+                        and all(prior['values'].get(k)==values.get(k) for k in ('action','payload','catalog_target'))):
+                    return {'proposal_id':pending['id'],'hash':pending['body_hash'],'state':'proposed','already_proposed':True,
+                            'message':'这是已经展示的同一制作提案，未新建或修改。若本轮用户明确确认，请answer这个原提案，不要再要求确认。'}
         checksum=digest(body)
         previous=conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? AND kind=? AND body_hash=?',(segment['id'],kind,checksum)).fetchone()
         details={'values':values,'requires_user_confirmation':True} if kind=='plan' or (kind=='pipeline' and values.get('action') in {'plan','grant'}) else {}

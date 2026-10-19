@@ -155,6 +155,11 @@ def selected_attachment(conversations,conn,segment,values):
 
 def offer(conversations,conn,segment,turn_id,action,values,summary):
     scoped(conversations,conn,segment,action,values)
+    if action=='confirm':
+        work=row(conn,'works',segment['work_id'])
+        plan=conn.execute('SELECT * FROM plan_revisions WHERE work_id=? AND revision=?',(work['id'],values.get('plan_revision'))).fetchone()
+        if not plan or work['current_plan_revision']!=values.get('plan_revision') or plan['plan_hash']!=values.get('plan_hash') or plan['confirmed_at']:
+            fail('stale_revision','当前没有这版可确认方案；修改创作依据会使旧方案失效。请先读取pending，确需改稿时重新规划并展示完整方案，不要重复提出失效版本的制作确认',409)
     if action=='plan':values=planning_values(conversations,conn,segment,values)
     if action=='grant':
         values=grant_values(conversations,conn,segment,values)
@@ -240,6 +245,19 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
             if row(conn,'directors',version['director_id'])['archived']:fail('invalid_input','导演已归档')
             if entry.get('kind')!='director_formation':
                 conversations.service._director_version(conn,version['id'],bool(entry.get('director_trial')))
+        # Selecting the already active, unbound pipeline is not a handoff.
+        # Keep the native turn alive so explicit user choices can be resolved
+        # and used now, rather than asking the Creator to repeat them next turn.
+        unchanged=(not segment['work_id'] and not entry.get('work_id')
+            and entry['kind']==previous.get('kind','new_work')
+            and entry.get('channel_id')==previous.get('channel_id')
+            and entry.get('director_revision')==previous.get('settings',{}).get('director_revision')
+            and bool(entry.get('director_trial'))==bool(previous.get('settings',{}).get('director_trial'))
+            and entry.get('output_id')==previous.get('output_id'))
+        if unchanged:
+            return {'already_bound':True,'queued':False,
+                'missing_choices':[k for k,v in [('channel',entry.get('channel_id')),('director',entry.get('director_revision'))] if not v] if next_kind=='new_work' else [],
+                'message':'当前已在此管线，无需结束本轮。请继续读取pending与用户来源，解析已明确的频道/导演并绑定真实目标；已有选择不要重复询问。'}
         # Native turn must end before a new immutable segment may become current.
         payload['pipeline_entry']=entry
         prior=json.loads(segment['context_json']).get('handoff',{}).get('messages',[])
@@ -256,7 +274,8 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
     if mode=='offer':
         return offer(conversations,conn,segment,record['id'],args.get('action',''),args.get('values',{}),args.get('summary',''))
     if mode=='answer':
-        p=row(conn,'conversation_proposals',args.get('proposal_id') or '')
+        p=conn.execute('SELECT * FROM conversation_proposals WHERE id=?',(args.get('proposal_id') or '',)).fetchone()
+        if not p:fail('not_found','待答提案标识无效。请重新读取pending，逐字复制当前提案的完整id与hash后重试answer；不要为工具参数错误重新offer或要求用户重复确认。',404)
         if p['segment_id']!=segment['id'] or p['body_hash']!=args.get('hash'):fail('binding_mismatch','待答事项不属于当前管线或版本',403)
         body=json.loads(p['body_json'])
         if p['state'] not in {'proposed','applied'}:fail('stale_revision','待答事项已失效，请使用最新版本',409)

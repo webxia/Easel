@@ -62,7 +62,10 @@ class FakeModel:
         messages = body.get('messages', [])
         last_user = max((i for i, m in enumerate(messages) if m['role'] == 'user'), default=-1)
         text = json.dumps(messages[last_user].get('content', ''), ensure_ascii=False) if last_user >= 0 else ''
-        case = re.search(r'A1_CASE=([a-z_]+)', text)
+        # The human message follows quoted context; old source markers must
+        # never select the fixture action for the current human turn.
+        current = text.rsplit('【本轮用户原话；请回应这条新消息】', 1)[-1]
+        case = re.search(r'A1_CASE=([a-z_]+)', current)
         case = case[1] if case else 'discuss'
         if '【宿主任务结果事件，不是用户新指令或授权】' in text:case='task_result'
         if case in getattr(self, 'delays', {}):

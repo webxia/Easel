@@ -120,9 +120,20 @@ def test_full_plan_confirm_uses_exact_version_and_creates_only_one_run(env):
     plan={'title':'小事','summary':'分析一个问题','script':'这是具体分析。','scenes':[{'id':'s1','purpose':'解释','visual':'书桌','narration':''}],'settings':{'duration_seconds':1,'aspect_ratio':'16:9','audio_mode':'silent'}}
     created=s.command('plan',{'generate':False,'plan':plan},command_id='fixture-plan',work_id=d['work_id'],expected_revision=s.snapshot(d['work_id'])['revision'])
     b,i,_=turn(s,c,seg,'给我看看方案',id='show')
-    p=pipe(b,i,'offer',action='confirm',values={'plan_revision':created['plan_revision'],'plan_hash':created['plan_hash'],'services':[],'image_limit':0,'video_limit':0,'allow_ai':False},summary='按方案制作，不授权生成素材')
+    values={'plan_revision':created['plan_revision'],'plan_hash':created['plan_hash'],'services':[],'image_limit':0,'video_limit':0,'allow_ai':False}
+    p=pipe(b,i,'offer',action='confirm',values=values,summary='按方案制作，不授权生成素材')
+    repeated_question=pipe(b,i,'offer',action='confirm',values=values,summary='相同范围的不同说明')
+    assert repeated_question['proposal_id']==p['proposal_id']
+    raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='给我看看方案'))
+    before=s.snapshot(d['work_id'])
+    raises('proposal_already_offered',lambda:tool(b,i,'easel_work_update_brief',{'entries':[{'kind':'user_requirement','text':'给我看看方案','source_refs':['show']}]}))
+    after=s.snapshot(d['work_id'])
+    assert (after['revision'],after['current_plan_revision'])==(before['revision'],before['current_plan_revision'])
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'就按这个方案制作',id='produce')
+    repeated_question=pipe(b,i,'offer',action='confirm',values=values,summary='再次提及同一制作范围')
+    assert repeated_question['already_proposed']
+    assert (repeated_question['proposal_id'],repeated_question['hash'])==(p['proposal_id'],p['hash'])
     result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='就按这个方案制作')
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'就按这个方案制作',id='duplicate')
     repeated=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='就按这个方案制作')
@@ -449,3 +460,97 @@ def test_unconfigured_planning_grant_fails_before_question(env):
     b,i,_=turn(s,c,seg,'授权',id='unconfigured-grant')
     raises('capability_unavailable',lambda:pipe(b,i,'offer',action='grant',values={'purpose':'planning'}))
     assert len(c.view('ui')['proposals'])==1
+
+
+def test_reentering_current_pipeline_does_not_end_turn_or_lose_explicit_choices(env):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
+    b,i,_=turn(s,c,seg,'用频道甲和导演甲版本4做视频，不要重复让我选择')
+    noop=pipe(b,i,'bind',user_quote='做视频',values={'kind':'new_work'})
+    assert noop['already_bound'] and not noop['queued']
+    assert noop['missing_choices']==['channel','director']
+    assert pipe(b,i,'pending')['channels'][0]['id']==channel
+    selected=pipe(b,i,'bind',user_quote='用频道甲和导演甲版本4',values={'kind':'new_work','channel_id':channel,'director_revision':'v4','director_trial':True})
+    assert selected['queued']
+    b.end(Identity(**i))
+    view=c.view('ui');assert view['context']['channel_id']==channel
+    assert view['context']['settings']['director_revision']=='v4'
+
+
+def test_same_selected_pipeline_can_create_draft_in_current_turn(env):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'按已选频道导演继续做视频')
+    result=pipe(b,i,'bind',user_quote='继续做视频',values={'kind':'new_work'})
+    assert result['already_bound'] and not result['queued']
+    draft=pipe(b,i,'draft',user_quote='按已选频道导演继续做视频',values={'title':'小事','input_text':'完成一件小事'})
+    assert draft['work_id']
+    assert not s.snapshot(draft['work_id'])['runs']
+
+
+def test_invalid_answer_identity_guides_model_to_existing_pending_without_new_proposal(env):
+    seed(env);s,c=env;seg=entry(c,profile_ref='one')
+    b,i,_=turn(s,c,seg,'确认之前已展示的内容')
+    before=c.view('ui')['proposals']
+    with pytest.raises(ProductionError,match='重新读取pending') as error:
+        pipe(b,i,'answer',proposal_id='shortened...',hash='fake',user_quote='确认之前已展示的内容')
+    assert error.value.code=='not_found'
+    assert c.view('ui')['proposals']==before
+    assert s.list_works()['items']==[]
+
+
+def test_changed_brief_rejects_old_plan_at_offer_before_asking_again(env):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'做个视频')
+    d=pipe(b,i,'draft',user_quote='做个视频',values={'title':'小事','input_text':'具体想法'})
+    b.end(Identity(**i))
+    plan={'title':'小事','summary':'分析一个问题','script':'这是具体分析。','scenes':[{'id':'s1','purpose':'解释','visual':'书桌','narration':''}],'settings':{'duration_seconds':1,'aspect_ratio':'16:9','audio_mode':'silent'}}
+    created=s.command('plan',{'generate':False,'plan':plan},command_id='fixture-plan',work_id=d['work_id'],expected_revision=s.snapshot(d['work_id'])['revision'])
+    b,i,_=turn(s,c,seg,'改成两件小事',id='change')
+    tool(b,i,'easel_work_update_brief',{'entries':[{'kind':'user_requirement','text':'改成两件小事','source_refs':['change']}]})
+    raises('stale_revision',lambda:pipe(b,i,'offer',action='confirm',values={'plan_revision':created['plan_revision'],'plan_hash':created['plan_hash'],'services':[]},summary='不能展示旧版为可制作方案'))
+    assert s.snapshot(d['work_id'])['current_plan_revision'] is None
+    with s.store.connection() as conn:
+        assert not conn.execute("SELECT 1 FROM conversation_proposals WHERE kind='pipeline' AND json_extract(body_json,'$.values.action')='confirm'").fetchone()
+
+
+def test_changed_production_scope_still_needs_a_new_human_answer(env):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'做个视频')
+    d=pipe(b,i,'draft',user_quote='做个视频',values={'title':'小事','input_text':'具体想法'})
+    b.end(Identity(**i))
+    plan={'title':'小事','summary':'分析一个问题','script':'这是具体分析。','scenes':[{'id':'s1','purpose':'解释','visual':'书桌','narration':''}],'settings':{'duration_seconds':1,'aspect_ratio':'16:9','audio_mode':'silent'}}
+    created=s.command('plan',{'generate':False,'plan':plan},command_id='fixture-plan',work_id=d['work_id'],expected_revision=s.snapshot(d['work_id'])['revision'])
+    b,i,_=turn(s,c,seg,'看看方案',id='show')
+    values={'plan_revision':created['plan_revision'],'plan_hash':created['plan_hash'],'services':[],'allow_ai':False,'image_limit':0,'video_limit':0}
+    original=pipe(b,i,'offer',action='confirm',values=values,summary='原范围')
+    b.end(Identity(**i));b,i,_=turn(s,c,seg,'增加一张生图',id='expanded')
+    changed=pipe(b,i,'offer',action='confirm',values={**values,'allow_ai':True,'image_limit':1},summary='扩大范围')
+    assert changed['proposal_id']!=original['proposal_id']
+    raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=changed['proposal_id'],hash=changed['hash'],user_quote='增加一张生图'))
+    assert not s.snapshot(d['work_id'])['runs']
+
+
+def test_human_turn_is_explicit_and_follows_quoted_historical_context(env):
+    s,c=env;seg=entry(c,profile_ref='one')
+    b,i,_=turn(s,c,seg,'之前在等任务结果')
+    b.end(Identity(**i))
+    _,_,result=turn(s,c,seg,'确认当前修订提案',id='next-human')
+    assert result['payload']['origin']=='user'
+    assert result['prompt'].startswith('【真实用户新回合；不是宿主任务结果】')
+    assert result['prompt'].index('【本轮用户原话；请回应这条新消息】')>result['prompt'].index('【服务端创作上下文与历史来源')
+    assert result['prompt'].count('【本轮用户原话；请回应这条新消息】\n确认当前修订提案')==1
+
+
+def test_nested_answer_identity_is_lossless_and_still_requires_current_human_quote(env):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'做个视频')
+    d=pipe(b,i,'draft',user_quote='做个视频',values={'title':'小事','input_text':'具体想法'})
+    p=pipe(b,i,'offer',action='plan',values={'request':'整理方案'},summary='仅用已展示的规划模型')
+    b.end(Identity(**i));b,i,_=turn(s,c,seg,'确认这条方案提案',id='answer')
+    nested={'proposal_id':p['proposal_id'],'hash':p['hash'],'user_quote':'做个视频'}
+    raises('invalid_source',lambda:pipe(b,i,'answer',values=nested))
+    nested['user_quote']='确认这条方案提案'
+    raises('invalid_tool_arguments',lambda:pipe(b,i,'answer',values=nested,proposal_id='conflicting'))
+    raises('invalid_tool_arguments',lambda:pipe(b,i,'answer',values={**nested,'services':[]}))
+    result=pipe(b,i,'answer',values=nested)
+    assert result['run_id']
+    assert len(s.snapshot(d['work_id'])['runs'])==1

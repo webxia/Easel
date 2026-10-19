@@ -69,3 +69,25 @@ test('switching away from generated edit prompts preserves only Creator input, n
     assert.equal(r.api.workflowDraft('director_formation',flow.edit),r.api.CONFIGURATION_PROMPTS.director_formation.create);
   }
 });
+
+test('native pipeline schema names the exact channel and director revision binding fields',async()=>{
+ const {persistentToolDefinitions}=await import('../../agents/plugins/easel-work/tools.mjs');
+ const schema=persistentToolDefinitions.find(t=>t.name==='easel_pipeline').parameters.properties.values;
+ assert.equal(schema.properties.channel_id.type,'string');
+ assert.equal(schema.properties.director_revision.type,'string');
+ assert.equal(schema.properties.director_trial.type,'boolean');
+ assert.match(schema.properties.director_revision.description,/VERSION ID/);
+});
+
+test('native confirmation identity cannot be abbreviated and production payload fields are explicit',async()=>{
+ const {persistentToolDefinitions}=await import('../../agents/plugins/easel-work/tools.mjs');
+ const p=persistentToolDefinitions.find(t=>t.name==='easel_pipeline').parameters.properties;
+ assert.equal(p.proposal_id.minLength,32);assert.equal(p.proposal_id.maxLength,32);
+ assert.equal(p.hash.minLength,64);assert.equal(p.hash.maxLength,64);
+ assert.match(p.proposal_id.description,/pending/);
+ assert.equal(p.values.properties.plan_revision.type,'integer');
+ assert.equal(p.values.properties.plan_hash.minLength,64);
+ assert.equal(p.values.properties.allow_ai.type,'boolean');
+ assert.equal(p.values.properties.image_limit.minimum,0);
+ assert.equal(p.values.properties.manual_review_confirmed.type,'boolean');
+});

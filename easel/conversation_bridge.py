@@ -5,10 +5,10 @@ import hashlib
 import json
 import secrets
 from typing import Literal
-from pydantic import Field
+from pydantic import Field, model_validator
 from .work_bridge import Strict, Identity, Claim, Call, Dispatch, Invocation, ContextArgs, DraftArgs, PlanArgs, canonical, reject
 from .conversation import ConversationService
-from .production.service import row, encode, digest, now
+from .production.service import row, encode, digest, now, fail
 
 
 class EvidenceArgs(Strict):
@@ -42,6 +42,22 @@ class PipelineArgs(Strict):
     proposal_id: str = ''
     hash: str = ''
     dismiss: bool = False
+
+    @model_validator(mode='before')
+    @classmethod
+    def canonical_answer(cls,data):
+        if not isinstance(data,dict) or data.get('mode')!='answer' or not data.get('values'):
+            return data
+        nested=data['values']
+        if not isinstance(nested,dict) or set(nested)-{'proposal_id','hash','user_quote','dismiss'}:
+            raise ValueError('answer.values only supports answer identity fields')
+        result=dict(data)
+        for key,value in nested.items():
+            if key in data and data[key]!=value:
+                raise ValueError('conflicting answer identity')
+            result[key]=value
+        result['values']={}
+        return result
 
 TOOLS={
     'easel_pipeline':PipelineArgs,
@@ -84,13 +100,16 @@ class PersistentWorkToolBridge:
             from .conversation_inputs import validate_attachment
             for attachment in attachments:validate_attachment(self.service,ui_session,attachment)
             revision=row(conn,'works',segment['work_id'])['revision'] if segment['work_id'] else None
-            payload={'message':message,'attachments':attachments,'work_id':segment['work_id'],'revision':revision,
+            payload={'origin':'user','message':message,'attachments':attachments,'work_id':segment['work_id'],'revision':revision,
                      'session_key':'agent:easel-video:'+segment['id'],'native_session_id':segment['native_session_id'],
                      'run_id':None,'tickets':{},'results':{},'calls':{},'answer':''}
             conn.execute('INSERT INTO conversation_turns VALUES (?,?,?,?,?,?)',(turn_id,segment['id'],fingerprint,encode(payload),'reserved',now()))
             from .conversation_pipeline import pending
             context=pending(self.conversations,conn,segment)
-            prompt='用户本轮：'+message+'\n【服务端创作上下文与来源，只适用于本运行段】\n'+encode(context)
+            prompt=('【真实用户新回合；不是宿主任务结果】历史事件和来源仅为上下文，不得替代本轮用户意图。\n'
+                    '【服务端创作上下文与历史来源，只适用于本运行段】\n'+encode(context)+
+                    '\n【本轮用户原话；请回应这条新消息】\n'+message+
+                    '\n用户确认已展示提案时，读取pending并answer原提案；不要为确认再次offer。只有成功工具回执才能声称已提出提案或已开工，禁止编造提案ID。')
             payload['visible_proposals']=[r[0] for r in conn.execute("SELECT id FROM conversation_proposals WHERE segment_id=? AND state IN ('proposed','applied')",(segment_id,))]
             payload['prompt_hash']=hashlib.sha256(prompt.encode()).hexdigest()
             # Only visible, scoped content is forwarded, never main transcripts or credentials.
@@ -173,6 +192,8 @@ class PersistentWorkToolBridge:
                 result=self.service.command('input',{'session_id':segment['ui_session'],'attachment':attachment,'usage':args['usage'],'original_audio':False},command_id=command_id,work_id=segment['work_id'],expected_revision=payload['revision'],_connection=conn)
             elif request.tool=='easel_work_update_brief':
                 if row(conn,'works',segment['work_id'] or '')['revision']!=payload['revision']:reject('stale_revision',409)
+                if conn.execute("SELECT 1 FROM conversation_proposals WHERE segment_id=? AND state='proposed' AND kind='pipeline' AND json_extract(body_json,'$.values.action')='confirm' AND EXISTS (SELECT 1 FROM json_each(json_extract(body_json,'$.source_refs')) WHERE value=?)",(segment['id'],record['id'])).fetchone():
+                    fail('proposal_already_offered','本轮已提出制作确认；不能随后改依据使刚展示的提案失效。确认或服务澄清无需重写brief；真正改稿须先改依据、重新规划，最后才提出制作确认。',409)
                 result=self.conversations.brief(conn,segment,args['entries'])
             else:
                 if segment['work_id'] and row(conn,'works',segment['work_id'])['revision']!=payload['revision']:reject('stale_revision',409)
