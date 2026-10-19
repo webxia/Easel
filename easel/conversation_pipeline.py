@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 from .production.service import row, fail, encode, digest
 from .production.catalog import CreativeCatalog
+from .production.errors import ProductionError
 
 WORK_ACTIONS = {
     'input': {'attachment_id','usage','original_audio','interval','rights_confirmed'},
@@ -19,6 +20,48 @@ WORK_ACTIONS = {
     'accept': {'output_id','manual_review_confirmed'},
 }
 CATALOG_ACTIONS = {'director_style','director_accept','channel_director'}
+
+
+def planning_decision(conversations,conn,segment):
+    return conn.execute("""SELECT t.* FROM tasks t JOIN works w ON w.active_run_id=t.run_id
+        WHERE w.id=? AND t.kind='plan' AND t.state='needs_decision'
+        AND json_extract(t.error_json,'$.code')='permission_missing'""",(segment['work_id'],)).fetchone()
+
+
+def grant_values(conversations,conn,segment,values,*,applying=False):
+    """Resolve the exact authority before proposing it, never after consent."""
+    purpose=values.get('purpose')
+    if purpose not in {'planning','preview','production'}:
+        fail('invalid_input','授权提案须指定purpose：planning、preview或production；整理方案用planning')
+    data=dict(values)
+    if purpose=='planning' and 'services' not in data and not applying:
+        from .production.configuration import model_configuration
+        _,model,_=model_configuration(conversations.service.outputs.parent)
+        if not model:fail('capability_unavailable','创作模型尚未配置，暂不能提出规划授权',409)
+        data['services']=[model]
+    services=data.get('services')
+    if not isinstance(services,list) or not services or any(not isinstance(s,dict) or set(s)!={'provider','model','mode'} or any(not isinstance(v,str) or not v.strip() for v in s.values()) for s in services):
+        fail('invalid_input','授权参数services必须是数组，每项仅含provider、model、mode三个非空字符串；不能含item、label或service。规划授权请重新offer grant，values只传{"purpose":"planning"}，由程序生成服务与恢复目标；不要重复提交旧提案')
+    from .production.configuration import capabilities
+    available=[{k:s[k] for k in ('provider','model','mode')} for s in capabilities(conversations.service.outputs.parent)['services'] if s.get('available')]
+    if any(s not in available for s in services):
+        fail('capability_unavailable','提案中的服务已不可用或不在当前能力目录，请重新核对服务后提出授权',409)
+    for key in ('image_limit','video_limit'):
+        if key in data and (type(data[key]) is not int or data[key]<0):fail('invalid_input','生成次数须为非负整数')
+    if 'allow_ai' in data and type(data['allow_ai']) is not bool:fail('invalid_input','allow_ai须为布尔值')
+    if purpose=='planning':
+        planning_values(conversations,conn,segment,{'services':services},applying=True)
+        decision=planning_decision(conversations,conn,segment)
+        if decision and not data.get('decision_id'):
+            if applying:fail('stale_revision','此旧授权提案未绑定暂停任务，请重新offer grant，values只传{"purpose":"planning"}，展示授权并继续原任务后确认',409)
+            data['decision_id']=decision['id']
+        if data.get('decision_id') and (not decision or decision['id']!=data['decision_id']):
+            fail('stale_revision','待恢复的授权阻断已变化或不属于当前作品，请重新核对当前任务',409)
+        if decision and conn.execute("SELECT 1 FROM operations WHERE run_id=? AND state IN ('reserved','sending','submitted','unknown')",(decision['run_id'],)).fetchone():
+            fail('result_unknown','当前运行仍有外部请求待核实，不能通过补授权重发',409)
+    elif data.get('decision_id'):
+        fail('invalid_input','合并授权恢复仅用于当前整理方案的授权阻断',409)
+    return data
 
 
 def planning_values(conversations,conn,segment,values,*,applying=False):
@@ -49,7 +92,15 @@ def pending(conversations, conn, segment):
         directors.append({k:r[k] for k in ('id','director_id','name','revision','catalog_revision','style_confirmed','accepted_at')})
     proposals = []
     for r in conn.execute("SELECT * FROM conversation_proposals WHERE segment_id=? AND state IN ('proposed','applied') ORDER BY created_at,id",(segment['id'],)):
-        proposals.append({'id':r['id'],'hash':r['body_hash'],'kind':r['kind'],'state':r['state'],'body':json.loads(r['body_json']),'receipt':json.loads(r['receipt_json']) if r['receipt_json'] else None})
+        proposal={'id':r['id'],'hash':r['body_hash'],'kind':r['kind'],'state':r['state'],'body':json.loads(r['body_json']),'receipt':json.loads(r['receipt_json']) if r['receipt_json'] else None}
+        values=proposal['body']['values']
+        if r['state']=='proposed' and r['kind']=='pipeline' and values.get('action')=='grant':
+            try:
+                grant_values(conversations,conn,segment,values['payload'],applying=True)
+                proposal['can_answer']=True
+            except ProductionError as exc:
+                proposal.update(can_answer=False,validation_code=exc.code,validation_error=str(exc),next_action={'mode':'offer','action':'grant','values':{'purpose':'planning'}} if values['payload'].get('purpose')=='planning' and exc.code in {'invalid_input','stale_revision'} else None)
+        proposals.append(proposal)
     from .production.configuration import capabilities
     services = capabilities(conversations.service.outputs.parent)
     work = conversations.service.snapshot(segment['work_id']) if segment['work_id'] else None
@@ -105,6 +156,10 @@ def selected_attachment(conversations,conn,segment,values):
 def offer(conversations,conn,segment,turn_id,action,values,summary):
     scoped(conversations,conn,segment,action,values)
     if action=='plan':values=planning_values(conversations,conn,segment,values)
+    if action=='grant':
+        values=grant_values(conversations,conn,segment,values)
+        names='、'.join(s['provider']+'/'+s['model']+'/'+s['mode'] for s in values['services'])
+        summary=f"授权服务：{names}；用途：{values['purpose']}。"+('授权后继续原整理方案任务。' if values.get('decision_id') else '本提案仅保存授权。')
     target={}
     if action=='input':
         _,target['attachment_digest']=selected_attachment(conversations,conn,segment,values)
@@ -135,16 +190,10 @@ def execute_action(conversations,conn,segment,body,key):
         return conversations.service.command('input',{'attachment':attachment,'session_id':segment['ui_session'],'usage':data.get('usage','reference'),'original_audio':data.get('original_audio',False),'interval':data.get('interval'),'rights':rights},command_id=key+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
     if action in WORK_ACTIONS:
         if action=='plan':data=planning_values(conversations,conn,segment,data,applying=True)
+        if action=='grant':data=grant_values(conversations,conn,segment,data,applying=True)
         if action=='grant' and data.get('decision_id'):
             task=row(conn,'tasks',data['decision_id'])
             work=row(conn,'works',segment['work_id'])
-            if task['work_id']!=work['id'] or task['run_id']!=work['active_run_id'] or task['state']!='needs_decision' or json.loads(task['error_json'] or '{}').get('code')!='permission_missing':
-                fail('stale_revision','待恢复的授权阻断已变化，请重新核对当前任务',409)
-            if data.get('purpose')!='planning' or task['kind']!='plan':
-                fail('invalid_input','合并授权恢复仅用于当前整理方案的授权阻断',409)
-            if conn.execute("SELECT 1 FROM operations WHERE run_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['run_id'],)).fetchone():
-                fail('result_unknown','当前运行仍有外部请求待核实，不能通过补授权重发',409)
-            planning_values(conversations,conn,segment,{'services':data.get('services',[])},applying=True)
             grant=conversations.service.command('grant',{k:v for k,v in data.items() if k!='decision_id'},command_id=key+'_grant',work_id=work['id'],expected_revision=body['work_revision'],_connection=conn)
             result=conversations.service.command('resume',{'decision_id':task['id']},command_id=key+'_resume',work_id=work['id'],expected_revision=grant['revision'],_connection=conn)
             return {**result,'grant_id':grant['grant_id']}

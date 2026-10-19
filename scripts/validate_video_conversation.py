@@ -182,6 +182,26 @@ def probe(f):
     chat('pipeline-probe',pipe_sid,'pipeline_answer')
     check('native_text_answer_saves_channel_without_button',bool(c.view('pipeline-probe')['context'].get('channel_id')))
     check('channel_pipeline_does_not_create_video',len(service.list_works()['items'])==1)
+    # Reproduce the real paused planning path with a minimal model-generated
+    # grant request. Only this temporary database is changed; no Worker runs.
+    with service.store.transaction() as conn:
+        task=dict(conn.execute("SELECT * FROM tasks WHERE work_id=? AND kind='plan'",(work,)).fetchone())
+        conn.execute("UPDATE authorization_grants SET revoked_at='fixture-revoked' WHERE work_id=?",(work,))
+        conn.execute("UPDATE tasks SET state='needs_decision',error_json=? WHERE id=?",(json.dumps({'code':'permission_missing'}),task['id']))
+        conn.execute("UPDATE runs SET state='needs_decision' WHERE id=?",(task['run_id'],))
+        conn.execute("UPDATE works SET state='needs_decision' WHERE id=?",(work,))
+    f['model'].extra_cases['grant_recovery_offer']=('easel_pipeline',{'mode':'offer','action':'grant','values':{'purpose':'planning'}})
+    chat('probe',sid,'grant_recovery_offer')
+    recovery=c.view('probe')['proposals'][-1]
+    payload=recovery['body']['values']['payload']
+    check('native_minimal_grant_binds_service_and_original_task',payload['services']==[{'provider':'direct-api','model':'a1-fake','mode':'structured'}] and payload['decision_id']==task['id'])
+    f['model'].extra_cases['grant_recovery_answer']=('easel_pipeline',{'mode':'answer','proposal_id':recovery['id'],'hash':recovery['body_hash'],'user_quote':'A1_CASE=grant_recovery_answer'})
+    chat('probe',sid,'grant_recovery_answer');chat('probe',sid,'grant_recovery_answer')
+    with service.store.connection() as conn:
+        check('native_grant_answer_resumes_once_without_new_run',conn.execute('SELECT count(*) FROM runs WHERE work_id=?',(work,)).fetchone()[0]==1 and conn.execute('SELECT state FROM tasks WHERE id=?',(task['id'],)).fetchone()[0]=='pending' and conn.execute('SELECT count(*) FROM authorization_grants WHERE work_id=? AND revoked_at IS NULL',(work,)).fetchone()[0]==1)
+        check('native_authorization_recovery_does_not_call_production_model',conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0)
+    pipeline_schema=next(t['function']['parameters'] for t in f['model'].requests[-1]['tools'] if t['function']['name']=='easel_pipeline')
+    check('native_model_sees_exact_grant_array_schema',pipeline_schema['properties']['values']['properties']['services']['type']=='array' and pipeline_schema['properties']['values']['properties']['services']['items']['additionalProperties'] is False)
     # A different Work/Profile gets another native transcript, despite sharing the UI session.
     start=len(f['model'].requests);other=enter('probe',{'profile_ref':'two'});chat('probe',other,'context')
     text=json.dumps(f['model'].requests[start:])

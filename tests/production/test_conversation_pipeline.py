@@ -5,6 +5,7 @@ from tests.production.test_conversation import env, entry, turn, tool, raises, p
 from easel.work_bridge import Identity
 from easel.production.service import now, encode, row
 from easel.production.catalog import CreativeCatalog
+from easel.production.errors import ProductionError
 
 
 def seed(env):
@@ -271,7 +272,8 @@ def test_unconfigured_model_cannot_enqueue_conversation_plan(env):
     assert s.snapshot(work)['runs']==[]
 
 
-def test_existing_permission_pause_is_granted_and_resumed_by_one_answer(env):
+@pytest.mark.parametrize("minimal",[True,False])
+def test_existing_permission_pause_is_granted_and_resumed_by_one_answer(env,minimal):
     from tests.production.test_conversation import draft
     s,c,seg,work=draft(env)
     run=s.command('plan',{},command_id='legacy-plan',work_id=work,expected_revision=s.snapshot(work)['revision'])
@@ -281,7 +283,11 @@ def test_existing_permission_pause_is_granted_and_resumed_by_one_answer(env):
         conn.execute("update runs set state='needs_decision' where id=?",(run['run_id'],))
         conn.execute("update works set state='needs_decision' where id=?",(work,))
     b,i,_=turn(s,c,seg,'继续原任务',id='recover')
-    p=pipe(b,i,'offer',action='grant',values={'purpose':'planning','services':[{'provider':'direct-api','model':'fixture-model','mode':'structured'}],'decision_id':task['id']},summary='授权模型并继续原整理方案任务')
+    values={'purpose':'planning'} if minimal else {'purpose':'planning','services':[{'provider':'direct-api','model':'fixture-model','mode':'structured'}],'decision_id':task['id']}
+    p=pipe(b,i,'offer',action='grant',values=values,summary='授权模型并继续原整理方案任务')
+    assert p['values']['payload']['decision_id']==task['id']
+    assert p['values']['payload']['services']==[{'provider':'direct-api','model':'fixture-model','mode':'structured'}]
+    assert '继续原整理方案' in p['values']['summary']
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'同意授权并继续',id='grant-yes')
     result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意授权并继续')
@@ -344,3 +350,102 @@ def test_stream_failure_preserves_turn_and_does_not_dispatch_twice(env,tmp_path,
     with s.store.connection() as conn:
         assert conn.execute("select state from conversation_turns where id='stream-turn'").fetchone()[0]=='unknown'
         assert conn.execute('select count(*) from runs').fetchone()[0]==0
+
+
+MODEL_SERVICE={'provider':'direct-api','model':'fixture-model','mode':'structured'}
+
+
+@pytest.mark.parametrize('services',[
+    {'item':'fixture-model'}, {'item':MODEL_SERVICE}, {**MODEL_SERVICE,'label':'创作模型'},
+    {'item':{**MODEL_SERVICE,'label':'创作模型','service':'创作模型'}},
+    [{**MODEL_SERVICE,'label':'创作模型'}], 'fixture-model', [],
+])
+def test_malformed_grant_is_rejected_before_becoming_a_question(env,services):
+    from tests.production.test_conversation import draft
+    s,c,seg,work=draft(env)
+    b,i,_=turn(s,c,seg,'授权创作模型',id='grant-offer')
+    before=c.view('ui')['proposals']
+    with pytest.raises(ProductionError,match='services必须是数组'):
+        pipe(b,i,'offer',action='grant',values={'purpose':'planning','services':services})
+    assert c.view('ui')['proposals']==before
+    with s.store.connection() as conn:
+        assert conn.execute('select count(*) from authorization_grants').fetchone()[0]==0
+        assert conn.execute('select count(*) from runs').fetchone()[0]==0
+
+
+def test_legacy_bad_grant_is_unanswerable_and_replacement_uses_catalog(env):
+    from tests.production.test_conversation import draft
+    s,c,seg,work=draft(env)
+    old=proposal(s,c,seg,'pipeline',{'action':'grant','payload':{'purpose':'planning','services':{'item':MODEL_SERVICE}},'summary':'旧错误提案','catalog_target':{}})
+    b,i,_=turn(s,c,seg,'重新授权',id='repair-offer')
+    pending=pipe(b,i,'pending')
+    bad=next(p for p in pending['pending'] if p['id']==old['proposal_id'])
+    assert bad['can_answer'] is False
+    assert bad['next_action']=={'mode':'offer','action':'grant','values':{'purpose':'planning'}}
+    raises('invalid_input',lambda:pipe(b,i,'answer',proposal_id=old['proposal_id'],hash=old['hash'],user_quote='重新授权'))
+    p=pipe(b,i,**bad['next_action'])
+    assert p['values']['payload']['services']==[MODEL_SERVICE]
+    assert next(p for p in c.view('ui')['proposals'] if p['id']==old['proposal_id'])['state']=='stale'
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,'同意这次授权',id='repair-answer')
+    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意这次授权')
+    assert result['grant_id']
+    with s.store.connection() as conn:
+        assert json.loads(conn.execute('select services_json from authorization_grants').fetchone()[0])==[MODEL_SERVICE]
+
+
+@pytest.mark.parametrize('changed',['model','decision'])
+def test_grant_rechecks_displayed_scope_before_saving(env,changed):
+    from tests.production.test_conversation import draft
+    s,c,seg,work=draft(env)
+    if changed=='decision':
+        s.command('plan',{},command_id='old-plan',work_id=work,expected_revision=s.snapshot(work)['revision'])
+        with s.store.transaction() as conn:
+            conn.execute("update tasks set state='needs_decision',error_json=?",(encode({'code':'permission_missing'}),))
+            conn.execute("update runs set state='needs_decision'")
+    b,i,_=turn(s,c,seg,'需要授权',id='offer-grant')
+    p=pipe(b,i,'offer',action='grant',values={'purpose':'planning'})
+    b.end(Identity(**i))
+    if changed=='model':
+        (s.outputs.parent/'.env').write_text('EASEL_DIRECT_API_BASE_URL=http://127.0.0.1:1/v1\nEASEL_DIRECT_API_MODEL=changed\n')
+    else:
+        with s.store.transaction() as conn:conn.execute("update tasks set error_json=?",(encode({'code':'result_unknown'}),))
+    b,i,_=turn(s,c,seg,'同意授权',id='answer-grant')
+    raises('capability_unavailable' if changed=='model' else 'stale_revision',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意授权'))
+    with s.store.connection() as conn:assert conn.execute('select count(*) from authorization_grants').fetchone()[0]==0
+
+
+def test_grant_with_forged_recovery_target_never_becomes_a_proposal(env):
+    from tests.production.test_conversation import draft
+    s,c,seg,work=draft(env)
+    b,i,_=turn(s,c,seg,'需要授权',id='offer-grant')
+    raises('stale_revision',lambda:pipe(b,i,'offer',action='grant',values={'purpose':'planning','decision_id':'foreign-task'}))
+
+
+def test_automatic_recovery_binding_never_replays_unknown_operation(tmp_path):
+    import asyncio
+    from tests.production.test_planning_runtime import setup
+    from easel.conversation import ConversationService
+    s,work,transport,worker=setup(tmp_path,fail=True)
+    (tmp_path/'.env').write_text('EASEL_DIRECT_API_BASE_URL=http://127.0.0.1:1/v1\nEASEL_DIRECT_API_MODEL=fixture\n')
+    asyncio.run(worker.run_once())
+    with s.store.transaction() as conn:
+        assert conn.execute("select count(*) from operations where state='unknown'").fetchone()[0]==1
+        conn.execute("update tasks set state='needs_decision',error_json=?",(encode({'code':'permission_missing'}),))
+        before_grants=conn.execute('select count(*) from authorization_grants').fetchone()[0]
+    c=ConversationService(s);seg=entry(c,work_id=work)
+    b,i,_=turn(s,c,seg,'授权并继续',id='unknown-recovery')
+    raises('result_unknown',lambda:pipe(b,i,'offer',action='grant',values={'purpose':'planning'}))
+    assert transport.calls==1
+    with s.store.connection() as conn:
+        assert conn.execute('select count(*) from authorization_grants').fetchone()[0]==before_grants
+        assert conn.execute("select count(*) from operations where state='unknown'").fetchone()[0]==1
+
+
+def test_unconfigured_planning_grant_fails_before_question(env):
+    from tests.production.test_conversation import draft
+    s,c,seg,work=draft(env)
+    (s.outputs.parent/'.env').write_text('')
+    b,i,_=turn(s,c,seg,'授权',id='unconfigured-grant')
+    raises('capability_unavailable',lambda:pipe(b,i,'offer',action='grant',values={'purpose':'planning'}))
+    assert len(c.view('ui')['proposals'])==1

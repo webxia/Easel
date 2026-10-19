@@ -22,8 +22,24 @@ export const toolDefinitions = [
 ];
 
 
+// Grant requests may omit services for planning: the host resolves the current
+// model and paused task before presenting the proposal, never after consent.
+const pipelineValuesSchema = {
+  type: 'object',
+  description: 'For grant purpose=planning, send only {"purpose":"planning"}; the server returns exact services and the paused decision_id. Present returned values.payload and values.summary before asking for consent. Never wrap services in item, or copy label/available fields.',
+  properties: {
+    purpose: { type: 'string', enum: ['planning', 'preview', 'production'] },
+    services: { type: 'array', items: {
+      type: 'object', properties: { provider: { type: 'string', minLength: 1 }, model: { type: 'string', minLength: 1 }, mode: { type: 'string', minLength: 1 } },
+      required: ['provider', 'model', 'mode'], additionalProperties: false,
+    } },
+    decision_id: { type: 'string', description: 'Exact paused task returned by server; do not invent. Planning grants bind it automatically at offer time.' },
+  },
+  additionalProperties: true,
+};
+
 export const persistentToolDefinitions = [...toolDefinitions,
-  {name:'easel_pipeline',description:'Easel pipeline pending/answer/resume adapter. pending reads real choices, proposals, plans and progress. bind queues a user-selected pipeline/target until this turn ends (then stop). draft creates a local draft from explicit user intent. offer stages an exact operation and user-visible summary; answer applies a previously shown proposal using this turn user_quote. Never infer authorization from praise; ask if unclear. No arbitrary commands.',parameters:{type:'object',properties:{mode:{type:'string',enum:['pending','bind','draft','offer','answer']},action:{type:'string',enum:['input','plan','confirm','grant','resume','cancel','basis','revise','confirm_revision','accept','director_style','director_accept','channel_director']},values:{type:'object'},summary:{type:'string'},user_quote:{type:'string'},proposal_id:{type:'string'},hash:{type:'string'},dismiss:{type:'boolean'}},required:['mode'],additionalProperties:false}},
+  {name:'easel_pipeline',description:'Easel pipeline pending/answer/resume adapter. pending reads real choices, proposals, plans and progress. bind queues a user-selected pipeline/target until this turn ends (then stop). draft creates a local draft from explicit user intent. offer stages an exact operation and user-visible summary; answer applies a previously shown proposal using this turn user_quote. Never infer authorization from praise; ask if unclear. No arbitrary commands.',parameters:{type:'object',properties:{mode:{type:'string',enum:['pending','bind','draft','offer','answer']},action:{type:'string',enum:['input','plan','confirm','grant','resume','cancel','basis','revise','confirm_revision','accept','director_style','director_accept','channel_director']},values:pipelineValuesSchema,summary:{type:'string'},user_quote:{type:'string'},proposal_id:{type:'string'},hash:{type:'string'},dismiss:{type:'boolean'}},required:['mode'],additionalProperties:false}},
   { name:'easel_work_input_evidence', description:'Read scoped input metadata. Media is unanalysed unless actual analysis evidence exists.', parameters:{type:'object',properties:{input_ids:{type:'array',items:{type:'string'},maxItems:100}},additionalProperties:false} },
   { name:'easel_work_register_inputs', description:'Register a current turn upload handle as reference or must-use. Does not grant rights or original audio permission.', parameters:{type:'object',properties:{attachment_id:{type:'string'},usage:{type:'string',enum:['reference','must_use']}},required:['attachment_id'],additionalProperties:false} },
   { name:'easel_work_update_brief', description:'Save sourced discussion. user_requirement must quote visible user text verbatim; summaries are suggestions. No production.', parameters:{type:'object',properties:{entries:{type:'array',minItems:1,maxItems:100,items:{type:'object',properties:{kind:{type:'string',enum:['user_requirement','suggestion','unresolved']},text:{type:'string'},source_refs:{type:'array',items:{type:'string'}}},required:['kind','text','source_refs'],additionalProperties:false}}},required:['entries'],additionalProperties:false} },

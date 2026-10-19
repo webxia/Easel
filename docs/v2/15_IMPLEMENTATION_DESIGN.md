@@ -387,3 +387,5 @@ A2持久记录/来源/工具桥与频道语义、A3统一对话/程序卡/共享
 用户后续已授权实施。协议2工具集扩展为9项（新增easel_pipeline），与旧8工具运行时握手不匹配时阻断，部署须同步插件manifest/注册及Agent白名单。工具身份仍由原生生命周期绑定，内部answer可在被核验的当前turn事务中应用提案，外部卡接口仍拒绝活动轮次；不移除通用并发保护。实现与验证范围见交互设计§18.8。
 
 规划授权补记（2026-10-19）：旧request_plan与pipeline plan均在提案时绑定实际模型services，应用已确认提案时不可追加未展示服务；授权与排程复用同一事务，缺项/变更在排程前返回对话。仅当前permission_missing的plan允许grant携带decision_id，在明确“授权并继续”后原子保存授权及恢复；待核实外部操作仍阻断。范围与验证见[交互设计§18.10](20_CONVERSATIONAL_INTERACTION.md#1810-规划授权与对话中断修复2026-10-19)。
+
+授权提案契约补记（2026-10-19）：planning的offer grant可只传purpose，由程序在提案阶段构造真实服务三字段数组并绑定当前permission_missing的plan恢复目标；工具返回完整待确认范围。显式services结构与实际能力在offer/apply均核验，不能到用户确认后才发现结构错误。旧错误提案在pending标记不可answer并给出有界修复指引，UNKNOWN不引导重试；具体证据见[交互设计§18.11](20_CONVERSATIONAL_INTERACTION.md#1811-授权参数契约与旧提案恢复2026-10-19)。

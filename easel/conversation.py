@@ -172,7 +172,7 @@ class ConversationService:
               'work_id':segment['work_id'],'work_revision':row(conn,'works',segment['work_id'])['revision'] if segment['work_id'] else None}
         checksum=digest(body)
         previous=conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? AND kind=? AND body_hash=?',(segment['id'],kind,checksum)).fetchone()
-        details={'values':values,'requires_user_confirmation':True} if kind=='plan' or (kind=='pipeline' and values.get('action')=='plan') else {}
+        details={'values':values,'requires_user_confirmation':True} if kind=='plan' or (kind=='pipeline' and values.get('action') in {'plan','grant'}) else {}
         if previous:return {'proposal_id':previous['id'],'hash':checksum,'state':previous['state'],**details}
         # A new version invalidates pending cards of the same kind in this segment.
         conn.execute("UPDATE conversation_proposals SET state='stale' WHERE segment_id=? AND kind=? AND state='proposed'",(segment['id'],kind))
