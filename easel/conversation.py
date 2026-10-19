@@ -201,6 +201,14 @@ class ConversationService:
                 conn.execute('UPDATE conversation_segments SET work_id=? WHERE id=?',(result['work_id'],segment['id']))
                 conn.execute('INSERT OR IGNORE INTO work_conversation_links VALUES (?,?,?)',(result['work_id'],session,now()))
                 self._capture_messages(conn,segment,result['work_id'])
+                # Planning can be proposed during discussion before a Work exists.
+                # After draft approval, issue a new card against the saved Work;
+                # keep the old hash stale rather than running with revision=None.
+                pending_plans=conn.execute("SELECT body_json FROM conversation_proposals WHERE segment_id=? AND kind='plan' AND state='proposed' AND json_extract(body_json,'$.work_id') IS NULL",(segment['id'],)).fetchall()
+                bound=self.segment(conn,session,segment['id'])
+                for pending_plan in pending_plans:
+                    proposed=json.loads(pending_plan['body_json'])
+                    self.proposal(conn,bound,'plan',proposed['values'],proposed['source_refs'])
             elif kind in {'plan','revision'}:
                 if not segment['work_id']:fail('work_not_bound','请先确认作品',409)
                 allowed={'request'} if kind=='plan' else {'feedback','protected','interval'}

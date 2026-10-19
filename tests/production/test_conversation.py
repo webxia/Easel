@@ -575,3 +575,32 @@ def test_director_proposal_rejects_object_wrapped_references_before_card(env):
         proposal(service,c,segment,'director_formation',{'name':'导演','reference_input_ids':{'item':'not-an-array'}})
     assert not [p for p in c.view('ui')['proposals'] if p['kind']=='director_formation']
     assert service.snapshot(work)['runs']==[]
+
+
+def test_prework_plan_card_is_reissued_after_draft_without_starting_generation(env):
+    service,c=env;segment=entry(c,profile_ref='one')
+    bridge,identity,_=turn(service,c,segment)
+    draft_card=proposal(service,c,segment,'draft',{'title':'Test content','input_text':'A concrete thought'})
+    before=proposal(service,c,segment,'plan',{'request':'Keep the confirmed direction and review before production'})
+    bridge.end(Identity(**identity))
+    raises('work_not_bound',lambda:apply(c,before,'before_draft'))
+    work=apply(c,draft_card)['work_id']
+    view=c.view('ui')
+    old=next(p for p in view['proposals'] if p['id']==before['proposal_id'])
+    fresh=next(p for p in view['proposals'] if p['kind']=='plan' and p['state']=='proposed')
+    assert old['state']=='stale'
+    assert fresh['id']!=old['id'] and fresh['body_hash']!=old['body_hash']
+    assert fresh['body']['values']==old['body']['values']
+    assert fresh['body']['source_refs']==old['body']['source_refs']
+    assert fresh['body']['work_id']==work
+    assert fresh['body']['work_revision']==service.snapshot(work)['revision']
+    with service.store.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM runs').fetchone()[0]==0
+        assert conn.execute('SELECT COUNT(*) FROM operations').fetchone()[0]==0
+    raises('stale_revision',lambda:apply(c,before,'old_card_click'))
+    result=c.apply('ui',fresh['id'],fresh['body_hash'],'new_plan_click')
+    assert result['run_id']
+    assert c.apply('ui',fresh['id'],fresh['body_hash'],'new_plan_click')==result
+    with service.store.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM runs').fetchone()[0]==1
+        assert conn.execute('SELECT COUNT(*) FROM operations').fetchone()[0]==0

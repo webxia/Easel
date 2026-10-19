@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { ChatScrollTracker } from '../lib/chatScroll';
 import { enterConversationWorkflow, replaceWorkflowPrompt, workflowDraft, type ConversationWorkflowKind } from '../lib/conversationWorkflows';
 import VideoConversation from './VideoConversation';
 import type { PersonaItem } from '../lib/api';
@@ -49,7 +50,8 @@ export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, sess
   const [dragOver, setDragOver] = useState(false);
   const [maxMb, setMaxMb] = useState(50);
   const [bindingPending,setBindingPending]=useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const scrollTracker = useRef(new ChatScrollTracker());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
@@ -108,9 +110,14 @@ export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, sess
   };
   const removeAttachment = (path: string) => setAttachments((a) => a.filter((x) => x.path !== path));
 
-  useEffect(() => {
-    if (!isEmpty) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [session.messages, stream?.content, stream?.thinking, stream?.activity, stream?.stillWorking, isEmpty]);
+  useLayoutEffect(() => {
+    const el = messagesRef.current;
+    if (el && !isEmpty && scrollTracker.current.followUpdate(session.id, session.messages.filter(m=>m.role==='user').length)) {
+      // Scroll this pane only. Smooth scrollIntoView fights the reader and can
+      // move ancestor viewports on every streaming/status update in Safari.
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [session.id, session.messages, stream?.content, stream?.thinking, stream?.activity, stream?.stillWorking, isEmpty]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -226,7 +233,7 @@ export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, sess
 
   return (
     <div className="chat-page">
-      <div className="chat-messages">
+      <div className="chat-messages" ref={messagesRef} onScroll={e=>{const el=e.currentTarget;scrollTracker.current.onScroll(el.scrollTop,el.scrollHeight,el.clientHeight);}}>
         <div className="chat-thread">
           {displayMessages.map((msg, i) => {
             const isLast = i === displayMessages.length - 1;
@@ -273,7 +280,7 @@ export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, sess
           {isStreaming && (stream!.questions?.length ?? 0) > 0 && (
             <QuestionCards questions={stream!.questions || []} onDone={(qid) => onQuestionAnswered?.(qid)} />
           )}
-          <div ref={messagesEndRef} />
+
         </div>
       </div>
 
