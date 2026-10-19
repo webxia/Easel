@@ -155,3 +155,50 @@ def test_failed_handoff_does_not_leave_turn_active(env):
     with s.store.connection() as conn:
         r=row(conn,'conversation_turns','turn');assert r['state']=='ended'
         assert json.loads(r['payload_json'])['pipeline_binding']['error']
+
+
+def test_input_rights_and_original_audio_require_prior_dialogue_confirmation(env):
+    from tests.production.test_conversation import attachment
+    seed(env);s,c=env;seg=entry(c,profile_ref='one',kind='director_formation')
+    a=attachment(s)
+    b,i,_=turn(s,c,seg,'参考我上传的视频',attachments=[a])
+    work=pipe(b,i,'draft',user_quote='参考我上传的视频',values={'title':'参考','input_text':'分析参考'})['work_id']
+    raises('rights_confirmation_required',lambda:tool(b,i,'easel_work_register_inputs',{'attachment_id':a['id'],'original_audio':True}))
+    p=pipe(b,i,'offer',action='input',values={'attachment_id':a['id'],'usage':'must_use','original_audio':True,'interval':{'start':1,'end':3},'rights_confirmed':True},summary='将clip.mp4用于本片，保留1到3秒原声，请确认本片使用权')
+    raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='参考我上传的视频'))
+    assert not s.snapshot(work)['inputs']
+    b.end(Identity(**i));b,i,_=turn(s,c,seg,'确认，我有本片使用权，保留这段原声',id='rights')
+    r=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认，我有本片使用权，保留这段原声')
+    assert pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认，我有本片使用权，保留这段原声')==r
+    snap=s.snapshot(work);assert len(snap['inputs'])==1 and not snap['runs']
+    meta=json.loads(snap['inputs'][0]['metadata_json'])
+    assert meta['original_audio'] and meta['interval']=={'start':1,'end':3}
+    assert meta['source']['rights']['status']=='KNOWN'
+
+
+def test_input_confirmation_rejects_foreign_or_changed_attachment(env):
+    from tests.production.test_conversation import attachment
+    seed(env);s,c=env;seg=entry(c,profile_ref='one',kind='director_formation')
+    a=attachment(s);b,i,_=turn(s,c,seg,'登记素材',attachments=[a])
+    work=pipe(b,i,'draft',user_quote='登记素材',values={'title':'参考','input_text':'参考'})['work_id']
+    raises('attachment_not_bound',lambda:pipe(b,i,'offer',action='input',values={'attachment_id':'foreign'},summary='bad'))
+    p=pipe(b,i,'offer',action='input',values={'attachment_id':a['id'],'original_audio':True},summary='保留原声但未声明使用权')
+    b.end(Identity(**i));(s.outputs/a['path']).write_bytes(b'changed video')
+    b,i,_=turn(s,c,seg,'确认登记',id='changed')
+    raises('stale_revision',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认登记'))
+    assert not s.snapshot(work)['inputs']
+
+
+def test_partial_selection_reports_remaining_choice_and_channel_scope(env):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one',channel_id=channel)
+    b,i,_=turn(s,c,seg,'还缺什么')
+    assert pipe(b,i,'pending')['missing_choices']==['director']
+    raises('pipeline_mismatch',lambda:pipe(b,i,'offer',action='channel_director',values={'revision_id':'v4'},summary='bad'))
+    b.end(Identity(**i))
+    seg=entry(c,profile_ref='one',kind='channel_create',channel_id=channel)
+    b,i,_=turn(s,c,seg,'修改频道',id='channel-edit')
+    p=proposal(s,c,seg,'channel_defaults',{'name':'新频道名'},ref='channel-edit')
+    b.end(Identity(**i));b,i,_=turn(s,c,seg,'确认保存',id='channel-save')
+    pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认保存')
+    assert c.view('ui')['context']['channel']['name']=='新频道名'
+    assert not s.list_works()['items']

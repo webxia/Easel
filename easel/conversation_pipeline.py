@@ -8,6 +8,7 @@ from .production.service import row, fail, encode, digest
 from .production.catalog import CreativeCatalog
 
 WORK_ACTIONS = {
+    'input': {'attachment_id','usage','original_audio','interval','rights_confirmed'},
     'plan': {'request','services'},
     'confirm': {'plan_revision','plan_hash','services','allow_ai','image_limit','video_limit'},
     'grant': {'purpose','services','allow_ai','image_limit','video_limit','target_ref','plan_revision'},
@@ -54,7 +55,7 @@ def scoped(conversations,conn,segment,action,values):
     if action not in WORK_ACTIONS and action not in CATALOG_ACTIONS:
         fail('invalid_input','不支持的管线动作')
     if action in WORK_ACTIONS:
-        if kind=='channel_create' or (kind=='director_formation' and action not in {'grant','resume','cancel'}):
+        if kind=='channel_create' or (kind=='director_formation' and action not in {'input','grant','resume','cancel'}):
             fail('pipeline_mismatch','请先通过对话切换到对应管线',409)
         if action in {'plan','confirm'}: require_choices(segment)
         if set(values)-WORK_ACTIONS[action]:fail('invalid_input','动作包含未允许字段')
@@ -73,9 +74,22 @@ def scoped(conversations,conn,segment,action,values):
         if kind!='channel_create' or set(values)!={'revision_id'}:fail('pipeline_mismatch','请在频道管线设置默认导演',409)
 
 
+
+def selected_attachment(conversations,conn,segment,values):
+    attachment=next((a for t in conversations.scoped_turns(conn,segment) for a in json.loads(t['payload_json']).get('attachments',[]) if a['id']==values.get('attachment_id')),None)
+    if not attachment:fail('attachment_not_bound','请先在当前对话提供素材附件',403)
+    from .conversation_inputs import validate_attachment
+    path=validate_attachment(conversations.service,segment['ui_session'],attachment)
+    if values.get('usage','reference') not in {'reference','must_use'} or any(not isinstance(values.get(k,False),bool) for k in ('original_audio','rights_confirmed')):
+        fail('invalid_input','素材用途、原声与权益声明须明确')
+    return attachment,conversations.service._file_hash(path)
+
+
 def offer(conversations,conn,segment,turn_id,action,values,summary):
     scoped(conversations,conn,segment,action,values)
     target={}
+    if action=='input':
+        _,target['attachment_digest']=selected_attachment(conversations,conn,segment,values)
     if action in CATALOG_ACTIONS:
         version=row(conn,'director_revisions',values['revision_id'])
         director=row(conn,'directors',version['director_id'])
@@ -96,6 +110,11 @@ def offer(conversations,conn,segment,turn_id,action,values,summary):
 def execute_action(conversations,conn,segment,body,key):
     values=body['values'];action=values['action'];data=values['payload']
     scoped(conversations,conn,segment,action,data)
+    if action=='input':
+        attachment,checksum=selected_attachment(conversations,conn,segment,data)
+        if checksum!=values['catalog_target']['attachment_digest']:fail('stale_revision','素材已变化，请重新核对确认',409)
+        rights={'status':'KNOWN','license_name':'用户声明本片使用权','evidence':[{'kind':'user_declaration','reference':key,'summary':'经对话提案及用户答复确认本片使用权'}]} if data.get('rights_confirmed') else {}
+        return conversations.service.command('input',{'attachment':attachment,'session_id':segment['ui_session'],'usage':data.get('usage','reference'),'original_audio':data.get('original_audio',False),'interval':data.get('interval'),'rights':rights},command_id=key+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
     if action in WORK_ACTIONS:
         return conversations.service.command(action,data,command_id=key+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
     target=values['catalog_target'];catalog=CreativeCatalog(conversations.service)
