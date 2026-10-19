@@ -4,6 +4,7 @@ import { productionRequest, workLabels, type Work, type Channel, type Director }
 import type { PersonaItem } from '../lib/api';
 import WorkCards from './WorkCards';
 import { CONVERSATION_WORKFLOWS } from '../lib/conversationWorkflows';
+import { directorEntrySelection, selectableDirectorVersions } from '../lib/directorLifecycle';
 
 const labels:Record<string,string>={draft:'创建作品草稿',plan:'整理完整方案',revision:'修改指定成片',channel_create:'保存新频道',channel_defaults:'保存频道默认',director_formation:'分析参考并形成导演',profile:'保存长期画像偏好',director_revision:'另存导演风格版本'};
 function ProposalCard({proposal:p,onApply,busy,inputs=[],error}:{error?:string;inputs?:Work['inputs'];proposal:Proposal;onApply:(p:Proposal,dismiss?:boolean)=>void;busy:boolean}) {
@@ -44,21 +45,27 @@ export default function VideoConversation({sessionId,segmentId,persona,personas,
   useEffect(()=>{Promise.all([productionRequest<Channel[]>('channels').then(setChannels),productionRequest<Director[]>('directors').then(setDirectors)]).catch(()=>{});},[view?.work_id,work?.revision,appliedCount]);
   const enter=async(entry:VideoEntry)=>{setBusy(true);setError('');try{const result=await enterVideo(sessionId,entry);onBound(result.segment_id);await load();}catch(e){setError((e as Error).message);}finally{setBusy(false);}};
   const selectedDirectorId=String((work?.settings as Record<string,unknown>|undefined)?.director_revision || (view?.context.settings as Record<string,unknown>|undefined)?.director_revision || '');
-  const selectedDirector=directors.flatMap(d=>d.versions.map(v=>({name:d.name,version:v.revision,id:v.id}))).find(v=>v.id===selectedDirectorId);
+  const selectedDirector=directors.flatMap(d=>d.versions.map(v=>({name:d.name,version:v.revision,id:v.id,trial:!v.accepted_at}))).find(v=>v.id===selectedDirectorId);
+  const directorChoices=selectableDirectorVersions(directors,true);
+  const startNewWork=()=>{
+    try { void enter({profile_ref:profile||undefined,channel_id:channel||undefined,...directorEntrySelection(directors,director),kind:'new_work'}); }
+    catch(e) { setError((e as Error).message); }
+  };
   const pending=view?.turns.some(t=>['reserved','active','dispatching','unknown'].includes(t.state));
   const workflow=CONVERSATION_WORKFLOWS.find(w=>w.kind===view?.context.kind);
   const apply=async(p:Proposal,dismiss=false)=>{setBusy(true);setProposalError(null);try{await applyProposal(sessionId,p,dismiss);await load();}catch(e){setProposalError({id:p.id,message:(e as Error).message});}finally{setBusy(false);}};
   return <section className="video-conversation" aria-label="视频创作对话">
-    <details open={!segmentId}><summary>{segmentId?'视频创作 · 查看／切换创作依据':'进入对话式视频创作'}</summary><p>先讨论内容与风格；制作和长期保存由明确卡片确认。</p>
+    <details open={!segmentId}><summary>{segmentId?'视频创作 · 查看／切换创作依据':'进入对话式视频创作'}</summary><p>选择已配置的画像、频道与导演，不重新整理六维画像；制作和长期保存由明确卡片确认。</p>
       <label>六维画像<select value={profile} onChange={e=>{setProfile(e.target.value);setChannel('');}}><option value="">不选画像也能创作</option>{personas.map(p=><option key={p.name}>{p.name}</option>)}</select></label>
       <label>频道<select value={channel} onChange={e=>{setChannel(e.target.value);const c=channels.find(c=>c.id===e.target.value);if(c)setProfile(c.profile_name);}}><option value="">不归属频道</option>{channels.filter(c=>!c.archived&&(!profile||c.profile_name===profile)).map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-      <label>明确选择导演<select value={director} onChange={e=>setDirector(e.target.value)}><option value="">沿用频道默认／根据本期内容创作</option>{directors.filter(d=>!d.archived).flatMap(d=>d.versions.filter(v=>v.accepted_at).map(v=><option key={v.id} value={v.id}>{d.name} · 版本{v.revision}</option>))}</select></label>
-      <button disabled={busy||!!pending} onClick={()=>void enter({profile_ref:profile||undefined,channel_id:channel||undefined,director_revision:director||undefined,kind:'new_work'})}>{segmentId?'按这些依据讨论新作品':'进入视频创作对话'}</button>
+      <label>明确选择导演<select value={director} onChange={e=>setDirector(e.target.value)}><option value="">沿用频道默认／根据本期内容创作</option>{directorChoices.map(({director:d,version:v})=><option key={v.id} value={v.id}>{d.name} · 版本{v.revision}{v.accepted_at?'':'（试片，尚未接受）'}</option>)}</select></label>
+      {directorChoices.some(v=>v.version.id===director&&!v.version.accepted_at)&&<p role="status">本期首版将兼作此导演版本的试片；选择不会标记已接受，也不会设为频道默认导演。</p>}
+      <button disabled={busy||!!pending} onClick={startNewWork}>{segmentId?'按这些依据讨论新作品':'进入视频创作对话'}</button>
       {view?.work_id&&<p>现有作品的方案保持原依据；新作品会使用独立对话运行段。</p>}
     </details>
     {(error||readError)&&<p role="alert">{error||readError}</p>}
     {workflow&&!view?.work_id&&<p role="status">当前管线：{workflow.label} · {workflow.desc}</p>}
-    {view&&<><p>本次：{String(view.context.profile_name||'通用画像')} · {view.context.channel?.name||'独立创作'} · {selectedDirector?`导演：${selectedDirector.name} · 版本${selectedDirector.version}`:'采用入口选定依据'}{pending?' · 本轮正在运行／待核实':''}</p><button disabled={!!pending} onClick={()=>onRestore(view.messages)}>恢复本段可见讨论</button>
+    {view&&<><p>本次：{String(view.context.profile_name||'通用画像')} · {view.context.channel?.name||'独立创作'} · {selectedDirector?`导演：${selectedDirector.name} · 版本${selectedDirector.version}${selectedDirector.trial?'（试片，尚未接受）':''}`:'采用入口选定依据'}{pending?' · 本轮正在运行／待核实':''}</p><button disabled={!!pending} onClick={()=>onRestore(view.messages)}>恢复本段可见讨论</button>
       {!view.work_id&&<div><button disabled={busy||!!pending} onClick={()=>onRequest('我想创建一个频道，请先和我讨论名称、定位、主题和受众，整理未保存的频道提案。')}>讨论创建频道</button><button disabled={busy||!!pending} onClick={()=>onRequest('我想用参考视频形成一个导演，请先说明参考与风格要求；分析和制作都等我确认。')}>讨论创建导演</button></div>}
       {directors.filter(d=>work?.tasks.some(t=>t.kind==='analyze_director'&&JSON.parse(t.payload_json||'{}').director_id===d.id)).map(d=><article className="work-card" key={d.id}><h3>{d.name} · 参考形成的导演</h3>{d.versions.map(v=><div key={v.id}><h4>风格版本{v.revision}</h4><p>{String(v.style.visual_style||'')}</p><p>{String(v.style.storytelling||'')}</p><details><summary>完整风格与参考证据</summary><pre>{JSON.stringify({style:v.style,evidence:v.evidence},null,2)}</pre></details>
         {!v.style_confirmed?<button disabled={busy||!!pending} onClick={async()=>{setBusy(true);try{await catalogCommand(`directors/${d.id}`,d.revision,{revision_id:v.id,style_confirmed:true},'PATCH');setDirectors(await productionRequest<Director[]>('directors'));}catch(e){setError((e as Error).message);}finally{setBusy(false);}}}>确认此风格，保留为待试片草稿</button>:work?.plans.some(p=>p.confirmed_at)?<p>{selectedDirectorId===v.id?'本片已采用此导演版本。':'本片已有确认方案；更换导演请围绕具体成片讨论修订。'}</p>:<button disabled={busy||!!pending} onClick={async()=>{if(!work)return;setBusy(true);try{await workCommand(work.id,work.revision,'basis',{settings:{director_revision:v.id,director_trial:!v.accepted_at}});await load();}catch(e){setError((e as Error).message);}finally{setBusy(false);}}}>让本期正式首版兼作此导演试片</button>}

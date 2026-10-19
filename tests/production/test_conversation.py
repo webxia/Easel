@@ -472,6 +472,33 @@ def test_entry_subtitle_layers_match_work_and_explicit_director_keeps_fixed_sett
     assert service.snapshot(work['id'])['settings']['director_revision']=='explicit-v'
 
 
+def test_new_work_trial_entry_preserves_confirmed_profile_voice_and_unaccepted_director(env):
+    service,c=env;cat=CreativeCatalog(service)
+    profile_before={str(p):p.read_bytes() for p in service.profiles.rglob('*.md')}
+    voice={'provider':'fixture','model':'speech','engine':'http-speech-v1','voice_id':'fixed','parameters':{'speed':1}}
+    with service.store.transaction() as conn:
+        conn.execute("INSERT INTO directors(id,name,created_at,updated_at) VALUES ('trial-director','Trial',?,?)",(now(),now()))
+        conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,created_at) VALUES ('trial-v4','trial-director',4,?,'[]',1,?)",(encode({'schema_version':1,'visual_style':'confirmed style'}),now()))
+    channel=cat.command('channels','create',{'name':'Existing channel','profile_ref':'one','settings':{'voice':voice},'director_ids':['trial-director']},command_id='trial-channel')
+    raises('invalid_input',lambda:c.enter('without-trial',{'profile_ref':'one','channel_id':channel['id'],'director_revision':'trial-v4'},'ordinary-unaccepted-entry'))
+    segment=entry(c,profile_ref='one',channel_id=channel['id'],director_revision='trial-v4',director_trial=True)
+    context=c.view('ui')['context']
+    assert context['settings']['director_revision']=='trial-v4' and context['settings']['director_trial'] is True
+    assert context['settings']['voice']==voice
+    assert service.list_works()['items']==[]
+    bridge,identity,_=turn(service,c,segment,'Use my existing profile; one new idea.')
+    p=tool(bridge,identity,'easel_work_create_draft',{'title':'One idea','input_text':'One new idea'})
+    bridge.end(Identity(**identity));work=service.snapshot(apply(c,p)['work_id'])
+    assert work['settings']['director_revision']=='trial-v4' and work['settings']['director_trial'] is True
+    assert work['settings']['voice']==voice and work['runs']==[] and work['tasks']==[]
+    with service.store.connection() as conn:
+        version=row(conn,'director_revisions','trial-v4')
+        assert version['style_confirmed'] and version['accepted_at'] is None and version['trial_artifact_id'] is None
+        assert row(conn,'channels',channel['id'])['default_director_revision'] is None
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+    assert {str(p):p.read_bytes() for p in service.profiles.rglob('*.md')}==profile_before
+
+
 @pytest.mark.parametrize('name',[None,12,[],{},'', ' '*4])
 def test_channel_proposal_invalid_name_is_not_saved_or_reported_applied(env,name):
     service,c=env;segment=entry(c,profile_ref='one');b,i,_=turn(service,c,segment)
