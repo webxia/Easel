@@ -166,6 +166,20 @@ def probe(f):
     check('forbidden_tools_no_new_production',len(service.snapshot(work)['runs'])==1)
     with service.store.connection() as conn:
         check('no_paid_operations_or_grants',conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0 and conn.execute('SELECT count(*) FROM authorization_grants').fetchone()[0]==0)
+    # Exercise the new adapter through the actual native tool lifecycle, with
+    # only fake model responses and an isolated catalog (no paid service).
+    pipe_sid=enter('pipeline-probe',{'profile_ref':'one','kind':'channel_create'})
+    f['model'].extra_cases={
+        'pipeline_pending':('easel_pipeline',{'mode':'pending'}),
+        'pipeline_offer':lambda body:('easel_work_propose',{'kind':'channel_create','values':{'name':'Isolated conversational channel'},'source_refs':[next(r['id'] for r in reversed(c.view('pipeline-probe')['turns']) if r['state']=='active')]}),
+    }
+    chat('pipeline-probe',pipe_sid,'pipeline_pending')
+    chat('pipeline-probe',pipe_sid,'pipeline_offer')
+    proposed=c.view('pipeline-probe')['proposals'][-1]
+    f['model'].extra_cases['pipeline_answer']=('easel_pipeline',{'mode':'answer','proposal_id':proposed['id'],'hash':proposed['body_hash'],'user_quote':'A1_CASE=pipeline_answer'})
+    chat('pipeline-probe',pipe_sid,'pipeline_answer')
+    check('native_text_answer_saves_channel_without_button',bool(c.view('pipeline-probe')['context'].get('channel_id')))
+    check('channel_pipeline_does_not_create_video',len(service.list_works()['items'])==1)
     # A different Work/Profile gets another native transcript, despite sharing the UI session.
     start=len(f['model'].requests);other=enter('probe',{'profile_ref':'two'});chat('probe',other,'context')
     text=json.dumps(f['model'].requests[start:])
@@ -173,7 +187,7 @@ def probe(f):
     all_requests=json.dumps(f['model'].requests,ensure_ascii=False)
     check('no_development_main_or_service_credentials',all(x not in all_requests for x in ('MAIN_ONLY_FORBIDDEN_SENTINEL','DEV_ONLY_FORBIDDEN_SENTINEL',f['bridge_token'])))
     from easel.conversation_bridge import TOOLS
-    check('effective_native_tool_surface_exactly_eight',all({t['function']['name'] for t in b.get('tools',[])}==set(TOOLS) for b in f['model'].requests))
+    check('effective_native_tool_surface_matches_contract',all({t['function']['name'] for t in b.get('tools',[])}==set(TOOLS) for b in f['model'].requests))
     check('selected_product_personality_loaded','创作者的社媒内容搭子' in all_requests)
     old=client.post('/api/chat/stream',json={**body,'turnId':'late-old-segment'});check('old_segment_dispatch_rejected',old.status_code==409)
     deleted=client.delete('/api/chat/video/probe');check('delete_chat_preserves_work_and_run',deleted.status_code==200 and len(service.snapshot(work)['runs'])==1)
