@@ -59,8 +59,8 @@ def test_local_revision_keeps_accepted_version_then_explicitly_switches(tmp_path
 
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
-@pytest.mark.parametrize('change_protected_audio',[False,True])
-def test_image_only_revision_reuses_unselected_candidate_and_protects_audio_bytes(tmp_path,change_protected_audio):
+@pytest.mark.parametrize('change_protected_audio,recut',[(False,False),(True,False),(False,True)])
+def test_image_only_revision_reuses_unselected_candidate_and_protects_audio_bytes(tmp_path,change_protected_audio,recut):
     import hashlib
     import subprocess
     import wave
@@ -86,6 +86,9 @@ def test_image_only_revision_reuses_unselected_candidate_and_protects_audio_byte
             base=data['artifacts'][0]['base_edit'];edit={k:base[k] for k in ('scenes','audio','captions','required_features')}
             alternate=next(a['asset_id'] for a in data['artifacts'][1:] if a['asset_id']==self.alternate)
             edit['scenes'][0]['asset_id']=alternate
+            if recut:
+                edit['scenes']=[{**edit['scenes'][0],'scene_id':'s1-cut1','duration':.5},
+                                {**edit['scenes'][0],'scene_id':'s1-cut2','duration':.5}]
             if change_protected_audio:edit['audio'][0]['gain']=.5
             return {'content':json.dumps({'summary':'仅替换为同批现有红画面','affected':['visual','audio'] if change_protected_audio else ['visual'],
                 'expands_scope':False,'requires_new_generation':False,'reason':'保留原声音','edit':edit})}
@@ -102,6 +105,7 @@ def test_image_only_revision_reuses_unselected_candidate_and_protects_audio_byte
     work=service.command('create',{'title':'preserved sound'},command_id='new')['work_id']
     plan={'title':'one','summary':'fixture','script':'fixture','scenes':[{'id':'s1','purpose':'test','visual':'blue','narration':''}],
         'settings':{'duration_seconds':1,'aspect_ratio':'16:9','audio_mode':'voice'}}
+    if recut:plan['narration_policy']={'continuous':False,'duration_mode':'fixed'}
     p=service.command('plan',{'generate':False,'plan':plan},command_id='plan',work_id=work,expected_revision=1)
     service.command('confirm',{'plan_revision':1,'plan_hash':p['plan_hash'],'services':[identity]},command_id='confirm',work_id=work,expected_revision=2)
     def finish():
@@ -115,12 +119,28 @@ def test_image_only_revision_reuses_unselected_candidate_and_protects_audio_byte
     a=next(v for v in first['artifacts'] if v['kind']=='output');path_a,_=service.artifact_path(a['id']);original=path_a.read_bytes()
     service.command('revise',{'output_id':a['id'],'feedback':'只替换画面，声音不变','preserve_audio':True},
         command_id='revise',work_id=work,expected_revision=first['revision'])
+    if recut:
+        with store.transaction() as conn:
+            task=conn.execute("SELECT id,payload_json FROM tasks WHERE kind='revise'").fetchone()
+            payload=json.loads(task['payload_json']);payload['creative_visual_repair']=True
+            conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(json.dumps(payload),task['id']))
     last=finish();outputs=[v for v in last['artifacts'] if v['kind']=='output']
     assert path_a.read_bytes()==original and len(last['plans'])==1
     assert not any(b.get('type')=='input_audio' for b in model.requests[-1][1]['content'])
     if change_protected_audio:
         assert len(outputs)==1 and last['state']=='needs_decision'
         assert '保留声音' in next(t for t in last['tasks'] if t['kind']=='revise')['error_json']
+        # A known, persisted answer is not resent when a later guard failed,
+        # even when upgrading an older proposal without the new task marker.
+        with store.transaction() as conn:
+            review=conn.execute('SELECT id,changes_json FROM reviews').fetchone()
+            saved=json.loads(review['changes_json']);saved.pop('producer_task_id')
+            conn.execute('UPDATE reviews SET changes_json=? WHERE id=?',(json.dumps(saved),review['id']))
+        calls=len(model.requests)
+        pending=next(t for t in last['tasks'] if t['kind']=='revise')
+        service.command('resume',{'decision_id':pending['id']},command_id='resume-known-proposal',work_id=work,expected_revision=last['revision'])
+        retry=finish()
+        assert retry['state']=='needs_decision' and len(model.requests)==calls
     else:
         assert len(outputs)==2 and last['state']=='reviewable'
         b=next(v for v in outputs if v['id']!=a['id']);path_b,_=service.artifact_path(b['id'])

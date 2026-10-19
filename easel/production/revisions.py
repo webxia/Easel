@@ -67,6 +67,26 @@ class RevisionProposal(Contract):
     material_searches: list[VisualIntent] = Field(default_factory=list,max_length=4)
 
 
+def recorded_proposal(service,ctx,review,output):
+    """Recover a known native answer after post-model validation, never resend it."""
+    if not review.get('changes_json'):return None
+    saved=json.loads(review['changes_json'])
+    if set(saved)<= {'schema_version'}:return None
+    if saved.get('base_digest')!=output['digest']:
+        raise ModelTaskError('revision_basis_changed','已收到的修订方案不属于此成片，不能复用或盲重发')
+    proposal=RevisionProposal.model_validate({k:v for k,v in saved.items() if k in RevisionProposal.model_fields})
+    if saved.get('producer_task_id')==ctx.task_id:return proposal
+    # Compatibility with pre-checkpoint answers already persisted by V2.
+    with service.store.connection() as conn:
+        receipts=conn.execute("SELECT receipt_json FROM operations WHERE task_id=? AND kind='MODEL' AND state='succeeded'",(ctx.task_id,)).fetchall()
+    for receipt in receipts:
+        try:
+            content=json.loads(receipt[0])['result']['message']['content']
+            if RevisionProposal.model_validate_json(content)==proposal:return proposal
+        except (ValueError,KeyError,TypeError):continue
+    raise ModelTaskError('revision_provenance_missing','修订方案缺少本任务已成功模型回执，未重新发送模型')
+
+
 class RevisionTasks:
     def __init__(self,service,planning,creation,*,supply=None):
         self.service,self.planning,self.creation,self.supply=service,planning,creation,supply
@@ -150,8 +170,11 @@ class RevisionTasks:
                         width=base.width,height=base.height)
                 except (EditError,ValueError) as exc:
                     raise ValueError(str(exc)) from None
-            proposal=await self.planning.runner(ctx,max_format_repairs=2 if creative_repair else 1).run(candidate_context(records),instruction,RevisionProposal,
-                media=(*media,*observations),required=frozenset(set(required)|needs),validate_result=check_creative_repair)
+            proposal=recorded_proposal(self.service,ctx,review,output)
+            reused=proposal is not None
+            if proposal is None:
+                proposal=await self.planning.runner(ctx,max_format_repairs=2 if creative_repair else 1).run(candidate_context(records),instruction,RevisionProposal,
+                    media=(*media,*observations),required=frozenset(set(required)|needs),validate_result=check_creative_repair)
             if proposal.material_searches and not (proposal.expands_scope or proposal.requires_new_generation):
                 if not self.supply:raise ModelTaskError('material_gap','局部库存补料尚不可用，原版与配音已保留')
                 new_ids=await asyncio.to_thread(self.supply.revision_visuals,ctx,[s.model_dump(mode='json') for s in proposal.material_searches])
@@ -162,14 +185,15 @@ class RevisionTasks:
                     RevisionProposal,media=(*media,*observations),required=frozenset(set(required)|needs),validate_result=check_creative_repair)
                 if proposal.material_searches:raise ModelTaskError('visual_material_gap','有限库存补料后仍缺所需画面，保留原片并等待处理')
             with ctx.transaction() as conn:
-                conn.execute('UPDATE reviews SET changes_json=? WHERE id=?',(encode({'schema_version':1,**proposal.model_dump(mode='json'),'base_digest':output['digest']}),review['id']))
-                self.service._event(conn,ctx.work_id,'revision_proposed',{'review_id':review['id'],'summary':proposal.summary,'affected':proposal.affected},run_id=ctx.run_id)
+                if not reused:
+                    conn.execute('UPDATE reviews SET changes_json=? WHERE id=?',(encode({'schema_version':1,**proposal.model_dump(mode='json'),'base_digest':output['digest'],'producer_task_id':ctx.task_id}),review['id']))
+                self.service._event(conn,ctx.work_id,'revision_proposal_reused' if reused else 'revision_proposed',{'review_id':review['id'],'summary':proposal.summary,'affected':proposal.affected},run_id=ctx.run_id)
             if proposal.expands_scope or proposal.requires_new_generation or not set(proposal.affected)<={'visual','captions','audio','materials'}:
                 return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError('revision_scope_confirmation',proposal.summary+'。'+proposal.reason,requires_decision=True),result={'review_id':review['id']})
             edit,notes=project_editor_features(proposal.edit)
             revised=EditProject.model_validate({**base.model_dump(), 'revision':base.revision+1,**edit_data(edit)})
             if payload.get('preserve_audio') and (revised.audio!=base.audio or
-                    [(s.source_audio,s.source_gain) for s in revised.scenes]!=[(s.source_audio,s.source_gain) for s in base.scenes]):
+                    (not creative_repair and [(s.source_audio,s.source_gain) for s in revised.scenes]!=[(s.source_audio,s.source_gain) for s in base.scenes])):
                 raise EditError('本次要求保留声音，修订不能改变原音频资产、时间位置、增益或原声设置')
             protected=base
             allowed=set(proposal.affected)-{'materials'}
@@ -187,6 +211,8 @@ class RevisionTasks:
                 protected=base.model_copy(update={'scenes':tuple(adjusted)})
             if creative_repair:
                 assert_visual_repair(base,revised,overlay_texts=approved_overlay_texts(context.plan))
+                check_caption_layout(revised.captions,font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'},
+                    width=base.width,height=base.height)
             else:
                 assert_local_revision(protected,revised,allowed=allowed)
             from .material_binding import selected_asset_ids
