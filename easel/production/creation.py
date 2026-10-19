@@ -13,12 +13,13 @@ from .model_tasks import ModelTaskError
 from .errors import ProductionError
 from .service import row,encode,now,new_id
 from .material_binding import validate_material_records, validate_audio_bindings, selected_asset_ids
+from .creative_captions import CreativeCaption, compile_captions, check_caption_layout
 
 
 class CreativeEdit(Contract):
     scenes: list[Scene] = Field(min_length=1)
     audio: list[AudioClip] = Field(default_factory=list)
-    captions: list[Caption] = Field(default_factory=list)
+    captions: list[CreativeCaption] = Field(default_factory=list)
     required_features: list[str] = Field(default_factory=list)
     # Director's explicit gap report is not part of an executable timeline.
     unresolved_scene_ids: list[str] = Field(default_factory=list, max_length=1000, exclude=True)
@@ -165,9 +166,23 @@ class CreationTasks:
                     observations.append({'type':'text','text':
                         '本地FFmpeg技术测量，模型未听取该素材声音。不能据此推断音乐风格、听感、歌词或SFX动作匹配。'
                         +json.dumps(measured,ensure_ascii=False)})
+            from .contracts import SubtitleSettings
+            style=SubtitleSettings.model_validate(context.plan['settings'].get('subtitles',{}))
+            fonts={json.loads(r['metadata_json']).get('font_name'):r['id'] for r in records if r['kind']=='font'}
+            font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'}
+            horizontal=context.plan['settings']['aspect_ratio']=='16:9'
             def check_measured_edit(candidate):
                 if not timing:
                     return
+                if any('role' not in c.model_fields_set for c in candidate.captions):
+                    raise ValueError('必须明确每条文字的role：narration为旁白字幕，overlay为独立解释字')
+                try:
+                    compiled=compile_captions(candidate.captions,style=style,fonts=fonts,
+                        aligned=aligned_captions(candidate.audio,records) if style.enabled else None)
+                    check_caption_layout(compiled,font_paths=font_paths,
+                        width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
+                except EditError as exc:
+                    raise ValueError(str(exc)) from None
                 check_voice_schedule(candidate.audio, records, timing)
                 actual = sum(s.duration - s.transition_seconds for s in candidate.scenes)
                 raw = sum(s.duration for s in candidate.scenes)
@@ -179,6 +194,7 @@ class CreationTasks:
                 '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '连续旁白应跨镜头讲完，严格遵守给定voice_schedule，不为草稿分镜时长加入静默；'
                 '字幕短行分语义显示，不能将整段连续旁白一次堆在画面上。选择画质与景别适合、光线与动作相接的素材，'
+                '每条文字明确role：narration只显示旁白并继承频道字幕样式；overlay为独立解释文字，保留设计的字体、位置、字号，避开底部旁白区，不能叠字。'
                 '避免同义空镜反复堆积，旁白说到具体关系时应让画面或必要字幕提供相应信息。'
                 '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),validate_result=check_measured_edit)
             answer=align_editor_frames(answer)
@@ -186,18 +202,10 @@ class CreationTasks:
             answer=compensate_edit_overlap(answer,target_seconds=settings['duration_seconds'])
             answer,unverified_editor_notes=project_editor_features(answer)
             horizontal=settings['aspect_ratio']=='16:9'
-            from .contracts import SubtitleSettings
-            from .subtitles import caption_from_settings
-            style=SubtitleSettings.model_validate(settings.get('subtitles',{}))
-            fonts={json.loads(r['metadata_json']).get('font_name'):r['id'] for r in records if r['kind']=='font'}
             if not style.enabled and answer.captions:
                 raise ModelTaskError('subtitle_disabled','方案关闭了字幕，剪辑不能擅自添加')
             aligned = aligned_captions(answer.audio, records) if (context.plan.get('narration_policy') or {}).get('continuous') else None
-            if aligned and style.enabled:
-                captions = [caption_from_settings(style,caption_id='speech-'+str(i),
-                    text=c['text'],start=c['start'],end=c['end'],fonts=fonts) for i,c in enumerate(aligned)]
-            else:
-                captions=[caption_from_settings(style,caption_id=c.caption_id,text=c.text,start=c.start,end=c.end,fonts=fonts) for c in answer.captions]
+            captions=compile_captions(answer.captions,style=style,fonts=fonts,aligned=aligned if style.enabled else None)
             data=answer.model_dump();data['captions']=captions
             project=EditProject(work_id=ctx.work_id,plan_revision=ctx.plan_revision,revision=1,
                 width=1920 if horizontal else 1080,height=1080 if horizontal else 1920,
@@ -245,6 +253,7 @@ class CreationTasks:
             artifact=register_file(self.service,ctx,path,kind='edit_project',media_type='application/json',metadata={'plan_revision':ctx.plan_revision,
                     'audio_observation': 'model_native' if audio_native else 'technical_only_unverified',
                     'execution_timing': timing, 'subtitle_alignment': 'provider' if aligned else 'editor_preview',
+                    'caption_roles':{c.caption_id:c.role for c in answer.captions},
                     'unverified_editor_notes':unverified_editor_notes},
                     dependencies=list(manifest.assets))
             return TaskResult(result={'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets)})

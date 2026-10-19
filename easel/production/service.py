@@ -419,11 +419,20 @@ class WorkService:
         return {'work_id':work['id'],'run_id':run['id']}
 
     @staticmethod
+    def _has_known_quality_failure(conn, artifact) -> bool:
+        # Re-exported bytes retain their findings even under another artifact ID.
+        return bool(conn.execute("""SELECT 1 FROM quality_checks q JOIN artifacts a ON a.id=q.artifact_id
+            WHERE a.work_id=? AND a.digest=? AND q.artifact_digest=?
+            AND q.check_kind='semantic' AND q.status IN ('fail','partial') LIMIT 1""",
+            (artifact['work_id'],artifact['digest'],artifact['digest'])).fetchone())
+
+    @staticmethod
     def _manual_review_ready(conn, artifact) -> bool:
         """Technical PASS + explicitly skipped semantic Gate, not semantic PASS."""
         if (artifact['kind'] != 'output' or not artifact['displayable'] or
                 artifact['output_revision'] is None or artifact['quality_state'] != 'needs_fix'):
             return False
+        if WorkService._has_known_quality_failure(conn,artifact):return False
         checks = conn.execute("""SELECT check_kind,status,findings_json
             FROM quality_checks WHERE artifact_id=? AND artifact_digest=?
             ORDER BY created_at DESC,id DESC""",
@@ -444,7 +453,7 @@ class WorkService:
         if artifact.get('deleted_at') or not artifact['displayable']:fail('not_found','成果已删除或不可接受',404)
         manual_ready=self._manual_review_ready(conn,artifact)
         if (artifact['work_id']!=work['id'] or artifact['output_revision'] is None or
-                (artifact['quality_state']!='passed' and not manual_ready)):
+                (artifact['quality_state']!='passed' and not manual_ready) or self._has_known_quality_failure(conn,artifact)):
             fail('quality_blocked','请选择可审阅的技术合格版本')
         if manual_ready:
             # Explicit human confirmation is mandatory, even though the

@@ -106,7 +106,8 @@ def test_manual_only_finishes_run_without_faking_semantic_pass_or_creator_accept
 
 
 @pytest.mark.parametrize('failed_scope',['full_av','sampled_visual_only'])
-def test_manual_review_gate_refuses_known_failed_semantic_evidence(tmp_path,failed_scope):
+@pytest.mark.parametrize('same_bytes_copy',[False,True])
+def test_manual_review_gate_refuses_known_failed_semantic_evidence(tmp_path,failed_scope,same_bytes_copy):
     store=Store(tmp_path/"output/_production/production.sqlite3")
     store.initialize()
     service=WorkService(store,outputs=tmp_path/"output",profiles=tmp_path/"profiles")
@@ -120,6 +121,10 @@ def test_manual_review_gate_refuses_known_failed_semantic_evidence(tmp_path,fail
                      VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                      ("out",work_id,"output","works/test/artifacts/old.mp4","a"*64,1,
                       "video/mp4",1,1,"needs_fix",utc_now()))
+        if same_bytes_copy:
+            conn.execute("""INSERT INTO artifacts(id,work_id,kind,storage_ref,digest,size_bytes,media_type,
+                         displayable,output_revision,quality_state,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                         ('copy',work_id,'output','works/test/artifacts/copy.mp4','a'*64,1,'video/mp4',1,2,'needs_fix',utc_now()))
         for i,kind,status,extra in [
             ("tech","technical","pass",{}),
             ("bad","semantic","fail",{"findings":["known quality failure"],"scope":failed_scope}),
@@ -128,7 +133,7 @@ def test_manual_review_gate_refuses_known_failed_semantic_evidence(tmp_path,fail
             conn.execute("""INSERT INTO quality_checks(id,artifact_id,artifact_digest,
                           check_kind,rule_version,status,findings_json,created_at)
                           VALUES (?,?,?,?,?,?,?,?)""",
-                         (i,"out","a"*64,kind,"production-1",status,
+                         (i,'copy' if same_bytes_copy and i=='bad' else 'out',"a"*64,kind,"production-1",status,
                           json.dumps(extra),utc_now()))
     snapshot=service.snapshot(work_id)
     artifact=next(a for a in snapshot["artifacts"] if a["id"]=="out")

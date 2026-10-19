@@ -13,6 +13,7 @@ from .artifacts import artifact_file,register_file
 from .errors import ProductionError, StaleRevision
 from .model_tasks import ModelTaskError
 from .service import row,fail,encode,now,new_id,digest
+from .creative_captions import edit_data, check_caption_layout
 
 
 def request_revision(service,conn,work,data):
@@ -38,8 +39,7 @@ def request_revision(service,conn,work,data):
         if base.work_id!=work['id'] or base.plan_revision!=source_run['plan_revision'] or not confirmed or not confirmed[0]:
             fail('invalid_input','剪辑工程与此版本的已确认方案不匹配')
         notes=json.loads(project['metadata_json']).get('unverified_editor_notes',[])
-        failed=conn.execute("SELECT 1 FROM quality_checks WHERE artifact_id=? AND artifact_digest=? AND check_kind='semantic' AND status IN ('fail','partial')",
-            (output['id'],output['digest'])).fetchone()
+        failed=service._has_known_quality_failure(conn,output)
         if failed or any(str(note).startswith('PENDING_VISUAL_MATCH') for note in notes):
             fail('semantic_findings_require_review','此版仍有已知内容或画面缺口，请先局部修正，不能仅重新导出')
         deps=[r[0] for r in conn.execute('SELECT dependency_id FROM artifact_edges WHERE artifact_id=?',(project['id'],))]
@@ -144,8 +144,10 @@ class RevisionTasks:
                 if not creative_repair or candidate.material_searches or candidate.expands_scope or candidate.requires_new_generation:
                     return
                 try:
-                    draft=EditProject.model_validate({**base.model_dump(),'revision':base.revision+1,**candidate.edit.model_dump()})
+                    draft=EditProject.model_validate({**base.model_dump(),'revision':base.revision+1,**edit_data(candidate.edit)})
                     assert_visual_repair(base,draft,overlay_texts=approved_overlay_texts(context.plan))
+                    check_caption_layout(draft.captions,font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'},
+                        width=base.width,height=base.height)
                 except (EditError,ValueError) as exc:
                     raise ValueError(str(exc)) from None
             proposal=await self.planning.runner(ctx,max_format_repairs=2 if creative_repair else 1).run(candidate_context(records),instruction,RevisionProposal,
@@ -165,7 +167,7 @@ class RevisionTasks:
             if proposal.expands_scope or proposal.requires_new_generation or not set(proposal.affected)<={'visual','captions','audio','materials'}:
                 return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError('revision_scope_confirmation',proposal.summary+'。'+proposal.reason,requires_decision=True),result={'review_id':review['id']})
             edit,notes=project_editor_features(proposal.edit)
-            revised=EditProject.model_validate({**base.model_dump(), 'revision':base.revision+1,**edit.model_dump()})
+            revised=EditProject.model_validate({**base.model_dump(), 'revision':base.revision+1,**edit_data(edit)})
             if payload.get('preserve_audio') and (revised.audio!=base.audio or
                     [(s.source_audio,s.source_gain) for s in revised.scenes]!=[(s.source_audio,s.source_gain) for s in base.scenes]):
                 raise EditError('本次要求保留声音，修订不能改变原音频资产、时间位置、增益或原声设置')
