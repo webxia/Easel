@@ -35,7 +35,7 @@
 
 ## V2 功能冻结与唯一任务工作包（2026-10-19）
 
-“冻结V2”指**功能/架构范围冻结，允许必要小改**，不是已完成Release或真人验收。F1/F2/F3是当前S6唯一三个产品方向，不是新任务编号。默认在主工作区 `easel-v2-main-workspace` 小步推进，不重开旧版全链架构治理。
+“冻结V2”指**功能/架构范围冻结，允许必要小改**，不是已完成Release或真人验收。F1/F2/F3是当前S6唯一三个产品方向，不是新任务编号。默认在主工作区的长期主线 `easel-v2-rebuild` 小步推进，不重开旧版全链架构治理。
 
 | 工作包 | 本轮待完成的可观察结果 | 明确边界 |
 |---|---|---|
@@ -63,15 +63,17 @@
 - 第四轮失败、早期受助试片、A8中间版及旧UNKNOWN回执均保留，不重新派发；未完成/失败记录不是自动重试清单。
 - A7演示画像/频道与主画像创作分开，旧作品原画像及冻结方案保持不变。研发规则、历史修复清单和候选建议不写入创作画像。
 - 素材库购买、国内API、换编辑后端、Hypit/Remotion等讨论不自动转为研发任务。V3窗口的技术评估不等于已选型或已开工。
-- 原未跟踪预研、scratch、二维码和个人创作目录保持原样；整库文档检查中的4条预研路径错误不混进本次产品待办，不删除用户资料。
-- **Git未跟踪噪音分类**：`docs/research/director-style-architecture-2026-10-17/` 是独立预研，不当作V2新任务；`qrcode.png`、`赛博江湖/`、`赛博江湖-同路长歌/` 暂按用户材料保留，不自动提交；`skills/_scratch/burn_subs.py`、`skills/_scratch/burn_v2.py` 是清理候选，需确认无人复用后再处理。本轮都不删除、不移动、不新增忽略规则。`outputs/`、个人Profile、历史回执及密钥继续保护；被忽略的构建缓存不作为产品待办。
+- 原未跟踪预研、scratch、二维码和个人创作目录保持原样；此前整库文档检查中的4条预研路径错误不混进本次产品待办，不删除用户资料。
+- **Git未跟踪噪音分类**：本机 docs/research 下的 director-style-architecture-2026-10-17 目录（未跟踪） 是独立预研，不当作V2新任务；`qrcode.png`、`赛博江湖/`、`赛博江湖-同路长歌/` 暂按用户材料保留，不自动提交；本机 skills 目录中 _scratch 子目录下的 burn_subs.py、burn_v2.py（未跟踪） 是清理候选，需确认无人复用后再处理。本轮都不删除、不移动、不新增忽略规则。`outputs/`、个人Profile、历史回执及密钥继续保护；被忽略的构建缓存不作为产品待办。
 - 旧S6工作树、历史PR及失败回执保留可追溯；任务入口只维护本页，历史过程回原Task，不再创建并行的“最新总任务表”。
 
 <a id="唯一执行入口"></a>
 
 ## 执行入口与证据
 
-- 工作区 `/Users/xgx/Projects/Easel`，分支 `easel-v2-main-workspace`；唯一服务7860 / `com.easel.web`。任务整理当时为只读；A10开发提交0b080d9f已部署为8e8af420，确认全库无在途任务后安全重载，backend.reload_required=false；本轮无新真实生产调用。无数据库迁移，不重发旧UNKNOWN，不自动接受或发布；实际源码SHA及过程见Task。
+2026-10-19 用户授权主线收敛：`easel-v2-main-workspace@7fef7a53` 的67个提交以快进方式归入长期主线，原源分支保留历史；后续使用 `easel-v2-rebuild`，不重开旧S6或启动S7。清理仅涉及开发Runner，唯一7860产品服务保持原进程。审查全部67个提交及754个历史文件对象，未发现禁止入库的私有文件或已配置凭证；CI假值已人工排除。干净临时工作树回归1858 passed / 16 skipped；114项技能合同、312条文档命令、1462条仓库路径检查通过，前端lint/build通过（既有转义及包体警告保留）。运行明细、资产哈希与私有备份只留本机，推送结果以本次交接为准。
+
+- 工作区 `/Users/xgx/Projects/Easel`，分支 `easel-v2-rebuild`；唯一服务7860 / `com.easel.web`。任务整理当时为只读；A10开发提交0b080d9f已部署为8e8af420，确认全库无在途任务后安全重载，backend.reload_required=false；本轮无新真实生产调用。无数据库迁移，不重发旧UNKNOWN，不自动接受或发布；实际源码SHA及过程见Task。
 - 最近A10软件回归：架构收敛增量全库Python1858 passed / 16 skipped；生产模块593 passed / 5 skipped，具名范围见Task。前端仅补可选字幕字段类型；Node99及build/lint仍仅为A8历史结果。软件/真实生产/自主完成/Creator接受继续分列。
 - 上游最近检查至 `8d08b216`，本地main之后42提交；未合入。[PR #8](https://github.com/webxia/Easel/pull/8)仍为历史Draft，不包含当前全部修复，不自动合并。
 - 资料入口：[任务包](tasks/S6_IMPLEMENTATION_PLAN.md) · [S6-14真实生产](tasks/S6-14_integration-release.md) · [S6-14A对话/修订](tasks/S6-14A_conversation-integration.md) · [运行配置](16_RUNTIME_SETUP.md) · [工程规则](05_ENGINEERING.md)。
