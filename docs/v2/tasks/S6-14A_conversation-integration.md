@@ -509,3 +509,5 @@ A10第一段已提交`25ccb33e`，正式部署`8adc5dc0`。全库1818 passed/16 
 S6 / CURRENT_BLOCKER：Safari真实对话反馈卡住与页面乱跳。实查草稿/规划同时处于待确认且Work未创建，规划提案的work_id/work_revision为空；原稿确认仅绑定Work，未刷新提前提出的规划卡，导致下一步会以空revision执行。草稿创建事务中以原values/source_refs重新签发绑定准确Work/revision的规划卡，旧卡hash失效；保持显式确认、不自动制作。界面卡首展示第1步/第2步，草稿前规划按钮禁用并提示，长提案内容及来源可展开审阅。
 
 原聊天对每个流式正文/思考/活动状态调用smooth scrollIntoView，读者回看会被强制拉到尾部并可能移动祖先视口。改为聊天容器内跟随，记录读者是否仍在底部；用户回看停止跟随，主动发送或切换对话恢复，不把纯状态更新当导航。新增回归覆盖连续百次状态更新保持回看、恢复跟随，以及预Work规划卡失效/重新绑定/仅创建草稿时无Run或Operation/规划明确确认后单次排程。后端42 passed，前端95 passed，build/lint通过，仅保留既有弃用/转义/包体警告。私有对话和运行ID不入Git，不替用户修改脚本或点击制作，实际制作与Creator接受未测。
+
+部署补记：确认当前对话latest status=done、无有效制作Run/Task及sending/submitted操作后重载唯一Web服务；正式HTTP已服务最新JS，backend.reload_required=false。Safari原对话刷新后的可访问性树已显示第1步草稿、第2步规划前置禁用，未点击保存/规划/制作。原生窗口滚动控制返回noWindowsAvailable，截图与最新可访问性内容不一致，故现场滚动视觉复验NOT_VERIFIED，不记完整Web或Creator体验PASS。新方案绑定修复仅经隔离真实命令链验证，用户当前草稿仍待其确认。
