@@ -198,6 +198,8 @@ class SupplyTasks:
                 ctx.assert_current()
                 need = self._need(scene.id,visual.query if visual else scene.visual,kind,
                                   context=context,options=visual.options if visual else 1)
+                if plan.narration_policy is not None:
+                    need = need.model_copy(update={'constraints': {**need.constraints, 'min_short_edge': 1080}})
                 answer = self.supplier.supply(need,visibility=scope,context=context,
                     excluded_asset_refs=excluded_asset_refs,
                     allowed_providers=tuple(p for p in self._allowed_providers(kind,ctx)
@@ -213,6 +215,10 @@ class SupplyTasks:
                         material_use={'need_id':need.need_id,'role':'visual','scene_id':scene.id,'need':need.model_dump(mode='json')})
                     if not any(r['id']==record['id'] for r in records):records.append(record)
                     else:records[:] = [record if r['id']==record['id'] else r for r in records]
+                if answer.candidates and plan.narration_policy is not None:
+                    # media_types are alternatives, not a requirement to fill
+                    # every type even after the preferred footage is supplied.
+                    break
             if not any(r['kind'] in {'image','video'} and scene.id in json.loads(r['metadata_json']).get('scene_ids',[]) for r in records):
                 gaps.append(scene.id)
         return records,gaps

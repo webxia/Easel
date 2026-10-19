@@ -162,6 +162,12 @@ class ProfileSnapshot(Contract):
     content_hash: Digest
 
 
+class NarrationPolicy(Contract):
+    """New-draft opt-in; historical plans retain fixed sentence playback."""
+    continuous: bool = True
+    duration_mode: Literal['fixed', 'voice_driven'] = 'fixed'
+
+
 class PlanDocument(Contract):
     schema_version: Literal[1] = 1
     title: str = Field(min_length=1)
@@ -176,6 +182,7 @@ class PlanDocument(Contract):
     conversation_basis: dict | None = None
     profile_snapshot: ProfileSnapshot | None = None
     director_revision_id: Identifier | None = None
+    narration_policy: NarrationPolicy | None = None
 
     @model_validator(mode="after")
     def distinct_scenes(self):

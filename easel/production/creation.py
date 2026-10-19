@@ -136,6 +136,11 @@ class CreationTasks:
                 asset_ids,outcome=await self.voice_tasks.prepare_assets(ctx,context.plan,asset_ids)
                 if outcome:return outcome
             records,manifest=self.assets(ctx,asset_ids)
+            from .narration import measured_execution_plan, check_voice_schedule, aligned_captions, narration_segments
+            execution_plan, timing = measured_execution_plan(context.plan, records)
+            if timing:
+                context = replace(context, plan=execution_plan,
+                    brief=context.brief + '\n本片允许按真实旁白定长；程序已测量以下连续音轨时间，不按草稿分镜补静默：' + encode(timing))
             context=replace(context,artifacts=tuple({'asset_id':r['id'],'kind':r['kind'],'metadata':json.loads(r['metadata_json'])} for r in records),allowed_handles=context.allowed_handles|frozenset(manifest.assets))
             observations=[];required={'text','structured'}
             # M3.1 accepts visual frames but not input_audio. Measured local
@@ -159,9 +164,22 @@ class CreationTasks:
                     observations.append({'type':'text','text':
                         '本地FFmpeg技术测量，模型未听取该素材声音。不能据此推断音乐风格、听感、歌词或SFX动作匹配。'
                         +json.dumps(measured,ensure_ascii=False)})
+            def check_measured_edit(candidate):
+                if not timing:
+                    return
+                check_voice_schedule(candidate.audio, records, timing)
+                actual = sum(s.duration - s.transition_seconds for s in candidate.scenes)
+                raw = sum(s.duration for s in candidate.scenes)
+                if min(abs(actual - timing['duration']), abs(raw - timing['duration'])) > .04:
+                    raise ValueError('分镜必须按实测成片长度编排：' + str(timing['duration']))
+                if candidate.unresolved_scene_ids:
+                    raise ValueError('仍有未落实场景：' + ','.join(candidate.unresolved_scene_ids))
             answer=await self.planning.runner(ctx,max_format_repairs=2).run(context,
                 '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
-                '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required))
+                '连续旁白应跨镜头讲完，严格遵守给定voice_schedule，不为草稿分镜时长加入静默；'
+                '字幕短行分语义显示，不能将整段连续旁白一次堆在画面上。选择画质与景别适合、光线与动作相接的素材，'
+                '避免同义空镜反复堆积，旁白说到具体关系时应让画面或必要字幕提供相应信息。'
+                '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),validate_result=check_measured_edit)
             answer=align_editor_frames(answer)
             settings=context.plan['settings']
             answer=compensate_edit_overlap(answer,target_seconds=settings['duration_seconds'])
@@ -173,7 +191,12 @@ class CreationTasks:
             fonts={json.loads(r['metadata_json']).get('font_name'):r['id'] for r in records if r['kind']=='font'}
             if not style.enabled and answer.captions:
                 raise ModelTaskError('subtitle_disabled','方案关闭了字幕，剪辑不能擅自添加')
-            captions=[caption_from_settings(style,caption_id=c.caption_id,text=c.text,start=c.start,end=c.end,fonts=fonts) for c in answer.captions]
+            aligned = aligned_captions(answer.audio, records) if (context.plan.get('narration_policy') or {}).get('continuous') else None
+            if aligned and style.enabled:
+                captions = [caption_from_settings(style,caption_id='speech-'+str(i),
+                    text=c['text'],start=c['start'],end=c['end'],fonts=fonts) for i,c in enumerate(aligned)]
+            else:
+                captions=[caption_from_settings(style,caption_id=c.caption_id,text=c.text,start=c.start,end=c.end,fonts=fonts) for c in answer.captions]
             data=answer.model_dump();data['captions']=captions
             project=EditProject(work_id=ctx.work_id,plan_revision=ctx.plan_revision,revision=1,
                 width=1920 if horizontal else 1080,height=1080 if horizontal else 1920,
@@ -200,8 +223,7 @@ class CreationTasks:
                     clips=[a for a in project.audio if a.asset_id==media['id'] and a.role=='voice']
                     if len(clips)!=1 or clips[0].source_start!=0 or abs(clips[0].duration-metadata['duration'])>.05 or clips[0].gain<=0:
                         raise ModelTaskError('narration_changed','剪辑不能丢弃、截短或静音已确认的旁白')
-            from .voice import sentence_segments
-            expected_segments=[scene['id']+'-'+segment['segment_id'] for scene in context.plan['scenes'] for segment in sentence_segments(scene.get('narration',''))]
+            expected_segments=[segment['segment_id'] for segment in narration_segments(context.plan)]
             voiced={r['id']:json.loads(r['metadata_json']) for r in records if json.loads(r['metadata_json']).get('role')=='voice'}
             spoken=sorted((a for a in project.audio if a.asset_id in voiced),key=lambda a:a.at)
             expected=[segment for segment in expected_segments if segment in {m.get('segment_id') for m in voiced.values()}]
@@ -221,6 +243,7 @@ class CreationTasks:
             path=temp/'project.json';path.write_text(project.model_dump_json(),encoding='utf8')
             artifact=register_file(self.service,ctx,path,kind='edit_project',media_type='application/json',metadata={'plan_revision':ctx.plan_revision,
                     'audio_observation': 'model_native' if audio_native else 'technical_only_unverified',
+                    'execution_timing': timing, 'subtitle_alignment': 'provider' if aligned else 'editor_preview',
                     'unverified_editor_notes':unverified_editor_notes},
                     dependencies=list(manifest.assets))
             return TaskResult(result={'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets)})
@@ -281,6 +304,13 @@ class CreationTasks:
         if not technical:
             self._quality_state(ctx,artifact,'needs_fix')
             return TaskResult(work_state='preview_needs_fix',result={'output_id':artifact['id'],'technical':'fail'})
+        quality_context = self.planning.context(ctx)
+        if (quality_context.plan.get('narration_policy') or {}).get('duration_mode') == 'voice_driven':
+            from copy import deepcopy
+            measured_plan = deepcopy(quality_context.plan)
+            measured_plan['settings']['duration_seconds'] = project.duration
+            quality_context = replace(quality_context, plan=measured_plan,
+                brief=quality_context.brief + '\n本片采用实测语音定长，实际剪辑工程时长：' + str(project.duration))
         if self.manual_review_only:
             # Temporary S6-14 manual-review policy, enabled ONLY by a private
             # runtime switch. Keep technical QC mandatory and retain real
@@ -316,7 +346,7 @@ class CreationTasks:
                         'start':segment['start'],'end':segment['end'],'verdict':segment['review']['verdict']},run_id=ctx.run_id)
             answer=await review_full_video(path,cache_root=self.service.outputs/'works'/ctx.work_id/'inspection'/ctx.task_id,
                 info=info,transport=self.planning.transport,runner=self.planning.runner(ctx),
-                context=self.planning.context(ctx),review_type=SemanticReview,on_segment=progress)
+                context=quality_context,review_type=SemanticReview,on_segment=progress)
             self._check(ctx,artifact,'semantic',answer.verdict,{'review':answer.review,'evidence':answer.evidence})
             passed=answer.verdict=='pass' and not answer.limitations
             self._quality_state(ctx,artifact,'passed' if passed else 'needs_fix')

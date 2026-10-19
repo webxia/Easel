@@ -24,20 +24,24 @@ class TaskContext:
     facts: tuple[str, ...] = ()
     prohibitions: tuple[str, ...] = ()
     adaptation_permissions: tuple[str, ...] = ()
+    capabilities: dict[str, Any] = field(default_factory=dict)
     schema_version: int = 1
 
     def creative_data(self) -> dict[str, Any]:
         if self.profile and not self.profile_ref:
             raise ValueError("A profile requires an explicitly selected profile reference")
         # IDs used by execution/authorization are deliberately not model-editable.
-        return deepcopy({
+        result = {
             "schema_version": self.schema_version, "brief": self.brief,
             "profile": self.profile if self.profile_ref else {}, "director": self.director,
             "plan": self.plan, "inputs": self.inputs, "artifacts": self.artifacts,
             "facts": self.facts, "prohibitions": self.prohibitions,
             "adaptation_permissions": self.adaptation_permissions,
             "allowed_handles": sorted(self.allowed_handles),
-        })
+        }
+        if self.capabilities:
+            result['production_capabilities'] = self.capabilities
+        return deepcopy(result)
 
     @property
     def fingerprint(self) -> str:

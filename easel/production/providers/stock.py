@@ -123,10 +123,15 @@ class PexelsStockProvider:
             else:
                 files = item.get("video_files")
                 options = [f for f in files if isinstance(f, dict) and f.get("file_type") == "video/mp4"] if isinstance(files, list) else []
-                if exact:
-                    # Provider order is arbitrary (often SD first). An explicit
-                    # repair source should retain detail for the portrait crop.
-                    options.sort(key=lambda f:(f.get('width') or 0)*(f.get('height') or 0),reverse=True)
+                # Search results have the same arbitrary SD-first ordering as
+                # exact lookups. Prefer 1080p-or-better without needlessly
+                # downloading 4K when an adequate 1080p stream is available.
+                def stream_rank(f):
+                    width, height = f.get('width') or 0, f.get('height') or 0
+                    area = width * height
+                    adequate = min(width, height) >= 1080
+                    return (not adequate, area if adequate else -area)
+                options.sort(key=stream_rank)
                 download = next((_https_url(f.get("link"), self.allowed_hosts) for f in options
                                  if _https_url(f.get("link"), self.allowed_hosts)), None)
                 creator = item.get("user", {}).get("name") if isinstance(item.get("user"), dict) else None

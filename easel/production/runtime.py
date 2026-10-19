@@ -113,8 +113,9 @@ def create_runtime(root: Path, *, service=None, transport=None, handlers=None):
         transport=HTTPModelTransport(settings,capabilities=capabilities)
     operations=OperationService(service.store)
     planning=PlanningTasks(service,operations,transport,identity,version)
-    from .public_facts import public_fact_tools
+    from .public_facts import public_fact_tools, public_fact_capabilities
     planning.tool_factory=lambda ctx:public_fact_tools(settings,ctx,outputs=service.outputs)
+    planning.execution_capabilities['public_fact_search'] = public_fact_capabilities(settings)[0]['available']
     from .voice import configured_voice_service,voice_preview_handler
     from .voice_tasks import VoiceTasks
     voice_provider=lambda:configured_voice_service(operations,root=service.outputs/'_production'/'voice',settings=settings)

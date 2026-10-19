@@ -87,6 +87,7 @@ class SpeechResponseError(ValueError):
 class VoiceHTTPAdapter:
     """No remote query claim: observation only recovers a locally persisted receipt."""
     capabilities = ProviderCapabilities(query_by_request_key=True)
+    additional_parameters = frozenset()
 
     def __init__(self, config: SpeechConfig, root: Path, *, transport: httpx.BaseTransport | None = None,
                  ffprobe: str = "ffprobe"):
@@ -102,7 +103,9 @@ class VoiceHTTPAdapter:
         if not option or (require_available and not option.available):
             raise ProductionError("voice_unavailable", "固定声音目前不可用，请保留原设置并明确选择替代试听", requires_decision=True)
         parameters = identity.parameters
-        allowed = ({"speed"} if option.speed_range else set()) | ({"instructions"} if option.instructions_supported else set())
+        allowed = (({"speed"} if option.speed_range else set()) |
+                   ({"instructions"} if option.instructions_supported else set()) |
+                   self.additional_parameters)
         if set(parameters) - allowed:
             raise ProductionError("voice_parameter_unsupported", "该声音不支持所选参数")
         if "speed" in parameters:
@@ -182,7 +185,7 @@ class VoiceHTTPAdapter:
                     with tempfile.NamedTemporaryFile(prefix="speech-", dir=folder, delete=False) as stream:
                         temporary = Path(stream.name)
                         try:
-                            self._write_audio(response, stream)
+                            alignment = self._write_audio(response, stream) or {}
                         except SpeechResponseError:
                             stream.close()
                             temporary.unlink(missing_ok=True)
@@ -206,6 +209,8 @@ class VoiceHTTPAdapter:
             result = {"path": str(output), "sha256": file_sha256(output), "duration": metadata["duration"],
                       "voice": identity.model_dump(mode="json"), "text_hash": request["text_hash"],
                       "segment_id": request["segment_id"], "config_version": self.config.config_version}
+            if alignment:
+                result['alignment'] = alignment
             atomic_json(folder / "receipt.json", {"state": "succeeded", "result": result})
             return ProviderResult("succeeded", result=result)
 
@@ -406,6 +411,8 @@ def register_voice_asset(context, *, outputs: Path, result: dict) -> str:
                 "segment_id": result["segment_id"], "narration_text": result["text"],
                 "duration": asset["duration"], "config_version": asset["config_version"],
                 "timing": {"duration_seconds": asset["duration"], "alignment": "sentence", "word_timestamps": None}}
+    if asset.get('alignment'):
+        metadata['timing']['provider_alignment'] = asset['alignment']
     with context.transaction() as writer:
         previous = writer.execute("SELECT digest,work_id FROM artifacts WHERE id=?", (identifier,)).fetchone()
         if previous is not None:
