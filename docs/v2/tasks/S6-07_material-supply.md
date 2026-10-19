@@ -1,4 +1,5 @@
 # S6-07 · 外部供应、权益与生成适配
+> **调度状态：CLOSED · 2026-10-19**。用户决定关闭本卡独立研发排程：既有实现和软件验收结果保持原样，仅作为历史交付与回归依据；不再从旧实施步骤重新派发任务。后续确有实证缺陷时，仅纳入[当前三项主线](../04_CURRENT_STATE.md#唯一研发下一动作)做局部修复。CLOSED 不代表全部真实模型、音画质量、完整规格或 Creator 接受已通过。
 
 状态：**IMPLEMENTED_OFFLINE_VERIFIED**；本卡保存外部供应与IMAGE/VIDEO HTTP适配的软件证据。后续真实素材/模型代表样本见[S6-15](S6-15_material-layer-hardening.md)，真实生产及局部补料见[S6-14](S6-14_integration-release.md)/[S6-14A](S6-14A_conversation-integration.md)；未覆盖Provider/模式仍NOT_TESTED，不把已实测项统称未调用。
 

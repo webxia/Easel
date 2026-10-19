@@ -1,4 +1,5 @@
 # S6-14 · 首次真实生产与完整范围验收
+> **2026-10-19 任务调度收敛**：历史首次生产轮次全部结案，不重做旧轮次；本卡**仅保留当前三项主线下的一部真实自主作品及人工审片/必要局部复验**，作为当前 S6 尚未完成的可观察验收。历史 `PARTIAL`、自动语义QC `NOT_TESTED`、Creator未接受与 S7完整规格矩阵缺口仍真实保留；第二段矩阵暂停，不作为当前开放任务。不要把行政收口记作质量 `PASS`。
 
 状态：**PARTIAL**。第五轮REAL_API_PRODUCTION_PASS / ZERO_MANUAL_RECOVERY_PASS / CREATOR_REVIEW_PENDING；后续[S6-14A](S6-14A_conversation-integration.md) A1～A6软件/隔离、A7真实Web、A8局部画面/字幕修订已完成各自验收。完整自动音视频语义QC仍NOT_TESTED，Creator接受与S7矩阵未整体完成；S6-15 CLOSED。历史失败与旧记录保留，当前任务顺序只看[当前状态](../04_CURRENT_STATE.md)。
 - **依赖**：第一段为 S6-01～11 实际就绪；第二段为 S6-01～13及首次真实闭环就绪。阶段对应见[任务包里程碑](S6_IMPLEMENTATION_PLAN.md#1-基线顺序与交付)。

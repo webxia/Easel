@@ -1,4 +1,5 @@
 # S6-14A · Easel 对话式创作与生产后端接入
+> **2026-10-19 任务调度收敛**：A1～A8原交互实施/验收任务行政关闭，保留已验证范围；A9既有声音诊断结束、A10旧专项架构/代码修复阶段结束，**不再各自独立派发旧轮次或重复验收**。尚未完成的声音选择、真实作品质量/人工接受、对话体验和画像默认归入[唯一三项主线](../04_CURRENT_STATE.md#唯一研发下一动作)，只按新作品实证问题继续小改。本卡的旧 `NOT_TESTED`、`PARTIAL` 和失败记录仍保留，不因关闭而补写PASS。
 
 - **所属任务**：S6-14 新增交互子任务；不改变 S6-15 CLOSED/COMPLETE，不开启 S7。
 - **状态**：A1～A6软件/隔离结果保留；**A7 REAL_WEB_PRODUCTION_PASS / QUALITY_ISSUES_OBSERVED / CREATOR_REVIEW_PENDING**。正式库已备份迁移4，服务已重载；真实首版已完成并回写同对话；Creator接受未执行，成片质量问题单列；**A8 LOCAL_REVISION_PASS / CREATOR_REVIEW_PENDING · 局部画面、字幕修复完成**；**A9 DIAGNOSED / REDESIGN_PROPOSED · 声音待重新试听选定**。
