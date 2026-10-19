@@ -168,6 +168,55 @@ class NarrationPolicy(Contract):
     duration_mode: Literal['fixed', 'voice_driven'] = 'fixed'
 
 
+class BoardCard(Contract):
+    id: Identifier
+    text: str = Field(min_length=1,max_length=16)
+
+
+class BoardColumn(Contract):
+    id: Identifier
+    title: str = Field(min_length=1,max_length=10)
+
+
+class BoardState(Contract):
+    title: str = Field(min_length=1,max_length=40)
+    groups: dict[str,list[str]]
+    highlight_ids: list[str] = Field(default_factory=list,max_length=12)
+    column_titles: dict[str,str] = Field(default_factory=dict)
+
+
+class ExplainerBoard(Contract):
+    """Model-authored, explicitly schematic cards; no arbitrary executable markup."""
+    scene_id: Identifier
+    title: str = Field(min_length=1,max_length=24)
+    kind: Literal['conceptual','hypothetical']
+    cards: list[BoardCard] = Field(min_length=1,max_length=12)
+    columns: list[BoardColumn] = Field(min_length=1,max_length=4)
+    states: list[BoardState] = Field(min_length=1,max_length=4)
+
+    @model_validator(mode='after')
+    def references(self):
+        labels=[self.title,*[c.text for c in self.cards],*[c.title for c in self.columns],*[s.title for s in self.states]]
+        if any(not value.strip() or '\n' in value or '\r' in value for value in labels):
+            raise ValueError('图解文字须为非空单行短语，不嵌入排版指令')
+        cards={c.id for c in self.cards};columns={c.id for c in self.columns};seen=set()
+        if len(cards)!=len(self.cards) or len(columns)!=len(self.columns):
+            raise ValueError('图解卡片与类别ID不得重复')
+        for state in self.states:
+            if (not set(state.column_titles)<=columns or any(not t.strip() or len(t)>10 or '\n' in t or '\r' in t for t in state.column_titles.values())):
+                raise ValueError('状态只能重命名已有类别，类别名须为不超过10字的单行短语')
+            if set(state.groups)!=columns or any(len(v)>5 for v in state.groups.values()):
+                raise ValueError('每个状态必须列出全部类别，每类最多5张卡；可使用空类别')
+            visible=[c for values in state.groups.values() for c in values]
+            if not visible or len(visible)!=len(set(visible)) or not set(visible)<=cards:
+                raise ValueError('状态须使用真实卡片ID，不重复、不虚构')
+            if not set(state.highlight_ids)<=set(visible):
+                raise ValueError('只能强调实际可见卡片')
+            seen.update(visible)
+        if seen!=cards:raise ValueError('所有定义的卡片须至少在一个状态中展示')
+        return self
+
+
 class PlanDocument(Contract):
     schema_version: Literal[1] = 1
     title: str = Field(min_length=1)
@@ -183,12 +232,18 @@ class PlanDocument(Contract):
     profile_snapshot: ProfileSnapshot | None = None
     director_revision_id: Identifier | None = None
     narration_policy: NarrationPolicy | None = None
+    explainer_boards: list[ExplainerBoard] = Field(default_factory=list,max_length=8)
 
     @model_validator(mode="after")
     def distinct_scenes(self):
         ids = [scene.id for scene in self.scenes]
         if len(ids) != len(set(ids)):
             raise ValueError("scene identifiers must be unique")
+        board_ids=[b.scene_id for b in self.explainer_boards]
+        if len(board_ids)!=len(set(board_ids)) or not set(board_ids)<=set(ids):
+            raise ValueError('图解须绑定真实场景，每场景最多一组')
+        if self.explainer_boards and self.settings.subtitles.enabled and self.settings.subtitles.position!='bottom':
+            raise ValueError('本地图解当前只为底部字幕预留安全区，不得覆盖已有顶部/居中字幕')
         return self
 
 

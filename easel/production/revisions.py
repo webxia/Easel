@@ -129,6 +129,9 @@ class RevisionTasks:
             context=self.planning.context(ctx)
             creative_repair=bool(payload.get('creative_visual_repair') and context.plan.get('narration_policy'))
             from .visual_repair import approved_overlay_texts, assert_visual_repair
+            caption_roles=json.loads(project_record['metadata_json']).get('caption_roles')
+            protected_styles=({c.caption_id for c in base.captions if caption_roles.get(c.caption_id,'narration')=='narration'}
+                if caption_roles is not None else set())
             if (context.plan.get('narration_policy') or {}).get('duration_mode') == 'voice_driven':
                 from copy import deepcopy
                 measured = deepcopy(context.plan)
@@ -136,6 +139,7 @@ class RevisionTasks:
                 context = replace(context, plan=measured)
             base_data={'base_edit':{k:v for k,v in base.model_dump(mode='json').items() if k not in {'work_id','plan_revision','revision'}},
                        'protected':'未指出部分保持不变','preserve_audio':payload.get('preserve_audio',False)}
+            if caption_roles is not None:base_data['caption_roles']=caption_roles
             def candidate_context(items):
                 return replace(context,brief=context.brief+'\n用户对指定版本的反馈：'+review['feedback'],
                     artifacts=(base_data,*({'asset_id':r['id'],'kind':r['kind'],'metadata':{
@@ -160,12 +164,15 @@ class RevisionTasks:
                     '这属于既有视觉修复，不因拆镜就扩大内容范围。只用实际候选或有界补料，不能用相似关键词的错误物件冒充所需画面。'
                     '解释不足时可以补方案中已有的提示语，文字仅可取自以下列表，不能新增事实或观点：'
                     +encode(approved_overlay_texts(context.plan)))
+                if protected_styles:instruction+='旁白字幕的频道样式、透明背景及位置必须原样保留，不能为了对比度擅改为底框；独立解释字才可布局。'
             def check_creative_repair(candidate):
                 if not creative_repair or candidate.material_searches or candidate.expands_scope or candidate.requires_new_generation:
                     return
                 try:
                     draft=EditProject.model_validate({**base.model_dump(),'revision':base.revision+1,**edit_data(candidate.edit)})
-                    assert_visual_repair(base,draft,overlay_texts=approved_overlay_texts(context.plan))
+                    assert_visual_repair(base,draft,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles)
+                    from .boards import check_board_usage
+                    check_board_usage(draft.scenes,records)
                     check_caption_layout(draft.captions,font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'},
                         width=base.width,height=base.height)
                 except (EditError,ValueError) as exc:
@@ -210,7 +217,10 @@ class RevisionTasks:
                     adjusted.append(before)
                 protected=base.model_copy(update={'scenes':tuple(adjusted)})
             if creative_repair:
-                assert_visual_repair(base,revised,overlay_texts=approved_overlay_texts(context.plan))
+                assert_visual_repair(base,revised,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles)
+                from .boards import check_board_usage
+                try:check_board_usage(revised.scenes,records)
+                except ValueError as exc:raise EditError(str(exc)) from None
                 check_caption_layout(revised.captions,font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'},
                     width=base.width,height=base.height)
             else:

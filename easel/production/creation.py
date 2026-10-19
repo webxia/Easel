@@ -172,6 +172,8 @@ class CreationTasks:
             font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'}
             horizontal=context.plan['settings']['aspect_ratio']=='16:9'
             def check_measured_edit(candidate):
+                from .boards import check_board_usage
+                check_board_usage(candidate.scenes,records,overlays=[c for c in candidate.captions if c.role=='overlay'])
                 if not timing:
                     return
                 if any('role' not in c.model_fields_set for c in candidate.captions):
@@ -195,6 +197,8 @@ class CreationTasks:
                 '连续旁白应跨镜头讲完，严格遵守给定voice_schedule，不为草稿分镜时长加入静默；'
                 '字幕短行分语义显示，不能将整段连续旁白一次堆在画面上。选择画质与景别适合、光线与动作相接的素材，'
                 '每条文字明确role：narration只显示旁白并继承频道字幕样式；overlay为独立解释文字，保留设计的字体、位置、字号，避开底部旁白区，不能叠字。'
+                'material_uses含board_id的图解素材是已确认的连续状态，须按board_frame_index顺序完整展示全部状态；'
+                '图解已画出标题、卡片、类别和假设/概念标识，不要裁掉这些信息，也不要在图解上重复叠同义解释字；保留底部旁白即可。'
                 '避免同义空镜反复堆积，旁白说到具体关系时应让画面或必要字幕提供相应信息。'
                 '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),validate_result=check_measured_edit)
             answer=align_editor_frames(answer)

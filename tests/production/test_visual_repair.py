@@ -19,6 +19,9 @@ def test_native_recut_preserves_voice_group_time_and_approved_overlay_only():
     revised=EditProject.model_validate(data)
     approved=approved_overlay_texts({'scenes':[{'visual':'上方显示“做完不等于学会”'}]})
     assert_visual_repair(base,revised,overlay_texts=approved)
+    changed_style=revised.model_copy(update={'captions':tuple(c.model_copy(update={'background':'#000000CC'}) if c.caption_id=='c1' else c for c in revised.captions)})
+    with pytest.raises(EditError,match='透明背景'):
+        assert_visual_repair(base,changed_style,overlay_texts=approved,protected_caption_style_ids={'c1'})
     for change in ['audio','scene','caption','new_text']:
         bad=revised.model_dump()
         if change=='audio':bad['audio'][0]['gain']=.5

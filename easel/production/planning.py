@@ -4,7 +4,7 @@ import json
 import re
 from dataclasses import replace
 from pydantic import Field, model_validator
-from .contracts import Contract, Scene, VideoSettings
+from .contracts import Contract, Scene, VideoSettings, ExplainerBoard
 from .context import TaskContext
 from .model_tasks import ModelTaskRunner, ModelTaskError
 from .errors import ProductionError
@@ -22,6 +22,16 @@ class CreativePlan(Contract):
     core_views: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     adaptation_permissions: list[str] = Field(default_factory=list)
+    explainer_boards: list[ExplainerBoard] = Field(default_factory=list,max_length=8)
+
+    @model_validator(mode='after')
+    def executable_boards(self):
+        refs=[b.scene_id for b in self.explainer_boards]
+        if len(refs)!=len(set(refs)) or not set(refs)<={s.id for s in self.scenes}:
+            raise ValueError('原生图解必须绑定已定义场景，每场景一组状态')
+        if self.explainer_boards and self.settings.subtitles.enabled and self.settings.subtitles.position!='bottom':
+            raise ValueError('原生图解当前为底部字幕留出安全区，不可改变用户字幕位置；本片可选择不使用图解')
+        return self
 
 
 # Validation-only wrapper for generated drafts. Existing frozen plans and
@@ -63,7 +73,8 @@ class PlanningTasks:
         self.tool_factory=lambda ctx: ()
         self.execution_capabilities = {
             'visuals': ['licensed stock footage', 'licensed images', 'captions', 'crop', 'pan_zoom', 'transitions'],
-            'unavailable': ['drawing graphics', 'recording the user screen', 'unprovided personal footage'],
+            'native_explainer_boards': False,
+            'unavailable': ['arbitrary drawing or animation', 'recording the user screen', 'unprovided personal footage'],
             'narration': 'continuous speech; measured duration can drive unfixed-length films',
         }
 
@@ -154,13 +165,19 @@ class PlanningTasks:
                 return TaskResult(result=cached,work_state='awaiting_confirmation')
             context=self.context(ctx)
             media,required=await self.observe_inputs(ctx)
+            def check_capabilities(answer):
+                if answer.explainer_boards and not self.execution_capabilities.get('native_explainer_boards'):
+                    raise ValueError('本次尚未配置原生图解字体，不能使用explainer_boards；不得虚构图解能力')
             proposed=await self.runner(ctx,max_format_repairs=2).run(context,
                 '提出完整创作方案；遵守明确时长、画幅、声音设置；全部必用输入须落实到场景。'
                 'Scene.narration 只能是将由 TTS 实际朗读的简短口播原文，不能包含时间码、朗读窗口、'
                 '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明写入 script/visual。'
                 '中文口播要有明显时间余量，不超过冻结时长预算；所有镜头累计时长仍须精确。'
+                '具体的分组、比较、数量关系或条件变化，可以用原生explainer_boards自主写出文字卡片、类别和前后状态；'
+                '图解会由程序原样绘制，每个状态都有真实数量和概念/假设标识，不需搜索到完全相同的卡片。'
+                '图解只作概念/假设，不编造成真实资料；文字简短，按需用，不强制每场图解。'
                 '返回摘要、完整脚本、场景和视听设计。',VoiceReadyCreativePlan,
-                media=media,required=required,tools=self.tool_factory(ctx))
+                media=media,required=required,tools=self.tool_factory(ctx),validate_result=check_capabilities)
             with self.service.store.connection() as reader:
                 requested = json.loads(row(reader, 'works', ctx.work_id)['settings_json'])
             autonomous = ('duration_seconds' not in requested and
@@ -168,6 +185,7 @@ class PlanningTasks:
             if autonomous:
                 from .contracts import SubtitleSettings, VoiceIdentity
                 def preserve_choices(answer):
+                    check_capabilities(answer)
                     for field in ('voice', 'subtitles', 'aspect_ratio', 'audio_mode'):
                         if field not in requested:
                             continue
@@ -190,7 +208,9 @@ class PlanningTasks:
                     '检查口语是否像与具体的人聊天，有观察、有变化，不写成课程讲义或逐句播报。'
                     '画面要承担解释、证据或明确环境作用；不要把隐喻硬译成无关道具素材。'
                     '按实际production_capabilities设计可检索的连续场景和景别，保留光线、动作、空间关系，'
-                    '不用不存在的图解、录屏或个人素材，也不把全片变成同类办公空镜。'
+                    '需要具体分类、数量、对照或前后变化时，优先自行构建explainer_boards，'
+                    '用明确卡片文字、类别和多个状态兑现解释，不把找不到的具体关系寄托在相似道具或字幕上。'
+                    '允许与真实场景镜头自然结合，但不套固定比例；不用未实现的任意绘图、录屏或个人素材。'
                     '未指定片长时给紧凑的估计时长，不逐句分配长停顿；成片将依据完整旁白实测编排。'
                     '不得编造个人经历、来源或研究结论，遵守画像和已选设置。',
                     VoiceReadyCreativePlan, media=media, required=required,

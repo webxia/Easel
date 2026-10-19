@@ -57,6 +57,34 @@ class SupplyTasks:
         self.source_configuration_error = source_configuration_error
         self.intent_compiler = intent_compiler
         self.enforce_provider_grants = enforce_provider_grants
+        self.board_fonts = {}
+
+    def _board_assets(self,ctx,plan,records,scope,context):
+        if not plan.explainer_boards:return
+        from .boards import render_board, VERSION
+        from .media import file_sha256
+        font=self.board_fonts.get(plan.settings.subtitles.font)
+        if font is None:
+            raise ProductionError('font_unavailable','本地图解需要本片已配置的真实字体，不擅自下载或替换字体',requires_decision=True)
+        for board in plan.explainer_boards:
+            for index in range(len(board.states)):
+                if any(any(u.get('board_id')==board.scene_id and u.get('board_frame_index')==index
+                    for u in json.loads(r['metadata_json']).get('material_uses',[])) for r in records):continue
+                ctx.assert_current()
+                key=fingerprint([VERSION,board.model_dump(mode='json'),index,file_sha256(font),plan.settings.aspect_ratio])
+                folder=self.service.outputs/'_production'/'boards'/ctx.task_id
+                path=render_board(board,index,font_path=font,aspect_ratio=plan.settings.aspect_ratio,destination=folder/(key+'.png'))
+                rights=RightsInfo(status=RightsStatus.KNOWN,license_name='Work-authored schematic; no external imagery',
+                    evidence=(RightsEvidence(kind='asset_authorship_record',reference='work:'+ctx.work_id+':plan:'+str(ctx.plan_revision)+':'+key,
+                        summary='Local deterministic layout of frozen schematic text; text provenance retained in confirmed plan; no external imagery'),))
+                handle=self.materials.ingest_input(source_root=folder,relative_path=path.name,visibility=scope,context=context,
+                    media_type=MediaType.IMAGE,source=CandidateSource(kind='authored_graphic',provider=VERSION,provider_asset_id=key),
+                    rights=rights,semantic=SemanticInfo(caption=board.title+' / '+board.states[index].title,
+                        attributes={'schematic':True,'kind':board.kind,'board_frame_index':index}))
+                need=self._need(board.scene_id,board.title,'image',context=context)
+                records.append(self._register(ctx,handle,scope=scope,context=context,scene_ids=[board.scene_id],
+                    material_use={'need_id':need.need_id,'role':'visual','scene_id':board.scene_id,'need':need.model_dump(mode='json'),
+                        'board_id':board.scene_id,'board_frame_index':index,'required':True}))
 
     def _allowed_providers(self, kind, ctx=None):
         providers = [p for p in self.external_providers
@@ -129,6 +157,8 @@ class SupplyTasks:
         if candidate_role:
             # A requested use, not a claim that the director has heard or chosen it.
             metadata['candidate_role'] = candidate_role
+        if material_use and material_use.get('board_id'):
+            metadata['candidate_only']=False
         with ctx.transaction() as conn:
             staged=MaterialFileStore(self.service.outputs).resolve_asset_locator(locator)
             if digest_file(staged)!=handle.digest:
@@ -157,6 +187,11 @@ class SupplyTasks:
             return dict(conn.execute('SELECT * FROM artifacts WHERE id=?', (artifact_id,)).fetchone())
 
     def _acquire(self, ctx, plan, inputs, records, scope, context, intent=None, *, excluded_asset_refs=()):
+        # A frozen explanation belongs to its own scene, not generic stock for
+        # another scene that happens to share a keyword.
+        board_refs=[json.loads(r['metadata_json']).get('asset_ref') for r in records
+            if any(u.get('board_id') for u in json.loads(r['metadata_json']).get('material_uses',[]))]
+        excluded_asset_refs=tuple(dict.fromkeys([*excluded_asset_refs,*[ref for ref in board_refs if ref]]))
         scenes = {s.id: s for s in plan.scenes}
         mapped = {json.loads(r['metadata_json']).get('input_id'): r for r in records}
         for item in inputs:
@@ -400,6 +435,7 @@ class SupplyTasks:
                 'plan_hash':fingerprint(plan), 'confirmed_constraints':plan.constraints,
                 'aspect_ratio':plan.settings.aspect_ratio, 'duration_seconds':plan.settings.duration_seconds,
                 **({'director':creative.director,'creator_context_hash':creative.fingerprint} if creative else {})})
+            await asyncio.to_thread(self._board_assets,ctx,plan,records,scope,context)
             records,gaps=await asyncio.to_thread(self._acquire,ctx,plan,inputs,records,scope,context,intent)
             await asyncio.to_thread(self._acquire_music,ctx,plan,records,scope,context,intent)
             if intent:
@@ -557,7 +593,10 @@ def configured_supply(service,operations,planning,settings):
     # Hash public identities and policy configuration, never print credentials.
     version=fingerprint({'services':[(kind,p.provider_id,p.model,p.mode) for kind,p in generations.items()],
         'rights':{k:v.model_dump(mode='json') for k,v in _configured_rights(settings).items()}})
-    return SupplyTasks(service,operations,planning=planning,external_providers=providers,downloaders=downloaders,generation_providers=generations,
+    task=SupplyTasks(service,operations,planning=planning,external_providers=providers,downloaders=downloaders,generation_providers=generations,
                        generation_rights=_configured_rights(settings),config_version=version,source_configuration_error=source_error,
                        enforce_provider_grants=True,
                        intent_compiler=FrozenIntentCompiler(planning) if planning is not None else None)
+    from .subtitles import configured_fonts
+    task.board_fonts=configured_fonts(settings)
+    return task

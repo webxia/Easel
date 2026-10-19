@@ -18,6 +18,7 @@ from easel.production.providers.minimax_speech import MiniMaxSpeechAdapter
 from easel.production.providers.stock import PexelsStockProvider
 from easel.materials.domain import MediaType
 from .test_voice_subtitles import wav_bytes
+from .test_voice_subtitles import speech
 
 
 def sample():
@@ -160,6 +161,33 @@ def test_native_subtitle_wire_and_millisecond_alignment(tmp_path):
     from easel.production.errors import ProductionError
     with pytest.raises(ProductionError):
         adapter.option(identity.model_copy(update={'parameters': {'emotion': 'whisper'}}))
+
+
+def test_subtitle_policy_reconciliation_reuses_paid_audio_without_exposing_signed_locator(speech,tmp_path):
+    from easel.production.voice import VoiceService,VoiceBinding
+    _,ops,binding,identity,_,_,_=speech
+    identity=identity.model_copy(update={'engine':'minimax-speech-v1','parameters':{'subtitle_enable':True}})
+    config=SpeechConfig(provider=identity.provider,model=identity.model,engine=identity.engine,
+        base_url='https://speech.invalid/v1',config_version='subtitle-reconcile',voices=(VoiceOption(identity,'fixed'),),mode='normal')
+    calls=[]
+    def handler(req):
+        calls.append(req.method)
+        if req.method=='POST':return httpx.Response(200,json={'base_resp':{'status_code':0},
+            'data':{'status':2,'audio':wav_bytes().hex(),'subtitle_file':'https://cdn.reviewed.example/subtitle?signed=private'}})
+        assert 'authorization' not in req.headers
+        return httpx.Response(200,json=[{'text':'原句。','time_begin':0,'time_end':200}])
+    adapter=MiniMaxSpeechAdapter(config,tmp_path/'native',transport=httpx.MockTransport(handler))
+    service=VoiceService(ops,tmp_path/'cache',[adapter])
+    first=service.synthesize(binding,identity=identity,text='原句。',segment_id='one')
+    assert first['state']=='succeeded' and calls==['POST']
+    assert 'signed=' not in json.dumps(first)
+    adapter.subtitle_hosts=(*adapter.subtitle_hosts,'cdn.reviewed.example')
+    second=service.synthesize(VoiceBinding(**{**binding.__dict__,'operation_id':'another-location'}),
+        identity=identity,text='原句。',segment_id='two')
+    assert second['reused'] and calls==['POST','GET']
+    assert second['asset']['sha256']==first['asset']['sha256']
+    assert second['asset']['alignment']['status']=='received'
+    assert 'signed=' not in json.dumps(second)
 
 
 def test_stock_search_prefers_full_hd_over_first_sd_or_unnecessary_4k():
