@@ -180,9 +180,12 @@ class BoardColumn(Contract):
 
 class BoardState(Contract):
     title: str = Field(min_length=1,max_length=40)
-    groups: dict[str,list[str]]
-    highlight_ids: list[str] = Field(default_factory=list,max_length=12)
-    column_titles: dict[str,str] = Field(default_factory=dict)
+    groups: dict[Identifier,Annotated[list[Identifier],Field(max_length=5)]] = Field(min_length=1,max_length=4,
+        description='键必须是本图解columns中每一个id，不能用列title；即使该列暂时为空也填id:[]。值为cards的id列表，不是卡片text；每列最多5张卡。')
+    highlight_ids: list[Identifier] = Field(default_factory=list,max_length=12,
+        description='只能引用本状态groups实际可见的卡片id，不能用卡片文字')
+    column_titles: dict[Identifier,Annotated[str,Field(min_length=1,max_length=10)]] = Field(default_factory=dict,max_length=4,
+        description='可选：仅为本状态改列名称；键仍为已定义columns.id，值为新的显示名称，不增删列。')
 
 
 class ExplainerBoard(Contract):
@@ -206,7 +209,7 @@ class ExplainerBoard(Contract):
             if (not set(state.column_titles)<=columns or any(not t.strip() or len(t)>10 or '\n' in t or '\r' in t for t in state.column_titles.values())):
                 raise ValueError('状态只能重命名已有类别，类别名须为不超过10字的单行短语')
             if set(state.groups)!=columns or any(len(v)>5 for v in state.groups.values()):
-                raise ValueError('每个状态必须列出全部类别，每类最多5张卡；可使用空类别')
+                raise ValueError('groups键必须逐一使用columns.id（不是title）：'+','.join(sorted(columns))+'；空类别也保留id:[]，每列最多5张卡')
             visible=[c for values in state.groups.values() for c in values]
             if not visible or len(visible)!=len(set(visible)) or not set(visible)<=cards:
                 raise ValueError('状态须使用真实卡片ID，不重复、不虚构')
