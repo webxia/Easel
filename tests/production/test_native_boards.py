@@ -154,3 +154,50 @@ def test_model_authored_boards_plan_to_real_render_without_external_art_or_paid_
     with store.connection() as reader:
         assert reader.execute("SELECT count(*) FROM operations WHERE kind IN ('IMAGE','VIDEO','VOICE')").fetchone()[0]==0
     assert model.calls==['VoiceReadyCreativePlan','CreativeEdit']
+
+
+@pytest.mark.parametrize('remains_invalid',[False,True])
+def test_native_draft_audit_sees_real_board_pixels_before_freeze_and_speech(tmp_path,font,remains_invalid):
+    from easel.production.store import Store
+    from easel.production.service import WorkService
+    from easel.production.operations import OperationService
+    from easel.production.planning import PlanningTasks
+    from easel.production.worker import Worker
+    store=Store(tmp_path/'db');store.initialize();service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
+    voice={'provider':'fixture','model':'speech','engine':'fixture','voice_id':'fixed'}
+    settings={'audio_mode':'voice','voice':voice,'aspect_ratio':'16:9'}
+    work=service.command('create',{'title':'idea','input_text':'条件变化后，还会吗？','settings':settings},command_id='create')['work_id']
+    identity={'provider':'direct-api','model':'fixture','mode':'structured'}
+    service.command('plan',{'services':[identity]},work_id=work,expected_revision=1,command_id='plan')
+    draft={'title':'变化','summary':'假设演示','script':'检查条件和边界',
+        'settings':{**settings,'duration_seconds':20},'scenes':[{'id':'s1','purpose':'解释','visual':'图解状态变化',
+        'duration_seconds':20,'narration':'假设条件变了，换个办法再试。','required_input_ids':[]}], 'explainer_boards':[data()]}
+    class Model:
+        capabilities=frozenset({'text','structured','image'})
+        def __init__(self):self.calls=[];self.audits=0;self.authors=0
+        async def complete(self,messages,tools,schema):
+            self.calls.append(deepcopy(messages))
+            if schema['title']=='DraftReview':
+                self.audits+=1
+                assert sum(b.get('type')=='image_url' for b in messages[1]['content'])==2
+                fail=self.audits==1 or remains_invalid
+                value={'verdict':'fail' if fail else 'pass','findings':['第二状态列标题无法容纳结果项'] if fail else [],
+                    'observations':['实际草稿PNG两状态已观察'],'limitations':['未听声音、未选库存']}
+            else:
+                self.authors+=1;value=deepcopy(draft)
+                if self.authors==2:
+                    value['explainer_boards'][0]['states'][1]['column_titles']={'a':'修正标准甲','b':'修正标准乙'}
+            return {'content':json.dumps(value)}
+    model=Model();planning=PlanningTasks(service,OperationService(store),model,identity,'fixture')
+    planning.board_fonts={'sans-serif':font};planning.execution_capabilities['native_explainer_boards']=True
+    assert asyncio.run(Worker(store,{'plan':planning.plan}).run_once())
+    snap=service.snapshot(work)
+    assert len(model.calls)==4
+    assert len(list((service.outputs/'_production/plan-previews').rglob('manifest.json')))==2
+    if remains_invalid:
+        assert snap['state']=='needs_decision' and not snap['plans']
+    else:
+        assert snap['state']=='awaiting_confirmation'
+        assert snap['plans'][0]['plan']['explainer_boards'][0]['states'][1]['column_titles']['a']=='修正标准甲'
+    with store.connection() as c:
+        assert c.execute("SELECT count(*) FROM operations WHERE kind!='MODEL'").fetchone()[0]==0

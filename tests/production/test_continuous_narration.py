@@ -113,9 +113,10 @@ def test_autonomous_worker_reviews_draft_and_freezes_measured_policy(tmp_path):
     class Transport:
         capabilities = frozenset({'text', 'structured'})
         def __init__(self): self.calls = []
-        async def complete(self, messages, *args):
+        async def complete(self, messages, tools, schema):
             self.calls.append(deepcopy(messages))
-            return {'content': json.dumps(answer)}
+            value = {'verdict':'pass','findings':[],'observations':['fixture text review']} if schema['title']=='DraftReview' else answer
+            return {'content': json.dumps(value)}
     transport = Transport()
     planning = PlanningTasks(service, OperationService(store), transport, identity, 'fixture')
     worker = Worker(store, {'plan': planning.plan})
