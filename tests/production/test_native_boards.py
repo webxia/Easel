@@ -79,8 +79,27 @@ def test_native_board_supply_has_authorship_rights_replays_and_uses_no_generatio
     assert all(json.loads(r['metadata_json'])['source']['kind']=='authored_graphic' for r in records)
     clips=[Scene(scene_id='s1-state'+str(i),asset_id=r['id'],duration=3) for i,r in enumerate(records)]
     check_board_usage(clips,records)
+    # Cross-scene reuse and a detail cut are valid once the complete states
+    # have been shown; the program does not rewrite the director's narrative.
+    detail=clips[0].model_copy(update={'scene_id':'conclusion','crop':clips[0].crop.model_copy(update={'width':.5})})
+    check_board_usage([*clips,detail],records)
     with pytest.raises(ValueError):check_board_usage(clips[::-1],records)
     with pytest.raises(ValueError):check_board_usage(clips[:1],records)
+
+
+def test_material_projection_can_reuse_board_states_across_narrative_scenes():
+    from easel.production.contracts import PlanDocument
+    from easel.production.material_intent import MaterialIntent,check_intent
+    plan=PlanDocument.model_validate({'title':'t','summary':'s','script':'p',
+        'settings':{'duration_seconds':6,'audio_mode':'silent'},
+        'scenes':[{'id':id,'purpose':'解释','visual':'图解'} for id in ['s1','s2','s3']],
+        'explainer_boards':[data()]})
+    intent=MaterialIntent.model_validate({'visuals':[{'scene_id':id,'query':'native schematic','media_types':['image'],
+        'board_id':'s1','board_state_indexes':indexes} for id,indexes in [('s1',[0]),('s2',[1]),('s3',[0,1])]]})
+    check_intent(intent,plan)
+    bad=intent.model_copy(deep=True);bad.visuals[1].board_state_indexes=[99]
+    from easel.production.model_tasks import ModelTaskError
+    with pytest.raises(ModelTaskError):check_intent(bad,plan)
 
 
 def test_model_authored_boards_plan_to_real_render_without_external_art_or_paid_generation(tmp_path,font):
@@ -91,6 +110,7 @@ def test_model_authored_boards_plan_to_real_render_without_external_art_or_paid_
     from easel.production.planning import PlanningTasks
     from easel.production.creation import CreationTasks
     from easel.production.worker import Worker
+    from easel.production.material_intent import FrozenIntentCompiler
     store=Store(tmp_path/'outputs/db');store.initialize()
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     settings={'duration_seconds':6,'aspect_ratio':'16:9','audio_mode':'silent','subtitles':{'enabled':False}}
@@ -112,7 +132,7 @@ def test_model_authored_boards_plan_to_real_render_without_external_art_or_paid_
             return {'content':json.dumps(answer)}
     model=Model();identity={'provider':'direct-api','model':'fixture','mode':'structured'};ops=OperationService(store)
     planning=PlanningTasks(service,ops,model,identity,'fixture');planning.execution_capabilities['native_explainer_boards']=True
-    supply=SupplyTasks(service,ops);supply.board_fonts={'sans-serif':font}
+    supply=SupplyTasks(service,ops,planning=planning,intent_compiler=FrozenIntentCompiler(planning));supply.board_fonts={'sans-serif':font}
     creation=CreationTasks(service,planning,manual_review_only=True)
     worker=Worker(store,{'plan':planning.plan,'supply':supply.supply,'edit':creation.edit,
         'render':creation.render,'quality':creation.quality})

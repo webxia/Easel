@@ -59,7 +59,7 @@ class SupplyTasks:
         self.enforce_provider_grants = enforce_provider_grants
         self.board_fonts = {}
 
-    def _board_assets(self,ctx,plan,records,scope,context):
+    def _board_assets(self,ctx,plan,records,scope,context,intent=None):
         if not plan.explainer_boards:return
         from .boards import render_board, VERSION
         from .media import file_sha256
@@ -82,9 +82,11 @@ class SupplyTasks:
                     rights=rights,semantic=SemanticInfo(caption=board.title+' / '+board.states[index].title,
                         attributes={'schematic':True,'kind':board.kind,'board_frame_index':index}))
                 need=self._need(board.scene_id,board.title,'image',context=context)
-                records.append(self._register(ctx,handle,scope=scope,context=context,scene_ids=[board.scene_id],
+                scene_ids=([v.scene_id for v in intent.visuals if v.board_id==board.scene_id and index in v.board_state_indexes]
+                    if intent is not None else [board.scene_id])
+                records.append(self._register(ctx,handle,scope=scope,context=context,scene_ids=scene_ids,
                     material_use={'need_id':need.need_id,'role':'visual','scene_id':board.scene_id,'need':need.model_dump(mode='json'),
-                        'board_id':board.scene_id,'board_frame_index':index,'required':True}))
+                        'board_id':board.scene_id,'board_frame_index':index,'board_scene_ids':scene_ids,'required':True}))
 
     def _allowed_providers(self, kind, ctx=None):
         providers = [p for p in self.external_providers
@@ -435,7 +437,7 @@ class SupplyTasks:
                 'plan_hash':fingerprint(plan), 'confirmed_constraints':plan.constraints,
                 'aspect_ratio':plan.settings.aspect_ratio, 'duration_seconds':plan.settings.duration_seconds,
                 **({'director':creative.director,'creator_context_hash':creative.fingerprint} if creative else {})})
-            await asyncio.to_thread(self._board_assets,ctx,plan,records,scope,context)
+            await asyncio.to_thread(self._board_assets,ctx,plan,records,scope,context,intent)
             records,gaps=await asyncio.to_thread(self._acquire,ctx,plan,inputs,records,scope,context,intent)
             await asyncio.to_thread(self._acquire_music,ctx,plan,records,scope,context,intent)
             if intent:

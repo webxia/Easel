@@ -200,3 +200,55 @@ def test_stock_search_prefers_full_hd_over_first_sd_or_unnecessary_4k():
     provider = PexelsStockProvider('fixture', transport=httpx.MockTransport(handler))
     result = provider.search('learning', media_type=MediaType.VIDEO, limit=1)
     assert result[0].download_url == 'https://videos.pexels.com/hd.mp4'
+
+
+def test_actual_native_subtitle_cdn_is_admitted_without_credentials(tmp_path):
+    identity = VoiceIdentity(provider='minimax', model='speech-2.8-turbo', engine='minimax-speech-v1', voice_id='fixed')
+    config = SpeechConfig(provider=identity.provider, model=identity.model, engine=identity.engine,
+        base_url='https://speech.invalid/v1', config_version='cdn', voices=(VoiceOption(identity, 'fixed'),))
+    calls=[]
+    def handler(req):
+        calls.append(req)
+        assert req.method=='GET' and 'authorization' not in req.headers
+        return httpx.Response(200,json=[{'text':'原句。','time_begin':0,'time_end':1200}])
+    adapter=MiniMaxSpeechAdapter(config,tmp_path,transport=httpx.MockTransport(handler))
+    host='minimax-algeng-chat-tts.oss-cn-wulanchabu.aliyuncs.com'
+    assert adapter._alignment('https://'+host+'/sub')['status']=='received'
+    assert adapter._alignment('https://'+host+'.evil.example/sub')['status']=='unavailable'
+    assert len(calls)==1
+
+
+def test_local_alignment_groups_original_tokens_and_reports_estimates(tmp_path,monkeypatch):
+    import faster_whisper, faster_whisper.audio
+    import numpy as np
+    from easel.production.speech_alignment import align_confirmed_speech
+    calls=[]
+    class Local:
+        def __init__(self,name,**kw):
+            calls.append(kw);assert name=='base' and kw['local_files_only'] is True
+            from tokenizers import Tokenizer, models
+            self.hf_tokenizer=Tokenizer(models.WordLevel({'<unk>':0},unk_token='<unk>'))
+            self.model=SimpleNamespace(is_multilingual=True)
+        def feature_extractor(self,audio):return np.zeros((80,100))
+        def encode(self,features):return features
+        def find_alignment(self,*a):
+            return [[{'word':'原句','start':0,'end':.7},{'word':'，','start':.7,'end':.8},
+                     {'word':'不改','start':.8,'end':1.2},{'word':'。','start':1.2,'end':1.3}]]
+    monkeypatch.setattr(faster_whisper,'WhisperModel',Local)
+    monkeypatch.setattr(faster_whisper.audio,'decode_audio',lambda *a,**kw:np.zeros(32000))
+    monkeypatch.setattr('faster_whisper.tokenizer.Tokenizer',lambda *a,**kw:SimpleNamespace(encode=lambda text:[1]))
+    path=tmp_path/'audio';path.write_bytes(b'unchanged')
+    provider={'status':'received','segments':[{'text':'原句，不改。','start':.2,'end':1.8}]}
+    result=align_confirmed_speech(path,'原句，不改。',provider,model_name='base',cache=tmp_path/'cache')
+    assert result['status']=='received' and result['precision']=='estimated'
+    assert len(result['segments'])==2
+    assert ''.join(s['text'] for s in result['segments'])=='原句，不改。'
+    assert result['segments'][0]['start']==pytest.approx(.2)
+    assert path.read_bytes()==b'unchanged'
+    assert align_confirmed_speech(path,'原句，不改。',provider,model_name='base',cache=tmp_path/'cache')==result
+    assert len(calls)==1
+    assert align_confirmed_speech(path,'其他文字',provider,model_name='base',cache=tmp_path/'cache')['status']=='unavailable'
+    p=sample(); local={**result,'segments':[{'text':narration_segments(p)[0]['text'],'start':.4,'end':4}]}
+    r=record(p,alignment={'status':'received','segments':[{'text':narration_segments(p)[0]['text'],'start':0,'end':8}]})
+    meta=json.loads(r['metadata_json']);meta['timing']['local_alignment']=local;r['metadata_json']=json.dumps(meta)
+    assert aligned_captions([clip()],[r])[0]['start']==pytest.approx(.6)
