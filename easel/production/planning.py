@@ -261,12 +261,14 @@ class PlanningTasks:
                 scene=next(s for s in plan.scenes if s.id==board.scene_id)
                 sample=scene.narration.strip()[:24]
                 if style.enabled and sample:
-                    from .subtitles import caption_from_settings
+                    from .subtitles import caption_from_settings, single_line_captions
                     from .media import caption_layout,caption_image
                     from PIL import Image
                     caption=caption_from_settings(style,caption_id='draft-sample',text=sample,start=0,end=1,
                         fonts={style.font:'draft-font'})
                     width,height=(1920,1080) if plan.settings.aspect_ratio=='16:9' else (1080,1920)
+                    if style.single_line:
+                        caption=single_line_captions(caption,font,width=width,height=height)[0]
                     _,_,_,bounds=caption_layout(caption,font,width=width,height=height)
                     layer=folder/(board.scene_id+'-caption.png')
                     caption_image(caption,font,width=width,height=height,destination=layer)

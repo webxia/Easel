@@ -125,8 +125,8 @@ def probe_media(path: Path, *, ffprobe: str = "ffprobe", home: Path | None = Non
         raise EditError("invalid local media probe result") from exc
 
 
-def caption_layout(caption: Caption, font_path: Path, *, width: int, height: int):
-    """Shared exact text geometry for export and collision checks."""
+def caption_lines(caption: Caption, font_path: Path, *, width: int):
+    """Wrap literal text using the exact export font and available width."""
     font = ImageFont.truetype(str(font_path), caption.size)
     draw = ImageDraw.Draw(Image.new('L', (1, 1)))
     available = int(width * caption.max_width) - 2 * (caption.outline + 12)
@@ -138,6 +138,13 @@ def caption_layout(caption: Caption, font_path: Path, *, width: int, height: int
                 lines.append(current); current = ""
             current += char
         lines.append(current)
+    return lines, font
+
+
+def caption_layout(caption: Caption, font_path: Path, *, width: int, height: int):
+    """Shared exact text geometry for export and collision checks."""
+    lines, font = caption_lines(caption, font_path, width=width)
+    draw = ImageDraw.Draw(Image.new('L', (1, 1)))
     text = "\n".join(lines)
     box = draw.multiline_textbbox((0, 0), text, font=font, spacing=caption.size // 5,
                                   stroke_width=caption.outline, align="center")

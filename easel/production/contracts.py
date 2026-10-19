@@ -10,7 +10,7 @@ import hashlib
 import json
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator, model_serializer
 
 SCHEMA_VERSION = 1
 Identifier = Annotated[str, StringConstraints(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]*$")]
@@ -137,6 +137,15 @@ class SubtitleSettings(Contract):
     outline: str = "#000000"
     background: str = "transparent"
     position: Literal["top", "middle", "bottom"] = "bottom"
+    single_line: bool = False
+
+    @model_serializer(mode="wrap")
+    def serialize_layout(self, handler):
+        data = handler(self)
+        # Keep historical plans/settings byte-equivalent when not opted in.
+        if not self.single_line:
+            data.pop("single_line", None)
+        return data
 
 
 class VideoSettings(Contract):

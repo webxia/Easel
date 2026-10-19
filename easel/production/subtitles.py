@@ -74,6 +74,32 @@ def caption_from_settings(settings: SubtitleSettings, *, caption_id: str, text: 
                    background=background, y={"top": .12, "middle": .5, "bottom": .88}[settings.position])
 
 
+def single_line_captions(caption: Caption, font_path: Path, *, width: int, height: int) -> list[Caption]:
+    """Paginate a speech cue using actual export geometry, without rewriting it.
+
+    Existing cue anchors stay fixed. Only an overflowing cue is subdivided;
+    its internal boundaries are proportional layout estimates, not new acoustic
+    measurements. Explanatory overlays never pass through this function.
+    """
+    from .media import caption_lines
+    # An authored newline is a cue boundary, not a second simultaneous line.
+    wrapped, _ = caption_lines(caption, font_path, width=width)
+    lines = [line for line in wrapped if line]
+    if len(lines) <= 1:
+        return [caption.model_copy(update={'text': lines[0]})] if lines else [caption]
+    total = sum(len(line) for line in lines)
+    used, result = 0, []
+    duration = caption.end - caption.start
+    for i, line in enumerate(lines):
+        start = caption.start + duration * used / total
+        used += len(line)
+        end = caption.end if i == len(lines) - 1 else caption.start + duration * used / total
+        result.append(caption.model_copy(update={
+            'caption_id': caption.caption_id[:72] + '-' + fingerprint(caption.caption_id)[:8] + '-line-' + str(i),
+            'text': line, 'start': start, 'end': end}))
+    return result
+
+
 class SubtitleService:
     def __init__(self, root: Path, *, ffmpeg: str = "ffmpeg", ffprobe: str = "ffprobe"):
         self.root = Path(root)
@@ -130,6 +156,8 @@ class SubtitleService:
                 with Image.open(frame) as source:
                     image = source.convert("RGBA")
                 if caption:
+                    if settings.single_line:
+                        caption = single_line_captions(caption, font_path, width=image.width, height=image.height)[0]
                     overlay = caption_image(caption, font_path, width=image.width, height=image.height,
                                             destination=folder / "caption.png")
                     with Image.open(overlay) as layer:
@@ -138,5 +166,10 @@ class SubtitleService:
                 (folder / "preview.png").replace(output)
         with Image.open(output) as result_image:
             width, height = result_image.size
-        return {"path": str(output), "sha256": file_sha256(output), "width": width, "height": height,
-                "frame_asset_id": frame_asset_id, "at": at, "settings": settings.model_dump(), "reused": reused}
+        result = {"path": str(output), "sha256": file_sha256(output), "width": width, "height": height,
+                  "frame_asset_id": frame_asset_id, "at": at, "settings": settings.model_dump(), "reused": reused}
+        if caption and settings.single_line:
+            parts = single_line_captions(caption_from_settings(settings, caption_id="preview", text=text,
+                start=0, end=1, fonts=fonts), font_path, width=width, height=height)
+            result.update(preview_text=parts[0].text, cue_count=len(parts))
+        return result
