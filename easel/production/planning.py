@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import re
+import hashlib
 from dataclasses import replace
 from pydantic import Field, model_validator
 from .contracts import Contract, Scene, VideoSettings, ExplainerBoard
@@ -165,18 +166,87 @@ class PlanningTasks:
                 blocks.extend(media);required.update(needs)
         return tuple(blocks),frozenset(required)
 
+    @staticmethod
+    def _native_operation(ctx,runner):
+        transport=runner.transport
+        suffix=('model:'+str(transport.index) if transport.namespace is None else
+                'model:'+transport.namespace+':'+str(transport.index))
+        return hashlib.sha256((ctx.task_id+':'+suffix).encode()).hexdigest()
+
+    def _store_draft(self,ctx,draft,source,round_,history,review):
+        state={'producer_task_id':ctx.task_id,'draft':draft.model_dump(mode='json'),
+               'draft_hash':digest(draft.model_dump(mode='json')),'source_operation_id':source,
+               'correction_round':round_,'history':history,
+               'review':review.model_dump(mode='json') if review is not None else None}
+        with ctx.transaction() as conn:
+            payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
+            payload['native_draft_checkpoint']=state
+            conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
+        return state
+
+    def _recover_draft(self,ctx):
+        """Only typed same-task successful native receipts; never operator drafts."""
+        with self.service.store.connection() as conn:
+            payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
+            ops=[dict(r) for r in conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at",(ctx.task_id,))]
+        if any(r['state'] in {'reserved','sending','submitted','unknown'} for r in ops):
+            raise ModelTaskError('result_unknown','本草稿仍有结果待核实的原请求，未重新发送')
+        by_id={r['id']:r for r in ops}
+        def known(r):
+            return (r['state']=='succeeded' and r['work_id']==ctx.work_id
+                    and r['config_version']==self.config_version and r['provider']==self.model_service['provider']
+                    and r['model']==self.model_service['model'] and r['mode']==self.model_service['mode'])
+        def content(r):return json.loads(r['receipt_json'])['result']['message']['content']
+        state=payload.get('native_draft_checkpoint')
+        if state:
+            try:
+                op=by_id[state['source_operation_id']]
+                draft=VoiceReadyCreativePlan.model_validate(state['draft'])
+                received=VoiceReadyCreativePlan.model_validate_json(content(op))
+                if (state['producer_task_id']!=ctx.task_id or not known(op) or draft!=received
+                        or json.loads(op['request_json']).get('schema',{}).get('title')!='VoiceReadyCreativePlan'
+                        or state['draft_hash']!=digest(draft.model_dump(mode='json'))
+                        or not 0<=state['correction_round']<=2):raise ValueError
+                return state
+            except (KeyError,TypeError,ValueError):
+                raise ModelTaskError('draft_provenance_missing','草稿缺少相符的本任务原生模型回执，未采用外部替换稿') from None
+        # Compatibility for the real v2 audit failure before checkpoints existed.
+        # Do not replay changed schema requests or repeat the expensive author.
+        author_ids={hashlib.sha256((ctx.task_id+':model:draft-correction-v2:'+str(i)).encode()).hexdigest() for i in range(1,7)}
+        candidates=[r for r in ops if r['id'] in author_ids and known(r)]
+        if not candidates:return None
+        source=candidates[-1]
+        try:
+            draft=VoiceReadyCreativePlan.model_validate_json(content(source))
+            reviews=[];last=None
+            for r in ops:
+                if not known(r):continue
+                request=json.loads(r['request_json'])
+                if request.get('schema',{}).get('title')!='DraftReview':continue
+                review=DraftReview.model_validate_json(content(r));reviews.append(review.model_dump(mode='json'))
+                if r['created_at']>source['created_at']:last=review
+            if last is None:raise ValueError
+        except (ValueError,KeyError,TypeError):
+            raise ModelTaskError('draft_provenance_missing','旧草稿未取得完整原生修正与复核回执，未重新发送') from None
+        state=self._store_draft(ctx,draft,source['id'],1,reviews,last)
+        with ctx.transaction() as conn:
+            self.service._event(conn,ctx.work_id,'native_draft_recovered',
+                {'source_operation_id':source['id'],'draft_hash':state['draft_hash'],'correction_round':1},run_id=ctx.run_id)
+        return state
+
     async def draft_board_media(self,ctx,plan):
         """Actual local draft pixels, not registered final assets or user evidence."""
         if not plan.explainer_boards or not self.board_fonts:
             return (),frozenset()
         import asyncio
-        from .boards import render_board
+        from .boards import render_board, VERSION
         from .inspection import observe_media
         from .media import atomic_json, file_sha256
         font=self.board_fonts.get(plan.settings.subtitles.font)
         if not font:
             raise ModelTaskError('capability_unavailable','草稿图解缺少本片配置的实际字体')
-        folder=self.service.outputs/'_production'/'plan-previews'/ctx.task_id/digest(plan.model_dump(mode='json'))
+        preview_key=digest({'draft':plan.model_dump(mode='json'),'renderer':VERSION,'font':file_sha256(font),'preview_version':'caption-sample-1'})
+        folder=self.service.outputs/'_production'/'plan-previews'/ctx.task_id/preview_key
         folder.mkdir(parents=True,exist_ok=True)
         blocks=[];required=set();manifest=[]
         visual=bool(self.transport and 'image' in self.transport.capabilities)
@@ -212,7 +282,7 @@ class PlanningTasks:
                         '；不是实证资料。若有字幕，叠加的是当前固定样式与本段原文前缀的实际排版样例，不是最终断句或时码。实际样例边界(x,y,w,h)：'+str(entry.get('caption_sample_bounds'))})
                     blocks.extend(media);required.update(needs)
         atomic_json(folder/'manifest.json',{'draft_hash':digest(plan.model_dump(mode='json')),
-            'font_sha256':file_sha256(font),'images_sent':visual,'frames':manifest})
+            'font_sha256':file_sha256(font),'renderer':VERSION,'preview_version':'caption-sample-1','images_sent':visual,'frames':manifest})
         return tuple(blocks),frozenset(required)
 
     async def plan(self,ctx):
@@ -226,7 +296,13 @@ class PlanningTasks:
             def check_capabilities(answer):
                 if answer.explainer_boards and not self.execution_capabilities.get('native_explainer_boards'):
                     raise ValueError('本次尚未配置原生图解字体，不能使用explainer_boards；不得虚构图解能力')
-            proposed=await self.runner(ctx,max_format_repairs=2).run(context,
+            recovered=self._recover_draft(ctx)
+            if recovered:
+                proposed=VoiceReadyCreativePlan.model_validate(recovered['draft'])
+                source=recovered['source_operation_id']
+            else:
+                author=self.runner(ctx,max_format_repairs=2)
+                proposed=await author.run(context,
                 '提出完整创作方案；遵守明确时长、画幅、声音设置；全部必用输入须落实到场景。'
                 'Scene.narration 只能是将由 TTS 实际朗读的简短口播原文，不能包含时间码、朗读窗口、'
                 '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明写入 script/visual。'
@@ -236,12 +312,14 @@ class PlanningTasks:
                 '图解只作概念/假设，不编造成真实资料；文字简短，按需用，不强制每场图解。'
                 '返回摘要、完整脚本、场景和视听设计。',VoiceReadyCreativePlan,
                 media=media,required=required,tools=self.tool_factory(ctx),validate_result=check_capabilities)
+                source=self._native_operation(ctx,author)
             with self.service.store.connection() as reader:
                 requested = json.loads(row(reader, 'works', ctx.work_id)['settings_json'])
             autonomous = ('duration_seconds' not in requested and
-                          proposed.settings.audio_mode in {'voice', 'mixed'})
+                          requested.get('audio_mode',proposed.settings.audio_mode) in {'voice', 'mixed'})
             if autonomous:
                 from .contracts import SubtitleSettings, VoiceIdentity
+                from .editors import EditError
                 def preserve_choices(answer):
                     check_capabilities(answer)
                     for field in ('voice', 'subtitles', 'aspect_ratio', 'audio_mode'):
@@ -257,7 +335,7 @@ class PlanningTasks:
                 # Audit literal semantics and actual diagrams BEFORE freezing.
                 # A native critic returns evidence; only the native author may
                 # revise the draft. No operator copy or per-film diagram patch.
-                async def audit(draft,namespace):
+                async def audit(draft,namespace,history):
                     from .editors import EditError
                     try:
                         preserve_choices(draft)
@@ -269,7 +347,8 @@ class PlanningTasks:
                         return DraftReview(verdict='fail',findings=['实际草稿图解渲染失败：'+str(exc)],
                             limitations=['未获得完整可读像素；需先修正草稿文字或布局数据'])
                     return await self.runner(ctx,namespace=namespace,max_format_repairs=2).run(
-                        replace(context,plan=draft.model_dump(mode='json')),
+                        replace(context,plan=draft.model_dump(mode='json'),
+                            brief=context.brief+'\n原生既有审查记录，请逐项核对本次是否已解决；若原判断被实际像素否定，明确依据，不照搬：'+encode(history)),
                         '独立审查尚未确认草稿；只返回有依据的观察和必须修正的问题，不改稿、不声称已看过未选的库存或听过声音。'
                         '核对是否回应一句想法、具体例子能否解释原因与边界，口语是否有鲜活的分析而非课程讲义。'
                         '逐项检查图解所有状态：每张卡与所在列的字面含义一致，结果、行为和结论不能混装成错误分类；'
@@ -283,18 +362,37 @@ class PlanningTasks:
                         '未选素材和未试听声音留到实际生产检查，不将这些正常未执行步骤列成草稿缺陷。'
                         '有明确问题时verdict=fail并在findings写具体字段/状态及依据；无明确问题时pass。',
                         DraftReview,media=(*media,*board_media),required=required|board_needs)
-                review=await audit(proposed,'draft-audit-v2')
-                if review.findings or review.verdict!='pass':
-                    proposed=await self.runner(ctx,namespace='draft-correction-v2',max_format_repairs=2).run(
+                round_=recovered['correction_round'] if recovered else 0
+                history=list(recovered.get('history',[])) if recovered else []
+                review=DraftReview.model_validate(recovered['review']) if recovered and recovered.get('review') else None
+                self._store_draft(ctx,proposed,source,round_,history,review)
+                while True:
+                    if review is None:
+                        review=await audit(proposed,'draft-audit-v3-'+str(round_),history)
+                        history.append(review.model_dump(mode='json'))
+                        self._store_draft(ctx,proposed,source,round_,history,review)
+                    if not review.findings and review.verdict=='pass':break
+                    if round_>=2:
+                        raise ModelTaskError('draft_review_failed','原生草稿经过两轮修正仍有明确问题，未冻结、未配音',
+                            diagnostic={'findings':review.findings})
+                    round_+=1
+                    try:
+                        pictures,picture_needs=await self.draft_board_media(ctx,proposed)
+                    except EditError:
+                        pictures,picture_needs=(),frozenset()
+                    author=self.runner(ctx,namespace='draft-correction-v3-'+str(round_),max_format_repairs=2)
+                    proposed=await author.run(
                         replace(context,plan=proposed.model_dump(mode='json')),
-                        '依据独立草稿审查修正并返回完整可执行方案；这是尚未确认的草稿，允许调整叙事和图解分类、状态、画面策略，'
-                        '不得编造个人经历或新事实，不改变已选声音、字幕、画幅与声音模式。'
-                        '不要用多写风格形容词代替实际方案调整，不用无关素材凑电影感。审查：'+encode(review.model_dump(mode='json')),
-                        VoiceReadyCreativePlan,media=media,required=required,tools=self.tool_factory(ctx),validate_result=preserve_choices)
-                    final=await audit(proposed,'draft-recheck-v2')
-                    if final.findings or final.verdict!='pass':
-                        raise ModelTaskError('draft_review_failed','原生草稿修正后仍有明确语义或视觉策略问题，未冻结、未配音',
-                            diagnostic={'findings':final.findings})
+                        '依据独立草稿审查修正并返回完整可执行方案；这是尚未确认的草稿，允许实际调整叙事、具体例子、'
+                        '图解分类/状态与视觉策略，不得编造个人经历或事实，不改变已选声音、字幕、画幅和声音模式。'
+                        '逐项解决全部有依据的问题，文案与narration一致，术语用具体条件变化解释，不能只改形容词。'
+                        '电影感要落实到可取得的具体场景动作、景别、光线与镜头联系，不用无关素材凑，也不把整片放回文字板fallback。'
+                        '收到的字幕样例由正式排版函数生成；若旧审查的碰撞假设被真实像素/边界否定，可保留正确布局并如实说明，'
+                        '不能把未实现的后期重排写成已完成，更不能借此忽略其他内容问题。原生审查记录：'+encode(history),
+                        VoiceReadyCreativePlan,media=(*media,*pictures),required=required|picture_needs,
+                        tools=self.tool_factory(ctx),validate_result=preserve_choices)
+                    source=self._native_operation(ctx,author);review=None
+                    self._store_draft(ctx,proposed,source,round_,history,review)
                 preserve_choices(proposed)
             with ctx.transaction() as conn:
                 work=row(conn,'works',ctx.work_id)

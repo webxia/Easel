@@ -84,7 +84,8 @@ def capabilities(root: Path):
     services.append({'provider':'reviewed_public','model':'stock','mode':'search','label':'已审查公开素材',
         'configured':bool(raw),'available':ready,'media_types':media,'supports_auto_supply':True,'reason':reason})
     from .subtitles import configured_fonts
-    local=[{'renderer':'schematic-board-1','available':bool(configured_fonts(settings)),
+    from .boards import VERSION
+    local=[{'renderer':VERSION,'available':bool(configured_fonts(settings)),
             'label':'原生概念/假设图解','counts_toward_generation':False}]
     return {'services':services,'local_visuals':local,'generation_limits':['IMAGE','VIDEO'],
             'voice_counts_toward_generation':False,'model_configured':bool(model)}

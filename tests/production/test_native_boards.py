@@ -192,7 +192,7 @@ def test_native_draft_audit_sees_real_board_pixels_before_freeze_and_speech(tmp_
     planning.board_fonts={'sans-serif':font};planning.execution_capabilities['native_explainer_boards']=True
     assert asyncio.run(Worker(store,{'plan':planning.plan}).run_once())
     snap=service.snapshot(work)
-    assert len(model.calls)==4
+    assert len(model.calls)==(6 if remains_invalid else 4)
     manifests=list((service.outputs/'_production/plan-previews').rglob('manifest.json'));assert len(manifests)==2
     for manifest in manifests:
         entries=json.loads(manifest.read_text())['frames']
@@ -215,3 +215,17 @@ def test_board_contract_declares_identity_and_per_column_bounds_before_model_cal
     assert any(e['type']=='string_pattern_mismatch' for e in exc.value.errors())
     bad=data();bad['states'][0]['groups']={'a':['1','2','3','4','5','6'],'b':[]}
     with pytest.raises(ValidationError):ExplainerBoard.model_validate(bad)
+
+
+def test_renderer_does_not_add_an_unrequested_step_order_to_classification(font,tmp_path,monkeypatch):
+    from easel.production import boards
+    original=boards._label;labels=[]
+    def observed(draw,text,*args,**kwargs):
+        labels.append(text);return original(draw,text,*args,**kwargs)
+    monkeypatch.setattr(boards,'_label',observed)
+    d=data();d['cards'][0]['text']='1. 显式步骤'
+    b=ExplainerBoard.model_validate(d)
+    path=render_board(b,0,font_path=font,aspect_ratio='16:9',destination=tmp_path/'literal.png')
+    assert path.is_file() and '1. 显式步骤' in labels
+    assert not any(str(i) in labels for i in range(1,7))
+    assert any('6 条' in value and '2 组' in value for value in labels)
