@@ -125,12 +125,10 @@ def probe_media(path: Path, *, ffprobe: str = "ffprobe", home: Path | None = Non
         raise EditError("invalid local media probe result") from exc
 
 
-def caption_image(caption: Caption, font_path: Path, *, width: int, height: int,
-                  destination: Path) -> Path:
-    """Render literal text, not ASS/filter expressions; refuse overflow rather than shrink."""
+def caption_layout(caption: Caption, font_path: Path, *, width: int, height: int):
+    """Shared exact text geometry for export and collision checks."""
     font = ImageFont.truetype(str(font_path), caption.size)
-    layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer)
+    draw = ImageDraw.Draw(Image.new('L', (1, 1)))
     available = int(width * caption.max_width) - 2 * (caption.outline + 12)
     lines: list[str] = []
     for paragraph in caption.text.split("\n"):
@@ -147,6 +145,15 @@ def caption_image(caption: Caption, font_path: Path, *, width: int, height: int,
     left, top = round(width * caption.x - w / 2), round(height * caption.y - h / 2)
     if left < 0 or top < 0 or left + w > width or top + h > height:
         raise EditError("caption exceeds the frame; adjust its explicit size or position")
+    return text, font, box, (left, top, w, h)
+
+
+def caption_image(caption: Caption, font_path: Path, *, width: int, height: int,
+                  destination: Path) -> Path:
+    """Render literal text, not ASS/filter expressions; refuse overflow rather than shrink."""
+    text, font, box, (left, top, w, h) = caption_layout(caption, font_path, width=width, height=height)
+    layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
     if caption.background:
         draw.rounded_rectangle((left - 10, top - 8, left + w + 10, top + h + 8), radius=8,
                                fill=caption.background)
