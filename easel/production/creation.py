@@ -257,7 +257,11 @@ class CreationTasks:
             path=temp/'project.json';path.write_text(project.model_dump_json(),encoding='utf8')
             artifact=register_file(self.service,ctx,path,kind='edit_project',media_type='application/json',metadata={'plan_revision':ctx.plan_revision,
                     'audio_observation': 'model_native' if audio_native else 'technical_only_unverified',
-                    'execution_timing': timing, 'subtitle_alignment': 'provider' if aligned else 'editor_preview',
+                    'execution_timing': timing, 'subtitle_alignment': (
+                        'local_acoustic_estimate' if aligned and any(
+                            json.loads(r['metadata_json']).get('timing', {}).get('local_alignment', {}).get('status') == 'received'
+                            for r in records if r['kind'] == 'audio')
+                        else 'provider' if aligned else 'editor_preview'),
                     'caption_roles':{c.caption_id:c.role for c in answer.captions},
                     'unverified_editor_notes':unverified_editor_notes},
                     dependencies=list(manifest.assets))

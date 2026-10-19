@@ -44,7 +44,13 @@ def align_confirmed_speech(path: Path, text: str, provider: dict, *, model_name:
     target = cache / (key + '.json')
     if target.is_file():
         import json
-        return json.loads(target.read_text())
+        try:
+            cached = json.loads(target.read_text())
+            if (cached.get('audio_sha256') == digest and cached.get('status') == 'received'
+                    and normalize(''.join(s['text'] for s in cached['segments'])) == normalize(text)):
+                return cached
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            pass
     try:
         from faster_whisper import WhisperModel
         from faster_whisper.audio import decode_audio
