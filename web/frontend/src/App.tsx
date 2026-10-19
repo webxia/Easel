@@ -1,3 +1,4 @@
+import { mergeTaskReplies } from './lib/taskReplies';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { enterVideo, type VideoEntry } from './lib/conversationApi';
 import Sidebar from './components/Sidebar';
@@ -731,7 +732,7 @@ export default function App() {
         return activeSession ? (
           <ChatPage
             personas={personas}
-            onRestoreVideo={messages=>setSessions(prev=>{const next=prev.map(s=>s.id===activeSession.id?{...s,messages}:s);saveSessions(next);return next;})}
+            onRestoreVideo={replies=>setSessions(prev=>{let changed=false;const next=prev.map(s=>{if(s.id!==activeSession.id)return s;const messages=mergeTaskReplies(s.messages,replies);if(messages===s.messages)return s;changed=true;return {...s,messages};});if(!changed)return prev;saveSessions(next);return next;})}
             onVideoBound={videoBound}
             apiDirect={apiDirect}
             key={activeSession.id}

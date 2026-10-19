@@ -115,51 +115,84 @@ class VideoChat:
             return await replay(req.turnId,0)
         event_path=self.event_file(req.turnId)
         event_path.parent.mkdir(parents=True,exist_ok=True);event_path.write_text('')
-        async def run():
-            seq=0;chunks=[];done=False
-            def emit(kind,data):
-                nonlocal seq
-                seq+=1
-                with event_path.open('a') as f:f.write(json.dumps({'id':seq,'event':kind,'data':data},ensure_ascii=False)+'\n')
-            bridge.delivery(req.turnId,'dispatching')
-            emit('activity','正在与 Easel 讨论创作；制作进度独立更新')
-            try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(7200,connect=10),trust_env=False,follow_redirects=False) as client:
-                    async with client.stream('POST',self.gateway_url.rstrip('/')+'/v1/chat/completions',
-                        headers={'Authorization':'Bearer '+self.gateway_token,'x-openclaw-session-key':result['payload']['session_key']},
-                        json={'model':'openclaw/easel-video','stream':True,'messages':[{'role':'user','content':result['prompt']}]}) as response:
-                        response.raise_for_status()
-                        async for line in response.aiter_lines():
-                            if not line.startswith('data:'):continue
-                            raw=line[5:].strip()
-                            if raw=='[DONE]':done=True;break
-                            value=json.loads(raw)
-                            if value.get('error'):raise ValueError('gateway_error')
-                            text=((value.get('choices') or [{}])[0].get('delta') or {}).get('content')
-                            if text:chunks.append(text);emit('token',text)
-                if not done:raise ValueError('incomplete_delivery')
-                bridge.delivery(req.turnId,'unknown',''.join(chunks))
-                view=ConversationService(service).view(req.sessionId)
-                self.save_turn('web:'+req.sessionId,'done',''.join(chunks),{'turn_id':req.turnId})
-                emit('work_card',view)
-                emit('done',{'sessionKey':req.sessionId})
-            except asyncio.CancelledError:
-                bridge.delivery(req.turnId,'unknown',''.join(chunks))
-                emit('error','已停止回答；作品制作继续。原生运行结束前，本轮保持待核实。')
-            except Exception as exc:
-                bridge.delivery(req.turnId,'unknown',''.join(chunks))
-                # Record only the exception class; provider bodies may contain private data.
-                logging.getLogger(__name__).warning('Video conversation delivery interrupted (%s)',type(exc).__name__)
-                message='本轮对话回复中断；尚未核实任务结果，不会自动重发。'
-                try:
-                    view,message=self.interrupted_result(service,req.sessionId)
-                    emit('work_card',view)
-                    self.save_turn('web:'+req.sessionId,'done',''.join(chunks),{'turn_id':req.turnId,'clean_end':False})
-                except Exception:pass
-                emit('error',message)
-            finally:self.tasks.pop(req.sessionId,None)
-        self.tasks[req.sessionId]=asyncio.create_task(run())
+        self.tasks[req.sessionId]=asyncio.create_task(self._deliver(req.sessionId,req.turnId,result,event_path))
         return await replay(req.turnId,0)
+
+    async def _deliver(self,session,turn_id,result,event_path,*,background=False):
+        service=self.provider();bridge=PersistentWorkToolBridge(service)
+        seq=0;chunks=[];done=False;next_result_write=0.0
+        def emit(kind,data):
+            nonlocal seq
+            seq+=1
+            with event_path.open('a') as f:f.write(json.dumps({'id':seq,'event':kind,'data':data},ensure_ascii=False)+'\n')
+        bridge.delivery(turn_id,'dispatching')
+        emit('activity','正在与 Easel 讨论创作；制作进度独立更新')
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(7200,connect=10),trust_env=False,follow_redirects=False) as client:
+                async with client.stream('POST',self.gateway_url.rstrip('/')+'/v1/chat/completions',
+                    headers={'Authorization':'Bearer '+self.gateway_token,'x-openclaw-session-key':result['payload']['session_key']},
+                    json={'model':'openclaw/easel-video','stream':True,'messages':[{'role':'user','content':result['prompt']}]}) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.startswith('data:'):continue
+                        raw=line[5:].strip()
+                        if raw=='[DONE]':done=True;break
+                        value=json.loads(raw)
+                        if value.get('error'):raise ValueError('gateway_error')
+                        text=((value.get('choices') or [{}])[0].get('delta') or {}).get('content')
+                        if text:
+                            chunks.append(text);emit('token',text)
+                            if background and asyncio.get_running_loop().time()>=next_result_write:
+                                bridge.record_result_text(turn_id,''.join(chunks))
+                                next_result_write=asyncio.get_running_loop().time()+0.25
+            if not done or (background and not ''.join(chunks).strip()):raise ValueError('incomplete_delivery')
+            bridge.delivery(turn_id,'unknown',''.join(chunks))
+            view=ConversationService(service).view(session)
+            self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':turn_id})
+            emit('work_card',view)
+            emit('done',{'sessionKey':session})
+        except asyncio.CancelledError:
+            if background:bridge.record_result_text(turn_id,''.join(chunks),error='已停止本次结果回复；制作记录已保留。')
+            bridge.delivery(turn_id,'unknown',''.join(chunks))
+            emit('error','已停止回答；作品制作继续。原生运行结束前，本轮保持待核实。')
+        except Exception as exc:
+            bridge.delivery(turn_id,'unknown',''.join(chunks))
+            # Record only the exception class; provider bodies may contain private data.
+            logging.getLogger(__name__).warning('Video conversation delivery interrupted (%s)',type(exc).__name__)
+            message='本轮对话回复中断；尚未核实任务结果，不会自动重发。'
+            try:
+                view,message=self.interrupted_result(service,session)
+                emit('work_card',view)
+                self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':turn_id,'clean_end':False})
+            except Exception:pass
+            if background:bridge.record_result_text(turn_id,''.join(chunks),error=message)
+            emit('error',message)
+        finally:self.tasks.pop(session,None)
+
+    async def process_results_once(self):
+        if self.tasks or not self.gateway_url or not self.gateway_token:return False
+        service=self.provider()
+        with service.store.connection() as conn:
+            candidate=conn.execute("SELECT 1 FROM conversation_proposals p JOIN runs r ON r.id=json_extract(p.receipt_json,'$.run_id') JOIN works w ON w.id=r.work_id AND w.active_run_id=r.id JOIN conversation_segments s ON s.id=p.segment_id WHERE s.revoked_at IS NULL AND s.id=(SELECT id FROM conversation_segments WHERE ui_session=s.ui_session AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1) AND p.state='applied' AND json_type(p.receipt_json,'$._result_delivery')='object' AND r.state IN ('succeeded','needs_decision','failed','paused','cancelled') AND EXISTS(SELECT 1 FROM events e WHERE e.work_id=r.work_id AND e.run_id=r.id AND e.seq>json_extract(p.receipt_json,'$._result_delivery.seen_seq') AND e.kind IN ('run_completed','decision_required','task_needs_decision','task_failed','run_cancelled')) LIMIT 1").fetchone()
+            reserved=conn.execute("SELECT 1 FROM conversation_turns WHERE state='reserved' AND json_extract(payload_json,'$.origin')='task_result' LIMIT 1").fetchone()
+        if not candidate and not reserved:return False
+        await asyncio.to_thread(self.preflight,self.gateway_url,self.gateway_token)
+        from easel.conversation_results import ConversationResults
+        result=await asyncio.to_thread(ConversationResults(PersistentWorkToolBridge(service)).reserve_next)
+        if not result:return False
+        path=self.event_file(result['turn_id']);path.parent.mkdir(parents=True,exist_ok=True);path.write_text('')
+        self.tasks[result['ui_session']]=asyncio.create_task(self._deliver(result['ui_session'],result['turn_id'],result,path,background=True))
+        return True
+
+    async def results_forever(self):
+        while True:
+            try:
+                await self.process_results_once()
+            except asyncio.CancelledError:raise
+            except Exception as exc:
+                logging.getLogger(__name__).warning('Conversation result relay deferred (%s)',type(exc).__name__)
+                await asyncio.sleep(20)
+            await asyncio.sleep(2)
 
     def stop(self,session):
         task=self.tasks.get(session)

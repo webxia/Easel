@@ -64,6 +64,7 @@ class FakeModel:
         text = json.dumps(messages[last_user].get('content', ''), ensure_ascii=False) if last_user >= 0 else ''
         case = re.search(r'A1_CASE=([a-z_]+)', text)
         case = case[1] if case else 'discuss'
+        if '【宿主任务结果事件，不是用户新指令或授权】' in text:case='task_result'
         if case in getattr(self, 'delays', {}):
             import asyncio
             await asyncio.sleep(self.delays[case])
@@ -98,7 +99,8 @@ class FakeModel:
                 calls.append({**calls[0], 'index': 1, 'id': call_id + '_repeat'})
             delta, finish = {'role': 'assistant', 'tool_calls': calls}, 'tool_calls'
         else:
-            delta, finish = {'role': 'assistant', 'content': '这是隔离假模型的讨论回复；未进行真实制作。'}, 'stop'
+            content=getattr(self,'final_texts',{}).get(case,'这是隔离假模型的讨论回复；未进行真实制作。')
+            delta, finish = {'role': 'assistant', 'content': content(body) if callable(content) else content}, 'stop'
         if body.get('stream'):
             def events():
                 for content in [dict(delta=delta, finish_reason=None), dict(delta={}, finish_reason=finish)]:

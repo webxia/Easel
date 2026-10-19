@@ -141,7 +141,15 @@ class PersistentWorkToolBridge:
         with self.store.transaction() as conn:
             record,payload,segment=self._current(conn,request)
             if payload['tickets'].get(request.ticket)!=digest(request.model_dump(exclude={'ticket'})):reject('ticket_mismatch')
-            args=self._args(request);fingerprint=digest([request.tool,args])
+            args=self._args(request)
+            if payload.get('origin')=='task_result':
+                read=request.tool in {'easel_work_context','easel_work_input_evidence'} or (request.tool=='easel_pipeline' and args['mode']=='pending')
+                propose=request.tool=='easel_pipeline' and args['mode']=='offer' and args['action']=='confirm' and payload['result_event']['run_state']=='succeeded' and payload['result_event']['plan_ready']
+                if not (read or propose):reject('result_event_read_only',403)
+                if propose:
+                    work=row(conn,'works',segment['work_id'])
+                    if work['active_run_id']!=payload['result_event']['run_id'] or args['values'].get('plan_revision')!=work['current_plan_revision']:reject('stale_revision',409)
+            fingerprint=digest([request.tool,args])
             if fingerprint in payload['results']:return payload['results'][fingerprint]
             # Business receipt and intent binding are committed in this SAME transaction.
             command_id='chat_'+digest([record['id'],request.tool,args])[:48]
@@ -202,6 +210,16 @@ class PersistentWorkToolBridge:
                 finally:conn.execute('RELEASE pipeline_handoff')
                 self._save(conn,record['id'],payload,'ended')
             return {'ended':True}
+
+    def record_result_text(self,turn_id,text,*,error=None):
+        with self.store.transaction() as conn:
+            record=row(conn,'conversation_turns',turn_id);payload=json.loads(record['payload_json'])
+            if payload.get('origin')!='task_result':return
+            segment=row(conn,'conversation_segments',record['segment_id'])
+            if segment['revoked_at']:return
+            payload['answer']=text
+            if error:payload['delivery_error']=error
+            self._save(conn,turn_id,payload,record['state'])
 
     def delivery(self,turn_id,state,answer=None):
         with self.store.transaction() as conn:

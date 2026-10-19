@@ -199,7 +199,7 @@ export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, sess
           disabled={isStreaming || uploading} title={`添加素材（图片/文档）；超过 ${maxMb}MB 的大文件将自动存为本地素材（不走上传）`}>
           <IconPlus size={15} /> {uploading ? '上传中…' : '素材'}
         </button>
-        <span className="composer-hint">{isStreaming ? '生成中…' : bindingPending ? '请先确认上方的设置目标，再继续对话' : 'Enter 发送 · Shift+Enter 换行'}</span>
+        <span className="composer-hint">{isStreaming ? '生成中…' : bindingPending ? '助手正在回复任务结果…' : 'Enter 发送 · Shift+Enter 换行'}</span>
         {isStreaming ? (
           <button className="send-btn" onClick={onStop} title="停止生成"><IconStop size={15} /></button>
         ) : (
@@ -251,9 +251,10 @@ export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, sess
           {displayMessages.map((msg, i) => {
             const isLast = i === displayMessages.length - 1;
             const live = isStreaming && isLast && msg.role === 'assistant';
+            const resultLive = !!msg.serverTurnId && ['reserved','dispatching','active'].includes(msg.resultState || '');
             const isFinal = !live && i < session.messages.length;
             let actions;
-            if (isFinal) {
+            if (isFinal && !msg.serverTurnId) {
               const copy = () => navigator.clipboard?.writeText(msg.content);
               // 只允许对「最后一轮」重试，契合 OpenClaw append-only 模型（不改写历史）；已移除编辑
               const isLastFinal = i === session.messages.length - 1;
@@ -279,9 +280,9 @@ export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, sess
             }
             return (
               <MessageBubble
-                key={`${i}-${msg.role}`}
+                key={msg.serverTurnId || `${i}-${msg.role}`}
                 message={msg}
-                isStreaming={live}
+                isStreaming={live || resultLive}
                 thinking={live ? stream!.thinking : ''}
                 activity={live ? stream!.activity : ''}
                 stillWorking={live ? stream!.stillWorking : ''}

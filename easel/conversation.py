@@ -120,9 +120,9 @@ class ConversationService:
                 turns.insert(0,dict(record))
         return list({r['id']:r for r in turns}.values())
 
-    def source_refs(self, conn, segment, refs):
+    def source_refs(self, conn, segment, refs, *, allow_results=False):
         if not isinstance(refs,list) or not refs or len(refs)>40:fail('invalid_source','请引用本运行段或可信交接中的用户消息')
-        allowed={r['id'] for r in self.scoped_turns(conn,segment)}
+        allowed={r['id'] for r in self.scoped_turns(conn,segment) if allow_results or json.loads(r['payload_json']).get('origin')!='task_result'}
         if any(not isinstance(ref,str) or ref not in allowed for ref in refs):
             fail('invalid_source','依据不属于当前管线或可信交接',403)
         return list(dict.fromkeys(refs))
@@ -148,7 +148,7 @@ class ConversationService:
 
     def proposal(self,conn,segment,kind,values,refs):
         if kind not in PROPOSALS or not isinstance(values,dict) or len(encode(values))>100000:fail('invalid_input','提议类型或内容无效')
-        refs=self.source_refs(conn,segment,refs)
+        refs=self.source_refs(conn,segment,refs,allow_results=True)
         if kind in {'channel_create','channel_defaults'} and 'creative_basis' in values:
             validate_channel_basis(values['creative_basis'])
         if kind=='director_revision' and set(values)-{'style','base_revision'}:
@@ -186,6 +186,7 @@ class ConversationService:
             for r in conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? ORDER BY created_at,id',(segment['id'],)):
                 p=dict(r);p['body']=json.loads(p.pop('body_json'));p['receipt']=json.loads(p.pop('receipt_json')) if p['receipt_json'] else None;proposals.append(p)
             return {'segment_id':segment['id'],'work_id':segment['work_id'],'context':json.loads(segment['context_json']),
+                'result_messages':[{'role':'assistant','content':v.get('answer',''),'serverTurnId':t['id'],'resultState':t['state'],'deliveryError':v.get('delivery_error')} for t in conn.execute("SELECT id,state,payload_json FROM conversation_turns WHERE segment_id=? AND json_extract(payload_json,'$.origin')='task_result' ORDER BY created_at,id",(segment['id'],)) for v in [json.loads(t['payload_json'])]],
                 'proposals':proposals,'messages':[message for t in conn.execute('SELECT payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at,id',(segment['id'],)) for message in self._visible_messages(json.loads(t['payload_json']))], 'turns':[{'id':r['id'],'state':r['state']} for r in conn.execute('SELECT id,state FROM conversation_turns WHERE segment_id=?',(segment['id'],))]}
 
     @staticmethod
@@ -201,12 +202,14 @@ class ConversationService:
             if conn.execute("SELECT 1 FROM conversation_turns WHERE segment_id=? AND id!=? AND state IN ('reserved','active','dispatching','unknown')",(segment['id'],_turn_id or '')).fetchone():fail('invocation_pending','本轮尚未结束，请先核实结果',409)
             if self.segment(conn,session)['id']!=segment['id']:fail('stale_revision','当前创作依据已切换，旧卡不可提交',409)
             if p['body_hash']!=checksum:fail('stale_revision','提议已变化',409)
-            if p['state']=='applied':return json.loads(p['receipt_json'])
+            if p['state']=='applied':
+                from .conversation_results import public_receipt
+                return public_receipt(json.loads(p['receipt_json']))
             if p['state']!='proposed':fail('stale_revision','此卡已失效，请查看最新提议',409)
             if dismiss:
                 conn.execute("UPDATE conversation_proposals SET state='dismissed' WHERE id=?",(id,));return {'dismissed':True}
             body=json.loads(p['body_json']);values=body['values'];target=body['target'];kind=p['kind']
-            self.source_refs(conn,segment,body['source_refs'])
+            self.source_refs(conn,segment,body['source_refs'],allow_results=True)
             if kind=='pipeline':
                 from .conversation_pipeline import execute_action
                 result=execute_action(self,conn,segment,body,command_id)
@@ -286,7 +289,8 @@ class ConversationService:
                 if set(values)-{'style','base_revision'}:fail('invalid_input','风格提案字段无效')
                 result=CreativeCatalog(self.service).command('directors','revision',{'style':values['style'],'evidence':json.loads(version['evidence_json'])},command_id=command_id+'_catalog',id=director['id'],expected_revision=director['revision'],_connection=conn)
             else:fail('invalid_input','尚不支持此提议')
-            conn.execute("UPDATE conversation_proposals SET state='applied',receipt_json=? WHERE id=?",(encode(result),id))
+            from .conversation_results import watched_receipt
+            conn.execute("UPDATE conversation_proposals SET state='applied',receipt_json=? WHERE id=?",(encode(watched_receipt(conn,result)),id))
             return result
         return self.store.execute_command(command_id,{'proposal':id,'hash':checksum,'session':session,'dismiss':dismiss},execute,connection=_connection)
 
@@ -325,6 +329,8 @@ class ConversationService:
             # Retain minimal tool/command identities for late result reconciliation.
             for t in conn.execute('SELECT t.* FROM conversation_turns t JOIN conversation_segments s ON s.id=t.segment_id WHERE s.ui_session=?',(session,)).fetchall():
                 payload=json.loads(t['payload_json']);payload.pop('message',None);payload.pop('attachments',None);payload.pop('prompt',None);payload.pop('context',None);payload.pop('answer',None)
+                payload.pop('result_prompt',None);payload.pop('delivery_error',None)
+                if payload.get('result_event'):payload['result_event']={k:v for k,v in payload['result_event'].items() if k in {'work_id','run_id','seq','run_state'}}
                 payload['results']={k:{x:v for x,v in result.items() if x in {'work_id','proposal_id','revision','brief_revision','brief_hash','hash','state','input_id','requires_card_confirmation'}} for k,result in payload.get('results',{}).items()}
                 conn.execute('UPDATE conversation_turns SET payload_json=? WHERE id=?',(encode(payload),t['id']))
             conn.execute("UPDATE conversation_proposals SET state='dismissed' WHERE segment_id IN (SELECT id FROM conversation_segments WHERE ui_session=?) AND state='proposed'",(session,))
