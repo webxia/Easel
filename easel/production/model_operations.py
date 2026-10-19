@@ -30,7 +30,7 @@ class RecordedModelTransport:
         grant_id = prior['grant_id'] if prior else next((g['id'] for g in grants if self.service in json.loads(g['services_json']) and
             ((g['purpose']=='planning' and ctx.plan_revision is None) or (g['purpose']=='production' and g['plan_revision']==ctx.plan_revision))),None)
         if not grant_id:
-            raise ModelTaskError('permission_missing','本任务尚未授权当前模型服务，请在制作工作台补充授权')
+            raise ModelTaskError('permission_missing','本任务尚未授权当前模型服务，请在当前对话确认所需服务后继续原任务')
         op = self.operations.reserve(operation_id=operation_id,work_id=ctx.work_id,run_id=ctx.run_id,
             task_id=ctx.task_id,grant_id=grant_id,kind='MODEL',**self.service,
             config_version=self.config_version,request=request,owner_epoch=ctx.owner_epoch)

@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import logging
 import os
 import secrets
 from pathlib import Path
@@ -86,6 +87,17 @@ class VideoChat:
         self.preflight=preflight or require_persistent_gateway
         self.tasks={}
 
+    @staticmethod
+    def interrupted_result(service,session):
+        view=ConversationService(service).view(session)
+        message='本轮对话回复中断；已保存的操作请以实际任务状态为准，不会自动重发。'
+        if view['work_id']:
+            work=service.snapshot(view['work_id'])
+            tasks=[t for t in work['tasks'] if t['run_id']==work['active_run_id']]
+            if any(json.loads(t.get('error_json') or '{}').get('code')=='permission_missing' for t in tasks):
+                message+=' 当前任务等待模型服务授权，请在本对话核对所需服务并确认后继续原任务。'
+        return view,message
+
     async def stream(self,req,replay):
         if not req.sessionId or not req.turnId or not req.videoSegmentId:fail('invalid_input','视频对话须带持久运行段和本轮标识',400)
         service=self.provider();bridge=PersistentWorkToolBridge(service)
@@ -134,13 +146,17 @@ class VideoChat:
             except asyncio.CancelledError:
                 bridge.delivery(req.turnId,'unknown',''.join(chunks))
                 emit('error','已停止回答；作品制作继续。原生运行结束前，本轮保持待核实。')
-            except Exception:
+            except Exception as exc:
                 bridge.delivery(req.turnId,'unknown',''.join(chunks))
+                # Record only the exception class; provider bodies may contain private data.
+                logging.getLogger(__name__).warning('Video conversation delivery interrupted (%s)',type(exc).__name__)
+                message='本轮对话回复中断；尚未核实任务结果，不会自动重发。'
                 try:
-                    ConversationService(service).view(req.sessionId)
+                    view,message=self.interrupted_result(service,req.sessionId)
+                    emit('work_card',view)
                     self.save_turn('web:'+req.sessionId,'done',''.join(chunks),{'turn_id':req.turnId,'clean_end':False})
                 except Exception:pass
-                emit('error','作品对话未完整返回，请核实本轮结果；不会自动重发或切换普通助手。')
+                emit('error',message)
             finally:self.tasks.pop(req.sessionId,None)
         self.tasks[req.sessionId]=asyncio.create_task(run())
         return await replay(req.turnId,0)

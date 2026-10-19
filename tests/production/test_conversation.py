@@ -22,6 +22,7 @@ from web.production_api import create_router as production_router, production_er
 def env(tmp_path):
     store=Store(tmp_path/'outputs/_production/db.sqlite3');store.initialize()
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
+    (tmp_path/'.env').write_text('EASEL_DIRECT_API_BASE_URL=http://127.0.0.1:1/v1\nEASEL_DIRECT_API_MODEL=fixture-model\n')
     for name in ('one','two'):
         root=service.profiles/name;root.mkdir(parents=True)
         for file in ('identity','style','audience','platforms','preferences','memory'):(root/(file+'.md')).write_text(name+' '+file+'\n')
@@ -132,7 +133,7 @@ def test_multiturn_sourced_brief_frozen_in_plan_request_and_no_fabricated_requir
         basis=json.loads(task[0])['creation_basis'];assert basis['conversation_brief']['hash']==result['brief_hash']
         assert basis['conversation_brief']['body']['entries'][1]['kind']=='suggestion'
         assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
-        assert conn.execute('SELECT count(*) FROM authorization_grants').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM authorization_grants').fetchone()[0]==1
 
 
 def attachment(service,session='ui'):

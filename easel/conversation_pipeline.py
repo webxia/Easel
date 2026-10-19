@@ -11,7 +11,7 @@ WORK_ACTIONS = {
     'input': {'attachment_id','usage','original_audio','interval','rights_confirmed'},
     'plan': {'request','services'},
     'confirm': {'plan_revision','plan_hash','services','allow_ai','image_limit','video_limit'},
-    'grant': {'purpose','services','allow_ai','image_limit','video_limit','target_ref','plan_revision'},
+    'grant': {'purpose','services','allow_ai','image_limit','video_limit','target_ref','plan_revision','decision_id'},
     'resume': {'decision_id'}, 'cancel': set(),
     'basis': {'settings','input_text'},
     'revise': {'output_id','feedback','preserve_audio'},
@@ -19,6 +19,23 @@ WORK_ACTIONS = {
     'accept': {'output_id','manual_review_confirmed'},
 }
 CATALOG_ACTIONS = {'director_style','director_accept','channel_director'}
+
+
+def planning_values(conversations,conn,segment,values,*,applying=False):
+    """Bind the model before asking; never expand an already approved proposal."""
+    if set(values)-WORK_ACTIONS['plan']:fail('invalid_input','规划提案字段无效')
+    from .production.configuration import model_configuration
+    _,model,_=model_configuration(conversations.service.outputs.parent)
+    if not model:fail('capability_unavailable','创作模型尚未配置，暂不能整理完整方案；请先配置可用模型',409)
+    grants=conn.execute("SELECT services_json FROM authorization_grants WHERE work_id=? AND purpose='planning' AND revoked_at IS NULL",(segment['work_id'],)).fetchall()
+    authorized=any(model in json.loads(g[0]) for g in grants)
+    services=values.get('services',[])
+    if not isinstance(services,list):fail('invalid_input','规划服务须为列表')
+    if not applying and not services and not authorized:services=[model]
+    if any(s!=model for s in services):fail('stale_revision','规划模型已变化或提案包含非规划服务，请在对话重新展示当前服务并确认',409)
+    if not services and not authorized:
+        fail('permission_missing','此旧提案未包含当前规划模型授权，请在对话重新展示规划服务并确认；尚未创建任务',409)
+    return {**values,'services':services}
 
 
 def pending(conversations, conn, segment):
@@ -87,6 +104,7 @@ def selected_attachment(conversations,conn,segment,values):
 
 def offer(conversations,conn,segment,turn_id,action,values,summary):
     scoped(conversations,conn,segment,action,values)
+    if action=='plan':values=planning_values(conversations,conn,segment,values)
     target={}
     if action=='input':
         _,target['attachment_digest']=selected_attachment(conversations,conn,segment,values)
@@ -116,6 +134,20 @@ def execute_action(conversations,conn,segment,body,key):
         rights={'status':'KNOWN','license_name':'用户声明本片使用权','evidence':[{'kind':'user_declaration','reference':key,'summary':'经对话提案及用户答复确认本片使用权'}]} if data.get('rights_confirmed') else {}
         return conversations.service.command('input',{'attachment':attachment,'session_id':segment['ui_session'],'usage':data.get('usage','reference'),'original_audio':data.get('original_audio',False),'interval':data.get('interval'),'rights':rights},command_id=key+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
     if action in WORK_ACTIONS:
+        if action=='plan':data=planning_values(conversations,conn,segment,data,applying=True)
+        if action=='grant' and data.get('decision_id'):
+            task=row(conn,'tasks',data['decision_id'])
+            work=row(conn,'works',segment['work_id'])
+            if task['work_id']!=work['id'] or task['run_id']!=work['active_run_id'] or task['state']!='needs_decision' or json.loads(task['error_json'] or '{}').get('code')!='permission_missing':
+                fail('stale_revision','待恢复的授权阻断已变化，请重新核对当前任务',409)
+            if data.get('purpose')!='planning' or task['kind']!='plan':
+                fail('invalid_input','合并授权恢复仅用于当前整理方案的授权阻断',409)
+            if conn.execute("SELECT 1 FROM operations WHERE run_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['run_id'],)).fetchone():
+                fail('result_unknown','当前运行仍有外部请求待核实，不能通过补授权重发',409)
+            planning_values(conversations,conn,segment,{'services':data.get('services',[])},applying=True)
+            grant=conversations.service.command('grant',{k:v for k,v in data.items() if k!='decision_id'},command_id=key+'_grant',work_id=work['id'],expected_revision=body['work_revision'],_connection=conn)
+            result=conversations.service.command('resume',{'decision_id':task['id']},command_id=key+'_resume',work_id=work['id'],expected_revision=grant['revision'],_connection=conn)
+            return {**result,'grant_id':grant['grant_id']}
         return conversations.service.command(action,data,command_id=key+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
     target=values['catalog_target'];catalog=CreativeCatalog(conversations.service)
     if action=='channel_director':

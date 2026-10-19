@@ -202,3 +202,145 @@ def test_partial_selection_reports_remaining_choice_and_channel_scope(env):
     pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认保存')
     assert c.view('ui')['context']['channel']['name']=='新频道名'
     assert not s.list_works()['items']
+
+
+@pytest.mark.parametrize('legacy',[True,False])
+def test_plan_confirmation_runs_worker_with_bound_model_grant(env,legacy):
+    import asyncio
+    from tests.production.test_planning_runtime import Transport
+    from easel.production.operations import OperationService
+    from easel.production.planning import PlanningTasks
+    from easel.production.worker import Worker
+    s,c=env;channel=seed(env)
+    with s.store.transaction() as conn:
+        conn.execute('update channels set settings_json=? where id=?',(encode({'schema_version':1,'duration_seconds':3,'aspect_ratio':'16:9','audio_mode':'silent'}),channel))
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'把今天的想法做视频')
+    d=pipe(b,i,'draft',user_quote='把今天的想法做视频',values={'title':'想法','input_text':'今天的想法'})
+    model={'provider':'direct-api','model':'fixture-model','mode':'structured'}
+    p=tool(b,i,'easel_work_request_plan',{'request':'整理方案'}) if legacy else pipe(b,i,'offer',action='plan',values={'request':'整理方案'},summary='整理方案')
+    values=p['values'] if legacy else p['values']['payload']
+    assert values['services']==[model]
+    with s.store.connection() as conn:
+        assert conn.execute('select count(*) from authorization_grants').fetchone()[0]==0
+        assert conn.execute('select count(*) from runs').fetchone()[0]==0
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,'同意使用所述模型整理方案',id='yes')
+    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意使用所述模型整理方案')
+    assert pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意使用所述模型整理方案')==result
+    b.end(Identity(**i))
+    answer={'title':'想法','summary':'具体分析','script':'今天的想法','scenes':[{'id':'s1','purpose':'解释','visual':'书桌','narration':''}], 'settings':{'duration_seconds':3,'aspect_ratio':'16:9','audio_mode':'silent'}}
+    transport=Transport(answer)
+    planning=PlanningTasks(s,OperationService(s.store),transport,model,'fixture-version')
+    worker=Worker(s.store,{'plan':planning.plan})
+    assert asyncio.run(worker.run_once())
+    snap=s.snapshot(d['work_id'])
+    assert snap['state']=='awaiting_confirmation',[t['error_json'] for t in snap['tasks']]
+    assert transport.calls==1
+    assert len(snap['runs'])==1
+    assert not asyncio.run(worker.run_once())
+
+
+@pytest.mark.parametrize('change',['model','revoked','old'])
+def test_plan_apply_never_adds_unshown_or_changed_authority(env,change):
+    from tests.production.test_conversation import draft,apply
+    from easel.production.service import digest
+    s,c,seg,work=draft(env)
+    model={'provider':'direct-api','model':'fixture-model','mode':'structured'}
+    if change=='revoked':
+        s.command('grant',{'purpose':'planning','services':[model]},command_id='grant',work_id=work,expected_revision=s.snapshot(work)['revision'])
+    p=proposal(s,c,seg,'plan',{'request':'整理'})
+    if change=='model':
+        (s.outputs.parent/'.env').write_text('EASEL_DIRECT_API_BASE_URL=http://127.0.0.1:1/v1\nEASEL_DIRECT_API_MODEL=changed-model\n')
+    elif change=='revoked':
+        with s.store.transaction() as conn:conn.execute("update authorization_grants set revoked_at='revoked'")
+    else:
+        with s.store.transaction() as conn:
+            body=json.loads(row(conn,'conversation_proposals',p['proposal_id'])['body_json']);body['values'].pop('services')
+            p['hash']=digest(body)
+            conn.execute('update conversation_proposals set body_json=?,body_hash=? where id=?',(encode(body),p['hash'],p['proposal_id']))
+    raises('stale_revision' if change=='model' else 'permission_missing',lambda:apply(c,p))
+    assert s.snapshot(work)['runs']==[]
+
+
+def test_unconfigured_model_cannot_enqueue_conversation_plan(env):
+    from tests.production.test_conversation import draft
+    s,c,seg,work=draft(env)
+    (s.outputs.parent/'.env').write_text('')
+    raises('capability_unavailable',lambda:proposal(s,c,seg,'plan',{'request':'整理'}))
+    assert s.snapshot(work)['runs']==[]
+
+
+def test_existing_permission_pause_is_granted_and_resumed_by_one_answer(env):
+    from tests.production.test_conversation import draft
+    s,c,seg,work=draft(env)
+    run=s.command('plan',{},command_id='legacy-plan',work_id=work,expected_revision=s.snapshot(work)['revision'])
+    task=s.snapshot(work)['tasks'][0]
+    with s.store.transaction() as conn:
+        conn.execute("update tasks set state='needs_decision',error_json=? where id=?",(encode({'code':'permission_missing'}),task['id']))
+        conn.execute("update runs set state='needs_decision' where id=?",(run['run_id'],))
+        conn.execute("update works set state='needs_decision' where id=?",(work,))
+    b,i,_=turn(s,c,seg,'继续原任务',id='recover')
+    p=pipe(b,i,'offer',action='grant',values={'purpose':'planning','services':[{'provider':'direct-api','model':'fixture-model','mode':'structured'}],'decision_id':task['id']},summary='授权模型并继续原整理方案任务')
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,'同意授权并继续',id='grant-yes')
+    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意授权并继续')
+    assert result['run_id']==run['run_id']
+    assert pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意授权并继续')==result
+    snap=s.snapshot(work)
+    assert len(snap['runs'])==1 and snap['tasks'][0]['state']=='pending'
+    with s.store.connection() as conn:
+        assert conn.execute('select count(*) from authorization_grants').fetchone()[0]==1
+        assert conn.execute('select count(*) from operations').fetchone()[0]==0
+
+
+def test_interrupted_reply_reports_saved_permission_pause_without_replaying(env):
+    from tests.production.test_conversation import draft
+    from web.conversation_api import VideoChat
+    s,c,seg,work=draft(env)
+    s.command('plan',{},command_id='legacy-plan',work_id=work,expected_revision=s.snapshot(work)['revision'])
+    with s.store.transaction() as conn:
+        conn.execute("update tasks set state='needs_decision',error_json=? where work_id=?",(encode({'code':'permission_missing'}),work))
+    before=s.snapshot(work)
+    view,message=VideoChat.interrupted_result(s,'ui')
+    assert view['work_id']==work and '本对话' in message and '不会自动重发' in message
+    assert '制作工作台' not in message
+    assert s.snapshot(work)==before
+
+
+def test_stream_failure_preserves_turn_and_does_not_dispatch_twice(env,tmp_path,monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+    from web.conversation_api import VideoChat
+    import web.conversation_api as api
+    s,c=env;seg=entry(c)
+    requests=[];saved=[]
+    class Response:
+        async def __aenter__(self):return self
+        async def __aexit__(self,*args):pass
+        def raise_for_status(self):pass
+        async def aiter_lines(self):
+            yield 'data: '+json.dumps({'error':{'message':'private-provider-detail'}})
+    class Client:
+        def __init__(self,*args,**kwargs):pass
+        async def __aenter__(self):return self
+        async def __aexit__(self,*args):pass
+        def stream(self,*args,**kwargs):requests.append(1);return Response()
+    monkeypatch.setattr(api.httpx,'AsyncClient',Client)
+    chat=VideoChat(lambda:s,lambda _:tmp_path/'events.jsonl',lambda *args:saved.append(args),gateway_url='http://fixture',gateway_token='fixture',preflight=lambda *args:None)
+    req=SimpleNamespace(sessionId='ui',turnId='stream-turn',videoSegmentId=seg,message='讨论',attachments=[])
+    async def replay(*args):return 'replay'
+    async def run():
+        assert await chat.stream(req,replay)=='replay'
+        await chat.tasks['ui']
+        assert await chat.stream(req,replay)=='replay'
+    asyncio.run(run())
+    assert len(requests)==1
+    events=[json.loads(line) for line in (tmp_path/'events.jsonl').read_text().splitlines()]
+    assert events[-1]['event']=='error' and '回复中断' in events[-1]['data']
+    assert 'private-provider-detail' not in str(events)
+    assert any(e['event']=='work_card' for e in events)
+    assert saved[0][-1]['clean_end'] is False
+    with s.store.connection() as conn:
+        assert conn.execute("select state from conversation_turns where id='stream-turn'").fetchone()[0]=='unknown'
+        assert conn.execute('select count(*) from runs').fetchone()[0]==0

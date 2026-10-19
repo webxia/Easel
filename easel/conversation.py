@@ -159,6 +159,9 @@ class ConversationService:
             validate_director_references(conn,segment['work_id'],values.get('reference_input_ids'))
         if kind=='plan' and segment['work_id'] and conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(segment['work_id'],)).fetchone():
             fail('revision_required','已有确认方案；请指定成片修订或基于旧版创建新作',409)
+        if kind=='plan':
+            from .conversation_pipeline import planning_values
+            values=planning_values(self,conn,segment,values)
         # Proposed target comes only from the selected entry/Work, never free model IDs/paths.
         target=json.loads(segment['context_json'])
         if segment['work_id']:target={**target,'settings':json.loads(row(conn,'works',segment['work_id'])['settings_json'])}
@@ -169,11 +172,12 @@ class ConversationService:
               'work_id':segment['work_id'],'work_revision':row(conn,'works',segment['work_id'])['revision'] if segment['work_id'] else None}
         checksum=digest(body)
         previous=conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? AND kind=? AND body_hash=?',(segment['id'],kind,checksum)).fetchone()
-        if previous:return {'proposal_id':previous['id'],'hash':checksum,'state':previous['state']}
+        details={'values':values,'requires_user_confirmation':True} if kind=='plan' or (kind=='pipeline' and values.get('action')=='plan') else {}
+        if previous:return {'proposal_id':previous['id'],'hash':checksum,'state':previous['state'],**details}
         # A new version invalidates pending cards of the same kind in this segment.
         conn.execute("UPDATE conversation_proposals SET state='stale' WHERE segment_id=? AND kind=? AND state='proposed'",(segment['id'],kind))
         id=new_id();conn.execute('INSERT INTO conversation_proposals(id,segment_id,kind,body_json,body_hash,created_at) VALUES (?,?,?,?,?,?)',(id,segment['id'],kind,encode(body),checksum,now()))
-        return {'proposal_id':id,'hash':checksum,'state':'proposed'}
+        return {'proposal_id':id,'hash':checksum,'state':'proposed',**details}
 
     def view(self,session):
         with self.store.connection() as conn:
@@ -226,9 +230,12 @@ class ConversationService:
                     self.proposal(conn,bound,'plan',proposed['values'],proposed['source_refs'])
             elif kind in {'plan','revision'}:
                 if not segment['work_id']:fail('work_not_bound','请先确认作品',409)
-                allowed={'request'} if kind=='plan' else {'feedback','protected','interval'}
+                allowed={'request','services'} if kind=='plan' else {'feedback','protected','interval'}
                 if set(values)-allowed:fail('invalid_input','提案字段无效')
-                payload={'request':values.get('request','')} if kind=='plan' else {'output_id':target.get('output_id'),'feedback':str(values.get('feedback',''))+'\n保护项：'+encode(values.get('protected',[]))+'\n区间：'+encode(values.get('interval'))}
+                if kind=='plan':
+                    from .conversation_pipeline import planning_values
+                    payload=planning_values(self,conn,segment,values,applying=True)
+                else:payload={'output_id':target.get('output_id'),'feedback':str(values.get('feedback',''))+'\n保护项：'+encode(values.get('protected',[]))+'\n区间：'+encode(values.get('interval'))}
                 result=self.service.command('plan' if kind=='plan' else 'revise',payload,command_id=command_id+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
             elif kind in {'channel_create','channel_defaults'}:
                 if set(values)-{'name','creative_basis','settings'}:fail('invalid_input','频道提案字段无效')

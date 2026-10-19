@@ -82,6 +82,7 @@ if(!allowed.has(Number(o.port))||!['127.0.0.1','localhost','::1'].includes(o.hos
         config['plugins']['allow'].append('memory-core')
         config['plugins']['slots']['memory']='memory-core'
     config_path=root/'openclaw.json';config_path.write_text(json.dumps(config));config_path.chmod(0o600)
+    (root/'.env').write_text(f'EASEL_DIRECT_API_BASE_URL=http://127.0.0.1:{web_port}/v1\nEASEL_DIRECT_API_MODEL=a1-fake\n')
     store=Store(root/'outputs/_production/db.sqlite3');store.initialize();service=WorkService(store,outputs=root/'outputs',profiles=root/'profiles')
     # Reuse actual Web chat/replay functions, replacing only providers and test paths in THIS child process.
     import web.app as web
@@ -165,7 +166,8 @@ def probe(f):
     for case in ('attack_exec','attack_read','attack_sessions_spawn','attack_voice','attack_memory_search','attack_old_pipeline','attack_video','forge'):chat('probe',sid,case)
     check('forbidden_tools_no_new_production',len(service.snapshot(work)['runs'])==1)
     with service.store.connection() as conn:
-        check('no_paid_operations_or_grants',conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0 and conn.execute('SELECT count(*) FROM authorization_grants').fetchone()[0]==0)
+        grants=conn.execute('SELECT purpose,services_json FROM authorization_grants').fetchall()
+        check('planning_confirmation_binds_fake_service_without_paid_operations',conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0 and len(grants)==1 and grants[0]['purpose']=='planning' and json.loads(grants[0]['services_json'])==[{'provider':'direct-api','model':'a1-fake','mode':'structured'}])
     # Exercise the new adapter through the actual native tool lifecycle, with
     # only fake model responses and an isolated catalog (no paid service).
     pipe_sid=enter('pipeline-probe',{'profile_ref':'one','kind':'channel_create'})
