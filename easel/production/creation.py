@@ -105,12 +105,13 @@ def project_editor_features(answer: CreativeEdit) -> tuple[CreativeEdit,list[str
     return answer.model_copy(update={'required_features':declared}),unverified
 
 class CreationTasks:
-    def __init__(self,service,planning,editor=None,voice_tasks=None,manual_review_only=False):
+    def __init__(self,service,planning,editor=None,voice_tasks=None,manual_review_only=False,visual_review=False):
         self.service,self.planning=service,planning
         self.voice_tasks=voice_tasks
         # Temporary, explicitly enabled S6-14 release policy. Do not claim the
         # absent semantic inspection passed or accept a Creator output here.
         self.manual_review_only=manual_review_only
+        self.visual_review=visual_review
         self.editor=editor or FFmpegEditor(service.outputs/'_production'/'renders')
 
     def assets(self,ctx,ids):
@@ -312,6 +313,37 @@ class CreationTasks:
             quality_context = replace(quality_context, plan=measured_plan,
                 brief=quality_context.brief + '\n本片采用实测语音定长，实际剪辑工程时长：' + str(project.duration))
         if self.manual_review_only:
+            if self.visual_review and quality_context.plan.get('narration_policy'):
+                try:
+                    from .quality import review_visual_preview
+                    status, evidence = await review_visual_preview(path,
+                        runner=self.planning.runner(ctx,namespace='visual-review-v1'),context=quality_context)
+                    # Existing semantic ledger, explicitly limited scope. A
+                    # sampled visual pass NEVER becomes a semantic pass.
+                    self._check(ctx,artifact,'semantic','not_tested' if status=='pass' else status,
+                        {**evidence,'visual_status':status},rule_version='visual-preview-1')
+                    if status != 'pass':
+                        self._quality_state(ctx,artifact,'needs_fix')
+                        findings=evidence['review']['findings']
+                        if findings and ctx.payload.get('repair_round',0)<1:
+                            with ctx.transaction() as conn:
+                                payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
+                                review_id=payload.get('visual_repair_review_id')
+                                if not review_id:
+                                    review_id=new_id()
+                                    feedback='原生视觉抽样发现以下问题。仅修正有证据的问题，保留完整旁白、已确认观点及总时长；需要库存时使用有界补料，不用无关素材替代：'+encode(findings)
+                                    conn.execute('INSERT INTO reviews(id,work_id,output_id,feedback,created_at) VALUES (?,?,?,?,?)',
+                                        (review_id,ctx.work_id,artifact['id'],feedback,now()))
+                                    payload['visual_repair_review_id']=review_id
+                                    conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
+                                    self.service._event(conn,ctx.work_id,'visual_repair_requested',{'output_id':artifact['id'],'review_id':review_id},run_id=ctx.run_id)
+                            return TaskResult(result={'output_id':artifact['id'],'visual':'fail'},next_kind='revise',
+                                next_payload={'review_id':review_id,'output_id':artifact['id'],'repair_round':1,
+                                    'preserve_audio':True,'creative_visual_repair':True},work_state='producing')
+                        return TaskResult(work_state='preview_needs_fix',result={'output_id':artifact['id'],'visual':status,'semantic':'not_tested'})
+                except ModelTaskError as exc:
+                    self._check(ctx,artifact,'semantic','not_tested',{'code':exc.code,'scope':'sampled_visual_only'},rule_version='visual-preview-1')
+                    return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError(exc.code,exc.user_message,requires_decision=True))
             # Temporary S6-14 manual-review policy, enabled ONLY by a private
             # runtime switch. Keep technical QC mandatory and retain real
             # negative semantic findings as blockers; never invent a PASS.
@@ -366,10 +398,10 @@ class CreationTasks:
             self._quality_state(ctx,artifact,'needs_fix')
             return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError(exc.code,exc.user_message,requires_decision=True),result={'output_id':artifact['id'],'technical':'pass','semantic':status})
 
-    def _check(self,ctx,artifact,kind,status,findings):
+    def _check(self,ctx,artifact,kind,status,findings,*,rule_version='production-1'):
         with ctx.transaction() as conn:
             conn.execute('INSERT INTO quality_checks(id,artifact_id,artifact_digest,check_kind,rule_version,status,findings_json,created_at) VALUES (?,?,?,?,?,?,?,?)',
-                (new_id(),artifact['id'],artifact['digest'],kind,'production-1',status,encode(findings),now()))
+                (new_id(),artifact['id'],artifact['digest'],kind,rule_version,status,encode(findings),now()))
             self.service._event(conn,ctx.work_id,'quality_checked',{'output_id':artifact['id'],'kind':kind,'status':status},run_id=ctx.run_id)
 
     def _quality_state(self,ctx,artifact,state):

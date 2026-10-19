@@ -105,7 +105,8 @@ def test_manual_only_finishes_run_without_faking_semantic_pass_or_creator_accept
     assert value[0]=="explicit_manual_review"
 
 
-def test_manual_review_gate_refuses_known_failed_semantic_evidence(tmp_path):
+@pytest.mark.parametrize('failed_scope',['full_av','sampled_visual_only'])
+def test_manual_review_gate_refuses_known_failed_semantic_evidence(tmp_path,failed_scope):
     store=Store(tmp_path/"output/_production/production.sqlite3")
     store.initialize()
     service=WorkService(store,outputs=tmp_path/"output",profiles=tmp_path/"profiles")
@@ -121,7 +122,7 @@ def test_manual_review_gate_refuses_known_failed_semantic_evidence(tmp_path):
                       "video/mp4",1,1,"needs_fix",utc_now()))
         for i,kind,status,extra in [
             ("tech","technical","pass",{}),
-            ("bad","semantic","fail",{"findings":["broken soundtrack"]}),
+            ("bad","semantic","fail",{"findings":["known quality failure"],"scope":failed_scope}),
             ("skip","semantic","not_tested",{"mode":"manual_review_only"})
         ]:
             conn.execute("""INSERT INTO quality_checks(id,artifact_id,artifact_digest,
@@ -136,3 +137,54 @@ def test_manual_review_gate_refuses_known_failed_semantic_evidence(tmp_path):
         service.command("accept",{"output_id":"out","manual_review_confirmed":True},
                         command_id="cannot-ignore-semantic-fail",work_id=work_id,expected_revision=snapshot["revision"])
     assert exc.value.code=="quality_blocked"
+
+
+@pytest.mark.skipif(not shutil.which('ffmpeg'), reason='real rendered frames required')
+@pytest.mark.parametrize('findings', [['0.5秒的蓝色图不能承担要求的示意'], []])
+def test_actual_visual_check_never_fakes_audio_and_routes_bounded_repair(tmp_path,findings):
+    store=Store(tmp_path/'outputs/db');store.initialize()
+    service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
+    class Model(OfflineEditorProposal):
+        async def complete(self,messages,tools,schema):
+            if schema['title']=='CreativeEdit':
+                return await super().complete(messages,tools,schema)
+            assert schema['title']=='VisualPreviewReview'
+            assert any(b.get('type')=='image_url' for b in messages[1]['content'])
+            assert not any(b.get('type')=='input_audio' for b in messages[1]['content'])
+            return {'content':json.dumps({'verdict':'pass' if not findings else 'fail',
+                'observations':['实际渲染画面0.5秒为蓝色'],'findings':findings,
+                'limitations':['离散画面；未听音频，不能证明全片质量']})}
+    identity={'provider':'direct-api','model':'fixture','mode':'structured'}
+    planning=PlanningTasks(service,OperationService(store),Model(),identity,'fixture')
+    creation=CreationTasks(service,planning,manual_review_only=True,visual_review=True)
+    media=tmp_path/'blue.png';Image.new('RGB',(400,300),'blue').save(media)
+    async def supply(ctx):
+        a=register_file(service,ctx,media,kind='image',media_type='image/png',metadata={})
+        return TaskResult(next_kind='edit',next_payload={'asset_ids':[a['id']]})
+    worker=Worker(store,{'supply':supply,'edit':creation.edit,'render':creation.render,'quality':creation.quality})
+    work=service.command('create',{'title':'visual check'},command_id='create')['work_id']
+    plan={'title':'test','summary':'test','script':'test','scenes':[{'id':'s1','purpose':'test','visual':'blue'}],
+          'settings':{'duration_seconds':1,'audio_mode':'silent','aspect_ratio':'16:9'},
+          'narration_policy':{'continuous':False,'duration_mode':'fixed'}}
+    saved=service.command('plan',{'generate':False,'plan':plan},command_id='plan',work_id=work,expected_revision=1)
+    service.command('confirm',{'plan_revision':1,'plan_hash':saved['plan_hash'],'services':[identity]},
+                    command_id='confirm',work_id=work,expected_revision=2)
+    deadline=time.monotonic()+25
+    while time.monotonic()<deadline:
+        asyncio.run(worker.run_once());snap=service.snapshot(work)
+        if any(t['kind']=='quality' and t['state']=='succeeded' for t in snap['tasks']):break
+        time.sleep(.05)
+    with store.connection() as conn:
+        checked=conn.execute("SELECT status,findings_json FROM quality_checks WHERE rule_version='visual-preview-1'").fetchone()
+        evidence=json.loads(checked['findings_json'])
+        assert evidence['audio_reviewed'] is False and evidence['full_av_reviewed'] is False
+    assert snap['accepted_output_id'] is None
+    if findings:
+        repair=next(t for t in snap['tasks'] if t['kind']=='revise')
+        assert json.loads(repair['payload_json'])['preserve_audio'] is True
+        assert json.loads(repair['payload_json'])['repair_round']==1
+        assert checked['status']=='fail' and not any(a.get('manual_review_required') for a in snap['artifacts'])
+    else:
+        assert snap['state']=='reviewable' and checked['status']=='not_tested'
+        with store.connection() as conn:
+            assert conn.execute("SELECT status FROM quality_checks WHERE check_kind='semantic'").fetchone()[0]=='not_tested'
