@@ -48,6 +48,6 @@
 ## 执行入口与证据
 
 - 工作区 `/Users/xgx/Projects/Easel`，分支 `easel-v2-main-workspace`；唯一服务7860 / `com.easel.web`。任务整理当时为只读；A10按最新授权隔离修复后，在确认全库无在途任务时安全重载并执行新真实调用。无数据库迁移，不重发旧UNKNOWN，不自动接受或发布；实际源码SHA及过程见Task。
-- 最近A10软件回归：全库Python1841 passed / 16 skipped；生产模块576 passed / 5 skipped，具名范围见Task。前端未改；Node99及build/lint仍仅为A8历史结果。软件/真实生产/自主完成/Creator接受继续分列。
+- 最近A10软件回归：全库Python1841 passed / 16 skipped；生产模块579 passed / 5 skipped，具名范围见Task。前端未改；Node99及build/lint仍仅为A8历史结果。软件/真实生产/自主完成/Creator接受继续分列。
 - 上游最近检查至 `8d08b216`，本地main之后42提交；未合入。[PR #8](https://github.com/webxia/Easel/pull/8)仍为历史Draft，不包含当前全部修复，不自动合并。
 - 资料入口：[任务包](tasks/S6_IMPLEMENTATION_PLAN.md) · [S6-14真实生产](tasks/S6-14_integration-release.md) · [S6-14A对话/修订](tasks/S6-14A_conversation-integration.md) · [运行配置](16_RUNTIME_SETUP.md) · [工程规则](05_ENGINEERING.md)。
