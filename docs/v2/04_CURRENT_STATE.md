@@ -20,7 +20,7 @@
 | S6-14A A1～A6：对话接入与入口统一 | 软件/具名隔离验收完成；A5为28项离线判据，A6为6项入口判据 |
 | S6-14A A7：真实Web接入 | 真实频道→导演→视频→同对话审片通过，具体质量与人工接受独立 |
 | S6-14A A8：局部画面/字幕修复 | 已完成、已部署；版本4关键动作及五条字幕实核，完整原音轨复用。源片低清/夜景氛围仍有限。[验收](evidence/S6-14A_A8_validation.json) |
-| S6-14A A9 / A10：声音与自主创作质量 | A9诊断保留；用户已授权A10修复并从同一句想法自主重做。隔离修复覆盖连续配音、实测片长、原生规划复核/纠错、清晰素材及真实字幕时间；软件与真实运行结果以[A10记录](tasks/S6-14A_conversation-integration.md)为准，个人候选及运行证据只留本机 |
+| S6-14A A9 / A10：声音与自主创作质量 | A9诊断保留；用户已授权A10修复并从同一句想法自主重做。连续配音、实测片长、规划纠错、高清供料、独立解释文字、原生视觉复核/修订及本地图解已修复或补齐；两轮旧样片仍被真实复核拦住，最新原生图解样片正在完整自主重跑。软件/真实质量结论以[A10记录](tasks/S6-14A_conversation-integration.md)为准，个人候选及运行证据只留本机 |
 | S6-15 / G0～G4：素材层完善 | CLOSED / COMPLETE；历史NO_GO与恢复记录只作证据，不作为当前开放前置 |
 | 主画像、频道、导演、声音及试片 | 已在另一创作窗口形成实际配置与试片，当前另有同画像自主创作验证在推进；具体运行与审阅状态留在本机档案/API，不能拿A7测试作品替代这条使用主线 |
 | S6-14第二段 / S7 | 后续质量、自然音色、完整音视频语义、跨题材风格、成本/时间及1～900秒/声音/输入/画幅等确认范围验证；未整体完成，不自动开启大批付费矩阵 |
@@ -47,7 +47,7 @@
 
 ## 执行入口与证据
 
-- 工作区 `/Users/xgx/Projects/Easel`，分支 `easel-v2-main-workspace`；唯一服务7860 / `com.easel.web`。本次只读核实backend.reload_required=false；无服务重启、迁移或新增付费请求。其他窗口的在途操作不受本次文档整理影响。
-- 最近具名研发回归（A8，非本次重跑）：Python706 passed / 4 skipped、Node99 passed，build/lint通过。软件/真实生产/自主完成/Creator接受继续分列。
+- 工作区 `/Users/xgx/Projects/Easel`，分支 `easel-v2-main-workspace`；唯一服务7860 / `com.easel.web`。任务整理当时为只读；A10按最新授权隔离修复后，在确认全库无在途任务时安全重载并执行新真实调用。无数据库迁移，不重发旧UNKNOWN，不自动接受或发布；实际源码SHA及过程见Task。
+- 最近A10软件回归：全库Python1838 passed / 16 skipped；生产模块576 passed / 5 skipped，具名范围见Task。前端未改；Node99及build/lint仍仅为A8历史结果。软件/真实生产/自主完成/Creator接受继续分列。
 - 上游最近检查至 `8d08b216`，本地main之后42提交；未合入。[PR #8](https://github.com/webxia/Easel/pull/8)仍为历史Draft，不包含当前全部修复，不自动合并。
 - 资料入口：[任务包](tasks/S6_IMPLEMENTATION_PLAN.md) · [S6-14真实生产](tasks/S6-14_integration-release.md) · [S6-14A对话/修订](tasks/S6-14A_conversation-integration.md) · [运行配置](16_RUNTIME_SETUP.md) · [工程规则](05_ENGINEERING.md)。

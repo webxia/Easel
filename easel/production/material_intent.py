@@ -18,6 +18,8 @@ class VisualIntent(Contract):
     query: str = Field(min_length=1, max_length=100, description='简短英文主体/动作词；明确给定Pexels具体视频页时可用规范HTTPS页面URL（options=1），不接收任意媒体URL；不混入导演长说明')
     media_types: list[Literal['image', 'video']] = Field(min_length=1, max_length=2)
     options: int = Field(default=2, ge=1, le=4)
+    board_id: Identifier | None = Field(default=None,description='原生图解的scene_id；可在不同叙事场景复用同一图解')
+    board_state_indexes: list[int] = Field(default_factory=list,max_length=4,description='所用状态的0起始索引；仅board_id非空时填写')
 
 
 class SoundCue(Contract):
@@ -34,7 +36,7 @@ class MaterialIntent(Contract):
     # Do not silently impose a new scene-count limit on an accepted Plan.
     # Response size is bounded by the model runner; exact scene identity and
     # cardinality are checked against the frozen plan below.
-    visuals: list[VisualIntent] = Field(min_length=1)
+    visuals: list[VisualIntent] = Field(default_factory=list)
     music_query: str | None = Field(default=None, min_length=1, max_length=100)
     sound_cues: list[SoundCue] = Field(default_factory=list, max_length=64)
     unresolved: list[str] = Field(default_factory=list, max_length=16)
@@ -47,6 +49,19 @@ def check_intent(intent: MaterialIntent, plan: PlanDocument) -> None:
         raise ModelTaskError('invalid_material_intent', '素材意图必须逐一对应已确认场景，不能增删场景')
     if any(len(set(v.media_types)) != len(v.media_types) or not v.query.strip() for v in intent.visuals):
         raise ModelTaskError('invalid_material_intent', '素材意图的媒体类型或检索词无效')
+    boards={b.scene_id:b for b in plan.explainer_boards};covered=set()
+    for visual in intent.visuals:
+        if visual.board_id is None:
+            if visual.board_state_indexes:raise ModelTaskError('invalid_material_intent','图解状态须引用真实board_id')
+            continue
+        if (visual.board_id not in boards or visual.media_types!=['image'] or not visual.board_state_indexes
+            or len(set(visual.board_state_indexes))!=len(visual.board_state_indexes)
+            or any(type(i) is not int or not 0<=i<len(boards[visual.board_id].states) for i in visual.board_state_indexes)):
+            raise ModelTaskError('invalid_material_intent','图解映射须引用真实board_id及其0起始状态索引，媒体类型为image')
+        covered.update((visual.board_id,i) for i in visual.board_state_indexes)
+    expected={(b.scene_id,i) for b in plan.explainer_boards for i in range(len(b.states))}
+    if covered!=expected:
+        raise ModelTaskError('invalid_material_intent','原生图解的全部状态须映射到叙事场景；可跨场景复用，不应另搜相似道具')
     if plan.settings.audio_mode in {'music', 'mixed'} and not (intent.music_query or '').strip():
         raise ModelTaskError('invalid_material_intent', '已确认音乐模式必须保留背景音乐意图')
     if plan.settings.audio_mode not in {'music', 'mixed'} and intent.music_query is not None:
@@ -70,7 +85,13 @@ def fixed_visual_intent(plan: PlanDocument, context) -> MaterialIntent | None:
     inputs = {item['input_id']:item for item in context.inputs if item.get('usage')=='must_use'
               and item.get('kind') in {'image','video'}}
     visuals=[]
+    boards={b.scene_id for b in plan.explainer_boards}
     for scene in plan.scenes:
+        if scene.id in boards:
+            board=next(b for b in plan.explainer_boards if b.scene_id==scene.id)
+            visuals.append(VisualIntent(scene_id=scene.id,query='native schematic',media_types=['image'],options=1,
+                board_id=scene.id,board_state_indexes=list(range(len(board.states)))))
+            continue
         kinds=sorted({inputs[id]['kind'] for id in scene.required_input_ids if id in inputs})
         if not kinds:
             return None
@@ -101,6 +122,9 @@ class FrozenIntentCompiler:
         else:
             intent = fixed_visual_intent(plan,context)
             if intent is None:
+                def checked(candidate):
+                    try:check_intent(candidate,plan)
+                    except ModelTaskError as exc:raise ValueError(exc.user_message) from None
                 # One extra bounded correction is allowed for this private
                 # projection. Recorded receipts from earlier attempts replay;
                 # only the new correction round can issue another MODEL call.
@@ -111,6 +135,8 @@ class FrozenIntentCompiler:
                     '媒体类型根据冻结创作需求选择，options为有限候选数。music/mixed必须给music_query，其余为null。'
                     '需要真实动作和场景连续性的镜头优先检索video，资料证据或静物关系适合时再用image；'
                     '不要把比喻或抽象判断按字面变成无关道具查询。'
+                    '按冻结visual语义将explainer_boards的状态映射到对应段落：每段仍给一个visuals，图解段设置board_id为图解scene_id、board_state_indexes为0起始状态索引，media_types=[image]、query=native schematic、options=1；'
+                    '同一图解可以跨多个段落使用、回看或复用某状态，不要求所有状态挤在图解定义的单个场景内；每个已定义状态至少在一处展示。图解段不搜索相似道具，其余段落照常给真实库存查询。'
                     'sound_cues按本片实际需要提出：给稳定cue_id、已知scene_id、全片时间at/duration、query和basis。'
                     '音效query必须是方便Wikimedia Commons检索的简短英文关键词（如room tone、keyboard typing、city traffic、mouse click）；'
                     'basis必须明确中文声音用途和与实际画面动作的对应依据，后续仍要实际试听及Rights核验。'
@@ -120,7 +146,7 @@ class FrozenIntentCompiler:
                     '静音方案禁止音效；固定旁白不交由图库替代。结合完整画像、导演风格、事实、禁区和适配许可，'
                     '不把候选或文字意图称作已看过/听过素材。具体候选、许可证、署名、混音与音效动作匹配'
                     '本来就由后续供料、绑定和审片验证，不能在检索前把这些待执行工作写成阻断问题；'
-                    '仅将需要 Creator 提供、在当前冻结方案中确实缺失的创作信息列入unresolved。', MaterialIntent)
+                    '仅将需要 Creator 提供、在当前冻结方案中确实缺失的创作信息列入unresolved。', MaterialIntent,validate_result=checked)
             check_intent(intent, plan)
             with ctx.transaction() as writer:
                 current = json.loads(writer.execute('SELECT payload_json FROM tasks WHERE id=?', (ctx.task_id,)).fetchone()[0])

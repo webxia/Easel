@@ -82,12 +82,14 @@ def check_voice_schedule(audio, records: list[dict], timing: dict | None) -> Non
 
 
 def aligned_captions(audio, records: list[dict]) -> list[dict] | None:
-    """Only provider timings whose literal text covers the spoken asset."""
+    """Literal complete captions: local acoustic estimates or provider anchors."""
     records = {r['id']: json.loads(r['metadata_json']) for r in records}
     captions = []
     for clip in sorted((a for a in audio if a.role == 'voice'), key=lambda a: a.at):
         metadata = records.get(clip.asset_id, {})
-        alignment = metadata.get('timing', {}).get('provider_alignment', {})
+        timing = metadata.get('timing', {})
+        local = timing.get('local_alignment', {})
+        alignment = local if local.get('status') == 'received' else timing.get('provider_alignment', {})
         segments = alignment.get('segments', [])
         if alignment.get('status') != 'received' or not segments:
             return None

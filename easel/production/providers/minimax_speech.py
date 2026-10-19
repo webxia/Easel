@@ -18,7 +18,8 @@ from .base import ProviderResult
 
 class MiniMaxSpeechAdapter(VoiceHTTPAdapter):
     additional_parameters = frozenset({'emotion', 'subtitle_enable'})
-    subtitle_hosts = ('minimax.chat', 'minimaxi.chat', 'minimax.cn', 'minimaxi.com')
+    subtitle_hosts = ('minimax.chat', 'minimaxi.chat', 'minimax.cn', 'minimaxi.com',
+                      'minimax-algeng-chat-tts.oss-cn-wulanchabu.aliyuncs.com')
 
     def observe(self, *, task_id, request_key):
         received=super().observe(task_id=task_id,request_key=request_key)

@@ -74,18 +74,12 @@ def check_board_usage(scenes,records,*,overlays=()):
     for asset,(board,index) in expected.items():
         if asset not in selected:raise ValueError('已确认图解的全部状态须真实展示，不能遗漏状态')
         groups.setdefault(board,[]).append((index,selected.index(asset)))
-        for scene in scenes:
-            if scene.asset_id==asset:
-                if scene.scene_id!=board and not scene.scene_id.startswith(board+'-'):
-                    raise ValueError('图解状态须用于其冻结场景，不得移到其他论证段落')
-                if scene.crop.model_dump()!={'x':0.0,'y':0.0,'width':1.0,'height':1.0}:
-                    raise ValueError('图解须完整显示类别与卡片，不得裁掉标签或改变可见数量')
+        full={'x':0.0,'y':0.0,'width':1.0,'height':1.0}
+        if not any(s.asset_id==asset and s.crop.model_dump()==full for s in scenes):
+            raise ValueError('每个图解状态至少一次完整展示类别与卡片，也允许特写或跨段落回看')
     for values in groups.values():
         if [p for _,p in sorted(values)]!=sorted(p for _,p in values):
             raise ValueError('图解状态须按已确认的前后顺序展示')
-    for board in groups:
-        indexes=[expected[s.asset_id][1] for s in scenes if s.asset_id in expected and expected[s.asset_id][0]==board]
-        if indexes!=sorted(indexes):raise ValueError('不能回放旧状态冒充新的关系变化')
     cursor=0
     for scene in scenes:
         start=cursor-scene.transition_seconds;end=start+scene.duration

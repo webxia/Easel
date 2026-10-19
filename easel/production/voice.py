@@ -239,9 +239,10 @@ class VoiceBinding:
 
 
 class VoiceService:
-    def __init__(self, operations: OperationService, root: Path, adapters: list[VoiceHTTPAdapter]):
+    def __init__(self, operations: OperationService, root: Path, adapters: list[VoiceHTTPAdapter], *, alignment_model: str = ""):
         self.operations, self.root, self.adapters = operations, Path(root), tuple(adapters)
         self.root.mkdir(parents=True, exist_ok=True)
+        self.alignment_model = alignment_model
 
     def catalog(self, *, reference_text: str = "", limit: int | None = None) -> list[dict]:
         """Rank explicit options as suggestions; never change the selected voice."""
@@ -296,7 +297,12 @@ class VoiceService:
                 receipt = adapter.observe(task_id=current["provider_task_id"], request_key=current["request_key"])
                 if receipt.state != "succeeded":
                     raise ProductionError("voice_asset_missing", "已生成音频当前不可读取，未自动重做", requires_decision=True)
-                result["asset"] = receipt.result
+                result["asset"] = dict(receipt.result)
+                if self.alignment_model:
+                    from .speech_alignment import align_confirmed_speech
+                    result["asset"]["local_alignment"] = align_confirmed_speech(
+                        Path(receipt.result["path"]), text, receipt.result.get("alignment", {}),
+                        model_name=self.alignment_model, cache=self.root / "alignments")
             elif current["state"] in {"unknown", "sending", "submitted"}:
                 result["message"] = "声音服务结果待核实，保留原音色，不重复发送。"
             else:
@@ -391,7 +397,8 @@ def configured_voice_service(operations: OperationService, *, root: Path, settin
     for config in configured_speech_configs(settings):
         adapter = MiniMaxSpeechAdapter if config.engine=='minimax-speech-v1' else VoiceHTTPAdapter
         adapters.append(adapter(config,root/'receipts'/fingerprint([config.provider,config.model,config.engine]),transport=transport))
-    return VoiceService(operations,root/'cache',adapters)
+    return VoiceService(operations,root/'cache',adapters,
+                        alignment_model=settings.get('EASEL_VOICE_ALIGNMENT_MODEL', ''))
 
 
 def register_voice_asset(context, *, outputs: Path, result: dict) -> str:
@@ -413,6 +420,8 @@ def register_voice_asset(context, *, outputs: Path, result: dict) -> str:
                 "timing": {"duration_seconds": asset["duration"], "alignment": "sentence", "word_timestamps": None}}
     if asset.get('alignment'):
         metadata['timing']['provider_alignment'] = asset['alignment']
+    if asset.get('local_alignment'):
+        metadata['timing']['local_alignment'] = asset['local_alignment']
     with context.transaction() as writer:
         previous = writer.execute("SELECT digest,work_id FROM artifacts WHERE id=?", (identifier,)).fetchone()
         if previous is not None:
