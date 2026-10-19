@@ -159,8 +159,9 @@ class RevisionTasks:
                 '仅实际新增文案/时长/生成需求才设expands_scope/requires_new_generation；不要把本次已明确要求的现有素材替换与字幕样式修复误作整片重建。'
                 '字幕对比不足时可以使用明确的深色半透明背景与较清楚的描边，保留文字和时间。')
             if creative_repair:
+                instruction = instruction.replace('保留scene_id、时长、转场、旁白和字幕文本/时间。', '保留叙事身份、旁白和字幕文本/时间；镜头调整范围以下述视觉修复要求为准。')
                 instruction += ('本次是原生视觉复核触发的画面修复：保留完整AudioClip、原字幕字句和时码、总长度及原场景顺序。'
-                    '允许原场景拆成多个镜头，scene_id采用原ID或原ID-cut1、原ID-cut2等，每组净时长与原场景相同；'
+                    '允许原场景拆成多个镜头，scene_id采用原ID或原ID-cut1、原ID-cut2等，允许相邻场景重新分配镜头时长，保持总时长、原叙事顺序和全部原字幕时码，画面应与实际旁白对应；'
                     '这属于既有视觉修复，不因拆镜就扩大内容范围。只用实际候选或有界补料，不能用相似关键词的错误物件冒充所需画面。'
                     '解释不足时可以补方案中已有的提示语，文字仅可取自以下列表，不能新增事实或观点：'
                     +encode(approved_overlay_texts(context.plan)))
@@ -170,18 +171,24 @@ class RevisionTasks:
                     return
                 try:
                     draft=EditProject.model_validate({**base.model_dump(),'revision':base.revision+1,**edit_data(candidate.edit)})
-                    assert_visual_repair(base,draft,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles)
+                    assert_visual_repair(base,draft,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles,allow_retiming=True)
                     from .boards import check_board_usage
                     check_board_usage(draft.scenes,records)
                     check_caption_layout(draft.captions,font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'},
                         width=base.width,height=base.height)
                 except (EditError,ValueError) as exc:
                     raise ValueError(str(exc)) from None
+            from .edit_observation import edit_observation_tools
+            def observation_tools(items):
+                return (edit_observation_tools({r['id']:artifact_file(self.service,r)
+                    for r in items if r['kind']=='video'})
+                    if self.planning.transport and 'tools' in self.planning.transport.capabilities else ())
+            instruction += '关键动作或切点不能由现有抽样确认时，可用inspect_media复查候选指定时间，不臆测未观察区间。'
             proposal=recorded_proposal(self.service,ctx,review,output)
             reused=proposal is not None
             if proposal is None:
                 proposal=await self.planning.runner(ctx,max_format_repairs=2 if creative_repair else 1).run(candidate_context(records),instruction,RevisionProposal,
-                    media=(*media,*observations),required=frozenset(set(required)|needs),validate_result=check_creative_repair)
+                    media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair)
             if proposal.material_searches and not (proposal.expands_scope or proposal.requires_new_generation):
                 if not self.supply:raise ModelTaskError('material_gap','局部库存补料尚不可用，原版与配音已保留')
                 new_ids=await asyncio.to_thread(self.supply.revision_visuals,ctx,[s.model_dump(mode='json') for s in proposal.material_searches])
@@ -189,7 +196,7 @@ class RevisionTasks:
                 observations,needs=await self._observe(records,audio_native=audio_native)
                 proposal=await self.planning.runner(ctx,namespace='revision-stock-selection-v1',max_format_repairs=2).run(
                     candidate_context(records),instruction+'本轮有限库存补料已经完成，不能再次请求检索。根据实际新候选完成修订；仍缺关键动作时在edit.unresolved_scene_ids明确报告并停止，不能改用无关画面。',
-                    RevisionProposal,media=(*media,*observations),required=frozenset(set(required)|needs),validate_result=check_creative_repair)
+                    RevisionProposal,media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair)
                 if proposal.material_searches:raise ModelTaskError('visual_material_gap','有限库存补料后仍缺所需画面，保留原片并等待处理')
             with ctx.transaction() as conn:
                 if not reused:
@@ -217,7 +224,7 @@ class RevisionTasks:
                     adjusted.append(before)
                 protected=base.model_copy(update={'scenes':tuple(adjusted)})
             if creative_repair:
-                assert_visual_repair(base,revised,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles)
+                assert_visual_repair(base,revised,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles,allow_retiming=True)
                 from .boards import check_board_usage
                 try:check_board_usage(revised.scenes,records)
                 except ValueError as exc:raise EditError(str(exc)) from None

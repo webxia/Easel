@@ -151,6 +151,7 @@ class ModelTaskRunner:
                 if len(calls) > 8:
                     raise ModelTaskError("invalid_model_output", "模型一次请求过多工具")
                 messages.append({"role": "assistant", "content": response.get("content"), "tool_calls": calls})
+                tool_media = []
                 for call in calls:
                     try:
                         name = call["function"]["name"]
@@ -160,10 +161,21 @@ class ModelTaskRunner:
                             raise ValueError("Repeated or unavailable tool")
                         seen_calls.add(signature)
                         value = await registry[name].invoke(args, context)
+                        from .tools import MediaToolResult
+                        observed = value if isinstance(value, MediaToolResult) else None
+                        if observed:
+                            if not observed.required <= self.transport.capabilities:
+                                raise ModelTaskError("capability_unavailable", "当前模型不能观察工具返回的实际媒体")
+                            value = observed.evidence
                         messages.append({"role": "tool", "tool_call_id": call["id"],
                                          "content": json.dumps(value, ensure_ascii=False)})
+                        if observed:
+                            # Append media only after all tool replies, keeping provider protocol valid.
+                            tool_media.extend(observed.media)
                     except (KeyError, TypeError, ValueError, ValidationError):
                         raise ModelTaskError("invalid_model_output", "工具请求无效、越界或没有新证据") from None
+                if tool_media:
+                    messages.append({"role": "user", "content": tool_media})
                 continue
             raw = response.get("content") or ""
             try:

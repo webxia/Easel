@@ -9,11 +9,19 @@ from .context import TaskContext
 
 
 @dataclass(frozen=True)
+class MediaToolResult:
+    """Only trusted local tools can return actual media, never model arguments."""
+    evidence: dict
+    media: tuple[dict, ...]
+    required: frozenset[str]
+
+
+@dataclass(frozen=True)
 class ScopedTool:
     name: str
     description: str
     arguments: type[BaseModel]
-    execute: Callable[[BaseModel, TaskContext], Awaitable[dict[str, Any]]]
+    execute: Callable[[BaseModel, TaskContext], Awaitable[dict[str, Any] | MediaToolResult]]
     handle_fields: tuple[str, ...] = ()
 
     def definition(self) -> dict:
@@ -33,6 +41,10 @@ class ScopedTool:
             if any(handle not in context.allowed_handles for handle in handles):
                 raise ValueError("Tool handle outside current work scope")
         result = await self.execute(parsed, context)
+        if isinstance(result, MediaToolResult):
+            if not result.evidence or not result.media:
+                raise ValueError("Tool returned no usable media evidence")
+            return result
         if not isinstance(result, dict) or not result:
             raise ValueError("Tool returned no usable evidence")
         return result
