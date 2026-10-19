@@ -36,29 +36,32 @@ class SemanticReview(Contract):
 
 
 def align_editor_frames(answer: CreativeEdit, *, fps: int = 30) -> CreativeEdit:
-    """Snap tiny model timing decimals to output frames, never relax the contract.
+    """Quantize cumulative edit boundaries, avoiding per-clip rounding drift.
 
-    This is a presentation-level exactness correction, not permission to edit
-    the frozen total duration or replace model-chosen scenes/materials.
+    Every resulting edit boundary stays within half a frame of the native
+    timeline. Scene identities, order, source offsets and transitions remain
+    unchanged; no collapsed scene or invented duration is accepted.
     """
     if fps not in (24, 25, 30):
         raise ValueError('unsupported output frame rate')
-    aligned=[]
+    aligned=[]; previous_seconds=0.0; previous_frame=0
     for scene in answer.scenes:
-        duration=round(scene.duration*fps)/fps
+        previous_seconds += scene.duration - scene.transition_seconds
+        end_frame=round(previous_seconds*fps)
         overlap=round(scene.transition_seconds*fps)/fps
-        if duration<=0 or overlap<0:
-            raise ModelTaskError('edit_frame_alignment_invalid','无法在合法视频帧上定位镜头')
-        if ((scene.transition=='cut') != (overlap==0)) or overlap>=duration:
+        duration=(end_frame-previous_frame)/fps+overlap
+        if duration<=overlap:
+            raise ModelTaskError('edit_frame_alignment_conflict','镜头短于可表示的视频帧，不能删掉镜头')
+        if ((scene.transition=='cut') != (overlap==0)) or overlap<0:
             raise ModelTaskError('edit_frame_alignment_invalid','转场不满足严格时间合同')
-        if abs(duration-scene.duration)>0.5/fps+1e-8 or abs(overlap-scene.transition_seconds)>0.5/fps+1e-8:
-            raise ModelTaskError('edit_frame_alignment_invalid','镜头修正超过半帧')
+        if (abs(end_frame/fps-previous_seconds)>0.5/fps+1e-8
+                or abs(overlap-scene.transition_seconds)>0.5/fps+1e-8
+                or abs(duration-scene.duration)>1.5/fps+1e-8):
+            raise ModelTaskError('edit_frame_alignment_invalid','镜头边界修正超出帧精度')
         aligned.append(scene.model_copy(update={'duration':duration,'transition_seconds':overlap}))
-    previous=sum(s.duration-s.transition_seconds for s in answer.scenes)
-    result=sum(s.duration-s.transition_seconds for s in aligned)
-    if abs(result-previous)>0.5/fps+1e-8:
-        raise ModelTaskError('edit_frame_alignment_conflict','镜头归帧会改变作品总时长，请导演修改分镜')
+        previous_frame=end_frame
     return answer.model_copy(update={'scenes':aligned})
+
 
 def compensate_edit_overlap(answer: CreativeEdit, *, target_seconds: float, fps: int = 30) -> CreativeEdit:
     """Compile model's per-scene screen slots into physical source clip lengths.

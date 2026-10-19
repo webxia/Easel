@@ -65,3 +65,21 @@ def test_invalid_model_timeline_cannot_be_covered_up_by_transition_compensation(
     with pytest.raises(ModelTaskError) as error:
         compensate_edit_overlap(answer,target_seconds=15)
     assert error.value.code=='edit_duration_mismatch'
+
+
+@pytest.mark.parametrize('fps',[24,25,30])
+def test_many_native_shots_keep_total_and_every_boundary_without_rounding_drift(fps):
+    lengths=[7.364,6.3,4.572,10.836,5.928,3.972,7.016,4,5,9.076,2.24,4.84,5.772,3.12,3.96,1.004]
+    answer=CreativeEdit(scenes=[{'scene_id':str(i),'asset_id':'real-'+str(i),'duration':v}
+                               for i,v in enumerate(lengths)])
+    original=answer.model_dump()
+    precise=align_editor_frames(answer,fps=fps)
+    assert sum(s.duration for s in precise.scenes)==pytest.approx(85)
+    before=after=0
+    for native,compiled in zip(answer.scenes,precise.scenes):
+        before+=native.duration;after+=compiled.duration
+        assert abs(before-after)<=.5/fps+1e-8
+        assert abs(compiled.duration-native.duration)<=1/fps+1e-8
+        assert compiled.scene_id==native.scene_id and compiled.asset_id==native.asset_id
+        assert compiled.source_start==native.source_start
+    assert answer.model_dump()==original
