@@ -253,3 +253,31 @@ def test_local_alignment_groups_original_tokens_and_reports_estimates(tmp_path,m
     r=record(p,alignment={'status':'received','segments':[{'text':narration_segments(p)[0]['text'],'start':0,'end':8}]})
     meta=json.loads(r['metadata_json']);meta['timing']['local_alignment']=local;r['metadata_json']=json.dumps(meta)
     assert aligned_captions([clip()],[r])[0]['start']==pytest.approx(.6)
+
+
+def test_draft_auditor_cannot_approve_changed_fixed_voice(tmp_path):
+    from easel.production.store import Store
+    from easel.production.service import WorkService
+    from easel.production.operations import OperationService
+    from easel.production.planning import PlanningTasks
+    from easel.production.worker import Worker
+    store=Store(tmp_path/'db');store.initialize();service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
+    voice={'provider':'fixture','model':'speech','engine':'fixture','voice_id':'fixed'}
+    settings={'audio_mode':'voice','voice':voice,'aspect_ratio':'16:9'}
+    work=service.command('create',{'title':'idea','input_text':'一个问题','settings':settings},command_id='create')['work_id']
+    model_id={'provider':'direct-api','model':'fixture','mode':'structured'}
+    service.command('plan',{'services':[model_id]},work_id=work,expected_revision=1,command_id='plan')
+    answer={'title':'问题','summary':'假设例子','script':'一起看条件','settings':{**settings,'duration_seconds':20},
+        'scenes':[{'id':'s1','purpose':'解释','visual':'真实场景','duration_seconds':20,'narration':'先看条件，再一起解释。'}]}
+    class Model:
+        capabilities=frozenset({'text','structured'})
+        authors=0
+        async def complete(self,messages,tools,schema):
+            if schema['title']=='DraftReview':return {'content':json.dumps({'verdict':'pass'})}
+            self.authors+=1;value=deepcopy(answer)
+            if self.authors==1:value['settings']['voice']={**voice,'voice_id':'unrequested'}
+            return {'content':json.dumps(value)}
+    model=Model();planning=PlanningTasks(service,OperationService(store),model,model_id,'fixture')
+    asyncio.run(Worker(store,{'plan':planning.plan}).run_once());snap=service.snapshot(work)
+    assert snap['state']=='awaiting_confirmation' and model.authors==2
+    assert snap['plans'][0]['plan']['settings']['voice']['voice_id']=='fixed'

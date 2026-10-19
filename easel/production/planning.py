@@ -239,6 +239,10 @@ class PlanningTasks:
                 async def audit(draft,namespace):
                     from .editors import EditError
                     try:
+                        preserve_choices(draft)
+                    except ValueError as exc:
+                        return DraftReview(verdict='fail',findings=[str(exc)])
+                    try:
                         board_media,board_needs=await self.draft_board_media(ctx,draft)
                     except EditError as exc:
                         return DraftReview(verdict='fail',findings=['实际草稿图解渲染失败：'+str(exc)],

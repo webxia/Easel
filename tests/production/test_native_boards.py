@@ -201,3 +201,13 @@ def test_native_draft_audit_sees_real_board_pixels_before_freeze_and_speech(tmp_
         assert snap['plans'][0]['plan']['explainer_boards'][0]['states'][1]['column_titles']['a']=='修正标准甲'
     with store.connection() as c:
         assert c.execute("SELECT count(*) FROM operations WHERE kind!='MODEL'").fetchone()[0]==0
+
+
+def test_board_contract_declares_identity_and_per_column_bounds_before_model_call():
+    schema=ExplainerBoard.model_json_schema();groups=schema['$defs']['BoardState']['properties']['groups']
+    assert next(iter(groups['patternProperties'].values()))['maxItems']==5 and 'id' in groups['description']
+    bad=data();bad['states'][0]['groups']={'条件甲':['1','2','3'],'条件乙':['4','5','6']}
+    with pytest.raises(ValidationError) as exc:ExplainerBoard.model_validate(bad)
+    assert any(e['type']=='string_pattern_mismatch' for e in exc.value.errors())
+    bad=data();bad['states'][0]['groups']={'a':['1','2','3','4','5','6'],'b':[]}
+    with pytest.raises(ValidationError):ExplainerBoard.model_validate(bad)
