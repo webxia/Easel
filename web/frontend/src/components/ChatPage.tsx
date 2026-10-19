@@ -58,7 +58,7 @@ export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, sess
 
   const isStreaming = !!stream;
   const isEmpty = session.messages.length === 0 && !isStreaming && !session.videoSegmentId;
-  const videoPanel=session.videoSegmentId?<VideoConversation sessionId={session.id} segmentId={session.videoSegmentId} persona={session.persona} onBound={onVideoBound} onDraft={prompt=>setInput(current=>replaceWorkflowPrompt(prompt,current))} onBindingPending={setBindingPending} onRestore={onRestoreVideo}/>:null;
+  const videoPanel=session.videoSegmentId?<VideoConversation key={`${session.id}:${session.videoSegmentId}`} sessionId={session.id} segmentId={session.videoSegmentId} persona={session.persona} onBound={onVideoBound} onDraft={prompt=>{setInput(current=>replaceWorkflowPrompt(prompt,current));textareaRef.current?.focus();}} onBindingPending={setBindingPending} onRestore={onRestoreVideo}/>:null;
   const chooseWorkflow=async(kind:ConversationWorkflowKind)=>{
     const binding=await enterConversationWorkflow(session,kind);
     onVideoBound(binding.segment_id);
@@ -118,6 +118,19 @@ export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, sess
       el.scrollTop = el.scrollHeight;
     }
   }, [session.id, session.messages, stream?.content, stream?.thinking, stream?.activity, stream?.stillWorking, isEmpty]);
+
+  useEffect(() => {
+    const pane = messagesRef.current;
+    const thread = pane?.querySelector('.chat-thread');
+    if (!pane || !thread) return;
+    // Background Work results arrive after the chat stream closes. Follow only
+    // when the reader has stayed at the bottom, as for ordinary Easel replies.
+    const observer = new ResizeObserver(() => {
+      if (scrollTracker.current.followUpdate(session.id, session.messages.filter(m=>m.role==='user').length)) pane.scrollTop = pane.scrollHeight;
+    });
+    observer.observe(thread);
+    return () => observer.disconnect();
+  }, [session.id, session.messages, isEmpty]);
 
   useEffect(() => {
     const el = textareaRef.current;
