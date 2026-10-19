@@ -1,20 +1,17 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { enterVideo, videoRequest, type ConversationView, type VideoEntry } from '../lib/conversationApi';
-import { productionRequest, workLabels, type Work } from '../lib/productionApi';
 import WorkCards from './WorkCards';
 
 export default function VideoConversation({sessionId,segmentId,onBound,onBindingPending}: {sessionId:string;segmentId?:string;persona?:string;onRestore:(messages:{role:'user'|'assistant';content:string}[])=>void;onBound:(id:string)=>void;onDraft:(text:string)=>void;onBindingPending:(pending:boolean)=>void}) {
   const [view,setView]=useState<ConversationView|null>(null);
-  const [work,setWork]=useState<Work|null>(null);
   const [error,setError]=useState('');
   const sequence=useRef(0);
   const load=useCallback(async(isCurrent:()=>boolean=()=>true)=>{
     const request=++sequence.current;
     try {
       const next=await videoRequest<ConversationView>(encodeURIComponent(sessionId));
-      const snapshot=next.work_id?await productionRequest<Work>(`works/${next.work_id}`):null;
       if(request!==sequence.current||!isCurrent())return;
-      setView(next);setWork(snapshot);setError('');
+      setView(next);setError('');
       if(next.segment_id!==segmentId)onBound(next.segment_id);
     } catch(e) { if(request===sequence.current&&isCurrent())setError((e as Error).message); }
   },[sessionId,segmentId,onBound]);
@@ -27,10 +24,9 @@ export default function VideoConversation({sessionId,segmentId,onBound,onBinding
   return <section className="video-conversation" aria-label={channelFlow?'频道设置对话':directorFlow?'导演设置对话':'视频创作对话'}>
     {error&&<p role="alert">{error}</p>}
     {view&&<>
-      {view.work_id&&!channelFlow&&<details open={!!work&&['awaiting_confirmation','needs_decision','reviewable','preview_needs_fix'].includes(work.state)}>
-        <summary>{directorFlow?'参考与分析进度':`方案、进度与审片 · ${work?workLabels[work.state]||work.state:'正在读取'}`}</summary>
+      {view.work_id&&!channelFlow&&
         <WorkCards conversationOnly referenceOnly={directorFlow} key={view.work_id} workId={view.work_id} sessionId={sessionId} onChanged={()=>void load()} onContinue={entry=>void enter(entry)}/>
-      </details>}
+      }
     </>}
   </section>;
 }

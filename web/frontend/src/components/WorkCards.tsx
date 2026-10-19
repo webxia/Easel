@@ -38,10 +38,12 @@ export default function WorkCards({workId,sessionId,onContinue,onChanged,referen
   const permissions=services.filter(s=>approved.includes(`${s.provider}/${s.model}/${s.mode}`)).map(({provider,model,mode})=>({provider,model,mode}));
   const limits={allow_ai:allowAI,image_limit:Math.max(work.quota.IMAGE.limit,imageLimit),video_limit:Math.max(work.quota.VIDEO.limit,videoLimit),services:permissions};
   const outputs=work.artifacts.filter(a=>a.kind==='output').sort((a,b)=>(b.output_revision||0)-(a.output_revision||0));
+  const tasks=work.tasks.filter(t=>t.run_id===run?.id);
+  if(conversationOnly&&!plan&&!tasks.length&&!outputs.length&&!work.pending_operations?.length)return error?<p role="alert">{error}</p>:null;
   if(conversationOnly)return <section className="work-cards production-panel" aria-label="管线结果">
     <p role="status">{workLabels[work.state]||work.state} · {connected?'进度已连接':'正在恢复连接'}</p>
     {!referenceOnly&&plan&&<article className="work-card"><h3>完整方案 · 版本{plan.revision}{plan.confirmed_at?' · 已确认':' · 待对话确认'}</h3><p>{plan.plan.summary}</p><details><summary>脚本与画面安排</summary><p style={{whiteSpace:'pre-wrap'}}>{plan.plan.script}</p>{plan.plan.scenes.map(s=><div key={s.id}><p>{s.visual}</p><p>{s.narration}</p></div>)}</details><p>在对话中确认制作或提出修改。</p></article>}
-    <article className="work-card"><h3>{referenceOnly?'参考分析':'制作进度'}</h3>{work.tasks.filter(t=>t.run_id===run?.id).map(t=><div key={t.id}><p>{taskNames[t.kind]||t.kind} · {taskStates[t.state]||t.state}</p>{t.error_json&&<p role="status">{JSON.parse(t.error_json).user_message}</p>}</div>)}{work.pending_operations?.length>0&&<p>外部请求待核实，不会自动重发。</p>}</article>
+    {(tasks.length>0||work.pending_operations?.length>0)&&<article className="work-card"><h3>{referenceOnly?'参考分析':'制作进度'}</h3>{tasks.map(t=><div key={t.id}><p>{taskNames[t.kind]||t.kind} · {taskStates[t.state]||t.state}</p>{t.error_json&&<p role="status">{JSON.parse(t.error_json).user_message}</p>}</div>)}{work.pending_operations?.length>0&&<p>外部请求待核实，不会自动重发。</p>}</article>}
     {!referenceOnly&&outputs.map(o=><article className="work-card" key={o.id}><h3>成片版本{o.output_revision}{work.accepted_output_id===o.id?' · 已接受':''}</h3><p>{o.manual_review_required?'待人工完整审片':o.quality_state==='passed'?'检查通过，等待审阅':'待修预览'}</p><video controls preload="metadata" src={artifactURL(o.id)} style={{width:'100%',maxHeight:440}}/><p>可直接在对话中指定此版本提出修改，或说明完整审阅后的接受决定。</p><a href={artifactURL(o.export_artifact_id||o.id)} download>下载视频与署名</a></article>)}
   </section>;
   return <section className="work-cards production-panel" aria-label="作品创作详情">
