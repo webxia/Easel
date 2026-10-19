@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from .editors import EditError
 
-VERSION='schematic-board-1'
+VERSION='schematic-board-2'
 
 
 def _label(draw,text,box,font,color,*,center=False):
@@ -35,13 +35,13 @@ def render_board(board, index, *, font_path, aspect_ratio, destination):
     gap=24 if wide else 14;cw=(available-gap*(len(board.columns)-1))/len(board.columns)
     row_count=max(len(s.groups[col.id]) for s in board.states for col in board.columns)
     cell_h=(bottom-top-12*(row_count-1))/row_count
-    cards={c.id:c for c in board.cards};numbers={c.id:i+1 for i,c in enumerate(board.cards)}
+    cards={c.id:c for c in board.cards}
     # Use one legible size across the whole board and all states, keeping
     # geometry stable as cards move. Never hide overflow by shrinking below 34px.
     measure=ImageDraw.Draw(Image.new('RGB',(1,1)))
     for size in [56,48,40,36,34]:
         try:
-            for card in board.cards:_label(measure,card.text,(0,0,cw-74,cell_h-24),fonts[size],'#000000')
+            for card in board.cards:_label(measure,card.text,(0,0,cw-24,cell_h-24),fonts[size],'#000000')
             card_font=fonts[size];break
         except EditError:
             if size==34:raise
@@ -52,9 +52,7 @@ def render_board(board, index, *, font_path, aspect_ratio, destination):
             y=top+row*(cell_h+12);highlight=identifier in state.highlight_ids
             draw.rounded_rectangle((x,y,x+cw,y+cell_h),radius=12,fill='#FFFFFF',
                 outline='#B16B13' if highlight else '#CBD3D2',width=4 if highlight else 2)
-            draw.ellipse((x+12,y+cell_h/2-16,x+44,y+cell_h/2+16),fill='#E3ECEA')
-            _label(draw,str(numbers[identifier]),(x+12,y+cell_h/2-16,32,32),fonts[22],'#294D53',center=True)
-            _label(draw,cards[identifier].text,(x+58,y+12,cw-74,cell_h-24),card_font,'#163238')
+            _label(draw,cards[identifier].text,(x+12,y+12,cw-24,cell_h-24),card_font,'#163238')
     count=sum(len(v) for v in state.groups.values())
     disclosure='假设示意' if board.kind=='hypothetical' else '概念示意'
     _label(draw,disclosure+'  ·  '+str(count)+' 条  /  '+str(len(board.columns))+' 组',
