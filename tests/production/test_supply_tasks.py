@@ -502,3 +502,22 @@ def test_revision_stock_search_respects_existing_source_grants(env):
     task=SupplyTasks(service,ops,external_providers=(provider,),enforce_provider_grants=True)
     assert task.revision_visuals(ctx,[{'scene_id':'s1','query':'phone','media_types':['image'],'options':1}])==[]
     assert provider.calls==0
+
+
+def test_generation_readiness_explains_local_rights_without_claiming_remote_access():
+    settings={'MINIMAX_API_KEY':'fixture-secret'}
+    missing=supply_capabilities(settings)[0]
+    assert not missing['available'] and missing['reason']=='rights_evidence_missing'
+    assert '使用许可依据' in missing['reason_message'] and '不是 API Key' in missing['reason_message']
+    assert missing['readiness_note'] is None
+    rights={**RIGHTS,'usage_constraints':['仅作知识分享视频的辅助插图','发布时标识AI生成，人工核对第三方权利']}
+    settings['EASEL_GENERATION_RIGHTS_JSON']=canonical_json({'schema_version':1,'IMAGE':rights})
+    image,video=supply_capabilities(settings)
+    assert image['available'] and image['reason'] is None and image['reason_message'] is None
+    assert image['usage_constraints']==rights['usage_constraints']
+    assert '未经本次远端验证' in image['readiness_note']
+    assert not video['available']
+    settings['EASEL_GENERATION_RIGHTS_JSON']='{invalid'
+    assert not supply_capabilities(settings)[0]['available']
+    settings['MINIMAX_API_KEY']=''
+    assert supply_capabilities(settings)[0]['reason']=='capability_unavailable'

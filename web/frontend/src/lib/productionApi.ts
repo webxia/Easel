@@ -23,7 +23,7 @@ export interface Work extends WorkSummary {
 }
 export interface Channel { id: string; name: string; revision: number; profile_ref: string; profile_name: string; archived: boolean; director_ids: string[]; default_director_revision?: string; settings: Json; creative_basis?:Record<string,string> }
 export interface Director { id: string; name: string; revision: number; archived: boolean; versions: { id: string; revision: number; style_confirmed: boolean; accepted_at?: string; style: Json; evidence: Json[] }[] }
-export interface ServiceChoice { provider: string; model: string; mode: string; label: string; available: boolean }
+export interface ServiceChoice { provider: string; model: string; mode: string; label: string; available: boolean; reason_message?: string | null }
 
 const base = window.location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
 export const productionURL = (path: string) => `${base}/api/production/${path}`;

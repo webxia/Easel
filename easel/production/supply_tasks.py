@@ -385,7 +385,7 @@ class SupplyTasks:
             raise ProductionError('capability_unavailable','所选生成模态尚未配置可用服务',requires_decision=True)
         rights=self.generation_rights.get(choice.kind)
         if rights is None or rights.status not in {RightsStatus.KNOWN,RightsStatus.PUBLIC_DOMAIN} or not rights.evidence or (rights.status is RightsStatus.KNOWN and not rights.license_name):
-            raise ProductionError('rights_evidence_missing','生成服务的素材使用权依据尚未配置',requires_decision=True)
+            raise ProductionError('rights_evidence_missing','生成素材使用许可依据未登记或无效；这不是 API Key 或套餐额度错误，请先核实适用条款与用途',requires_decision=True)
         operation_id='supply_'+fingerprint([ctx.task_id,choice.model_dump(mode='json')])[:32]
         existing=next((r for r in records if r['operation_id']==operation_id),None)
         if existing:return existing,None
@@ -536,10 +536,15 @@ def supply_capabilities(settings):
         evidence=rights.get(kind)
         licensed=bool(evidence and evidence.status in {RightsStatus.KNOWN,RightsStatus.PUBLIC_DOMAIN} and evidence.evidence and
                       (evidence.status is not RightsStatus.KNOWN or evidence.license_name))
+        reason=None if key and valid and licensed else 'capability_unavailable' if not key or not valid else 'rights_evidence_missing'
+        message=('生成素材使用许可依据未登记或无效；不是 API Key 或套餐额度错误' if reason=='rights_evidence_missing' else
+                 '缺少 API Key 或尚未配置支持的模型' if reason else None)
         result.append({'provider':'minimax','model':model,'mode':'text_to_image' if kind=='IMAGE' else 'text_to_video',
             'kind':kind,'label':('生图' if kind=='IMAGE' else '生视频')+' · '+(model or '未配置模型'),
             'available':bool(key and valid and licensed),
-            'reason':None if key and valid and licensed else 'capability_unavailable' if not key or not valid else 'rights_evidence_missing'})
+            'reason':reason,'reason_message':message,
+            'readiness_note':'本地配置就绪；账户调用资格及额度未经本次远端验证，使用仍需本作品授权' if not reason else None,
+            'usage_constraints':list(evidence.usage_constraints) if licensed else []})
     return result
 
 
