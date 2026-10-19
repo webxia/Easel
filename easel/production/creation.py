@@ -183,7 +183,8 @@ class CreationTasks:
                     raise ValueError('必须明确每条文字的role：narration为旁白字幕，overlay为独立解释字')
                 try:
                     compiled=compile_captions(candidate.captions,style=style,fonts=fonts,
-                        aligned=aligned_captions(candidate.audio,records) if style.enabled else None)
+                        aligned=aligned_captions(candidate.audio,records) if style.enabled else None,
+                        font_paths=font_paths,width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
                     check_caption_layout(compiled,font_paths=font_paths,
                         width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
                 except EditError as exc:
@@ -200,6 +201,7 @@ class CreationTasks:
                 '连续旁白应跨镜头讲完，严格遵守给定voice_schedule，不为草稿分镜时长加入静默；'
                 '字幕短行分语义显示，不能将整段连续旁白一次堆在画面上。选择画质与景别适合、光线与动作相接的素材，'
                 '每条文字明确role：narration只显示旁白并继承频道字幕样式；overlay为独立解释文字，保留设计的字体、位置、字号，避开底部旁白区，不能叠字。'
+                '同时查看素材画面里原有的字幕、标题和图表文字；避开口播字幕区域，必要时换片段、调整构图或移开独立解释字，不要在已有文字上重复叠字。'
                 'material_uses含board_id的图解素材是已确认的连续状态：首次出现按board_frame_index顺序，每个状态至少有一次全幅呈现类别和数量；'
                 '同一图解可跨段落复用、回看或加局部特写，board_scene_ids是本次素材映射提示，图解定义所在的scene_id不是排他的使用限制。'
                 '图解已画出标题、卡片、类别和假设/概念标识，不要只剩裁切而失去全貌，也不要在图解上重复叠同义解释字；保留底部旁白即可。'
@@ -213,7 +215,8 @@ class CreationTasks:
             if not style.enabled and answer.captions:
                 raise ModelTaskError('subtitle_disabled','方案关闭了字幕，剪辑不能擅自添加')
             aligned = aligned_captions(answer.audio, records) if (context.plan.get('narration_policy') or {}).get('continuous') else None
-            captions=compile_captions(answer.captions,style=style,fonts=fonts,aligned=aligned if style.enabled else None)
+            captions=compile_captions(answer.captions,style=style,fonts=fonts,aligned=aligned if style.enabled else None,
+                font_paths=font_paths,width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
             data=answer.model_dump();data['captions']=captions
             project=EditProject(work_id=ctx.work_id,plan_revision=ctx.plan_revision,revision=1,
                 width=1920 if horizontal else 1080,height=1080 if horizontal else 1920,
@@ -266,6 +269,8 @@ class CreationTasks:
                             for r in records if r['kind'] == 'audio')
                         else 'provider' if aligned else 'editor_preview'),
                     'caption_roles':{c.caption_id:c.role for c in answer.captions},
+                    **({'subtitle_layout': {'line_mode': 'single',
+                        'overflow_timing': 'proportional_within_existing_cue'}} if style.single_line else {}),
                     'unverified_editor_notes':unverified_editor_notes},
                     dependencies=list(manifest.assets))
             return TaskResult(result={'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets)})

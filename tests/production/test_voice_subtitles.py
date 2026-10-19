@@ -177,3 +177,17 @@ def test_subtitle_preview_and_export_use_identical_layer_and_never_change_text(t
         settings=settings.model_copy(update={"enabled": False}), text=text, fonts={})
     with Image.open(disabled["path"]) as image, Image.open(assets / "frame.png") as original:
         assert ImageChops.difference(image.convert("RGB"), original).getbbox() is None
+
+    single = settings.model_copy(update={'single_line': True, 'size': 40, 'background': 'transparent'})
+    long_text = '按真实字体宽度分段显示，口播字幕每次只出现一行。' * 8
+    result = service.preview(manifest=manifest, frame_asset_id='frame', at=0,
+        settings=single, text=long_text, fonts={'Fixture': 'font'})
+    assert result['cue_count'] > 1 and '\n' not in result['preview_text']
+    first = caption_from_settings(single, caption_id='preview', text=result['preview_text'], start=0, end=1, fonts={'Fixture':'font'})
+    layer = caption_image(first, assets/'fixture.ttf', width=1080, height=1920, destination=tmp_path/'single.png')
+    with Image.open(assets/'frame.png') as source, Image.open(layer) as overlay, Image.open(result['path']) as preview:
+        expected=source.convert('RGBA'); expected.alpha_composite(overlay)
+        assert ImageChops.difference(expected,preview).getbbox() is None
+    cached=service.preview(manifest=manifest, frame_asset_id='frame', at=0,
+        settings=single,text=long_text,fonts={'Fixture':'font'})
+    assert cached['reused'] and cached['preview_text']==result['preview_text']

@@ -2,7 +2,7 @@ export type Json = Record<string, unknown>;
 export interface VideoSettings {
   duration_seconds: number; aspect_ratio: '9:16' | '16:9'; audio_mode: 'silent' | 'music' | 'voice' | 'mixed';
   voice?: { provider: string; model: string; voice_id: string; engine: string; parameters: Json } | null;
-  subtitles?: { enabled: boolean; font: string; size: number; color: string; outline: string; background: string; position: 'top' | 'middle' | 'bottom' };
+  subtitles?: { enabled: boolean; font: string; size: number; color: string; outline: string; background: string; position: 'top' | 'middle' | 'bottom'; single_line?: boolean };
 }
 export interface CreativePlan {
   director_revision_id?: string | null; schema_version: number; title: string; summary: string; script: string;

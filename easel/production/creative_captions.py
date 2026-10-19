@@ -1,7 +1,7 @@
 """Keep speech subtitles and explanatory overlays distinct through compilation."""
 from typing import Literal
 from .editors import Caption, EditError
-from .subtitles import caption_from_settings
+from .subtitles import caption_from_settings, single_line_captions
 from .media import caption_layout
 
 
@@ -15,7 +15,7 @@ def edit_data(edit):
     return data
 
 
-def compile_captions(captions, *, style, fonts, aligned=None):
+def compile_captions(captions, *, style, fonts, aligned=None, font_paths=None, width=1920, height=1080):
     overlays=[Caption.model_validate(c.model_dump(exclude={'role'})) for c in captions if c.role=='overlay']
     if aligned:
         speech=[caption_from_settings(style,caption_id='speech-'+str(i),text=c['text'],
@@ -23,7 +23,11 @@ def compile_captions(captions, *, style, fonts, aligned=None):
     else:
         speech=[caption_from_settings(style,caption_id=c.caption_id,text=c.text,
                     start=c.start,end=c.end,fonts=fonts) for c in captions if c.role=='narration']
-    return [c for c in speech if c is not None]+overlays
+    speech = [c for c in speech if c is not None]
+    if style.single_line:
+        speech = [part for c in speech for part in single_line_captions(
+            c, font_paths[c.font_asset_id], width=width, height=height)]
+    return speech+overlays
 
 
 def check_caption_layout(captions, *, font_paths, width, height):
