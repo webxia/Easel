@@ -18,7 +18,7 @@ function runtime({context,failRead=false,failEnter=false}={}) {
 }
 test('all three chat pipelines bind the current UI without chat send, Work creation or catalog save',async()=>{
   const r=runtime();
-  assert.deepEqual(Array.from(r.api.CONVERSATION_WORKFLOWS,w=>w.label),['视频创作','创建导演','创建频道']);
+  assert.deepEqual(Array.from(r.api.CONVERSATION_WORKFLOWS,w=>w.label),['视频创作','导演','频道']);
   for(const flow of r.api.CONVERSATION_WORKFLOWS){
     const binding=await r.api.enterConversationWorkflow({id:'current-chat',persona:'one'},flow.kind);
     assert.equal(binding.segment_id,'segment-'+flow.kind);
@@ -60,4 +60,12 @@ test('pipeline starters preserve the Creator draft and switching starters never 
   assert.ok(second.endsWith(draft));assert.ok(!second.includes('我想用参考视频创建一个导演'));
   assert.equal(r.api.workflowDraft('channel_create',second),second);
   assert.equal(r.api.workflowDraft('new_work',''),r.api.CONVERSATION_WORKFLOWS[0].prompt);
+});
+test('switching away from generated edit prompts preserves only Creator input, never the old configuration task',()=>{
+  const r=runtime();const user='请保留我自己补充的这句话。';
+  for(const flow of Object.values(r.api.CONFIGURATION_PROMPTS)){
+    const switched=r.api.workflowDraft('new_work',flow.edit+'\n\n'+user);
+    assert.equal(switched,r.api.CONVERSATION_WORKFLOWS[0].prompt+'\n\n'+user);
+    assert.equal(r.api.workflowDraft('director_formation',flow.edit),r.api.CONFIGURATION_PROMPTS.director_formation.create);
+  }
 });

@@ -499,6 +499,36 @@ def test_new_work_trial_entry_preserves_confirmed_profile_voice_and_unaccepted_d
     assert {str(p):p.read_bytes() for p in service.profiles.rglob('*.md')}==profile_before
 
 
+def test_configuration_pipelines_edit_selected_targets_without_work_or_profile_changes(env):
+    service,c=env;cat=CreativeCatalog(service)
+    before={str(p):p.read_bytes() for p in service.profiles.rglob('*.md')}
+    voice={'provider':'fixture','model':'speech','engine':'http-speech-v1','voice_id':'fixed','parameters':{'speed':1}}
+    channel=cat.command('channels','create',{'name':'Existing','profile_ref':'one','settings':{'voice':voice}},command_id='config-channel')
+    segment=entry(c,kind='channel_create',profile_ref='one',channel_id=channel['id'])
+    bridge,identity,_=turn(service,c,segment,'Change the selected channel audience.',id='edit-channel')
+    p=tool(bridge,identity,'easel_work_propose',{'kind':'channel_defaults','values':{'creative_basis':{'audience':'New audience'}},'source_refs':['edit-channel']})
+    bridge.end(Identity(**identity));apply(c,p)
+    channels=cat.list('channels');assert len(channels)==1
+    assert channels[0]['id']==channel['id'] and channels[0]['creative_basis']['audience']=='New audience'
+    assert channels[0]['settings']['voice']==voice
+    with service.store.transaction() as conn:
+        conn.execute("INSERT INTO directors(id,name,created_at,updated_at) VALUES ('config-director','Existing director',?,?)",(now(),now()))
+        conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,created_at) VALUES ('config-v1','config-director',1,?,?,1,?)",(encode({'schema_version':1,'visual_style':'Original','storytelling':'Original'}),encode([{'source':'fixture'}]),now()))
+    segment=entry(c,kind='director_formation',profile_ref='one',director_revision='config-v1',director_trial=True)
+    bridge,identity,_=turn(service,c,segment,'Refine the selected director style.',id='edit-director')
+    p=tool(bridge,identity,'easel_work_propose',{'kind':'director_revision','values':{'base_revision':1,'style':{'visual_style':'Refined','storytelling':'Keep a clear thread'}},'source_refs':['edit-director']})
+    bridge.end(Identity(**identity));apply(c,p)
+    directors=cat.list('directors');assert len(directors)==1 and len(directors[0]['versions'])==2
+    with service.store.connection() as conn:
+        old=row(conn,'director_revisions','config-v1');assert json.loads(old['style_json'])['visual_style']=='Original' and old['accepted_at'] is None
+        latest=conn.execute("SELECT * FROM director_revisions WHERE director_id='config-director' ORDER BY revision DESC LIMIT 1").fetchone()
+        assert latest['revision']==2 and not latest['style_confirmed'] and latest['accepted_at'] is None
+        assert conn.execute('SELECT count(*) FROM works').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM tasks').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+    assert {str(p):p.read_bytes() for p in service.profiles.rglob('*.md')}==before
+
+
 @pytest.mark.parametrize('name',[None,12,[],{},'', ' '*4])
 def test_channel_proposal_invalid_name_is_not_saved_or_reported_applied(env,name):
     service,c=env;segment=entry(c,profile_ref='one');b,i,_=turn(service,c,segment)

@@ -91,7 +91,7 @@ export default function BrushEntry({ onPick, onVideo, disabled=false, videoMode=
           <div className="brush-body">
             {error&&<p role="alert">{error}</p>}
             {onVideo&&workflows.length>0&&<div className="brush-grp" aria-label="创作管线">
-              <div className="brush-grp-name">我们的创作管线 · 画像、导演与频道</div>
+              <div className="brush-grp-name">对话管线 · 视频创作、频道与导演</div>
               {workflows.map(w=><button type="button" key={w.kind} aria-label={w.label} disabled={disabled||entering} className="brush-item brush-item-pipe" onClick={()=>void pickWorkflow(w.kind)}>
                 <span className="brush-dot s-ready"/><span className="brush-il">{w.label}</span><span className="brush-chip-pipe">管线</span><span className="brush-idesc">{w.desc}</span><span className="brush-iadd">＋</span>
               </button>)}

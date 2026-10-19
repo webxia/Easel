@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { enterConversationWorkflow, workflowDraft, type ConversationWorkflowKind } from '../lib/conversationWorkflows';
+import { enterConversationWorkflow, replaceWorkflowPrompt, workflowDraft, type ConversationWorkflowKind } from '../lib/conversationWorkflows';
 import VideoConversation from './VideoConversation';
 import type { PersonaItem } from '../lib/api';
 import MessageBubble from './MessageBubble';
@@ -42,12 +42,13 @@ function greeting(): string {
   return `${g}，想创作点什么？`;
 }
 
-export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDirect, session, stream, onSend, onStop, onResend, onQuestionAnswered }: ChatPageProps) {
+export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, session, stream, onSend, onStop, onResend, onQuestionAnswered }: ChatPageProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [maxMb, setMaxMb] = useState(50);
+  const [bindingPending,setBindingPending]=useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -55,7 +56,7 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
 
   const isStreaming = !!stream;
   const isEmpty = session.messages.length === 0 && !isStreaming && !session.videoSegmentId;
-  const videoPanel=session.videoSegmentId?<VideoConversation sessionId={session.id} segmentId={session.videoSegmentId} persona={session.persona} personas={personas} onBound={onVideoBound} onRequest={onSend} onRestore={onRestoreVideo}/>:null;
+  const videoPanel=session.videoSegmentId?<VideoConversation sessionId={session.id} segmentId={session.videoSegmentId} persona={session.persona} onBound={onVideoBound} onDraft={prompt=>setInput(current=>replaceWorkflowPrompt(prompt,current))} onBindingPending={setBindingPending} onRestore={onRestoreVideo}/>:null;
   const chooseWorkflow=async(kind:ConversationWorkflowKind)=>{
     const binding=await enterConversationWorkflow(session,kind);
     onVideoBound(binding.segment_id);
@@ -121,7 +122,7 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
 
   const handleSend = () => {
     const trimmed = input.trim();
-    if ((!trimmed && attachments.length === 0) || isStreaming || uploading) return;
+    if ((!trimmed && attachments.length === 0) || isStreaming || uploading || bindingPending) return;
     // 附件通过结构化字段发送；用户消息气泡只显示用户实际输入的文字。
     onSend(trimmed, attachments);
     setInput('');
@@ -178,11 +179,11 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
           disabled={isStreaming || uploading} title={`添加素材（图片/文档）；超过 ${maxMb}MB 的大文件将自动存为本地素材（不走上传）`}>
           <IconPlus size={15} /> {uploading ? '上传中…' : '素材'}
         </button>
-        <span className="composer-hint">{isStreaming ? '生成中…' : 'Enter 发送 · Shift+Enter 换行'}</span>
+        <span className="composer-hint">{isStreaming ? '生成中…' : bindingPending ? '请先确认上方的设置目标，再继续对话' : 'Enter 发送 · Shift+Enter 换行'}</span>
         {isStreaming ? (
           <button className="send-btn" onClick={onStop} title="停止生成"><IconStop size={15} /></button>
         ) : (
-          <button className="send-btn" onClick={handleSend} disabled={(!input.trim() && !attachments.length) || uploading} title="发送"><IconArrowUp size={17} /></button>
+          <button className="send-btn" onClick={handleSend} disabled={(!input.trim() && !attachments.length) || uploading || bindingPending} title="发送"><IconArrowUp size={17} /></button>
         )}
       </div>
     </div>
