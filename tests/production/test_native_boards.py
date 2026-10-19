@@ -193,7 +193,11 @@ def test_native_draft_audit_sees_real_board_pixels_before_freeze_and_speech(tmp_
     assert asyncio.run(Worker(store,{'plan':planning.plan}).run_once())
     snap=service.snapshot(work)
     assert len(model.calls)==4
-    assert len(list((service.outputs/'_production/plan-previews').rglob('manifest.json')))==2
+    manifests=list((service.outputs/'_production/plan-previews').rglob('manifest.json'));assert len(manifests)==2
+    for manifest in manifests:
+        entries=json.loads(manifest.read_text())['frames']
+        assert all(e['caption_sample_bounds'][1]+e['caption_sample_bounds'][3]<1080-65 for e in entries)
+        assert all(e['preview_sha256']!=e['sha256'] for e in entries)
     if remains_invalid:
         assert snap['state']=='needs_decision' and not snap['plans']
     else:

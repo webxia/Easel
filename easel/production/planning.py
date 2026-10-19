@@ -185,10 +185,31 @@ class PlanningTasks:
                 path=folder/(board.scene_id+'-'+str(index)+'.png')
                 await asyncio.to_thread(render_board,board,index,font_path=font,
                     aspect_ratio=plan.settings.aspect_ratio,destination=path)
-                manifest.append({'board_id':board.scene_id,'state_index':index,'sha256':file_sha256(path)})
+                entry={'board_id':board.scene_id,'state_index':index,'sha256':file_sha256(path)}
+                preview=path
+                style=plan.settings.subtitles
+                scene=next(s for s in plan.scenes if s.id==board.scene_id)
+                sample=scene.narration.strip()[:24]
+                if style.enabled and sample:
+                    from .subtitles import caption_from_settings
+                    from .media import caption_layout,caption_image
+                    from PIL import Image
+                    caption=caption_from_settings(style,caption_id='draft-sample',text=sample,start=0,end=1,
+                        fonts={style.font:'draft-font'})
+                    width,height=(1920,1080) if plan.settings.aspect_ratio=='16:9' else (1080,1920)
+                    _,_,_,bounds=caption_layout(caption,font,width=width,height=height)
+                    layer=folder/(board.scene_id+'-caption.png')
+                    caption_image(caption,font,width=width,height=height,destination=layer)
+                    preview=path.with_name(path.stem+'-preview.png')
+                    with Image.open(path) as background,Image.open(layer) as overlay:
+                        Image.alpha_composite(background.convert('RGBA'),overlay.convert('RGBA')).convert('RGB').save(preview)
+                    entry.update(caption_sample_bounds=list(bounds),caption_sample_source='same scene narration prefix, not final segmentation',
+                                 preview_sha256=file_sha256(preview))
+                manifest.append(entry)
                 if visual:
-                    media,needs,_=await asyncio.to_thread(observe_media,path,include_audio=False,max_frames=1)
-                    blocks.append({'type':'text','text':'尚未确认草稿的本地真实图解 '+board.scene_id+' 状态 '+str(index)+'；不是实证资料'})
+                    media,needs,_=await asyncio.to_thread(observe_media,preview,include_audio=False,max_frames=1)
+                    blocks.append({'type':'text','text':'尚未确认草稿的本地真实图解 '+board.scene_id+' 状态 '+str(index)+
+                        '；不是实证资料。若有字幕，叠加的是当前固定样式与本段原文前缀的实际排版样例，不是最终断句或时码。实际样例边界(x,y,w,h)：'+str(entry.get('caption_sample_bounds'))})
                     blocks.extend(media);required.update(needs)
         atomic_json(folder/'manifest.json',{'draft_hash':digest(plan.model_dump(mode='json')),
             'font_sha256':file_sha256(font),'images_sent':visual,'frames':manifest})
@@ -253,7 +274,8 @@ class PlanningTasks:
                         '核对是否回应一句想法、具体例子能否解释原因与边界，口语是否有鲜活的分析而非课程讲义。'
                         '逐项检查图解所有状态：每张卡与所在列的字面含义一致，结果、行为和结论不能混装成错误分类；'
                         '类别重命名必须在对应状态的column_titles真实填写，不能只在visual里口头说会改。'
-                        '收到的PNG是当前草稿按实际字体渲染的真实像素，结合JSON检查文字、数量、留白及字幕安全区；没有PNG时明确只审文字。'
+                        '收到的PNG是当前草稿按实际字体与固定字幕样式渲染的真实像素，结合JSON及实际字幕样例边界检查文字、数量、留白及安全区；'
+                        '不要仅因页脚和字幕都在底部就断言叠字，按真实合成区域判断；字幕样例不代表最终断句、时码或同步。没有PNG时明确只审文字。'
                         '按既有导演判断整片视觉策略：电影感要求光线、构图、动作与场景联系；检查是否把整片机械地替换成重复文字说明板。'
                         '图解服务关键解释，场景素材服务动作、环境与情绪，不设两者比例，不为了热闹堆无关空镜。'
                         '核对production_capabilities与供料可行性：不能凭空承诺库存必然没有品牌或有指定屏幕数据；'

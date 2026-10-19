@@ -190,7 +190,7 @@ class BoardState(Contract):
 
 class ExplainerBoard(Contract):
     """Model-authored, explicitly schematic cards; no arbitrary executable markup."""
-    scene_id: Identifier
+    scene_id: Identifier = Field(description='必须精确引用本方案scenes中已存在的id，不能另起同义名称；每个场景最多定义一组图解')
     title: str = Field(min_length=1,max_length=24)
     kind: Literal['conceptual','hypothetical']
     cards: list[BoardCard] = Field(min_length=1,max_length=12)
