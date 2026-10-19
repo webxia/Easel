@@ -66,11 +66,19 @@ class VoiceReadyCreativePlan(CreativePlan):
         return self
 
 
+class DraftReview(Contract):
+    verdict: str = Field(pattern='^(pass|fail)$')
+    findings: list[str] = Field(default_factory=list,max_length=12)
+    observations: list[str] = Field(default_factory=list,max_length=24)
+    limitations: list[str] = Field(default_factory=list,max_length=12)
+
+
 class PlanningTasks:
     def __init__(self, service, operations, transport, model_service, config_version):
         self.service, self.operations, self.transport = service, operations, transport
         self.model_service, self.config_version = model_service, config_version
         self.tool_factory=lambda ctx: ()
+        self.board_fonts = {}
         self.execution_capabilities = {
             'visuals': ['licensed stock footage', 'licensed images', 'captions', 'crop', 'pan_zoom', 'transitions'],
             'native_explainer_boards': False,
@@ -157,6 +165,35 @@ class PlanningTasks:
                 blocks.extend(media);required.update(needs)
         return tuple(blocks),frozenset(required)
 
+    async def draft_board_media(self,ctx,plan):
+        """Actual local draft pixels, not registered final assets or user evidence."""
+        if not plan.explainer_boards or not self.board_fonts:
+            return (),frozenset()
+        import asyncio
+        from .boards import render_board
+        from .inspection import observe_media
+        from .media import atomic_json, file_sha256
+        font=self.board_fonts.get(plan.settings.subtitles.font)
+        if not font:
+            raise ModelTaskError('capability_unavailable','草稿图解缺少本片配置的实际字体')
+        folder=self.service.outputs/'_production'/'plan-previews'/ctx.task_id/digest(plan.model_dump(mode='json'))
+        folder.mkdir(parents=True,exist_ok=True)
+        blocks=[];required=set();manifest=[]
+        visual=bool(self.transport and 'image' in self.transport.capabilities)
+        for board in plan.explainer_boards:
+            for index in range(len(board.states)):
+                path=folder/(board.scene_id+'-'+str(index)+'.png')
+                await asyncio.to_thread(render_board,board,index,font_path=font,
+                    aspect_ratio=plan.settings.aspect_ratio,destination=path)
+                manifest.append({'board_id':board.scene_id,'state_index':index,'sha256':file_sha256(path)})
+                if visual:
+                    media,needs,_=await asyncio.to_thread(observe_media,path,include_audio=False,max_frames=1)
+                    blocks.append({'type':'text','text':'尚未确认草稿的本地真实图解 '+board.scene_id+' 状态 '+str(index)+'；不是实证资料'})
+                    blocks.extend(media);required.update(needs)
+        atomic_json(folder/'manifest.json',{'draft_hash':digest(plan.model_dump(mode='json')),
+            'font_sha256':file_sha256(font),'images_sent':visual,'frames':manifest})
+        return tuple(blocks),frozenset(required)
+
     async def plan(self,ctx):
         from .worker import TaskResult
         try:
@@ -196,25 +233,43 @@ class PlanningTasks:
                             expected = SubtitleSettings.model_validate(expected).model_dump(mode='json')
                         if answer.model_dump(mode='json')['settings'][field] != expected:
                             raise ValueError('不得改变已选设置：' + field)
-                # The creator has not confirmed this draft. Let the creative
-                # model review and improve its own concrete reasoning and
-                # realizable pictures, rather than an operator rewriting it.
-                review_context = replace(context, plan=proposed.model_dump(mode='json'))
-                proposed = await self.runner(ctx, namespace='creative-review-v1', max_format_repairs=2).run(
-                    review_context,
-                    '审阅并完善尚未确认的创作草稿，直接返回可执行的完整方案。'
-                    '先检查是否真正回应一句想法：解释型内容须用具体的假设例子、对照或推演讲清因果与适用边界，'
-                    '避免只列抽象自检口号；感悟类按题意保留开放性，不强塞教程。'
-                    '检查口语是否像与具体的人聊天，有观察、有变化，不写成课程讲义或逐句播报。'
-                    '画面要承担解释、证据或明确环境作用；不要把隐喻硬译成无关道具素材。'
-                    '按实际production_capabilities设计可检索的连续场景和景别，保留光线、动作、空间关系，'
-                    '需要具体分类、数量、对照或前后变化时，优先自行构建explainer_boards，'
-                    '用明确卡片文字、类别和多个状态兑现解释，不把找不到的具体关系寄托在相似道具或字幕上。'
-                    '允许与真实场景镜头自然结合，但不套固定比例；不用未实现的任意绘图、录屏或个人素材。'
-                    '未指定片长时给紧凑的估计时长，不逐句分配长停顿；成片将依据完整旁白实测编排。'
-                    '不得编造个人经历、来源或研究结论，遵守画像和已选设置。',
-                    VoiceReadyCreativePlan, media=media, required=required,
-                    tools=self.tool_factory(ctx), validate_result=preserve_choices)
+                # Audit literal semantics and actual diagrams BEFORE freezing.
+                # A native critic returns evidence; only the native author may
+                # revise the draft. No operator copy or per-film diagram patch.
+                async def audit(draft,namespace):
+                    from .editors import EditError
+                    try:
+                        board_media,board_needs=await self.draft_board_media(ctx,draft)
+                    except EditError as exc:
+                        return DraftReview(verdict='fail',findings=['实际草稿图解渲染失败：'+str(exc)],
+                            limitations=['未获得完整可读像素；需先修正草稿文字或布局数据'])
+                    return await self.runner(ctx,namespace=namespace,max_format_repairs=2).run(
+                        replace(context,plan=draft.model_dump(mode='json')),
+                        '独立审查尚未确认草稿；只返回有依据的观察和必须修正的问题，不改稿、不声称已看过未选的库存或听过声音。'
+                        '核对是否回应一句想法、具体例子能否解释原因与边界，口语是否有鲜活的分析而非课程讲义。'
+                        '逐项检查图解所有状态：每张卡与所在列的字面含义一致，结果、行为和结论不能混装成错误分类；'
+                        '类别重命名必须在对应状态的column_titles真实填写，不能只在visual里口头说会改。'
+                        '收到的PNG是当前草稿按实际字体渲染的真实像素，结合JSON检查文字、数量、留白及字幕安全区；没有PNG时明确只审文字。'
+                        '按既有导演判断整片视觉策略：电影感要求光线、构图、动作与场景联系；检查是否把整片机械地替换成重复文字说明板。'
+                        '图解服务关键解释，场景素材服务动作、环境与情绪，不设两者比例，不为了热闹堆无关空镜。'
+                        '核对production_capabilities与供料可行性：不能凭空承诺库存必然没有品牌或有指定屏幕数据；'
+                        '不新增用户没有要求的品牌禁令或匿名条件，也不放宽用户实际隐私要求；公开库存只作示意、不能伪装用户经历。'
+                        '未选素材和未试听声音留到实际生产检查，不将这些正常未执行步骤列成草稿缺陷。'
+                        '有明确问题时verdict=fail并在findings写具体字段/状态及依据；无明确问题时pass。',
+                        DraftReview,media=(*media,*board_media),required=required|board_needs)
+                review=await audit(proposed,'draft-audit-v2')
+                if review.findings or review.verdict!='pass':
+                    proposed=await self.runner(ctx,namespace='draft-correction-v2',max_format_repairs=2).run(
+                        replace(context,plan=proposed.model_dump(mode='json')),
+                        '依据独立草稿审查修正并返回完整可执行方案；这是尚未确认的草稿，允许调整叙事和图解分类、状态、画面策略，'
+                        '不得编造个人经历或新事实，不改变已选声音、字幕、画幅与声音模式。'
+                        '不要用多写风格形容词代替实际方案调整，不用无关素材凑电影感。审查：'+encode(review.model_dump(mode='json')),
+                        VoiceReadyCreativePlan,media=media,required=required,tools=self.tool_factory(ctx),validate_result=preserve_choices)
+                    final=await audit(proposed,'draft-recheck-v2')
+                    if final.findings or final.verdict!='pass':
+                        raise ModelTaskError('draft_review_failed','原生草稿修正后仍有明确语义或视觉策略问题，未冻结、未配音',
+                            diagnostic={'findings':final.findings})
+                preserve_choices(proposed)
             with ctx.transaction() as conn:
                 work=row(conn,'works',ctx.work_id)
                 from .voice_budget import reserve_narration_slots
