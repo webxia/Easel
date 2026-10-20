@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
 from easel.conversation import ConversationService
-from easel.conversation_bridge import PersistentWorkToolBridge, PersistentCall, PersistentDispatch, require_persistent_gateway
+from easel.conversation_bridge import PersistentWorkToolBridge, PersistentCall, PersistentDispatch, ExecutionPoll, require_persistent_gateway
 from easel.work_bridge import Claim, Identity
 from easel.production.service import fail
 
@@ -73,6 +73,10 @@ def create_internal_router(provider,token_provider):
     def prepare(request:PersistentCall,authorization:str|None=Header(default=None)):return authenticate(authorization).prepare(request)
     @router.post('/dispatch')
     def dispatch(request:PersistentDispatch,authorization:str|None=Header(default=None)):return authenticate(authorization).dispatch(request)
+    @router.post('/result')
+    def execution_result(request:ExecutionPoll,authorization:str|None=Header(default=None)):
+        from easel.conversation_results import ConversationResults
+        return ConversationResults(authenticate(authorization)).poll(request)
     @router.post('/end')
     def end(request:Identity,authorization:str|None=Header(default=None)):return authenticate(authorization).end(request)
     return router
@@ -126,7 +130,12 @@ class VideoChat:
             seq+=1
             with event_path.open('a',encoding='utf-8') as f:f.write(json.dumps({'id':seq,'event':kind,'data':data},ensure_ascii=False)+'\n')
         bridge.delivery(turn_id,'dispatching')
-        emit('activity','正在与 Easel 讨论创作；制作进度独立更新')
+        emit('activity','正在处理本轮创作，确认执行后等待实际结果')
+        async def keep_delivery():
+            while True:
+                await asyncio.sleep(10)
+                await asyncio.to_thread(bridge.delivery_heartbeat,turn_id)
+        heartbeat=asyncio.create_task(keep_delivery())
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(7200,connect=10),trust_env=False,follow_redirects=False) as client:
                 async with client.stream('POST',self.gateway_url.rstrip('/')+'/v1/chat/completions',
@@ -146,7 +155,7 @@ class VideoChat:
                                 bridge.record_result_text(turn_id,''.join(chunks))
                                 next_result_write=asyncio.get_running_loop().time()+0.25
             if not done or (background and not ''.join(chunks).strip()):raise ValueError('incomplete_delivery')
-            bridge.delivery(turn_id,'unknown',''.join(chunks))
+            bridge.complete_delivery(turn_id,''.join(chunks))
             view=ConversationService(service).view(session)
             self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':turn_id})
             emit('work_card',view)
@@ -167,7 +176,10 @@ class VideoChat:
             except Exception:pass
             if background:bridge.record_result_text(turn_id,''.join(chunks),error=message)
             emit('error',message)
-        finally:self.tasks.pop(session,None)
+        finally:
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat,return_exceptions=True)
+            self.tasks.pop(session,None)
 
     async def process_results_once(self):
         if self.tasks or not self.gateway_url or not self.gateway_token:return False

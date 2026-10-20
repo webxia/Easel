@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Native Gateway result continuation in a new loopback-only fixture. Zero paid calls."""
+"""Fallback result continuation after direct API applies; zero paid calls.
+
+Current native execution waiting is checked by validate_conversation_execution_wait.
+"""
 import argparse
 import asyncio
 import json
@@ -118,7 +121,7 @@ def probe(f):
     check('event_creates_proposal_without_production',len(s.snapshot(current['work'])['runs'])==1 and c.view('plan-success')['proposals'][-1]['body']['values']['action']=='confirm')
     p=c.view('plan-success')['proposals'][-1]
     f['model'].extra_cases['start_production']=('easel_pipeline',{'mode':'answer','proposal_id':p['id'],'hash':p['body_hash'],'user_quote':'A1_CASE=start_production'})
-    chat('plan-success',seg,'start_production')
+    apply_last('plan-success')  # direct API compatibility: no live native turn owns this run.
     check('real_user_reply_continues_original_flow',len(s.snapshot(current['work'])['runs'])==2)
     async def supply(ctx):return TaskResult(next_kind='edit')
     async def edit(ctx):return TaskResult(next_kind='render')

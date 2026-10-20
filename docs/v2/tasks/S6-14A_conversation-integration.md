@@ -597,3 +597,55 @@ S6 F2 / SAFETY+CURRENT_BLOCKER，用户明确授权核实官方条款并登记�
 **REAL_PRODUCTION_PASS=FAIL，CREATOR_ACCEPTED=未接受**。两版预览约19.97秒，偏离已确认30秒；实际画面未呈现完成动作，与旁白及连续性要求冲突，visual fail / needs_fix。听感和完整视听语义NOT_TESTED。助手主动解释了这些失败，随后在同对话接收具体反馈并提出一轮局部修订。确认曾遇身份嵌套/旧用户原话，修复后真实模型连续stopReason=length、0工具调用，修订仍未提交；不再盲目付费重试或放宽检查。未知请求不重发，旧对话与历史数据保留。
 
 最终软件验证：生产模块651 passed / 4 skipped，对话95 passed，前端99 passed；原生Gateway/插件结果接续29项检查通过（25次假模型、0付费），build/lint通过（既有转义及包体警告保留）。真实播放器暴露原始宽度撑出对话的阻断，已仅补现有video的宽高约束；正式构建刷新后，聊天clientWidth/scrollWidth均860，两版视频readyState=4，正常播放且没有重复。运行与原生任务空闲时重载Web/Gateway，9工具握手、backend.reload_required=false通过；最终既有93条记录hash不变。本轮不能以软件或隔离假模型PASS宣称真实完整闭环成功。下一动作是由用户评审真实预览、模型截断阻断和未执行的修订范围，当前不自动扩大模型预算或开启更多整片重做。
+
+
+## 2026-10-20 · F2 当前原生回合等待整个授权执行范围
+
+**开工分类**：S6 / F2 / CURRENT_BLOCKER。用户真实对话确认整理方案后直接结束；本轮授权方案核验、有限实现和离线验证，不授权真实付费、旧任务重跑、正式服务重启。停止条件为一轮有限修复及适用复验完成；不扩展S7、模型选择、上下文重构或制作质量标准。
+
+**基线与现场**：从`easel-v2-rebuild@e61d256f`创建隔离开发分支`codex/conversation-execution-wait`，主工作区未切换。已fetch核对远端V2仍为该提交；`55816dfa`在`codex/model-call-diagnostics`且尚未合入主线；`1ed2a27`在其后续独立开发分支。没有合并这些分支。正式Web仍监听7860，原进程未重启，read-only capabilities返回`backend.reload_required=true`，因此不能把磁盘HEAD冒充已加载版本；服务没有暴露可证实的加载SHA。原未提交状态记录、研究、私人素材、Profile、outputs及UNKNOWN未动。
+
+### 根因与范围
+
+执行插件在业务提交后立即返回，`VideoChat._deliver`据原生结束发送done；`ConversationResults`等原回合结束再创建结果回合。旧验证先断言done再运行Worker，只验证后台接续。文档将此等同旧Easel的阻塞等待有误。新增原生隔离测试在修改前明确失败：规划仍pending却已出现`event: done`（PREMATURE_DONE）；不是根据最终出现结果消息推断成功。
+
+| 现有入口 | 提交/恢复回执与本轮范围 | 交付及下一确认边界 |
+|---|---|---|
+| `easel_work_propose director_formation` → `easel_pipeline answer` | Catalog create/analyze返回Work/Run；`analyze_director` | 分析结果/风格候选；不确认导演或制作试片 |
+| `easel_work_request_plan`或`pipeline offer plan` → answer | planning Run，授权仍由既有提案绑定 | 完整Plan、逐字稿、分镜；下一轮确认制作 |
+| `pipeline offer confirm` → answer | production Run | supply内部的素材/生成/配音、edit、render、quality和既定自动repair收口 |
+| `pipeline offer resume` → answer | 原Work/Run，既有decision_id | 该Run收口或再次阻断；不创建重复运行 |
+| `pipeline offer grant`（带已绑定decision_id）→ answer | 原子保存授权并恢复原Run | 同上；纯grant仅保存配置不等待 |
+| `easel_work_request_revision`或`pipeline offer revise` → answer | 选定output的revision Run | 原范围的修订/render/quality完成；扩大范围时停在needs_decision |
+| `pipeline offer confirm_revision` → answer | 已确认影响对应新的planning Run | 新Plan交付后仍须制作确认，不能越过该边界 |
+| pending/context、draft、普通讨论、输入/brief/频道/导演风格保存、offer | 无启动运行回执 | 正常返回；不误等当前或别处的Run |
+
+材料、配音等并不各建聊天状态：其任务关系及自动修复由原Worker管理，等待只跟随本次可信回执中的Run。完整范围由既有业务关系定义。未来合入`replan_after_unknown`时它返回同样的Work/Run可复用等待，但**本分支未包含/未验收该入口**，不将其当已部署能力。
+
+### 有限实现
+
+- `tools.mjs`：dispatch提交后原生execute保持pending，短轮询真实状态并复用onUpdate；AbortSignal、等待截止和读连接异常均不重提任务。
+- `conversation_results.py`：复用既有结果投影、事件/Run终态、proposal回执订阅；查询可信已提交回执，返回本次范围真实结果。中间阶段及首版产物不提前交付。
+- `conversation_bridge.py`、`conversation_api.py`：记本轮已收到结果事件；正文落盘才消费订阅。交付租期防止end hook与Web完成之间的抢占，断开不取消生产，已接管结果拒绝迟到确认；未核实原生状态仍遵守UNKNOWN保护。旧插件/不完整执行回执不发送成功done。
+- `web/app.py`：只给既有loopback插件凭证增加精确`/result`入口，保留身份、票据、来源限制，未增加一般API权限。
+- 未改变DB schema、原生产任务图、授权、权益、费用、幂等和质量阈值。未改前端流程或增加按钮。原后台结果能力仍作为恢复；旧原生探针标明其测试的是直接API提交后兼容接续。
+
+### 离线证据
+
+- `python -m pytest tests/production -q`：最终 **666 passed / 5 skipped**；跳过的原生/可选项不计通过。中间一次新夹具错误地取降序Plan列表末项已修正为按current_plan_revision选择，未改业务门槛。
+- `python -m pytest tests/production/test_conversation*.py -q`：**111 passed**（包含16项新增等待/身份/授权边界/交付竞态用例）。
+- `node --test tests/production/*Plugin.test.mjs tests/frontend/*.test.mjs`：**111 passed**。旧插件测试仍写8工具，已按主线实际9工具修正固定断言；没有新增第10个模型工具。
+- `python scripts/validate_conversation_execution_wait.py --root <new-temp-directory>`：实际本机Gateway和插件，7次假模型、0付费；规划完成前没有done，当前助手实际收到Plan正文后才done；制作含中间quality→revise→render→quality不提前结束；局部修订同轮交付。首次页面流关闭后重连同turn，没有重复执行；停止回答使原生结束而生产仍pending。正常流程0个task_result回合，探针不生成媒体。
+- 同探针加`--native-timeout`：隔离原生timeoutSeconds=3，1次假模型、0付费；Web出现error而非成功done，原生已结束，生产仍pending、0个生产Operation、没有取消或重提。
+- `python scripts/validate_conversation_results.py --root <new-temp-directory>`：保留后台兼容恢复，**29 checks PASS**，23次假模型、0付费，验证成功、失败、UNKNOWN及后续讨论；不是正常当前回合等待的替代证据。
+- `python scripts/validate_document_paths.py`及`git diff --check`通过。前端代码/构建未变，不为本次后端/插件修复重新生成正式前端资源。
+
+测试均使用全新临时数据库、隔离Gateway/插件、loopback假模型及可控Worker；网络守卫限制外网，未读取正式Key。原生等待探针不生成媒体，生产回归中的合成媒体仅属本地测试夹具。没有启动用户真实制作，没有取消、重跑或更改旧UNKNOWN。
+
+### 交接与部署（本轮未执行）
+
+- `SOFTWARE_PASS`：见上方具名结果；`REAL_PRODUCTION_PASS=NOT_TESTED`；`CREATOR_ACCEPTED=NOT_TESTED`。原S6真实成片needs_fix及未完成修订的状态不变，不宣称S6完成。
+- 本分支技术上基于V2主线独立通过；正式部署必须先核对/保护当前已加载功能，受控整合未合入的诊断与Web续接修复，再核对后续截断/规格修复。与这些分支共享插件、桥、Web交付及文档文件，需按最终组合重新验证，不能直接覆盖线上文件或假定合并无冲突。
+- 获得部署授权后：检查生产Run/在途Operation、有效Web原生回合和Gateway均空闲；UNKNOWN保留并核对，不因空闲判断取消或重发。保存本地受保护配置/资产与必要业务快照，按受控Git流程合入，复验后同步插件/产品工作区并重启Gateway与Web，核对握手、源文件新鲜度及业务记录不变。不需要前端重新构建；本轮没有执行这些步骤。
+- 已验证普通刷新、停止、完成竞态、等待网络错误及真实原生超时。没有模拟整台机器断电或原生结束回调永久丢失；此时原生状态UNKNOWN保持占用，需要证据核实，不能凭交付租期自动释放。未做两小时长视频/实际供应商网络实测，真实表达及视频质量继续由用户原路径验收。
+- 本轮收口，不开启第二轮重构、S7或整片重跑。个人内容、运行ID、原始回执、凭证未入Git。
