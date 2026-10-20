@@ -933,3 +933,25 @@ SOFTWARE_PASS 仅限上述具名范围；E2E=NOT_TESTED，REAL_PRODUCTION_PASS=N
 ### 本轮空闲部署核验
 
 单独追加真人同回合拒绝断言后，新恢复组件13项再次通过。正式部署前检查 pending/running/waiting 的生产运行、可派发任务、在途 Operation、原生回合/交付租约均为0，创建本机一致性恢复点；仅 kickstart 既有 `ai.openclaw.easel` 与 `com.easel.web`。随后Web首页200、backend.reload_required=false、Gateway插件协议2与9工具注册通过。数据库27张表和87份画像文件摘要部署前后一致，3条UNKNOWN及全部Operation保留，integrity_check=ok、foreign_key_check为空；部署后仍无活动任务。只读核验原失败作品已满足新恢复入口条件，没有提交恢复或产生模型调用。恢复点、私有摘要与原E2E记录保留本机，不入Git。按用户明确授权提交并推送 `origin/easel-v2-rebuild`，实际SHA与远端一致性在交付时核对。
+
+
+## 2026-10-20 · 单 main 与管线回合权限（实施方案，用户已批准）
+
+分类：S6/F2 CURRENT_BLOCKER，E2E-03 首条普通对话使用 openclaw/default 导致多 Agent owner 歧义；用户同时批准复用原生管线与钩子，停用 awei-creative、easel-video，新管线统一 main，保留 main 综合能力。用户明确历史会话不做兼容开发；历史数据库/文件仍保留，不删除、不迁移、不自动续跑。原有当前状态未提交补记保留。
+
+实现范围：普通 HTTP 明确 main；新受控会话复用 Conversation Segment，使用 main 下独立管线 namespace，避免普通历史进入作品。扩展既有 easel-work 插件：before_prompt_build 用服务端认领结果提供受控系统指令和九工具 toolsAllow；before_agent_run 检查本轮准备成功；before_tool_call 对受控 namespace 拒绝旁路、对九工具逐次准备票据；普通 main 回合不改变原工具/技能。宿主继续通过身份、prompt hash、run/turn/ticket校验权限，并通过启动握手检查单 main 策略。受控回合失败不回退通用 CLI。
+
+沿用现有管线选择/绑定与 pending→offer→answer，不增加业务状态、表、Agent、后台编排或用户审批。旧 Agent 不兼容迁移；旧结果回调不得由新 main 自动续接。停止讨论与取消制作保持原语义。历史通用能力仍由 main 承接，不把全部新聊天强制变成视频。
+
+验证只允许单元/组件：普通main不受影响、受控工具集合/系统指令、无绑定/伪造/跨会话/并发/晚到调用、钩子失败、原生身份、同回合等待、授权/UNKNOWN回归和HTTP探针业务错误识别。禁止E2E、真实模型/媒体、旧任务重发。通过后空闲检查、一致性备份、仅重载既有Web/Gateway，核对唯一main配置、工具策略握手、数据库/画像摘要后推送origin/easel-v2-rebuild；否则保留证据停止，不放宽保护。
+
+### 本轮实施与部署结果
+
+- 普通 Web 与管线 HTTP 均显式指定 main owner；空消息 readiness 仅接受具名缺消息错误，不再把任意 400 当成功。
+- 新管线复用 Conversation Segment，以 main 专属管线 session key 隔离。before_prompt_build 绑定宿主回合并替换产品指令、收窄九工具；before_agent_run 验证准备及输入，before_tool_call 验证工具白名单与原生票据。普通 main 回合保持原能力。未增加 Agent、业务表、状态或工具接口。
+- 旧 Agent 结果不会自动续跑；历史文件和数据库不迁移、不删除。未新增通用对话意图路由，仍复用现有管线进入/绑定机制。
+- 单元/组件：Python 259 passed、Node 18 passed；最终指令修正后相关 Python 61 passed。未执行隔离或真实 E2E、模型或媒体调用。
+- 空闲核查：生产 Run/Task/在途 Operation/活动管线回合均为0，普通 Web 无 running 标记，Gateway active tasks为0。备份当前配置和一致性数据库后，仅重启 Easel 专属 Gateway 与 Web。
+- 本机配置仅保留 main；其原模型、技能、工作区和通用工具配置保持，allow 追加九业务工具，插件启用受审 prompt hook。历史两个 Agent 数据目录保留。管线现在使用 main 原模型，不沿用旧视频 Agent 的模型覆盖。
+- 部署核验：Web200、backend.reload_required=false；Gateway agent_id=main/protocol=2/permission_policy=main-pipeline-v1/九工具；空消息返回预期具名400且不触发模型。部署前后27张业务表、87份画像文件摘要相同，3条UNKNOWN不变，integrity_check=ok、foreign_key_check无异常。
+- SOFTWARE_PASS：本轮单元/组件通过。REAL_PRODUCTION_PASS：NOT_TESTED。CREATOR_ACCEPTED：NOT_TESTED。实际原生模型回合中的权限钩子与完整创作闭环未经本轮E2E验证，不能用健康探针替代。S6仍PARTIAL。

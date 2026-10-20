@@ -161,7 +161,7 @@ def _gateway_http_ready(force: bool = False) -> bool:
     **不能探 /v1/models**：那个路径会被 gateway 控制台 SPA 的 catch-all 接走，端点没开也照样
     返回 200（body 是 OpenClaw Control 的 HTML 首页）—— 探了等于没探，只要网关活着就恒为 True。
     这里直接打真端点：openclaw 要求 gateway.http.endpoints.chatCompletions.enabled === true
-    才挂这条路由（默认 false），没开就是 404；开了则因为 body 缺 messages 返回 400。用 400 当
+    才挂这条路由（默认 false），没开就是 404；开了则因为空 messages 返回具名 400。只把 Missing user message 当
     "端点在"的证据，既走完整条路由又不消耗一次模型调用。
     """
     now = time.monotonic()
@@ -171,13 +171,18 @@ def _gateway_http_ready(force: bool = False) -> bool:
     try:
         import httpx  # noqa: F401  HTTP 路径全靠它做 SSE；没装就当端点不可用，回退 CLI
         rq = urllib.request.Request(
-            chat_completions_url(), data=b"{}",
-            headers={"Content-Type": "application/json", **gateway_auth_headers()}, method="POST")
+            chat_completions_url(), data=b'{"model":"openclaw/main","messages":[]}',
+            headers={"Content-Type": "application/json", "x-openclaw-agent-id": "main", **gateway_auth_headers()}, method="POST")
         try:
             with urllib.request.urlopen(rq, timeout=3):
-                ok = False       # 空 body 还给 200 说明这不是我们要的端点，不敢用
+                ok = False       # 空 messages 还给 200 说明这不是我们要的端点，不敢用
         except urllib.error.HTTPError as e:
-            ok = e.code == 400   # 400 Missing user message ⇒ 端点在；404 ⇒ 没开
+            try:
+                error = json.loads(e.read(16384)).get('error', {})
+                message = error.get('message', '') if isinstance(error, dict) else ''
+                ok = e.code == 400 and message in {'Missing user message', 'Missing user message.', 'Missing user message in `messages`.'}
+            except (ValueError, TypeError, AttributeError):
+                ok = False
     except Exception:  # noqa: BLE001
         ok = False
     _HTTP_READY_CACHE.update(at=now, ok=ok)
@@ -3376,14 +3381,14 @@ async def api_chat_stream(req: ChatRequest):
             收尾由主循环统一负责（proc.poll() 兼容面）。
             """
             body = {
-                "model": "openclaw/default",
+                "model": "openclaw/main",
                 "stream": True,
                 "messages": [{"role": "user", "content": message}],
             }
             # session-id 必须跟 CLI 路径钉死同一个（见 _openclaw_session_id）：只带 session-key
             # 的话网关会自己另起一个 transcript —— 跨天空闲后丢历史，且万一本轮回退 CLI，
             # 两条路径会写进不同的会话文件，对话历史直接劈叉。
-            headers = {**gateway_auth_headers(), "x-openclaw-session-key": f"agent:main:{sk}",
+            headers = {**gateway_auth_headers(), "x-openclaw-agent-id": "main", "x-openclaw-session-key": f"agent:main:{sk}",
                        "x-openclaw-session-id": _openclaw_session_id(sk)}
             tool_noted = False
             saw_done = False

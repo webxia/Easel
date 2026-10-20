@@ -43,7 +43,7 @@ def planning(env, *, fail=False):
 
 def claim_result(s,result):
     b=PersistentWorkToolBridge(s)
-    identity={'agent_id':'easel-video','session_key':result['payload']['session_key'],'session_id':'native-'+result['payload']['session_key'].split(':')[-1], 'run_id':'native-'+result['turn_id']}
+    identity={'agent_id':'main','session_key':result['payload']['session_key'],'session_id':'native-'+result['payload']['session_key'].split(':')[-1], 'run_id':'native-'+result['turn_id']}
     b.claim(Claim(**identity,prompt=result['prompt']))
     return b,identity
 
@@ -60,7 +60,7 @@ def test_plan_result_reenters_same_assistant_once_with_complete_script(env):
     assert relay.reserve_next() is None
     asyncio.run(worker.run_once())
     result=relay.reserve_next()
-    assert result and result['payload']['session_key']=='agent:easel-video:'+seg
+    assert result and result['payload']['session_key']=='agent:main:easel-pipeline:'+seg
     assert result['payload']['message'] is None
     assert '技术服务人。' in result['prompt'] and '科技画面' in result['prompt']
     assert result['payload']['result_event']['run_state']=='succeeded'

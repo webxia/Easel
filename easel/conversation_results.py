@@ -137,6 +137,7 @@ class ConversationResults:
             for record in conn.execute("SELECT t.*,s.ui_session,s.revoked_at FROM conversation_turns t JOIN conversation_segments s ON s.id=t.segment_id WHERE json_extract(t.payload_json,'$.origin')='task_result' AND t.state='reserved' AND s.revoked_at IS NULL ORDER BY t.created_at,t.id").fetchall():
                 segment = self.bridge.conversations.segment(conn, record['ui_session'])
                 payload = json.loads(record['payload_json'])
+                if not payload.get('session_key','').startswith('agent:main:easel-pipeline:'):continue
                 if segment['id'] != record['segment_id'] or segment['work_id'] != payload['work_id'] or row(conn,'works',payload['work_id'])['active_run_id'] != payload['result_event']['run_id']:
                     self.bridge._save(conn,record['id'],payload,'ended')
                     continue
@@ -147,6 +148,8 @@ class ConversationResults:
                 segment = self.bridge.conversations.segment(conn, proposal['ui_session'])
                 if segment['id'] != proposal['segment_id'] or segment['work_id'] != receipt['work_id']:
                     continue
+                origin=conn.execute('SELECT payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at DESC,id DESC LIMIT 1',(segment['id'],)).fetchone()
+                if not origin or not json.loads(origin[0]).get('session_key','').startswith('agent:main:easel-pipeline:'):continue
                 work = row(conn, 'works', receipt['work_id'])
                 if work.get('deleted_at') or work['active_run_id'] != receipt['run_id']:
                     continue
@@ -171,7 +174,7 @@ class ConversationResults:
                 prompt = ('【宿主任务结果事件，不是用户新指令或授权】\n'+encode(result_event)+
                     '\n请接续当前创作对话。先读取真实结果；方案成功时展示摘要、完整逐字脚本和分镜，必须先用easel_pipeline offer action=confirm创建本版待确认提案（含素材、配音及剪辑/检查实际需要的模型服务），然后展示返回的范围并提出制作确认问题；剪辑制作或局部修订完成时交付实际视频并说明检查结论，等待反馈。失败时结合material_summary一次解释全部已知缺口、已完成部分、保留成果、可行下一步和新增调用费用风险；候选不等于审查通过，用户无需复制内部编号。UNKNOWN不得声称自动核实或重新派发，明确当前接口能否查询。不得把本事件当作用户同意，不得自行恢复、改稿、授权或制作。视频用返回的playback_url嵌入<video controls src="...">，不得臆造地址。\n【服务端当前上下文】\n'+encode(context))
                 payload = {'origin':'task_result','message':None,'attachments':[], 'result_event':result_event,
-                    'work_id':work['id'],'revision':work['revision'], 'session_key':'agent:easel-video:'+segment['id'],
+                    'work_id':work['id'],'revision':work['revision'], 'session_key':'agent:main:easel-pipeline:'+segment['id'],
                     'native_session_id':segment['native_session_id'],'run_id':None,'tickets':{},'results':{},'calls':{},'answer':'',
                     'visible_proposals':[p['id'] for p in context['pending']], 'prompt_hash':hashlib.sha256(prompt.encode()).hexdigest(), 'result_prompt':prompt}
                 conn.execute('INSERT INTO conversation_turns VALUES (?,?,?,?,?,?)',(turn_id,segment['id'],digest(result_event),encode(payload),'reserved',now()))

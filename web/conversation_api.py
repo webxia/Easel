@@ -152,8 +152,8 @@ class VideoChat:
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(7200,connect=10),trust_env=False,follow_redirects=False) as client:
                 async with client.stream('POST',self.gateway_url.rstrip('/')+'/v1/chat/completions',
-                    headers={'Authorization':'Bearer '+self.gateway_token,'x-openclaw-session-key':result['payload']['session_key']},
-                    json={'model':'openclaw/easel-video','stream':True,'messages':[{'role':'user','content':result['prompt']}]}) as response:
+                    headers={'Authorization':'Bearer '+self.gateway_token,'x-openclaw-agent-id':'main','x-openclaw-session-key':result['payload']['session_key']},
+                    json={'model':'openclaw/main','stream':True,'messages':[{'role':'user','content':result['prompt']}]}) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
                         if not line.startswith('data:'):continue

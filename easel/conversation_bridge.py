@@ -106,7 +106,7 @@ class PersistentWorkToolBridge:
             for attachment in attachments:validate_attachment(self.service,ui_session,attachment)
             revision=row(conn,'works',segment['work_id'])['revision'] if segment['work_id'] else None
             payload={'origin':'user','message':message,'attachments':attachments,'work_id':segment['work_id'],'revision':revision,
-                     'session_key':'agent:easel-video:'+segment['id'],'native_session_id':segment['native_session_id'],
+                     'session_key':'agent:main:easel-pipeline:'+segment['id'],'native_session_id':segment['native_session_id'],
                      'run_id':None,'tickets':{},'results':{},'calls':{},'answer':''}
             conn.execute('INSERT INTO conversation_turns VALUES (?,?,?,?,?,?)',(turn_id,segment['id'],fingerprint,encode(payload),'reserved',now()))
             from .conversation_pipeline import pending
@@ -126,8 +126,8 @@ class PersistentWorkToolBridge:
         conn.execute('UPDATE conversation_turns SET payload_json=?,state=? WHERE id=?',(encode(payload),state,id))
 
     def _current(self,conn,identity,active=True):
-        if identity.agent_id!='easel-video' or not identity.session_key.startswith('agent:easel-video:'):reject('binding_mismatch')
-        sid=identity.session_key.removeprefix('agent:easel-video:')
+        if identity.agent_id!='main' or not identity.session_key.startswith('agent:main:easel-pipeline:'):reject('binding_mismatch')
+        sid=identity.session_key.removeprefix('agent:main:easel-pipeline:')
         segment=row(conn,'conversation_segments',sid)
         if segment['revoked_at'] and active:reject('binding_mismatch')
         record=conn.execute('SELECT * FROM conversation_turns WHERE segment_id=? ORDER BY created_at DESC,id DESC LIMIT 1',(sid,)).fetchone()
@@ -138,8 +138,8 @@ class PersistentWorkToolBridge:
 
     def claim(self,request:Claim):
         with self.store.transaction() as conn:
-            if request.agent_id!='easel-video' or not request.session_key.startswith('agent:easel-video:'):reject('binding_mismatch')
-            sid=request.session_key.removeprefix('agent:easel-video:')
+            if request.agent_id!='main' or not request.session_key.startswith('agent:main:easel-pipeline:'):reject('binding_mismatch')
+            sid=request.session_key.removeprefix('agent:main:easel-pipeline:')
             segment=row(conn,'conversation_segments',sid)
             record=conn.execute('SELECT * FROM conversation_turns WHERE segment_id=? ORDER BY created_at DESC,id DESC LIMIT 1',(sid,)).fetchone()
             if not record or segment['revoked_at']:reject('binding_mismatch')
@@ -151,7 +151,10 @@ class PersistentWorkToolBridge:
             conn.execute('UPDATE conversation_segments SET native_session_id=? WHERE id=?',(request.session_id,sid))
             payload['native_session_id']=request.session_id;payload['run_id']=request.run_id
             self._save(conn,record['id'],payload,'active')
-            return {'bound':True}
+            from .video_workspace import pipeline_system_prompt
+            return {'bound':True,'permission_policy':'main-pipeline-v1',
+                    'system_prompt':pipeline_system_prompt()}
+
 
     def prepare(self,request:PersistentCall):
         with self.store.transaction() as conn:
@@ -289,4 +292,4 @@ class PersistentWorkToolBridge:
 
 def require_persistent_gateway(base_url,token):
     from .work_bridge import require_gateway_bridge
-    return require_gateway_bridge(base_url,token,expected_tools=set(TOOLS),protocol=2)
+    return require_gateway_bridge(base_url,token,expected_tools=set(TOOLS),protocol=2,agent_id='main',permission_policy='main-pipeline-v1')

@@ -36,10 +36,10 @@ export function outputDiagnostic(message = {}, usage) {
     usage_status: Object.values(safeUsage).some(x => x > 0) ? 'reported' : 'missing_or_zero',
   };
 }
-export function installDiagnostics(api, agentId) {
+export function installDiagnostics(api, agentId, selected = ctx => ctx.agentId === agentId) {
   const runs = new Map();
   const record = (event,ctx) => {
-    if (ctx.agentId !== agentId) return;
+    if (!selected(ctx)) return;
     const id = ctx.runId ?? event.runId;
     if (!id) return;
     if (!runs.has(id)) runs.set(id,{calls:[]});

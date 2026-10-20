@@ -5,7 +5,7 @@ import { createWorkBridge, toolDefinitions } from '../../agents/plugins/easel-wo
 function runtime(baseUrl = 'http://127.0.0.1:12345', token = 'test-only-credential-32-characters') {
   const hooks = new Map(); let factory; let route;
   createWorkBridge({
-    pluginConfig: { baseUrl, token },
+    pluginConfig: { baseUrl, token, agentId:"easel-video", protocolVersion:1 },
     on(name, fn) { hooks.set(name, fn); },
     registerTool(fn) { factory = fn; },
     registerHttpRoute(value) { route = value; },
@@ -75,7 +75,7 @@ test('native identity, tool name and ticket forwarded separately from model para
 test('protocol 2 exposes nine bounded tools and retains independent lifecycle gates', () => {
   let factory, route;
   createWorkBridge({pluginConfig:{baseUrl:'http://127.0.0.1:12345',token:'test-credential-long-enough-32',protocolVersion:2},on(){},registerTool(fn){factory=fn;},registerHttpRoute(value){route=value;}});
-  const tools=factory(ctx);
+  const tools=factory({...ctx,agentId:'main',sessionKey:'agent:main:easel-pipeline:one'});
   assert.equal(tools.length,9);
   const proposalValues=tools.find(t=>t.name==='easel_work_propose').parameters.properties.values;
   assert.equal(proposalValues.properties.reference_input_ids.type,'array');

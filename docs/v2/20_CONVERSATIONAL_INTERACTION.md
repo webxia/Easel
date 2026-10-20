@@ -905,3 +905,8 @@ S6 F2/F3 CURRENT_BLOCKER；仅修复当前真实路径的长度终止、固定�
 ### 首次规划失败的有限恢复补充（2026-10-20）
 
 没有有效 Plan 的确定性规划失败，沿原 `easel_pipeline offer plan` 使用 `pending.failed_planning_replan.values.decision_id`，服务端绑定目标版本和依据并展示新的规划调用费用；后续真人明确确认后，原子替换安全停止的失败运行，保留同 Work 和历史证据。不是取消作品，不自动重发旧 Task，不自动进入制作。运行 owner、在途 Operation、UNKNOWN、已有 Plan 或不匹配版本均阻断此入口；权限和未知结果仍用既有专用路径。恢复不修改创作设置。固定声音合成参数由已选配置提供，创作模型不拥有新增/改写参数的权限；声音身份和其他明确设置继续严格核验。
+
+
+### 单 main 管线执行合同（2026-10-20，用户已批准）
+
+普通聊天与管线都显式选择main。受控管线继续使用原有进入/绑定流程，采用`agent:main:easel-pipeline:<segment>`隔离作品上下文，不复用普通聊天原生历史。既有插件before_prompt_build认领宿主预留回合、返回产品systemPrompt与toolsAllow；before_agent_run须核对本轮准备；before_tool_call须有同一原生运行/会话/票据，禁止非业务工具。正常main回合不收窄。桥接握手必须报告main-pipeline-v1，失败不退回通用执行。既有pending/offer/answer、授权与同回合等待不变。用户已放弃历史会话兼容，本轮不迁移历史、删除数据或重放旧Agent结果。

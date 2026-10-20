@@ -257,3 +257,13 @@ def test_expired_owner_cannot_late_acknowledge_recovery_claim(env):
         conn.execute("UPDATE conversation_turns SET payload_json=json_set(payload_json,'$.delivery_lease_until',0) WHERE id='execute'")
     assert results.reserve_next()
     raises('result_delivery_claimed',lambda:b.complete_delivery('execute','迟到的旧回复'))
+
+
+def test_retired_agent_result_is_not_automatically_replayed(env):
+    s,c,b,i,req,_=start(env);results=ConversationResults(b)
+    asyncio.run(worker(s).run_once());results.poll(req);b.end(Identity(**i))
+    with s.store.transaction() as conn:
+        conn.execute("UPDATE conversation_turns SET payload_json=json_set(payload_json,'$.session_key','agent:easel-video:legacy','$.delivery_lease_until',0) WHERE id='execute'")
+    before=s.snapshot(c.view('ui')['work_id'])
+    assert results.reserve_next() is None
+    assert s.snapshot(c.view('ui')['work_id'])==before

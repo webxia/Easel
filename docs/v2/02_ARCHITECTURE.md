@@ -323,3 +323,8 @@ Provider 的幂等或查询能力决定如何核实未知结果；缺少可核�
 [T01～T08](tasks/S5_VALIDATION_PLAN.md)和[早期研究实验](12_PRODUCTION_FLOW_RESEARCH.md)保留为测试意图与证据来源；V01～V11 的实际负责卡和验收阶段由[实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md)维护，不构成另一条排程。技术数值如自然语速/时长误差、自动修复上限与效率目标需实测校准，不能先用任意阈值改变验收。
 
 已确认范围见本文 §1；技术取舍见[选型建议](14_TECHNOLOGY_SELECTION.md)，Coding 合同见[可执行设计](15_IMPLEMENTATION_DESIGN.md)。当前进展、未测事实及唯一下一动作只在[当前状态](04_CURRENT_STATE.md)汇总；本文不要求重新访谈已确认需求，也不把局部后端缺口扩展为全部任务阻塞。
+
+
+## 2026-10-20 已批准：综合 main 与受控管线回合
+
+新管线不再拥有独立部署Agent：main承接普通讨论及业务管线，普通回合保留原综合技能/工具；进入管线时，宿主通过既有Conversation Segment建立独立原生会话范围，插件在模型前替换受控产品指令、收窄九工具，并在每次执行前核验票据与拒绝旁路。业务权限仍由WorkService/Operation裁决，不能以模型声称进入管线授权。退出本轮不自动取消生产。既有easel-video/awei-creative停止配置，新会话统一main；按用户决定不迁移/兼容旧会话，历史数据保留，不自动重放旧结果。此决定替代此前将独立easel-video作为正式装配要求的部署选择，不改变作品域状态机。

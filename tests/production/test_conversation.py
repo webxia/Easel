@@ -34,7 +34,7 @@ def entry(c,session='ui',**values):return c.enter(session,values,'enter_'+sessio
 def turn(service,c,segment,message='请做一条克制的视频',id='turn',attachments=None):
     bridge=PersistentWorkToolBridge(service)
     result=bridge.reserve(ui_session='ui',turn_id=id,segment_id=segment,message=message,attachments=attachments or [])
-    identity={'agent_id':'easel-video','session_key':result['payload']['session_key'],'session_id':'native-'+segment,'run_id':'run-'+id}
+    identity={'agent_id':'main','session_key':result['payload']['session_key'],'session_id':'native-'+segment,'run_id':'run-'+id}
     bridge.claim(Claim(**identity,prompt=result['prompt']))
     return bridge,identity,result
 
@@ -109,7 +109,7 @@ def test_cross_work_profile_native_transcripts_isolated_and_old_cards_stale(env)
     service,c,old,work=draft(env)
     new=entry(c,profile_ref='two')
     bridge,identity,result=turn(service,c,new,'SECOND_PROFILE_SENTINEL',id='second')
-    assert identity['session_key']!='agent:easel-video:'+old
+    assert identity['session_key']!='agent:main:easel-pipeline:'+old
     assert '第一次创业' not in result['prompt'] and 'one identity' not in result['prompt'] and 'two identity' in result['prompt']
     bridge.end(Identity(**identity))
     raises('stale_revision',lambda:PersistentWorkToolBridge(service).reserve(ui_session='ui',turn_id='late',segment_id=old,message='late',attachments=[]))
@@ -605,3 +605,27 @@ def test_prework_plan_card_is_reissued_after_draft_without_starting_generation(e
     with service.store.connection() as conn:
         assert conn.execute('SELECT COUNT(*) FROM runs').fetchone()[0]==1
         assert conn.execute('SELECT COUNT(*) FROM operations').fetchone()[0]==0
+
+
+def test_main_claim_returns_product_policy_only(env):
+    from easel.work_bridge import Claim
+    s,c=env;seg=entry(c,profile_ref='one')
+    b,i,result=turn(s,c,seg,'讨论创作')
+    claim=b.claim(Claim(**i,prompt=result['prompt']))
+    assert claim['permission_policy']=='main-pipeline-v1'
+    assert 'pending' in claim['system_prompt']
+    assert 'Git/PR' not in claim['system_prompt']
+    assert i['agent_id']=='main'
+    assert i['session_key'].startswith('agent:main:easel-pipeline:')
+    raises('binding_mismatch',lambda:b.claim(Claim(**{**i,'session_key':'agent:main:ordinary'},prompt=result['prompt'])))
+    raises('binding_mismatch',lambda:b.claim(Claim(**{**i,'agent_id':'easel-video'},prompt=result['prompt'])))
+
+
+def test_production_preflight_requires_scoped_main_policy(monkeypatch):
+    import httpx
+    from easel.conversation_bridge import require_persistent_gateway,TOOLS
+    value={'protocol':2,'agent_id':'main','tools':list(TOOLS)}
+    monkeypatch.setattr(httpx,'get',lambda *a,**k:httpx.Response(200,json=value,request=httpx.Request('GET','http://127.0.0.1:12345')))
+    raises('gateway_bridge_incompatible',lambda:require_persistent_gateway('http://127.0.0.1:12345','token'))
+    value['permission_policy']='main-pipeline-v1'
+    assert require_persistent_gateway('http://127.0.0.1:12345','token')['agent_id']=='main'

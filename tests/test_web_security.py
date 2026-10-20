@@ -328,7 +328,7 @@ def test_ready_probe_hits_chat_completions_not_models():
 def test_ready_probe_reads_status_code(monkeypatch, code, expected):
     """400（缺 messages）= 路由挂着；404 = chatCompletions.enabled 没开。"""
     def _raise(*a, **k):
-        raise web.urllib.error.HTTPError("u", code, "x", None, None)
+        raise web.urllib.error.HTTPError("u", code, "x", None, __import__("io").BytesIO(b'{"error":{"message":"Missing user message in `messages`."}}'))
 
     monkeypatch.setattr(web.urllib.request, "urlopen", _raise)
     assert web._gateway_http_ready(force=True) is expected
@@ -401,3 +401,22 @@ def test_http_mode_still_tails_raw_stream_for_thinking():
     src = inspect.getsource(web.api_chat_stream)
     seg = src.split("stdout_fut = None")[1][:600]
     assert seg.count("_tail") >= 2, "HTTP 分支没有启动 raw 流 tail，思考流会整个丢失"
+
+
+@pytest.mark.parametrize("message", ["Multiple agents are configured, but this operation has no explicit owner.","Unauthorized", "unknown agent"])
+def test_gateway_probe_does_not_accept_arbitrary_400(monkeypatch,message):
+    import io,json
+    def reject(req,**kwargs):
+        assert json.loads(req.data)['model']=='openclaw/main'
+        assert req.get_header('X-openclaw-agent-id')=='main'
+        raise web.urllib.error.HTTPError('u',400,'bad',None,io.BytesIO(json.dumps({'error':{'message':message}}).encode()))
+    monkeypatch.setattr(web.urllib.request,'urlopen',reject)
+    assert web._gateway_http_ready(force=True) is False
+
+
+def test_ordinary_gateway_request_names_main_explicitly():
+    import inspect
+    source=inspect.getsource(web.api_chat_stream)
+    assert '"model": "openclaw/main"' in source
+    assert '"x-openclaw-agent-id": "main"' in source
+    assert 'openclaw/default' not in source

@@ -256,3 +256,10 @@ Freesound 暂不接入：官方要求开发者申请 API Key，原始文件下�
 ### A8局部修订与纯重新导出（2026-10-19）
 
 原Web具体版本可勾选保留声音后提交局部反馈；缺口只补该Plan指定场景库存，不重新Planning/TTS。导出修复可使用版本卡“只重新导出此版本”，精确复用登记工程，不调用修订模型/素材/配音；既有语义失败或明确画面缺口不能通过重新导出绕过。QC沿用正式配置，本次仍manual_review_only，技术pass不表示自动语义pass。A8最终建议审阅原对话版本4，中间版保留；完整PCM与原版一致。部署仍先核查全库在途再重载唯一com.easel.web，backend.reload_required=false；不新建7870或修改Gateway配置。完整数据与限制见[S6-14A A8](tasks/S6-14A_conversation-integration.md)。
+
+
+## 单 main 正式装配（2026-10-20，替代旧双Agent装配）
+
+只保留main现役配置；原main工作区、模型/思考设置、技能和通用工具规则保留，只向其显式allow追加九个业务工具名。easel-work设置agentId=main、protocolVersion=2，开启allowConversationAccess及allowPromptInjection；其他插件不删除。插件按受控会话namespace限定回合，普通main看不到业务执行工具；管线执行前需要服务端认领、产品指令替换、九工具收窄和逐次票据核验。新管线使用main现有对话模型配置，不再使用退休easel-video的独立对话模型/思考覆盖；作品Planning/媒体Provider配置不改。旧Agent数据与配置快照保留，不为其建立迁移兼容路径。
+
+部署须先核对所有生产任务、原生回合、普通聊天与Gateway活动为空；备份现有配置/数据库，再停用awei-creative与easel-video注册，原子更新插件配置并重载既有Web/Gateway。验收看agent_id=main、permission_policy=main-pipeline-v1、协议2/九工具、Web新鲜度和保护数据摘要。不能把普通HTTP200或任何400当成功，空消息探针只接受具名Missing user message错误。

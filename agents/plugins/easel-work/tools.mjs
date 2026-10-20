@@ -80,7 +80,9 @@ export const persistentToolDefinitions = [...toolDefinitions,
 ];
 
 export function createWorkBridge(api) {
-  const { baseUrl, token, agentId = 'easel-video', protocolVersion = 1 } = api.pluginConfig ?? {};
+  const { baseUrl, token, agentId = 'main', protocolVersion = 2 } = api.pluginConfig ?? {};
+  const scopedMain = agentId === 'main' && protocolVersion === 2;
+  const inPipeline = ctx => ctx.agentId === agentId && (!scopedMain || (typeof ctx.sessionKey === 'string' && ctx.sessionKey.startsWith('agent:main:easel-pipeline:')));
   const definitions = protocolVersion === 2 ? persistentToolDefinitions : toolDefinitions;
   const url = new URL(baseUrl);
   if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || !url.port || url.pathname !== '/' || url.search || url.hash || url.username || url.password || !token || token.length < 24) {
@@ -91,12 +93,16 @@ export function createWorkBridge(api) {
     handler(req, res) {
       if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, tools: definitions.map(t => t.name) }));
+      res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, permission_policy: scopedMain ? 'main-pipeline-v1' : undefined, tools: definitions.map(t => t.name) }));
     },
   });
   const scope = createHash('sha256').update(JSON.stringify([baseUrl, agentId, protocolVersion, token])).digest('hex');
   const calls = registries.get(scope) ?? new Map();
   registries.set(scope, calls);
+  const prepared = registries.get(scope + ':prepared') ?? new Map();
+  registries.set(scope + ':prepared', prepared);
+  const runKey = ctx => JSON.stringify([ctx.sessionKey, ctx.sessionId, ctx.runId]);
+  const hash = text => createHash('sha256').update(text).digest('hex');
   const names = new Set(definitions.map(t => t.name));
   const identity = (ctx, event = {}) => ({ agent_id: ctx.agentId, session_key: ctx.sessionKey, session_id: ctx.sessionId, run_id: ctx.runId ?? event.runId });
   const key = (ctx, id, name) => `${ctx.sessionKey}\0${ctx.sessionId}\0${name}\0${id}`;
@@ -113,8 +119,26 @@ export function createWorkBridge(api) {
     }
     return result;
   }
+  if (scopedMain) api.on('before_prompt_build', async (event, ctx) => {
+    if (!inPipeline(ctx)) return;
+    prepared.delete(runKey(ctx));
+    try {
+      if (!ctx.runId || !ctx.sessionId) throw new Error('missing native identity');
+      const value = await send('claim', {...identity(ctx), prompt:event.prompt});
+      if (!value.bound || value.permission_policy !== 'main-pipeline-v1' || typeof value.system_prompt !== 'string' || !value.system_prompt.trim()) throw new Error('missing scoped policy');
+      prepared.set(runKey(ctx), hash(event.prompt));
+      return {systemPrompt:value.system_prompt, toolsAllow:[...names]};
+    } catch {
+      // The input gate below blocks model execution, not merely tool visibility.
+      return {systemPrompt:'受控管线未就绪，停止本轮。', toolsAllow:[]};
+    }
+  });
   api.on('before_agent_run', async (event, ctx) => {
-    if (ctx.agentId !== agentId) return;
+    if (!inPipeline(ctx)) return;
+    if (scopedMain) {
+      if (prepared.get(runKey(ctx)) !== hash(event.prompt)) return {outcome:'block', reason:'easel_pipeline_not_prepared', message:'管线权限未就绪，本轮未执行。'};
+      return;
+    }
     try {
       await send('claim', { ...identity(ctx, event), prompt: event.prompt });
     } catch {
@@ -122,7 +146,8 @@ export function createWorkBridge(api) {
     }
   });
   api.on('before_tool_call', async (event, ctx) => {
-    if (ctx.agentId !== agentId) return;
+    if (!inPipeline(ctx)) return;
+    if (scopedMain && !prepared.has(runKey(ctx))) return {block:true, blockReason:'easel_pipeline_not_prepared'};
     if (!names.has(event.toolName)) return { block: true, blockReason: 'easel_work_tool_not_allowed' };
     try {
       const result = await send('prepare', { ...identity(ctx, event), tool_call_id: event.toolCallId ?? ctx.toolCallId, tool: event.toolName, params: event.params }, ctx.abortSignal);
@@ -131,16 +156,17 @@ export function createWorkBridge(api) {
       return { block: true, blockReason: 'easel_work_tool_binding_rejected' };
     }
   });
-  const finishDiagnostic = protocolVersion === 2 ? installDiagnostics(api, agentId) : null;
+  const finishDiagnostic = protocolVersion === 2 ? installDiagnostics(api, agentId, inPipeline) : null;
   api.on('agent_end', async (event, ctx) => {
-    if (ctx.agentId !== agentId) return;
+    if (!inPipeline(ctx)) return;
+    prepared.delete(runKey(ctx));
     const bound = identity(ctx, event);
     for (const [id, call] of calls) if (call.run_id === bound.run_id) calls.delete(id);
     // If delivery fails the reservation remains occupied. Never release it on a guessed timeout.
     await send('end', {...bound, ...(finishDiagnostic ? {diagnostic:finishDiagnostic(event,ctx)} : {})});
   });
   api.registerTool(ctx => {
-    if (ctx.agentId !== agentId) return null;
+    if (!inPipeline(ctx)) return null;
     return definitions.map(definition => ({
       ...definition, label: definition.name,
       async execute(toolCallId, params, signal, onUpdate) {
