@@ -14,6 +14,7 @@ WORK_ACTIONS = {
     'confirm': {'plan_revision','plan_hash','services','allow_ai','image_limit','video_limit'},
     'grant': {'purpose','services','allow_ai','image_limit','video_limit','target_ref','plan_revision','decision_id'},
     'resume': {'decision_id'}, 'cancel': set(),
+    'replan_after_unknown': {'decision_id'},
     'basis': {'settings','input_text'},
     'revise': {'output_id','feedback','preserve_audio'},
     'confirm_revision': {'review_id','change_hash','services'},
@@ -81,6 +82,55 @@ def planning_values(conversations,conn,segment,values,*,applying=False):
     return {**values,'services':services}
 
 
+
+def unknown_replan_target(conversations, conn, segment, values):
+    """Bind an explicit NEW planning attempt; never resume/reclassify UNKNOWN."""
+    work = row(conn, 'works', segment['work_id'])
+    task = conn.execute("SELECT * FROM tasks WHERE id=? AND work_id=? AND run_id=? AND kind='plan' AND state='needs_decision'",
+                        (values.get('decision_id'), work['id'], work['active_run_id'])).fetchone()
+    if not task or work['current_plan_revision'] is not None:
+        fail('stale_revision', '当前没有可另行规划的未知结果阻断，请重新读取pending', 409)
+    run = row(conn, 'runs', task['run_id'])
+    if run['state'] != 'needs_decision' or run['owner_id'] or run['cancel_requested']:
+        fail('stale_revision', '旧运行仍在执行或状态已变化，不能另行规划', 409)
+    operations = [dict(r) for r in conn.execute('SELECT * FROM operations WHERE run_id=? ORDER BY id', (run['id'],))]
+    unknown = [op for op in operations if op['state'] == 'unknown']
+    if (not unknown or any(op['kind'] != 'MODEL' or op['task_id'] != task['id'] for op in unknown)
+            or conn.execute("SELECT 1 FROM operations WHERE work_id=? AND state IN ('reserved','sending','submitted')", (work['id'],)).fetchone()):
+        fail('result_unknown', '存在尚在执行的请求或非规划未知结果，不能通过此提案重开', 409)
+    from .production.configuration import model_configuration
+    _, model, version = model_configuration(conversations.service.outputs.parent)
+    if not model or any(op['config_version'] != version or any(op[k] != model[k] for k in model) for op in operations):
+        fail('stale_revision', '规划模型或配置与旧调用不一致，须另行核对，不能沿用本恢复提案', 409)
+    payload = json.loads(task['payload_json'])
+    basis = payload.get('creation_basis')
+    if not basis or basis != conversations.service._basis(conn, work):
+        fail('stale_revision', '创作依据已变化，须先核对变更，不能声称按旧依据重新规划', 409)
+    if conn.execute('SELECT 1 FROM work_inputs WHERE work_id=? AND created_at>?', (work['id'], task['created_at'])).fetchone():
+        fail('stale_revision', '旧调用后新增了素材，须先核对依据', 409)
+    return {'task_id': task['id'], 'task_revision': task['revision'],
+            'run_id': run['id'], 'run_revision': run['revision'],
+            'operations': [{'id': op['id'], 'revision': op['revision'], 'state': op['state']} for op in operations],
+            'basis_hash': digest(basis), 'config_version': version,
+            'request': payload.get('request', ''), 'services': [model]}
+
+
+def call_status(conversations, conn, segment):
+    if not segment['work_id']: return {'diagnostics': [], 'recovery': None}
+    diagnostics = [json.loads(r[0]) for r in conn.execute(
+        "SELECT payload_json FROM events WHERE work_id=? AND kind='model_call_diagnostic' ORDER BY seq DESC LIMIT 5", (segment['work_id'],))]
+    task = conn.execute("SELECT t.id FROM tasks t JOIN works w ON w.active_run_id=t.run_id WHERE w.id=? AND t.kind='plan' AND t.state='needs_decision' AND EXISTS (SELECT 1 FROM operations o WHERE o.task_id=t.id AND o.state='unknown')", (segment['work_id'],)).fetchone()
+    recovery = None
+    if task:
+        recovery = {'can_offer': False, 'old_result': 'UNKNOWN', 'automatic_retry': False,
+                    'note': '同步模型调用没有结果查询能力；没有诊断记录的旧调用不能补推超时分型。新尝试可能重复计费，必须另行展示并确认。'}
+        try:
+            unknown_replan_target(conversations, conn, segment, {'decision_id': task['id']})
+            recovery.update(can_offer=True, next_action={'mode': 'offer', 'action': 'replan_after_unknown', 'values': {'decision_id': task['id']}})
+        except ProductionError as exc:
+            recovery.update(code=exc.code, reason=exc.user_message)
+    return {'diagnostics': diagnostics, 'recovery': recovery}
+
 def pending(conversations, conn, segment):
     context = conversations.context(conn, segment)
     entry = context['entry']
@@ -108,7 +158,7 @@ def pending(conversations, conn, segment):
     last=conn.execute('SELECT payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at DESC,id DESC LIMIT 1',(segment['id'],)).fetchone()
     handoff=json.loads(last[0]).get('pipeline_binding') if last else None
     return {'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
-            'work':work,'capabilities':services,
+            'work':work,'capabilities':services,'model_calls':call_status(conversations,conn,segment),
             'missing_choices':[name for name,value in [('channel',entry.get('channel_id')),('director',entry.get('settings',{}).get('director_revision'))] if not value] if entry.get('kind','new_work') not in {'channel_create','director_formation'} else []}
 
 
@@ -125,7 +175,7 @@ def scoped(conversations,conn,segment,action,values):
     if action in WORK_ACTIONS:
         if kind=='channel_create' or (kind=='director_formation' and action not in {'input','grant','resume','cancel'}):
             fail('pipeline_mismatch','请先通过对话切换到对应管线',409)
-        if action in {'plan','confirm'}: require_choices(segment)
+        if action in {'plan','confirm','replan_after_unknown'}: require_choices(segment)
         if set(values)-WORK_ACTIONS[action]:fail('invalid_input','动作包含未允许字段')
         if not segment['work_id']:fail('work_not_bound','先建立本期草稿',409)
         if values.get('output_id'):
@@ -166,6 +216,12 @@ def offer(conversations,conn,segment,turn_id,action,values,summary):
         names='、'.join(s['provider']+'/'+s['model']+'/'+s['mode'] for s in values['services'])
         summary=f"授权服务：{names}；用途：{values['purpose']}。"+('授权后继续原整理方案任务。' if values.get('decision_id') else '本提案仅保存授权。')
     target={}
+    if action=='replan_after_unknown':
+        target=unknown_replan_target(conversations,conn,segment,values)
+        model=target['services'][0]
+        summary=(f"结束旧本地规划运行并撤销旧活动授权，保留旧UNKNOWN及全部回执；这不能取消或确认远端请求，可能重复计费。"
+                 f"以相同创作依据和{model['provider']}/{model['model']}/{model['mode']}发起一次新的规划任务，仅整理方案，不制作视频。"
+                 "保留现有规划的有界工具/格式修复规则，一次规划任务不代表只有一次模型调用。请明确确认以上范围后再执行。")
     if action=='input':
         _,target['attachment_digest']=selected_attachment(conversations,conn,segment,values)
     if action in CATALOG_ACTIONS:
@@ -188,6 +244,15 @@ def offer(conversations,conn,segment,turn_id,action,values,summary):
 def execute_action(conversations,conn,segment,body,key):
     values=body['values'];action=values['action'];data=values['payload']
     scoped(conversations,conn,segment,action,data)
+    if action=='replan_after_unknown':
+        target=unknown_replan_target(conversations,conn,segment,data)
+        if target!=values['catalog_target']:
+            fail('stale_revision','旧任务、调用结果或配置已变化，请重新核对并展示提案',409)
+        # Both domain commands share the enclosing answer transaction. A failed
+        # new plan rolls back cancellation too. UNKNOWN rows remain untouched.
+        stopped=conversations.service.command('cancel',{},command_id=key+'_stop',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
+        result=conversations.service.command('plan',{'request':target['request'],'services':target['services']},command_id=key+'_plan',work_id=segment['work_id'],expected_revision=stopped['revision'],_connection=conn)
+        return {**result,'previous_run_id':target['run_id'],'previous_result':'UNKNOWN'}
     if action=='input':
         attachment,checksum=selected_attachment(conversations,conn,segment,data)
         if checksum!=values['catalog_target']['attachment_digest']:fail('stale_revision','素材已变化，请重新核对确认',409)

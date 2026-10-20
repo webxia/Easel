@@ -39,8 +39,21 @@ class RecordedModelTransport:
             raise ModelTaskError('result_unknown','已有模型调用尚无确定回执；不能自动重复提交')
         try:
             message = await self.transport.complete(messages,tools,schema)
-        except BaseException:
+        except BaseException as exc:
             self.operations.mark_unknown(operation_id)
+            if isinstance(exc, ModelTaskError): exc.operation_id = operation_id
+            self._record_diagnostic(operation_id)
             raise
         self.operations.receive(operation_id,ProviderResult('succeeded',result={'message':message}))
+        self._record_diagnostic(operation_id)
         return message
+
+    def _record_diagnostic(self, operation_id):
+        # Only the reviewed HTTP transport emits metadata. No provider bodies,
+        # arbitrary exception diagnostics or prompt/schema validation text here.
+        from .model_tasks import HTTPModelTransport
+        if not isinstance(self.transport, HTTPModelTransport): return
+        with self.operations.store.transaction() as conn:
+            self.operations.store.append_event(conn, self.binding.work_id,
+                'model_call_diagnostic', {'operation_id': operation_id, **self.transport.diagnostic},
+                run_id=self.binding.run_id)

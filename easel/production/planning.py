@@ -427,7 +427,7 @@ class PlanningTasks:
                 self._save_result(conn,ctx,{'plan_revision':rev})
             return TaskResult(result={'plan_revision':rev},work_state='awaiting_confirmation')
         except ModelTaskError as exc:
-            return TaskResult(state='needs_decision',error=ProductionError(exc.code,exc.user_message,requires_decision=True),work_state='needs_decision')
+            return TaskResult(state='needs_decision',error=ProductionError(exc.code,exc.user_message,requires_decision=True,operation_id=exc.operation_id),work_state='needs_decision')
 
     async def analyze_director(self,ctx):
         from .worker import TaskResult
@@ -478,7 +478,7 @@ class PlanningTasks:
                 self._save_result(conn,ctx,{'director_revision_id':id})
             return TaskResult(result={'director_revision_id':id},work_state='discussing')
         except ModelTaskError as exc:
-            return TaskResult(state='needs_decision',error=ProductionError(exc.code,exc.user_message,requires_decision=True),work_state='needs_decision')
+            return TaskResult(state='needs_decision',error=ProductionError(exc.code,exc.user_message,requires_decision=True,operation_id=exc.operation_id),work_state='needs_decision')
 
 
 class DirectorAnalysis(Contract):

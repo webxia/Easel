@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextvars import ContextVar
+import re
+import time
 import hashlib
 import json
 from typing import Any, Awaitable, Callable, Protocol, TypeVar
@@ -29,6 +32,7 @@ class ModelTaskError(Exception):
         super().__init__(message)
         self.code, self.user_message = code, message
         self.diagnostic = diagnostic or {}
+        self.operation_id: str | None = None
 
 
 class ModelTransport(Protocol):
@@ -53,6 +57,19 @@ class HTTPModelTransport:
         except (ValueError, TypeError):
             raise ModelTaskError("model_timeout_invalid", "模型等待时间必须是120～1800秒") from None
         self.transport = transport
+        # One transport is shared by concurrent workers; never share a last-call dict.
+        self._diagnostic: ContextVar[dict] = ContextVar("model_call_diagnostic", default={})
+
+    @property
+    def diagnostic(self) -> dict:
+        return dict(self._diagnostic.get())
+
+    def _request_id(self, value) -> str | None:
+        if (isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", value)
+                and not value.lower().startswith(("sk-", "bearer", "token"))
+                and not (self._key and self._key in value)):
+            return value
+        return None
 
     async def complete(self, messages: list[dict], tools: list[dict], schema: dict) -> dict:
         body: dict[str, Any] = {"model": self.model, "messages": messages, "stream": False,
@@ -61,36 +78,70 @@ class HTTPModelTransport:
             body.update(modalities=["text"], reasoning_effort="none")
         if tools:
             body["tools"] = tools
+        started = time.monotonic()
+        diagnostic = {"timeout_seconds": self.timeout_seconds, "connect_timeout_seconds": 20,
+                      "message_count": len(messages), "tool_count": len(tools),
+                      "request_bytes": len(json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()),
+                      "stream": False, "output_limit_explicit": False,
+                      "reasoning_effort": body.get("reasoning_effort", "provider_default"),
+                      "phase": "request", "outcome": "interrupted"}
+        self._diagnostic.set(diagnostic)
         try:
             async with httpx.AsyncClient(transport=self.transport, trust_env=False,
                                          follow_redirects=False,
                                          timeout=httpx.Timeout(self.timeout_seconds, connect=20.0)) as client:
-                response = await client.post(self.base + "/chat/completions", json=body,
-                    headers={"Authorization": "Bearer " + self._key} if self._key else {})
+                # HTTP streaming exposes response headers before reading the body;
+                # the MODEL protocol remains stream=False (no SSE/retry change).
+                async with client.stream("POST", self.base + "/chat/completions", json=body,
+                    headers={"Authorization": "Bearer " + self._key} if self._key else {}) as response:
+                    diagnostic.update(phase="response_body", http_status=response.status_code,
+                                      headers_received_ms=round((time.monotonic()-started)*1000))
+                    request_id = self._request_id(response.headers.get("x-request-id") or response.headers.get("request-id"))
+                    if request_id: diagnostic["request_id"] = request_id
+                    await response.aread()
             if response.status_code != 200:
-                raise ModelTaskError("provider_http_error", f"模型服务返回 HTTP {response.status_code}；请核查请求格式或服务权限",
-                                     diagnostic={"http_status": response.status_code})
+                raise ModelTaskError("provider_http_error", f"模型服务返回 HTTP {response.status_code}；请核查请求格式或服务权限")
             try:
                 payload = response.json()
                 choice = payload["choices"][0]
                 message = choice["message"]
             except (ValueError, KeyError, IndexError, TypeError):
-                raise ModelTaskError("provider_response_invalid", "模型返回的响应结构无效",
-                                     diagnostic={"http_status": response.status_code}) from None
-            if not isinstance(message, dict):
+                raise ModelTaskError("provider_response_invalid", "模型返回的响应结构无效") from None
+            if not isinstance(message, dict) or not isinstance(choice, dict):
                 raise ModelTaskError("provider_response_invalid", "模型消息结构无效")
+            response_id = self._request_id(payload.get("id"))
+            if response_id: diagnostic["response_id"] = response_id
+            usage = payload.get("usage")
+            if isinstance(usage, dict):
+                for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                    if type(usage.get(key)) is int and usage[key] >= 0: diagnostic[key] = usage[key]
+                details = usage.get("completion_tokens_details")
+                if isinstance(details, dict) and type(details.get("reasoning_tokens")) is int and details["reasoning_tokens"] >= 0:
+                    diagnostic["reasoning_tokens"] = details["reasoning_tokens"]
+            for key in ("content", "reasoning_content"):
+                if isinstance(message.get(key), str): diagnostic[key+"_chars"] = len(message[key])
             finish = choice.get("finish_reason")
+            diagnostic["finish_reason"] = finish if finish in (None, "stop", "tool_calls", "length", "content_filter") else "other"
             if finish == "length":
-                raise ModelTaskError("model_output_truncated", "模型输出达到长度限制，未取得完整结果",
-                                     diagnostic={"finish_reason": "length"})
+                raise ModelTaskError("model_output_truncated", "模型输出达到长度限制，未取得完整结果")
             if finish not in (None, "stop", "tool_calls"):
-                raise ModelTaskError("model_finish_unexpected", "模型输出未正常结束",
-                                     diagnostic={"finish_reason": str(finish)[:64]})
+                raise ModelTaskError("model_finish_unexpected", "模型输出未正常结束")
+            diagnostic.update(phase="complete", outcome="succeeded")
             return message
-        except httpx.TimeoutException:
-            raise ModelTaskError("provider_timeout", "模型请求超时；提交结果尚未确定，禁止自动重发") from None
+        except httpx.TimeoutException as exc:
+            diagnostic.update(outcome="provider_timeout", timeout_type=next((name for cls, name in (
+                (httpx.ConnectTimeout,"connect"), (httpx.ReadTimeout,"read"),
+                (httpx.WriteTimeout,"write"), (httpx.PoolTimeout,"pool")) if isinstance(exc,cls)), "unspecified"))
+            raise ModelTaskError("provider_timeout", "模型请求超时；提交结果尚未确定，禁止自动重发", diagnostic=diagnostic) from None
         except httpx.HTTPError:
-            raise ModelTaskError("provider_network_error", "模型连接失败；提交结果尚未确定，禁止自动重发") from None
+            diagnostic["outcome"] = "provider_network_error"
+            raise ModelTaskError("provider_network_error", "模型连接失败；提交结果尚未确定，禁止自动重发", diagnostic=diagnostic) from None
+        except ModelTaskError as exc:
+            diagnostic["outcome"] = exc.code
+            exc.diagnostic = diagnostic
+            raise
+        finally:
+            diagnostic["elapsed_ms"] = round((time.monotonic()-started)*1000)
 
 
 T = TypeVar("T", bound=BaseModel)
