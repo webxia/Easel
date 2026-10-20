@@ -93,12 +93,14 @@ export function createWorkBridge(api) {
     handler(req, res) {
       if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, permission_policy: scopedMain ? 'main-pipeline-v1' : undefined, tools: definitions.map(t => t.name) }));
+      res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, permission_policy: scopedMain ? 'main-pipeline-v1' : undefined, natural_entry: scopedMain, tools: definitions.map(t => t.name) }));
     },
   });
   const scope = createHash('sha256').update(JSON.stringify([baseUrl, agentId, protocolVersion, token])).digest('hex');
   const calls = registries.get(scope) ?? new Map();
   registries.set(scope, calls);
+  const entries = registries.get(scope + ':entries') ?? new Map();
+  registries.set(scope + ':entries', entries);
   const prepared = registries.get(scope + ':prepared') ?? new Map();
   registries.set(scope + ':prepared', prepared);
   const runKey = ctx => JSON.stringify([ctx.sessionKey, ctx.sessionId, ctx.runId]);
@@ -134,7 +136,16 @@ export function createWorkBridge(api) {
     }
   });
   api.on('before_agent_run', async (event, ctx) => {
-    if (!inPipeline(ctx)) return;
+    if (!inPipeline(ctx)) {
+      if (scopedMain && ctx.agentId === 'main') {
+        entries.delete(runKey(ctx));
+        try {
+          const result = await send('entry', {...identity(ctx), mode:'claim', prompt:event.prompt});
+          if (result.bound) entries.set(runKey(ctx), {entered:false});
+        } catch { /* An ordinary non-Web main run retains its general abilities. */ }
+      }
+      return;
+    }
     if (scopedMain) {
       if (prepared.get(runKey(ctx)) !== hash(event.prompt)) return {outcome:'block', reason:'easel_pipeline_not_prepared', message:'管线权限未就绪，本轮未执行。'};
       return;
@@ -146,7 +157,18 @@ export function createWorkBridge(api) {
     }
   });
   api.on('before_tool_call', async (event, ctx) => {
-    if (!inPipeline(ctx)) return;
+    if (!inPipeline(ctx)) {
+      if (!scopedMain || ctx.agentId !== 'main') return;
+      const entry=entries.get(runKey(ctx));
+      if (entry?.entered || entry?.pending) return {block:true, blockReason:'easel_pipeline_entered_finish_turn'};
+      if (event.toolName === 'easel_pipeline') {
+        if (!entry || event.params?.mode !== 'enter' || !(event.toolCallId ?? ctx.toolCallId)) return {block:true,blockReason:'easel_entry_not_bound'};
+        entry.pending=true;
+        entry.call=event.toolCallId ?? ctx.toolCallId;
+        entry.params=JSON.stringify(event.params);
+      }
+      return;
+    }
     if (scopedMain && !prepared.has(runKey(ctx))) return {block:true, blockReason:'easel_pipeline_not_prepared'};
     if (!names.has(event.toolName)) return { block: true, blockReason: 'easel_work_tool_not_allowed' };
     try {
@@ -158,6 +180,7 @@ export function createWorkBridge(api) {
   });
   const finishDiagnostic = protocolVersion === 2 ? installDiagnostics(api, agentId, inPipeline) : null;
   api.on('agent_end', async (event, ctx) => {
+    entries.delete(runKey(ctx));
     if (!inPipeline(ctx)) return;
     prepared.delete(runKey(ctx));
     const bound = identity(ctx, event);
@@ -166,7 +189,20 @@ export function createWorkBridge(api) {
     await send('end', {...bound, ...(finishDiagnostic ? {diagnostic:finishDiagnostic(event,ctx)} : {})});
   });
   api.registerTool(ctx => {
-    if (!inPipeline(ctx)) return null;
+    if (!inPipeline(ctx)) {
+      if (!scopedMain || ctx.agentId !== 'main') return null;
+      return [{name:'easel_pipeline',label:'进入创作讨论管线',
+        description:'当用户要讨论、创建或修改视频、频道或导演时，先进入现有受控管线，再读取创作资料；不要走旧技能的shell制作链。这里只切换讨论上下文，不创建作品、不确认方案、不授权或执行付费服务。普通闲聊和其他任务不调用。返回真实候选后说明并询问缺项，下一条用户回复自动续接，无需点击或重复主题。',
+        parameters:{type:'object',properties:{mode:{type:'string',enum:['enter']},kind:{type:'string',enum:['new_work','channel_create','director_formation']},user_quote:{type:'string',description:'本轮完整用户原话，不含宿主提示或画像前缀'}},required:['mode','kind','user_quote'],additionalProperties:false},
+        async execute(id,params,signal){
+          const entry=entries.get(runKey(ctx));
+          if (!entry || entry.entered || entry.call !== id || entry.params !== JSON.stringify(params)) throw Error('easel_entry_not_bound');
+          // Once dispatched, a lost receipt must not fall back to unrestricted tools.
+          entry.entered=true;
+          const result=await send('entry',{...params,...identity(ctx),prompt:'',tool_call_id:id},signal);
+          return {content:[{type:'text',text:JSON.stringify(result)}],details:result};
+        }}];
+    }
     return definitions.map(definition => ({
       ...definition, label: definition.name,
       async execute(toolCallId, params, signal, onUpdate) {

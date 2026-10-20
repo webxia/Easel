@@ -10,10 +10,10 @@ function runtime(){
  return {hooks,tools:factory,route};
 }
 const response=data=>new Response(JSON.stringify(data),{status:200});
-test('ordinary main retains tools and context, no work bridge requests',async()=>{
+test('ordinary main retains general tools and context even without Web entry binding',async()=>{
  const r=runtime();const old=globalThis.fetch;globalThis.fetch=()=>{throw Error('must not query')};
  try{
-  assert.equal(r.tools(ordinary),null);
+  assert.deepEqual(r.tools(ordinary).map(t=>t.name),['easel_pipeline']);
   assert.equal(await r.hooks.get('before_prompt_build')({prompt:'chat'},ordinary),undefined);
   assert.equal(await r.hooks.get('before_agent_run')({prompt:'chat'},ordinary),undefined);
   assert.equal(await r.hooks.get('before_tool_call')({toolName:'exec'},ordinary),undefined);
@@ -56,5 +56,39 @@ test('concurrent ordinary and pipeline calls do not share restrictions or ticket
   await assert.rejects(r.tools(other)[0].execute('c',{}),/missing_native_call_binding/);
   await r.hooks.get('agent_end')({},ctx);
   await assert.rejects(r.tools(ctx)[0].execute('c',{}),/missing_native_call_binding/);
+ }finally{globalThis.fetch=old;}
+});
+
+test('natural entry uses native identity, no arbitrary params, blocks tools after handoff',async()=>{
+ const r=runtime(),old=globalThis.fetch,requests=[];
+ globalThis.fetch=async(url,options)=>{requests.push(JSON.parse(options.body));return response({bound:true,entered:true,segment_id:'new'})};
+ try{
+  const tool=r.tools(ordinary)[0],params={mode:'enter',kind:'new_work',user_quote:'只讨论'};
+  await assert.rejects(tool.execute('c',params),/not_bound/);
+  await r.hooks.get('before_agent_run')({prompt:'host prompt'},ordinary);
+  assert.equal(await r.hooks.get('before_tool_call')({toolName:'read'},ordinary),undefined);
+  await r.hooks.get('before_tool_call')({toolName:'easel_pipeline',toolCallId:'c',params},ordinary);
+  await assert.rejects(tool.execute('c',{...params,kind:'director_formation'}),/not_bound/);
+  assert.equal((await tool.execute('c',params)).details.entered,true);
+  assert.equal(requests[1].session_key,ordinary.sessionKey);
+  assert.equal((await r.hooks.get('before_tool_call')({toolName:'exec'},ordinary)).block,true);
+  await assert.rejects(tool.execute('c',params),/not_bound/);
+  assert.equal(await r.hooks.get('before_tool_call')({toolName:'exec'},{...ordinary,runId:'unrelated'}),undefined);
+  await r.hooks.get('agent_end')({},ordinary);
+  await assert.rejects(tool.execute('c',params),/not_bound/);
+ }finally{globalThis.fetch=old;}
+});
+
+test('entry preparation blocks parallel general calls before dispatch, including lost receipt',async()=>{
+ const r=runtime(),old=globalThis.fetch;
+ globalThis.fetch=async(url,options)=>{if(JSON.parse(options.body).mode==='enter')throw Error('lost');return response({bound:true})};
+ try{
+  await r.hooks.get('before_agent_run')({prompt:'p'},ordinary);
+  const params={mode:'enter',kind:'channel_create',user_quote:'讨论频道'};
+  await r.hooks.get('before_tool_call')({toolName:'easel_pipeline',toolCallId:'parallel',params},ordinary);
+  assert.equal((await r.hooks.get('before_tool_call')({toolName:'exec'},ordinary)).block,true);
+  await assert.rejects(r.tools(ordinary)[0].execute('parallel',params),/lost/);
+  assert.equal((await r.hooks.get('before_tool_call')({toolName:'exec'},ordinary)).block,true);
+  await r.hooks.get('agent_end')({},ordinary);
  }finally{globalThis.fetch=old;}
 });

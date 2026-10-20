@@ -955,3 +955,45 @@ SOFTWARE_PASS 仅限上述具名范围；E2E=NOT_TESTED，REAL_PRODUCTION_PASS=N
 - 本机配置仅保留 main；其原模型、技能、工作区和通用工具配置保持，allow 追加九业务工具，插件启用受审 prompt hook。历史两个 Agent 数据目录保留。管线现在使用 main 原模型，不沿用旧视频 Agent 的模型覆盖。
 - 部署核验：Web200、backend.reload_required=false；Gateway agent_id=main/protocol=2/permission_policy=main-pipeline-v1/九工具；空消息返回预期具名400且不触发模型。部署前后27张业务表、87份画像文件摘要相同，3条UNKNOWN不变，integrity_check=ok、foreign_key_check无异常。
 - SOFTWARE_PASS：本轮单元/组件通过。REAL_PRODUCTION_PASS：NOT_TESTED。CREATOR_ACCEPTED：NOT_TESTED。实际原生模型回合中的权限钩子与完整创作闭环未经本轮E2E验证，不能用健康探针替代。S6仍PARTIAL。
+
+## 2026-10-20 · E2E-04 证据核实与有界修复
+
+分类：S6/F2 CURRENT_BLOCKER；实际首轮讨论出现收尾警告和疑似产物链接。先核实真实回执，不重发请求或制作。本轮不启动E2E。
+
+### 核实结论
+
+1. 两轮原生 transcript 均以 assistant stop 正常结束；最终正文完整包含在 Web token 事件中。不是已证实的模型输出截断或网络丢字。Web诊断将共享raw流的最后事件作为结束权威，而HTTP没有记录自身finish_reason/[DONE]；raw尾为assistant_text_stream时误报，即便同轮已观察过message_end。
+2. 所提脚本和目录不存在，本题没有匹配Work，本会话没有Conversation Segment。首轮仅见read/exec查询资料及配置目录；续聊无工具调用。没有证据证明所报产物创建或媒体制作发生。普通推理调用已发生，不能说完全无模型费用。
+3. 链接由MessageBubble调用linkifyOutputs，把计划中的裸路径/行内代码路径转成文件链接和“内容库”入口，不是业务创建回执。助手同时将未确认方向写成已锁定，参考了旧作品参数，不能作为有效Plan或配置依据。
+4. 核心入口缺口仍在：普通新对话无videoSegmentId，走通用main；现有受控工具只绑定已进入管线的session。本次没有进入受控管线，不代表其权限钩子被绕过，但也证明仅统一owner不等于自然语言入口已接通。
+
+### 已完成的最小修复
+
+- HTTP收尾以该请求的finish_reason=stop、[DONE]且无错误为依据；共享raw仅保留诊断，不能覆盖本请求回执。length、缺结束、错误、工具结尾不记成功；保存和展示使用同一判据。移除无依据的网络归因和自动重试暗示。
+- MessageBubble不再将普通文字/代码中的路径自动渲染为产物。保留显式Markdown交付链接及图片规范化，不新增查询API或产物状态体系。显式链接自身仍不构成服务端存在性证明。
+- 回归：Python101 passed，Node6 passed，前端TypeScript/Vite构建通过。测试覆盖正常HTTP结束与滞后raw尾、缺DONE、length、错误、工具结尾，以及讨论路径与明确交付链接的区别。未执行E2E、模型/媒体调用、旧任务重跑或服务重启。
+
+### 剩余当期阻断与下一最小设计
+
+通用main到既有ConversationService.enter/bind的自然语言入口尚未接通，不能标完整修复。应复用现有entry类型与管线段：main识别用户视频/频道/导演意图，宿主验证入口及画像并切换后续受控回合；进入管线只建立讨论上下文，不创建Work、不授予制作或费用权限。不得全局收窄main、按关键词直接开工或新增创作Agent。入口如何由原生工具调用安全绑定当前Web会话，需要单独补齐可信身份和切换回执组件测试后实施；本轮未临时引入新入口工具或新状态机。
+
+SOFTWARE_PASS：上述局部回归通过；REAL_PRODUCTION_PASS：NOT_TESTED；CREATOR_ACCEPTED：NOT_TESTED。现有真实G1 BLOCKED保留。代码本地待部署，前端构建产物已更新；不宣称正式后端已加载本轮改动。
+
+### E2E-04 续修：自然语言入口（用户已授权实施、部署和推送）
+
+目标/分类：S6/F2 CURRENT_BLOCKER；第04轮普通新对话绕开受控管线。仅复用enter/bind，不新增Agent/业务状态/表；不执行E2E、模型媒体调用或旧任务重跑。
+
+- 普通main使用现有easel_pipeline工具名的enter模式表达视频/频道/导演意图；宿主提示要求先进入再读取创作配置，其他能力不收窄。模型只提交类型与完整用户原话，不能指定他人会话、画像、作品或费用权限。
+- Web在持有现有会话锁时保留短期入口凭据，原生before_agent_run核对实际输入/session/run，before_tool_call绑定调用参数；内部鉴权entry路由调用现有ConversationService.enter。只新增一个内部路由和短期身份映射，不新增模型工具名称、调度器或持久状态机。必须新增短期映射，因为普通讨论没有生产turn可直接验证，不能相信模型传入session/profile。
+- 进入后原始用户输入与附件保存为已有conversation_turns中的ended来源；不创建Work/Plan/Run/Task/Operation/授权。pending返回真实配置与候选；当前回合只能解释及问缺项，后续工具调用阻断。下一用户回合自动按已有segment路由，复用bind选择频道/导演；无需用户重复主题、输入内部编号或点击入口。
+- 入口调用结果丢失不退回通用工具，不自动重发。映射随Web回合结束释放，身份错配和跨会话访问拒绝；已落库segment可通过既有view恢复，前端只读同步segment。历史数据不迁移或自动续跑。
+- 一轮有界单元/组件回归通过后按空闲检查部署、推送并停止；真正模型是否按意图选用入口以及完整视频链仍需后续独立E2E，不能由本轮软件测试代替。
+
+#### 续修验证与部署
+
+- Python单元/组件270 passed；Node26 passed；前端TypeScript/Vite构建通过。最终状态标记调整后的插件14项复验通过。
+- 旧“遗漏客户端segment必须400”测试因新宿主自动接续而不再适用，已改为隔离stream替身验证自动路由到受控段，禁止走普通main。首轮该测试触达Gateway后在绑定准备阶段被拒绝，没有模型assistant记录；修正后完整回归仅使用测试替身/临时库。
+- 空闲核查：生产Run/Task/在途Operation/管线回合0，普通Web running标记0，Gateway active tasks0；建立一致性恢复点后仅重启Easel专属Gateway和Web，无配置或Agent增加。
+- 部署：Web200；backend.reload_required=false；Gateway main/protocol2/九工具/main-pipeline-v1/natural_entry=true。认证但无活动Web回合的入口请求返回409 binding_mismatch；该探针不创建讨论、不调用模型。
+- 部署前后27张业务表和87份画像文件摘要相同，3条UNKNOWN保留；integrity_check=ok，foreign_key_check无异常。未重发旧任务、未执行E2E或付费生产调用。
+- SOFTWARE_PASS：本轮单元/组件通过。REAL_PRODUCTION_PASS：NOT_TESTED。CREATOR_ACCEPTED：NOT_TESTED。自然语言意图识别仍由main判断，软件测试证明入口、权限与续接，不证明真实模型每次都选对工具。后续由用户决定新Web E2E，S6仍PARTIAL。

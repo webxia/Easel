@@ -910,3 +910,7 @@ S6 F2/F3 CURRENT_BLOCKER；仅修复当前真实路径的长度终止、固定�
 ### 单 main 管线执行合同（2026-10-20，用户已批准）
 
 普通聊天与管线都显式选择main。受控管线继续使用原有进入/绑定流程，采用`agent:main:easel-pipeline:<segment>`隔离作品上下文，不复用普通聊天原生历史。既有插件before_prompt_build认领宿主预留回合、返回产品systemPrompt与toolsAllow；before_agent_run须核对本轮准备；before_tool_call须有同一原生运行/会话/票据，禁止非业务工具。正常main回合不收窄。桥接握手必须报告main-pipeline-v1，失败不退回通用执行。既有pending/offer/answer、授权与同回合等待不变。用户已放弃历史会话兼容，本轮不迁移历史、删除数据或重放旧Agent结果。
+
+### 2026-10-20 · 自然语言进入既有管线（已实现，真实E2E待验）
+
+普通main回合可使用同名easel_pipeline的enter模式选择new_work/channel_create/director_formation；宿主绑定当前Web输入、画像与原生会话，调用现有enter，只建立讨论段。当前用户原话成为已结束的可信来源，进入不等于创建Work、确认Plan或费用授权。入口提交后本轮停止通用工具，展示真实pending并问缺项；下一条用户回复由服务器按segment自动路由，沿既有bind/offer/answer继续，前端只读同步段标识。普通其他任务的main能力不变。内部entry接口需桥接凭证与当前原生身份，不接受模型指定会话、画像或作品。失败不自动重试，也不退回shell执行制作。

@@ -571,7 +571,7 @@ async def local_write_guard(request: Request, call_next):
     """
     origin = request.headers.get('origin')
     bridge_token=os.environ.get('EASEL_WORK_BRIDGE_TOKEN','')
-    if bridge_token and request.headers.get('authorization') == 'Bearer '+bridge_token and request.url.path not in {'/api/chat/work-tools/claim','/api/chat/work-tools/prepare','/api/chat/work-tools/dispatch','/api/chat/work-tools/result','/api/chat/work-tools/end'}:
+    if bridge_token and request.headers.get('authorization') == 'Bearer '+bridge_token and request.url.path not in {'/api/chat/work-tools/claim','/api/chat/work-tools/prepare','/api/chat/work-tools/dispatch','/api/chat/work-tools/result','/api/chat/work-tools/end','/api/chat/work-tools/entry'}:
         return JSONResponse({'detail':'作品插件凭证不可用于此入口'},status_code=403)
     if request.url.path.startswith('/api/chat/work-tools/') and not _loopback_peer(request):
         return JSONResponse({'detail':'作品工具桥仅允许本地传输'},status_code=403)
@@ -2711,7 +2711,7 @@ def _chat_message(req: ChatRequest) -> str:
         message = f"{message}\n\n{context}" if message else context
     if not message:
         raise HTTPException(400, "消息不能为空")
-    return chat_turn_message(message, req.persona)
+    return chat_turn_message(message, req.persona) + "\n\n【宿主入口说明】本轮若讨论或创建视频、频道、导演，请先用 easel_pipeline(mode=enter) 进入受控讨论，再读取配置；不使用旧制作技能或shell替代管线。只讨论也可进入，进入不是创建作品或费用授权。user_quote须为本轮完整用户原话（不含附件清单、画像前缀和宿主提示）。普通其他任务保持原能力。"
 
 
 def _direct_chat_content(req: ChatRequest) -> tuple[str | list, str]:
@@ -2898,6 +2898,14 @@ class _CrossProcLock:
                 pass
             self._fh = None
             self.acquired = False
+
+
+def _chat_stream_clean_end(info: dict, *, is_http: bool) -> bool:
+    """Use this request's terminal receipt; shared raw logs are only diagnostics."""
+    if is_http:
+        return bool(info.get("http_done") and not info.get("http_error")
+                    and info.get("stop_reason") == "stop")
+    return info.get("last_ev") == "assistant_message_end"
 
 
 def _turn_file(sk: str) -> Path:
@@ -3297,6 +3305,10 @@ async def api_chat_stream(req: ChatRequest):
     token delta 转成 SSE `token`、thinking delta 转成 `thinking`。stdout 仅留作错误/兜底。
     """
     if req.videoSegmentId or req.interaction_mode == 'video' or _video_session_bound(req.sessionId):
+        if not req.videoSegmentId:
+            from easel.conversation import ConversationService
+            req.videoSegmentId=ConversationService(_production_service()).view(req.sessionId)['segment_id']
+        req.turnId=req.turnId or uuid.uuid4().hex
         return await _video_chat.stream(req, api_chat_job_stream)
     if req.workId:
         _production_chat_command(req)
@@ -3401,6 +3413,7 @@ async def api_chat_stream(req: ChatRequest):
                             "POST", chat_completions_url(),
                             json=body, headers=headers) as resp:
                         if resp.status_code != 200:
+                            run_info["http_error"] = True
                             raw = (await resp.aread())[:200].decode("utf-8", "replace")
                             to_client("error", f"❌ 对话失败（HTTP {resp.status_code}）：{raw[:160]}")
                             return
@@ -3410,15 +3423,20 @@ async def api_chat_stream(req: ChatRequest):
                             payload = line[5:].lstrip()   # SSE 允许 `data:{…}`（冒号后无空格）
                             if payload == "[DONE]":
                                 saw_done = True
+                                run_info["http_done"] = True
                                 break
                             try:
                                 d = json.loads(payload)
                             except ValueError:
                                 continue
                             if isinstance(d.get("error"), dict):   # 200 里夹错误对象：不能当正常流吞掉
+                                run_info["http_error"] = True
                                 to_client("error", f"❌ 网关返回错误：{str(d['error'])[:160]}")
                                 return
-                            delta = (d.get("choices") or [{}])[0].get("delta") or {}
+                            choice = (d.get("choices") or [{}])[0]
+                            if choice.get("finish_reason"):
+                                run_info["stop_reason"] = choice["finish_reason"]
+                            delta = choice.get("delta") or {}
                             # 思考流的两个可能来源，先到先得（`sse_thinking` 闩锁，防两路都来时重复）：
                             # ① 这里的 reasoning 增量 —— openclaw 2026.6.11 的 chat/completions
                             #    实现里 reasoning/thinking 出现 0 次，**不会**给；留着是给别的网关/
@@ -3445,6 +3463,7 @@ async def api_chat_stream(req: ChatRequest):
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
+                run_info["http_error"] = True
                 to_client("error", f"❌ 网关连接失败：{str(e)[:140]}")
             finally:
                 # 先把 SENTINEL 排进 q（FIFO 保证它排在本轮所有 token 之后），再标记完成：
@@ -3499,6 +3518,8 @@ async def api_chat_stream(req: ChatRequest):
         # _resolve_transport 里既有 stat 又有阻塞 urllib 探针（最多 3s），必须丢线程：
         # 直接在协程里调会把整个事件循环——连同其它会话正在推的 SSE——一起卡住。
         is_http = (await asyncio.to_thread(_resolve_transport, sk)) == "http"
+        from web.conversation_api import natural_entry
+        natural_entry.reserve(sk, _openclaw_session_id(sk), turn_id, message, req.message.strip(), req.persona, [a.model_dump() for a in req.attachments])
         if is_http:
             # HTTP 直连常驻网关：无进程冷启动（agent 在 gateway 进程里跑）
             proc = _GatewayHttpProc()
@@ -3509,6 +3530,7 @@ async def api_chat_stream(req: ChatRequest):
                     cwd=str(PROJECT_ROOT), text=True, bufsize=1, env=env,
                 )
             except BaseException:
+                natural_entry.release(sk, turn_id)
                 lock.release()
                 xlock.release()
                 _save_turn(pk, "done", "❌ 启动失败，请重试", {
@@ -3766,7 +3788,7 @@ async def api_chat_stream(req: ChatRequest):
             # 收尾检测：即使已吐了内容，只要不是「正常收尾」就显式告知——
             # 否则被截断（触顶）/被杀（负载）/流被中断，都会被当成「清晰地答完了」，
             # 用户看到的就是「答一半突然停、也不说做完」（本 bug 根因）。
-            # 正常收尾的唯一标志：raw 流最后一个事件是 assistant_message_end。
+            # HTTP依据本请求finish_reason和DONE；CLI沿用raw结束事件，不混用两路权威。
             # 用户显式「停止」不是异常中断 → 不报「被中断」告警（前端已就地标注「已停止」）。
             if (emitted or run_info["thinking_chars"]) and sk not in _STOPPED_CHAT:
                 note = None
@@ -3776,12 +3798,12 @@ async def api_chat_stream(req: ChatRequest):
                 elif rc not in (0, None):
                     note = (f"\n\n---\n⚠️ 生成**被中断**（退出码 {rc}，多半是超时或系统负载过高把进程杀了），"
                             f"不是正常收尾。可以让我重试。")
-                elif sr == "tool_use":
+                elif sr in ("tool_use", "tool_calls"):
                     note = ("\n\n---\n⚠️ 我刚做完这一步、**正要执行下一步操作时中断了**"
                             "（本轮以工具调用结尾却没能继续，前端把它当成答完了）。回我「继续」我接着做。")
-                elif run_info.get("last_ev") not in (None, "assistant_message_end"):
+                elif (is_http and not _chat_stream_clean_end(run_info, is_http=True)) or (not is_http and run_info.get("last_ev") not in (None, "assistant_message_end")):
                     note = ("\n\n---\n⚠️ 这条**可能没写完**——模型的输出/思考流被中断、没有正常收尾"
-                            "（多为网络或模型代理把长回复的流掐断了）。回我「继续」，或重试。")
+                            "（未收到本次请求的完整结束回执）。已有操作须先核对，不能据此自动重试。")
                 elif run_info.get("text_tail", "").rstrip()[-1:] in ("：", ":"):
                     # 正常收尾但正文停在冒号 = 模型"我要做X："后没接着做（多为要接工具/下一步却断了）。
                     # 用户实测「所有莫名停止都停在冒号」——这一条兜住这个模式。
@@ -3825,7 +3847,8 @@ async def api_chat_stream(req: ChatRequest):
                         "rc": proc.poll(),
                         "stop_reason": run_info["stop_reason"],
                         "last_ev": run_info["last_ev"],
-                        "clean_end": run_info["last_ev"] == "assistant_message_end",
+                        "clean_end": _chat_stream_clean_end(run_info, is_http=is_http),
+                        "http_done": run_info.get("http_done", False),
                         "saw_message_end": run_info["saw_message_end"],
                         "fetch_count": run_info["fetch_count"],
                         "token_chars": run_info["token_chars"],
@@ -3840,9 +3863,10 @@ async def api_chat_stream(req: ChatRequest):
             # 落盘完整结果：后端跑完整轮不依赖客户端连接，断线后前端用 /api/chat/last 取回
             _save_turn(pk, "done", "".join(full_text), {
                 "turn_id": turn_id,
-                "clean_end": run_info.get("last_ev") == "assistant_message_end",
+                "clean_end": _chat_stream_clean_end(run_info, is_http=is_http),
                 "stop_reason": "user_stopped" if user_stopped else run_info.get("stop_reason"),
             })
+            natural_entry.release(sk, turn_id)
             xlock.release()
             lock.release()
             _RUNNING_CHAT.pop(sk, None)

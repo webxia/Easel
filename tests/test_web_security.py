@@ -420,3 +420,15 @@ def test_ordinary_gateway_request_names_main_explicitly():
     assert '"model": "openclaw/main"' in source
     assert '"x-openclaw-agent-id": "main"' in source
     assert 'openclaw/default' not in source
+
+@pytest.mark.parametrize('done,reason,error,expected', [
+    (True,'stop',False,True),(True,'length',False,False),
+    (False,'stop',False,False),(True,None,False,False),
+    (True,'stop',True,False),(True,'tool_calls',False,False),
+])
+def test_http_completion_uses_own_stream_not_raw_tail(done,reason,error,expected):
+    info={'http_done':done,'stop_reason':reason,'http_error':error,
+          'last_ev':'assistant_text_stream','saw_message_end':True}
+    assert web._chat_stream_clean_end(info,is_http=True) is expected
+    info['last_ev']='assistant_message_end'
+    assert web._chat_stream_clean_end(info,is_http=True) is expected

@@ -114,13 +114,13 @@ function transformLink(seg: string): string {
 
 /** 入口：整段 markdown 先按受保护区切开；普通文本段做变换，
  *  行内代码仅在「整体就是产物路径」时整体替换为链接。 */
-export function linkifyOutputs(md: string): string {
+export function linkifyOutputs(md: string, linkifyBarePaths = true): string {
   if (!md || !md.includes('outputs')) return md;
   return md
     .split(PROTECT)
     .map((seg, i) => {
-      if (i % 2 === 0) return transformSegment(seg);
-      if (seg.length > 2 && seg.startsWith('`') && !seg.startsWith('```')) {
+      if (i % 2 === 0) return linkifyBarePaths ? transformSegment(seg) : seg;
+      if (linkifyBarePaths && seg.length > 2 && seg.startsWith('`') && !seg.startsWith('```')) {
         const whole = asWholePath(seg);
         if (whole) return renderPath(whole);
       }

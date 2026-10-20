@@ -61,6 +61,72 @@ def create_router(provider):
     return router
 
 
+class EntryCall(Claim):
+    mode: str
+    kind: str = ''
+    user_quote: str = ''
+    tool_call_id: str = ''
+
+
+class NaturalEntry:
+    """Ephemeral authority for an active Web turn; durable state uses enter/turns."""
+    def __init__(self):
+        import threading
+        self.lock = threading.RLock()
+        self.turns = {}
+
+    def reserve(self, session, native, turn, prompt, message, profile, attachments=None):
+        with self.lock:
+            self.turns['agent:main:'+session] = dict(session=session, native=native,
+                turn=turn, prompt=prompt, message=message, profile=profile, attachments=attachments or [], run=None, result=None)
+
+    def release(self, session, turn):
+        with self.lock:
+            key='agent:main:'+session
+            if self.turns.get(key,{}).get('turn')==turn:self.turns.pop(key,None)
+
+    def call(self, service, request):
+        import hashlib
+        from easel.production.service import encode, now, row
+        from easel.conversation_pipeline import pending
+        with self.lock:
+            t=self.turns.get(request.session_key)
+            if request.agent_id!='main' or not t or request.session_id!=t['native']:
+                fail('binding_mismatch','当前Web讨论回合未绑定',409)
+            if request.mode=='claim':
+                if request.prompt!=t['prompt'] or t['run'] not in (None,request.run_id):
+                    fail('binding_mismatch','当前输入或原生回合不匹配',409)
+                t['run']=request.run_id
+                return {'bound':True}
+            if request.mode!='enter' or t['run']!=request.run_id or not request.tool_call_id:
+                fail('binding_mismatch','入口需要当前原生工具回执',409)
+            if request.kind not in ('new_work','channel_create','director_formation') or request.user_quote!=t['message']:
+                fail('invalid_input','入口只接受本轮完整用户原话和既有管线类型',400)
+            if t['result']:
+                if request.kind!=t['kind']:fail('binding_mismatch','本轮已进入另一管线',409)
+                return t['result']
+            if not t['profile']:fail('invalid_input','请先选择画像，再进入创作讨论',400)
+            conversations=ConversationService(service)
+            cid='natural_entry_'+hashlib.sha256((t['session']+'\0'+t['turn']).encode()).hexdigest()[:40]
+            with service.store.transaction() as conn:
+                result=conversations.enter(t['session'],{'kind':request.kind,'profile_ref':t['profile']},cid,_connection=conn)
+                # Keep genuine user input as an ended source, not a new execution or grant.
+                payload={'origin':'user','message':t['message'],'attachments':t['attachments'],
+                    'session_key':'agent:main:easel-pipeline:'+result['segment_id'],
+                    'answer':'','tickets':{},'results':{},'calls':{}}
+                conn.execute('INSERT OR IGNORE INTO conversation_turns VALUES (?,?,?,?,?,?)',
+                    (cid,result['segment_id'],hashlib.sha256(t['message'].encode()).hexdigest(),encode(payload),'ended',now()))
+                segment=conversations.segment(conn,t['session'],result['segment_id'])
+                state=pending(conversations,conn,segment)
+            t['kind']=request.kind
+            t['result']={'entered':True,'segment_id':result['segment_id'],'pending':state,
+                'instruction':'只建立了讨论上下文，未创建作品、确认方案或授权费用。现在依据pending解释当前选择并在对话询问缺项；本轮不再调用其他工具。下一条用户回复自动进入该管线，不要求重复主题或点击入口。'}
+            return t['result']
+
+
+natural_entry = NaturalEntry()
+
+
 def create_internal_router(provider,token_provider):
     router=APIRouter(prefix='/api/chat/work-tools')
     def authenticate(value):
@@ -68,6 +134,10 @@ def create_internal_router(provider,token_provider):
         if not token or len(token)<24 or not secrets.compare_digest(value or '','Bearer '+token):
             fail('bridge_unauthorized','作品工具桥未配置或凭证无效',401)
         return PersistentWorkToolBridge(provider())
+    @router.post('/entry')
+    def entry(request:EntryCall,authorization:str|None=Header(default=None)):
+        bridge=authenticate(authorization)
+        return natural_entry.call(bridge.service,request)
     @router.post('/claim')
     def claim(request:Claim,authorization:str|None=Header(default=None)):return authenticate(authorization).claim(request)
     @router.post('/prepare')

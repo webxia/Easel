@@ -1,6 +1,6 @@
 import { mergeTaskReplies } from './lib/taskReplies';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { enterVideo, type VideoEntry } from './lib/conversationApi';
+import { enterVideo, videoRequest, type ConversationView, type VideoEntry } from './lib/conversationApi';
 import Sidebar from './components/Sidebar';
 import ProductionPage from './components/ProductionPage';
 import type { Page } from './components/Sidebar';
@@ -300,6 +300,14 @@ export default function App() {
         ensureTypingPump(sessionId);
       },
       (sessionKey) => {
+        // Natural-language entry is server-authoritative; adopt its existing segment.
+        // Read-only discovery also tolerates an ordinary chat with no pipeline.
+        void videoRequest<ConversationView>(encodeURIComponent(sessionId)).then(view => {
+          setSessions(prev => {
+            const next=prev.map(s=>s.id===sessionId?{...s,videoSegmentId:view.segment_id}:s);
+            saveSessions(next);return next;
+          });
+        }).catch(()=>{});
         // done 不能立即 flush——token 和 done 几乎同时到达（OpenClaw 攒批），
         // 立即 flush 会把整包瞬间冲出，打字机白做。等队列吐完再落盘。
         const waitAndFinalize = () => {

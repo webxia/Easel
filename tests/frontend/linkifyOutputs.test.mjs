@@ -60,3 +60,10 @@ test('multiple previewable Markdown output links resolve as media for gallery de
   assert.equal(linkifyOutputs('[PDF](</data/project/Easel/outputs/a b/card.pdf>)'),
     '[PDF](/api/media/a%20b/card.pdf)');
 });
+
+test('discussion paths do not imply produced artifacts; explicit delivery links remain usable', () => {
+  const planned = '先讨论，确认后写 `outputs/example/script.md`，目录 outputs/example/';
+  assert.equal(linkifyOutputs(planned, false), planned);
+  assert.equal(linkifyOutputs('[脚本](outputs/example/script.md)', false), '[脚本](#/outputs/example/script.md)');
+  assert.equal(linkifyOutputs('![预览](outputs/example/cover.png)', false), '![预览](/api/media/example/cover.png)');
+});

@@ -6,6 +6,8 @@
 
 ## 当前主线
 
+**E2E-04 三项修复已部署（2026-10-20）**：HTTP按自身结束回执判定，不再被共享raw尾误报中断；正文里的计划路径不自动转产物链接。自然语言入口已接到现有enter/bind：普通main保持综合能力，通过当前Web/原生身份建立受控讨论段，下一回复自动接续，不新增Agent/业务表/状态，不创建作品或授予费用权限。Python270/Node26及前端构建通过；Web200、reload_required=false、Gateway九工具与入口标记通过，无身份入口拒绝。27张业务表/87份画像/3条UNKNOWN不变。未执行E2E、旧任务重跑或付费生产调用；REAL_PRODUCTION_PASS与CREATOR_ACCEPTED均NOT_TESTED，S6仍PARTIAL。下一步等待用户决定新Web E2E。详见S6-14A本日续修。
+
 **单 main 与管线权限已部署（2026-10-20）**：新管线统一 main，普通综合能力保留，管线回合通过现有原生钩子限制九工具和产品指令；本机停用两个独立创作Agent，历史数据保留且不自动续跑。Python259、Node18单元/组件通过；Web200、reload_required=false、Gateway权限策略及九工具核验通过，业务表/画像摘要与3条UNKNOWN未变。未执行E2E或付费调用，真实生产与Creator接受均NOT_TESTED，S6仍PARTIAL。细节见S6-14A本日单main章节。
 
 **E2E-02 阻塞修复（2026-10-20）**：实际失败为模型额外添加固定音色参数，并非45秒总时长；已实现固定参数继承及首次规划失败的同 Work、后续真人确认恢复。相关 Python 单元/组件184通过、Node12通过。已空闲部署，Web200、backend.reload_required=false、Gateway协议2/九工具通过；27张表与87份画像文件摘要不变，3条UNKNOWN保留。不执行 E2E、不重发旧任务或付费调用。下一步为部署后用户自行回原对话确认新规划；S6仍PARTIAL。详见 S6-14A 本日 E2E-02 修复节。

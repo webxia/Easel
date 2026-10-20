@@ -387,11 +387,17 @@ def test_additive_migration_preserves_old_work_and_receipts(tmp_path,monkeypatch
 
 def test_bound_video_session_cannot_fall_back_to_main_by_omitting_client_mode(env,monkeypatch):
     import web.app as web
-    service,c=env;entry(c)
+    service,c=env;segment=entry(c)
     monkeypatch.setattr(web.app.state,'production_service',service,raising=False)
+    from types import SimpleNamespace
+    from fastapi.responses import JSONResponse
+    async def scoped_stream(req,replay):
+        assert req.videoSegmentId==segment and req.turnId=='turn'
+        return JSONResponse({'scoped':True})
+    monkeypatch.setattr(web,'_video_chat',SimpleNamespace(stream=scoped_stream))
     client=TestClient(web.app,base_url='http://127.0.0.1:7860',client=('127.0.0.1',12345))
     response=client.post('/api/chat/stream',json={'sessionId':'ui','turnId':'turn','message':'ordinary-looking'})
-    assert response.status_code==400 and response.json()['error']['code']=='invalid_input'
+    assert response.status_code==200 and response.json()=={'scoped':True}
     response=client.post('/api/chat',json={'sessionId':'ui','message':'ordinary-looking'})
     assert response.status_code==409 and response.json()['error']['code']=='conversation_stream_required'
     assert service.list_works()['items']==[]
@@ -629,3 +635,53 @@ def test_production_preflight_requires_scoped_main_policy(monkeypatch):
     raises('gateway_bridge_incompatible',lambda:require_persistent_gateway('http://127.0.0.1:12345','token'))
     value['permission_policy']='main-pipeline-v1'
     assert require_persistent_gateway('http://127.0.0.1:12345','token')['agent_id']=='main'
+
+@pytest.mark.parametrize('kind',['new_work','channel_create','director_formation'])
+def test_natural_entry_binds_only_discussion_and_preserves_source(env,kind):
+    from web.conversation_api import NaturalEntry,EntryCall
+    service,c=env;gate=NaturalEntry()
+    gate.reserve('ui','native','web-turn','host prompt','只讨论视频，不制作','one')
+    identity=dict(agent_id='main',session_key='agent:main:ui',session_id='native',run_id='run')
+    gate.call(service,EntryCall(**identity,mode='claim',prompt='host prompt'))
+    req=EntryCall(**identity,mode='enter',prompt='',kind=kind,user_quote='只讨论视频，不制作',tool_call_id='call')
+    result=gate.call(service,req)
+    assert gate.call(service,req)==result
+    assert result['pending']['context']['entry']['kind']==kind
+    assert result['pending']['context']['sources'][0]['text']=='只讨论视频，不制作'
+    with service.store.connection() as conn:
+        for table in ('works','runs','tasks','operations','authorization_grants'):
+            assert conn.execute('SELECT count(*) FROM '+table).fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM conversation_segments').fetchone()[0]==1
+    # The next user message uses the existing restricted bridge, not ordinary main.
+    bridge,ident,receipt=turn(service,c,result['segment_id'],'继续讨论',id='next')
+    assert receipt['payload']['session_key'].startswith('agent:main:easel-pipeline:')
+    gate.release('ui','web-turn')
+    with pytest.raises(ProductionError):gate.call(service,req)
+
+
+def test_natural_entry_rejects_forged_and_stale_identity(env):
+    from web.conversation_api import NaturalEntry,EntryCall
+    service,_=env;gate=NaturalEntry()
+    gate.reserve('ui','native','turn','prompt','讨论频道','one')
+    identity=dict(agent_id='main',session_key='agent:main:ui',session_id='native',run_id='run')
+    with pytest.raises(ProductionError):gate.call(service,EntryCall(**identity,mode='claim',prompt='wrong'))
+    gate.call(service,EntryCall(**identity,mode='claim',prompt='prompt'))
+    for delta in ({'run_id':'other'},{'session_id':'other'},{'session_key':'agent:main:other'},{'agent_id':'other'},{'user_quote':'模型编造'},{'kind':'production'}):
+        args={**identity,'mode':'enter','prompt':'','kind':'channel_create','user_quote':'讨论频道','tool_call_id':'call',**delta}
+        with pytest.raises(ProductionError):gate.call(service,EntryCall(**args))
+    gate.reserve('ui','native','new-turn','new prompt','新消息','one')
+    with pytest.raises(ProductionError):gate.call(service,EntryCall(**identity,mode='enter',prompt='',kind='channel_create',user_quote='讨论频道',tool_call_id='call'))
+
+
+def test_natural_entry_internal_endpoint_requires_credential(env):
+    from web.conversation_api import natural_entry
+    service,_=env;app=FastAPI();app.add_exception_handler(ProductionError,production_error_handler)
+    app.include_router(create_internal_router(lambda:service,lambda:'fixture-token-with-at-least-24-characters'))
+    natural_entry.reserve('test-entry-route','native','t','p','讨论视频','one')
+    data=dict(agent_id='main',session_key='agent:main:test-entry-route',session_id='native',run_id='r',prompt='p',mode='claim')
+    try:
+        with TestClient(app) as client:
+            assert client.post('/api/chat/work-tools/entry',json=data).status_code==401
+            assert client.post('/api/chat/work-tools/entry',json=data,headers={'authorization':'Bearer wrong'}).status_code==401
+            assert client.post('/api/chat/work-tools/entry',json=data,headers={'authorization':'Bearer fixture-token-with-at-least-24-characters'}).json()=={'bound':True}
+    finally:natural_entry.release('test-entry-route','t')
