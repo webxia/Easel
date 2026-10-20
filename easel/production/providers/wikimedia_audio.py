@@ -19,7 +19,7 @@ import httpx
 
 from easel.materials.domain import (CandidateSource, MediaType, RightsEvidence,
                                     RightsInfo, RightsStatus, SemanticInfo)
-from .stock import ExternalCandidate, StockUnavailable, _https_url
+from .stock import ExternalCandidate, StockUnavailable, _https_url, http_failure_code, search_failure_code
 
 
 class _PlainText(HTMLParser):
@@ -66,11 +66,15 @@ class WikimediaAudioProvider:
         "CC BY 4.0": "https://creativecommons.org/licenses/by/4.0/",
     }
 
-    def __init__(self, role: str, *, transport: httpx.BaseTransport | None = None, timeout: float = 20):
+    def __init__(self, role: str, *, transport: httpx.BaseTransport | None = None, timeout: float = 20, proxy_url: str | None = None):
         if role not in {"music", "sfx"}:
             raise ValueError("Wikimedia audio role must be music or sfx")
         if not 0 < timeout <= 60:
             raise ValueError("Invalid Wikimedia API timeout")
+        if proxy_url:
+            from easel.materials.application.proxy import loopback_proxy
+            loopback_proxy(proxy_url)
+        self._proxy = proxy_url or None
         self.role = role
         self.provider_id = "wikimedia_bgm" if role == "music" else "wikimedia_sfx"
         self.audio_roles = frozenset({role})
@@ -92,31 +96,31 @@ class WikimediaAudioProvider:
             "maxlag": 5,
         }
         try:
-            with httpx.Client(transport=self._transport, trust_env=False, follow_redirects=False,
+            with httpx.Client(transport=self._transport, proxy=self._proxy, trust_env=False, follow_redirects=False,
                               timeout=self._timeout) as client:
                 with client.stream("GET", self.api_url, params=params, headers={
                     "User-Agent": f"EaselAudio/0.1 ({self.contact_url})",
                     "Accept": "application/json"}) as response:
                     if response.status_code != 200:
-                        raise StockUnavailable("Wikimedia audio search is unavailable")
+                        raise StockUnavailable("Wikimedia audio search is unavailable", code=http_failure_code(response.status_code))
                     payload = bytearray()
                     for chunk in response.iter_bytes():
                         payload.extend(chunk)
                         if len(payload) > 4 * 1024 * 1024:
-                            raise StockUnavailable("Wikimedia audio response exceeds limit")
+                            raise StockUnavailable("Wikimedia audio response exceeds limit", code="invalid_response")
             data = json.loads(payload)
         except StockUnavailable:
             raise
-        except (httpx.HTTPError, ValueError, TypeError):
-            raise StockUnavailable("Wikimedia audio search failed") from None
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise StockUnavailable("Wikimedia audio search failed", code=search_failure_code(exc)) from None
         if not isinstance(data, dict) or "error" in data:
-            raise StockUnavailable("Wikimedia audio API returned an error")
+            raise StockUnavailable("Wikimedia audio API returned an error", code="invalid_response")
         query_data = data.get('query') or {}
         if not isinstance(query_data, dict):
-            raise StockUnavailable('Wikimedia audio response is invalid')
+            raise StockUnavailable('Wikimedia audio response is invalid', code="invalid_response")
         pages = query_data.get('pages', [])
         if not isinstance(pages, list):
-            raise StockUnavailable("Wikimedia audio response is invalid")
+            raise StockUnavailable("Wikimedia audio response is invalid", code="invalid_response")
         output = []
         for page in pages[:40]:
             candidate = self._candidate(page)

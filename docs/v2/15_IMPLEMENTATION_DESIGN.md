@@ -218,9 +218,9 @@ RevisionPlanner输出ChangeSet：base_output、affected_scene_ids、changed_audi
 
 <a id="9-s6-14a-对话接入增量提案待评审未实现"></a>
 
-## 9. S6-14A 对话接入合同（A2～A4已实现，A5离线验收通过，正式部署待授权）
+## 9. S6-14A 对话接入合同（协议2已部署；历史 A2～A5 证据保留）
 
-本轮起点44b3f08c；按用户新授权完成A2～A4。原A1协议1/内存探针保持兼容，正式源码使用协议2持久桥；**代码已挂载不代表主服务已加载或主Gateway已安装插件**。本轮只运行临时Web/Gateway、临时SQLite和本地假模型。具名软件/原生/浏览器证据仅维护在[S6-14A任务卡](tasks/S6-14A_conversation-integration.md)，生产身份、授权、引用和恢复仍按§3～6。
+**历史快照（A2～A4实现阶段）**：本轮起点44b3f08c；按用户当时授权完成A2～A4。原A1协议1/内存探针保持兼容，正式源码使用协议2持久桥；**代码已挂载不代表主服务已加载或主Gateway已安装插件**。本轮只运行临时Web/Gateway、临时SQLite和本地假模型。具名软件/原生/浏览器证据仅维护在[S6-14A任务卡](tasks/S6-14A_conversation-integration.md)，生产身份、授权、引用和恢复仍按§3～6。
 
 ### 9.1 最少持久化与命令身份
 
@@ -242,22 +242,23 @@ RevisionPlanner输出ChangeSet：base_output、affected_scene_ids、changed_audi
 
 ### 9.2 具名工具、内部转发与现有 API 映射
 
-协议2为下列8个具名工具；参数schema拒绝额外字段，宿主补齐Work/Profile/turn/command身份。没有任意URL/path、SQL、shell、Provider参数、授权、接受、发布或直接长期写工具。协议1保留A1的3工具行为，仅用于兼容探针，协议2宿主不接受协议1就绪回执。
+协议2现为下列9个具名工具（8项基础工具与 `easel_pipeline`）；参数schema拒绝额外字段，宿主补齐Work/Profile/turn/command身份。没有任意URL/path、SQL、shell、Provider参数、授权、接受、发布或直接长期写工具。协议1保留A1的3工具行为，仅用于兼容探针，协议2宿主不接受协议1就绪回执。
 
 | 工具 | 实际业务字段 | 宿主行为与权威 |
 |---|---|---|
 | easel_work_context | 空对象 | 当前segment所选画像/频道/导演、有限可见来源、brief、输入元数据及Work状态；冻结创作画像与当前长期保存目标分开投影 |
 | easel_work_input_evidence | input_ids | 只读本Work句柄/元数据，未分析明确未分析；不把文件名或元数据当作视频观察证据 |
-| easel_work_create_draft | title,input_text | 创建待确认草稿提案；卡确认后调用原create并同事务首次绑定segment，不因讨论自动建Work |
-| easel_work_register_inputs | attachment_id,usage,original_audio,rights | 只能登记本segment来源消息中的真实上传句柄；模型不能设原声true或声明使用权。原声/区间/Rights由明确UI素材操作输入 |
+| easel_work_create_draft | title,input_text | 创建待确认草稿提案；当前对话经下一真人轮 `answer` 后再应用并绑定 Work，旧卡操作保留兼容；讨论本身不建 Work |
+| easel_work_register_inputs | attachment_id,usage | 仅登记本 segment 当前用户来源消息中的真实附件句柄及参考/必用用途；原声、区间、Rights 不属于本原生工具参数，须沿独立具来源的确认提案处理 |
 | easel_work_update_brief | entries(kind,text,source_refs) | user_requirement必须引用可见用户原话；归纳标suggestion，未决项标unresolved；活动Run拒绝修改冻结依据 |
-| easel_work_request_plan | request | 产生版本化规划提案；用户确认后调用原plan，不接受模型services/grant |
-| easel_work_request_revision | feedback,protected,interval | 绑定入口已选output生成提案，卡确认后调用原revise；保护项/区间进入该指定版本反馈 |
-| easel_work_propose | 固定kind,values,source_refs | 只提议channel_create/channel_defaults/director_formation/profile/director_revision；目标与来源仍由程序校验，应用须明确卡操作 |
+| easel_work_request_plan | request | 产生版本化规划提案；下一真人轮确认后沿受控命令排程，不接受模型自行补写 services/grant |
+| easel_work_request_revision | feedback,protected,interval | 绑定已选 Output 的修订提案；下一真人轮确认后走原 revise，扩大范围继续按既有确认规则 |
+| easel_work_propose | 固定kind,values,source_refs | 只提议 channel_create/channel_defaults/director_formation/profile/director_revision；目标与来源由程序校验，应用须用户下一真人回合明确 `answer`，旧卡接口仅作兼容 |
+| easel_pipeline | mode=pending/bind/draft/offer/answer，offer 带受限 action 与 values；answer 带 proposal_id/hash/user_quote | 统一三条管线的目录读取、绑定、提案及文字确认；只有当前用户后续明确答复才能应用，UNKNOWN 新规划须单独说明重复调用风险，不得同轮自行授权或制作 |
 
-协议2中create/plan/revision先提案，是把首期“正文只讨论、卡片提交业务”的既定交互落实到执行边界；候选正文不被解析为授权。无需Work的频道提案不调用create。
+协议2当前沿用“先提出具体提案、下一真人回合明确确认”的执行边界，主要在原生对话中通过 `easel_pipeline offer → answer` 应用；旧卡片可在独立高级路径兼容使用，但不是对话的必选提交步骤。候选正文、自动任务事件都不能冒充用户授权。无需 Work 的频道提案不创建空 Work。
 
-内部传输仍为`/api/chat/work-tools/claim|prepare|dispatch|end`四个固定入口，由web/conversation_api.py挂载PersistentWorkToolBridge。独立插件凭证至少24字符，只允许回环对端，使用该凭证访问其他Web路由403；浏览器Origin/Host写保护保持原规则，不全局放宽。凭证不成为模型参数或工具结果。插件只连接显式127.0.0.1 HTTP端口，禁止重定向或任意目标；可信本机安装代码不等于OS/运维隔离。
+内部传输为 `/api/chat/work-tools/claim|prepare|dispatch|result|end` 五个固定入口；`result` 只凭原生可信回执读取本次 Run 的真实收口状态，不触发再次提交；由 `web/conversation_api.py` 挂载，`result` 使用 `ConversationResults` 读取状态，其他受控命令沿 `PersistentWorkToolBridge`。独立插件凭证至少24字符，只允许回环对端，使用该凭证访问其他Web路由403；浏览器Origin/Host写保护保持原规则，不全局放宽。凭证不成为模型参数或工具结果。插件只连接显式127.0.0.1 HTTP端口，禁止重定向或任意目标；可信本机安装代码不等于OS/运维隔离。
 
 ### 9.3 前端请求、依据与事件增量
 
@@ -272,7 +273,7 @@ RevisionPlanner输出ChangeSet：base_output、affected_scene_ids、changed_audi
 | GET /api/chat/jobs/{turn}/stream | 既有事件文件回放，不执行模型或工具；视频流含token/activity/work_card/done/error，work_card为程序投影，前端也可GET恢复 |
 | POST /api/production/works/{id}/basis | 空闲且未确认Plan的本片内容/导演/设置调整；新导演试片可在同Work承接首版，已确认方案的风格变化要求修订 |
 | POST /api/production/directors/{id}/analyses | 准确base Director revision、新Work输入版本和参考句柄，复用analyze_director；保留旧版本/evidence，不用revision接口伪造新分析 |
-| 既有Work命令/快照/SSE | confirm/grant/resume/cancel/accept/delete仍是明确卡操作；Plan/Run/Task/Artifact/Review/Acceptance/Work cursor继续作为唯一业务事实 |
+| 既有Work命令/快照/SSE | confirm/grant/resume/cancel/accept/delete 均需受控确认；对话内以已展示提案及下一真人回合 `answer` 为主，旧卡接口保留兼容；Plan/Run/Task/Artifact/Review/Acceptance/Work cursor继续作为唯一业务事实 |
 
 候选conversation-links/briefs/conversation-context三条外部路由没有额外新增：关联统一由enter办理，brief受控工具调用同服务，恢复用GET投影。视频非流式`/api/chat`明确拒绝，不走另一个助手；普通聊天保持原功能。聊天SSE与Work事件序号分开；useWork使用独立SSE并以cursor拒绝回退快照，轮询仅补断线/遗漏，不启动后台模型。
 
@@ -286,9 +287,9 @@ brief保留版本/hash与来源；Planning入队保存creation_basis，Plan保�
 
 运行段key=`agent:easel-video:<segment_id>`，HTTP目标=`openclaw/easel-video`。同一UI更换Work/Profile必须另开原生段，旧工具不能借新段继续。首次从同画像目录提案阶段绑定新Work可保留该段，但先等待原生end；已有Work段不改绑别的Work。恢复旧Work只用其匹配段/允许依据；没有合法旧段则新段加最小可见依据，不复制main内部历史。
 
-宿主派发前GET受Gateway认证的`/plugins/easel-work/status`，要求protocol=2、agent=easel-video与准确8工具；/health=200不代表插件就绪。权限/绑定/配置失败关闭，初始HTTP错误直接显示；UNKNOWN保留核实，不自动切CLI或main重发。首期澄清直接在对话提问跨轮等待，不注册通用ask_user/管理工具。普通聊天QuestionCards保持原链，不把澄清回答当作制作授权。
+宿主派发前GET受Gateway认证的`/plugins/easel-work/status`，要求 protocol=2、agent=easel-video 与准确9个工具；/health=200不代表插件就绪。权限/绑定/配置失败关闭，初始HTTP错误直接显示；UNKNOWN保留核实，不自动切CLI或main重发。首期澄清直接在对话提问跨轮等待，不注册通用ask_user/管理工具。普通聊天QuestionCards保持原链，不把澄清回答当作制作授权。
 
-配置生成器只输出新工作区及待合并patch，不安装或覆盖真实配置。合并时必须保留main、模型与原plugins allow/load成员；实际既有插件、自动记忆、slash/启动上下文的组合权限仍须在A5部署环境实测，不能用隔离无其他插件的结果冒充正式权限验收。测试中实际模型工具清单为8个，exec/read/会话委派/直接媒体攻击均被拦截；不宣称获得OS或凭证物理隔离。部署配置见[运行说明](16_RUNTIME_SETUP.md)。
+配置生成器只输出新工作区及待合并patch，不安装或覆盖真实配置。合并时必须保留main、模型与原plugins allow/load成员；实际既有插件、自动记忆、slash/启动上下文的组合权限仍须在A5部署环境实测，不能用隔离无其他插件的结果冒充正式权限验收。A5 历史测试时实际模型工具清单为8个，当前正式握手已为9个，exec/read/会话委派/直接媒体攻击均被拦截；不宣称获得OS或凭证物理隔离。部署配置见[运行说明](16_RUNTIME_SETUP.md)。
 
 ### 9.5 候选实施落点与最小纵向切片
 
@@ -306,9 +307,9 @@ brief保留版本/hash与来源；Planning入队保存creation_basis，Plan保�
 
 ### 9.6 验证、兼容与回退
 
-A2～A4具名软件及原生检查已记录任务卡；A5已完成28项离线交互矩阵、并发/断线/完整本地媒体链；正式部署和随后获准的真实Web验收仍未执行，软件/隔离Web/真实生产/Creator接受分别记录。原A1 JSON绑定其历史源码，不因新改动改写；协议1原生复测单独记录。
+A2～A4具名软件及原生检查已记录任务卡；A5已完成28项离线交互矩阵、并发/断线/完整本地媒体链；A5 当时尚未执行正式部署及真实 Web 验收；后续已实施部署、发生真实试跑但作品质量仍 FAIL，软件/隔离 Web/真实生产/Creator 接受分别记录。原A1 JSON绑定其历史源码，不因新改动改写；协议1原生复测单独记录。
 
-迁移4在临时旧schema3兼容用例执行并验证原作品/命令回执不变，未迁移正式库。正式源码变更后需按部署计划备份和受控重载唯一服务，再核实reload_required=false，不让旧Worker处理新命令。不装真实插件、不重启服务或调用真实模型是本轮执行边界，不能省略后续验收。
+迁移4在临时旧schema3兼容用例执行并验证原作品/命令回执不变，未迁移正式库。正式源码变更后需按部署计划备份和受控重载唯一服务，再核实reload_required=false，不让旧Worker处理新命令。不装正式插件、不重启服务或调用真实模型是当时 A5 测试的执行边界；后续部署另有独立授权和事实，不能用这一历史表述判断当前尚未部署。
 
 回退停用新入口/插件，保留普通聊天、作品/目录/输入/媒体与所有原账本；未知已派发请求只核实，不通过旧短路或CLI重跑。关闭页面、停止回答或删除聊天均不取消生产，取消制作使用原cancel命令。
 
@@ -360,7 +361,7 @@ Director接受独立检查：准确style_confirmed版本、实际Plan.director_r
 
 A2持久记录/来源/工具桥与频道语义、A3统一对话/程序卡/共享详情、A4审片/版本/独立接受/受控保存/续作均已实现。源码入口为[easel/conversation.py](../../easel/conversation.py)、[持久工具桥](../../easel/conversation_bridge.py)、[Web适配](../../web/conversation_api.py)、[共享作品详情](../../web/frontend/src/components/WorkCards.tsx)和[对话入口](../../web/frontend/src/components/VideoConversation.tsx)。
 
-已执行的是具名软件回归、原生隔离HTTP/Web探针及部分实际浏览器操作，证据和限制见任务卡。**A5的28项离线矩阵及完整本地媒体闭环已通过；正式插件/权限合成配置、正式库迁移与服务加载、新一轮真实付费Web生产、Creator接受均未执行。** 不用实现状态替代这些运行结果；具体部署字段见运行说明，不在此保存真实凭证或个人配置。
+已执行的是具名软件回归、原生隔离HTTP/Web探针及部分实际浏览器操作，证据和限制见任务卡。**A5 当时的28项离线矩阵及完整本地媒体闭环已通过；本句中“正式插件/迁移未执行”仅为 A5 历史时间点，不是当前部署状态。后续已正式部署并进行了真实 Web 试跑，质量失败及未接受状态单独保留。** 不用实现状态替代这些运行结果；具体部署字段见运行说明，不在此保存真实凭证或个人配置。
 
 ### 9.11 A5验收后的合同补正
 
@@ -368,7 +369,7 @@ A2持久记录/来源/工具桥与频道语义、A3统一对话/程序卡/共享
 
 创建前对话与Work创建共用merge_creation_settings，字幕按字段继承，音色与导演身份整体覆盖。Planning将固定voice/subtitles按同一Pydantic合同展开后比较，等价缺省值可通过，明确变更仍阻断。频道名称要求非空文字，非法提案保存失败时保留proposed且无catalog回执。
 
-受限工作区装载经审查的Easel产线交互知识及来源SHA，保留“先让用户看见方案、预览和真实检查，再作明确决定”的经验；不加载旧可执行技能。原生memory-core组合实测仍只暴露8个作品工具；正式其他插件/自动记忆/slash入口合成权限仍待部署环境复核，不能推广为OS隔离。
+受限工作区装载经审查的Easel产线交互知识及来源SHA，保留“先让用户看见方案、预览和真实检查，再作明确决定”的经验；不加载旧可执行技能。A5 历史 memory-core 组合实测仅暴露8个作品工具；当前部署后受限插件精确握手为9个工具，更广泛插件/自动记忆/slash入口的安全保证仍以实际核验为准，不能推广为OS隔离。
 
 界面显示具体导演名/版本、参考文件名和中文任务状态。已接受的当前作品版、已生效的频道默认显示完成并禁用重复提交；独立失败项仍可单独处理。普通聊天通过明确视频入口才进入作品模式，内容库只投影已接受版，不因有新预览换掉原选择。逐项运行证据见[S6-14A](tasks/S6-14A_conversation-integration.md)。
 
@@ -380,12 +381,23 @@ A2持久记录/来源/工具桥与频道语义、A3统一对话/程序卡/共享
 三条入口接续原提案、确认卡与受限OpenClaw桥，未新增业务工具或权限。前端当前流程引导不等于用户确认，保存、分析、制作与接受仍按原合同独立进行。[交互设计§15](20_CONVERSATIONAL_INTERACTION.md#15-对话管线区域的统一入口用户澄清)给出流程图；[A6任务与证据](tasks/S6-14A_conversation-integration.md)区分本轮菜单验证和A5历史闭环验收。
 
 
-### 9.13 对话执行接入增量（已实现，真实用户试跑待验）
+### 9.13 对话执行接入增量（已实现并部署；真实用户验收仍未通过）
 
-2026-10-19 用户确认三条既有管线通过对话选择与执行，缺频道/导演必须对话补选。具体范围、语义确认合同、轮次交接、回执及验收统一见[交互设计§18](20_CONVERSATIONAL_INTERACTION.md#18-既有管线的对话执行接入方案2026-10-19)。这是§9.2/9.12卡片独占提交方式的计划变更，不代表协议2已有执行权限；正式工具schema、白名单、握手及运行指令须随实现核验。沿用ConversationService/CreativeCatalog/WorkService/Worker，不另造生产控制器。当前仅文档，代码、数据库、正式插件及服务未改。
+2026-10-19 用户确认三条既有管线通过对话选择与执行，缺频道/导演必须对话补选。具体范围、语义确认合同、轮次交接、回执及验收统一见[交互设计§18](20_CONVERSATIONAL_INTERACTION.md#18-既有管线的对话执行接入方案2026-10-19)。这是§9.2/9.12卡片独占提交方式的计划变更，不代表协议2已有执行权限；正式工具schema、白名单、握手及运行指令须随实现核验。沿用ConversationService/CreativeCatalog/WorkService/Worker，不另造生产控制器。以上“待评审/未改动”是 2026-10-19 提案阶段的历史状态；后续已完成代码整合、部署与真实试跑，当前以本节最终合同及当前状态页为准。
 
 用户后续已授权实施。协议2工具集扩展为9项（新增easel_pipeline），与旧8工具运行时握手不匹配时阻断，部署须同步插件manifest/注册及Agent白名单。工具身份仍由原生生命周期绑定，内部answer可在被核验的当前turn事务中应用提案，外部卡接口仍拒绝活动轮次；不移除通用并发保护。实现与验证范围见交互设计§18.8。
+
+**现行交付合同（2026-10-20，`fb309910`）**：PR #10/#11/#12 的代码已进入 V2 主线并部署；实际协议2为9工具、内部桥5入口。执行提案经当前真人确认后，先提交业务事务、释放锁，再由原生工具等待可信回执绑定的 Run 收口；规划/扩大修订范围后只交付新 Plan，不自动开始制作；正式制作及局部修订等待既有检查/自动修复链的真实终态。助手正文持久化并确认交付后 Web 才发 `done`；连接中断、原生超时和生产失败单独记录，不取消或重发已提交 Operation。`replan_after_unknown` 只能在核实权限与风险、展示提案并取得下一真人明确确认后执行。详见[交互设计 §18.14.1～18.16](20_CONVERSATIONAL_INTERACTION.md)和[S6-14A](tasks/S6-14A_conversation-integration.md)。整合版本离线生产 693 passed / 5 skipped，Node 113 passed；此前真实试片画面/时长不合要求，未由整合版真实重新验收，`REAL_PRODUCTION_PASS` 和 `CREATOR_ACCEPTED` 均不能记 PASS。
 
 规划授权补记（2026-10-19）：旧request_plan与pipeline plan均在提案时绑定实际模型services，应用已确认提案时不可追加未展示服务；授权与排程复用同一事务，缺项/变更在排程前返回对话。仅当前permission_missing的plan允许grant携带decision_id，在明确“授权并继续”后原子保存授权及恢复；待核实外部操作仍阻断。范围与验证见[交互设计§18.10](20_CONVERSATIONAL_INTERACTION.md#1810-规划授权与对话中断修复2026-10-19)。
 
 授权提案契约补记（2026-10-19）：planning的offer grant可只传purpose，由程序在提案阶段构造真实服务三字段数组并绑定当前permission_missing的plan恢复目标；工具返回完整待确认范围。显式services结构与实际能力在offer/apply均核验，不能到用户确认后才发现结构错误。旧错误提案在pending标记不可answer并给出有界修复指引，UNKNOWN不引导重试；具体证据见[交互设计§18.11](20_CONVERSATIONAL_INTERACTION.md#1811-授权参数契约与旧提案恢复2026-10-19)。
+
+
+### 9.14 S6 当前作品的最小修复合同（2026-10-20，已部署、真实路径待验）
+
+同作品 bind 未给 work_id 时保留当前作品；显式新作仍经既有 enter，不能按标题去重，也不能靠空段变更已冻结设置。制作 offer 从当前 Plan 绑定 revision/hash，显式错误值拒绝；依配置、冻结声音与素材/剪辑/检查依赖构造并展示完整服务清单，answer 只复核，不扩张已展示权限。当前完整 Plan 单列于 pending 与结果投影；历史方案不删除。
+
+预成片声音修订复用 plan：仅支持已确认 mixed→voice、无 BGM 或可选 SFX；无 output、无 Run owner、无在途/UNKNOWN，且原 production Run 已安全停止。取消作品需明确恢复；提案绑定原 Plan/hash、Run/revision、创作依据与受保护 Plan，以及实际规划服务。answer 在一个事务复核、将旧 Run 置既有 superseded、收口未完成任务、撤销旧授权、更新声音目标并排程新 Planning。失败全部回滚，旧 Plan/素材/Operation 回执不可改写；模型沿既有有界纠正保持观点、逐字稿、镜头和其他设置，生成未确认 V2 后必须重新确认制作。原画像快照、导演版本及对话依据随 V1 保留。有成片走 revise；UNKNOWN 仍走独立专用规则。普通 basis 不提供已确认方案例外。
+
+搜索 API 使用与下载相同的显式 localhost HTTP 代理配置，固定 API 目标，禁环境代理继承和重定向；原下载公网 DNS/固定 IP/TLS/SSRF 规则不变。素材结果只从当前 Run 的已有事件汇总全部已知缺口，区分网络/HTTP/空候选/权益/下载/资格原因并标记候选尚未通过审查。既有 activity 展示执行阶段与整理结果，无新气泡/面板/调度节点。具体范围、命令、证据与未覆盖项见 S6-14A 本轮收口记录。

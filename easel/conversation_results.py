@@ -29,9 +29,45 @@ class ConversationResults:
         self.bridge = bridge
         self.service = bridge.service
 
+    def activity(self,turn_id):
+        """Observe only executions actually bound to this native turn."""
+        with self.service.store.connection() as conn:
+            record=conn.execute('SELECT payload_json FROM conversation_turns WHERE id=?',(turn_id,)).fetchone()
+            if not record:return None
+            receipts=json.loads(record[0]).get('results',{}).values()
+            for receipt in receipts:
+                if not receipt.get('run_id'):continue
+                run=conn.execute('SELECT state FROM runs WHERE id=? AND work_id=?',(receipt['run_id'],receipt.get('work_id'))).fetchone()
+                if not run:continue
+                if run['state'] in {'succeeded','needs_decision','failed','paused','cancelled','superseded'}:
+                    return '执行已停止，正在整理结果' if run['state']!='succeeded' else '执行已完成，正在整理结果'
+                task=conn.execute("SELECT kind FROM tasks WHERE run_id=? AND state!='succeeded' ORDER BY created_at,id LIMIT 1",(receipt['run_id'],)).fetchone()
+                labels={'plan':'正在整理完整方案','supply':'正在选择素材','voice':'正在制作配音',
+                        'edit':'正在剪辑','render':'正在渲染','quality':'正在检查成片','revise':'正在修订'}
+                return labels.get(task['kind'],'正在执行已确认步骤') if task else '正在等待执行结果'
+        return None
+
     @staticmethod
     def event_result(conn, snapshot, run, event):
+        searches=[json.loads(r[0]) for r in conn.execute(
+            "SELECT payload_json FROM events WHERE work_id=? AND run_id=? AND kind='material_search_completed' ORDER BY seq",
+            (snapshot['id'],run['id']))]
+        groups={}
+        for search in searches:
+            key=(search.get('scene_id'),search.get('role','visual'),search.get('cue_id'))
+            group=groups.setdefault(key,{'scene_id':key[0],'role':key[1],'candidate_count':0,'failures':[]})
+            group['candidate_count']+=search.get('candidate_count',0)
+            for failure in search.get('failures',[]):
+                if failure not in group['failures']:group['failures'].append(failure)
         return {'work_id':snapshot['id'],'run_id':run['id'],'seq':event['seq'],'run_state':run['state'],
+                'current_plan':next((p for p in snapshot['plans'] if p['revision']==snapshot['current_plan_revision']),None),
+                'material_summary':{'searches':list(groups.values()),
+                    'known_gaps':[g for g in groups.values() if not g['candidate_count']],
+                    'retained_candidates':[dict(a) for a in conn.execute(
+                        "SELECT kind,quality_state FROM artifacts WHERE work_id=? AND run_id=? AND kind IN ('image','video','audio') AND deleted_at IS NULL",
+                        (snapshot['id'],run['id']))],
+                    'candidate_is_approved':False,
+                    'note':'仅汇总当前运行已有记录，未追加检索。候选尚不代表通过内容、权益及成片审查；保留方案、素材和回执。'},
                 'plan_ready':any(p['revision']==snapshot['current_plan_revision'] and not p['confirmed_at'] for p in snapshot['plans']),
                 'model_result_query_available':False,
                 'tasks':[t for t in snapshot['tasks'] if t['run_id']==run['id']],
@@ -81,7 +117,7 @@ class ConversationResults:
             payload['revision']=work['revision']
             self.bridge._save(conn,record['id'],payload,record['state'])
             return {'waiting':False,'result':{**receipt,'execution_result':result,'context':context,
-                'delivery_instruction':'这是本次已确认执行的真实结果，不是新的用户授权。规划成功：交付完整方案、逐字稿和分镜，offer confirm后等待用户确认，不自动制作。参考分析：展示真实分析与待确认风格。制作或修订：嵌入outputs中实际playback_url的视频并说明质量结论。失败或UNKNOWN：解释实际阻断，不重发、不许诺远端自动核实。'}}
+                'delivery_instruction':'这是本次已确认执行的真实结果，不是新的用户授权。规划成功：以current_plan交付完整方案、逐字稿和分镜，offer confirm后等待用户确认，不自动制作。参考分析：展示真实分析与待确认风格。制作或修订：嵌入outputs中实际playback_url的视频并说明质量结论。失败或UNKNOWN：结合material_summary一次说明所有已知缺口、已完成步骤、保留成果、合法选项及新增调用费用风险；候选不等于审查通过，不将未执行步骤说成失败。不重发、不许诺远端自动核实。内部编号仅用于工具参数，不要求用户复制编号。'}}
 
     @staticmethod
     def acknowledge(conn, payload):
@@ -133,7 +169,7 @@ class ConversationResults:
                 snapshot = context['work']
                 result_event = self.event_result(conn, snapshot, run, event)
                 prompt = ('【宿主任务结果事件，不是用户新指令或授权】\n'+encode(result_event)+
-                    '\n请接续当前创作对话。先读取真实结果；方案成功时展示摘要、完整逐字脚本和分镜，必须先用easel_pipeline offer action=confirm创建本版待确认提案（含素材、配音及剪辑/检查实际需要的模型服务），然后展示返回的范围并提出制作确认问题；剪辑制作或局部修订完成时交付实际视频并说明检查结论，等待反馈。失败时解释具体失败、已完成部分、可行下一步，继续向用户提问。UNKNOWN不得声称自动核实或重新派发，明确当前接口能否查询。不得把本事件当作用户同意，不得自行恢复、改稿、授权或制作。视频用返回的playback_url嵌入<video controls src="...">，不得臆造地址。\n【服务端当前上下文】\n'+encode(context))
+                    '\n请接续当前创作对话。先读取真实结果；方案成功时展示摘要、完整逐字脚本和分镜，必须先用easel_pipeline offer action=confirm创建本版待确认提案（含素材、配音及剪辑/检查实际需要的模型服务），然后展示返回的范围并提出制作确认问题；剪辑制作或局部修订完成时交付实际视频并说明检查结论，等待反馈。失败时结合material_summary一次解释全部已知缺口、已完成部分、保留成果、可行下一步和新增调用费用风险；候选不等于审查通过，用户无需复制内部编号。UNKNOWN不得声称自动核实或重新派发，明确当前接口能否查询。不得把本事件当作用户同意，不得自行恢复、改稿、授权或制作。视频用返回的playback_url嵌入<video controls src="...">，不得臆造地址。\n【服务端当前上下文】\n'+encode(context))
                 payload = {'origin':'task_result','message':None,'attachments':[], 'result_event':result_event,
                     'work_id':work['id'],'revision':work['revision'], 'session_key':'agent:easel-video:'+segment['id'],
                     'native_session_id':segment['native_session_id'],'run_id':None,'tickets':{},'results':{},'calls':{},'answer':'',

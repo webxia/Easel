@@ -68,6 +68,8 @@ def check_intent(intent: MaterialIntent, plan: PlanDocument) -> None:
         raise ModelTaskError('invalid_material_intent', '不得在已确认声音模式之外增加背景音乐')
     if plan.settings.audio_mode == 'silent' and intent.sound_cues:
         raise ModelTaskError('invalid_material_intent', '静音方案不能自动增加音效')
+    if '本片不使用背景音乐或可选音效' in plan.constraints and (intent.music_query or intent.sound_cues):
+        raise ModelTaskError('invalid_material_intent', '本片明确无背景音乐或可选音效，不能增加音轨')
     cue_ids = [cue.cue_id for cue in intent.sound_cues]
     if len(cue_ids) != len(set(cue_ids)):
         raise ModelTaskError('invalid_material_intent', '音效事件身份不能重复')

@@ -25,6 +25,17 @@ class StockUnavailable(ValueError):
         self.code = code
 
 
+def http_failure_code(status):
+    return ('http_permission' if status in {401,403} else
+            'http_rate_limited' if status==429 else 'http_unavailable')
+
+
+def search_failure_code(error):
+    if isinstance(error,httpx.TimeoutException):return 'network_timeout'
+    if isinstance(error,httpx.TransportError):return 'network_connection'
+    return 'invalid_response'
+
+
 @dataclass(frozen=True)
 class ExternalCandidate:
     candidate_id: str
@@ -65,8 +76,12 @@ class PexelsStockProvider:
     # Source policy reviewed during migration; listing evidence is dated per hit.
     license_policy_version = "pexels-license-2026-10-17"
 
-    def __init__(self, api_key: str, *, transport: httpx.BaseTransport | None = None, timeout: float = 20):
+    def __init__(self, api_key: str, *, transport: httpx.BaseTransport | None = None, timeout: float = 20, proxy_url: str | None = None):
         self._key, self._transport, self._timeout = api_key.strip(), transport, timeout
+        if proxy_url:
+            from easel.materials.application.proxy import loopback_proxy
+            loopback_proxy(proxy_url)
+        self._proxy = proxy_url or None
 
     @property
     def available(self):
@@ -90,25 +105,27 @@ class PexelsStockProvider:
         endpoint = "/v1/search" if media_type is MediaType.IMAGE else "/videos/search"
         if exact:endpoint = '/v1/videos/videos/' + exact
         try:
-            with httpx.Client(transport=self._transport, trust_env=False, follow_redirects=False, timeout=self._timeout) as client:
+            with httpx.Client(transport=self._transport, proxy=self._proxy, trust_env=False, follow_redirects=False, timeout=self._timeout) as client:
                 with client.stream("GET", "https://api.pexels.com" + endpoint,
                     params={} if exact else {"query": query, "per_page": limit, "page": 1}, headers={"Authorization": self._key}) as response:
                     if response.status_code != 200:
-                        raise StockUnavailable(f"Pexels search returned HTTP {response.status_code}")
+                        raise StockUnavailable("Pexels search failed", code=http_failure_code(response.status_code))
                     body = bytearray()
                     for chunk in response.iter_bytes():
                         body.extend(chunk)
                         if len(body) > 4 * 1024 * 1024:
-                            raise StockUnavailable("Pexels search response is too large")
+                            raise StockUnavailable("Pexels search response is too large", code="invalid_response")
             import json
             payload = json.loads(body)
+        except StockUnavailable:
+            raise
         except (httpx.HTTPError, ValueError) as exc:
-            raise StockUnavailable("Pexels search did not return a valid response") from exc
+            raise StockUnavailable("Pexels search did not return a valid response", code=search_failure_code(exc)) from None
         if exact and (not isinstance(payload,dict) or str(payload.get('id'))!=exact):
-            raise StockUnavailable('Pexels returned a different stock identity')
+            raise StockUnavailable('Pexels returned a different stock identity', code="invalid_response")
         values = [payload] if exact else payload.get("photos" if media_type is MediaType.IMAGE else "videos") if isinstance(payload, dict) else None
         if not isinstance(values, list):
-            raise StockUnavailable("Pexels search response has an invalid shape")
+            raise StockUnavailable("Pexels search response has an invalid shape", code="invalid_response")
         candidates = []
         for item in values[:limit]:
             if not isinstance(item, dict) or type(item.get("id")) not in {str, int}:

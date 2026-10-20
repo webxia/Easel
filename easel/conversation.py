@@ -158,7 +158,7 @@ class ConversationService:
             if not segment['work_id']:fail('work_not_bound','请先确认参考作品并登记视频',409)
             validate_director_references(conn,segment['work_id'],values.get('reference_input_ids'))
         if kind=='plan' and segment['work_id'] and conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(segment['work_id'],)).fetchone():
-            fail('revision_required','已有确认方案；请指定成片修订或基于旧版创建新作',409)
+            fail('revision_required','已有确认方案；未成片时读取 pending.preoutput_replan 的合法声音修订选项，已有成片使用 revise；原方案保持不变',409)
         if kind=='plan':
             from .conversation_pipeline import planning_values
             values=planning_values(self,conn,segment,values)
@@ -178,11 +178,11 @@ class ConversationService:
                 prior=json.loads(pending['body_json'])
                 if (all(prior.get(k)==body[k] for k in ('target','work_id','work_revision'))
                         and all(prior['values'].get(k)==values.get(k) for k in ('action','payload','catalog_target'))):
-                    return {'proposal_id':pending['id'],'hash':pending['body_hash'],'state':'proposed','already_proposed':True,
+                    return {'proposal_id':pending['id'],'hash':pending['body_hash'],'state':'proposed','already_proposed':True,'values':prior['values'],'requires_user_confirmation':True,
                             'message':'这是已经展示的同一制作提案，未新建或修改。若本轮用户明确确认，请answer这个原提案，不要再要求确认。'}
         checksum=digest(body)
         previous=conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? AND kind=? AND body_hash=?',(segment['id'],kind,checksum)).fetchone()
-        details={'values':values,'requires_user_confirmation':True} if kind=='plan' or (kind=='pipeline' and values.get('action') in {'plan','grant','replan_after_unknown'}) else {}
+        details={'values':values,'requires_user_confirmation':True} if kind in {'plan','pipeline'} else {}
         if previous:return {'proposal_id':previous['id'],'hash':checksum,'state':previous['state'],**details}
         # A new version invalidates pending cards of the same kind in this segment.
         conn.execute("UPDATE conversation_proposals SET state='stale' WHERE segment_id=? AND kind=? AND state='proposed'",(segment['id'],kind))

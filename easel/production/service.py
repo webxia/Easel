@@ -204,6 +204,11 @@ class WorkService:
             fail('invalid_input','视频时长须为1～900秒')
         if settings.get('aspect_ratio','9:16') not in {'9:16','16:9'}:
             fail('invalid_input','画幅须为9:16或16:9')
+        if 'director_trial' in settings and type(settings['director_trial']) is not bool:
+            fail('invalid_input','试片选项须为布尔值')
+        subtitles=settings.get('subtitles',{})
+        if isinstance(subtitles,dict) and any(k in subtitles and type(subtitles[k]) is not bool for k in ('enabled','single_line')):
+            fail('invalid_input','字幕开关须为布尔值')
         try:
             if settings.get('voice') is not None: VoiceIdentity.model_validate(settings['voice'])
             if 'subtitles' in settings: SubtitleSettings.model_validate(settings['subtitles'])
@@ -295,7 +300,45 @@ class WorkService:
         if work['active_run_id'] and row(conn,'runs',work['active_run_id'])['state'] in {'pending','running','waiting_external','needs_decision','paused'}:
             fail('active_run','作品已有有效运行，请先处理当前制作',409)
 
+    def preoutput_target(self,conn,work,data):
+        """Read-only eligibility and optimistic identity for an audio-only replan."""
+        if data.get('settings')!={'audio_mode':'voice'} or set(data)-{'settings','restore_cancelled','request','services','recovery_target'}:
+            fail('invalid_input','预成片修订目前仅允许明确改为纯旁白、无背景音乐或可选音效')
+        if work['state']=='cancelled' and data.get('restore_cancelled') is not True:
+            fail('confirmation_required','已取消作品须明确恢复意图',409)
+        plan=conn.execute('SELECT * FROM plan_revisions WHERE work_id=? AND revision=? AND confirmed_at IS NOT NULL',
+                          (work['id'],work['current_plan_revision'])).fetchone()
+        run=row(conn,'runs',work['active_run_id']) if work['active_run_id'] else None
+        if not plan or json.loads(plan['payload_json'])['settings']['audio_mode']!='mixed':
+            fail('revision_required','当前没有可按此声音范围修订的已确认方案',409)
+        if not run or run['kind']!='production' or run['plan_revision']!=plan['revision'] or run['owner_id'] or run['state'] not in {'needs_decision','paused','failed','cancelled'}:
+            fail('active_run','当前运行尚未到达安全停止点',409)
+        if conn.execute("SELECT 1 FROM artifacts WHERE work_id=? AND kind='output'",(work['id'],)).fetchone():
+            fail('revision_required','已有成片，请使用现有成片修订入口',409)
+        if conn.execute("SELECT 1 FROM operations WHERE work_id=? AND state IN ('reserved','sending','submitted','unknown')",(work['id'],)).fetchone():
+            fail('result_unknown','存在在途或未知请求，不能重新规划',409)
+        return {'plan_revision':plan['revision'],'plan_hash':plan['plan_hash'],
+                'run_id':run['id'],'run_revision':run['revision'],'run_state':run['state'],
+                'basis_hash':digest(self._basis(conn,work)),
+                'protected_plan':json.loads(plan['payload_json'])}
+
     def _plan(self,conn,work,data):
+        recovery=None
+        if ('settings' not in data and data.get('generate',True) and
+            conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(work['id'],)).fetchone()):
+            fail('revision_required','已确认方案须通过明确的修订范围重新规划',409)
+        if 'settings' in data or 'recovery_target' in data:
+            recovery=self.preoutput_target(conn,work,data)
+            if data.get('recovery_target')!=recovery:
+                fail('stale_revision','恢复目标或受保护内容已变化，请重新展示并确认',409)
+            stamp=now()
+            conn.execute("UPDATE runs SET state='superseded',owner_epoch=owner_epoch+1,revision=revision+1,updated_at=? WHERE id=?",(stamp,recovery['run_id']))
+            conn.execute("UPDATE tasks SET state='cancelled',revision=revision+1,updated_at=? WHERE run_id=? AND state NOT IN ('succeeded','cancelled')",(stamp,recovery['run_id']))
+            conn.execute("UPDATE authorization_grants SET revoked_at=? WHERE work_id=? AND revoked_at IS NULL",(stamp,work['id']))
+            settings=json.loads(work['settings_json']);settings.update(data['settings'])
+            self._change(conn,work,settings_json=encode(settings))
+            self._event(conn,work['id'],'run_superseded',{'reason':'confirmed_audio_replan'},run_id=recovery['run_id'])
+            work=row(conn,'works',work['id'])
         self._ensure_idle(conn,work)
         if 'duration_seconds' in data:
             # The existing confirmed planning proposal carries this explicit choice.
@@ -305,7 +348,11 @@ class WorkService:
         if data.get('generate',True):
             if data.get('services'):
                 self._insert_grant(conn,work,'planning',data)
-            run_id=self._run(conn,work,'planning',payload={'request':data.get('request',''),'creation_basis':self._basis(conn,work)})
+            payload={'request':data.get('request',''),'creation_basis':self._basis(conn,work)}
+            if recovery:
+                payload.update(protected_plan=recovery['protected_plan'],
+                               request='只将已确认方案改为纯旁白，无背景音乐或可选音效；保留其他全部内容和设置。')
+            run_id=self._run(conn,work,'planning',payload=payload)
             return {'work_id':work['id'],'run_id':run_id}
         payload=data.get('plan')
         self.validate_plan(conn,work,payload)

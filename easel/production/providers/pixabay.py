@@ -19,7 +19,7 @@ import httpx
 
 from easel.materials.domain import CandidateSource, MediaType, RightsEvidence, RightsInfo, RightsStatus, SemanticInfo
 from easel.materials.store import reject_symlinks
-from .stock import ExternalCandidate, StockUnavailable, _https_url
+from .stock import ExternalCandidate, StockUnavailable, _https_url, http_failure_code, search_failure_code
 
 
 class PixabayStockProvider:
@@ -31,10 +31,14 @@ class PixabayStockProvider:
     cache_seconds = 24 * 60 * 60
 
     def __init__(self, api_key: str, *, transport: httpx.BaseTransport | None = None,
-                 timeout: float = 20.0, cache_root: Path | None = None, clock=None):
+                 timeout: float = 20.0, cache_root: Path | None = None, clock=None, proxy_url: str | None = None):
         if timeout <= 0:
             raise ValueError("Pixabay timeout must be positive")
         self._key = api_key.strip()
+        if proxy_url:
+            from easel.materials.application.proxy import loopback_proxy
+            loopback_proxy(proxy_url)
+        self._proxy = proxy_url or None
         self._transport, self._timeout = transport, timeout
         self._cache_root = Path(cache_root).expanduser().absolute() if cache_root else None
         self._clock = clock or time.time
@@ -139,7 +143,7 @@ class PixabayStockProvider:
     def _candidates(self, body, media_type: MediaType, limit: int):
         hits = body.get("hits") if isinstance(body, dict) else None
         if not isinstance(hits, list):
-            raise StockUnavailable("Pixabay search response shape is invalid")
+            raise StockUnavailable("Pixabay search response shape is invalid", code="invalid_response")
         candidates = []
         for item in hits[:limit]:
             if not isinstance(item, dict) or type(item.get("id")) not in (str, int):
@@ -193,21 +197,21 @@ class PixabayStockProvider:
             return cached
         path = "/api/" if media_type is MediaType.IMAGE else "/api/videos/"
         try:
-            with httpx.Client(transport=self._transport, trust_env=False, follow_redirects=False, timeout=self._timeout) as client:
+            with httpx.Client(transport=self._transport, proxy=self._proxy, trust_env=False, follow_redirects=False, timeout=self._timeout) as client:
                 with client.stream("GET", "https://pixabay.com" + path,
                     params={"key": self._key, "q": query, "per_page": max(3, limit), "page": 1, "safesearch": "true"}) as response:
                     if response.status_code != 200:
-                        raise StockUnavailable(f"Pixabay search returned HTTP {response.status_code}")
+                        raise StockUnavailable("Pixabay search failed", code=http_failure_code(response.status_code))
                     data = bytearray()
                     for piece in response.iter_bytes():
                         data.extend(piece)
                         if len(data) > 4 * 1024 * 1024:
-                            raise StockUnavailable("Pixabay search response is too large")
+                            raise StockUnavailable("Pixabay search response is too large", code="invalid_response")
             body = json.loads(data)
         except StockUnavailable:
             raise
-        except (httpx.HTTPError, TypeError, ValueError):
-            raise StockUnavailable("Pixabay search returned an invalid response") from None
+        except (httpx.HTTPError, TypeError, ValueError) as exc:
+            raise StockUnavailable("Pixabay search returned an invalid response", code=search_failure_code(exc)) from None
         result = self._candidates(body, media_type, limit)
         self._save(key, result)
         return result

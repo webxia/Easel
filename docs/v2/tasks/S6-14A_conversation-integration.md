@@ -678,3 +678,229 @@ SOFTWARE_PASS；正式插件/服务尚未同步或重启。当前钩子不提供
 - 获得部署授权后：检查生产Run/在途Operation、有效Web原生回合和Gateway均空闲；UNKNOWN保留并核对，不因空闲判断取消或重发。保存本地受保护配置/资产与必要业务快照，按受控Git流程合入，复验后同步插件/产品工作区并重启Gateway与Web，核对握手、源文件新鲜度及业务记录不变。不需要前端重新构建；本轮没有执行这些步骤。
 - 已验证普通刷新、停止、完成竞态、等待网络错误及真实原生超时。没有模拟整台机器断电或原生结束回调永久丢失；此时原生状态UNKNOWN保持占用，需要证据核实，不能凭交付租期自动释放。未做两小时长视频/实际供应商网络实测，真实表达及视频质量继续由用户原路径验收。
 - 本轮收口，不开启第二轮重构、S7或整片重跑。个人内容、运行ID、原始回执、凭证未入Git。
+
+### 2026-10-20 · 本轮真实 Web E2E 完整复盘与有界修复顺序（S6 · F2/F3）
+
+**作用域**：本段是本轮从 WebCodex 原生 Browser Use 实际操作 Easel Web、自然语言讨论、草稿、Planning、确认、Production、素材阻断及恢复的**唯一问题台账和 Codex 工作包**。原任务卡 1～680 行记录的早期 A1～A10 与其他真实作品属于历史证据，不因本轮改变原结论或重开排程；主状态页只维护摘要、唯一下一动作和 S7 候选。本段不新增另一套产品需求/架构、任务编号或持久库，不向 Git 保存私人画像、主题全文、会话/作品/任务 ID、真实凭证、原始回执及素材地址。用户当前批准的是**完整复盘、归因和既有文档整理**；实际付费 E2E、部署、迁移及发布均未因本段获授权。
+
+#### 1. 执行事实、有效成果与尚未覆盖的环节
+
+| 阶段 | 真实 Web/业务事实 | 当前判定 |
+|---|---|---|
+| Browser Use、画像/频道/试片导演、原生对话讨论 | 浏览器启动/选择/输入/发送成功；真实身份和既有声音参数已进入作品。曾用浏览器刷新，历史消息恢复。 | 已验证受测路径；不代表所有入口布局/多窗口覆盖 |
+| 草稿与绑定 | 同一 UI 会话形成两个同名 Work、多个会话段；正式 Planning/Production 使用后一个，前一个未删除。具体是哪一轮 Agent 指令引起重复，待独立定位。 | 缺陷证据成立，根因未证实 |
+| 首轮 Planning | 已授权的 MiniMax MODEL 调用共 3 次全部有成功回执，完整 JSON 仍因图解卡片多余 title 校验失败；其中一次另有旁白预算问题。 | 失败保留；费用已发生不能当作未调用 |
+| 有界解析修复与第二轮 Planning | 修改 VoiceReadyCreativePlan 草稿入口，仅丢弃已知非渲染 title；相关测试 20 项通过，重启后第二轮 Planning MODEL 回执 3 次成功并生成 Plan V1：摘要、逐字稿、7 镜、1 组两状态图解、固定声音/字幕。 | 本轮字段问题 FIX_VERIFIED；不代表普适模型输出可靠 |
+| 原生结果回传 | 后台 Plan 先结束，同一回合继续等待原生助手组织答复，最终经原 Web 对话自动交付全文；生产素材阻断也自动由同一原生对话说明。未使用测试工具注入成功消息；没有证据证明本轮结果重复气泡。 | 自动回传受测路径 PASS；等待期间状态表达不足 |
+| 制作授权与 Production | 首个 confirm 遗漏后续 MODEL 服务，经同一 Web 对话纠正，实际制作提案应用后启动 Supply；未触发 IMAGE/VIDEO 生图、生视频及发布。 | 提案更正属于人工指导下绕过，非通用产品修复 |
+| Supply 与外部来源 | 原生图解 2 张、库存视频 2 段真实落库但尚未做语义审片。其余 5 镜没有有效候选：部分 Pexels 下载 AcquisitionError，随后 Pexels/Pixabay source_unavailable；Wikimedia BGM 同为 source_unavailable。最终上报 music_material_gap。 | 本片 Supply BLOCKED；所有缺口都须披露，网络细分根因待验证 |
+| 取消、纯旁白调整、再规划 | 用户确认取消受阻制作；取消是 Work 级、当前作品 state=cancelled，冻结已确认 Plan V1 和原素材仍保存。尝试以 basis 修改 audio_mode=voice 遭 revision_required；更早一次提案还因设置的数字/布尔被写成字符串而不合法。 | 同 Work 未出片修订 OPEN，不能继续真实生产 |
+| 配音、剪辑、渲染、完整视听 QC、播放器、Creator 接受 | 本轮 Production 止于 Supply，未产生输出 MP4，也未启动后续真正的媒体加工。 | NOT_TESTED；不可将旧作品或软件用例算作本轮通过 |
+
+**最新受保护现场**：同一 UI 会话两条 Work；实际制作目标共有两次 Planning Run（先失败再成功）和一次 Production Run（已取消），本片 7 条成功 MODEL Operation，无本片在途/UNKNOWN；其他历史作品的 UNKNOWN 原样保护。已确认 Plan V1、成功素材和审计回执保留。主分支仍处于 dirty 工作树；前轮在 easel/production/service.py 留有**未测试、未部署的预成片音乐恢复候选补丁**，正式服务当前报告 backend.reload_required=true。上方数字是本轮唯一作品的当时审计快照，不是长期指标；需要时依正式库核对，Git 不存 ID。
+
+#### 2. 合并同根问题，而非为每个报错单独重构
+
+| 根因组 | 相关编号 | 责任与已知边界 |
+|---|---|---|
+| G-A · 身份、版本、确认和权限仍由模型猜测 | W01/W03/W04/W05/W06/W14/W15/W16 | Work 身份、Plan 版本/hash、费用服务、取消粒度、用户来源和可恢复动作应由服务端按现有真实记录确定，Agent 负责自然语言解释，不得凭轻量 Task 回执推断 Plan 丢失。是当前核心 P0。 |
+| G-B · 用户表达未完整落到冻结创作合同 | W02/W11 | 严格校验是必须保留的；模型草稿可有界兼容无意义附加字段，但“BGM 可省略”不能冻结成 music 必需的 mixed。任何真正变更须生成新方案/新确认，不改写 Plan V1。 |
+| G-C · 外部素材来源和失败类型不足以恢复 | W12/W13 | 网络环境已由用户确认不稳定，但 Pexels/Pixabay/Wikimedia 的每个 source_unavailable/AcquisitionError 是否由代理、搜索、下载、无结果或权益造成仍需分类；一次性汇总所有镜头缺口，不仅展示先抛出的音乐异常。 |
+| G-D · 自动执行与用户可观察过程没有完全闭环 | W07/W08/W13 | 单次助手回写机制已有真实正例；进度不应只显示长时间泛化等待，更不能把内部标识和日志当作用户说明。用户只有 Web，也必须能理解、选择、恢复。 |
+| G-E · 外部调试环境与历史安全边界 | W09/W10 | Browser Use 通道或 ChatGPT 文件实例化审批不是 Easel 业务失败；别的作品 UNKNOWN 也不是本片应重发的调用。隔离保留，不扩大成本/权限。 |
+
+#### 3. 统一问题台账（编号稳定，状态和优先级逐项独立）
+
+| ID / 类别 | 已发生现象与最短证据 | 状态、解决重点与验证出口 |
+|---|---|---|
+| W01 · P0/F2 | 同 UI Session 的多段绑定曾产生两条同名 Work（conversation_segments、works）；浏览器没有直接调 API 代建。 | OPEN，创建原因待查；补用户意图/已有 Work 优先与幂等恢复，重放/刷新/多段仍最多创建一个预期 Work。保留两条历史不合并迁移。 |
+| W02 · 已有界修复/F3 | MODEL 回执成功却未过 VoiceReadyCreativePlan，具体为 explainer_boards.cards 的冗余 title；第三次还有独立时长校验问题。 | 本片 FIX_VERIFIED：草稿入口精确剥离并保留严格 PlanDocument、原回执和费用，20 项相关测试与后续真实 Plan V1 PASS。Codex 先核对未提交代码，禁止当成新项目重新开发；额外字段、长度越界仍应失败。 |
+| W03 · P0/F2 SAFETY | 失败 Run 占据活动位；Agent 称 cancel 可仅结束运行，实际 service._cancel 取消**整部作品**并令旧提案失效。 | OPEN；必须区分结束受阻 Run/暂停/放弃作品，动作影响范围服务端给出并经真实用户确认。已发生取消和回执不回写修改。 |
+| W04 · P0/F2 | 第二轮真实 Plan V1 完整在 plan_revisions，Agent 却据轻量任务 result_json 声称正文丢失、提出重复付费 Planning。 | WORKAROUND_ONLY：工程诊断指导从 pending.work.plans 读到全文；需服务端稳定提供本版内容与可确认目标，Plan 存在时不得以“找回正文”启动重规划。 |
+| W05 · P0/F2 | Confirm 曾混用 brief hash、task fingerprint 和 proposal hash，连续 stale_revision；只有真实 Plan revision/hash 匹配才合法。 | WORKAROUND_ONLY：人工纠正后确认成功；确认目标、旧版冲突与合法下一步由程序计算，用户不填写 hash。 |
+| W06 · P0/F2 | 首次生产 services 缺少素材意图与精剪需用的结构化文本 MODEL；虽然尚未执行出错，但按授权合同将构成 permission_missing。 | PROVEN_PRECONDITION / 临时更正：同对话重新提出含 MODEL/TTS/库存服务的 confirm 并成功启动。正式预检由受控执行依赖生成实际服务清单，不让模型漏项或扩权；allow_ai=false 仍不允许 IMAGE/VIDEO。 |
+| W07 · P1/F2 | 后台 Planning 成功后，Web 仍较长时间显示“正在处理”，直到原生模型给出完整答复；素材失败已自动在同一对话回写。 | PARTIAL：同轮等待和可信自动回写已验证；短阶段状态应区分 Worker 正在做、已完成但 AI 组织回复、网络状态未知。无依据不伪造进度百分比/ETA，不另建气泡。 |
+| W08 · P1/F2 与 S7 UX | 对话正文暴露 proposal ID、运行号、能力回执和技术流程；“执行过程”可见；用户不该会 SQL 才可判断。 | OPEN：当前作品必须以用户能理解的说明替代技术正文；统一视觉/折叠样式的横向打磨留 S7 候选。未实测出现重复回传气泡，不当作已证实 bug。 |
+| W09 · EXTERNAL/RESEARCH | WebCodex Tunnel 曾断连、Browser 点击提交后结果短时不可见；ChatGPT 截图/文件实例化另有平台审批。 | 非 Easel 产品故障：先核实原 Web/DB 是否接收，再决定能否重试操作；减少无必要截图，不绕过权限。 |
+| W10 · SAFETY_GUARD | 正式库另有历史 UNKNOWN，但本片 7 条 MODEL 均有终态，不存在当前需盲重发的未知操作。 | 保护性不变量：UNKNOWN 不推断完成/失败，不强行重提、不借新用户授权消解历史结果，相关保护测试必须保持。 |
+| W11 · P0/F3 | 用户曾允许“BGM 可不用”，Plan V1 仍 audio_mode=mixed；Supply 把音乐定为 REQUIRED，Wikimedia 未找到可用源而 music_material_gap；EditProject 也要求 mixed 有 voice+music。 | OPEN：区分配乐必需与可选并使自然语言/Plan/素材/编辑一致；本片只在合法确认后可生成 voice-only 新 Plan，不能跳过音乐校验冒充 mixed 成功。 |
+| W12 · P0/F3 | S1 有 2 个视频候选；S2 Pexels 多次 AcquisitionError，S3/S4/S6/S7 Pexels/Pixabay source_unavailable，音乐源亦不可用。专用代理配置存在，但部分 API 搜索 Client trust_env=False，下载走另一路。 | OPEN：用户已确认代理不稳定是外部条件；每个调用的具体代理/HTTP/DNS/下载/无候选原因尚未证实。统一**受控**出站策略、脱敏错误分类/有界恢复，不放宽 TLS、DNS、SSRF、Rights 或无限重试。 |
+| W13 · P1/F2+F3 | Supply 先以 music_material_gap 终止，原对话主要提示 BGM，但数据库事件已经显示另有 5 个视觉分镜无候选；两段视频/两张图解存在但 quality_state 未审。 | OPEN：保留已确认成果；聚合所有已知素材缺口与状态，显示哪些只是候选/尚未验收；网络异常不等于素材语义不合格，用户一次选择优先恢复方向。 |
+| W14 · P0/F2 SAFETY | 确认制作后因 BGM 缺口停止，用户希望改 voice；Work 已取消，Plan V1 已确认，普通 basis 报 revision_required；现有 revise 接口又要求有具体成片，形成预成片恢复空缺。 | OPEN：先审计当前 service.py **未测试未部署补丁**；只允许受控、可追踪的同 Work 前成片新方案流程。旧 Plan/任务/回执/素材不可变；含成片、未知/在途、越权变更、过期版本均拒绝；任何新模型/媒体成本单独确认。 |
+| W15 · P1/F2（参数可靠性） | 一次 basis 提案把 duration_seconds、布尔开关与音色参数等原有数值写成字符串；未应用即由开发诊断发现，后续仅更新 audio_mode 的新提案通过结构读取。 | WORKAROUND_ONLY：模型仅提交用户实际变更的 typed delta，保留服务端严格验证；无效提案在展示时可解释地修复，而不是让用户重复确认。 |
+| W16 · P1/F2（来源绑定与自主恢复） | 恢复时模型尝试用没有出现在本轮用户文字中的绑定引用而触发 invalid_source；重复 offer、过期提案与 revision_required 使普通用户无法只凭 Web 完成继续。 | OPEN：保留真实用户原话/后续明确确认校验；服务器向 Agent 返回可用动作及影响，提示用户必要表达，不用用户手填内部 ID；不能为了 PASS 放宽 user_quote 校验。 |
+
+**问题与验收状态的解释**：FIX_VERIFIED 只代表具名字段有测试加本轮真实正例；WORKAROUND_ONLY 指人工借后台证据指导 Agent 再次调用已有工具，不是正常用户体验可用；OPEN 指仍须修代码/合同；EXTERNAL 不交给 Easel 产品代码修复；NOT_TESTED 不升级为 FAIL/PASS。P0 是本片安全、版本、授权、实际交付阻断；P1 是当前用户应可理解和恢复的交互；横向多作品/美化属于 S7，不提前实施。
+
+#### 4. Codex 合并修复工作包（同一 Task 内分批，不新建 Task/Backlog）
+
+| 批次 | 归类与覆盖 | 修复与必须通过的检查 |
+|---|---|---|
+| B0 · 事实保护/预检 | SAFETY；所有 W | 审计 dirty worktree（含 planning.py、service.py 未提交补丁）、本片无在途 Operation、其他历史 UNKNOWN、正式服务加载版本与现有证据。只读确认原 Work/Plan/素材/原回执 hash；判断已解决 W02 不重复开发。明确代码与运行态不同，不盲目重启。 |
+| B1 · 作品权威、确认与预成片恢复 | P0/F2；W01/W03/W04/W05/W06/W14，关联 W15/W16 | 复用现有 conversation bridge、WorkService、Proposal 身份和 immutable Plan；定位双 Work 原因，确定性 Plan 取回与 confirm 绑定、执行服务授权清单和各级取消含义；补一个受限的预成片失败→同 Work 新 Plan 流程。保留旧历史，外部 UNKNOWN/已出片/未授权/并发/过期版本都拒绝，离线模拟 Web 真实用户可完成。 |
+| B2 · 素材链路与合同 | P0/F3；W11/W12/W13 | 搜索 API + 受控下载代理统一、错误分型（含授权/权益与真实空候选区分），网络断续与重连的隔离测试；可选音乐约束与 mixed/voice 结构保持一致，缺合格素材不偷偷替代或降级。无 AI 生图/生视频授权时缺口必须合理停下，已得候选可合法复用。 |
+| B3 · 用户可见恢复与结果表达 | P1/F2；W07/W08/W13/W15/W16 | 使用现有原生会话回复/唯一短阶段状态，而非第二套消息气泡或技术 JSON；运行结果自动回同一原对话，准确说明全部缺口、确定与未知原因、保留成果、最少可选动作、追加服务/调用风险。测试刷新/断连/完成事件/过期提案/无效 typed 参数/来源绑定；不让用户输入 Run、hash 或查看后台。 |
+| B4 · 独立验收与收口 | 持续；所有 W | 单元/组件/生产回归 + 使用隔离数据库/假 Provider 的原生 Gateway 与 Browser Use 真实页面 E2E；测试具体当前错误链以及正反例。区分 SOFTWARE_PASS/REAL_PRODUCTION_PASS/CREATOR_ACCEPTED；修后先报告证据和是否可部署，再由用户决定何时重新开展原作品的真实付费恢复。 |
+
+**分批实施原则**：B0+B1+B2 中安全与实际出片的确定性阻断优先；B3 里“用户不知道发生了什么/无法从 Web 恢复”是当前 S6 必须过的交互验收，不得全部推入 S7。每批一轮有界修复，有明确因果与测试才能改代码，仍失败则记录 BLOCKED 和取舍，不自动扩大架构、不顺手治理其他历史项目。有效的 W02 不再派发；W09 外部工具问题不拿来改变 Easel 正式 Provider；W10 是保护条件而非要消除的 UNKNOWN 数据。
+
+#### 5. 仅从 Web 出发的用户验收合同（不依赖开发者数据库）
+
+| 场景 | 普通用户应当从 Easel 本身获得的结果 | 调试侧旁证，不能替代用户结果 |
+|---|---|---|
+| 开始/讨论/保存草稿 | 只围绕本次已选频道/导演的真实同一作品；重复操作仍是同一作品，讨论不会自动变付费 Planning。 | 同一 Session Work/segment/command 计数 |
+| Planning 开始、执行中、成功 | 对话明确授权本次模型与服务；等待时一个真实阶段状态；结束后完整真实方案与费用清单主动返回原对话，允许摘要展开，不用用户索取 Plan hash。 | Plan 版本/hash、MODEL operation/事件、SSE turn delivery |
+| 方案/制作确认 | 已确认要求只问必要一次；服务和生成次数按当前任务实际能力确定，用户一条确认触发一次可信执行，旧提案失效；不能为找回已存在 Plan 再付费。 | Proposal apply/Work revision/Grant/Run 去重 |
+| 素材失败与安全恢复 | 同时说明哪些镜头缺候选、音乐是否必须、网络/版权/内容判断哪些已核实、已有何资产、费用是否已发生与下一步两三种真实可执行选择。 | Supply event、Rights/Operation、真实磁盘文件 |
+| 修改冻结方案/取消 | 明确区分“结束当前步骤/运行”和“取消整部作品”；已经确认的不可变 Plan 保留，选定同一 Work 生成新版本并重新确认；旧成果有来源，未知请求不能重发。 | 新旧 Plan 与 Run 引用、版本冲突、UNKNOWN 占用 |
+| 最终生产完成或继续阻断 | 原对话自动回传可访问 MP4 与真实技术/语义检查状态，或返回确定性阻断；刷新或恢复不创造额外作品/收费。由 Creator 手动审阅、决定修订或接受，未接受不能代写。 | Artifact SHA/媒体探针、Quality、Acceptance 和无自动发布 |
+
+**验收硬边界**：后台 DB/API 200 和 Browser 自动点击属于证据，不是用户自主恢复 PASS。现阶段真实配音、精剪、渲染、质量和播放器因本片 Supply 阻断仍 NOT_TESTED，不能提前安排泛化质量重构，也不能声称已出 MP4。本 Task 对用户个人资料、收费授权、素材原件/UNKNOWN、发布和导演接受的保护继续有效。
+
+#### 6. 交接与停止线
+
+1. 当前只有文档级梳理获授权；上述优先级是拟交 Codex 的**单一有界修复范围**，不是自动允许运行网络/付费模型、正式媒体下载、TTS、渲染、DB 迁移、正式重启/部署、删除或推送。
+2. Codex 从根 AGENTS.md、04_CURRENT_STATE、此任务记录和相关源码开始，检查未验收补丁；复用 B0/B1/B2/B3 既有组件，出具逐问题“保留/修复/不修+原因”台账。不新增类似名字的 Task 或“最新状态”。
+3. 交接必须输出每个 W 号的实际状态/修改路径/回归证据、未解决/未覆盖、是否真正影响普通 Web 用户的下一操作；软件修好后仍需在已获批准的原会话、原作品上再开展真实 E2E。不能以清理、换作品、放宽 Rights/费用/语义审片绕过失败。
+4. F2/F3 当前阶段结果：本片软件/业务局部已通过、真实自主成片 **BLOCKED（无 MP4）**、Creator 接受 **NOT_TESTED**；S6 PARTIAL，不自动进入 S7。一般 UI 美化、历史多作品样本、跨模式综合压力、模型/成本全局优化继续由主状态页的 S7 后续候选池统一维护。
+#### 7. 可复用的真实 Web E2E 调试执行方案（后续继续使用）
+
+**用途**：这一节只固定“如何调试、取证、判断、恢复与验收”的工作方法；问题事实和优先级在上方 W01～W16/B0～B4，不再复制出一份任务清单。适用于当前作品在代码修复后的继续验证，以及后续经用户批准的新真实作品。Easel 正式用户只需要 Web 对话；开发侧可用 WebCodex 只读数据库/日志解释因果，但不得以后台操作替代真实用户行为。
+
+**A. 开始前的保护与定位（只读、一次）**
+
+1. 连接 Mac 上现有 WebCodex Project/Workflow Session，读取 AGENTS.md、最新主状态和当前任务；核对 branch/HEAD/dirty worktree、运行服务版本和 backend.reload_required，不因文件已修改就认为 Worker 已加载新代码。
+2. 确认实际 Easel Web 页面和既有 UI session、Profile/Channel/Director（含试片接受边界）、单一 Work、current_plan_revision、active_run。优先复用已选内容，不自动切画像、新建 Work、迁移素材、改导演默认或建新 Session；如果某个 ID 不可达，先报告而不是猜一个替身。
+3. 后台只读核对在途/UNKNOWN Operation、授权服务与预算、真实资源和原始回执。任何可能付费/不可逆的动作由用户经 Easel 原对话明确确认。生产/Planning 已发送但结果未知时先观察 receipt，不能重发。
+4. 测试环境须记录本次**确切**代码/服务版本、浏览器 Session 和作品关联；个人 ID、真实提示词、API Key、回执与媒体仅留受保护本机记录，Git 只留脱敏结论。
+
+**B. Browser Use 操作准则：先看网页、后动页面、再核验**
+
+- 优先使用 WebCodex 原生 browser_observe.snapshot（语义元素/输入值/按钮）和 browser_act（选择、点击、输入、发送）；有异常再用 diagnostics 看网络/控制台，视觉问题才按需 screenshot。遵守任何截图/文件实例化权限，不绕过宿主批准，不另装 Playwright 来替代真正的浏览器路径。
+- 每一次业务写动作执行“观察页面 → 确认所在 Session/Work 与当前内容 → 只发送一次 → 在同一页面验证页面变化 → 只读核对数据库/Run/Proposal/Operation”。Browser 点击报告 completed 不代表业务一定入库，网络断线时禁止盲点第二次。
+- Web 消息必须像普通用户一样自然输入；不要在正常创作测试里把 Run ID/hash/内部 SQL 当成必要提示。需要定位工程问题时才单独做诊断回查，不把诊断捷径记为用户可用 PASS。
+- 只有用户授权的真实动作进入后端：讨论不触发 Planning；草稿确认只落 Work；整理方案的付费授权与正式制作确认分开；接受作品与接受导演也分开；不自动发布。
+
+**C. 完整业务调试步骤和逐步 Gate**
+
+| Gate | 页面实际操作 | 后台只读证据 | 成功判据 / 异常停止点 |
+|---|---|---|---|
+| G0 · 入口/身份 | 从 Easel Web 选已存在的 Creator、Channel、明确 Director 版本，进入同一对话；页面刷新后再进入 | conversation segment、Work 绑定、配置继承、权限和版本 | 用户看到正确创作身份，无越界默认、无额外 Work；断线恢复不重建 |
+| G1 · 讨论/草稿 | 用自然语言提出主题、补充约束、确认草稿；修改讨论而非直接制作 | turn、draft proposal、作品创建及首次关联、brief/settings | 同一作品不重复创建；用户约束保留且来源明确；未授权无模型生产 Run |
+| G2 · Planning | 从原对话看清模型、用途、预计次数/额外修复费用后确认一次；网页保持原对话等待 | grant、MODEL Operation、运行事件、模型终态、PlanDocument 校验、plan_revisions | 允许有界格式修复但必须如实计调用；成功冻结实际 Plan，失败给具体字段/费用/保留成果，不自动新 Run |
+| G3 · 方案展示与确认 | 原对话自动收到 Plan 摘要/逐字旁白/分镜/时长/音轨/素材约束；用户核对后明确确认制作 | 实际 current_plan_revision+plan_hash、确认回执、完整 services/allow_ai/limits | 页面显示与数据库冻结的是同一版；确认目标由后端权威绑定；Plan 存在时不得为“找回正文”重付费 |
+| G4 · 自主生产 | 在原对话确认制作一次，然后**仅观察**供应→TTS→Edit→Render→Quality；无必要不发送“完成了吗” | 同一 production Run 的 Task/Event、素材引用与 Rights、VOICE/MODEL/IMAGE/VIDEO Operation、媒体产物及实际技术状态 | 合法流程后台持续执行，不再逐步骤找用户；确认授权范围不扩张、旧成功素材复用、异常不盲重试 |
+| G5 · 自动回传/审片 | 保持/刷新同一 Web 对话，等真实结果由原生助手主动呈现播放器或具名阻断；用户观看/反馈 | delivery_state、去重回执、output Artifact/digest、quality_checks、实际文件 | MP4 能从 UI 真正播放，技术 PASS/语义 NOT_TESTED/FAIL 分开说明；无播放器不能宣称出片 |
+| G6 · 修订/接受 | 如用户认为有问题，仅在该作品对话提修改并锁定版本；或经完整审片明确接受 | review、revision、原版素材/音频复用、新版/接受目标、无发布动作 | 修改影响可控、无重复制作与预算越界；Creator 接受必须由用户操作，不等于 Agent 自评 PASS |
+
+**D. 长时间等待与自动回传怎么调试**
+
+- 正常路径：Web 发送明确授权 → 生产事务只创建一次 Run/Task → Worker 后台执行外部请求与本地处理 → Run/Task 实际终态落盘 → 宿主结果事件/原生助手将完整结果回写**同一个 Web 对话**。用户不必问“任务中断了吗”或重复发送确认。
+- 分开观察 **① Web/SSE 是否仍连着，② 原生聊天轮次 active/ended，③ Run/Task 是 pending/running/waiting_external/needs_decision/terminal，④ Operation 是 reserved/sending/submitted/unknown/succeeded/failed，⑤ 实际 Artifact 是否存在**。其中任意一项独自成功，不代表业务闭环成功。
+- 网页应有一个与真实事件一致的简短阶段状态，例如“正在找素材”“模型已完成，正在整理方案回复”“需要选择合法音乐来源”。禁止伪造百分比、估计完成时间或一次任务各阶段重复 AI 气泡；正常后台等待不是模型失败。
+- 浏览器断连/刷新/Host Tunnel 不稳定时，只读核实是否已提交和有无在途调用；点击/发送超时属于**结果待核实**，不能自动重新发付费动作。只有明确失败且重新授权的合法动作才可重新提交。
+- 完成/受阻后必须验证**页面确实显示**与后端一致的自然语言结果。数据库成功但 Web 不显示属于 F2 FAIL，不能以查库手工告诉用户替代回传。
+
+**E. 遇到失败时的最小归因法**
+
+1. 固定第一个真实失败的 Gate、Work/Run/Task/Operation、事件和时间；区分根因与后续衍生报错，不以最后异常覆盖更早的素材缺口。
+2. 分类：网络/代理和下载、Provider 确实无结果、Rights/媒体技术拒绝、模型语法/合同/语义校验、权限/预算、状态/版次冲突、异步投递、外部 Browser/Tunnel。不能把 UNKNOWN 写为失败或成功。
+3. 在 DB/日志精确定位，但输出给普通用户的是：**当前阶段、实际问题及确定程度、保留的成果、真实可执行的选择、是否可能重复计费**；必要时展示全部缺口（如视觉+音乐），不能只说第一个抛出错误。
+4. 修复前先判定属于 SAFETY / 当前 S6 BLOCKER / S7 LATER / 外部研究。当前 Blocker 最多一轮证据支持的有界代码修复及同场景回归；不得为抢救出片篡改 frozen Plan、关闭 Rights/QC 或另建替身 Work。
+5. 对用户已确认的实质变更，须经既有合法版本化流程产生新 Plan 和新授权，不直接 UPDATE 正式 DB、不删除旧素材/回执，也不能把作品级 cancel 描述为任务级取消。
+
+
+**E.1 · 先安全临时恢复、继续调试，再由 Codex 统一归因修复（本次明确补充）**
+
+- **允许先恢复，不强迫当场把所有根因修完**：真实 E2E 某一步受阻时，先判断能否用现有合法能力、当前授权与已确认业务范围进行**有界临时恢复**（如网络恢复后续查、读取已有成功 Plan、复用合格素材、经用户明确确认改选音频模式、恢复原有会话/运行）。恢复成功后继续走下一 Gate，以暴露整条链路后续问题；不要因一个非安全阻断就长期停在局部重构。
+- **恢复必须有边界**：绝不绕过 Rights、权限/费用、UNKNOWN、不可变 Plan、Creator 确认或质量检查；不得直接改生产数据库制造 PASS、偷偷新建 Work、跳过必需音乐却仍保持 mixed、重发已发送的付费操作。若现有业务合同不支持合法恢复（例如已确认 Plan 又未出片），要标为 **BLOCKED**，必要时仅提出有限设计/代码修复并经测试和部署审批后再恢复，不能把非法操作称为“临时恢复”。
+- **临时恢复也必须完整留账**：在继续下一步**之前**，记下失败 Gate、用户实际看到的现象、首个失败事件、Run/Task/Operation 的私有证据位置、判断依据及不确定性、已花费用/已有素材、采用的临时恢复方法、用户授权来源、是否可能影响后续步骤、恢复后的真实验证结果。历史失败记录原样保留，不能将 WORKAROUND_ONLY 改写为 FIX_VERIFIED。
+- **不中断整条问题收集**：当前 Gate 合法通过就继续真实 Web 测试，后续新问题继续编号/归因；同根问题只补充证据，避免每次卡点马上新建模块或修改架构。阶段性制作结束或被确实无法恢复的阻断拦住后，再交由 Codex **统一审计全部问题 → 合并根因 → 评估已修复/临时绕过/仍阻断 → 给出最简方案 → 获批后批量修复 → 原场景回归**。不要把每个临时处理当作长期设计。
+- **对普通用户的要求不变**：开发调试可查 DB/日志做旁证，产品内的用户只看 Web 时仍应收到真实原因、已保存成果、两三项可执行选择和新增费用风险，并通过自然语言完成恢复。后台工程师代查数据库后的继续，只能记录为调试临时恢复，不能判为普通用户自主恢复 PASS。
+- **两本账不能混**：① 本次实际创作进度/Gate 的 PASS、FAIL、BLOCKED、NOT_TESTED；② 缺陷的 FIX_VERIFIED、WORKAROUND_ONLY、OPEN、LATER。允许「当前 Gate 在临时恢复后通过，而根因仍 OPEN」，最终 Codex 修复闭环必须单独复验。
+**F. 统一证据记录与交接模板（每轮只追加该 Task 的实测事实）**
+
+- 记录现场：测试日期、实际版本/加载状态、单一 Web 会话是否保留、各 Gate PASS/FAIL/NOT_TESTED、用户明确授权范围。
+- 每个问题记录：发生阶段→普通用户看到什么→后台事实→确认的根因/未证实假设→受影响成果与费用→当前状态（FIX_VERIFIED/WORKAROUND_ONLY/OPEN/BLOCKED/NOT_TESTED）→最小方案→复验。
+- 写入位置：S6-14A 记录该次详细运行与证据、04_CURRENT_STATE 只改当前结论/唯一下一动作；既有 S7 候选池只收非阻断的通用优化且避免重复条目；不创建新的同名 Task、最新报告、额外状态文档。
+- 最终交付三个独立结论：**SOFTWARE_PASS**（对应代码/隔离验证）、**REAL_PRODUCTION_PASS**（真实可播放的整片及实际 QC）、**CREATOR_ACCEPTED**（用户看过并接受）；还要报告未覆盖的 Gate 和下一步的真实授权需要。
+- 停止线：任何真实网络/权限/费用/UNKNOWN 的不可确定性先保护，绝不盲重派；真实成片尚未形成则不得声称完整 E2E PASS。用户批准实施修复，不等于自动批准再次付费出片或发布。
+
+**本次样本的明确限制**：已经实测 G0～G4 的部分路径及 Planning/素材阻断自动回传；本次 Production 在 Supply 停止，真实 VOICE/Edit/Render/Quality/MP4/审片均未执行。后续需在用户确认的原 Work 和安全恢复条件下继续补齐，不能把旧作品的既往通过结果搬来充数。
+
+
+### 2026-10-20 · 独立审计结论与已批准实施范围（禁止 E2E）
+
+当前阶段 S6 / F2、F3，分类 CURRENT_BLOCKER；根据上述 W01～W16 真实失败及独立临时库复现实施 B0～B4 有界修复。本轮授权覆盖文档、代码及单元/组件回归，取代上文“仅文档”的旧授权快照；B4 本轮明确裁剪为离线单元/组件，禁止隔离 Gateway、浏览器旅程及真实生产 E2E。
+
+B0 核实分支 easel-v2-rebuild、HEAD fb309910c3bf383977eb6193690cb4eaf354fc35。开工已有 9 个 tracked dirty 文件，另有预研、scratch、二维码及私人内容未跟踪；全部保护，不计作本轮成果。planning.py 的已知 title 兼容保留复验；service.py 的音乐恢复候选不直接采用：它要求先取消整部作品、只识别音乐错误、可夹带 input_text，且未证明后续规划保护完整。
+
+- B1：bind 同配置保留当前 Work，显式新作沿已有入口；pending/结果突出当前完整 Plan，offer 从当前记录绑定版本/hash，answer 再校验。完整执行服务在 offer 展示并冻结，不能答复后扩权；allow_ai=false 不授 IMAGE/VIDEO。typed settings 在 offer 前校验，取消明确作品级范围和撤销授权。
+- B1 预成片恢复：复用 plan 提案/命令，绑定已确认 Plan、当前 Run、批准的声音 delta、受保护内容及 Planning 服务。仅无成片、无 owner、无在途/UNKNOWN 的安全停止点；取消作品须明确恢复。安全等待 Run 复用 superseded，版本复核、旧 Run 收口、设置更新与新排程同事务。保留 V1/素材/回执，新 V2 重新展示确认，旧生产授权不继承。保护观点、逐字旁白、镜头身份和其他固定设置；越界模型结果沿既有有界纠正，失败停止。
+- B2：严格 voice/mixed 合同；本片批准无 BGM/可选 SFX 必须进入新方案及素材意图。搜索复用专用显式代理，固定 API、不继承环境代理、不放宽 TLS/重定向/凭证及下载 SSRF。错误保留有限脱敏分型；只从已有事件一次汇总全部缺口与未审候选，不追加网络调用。
+- B3：沿现有 activity 展示真实阶段/正在整理结果；原生助手解释已完成、阻断、保留成果、合法下一动作及新增调用风险，保持等待/断线/去重及真实用户来源守卫。
+- W02 保留复验；W09 不改 Easel；W10 保留历史 UNKNOWN；其余按 W01/W03～W08/W11～W16 的既有优先级实施。横向表达美化和系统质量优化留 S7。
+
+先补暴露缺陷的测试，使用临时库、假 Provider、受控 transport；不读正式凭证或生成媒体。不重启 Web/Gateway/Worker，不改正式库/画像/素材，不恢复/取消/重跑真实任务，不提交/推送/合并/部署，不新增表/状态/Agent/工具入口/后台节点。适用回归完成后报告并停止；E2E、REAL_PRODUCTION_PASS、CREATOR_ACCEPTED 本轮均 NOT_TESTED。
+
+
+#### 本轮 B0～B4 离线实施收口（2026-10-20）
+
+**基线与保护**：分支/HEAD 与交接一致，全部修改留在当前 dirty 工作区，未提交/推送。7860 capabilities 仅作只读核对，返回 backend.reload_required=true；未重启服务、操作正式库或重新核验私人运行回执，前述真实数据数量仍属上次审计快照。已有 planning.py/title 补丁与原回归保留，不能记为本轮新增。service.py 的旧音乐缺口候选片段先保存在本机临时文件，随后以本轮批准的 plan 恢复路径替代；普通 basis 恢复为冻结方案不可修改的保护。其他原 dirty 文档、未跟踪预研与私人材料保留。
+
+| W | 本轮实际处置及落点 | 验证与限度 |
+|---|---|---|
+| W01 | conversation_pipeline.bind 继承当前 work_id 与配置；同配置/continue 不丢作品，配置变更不能借空段绕过；新作仍经 enter | 临时库覆盖重绑、continue、同名显式新作；本表记录离线收口时结果，后续部署见下方补记 |
+| W02 | 保留已有精准 title 兼容与严格其他字段校验 | 原 narration_budget 回归通过；既有真实正例不计本轮成果 |
+| W03 | cancel 返回作品级取消、撤销授权、保留回执及远端未知边界 | offer 返回真实范围，未对正式作品执行取消 |
+| W04/W05 | pending 与结果单列 current_plan；制作 offer 自动绑定当前 revision/hash，显式错值及 answer 过期拒绝 | 对话组件验证完整稿、版本冲突及幂等 |
+| W06 | production_values 在 offer 构造配置模型、素材检索、公共事实依赖、冻结声音及明确允许的生成服务；完整 summary 随提案返回 | 服务缺项补全在确认前；answer 服务变化拒绝；冻结声音/AI正反例通过 |
+| W07/W08 | 原 activity 心跳读取可信当前回合绑定运行，显示真实阶段或正在整理结果；交付指令不让用户复制内部编号 | 状态与交付组件验证；未做浏览器视觉或真实模型措辞验收 |
+| W09 | 不修改外部调试通道 | EXTERNAL/RESEARCH 保持 |
+| W10 | 不动任何正式 UNKNOWN；新恢复拒绝所有在途/UNKNOWN | 四类 Operation 状态及旧专用 UNKNOWN 对话回归通过 |
+| W11/W14 | plan 的安全预成片 mixed→voice 修订，原 Run 用 superseded 收口；旧授权撤销，新规划事务排程。保护原稿/观点/镜头/设置/画像快照/导演依据，追加无 BGM/SFX 约束并校验素材意图 | 临时 Worker+假文本模型生成未确认 V2；回滚、幂等、owner/成片/过期/UNKNOWN、取消恢复、三次有界纠正后停止均验证。严格 mixed 未放宽 |
+| W12 | 三类搜索 Provider 接入同一显式 loopback 代理；有限网络/HTTP/响应错误码进入既有 SupplyFailure | 受控 HTTP transport、配置传递、原固定 IP/DNS/SSRF 负例通过；正式代理稳定性未测 |
+| W13 | 仅从当前 Run 已有搜索事件聚合所有已知缺口，从已有 Artifact 投影保留候选及 unchecked 状态；同轮及中断恢复均接入 | 多视觉缺口+音乐缺口一次汇总；空结果/Rights/下载/网络区分，不额外检索、不把候选写为审查通过 |
+| W15/W16 | basis offer 前校验 typed settings；pending 返回安全恢复选项，保留原话与下一真人回合确认、版本及作用域守卫 | 非法类型提前拒绝、同轮确认拒绝、取消后恢复意图及真实来源回归通过 |
+
+**最终适用回归命令**（均临时库/假模型/受控传输；没有 Gateway 或浏览器 E2E、媒体生成/渲染）：
+
+```bash
+.venv/bin/python -m pytest \
+  tests/production/test_conversation.py \
+  tests/production/test_conversation_pipeline.py \
+  tests/production/test_conversation_results.py \
+  tests/production/test_conversation_execution_wait.py \
+  tests/production/test_conversation_unknown_recovery.py \
+  tests/production/test_preoutput_replan.py \
+  tests/production/test_material_search_transport.py \
+  tests/production/test_proxy_material_acquisition.py \
+  tests/production/test_planning_narration_budget.py -q -p no:cacheprovider
+node --test tests/production/workBridgePlugin.test.mjs tests/production/executionWaitPlugin.test.mjs
+# 最后按音乐/SFX角色收窄服务清单后的增量回归
+.venv/bin/python -m pytest tests/production/test_conversation_pipeline.py -q -p no:cacheprovider
+git diff --check
+```
+
+最终结果：**综合 Python 207 passed、最后服务范围增量 54 passed、Node 12 passed、git diff --check 通过**。SOFTWARE_PASS 仅指上述具名离线范围；Python 保留既有 Starlette/AnyIO 弃用提示，不影响用例结果。没有运行整库媒体测试、原生 Gateway 验证脚本、浏览器旅程或真实制作。
+
+**复杂度与交接**：新增数据库表/业务状态/Agent/模型工具/REST入口/后台调度节点/独立进度面板全部为 0。增加现有命令的有限参数与验证、结果投影及既有 activity 的状态读取；不新增恢复系统。实现合同§9.14、交互合同§18.17同步，主状态只保留摘要与下一动作。没有新增 S7 候选，已有横向 UX/恢复泛化候选仍留原池、不实施。
+
+**离线收口时的停止与部署条件（历史，已由下方部署补记接续）**：本轮已停止在软件回归；代码未经正式运行验证。后续需用户另行决定部署，部署时同步后端与现有插件 schema、核验运行空闲及新鲜度，然后由用户决定何时在原会话/原 Work 进行真实付费验证。真实代理网络、模型对原稿保护的可完成率、实际声音/素材适用性与 Web 表达均未验；不能把离线正例当作整条用户路径已解决。E2E、REAL_PRODUCTION_PASS、CREATOR_ACCEPTED 本轮均 NOT_TESTED，S6 仍 PARTIAL，不进入 S7。
+
+
+#### 用户授权部署补记（2026-10-20 19:35 CST）
+
+用户明确指示“先部署”，本节取代前段对本次部署的等待授权状态；原禁止 E2E、真实模型/媒体生成、恢复旧任务、提交/推送及进入 S7 的边界继续有效。源码仍为 easel-v2-rebuild@fb309910 加当前未提交修复，没有制造新的发布提交或掩盖 dirty 状态。
+
+- 部署前只读核对：无运行 owner、无活动 Run、无在途 Operation、无未结束原生回合、无可派发任务、无待自动回传结果；Gateway active tasks=0、queued system events=0。3 条历史 UNKNOWN 保持独立，不处理。
+- 正式数据库 user_version 与当前代码一致，无迁移。先做 SQLite 一致性备份，并记录27张表与89份受保护画像/配置文件的内容摘要；备份与完整清单仅留本机私有临时目录，不入 Git。
+- 既有 Gateway 配置直接加载本仓库 agents/plugins/easel-work，故无需另复制安装包或改动配置/凭证。按既有 LaunchAgent 重载 ai.openclaw.easel，协议2/easel-video/9工具完整白名单握手通过；随后重载唯一 com.easel.web（含 Worker），不另建服务。前端源码未改，无需重新构建。
+- 部署后 Web 7860 HTTP 200、capabilities.backend.reload_required=false，两项 LaunchAgent 均 running；Gateway 协议与9工具握手通过。27张表及89份受保护文件与部署前内容摘要完全一致；UNKNOWN 仍3条，未结束对话仍0，Operation 内容不变，因此未新增生产模型调用。
+
+部署健康检查 PASS；不等于用户路径或真实效果通过。未运行原生 Gateway 验证脚本、浏览器 E2E、付费模型或媒体生成；未恢复/取消/重跑旧任务，未提交/推送/合并。后续只等待用户在原会话/原 Work 决定如何继续；真实恢复与付费 E2E 仍需另有明确授权。SOFTWARE_PASS 沿前段具名回归，E2E/REAL_PRODUCTION_PASS/CREATOR_ACCEPTED 本次均 NOT_TESTED，S6 PARTIAL。
+
+
+#### 文档核对与本地提交（2026-10-20）
+
+用户指示“修改文档，并且提交”，授权将已部署的本轮修复、对应回归及相关权威文档统一提交到 easel-v2-rebuild；不包含推送、合并、新一轮部署或真实恢复/E2E。此次修正文档顶部混用“原失败现场”和“部署后状态”的表述，保留旧失败与各时点证据。运行源码未再修改，沿用上述软件回归与部署验证；提交前仅检查文档路径、diff 和暂存范围。已核对与本次修复直接相关的既有文档/title补丁一起保留；私人创作目录、qrcode、scratch、未跟踪预研、配置凭证、outputs 和 Profile 不纳入提交。

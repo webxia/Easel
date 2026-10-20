@@ -8,6 +8,7 @@ from pydantic import ValidationError
 from easel.production.context import TaskContext
 from easel.production.model_tasks import ModelTaskRunner, ModelTaskError
 from easel.production.planning import CreativePlan, VoiceReadyCreativePlan
+from easel.production.contracts import PlanDocument
 from easel.production.voice_budget import reserve_narration_slots
 
 
@@ -88,6 +89,26 @@ def test_model_correction_is_bounded_if_narration_remains_invalid():
             TaskContext('w','r','t'), 'plan',VoiceReadyCreativePlan))
     assert exc.value.code=='invalid_model_output'
     assert len(transport.calls)==3
+
+
+def test_model_draft_normalizes_only_nonrendered_board_card_title():
+    candidate = plan('先做一个版本，再决定下一步。')
+    candidate['explainer_boards'] = [{
+        'scene_id': 's01', 'title': '行动选择', 'kind': 'conceptual',
+        'cards': [{'id': 'choice', 'text': '开始制作', 'title': '动作'}],
+        'columns': [{'id': 'actions', 'title': '行动'}],
+        'states': [{'title': '第一步', 'groups': {'actions': ['choice']}}],
+    }]
+    original = json.loads(json.dumps(candidate, ensure_ascii=False))
+    parsed = VoiceReadyCreativePlan.model_validate(candidate)
+    assert parsed.explainer_boards[0].cards[0].text == '开始制作'
+    assert parsed.model_dump(mode='json')['explainer_boards'][0]['cards'][0] == {'id': 'choice', 'text': '开始制作'}
+    assert candidate == original  # Original model receipt stays untouched.
+    with pytest.raises(ValidationError, match='extra_forbidden'):
+        PlanDocument.model_validate(candidate)  # Public contract is unchanged.
+    candidate['explainer_boards'][0]['cards'][0]['unauthorized_extra'] = 'bad'
+    with pytest.raises(ValidationError, match='extra_forbidden'):
+        VoiceReadyCreativePlan.model_validate(candidate)
 
 
 def test_silent_scene_not_subject_to_spoken_voice_budget():

@@ -556,15 +556,16 @@ def configured_supply(service,operations,planning,settings):
     from .material_intent import FrozenIntentCompiler
     from .providers.generation_http import MiniMaxImageProvider, MiniMaxVideoProvider
     providers=[]
-    if settings.get('PEXELS_API_KEY','').strip():providers.append(PexelsStockProvider(settings['PEXELS_API_KEY']))
+    proxy_url=settings.get('EASEL_MATERIAL_HTTP_PROXY','').strip() or None
+    if settings.get('PEXELS_API_KEY','').strip():providers.append(PexelsStockProvider(settings['PEXELS_API_KEY'],proxy_url=proxy_url))
     if settings.get('PIXABAY_API_KEY','').strip():
-        providers.append(PixabayStockProvider(settings['PIXABAY_API_KEY'],
+        providers.append(PixabayStockProvider(settings['PIXABAY_API_KEY'],proxy_url=proxy_url,
             cache_root=service.outputs/'_production'/'provider_cache'/'pixabay'))
     # Read-only Commons public metadata requires no account. Enabled only by
     # an explicit config flag; each actual production query additionally needs
     # the existing per-work stock/search grant.
     if settings.get('EASEL_WIKIMEDIA_AUDIO_ENABLED', '0').strip() == '1':
-        providers.extend((WikimediaAudioProvider('music'), WikimediaAudioProvider('sfx')))
+        providers.extend((WikimediaAudioProvider('music',proxy_url=proxy_url), WikimediaAudioProvider('sfx',proxy_url=proxy_url)))
     source_error=None
     raw=settings.get('EASEL_REVIEWED_PUBLIC_SOURCES_JSON','').strip()
     if raw:

@@ -140,9 +140,14 @@ class VideoChat:
         bridge.delivery(turn_id,'dispatching')
         emit('activity','正在处理本轮创作，确认执行后等待实际结果')
         async def keep_delivery():
+            from easel.conversation_results import ConversationResults
+            previous=None
             while True:
                 await asyncio.sleep(10)
                 await asyncio.to_thread(bridge.delivery_heartbeat,turn_id)
+                activity=await asyncio.to_thread(ConversationResults(bridge).activity,turn_id)
+                if activity and activity!=previous:
+                    emit('activity',activity);previous=activity
         heartbeat=asyncio.create_task(keep_delivery())
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(7200,connect=10),trust_env=False,follow_redirects=False) as client:

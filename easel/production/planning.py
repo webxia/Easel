@@ -13,6 +13,23 @@ from .model_operations import RecordedModelTransport
 from .service import row, encode, digest, now, new_id
 
 
+def validate_audio_replan(answer, protected):
+    """Only the explicitly approved audio mode may change in a frozen work."""
+    actual=answer.model_dump(mode='json') if hasattr(answer,'model_dump') else answer
+    for field in CreativePlan.model_fields:
+        if field=='constraints':
+            expected=list(protected.get(field,[]))
+            marker='本片不使用背景音乐或可选音效'
+            if marker not in expected:expected.append(marker)
+            if actual.get(field) not in (protected.get(field,[]),expected):
+                raise ValueError('声音修订不能改变原有约束')
+        elif field=='settings':
+            expected={**protected[field],'audio_mode':'voice'}
+            if actual[field]!=expected:raise ValueError('声音修订不能改变其他冻结设置')
+        elif actual.get(field)!=protected.get(field):
+            raise ValueError('声音修订不能改变已确认内容：'+field)
+
+
 class CreativePlan(Contract):
     title: str = Field(min_length=1)
     summary: str = Field(min_length=1)
@@ -45,6 +62,31 @@ _SPOKEN_STAGE_DIRECTIONS = re.compile(
 
 
 class VoiceReadyCreativePlan(CreativePlan):
+    @model_validator(mode='before')
+    @classmethod
+    def discard_unrendered_card_titles(cls, value):
+        # Structured model drafts may add a title alongside BoardCard.text.
+        # Only text is rendered. Normalize this single known extra in drafts;
+        # the public PlanDocument and all other fields remain strict.
+        if not isinstance(value, dict) or not isinstance(value.get('explainer_boards'), list):
+            return value
+        boards = []
+        changed = False
+        for board in value['explainer_boards']:
+            if not isinstance(board, dict) or not isinstance(board.get('cards'), list):
+                boards.append(board)
+                continue
+            cards = []
+            for card in board['cards']:
+                if (isinstance(card, dict) and isinstance(card.get('title'), str)
+                        and isinstance(card.get('text'), str)):
+                    cards.append({key: item for key, item in card.items() if key != 'title'})
+                    changed = True
+                else:
+                    cards.append(card)
+            boards.append({**board, 'cards': cards})
+        return {**value, 'explainer_boards': boards} if changed else value
+
     @model_validator(mode='after')
     def narration_and_budget(self):
         if self.settings.audio_mode not in {'voice', 'mixed'}:
@@ -297,8 +339,13 @@ class PlanningTasks:
             if cached:
                 return TaskResult(result=cached,work_state='awaiting_confirmation')
             context=self.context(ctx)
+            protected=ctx.payload.get('protected_plan')
+            if protected:
+                context=replace(context,plan=protected,
+                    brief=context.brief+'\n仅允许audio_mode改为voice，无BGM或可选SFX；其他字段逐字保持，包括旁白、镜头、观点和时长。')
             media,required=await self.observe_inputs(ctx)
             def check_capabilities(answer):
+                if protected:validate_audio_replan(answer,protected)
                 if answer.explainer_boards and not self.execution_capabilities.get('native_explainer_boards'):
                     raise ValueError('本次尚未配置原生图解字体，不能使用explainer_boards；不得虚构图解能力')
             recovered=self._recover_draft(ctx)
@@ -321,7 +368,7 @@ class PlanningTasks:
                 source=self._native_operation(ctx,author)
             with self.service.store.connection() as reader:
                 requested = json.loads(row(reader, 'works', ctx.work_id)['settings_json'])
-            autonomous = ('duration_seconds' not in requested and
+            autonomous = (not protected and 'duration_seconds' not in requested and
                           requested.get('audio_mode',proposed.settings.audio_mode) in {'voice', 'mixed'})
             if autonomous:
                 from .contracts import SubtitleSettings, VoiceIdentity
@@ -403,17 +450,26 @@ class PlanningTasks:
             with ctx.transaction() as conn:
                 work=row(conn,'works',ctx.work_id)
                 from .voice_budget import reserve_narration_slots
-                payload=reserve_narration_slots(proposed.model_dump(mode='json'))
-                if proposed.settings.audio_mode in {'voice', 'mixed'}:
-                    protected = any(i.get('constraints', {}).get('original_audio') for i in context.inputs)
+                payload=proposed.model_dump(mode='json')
+                if protected:
+                    validate_audio_replan(proposed,protected)
+                    if '本片不使用背景音乐或可选音效' not in payload['constraints']:
+                        payload['constraints'].append('本片不使用背景音乐或可选音效')
+                else:
+                    payload=reserve_narration_slots(payload)
+                if not protected and proposed.settings.audio_mode in {'voice', 'mixed'}:
+                    protected_audio = any(i.get('constraints', {}).get('original_audio') for i in context.inputs)
                     policy = proposed.narration_policy
                     # Absence of a Work setting is not permission to shorten a confirmed plan.
                     mode = policy.duration_mode if policy else 'fixed'
-                    if 'duration_seconds' in requested or protected or proposed.settings.audio_mode != 'voice':
+                    if 'duration_seconds' in requested or protected_audio or proposed.settings.audio_mode != 'voice':
                         mode = 'fixed'
-                    payload['narration_policy'] = {'continuous': not protected,
+                    payload['narration_policy'] = {'continuous': not protected_audio,
                         'duration_mode': mode}
                 payload=self.service.freeze_plan(conn,work,payload,basis=ctx.payload.get('creation_basis'))
+                if protected:
+                    for field in ('profile_snapshot','director_revision_id','conversation_basis'):
+                        payload[field]=protected.get(field)
                 if ctx.payload.get('base_plan_revision'):
                     payload['profile_snapshot']=context.plan.get('profile_snapshot')
                     payload['director_revision_id']=context.plan.get('director_revision_id')

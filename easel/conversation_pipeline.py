@@ -10,7 +10,7 @@ from .production.errors import ProductionError
 
 WORK_ACTIONS = {
     'input': {'attachment_id','usage','original_audio','interval','rights_confirmed'},
-    'plan': {'request','services','duration_seconds'},
+    'plan': {'request','services','duration_seconds','settings','restore_cancelled'},
     'confirm': {'plan_revision','plan_hash','services','allow_ai','image_limit','video_limit'},
     'grant': {'purpose','services','allow_ai','image_limit','video_limit','target_ref','plan_revision','decision_id'},
     'resume': {'decision_id'}, 'cancel': set(),
@@ -70,6 +70,9 @@ def planning_values(conversations,conn,segment,values,*,applying=False):
     if set(values)-WORK_ACTIONS['plan']:fail('invalid_input','规划提案字段无效')
     if 'duration_seconds' in values:
         conversations.service._validate_settings({'duration_seconds':values['duration_seconds']})
+    if 'settings' in values:
+        conversations.service._validate_settings(values['settings'])
+        conversations.service.preoutput_target(conn,row(conn,'works',segment['work_id']),values)
     from .production.configuration import model_configuration
     _,model,_=model_configuration(conversations.service.outputs.parent)
     if not model:fail('capability_unavailable','创作模型尚未配置，暂不能整理完整方案；请先配置可用模型',409)
@@ -159,7 +162,20 @@ def pending(conversations, conn, segment):
     # snapshot reads only committed business state; pending() is called before writes.
     last=conn.execute('SELECT payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at DESC,id DESC LIMIT 1',(segment['id'],)).fetchone()
     handoff=json.loads(last[0]).get('pipeline_binding') if last else None
+    recovery=None
+    if work and work['current_plan_revision']:
+        delta={'settings':{'audio_mode':'voice'}}
+        if work['state']=='cancelled':delta['restore_cancelled']=True
+        try:
+            conversations.service.preoutput_target(conn,row(conn,'works',work['id']),delta)
+            recovery={'can_offer':True,'action':'plan','values':delta,
+                'requires_restore_intent':work['state']=='cancelled',
+                'note':'仅当用户要求此声音变更及必要的恢复时提出；新规划另有模型费用，保留旧方案，须下一真人回合确认。'}
+        except ProductionError as exc:
+            recovery={'can_offer':False,'code':exc.code,'reason':exc.user_message}
     return {'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
+            'preoutput_replan':recovery,
+            'current_plan':next((p for p in work['plans'] if p['revision']==work['current_plan_revision']),None) if work else None,
             'work':work,'capabilities':services,'model_calls':call_status(conversations,conn,segment),
             'missing_choices':[name for name,value in [('channel',entry.get('channel_id')),('director',entry.get('settings',{}).get('director_revision'))] if not value] if entry.get('kind','new_work') not in {'channel_create','director_formation'} else []}
 
@@ -205,19 +221,91 @@ def selected_attachment(conversations,conn,segment,values):
     return attachment,conversations.service._file_hash(path)
 
 
+def production_values(conversations,conn,segment,values,*,applying=False):
+    """Freeze the actual dependency identities before the human sees the offer."""
+    from .production.configuration import capabilities
+    work=row(conn,'works',segment['work_id'])
+    plan=conn.execute('SELECT * FROM plan_revisions WHERE work_id=? AND revision=?',
+                      (work['id'],work['current_plan_revision'])).fetchone()
+    if not plan or plan['confirmed_at']:fail('stale_revision','当前没有待确认方案',409)
+    data=dict(values)
+    data.setdefault('allow_ai',False)
+    data.setdefault('image_limit',work['image_limit'])
+    data.setdefault('video_limit',work['video_limit'])
+    for key,value in [('plan_revision',plan['revision']),('plan_hash',plan['plan_hash'])]:
+        if key in data and data[key]!=value:fail('stale_revision','方案版本已变化，请查看当前完整方案',409)
+        if applying and key not in data:fail('stale_revision','旧提案未绑定方案，请重新展示',409)
+        data[key]=value
+    if 'allow_ai' in data and type(data['allow_ai']) is not bool:fail('invalid_input','allow_ai须为布尔值')
+    for key in ('image_limit','video_limit'):
+        if key in data and (type(data[key]) is not int or data[key]<0):fail('invalid_input','生成次数须为非负整数')
+    document=json.loads(plan['payload_json']);settings=document['settings']
+    voice=settings.get('voice') or {}
+    required=[]
+    available=capabilities(conversations.service.outputs.parent)['services']
+    if not any(s['mode']=='structured' and s.get('available') for s in available):
+        fail('capability_unavailable','素材意图、剪辑及检查所需模型未配置，暂不能制作',409)
+    if settings['audio_mode'] in {'voice','mixed'}:
+        from .production.configuration import model_configuration
+        from .production.voice import configured_speech_configs
+        config,_,_=model_configuration(conversations.service.outputs.parent)
+        if not any(option.available and all(option.identity.model_dump(mode='json')[k]==voice.get(k,'') for k in ('provider','model','voice_id','engine'))
+                   for speech in configured_speech_configs(config) for option in speech.voices):
+            fail('capability_unavailable','冻结声音当前不可用，请先核对声音配置',409)
+    for item in available:
+        if not item.get('available'):continue
+        include=item['mode']=='structured'
+        if item['provider']=='brave' and item['model']=='web-search':
+            include=True
+        if item.get('supports_auto_supply'):
+            include=bool(set(item.get('media_types',[]))&{'image','video'})
+            if 'audio' in item.get('media_types',[]):
+                roles=set(item.get('audio_roles',['music','sfx']))
+                audio_allowed=('music' in roles and settings['audio_mode'] in {'music','mixed'} or
+                    'sfx' in roles and settings['audio_mode']!='silent' and
+                    '本片不使用背景音乐或可选音效' not in document.get('constraints',[]))
+                include=include or audio_allowed
+        if item['mode']=='speech':
+            include=(settings['audio_mode'] in {'voice','mixed'} and
+                     item['provider']==voice.get('provider') and item['model']==voice.get('model'))
+        if item.get('kind') in {'IMAGE','VIDEO'}:
+            include=bool(data.get('allow_ai') and data.get('image_limit' if item['kind']=='IMAGE' else 'video_limit',0))
+        identity={k:item[k] for k in ('provider','model','mode')}
+        if include and identity not in required:required.append(identity)
+    supplied=data.get('services',[])
+    if not isinstance(supplied,list) or any(s not in required for s in supplied):
+        fail('invalid_input','服务清单包含当前方案未使用或未允许的服务')
+    if applying and supplied!=required:
+        fail('stale_revision','执行服务已变化，请重新展示完整服务清单并确认',409)
+    data['services']=required
+    return data
+
+
 def offer(conversations,conn,segment,turn_id,action,values,summary):
     scoped(conversations,conn,segment,action,values)
+    if action=='basis':
+        conversations.service._validate_settings(values.get('settings',{}))
+    if action=='cancel':
+        summary='取消整部当前作品，停止本地后续派发并撤销现有授权；保留方案、素材和回执，不能取消或判定远端未知请求。'
     if action=='confirm':
-        work=row(conn,'works',segment['work_id'])
-        plan=conn.execute('SELECT * FROM plan_revisions WHERE work_id=? AND revision=?',(work['id'],values.get('plan_revision'))).fetchone()
-        if not plan or work['current_plan_revision']!=values.get('plan_revision') or plan['plan_hash']!=values.get('plan_hash') or plan['confirmed_at']:
-            fail('stale_revision','当前没有这版可确认方案；修改创作依据会使旧方案失效。请先读取pending，确需改稿时重新规划并展示完整方案，不要重复提出失效版本的制作确认',409)
+        values=production_values(conversations,conn,segment,values)
+        summary=('确认当前完整方案并制作；授权服务：'+'、'.join('/'.join(s.values()) for s in values['services'])+
+                 f"。AI生成许可：{'允许' if values.get('allow_ai') else '不允许'}；图片累计上限 {values.get('image_limit',0)}，视频累计上限 {values.get('video_limit',0)}。模型、配音、检索及生成服务可能产生费用；仅按展示范围执行。")
     if action=='plan':values=planning_values(conversations,conn,segment,values)
     if action=='grant':
         values=grant_values(conversations,conn,segment,values)
         names='、'.join(s['provider']+'/'+s['model']+'/'+s['mode'] for s in values['services'])
         summary=f"授权服务：{names}；用途：{values['purpose']}。"+('授权后继续原整理方案任务。' if values.get('decision_id') else '本提案仅保存授权。')
     target={}
+    if action=='plan' and 'settings' in values:
+        target=conversations.service.preoutput_target(conn,row(conn,'works',segment['work_id']),values)
+        # Recovery revokes the old grants; this proposal always shows the new cost.
+        from .production.configuration import model_configuration
+        _,model,_=model_configuration(conversations.service.outputs.parent)
+        values={**values,'services':[model]}
+        summary=('恢复当前作品并将已确认方案改为纯旁白，无背景音乐或可选音效；保留原观点、逐字稿、镜头及其他设置。'
+                 '旧方案、素材和回执保留，结束旧运行并撤销旧授权；新方案须重新确认后才能制作。'
+                 '本次规划服务：'+ '/'.join(model.values())+'，可能产生新的模型调用费用及有界格式纠正费用。')
     if action=='replan_after_unknown':
         target=unknown_replan_target(conversations,conn,segment,values)
         model=target['services'][0]
@@ -261,7 +349,13 @@ def execute_action(conversations,conn,segment,body,key):
         rights={'status':'KNOWN','license_name':'用户声明本片使用权','evidence':[{'kind':'user_declaration','reference':key,'summary':'经对话提案及用户答复确认本片使用权'}]} if data.get('rights_confirmed') else {}
         return conversations.service.command('input',{'attachment':attachment,'session_id':segment['ui_session'],'usage':data.get('usage','reference'),'original_audio':data.get('original_audio',False),'interval':data.get('interval'),'rights':rights},command_id=key+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
     if action in WORK_ACTIONS:
-        if action=='plan':data=planning_values(conversations,conn,segment,data,applying=True)
+        if action=='confirm':data=production_values(conversations,conn,segment,data,applying=True)
+        if action=='plan':
+            data=planning_values(conversations,conn,segment,data,applying=True)
+            if 'settings' in data:
+                target=conversations.service.preoutput_target(conn,row(conn,'works',segment['work_id']),data)
+                if target!=values['catalog_target']:fail('stale_revision','恢复目标已变化，请重新确认',409)
+                data={**data,'recovery_target':target}
         if action=='grant':data=grant_values(conversations,conn,segment,data,applying=True)
         if action=='grant' and data.get('decision_id'):
             task=row(conn,'tasks',data['decision_id'])
@@ -294,11 +388,19 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
         previous=json.loads(segment['context_json'])
         next_kind=values.get('kind',previous.get('kind','new_work'))
         inherited={}
-        if next_kind=='new_work' or next_kind==previous.get('kind','new_work'):
+        if next_kind=='new_work' or next_kind==previous.get('kind','new_work') or (segment['work_id'] and next_kind in {'continue','revise'}):
             if previous.get('channel_id'):inherited['channel_id']=previous['channel_id']
             for key in ('director_revision','director_trial'):
                 if key in previous.get('settings',{}):inherited[key]=previous['settings'][key]
         entry={'profile_ref':segment['profile_ref'],'kind':next_kind,**inherited,**values}
+        if segment['work_id'] and next_kind in {'new_work','continue','revise'}:
+            # New works use the explicit conversation entry, never an accidental
+            # omission in a model's rebind call.
+            entry.setdefault('work_id',segment['work_id'])
+            if (entry.get('channel_id')!=previous.get('channel_id')
+                or entry.get('director_revision')!=previous.get('settings',{}).get('director_revision')
+                or bool(entry.get('director_trial'))!=bool(previous.get('settings',{}).get('director_trial'))):
+                fail('revision_required','当前作品的设置变更须使用 basis 或方案修订；另建作品请使用新作入口',409)
         if entry.get('kind','new_work') not in {'new_work','channel_create','director_formation','revise','continue'}:fail('invalid_input','管线无效')
         if entry.get('work_id'):
             work=row(conn,'works',entry['work_id'])
@@ -315,7 +417,7 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
         # Selecting the already active, unbound pipeline is not a handoff.
         # Keep the native turn alive so explicit user choices can be resolved
         # and used now, rather than asking the Creator to repeat them next turn.
-        unchanged=(not segment['work_id'] and not entry.get('work_id')
+        unchanged=(segment['work_id']==entry.get('work_id')
             and entry['kind']==previous.get('kind','new_work')
             and entry.get('channel_id')==previous.get('channel_id')
             and entry.get('director_revision')==previous.get('settings',{}).get('director_revision')

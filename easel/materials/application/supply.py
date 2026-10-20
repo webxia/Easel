@@ -87,8 +87,13 @@ class MaterialSupply:
                 candidates = provider.search(need.intent.description, media_type=need.media_type, limit=self.max_candidates)
             except Exception as exc:
                 code = getattr(exc, "code", None)
-                failures.append(SupplyFailure(provider.provider_id, code if code in {"capability_unavailable", "source_unavailable"} else type(exc).__name__))
+                failures.append(SupplyFailure(provider.provider_id, code if code in {
+                    "capability_unavailable","source_unavailable","network_timeout",
+                    "network_connection","http_permission","http_rate_limited",
+                    "http_unavailable","invalid_response"} else "invalid_response"))
                 continue
+            if not candidates:
+                failures.append(SupplyFailure(provider.provider_id,"no_results"))
             downloader = self.downloaders.get(provider.provider_id) or MediaDownloader(
                 RemoteURLPolicy(provider.allowed_hosts),
                 user_agent=getattr(provider,'download_user_agent','Easel/2 material acquisition'))
@@ -136,7 +141,9 @@ class MaterialSupply:
                     selected.extend(checked.candidates)
                     digests.add(handle.digest)
                 except Exception as exc:
-                    failures.append(SupplyFailure(provider.provider_id, type(exc).__name__))
+                    from .acquisition import AcquisitionError
+                    failures.append(SupplyFailure(provider.provider_id,
+                        "download_failed" if isinstance(exc,AcquisitionError) else "material_ineligible"))
         gap = "insufficient_eligible_materials" if len(selected) < need.desired_options else None
         route = {"kind": need.media_type.value.upper(), "need_id": need.need_id,
                  "requires_director_selection": True} if gap and allow_generation and need.media_type.value in {"image", "video"} else None

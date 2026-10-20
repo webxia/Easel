@@ -216,3 +216,30 @@ def test_explicit_resume_same_run_delivers_new_outcome_once(env):
     assert relay.reserve_next() is None
     assert len(c.view('ui')['result_messages'])==2
     assert len(s.snapshot(work)['runs'])==1
+
+
+def test_result_reports_all_known_material_gaps_and_unreviewed_candidates(env):
+    from tests.production.test_preoutput_replan import stopped
+    from easel.production.service import row
+    s,w,r=stopped(env)
+    with s.store.transaction() as conn:
+        for payload in [{'scene_id':'s1','kind':'video','candidate_count':0,'failures':[{'source':'pexels','code':'network_timeout'}]},
+                        {'scene_id':'s2','kind':'image','candidate_count':0,'failures':[{'source':'pixabay','code':'no_results'}]},
+                        {'kind':'audio','role':'music','candidate_count':0,'failures':[{'source':'wikimedia_bgm','code':'http_rate_limited'}]}]:
+            s._event(conn,w,'material_search_completed',payload,run_id=r)
+        insert_artifact(conn,w,kind='video',run_id=r)
+    with s.store.connection() as conn:
+        result=ConversationResults.event_result(conn,s.snapshot(w),row(conn,'runs',r),{'seq':1})
+    summary=result['material_summary']
+    assert len(summary['known_gaps'])==3
+    assert summary['candidate_is_approved'] is False
+    assert summary['retained_candidates']==[{'kind':'video','quality_state':'unchecked'}]
+    assert result['current_plan']['confirmed_at']
+
+
+def test_existing_activity_distinguishes_execution_and_delivery(env):
+    s,c,_,w,result,_=planning(env)
+    relay=ConversationResults(PersistentWorkToolBridge(s))
+    assert relay.activity('plan-yes')=='正在整理完整方案'
+    with s.store.transaction() as conn:conn.execute("UPDATE runs SET state='needs_decision' WHERE id=?",(result['run_id'],))
+    assert relay.activity('plan-yes')=='执行已停止，正在整理结果'

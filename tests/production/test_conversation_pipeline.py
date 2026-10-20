@@ -554,3 +554,108 @@ def test_nested_answer_identity_is_lossless_and_still_requires_current_human_quo
     result=pipe(b,i,'answer',values=nested)
     assert result['run_id']
     assert len(s.snapshot(d['work_id'])['runs'])==1
+
+
+@pytest.mark.parametrize("binding", [{}, {"kind":"continue"}, {"kind":"new_work"}])
+def test_rebinding_current_choices_keeps_work(env,binding):
+    channel=seed(env);s,c=env
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'创建作品')
+    work=pipe(b,i,'draft',user_quote='创建作品',values={'title':'同名','input_text':'内容'})['work_id']
+    b.end(Identity(**i));b,i,_=turn(s,c,seg,'继续原作品',id='rebind')
+    pipe(b,i,'bind',user_quote='继续原作品',values=binding)
+    b.end(Identity(**i));seg=c.view('ui')['segment_id']
+    assert c.view('ui')['work_id']==work
+    b,i,_=turn(s,c,seg,'继续',id='same-draft')
+    assert pipe(b,i,'draft',user_quote='继续',values={'title':'同名','input_text':'内容'})['work_id']==work
+    assert len(s.list_works()['items'])==1
+
+
+def test_basis_types_rejected_before_offer(env):
+    channel=seed(env);s,c=env
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'创建作品')
+    pipe(b,i,'draft',user_quote='创建作品',values={'title':'同名','input_text':'内容'})
+    raises('invalid_input',lambda:pipe(b,i,'offer',action='basis',values={'settings':{'duration_seconds':'30'}}))
+
+
+def test_confirm_binds_current_plan_and_model_before_answer(env):
+    channel=seed(env);s,c=env
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'创建作品')
+    work=pipe(b,i,'draft',user_quote='创建作品',values={'title':'标题','input_text':'内容'})['work_id']
+    b.end(Identity(**i))
+    s.command('plan',{'generate':False,'plan':{'title':'标题','summary':'概要','script':'原稿','scenes':[{'id':'s1','purpose':'说明','visual':'桌面'}],'settings':{'duration_seconds':10,'audio_mode':'silent'}}},command_id='plan',work_id=work,expected_revision=s.snapshot(work)['revision'])
+    b,i,_=turn(s,c,seg,'看看方案',id='offer')
+    p=pipe(b,i,'offer',action='confirm',values={'allow_ai':False})
+    state=pipe(b,i,'pending')
+    payload=next(x for x in state['pending'] if x['id']==p['proposal_id'])['body']['values']['payload']
+    assert payload['plan_hash']==state['current_plan']['plan_hash']
+    assert payload['services']==[{'provider':'direct-api','model':'fixture-model','mode':'structured'}]
+    assert 'IMAGE' not in str(payload['services'])
+    assert state['current_plan']['plan']['script']=='原稿'
+
+
+def test_confirm_freezes_complete_services_and_never_expands_on_answer(env,monkeypatch):
+    from easel.production import configuration
+    channel=seed(env);s,c=env
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'创建作品')
+    work=pipe(b,i,'draft',user_quote='创建作品',values={'title':'标题','input_text':'内容'})['work_id']
+    b.end(Identity(**i))
+    s.command('plan',{'generate':False,'plan':{'title':'标题','summary':'概要','script':'原稿','scenes':[{'id':'s1','purpose':'说明','visual':'桌面'}],'settings':{'duration_seconds':10,'audio_mode':'music'}}},command_id='plan',work_id=work,expected_revision=s.snapshot(work)['revision'])
+    services=[{'provider':'direct-api','model':'fixture-model','mode':'structured','available':True},
+              {'provider':'pexels','model':'stock','mode':'search','available':True,'supports_auto_supply':True,'media_types':['video']},
+              {'provider':'wikimedia_bgm','model':'stock','mode':'search','available':True,'supports_auto_supply':True,'media_types':['audio'],'audio_roles':['music']},
+              {'provider':'minimax','model':'image-01','mode':'text_to_image','kind':'IMAGE','available':True}]
+    monkeypatch.setattr(configuration,'capabilities',lambda root:{'services':services})
+    b,i,_=turn(s,c,seg,'看看方案',id='offer')
+    p=pipe(b,i,'offer',action='confirm',values={'allow_ai':False})
+    assert {x['provider'] for x in p['values']['payload']['services']}=={'direct-api','pexels','wikimedia_bgm'}
+    assert 'direct-api' in p['values']['summary']
+    b.end(Identity(**i))
+    services.append({'provider':'pixabay','model':'stock','mode':'search','available':True,'supports_auto_supply':True,'media_types':['video']})
+    b,i,_=turn(s,c,seg,'确认',id='answer')
+    raises('stale_revision',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认'))
+    assert s.snapshot(work)['runs']==[]
+    assert s.snapshot(work)['plans'][0]['confirmed_at'] is None
+
+
+def test_cancel_offer_reports_work_scope_and_new_work_entry_still_works(env):
+    channel=seed(env);s,c=env
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'创建作品')
+    work=pipe(b,i,'draft',user_quote='创建作品',values={'title':'标题','input_text':'内容'})['work_id']
+    p=pipe(b,i,'offer',action='cancel',values={},summary='仅结束运行')
+    assert '整部' in p['values']['summary'] and '撤销' in p['values']['summary']
+    b.end(Identity(**i))
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'另建作品',id='new')
+    new=pipe(b,i,'draft',user_quote='另建作品',values={'title':'标题','input_text':'内容'})['work_id']
+    assert new!=work
+    assert len(s.list_works()['items'])==2
+
+
+@pytest.mark.parametrize('allow_ai',[False,True])
+@pytest.mark.parametrize('no_optional_audio',[False,True])
+def test_production_services_use_frozen_voice_and_ai_scope(env,monkeypatch,allow_ai,no_optional_audio):
+    from types import SimpleNamespace
+    from easel.production import configuration,voice as voice_module
+    from easel.production.contracts import VoiceIdentity
+    from easel.conversation_pipeline import production_values
+    s,c=env
+    w=s.command('create',{'title':'标题','input_text':'内容'},command_id='create')['work_id']
+    voice=VoiceIdentity(provider='speech',model='fixed',voice_id='selected',engine='fixed')
+    s.command('plan',{'generate':False,'plan':{'title':'标题','summary':'观点','script':'口播','scenes':[{'id':'s1','purpose':'说明','visual':'桌面'}],'settings':{'duration_seconds':10,'audio_mode':'voice','voice':voice.model_dump()},'constraints':['本片不使用背景音乐或可选音效'] if no_optional_audio else []}},command_id='plan',work_id=w,expected_revision=s.snapshot(w)['revision'])
+    caps=[{'provider':'direct-api','model':'fixture-model','mode':'structured','available':True},
+          {'provider':'speech','model':'fixed','mode':'speech','available':True},
+          {'provider':'speech','model':'other','mode':'speech','available':True},
+          {'provider':'wikimedia_sfx','model':'stock','mode':'search','available':True,'media_types':['audio'],'audio_roles':['sfx'],'supports_auto_supply':True},
+          {'provider':'wikimedia_bgm','model':'stock','mode':'search','available':True,'media_types':['audio'],'audio_roles':['music'],'supports_auto_supply':True},
+          {'provider':'minimax','model':'image-01','mode':'text_to_image','kind':'IMAGE','available':True}]
+    monkeypatch.setattr(configuration,'capabilities',lambda root:{'services':caps})
+    monkeypatch.setattr(voice_module,'configured_speech_configs',lambda config:[SimpleNamespace(voices=[SimpleNamespace(available=True,identity=voice)])])
+    with s.store.connection() as conn:
+        result=production_values(c,conn,{'work_id':w},{'allow_ai':allow_ai,'image_limit':2})
+    assert {x['model'] for x in result['services']}==({'fixture-model','fixed'} | ({'image-01'} if allow_ai else set()) | (set() if no_optional_audio else {'stock'}))
+    assert 'wikimedia_bgm' not in {x['provider'] for x in result['services']}
