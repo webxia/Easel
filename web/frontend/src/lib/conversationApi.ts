@@ -1,7 +1,8 @@
+import type { ChatMessage } from './store';
 import { productionCommand, type Json } from './productionApi';
 export interface VideoEntry extends Json { kind?: string; profile_ref?: string; channel_id?: string; director_revision?: string; director_trial?: boolean; work_id?: string; output_id?: string }
 export interface Proposal { id:string; kind:string; body_hash:string; state:string; body:{ values:Json; source_refs:string[]; target:Json; work_id?:string; work_revision?:number }; receipt?:Json }
-export interface ConversationView { segment_id:string; work_id?:string; context:VideoEntry & {channel?:{name:string;revision:number}}; proposals:Proposal[]; messages:{role:'user'|'assistant';content:string}[]; turns:{id:string;state:string}[] }
+export interface ConversationView { segment_id:string; work_id?:string; context:VideoEntry & {channel?:{name:string;revision:number}}; proposals:Proposal[]; result_messages?: (ChatMessage & {deliveryError?:string})[]; messages:{role:'user'|'assistant';content:string}[]; turns:{id:string;state:string}[] }
 const root=window.location.pathname.replace(/\/index\.html$/, '').replace(/\/$/, '');
 export async function videoRequest<T>(path:string, method='GET', body?:unknown):Promise<T> {
   const response=await fetch(`${root}/api/chat/video/${path}`,{method,cache:'no-store',headers:{'Content-Type':'application/json'},...(body ? {body:JSON.stringify(body)} : {})});

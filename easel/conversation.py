@@ -8,7 +8,7 @@ from pathlib import Path
 from .production.service import digest, encode, fail, new_id, now, row
 from .production.catalog import CreativeCatalog, validate_channel_basis, validate_director_references
 
-PROPOSALS = {'draft', 'plan', 'revision', 'channel_create', 'channel_defaults', 'director_formation', 'profile', 'director_revision'}
+PROPOSALS = {'draft', 'plan', 'revision', 'channel_create', 'channel_defaults', 'director_formation', 'profile', 'director_revision', 'pipeline'}
 
 
 class ConversationService:
@@ -22,7 +22,7 @@ class ConversationService:
         if not value: fail('conversation_not_bound','请先进入视频创作对话',409)
         return dict(value)
 
-    def enter(self, session, entry, command_id):
+    def enter(self, session, entry, command_id, *, _connection=None):
         if not isinstance(session,str) or not session.strip() or len(session)>256:
             fail('invalid_input','无效会话',400)
         allowed={'profile_ref','channel_id','director_revision','director_trial','work_id','output_id','kind'}
@@ -54,7 +54,10 @@ class ConversationService:
                 if entry.get('director_revision'):
                     settings['director_revision']=entry['director_revision'];settings['director_trial']=bool(entry.get('director_trial'))
                 if settings.get('director_revision'):
-                    self.service._director_version(conn,settings['director_revision'],bool(settings.get('director_trial')))
+                    if entry.get('kind')=='director_formation':
+                        version=row(conn,'director_revisions',settings['director_revision'])
+                        if row(conn,'directors',version['director_id'])['archived']:fail('invalid_input','导演已归档')
+                    else:self.service._director_version(conn,settings['director_revision'],bool(settings.get('director_trial')))
             context['profile_name']=row(conn,'profile_refs',profile)['name'] if profile else None
             if work and context.get('channel'):context['channel']['creative_basis']=json.loads(work['creation_context_json']).get('channel_basis',context['channel']['creative_basis'])
             context['settings']=settings
@@ -71,7 +74,7 @@ class ConversationService:
             conn.execute('UPDATE conversation_segments SET created_at=? WHERE id=?',(now(),sid))
             if work:conn.execute('INSERT OR IGNORE INTO work_conversation_links VALUES (?,?,?)',(work['id'],session,now()))
             return {'segment_id':sid,'work_id':work['id'] if work else None,'context':context}
-        return self.store.execute_command(command_id,{'enter':entry,'session':session},execute)
+        return self.store.execute_command(command_id,{'enter':entry,'session':session},execute,connection=_connection)
 
     def context(self, conn, segment):
         entry=json.loads(segment['context_json'])
@@ -95,7 +98,7 @@ class ConversationService:
             entry['director']={'id':director['id'],'revision':director['revision'],'selected_revision_id':director_id}
         brief=conn.execute('SELECT * FROM work_briefs WHERE work_id=? ORDER BY revision DESC LIMIT 1',(segment['work_id'],)).fetchone()
         sources=[]
-        for t in conn.execute('SELECT id,payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at,id',(segment['id'],)):
+        for t in self.scoped_turns(conn,segment):
             payload=json.loads(t['payload_json'])
             if payload.get('message') is not None:
                 sources.append({'ref':t['id'],'text':payload['message'],'attachments':payload.get('attachments',[])})
@@ -108,11 +111,20 @@ class ConversationService:
             'inputs':[] if not work else [{k:r[k] for k in ('id','kind','usage','original_name','digest')} for r in conn.execute('SELECT * FROM work_inputs WHERE work_id=?',(work['id'],))],
             'work':None if not work else {k:work[k] for k in ('id','revision','state','input_text','current_plan_revision')}}
 
-    def source_refs(self, conn, segment, refs):
-        if not isinstance(refs,list) or not refs or len(refs)>40:fail('invalid_source','请引用本运行段的可见用户消息')
-        for ref in refs:
-            if not isinstance(ref,str) or not conn.execute('SELECT 1 FROM conversation_turns WHERE id=? AND segment_id=?',(ref,segment['id'])).fetchone():
-                fail('invalid_source','依据不属于本作品运行段',403)
+    def scoped_turns(self,conn,segment):
+        turns=[dict(r) for r in conn.execute('SELECT * FROM conversation_turns WHERE segment_id=? ORDER BY created_at,id',(segment['id'],))]
+        inherited=json.loads(segment['context_json']).get('handoff',{}).get('messages',[])
+        for source in inherited:
+            record=conn.execute('SELECT t.* FROM conversation_turns t JOIN conversation_segments s ON s.id=t.segment_id WHERE t.id=? AND s.ui_session=? AND s.profile_ref IS ? AND s.revoked_at IS NULL',(source.get('source_turn'),segment['ui_session'],segment['profile_ref'])).fetchone()
+            if record and json.loads(record['payload_json']).get('message')==source.get('text'):
+                turns.insert(0,dict(record))
+        return list({r['id']:r for r in turns}.values())
+
+    def source_refs(self, conn, segment, refs, *, allow_results=False):
+        if not isinstance(refs,list) or not refs or len(refs)>40:fail('invalid_source','请引用本运行段或可信交接中的用户消息')
+        allowed={r['id'] for r in self.scoped_turns(conn,segment) if allow_results or json.loads(r['payload_json']).get('origin')!='task_result'}
+        if any(not isinstance(ref,str) or ref not in allowed for ref in refs):
+            fail('invalid_source','依据不属于当前管线或可信交接',403)
         return list(dict.fromkeys(refs))
 
     def brief(self,conn,segment,entries):
@@ -136,7 +148,7 @@ class ConversationService:
 
     def proposal(self,conn,segment,kind,values,refs):
         if kind not in PROPOSALS or not isinstance(values,dict) or len(encode(values))>100000:fail('invalid_input','提议类型或内容无效')
-        refs=self.source_refs(conn,segment,refs)
+        refs=self.source_refs(conn,segment,refs,allow_results=True)
         if kind in {'channel_create','channel_defaults'} and 'creative_basis' in values:
             validate_channel_basis(values['creative_basis'])
         if kind=='director_revision' and set(values)-{'style','base_revision'}:
@@ -147,6 +159,9 @@ class ConversationService:
             validate_director_references(conn,segment['work_id'],values.get('reference_input_ids'))
         if kind=='plan' and segment['work_id'] and conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(segment['work_id'],)).fetchone():
             fail('revision_required','已有确认方案；请指定成片修订或基于旧版创建新作',409)
+        if kind=='plan':
+            from .conversation_pipeline import planning_values
+            values=planning_values(self,conn,segment,values)
         # Proposed target comes only from the selected entry/Work, never free model IDs/paths.
         target=json.loads(segment['context_json'])
         if segment['work_id']:target={**target,'settings':json.loads(row(conn,'works',segment['work_id'])['settings_json'])}
@@ -155,13 +170,24 @@ class ConversationService:
             target['channel']={'id':channel['id'],'name':channel['name'],'revision':channel['revision'],'settings':json.loads(channel['settings_json']),'creative_basis':json.loads(channel['creative_basis_json'])}
         body={'values':values,'source_refs':refs,'target':target,
               'work_id':segment['work_id'],'work_revision':row(conn,'works',segment['work_id'])['revision'] if segment['work_id'] else None}
+        # Repeating an unchanged pending production question does not create a
+        # new question. Keep its original sources, so a later human answer is
+        # still answering what was already shown. Changed scope remains new.
+        if kind=='pipeline' and values.get('action')=='confirm':
+            for pending in conn.execute("SELECT * FROM conversation_proposals WHERE segment_id=? AND kind='pipeline' AND state='proposed'",(segment['id'],)):
+                prior=json.loads(pending['body_json'])
+                if (all(prior.get(k)==body[k] for k in ('target','work_id','work_revision'))
+                        and all(prior['values'].get(k)==values.get(k) for k in ('action','payload','catalog_target'))):
+                    return {'proposal_id':pending['id'],'hash':pending['body_hash'],'state':'proposed','already_proposed':True,
+                            'message':'这是已经展示的同一制作提案，未新建或修改。若本轮用户明确确认，请answer这个原提案，不要再要求确认。'}
         checksum=digest(body)
         previous=conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? AND kind=? AND body_hash=?',(segment['id'],kind,checksum)).fetchone()
-        if previous:return {'proposal_id':previous['id'],'hash':checksum,'state':previous['state']}
+        details={'values':values,'requires_user_confirmation':True} if kind=='plan' or (kind=='pipeline' and values.get('action') in {'plan','grant'}) else {}
+        if previous:return {'proposal_id':previous['id'],'hash':checksum,'state':previous['state'],**details}
         # A new version invalidates pending cards of the same kind in this segment.
         conn.execute("UPDATE conversation_proposals SET state='stale' WHERE segment_id=? AND kind=? AND state='proposed'",(segment['id'],kind))
         id=new_id();conn.execute('INSERT INTO conversation_proposals(id,segment_id,kind,body_json,body_hash,created_at) VALUES (?,?,?,?,?,?)',(id,segment['id'],kind,encode(body),checksum,now()))
-        return {'proposal_id':id,'hash':checksum,'state':'proposed'}
+        return {'proposal_id':id,'hash':checksum,'state':'proposed',**details}
 
     def view(self,session):
         with self.store.connection() as conn:
@@ -170,6 +196,7 @@ class ConversationService:
             for r in conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? ORDER BY created_at,id',(segment['id'],)):
                 p=dict(r);p['body']=json.loads(p.pop('body_json'));p['receipt']=json.loads(p.pop('receipt_json')) if p['receipt_json'] else None;proposals.append(p)
             return {'segment_id':segment['id'],'work_id':segment['work_id'],'context':json.loads(segment['context_json']),
+                'result_messages':[{'role':'assistant','content':v.get('answer',''),'serverTurnId':t['id'],'resultState':t['state'],'deliveryError':v.get('delivery_error')} for t in conn.execute("SELECT id,state,payload_json FROM conversation_turns WHERE segment_id=? AND json_extract(payload_json,'$.origin')='task_result' ORDER BY created_at,id",(segment['id'],)) for v in [json.loads(t['payload_json'])]],
                 'proposals':proposals,'messages':[message for t in conn.execute('SELECT payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at,id',(segment['id'],)) for message in self._visible_messages(json.loads(t['payload_json']))], 'turns':[{'id':r['id'],'state':r['state']} for r in conn.execute('SELECT id,state FROM conversation_turns WHERE segment_id=?',(segment['id'],))]}
 
     @staticmethod
@@ -179,19 +206,24 @@ class ConversationService:
         if payload.get('answer'):messages.append({'role':'assistant','content':payload['answer']})
         return messages
 
-    def apply(self,session,id,checksum,command_id,*,dismiss=False):
+    def apply(self,session,id,checksum,command_id,*,dismiss=False,_connection=None,_turn_id=None):
         def execute(conn):
             p=row(conn,'conversation_proposals',id);segment=self.segment(conn,session,p['segment_id'])
-            if conn.execute("SELECT 1 FROM conversation_turns WHERE segment_id=? AND state IN ('reserved','active','dispatching','unknown')",(segment['id'],)).fetchone():fail('invocation_pending','本轮尚未结束，请先核实结果',409)
+            if conn.execute("SELECT 1 FROM conversation_turns WHERE segment_id=? AND id!=? AND state IN ('reserved','active','dispatching','unknown')",(segment['id'],_turn_id or '')).fetchone():fail('invocation_pending','本轮尚未结束，请先核实结果',409)
             if self.segment(conn,session)['id']!=segment['id']:fail('stale_revision','当前创作依据已切换，旧卡不可提交',409)
             if p['body_hash']!=checksum:fail('stale_revision','提议已变化',409)
-            if p['state']=='applied':return json.loads(p['receipt_json'])
+            if p['state']=='applied':
+                from .conversation_results import public_receipt
+                return public_receipt(json.loads(p['receipt_json']))
             if p['state']!='proposed':fail('stale_revision','此卡已失效，请查看最新提议',409)
             if dismiss:
                 conn.execute("UPDATE conversation_proposals SET state='dismissed' WHERE id=?",(id,));return {'dismissed':True}
             body=json.loads(p['body_json']);values=body['values'];target=body['target'];kind=p['kind']
-            self.source_refs(conn,segment,body['source_refs'])
-            if kind=='draft':
+            self.source_refs(conn,segment,body['source_refs'],allow_results=True)
+            if kind=='pipeline':
+                from .conversation_pipeline import execute_action
+                result=execute_action(self,conn,segment,body,command_id)
+            elif kind=='draft':
                 if segment['work_id']:fail('work_already_bound','运行段已绑定作品',409)
                 if set(values)-{'title','input_text'}:fail('invalid_input','草稿字段无效')
                 if target.get('channel'):
@@ -201,11 +233,22 @@ class ConversationService:
                 conn.execute('UPDATE conversation_segments SET work_id=? WHERE id=?',(result['work_id'],segment['id']))
                 conn.execute('INSERT OR IGNORE INTO work_conversation_links VALUES (?,?,?)',(result['work_id'],session,now()))
                 self._capture_messages(conn,segment,result['work_id'])
+                # Planning can be proposed during discussion before a Work exists.
+                # After draft approval, issue a new card against the saved Work;
+                # keep the old hash stale rather than running with revision=None.
+                pending_plans=conn.execute("SELECT body_json FROM conversation_proposals WHERE segment_id=? AND kind='plan' AND state='proposed' AND json_extract(body_json,'$.work_id') IS NULL",(segment['id'],)).fetchall()
+                bound=self.segment(conn,session,segment['id'])
+                for pending_plan in pending_plans:
+                    proposed=json.loads(pending_plan['body_json'])
+                    self.proposal(conn,bound,'plan',proposed['values'],proposed['source_refs'])
             elif kind in {'plan','revision'}:
                 if not segment['work_id']:fail('work_not_bound','请先确认作品',409)
-                allowed={'request'} if kind=='plan' else {'feedback','protected','interval'}
+                allowed={'request','services'} if kind=='plan' else {'feedback','protected','interval'}
                 if set(values)-allowed:fail('invalid_input','提案字段无效')
-                payload={'request':values.get('request','')} if kind=='plan' else {'output_id':target.get('output_id'),'feedback':str(values.get('feedback',''))+'\n保护项：'+encode(values.get('protected',[]))+'\n区间：'+encode(values.get('interval'))}
+                if kind=='plan':
+                    from .conversation_pipeline import planning_values
+                    payload=planning_values(self,conn,segment,values,applying=True)
+                else:payload={'output_id':target.get('output_id'),'feedback':str(values.get('feedback',''))+'\n保护项：'+encode(values.get('protected',[]))+'\n区间：'+encode(values.get('interval'))}
                 result=self.service.command('plan' if kind=='plan' else 'revise',payload,command_id=command_id+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
             elif kind in {'channel_create','channel_defaults'}:
                 if set(values)-{'name','creative_basis','settings'}:fail('invalid_input','频道提案字段无效')
@@ -228,6 +271,14 @@ class ConversationService:
                     target['settings']=resolved
                     target['channel_id']=result['id'];target['channel']={'id':result['id'],'revision':result['revision'],'name':values.get('name'),'creative_basis':values.get('creative_basis',{})}
                     conn.execute('UPDATE conversation_segments SET context_json=? WHERE id=?',(encode(target),segment['id']))
+                if not segment['work_id']:
+                    saved=row(conn,'channels',result['id'])
+                    from .production.settings import merge_creation_settings
+                    settings=merge_creation_settings(json.loads(row(conn,'profile_refs',segment['profile_ref'])['settings_json']),json.loads(saved['settings_json']))
+                    for key in ('director_revision','director_trial'):
+                        if key in target.get('settings',{}):settings[key]=target['settings'][key]
+                    target.update(channel_id=saved['id'],channel={'id':saved['id'],'name':saved['name'],'revision':saved['revision'],'creative_basis':json.loads(saved['creative_basis_json'])},settings=settings)
+                    conn.execute('UPDATE conversation_segments SET context_json=? WHERE id=?',(encode(target),segment['id']))
             elif kind=='director_formation':
                 if set(values)-{'name','reference_input_ids','analysis_scope','base_director_id','base_revision'}:fail('invalid_input','导演提案字段无效')
                 if not segment['work_id']:fail('work_not_bound','请先确认参考作品并登记视频',409)
@@ -248,18 +299,20 @@ class ConversationService:
                 if set(values)-{'style','base_revision'}:fail('invalid_input','风格提案字段无效')
                 result=CreativeCatalog(self.service).command('directors','revision',{'style':values['style'],'evidence':json.loads(version['evidence_json'])},command_id=command_id+'_catalog',id=director['id'],expected_revision=director['revision'],_connection=conn)
             else:fail('invalid_input','尚不支持此提议')
-            conn.execute("UPDATE conversation_proposals SET state='applied',receipt_json=? WHERE id=?",(encode(result),id))
+            from .conversation_results import watched_receipt
+            conn.execute("UPDATE conversation_proposals SET state='applied',receipt_json=? WHERE id=?",(encode(watched_receipt(conn,result)),id))
             return result
-        return self.store.execute_command(command_id,{'proposal':id,'hash':checksum,'session':session,'dismiss':dismiss},execute)
+        return self.store.execute_command(command_id,{'proposal':id,'hash':checksum,'session':session,'dismiss':dismiss},execute,connection=_connection)
 
     def _capture_messages(self,conn,segment,work_id):
         # Preserve necessary user evidence independently of deleting chat text.
-        entries=[{'kind':'user_requirement','text':json.loads(r['payload_json'])['message'],'source_refs':[r['id']]} for r in conn.execute('SELECT id,payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at,id',(segment['id'],)) if json.loads(r['payload_json']).get('message')]
-        body={'entries':entries}
+        entries=[{'kind':'user_requirement','text':json.loads(r['payload_json'])['message'],'source_refs':[r['id']]} for r in self.scoped_turns(conn,segment) if json.loads(r['payload_json']).get('message')]
+        body={'entries':entries,'handoff':json.loads(segment['context_json']).get('handoff')}
         conn.execute('INSERT INTO work_briefs VALUES (?,1,?,?,?)',(work_id,encode(body),digest(body),now()))
 
     def _profile_save(self,conn,segment,body,command_id):
-        import fcntl, os, tempfile
+        import os, tempfile
+        from .production.editors.ffmpeg import _lock
         values=body['values']
         if set(values)!={'file','before_hash','after','entries'} or not isinstance(values['file'],str) or values['file'] not in {'style','preferences','memory'} or not isinstance(values['before_hash'],str) or len(values['before_hash'])!=64 or not isinstance(values['after'],str) or len(values['after'])>100000 or not isinstance(values['entries'],list) or not 1<=len(values['entries'])<=3:fail('invalid_input','请选择1～3条明确画像偏好及文件差异')
         if not segment['profile_ref']:fail('invalid_input','未选择画像，不自动创建或写入')
@@ -267,9 +320,8 @@ class ConversationService:
         path=root/(values['file']+'.md')
         if root.is_symlink() or path.is_symlink() or root.resolve().parent!=self.service.profiles:fail('permission_missing','画像路径无效',403)
         root.mkdir(exist_ok=True)
-        with (root/'.conversation-save.lock').open('a') as lock:
-            fcntl.flock(lock,fcntl.LOCK_EX)
-            before=path.read_text() if path.exists() else ''
+        with _lock(root/'.conversation-save.lock'):
+            before=path.read_text(encoding='utf-8') if path.exists() else ''
             after=values['after'];current=hashlib.sha256(before.encode()).hexdigest();after_hash=hashlib.sha256(after.encode()).hexdigest()
             if current not in {values['before_hash'],after_hash}:fail('stale_revision','画像已被其他编辑修改，请重新比较',409)
             # Recovery of a file write whose SQLite receipt was interrupted.
@@ -287,6 +339,8 @@ class ConversationService:
             # Retain minimal tool/command identities for late result reconciliation.
             for t in conn.execute('SELECT t.* FROM conversation_turns t JOIN conversation_segments s ON s.id=t.segment_id WHERE s.ui_session=?',(session,)).fetchall():
                 payload=json.loads(t['payload_json']);payload.pop('message',None);payload.pop('attachments',None);payload.pop('prompt',None);payload.pop('context',None);payload.pop('answer',None)
+                payload.pop('result_prompt',None);payload.pop('delivery_error',None)
+                if payload.get('result_event'):payload['result_event']={k:v for k,v in payload['result_event'].items() if k in {'work_id','run_id','seq','run_state'}}
                 payload['results']={k:{x:v for x,v in result.items() if x in {'work_id','proposal_id','revision','brief_revision','brief_hash','hash','state','input_id','requires_card_confirmation'}} for k,result in payload.get('results',{}).items()}
                 conn.execute('UPDATE conversation_turns SET payload_json=? WHERE id=?',(encode(payload),t['id']))
             conn.execute("UPDATE conversation_proposals SET state='dismissed' WHERE segment_id IN (SELECT id FROM conversation_segments WHERE ui_session=?) AND state='proposed'",(session,))

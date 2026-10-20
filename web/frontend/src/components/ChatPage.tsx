@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
-import { enterConversationWorkflow, workflowDraft, type ConversationWorkflowKind } from '../lib/conversationWorkflows';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { ChatScrollTracker } from '../lib/chatScroll';
+import { enterConversationWorkflow, replaceWorkflowPrompt, workflowDraft, type ConversationWorkflowKind } from '../lib/conversationWorkflows';
 import VideoConversation from './VideoConversation';
 import type { PersonaItem } from '../lib/api';
 import MessageBubble from './MessageBubble';
@@ -42,20 +43,22 @@ function greeting(): string {
   return `${g}，想创作点什么？`;
 }
 
-export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDirect, session, stream, onSend, onStop, onResend, onQuestionAnswered }: ChatPageProps) {
+export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, session, stream, onSend, onStop, onResend, onQuestionAnswered }: ChatPageProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [maxMb, setMaxMb] = useState(50);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [bindingPending,setBindingPending]=useState(false);
+  const messagesRef = useRef<HTMLDivElement>(null);
+  const scrollTracker = useRef(new ChatScrollTracker());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
 
   const isStreaming = !!stream;
   const isEmpty = session.messages.length === 0 && !isStreaming && !session.videoSegmentId;
-  const videoPanel=session.videoSegmentId?<VideoConversation sessionId={session.id} segmentId={session.videoSegmentId} persona={session.persona} personas={personas} onBound={onVideoBound} onRequest={onSend} onRestore={onRestoreVideo}/>:null;
+  const videoPanel=session.videoSegmentId?<VideoConversation key={`${session.id}:${session.videoSegmentId}`} sessionId={session.id} segmentId={session.videoSegmentId} persona={session.persona} onBound={onVideoBound} onDraft={prompt=>{setInput(current=>replaceWorkflowPrompt(prompt,current));textareaRef.current?.focus();}} onBindingPending={setBindingPending} onRestore={onRestoreVideo}/>:null;
   const chooseWorkflow=async(kind:ConversationWorkflowKind)=>{
     const binding=await enterConversationWorkflow(session,kind);
     onVideoBound(binding.segment_id);
@@ -107,9 +110,27 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
   };
   const removeAttachment = (path: string) => setAttachments((a) => a.filter((x) => x.path !== path));
 
+  useLayoutEffect(() => {
+    const el = messagesRef.current;
+    if (el && !isEmpty && scrollTracker.current.followUpdate(session.id, session.messages.filter(m=>m.role==='user').length)) {
+      // Scroll this pane only. Smooth scrollIntoView fights the reader and can
+      // move ancestor viewports on every streaming/status update in Safari.
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [session.id, session.messages, stream?.content, stream?.thinking, stream?.activity, stream?.stillWorking, isEmpty]);
+
   useEffect(() => {
-    if (!isEmpty) messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [session.messages, stream?.content, stream?.thinking, stream?.activity, stream?.stillWorking, isEmpty]);
+    const pane = messagesRef.current;
+    const thread = pane?.querySelector('.chat-thread');
+    if (!pane || !thread) return;
+    // Background Work results arrive after the chat stream closes. Follow only
+    // when the reader has stayed at the bottom, as for ordinary Easel replies.
+    const observer = new ResizeObserver(() => {
+      if (scrollTracker.current.followUpdate(session.id, session.messages.filter(m=>m.role==='user').length)) pane.scrollTop = pane.scrollHeight;
+    });
+    observer.observe(thread);
+    return () => observer.disconnect();
+  }, [session.id, session.messages, isEmpty]);
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -121,7 +142,7 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
 
   const handleSend = () => {
     const trimmed = input.trim();
-    if ((!trimmed && attachments.length === 0) || isStreaming || uploading) return;
+    if ((!trimmed && attachments.length === 0) || isStreaming || uploading || bindingPending) return;
     // 附件通过结构化字段发送；用户消息气泡只显示用户实际输入的文字。
     onSend(trimmed, attachments);
     setInput('');
@@ -178,11 +199,11 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
           disabled={isStreaming || uploading} title={`添加素材（图片/文档）；超过 ${maxMb}MB 的大文件将自动存为本地素材（不走上传）`}>
           <IconPlus size={15} /> {uploading ? '上传中…' : '素材'}
         </button>
-        <span className="composer-hint">{isStreaming ? '生成中…' : 'Enter 发送 · Shift+Enter 换行'}</span>
+        <span className="composer-hint">{isStreaming ? '生成中…' : bindingPending ? '助手正在回复任务结果…' : 'Enter 发送 · Shift+Enter 换行'}</span>
         {isStreaming ? (
           <button className="send-btn" onClick={onStop} title="停止生成"><IconStop size={15} /></button>
         ) : (
-          <button className="send-btn" onClick={handleSend} disabled={(!input.trim() && !attachments.length) || uploading} title="发送"><IconArrowUp size={17} /></button>
+          <button className="send-btn" onClick={handleSend} disabled={(!input.trim() && !attachments.length) || uploading || bindingPending} title="发送"><IconArrowUp size={17} /></button>
         )}
       </div>
     </div>
@@ -225,14 +246,15 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
 
   return (
     <div className="chat-page">
-      <div className="chat-messages">
+      <div className="chat-messages" ref={messagesRef} onScroll={e=>{const el=e.currentTarget;scrollTracker.current.onScroll(el.scrollTop,el.scrollHeight,el.clientHeight);}}>
         <div className="chat-thread">
           {displayMessages.map((msg, i) => {
             const isLast = i === displayMessages.length - 1;
             const live = isStreaming && isLast && msg.role === 'assistant';
+            const resultLive = !!msg.serverTurnId && ['reserved','dispatching','active'].includes(msg.resultState || '');
             const isFinal = !live && i < session.messages.length;
             let actions;
-            if (isFinal) {
+            if (isFinal && !msg.serverTurnId) {
               const copy = () => navigator.clipboard?.writeText(msg.content);
               // 只允许对「最后一轮」重试，契合 OpenClaw append-only 模型（不改写历史）；已移除编辑
               const isLastFinal = i === session.messages.length - 1;
@@ -258,9 +280,9 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
             }
             return (
               <MessageBubble
-                key={`${i}-${msg.role}`}
+                key={msg.serverTurnId || `${i}-${msg.role}`}
                 message={msg}
-                isStreaming={live}
+                isStreaming={live || resultLive}
                 thinking={live ? stream!.thinking : ''}
                 activity={live ? stream!.activity : ''}
                 stillWorking={live ? stream!.stillWorking : ''}
@@ -272,7 +294,7 @@ export default function ChatPage({ personas, onVideoBound, onRestoreVideo, apiDi
           {isStreaming && (stream!.questions?.length ?? 0) > 0 && (
             <QuestionCards questions={stream!.questions || []} onDone={(qid) => onQuestionAnswered?.(qid)} />
           )}
-          <div ref={messagesEndRef} />
+
         </div>
       </div>
 

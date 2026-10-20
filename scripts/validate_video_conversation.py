@@ -82,6 +82,7 @@ if(!allowed.has(Number(o.port))||!['127.0.0.1','localhost','::1'].includes(o.hos
         config['plugins']['allow'].append('memory-core')
         config['plugins']['slots']['memory']='memory-core'
     config_path=root/'openclaw.json';config_path.write_text(json.dumps(config));config_path.chmod(0o600)
+    (root/'.env').write_text(f'EASEL_DIRECT_API_BASE_URL=http://127.0.0.1:{web_port}/v1\nEASEL_DIRECT_API_MODEL=a1-fake\n')
     store=Store(root/'outputs/_production/db.sqlite3');store.initialize();service=WorkService(store,outputs=root/'outputs',profiles=root/'profiles')
     # Reuse actual Web chat/replay functions, replacing only providers and test paths in THIS child process.
     import web.app as web
@@ -165,7 +166,42 @@ def probe(f):
     for case in ('attack_exec','attack_read','attack_sessions_spawn','attack_voice','attack_memory_search','attack_old_pipeline','attack_video','forge'):chat('probe',sid,case)
     check('forbidden_tools_no_new_production',len(service.snapshot(work)['runs'])==1)
     with service.store.connection() as conn:
-        check('no_paid_operations_or_grants',conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0 and conn.execute('SELECT count(*) FROM authorization_grants').fetchone()[0]==0)
+        grants=conn.execute('SELECT purpose,services_json FROM authorization_grants').fetchall()
+        check('planning_confirmation_binds_fake_service_without_paid_operations',conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0 and len(grants)==1 and grants[0]['purpose']=='planning' and json.loads(grants[0]['services_json'])==[{'provider':'direct-api','model':'a1-fake','mode':'structured'}])
+    # Exercise the new adapter through the actual native tool lifecycle, with
+    # only fake model responses and an isolated catalog (no paid service).
+    pipe_sid=enter('pipeline-probe',{'profile_ref':'one','kind':'channel_create'})
+    f['model'].extra_cases={
+        'pipeline_pending':('easel_pipeline',{'mode':'pending'}),
+        'pipeline_offer':lambda body:('easel_work_propose',{'kind':'channel_create','values':{'name':'Isolated conversational channel'},'source_refs':[next(r['id'] for r in reversed(c.view('pipeline-probe')['turns']) if r['state']=='active')]}),
+    }
+    chat('pipeline-probe',pipe_sid,'pipeline_pending')
+    chat('pipeline-probe',pipe_sid,'pipeline_offer')
+    proposed=c.view('pipeline-probe')['proposals'][-1]
+    f['model'].extra_cases['pipeline_answer']=('easel_pipeline',{'mode':'answer','proposal_id':proposed['id'],'hash':proposed['body_hash'],'user_quote':'A1_CASE=pipeline_answer'})
+    chat('pipeline-probe',pipe_sid,'pipeline_answer')
+    check('native_text_answer_saves_channel_without_button',bool(c.view('pipeline-probe')['context'].get('channel_id')))
+    check('channel_pipeline_does_not_create_video',len(service.list_works()['items'])==1)
+    # Reproduce the real paused planning path with a minimal model-generated
+    # grant request. Only this temporary database is changed; no Worker runs.
+    with service.store.transaction() as conn:
+        task=dict(conn.execute("SELECT * FROM tasks WHERE work_id=? AND kind='plan'",(work,)).fetchone())
+        conn.execute("UPDATE authorization_grants SET revoked_at='fixture-revoked' WHERE work_id=?",(work,))
+        conn.execute("UPDATE tasks SET state='needs_decision',error_json=? WHERE id=?",(json.dumps({'code':'permission_missing'}),task['id']))
+        conn.execute("UPDATE runs SET state='needs_decision' WHERE id=?",(task['run_id'],))
+        conn.execute("UPDATE works SET state='needs_decision' WHERE id=?",(work,))
+    f['model'].extra_cases['grant_recovery_offer']=('easel_pipeline',{'mode':'offer','action':'grant','values':{'purpose':'planning'}})
+    chat('probe',sid,'grant_recovery_offer')
+    recovery=c.view('probe')['proposals'][-1]
+    payload=recovery['body']['values']['payload']
+    check('native_minimal_grant_binds_service_and_original_task',payload['services']==[{'provider':'direct-api','model':'a1-fake','mode':'structured'}] and payload['decision_id']==task['id'])
+    f['model'].extra_cases['grant_recovery_answer']=('easel_pipeline',{'mode':'answer','proposal_id':recovery['id'],'hash':recovery['body_hash'],'user_quote':'A1_CASE=grant_recovery_answer'})
+    chat('probe',sid,'grant_recovery_answer');chat('probe',sid,'grant_recovery_answer')
+    with service.store.connection() as conn:
+        check('native_grant_answer_resumes_once_without_new_run',conn.execute('SELECT count(*) FROM runs WHERE work_id=?',(work,)).fetchone()[0]==1 and conn.execute('SELECT state FROM tasks WHERE id=?',(task['id'],)).fetchone()[0]=='pending' and conn.execute('SELECT count(*) FROM authorization_grants WHERE work_id=? AND revoked_at IS NULL',(work,)).fetchone()[0]==1)
+        check('native_authorization_recovery_does_not_call_production_model',conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0)
+    pipeline_schema=next(t['function']['parameters'] for t in f['model'].requests[-1]['tools'] if t['function']['name']=='easel_pipeline')
+    check('native_model_sees_exact_grant_array_schema',pipeline_schema['properties']['values']['properties']['services']['type']=='array' and pipeline_schema['properties']['values']['properties']['services']['items']['additionalProperties'] is False)
     # A different Work/Profile gets another native transcript, despite sharing the UI session.
     start=len(f['model'].requests);other=enter('probe',{'profile_ref':'two'});chat('probe',other,'context')
     text=json.dumps(f['model'].requests[start:])
@@ -173,7 +209,7 @@ def probe(f):
     all_requests=json.dumps(f['model'].requests,ensure_ascii=False)
     check('no_development_main_or_service_credentials',all(x not in all_requests for x in ('MAIN_ONLY_FORBIDDEN_SENTINEL','DEV_ONLY_FORBIDDEN_SENTINEL',f['bridge_token'])))
     from easel.conversation_bridge import TOOLS
-    check('effective_native_tool_surface_exactly_eight',all({t['function']['name'] for t in b.get('tools',[])}==set(TOOLS) for b in f['model'].requests))
+    check('effective_native_tool_surface_matches_contract',all({t['function']['name'] for t in b.get('tools',[])}==set(TOOLS) for b in f['model'].requests))
     check('selected_product_personality_loaded','创作者的社媒内容搭子' in all_requests)
     old=client.post('/api/chat/stream',json={**body,'turnId':'late-old-segment'});check('old_segment_dispatch_rejected',old.status_code==409)
     deleted=client.delete('/api/chat/video/probe');check('delete_chat_preserves_work_and_run',deleted.status_code==200 and len(service.snapshot(work)['runs'])==1)

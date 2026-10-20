@@ -5,10 +5,10 @@ import hashlib
 import json
 import secrets
 from typing import Literal
-from pydantic import Field
+from pydantic import Field, model_validator
 from .work_bridge import Strict, Identity, Claim, Call, Dispatch, Invocation, ContextArgs, DraftArgs, PlanArgs, canonical, reject
 from .conversation import ConversationService
-from .production.service import row, encode, digest, now
+from .production.service import row, encode, digest, now, fail
 
 
 class EvidenceArgs(Strict):
@@ -33,7 +33,34 @@ class ProposalArgs(Strict):
     values: dict
     source_refs: list[str] = Field(min_length=1,max_length=40)
 
+class PipelineArgs(Strict):
+    mode: Literal['pending','bind','draft','offer','answer']
+    action: str = ''
+    values: dict = Field(default_factory=dict)
+    summary: str = Field(default='', max_length=10000)
+    user_quote: str = Field(default='', max_length=10000)
+    proposal_id: str = ''
+    hash: str = ''
+    dismiss: bool = False
+
+    @model_validator(mode='before')
+    @classmethod
+    def canonical_answer(cls,data):
+        if not isinstance(data,dict) or data.get('mode')!='answer' or not data.get('values'):
+            return data
+        nested=data['values']
+        if not isinstance(nested,dict) or set(nested)-{'proposal_id','hash','user_quote','dismiss'}:
+            raise ValueError('answer.values only supports answer identity fields')
+        result=dict(data)
+        for key,value in nested.items():
+            if key in data and data[key]!=value:
+                raise ValueError('conflicting answer identity')
+            result[key]=value
+        result['values']={}
+        return result
+
 TOOLS={
+    'easel_pipeline':PipelineArgs,
     'easel_work_context':ContextArgs,'easel_work_create_draft':DraftArgs,'easel_work_request_plan':PlanArgs,
     'easel_work_input_evidence':EvidenceArgs,'easel_work_register_inputs':RegisterArgs,
     'easel_work_update_brief':BriefArgs,'easel_work_request_revision':RevisionArgs,'easel_work_propose':ProposalArgs,
@@ -41,7 +68,7 @@ TOOLS={
 
 class PersistentCall(Identity):
     tool_call_id: str = Field(min_length=1,max_length=256)
-    tool: Literal['easel_work_context','easel_work_create_draft','easel_work_request_plan','easel_work_input_evidence','easel_work_register_inputs','easel_work_update_brief','easel_work_request_revision','easel_work_propose']
+    tool: Literal['easel_pipeline','easel_work_context','easel_work_create_draft','easel_work_request_plan','easel_work_input_evidence','easel_work_register_inputs','easel_work_update_brief','easel_work_request_revision','easel_work_propose']
     params: dict
 
 class PersistentDispatch(PersistentCall):
@@ -73,12 +100,17 @@ class PersistentWorkToolBridge:
             from .conversation_inputs import validate_attachment
             for attachment in attachments:validate_attachment(self.service,ui_session,attachment)
             revision=row(conn,'works',segment['work_id'])['revision'] if segment['work_id'] else None
-            payload={'message':message,'attachments':attachments,'work_id':segment['work_id'],'revision':revision,
+            payload={'origin':'user','message':message,'attachments':attachments,'work_id':segment['work_id'],'revision':revision,
                      'session_key':'agent:easel-video:'+segment['id'],'native_session_id':segment['native_session_id'],
                      'run_id':None,'tickets':{},'results':{},'calls':{},'answer':''}
             conn.execute('INSERT INTO conversation_turns VALUES (?,?,?,?,?,?)',(turn_id,segment['id'],fingerprint,encode(payload),'reserved',now()))
-            context=self.conversations.context(conn,segment)
-            prompt='用户本轮：'+message+'\n【服务端创作上下文与来源，只适用于本运行段】\n'+encode(context)
+            from .conversation_pipeline import pending
+            context=pending(self.conversations,conn,segment)
+            prompt=('【真实用户新回合；不是宿主任务结果】历史事件和来源仅为上下文，不得替代本轮用户意图。\n'
+                    '【服务端创作上下文与历史来源，只适用于本运行段】\n'+encode(context)+
+                    '\n【本轮用户原话；请回应这条新消息】\n'+message+
+                    '\n用户确认已展示提案时，读取pending并answer原提案；不要为确认再次offer。只有成功工具回执才能声称已提出提案或已开工，禁止编造提案ID。')
+            payload['visible_proposals']=[r[0] for r in conn.execute("SELECT id FROM conversation_proposals WHERE segment_id=? AND state IN ('proposed','applied')",(segment_id,))]
             payload['prompt_hash']=hashlib.sha256(prompt.encode()).hexdigest()
             # Only visible, scoped content is forwarded, never main transcripts or credentials.
             self._save(conn,turn_id,payload,'reserved')
@@ -128,11 +160,23 @@ class PersistentWorkToolBridge:
         with self.store.transaction() as conn:
             record,payload,segment=self._current(conn,request)
             if payload['tickets'].get(request.ticket)!=digest(request.model_dump(exclude={'ticket'})):reject('ticket_mismatch')
-            args=self._args(request);fingerprint=digest([request.tool,args])
+            args=self._args(request)
+            if payload.get('origin')=='task_result':
+                read=request.tool in {'easel_work_context','easel_work_input_evidence'} or (request.tool=='easel_pipeline' and args['mode']=='pending')
+                propose=request.tool=='easel_pipeline' and args['mode']=='offer' and args['action']=='confirm' and payload['result_event']['run_state']=='succeeded' and payload['result_event']['plan_ready']
+                if not (read or propose):reject('result_event_read_only',403)
+                if propose:
+                    work=row(conn,'works',segment['work_id'])
+                    if work['active_run_id']!=payload['result_event']['run_id'] or args['values'].get('plan_revision')!=work['current_plan_revision']:reject('stale_revision',409)
+            fingerprint=digest([request.tool,args])
             if fingerprint in payload['results']:return payload['results'][fingerprint]
             # Business receipt and intent binding are committed in this SAME transaction.
             command_id='chat_'+digest([record['id'],request.tool,args])[:48]
-            if request.tool=='easel_work_context':result=self.conversations.context(conn,segment)
+            if payload.get('pipeline_entry'):reject('pipeline_switch_pending',409)
+            if request.tool=='easel_pipeline':
+                from .conversation_pipeline import dispatch
+                result=dispatch(self,conn,record,payload,segment,args,command_id)
+            elif request.tool=='easel_work_context':result=self.conversations.context(conn,segment)
             elif request.tool=='easel_work_input_evidence':
                 result={'inputs':[]}
                 for id in args['input_ids']:
@@ -141,13 +185,15 @@ class PersistentWorkToolBridge:
                     result['inputs'].append({k:value[k] for k in ('id','kind','usage','digest','text_content','metadata_json')})
             elif request.tool=='easel_work_register_inputs':
                 if not segment['work_id']:reject('work_not_bound',409)
-                attachment=next((a for t in conn.execute('SELECT payload_json FROM conversation_turns WHERE segment_id=?',(segment['id'],)) for a in json.loads(t['payload_json']).get('attachments',[]) if a['id']==args['attachment_id']),None)
+                attachment=next((a for t in self.conversations.scoped_turns(conn,segment) for a in json.loads(t['payload_json']).get('attachments',[]) if a['id']==args['attachment_id']),None)
                 if not attachment:reject('attachment_not_bound')
                 # Model suggestions never mint third-party rights or original-audio permission.
                 if args['original_audio'] or args['rights']:reject('rights_confirmation_required')
                 result=self.service.command('input',{'session_id':segment['ui_session'],'attachment':attachment,'usage':args['usage'],'original_audio':False},command_id=command_id,work_id=segment['work_id'],expected_revision=payload['revision'],_connection=conn)
             elif request.tool=='easel_work_update_brief':
                 if row(conn,'works',segment['work_id'] or '')['revision']!=payload['revision']:reject('stale_revision',409)
+                if conn.execute("SELECT 1 FROM conversation_proposals WHERE segment_id=? AND state='proposed' AND kind='pipeline' AND json_extract(body_json,'$.values.action')='confirm' AND EXISTS (SELECT 1 FROM json_each(json_extract(body_json,'$.source_refs')) WHERE value=?)",(segment['id'],record['id'])).fetchone():
+                    fail('proposal_already_offered','本轮已提出制作确认；不能随后改依据使刚展示的提案失效。确认或服务澄清无需重写brief；真正改稿须先改依据、重新规划，最后才提出制作确认。',409)
                 result=self.conversations.brief(conn,segment,args['entries'])
             else:
                 if segment['work_id'] and row(conn,'works',segment['work_id'])['revision']!=payload['revision']:reject('stale_revision',409)
@@ -157,7 +203,7 @@ class PersistentWorkToolBridge:
                 elif request.tool=='easel_work_request_revision':kind,values='revision',args
                 else:kind,values,refs=args['kind'],args['values'],args['source_refs']
                 result=self.conversations.proposal(conn,segment,kind,values,refs)
-                result['requires_card_confirmation']=True
+                result['requires_user_confirmation']=True
             if 'revision' in result and 'work_id' in result:payload['revision']=result['revision']
             payload['calls'][request.tool_call_id]={'fingerprint':fingerprint,'command_id':command_id}
             payload['results'][fingerprint]=result
@@ -166,9 +212,35 @@ class PersistentWorkToolBridge:
 
     def end(self,request):
         with self.store.transaction() as conn:
-            record,payload,_=self._current(conn,request,active=False)
+            record,payload,segment=self._current(conn,request,active=False)
             self._save(conn,record['id'],payload,'ended')
+            if not segment['revoked_at'] and payload.get('pipeline_entry') and not payload.get('pipeline_binding'):
+                conn.execute('SAVEPOINT pipeline_handoff')
+                try:
+                    result=self.conversations.enter(segment['ui_session'],payload['pipeline_entry'],'handoff_'+record['id'],_connection=conn)
+                    bound=self.conversations.segment(conn,segment['ui_session'],result['segment_id'])
+                    context=json.loads(bound['context_json'])
+                    context['handoff']=payload['pipeline_handoff']
+                    conn.execute('UPDATE conversation_segments SET context_json=? WHERE id=?',(encode(context),bound['id']))
+                    payload['pipeline_binding']=result
+                except Exception as exc:
+                    from .production.errors import ProductionError
+                    if not isinstance(exc,ProductionError):raise
+                    conn.execute('ROLLBACK TO pipeline_handoff')
+                    payload['pipeline_binding']={'error':exc.code,'message':str(exc)}
+                finally:conn.execute('RELEASE pipeline_handoff')
+                self._save(conn,record['id'],payload,'ended')
             return {'ended':True}
+
+    def record_result_text(self,turn_id,text,*,error=None):
+        with self.store.transaction() as conn:
+            record=row(conn,'conversation_turns',turn_id);payload=json.loads(record['payload_json'])
+            if payload.get('origin')!='task_result':return
+            segment=row(conn,'conversation_segments',record['segment_id'])
+            if segment['revoked_at']:return
+            payload['answer']=text
+            if error:payload['delivery_error']=error
+            self._save(conn,turn_id,payload,record['state'])
 
     def delivery(self,turn_id,state,answer=None):
         with self.store.transaction() as conn:

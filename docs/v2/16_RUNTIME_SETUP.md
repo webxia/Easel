@@ -148,9 +148,13 @@ MiniMax M3.1 完整 Planning 可能超过 120 秒；`EASEL_PRODUCTION_MODEL_TIME
 | `MINIMAX_API_KEY` | MiniMax 生成凭证；仅配置不代表可发送 |
 | `EASEL_IMAGE_MODEL` | 当前支持 `image-01`，省略时只声明该适配器默认型号 |
 | `EASEL_VIDEO_MODEL` | 须显式选择 `MiniMax-H3` 或 `MiniMax-H3-Max`，无静默型号替代 |
-| `EASEL_GENERATION_RIGHTS_JSON` | JSON 文本或绝对本地 JSON 文件路径，最多 256 KiB；顶层为 `schema_version:1`，`IMAGE`/`VIDEO` 为实际 `RightsInfo`，不能用有 key 代替许可证据 |
+| `EASEL_GENERATION_RIGHTS_JSON` | JSON 文本或绝对本地 JSON 文件路径，最多 256 KiB；顶层为 `schema_version:1`，`IMAGE`/`VIDEO` 为实际 `RightsInfo`，登记已核实的服务条款、适用用途及限制；不能用有 key 代替依据，也不表示账户额度或本作品调用已授权 |
 
 RightsInfo 至少要有已核实状态、许可名称（KNOWN 时）、来源证据；限制与署名要求须照实填写。每个 `evidence` 包含 `kind`、`reference`，可有带时区的 `observed_at`、`summary`。未知、受限、缺证据的生成模态不标可用，不在文档里提供可直接复制为授权的虚假许可。成功生成后才登记真实的素材回执证据。
+
+对话及能力列表将缺项解释为“生成素材使用许可依据未登记或无效”，机器码仍为`rights_evidence_missing`；与Key/型号缺失分别提示。许可登记就绪只代表本地准入配置就绪，不代表远端账户调用资格或额度已验证。`reason_message`供界面/对话说明，`readiness_note`保留这一区分，`usage_constraints`传递已登记的创作用途边界；其审美/语义与第三方权利判断仍由创作Agent和Creator审阅负责，不能宣称自由文字限制已全部由程序自动执法。
+
+2026-10-19核对开放平台[用户协议](https://platform.minimax.cn/protocol/user-agreement)第9.5、1.7、6.2～6.4条，以及[付费协议](https://platform.minimax.cn/protocol/paid-agreement)（2026-08-18生效）。可按合法输入、人工核查、AI标识前提登记具体输出用途的依据；这不是无条件商用、独占著作权或第三方无侵权担保。付费资格与输出使用依据分别登记；成功生成后仍追加真实asset_generation_receipt。当前本机登记仅覆盖IMAGE，具体用户用途/配置路径/来源快照与hash留本机忽略目录，不把个人信息或许可文件写入Git。登记不触发请求、不改变任何已有作品授权，未核实的VIDEO继续不可用。
 
 每次图片/视频发送仍检查已确认方案、本次服务/模型/模式授权和剩余次数。生视频需明确时长、画幅和分辨率：H3 为 4～15 秒及 768P/2K，H3-Max 为 5～15 秒及 480P/768P。片长 1～900 秒与单次生成片段时长是不同设置，由已确认方案组织素材和剪辑。
 

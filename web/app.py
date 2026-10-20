@@ -441,12 +441,21 @@ async def _lifespan(_app: FastAPI):
     _HARNESS_LOOP = asyncio.get_running_loop()
     production_task = None
     production_runtime = None
+    result_task = None
     if os.environ.get("EASEL_PRODUCTION_ENABLED") == "1":
         from easel.production.runtime import create_runtime
         production_runtime = create_runtime(PROJECT_ROOT, service=_production_service())
         _app.state.production_runtime = production_runtime
         production_task = asyncio.create_task(production_runtime.run_forever())
+        result_task = asyncio.create_task(_video_chat.results_forever())
     yield
+    if result_task:
+        result_task.cancel()
+        await asyncio.gather(result_task, return_exceptions=True)
+    if _video_chat.tasks:
+        replies=list(_video_chat.tasks.values())
+        for reply in replies:reply.cancel()
+        await asyncio.gather(*replies, return_exceptions=True)
     if production_runtime:
         production_runtime.stop()
     if production_task:

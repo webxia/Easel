@@ -22,6 +22,7 @@ from web.production_api import create_router as production_router, production_er
 def env(tmp_path):
     store=Store(tmp_path/'outputs/_production/db.sqlite3');store.initialize()
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
+    (tmp_path/'.env').write_text('EASEL_DIRECT_API_BASE_URL=http://127.0.0.1:1/v1\nEASEL_DIRECT_API_MODEL=fixture-model\n')
     for name in ('one','two'):
         root=service.profiles/name;root.mkdir(parents=True)
         for file in ('identity','style','audience','platforms','preferences','memory'):(root/(file+'.md')).write_text(name+' '+file+'\n')
@@ -132,7 +133,7 @@ def test_multiturn_sourced_brief_frozen_in_plan_request_and_no_fabricated_requir
         basis=json.loads(task[0])['creation_basis'];assert basis['conversation_brief']['hash']==result['brief_hash']
         assert basis['conversation_brief']['body']['entries'][1]['kind']=='suggestion'
         assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
-        assert conn.execute('SELECT count(*) FROM authorization_grants').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM authorization_grants').fetchone()[0]==1
 
 
 def attachment(service,session='ui'):
@@ -472,6 +473,63 @@ def test_entry_subtitle_layers_match_work_and_explicit_director_keeps_fixed_sett
     assert service.snapshot(work['id'])['settings']['director_revision']=='explicit-v'
 
 
+def test_new_work_trial_entry_preserves_confirmed_profile_voice_and_unaccepted_director(env):
+    service,c=env;cat=CreativeCatalog(service)
+    profile_before={str(p):p.read_bytes() for p in service.profiles.rglob('*.md')}
+    voice={'provider':'fixture','model':'speech','engine':'http-speech-v1','voice_id':'fixed','parameters':{'speed':1}}
+    with service.store.transaction() as conn:
+        conn.execute("INSERT INTO directors(id,name,created_at,updated_at) VALUES ('trial-director','Trial',?,?)",(now(),now()))
+        conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,created_at) VALUES ('trial-v4','trial-director',4,?,'[]',1,?)",(encode({'schema_version':1,'visual_style':'confirmed style'}),now()))
+    channel=cat.command('channels','create',{'name':'Existing channel','profile_ref':'one','settings':{'voice':voice},'director_ids':['trial-director']},command_id='trial-channel')
+    raises('invalid_input',lambda:c.enter('without-trial',{'profile_ref':'one','channel_id':channel['id'],'director_revision':'trial-v4'},'ordinary-unaccepted-entry'))
+    segment=entry(c,profile_ref='one',channel_id=channel['id'],director_revision='trial-v4',director_trial=True)
+    context=c.view('ui')['context']
+    assert context['settings']['director_revision']=='trial-v4' and context['settings']['director_trial'] is True
+    assert context['settings']['voice']==voice
+    assert service.list_works()['items']==[]
+    bridge,identity,_=turn(service,c,segment,'Use my existing profile; one new idea.')
+    p=tool(bridge,identity,'easel_work_create_draft',{'title':'One idea','input_text':'One new idea'})
+    bridge.end(Identity(**identity));work=service.snapshot(apply(c,p)['work_id'])
+    assert work['settings']['director_revision']=='trial-v4' and work['settings']['director_trial'] is True
+    assert work['settings']['voice']==voice and work['runs']==[] and work['tasks']==[]
+    with service.store.connection() as conn:
+        version=row(conn,'director_revisions','trial-v4')
+        assert version['style_confirmed'] and version['accepted_at'] is None and version['trial_artifact_id'] is None
+        assert row(conn,'channels',channel['id'])['default_director_revision'] is None
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+    assert {str(p):p.read_bytes() for p in service.profiles.rglob('*.md')}==profile_before
+
+
+def test_configuration_pipelines_edit_selected_targets_without_work_or_profile_changes(env):
+    service,c=env;cat=CreativeCatalog(service)
+    before={str(p):p.read_bytes() for p in service.profiles.rglob('*.md')}
+    voice={'provider':'fixture','model':'speech','engine':'http-speech-v1','voice_id':'fixed','parameters':{'speed':1}}
+    channel=cat.command('channels','create',{'name':'Existing','profile_ref':'one','settings':{'voice':voice}},command_id='config-channel')
+    segment=entry(c,kind='channel_create',profile_ref='one',channel_id=channel['id'])
+    bridge,identity,_=turn(service,c,segment,'Change the selected channel audience.',id='edit-channel')
+    p=tool(bridge,identity,'easel_work_propose',{'kind':'channel_defaults','values':{'creative_basis':{'audience':'New audience'}},'source_refs':['edit-channel']})
+    bridge.end(Identity(**identity));apply(c,p)
+    channels=cat.list('channels');assert len(channels)==1
+    assert channels[0]['id']==channel['id'] and channels[0]['creative_basis']['audience']=='New audience'
+    assert channels[0]['settings']['voice']==voice
+    with service.store.transaction() as conn:
+        conn.execute("INSERT INTO directors(id,name,created_at,updated_at) VALUES ('config-director','Existing director',?,?)",(now(),now()))
+        conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,created_at) VALUES ('config-v1','config-director',1,?,?,1,?)",(encode({'schema_version':1,'visual_style':'Original','storytelling':'Original'}),encode([{'source':'fixture'}]),now()))
+    segment=entry(c,kind='director_formation',profile_ref='one',director_revision='config-v1',director_trial=True)
+    bridge,identity,_=turn(service,c,segment,'Refine the selected director style.',id='edit-director')
+    p=tool(bridge,identity,'easel_work_propose',{'kind':'director_revision','values':{'base_revision':1,'style':{'visual_style':'Refined','storytelling':'Keep a clear thread'}},'source_refs':['edit-director']})
+    bridge.end(Identity(**identity));apply(c,p)
+    directors=cat.list('directors');assert len(directors)==1 and len(directors[0]['versions'])==2
+    with service.store.connection() as conn:
+        old=row(conn,'director_revisions','config-v1');assert json.loads(old['style_json'])['visual_style']=='Original' and old['accepted_at'] is None
+        latest=conn.execute("SELECT * FROM director_revisions WHERE director_id='config-director' ORDER BY revision DESC LIMIT 1").fetchone()
+        assert latest['revision']==2 and not latest['style_confirmed'] and latest['accepted_at'] is None
+        assert conn.execute('SELECT count(*) FROM works').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM tasks').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+    assert {str(p):p.read_bytes() for p in service.profiles.rglob('*.md')}==before
+
+
 @pytest.mark.parametrize('name',[None,12,[],{},'', ' '*4])
 def test_channel_proposal_invalid_name_is_not_saved_or_reported_applied(env,name):
     service,c=env;segment=entry(c,profile_ref='one');b,i,_=turn(service,c,segment)
@@ -518,3 +576,32 @@ def test_director_proposal_rejects_object_wrapped_references_before_card(env):
         proposal(service,c,segment,'director_formation',{'name':'导演','reference_input_ids':{'item':'not-an-array'}})
     assert not [p for p in c.view('ui')['proposals'] if p['kind']=='director_formation']
     assert service.snapshot(work)['runs']==[]
+
+
+def test_prework_plan_card_is_reissued_after_draft_without_starting_generation(env):
+    service,c=env;segment=entry(c,profile_ref='one')
+    bridge,identity,_=turn(service,c,segment)
+    draft_card=proposal(service,c,segment,'draft',{'title':'Test content','input_text':'A concrete thought'})
+    before=proposal(service,c,segment,'plan',{'request':'Keep the confirmed direction and review before production'})
+    bridge.end(Identity(**identity))
+    raises('work_not_bound',lambda:apply(c,before,'before_draft'))
+    work=apply(c,draft_card)['work_id']
+    view=c.view('ui')
+    old=next(p for p in view['proposals'] if p['id']==before['proposal_id'])
+    fresh=next(p for p in view['proposals'] if p['kind']=='plan' and p['state']=='proposed')
+    assert old['state']=='stale'
+    assert fresh['id']!=old['id'] and fresh['body_hash']!=old['body_hash']
+    assert fresh['body']['values']==old['body']['values']
+    assert fresh['body']['source_refs']==old['body']['source_refs']
+    assert fresh['body']['work_id']==work
+    assert fresh['body']['work_revision']==service.snapshot(work)['revision']
+    with service.store.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM runs').fetchone()[0]==0
+        assert conn.execute('SELECT COUNT(*) FROM operations').fetchone()[0]==0
+    raises('stale_revision',lambda:apply(c,before,'old_card_click'))
+    result=c.apply('ui',fresh['id'],fresh['body_hash'],'new_plan_click')
+    assert result['run_id']
+    assert c.apply('ui',fresh['id'],fresh['body_hash'],'new_plan_click')==result
+    with service.store.connection() as conn:
+        assert conn.execute('SELECT COUNT(*) FROM runs').fetchone()[0]==1
+        assert conn.execute('SELECT COUNT(*) FROM operations').fetchone()[0]==0
