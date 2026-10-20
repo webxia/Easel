@@ -344,7 +344,17 @@ class PlanningTasks:
                 context=replace(context,plan=protected,
                     brief=context.brief+'\n仅允许audio_mode改为voice，无BGM或可选SFX；其他字段逐字保持，包括旁白、镜头、观点和时长。')
             media,required=await self.observe_inputs(ctx)
+            with self.service.store.connection() as reader:
+                selected = json.loads(row(reader, 'works', ctx.work_id)['settings_json']).get('voice')
             def check_capabilities(answer):
+                # Fixed synthesis parameters belong to the selected voice configuration.
+                # The creative model may not introduce extra knobs or change their values.
+                if selected and answer.settings.voice:
+                    from .contracts import VoiceIdentity
+                    fixed=VoiceIdentity.model_validate(selected)
+                    actual=answer.settings.voice
+                    if all(getattr(actual,k)==getattr(fixed,k) for k in ('provider','model','voice_id','engine')):
+                        actual.parameters=dict(fixed.parameters)
                 if protected:validate_audio_replan(answer,protected)
                 if answer.explainer_boards and not self.execution_capabilities.get('native_explainer_boards'):
                     raise ValueError('本次尚未配置原生图解字体，不能使用explainer_boards；不得虚构图解能力')
@@ -447,6 +457,7 @@ class PlanningTasks:
                     source=self._native_operation(ctx,author);review=None
                     self._store_draft(ctx,proposed,source,round_,history,review)
                 preserve_choices(proposed)
+            check_capabilities(proposed)
             with ctx.transaction() as conn:
                 work=row(conn,'works',ctx.work_id)
                 from .voice_budget import reserve_narration_slots
@@ -483,7 +494,7 @@ class PlanningTasks:
                         from .contracts import VoiceIdentity
                         expected=VoiceIdentity.model_validate(expected).model_dump(mode='json')
                     if field in requested and expected != payload['settings'].get(field):
-                        raise ModelTaskError('plan_constraint_changed','模型方案改变了本次明确设置，需要修正方案')
+                        raise ModelTaskError('plan_constraint_changed','模型方案改变了本次明确设置：settings.'+field+'，需要修正方案')
                 rev=conn.execute('SELECT COALESCE(MAX(revision),0)+1 FROM plan_revisions WHERE work_id=?',(ctx.work_id,)).fetchone()[0]
                 conn.execute('INSERT INTO plan_revisions(id,work_id,revision,payload_json,plan_hash,created_at) VALUES (?,?,?,?,?,?)',
                     (new_id(),ctx.work_id,rev,encode(payload),digest(payload),now()))

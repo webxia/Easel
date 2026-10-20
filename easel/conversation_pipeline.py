@@ -10,7 +10,7 @@ from .production.errors import ProductionError
 
 WORK_ACTIONS = {
     'input': {'attachment_id','usage','original_audio','interval','rights_confirmed'},
-    'plan': {'request','services','duration_seconds','settings','restore_cancelled'},
+    'plan': {'request','services','duration_seconds','settings','restore_cancelled','decision_id'},
     'confirm': {'plan_revision','plan_hash','services','allow_ai','image_limit','video_limit'},
     'grant': {'purpose','services','allow_ai','image_limit','video_limit','target_ref','plan_revision','decision_id'},
     'resume': {'decision_id'}, 'cancel': set(),
@@ -68,6 +68,9 @@ def grant_values(conversations,conn,segment,values,*,applying=False):
 def planning_values(conversations,conn,segment,values,*,applying=False):
     """Bind the model before asking; never expand an already approved proposal."""
     if set(values)-WORK_ACTIONS['plan']:fail('invalid_input','规划提案字段无效')
+    if values.get('decision_id'):
+        conversations.service.failed_planning_target(conn,row(conn,'works',segment['work_id']),values['decision_id'])
+        if set(values)-{'decision_id','request','services'}:fail('invalid_input','首次规划恢复须保持现有创作设置')
     if 'duration_seconds' in values:
         conversations.service._validate_settings({'duration_seconds':values['duration_seconds']})
     if 'settings' in values:
@@ -173,7 +176,17 @@ def pending(conversations, conn, segment):
                 'note':'仅当用户要求此声音变更及必要的恢复时提出；新规划另有模型费用，保留旧方案，须下一真人回合确认。'}
         except ProductionError as exc:
             recovery={'can_offer':False,'code':exc.code,'reason':exc.user_message}
-    return {'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
+    failed_recovery=None
+    if work and work['state']=='needs_decision' and work['current_plan_revision'] is None:
+        task=conn.execute("SELECT id FROM tasks WHERE run_id=? AND kind='plan' AND state='needs_decision'",(work['active_run_id'],)).fetchone()
+        if task:
+            try:
+                conversations.service.failed_planning_target(conn,row(conn,'works',work['id']),task['id'])
+                failed_recovery={'can_offer':True,'action':'plan','values':{'decision_id':task['id']},
+                    'note':'保留同一作品与历史回执，替换已失败的规划运行；新的规划可能收费，须展示提案并经下一真人回合确认，不取消作品。'}
+            except ProductionError as exc:
+                failed_recovery={'can_offer':False,'code':exc.code,'reason':exc.user_message}
+    return {'failed_planning_replan':failed_recovery,'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
             'preoutput_replan':recovery,
             'current_plan':next((p for p in work['plans'] if p['revision']==work['current_plan_revision']),None) if work else None,
             'work':work,'capabilities':services,'model_calls':call_status(conversations,conn,segment),
@@ -297,6 +310,14 @@ def offer(conversations,conn,segment,turn_id,action,values,summary):
         names='、'.join(s['provider']+'/'+s['model']+'/'+s['mode'] for s in values['services'])
         summary=f"授权服务：{names}；用途：{values['purpose']}。"+('授权后继续原整理方案任务。' if values.get('decision_id') else '本提案仅保存授权。')
     target={}
+    if action=='plan' and values.get('decision_id'):
+        target=conversations.service.failed_planning_target(conn,row(conn,'works',segment['work_id']),values['decision_id'])
+        from .production.configuration import model_configuration
+        _,model,_=model_configuration(conversations.service.outputs.parent)
+        values={**values,'services':[model]}
+        summary=('保留当前作品、创作设置和历史回执，只替换已失败的规划运行；不取消整部作品。'
+                 '重新整理方案可能产生新的模型调用及有界格式纠正费用，服务：'+'/'.join(model.values())+
+                 '。方案完成后仍须确认才能制作；请确认后再执行。')
     if action=='plan' and 'settings' in values:
         target=conversations.service.preoutput_target(conn,row(conn,'works',segment['work_id']),values)
         # Recovery revokes the old grants; this proposal always shows the new cost.
@@ -352,6 +373,10 @@ def execute_action(conversations,conn,segment,body,key):
         if action=='confirm':data=production_values(conversations,conn,segment,data,applying=True)
         if action=='plan':
             data=planning_values(conversations,conn,segment,data,applying=True)
+            if data.get('decision_id'):
+                target=conversations.service.failed_planning_target(conn,row(conn,'works',segment['work_id']),data['decision_id'])
+                if target!=values['catalog_target']:fail('stale_revision','失败规划目标已变化，请重新确认',409)
+                data={**data,'failed_planning_target':target}
             if 'settings' in data:
                 target=conversations.service.preoutput_target(conn,row(conn,'works',segment['work_id']),data)
                 if target!=values['catalog_target']:fail('stale_revision','恢复目标已变化，请重新确认',409)

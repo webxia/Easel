@@ -181,7 +181,13 @@ def test_replanning_uses_frozen_profile_identity_with_frozen_content(tmp_path,ol
         conn.execute('UPDATE works SET profile_ref=? WHERE id=?',(other,work))
         conn.execute('UPDATE plan_revisions SET confirmed_at=? WHERE work_id=?',('confirmed',work))
     (service.profiles/'selected'/'identity.md').write_text('当前文件已改动，不能覆盖旧版本事实',encoding='utf8')
-    service.command('plan',{'services':[IDENTITY]},command_id='replan',work_id=work,expected_revision=service.store.get_work(work)['revision'])
+    # Isolate the version-bound handler: public plan commands correctly reject
+    # an unscoped replacement of an already-confirmed plan.
+    with service.store.transaction() as conn:
+        from easel.production.service import row
+        bound=row(conn,'works',work)
+        service._insert_grant(conn,bound,'planning',{'services':[IDENTITY]})
+        service._run(conn,bound,'planning',payload={'creation_basis':service._basis(conn,bound)})
     with service.store.transaction() as conn:
         task=conn.execute('SELECT * FROM tasks').fetchone();payload=json.loads(task['payload_json']);payload['base_plan_revision']=1
         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(json.dumps(payload),task['id']))
@@ -198,3 +204,18 @@ def test_replanning_uses_frozen_profile_identity_with_frozen_content(tmp_path,ol
     assert newest['profile_snapshot']==original_snapshot
     model_context=json.loads(transport.requests[0][0][1]['content'][0]['text'])
     assert model_context['profile']==context.profile and '别的画像内容' not in json.dumps(model_context['profile'],ensure_ascii=False)
+
+
+def test_fixed_voice_parameters_are_program_owned(tmp_path):
+    service,work,transport,worker=setup(tmp_path)
+    voice={'provider':'local','model':'offline','voice_id':'fixed','engine':'local','parameters':{'speed':1}}
+    with service.store.transaction() as conn:
+        settings=json.loads(conn.execute('SELECT settings_json FROM works WHERE id=?',(work,)).fetchone()[0])
+        settings['voice']=voice
+        conn.execute('UPDATE works SET settings_json=? WHERE id=?',(json.dumps(settings),work))
+    transport.answer['settings']['voice']={**voice,'parameters':{'speed':1.4,'volume':1,'pitch':0}}
+    asyncio.run(worker.run_once())
+    snapshot=service.snapshot(work)
+    assert snapshot['state']=='awaiting_confirmation'
+    assert snapshot['plans'][0]['plan']['settings']['voice']==voice
+    assert transport.calls==1

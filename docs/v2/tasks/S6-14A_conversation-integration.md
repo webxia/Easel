@@ -904,3 +904,32 @@ git diff --check
 #### 文档核对与本地提交（2026-10-20）
 
 用户指示“修改文档，并且提交”，授权将已部署的本轮修复、对应回归及相关权威文档统一提交到 easel-v2-rebuild；不包含推送、合并、新一轮部署或真实恢复/E2E。此次修正文档顶部混用“原失败现场”和“部署后状态”的表述，保留旧失败与各时点证据。运行源码未再修改，沿用上述软件回归与部署验证；提交前仅检查文档路径、diff 和暂存范围。已核对与本次修复直接相关的既有文档/title补丁一起保留；私人创作目录、qrcode、scratch、未跟踪预研、配置凭证、outputs 和 Profile 不纳入提交。
+
+
+## 2026-10-20 · E2E-02 首次规划阻塞修复（S6 / CURRENT_BLOCKER）
+
+本轮用户授权最小修复、单元/组件回归、空闲部署及推送 V2 主线；禁止 E2E、真实模型或媒体调用、重发旧任务及操作 UNKNOWN。基线 `ac35acdf`，原个人材料和未跟踪记录保留。
+
+### 独立取证与根因纠正
+
+E2E-02 的“45秒失败”归因不成立：只读核对三份成功 MODEL 回执，settings 与分镜合计均为45秒；真正冲突为固定声音 parameters。已选配置只有 speed=1，模型自行增加 volume=1 与 pitch=0。最终设置比较正确阻止擅自变更，但通用错误没有指出字段，且错误只在冻结阶段才暴露。未修改或重放原始回执，私有标识及内容不入 Git。
+
+第二个根因是恢复覆盖缺口：既有 preoutput_target 仅覆盖已确认 mixed 方案的声音修订，首次 Planning 失败尚无 Plan 时仍被 active_run 拦截；取消 Work 不是结束失败 Run 的替代。现场作品和运行均 needs_decision，无有效 Plan。
+
+### 最小实现与不变量
+
+- 固定声音身份匹配时，参数由已选 Work 配置确定性回填，模型新增或修改的参数不参与合成；不更改已选值、不放宽身份匹配。冻结仍检查时长、画幅、字幕及声音身份；错误显示 settings 字段。沿用既有 schema 和有限格式修复，不增加模型请求。
+- 沿用 easel_pipeline 的 plan 提案，增加可选 decision_id；pending.failed_planning_replan 给出安全恢复选项。服务端绑定失败 Task/Run 版本及依据摘要，展示费用和范围，必须下一真人回合确认。仅支持没有 Plan、没有执行 owner、已停止且结果确定的规划内容/合同失败；权限阻断和 UNKNOWN 仍走原入口。
+- 确认时重核目标及全 Work 在途/UNKNOWN，在同一事务 supersede 旧 Run、停止其未完成 Task、创建新 Planning Run；失败全量回滚。原 Work、设置、历史回执和素材保留，旧 Task 不重跑。新 Plan 仍须确认制作，不自动下阶段。本轮不对真实作品执行该操作。
+- 不新增数据库表、业务状态、Agent、工具入口、后台节点或 UI；复用现有提案/确认、状态机和等待回传。
+
+### 软件验证
+
+先以新回归证明缺陷，修复后相关 Python 单元/组件 184 passed，Node 插件单元 12 passed。覆盖固定参数继承、身份变更拒绝、同 Work 恢复、真人后续确认、stale 拒绝、幂等、事务回滚、reserved/sending/submitted/unknown 保护及原有声音修订、结果等待/回传。两项旧 handler 测试直接走已被禁止的无范围 confirmed Plan 重规划，已改为内部 fixture 调度以继续测试版本绑定，不放宽正式命令。
+
+SOFTWARE_PASS 仅限上述具名范围；E2E=NOT_TESTED，REAL_PRODUCTION_PASS=NOT_TESTED，CREATOR_ACCEPTED=NOT_TESTED。真实旧失败保持，待用户自行回原对话确认新规划。部署结果另补于本节，不以测试冒充生产通过。
+
+
+### 本轮空闲部署核验
+
+单独追加真人同回合拒绝断言后，新恢复组件13项再次通过。正式部署前检查 pending/running/waiting 的生产运行、可派发任务、在途 Operation、原生回合/交付租约均为0，创建本机一致性恢复点；仅 kickstart 既有 `ai.openclaw.easel` 与 `com.easel.web`。随后Web首页200、backend.reload_required=false、Gateway插件协议2与9工具注册通过。数据库27张表和87份画像文件摘要部署前后一致，3条UNKNOWN及全部Operation保留，integrity_check=ok、foreign_key_check为空；部署后仍无活动任务。只读核验原失败作品已满足新恢复入口条件，没有提交恢复或产生模型调用。恢复点、私有摘要与原E2E记录保留本机，不入Git。按用户明确授权提交并推送 `origin/easel-v2-rebuild`，实际SHA与远端一致性在交付时核对。

@@ -300,6 +300,28 @@ class WorkService:
         if work['active_run_id'] and row(conn,'runs',work['active_run_id'])['state'] in {'pending','running','waiting_external','needs_decision','paused'}:
             fail('active_run','作品已有有效运行，请先处理当前制作',409)
 
+    def failed_planning_target(self,conn,work,decision_id):
+        """Bind a known local first-plan failure; never recover uncertain calls here."""
+        if work['state']!='needs_decision' or work['current_plan_revision'] is not None:
+            fail('stale_revision','当前不是尚无方案的规划失败，请重新读取当前状态',409)
+        run=row(conn,'runs',work['active_run_id']) if work['active_run_id'] else None
+        task=conn.execute("SELECT * FROM tasks WHERE id=? AND run_id=? AND kind='plan' AND state='needs_decision'",
+                          (decision_id,run['id'] if run else '')).fetchone()
+        if (not run or run['kind']!='planning' or run['state']!='needs_decision' or
+                run['owner_id'] or run['cancel_requested'] or not task):
+            fail('active_run','规划尚未安全停止，不能替换运行',409)
+        if json.loads(task['error_json'] or '{}').get('code') not in {
+                'plan_constraint_changed','invalid_model_output','plan_scene_duration_invalid',
+                'plan_voice_budget_unavailable','draft_review_failed'}:
+            fail('revision_required','此阻断须沿对应授权或未知结果恢复入口处理',409)
+        if conn.execute("SELECT 1 FROM operations WHERE work_id=? AND state IN ('reserved','sending','submitted','unknown')",(work['id'],)).fetchone():
+            fail('result_unknown','存在在途或未知请求，不能重新规划',409)
+        if conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=?',(work['id'],)).fetchone():
+            fail('revision_required','已有方案，不能使用首次规划失败恢复',409)
+        return {'run_id':run['id'],'run_revision':run['revision'],
+                'task_id':task['id'],'task_revision':task['revision'],
+                'basis_hash':digest(self._basis(conn,work))}
+
     def preoutput_target(self,conn,work,data):
         """Read-only eligibility and optimistic identity for an audio-only replan."""
         if data.get('settings')!={'audio_mode':'voice'} or set(data)-{'settings','restore_cancelled','request','services','recovery_target'}:
@@ -324,6 +346,16 @@ class WorkService:
 
     def _plan(self,conn,work,data):
         recovery=None
+        if 'decision_id' in data:
+            if set(data)-{'decision_id','failed_planning_target','request','services'}:
+                fail('invalid_input','首次规划恢复须保持现有创作设置')
+            target=self.failed_planning_target(conn,work,data['decision_id'])
+            if data.get('failed_planning_target')!=target:
+                fail('stale_revision','失败规划目标已变化，请重新展示并确认',409)
+            stamp=now()
+            conn.execute("UPDATE runs SET state='superseded',owner_epoch=owner_epoch+1,revision=revision+1,updated_at=? WHERE id=?",(stamp,target['run_id']))
+            conn.execute("UPDATE tasks SET state='cancelled',revision=revision+1,updated_at=? WHERE run_id=? AND state!='succeeded'",(stamp,target['run_id']))
+            self._event(conn,work['id'],'run_superseded',{'reason':'confirmed_failed_planning_replacement'},run_id=target['run_id'])
         if ('settings' not in data and data.get('generate',True) and
             conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(work['id'],)).fetchone()):
             fail('revision_required','已确认方案须通过明确的修订范围重新规划',409)
