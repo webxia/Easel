@@ -213,6 +213,9 @@ class PersistentWorkToolBridge:
     def end(self,request):
         with self.store.transaction() as conn:
             record,payload,segment=self._current(conn,request,active=False)
+            diagnostic = getattr(request, 'diagnostic', None)
+            if diagnostic is not None:
+                payload['model_diagnostic'] = diagnostic.model_dump(exclude_none=True)
             self._save(conn,record['id'],payload,'ended')
             if not segment['revoked_at'] and payload.get('pipeline_entry') and not payload.get('pipeline_binding'):
                 conn.execute('SAVEPOINT pipeline_handoff')

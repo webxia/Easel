@@ -243,7 +243,7 @@ class ConversationService:
                     self.proposal(conn,bound,'plan',proposed['values'],proposed['source_refs'])
             elif kind in {'plan','revision'}:
                 if not segment['work_id']:fail('work_not_bound','请先确认作品',409)
-                allowed={'request','services'} if kind=='plan' else {'feedback','protected','interval'}
+                allowed={'request','services','duration_seconds'} if kind=='plan' else {'feedback','protected','interval'}
                 if set(values)-allowed:fail('invalid_input','提案字段无效')
                 if kind=='plan':
                     from .conversation_pipeline import planning_values

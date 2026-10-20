@@ -106,7 +106,8 @@ def test_autonomous_worker_reviews_draft_and_freezes_measured_policy(tmp_path):
                                       'settings': settings}, command_id='create')['work_id']
     identity = {'provider': 'direct-api', 'model': 'fixture', 'mode': 'structured'}
     service.command('plan', {'services': [identity]}, command_id='plan', work_id=work, expected_revision=1)
-    answer = {'title': '学习', 'summary': '一个假设例子', 'script': '说明逻辑',
+    answer = {'title': '学习', 'summary': '一个假设例子，长度随完整旁白', 'script': '说明逻辑',
+              'narration_policy': {'continuous': True, 'duration_mode': 'voice_driven'},
               'settings': {**settings, 'duration_seconds': 20},
               'scenes': [{'id': 's1', 'purpose': '解释', 'visual': '翻阅笔记', 'duration_seconds': 20,
                           'narration': '假设换一个条件，你还能自己解释吗？', 'required_input_ids': []}]}

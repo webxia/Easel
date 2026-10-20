@@ -201,7 +201,11 @@ class ModelTaskRunner:
             if calls:
                 if len(calls) > 8:
                     raise ModelTaskError("invalid_model_output", "模型一次请求过多工具")
-                messages.append({"role": "assistant", "content": response.get("content"), "tool_calls": calls})
+                assistant = {"role": "assistant", "content": response.get("content"), "tool_calls": calls}
+                # Replay provider reasoning privately in the same tool exchange; never log it.
+                if isinstance(response.get("reasoning_content"), str):
+                    assistant["reasoning_content"] = response["reasoning_content"]
+                messages.append(assistant)
                 tool_media = []
                 for call in calls:
                     try:
