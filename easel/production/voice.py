@@ -430,7 +430,7 @@ def register_voice_asset(context, *, outputs: Path, result: dict) -> str:
             return identifier
         writer.execute("""INSERT INTO artifacts(id,work_id,run_id,operation_id,kind,storage_ref,digest,size_bytes,
             media_type,displayable,metadata_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,1,?,?)""",
-            (identifier, context.work_id, context.run_id, result["operation_id"], "audio", str(path.resolve().relative_to(outputs.resolve())),
+            (identifier, context.work_id, context.run_id, result["operation_id"], "audio", path.resolve().relative_to(outputs.resolve()).as_posix(),
              asset["sha256"], path.stat().st_size, mimetypes.guess_type(path.name)[0] or "audio/wav", canonical_json(metadata), utc_now()))
         context.store.append_event(writer, context.work_id, "artifact_registered", {"artifact_id": identifier, "kind": "voice"}, run_id=context.run_id)
     return identifier

@@ -124,7 +124,7 @@ class VideoChat:
         def emit(kind,data):
             nonlocal seq
             seq+=1
-            with event_path.open('a') as f:f.write(json.dumps({'id':seq,'event':kind,'data':data},ensure_ascii=False)+'\n')
+            with event_path.open('a',encoding='utf-8') as f:f.write(json.dumps({'id':seq,'event':kind,'data':data},ensure_ascii=False)+'\n')
         bridge.delivery(turn_id,'dispatching')
         emit('activity','正在与 Easel 讨论创作；制作进度独立更新')
         try:

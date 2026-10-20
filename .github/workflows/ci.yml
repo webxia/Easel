@@ -31,6 +31,8 @@ jobs:
 
   test:
     name: pytest (${{ matrix.os }})
+    env:
+      PYTHONUTF8: '1'
     strategy:
       fail-fast: false
       matrix:
@@ -49,7 +51,7 @@ jobs:
           sudo apt-get install --no-install-recommends -y ffmpeg
       - name: Install FFmpeg for real media tests (Windows)
         if: runner.os == 'Windows'
-        run: choco install ffmpeg --yes --no-progress
+        run: choco install ffmpeg --version=8.0.1 --yes --no-progress
       - name: Verify media test dependencies
         run: |
           ffmpeg -version

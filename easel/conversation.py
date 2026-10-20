@@ -311,7 +311,8 @@ class ConversationService:
         conn.execute('INSERT INTO work_briefs VALUES (?,1,?,?,?)',(work_id,encode(body),digest(body),now()))
 
     def _profile_save(self,conn,segment,body,command_id):
-        import fcntl, os, tempfile
+        import os, tempfile
+        from .production.editors.ffmpeg import _lock
         values=body['values']
         if set(values)!={'file','before_hash','after','entries'} or not isinstance(values['file'],str) or values['file'] not in {'style','preferences','memory'} or not isinstance(values['before_hash'],str) or len(values['before_hash'])!=64 or not isinstance(values['after'],str) or len(values['after'])>100000 or not isinstance(values['entries'],list) or not 1<=len(values['entries'])<=3:fail('invalid_input','请选择1～3条明确画像偏好及文件差异')
         if not segment['profile_ref']:fail('invalid_input','未选择画像，不自动创建或写入')
@@ -319,9 +320,8 @@ class ConversationService:
         path=root/(values['file']+'.md')
         if root.is_symlink() or path.is_symlink() or root.resolve().parent!=self.service.profiles:fail('permission_missing','画像路径无效',403)
         root.mkdir(exist_ok=True)
-        with (root/'.conversation-save.lock').open('a') as lock:
-            fcntl.flock(lock,fcntl.LOCK_EX)
-            before=path.read_text() if path.exists() else ''
+        with _lock(root/'.conversation-save.lock'):
+            before=path.read_text(encoding='utf-8') if path.exists() else ''
             after=values['after'];current=hashlib.sha256(before.encode()).hexdigest();after_hash=hashlib.sha256(after.encode()).hexdigest()
             if current not in {values['before_hash'],after_hash}:fail('stale_revision','画像已被其他编辑修改，请重新比较',409)
             # Recovery of a file write whose SQLite receipt was interrupted.

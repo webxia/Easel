@@ -45,7 +45,7 @@ def align_confirmed_speech(path: Path, text: str, provider: dict, *, model_name:
     if target.is_file():
         import json
         try:
-            cached = json.loads(target.read_text())
+            cached = json.loads(target.read_text(encoding='utf-8'))
             if (cached.get('audio_sha256') == digest and cached.get('status') == 'received'
                     and normalize(''.join(s['text'] for s in cached['segments'])) == normalize(text)):
                 return cached
