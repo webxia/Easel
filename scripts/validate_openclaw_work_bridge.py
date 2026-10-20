@@ -103,7 +103,7 @@ class FakeModel:
             delta, finish = {'role': 'assistant', 'tool_calls': calls}, 'tool_calls'
         else:
             content=getattr(self,'final_texts',{}).get(case,'这是隔离假模型的讨论回复；未进行真实制作。')
-            delta, finish = {'role': 'assistant', 'content': content(body) if callable(content) else content}, 'stop'
+            delta, finish = {'role': 'assistant', 'content': content(body) if callable(content) else content}, getattr(self,'finish_reasons',{}).get(case,'stop')
         if body.get('stream'):
             def events():
                 for content in [dict(delta=delta, finish_reason=None), dict(delta={}, finish_reason=finish)]:

@@ -26,3 +26,5 @@ Python 对应 `easel/work_bridge.py` 不在正式 Web 挂载，其 invocation/ti
 部署字段与明确边界见[运行说明](../../../docs/v2/16_RUNTIME_SETUP.md)，源码/验证证据见[S6-14A](../../../docs/v2/tasks/S6-14A_conversation-integration.md)。`scripts/prepare_video_workspace.py`只准备新工作区及待合并patch；合并时保留main和原plugins allow/load成员，正式安装、权限合成及服务加载仍须按部署安排验收。本轮未修改实际OpenClaw或生产数据库。
 
 隔离实际Web/原生验证：`.venv/bin/python scripts/validate_video_conversation.py --root <全新系统临时目录>`。使用本机现有OpenClaw/Node，不下载依赖，服务/model/DB均是临时合成环境。不能据此宣称真实模型创作、完整浏览器矩阵或Creator接受通过。
+
+协议2另有被动原生调用诊断：llm_input/llm_output/agent_end只提取白名单配置、计数和终止状态，在原end回调保存；不存提示/正文/思考/工具参数/凭证。配置标记configured_not_wire，不能替代最终HTTP请求抓取。用量全零标missing_or_zero。诊断失败不改变原生身份与结束权限，不自动重试模型；正式安装/重载仍需按部署授权执行。

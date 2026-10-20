@@ -10,7 +10,7 @@ from .production.errors import ProductionError
 
 WORK_ACTIONS = {
     'input': {'attachment_id','usage','original_audio','interval','rights_confirmed'},
-    'plan': {'request','services'},
+    'plan': {'request','services','duration_seconds'},
     'confirm': {'plan_revision','plan_hash','services','allow_ai','image_limit','video_limit'},
     'grant': {'purpose','services','allow_ai','image_limit','video_limit','target_ref','plan_revision','decision_id'},
     'resume': {'decision_id'}, 'cancel': set(),
@@ -68,6 +68,8 @@ def grant_values(conversations,conn,segment,values,*,applying=False):
 def planning_values(conversations,conn,segment,values,*,applying=False):
     """Bind the model before asking; never expand an already approved proposal."""
     if set(values)-WORK_ACTIONS['plan']:fail('invalid_input','规划提案字段无效')
+    if 'duration_seconds' in values:
+        conversations.service._validate_settings({'duration_seconds':values['duration_seconds']})
     from .production.configuration import model_configuration
     _,model,_=model_configuration(conversations.service.outputs.parent)
     if not model:fail('capability_unavailable','创作模型尚未配置，暂不能整理完整方案；请先配置可用模型',409)

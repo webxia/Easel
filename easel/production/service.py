@@ -297,6 +297,11 @@ class WorkService:
 
     def _plan(self,conn,work,data):
         self._ensure_idle(conn,work)
+        if 'duration_seconds' in data:
+            # The existing confirmed planning proposal carries this explicit choice.
+            # Persist atomically before binding the model's creation basis.
+            self._update_basis(conn,work,{'settings':{'duration_seconds':data['duration_seconds']}})
+            work=row(conn,'works',work['id'])
         if data.get('generate',True):
             if data.get('services'):
                 self._insert_grant(conn,work,'planning',data)
@@ -341,6 +346,10 @@ class WorkService:
             plan=PlanDocument.model_validate(payload)
         except ValidationError:
             fail('invalid_input','完整方案的脚本、场景或声音/时长设置无效')
+        explicit = json.loads(work['settings_json']).get('duration_seconds')
+        if explicit is not None and (plan.settings.duration_seconds != explicit or
+                (plan.narration_policy and plan.narration_policy.duration_mode == 'voice_driven')):
+            fail('plan_constraint_changed','方案时长与明确片长冲突，请修正方案，不能在执行时自动缩短')
         inputs={r['id'] for r in conn.execute('SELECT id FROM work_inputs WHERE work_id=?',(work['id'],))}
         used={ref for scene in plan.scenes for ref in scene.required_input_ids}
         if not used<=inputs:
@@ -375,6 +384,7 @@ class WorkService:
         plan=conn.execute('SELECT * FROM plan_revisions WHERE work_id=? AND revision=?',(work['id'],revision)).fetchone()
         if not plan or plan['plan_hash']!=data.get('plan_hash') or plan['confirmed_at']:
             fail('stale_revision','方案摘要不匹配或已确认',409)
+        self.validate_plan(conn,work,json.loads(plan['payload_json']))
         conn.execute('UPDATE plan_revisions SET confirmed_at=? WHERE id=?',(now(),plan['id']))
         grant=self._insert_grant(conn,work,'production',data,revision)
         run=self._run(conn,work,'production',revision,payload={'grant_id':grant})

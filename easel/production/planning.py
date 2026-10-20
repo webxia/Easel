@@ -5,7 +5,7 @@ import re
 import hashlib
 from dataclasses import replace
 from pydantic import Field, model_validator
-from .contracts import Contract, Scene, VideoSettings, ExplainerBoard
+from .contracts import Contract, Scene, VideoSettings, ExplainerBoard, NarrationPolicy
 from .context import TaskContext
 from .model_tasks import ModelTaskRunner, ModelTaskError
 from .errors import ProductionError
@@ -19,6 +19,8 @@ class CreativePlan(Contract):
     script: str = Field(min_length=1)
     scenes: list[Scene] = Field(min_length=1)
     settings: VideoSettings
+    narration_policy: NarrationPolicy | None = Field(default=None,
+        description='明确片长（包括对话中的要求）用fixed；用户未限定片长、允许随旁白安排时才用voice_driven。continuous独立控制连续口播。')
     facts: list[str] = Field(default_factory=list)
     core_views: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
@@ -307,6 +309,7 @@ class PlanningTasks:
                 author=self.runner(ctx,max_format_repairs=2)
                 proposed=await author.run(context,
                 '提出完整创作方案；遵守明确时长、画幅、声音设置；全部必用输入须落实到场景。'
+                '旁白片在narration_policy明确时长策略：用户已指定片长用fixed；只有未限定片长时才选择voice_driven并在摘要说明实际长度随完整旁白决定。continuous与片长独立。'
                 'Scene.narration 只能是将由 TTS 实际朗读的简短口播原文，不能包含时间码、朗读窗口、'
                 '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明写入 script/visual。'
                 '中文口播要有明显时间余量，不超过冻结时长预算；所有镜头累计时长仍须精确。'
@@ -400,11 +403,17 @@ class PlanningTasks:
             with ctx.transaction() as conn:
                 work=row(conn,'works',ctx.work_id)
                 from .voice_budget import reserve_narration_slots
-                payload=self.service.freeze_plan(conn,work,reserve_narration_slots(proposed.model_dump(mode='json')),basis=ctx.payload.get('creation_basis'))
-                if autonomous:
+                payload=reserve_narration_slots(proposed.model_dump(mode='json'))
+                if proposed.settings.audio_mode in {'voice', 'mixed'}:
                     protected = any(i.get('constraints', {}).get('original_audio') for i in context.inputs)
+                    policy = proposed.narration_policy
+                    # Absence of a Work setting is not permission to shorten a confirmed plan.
+                    mode = policy.duration_mode if policy else 'fixed'
+                    if 'duration_seconds' in requested or protected or proposed.settings.audio_mode != 'voice':
+                        mode = 'fixed'
                     payload['narration_policy'] = {'continuous': not protected,
-                        'duration_mode': 'voice_driven' if not protected and proposed.settings.audio_mode == 'voice' else 'fixed'}
+                        'duration_mode': mode}
+                payload=self.service.freeze_plan(conn,work,payload,basis=ctx.payload.get('creation_basis'))
                 if ctx.payload.get('base_plan_revision'):
                     payload['profile_snapshot']=context.plan.get('profile_snapshot')
                     payload['director_revision_id']=context.plan.get('director_revision_id')
