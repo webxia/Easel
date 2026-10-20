@@ -84,7 +84,7 @@ def test_timeout_event_explains_failure_and_cannot_be_authorization_or_retry(env
     assert result['payload']['result_event']['unknown_operations']
     b,i=claim_result(s,result)
     before=s.snapshot(work)
-    for args in [dict(mode='answer',user_quote='同意',proposal_id='fake',hash='fake'),dict(mode='draft',user_quote='同意',values={}),dict(mode='offer',action='resume',values={}),dict(mode='offer',action='grant',values={'purpose':'planning'})]:
+    for args in [dict(mode='answer',user_quote='同意',proposal_id='fake',hash='fake'),dict(mode='draft',user_quote='同意',values={}),dict(mode='offer',action='resume',values={}),dict(mode='offer',action='replan_after_unknown',values={}),dict(mode='offer',action='grant',values={'purpose':'planning'})]:
         raises('result_event_read_only',lambda:pipe(b,i,**args))
     raises('result_event_read_only',lambda:tool(b,i,'easel_work_update_brief',{'entries':[{'kind':'suggestion','text':'x','source_refs':['turn']}]}))
     assert s.snapshot(work)==before

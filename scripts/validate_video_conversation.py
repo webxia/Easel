@@ -149,7 +149,13 @@ def probe(f):
             value=conn.execute('SELECT state FROM conversation_turns WHERE id=?',(turn,)).fetchone()[0]
         wait_for(lambda:c.view(session)['turns'][-1]['state']=='ended',10)
         return turn,body,response.text
-    sid=enter('probe',{'profile_ref':'one'})
+    from easel.production.catalog import CreativeCatalog
+    from easel.production.service import now, encode
+    channel=CreativeCatalog(service).command('channels','create',{'name':'Isolated selected channel','profile_ref':'one','settings':{'schema_version':1}},command_id='fixture-channel')['id']
+    with service.store.transaction() as conn:
+        conn.execute("INSERT INTO directors(id,name,created_at,updated_at) VALUES ('fixture-director','Isolated director',?,?)",(now(),now()))
+        conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,created_at) VALUES ('fixture-version','fixture-director',1,?,?,1,?)",(encode({'schema_version':1,'visual_style':'清晰','storytelling':'朋友'}),encode([{'source':'fixture'}]),now()))
+    sid=enter('probe',{'profile_ref':'one','channel_id':channel,'director_revision':'fixture-version','director_trial':True})
     chat('probe',sid,'discuss');chat('probe',sid,'discuss')
     check('web_discussion_no_work_or_run',service.list_works()['items']==[])
     _,body,_=chat('probe',sid,'create');view=c.view('probe');p=view['proposals'][-1]
@@ -202,6 +208,39 @@ def probe(f):
         check('native_authorization_recovery_does_not_call_production_model',conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0)
     pipeline_schema=next(t['function']['parameters'] for t in f['model'].requests[-1]['tools'] if t['function']['name']=='easel_pipeline')
     check('native_model_sees_exact_grant_array_schema',pipeline_schema['properties']['values']['properties']['services']['type']=='array' and pipeline_schema['properties']['values']['properties']['services']['items']['additionalProperties'] is False)
+    # Exercise UNKNOWN recovery through the real plugin/Web dialogue, using a
+    # local HTTP mock for the planning worker. No remote provider is reachable.
+    from easel.production.configuration import model_configuration
+    from easel.production.model_tasks import HTTPModelTransport
+    from easel.production.operations import OperationService
+    from easel.production.planning import PlanningTasks
+    from easel.production.worker import Worker
+    from easel.conversation_pipeline import call_status
+    settings,model,version=model_configuration(service.outputs.parent)
+    model_calls=[]
+    def fake_timeout(request):
+        model_calls.append(1)
+        raise httpx.ReadTimeout('isolated timeout')
+    transport=HTTPModelTransport(settings,transport=httpx.MockTransport(fake_timeout))
+    planner=PlanningTasks(service,OperationService(service.store),transport,model,version)
+    asyncio.run(Worker(service.store,{'plan':planner.plan}).run_once())
+    recovery_sid=enter('recovery-probe',{'profile_ref':'one','work_id':work,'kind':'continue'})
+    with service.store.connection() as conn:
+        segment=c.segment(conn,'recovery-probe')
+        recovery=call_status(c,conn,segment)
+        old_operation=dict(conn.execute('SELECT * FROM operations WHERE work_id=?',(work,)).fetchone())
+    check('native_recovery_reads_real_timeout_diagnostic',recovery['diagnostics'][0]['timeout_type']=='read' and recovery['recovery']['can_offer'])
+    check('native_schema_includes_bounded_unknown_recovery','replan_after_unknown' in pipeline_schema['properties']['action']['enum'])
+    f['model'].extra_cases['unknown_recovery_offer']=('easel_pipeline',recovery['recovery']['next_action'])
+    chat('recovery-probe',recovery_sid,'unknown_recovery_offer')
+    new_proposal=c.view('recovery-probe')['proposals'][-1]
+    check('native_unknown_offer_exposes_duplicate_charge_scope','可能重复计费' in new_proposal['body']['values']['summary'] and len(service.snapshot(work)['runs'])==1)
+    f['model'].extra_cases['unknown_recovery_answer']=('easel_pipeline',{'mode':'answer','proposal_id':new_proposal['id'],'hash':new_proposal['body_hash'],'user_quote':'A1_CASE=unknown_recovery_answer'})
+    chat('recovery-probe',recovery_sid,'unknown_recovery_answer');chat('recovery-probe',recovery_sid,'unknown_recovery_answer')
+    with service.store.connection() as conn:
+        check('native_unknown_ledger_preserved',dict(conn.execute('SELECT * FROM operations WHERE id=?',(old_operation['id'],)).fetchone())==old_operation)
+        check('native_explicit_replan_enqueues_once',conn.execute('SELECT count(*) FROM runs WHERE work_id=?',(work,)).fetchone()[0]==2 and conn.execute("SELECT count(*) FROM tasks WHERE work_id=? AND state='pending'",(work,)).fetchone()[0]==1)
+    check('native_no_automatic_provider_resend',len(model_calls)==1)
     # A different Work/Profile gets another native transcript, despite sharing the UI session.
     start=len(f['model'].requests);other=enter('probe',{'profile_ref':'two'});chat('probe',other,'context')
     text=json.dumps(f['model'].requests[start:])
@@ -212,10 +251,10 @@ def probe(f):
     check('effective_native_tool_surface_matches_contract',all({t['function']['name'] for t in b.get('tools',[])}==set(TOOLS) for b in f['model'].requests))
     check('selected_product_personality_loaded','创作者的社媒内容搭子' in all_requests)
     old=client.post('/api/chat/stream',json={**body,'turnId':'late-old-segment'});check('old_segment_dispatch_rejected',old.status_code==409)
-    deleted=client.delete('/api/chat/video/probe');check('delete_chat_preserves_work_and_run',deleted.status_code==200 and len(service.snapshot(work)['runs'])==1)
+    deleted=client.delete('/api/chat/video/probe');check('delete_chat_preserves_work_and_run',deleted.status_code==200 and len(service.snapshot(work)['runs'])==2)
     check('bridge_credential_cannot_call_authority_api',client.post('/api/production/works',json={'command_id':'forbidden','payload':{'title':'no'}},headers={'Authorization':'Bearer '+f['bridge_token']}).status_code==403)
     check('all_network_loopback_only',not (f['root']/'denials.log').exists())
-    return {'status':'PASS','checks':checks,'fake_model_requests':len(f['model'].requests),'paid_requests':0,'production_environment_changed':False,'production_worker_started':False,'work_count':1,'planning_runs':1,'openclaw_version':subprocess.run([f['node'],f['entry'],'--version'],capture_output=True,text=True,timeout=15,env=f['env'],cwd=f['root']).stdout.strip()}
+    return {'status':'PASS','checks':checks,'fake_model_requests':len(f['model'].requests),'paid_requests':0,'production_environment_changed':False,'production_worker_started':False,'work_count':1,'planning_runs':2,'isolated_mock_model_requests':1,'openclaw_version':subprocess.run([f['node'],f['entry'],'--version'],capture_output=True,text=True,timeout=15,env=f['env'],cwd=f['root']).stdout.strip()}
 
 
 def main():

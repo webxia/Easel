@@ -182,7 +182,7 @@ class ConversationService:
                             'message':'这是已经展示的同一制作提案，未新建或修改。若本轮用户明确确认，请answer这个原提案，不要再要求确认。'}
         checksum=digest(body)
         previous=conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? AND kind=? AND body_hash=?',(segment['id'],kind,checksum)).fetchone()
-        details={'values':values,'requires_user_confirmation':True} if kind=='plan' or (kind=='pipeline' and values.get('action') in {'plan','grant'}) else {}
+        details={'values':values,'requires_user_confirmation':True} if kind=='plan' or (kind=='pipeline' and values.get('action') in {'plan','grant','replan_after_unknown'}) else {}
         if previous:return {'proposal_id':previous['id'],'hash':checksum,'state':previous['state'],**details}
         # A new version invalidates pending cards of the same kind in this segment.
         conn.execute("UPDATE conversation_proposals SET state='stale' WHERE segment_id=? AND kind=? AND state='proposed'",(segment['id'],kind))
