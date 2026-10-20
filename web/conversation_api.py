@@ -16,6 +16,7 @@ from easel.conversation import ConversationService
 from easel.conversation_bridge import PersistentWorkToolBridge, PersistentCall, PersistentDispatch, require_persistent_gateway
 from easel.work_bridge import Claim, Identity
 from easel.production.service import fail
+from easel.native_diagnostics import NativeEnd
 
 
 class Entry(BaseModel):
@@ -74,7 +75,7 @@ def create_internal_router(provider,token_provider):
     @router.post('/dispatch')
     def dispatch(request:PersistentDispatch,authorization:str|None=Header(default=None)):return authenticate(authorization).dispatch(request)
     @router.post('/end')
-    def end(request:Identity,authorization:str|None=Header(default=None)):return authenticate(authorization).end(request)
+    def end(request:NativeEnd,authorization:str|None=Header(default=None)):return authenticate(authorization).end(request)
     return router
 
 
@@ -88,9 +89,16 @@ class VideoChat:
         self.tasks={}
 
     @staticmethod
-    def interrupted_result(service,session):
+    def interrupted_result(service,session,turn_id=None):
         view=ConversationService(service).view(session)
         message='本轮对话回复中断；已保存的操作请以实际任务状态为准，不会自动重发。'
+        if turn_id:
+            with service.store.connection() as conn:
+                turn=conn.execute('SELECT payload_json FROM conversation_turns WHERE id=? AND segment_id=?',
+                    (turn_id,view['segment_id'])).fetchone()
+            diagnostic=json.loads(turn[0]).get('model_diagnostic',{}) if turn else {}
+            if diagnostic.get('stop_reason')=='length':
+                message='本轮助手输出达到长度上限而中断；不会自动重发。已执行操作以任务回执为准，可以在本对话继续核对。'
         if view['work_id']:
             work=service.snapshot(view['work_id'])
             tasks=[t for t in work['tasks'] if t['run_id']==work['active_run_id']]
@@ -120,7 +128,7 @@ class VideoChat:
 
     async def _deliver(self,session,turn_id,result,event_path,*,background=False):
         service=self.provider();bridge=PersistentWorkToolBridge(service)
-        seq=0;chunks=[];done=False;next_result_write=0.0
+        seq=0;chunks=[];done=False;next_result_write=0.0;finish_reason=None
         def emit(kind,data):
             nonlocal seq
             seq+=1
@@ -139,13 +147,16 @@ class VideoChat:
                         if raw=='[DONE]':done=True;break
                         value=json.loads(raw)
                         if value.get('error'):raise ValueError('gateway_error')
-                        text=((value.get('choices') or [{}])[0].get('delta') or {}).get('content')
+                        choice=(value.get('choices') or [{}])[0]
+                        finish_reason=choice.get('finish_reason') or finish_reason
+                        text=(choice.get('delta') or {}).get('content')
                         if text:
                             chunks.append(text);emit('token',text)
                             if background and asyncio.get_running_loop().time()>=next_result_write:
                                 bridge.record_result_text(turn_id,''.join(chunks))
                                 next_result_write=asyncio.get_running_loop().time()+0.25
-            if not done or (background and not ''.join(chunks).strip()):raise ValueError('incomplete_delivery')
+            if finish_reason=='length':raise ValueError('assistant_output_length')
+            if not done or not ''.join(chunks).strip():raise ValueError('incomplete_delivery')
             bridge.delivery(turn_id,'unknown',''.join(chunks))
             view=ConversationService(service).view(session)
             self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':turn_id})
@@ -161,7 +172,16 @@ class VideoChat:
             logging.getLogger(__name__).warning('Video conversation delivery interrupted (%s)',type(exc).__name__)
             message='本轮对话回复中断；尚未核实任务结果，不会自动重发。'
             try:
-                view,message=self.interrupted_result(service,session)
+                # The gateway can emit its stream error just before agent_end reaches
+                # the local bridge. Briefly observe that callback; never retry a model
+                # or release an UNKNOWN native invocation based on elapsed time.
+                for _ in range(10):
+                    with service.store.connection() as conn:
+                        terminal=conn.execute('SELECT state FROM conversation_turns WHERE id=?',(turn_id,)).fetchone()
+                    if not terminal or terminal['state']=='ended':break
+                    await asyncio.sleep(.05)
+                view,message=self.interrupted_result(service,session,turn_id)
+                if finish_reason=='length':message='本轮助手输出达到长度上限而中断；已执行操作以任务回执为准，不会自动重发。'
                 emit('work_card',view)
                 self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':turn_id,'clean_end':False})
             except Exception:pass

@@ -241,6 +241,22 @@ def probe(f):
         check('native_unknown_ledger_preserved',dict(conn.execute('SELECT * FROM operations WHERE id=?',(old_operation['id'],)).fetchone())==old_operation)
         check('native_explicit_replan_enqueues_once',conn.execute('SELECT count(*) FROM runs WHERE work_id=?',(work,)).fetchone()[0]==2 and conn.execute("SELECT count(*) FROM tasks WHERE work_id=? AND state='pending'",(work,)).fetchone()[0]==1)
     check('native_no_automatic_provider_resend',len(model_calls)==1)
+    # Native length termination: no live provider, no automatic continuation.
+    f['model'].final_texts={'length_probe':''}
+    f['model'].finish_reasons={'length_probe':'length'}
+    length_sid=enter('length-probe',{'profile_ref':'one'})
+    length_turn=uuid.uuid4().hex;before=len(f['model'].requests)
+    response=client.post('/api/chat/stream',json={'sessionId':'length-probe','turnId':length_turn,
+        'videoSegmentId':length_sid,'message':'A1_CASE=length_probe','interaction_mode':'video'})
+    response.raise_for_status()
+    wait_for(lambda:c.view('length-probe')['turns'][-1]['state']=='ended',10)
+    with service.store.connection() as conn:
+        diagnostic=json.loads(conn.execute('SELECT payload_json FROM conversation_turns WHERE id=?',(length_turn,)).fetchone()[0]).get('model_diagnostic',{})
+    check('native_length_diagnostic_retained',diagnostic.get('stop_reason')=='length' and diagnostic.get('usage_status')=='missing_or_zero')
+    check('native_diagnostic_config_not_mislabeled_wire',diagnostic.get('parameter_source')=='configured_not_wire')
+    check('native_length_visible_without_retry','长度上限' in response.text and len(f['model'].requests)==before+1)
+    chat('length-probe',length_sid,'discuss')
+    check('native_length_followup_keeps_same_session_no_production',c.view('length-probe')['work_id'] is None and len(service.snapshot(work)['runs'])==2)
     # A different Work/Profile gets another native transcript, despite sharing the UI session.
     start=len(f['model'].requests);other=enter('probe',{'profile_ref':'two'});chat('probe',other,'context')
     text=json.dumps(f['model'].requests[start:])

@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import replace
 import json
 from pathlib import Path
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, model_serializer
 from .contracts import Contract
 from .editors import AssetManifest, MediaAsset, Scene, AudioClip, Caption, EditProject, FFmpegEditor, EditError
 from .artifacts import register_file, artifact_file
@@ -16,13 +16,24 @@ from .material_binding import validate_material_records, validate_audio_bindings
 from .creative_captions import CreativeCaption, compile_captions, check_caption_layout
 
 
+from .edit_observation import VisualSelection, check_visual_evidence, VISUAL_EVIDENCE_INSTRUCTION
+
+
 class CreativeEdit(Contract):
     scenes: list[Scene] = Field(min_length=1)
+    visual_evidence: list[VisualSelection] = Field(default_factory=list, max_length=128)
     audio: list[AudioClip] = Field(default_factory=list)
     captions: list[CreativeCaption] = Field(default_factory=list)
     required_features: list[str] = Field(default_factory=list)
     # Director's explicit gap report is not part of an executable timeline.
     unresolved_scene_ids: list[str] = Field(default_factory=list, max_length=1000, exclude=True)
+
+    @model_serializer(mode='wrap')
+    def serialize_evidence(self, handler):
+        data = handler(self)
+        if not self.visual_evidence:
+            data.pop('visual_evidence', None)
+        return data
 
 
 class SemanticReview(Contract):
@@ -148,7 +159,7 @@ class CreationTasks:
                 context = replace(context, plan=execution_plan,
                     brief=context.brief + '\n本片允许按真实旁白定长；程序已测量以下连续音轨时间，不按草稿分镜补静默：' + encode(timing))
             context=replace(context,artifacts=tuple({'asset_id':r['id'],'kind':r['kind'],'metadata':json.loads(r['metadata_json'])} for r in records),allowed_handles=context.allowed_handles|frozenset(manifest.assets))
-            observations=[];required={'text','structured'}
+            observations=[];required={'text','structured'};observed={}
             # M3.1 accepts visual frames but not input_audio. Measured local
             # acoustic properties may support an EDIT PREVIEW; they do not
             # substitute for a Director actually listening or for final QC.
@@ -160,8 +171,9 @@ class CreationTasks:
             for record in records:
                 if record['kind']=='font':continue
                 path=artifact_file(self.service,record)
-                media,needs,_=await asyncio.to_thread(observe_media,path,
+                media,needs,evidence=await asyncio.to_thread(observe_media,path,
                     include_audio=audio_native and record['kind'] in {'video','audio'},max_frames=4)
+                observed[record['id']]=evidence.get('frame_times',[])
                 observations.append({'type':'text','text':'候选素材句柄 '+record['id']})
                 observations.extend(media);required.update(needs)
                 if not audio_native and record['kind'] in {'video','audio'}:
@@ -176,6 +188,7 @@ class CreationTasks:
             font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'}
             horizontal=context.plan['settings']['aspect_ratio']=='16:9'
             def check_measured_edit(candidate):
+                check_visual_evidence(candidate,observed)
                 from .boards import check_board_usage
                 check_board_usage(candidate.scenes,records,overlays=[c for c in candidate.captions if c.role=='overlay'])
                 if not timing:
@@ -199,10 +212,10 @@ class CreationTasks:
                     raise ValueError('仍有未落实场景：' + ','.join(candidate.unresolved_scene_ids))
             from .edit_observation import edit_observation_tools
             observation_tools = (edit_observation_tools({r['id']: artifact_file(self.service,r)
-                for r in records if r['kind']=='video'})
+                for r in records if r['kind']=='video'},observed)
                 if self.planning.transport and 'tools' in self.planning.transport.capabilities else ())
             answer=await self.planning.runner(ctx,max_format_repairs=2).run(context,
-                '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
+                VISUAL_EVIDENCE_INSTRUCTION + '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
                 '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '连续旁白应跨镜头讲完，严格遵守给定voice_schedule，不为草稿分镜时长加入静默；'
                 '字幕短行分语义显示，不能将整段连续旁白一次堆在画面上。选择画质与景别适合、光线与动作相接的素材，'
@@ -223,7 +236,7 @@ class CreationTasks:
             aligned = aligned_captions(answer.audio, records) if (context.plan.get('narration_policy') or {}).get('continuous') else None
             captions=compile_captions(answer.captions,style=style,fonts=fonts,aligned=aligned if style.enabled else None,
                 font_paths=font_paths,width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
-            data=answer.model_dump();data['captions']=captions
+            data=answer.model_dump(exclude={'visual_evidence'});data['captions']=captions
             project=EditProject(work_id=ctx.work_id,plan_revision=ctx.plan_revision,revision=1,
                 width=1920 if horizontal else 1080,height=1080 if horizontal else 1920,
                 duration=settings['duration_seconds'],audio_mode=settings['audio_mode'],**data)
@@ -277,6 +290,7 @@ class CreationTasks:
                     'caption_roles':{c.caption_id:c.role for c in answer.captions},
                     **({'subtitle_layout': {'line_mode': 'single',
                         'overflow_timing': 'proportional_within_existing_cue'}} if style.single_line else {}),
+                    'visual_evidence':[e.model_dump() for e in answer.visual_evidence],
                     'unverified_editor_notes':unverified_editor_notes},
                     dependencies=list(manifest.assets))
             return TaskResult(result={'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets)})

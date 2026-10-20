@@ -91,7 +91,7 @@ class RevisionTasks:
     def __init__(self,service,planning,creation,*,supply=None):
         self.service,self.planning,self.creation,self.supply=service,planning,creation,supply
 
-    async def _observe(self,records,*,audio_native):
+    async def _observe(self,records,*,audio_native,observed=None):
         from .inspection import observe_media
         blocks=[];required={'text','structured'}
         visual_count=sum(r['kind'] in {'image','video'} for r in records)
@@ -99,8 +99,9 @@ class RevisionTasks:
         for record in records:
             if record['kind']=='font':continue
             blocks.append({'type':'text','text':'实际候选素材句柄 '+record['id']})
-            media,needs,_=await asyncio.to_thread(observe_media,artifact_file(self.service,record),
+            media,needs,evidence=await asyncio.to_thread(observe_media,artifact_file(self.service,record),
                 include_audio=audio_native,max_frames=frame_limit)
+            if observed is not None:observed[record['id']]=evidence.get('frame_times',[])
             blocks.extend(media);required.update(needs)
         return blocks,required
 
@@ -136,9 +137,10 @@ class RevisionTasks:
                 from copy import deepcopy
                 measured = deepcopy(context.plan)
                 measured['settings']['duration_seconds'] = base.duration
-                context = replace(context, plan=measured)
+                context = replace(context, plan=measured, brief=context.brief+'\n修订执行长度来自原片实测，不表示Creator重新确认过此片长；原确认方案及本轮反馈仍须分别核对。')
             base_data={'base_edit':{k:v for k,v in base.model_dump(mode='json').items() if k not in {'work_id','plan_revision','revision'}},
-                       'protected':'未指出部分保持不变','preserve_audio':payload.get('preserve_audio',False)}
+                       'protected':'未指出部分保持不变','preserve_audio':payload.get('preserve_audio',False),
+                       'duration_basis':{'source':'existing_output','seconds':base.duration}}
             if caption_roles is not None:base_data['caption_roles']=caption_roles
             def candidate_context(items):
                 return replace(context,brief=context.brief+'\n用户对指定版本的反馈：'+review['feedback'],
@@ -150,8 +152,11 @@ class RevisionTasks:
             media,required,_=await asyncio.to_thread(observe_media,artifact_file(self.service,output),include_audio=audio_native,max_frames=12)
             if not audio_native:
                 media=(*media,{'type':'text','text':'原片音轨未由模型听取。保留声音时逐字节复用原音频资产与完整AudioClip，不改声线、文本、时间或音量；不得声称已试听或音画语义通过。'})
-            observations,needs=await self._observe(records,audio_native=audio_native)
-            instruction=('解释本次局部修改范围并返回完整编辑时间线。未指出部分不得改写；保留scene_id、时长、转场、旁白和字幕文本/时间。'
+            observed={}
+            observations,needs=await self._observe(records,audio_native=audio_native,observed=observed)
+            from .edit_observation import check_visual_evidence, VISUAL_EVIDENCE_INSTRUCTION
+            instruction=(VISUAL_EVIDENCE_INSTRUCTION + '修订reason逐项回应已有findings：哪些实际画面改变了，哪些仍缺证据；不能只声称问题已解决。'
+                '解释本次局部修改范围并返回完整编辑时间线。未指出部分不得改写；保留scene_id、时长、转场、旁白和字幕文本/时间。'
                 'preserve_audio=true时AudioClip必须逐字段原样返回，包括声音身份、at、duration、gain。'
                 '先实际复查全部候选，禁止把未观察过的文件名当画面事实。可用同方案合格库存替换用户要求修复的画面。关键动作必须发生在实际source_start至source_start+duration内，不能用源片尾部动作冒充选取前段；technical.duration_seconds给出源片真实长度。'
                 '缺少关键主体或动作时，在material_searches列出最多4个本方案场景的简短英文主体/动作搜索词，options最多4、media_types仅image/video；'
@@ -167,6 +172,7 @@ class RevisionTasks:
                     +encode(approved_overlay_texts(context.plan)))
                 if protected_styles:instruction+='旁白字幕的频道样式、透明背景及位置必须原样保留，不能为了对比度擅改为底框；独立解释字才可布局。'
             def check_creative_repair(candidate):
+                check_visual_evidence(candidate.edit,observed)
                 if not creative_repair or candidate.material_searches or candidate.expands_scope or candidate.requires_new_generation:
                     return
                 try:
@@ -181,7 +187,7 @@ class RevisionTasks:
             from .edit_observation import edit_observation_tools
             def observation_tools(items):
                 return (edit_observation_tools({r['id']:artifact_file(self.service,r)
-                    for r in items if r['kind']=='video'})
+                    for r in items if r['kind']=='video'},observed)
                     if self.planning.transport and 'tools' in self.planning.transport.capabilities else ())
             instruction += '关键动作或切点不能由现有抽样确认时，可用inspect_media复查候选指定时间，不臆测未观察区间。'
             proposal=recorded_proposal(self.service,ctx,review,output)
@@ -193,7 +199,7 @@ class RevisionTasks:
                 if not self.supply:raise ModelTaskError('material_gap','局部库存补料尚不可用，原版与配音已保留')
                 new_ids=await asyncio.to_thread(self.supply.revision_visuals,ctx,[s.model_dump(mode='json') for s in proposal.material_searches])
                 records,_=self.creation.assets(ctx,list(dict.fromkeys([*payload['revision_asset_ids'],*new_ids])))
-                observations,needs=await self._observe(records,audio_native=audio_native)
+                observations,needs=await self._observe(records,audio_native=audio_native,observed=observed)
                 proposal=await self.planning.runner(ctx,namespace='revision-stock-selection-v1',max_format_repairs=2).run(
                     candidate_context(records),instruction+'本轮有限库存补料已经完成，不能再次请求检索。根据实际新候选完成修订；仍缺关键动作时在edit.unresolved_scene_ids明确报告并停止，不能改用无关画面。',
                     RevisionProposal,media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair)
@@ -240,7 +246,7 @@ class RevisionTasks:
             path=folder/'revision.json';path.write_text(revised.model_dump_json(),encoding='utf8')
             artifact=register_file(self.service,ctx,path,kind='edit_project',media_type='application/json',metadata={'base_project_id':project_record['id'],'review_id':review['id'],
                 'execution_timing':json.loads(project_record['metadata_json']).get('execution_timing'),
-                'audio_observation':'model_native' if audio_native else 'technical_only_unverified','audio_preserved':revised.audio==base.audio,'unverified_editor_notes':notes},dependencies=list(manifest.assets))
+                'audio_observation':'model_native' if audio_native else 'technical_only_unverified','audio_preserved':revised.audio==base.audio,'visual_evidence':[e.model_dump() for e in edit.visual_evidence],'unverified_editor_notes':notes},dependencies=list(manifest.assets))
             return TaskResult(result={'review_id':review['id'],'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets),'repair_round':ctx.payload.get('repair_round',0)})
         except StaleRevision:
             raise

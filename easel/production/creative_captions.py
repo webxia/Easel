@@ -10,7 +10,7 @@ class CreativeCaption(Caption):
 
 
 def edit_data(edit):
-    data=edit.model_dump()
+    data=edit.model_dump(exclude={'visual_evidence'})
     data['captions']=[c.model_dump(exclude={'role'}) for c in edit.captions]
     return data
 

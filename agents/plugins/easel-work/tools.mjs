@@ -1,5 +1,6 @@
 // Native OpenClaw integration. No production orchestration or provider credentials.
 import { createHash } from 'node:crypto';
+import { installDiagnostics } from './diagnostics.mjs';
 
 // OpenClaw can load tool factories and lifecycle hooks through separate plugin
 // registrations. Keep native tickets in one process registry, scoped to the
@@ -37,7 +38,8 @@ const pipelineValuesSchema = {
     title: { type: 'string', description: 'Draft title.' },
     input_text: { type: 'string', description: 'Draft content or basis input; preserve user facts.' },
     request: { type: 'string', description: 'Plan request; not the finished plan.' },
-    settings: { type: 'object', description: 'Existing work settings patch for basis only.' },
+    duration_seconds: {type:'number',minimum:1,maximum:900,description:'For plan: explicitly requested fixed film length. Include it in the planning proposal and its summary; stored atomically when the user confirms. Omit if length is unconstrained.'},
+    settings: { type: 'object', description: 'Existing work settings patch for basis only. Put explicitly requested film length in settings.duration_seconds before planning; prose in request/brief is not a persisted setting.' },
     plan_revision: { type: 'integer', minimum: 1, description: 'Current plan revision number from pending.work.' },
     plan_hash: { type: 'string', minLength: 64, maxLength: 64, description: 'Exact full current plan_hash from pending.work.plans, never abbreviate.' },
     allow_ai: { type: 'boolean' },
@@ -127,12 +129,13 @@ export function createWorkBridge(api) {
       return { block: true, blockReason: 'easel_work_tool_binding_rejected' };
     }
   });
+  const finishDiagnostic = protocolVersion === 2 ? installDiagnostics(api, agentId) : null;
   api.on('agent_end', async (event, ctx) => {
     if (ctx.agentId !== agentId) return;
     const bound = identity(ctx, event);
     for (const [id, call] of calls) if (call.run_id === bound.run_id) calls.delete(id);
     // If delivery fails the reservation remains occupied. Never release it on a guessed timeout.
-    await send('end', bound);
+    await send('end', {...bound, ...(finishDiagnostic ? {diagnostic:finishDiagnostic(event,ctx)} : {})});
   });
   api.registerTool(ctx => {
     if (ctx.agentId !== agentId) return null;
