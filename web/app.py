@@ -566,7 +566,7 @@ async def local_write_guard(request: Request, call_next):
     """
     origin = request.headers.get('origin')
     bridge_token=os.environ.get('EASEL_WORK_BRIDGE_TOKEN','')
-    if bridge_token and request.headers.get('authorization') == 'Bearer '+bridge_token and request.url.path not in {'/api/chat/work-tools/claim','/api/chat/work-tools/prepare','/api/chat/work-tools/dispatch','/api/chat/work-tools/end'}:
+    if bridge_token and request.headers.get('authorization') == 'Bearer '+bridge_token and request.url.path not in {'/api/chat/work-tools/claim','/api/chat/work-tools/prepare','/api/chat/work-tools/dispatch','/api/chat/work-tools/result','/api/chat/work-tools/end'}:
         return JSONResponse({'detail':'作品插件凭证不可用于此入口'},status_code=403)
     if request.url.path.startswith('/api/chat/work-tools/') and not _loopback_peer(request):
         return JSONResponse({'detail':'作品工具桥仅允许本地传输'},status_code=403)

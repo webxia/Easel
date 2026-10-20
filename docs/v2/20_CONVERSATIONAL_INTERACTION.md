@@ -194,7 +194,7 @@ API 直连目前只有文本/图片对话，不具有完整技能执行。若后
 2. 显式视频入口从首轮使用受限配置。普通聊天提出制作意图时，先展示方向和“进入视频创作”；该明确动作在原 UI 对话开启受限运行段，只带本片必要的用户可见消息、附件引用及来源。旧 main 转录保留，原生运行段分开，后续按持久绑定取历史；切换失败不在 main 执行制作。此处产品交互需要评审，不能假称原生 transcript 无缝迁移。
 3. 原生插件负责具名工具的参数解析、通过最小生命周期 hooks 关联可信原生 run 与 Web turn、向 Web 内部适配入口转发并返回回执。服务端再检查绑定、动作、版本、附件和命令身份，然后调用现有 WorkService。插件与 Python 服务分进程，因此这里有一层本地传输适配；不另建生产 HTTP 服务。
 4. 多轮讨论不触发完整 Planning。明确“整理方案”时将有来源的创作依据与 input handles 交给后端，正式 Plan 仍由现有 MiniMax Planning 生成。缺规划授权时复用现有 needs_decision/grant/resume 路径，呈现具体服务授权卡；聊天模型授权不能替代它。方案卡确认时一次提交制作授权。
-5. 工具拿到持久回执后结束当轮，不等待整片完成。前端用既有 snapshot/cursor/SSE 更新持久卡片；不依赖插件 delivery，后者只适合活跃回合且在 Gateway HTTP 场景可能不可用。关页后 Worker 继续，重进取快照即可。
+5. 执行工具先取得已提交的持久回执，再等待该回执绑定的Run收口，把真实结果交回当前原生助手；助手交付后本轮才结束。等待期间不持有数据库事务。普通查询、配置保存和提案直接返回；规划完成等待下一轮制作确认。关页后Worker继续，刷新复用原turn及事件，不重新提交。异常断开才沿既有结果恢复机制接续，详见§18.14.1。
 6. 修订绑定用户所看的具体 Output，复用既有 revise/影响分析/授权；已有输入不能在活动 Run 中追加。制作中的新素材暂存为未提交建议，等完成或明确取消后再登记，不能自动取消或改冻结方案。
 
 跨会话续作时，服务端验证新会话可关联该作品，并保存附件自己的上传来源；不能覆盖 Work.source_session_id。现有 `_input` 只接受原会话附件，因此须增加“已关联会话可提交本会话附件”的受控检查，继续保留路径、hash、symlink 和用途/Rights 校验。这是必要后端增量，不是前端传一个 workId 就已支持。
@@ -215,53 +215,39 @@ API 直连目前只有文本/图片对话，不具有完整技能执行。若后
 ```mermaid
 sequenceDiagram
   actor C as Creator
-  participant UI as Easel 对话 / 作品卡
-  participant Web as Web 绑定与 turn 接入
-  participant OC as OpenClaw 受限运行配置
-  participant P as 原生工具插件
-  participant API as 现有 WorkService
-  participant W as 现有 Worker
-  C->>UI: 主题、素材、继续讨论
-  UI->>Web: turn_id / 绑定引用 / 用户消息
-  Web->>Web: 持久接收并去重，固定本轮作用域
-  Web->>OC: 固定 Agent 与运行会话；本片必要上下文
-  OC-->>UI: 经 Web 流式回复 / 创作澄清
-  Note over OC,API: 讨论与解释不启动完整规划
-  C->>UI: 整理完整方案
-  UI->>Web: 明确规划请求
-  Web->>OC: 继续同一受限运行段
-  OC->>P: request_plan（创作依据 / 来源 / 输入句柄）
-  P->>Web: 可信运行身份 / toolCallId / 具名动作
-  Web->>API: 稳定 command_id / expected_revision / plan
-  API-->>P: 经 Web 返回持久回执与实体引用
-  P-->>OC: 已提交；结束本轮，不等待整片
-  API->>W: 既有 planning run
-  opt 缺少有效规划服务授权
-    W->>API: needs_decision，无外部调用
-    API-->>UI: 授权决定卡
-    C->>UI: 明确授权指定规划服务
-    UI->>API: grant + resume，各自稳定幂等命令
+  participant UI as Easel 对话
+  participant Web as Web 绑定与交付
+  participant OC as 当前原生助手
+  participant P as 执行工具
+  participant API as 既有业务服务与记录
+  participant W as 既有 Worker
+  C->>UI: 讨论主题、素材与要求
+  UI->>Web: 当前真人消息与运行段
+  Web->>OC: 可信上下文与当前原话
+  OC->>P: offer 具体范围和服务
+  P->>API: 保存提案，不执行长任务
+  OC-->>C: 展示提案并询问确认
+  C->>OC: 下一轮明确确认
+  OC->>P: answer 已展示提案
+  P->>API: 原子确认、授权及排程
+  API-->>P: 事务提交后的 Work/Run 回执
+  Note over P,OC: 同一次原生 execute 保持等待
+  loop 本次授权范围尚未收口
+    W->>API: 推进既有任务及自动修复，保存事件
+    P->>API: 按可信回执短查询，查询后释放事务
+    API-->>P: 本次 Run 状态
   end
-  W->>API: 保存 Plan Revision 与 hash
-  API-->>UI: 快照 / SSE 更新完整方案卡
-  C->>UI: 确认此方案及制作授权
-  UI->>API: 指定版本 / hash / 授权 / 幂等命令
-  API->>W: production run
-  loop 无需保持聊天连接
-    W->>API: 持久进度 / 成果 / 决定项
-    API-->>UI: 独立作品 SSE / 快照
+  API-->>P: 真实结果或明确阻断
+  P-->>OC: 完整结果、检查结论及已有成果
+  OC-->>Web: 交付方案/视频，或解释阻断
+  Web->>API: 持久正文，确认本次结果已交付
+  Web-->>UI: 最后才发送 done
+  Note over C,W: 规划完成仍须下一轮制作确认；制作和局部修订各自等待授权范围收口
+  opt 连接中断或停止回答
+    Web->>OC: 中断原生等待，生产不取消
+    W->>API: 继续原任务，UNKNOWN不得重发
+    Note over Web,API: 原生已结束且交付未完成时，既有恢复机制接续，避免重复交付
   end
-  API-->>UI: 实际成片 / QC / 待人工审核
-  C->>UI: 基于此版局部修改
-  UI->>Web: output 引用 + 反馈
-  Web->>OC: 固定具体 Output，讨论或明确修订
-  OC->>P: request_revision
-  P->>Web: 经校验映射到既有 revise 命令
-  Web->>API: 指定版本与保护项
-  Note over API,W: 复用已有成果；扩大影响/新增消耗时集中确认
-  C->>UI: 明确接受所看版本
-  UI->>API: 既有 accept 命令与人工审阅确认
-  API-->>UI: 接受回执 / 内容库引用
 ```
 
 ## 6. 上下文、卡片与状态规则
@@ -847,7 +833,7 @@ S6 F2 CURRENT_BLOCKER。用户明确指出18.12仍是程序拼接状态气泡，
 
 S6 F2/F3 CURRENT_BLOCKER。用户授权在独立新会话走真实创作，保护原对话；不增加按钮、固定气泡或第二套制作流程。原会话/作品及配置先作本机保护快照，个人内容、模型回执和运行ID不入Git。
 
-原有Easel的`video_pipeline.py`通过`subprocess.run`等待SDK；SDK `cmd_run`顺序推进，遇到await/gatefail/error停止，全部完成才返回done。助手据真实结果继续交互。V2保留现有Worker与原生结果回合，沿相同终态返回语义，不迁入旧SDK或另建等待控制器。
+原有Easel的`video_pipeline.py`通过`subprocess.run`等待SDK；SDK `cmd_run`顺序推进，遇到await/gatefail/error停止，全部完成才返回done。助手据真实结果继续交互。**更正：当时V2并没有相同的当前回合等待语义。** `32f218f4`在原回合结束后创建独立`task_result`回合，`34552a97`未改变工具立即返回提交回执、Web随后发送done的行为。该批真实证据证明后台接续，并不证明当前原生回合持续等待。此次修复见下节；保留Worker，不迁入旧SDK。
 
 真实模型暴露的有限合同修复：
 
@@ -866,6 +852,20 @@ S6 F2/F3 CURRENT_BLOCKER。用户授权在独立新会话走真实创作，保�
 软件与真实验收分开：最终具名检查见S6-14A补记；完整无重复确认的真人体验、REAL_PRODUCTION_PASS和CREATOR_ACCEPTED仍未通过。原93条会话/作品/配置记录逐条hash核对；运行、发送中Operation与原生任务空闲后同步既有产品指令及重启，旧运行与UNKNOWN均未重发。私有对话、截图、视频、检查与保护清单仅留忽略诊断目录。
 
 最终软件：生产651 passed / 4 skipped，对话95 passed，前端99 passed；原生隔离29项、25次假模型/0付费通过；build/lint通过（保留既有警告）。实际浏览器发现内联视频原始尺寸撑出对话，仅为现有video补宽高约束；刷新后两版媒体readyState=4、正常播放，对话clientWidth/scrollWidth同为860、视频不溢出，消息无重复。此展示修复不改变视频质量FAIL。
+
+
+#### 18.14.1 本次授权范围由当前原生回合等待交付（S6 / F2，2026-10-20）
+
+用户明确：现有视频管线确认执行后，参考分析、规划、生产、恢复及局部修订均持续到该授权范围的真实结果或明确阻断。此前§4.5和§18.14把“稍后另起结果回合”当作等待完成的表述已更正。§18.13的任务结果回合保留为中断恢复/无活跃原生回合的兼容交付，不再是正常执行路径。
+
+- 插件先完成`dispatch`业务事务，随后保持同一次`execute` Promise等待。短请求`work-tools/result`使用原生身份、原工具票据、精确参数及已存回执查Run；模型不能选择另一个运行。每次查询结束释放事务，轮询不提交、不恢复、不调用媒体或模型。没有work/run回执的读、配置、草稿和提案正常返回。
+- Worker仍独占生产阶段和自动修复推进。观察Run终态及对应事件，不以单个任务、素材或首个output的出现交付；参考分析返回其分析任务结果，规划和扩大修订范围后的重新规划只交付Plan。生产及局部修订等待既有render/quality/repair链收口。不增加Agent、Gate或生产状态机，不修改质量标准。
+- 完整方案/脚本/分镜、实际输出地址、检查和UNKNOWN事实作为工具结果进入当前助手；下一阶段仍用原有offer/下一真人回合answer。Web仅在助手有正文、已取得执行结果或已记录等待阻断后发送done；旧插件若提前返回回执，会报交付中断，不能伪装成功。
+- 结果仍订阅在原proposal回执。当前轮取得结果时先记事件序号，正文交付持久化后才原子消费订阅。Web存活期间维护30秒交付租期，覆盖native end hook与最后token之间的间隙；后台不能抢结果，新真人回合也不能覆盖该窗口。已验证原生结束且Web租期过期/明确中断后，既有恢复可接管；迟到的原回合不能再确认同一结果。租期只描述交付所有权，不代表生产存活/失败，不据此释放未核实原生UNKNOWN。
+- 关页/刷新只断开页面事件流，Web持有的原生执行继续；同turn重连读取既有事件。停止回答关闭当前Web→Gateway请求，原生AbortSignal终止工具等待，生产不取消。显式取消生产仍经原提案授权。等待读取失败/等待截止、原生超时与生产失败分开解释，不重发dispatch，不把UNKNOWN改为可重试。
+- 本机OpenClaw 2026.9.4适配器确实`await tool.execute(...,signal,onUpdate)`；HTTP连接关闭传递AbortSignal。正式配置原生上限7200秒，Web读取上限7200秒，均未提高；插件等待上限7000秒，提前交回“等待中断”以留出解释时间。更短原生上限仍以原生取消为准。运行超出边界属于明确阻断，不能承诺无限等待或自动核实远端结果。
+
+本轮只做隔离软件验证：原生延迟Worker验证明确记录“完成前无done → 同一助手收到真实结果 → 交付后done”；另测实际原生3秒超时。入口映射、命令和版本/部署边界见[S6-14A](tasks/S6-14A_conversation-integration.md)。不以假模型或合成夹具代替真实制作、声音听审和Creator接受。
 
 ### 18.15 模型调用诊断与 UNKNOWN 后对话续接（2026-10-20）
 

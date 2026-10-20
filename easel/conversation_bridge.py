@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import hashlib
 import json
+import time
 import secrets
 from typing import Literal
 from pydantic import Field, model_validator
@@ -75,6 +76,10 @@ class PersistentDispatch(PersistentCall):
     ticket: str = Field(min_length=24,max_length=128)
 
 
+class ExecutionPoll(PersistentDispatch):
+    interrupted: bool = False
+
+
 class PersistentWorkToolBridge:
     def __init__(self,service):
         self.service,self.store=service,service.store
@@ -95,7 +100,7 @@ class PersistentWorkToolBridge:
                 if prior['request_hash']!=fingerprint:reject('turn_conflict',409)
                 return {'new':False,'state':prior['state'],'payload':json.loads(prior['payload_json'])}
             if self.conversations.segment(conn,ui_session)['id']!=segment_id:reject('stale_revision',409)
-            if conn.execute("SELECT 1 FROM conversation_turns t JOIN conversation_segments s ON s.id=t.segment_id WHERE s.ui_session=? AND t.state IN ('reserved','dispatching','active','unknown')",(ui_session,)).fetchone():reject('invocation_pending',409)
+            if conn.execute("SELECT 1 FROM conversation_turns t JOIN conversation_segments s ON s.id=t.segment_id WHERE s.ui_session=? AND (t.state IN ('reserved','dispatching','active','unknown') OR (json_extract(t.payload_json,'$.delivery_state')='streaming' AND json_extract(t.payload_json,'$.delivery_lease_until')>?))",(ui_session,time.time())).fetchone():reject('invocation_pending',409)
             # Validate attachments through the same production path using a temporary read-only validator.
             from .conversation_inputs import validate_attachment
             for attachment in attachments:validate_attachment(self.service,ui_session,attachment)
@@ -207,6 +212,8 @@ class PersistentWorkToolBridge:
             if 'revision' in result and 'work_id' in result:payload['revision']=result['revision']
             payload['calls'][request.tool_call_id]={'fingerprint':fingerprint,'command_id':command_id}
             payload['results'][fingerprint]=result
+            if result.get('work_id') and result.get('run_id'):
+                payload.setdefault('execution_waits',{}).setdefault(result['run_id'],{'work_id':result['work_id'],'run_id':result['run_id']})
             self._save(conn,record['id'],payload,'active')
             return result
 
@@ -245,11 +252,36 @@ class PersistentWorkToolBridge:
             if error:payload['delivery_error']=error
             self._save(conn,turn_id,payload,record['state'])
 
+    def delivery_heartbeat(self,turn_id):
+        with self.store.transaction() as conn:
+            record=row(conn,'conversation_turns',turn_id);payload=json.loads(record['payload_json'])
+            if payload.get('delivery_state')!='streaming':return
+            payload['delivery_lease_until']=time.time()+30
+            self._save(conn,turn_id,payload,record['state'])
+
+    def complete_delivery(self,turn_id,answer):
+        with self.store.transaction() as conn:
+            record=row(conn,'conversation_turns',turn_id);payload=json.loads(record['payload_json'])
+            if any(not w.get('seq') and not w.get('interrupted') for w in payload.get('execution_waits',{}).values()):
+                fail('execution_delivery_incomplete','原生回复结束但本次任务结果未返回；保留原任务，不自动重发',409)
+            if not answer.strip():fail('incomplete_delivery','助手没有交付正文',409)
+            segment=row(conn,'conversation_segments',record['segment_id'])
+            if segment['revoked_at']:fail('binding_mismatch','对话已撤销',409)
+            for wait in payload.get('execution_waits',{}).values():
+                if wait.get('seq') and conn.execute("SELECT 1 FROM conversation_turns WHERE json_extract(payload_json,'$.origin')='task_result' AND json_extract(payload_json,'$.result_event.run_id')=? AND json_extract(payload_json,'$.result_event.seq')=?",(wait['run_id'],wait['seq'])).fetchone():
+                    fail('result_delivery_claimed','结果已由恢复回合接管，本轮不重复交付',409)
+            from .conversation_results import ConversationResults
+            ConversationResults.acknowledge(conn,payload)
+            payload.update(answer=answer,delivery_state='delivered',delivery_lease_until=0)
+            self._save(conn,turn_id,payload,'ended' if record['state']=='ended' else 'unknown')
+
     def delivery(self,turn_id,state,answer=None):
         with self.store.transaction() as conn:
             record=row(conn,'conversation_turns',turn_id);payload=json.loads(record['payload_json'])
             segment=row(conn,'conversation_segments',record['segment_id'])
             if answer is not None and not segment['revoked_at']:payload['answer']=answer
+            if state=='dispatching':payload.update(delivery_state='streaming',delivery_lease_until=time.time()+30)
+            else:payload.update(delivery_state='interrupted',delivery_lease_until=0)
             # Delivery ending is not proof native execution ended; unknown remains occupied.
             if record['state']=='ended':state='ended'
             self._save(conn,turn_id,payload,state)

@@ -1,6 +1,7 @@
 // Native OpenClaw integration. No production orchestration or provider credentials.
 import { createHash } from 'node:crypto';
 import { installDiagnostics } from './diagnostics.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 // OpenClaw can load tool factories and lifecycle hooks through separate plugin
 // registrations. Keep native tickets in one process registry, scoped to the
@@ -141,14 +142,45 @@ export function createWorkBridge(api) {
     if (ctx.agentId !== agentId) return null;
     return definitions.map(definition => ({
       ...definition, label: definition.name,
-      async execute(toolCallId, params, signal) {
+      async execute(toolCallId, params, signal, onUpdate) {
         const call = calls.get(key(ctx, toolCallId, definition.name));
         if (!call) throw new Error('easel_work_missing_native_call_binding');
         try {
-          const details = await send('dispatch', { ...call, tool_call_id: toolCallId, tool: definition.name, params }, signal);
+          const request = { ...call, tool_call_id: toolCallId, tool: definition.name, params };
+          let details = await send('dispatch', request, signal);
+          // dispatch has committed and released SQLite before this promise waits.
+          // No model-supplied run ID and no resubmission on poll/network failure.
+          if (protocolVersion === 2 && details.work_id && details.run_id) {
+            details = await awaitExecution(send, request, details, signal, onUpdate);
+          }
           return { content: [{ type: 'text', text: JSON.stringify(details) }], details };
         } finally { calls.delete(key(ctx, toolCallId, definition.name)); }
       },
     }));
   }, { names: [...names] });
+}
+
+// Native execution remains pending, not a detached result job. Short HTTP reads
+// release all DB resources between polls; the native run's own abort still wins.
+export async function awaitExecution(send, request, receipt, signal, onUpdate, {intervalMs=1000, budgetMs=7000000}={}) {
+  const deadline=Date.now()+budgetMs;
+  let previous;
+  try {
+    while (true) {
+      signal?.throwIfAborted();
+      const value=await send('result', {...request, interrupted:Date.now()>=deadline}, signal);
+      if (!value.waiting) return value.result;
+      const progress=JSON.stringify(value);
+      if (progress!==previous) {
+        previous=progress;
+        onUpdate?.({content:[{type:'text',text:'正在等待本次执行结果'}],details:value});
+      }
+      await delay(intervalMs,undefined,{signal});
+    }
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    try { await send('result',{...request,interrupted:true},signal); } catch { /* UNKNOWN stays durable. */ }
+    return {...receipt,wait_interrupted:true,production_state:'unverified',
+      message:'等待连接中断，不代表生产失败。原任务及UNKNOWN保留，不自动重发；不能声称任务完成或承诺远端自动核实。'};
+  }
 }
