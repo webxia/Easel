@@ -3519,7 +3519,9 @@ async def api_chat_stream(req: ChatRequest):
         # 直接在协程里调会把整个事件循环——连同其它会话正在推的 SSE——一起卡住。
         is_http = (await asyncio.to_thread(_resolve_transport, sk)) == "http"
         from web.conversation_api import natural_entry
-        natural_entry.reserve(sk, _openclaw_session_id(sk), turn_id, message, req.message.strip(), req.persona, [a.model_dump() for a in req.attachments])
+        entry_prefix = _persona_prefix(req.persona)
+        entry_quote = (entry_prefix + '\n\n' if entry_prefix else '') + req.message.strip()
+        natural_entry.reserve(sk, _openclaw_session_id(sk), turn_id, message, req.message.strip(), req.persona, [a.model_dump() for a in req.attachments], quoted_message=entry_quote)
         if is_http:
             # HTTP 直连常驻网关：无进程冷启动（agent 在 gateway 进程里跑）
             proc = _GatewayHttpProc()
@@ -3860,12 +3862,39 @@ async def api_chat_stream(req: ChatRequest):
                     }, ensure_ascii=False) + "\n")
             except Exception:
                 pass
-            # 落盘完整结果：后端跑完整轮不依赖客户端连接，断线后前端用 /api/chat/last 取回
-            _save_turn(pk, "done", "".join(full_text), {
-                "turn_id": turn_id,
-                "clean_end": _chat_stream_clean_end(run_info, is_http=is_http),
-                "stop_reason": "user_stopped" if user_stopped else run_info.get("stop_reason"),
-            })
+            try:
+                continued = False
+                source = natural_entry.source(sk, turn_id)
+                if source and not user_stopped and _chat_stream_clean_end(run_info, is_http=is_http):
+                    from easel.conversation_bridge import PersistentWorkToolBridge
+                    bridge = PersistentWorkToolBridge(_production_service())
+                    continuation = None
+                    for _ in range(20):
+                        continuation = await asyncio.to_thread(bridge.continue_handoff, sk, source)
+                        if continuation:
+                            break
+                        await asyncio.sleep(.05)
+                    if continuation:
+                        def relay(kind, data):
+                            if kind != 'done':
+                                to_client(kind, data)
+                        _video_chat.tasks[sk] = asyncio.current_task()
+                        await _video_chat._deliver(sk, continuation['turn_id'], continuation, event_path,
+                                                  event_sink=relay, display_turn_id=turn_id)
+                        continued = True
+                    else:
+                        to_client("error", "管线交接尚未核实完成，未自动重派。请在本对话核对当前状态。")
+                # The continuation owns the final persisted reply when dispatched.
+                if not continued:
+                    _save_turn(pk, "done", "".join(full_text), {
+                        "turn_id": turn_id,
+                        "clean_end": not source and _chat_stream_clean_end(run_info, is_http=is_http),
+                        "stop_reason": "user_stopped" if user_stopped else run_info.get("stop_reason"),
+                    })
+            except asyncio.CancelledError:
+                to_client("error", "已停止本轮回答；已保存的创作记录保留，不自动重发。")
+            except Exception:
+                to_client("error", "管线交接未完成，请核对当前状态；未自动重发。")
             natural_entry.release(sk, turn_id)
             xlock.release()
             lock.release()

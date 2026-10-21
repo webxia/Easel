@@ -186,7 +186,31 @@ def pending(conversations, conn, segment):
                     'note':'保留同一作品与历史回执，替换已失败的规划运行；新的规划可能收费，须展示提案并经下一真人回合确认，不取消作品。'}
             except ProductionError as exc:
                 failed_recovery={'can_offer':False,'code':exc.code,'reason':exc.user_message}
-    return {'failed_planning_replan':failed_recovery,'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
+    blockers=[]
+    if work:
+        from .conversation_results import material_search_summary
+        searches=[json.loads(r[0]) for r in conn.execute("SELECT payload_json FROM events WHERE work_id=? AND run_id=? AND kind='material_search_completed' ORDER BY seq",(work['id'],work['active_run_id']))]
+        unknown=conn.execute("SELECT 1 FROM operations WHERE work_id=? AND run_id=? AND state='unknown'",(work['id'],work['active_run_id'])).fetchone()
+        active_run=row(conn,'runs',work['active_run_id']) if work['active_run_id'] else None
+        for task in work['tasks']:
+            if task['run_id']!=work['active_run_id'] or task['state'] not in {'needs_decision','failed'}:continue
+            error=json.loads(task.get('error_json') or '{}')
+            choices=[]
+            if not unknown and task['kind']=='supply' and error.get('code') in {
+                'material_gap','music_material_gap','sfx_material_gap','required_material_unavailable','material_invalid','generated_material_unavailable'}:
+                if not active_run or active_run['state'] not in {'pending','running','waiting_external','needs_decision','paused'}:
+                    choices.append({'kind':'provide_material','label':'提供符合本片用途的素材及使用依据','requires':'通过现有附件/input提案登记；必用素材不可擅自替换'})
+                if error.get('code') in {'music_material_gap','sfx_material_gap'} and recovery and recovery.get('can_offer'):
+                    choices.append({'kind':'voice_only_plan','label':'调整为纯旁白方案','action':'plan','values':recovery['values'],
+                        'requires':'用户明确改变音频方案；展示规划费用，再确认；新方案仍须确认制作'})
+            blockers.append({'task_kind':task['kind'],'code':error.get('code'),'message':error.get('user_message'),
+                'searches':material_search_summary(searches) if task['kind']=='supply' else [],
+                'choices':choices,'unknown':bool(unknown),
+                'input_change_available':not active_run or active_run['state'] not in {'pending','running','waiting_external','needs_decision','paused'},
+                'input_constraint':'活动运行不允许改创作输入，不能承诺上传即可续作；不得为解除阻断擅自取消作品。',
+                'resume_instruction':'UNKNOWN不重发；普通恢复先核对缺口条件是否已改变，或是否为可安全重试的临时故障。resume不是修复本身，不盲目反复继续。',
+                'coverage':'只解释已有记录；未执行的后续步骤不得声称通过或失败。选项不构成授权。'})
+    return {'blockers':blockers,'failed_planning_replan':failed_recovery,'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
             'preoutput_replan':recovery,
             'current_plan':next((p for p in work['plans'] if p['revision']==work['current_plan_revision']),None) if work else None,
             'work':work,'capabilities':services,'model_calls':call_status(conversations,conn,segment),
@@ -302,7 +326,7 @@ def offer(conversations,conn,segment,turn_id,action,values,summary):
         summary='取消整部当前作品，停止本地后续派发并撤销现有授权；保留方案、素材和回执，不能取消或判定远端未知请求。'
     if action=='confirm':
         values=production_values(conversations,conn,segment,values)
-        summary=('确认当前完整方案并制作；授权服务：'+'、'.join('/'.join(s.values()) for s in values['services'])+
+        summary=('待正式确认制作，尚未启动。接受方案内容不等于已授权制作；明确同意本提案后才确认方案并启动制作。授权服务：'+'、'.join('/'.join(s.values()) for s in values['services'])+
                  f"。AI生成许可：{'允许' if values.get('allow_ai') else '不允许'}；图片累计上限 {values.get('image_limit',0)}，视频累计上限 {values.get('video_limit',0)}。模型、配音、检索及生成服务可能产生费用；仅按展示范围执行。")
     if action=='plan':values=planning_values(conversations,conn,segment,values)
     if action=='grant':
@@ -457,7 +481,7 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
         prior=json.loads(segment['context_json']).get('handoff',{}).get('messages',[])
         messages=[{'source_turn':r['id'],'text':json.loads(r['payload_json']).get('message','')} for r in conn.execute('SELECT id,payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at,id',(segment['id'],))]
         payload['pipeline_handoff']={'source_segment':segment['id'],'source_turn':record['id'],'user_message':payload['message'],'messages':(prior+messages)[-40:]}
-        return {'queued':True,'message':'本轮结束后绑定所选管线；请结束本轮，下一轮继续。','entry':entry}
+        return {'queued':True,'message':'本轮结束后绑定所选管线，由宿主自动续接；不要让用户为了内部切换回复继续。','entry':entry}
     if mode=='draft':
         kind=json.loads(segment['context_json']).get('kind','new_work')
         if kind=='channel_create':fail('pipeline_mismatch','频道设置不创建作品',409)

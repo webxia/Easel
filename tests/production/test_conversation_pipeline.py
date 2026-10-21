@@ -122,6 +122,10 @@ def test_full_plan_confirm_uses_exact_version_and_creates_only_one_run(env):
     b,i,_=turn(s,c,seg,'给我看看方案',id='show')
     values={'plan_revision':created['plan_revision'],'plan_hash':created['plan_hash'],'services':[],'image_limit':0,'video_limit':0,'allow_ai':False}
     p=pipe(b,i,'offer',action='confirm',values=values,summary='按方案制作，不授权生成素材')
+    assert '待正式确认制作，尚未启动' in p['values']['summary']
+    assert '明确同意本提案后才确认方案并启动制作' in p['values']['summary']
+    assert s.snapshot(d['work_id'])['plans'][0]['confirmed_at'] is None
+    assert not s.snapshot(d['work_id'])['runs']
     repeated_question=pipe(b,i,'offer',action='confirm',values=values,summary='相同范围的不同说明')
     assert repeated_question['proposal_id']==p['proposal_id']
     raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='给我看看方案'))
@@ -139,6 +143,7 @@ def test_full_plan_confirm_uses_exact_version_and_creates_only_one_run(env):
     repeated=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='就按这个方案制作')
     assert repeated['run_id']==result['run_id']
     snapshot=s.snapshot(d['work_id']);assert len(snapshot['runs'])==1
+    assert snapshot['plans'][0]['confirmed_at'] is not None
     with s.store.connection() as conn:
         assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
         assert row(conn,'director_revisions','v4')['accepted_at'] is None

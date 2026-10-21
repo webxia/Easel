@@ -1,0 +1,123 @@
+"""Host continuation component tests: no Gateway, model or production calls."""
+import json
+from tests.production.test_conversation import env, entry, turn, tool, raises
+from tests.production.test_conversation_pipeline import seed, pipe
+from easel.work_bridge import Identity, Claim
+from easel.conversation_bridge import PersistentWorkToolBridge
+
+
+def test_binding_continuation_is_once_and_cannot_authorize(env):
+    s,c=env; channel=seed(env);seg=entry(c,profile_ref='one')
+    b,i,_=turn(s,c,seg,'用频道甲和导演甲，讨论学习这个题目')
+    pipe(b,i,'bind',user_quote='用频道甲和导演甲',values={'channel_id':channel,'director_revision':'v4','director_trial':True})
+    assert b.continue_handoff('ui','turn') is None
+    b.end(Identity(**i))
+    r=b.continue_handoff('ui','turn')
+    assert r['payload']['origin']=='handoff'
+    assert r['payload']['message']=='用频道甲和导演甲，讨论学习这个题目'
+    assert b.continue_handoff('ui','turn') is None
+    ident=dict(agent_id='main',session_key=r['payload']['session_key'],session_id='native-next',run_id='run-next')
+    b.claim(Claim(**ident,prompt=r['prompt']))
+    raises('handoff_confirmation_required',lambda:pipe(b,ident,'answer',proposal_id='a'*32,hash='b'*64,user_quote='用频道甲和导演甲'))
+    assert not s.list_works()['items']
+
+
+def test_no_handoff_for_plain_or_unknown_turn(env):
+    s,c=env;seg=entry(c,profile_ref='one');b,i,_=turn(s,c,seg,'先讨论')
+    assert b.continue_handoff('ui','turn') is None
+    b.delivery('turn','unknown')
+    assert b.continue_handoff('ui','turn') is None
+
+
+def test_material_summary_does_not_call_network_failure_no_results():
+    from easel.conversation_results import material_search_summary
+    value=material_search_summary([
+        {'scene_id':'s1','candidate_count':0,'sources':['stock'],'failures':[{'source':'stock','code':'network_timeout'}]},
+        {'scene_id':'s2','candidate_count':0,'sources':['stock'],'failures':[{'source':'stock','code':'no_results'}]},
+        {'role':'music','candidate_count':0,'failures':[{'code':'download_failed'}]},
+    ])
+    assert value[0]['findings']==['search_incomplete']
+    assert value[1]['findings']==['no_results']
+    assert value[2]['findings']==['download_failed']
+
+
+def test_natural_entry_requires_authenticated_end(env):
+    from web.conversation_api import NaturalEntry,EntryCall
+    s,c=env;gate=NaturalEntry();b=PersistentWorkToolBridge(s)
+    gate.reserve('ui','unused','web-turn','prompt','讨论视频','one')
+    identity=dict(agent_id='main',session_key='agent:main:ui',session_id='native',run_id='run')
+    gate.call(s,EntryCall(**identity,mode='claim',prompt='prompt'))
+    result=gate.call(s,EntryCall(**identity,mode='enter',prompt='',kind='new_work',user_quote='讨论视频',tool_call_id='call'))
+    source=result['source_turn_id']
+    assert b.continue_handoff('ui',source) is None
+    gate.call(s,EntryCall(**identity,mode='end',prompt=''))
+    child=b.continue_handoff('ui',source)
+    assert child and child['payload']['origin']=='handoff'
+    assert b.continue_handoff('ui',source) is None
+    assert s.list_works()['items']==[]
+
+
+def test_web_binding_continues_before_single_done(env,tmp_path,monkeypatch):
+    import asyncio
+    import web.conversation_api as api
+    s,c=env;channel=seed(env);seg=entry(c,profile_ref='one')
+    b=PersistentWorkToolBridge(s)
+    initial=b.reserve(ui_session='ui',turn_id='first',segment_id=seg,message='用频道甲和导演甲讨论视频',attachments=[])
+    calls=[];events=[];saved=[]
+    class Response:
+        def __init__(self,body):self.body=body
+        async def __aenter__(self):return self
+        async def __aexit__(self,*args):pass
+        def raise_for_status(self):pass
+        async def aiter_lines(self):
+            n=len(calls);view=c.view('ui')
+            ident=dict(agent_id='main',session_key='agent:main:easel-pipeline:'+view['segment_id'],session_id='native-'+view['segment_id'],run_id='native-run-'+str(n))
+            b.claim(Claim(**ident,prompt=self.body['messages'][0]['content']))
+            if n==1:
+                pipe(b,ident,'bind',user_quote='用频道甲和导演甲',values={'channel_id':channel,'director_revision':'v4','director_trial':True})
+            else:
+                assert not any(k=='done' for k,_ in events)
+                assert pipe(b,ident,'pending')['missing_choices']==[]
+            b.end(Identity(**ident))
+            yield 'data: '+json.dumps({'choices':[{'delta':{'content':'开始讨论选题' if n==2 else '正在衔接'}}]})
+            yield 'data: [DONE]'
+    class Client:
+        def __init__(self,*a,**k):pass
+        async def __aenter__(self):return self
+        async def __aexit__(self,*a):pass
+        def stream(self,*a,**k):calls.append(k['json']);return Response(k['json'])
+    monkeypatch.setattr(api.httpx,'AsyncClient',Client)
+    chat=api.VideoChat(lambda:s,lambda _:tmp_path/'events',lambda *a:saved.append(a),gateway_url='http://fixture',gateway_token='fixture')
+    asyncio.run(chat._deliver('ui','first',initial,tmp_path/'events',event_sink=lambda k,v:events.append((k,v))))
+    assert len(calls)==2
+    assert [k for k,_ in events].count('done')==1
+    assert events[-1][0]=='done'
+    assert saved[-1][2]=='开始讨论选题' and saved[-1][3]['turn_id']=='first'
+    assert not s.list_works()['items']
+
+
+def test_blocker_does_not_offer_input_mutation_during_active_run(env):
+    from tests.production.test_conversation import draft
+    from easel.production.service import encode
+    s,c,seg,work=draft(env)
+    run=s.command('plan',{},command_id='plan-fixture',work_id=work,expected_revision=s.snapshot(work)['revision'])
+    with s.store.transaction() as conn:
+        conn.execute("UPDATE tasks SET kind='supply',state='needs_decision',error_json=? WHERE run_id=?",(encode({'code':'music_material_gap','user_message':'音乐缺失'}),run['run_id']))
+        conn.execute("UPDATE runs SET state='needs_decision' WHERE id=?",(run['run_id'],))
+    b,i,_=turn(s,c,seg,'怎么继续',id='status')
+    blocker=pipe(b,i,'pending')['blockers'][0]
+    assert blocker['message']=='音乐缺失'
+    assert not blocker['input_change_available']
+    assert not blocker['choices']  # No Plan exists; no invented voice-only recovery.
+    assert len(s.snapshot(work)['runs'])==1
+
+
+def test_concurrent_handoff_consumption_is_once(env):
+    from concurrent.futures import ThreadPoolExecutor
+    s,c=env;channel=seed(env);seg=entry(c,profile_ref='one')
+    b,i,_=turn(s,c,seg,'用频道甲和导演甲')
+    pipe(b,i,'bind',user_quote='用频道甲和导演甲',values={'channel_id':channel,'director_revision':'v4','director_trial':True})
+    b.end(Identity(**i))
+    with ThreadPoolExecutor(2) as pool:
+        results=list(pool.map(lambda _:b.continue_handoff('ui','turn'),range(2)))
+    assert sum(r is not None for r in results)==1

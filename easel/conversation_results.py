@@ -24,6 +24,26 @@ def public_receipt(receipt):
     return {k: v for k, v in receipt.items() if k != '_result_delivery'}
 
 
+def material_search_summary(searches):
+    """Project existing evidence only; unknown and unexamined are not failures."""
+    groups={}
+    network={'network_timeout','network_connection','http_unavailable','http_rate_limited','source_unavailable','invalid_response'}
+    for search in searches:
+        key=(search.get('scene_id'),search.get('role','visual'),search.get('cue_id'))
+        group=groups.setdefault(key,{'scene_id':key[0],'role':key[1],'cue_id':key[2],
+            'candidate_count':0,'failures':[],'sources':[],'findings':[]})
+        group['candidate_count']+=search.get('candidate_count',0)
+        for source in search.get('sources',[]):
+            if source not in group['sources']:group['sources'].append(source)
+        for failure in search.get('failures',[]):
+            if failure not in group['failures']:group['failures'].append(failure)
+            code=failure.get('code')
+            finding=('search_incomplete' if code in network else 'no_results' if code=='no_results'
+                     else 'download_failed' if code=='download_failed' else 'eligibility_unresolved')
+            if finding not in group['findings']:group['findings'].append(finding)
+    return list(groups.values())
+
+
 class ConversationResults:
     def __init__(self, bridge):
         self.bridge = bridge
@@ -52,17 +72,12 @@ class ConversationResults:
         searches=[json.loads(r[0]) for r in conn.execute(
             "SELECT payload_json FROM events WHERE work_id=? AND run_id=? AND kind='material_search_completed' ORDER BY seq",
             (snapshot['id'],run['id']))]
-        groups={}
-        for search in searches:
-            key=(search.get('scene_id'),search.get('role','visual'),search.get('cue_id'))
-            group=groups.setdefault(key,{'scene_id':key[0],'role':key[1],'candidate_count':0,'failures':[]})
-            group['candidate_count']+=search.get('candidate_count',0)
-            for failure in search.get('failures',[]):
-                if failure not in group['failures']:group['failures'].append(failure)
+        groups=material_search_summary(searches)
         return {'work_id':snapshot['id'],'run_id':run['id'],'seq':event['seq'],'run_state':run['state'],
                 'current_plan':next((p for p in snapshot['plans'] if p['revision']==snapshot['current_plan_revision']),None),
-                'material_summary':{'searches':list(groups.values()),
-                    'known_gaps':[g for g in groups.values() if not g['candidate_count']],
+                'material_summary':{'searches':groups,
+                    'known_gaps':[g for g in groups if not g['candidate_count']],
+                    'coverage':'只代表已记录的检索。首个阻断之后的音乐、音效、补料或制作可能尚未执行；不得推断通过或失败。网络失败不等于无素材，候选不等于已下载且适合成片。',
                     'retained_candidates':[dict(a) for a in conn.execute(
                         "SELECT kind,quality_state FROM artifacts WHERE work_id=? AND run_id=? AND kind IN ('image','video','audio') AND deleted_at IS NULL",
                         (snapshot['id'],run['id']))],

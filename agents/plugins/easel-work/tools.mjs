@@ -71,7 +71,7 @@ const pipelineValuesSchema = {
 };
 
 export const persistentToolDefinitions = [...toolDefinitions,
-  {name:'easel_pipeline',description:'Easel pipeline pending/answer/resume adapter. pending reads real choices, proposals, plans and progress. bind takes values {kind,channel_id,director_revision,director_trial} using exact IDs from pending; include all targets already explicitly selected in user sources. Stop only when queued=true. already_bound=true is a no-op: continue in this turn, without asking users to repeat existing choices. draft creates a local draft from explicit user intent. offer stages an exact operation and user-visible summary; answer applies a previously shown proposal using this turn user_quote. Its arguments are ROOT fields: {mode:"answer",proposal_id,hash,user_quote}; do not put these inside values. values belongs to bind/draft/offer. Never infer authorization from praise; ask if unclear. For a known failed first plan with no valid Plan, read pending.failed_planning_replan and offer plan with its decision_id; show returned scope and costs and wait for a NEW human answer. Never cancel the whole work to clear this failure. For UNKNOWN planning, read pending.model_calls; only offer replan_after_unknown using its decision_id. Show the server summary including duplicate charges, then wait for a NEW human answer. Never use resume to resend UNKNOWN. No arbitrary commands.',parameters:{type:'object',properties:{mode:{type:'string',enum:['pending','bind','draft','offer','answer']},action:{type:'string',enum:['input','plan','confirm','grant','resume','cancel','replan_after_unknown','basis','revise','confirm_revision','accept','director_style','director_accept','channel_director']},values:pipelineValuesSchema,summary:{type:'string'},user_quote:{type:'string',description:'Exact text from the CURRENT human message, never an assistant reply or task event.'},proposal_id:{type:'string',minLength:32,maxLength:32,pattern:'^[a-f0-9]{32}$',description:'Full opaque ID copied exactly from pending.pending[].id. Never use a shortened display prefix, ellipsis, draft ID or invented ID. Read pending again if uncertain; do not create a replacement proposal just to fix this argument.'},hash:{type:'string',minLength:64,maxLength:64,pattern:'^[a-f0-9]{64}$',description:'Full 64-character hash copied exactly from the SAME pending proposal. Not plan_hash, body text, or an abbreviation.'},dismiss:{type:'boolean'}},required:['mode'],additionalProperties:false}},
+  {name:'easel_pipeline',description:'Easel pipeline pending/answer/resume adapter. pending reads real choices, proposals, plans and progress. bind takes values {kind,channel_id,director_revision,director_trial} using exact IDs from pending; include all targets already explicitly selected in user sources. When queued=true finish this native turn; the host automatically continues after verified handoff. Do not ask the user to say continue. already_bound=true is a no-op: continue in this turn, without asking users to repeat existing choices. draft creates a local draft from explicit user intent. offer stages an exact operation and user-visible summary; answer applies a previously shown proposal using this turn user_quote. Its arguments are ROOT fields: {mode:"answer",proposal_id,hash,user_quote}; do not put these inside values. values belongs to bind/draft/offer. Never infer authorization from praise; ask if unclear. For a known failed first plan with no valid Plan, read pending.failed_planning_replan and offer plan with its decision_id; show returned scope and costs and wait for a NEW human answer. Never cancel the whole work to clear this failure. For UNKNOWN planning, read pending.model_calls; only offer replan_after_unknown using its decision_id. Show the server summary including duplicate charges, then wait for a NEW human answer. Never use resume to resend UNKNOWN. No arbitrary commands.',parameters:{type:'object',properties:{mode:{type:'string',enum:['pending','bind','draft','offer','answer']},action:{type:'string',enum:['input','plan','confirm','grant','resume','cancel','replan_after_unknown','basis','revise','confirm_revision','accept','director_style','director_accept','channel_director']},values:pipelineValuesSchema,summary:{type:'string'},user_quote:{type:'string',description:'Exact text from the CURRENT human message, never an assistant reply or task event.'},proposal_id:{type:'string',minLength:32,maxLength:32,pattern:'^[a-f0-9]{32}$',description:'Full opaque ID copied exactly from pending.pending[].id. Never use a shortened display prefix, ellipsis, draft ID or invented ID. Read pending again if uncertain; do not create a replacement proposal just to fix this argument.'},hash:{type:'string',minLength:64,maxLength:64,pattern:'^[a-f0-9]{64}$',description:'Full 64-character hash copied exactly from the SAME pending proposal. Not plan_hash, body text, or an abbreviation.'},dismiss:{type:'boolean'}},required:['mode'],additionalProperties:false}},
   { name:'easel_work_input_evidence', description:'Read scoped input metadata. Media is unanalysed unless actual analysis evidence exists.', parameters:{type:'object',properties:{input_ids:{type:'array',items:{type:'string'},maxItems:100}},additionalProperties:false} },
   { name:'easel_work_register_inputs', description:'Register a current turn upload handle as reference or must-use. Does not grant rights or original audio permission.', parameters:{type:'object',properties:{attachment_id:{type:'string'},usage:{type:'string',enum:['reference','must_use']}},required:['attachment_id'],additionalProperties:false} },
   { name:'easel_work_update_brief', description:'Save genuine changes to creative requirements BEFORE proposing planning/production. This invalidates an existing unconfirmed plan. Never call after offer confirm; user approval or service clarification does not require rewriting the brief. user_requirement must quote visible user text verbatim; summaries are suggestions. No production.', parameters:{type:'object',properties:{entries:{type:'array',minItems:1,maxItems:100,items:{type:'object',properties:{kind:{type:'string',enum:['user_requirement','suggestion','unresolved']},text:{type:'string'},source_refs:{type:'array',items:{type:'string'}}},required:['kind','text','source_refs'],additionalProperties:false}}},required:['entries'],additionalProperties:false} },
@@ -93,7 +93,7 @@ export function createWorkBridge(api) {
     handler(req, res) {
       if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, permission_policy: scopedMain ? 'main-pipeline-v1' : undefined, natural_entry: scopedMain, tools: definitions.map(t => t.name) }));
+      res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, permission_policy: scopedMain ? 'main-pipeline-v1' : undefined, natural_entry: scopedMain, automatic_handoff: scopedMain, tools: definitions.map(t => t.name) }));
     },
   });
   const scope = createHash('sha256').update(JSON.stringify([baseUrl, agentId, protocolVersion, token])).digest('hex');
@@ -117,7 +117,10 @@ export function createWorkBridge(api) {
     if (!response.ok) {
       const code = result?.error?.code ?? 'work_bridge_unavailable';
       const hint = ['invalid_input','invalid_source','work_not_bound'].includes(code) ? result?.error?.user_message : undefined;
-      throw new Error(code + (typeof hint === 'string' ? ': ' + hint : ''));
+      const error = new Error(code + (typeof hint === 'string' ? ': ' + hint : ''));
+      // Only structured bridge codes may be echoed by the natural-entry gate.
+      error.bridgeCode = typeof code === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(code) ? code : 'work_bridge_unavailable';
+      throw error;
     }
     return result;
   }
@@ -142,7 +145,10 @@ export function createWorkBridge(api) {
         try {
           const result = await send('entry', {...identity(ctx), mode:'claim', prompt:event.prompt});
           if (result.bound) entries.set(runKey(ctx), {entered:false});
-        } catch { /* An ordinary non-Web main run retains its general abilities. */ }
+        } catch {
+          entries.set(runKey(ctx), {failed:true});
+          return {outcome:'block', reason:'easel_entry_binding_unavailable', message:'创作入口会话校验失败，本轮已停止，未开始制作。'};
+        }
       }
       return;
     }
@@ -160,12 +166,21 @@ export function createWorkBridge(api) {
     if (!inPipeline(ctx)) {
       if (!scopedMain || ctx.agentId !== 'main') return;
       const entry=entries.get(runKey(ctx));
-      if (entry?.entered || entry?.pending) return {block:true, blockReason:'easel_pipeline_entered_finish_turn'};
+      if (entry?.terminalError) return {block:true,blockReason:entry.terminalError};
+      if (entry?.failed) return {block:true,blockReason:'easel_entry_binding_unavailable'};
+      if (entry?.entered) return {block:true, blockReason:'easel_pipeline_entered_finish_turn'};
+      if (entry?.pending) return {block:true, blockReason:'easel_entry_pending_finish_turn: 入口调用尚未取得成功回执；本轮停止其他工具调用，不重派入口，不尝试读取画像。'};
       if (event.toolName === 'easel_pipeline') {
-        if (!entry || event.params?.mode !== 'enter' || !(event.toolCallId ?? ctx.toolCallId)) return {block:true,blockReason:'easel_entry_not_bound'};
+        if (!entry || event.params?.mode !== 'enter' || !(event.toolCallId ?? ctx.toolCallId)) {
+          entries.set(runKey(ctx), {failed:true});
+          return {block:true,blockReason:'easel_entry_not_bound'};
+        }
         entry.pending=true;
         entry.call=event.toolCallId ?? ctx.toolCallId;
         entry.params=JSON.stringify(event.params);
+        // Tool factories have session identity but no runId in OpenClaw.
+        // Carry only the identity authenticated by this native hook to execute.
+        calls.set(key(ctx, entry.call, event.toolName), {...identity(ctx, event), entry});
       }
       return;
     }
@@ -180,11 +195,15 @@ export function createWorkBridge(api) {
   });
   const finishDiagnostic = protocolVersion === 2 ? installDiagnostics(api, agentId, inPipeline) : null;
   api.on('agent_end', async (event, ctx) => {
+    const entry = entries.get(runKey(ctx));
+    if (scopedMain && ctx.agentId === 'main' && !inPipeline(ctx) && entry?.entered) {
+      await send('entry', {...identity(ctx,event), mode:'end', prompt:''});
+    }
     entries.delete(runKey(ctx));
+    const bound = identity(ctx, event);
+    for (const [id, call] of calls) if (call.run_id === bound.run_id && call.session_key === bound.session_key && call.session_id === bound.session_id) calls.delete(id);
     if (!inPipeline(ctx)) return;
     prepared.delete(runKey(ctx));
-    const bound = identity(ctx, event);
-    for (const [id, call] of calls) if (call.run_id === bound.run_id) calls.delete(id);
     // If delivery fails the reservation remains occupied. Never release it on a guessed timeout.
     await send('end', {...bound, ...(finishDiagnostic ? {diagnostic:finishDiagnostic(event,ctx)} : {})});
   });
@@ -192,15 +211,32 @@ export function createWorkBridge(api) {
     if (!inPipeline(ctx)) {
       if (!scopedMain || ctx.agentId !== 'main') return null;
       return [{name:'easel_pipeline',label:'进入创作讨论管线',
-        description:'当用户要讨论、创建或修改视频、频道或导演时，先进入现有受控管线，再读取创作资料；不要走旧技能的shell制作链。这里只切换讨论上下文，不创建作品、不确认方案、不授权或执行付费服务。普通闲聊和其他任务不调用。返回真实候选后说明并询问缺项，下一条用户回复自动续接，无需点击或重复主题。',
+        description:'当用户要讨论、创建或修改视频、频道或导演时，先进入现有受控管线，再读取创作资料；不要走旧技能的shell制作链。这里只切换讨论上下文，不创建作品、不确认方案、不授权或执行付费服务。普通闲聊和其他任务不调用。返回真实候选后说明并询问缺项，原生回合结束后宿主自动续接，无需用户回复继续、点击或重复主题。',
         parameters:{type:'object',properties:{mode:{type:'string',enum:['enter']},kind:{type:'string',enum:['new_work','channel_create','director_formation']},user_quote:{type:'string',description:'本轮完整用户原话，不含宿主提示或画像前缀'}},required:['mode','kind','user_quote'],additionalProperties:false},
         async execute(id,params,signal){
-          const entry=entries.get(runKey(ctx));
-          if (!entry || entry.entered || entry.call !== id || entry.params !== JSON.stringify(params)) throw Error('easel_entry_not_bound');
+          const call=calls.get(key(ctx,id,'easel_pipeline'));
+          const entry=call?.entry ?? (ctx.runId ? entries.get(runKey(ctx)) : undefined);
+          if (entry?.terminalError) throw Error(entry.terminalError);
+          if (!call || entries.get(JSON.stringify([call.session_key,call.session_id,call.run_id])) !== entry ||
+              (ctx.runId && ctx.runId !== call.run_id)) throw Error('easel_entry_not_bound');
+          if (!entry || entry.entered || entry.dispatched || entry.call !== id || entry.params !== JSON.stringify(params)) throw Error('easel_entry_not_bound');
           // Once dispatched, a lost receipt must not fall back to unrestricted tools.
-          entry.entered=true;
-          const result=await send('entry',{...params,...identity(ctx),prompt:'',tool_call_id:id},signal);
-          return {content:[{type:'text',text:JSON.stringify(result)}],details:result};
+          entry.dispatched=true;
+          try {
+            const {entry:_,...bound}=call;
+            const result=await send('entry',{...params,...bound,prompt:'',tool_call_id:id},signal);
+            if (result?.entered !== true || typeof result.segment_id !== 'string' || !result.segment_id.trim() ||
+                !result.pending || typeof result.pending !== 'object' || Array.isArray(result.pending)) {
+              throw Object.assign(new Error('invalid_entry_receipt'), {bridgeCode:'invalid_entry_receipt'});
+            }
+            entry.entered=true;
+            return {content:[{type:'text',text:JSON.stringify(result)}],details:result};
+          } catch (error) {
+            entry.terminalError=`easel_entry_failed_finish_turn: ${error?.bridgeCode ?? 'entry_result_unknown'}。创作入口调用失败或未取得有效成功回执，本轮工具调用已停止。不得声称已读取画像或继续尝试读取，不得退回通用工具或重派入口。向用户说明错误并结束本轮；入口是否已提交需核对，不能据此认定未创建讨论上下文。`;
+            throw new Error(entry.terminalError, {cause:error});
+          } finally {
+            entry.pending=false;
+          }
         }}];
     }
     return definitions.map(definition => ({

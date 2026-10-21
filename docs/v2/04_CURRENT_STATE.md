@@ -6,6 +6,8 @@
 
 ## 当前主线
 
+**对话可用性优化已实施部署，待真实验收**：本次内部enter/bind在可信原生结束后自动续接，宿主续接禁止自答提案；合并缺项与必要授权提示；素材失败分类及恢复资格复用现有记录。232项Python单元/组件、24项Node通过；Web与Gateway定向重载后reload_required=false、九工具及automatic_handoff=true，业务表/登记文件/保护文件快照不变，4条UNKNOWN保留。未执行E2E、付费调用或Creator审片。实现及局限见[S6-14A](tasks/S6-14A_conversation-integration.md#conversation-usability-next)，后续使用[Web E2E指令](tasks/S6-14A_conversation-integration.md#conversation-usability-e2e)。
+
 **E2E-06 A/B/C 部署完成（2026-10-21）**：本次6个生产模块已加载，Web首页200、reload_required=false，Gateway保持main/protocol2/main-pipeline-v1/natural_entry及九工具。部署前后27张业务表、134个登记文件路径快照和89份受保护文件摘要一致，4条UNKNOWN未变；数据库完整性及外键检查通过，全部执行/回传/聊天及Gateway活动计数为0。105项单元/组件通过、2项主动排除；未运行E2E、真实模型或付费媒体调用。用户已授权提交并推送本次修复，历史其他Dirty保留，不代表全部历史改动已入库。部署PASS，真实生产/Creator本次未测，原06轮FAIL/BLOCKED仍保留。过程见[S6-14A](tasks/S6-14A_conversation-integration.md)最新部署记录；当前等待用户自行测试。
 
 **E2E-04 三项修复已部署（2026-10-20）**：HTTP按自身结束回执判定，不再被共享raw尾误报中断；正文里的计划路径不自动转产物链接。自然语言入口已接到现有enter/bind：普通main保持综合能力，通过当前Web/原生身份建立受控讨论段，下一回复自动接续，不新增Agent/业务表/状态，不创建作品或授予费用权限。Python270/Node26及前端构建通过；Web200、reload_required=false、Gateway九工具与入口标记通过，无身份入口拒绝。27张业务表/87份画像/3条UNKNOWN不变。未执行E2E、旧任务重跑或付费生产调用；REAL_PRODUCTION_PASS与CREATOR_ACCEPTED均NOT_TESTED，S6仍PARTIAL。下一步等待用户决定新Web E2E。详见S6-14A本日续修。
@@ -20,7 +22,7 @@
 
 **本轮修复已部署（2026-10-20，真实路径待验）**：已按 [S6-14A · 独立审计结论与已批准实施范围及 B0～B4 收口](tasks/S6-14A_conversation-integration.md) 完成同 Work 绑定、当前 Plan/制作服务权威、typed 提案与作品级取消说明、预成片纯旁白新 Plan 的安全事务、搜索显式代理/脱敏分型、多类素材缺口与既有 activity 投影。旧 service.py 候选已被受限 plan 路径替代，W02 原补丁保留，W09 不改、W10 保护。综合 Python **207 passed**、最后服务范围增量 **54 passed**、Node **12 passed**、diff 检查通过；SOFTWARE_PASS 仅限具名单元/组件，不代表全量生产通过。修复轮未执行任何 E2E、媒体生成、真实生产或 Creator 审阅，未操作正式任务/数据、未提交/推送。随后按用户“先部署”授权，空闲检查和一致性备份后重载既有 Web/Worker 与 Gateway；7860 HTTP 200、backend.reload_required=false、协议2/9工具握手通过，27张表及89份画像/配置文件摘要不变。新增表/状态/Agent/工具入口/后台节点均为 0。本次按用户“修改文档，并且提交”授权，将上述修复、回归和权威文档一起纳入本地提交；不推送、不合并。
 
-**唯一下一动作**：本次部署已完成并停止，等待用户决定原会话、原 Work 的真实恢复/验证；不得自动恢复旧任务或开展付费 E2E。部署健康检查通过，旧 UNKNOWN 及全部生产 Operation 内容不变。E2E、REAL_PRODUCTION_PASS、CREATOR_ACCEPTED 本次均 NOT_TESTED；最新真实失败仍保留，S6 PARTIAL，不进入 S7。
+**唯一下一动作**：按上述E2E指令核验现场与真实调用授权后，由正式Web验收。先明确Provider、费用上限与次数；Creator确认方案并审片。当前只交付执行指令，不自动启动E2E，不恢复旧UNKNOWN，不进入S7。
 
 **此前部署/清理快照（2026-10-20，早于上方本轮真实 E2E）**：PR #10（调用诊断）、#11（截断/时长/制作一致性）、#12（当前原生回合等待）的代码已进入 `easel-v2-rebuild@fb309910`；PR #11 因叠加分支的原目标仍可能显示 Open，不能据此认定源码未合入。正式 Web 7860 返回 HTTP 200 且 `backend.reload_required=false`；Gateway `easel-work` 协议2实际注册 9 个工具，内部桥为 `claim/prepare/dispatch/result/end` 五个入口。最新整合版离线生产回归 693 passed / 5 skipped，Node 插件与前端 113 passed；对话等待和超时的隔离 Gateway 验证通过，但未用此整合版重新完成真实付费出片及 Creator 接受。历史真实试片仍保留 30 秒目标与约 19.97 秒结果、画面不符的 FAIL 事实，不能因软件部署改记 PASS。阶段维持 **S6 / F2、F3，S6 PARTIAL；不进入 S7**。
 

@@ -685,3 +685,56 @@ def test_natural_entry_internal_endpoint_requires_credential(env):
             assert client.post('/api/chat/work-tools/entry',json=data,headers={'authorization':'Bearer wrong'}).status_code==401
             assert client.post('/api/chat/work-tools/entry',json=data,headers={'authorization':'Bearer fixture-token-with-at-least-24-characters'}).json()=={'bound':True}
     finally:natural_entry.release('test-entry-route','t')
+
+
+@pytest.mark.parametrize('quote', ['只讨论', 'fixture persona prefix\n\n只讨论'])
+def test_natural_entry_observes_gateway_uuid_and_pins_claim(env, quote):
+    from web.conversation_api import NaturalEntry, EntryCall
+    service, _ = env
+    gate = NaturalEntry()
+    gate.reserve('ui', 'ignored-client-uuid', 'turn', 'exact prompt', '只讨论', 'one',
+                 quoted_message='fixture persona prefix\n\n只讨论')
+    identity = dict(agent_id='main', session_key='agent:main:ui', session_id='gateway-uuid', run_id='run')
+    claim = EntryCall(**identity, mode='claim', prompt='exact prompt')
+    assert gate.call(service, claim) == {'bound': True}
+    assert gate.call(service, claim) == {'bound': True}
+    for delta in ({'session_id': 'other'}, {'run_id': 'other'}, {'prompt': 'other'}):
+        with pytest.raises(ProductionError):
+            gate.call(service, claim.model_copy(update=delta))
+    for forged in ('exact prompt', '只讨论 extra', 'fixture persona prefix\n\n改写', 'previous prompt'):
+        with pytest.raises(ProductionError):
+            gate.call(service, EntryCall(**identity, mode='enter', prompt='', kind='new_work', user_quote=forged, tool_call_id='call'))
+    result = gate.call(service, EntryCall(**identity, mode='enter', prompt='', kind='new_work', user_quote=quote, tool_call_id='call'))
+    context = result['pending']['context']
+    assert context['entry']['profile_name'] == 'one'
+    assert context['profile']['identity'] == 'one identity\n'
+    assert context['sources'][0]['text'] == '只讨论'
+    with service.store.connection() as conn:
+        profile = conn.execute('SELECT id FROM profile_refs WHERE name=?', ('one',)).fetchone()
+        assert context['entry']['profile_ref'] == profile['id']
+        for table in ('works', 'runs', 'tasks', 'operations', 'authorization_grants'):
+            assert conn.execute('SELECT count(*) FROM '+table).fetchone()[0] == 0
+    gate.release('ui', 'turn')
+    assert gate.call(service, claim) == {'bound': False}
+
+
+@pytest.mark.parametrize('failure', ['quote_rejected', 'profile_missing', 'pending_failed'])
+def test_natural_entry_failure_has_no_success_receipt_or_partial_segment(env, monkeypatch, failure):
+    from web.conversation_api import NaturalEntry, EntryCall
+    service, _ = env
+    gate = NaturalEntry()
+    gate.reserve('ui', 'native', 'turn', 'prompt', '只讨论', '' if failure == 'profile_missing' else 'one')
+    identity = dict(agent_id='main', session_key='agent:main:ui', session_id='native', run_id='run')
+    gate.call(service, EntryCall(**identity, mode='claim', prompt='prompt'))
+    if failure == 'pending_failed':
+        def broken_pending(*args):
+            raise RuntimeError('fixture pending failure')
+        monkeypatch.setattr('easel.conversation_pipeline.pending', broken_pending)
+    request = EntryCall(**identity, mode='enter', prompt='', kind='new_work',
+                        user_quote='forged' if failure == 'quote_rejected' else '只讨论', tool_call_id='call')
+    with pytest.raises(RuntimeError if failure == 'pending_failed' else ProductionError):
+        gate.call(service, request)
+    assert gate.turns[identity['session_key']]['result'] is None
+    with service.store.connection() as conn:
+        for table in ('conversation_segments', 'conversation_turns', 'works', 'runs', 'tasks', 'operations', 'authorization_grants'):
+            assert conn.execute('SELECT count(*) FROM '+table).fetchone()[0] == 0

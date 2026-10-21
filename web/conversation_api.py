@@ -75,10 +75,13 @@ class NaturalEntry:
         self.lock = threading.RLock()
         self.turns = {}
 
-    def reserve(self, session, native, turn, prompt, message, profile, attachments=None):
+    def reserve(self, session, native, turn, prompt, message, profile, attachments=None, *, quoted_message=None):
         with self.lock:
-            self.turns['agent:main:'+session] = dict(session=session, native=native,
-                turn=turn, prompt=prompt, message=message, profile=profile, attachments=attachments or [], run=None, result=None)
+            # HTTP Gateway owns the native UUID and may ignore the client hint.
+            # Adopt it only from the authenticated hook claiming this exact turn.
+            self.turns['agent:main:'+session] = dict(session=session, native=None,
+                turn=turn, prompt=prompt, message=message, quoted_message=quoted_message or message,
+                profile=profile, attachments=attachments or [], run=None, result=None)
 
     def release(self, session, turn):
         with self.lock:
@@ -91,16 +94,32 @@ class NaturalEntry:
         from easel.conversation_pipeline import pending
         with self.lock:
             t=self.turns.get(request.session_key)
-            if request.agent_id!='main' or not t or request.session_id!=t['native']:
+            if request.agent_id=='main' and not t and request.mode=='claim':
+                return {'bound':False}
+            if request.agent_id!='main' or not t:
                 fail('binding_mismatch','当前Web讨论回合未绑定',409)
             if request.mode=='claim':
-                if request.prompt!=t['prompt'] or t['run'] not in (None,request.run_id):
+                if (request.prompt!=t['prompt'] or t['run'] not in (None,request.run_id)
+                        or t['native'] not in (None,request.session_id)):
                     fail('binding_mismatch','当前输入或原生回合不匹配',409)
+                t['native']=request.session_id
                 t['run']=request.run_id
                 return {'bound':True}
-            if request.mode!='enter' or t['run']!=request.run_id or not request.tool_call_id:
+            if request.mode=='end':
+                if t['run']!=request.run_id or t['native']!=request.session_id:
+                    fail('binding_mismatch','入口结束身份不匹配',409)
+                if t['result']:
+                    with service.store.transaction() as conn:
+                        source=row(conn,'conversation_turns',t['result']['source_turn_id'])
+                        payload=json.loads(source['payload_json'])
+                        payload['pipeline_binding']={'segment_id':t['result']['segment_id']}
+                        conn.execute('UPDATE conversation_turns SET payload_json=? WHERE id=?',(encode(payload),source['id']))
+                return {'ended':True}
+            if request.mode!='enter' or t['run']!=request.run_id or t['native']!=request.session_id or not request.tool_call_id:
                 fail('binding_mismatch','入口需要当前原生工具回执',409)
-            if request.kind not in ('new_work','channel_create','director_formation') or request.user_quote!=t['message']:
+            # The model may copy the Web persona prefix along with the message.
+            # Accept only two server-owned strings; persist the original below.
+            if request.kind not in ('new_work','channel_create','director_formation') or request.user_quote not in (t['message'],t['quoted_message']):
                 fail('invalid_input','入口只接受本轮完整用户原话和既有管线类型',400)
             if t['result']:
                 if request.kind!=t['kind']:fail('binding_mismatch','本轮已进入另一管线',409)
@@ -119,9 +138,14 @@ class NaturalEntry:
                 segment=conversations.segment(conn,t['session'],result['segment_id'])
                 state=pending(conversations,conn,segment)
             t['kind']=request.kind
-            t['result']={'entered':True,'segment_id':result['segment_id'],'pending':state,
-                'instruction':'只建立了讨论上下文，未创建作品、确认方案或授权费用。现在依据pending解释当前选择并在对话询问缺项；本轮不再调用其他工具。下一条用户回复自动进入该管线，不要求重复主题或点击入口。'}
+            t['result']={'entered':True,'segment_id':result['segment_id'],'source_turn_id':cid,'pending':state,
+                'instruction':'只建立讨论上下文，未创建作品或授权费用。本轮停止其他工具并简短结束；宿主在原生结束后自动续接，不要求用户回复继续，缺项由目标管线合并询问。'}
             return t['result']
+
+    def source(self, session, turn):
+        with self.lock:
+            value=self.turns.get('agent:main:'+session,{})
+            return (value.get('result') or {}).get('source_turn_id') if value.get('turn')==turn else None
 
 
 natural_entry = NaturalEntry()
@@ -200,11 +224,14 @@ class VideoChat:
         self.tasks[req.sessionId]=asyncio.create_task(self._deliver(req.sessionId,req.turnId,result,event_path))
         return await replay(req.turnId,0)
 
-    async def _deliver(self,session,turn_id,result,event_path,*,background=False):
+    async def _deliver(self,session,turn_id,result,event_path,*,background=False,event_sink=None,display_turn_id=None):
         service=self.provider();bridge=PersistentWorkToolBridge(service)
         seq=0;chunks=[];done=False;next_result_write=0.0;finish_reason=None
         def emit(kind,data):
             nonlocal seq
+            if event_sink is not None:
+                event_sink(kind,data)
+                return
             seq+=1
             with event_path.open('a',encoding='utf-8') as f:f.write(json.dumps({'id':seq,'event':kind,'data':data},ensure_ascii=False)+'\n')
         bridge.delivery(turn_id,'dispatching')
@@ -241,9 +268,27 @@ class VideoChat:
                                 next_result_write=asyncio.get_running_loop().time()+0.25
             if finish_reason=='length':raise ValueError('assistant_output_length')
             if not done or not ''.join(chunks).strip():raise ValueError('incomplete_delivery')
+            # Native end is the authority to switch context. A stream ending
+            # alone never releases an UNKNOWN invocation.
+            continuation=None
+            for _ in range(20):
+                with service.store.connection() as conn:
+                    current=conn.execute('SELECT state,payload_json FROM conversation_turns WHERE id=?',(turn_id,)).fetchone()
+                data=json.loads(current['payload_json'])
+                if not data.get('pipeline_entry'):break
+                if current['state']=='ended':
+                    continuation=await asyncio.to_thread(bridge.continue_handoff,session,turn_id)
+                    break
+                await asyncio.sleep(.05)
+            if continuation:
+                await self._deliver(session,continuation['turn_id'],continuation,event_path,
+                    event_sink=emit,display_turn_id=display_turn_id or turn_id)
+                return
+            if data.get('pipeline_entry'):
+                raise ValueError('handoff_not_ready')
             bridge.complete_delivery(turn_id,''.join(chunks))
             view=ConversationService(service).view(session)
-            self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':turn_id})
+            self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':display_turn_id or turn_id})
             emit('work_card',view)
             emit('done',{'sessionKey':session})
         except asyncio.CancelledError:
@@ -267,7 +312,7 @@ class VideoChat:
                 view,message=self.interrupted_result(service,session,turn_id)
                 if finish_reason=='length':message='本轮助手输出达到长度上限而中断；已执行操作以任务回执为准，不会自动重发。'
                 emit('work_card',view)
-                self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':turn_id,'clean_end':False})
+                self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':display_turn_id or turn_id,'clean_end':False})
             except Exception:pass
             if background:bridge.record_result_text(turn_id,''.join(chunks),error=message)
             emit('error',message)

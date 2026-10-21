@@ -5,6 +5,7 @@ import hashlib
 import json
 import time
 import secrets
+from contextlib import nullcontext
 from typing import Literal
 from pydantic import Field, model_validator
 from .work_bridge import Strict, Identity, Claim, Call, Dispatch, Invocation, ContextArgs, DraftArgs, PlanArgs, canonical, reject
@@ -91,8 +92,8 @@ class PersistentWorkToolBridge:
         try:return TOOLS[request.tool].model_validate(request.params).model_dump()
         except (ValidationError,KeyError):reject('invalid_tool_arguments',400)
 
-    def reserve(self,*,ui_session,turn_id,segment_id,message,attachments):
-        with self.store.transaction() as conn:
+    def reserve(self,*,ui_session,turn_id,segment_id,message,attachments,_connection=None):
+        with (nullcontext(_connection) if _connection is not None else self.store.transaction()) as conn:
             segment=self.conversations.segment(conn,ui_session,segment_id)
             fingerprint=digest({'segment_id':segment_id,'message':message,'attachments':attachments})
             prior=conn.execute('SELECT * FROM conversation_turns WHERE id=?',(turn_id,)).fetchone()
@@ -120,6 +121,38 @@ class PersistentWorkToolBridge:
             # Only visible, scoped content is forwarded, never main transcripts or credentials.
             self._save(conn,turn_id,payload,'reserved')
             return {'new':True,'state':'reserved','prompt':prompt,'payload':payload}
+
+    def continue_handoff(self, session, source_id):
+        """Consume a verified handoff once; never manufacture human consent."""
+        with self.store.transaction() as conn:
+            source=conn.execute('SELECT t.* FROM conversation_turns t JOIN conversation_segments s ON s.id=t.segment_id WHERE t.id=? AND s.ui_session=? AND s.revoked_at IS NULL',(source_id,session)).fetchone()
+            if not source or source['state']!='ended':return None
+            payload=json.loads(source['payload_json'])
+            binding=payload.get('pipeline_binding')
+            if not binding or binding.get('error') or payload.get('handoff_consumed'):return None
+            segment=self.conversations.segment(conn,session)
+            if segment['id']!=binding.get('segment_id'):return None
+            depth=payload.get('handoff_depth',0)
+            if depth>=3:return None
+            if conn.execute("SELECT 1 FROM conversation_turns t JOIN conversation_segments s ON s.id=t.segment_id WHERE s.ui_session=? AND t.state IN ('reserved','dispatching','active','unknown')",(session,)).fetchone():return None
+            turn_id='handoff_'+digest([source_id,segment['id']])[:40]
+            # Transfer the Web delivery lease atomically, only after native end.
+            payload.update(delivery_state='interrupted',delivery_lease_until=0)
+            self._save(conn,source_id,payload,'ended')
+            result=self.reserve(ui_session=session,turn_id=turn_id,segment_id=segment['id'],
+                message=payload['message'],attachments=payload.get('attachments',[]),_connection=conn)
+            if not result['new']:return None
+            prompt=('【宿主管线交接；不是新的用户回答或授权】\n'
+                '继续处理下列原始用户意图，不要求用户为了内部切换回复继续。可读取、解析选择、建立明确请求的内部草稿、保存依据及提出提案；'
+                '不得answer任何提案，不得将本事件当作新的同意。缺项合并询问；条件已齐则继续讨论或展示下一提案。\n'
+                +result['prompt'].split('【服务端创作上下文与历史来源，只适用于本运行段】',1)[-1].split('\n用户确认已展示提案时，读取pending并answer原提案；',1)[0])
+            child=result['payload']
+            child.update(origin='handoff',handoff_source=source_id,handoff_depth=depth+1,
+                visible_proposals=[],prompt_hash=hashlib.sha256(prompt.encode()).hexdigest())
+            self._save(conn,turn_id,child,'reserved')
+            payload['handoff_consumed']=turn_id
+            self._save(conn,source_id,payload,'ended')
+            return {**result,'turn_id':turn_id,'prompt':prompt,'payload':child}
 
     @staticmethod
     def _save(conn,id,payload,state):
@@ -169,6 +202,8 @@ class PersistentWorkToolBridge:
             record,payload,segment=self._current(conn,request)
             if payload['tickets'].get(request.ticket)!=digest(request.model_dump(exclude={'ticket'})):reject('ticket_mismatch')
             args=self._args(request)
+            if payload.get('origin')=='handoff' and request.tool=='easel_pipeline' and args['mode']=='answer':
+                reject('handoff_confirmation_required',403)
             if payload.get('origin')=='task_result':
                 read=request.tool in {'easel_work_context','easel_work_input_evidence'} or (request.tool=='easel_pipeline' and args['mode']=='pending')
                 propose=request.tool=='easel_pipeline' and args['mode']=='offer' and args['action']=='confirm' and payload['result_event']['run_state']=='succeeded' and payload['result_event']['plan_ready']
