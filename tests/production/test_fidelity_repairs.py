@@ -126,7 +126,7 @@ def test_new_plan_fixed_and_voice_driven_remain_separate(tmp_path,explicit,mode)
     plan=snap['plans'][0]['plan'];expected='fixed' if explicit or mode is None else mode
     assert plan['narration_policy']=={'continuous':True,'duration_mode':expected}
     seg=narration_segments(plan)[0]
-    out,timing=measured_execution_plan(plan,[{'metadata_json':json.dumps({'role':'voice','segment_id':seg['segment_id'],'duration':18.936})}])
+    out,timing=measured_execution_plan(plan,[{'id':'voice','metadata_json':json.dumps({'role':'voice','segment_id':seg['segment_id'],'duration':18.936})}])
     assert out['settings']['duration_seconds']==pytest.approx(30 if expected=='fixed' else 19.9666667)
     if explicit:
         bad=deepcopy(plan);bad['narration_policy']['duration_mode']='voice_driven'

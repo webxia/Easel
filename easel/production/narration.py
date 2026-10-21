@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from math import ceil
 import json
+from types import SimpleNamespace
 from .contracts import fingerprint
 from .voice import sentence_segments
 from .model_tasks import ModelTaskError
@@ -37,6 +38,8 @@ def narration_segments(plan: dict, protected: set[str] | None = None) -> list[di
 def measured_execution_plan(plan: dict, records: list[dict]) -> tuple[dict, dict | None]:
     """The opt-in runtime follows measured speech; the frozen draft stays intact."""
     policy = plan.get('narration_policy') or {}
+    if policy.get('duration_mode') == 'fixed' and policy.get('continuous'):
+        return plan, fixed_speech_timing(plan, records)
     if policy.get('duration_mode') != 'voice_driven':
         return plan, None
     meta = [json.loads(r['metadata_json']) for r in records]
@@ -66,7 +69,7 @@ def measured_execution_plan(plan: dict, records: list[dict]) -> tuple[dict, dict
 
 
 def check_voice_schedule(audio, records: list[dict], timing: dict | None) -> None:
-    if not timing:
+    if not timing or timing.get('mode') == 'fixed':
         return
     by_segment = {json.loads(r['metadata_json']).get('segment_id'): r['id'] for r in records}
     for slot in timing['voice_schedule']:
@@ -102,3 +105,68 @@ def aligned_captions(audio, records: list[dict]) -> list[dict] | None:
             captions.append({'text': segment['text'], 'start': clip.at + segment['start'],
                              'end': min(clip.at + clip.duration, clip.at + segment['end'])})
     return captions or None
+
+
+def fixed_speech_timing(plan: dict, records: list[dict]) -> dict | None:
+    """Measured anchors for editing, NOT a new silence or placement gate."""
+    by_segment = {json.loads(r['metadata_json']).get('segment_id'): r for r in records}
+    segments = narration_segments(plan)
+    if not segments or any(s['segment_id'] not in by_segment for s in segments):
+        return None
+    total = sum(json.loads(by_segment[s['segment_id']]['metadata_json'])['duration'] for s in segments)
+    duration = plan['settings']['duration_seconds']
+    # Suggested placement only; fixed films may intentionally contain quiet scenes.
+    gap = min(.25, max(0, duration-total) / (len(segments)+1))
+    cursor = min(.2, gap)
+    schedule, clips = [], []
+    for segment in segments:
+        record = by_segment[segment['segment_id']]
+        seconds = json.loads(record['metadata_json'])['duration']
+        schedule.append({'segment_id': segment['segment_id'], 'at': cursor,
+                         'duration': seconds, 'scene_ids': segment['scene_ids']})
+        clips.append(SimpleNamespace(asset_id=record['id'], role='voice', at=cursor, duration=seconds))
+        cursor += seconds + gap
+    captions = aligned_captions(clips, records)
+    anchors = []
+    if captions:
+        normalize = lambda text: ''.join(text.split())
+        spoken = ''.join(normalize(c['text']) for c in captions)
+        expected = ''.join(normalize(s.get('narration', '')) for s in plan['scenes'])
+        # Only whole aligned phrases within the exact scene text are anchors.
+        # A phrase crossing a scene boundary cannot supply an invented cut time.
+        if spoken == expected:
+            offset = 0
+            ranges = []
+            for caption in captions:
+                end = offset + len(normalize(caption['text']))
+                ranges.append((offset, end, caption)); offset = end
+            offset = 0
+            for scene in plan['scenes']:
+                end = offset + len(normalize(scene.get('narration', '')))
+                parts = [c for a, b, c in ranges if offset <= a < b <= end]
+                if parts:
+                    anchors.append({'scene_id': scene['id'], 'start': parts[0]['start'],
+                                    'end': parts[-1]['end'], 'basis': 'literal aligned phrases'})
+                offset = end
+    return {'mode': 'fixed', 'placement': 'advisory', 'duration': duration,
+            'voice_schedule': schedule, 'aligned_captions': captions, 'scene_anchors': anchors,
+            'unvoiced_seconds': max(0, duration-total),
+            'basis': 'measured complete speech; keep confirmed duration; quiet visuals need narrative purpose'}
+
+
+def project_timing_evidence(project, caption_roles=None) -> dict:
+    """Existing project facts for visual review; does not claim to hear audio."""
+    voice = [{'start': a.at, 'end': a.at+a.duration} for a in project.audio if a.role == 'voice']
+    captions = [{'text': c.text, 'start': c.start, 'end': c.end,
+                 'role': (caption_roles or {}).get(c.caption_id, 'unknown')}
+                for c in project.captions]
+    cursor, scenes = 0, []
+    for scene in project.scenes:
+        scenes.append({'scene_id': scene.scene_id, 'start': cursor,
+                       'end': cursor+scene.duration, 'asset_id': scene.asset_id,
+                       'source_start': scene.source_start})
+        cursor += scene.duration-scene.transition_seconds
+    return {'duration': project.duration, 'voice_intervals': voice, 'captions': captions,
+            'scenes': scenes, 'unvoiced_tail_seconds': max(0, project.duration-max(
+                (v['end'] for v in voice), default=project.duration)),
+            'basis': 'edit timeline only; silence is not automatically a defect; audio not reviewed'}

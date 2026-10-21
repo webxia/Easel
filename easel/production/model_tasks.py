@@ -100,7 +100,26 @@ class HTTPModelTransport:
                     if request_id: diagnostic["request_id"] = request_id
                     await response.aread()
             if response.status_code != 200:
-                raise ModelTaskError("provider_http_error", f"模型服务返回 HTTP {response.status_code}；请核查请求格式或服务权限")
+                # Never persist arbitrary provider text: it can echo prompts,
+                # credentials, signed URLs or reasoning. Parse only a small body
+                # and retain a closed vocabulary, byte count and digest.
+                raw = response.content
+                diagnostic.update(error_body_bytes=len(raw),
+                    error_body_sha256=hashlib.sha256(raw).hexdigest(), error_body_format='other')
+                if raw.lstrip().startswith(b'<'):
+                    diagnostic['error_body_format']='html'
+                if len(raw) <= 65536:
+                    try:
+                        error_payload = json.loads(raw)
+                        diagnostic['error_body_format']='json'
+                        error = error_payload.get('error', {}) if isinstance(error_payload, dict) else {}
+                        code = error.get('code') if isinstance(error, dict) else None
+                        if code in {'internal_error','server_error','rate_limit_exceeded',
+                                    'context_length_exceeded','invalid_request_error','authentication_error'}:
+                            diagnostic['provider_error_code']=code
+                    except (ValueError, TypeError):
+                        pass
+                raise ModelTaskError("provider_http_error", f"模型服务返回 HTTP {response.status_code}；未取得可靠结果，禁止自动重发。请结合调用诊断核查服务状态")
             try:
                 payload = response.json()
                 choice = payload["choices"][0]

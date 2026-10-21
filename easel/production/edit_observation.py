@@ -13,11 +13,57 @@ class InspectCandidate(Contract):
         description='源视频内要查看的实际秒数，最多8帧；不得超出源片长度')
 
 
-def edit_observation_tools(paths, observed=None):
+class ObservationBudget:
+    """One revision's frame allowance and evidence; not a provider context limit.
+
+    The accumulated media can be carried into the existing stock-selection call.
+    Paths must already have passed artifact digest/ownership validation.
+    """
+    def __init__(self, limit=64):
+        self.remaining = limit
+        self.media = []
+        self.required = {'text', 'structured'}
+        self.observed = {}
+        self.sampled = set()
+
+    async def observe(self, asset_id, path, *, frame_times=None, max_frames=2, include_audio=False):
+        known = self.observed.get(asset_id, [])
+        requested = list(dict.fromkeys(frame_times)) if frame_times is not None else None
+        missing = [t for t in requested if t not in known] if requested is not None else None
+        count = min(self.remaining, len(missing) if missing is not None else max_frames)
+        blocks, required = (), frozenset()
+        if count and (missing or (requested is None and asset_id not in self.sampled)):
+            blocks, required, evidence = await asyncio.to_thread(observe_media, path,
+                frame_times=tuple(missing[:count]) if missing is not None else None,
+                max_frames=count, include_audio=include_audio)
+            actual_count = sum(b.get('type')=='image_url' for b in blocks)
+            self.remaining -= actual_count
+            known = list(dict.fromkeys([*known, *evidence.get('frame_times', [])]))
+            self.observed[asset_id] = known
+            if requested is None:
+                self.sampled.add(asset_id)
+            blocks = ({'type':'text','text':'实际观察素材 '+asset_id}, *blocks)
+            self.media.extend(blocks)
+            self.required.update(required)
+        unseen = [t for t in requested if t not in known] if requested is not None else []
+        return MediaToolResult({'asset_id':asset_id,
+            'frame_times': [t for t in known if requested is None or t in requested],
+            'unobserved_times':unseen, 'budget_exhausted':self.remaining <= 0,
+            'remaining_frames':self.remaining, 'audio_observed':False,
+            'limitation':'只对已返回画面作判断；缺证据请报告缺口，不必反复请求。'},
+            tuple(blocks), frozenset(required))
+
+
+def edit_observation_tools(paths, observed=None, *, budget=None):
     # Paths come from validated artifact_file, never from the model.
     async def inspect(args, context):
         if args.asset_id not in paths:
             raise ValueError('Only current admitted visual candidates may be observed')
+        if budget is not None:
+            result = await budget.observe(args.asset_id, paths[args.asset_id], frame_times=args.frame_times)
+            if observed is not None:
+                observed[args.asset_id] = budget.observed.get(args.asset_id, [])
+            return result if result.media else result.evidence
         blocks, required, evidence = await asyncio.to_thread(observe_media,
             paths[args.asset_id], frame_times=tuple(args.frame_times), include_audio=False)
         if observed is not None:

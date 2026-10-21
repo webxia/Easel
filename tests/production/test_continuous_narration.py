@@ -64,7 +64,9 @@ def test_actual_speech_drives_opt_in_duration_without_mutating_frozen_plan():
         with pytest.raises(ValueError):
             check_voice_schedule([bad], [record(p)], receipt)
     p['narration_policy']['duration_mode'] = 'fixed'
-    assert measured_execution_plan(p, [record(p)]) == (p, None)
+    fixed, timing = measured_execution_plan(p, [record(p)])
+    assert fixed == p and timing['placement'] == 'advisory'
+    assert timing['duration'] == 105
 
 
 def test_provider_captions_need_complete_literal_text_and_real_timing():

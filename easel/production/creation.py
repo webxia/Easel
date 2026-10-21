@@ -157,7 +157,8 @@ class CreationTasks:
             execution_plan, timing = measured_execution_plan(context.plan, records)
             if timing:
                 context = replace(context, plan=execution_plan,
-                    brief=context.brief + '\n本片允许按真实旁白定长；程序已测量以下连续音轨时间，不按草稿分镜补静默：' + encode(timing))
+                    brief=context.brief + ('\n本片按真实旁白定长，遵守实测音轨位置：' if timing['mode']=='voice_driven' else
+                        '\n本片保持确认的固定总时长；以下是真实旁白长度与可靠字幕锚点，音轨位置仅为建议。按实际讲述安排核心画面，留白须有动作、阅读或叙事用途，不为凑时长堆积空镜。不能改写旁白、拉伸字幕或改声音参数；无法落实时如实报告未落实场景：') + encode(timing))
             context=replace(context,artifacts=tuple({'asset_id':r['id'],'kind':r['kind'],'metadata':json.loads(r['metadata_json'])} for r in records),allowed_handles=context.allowed_handles|frozenset(manifest.assets))
             observations=[];required={'text','structured'};observed={}
             # M3.1 accepts visual frames but not input_audio. Measured local
@@ -191,7 +192,7 @@ class CreationTasks:
                 check_visual_evidence(candidate,observed)
                 from .boards import check_board_usage
                 check_board_usage(candidate.scenes,records,overlays=[c for c in candidate.captions if c.role=='overlay'])
-                if not timing:
+                if not timing or timing['mode']=='fixed':
                     return
                 if any('role' not in c.model_fields_set for c in candidate.captions):
                     raise ValueError('必须明确每条文字的role：narration为旁白字幕，overlay为独立解释字')
@@ -217,7 +218,7 @@ class CreationTasks:
             answer=await self.planning.runner(ctx,max_format_repairs=2).run(context,
                 VISUAL_EVIDENCE_INSTRUCTION + '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
                 '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
-                '连续旁白应跨镜头讲完，严格遵守给定voice_schedule，不为草稿分镜时长加入静默；'
+                '连续旁白应跨镜头讲完；voice_driven严格遵守voice_schedule，fixed使用实测时间作安排依据、位置可按叙事调整，不按草稿分镜凑静默；'
                 '字幕短行分语义显示，不能将整段连续旁白一次堆在画面上。选择画质与景别适合、光线与动作相接的素材，'
                 '每条文字明确role：narration只显示旁白并继承频道字幕样式；overlay为独立解释文字，保留设计的字体、位置、字号，避开底部旁白区，不能叠字。'
                 '同时查看素材画面里原有的字幕、标题和图表文字；避开口播字幕区域，必要时换片段、调整构图或移开独立解释字，不要在已有文字上重复叠字。'
@@ -352,6 +353,10 @@ class CreationTasks:
             self._quality_state(ctx,artifact,'needs_fix')
             return TaskResult(work_state='preview_needs_fix',result={'output_id':artifact['id'],'technical':'fail'})
         quality_context = self.planning.context(ctx)
+        from .narration import project_timing_evidence
+        quality_context = replace(quality_context, brief=quality_context.brief +
+            '\n实际编辑时间依据（不是听审结论）：' + encode(project_timing_evidence(project,
+                json.loads(project_record['metadata_json']).get('caption_roles'))))
         if (quality_context.plan.get('narration_policy') or {}).get('duration_mode') == 'voice_driven':
             from copy import deepcopy
             measured_plan = deepcopy(quality_context.plan)
@@ -377,7 +382,9 @@ class CreationTasks:
                                 review_id=payload.get('visual_repair_review_id')
                                 if not review_id:
                                     review_id=new_id()
-                                    feedback='原生视觉抽样发现以下问题。仅修正有证据的问题，保留完整旁白、已确认观点及总时长；需要库存时使用有界补料，不用无关素材替代：'+encode(findings)
+                                    feedback=('原生视觉抽样发现以下问题，需先确认涉及声音/字幕时码或内容的修订范围，不能直接视觉重剪：'
+                                        if evidence['review'].get('repair_scope')=='protected_timing_or_content' else
+                                        '原生视觉抽样发现以下问题。仅修正有证据的问题，保留完整旁白、已确认观点及总时长；需要库存时使用有界补料，不用无关素材替代：')+encode(findings)
                                     conn.execute('INSERT INTO reviews(id,work_id,output_id,feedback,created_at) VALUES (?,?,?,?,?)',
                                         (review_id,ctx.work_id,artifact['id'],feedback,now()))
                                     payload['visual_repair_review_id']=review_id
@@ -385,7 +392,10 @@ class CreationTasks:
                                     self.service._event(conn,ctx.work_id,'visual_repair_requested',{'output_id':artifact['id'],'review_id':review_id},run_id=ctx.run_id)
                             return TaskResult(result={'output_id':artifact['id'],'visual':'fail'},next_kind='revise',
                                 next_payload={'review_id':review_id,'output_id':artifact['id'],'repair_round':1,
-                                    'preserve_audio':True,'creative_visual_repair':True},work_state='producing')
+                                    'preserve_audio':True,'creative_visual_repair':True,
+                                    'repair_scope':evidence['review'].get('repair_scope','visual'),
+                                    'affected_scene_ids':[sid for sid in evidence['review'].get('affected_scene_ids',[])
+                                        if sid in {s.scene_id for s in project.scenes}]},work_state='producing')
                         return TaskResult(work_state='preview_needs_fix',result={'output_id':artifact['id'],'visual':status,'semantic':'not_tested'})
                 except ModelTaskError as exc:
                     self._check(ctx,artifact,'semantic','not_tested',{'code':exc.code,'scope':'sampled_visual_only'},rule_version='visual-preview-1')

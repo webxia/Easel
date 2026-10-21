@@ -997,3 +997,81 @@ SOFTWARE_PASS：上述局部回归通过；REAL_PRODUCTION_PASS：NOT_TESTED；C
 - 部署：Web200；backend.reload_required=false；Gateway main/protocol2/九工具/main-pipeline-v1/natural_entry=true。认证但无活动Web回合的入口请求返回409 binding_mismatch；该探针不创建讨论、不调用模型。
 - 部署前后27张业务表和87份画像文件摘要相同，3条UNKNOWN保留；integrity_check=ok，foreign_key_check无异常。未重发旧任务、未执行E2E或付费生产调用。
 - SOFTWARE_PASS：本轮单元/组件通过。REAL_PRODUCTION_PASS：NOT_TESTED。CREATOR_ACCEPTED：NOT_TESTED。自然语言意图识别仍由main判断，软件测试证明入口、权限与续接，不证明真实模型每次都选对工具。后续由用户决定新Web E2E，S6仍PARTIAL。
+
+## 2026-10-21 · E2E-06 独立复核及最小修复设计（待实施）
+
+本轮为 S6 CURRENT_BLOCKER 的独立审阅与设计；依据本机第06轮审阅记录（私有证据不入库）、当前源码、实际 Plan 与编辑工程。未重发 UNKNOWN、调用付费模型、运行 E2E、修改生产代码或部署。未进行完整人工视听审片，视觉事实仍受原抽样证据范围限制。既有未提交修改保留。
+
+### 归因修正
+
+1. **末尾无旁白/字幕是编辑时间安排问题，不是渲染丢字。** 工程总长45秒，voice 2.0–33.176秒，末字幕至33.2秒。`narration.measured_execution_plan` 仅处理 voice_driven，fixed 不产生同等实测时间安排；`creation.edit` 因而缺少供剪辑与核验共同使用的固定时长实测旁白锚点。不能仅归因为旁白偏短，也不能把任何留白都当失败。此次近12秒尾部留白与确认的连续讲述意图需要共同审查。
+2. **画面错配需要分层。** 已确认 Plan 允许通用桌面、输入和文件画面，不能仅因看不出具体 AI 界面判失败；文件多也不独立证明与“积累少”矛盾。核心案例、动作方向、画面与实际旁白时间关系才是重点。当前 visual_evidence 验证引用和观察范围，不能证明语义匹配；抽样视觉 QC 未完成全片音频审查，不能冒充全片视听判断。
+3. **自动修订存在范围不匹配。** `creation.quality` 将 findings 一并交给 preserve_audio 的视觉修订；`visual_repair.assert_visual_repair` 明确保护 AudioClip、字幕字句/时码和总长。该路径可换素材、重剪画面，却不能保证修复旁白结束时间。保护本身正确，应该修输入范围和首版时间安排，不能删除保护。
+4. **HTTP500上游根因仍未知，但客户端有可落地的收敛点。** 175张图片、约5.45MB、154秒收到500，不证明超限或本地900秒超时。`revisions` 全量候选观察与 `ModelTaskRunner` 后续工具媒体累积造成较大请求；完全重复图片仅约6.2%，去重不是充分方案。非200正文未留下可用脱敏错误类别，影响归因。已有>5MB合成测试只证明协议和UNKNOWN保护，不证明端点稳定。
+5. **已有改动不解决上述三项。** 本轮既有 confirm 待确认摘要可以保留；它不改变确认事务，也不能代表成片或修订已修复。其他先前 Dirty 不归功于第06轮。本次不重跑或扩大既有测试结论。
+
+### 推荐实施批次
+
+**A：先让首版编辑使用真实声音时间。** 复用 `narration.measured_execution_plan`、真实对齐字幕和 `creation.edit`，为 fixed 模式提供真实 voice 区间、可可靠映射的句子/场景锚点及剩余可用时间，保持确认总长与冻结 Plan 不变。句子映射只能来自实际对齐结果与文本匹配，不能比例伪造。将同一时间依据传给现有 QC；先区分计划留白与无叙事用途的长尾，不新增“每秒必须有字幕”硬门槛。已有编辑生成/校验范围内安排有目的的视觉段落，不追加模型修复轮数。若自然旁白、既定文案和固定时长确实无法合理兼容，通过现有 needs_decision/提案说明“保留时长重规划文案”或“确认调整时长”，不得偷偷改音色、拉伸字幕、补写旁白或重合成。
+
+验证：固定45秒/实测约31秒的合成工程；正常留白不误拒；真实字幕字句与时码正确；无对齐证据不制造锚点；voice_driven 与完整声音保护回归。不能仅靠检测尾部时长就宣称修复质量。
+
+**B：修订只处理其权限内的具体问题。** 在 `creation.quality` 到 `revisions.revise` 的既有反馈中区分画面替换/选段、时间安排和需改声音或文案的问题；不新增状态或第二套审片流程。纯画面问题进入现有一次视觉修订；被保护的声音/字幕修改要求走既有范围确认，不能让模型在锁定条件下反复尝试。保留 `assert_visual_repair`。将关键表达、实际旁白区间、选用素材区间传入现有编辑/视觉评审；关键动作有观察依据，氛围镜头不要求逐字配图。实际视频帧不足以证明动作时明确不确定，不能凭资产标题补证。素材缺口复用现有有限检索及 Rights/授权检查。
+
+验证：普通桌面B-roll不因无AI界面自动失败；核心动作方向错误可形成具体时间点反馈；音频问题不派给无法改变音频的视觉任务；混合问题不漏报、不增加修订次数或越权改时码。
+
+**C：有界缩小当前自动修订请求，并补错误诊断。** 在 `revisions._observe/revise`、`edit_observation` 和现有 runner 内先观察失败场景及实际依赖素材，保留其他候选元数据供按需 inspect；取消“所有候选必须先全看”的要求。同一资产摘要/时点复用观察结果，保留来源关联；为本次修订的初始观察及后续工具观察共用有限帧预算，不引入通用压缩器或新后台系统。不删必需 reasoning，不更换模型，不以5MB冒充官方上限。预算耗尽时返回已有证据及缺口，让既有有界流程收口，不自动重发或把未观察素材当已验证。为非200响应增加有长度上限、字段白名单的错误类别/请求ID等诊断；不保存任意原始正文、图片、密钥或推理文本。500继续保留UNKNOWN，不宣称该批保证消除上游故障。
+
+验证：局部修订不装载无关全部图片；重复观察不重复携带媒体但引用可追溯；预算跨工具轮有效；正确保留工具协议/reasoning；模拟500、非JSON错误、读取超时与UNKNOWN重放不产生重发；错误诊断不泄漏敏感正文。新的观察策略只作用于新任务，已冻结操作及历史成功回执不可重写。
+
+### 可用性与复杂度边界
+
+复用现有输出回传显示可播放但 needs_fix 的版本，清楚解释哪些已完成、哪些未通过和安全选择；无需新进度面板。先验证已有回传，不预设另造交付机制。
+
+本方案新增数据库表、业务状态、Agent、后台任务节点、正常流程确认步骤均为0。优先修改上述现有函数及针对性单元/组件测试；通用上下文管理、全题材质检矩阵保持S7待评审。本次仅针对已出现的视觉修订请求收敛，不能扩大为通用上下文架构重做。
+
+实施顺序 A→B→C，每批先用离线失败fixture证明缺口，再实施并运行单元/组件回归。仅在软件回归完成后另行决定部署及真实验证；不重派旧UNKNOWN，不以新请求替代旧请求查询。本轮方案未实施，SOFTWARE_PASS（本方案）=NOT_TESTED；原REAL_PRODUCTION_PASS=FAIL/BLOCKED；CREATOR_ACCEPTED=NOT_TESTED。完成设计后暂停，等待用户评审。
+
+## 2026-10-21 · E2E-06 A/B/C 有界实施收口（单元与组件验证）
+
+用户批准上述三批实施，明确不执行 E2E、付费请求或旧 UNKNOWN 重发。阶段保持 S6 / CURRENT_BLOCKER；不推进 S7。基线 `easel-v2-rebuild@d9aa2899`，原有 Dirty 与私有未跟踪内容保留。本轮未修改正式数据库、运行配置或服务进程，没有部署、提交或推送。
+
+### 实际实现
+
+- **A / 时间安排**：`narration.measured_execution_plan` 为 continuous + fixed 提供实测完整旁白长度、建议音轨位置和可靠的逐句对齐时间。只有文字完全对应且实际字幕片段完整落在场景文本内时才建立场景锚点；跨场景片段不比例切分，缺少对齐时明确无锚点。冻结 Plan 与确认时长不变；固定模式位置是创作建议，不增加静默时长、语速或“每秒必须有字幕”的硬门槛。`creation.edit` 使用该依据，`creation.quality` 同时收到实际工程的声音/字幕/画面区间及无旁白尾部长度。此事实不能替代听审，也不保证模型必然给出优质剪辑。
+- **B / 语义与范围**：既有视觉抽样合同只增加两个有默认值的内部字段 `repair_scope`、`affected_scene_ids`，不新增检查层。评审按确认的视觉意图区分通用镜头与核心动作，不因缺具体软件界面或正常留白直接否决。纯画面问题仍进入现有一次自动修订；涉及受保护声音、字幕时码或内容的问题进入同一个 revise 节点，由程序将原工程和已取得的 QC 问题整理成现有 RevisionProposal，再进入既有 `confirm_revision`。此分支不调用模型、观察媒体、改工程或自动重配音；用户确认后仅新建 planning，默认保持已确认时长，后续制作仍须确认。没有另造恢复入口。
+- **B / 衔接修正**：实施中发现单纯让 quality 返回 needs_decision 会让用户面对已有成片不能直接 replan 的限制，故未采用该中间方案。已用临时数据库组件用例验证现有修订范围 Hash 校验、用户确认→planning 的路径，原输出仍可读。不能将“可调整时长”承诺为本轮新增的直接变更能力。
+- **C / 当前自动视觉修订收敛**：在既有 `revision_asset_ids` 首次冻结时登记 `observation_policy=targeted-v1`。此前已冻结候选的任务不补标记，保留原观察策略。新自动视觉修订优先观察受影响场景、当前选用源片区间及原片对应位置；其他候选只带元数据，通过既有 inspect_media 按需观察。初始观察和后续工具共用64帧预算，同资产同时间复用，补料后的既有选择调用继承证据和剩余额度；没有新增模型轮数。64为本修订的工程采样预算，不是服务商上下文或请求体上限；耗尽返回已知证据/未观察时点，不能伪称观察完成。原模型、Thinking、完整工具协议与 UNKNOWN 状态规则不变。
+- **C / 诊断**：HTTP 非200只保存正文长度/摘要/格式、现有安全 request_id，以及闭集错误码；仅解析不超过64KiB的错误 JSON。不记录任意错误消息、原始正文、密钥或推理。500提示不再武断归因为请求格式或权限错误；依旧进入UNKNOWN，不自动重发。此修复不证明第06轮上游500已经消失。
+
+### 验证与限制
+
+先补的 A 两项回归在旧实现失败（fixed 没有时间依据），修复后通过；C 的预算与诊断用例在旧实现失败，修复后通过。新增 `test_s6_edit_repair.py` 共13项，包含直接 edit/quality/revise 组件、原范围确认事务、跨工具轮预算与 reasoning 保留；全部使用假模型、MockTransport、临时文件/数据库，没有运行完整制作闭环。旧 fixed 测试更新为“时长保持且建议位置非强制”，补齐实测素材 fixture 的真实句柄结构，不降低合同断言。
+
+最终命令：
+
+```sh
+.venv/bin/python -m pytest -q tests/production/test_s6_edit_repair.py tests/production/test_model_tasks.py tests/production/test_model_call_diagnostics.py tests/production/test_operations.py tests/production/test_visual_repair.py tests/production/test_director_freedom.py tests/production/test_fidelity_repairs.py tests/production/test_continuous_narration.py tests/production/test_editor_contract.py tests/production/test_creative_captions.py tests/production/test_revision_acceptance.py tests/production/test_e2e06_model_boundary.py -k 'not autonomous_worker and not draft_auditor'
+```
+
+结果：**105 passed / 2 deselected**，1条既有Starlette弃用警告；日志 `/tmp/easel-s6-edit-repair-unit-components.log`。其中名称含 e2e06 的文件仅为先前已存在的合成大请求/UNKNOWN组件用例，并非 Web 或隔离 E2E。没有运行完整 production 测试目录、浏览器、Gateway隔离 E2E 或真实制作；个别既有单元用例使用本地合成小媒体，不涉及用户作品及付费媒体。`git diff --check`通过。
+
+复杂度：新增数据库表/业务状态/Agent/后台节点/工具入口/正常流程确认轮数均0；新增测试文件1个，生产模块仍为原6个文件。既有音轨、字幕时码、Rights、费用授权、幂等和UNKNOWN保护未放松。通用上下文管理与跨题材质量矩阵仍留S7候选，不在本轮实施。
+
+**SOFTWARE_PASS=PASS（上述具名单元/组件范围）**；**REAL_PRODUCTION_PASS=NOT_TESTED（本次，原06轮FAIL/BLOCKED不变）**；**CREATOR_ACCEPTED=NOT_TESTED**；**DEPLOY_PASS=NOT_TESTED**。语义质量依赖后续真实观察，不能把本次离线通过当成成片已修好。当前新增观察策略只覆盖新自动视觉修订，历史任务不自动迁移；旧MODEL请求若上下文/合同已变化仍由既有指纹保护拒绝改变，不承诺任意历史任务可无缝重放。
+
+后续如批准部署，应先核对源码与并发改动、生产/Gateway/原生回合空闲及UNKNOWN保护，按现有规范部署；本轮没有执行这些动作。完成本轮修复与离线复验后停止，等待用户决定下一步。
+
+### 2026-10-21 · A/B/C 正式部署与具名推送授权
+
+用户明确批准：先确认空闲，再部署本次修复、提交并推送 `origin/easel-v2-rebuild`；不运行E2E、不重发旧任务或付费请求。已核对本地/远端基线均为 `d9aa2899`，没有分叉。
+
+发布前确认生产Run、Task、在途Operation、未结束原生回合、待派发结果、普通聊天running标记、Gateway active/queued均为0。历史4条UNKNOWN独立保留，不视为可重发任务。在本机忽略的备份目录保存SQLite一致性恢复点、原6个生产模块、发布源码及运行配置；恢复点与原始核验清单不入Git。
+
+仅重载既有 `com.easel.web`，Web PID5948→34352，启动时间2026-10-21 23:05:45 CST；Gateway未重启。首页HTTP200，`backend.reload_required=false`；现有Gateway认证握手为main、protocol2、main-pipeline-v1、natural_entry及9工具。部署后再次确认全部上述活动计数为0。
+
+部署前后27张业务表逐表内容摘要、全部134个登记存储路径的存在性/文件摘要、89份画像/配置等受保护文件摘要完全一致，4条UNKNOWN不变；`integrity_check=ok`、`foreign_key_check`为空；发布的6个源码文件摘要与恢复点登记一致。登记文件核验为前后相等，不把既存缺失文件误报为已修复。软件验证继续使用本轮105 passed/2主动排除的具名单元/组件结果，没有为发布运行E2E或模型调用。
+
+提交仅包含本次6个生产模块、对应测试和本任务/状态摘要；先前入口、插件、Web及其他历史Dirty不并入此提交，继续保留在本地。合成大请求/UNKNOWN组件测试一并纳入，供重现本轮具名验证；无用户媒体或原始运行数据。当前部署是本次提交内容加本地既有未提交环境，不宣称工作区已全部清洁或所有历史修改均已推送。
+
+DEPLOY_PASS=PASS（上述健康、源码新鲜度及保护数据核验）；SOFTWARE_PASS=PASS（具名离线范围）；本次REAL_PRODUCTION_PASS/CREATOR_ACCEPTED均NOT_TESTED，原第06轮FAIL/BLOCKED事实不变。下一步由用户自行测试，部署窗口不自动续作。

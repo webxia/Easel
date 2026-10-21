@@ -91,19 +91,25 @@ class RevisionTasks:
     def __init__(self,service,planning,creation,*,supply=None):
         self.service,self.planning,self.creation,self.supply=service,planning,creation,supply
 
-    async def _observe(self,records,*,audio_native,observed=None):
+    async def _observe(self,records,*,audio_native,observed=None,budget=None):
         from .inspection import observe_media
         blocks=[];required={'text','structured'}
         visual_count=sum(r['kind'] in {'image','video'} for r in records)
         frame_limit=max(2,min(4,96//max(1,visual_count)))
         for record in records:
             if record['kind']=='font':continue
+            if budget is not None:
+                if record['kind'] not in {'image','video'}:continue
+                if record['id'] not in budget.observed:
+                    await budget.observe(record['id'],artifact_file(self.service,record),max_frames=2)
+                if observed is not None:observed.update(budget.observed)
+                continue
             blocks.append({'type':'text','text':'实际候选素材句柄 '+record['id']})
             media,needs,evidence=await asyncio.to_thread(observe_media,artifact_file(self.service,record),
                 include_audio=audio_native,max_frames=frame_limit)
             if observed is not None:observed[record['id']]=evidence.get('frame_times',[])
             blocks.extend(media);required.update(needs)
-        return blocks,required
+        return (list(budget.media),set(budget.required)) if budget is not None else (blocks,required)
 
     async def revise(self,ctx):
         from .worker import TaskResult
@@ -116,6 +122,22 @@ class RevisionTasks:
                 deps=[r[0] for r in conn.execute('SELECT dependency_id FROM artifact_edges WHERE artifact_id=?',(project_record['id'],))]
             if review['work_id']!=ctx.work_id or output['work_id']!=ctx.work_id:raise ValueError('foreign revision')
             base=EditProject.model_validate_json(artifact_file(self.service,project_record).read_text())
+            if ctx.payload.get('repair_scope')=='protected_timing_or_content':
+                # A known QC finding outside visual-only authority needs the
+                # existing scope confirmation, not another paid creative call.
+                proposal=RevisionProposal(summary='请确认涉及旁白、字幕时码或内容的修订范围',
+                    affected=['audio','captions','content'],expands_scope=True,requires_new_generation=False,
+                    reason=review['feedback']+'。原版保留；确认后先提出新版方案，默认保持确认时长，不自动制作。',
+                    edit=CreativeEdit.model_validate({k:v for k,v in base.model_dump().items()
+                        if k in {'scenes','audio','captions','required_features'}}))
+                with ctx.transaction() as conn:
+                    conn.execute('UPDATE reviews SET changes_json=? WHERE id=?',
+                        (encode({'schema_version':1,**proposal.model_dump(mode='json'),
+                                 'base_digest':output['digest'],'producer_task_id':ctx.task_id,
+                                 'source':'quality_scope'}),review['id']))
+                return TaskResult(state='needs_decision',work_state='needs_decision',
+                    error=ProductionError('revision_scope_confirmation',proposal.summary+'。'+proposal.reason,
+                                          requires_decision=True),result={'review_id':review['id'],'output_id':output['id']})
             # Freeze the original candidate set before any paid request. Newly
             # acquired candidates must not change a resumed request fingerprint.
             with ctx.transaction() as conn:
@@ -125,6 +147,10 @@ class RevisionTasks:
                         WHERE a.work_id=? AND r.plan_revision=? AND a.deleted_at IS NULL AND a.kind IN ('image','video')
                         ORDER BY a.created_at,a.id LIMIT 32""",(ctx.work_id,ctx.plan_revision))]
                     payload['revision_asset_ids']=list(dict.fromkeys([*deps,*extras]))
+                    # Freeze policy before the first request. Existing tasks keep
+                    # their old observation shape for durable operation replay.
+                    if payload.get('creative_visual_repair'):
+                        payload['observation_policy']='targeted-v1'
                     conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
             records,_=self.creation.assets(ctx,payload['revision_asset_ids'])
             context=self.planning.context(ctx)
@@ -149,11 +175,34 @@ class RevisionTasks:
                     allowed_handles=context.allowed_handles|frozenset(r['id'] for r in items))
             from .inspection import observe_media
             audio_native=bool(self.planning.transport and 'audio' in self.planning.transport.capabilities)
-            media,required,_=await asyncio.to_thread(observe_media,artifact_file(self.service,output),include_audio=audio_native,max_frames=12)
-            if not audio_native:
+            from .edit_observation import ObservationBudget
+            budget = ObservationBudget() if creative_repair and payload.get('observation_policy')=='targeted-v1' else None
+            if budget is not None:
+                affected=set(payload.get('affected_scene_ids',[]))
+                selected=[s for s in base.scenes if not affected or s.scene_id in affected]
+                wanted={s.asset_id for s in selected}
+                # The source ranges actually in use come first. Other candidate
+                # metadata stays visible and can be inspected on demand.
+                initial=[r for r in records if r['id'] in wanted][:12]
+                cursor, times = 0, []
+                for scene in base.scenes:
+                    if scene in selected:times.append(cursor+scene.duration/2)
+                    cursor+=scene.duration-scene.transition_seconds
+                await budget.observe(output['id'],artifact_file(self.service,output),
+                    frame_times=times[:8] if affected and times else None,max_frames=8)
+                for record in initial:
+                    if record['kind']=='video':
+                        ranges=[s for s in selected if s.asset_id==record['id']]
+                        await budget.observe(record['id'],artifact_file(self.service,record),
+                            frame_times=list(dict.fromkeys(s.source_start+s.duration/2 for s in ranges))[:2])
+                media, required = (), frozenset(budget.required)
+            else:
+                initial=records
+                media,required,_=await asyncio.to_thread(observe_media,artifact_file(self.service,output),include_audio=audio_native,max_frames=12)
+            if not audio_native or budget is not None:
                 media=(*media,{'type':'text','text':'原片音轨未由模型听取。保留声音时逐字节复用原音频资产与完整AudioClip，不改声线、文本、时间或音量；不得声称已试听或音画语义通过。'})
             observed={}
-            observations,needs=await self._observe(records,audio_native=audio_native,observed=observed)
+            observations,needs=await self._observe(initial,audio_native=audio_native,observed=observed,budget=budget)
             from .edit_observation import check_visual_evidence, VISUAL_EVIDENCE_INSTRUCTION
             instruction=(VISUAL_EVIDENCE_INSTRUCTION + '修订reason逐项回应已有findings：哪些实际画面改变了，哪些仍缺证据；不能只声称问题已解决。'
                 '解释本次局部修改范围并返回完整编辑时间线。未指出部分不得改写；保留scene_id、时长、转场、旁白和字幕文本/时间。'
@@ -171,6 +220,9 @@ class RevisionTasks:
                     '解释不足时可以补方案中已有的提示语，文字仅可取自以下列表，不能新增事实或观点：'
                     +encode(approved_overlay_texts(context.plan)))
                 if protected_styles:instruction+='旁白字幕的频道样式、透明背景及位置必须原样保留，不能为了对比度擅改为底框；独立解释字才可布局。'
+            if budget is not None:
+                instruction=instruction.replace('先实际复查全部候选，', '优先复核失败场景及实际选用区间，其他候选按需观察，')
+                instruction+='本次观察有共享帧预算，已观察时点复用；预算耗尽不必继续请求，基于已有证据完成或明确缺口，不把未观察素材当事实。'
             def check_creative_repair(candidate):
                 check_visual_evidence(candidate.edit,observed)
                 if not creative_repair or candidate.material_searches or candidate.expands_scope or candidate.requires_new_generation:
@@ -187,7 +239,7 @@ class RevisionTasks:
             from .edit_observation import edit_observation_tools
             def observation_tools(items):
                 return (edit_observation_tools({r['id']:artifact_file(self.service,r)
-                    for r in items if r['kind']=='video'},observed)
+                    for r in items if r['kind']=='video' or (budget is not None and r['kind']=='image')},observed,budget=budget)
                     if self.planning.transport and 'tools' in self.planning.transport.capabilities else ())
             instruction += '关键动作或切点不能由现有抽样确认时，可用inspect_media复查候选指定时间，不臆测未观察区间。'
             proposal=recorded_proposal(self.service,ctx,review,output)
@@ -199,7 +251,9 @@ class RevisionTasks:
                 if not self.supply:raise ModelTaskError('material_gap','局部库存补料尚不可用，原版与配音已保留')
                 new_ids=await asyncio.to_thread(self.supply.revision_visuals,ctx,[s.model_dump(mode='json') for s in proposal.material_searches])
                 records,_=self.creation.assets(ctx,list(dict.fromkeys([*payload['revision_asset_ids'],*new_ids])))
-                observations,needs=await self._observe(records,audio_native=audio_native,observed=observed)
+                observations,needs=await self._observe(
+                    [r for r in records if r['id'] in new_ids] if budget is not None else records,
+                    audio_native=audio_native,observed=observed,budget=budget)
                 proposal=await self.planning.runner(ctx,namespace='revision-stock-selection-v1',max_format_repairs=2).run(
                     candidate_context(records),instruction+'本轮有限库存补料已经完成，不能再次请求检索。根据实际新候选完成修订；仍缺关键动作时在edit.unresolved_scene_ids明确报告并停止，不能改用无关画面。',
                     RevisionProposal,media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair)
