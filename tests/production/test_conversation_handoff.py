@@ -1,9 +1,22 @@
 """Host continuation component tests: no Gateway, model or production calls."""
 import json
+import pytest
 from tests.production.test_conversation import env, entry, turn, tool, raises
 from tests.production.test_conversation_pipeline import seed, pipe
 from easel.work_bridge import Identity, Claim
 from easel.conversation_bridge import PersistentWorkToolBridge
+
+
+@pytest.mark.parametrize('quote',['','画像说明的一部分。仅讨论','模型改写的文字'])
+def test_entry_uses_host_input_not_model_repetition(env,quote):
+    from web.conversation_api import NaturalEntry,EntryCall
+    s,c=env;gate=NaturalEntry()
+    gate.reserve('ui','unused','web-turn','host-prompt','仅讨论，不创建作品','one')
+    identity=dict(agent_id='main',session_key='agent:main:ui',session_id='native',run_id='run')
+    gate.call(s,EntryCall(**identity,mode='claim',prompt='host-prompt'))
+    result=gate.call(s,EntryCall(**identity,mode='enter',prompt='',kind='new_work',user_quote=quote,tool_call_id='call'))
+    assert result['pending']['context']['sources'][0]['text']=='仅讨论，不创建作品'
+    assert not s.list_works()['items']
 
 
 def test_binding_continuation_is_once_and_cannot_authorize(env):

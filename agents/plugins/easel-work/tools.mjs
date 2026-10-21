@@ -93,7 +93,7 @@ export function createWorkBridge(api) {
     handler(req, res) {
       if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, permission_policy: scopedMain ? 'main-pipeline-v1' : undefined, natural_entry: scopedMain, automatic_handoff: scopedMain, tools: definitions.map(t => t.name) }));
+      res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, permission_policy: scopedMain ? 'main-pipeline-v1' : undefined, natural_entry: scopedMain, automatic_handoff: scopedMain, host_owned_entry_input: scopedMain, tools: definitions.map(t => t.name) }));
     },
   });
   const scope = createHash('sha256').update(JSON.stringify([baseUrl, agentId, protocolVersion, token])).digest('hex');
@@ -212,7 +212,7 @@ export function createWorkBridge(api) {
       if (!scopedMain || ctx.agentId !== 'main') return null;
       return [{name:'easel_pipeline',label:'进入创作讨论管线',
         description:'当用户要讨论、创建或修改视频、频道或导演时，先进入现有受控管线，再读取创作资料；不要走旧技能的shell制作链。这里只切换讨论上下文，不创建作品、不确认方案、不授权或执行付费服务。普通闲聊和其他任务不调用。返回真实候选后说明并询问缺项，原生回合结束后宿主自动续接，无需用户回复继续、点击或重复主题。',
-        parameters:{type:'object',properties:{mode:{type:'string',enum:['enter']},kind:{type:'string',enum:['new_work','channel_create','director_formation']},user_quote:{type:'string',description:'本轮完整用户原话，不含宿主提示或画像前缀'}},required:['mode','kind','user_quote'],additionalProperties:false},
+        parameters:{type:'object',properties:{mode:{type:'string',enum:['enter']},kind:{type:'string',enum:['new_work','channel_create','director_formation']},},required:['mode','kind'],additionalProperties:false},
         async execute(id,params,signal){
           const call=calls.get(key(ctx,id,'easel_pipeline'));
           const entry=call?.entry ?? (ctx.runId ? entries.get(runKey(ctx)) : undefined);

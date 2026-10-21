@@ -13,10 +13,12 @@ const response=data=>new Response(JSON.stringify(data),{status:200});
 test('native tool factory without runId dispatches only the hook-bound entry call',async()=>{
  const r=runtime(),old=globalThis.fetch,requests=[];
  const {runId,...factoryCtx}=ordinary;
- const params={mode:'enter',kind:'new_work',user_quote:'只讨论'};
+ const params={mode:'enter',kind:'new_work'};
  globalThis.fetch=async(url,options)=>{requests.push(JSON.parse(options.body));return response({bound:true,entered:true,segment_id:'new',pending:{}})};
  try{
   const tool=r.tools(factoryCtx)[0];
+  assert.deepEqual(tool.parameters.required,['mode','kind']);
+  assert.equal(tool.parameters.properties.user_quote,undefined);
   await r.hooks.get('before_agent_run')({prompt:'host prompt'},ordinary);
   await r.hooks.get('before_tool_call')({toolName:'easel_pipeline',toolCallId:'native-call',params},ordinary);
   await assert.rejects(r.tools({...factoryCtx,sessionId:'other'})[0].execute('native-call',params),/not_bound/);

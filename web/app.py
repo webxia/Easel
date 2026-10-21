@@ -2711,7 +2711,7 @@ def _chat_message(req: ChatRequest) -> str:
         message = f"{message}\n\n{context}" if message else context
     if not message:
         raise HTTPException(400, "消息不能为空")
-    return chat_turn_message(message, req.persona) + "\n\n【宿主入口说明】本轮若讨论或创建视频、频道、导演，请先用 easel_pipeline(mode=enter) 进入受控讨论，再读取配置；不使用旧制作技能或shell替代管线。只讨论也可进入，进入不是创建作品或费用授权。user_quote须为本轮完整用户原话（不含附件清单、画像前缀和宿主提示）。普通其他任务保持原能力。"
+    return chat_turn_message(message, req.persona) + "\n\n【宿主入口说明】本轮若讨论或创建视频、频道、导演，请先用 easel_pipeline(mode=enter) 进入受控讨论，再读取配置；不使用旧制作技能或shell替代管线。只讨论也可进入，进入不是创建作品或费用授权。入口仅传mode和kind，用户原话与画像由宿主绑定，不抄写或重构user_quote。普通其他任务保持原能力。"
 
 
 def _direct_chat_content(req: ChatRequest) -> tuple[str | list, str]:

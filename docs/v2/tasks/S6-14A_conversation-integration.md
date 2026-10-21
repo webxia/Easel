@@ -1207,3 +1207,22 @@ node --test tests/production/mainPipelinePlugin.test.mjs tests/production/execut
 首次失败保留Web所见、后端状态与业务副作用三重证据，分类PRODUCT_BUG/TEST_BUG/ENVIRONMENT/UNKNOWN；安全/真实阻断停止相关业务动作并报告，不临时改库或重试收费请求取得PASS。合法临时恢复明确标WORKAROUND_ONLY。
 使用当前日期和下一个未占用轮号登记e2e-runs记录，保留首次失败；当前状态只维护摘要。报告G0～G6、软件/部署/真实生产/Creator接受各自结论、版本、费用与次数、未测项和唯一下一动作。完成授权范围后停止，不进入S7。
 ```
+
+
+### 2026-10-22 · G1入口原话复述依赖修复
+
+用户授权针对最新真实Web入口失败修复、测试、推送及重新部署，并核查未推送内容；不授权重放真实请求或新E2E。S6/F2 CURRENT_BLOCKER，复用现有管线。
+
+根因已由真实工具参数与原生输入比对确认：模型在原话前混入宿主画像说明的第一句，既不匹配纯用户原话，也不匹配完整宿主包装；NaturalEntry在事务前返回invalid_input。随后视频上下文GET的409是未绑定的结果，不是原始冲突。只读核验本轮无segment/Work/Run/Task/生产Operation/授权新增，历史UNKNOWN不变；聊天调用发生过，不能声称无任何费用。私有消息和运行ID不入本文。
+
+修复：入口工具schema只要求mode/kind，Web提醒不再要求复述；宿主使用已认领Web回合中的原始message/profile作为唯一来源。内部EntryCall兼容旧user_quote字段但忽略其内容，不将模型改写当用户事实。claim的完整prompt及原生身份、session/run/tool调用绑定、既有管线枚举、幂等、end与handoff确认保护不变。后续answer/bind/draft的用户来源合同不受影响。Gateway握手新增host_owned_entry_input以核验新插件加载。
+
+验证：新增三种入口回归（不复述、部分画像前缀、改写），先在旧实现全部失败；修复后均保存宿主原话且无作品创建。更新旧“复述作为身份”断言为“复述永不改变事实”，保留跨会话、过期身份、空工具调用及非法管线拒绝。Node测试明确工具schema无user_quote，最小参数仍经可信hook进入。
+
+命令：Python执行test_conversation_handoff、test_conversation、test_conversation_pipeline、test_conversation_results、test_conversation_execution_wait、test_main_pipeline_config、test_work_bridge，**168 passed**（1条既有Starlette警告）；Node执行mainPipelinePlugin及executionWaitPlugin，**24 passed**；diff检查通过。全部单元/组件，无原生隔离或真实E2E，无付费请求。
+
+部署：生产运行/任务、在途Operation、原生回合、待回传、聊天标记和Gateway活动/队列均0后保存私有恢复点；定向重载Gateway和Web。握手确认host_owned_entry_input/automatic_handoff，九工具及main权限策略保持；Web HTTP200，reload_required=false。27表、134登记路径、89受保护文件前后摘要一致，4条UNKNOWN未变，SQLite完整性与外键检查通过。以源码摘要、进程重载和握手证明加载，不声称读取Python进程内哈希。
+
+未推送盘点：开工HEAD与origin无领先/落后提交；剩余为既有未提交内容而非漏推commit。包括8份研发/状态/任务文档修改、1份素材来源测试断言修改，以及11份E2E记录、2份研究文档、1份入口验证脚本、3份测试文件、2份临时技能文件及本地二维码/图片资产。仅检查与保留，不把它们打包进本次提交；真实记录和图片必须单独审查隐私与入库范围。当前没有遗漏的生产代码修改；本次修复文件与具名测试单独入库。
+
+SOFTWARE_PASS=PASS；DEPLOY_PASS=PASS；SCENARIO_RETEST/REAL_PRODUCTION_PASS/CREATOR_ACCEPTED=NOT_TESTED。真实首次失败保留，后续沿本任务已有E2E指令与V1.2进行正式Web准入和授权后复验；本轮停止，不自动重发或制片。

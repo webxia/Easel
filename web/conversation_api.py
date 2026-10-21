@@ -117,10 +117,10 @@ class NaturalEntry:
                 return {'ended':True}
             if request.mode!='enter' or t['run']!=request.run_id or t['native']!=request.session_id or not request.tool_call_id:
                 fail('binding_mismatch','入口需要当前原生工具回执',409)
-            # The model may copy the Web persona prefix along with the message.
-            # Accept only two server-owned strings; persist the original below.
-            if request.kind not in ('new_work','channel_create','director_formation') or request.user_quote not in (t['message'],t['quoted_message']):
-                fail('invalid_input','入口只接受本轮完整用户原话和既有管线类型',400)
+            # Native claim authenticates the current Web turn. Model text is
+            # never an authority source; legacy user_quote is accepted but ignored.
+            if request.kind not in ('new_work','channel_create','director_formation'):
+                fail('invalid_input','入口只接受既有管线类型',400)
             if t['result']:
                 if request.kind!=t['kind']:fail('binding_mismatch','本轮已进入另一管线',409)
                 return t['result']

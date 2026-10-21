@@ -6,6 +6,8 @@
 
 ## 当前主线
 
+**2026-10-22 G1入口修复已部署**：取消模型精确复述原话作为入口前提，原话/画像由已认证Web回合提供；保留身份、工具票据、管线及确认保护。168项Python和24项Node通过，Web/Gateway重载后新host_owned_entry_input握手有效、reload_required=false，保护数据和4条UNKNOWN不变。本轮未执行真实E2E或付费请求。剩余既有文档、测试和本地资产已盘点保留，详见S6-14A最新记录。
+
 **对话可用性优化已实施部署，待真实验收**：本次内部enter/bind在可信原生结束后自动续接，宿主续接禁止自答提案；合并缺项与必要授权提示；素材失败分类及恢复资格复用现有记录。232项Python单元/组件、24项Node通过；Web与Gateway定向重载后reload_required=false、九工具及automatic_handoff=true，业务表/登记文件/保护文件快照不变，4条UNKNOWN保留。未执行E2E、付费调用或Creator审片。实现及局限见[S6-14A](tasks/S6-14A_conversation-integration.md#conversation-usability-next)，后续使用[Web E2E指令](tasks/S6-14A_conversation-integration.md#conversation-usability-e2e)。
 
 **E2E-06 A/B/C 部署完成（2026-10-21）**：本次6个生产模块已加载，Web首页200、reload_required=false，Gateway保持main/protocol2/main-pipeline-v1/natural_entry及九工具。部署前后27张业务表、134个登记文件路径快照和89份受保护文件摘要一致，4条UNKNOWN未变；数据库完整性及外键检查通过，全部执行/回传/聊天及Gateway活动计数为0。105项单元/组件通过、2项主动排除；未运行E2E、真实模型或付费媒体调用。用户已授权提交并推送本次修复，历史其他Dirty保留，不代表全部历史改动已入库。部署PASS，真实生产/Creator本次未测，原06轮FAIL/BLOCKED仍保留。过程见[S6-14A](tasks/S6-14A_conversation-integration.md)最新部署记录；当前等待用户自行测试。
