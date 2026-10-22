@@ -145,6 +145,28 @@ def call_status(conversations, conn, segment):
             recovery.update(code=exc.code, reason=exc.user_message)
     return {'diagnostics': diagnostics, 'recovery': recovery}
 
+def turn_context(context):
+    """Project the current state for automatic injection; full reads stay available.
+
+    Never replay finished proposals, full plans and task output blobs on every
+    human turn. This is a view only: pending/context and confirmation authority
+    continue to read the same durable records.
+    """
+    result={**context}
+    result['context']={k:v for k,v in context['context'].items() if k!='profile_save_target'}
+    result['pending']=[p for p in context['pending'] if p['state']=='proposed']
+    work=context.get('work')
+    if work:
+        result['work']={k:v for k,v in work.items() if k not in {'plans','tasks','artifacts','creation_context','conversation_brief'}}
+        result['work']['plans']=[{k:v for k,v in p.items() if k not in {'payload_json','plan'}} for p in work['plans']]
+        result['work']['tasks']=[{k:v for k,v in t.items() if k in {'id','run_id','kind','state','error_json'}} for t in work['tasks']]
+        result['work']['artifacts']=[{k:v for k,v in a.items() if k in {'id','kind','output_revision','deleted_at'}} for a in work['artifacts']]
+    plan=context.get('current_plan')
+    result['current_plan']={k:v for k,v in plan.items() if k not in {'payload_json','plan'}} if plan else None
+    result['detail_access']='这是当前状态摘要。完整方案、历史提案和产物详情通过现有easel_pipeline pending读取；画像保存目标及来源通过easel_work_context读取。摘要省略不代表记录被删除或授权改变。'
+    return result
+
+
 def pending(conversations, conn, segment):
     context = conversations.context(conn, segment)
     entry = context['entry']

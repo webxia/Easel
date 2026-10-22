@@ -46,7 +46,8 @@ def test_native_length_record_is_bound_redacted_and_does_not_retry(env):
     with pytest.raises(Exception):b.end(NativeEnd(**{**i,'run_id':'wrong'},diagnostic=d))
     b.end(NativeEnd(**i,diagnostic=d))
     view,message=VideoChat.interrupted_result(s,'ui','turn')
-    assert '长度上限' in message and '不会自动重发' in message
+    assert '长度限制' in message and '不会自动重发' in message
+    assert '不足以判断' in message
     assert s.list_works()['items']==[]
     with s.store.connection() as conn:
         payload=json.loads(conn.execute('select payload_json from conversation_turns').fetchone()[0])
@@ -160,5 +161,5 @@ def test_sse_incomplete_answer_is_not_success_or_replayed(env,tmp_path,monkeypat
     events=[json.loads(x) for x in path.read_text().splitlines()]
     assert events[-1]['event']=='error' and all(e['event']!='done' for e in events)
     assert len(calls)==1 and s.list_works()['items']==[]
-    if finish=='length':assert '长度上限' in events[-1]['data']
+    if finish=='length':assert '长度限制' in events[-1]['data']
     assert saved[0][-1]['clean_end'] is False

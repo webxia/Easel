@@ -196,7 +196,7 @@ class VideoChat:
                     (turn_id,view['segment_id'])).fetchone()
             diagnostic=json.loads(turn[0]).get('model_diagnostic',{}) if turn else {}
             if diagnostic.get('stop_reason')=='length':
-                message='本轮助手输出达到长度上限而中断；不会自动重发。已执行操作以任务回执为准，可以在本对话继续核对。'
+                message='本轮助手返回长度限制（length）而中断；现有回执不足以判断是输入上下文还是输出额度所致。不会自动重发，已执行操作以任务回执为准。'
         if view['work_id']:
             work=service.snapshot(view['work_id'])
             tasks=[t for t in work['tasks'] if t['run_id']==work['active_run_id']]
@@ -310,7 +310,7 @@ class VideoChat:
                     if not terminal or terminal['state']=='ended':break
                     await asyncio.sleep(.05)
                 view,message=self.interrupted_result(service,session,turn_id)
-                if finish_reason=='length':message='本轮助手输出达到长度上限而中断；已执行操作以任务回执为准，不会自动重发。'
+                if finish_reason=='length':message='本轮助手返回长度限制（length）而中断；不能仅凭此回执判断是否耗尽输出额度。已执行操作以任务回执为准，不会自动重发。'
                 emit('work_card',view)
                 self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':display_turn_id or turn_id,'clean_end':False})
             except Exception:pass

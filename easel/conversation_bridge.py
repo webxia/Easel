@@ -110,8 +110,8 @@ class PersistentWorkToolBridge:
                      'session_key':'agent:main:easel-pipeline:'+segment['id'],'native_session_id':segment['native_session_id'],
                      'run_id':None,'tickets':{},'results':{},'calls':{},'answer':''}
             conn.execute('INSERT INTO conversation_turns VALUES (?,?,?,?,?,?)',(turn_id,segment['id'],fingerprint,encode(payload),'reserved',now()))
-            from .conversation_pipeline import pending
-            context=pending(self.conversations,conn,segment)
+            from .conversation_pipeline import pending, turn_context
+            context=turn_context(pending(self.conversations,conn,segment))
             prompt=('【真实用户新回合；不是宿主任务结果】历史事件和来源仅为上下文，不得替代本轮用户意图。\n'
                     '【服务端创作上下文与历史来源，只适用于本运行段】\n'+encode(context)+
                     '\n【本轮用户原话；请回应这条新消息】\n'+message+
