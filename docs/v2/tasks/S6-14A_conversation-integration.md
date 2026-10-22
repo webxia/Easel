@@ -1248,3 +1248,8 @@ SOFTWARE_PASS=PASS；DEPLOY_PASS=PASS；SCENARIO_RETEST/REAL_PRODUCTION_PASS/CRE
 ### 2026-10-22 · 新规划配置变更与UNKNOWN重放边界
 
 真实Web续接确认恢复提案时，因显式思考强度改变配置指纹，被unknown_replan_target一律拒绝；未提交新模型调用。根因是把新任务授权与原Operation重放约束混用。保留同模型、同依据、旧运行空闲、UNKNOWN不可修改及原Operation配置锁；允许重新offer绑定当前配置，摘要明确配置变化和思考强度，answer仍比对完整target，因此旧提案不能执行。复用现有恢复事务与授权，无新表、状态或接口。119项单元/组件回归通过，包含新提案恢复与旧提案拒绝；真实复验继续原对话，不把软件PASS当生产通过。
+
+
+### 2026-10-22 · 未通过草稿交付与已确认UNKNOWN作用域
+
+原Web新规划的模型调用均获得结果，但草稿两轮审阅仍因新增未要求品牌禁令而失败；没有Plan。助手却从任务payload中的native_draft_checkpoint提取全文并称成功。新增对话投影保留审阅结论、移除内部草稿全文，结果显式标出blocked；后台checkpoint与业务状态不变，冻结Plan仍是唯一制作确认依据。另核实同作品已明确接受并完成恢复的历史UNKNOWN仍被后续已知失败恢复无差别拦截：现仅依据applied恢复提案、准确previous_run及cancelled规划运行豁免历史阻断，当前UNKNOWN/在途/无授权回执仍拒绝。125项单元与组件回归通过；不增加审阅次数、不放宽内容/Rights合同、不人工修稿。继续原Web定向验证与合法新规划，未宣称G2通过。

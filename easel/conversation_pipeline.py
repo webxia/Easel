@@ -168,6 +168,9 @@ def pending(conversations, conn, segment):
     from .production.configuration import capabilities
     services = capabilities(conversations.service.outputs.parent)
     work = conversations.service.snapshot(segment['work_id']) if segment['work_id'] else None
+    if work:
+        from .conversation_results import dialogue_task
+        work['tasks']=[dialogue_task(t) for t in work['tasks']]
     # snapshot reads only committed business state; pending() is called before writes.
     last=conn.execute('SELECT payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at DESC,id DESC LIMIT 1',(segment['id'],)).fetchone()
     handoff=json.loads(last[0]).get('pipeline_binding') if last else None

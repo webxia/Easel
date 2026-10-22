@@ -24,6 +24,19 @@ def public_receipt(receipt):
     return {k: v for k, v in receipt.items() if k != '_result_delivery'}
 
 
+def dialogue_task(task):
+    """Keep Worker checkpoints private; only frozen plans are deliverable plans."""
+    result = dict(task)
+    payload = json.loads(result.get('payload_json') or '{}')
+    checkpoint = payload.pop('native_draft_checkpoint', None)
+    if checkpoint:
+        result['retained_draft'] = True
+        result['draft_review'] = checkpoint.get('review')
+        result['draft_status'] = '内部草稿，非已冻结方案；不能作为制作确认依据'
+    result['payload_json'] = encode(payload)
+    return result
+
+
 def material_search_summary(searches):
     """Project existing evidence only; unknown and unexamined are not failures."""
     groups={}
@@ -74,6 +87,7 @@ class ConversationResults:
             (snapshot['id'],run['id']))]
         groups=material_search_summary(searches)
         return {'work_id':snapshot['id'],'run_id':run['id'],'seq':event['seq'],'run_state':run['state'],
+                'outcome':'completed' if run['state']=='succeeded' else 'blocked',
                 'current_plan':next((p for p in snapshot['plans'] if p['revision']==snapshot['current_plan_revision']),None),
                 'material_summary':{'searches':groups,
                     'known_gaps':[g for g in groups if not g['candidate_count']],
@@ -85,7 +99,7 @@ class ConversationResults:
                     'note':'仅汇总当前运行已有记录，未追加检索。候选尚不代表通过内容、权益及成片审查；保留方案、素材和回执。'},
                 'plan_ready':any(p['revision']==snapshot['current_plan_revision'] and not p['confirmed_at'] for p in snapshot['plans']),
                 'model_result_query_available':False,
-                'tasks':[t for t in snapshot['tasks'] if t['run_id']==run['id']],
+                'tasks':[dialogue_task(t) for t in snapshot['tasks'] if t['run_id']==run['id']],
                 'outputs':[{**a,'playback_url':f"/api/production/artifacts/{a['id']}/content"} for a in snapshot['artifacts'] if a['kind']=='output' and a['run_id']==run['id'] and a['displayable'] and not a.get('deleted_at')],
                 'unknown_operations':[dict(r) for r in conn.execute("SELECT id,kind,state FROM operations WHERE work_id=? AND run_id=? AND state='unknown'",(snapshot['id'],run['id']))]}
 
@@ -132,7 +146,7 @@ class ConversationResults:
             payload['revision']=work['revision']
             self.bridge._save(conn,record['id'],payload,record['state'])
             return {'waiting':False,'result':{**receipt,'execution_result':result,'context':context,
-                'delivery_instruction':'这是本次已确认执行的真实结果，不是新的用户授权。规划成功：以current_plan交付完整方案、逐字稿和分镜，offer confirm后等待用户确认，不自动制作。参考分析：展示真实分析与待确认风格。制作或修订：嵌入outputs中实际playback_url的视频并说明质量结论。失败或UNKNOWN：结合material_summary一次说明所有已知缺口、已完成步骤、保留成果、合法选项及新增调用费用风险；候选不等于审查通过，不将未执行步骤说成失败。不重发、不许诺远端自动核实。内部编号仅用于工具参数，不要求用户复制编号。'}}
+                'delivery_instruction':('本次运行未成功，必须先说明阻断；current_plan为空时不能声称方案成功、不能交付内部草稿冒充方案或提出制作确认。' if result['outcome']=='blocked' else '')+'这是本次已确认执行的真实结果，不是新的用户授权。规划成功：以current_plan交付完整方案、逐字稿和分镜，offer confirm后等待用户确认，不自动制作。参考分析：展示真实分析与待确认风格。制作或修订：嵌入outputs中实际playback_url的视频并说明质量结论。失败或UNKNOWN：结合material_summary一次说明所有已知缺口、已完成步骤、保留成果、合法选项及新增调用费用风险；候选不等于审查通过，不将未执行步骤说成失败。不重发、不许诺远端自动核实。内部编号仅用于工具参数，不要求用户复制编号。'}}
 
     @staticmethod
     def acknowledge(conn, payload):

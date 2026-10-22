@@ -267,3 +267,24 @@ def test_retired_agent_result_is_not_automatically_replayed(env):
     before=s.snapshot(c.view('ui')['work_id'])
     assert results.reserve_next() is None
     assert s.snapshot(c.view('ui')['work_id'])==before
+
+
+def test_failed_draft_is_not_delivered_as_confirmable_plan(env):
+    from easel.production.errors import ProductionError
+    s,c,b,i,req,r=start(env)
+    async def rejected(ctx):
+        with ctx.transaction() as conn:
+            t=conn.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()
+            payload=json.loads(t[0]);payload['native_draft_checkpoint']={'draft':{'script':'UNAPPROVED_PRIVATE_DRAFT'},'review':{'verdict':'fail','findings':['加入了用户未要求的品牌限制']}}
+            conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
+        return TaskResult(state='needs_decision',error=ProductionError('draft_review_failed','草稿未通过，未冻结',requires_decision=True))
+    asyncio.run(Worker(s.store,{'plan':rejected}).run_once())
+    result=ConversationResults(b).poll(req)['result']
+    assert result['execution_result']['current_plan'] is None
+    assert result['execution_result']['plan_ready'] is False
+    assert result['execution_result']['outcome']=='blocked'
+    assert 'UNAPPROVED_PRIVATE_DRAFT' not in encode(result)
+    assert '加入了用户未要求的品牌限制' in encode(result)
+    assert '不能声称方案成功' in result['delivery_instruction']
+    assert 'UNAPPROVED_PRIVATE_DRAFT' in encode(s.snapshot(r['work_id']))
+    assert 'UNAPPROVED_PRIVATE_DRAFT' not in encode(pipe(b,i,'pending'))

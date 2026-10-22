@@ -137,3 +137,44 @@ def test_changed_effort_requires_fresh_proposal_and_preserves_unknown(env):
         assert dict(conn.execute('SELECT * FROM operations WHERE id=?',(old['id'],)).fetchone())==old
         assert conn.execute('SELECT count(*) FROM tasks').fetchone()[0]==2
     assert len(calls)==1
+
+
+def test_explicitly_retired_unknown_does_not_block_later_known_failure(env):
+    from easel.production.worker import TaskResult
+    from easel.production.errors import ProductionError
+    from easel.production.service import row
+    s,c,seg,work,old,calls=paused(env)
+    b,i,_=turn(s,c,seg,'怎么继续',id='offer')
+    p=pipe(b,i,**pipe(b,i,'pending')['model_calls']['recovery']['next_action'])
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,'接受风险，另行规划',id='answer')
+    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='接受风险，另行规划')
+    b.end(Identity(**i))
+    async def rejected(ctx):
+        return TaskResult(state='needs_decision',error=ProductionError('draft_review_failed','草稿未通过',requires_decision=True))
+    asyncio.run(Worker(s.store,{'plan':rejected}).run_once())
+    b,i,_=turn(s,c,seg,'核对失败恢复',id='known-failure')
+    option=pipe(b,i,'pending')['failed_planning_replan']
+    assert option['can_offer']
+    with s.store.connection() as conn:
+        assert dict(conn.execute('SELECT * FROM operations WHERE id=?',(old['id'],)).fetchone())==old
+    # A current UNKNOWN is never covered by an earlier risk decision.
+    with s.store.transaction() as conn:
+        conn.execute('SAVEPOINT current_unknown')
+        current={**old,'id':'current-unknown','request_key':'current-key',
+                 'run_id':result['run_id'],'task_id':option['values']['decision_id']}
+        conn.execute('INSERT INTO operations ('+','.join(current)+') VALUES ('+','.join('?' for _ in current)+')',tuple(current.values()))
+        raises('result_unknown',lambda:s.failed_planning_target(conn,row(conn,'works',work),option['values']['decision_id']))
+        conn.execute('ROLLBACK TO current_unknown')
+        conn.execute('RELEASE current_unknown')
+        conn.execute("UPDATE conversation_proposals SET state='proposed' WHERE id=?",(p['proposal_id'],))
+        raises('result_unknown',lambda:s.failed_planning_target(conn,row(conn,'works',work),option['values']['decision_id']))
+        conn.execute("UPDATE conversation_proposals SET state='applied' WHERE id=?",(p['proposal_id'],))
+    fresh=pipe(b,i,'offer',action='plan',values=option['values'])
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,'确认已知失败的新规划范围及费用',id='final-answer')
+    latest=pipe(b,i,'answer',proposal_id=fresh['proposal_id'],hash=fresh['hash'],user_quote='确认已知失败的新规划范围及费用')
+    assert latest['run_id']!=result['run_id']
+    with s.store.connection() as conn:
+        assert dict(conn.execute('SELECT * FROM operations WHERE id=?',(old['id'],)).fetchone())==old
+    assert len(calls)==1

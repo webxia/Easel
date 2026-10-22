@@ -314,8 +314,19 @@ class WorkService:
                 'plan_constraint_changed','invalid_model_output','plan_scene_duration_invalid',
                 'plan_voice_budget_unavailable','draft_review_failed'}:
             fail('revision_required','此阻断须沿对应授权或未知结果恢复入口处理',409)
-        if conn.execute("SELECT 1 FROM operations WHERE work_id=? AND state IN ('reserved','sending','submitted','unknown')",(work['id'],)).fetchone():
-            fail('result_unknown','存在在途或未知请求，不能重新规划',409)
+        # Only a committed risk-acceptance receipt for the exact retired run
+        # permits proceeding past its UNKNOWN. Never exempt a current request.
+        if conn.execute("""SELECT 1 FROM operations o WHERE o.work_id=? AND
+            (o.state IN ('reserved','sending','submitted') OR (o.state='unknown' AND NOT EXISTS (
+                SELECT 1 FROM conversation_proposals p JOIN runs r ON r.id=o.run_id
+                WHERE p.state='applied' AND r.kind='planning' AND r.state='cancelled'
+                AND o.kind='MODEL' AND o.run_id!=?
+                AND json_extract(p.body_json,'$.values.action')='replan_after_unknown'
+                AND json_extract(p.receipt_json,'$.work_id')=o.work_id
+                AND json_extract(p.receipt_json,'$.previous_run_id')=o.run_id
+                AND json_extract(p.receipt_json,'$.previous_result')='UNKNOWN'
+            )))""",(work['id'],run['id'])).fetchone():
+            fail('result_unknown','存在在途或未经明确恢复确认的未知请求，不能重新规划',409)
         if conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=?',(work['id'],)).fetchone():
             fail('revision_required','已有方案，不能使用首次规划失败恢复',409)
         return {'run_id':run['id'],'run_revision':run['revision'],
