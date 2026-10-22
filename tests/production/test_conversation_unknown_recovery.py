@@ -113,3 +113,27 @@ def test_new_plan_failure_rolls_back_local_stop_and_grant_revocation(env,monkeyp
     with s.store.connection() as conn:
         assert dict(conn.execute('SELECT * FROM operations WHERE id=?',(old['id'],)).fetchone())==old
         assert conn.execute('SELECT count(*) FROM authorization_grants WHERE revoked_at IS NOT NULL').fetchone()[0]==0
+
+
+def test_changed_effort_requires_fresh_proposal_and_preserves_unknown(env):
+    s,c,seg,work,old,calls=paused(env)
+    b,i,_=turn(s,c,seg,'如何继续',id='old-offer')
+    p=pipe(b,i,**pipe(b,i,'pending')['model_calls']['recovery']['next_action'])
+    b.end(Identity(**i))
+    config=s.outputs.parent/'.env'
+    config.write_text(config.read_text()+'\nEASEL_PRODUCTION_REASONING_EFFORT=high\n')
+    b,i,_=turn(s,c,seg,'确认新规划',id='changed-answer')
+    raises('stale_revision',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认新规划'))
+    status=pipe(b,i,'pending')['model_calls']['recovery']
+    assert status['can_offer']
+    fresh=pipe(b,i,**status['next_action'])
+    assert '配置已变化' in fresh['values']['summary']
+    assert 'high' in fresh['values']['summary']
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,'接受当前配置和重复计费风险，确认新规划',id='fresh-answer')
+    result=pipe(b,i,'answer',proposal_id=fresh['proposal_id'],hash=fresh['hash'],user_quote='接受当前配置和重复计费风险，确认新规划')
+    assert result['run_id']!=old['run_id']
+    with s.store.connection() as conn:
+        assert dict(conn.execute('SELECT * FROM operations WHERE id=?',(old['id'],)).fetchone())==old
+        assert conn.execute('SELECT count(*) FROM tasks').fetchone()[0]==2
+    assert len(calls)==1

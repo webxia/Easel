@@ -107,9 +107,13 @@ def unknown_replan_target(conversations, conn, segment, values):
             or conn.execute("SELECT 1 FROM operations WHERE work_id=? AND state IN ('reserved','sending','submitted')", (work['id'],)).fetchone()):
         fail('result_unknown', '存在尚在执行的请求或非规划未知结果，不能通过此提案重开', 409)
     from .production.configuration import model_configuration
-    _, model, version = model_configuration(conversations.service.outputs.parent)
-    if not model or any(op['config_version'] != version or any(op[k] != model[k] for k in model) for op in operations):
-        fail('stale_revision', '规划模型或配置与旧调用不一致，须另行核对，不能沿用本恢复提案', 409)
+    settings, model, version = model_configuration(conversations.service.outputs.parent)
+    if not model or any(any(op[k] != model[k] for k in model) for op in operations):
+        fail('stale_revision', '规划模型与旧调用不一致，须另行核对，不能沿用本恢复提案', 409)
+    # A fresh proposal can authorize a NEW attempt under current configuration.
+    # Its target pins that configuration through answer; old operations and their
+    # replay identity remain immutable. Never apply an old proposal after a change.
+    config_changed = any(op['config_version'] != version for op in operations)
     payload = json.loads(task['payload_json'])
     basis = payload.get('creation_basis')
     if not basis or basis != conversations.service._basis(conn, work):
@@ -120,6 +124,8 @@ def unknown_replan_target(conversations, conn, segment, values):
             'run_id': run['id'], 'run_revision': run['revision'],
             'operations': [{'id': op['id'], 'revision': op['revision'], 'state': op['state']} for op in operations],
             'basis_hash': digest(basis), 'config_version': version,
+            'config_changed': config_changed,
+            'reasoning_effort': settings.get('EASEL_PRODUCTION_REASONING_EFFORT', '').strip() or 'provider_default',
             'request': payload.get('request', ''), 'services': [model]}
 
 
@@ -354,8 +360,10 @@ def offer(conversations,conn,segment,turn_id,action,values,summary):
     if action=='replan_after_unknown':
         target=unknown_replan_target(conversations,conn,segment,values)
         model=target['services'][0]
+        configuration_note=(f"当前模型配置已变化，新任务使用当前配置（思考强度：{target['reasoning_effort']}）；旧请求不改配置、不重放。" if target['config_changed'] else '')
         summary=(f"结束旧本地规划运行并撤销旧活动授权，保留旧UNKNOWN及全部回执；这不能取消或确认远端请求，可能重复计费。"
                  f"以相同创作依据和{model['provider']}/{model['model']}/{model['mode']}发起一次新的规划任务，仅整理方案，不制作视频。"
+                 f"{configuration_note}"
                  "保留现有规划的有界工具/格式修复规则，一次规划任务不代表只有一次模型调用。请明确确认以上范围后再执行。")
     if action=='input':
         _,target['attachment_digest']=selected_attachment(conversations,conn,segment,values)

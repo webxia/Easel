@@ -158,3 +158,6 @@
 - 最近A10软件回归：架构收敛增量全库Python1858 passed / 16 skipped；生产模块593 passed / 5 skipped，具名范围见Task。前端仅补可选字幕字段类型；Node99及build/lint仍仅为A8历史结果。软件/真实生产/自主完成/Creator接受继续分列。
 - 上游最近检查至 `8d08b216`，本地main之后42提交；未合入。[PR #8](https://github.com/webxia/Easel/pull/8)仍为历史Draft，不包含当前全部修复，不自动合并。
 - 资料入口：[任务包](tasks/S6_IMPLEMENTATION_PLAN.md) · [S6-14真实生产](tasks/S6-14_integration-release.md) · [S6-14A对话/修订](tasks/S6-14A_conversation-integration.md) · [运行配置](16_RUNTIME_SETUP.md) · [工程规则](05_ENGINEERING.md)。
+
+
+- 2026-10-22 S6续接：真实恢复入口误将新规划的配置变化等同旧请求重放，已修复为重新展示当前配置并绑定新提案；旧UNKNOWN及重放保护不变。119项软件回归通过，真实G2仍待原对话复验，细节见S6-14A。

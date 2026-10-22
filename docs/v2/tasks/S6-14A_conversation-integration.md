@@ -1243,3 +1243,8 @@ SOFTWARE_PASS=PASS；DEPLOY_PASS=PASS；SCENARIO_RETEST/REAL_PRODUCTION_PASS/CRE
 - 本机配置仅追加生产reasoning_effort=high，模型身份、Key、声音、Provider与900秒超时未变。只重载正式Web，未重启Gateway或发起模型调用；Web回读reload_required=false、Gateway九项工具正常。
 - 前后27张业务表核对：仅38条既有cleanup_jobs.updated_at因维护刷新变化，其余业务字段/表不变；5条UNKNOWN、156条登记文件路径及89份受保护文件均核验（.env只含本次明确参数变更），完整性/外键通过。没有触发历史生产重跑。
 - 软件89项通过；DEPLOY_PASS；真实复验尚未执行。已向用户说明原UNKNOWN仍可能计费，新的规划尝试须在原Web确认既有恢复提案；本次没有自动答复或取消原请求。不把软件/部署通过当作超时根因已根治。
+
+
+### 2026-10-22 · 新规划配置变更与UNKNOWN重放边界
+
+真实Web续接确认恢复提案时，因显式思考强度改变配置指纹，被unknown_replan_target一律拒绝；未提交新模型调用。根因是把新任务授权与原Operation重放约束混用。保留同模型、同依据、旧运行空闲、UNKNOWN不可修改及原Operation配置锁；允许重新offer绑定当前配置，摘要明确配置变化和思考强度，answer仍比对完整target，因此旧提案不能执行。复用现有恢复事务与授权，无新表、状态或接口。119项单元/组件回归通过，包含新提案恢复与旧提案拒绝；真实复验继续原对话，不把软件PASS当生产通过。
