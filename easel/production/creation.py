@@ -110,6 +110,8 @@ def check_edit_source_bounds(answer, durations, *, target_seconds):
         if available is not None and scene.source_start+scene.duration>available+0.5/30:
             raise ValueError(f'镜头 {scene.scene_id} 取源区间 {scene.source_start:.3f}–'
                 f'{scene.source_start+scene.duration:.3f} 秒超过素材实际长度 {available:g} 秒；'
+                f'编译后实际取源长度为{scene.duration:.3f}秒（已包含转场补偿），'
+                f'保持此长度时起点最多为{max(0,available-scene.duration):.3f}秒；'
                 '调整取源位置或重新分配镜头，保持确认总时长；不能循环、定格或截短旁白。')
 
 
@@ -231,7 +233,8 @@ class CreationTasks:
             horizontal=context.plan['settings']['aspect_ratio']=='16:9'
             def check_measured_edit(candidate):
                 check_edit_source_bounds(candidate,source_durations,target_seconds=context.plan['settings']['duration_seconds'])
-                check_visual_evidence(candidate,observed)
+                check_visual_evidence(align_editor_frames(compensate_edit_overlap(candidate,
+                    target_seconds=context.plan['settings']['duration_seconds'])),observed)
                 from .boards import check_board_usage
                 check_board_usage(candidate.scenes,records,overlays=[c for c in candidate.captions if c.role=='overlay'])
                 if not timing or timing['mode']=='fixed':
@@ -257,7 +260,31 @@ class CreationTasks:
             observation_tools = (edit_observation_tools({r['id']: artifact_file(self.service,r)
                 for r in records if r['kind']=='video'},observed)
                 if self.planning.transport and 'tools' in self.planning.transport.capabilities else ())
-            answer=await self.planning.runner(ctx,namespace='edit-source-bounds-v1' if _stock_assets is None else 'edit-stock-selection-v1',max_format_repairs=2).run(context,
+            recovery=None
+            namespace='edit-source-bounds-v1' if _stock_assets is None else 'edit-stock-selection-v1'
+            if ctx.payload.get('edit_recovery_source') and _stock_assets is None:
+                with self.service.store.connection() as conn:
+                    source=dict(row(conn,'operations',ctx.payload['edit_recovery_source']))
+                if (source['task_id']!=ctx.task_id or source['work_id']!=ctx.work_id or source['run_id']!=ctx.run_id
+                        or source['state']!='succeeded' or source['kind']!='MODEL'
+                        or source['config_version']!=self.planning.config_version
+                        or any(source[k]!=v for k,v in self.planning.model_service.items())):
+                    raise ModelTaskError('edit_recovery_invalid','剪辑修正来源与当前已知回执不符，未发起调用')
+                request=json.loads(source['request_json'])
+                message=json.loads(source['receipt_json'])['result']['message']
+                if request['schema'].get('title')!='CreativeEdit' or message.get('tool_calls'):
+                    raise ModelTaskError('edit_recovery_invalid','剪辑修正来源不是已返回的剪辑结果')
+                # These tool replies are the actual observed frames sent in the
+                # known request, not model-authored visual claims.
+                for m in request['messages']:
+                    if m.get('role')!='tool':continue
+                    try:evidence=json.loads(m['content'])
+                    except (ValueError,TypeError):continue
+                    if isinstance(evidence,dict) and evidence.get('asset_id') in source_durations:
+                        observed.setdefault(evidence['asset_id'],[]).extend(evidence.get('frame_times',[]))
+                recovery=(request['messages'],message)
+                namespace='edit-repair-'+source['id'][:32]
+            answer=await self.planning.runner(ctx,namespace=namespace,max_format_repairs=2).run(context,
                 VISUAL_EVIDENCE_INSTRUCTION + '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
                 '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '连续旁白应跨镜头讲完；voice_driven严格遵守voice_schedule，fixed使用实测时间作安排依据、位置可按叙事调整，不按草稿分镜凑静默；'
@@ -268,7 +295,7 @@ class CreationTasks:
                 '同一图解可跨段落复用、回看或加局部特写，board_scene_ids是本次素材映射提示，图解定义所在的scene_id不是排他的使用限制。'
                 '图解已画出标题、卡片、类别和假设/概念标识，不要只剩裁切而失去全貌，避免重复叠同义解释字；有必要时可以安排不遮挡证据的补充标注。'
                 '避免同义空镜反复堆积，旁白说到具体关系时应让画面或必要字幕提供相应信息。'
-                '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),tools=observation_tools,validate_result=check_measured_edit)
+                '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),tools=observation_tools,validate_result=check_measured_edit,recovery=recovery)
             if answer.unresolved_scene_ids:
                 if _stock_assets is None and self.supply:
                     ids=await self.supplement_visuals(ctx,context,answer,asset_ids)

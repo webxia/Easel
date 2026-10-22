@@ -203,7 +203,8 @@ class ModelTaskRunner:
     async def run(self, context: TaskContext, task_kind: str, result_type: type[T], *,
                   required: frozenset[str] = frozenset({"text", "structured"}),
                   tools: tuple[ScopedTool, ...] = (), media: tuple[dict, ...] = (),
-                  validate_result: Callable[[T], None] | None = None) -> T:
+                  validate_result: Callable[[T], None] | None = None,
+                  recovery: tuple[list[dict], dict] | None = None) -> T:
         if not required <= self.transport.capabilities:
             raise ModelTaskError("capability_unavailable", "当前模型缺少本任务所需的媒体或结构化能力")
         registry = tool_registry(tools)
@@ -217,10 +218,18 @@ class ModelTaskRunner:
                     {"role": "user", "content": [{"type": "text", "text": data}, *media]}]
         repairs = 0
         seen_calls: set[str] = set()
+        if recovery:
+            # Caller verifies this exact request/response against durable receipts.
+            # Check it first, then spend only the existing bounded repair allowance.
+            messages, initial_response = recovery
         for _ in range(self.max_rounds):
-            await self.authorize(context)
-            response = await self.transport.complete(messages, [t.definition() for t in tools],
-                                                     result_type.model_json_schema())
+            if recovery:
+                response=initial_response
+                recovery=None
+            else:
+                await self.authorize(context)
+                response = await self.transport.complete(messages, [t.definition() for t in tools],
+                                                         result_type.model_json_schema())
             calls = response.get("tool_calls") or []
             if calls:
                 if len(calls) > 8:

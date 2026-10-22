@@ -512,6 +512,22 @@ class WorkService:
         task=row(conn,'tasks',data.get('decision_id',''))
         if task['run_id']!=run['id'] or task['state'] not in {'needs_decision','retryable_failed','waiting_external','failed'}:
             fail('stale_revision','需要解决的决定已变化',409)
+        # Explicit user resume can repair the last known edit, without replaying
+        # its author or silently resetting a running attempt's repair budget.
+        if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code')=='invalid_model_output':
+            if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
+                fail('result_unknown','剪辑存在未确定调用，不能另发修正')
+            source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
+            if source and source['state']=='succeeded':
+                try:
+                    request=json.loads(source['request_json'])
+                    message=json.loads(source['receipt_json'])['result']['message']
+                    value=json.loads(message.get('content') or '')
+                    if request['schema'].get('title')=='CreativeEdit' and isinstance(value,dict) and not message.get('tool_calls'):
+                        payload=json.loads(task['payload_json'])
+                        payload['edit_recovery_source']=source['id']
+                        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
+                except (ValueError,KeyError,TypeError):pass
         conn.execute("UPDATE tasks SET state='pending',error_json=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),task['id']))
         conn.execute("UPDATE runs SET state='pending',owner_epoch=owner_epoch+1,lease_expires_at=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),run['id']))
         self._change(conn,work,state='discussing' if run['kind']=='planning' else 'producing')
