@@ -224,7 +224,7 @@ class RevisionTasks:
                 instruction=instruction.replace('先实际复查全部候选，', '优先复核失败场景及实际选用区间，其他候选按需观察，')
                 instruction+='本次观察有共享帧预算，已观察时点复用；预算耗尽不必继续请求，基于已有证据完成或明确缺口，不把未观察素材当事实。'
             def check_creative_repair(candidate):
-                check_visual_evidence(candidate.edit,observed)
+                check_visual_evidence(candidate.edit,observed,pending_materials=bool(candidate.material_searches))
                 if not creative_repair or candidate.material_searches or candidate.expands_scope or candidate.requires_new_generation:
                     return
                 try:

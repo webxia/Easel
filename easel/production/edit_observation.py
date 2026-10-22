@@ -1,7 +1,7 @@
 """Read-only observation of already admitted candidates inside the edit loop."""
 import asyncio
 from pydantic import Field
-from typing import Annotated
+from typing import Annotated, Literal
 from .contracts import Contract
 from .inspection import observe_media
 from .tools import MediaToolResult, ScopedTool
@@ -81,6 +81,8 @@ class VisualSelection(Contract):
     observed_times: list[Annotated[float, Field(ge=0, allow_inf_nan=False)]] = Field(default_factory=list, max_length=8)
     observation: str = Field(min_length=1, max_length=1200,
         description='只描述选用区间实际看见的动作/结果；不要复述方案当作画面事实。')
+    match_status: Literal['unverified', 'matched', 'illustrative', 'missing_core_action', 'conflicting'] = Field(default='unverified',
+        description='所选画面与场景的匹配判断：明确主题冲突或缺核心动作必须单列，不能藏进uncertainty；气氛或合理示意可illustrative。')
     uncertainty: str = Field(default='', max_length=600,
         description='抽样不能证明完整动作时如实说明；这不是新的审美否决条件。')
 
@@ -90,13 +92,19 @@ VISUAL_EVIDENCE_INSTRUCTION = (
     '只引用已收到且落在本次选用区间内的时间，不把片尾动作算到片头。'
     '分别描述看见的动作和是否看见完成结果；翻阅文件不等于收好文件。'
     '抽样不确定写uncertainty；空镜/气氛镜头不强制动作证据，不逐字追求非核心道具。'
+    '逐镜判断match_status：可读标题/图表主题与所述具体案例冲突用conflicting，明确缺核心动作用missing_core_action；'
+    '这两类必须换片段、换合适候选，或将对应方案场景列入unresolved_scene_ids（修订用material_searches），不能仅写uncertainty后继续选用。'
+    '示意与气氛镜头可illustrative，不要求所有道具逐字一致；不可读文字本身不是冲突，也不能当作具体内容已实现。'
     '明确缺少本片核心动作时使用已有缺素材分支，不编造已经完成。'
 )
 
 
-def check_visual_evidence(edit, observed):
+def check_visual_evidence(edit, observed, *, pending_materials=False):
     """Validate claimed references, not visual truth or artistic quality."""
     for evidence in edit.visual_evidence:
+        if evidence.match_status in {'conflicting', 'missing_core_action'} and not pending_materials and not any(evidence.scene_id == gap or evidence.scene_id.startswith(gap + '_') or evidence.scene_id.startswith(gap + '-cut') for gap in edit.unresolved_scene_ids):
+            raise ValueError('已明确不匹配的画面不能作为完成稿：' + evidence.scene_id +
+                '；换合适片段，或使用已有unresolved_scene_ids素材缺口分支，不把冲突藏在uncertainty中')
         selected = [s for s in edit.scenes if s.scene_id == evidence.scene_id and s.asset_id == evidence.asset_id]
         if not selected:
             raise ValueError('画面依据必须引用本次实际选用的镜头和素材')

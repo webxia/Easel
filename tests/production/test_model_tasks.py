@@ -203,3 +203,21 @@ def test_native_video_http_dialect_and_configuration_identity(tmp_path,monkeypat
         assert model_configuration(tmp_path)[2]!=first
         if previous is None: settings.pop(key)
         else: settings[key]=previous
+
+
+def test_oversized_tool_batch_corrected_without_partial_execution():
+    invoked=[]
+    async def inspect(args,ctx):
+        invoked.append(args.asset_id)
+        return {'observed':True}
+    tool=ScopedTool('inspect_media','inspect',Args,inspect,('asset_id',))
+    calls=[{'id':f'c{i}','function':{'name':'inspect_media','arguments':json.dumps({'asset_id':f'a{i}'})}} for i in range(9)]
+    runner,transport,auth=run([{'tool_calls':calls},{'tool_calls':calls[:1]},{'content':'{"summary":"done"}'}])
+    asyncio.run(runner.run(context(allowed_handles=frozenset(f'a{i}' for i in range(9))),'revise',Answer,tools=(tool,)))
+    assert invoked==['a0'] and len(auth)==3
+    rejected=[m for m in transport.calls[1] if m['role']=='tool']
+    assert len(rejected)==9 and all(json.loads(m['content'])['executed'] is False for m in rejected)
+    runner,_,auth=run([{'tool_calls':calls},{'tool_calls':calls}])
+    with pytest.raises(ModelTaskError,match='拆批'):
+        asyncio.run(runner.run(context(),'revise',Answer,tools=(tool,)))
+    assert len(auth)==2 and invoked==['a0']

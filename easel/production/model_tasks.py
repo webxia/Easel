@@ -224,7 +224,21 @@ class ModelTaskRunner:
             calls = response.get("tool_calls") or []
             if calls:
                 if len(calls) > 8:
-                    raise ModelTaskError("invalid_model_output", "模型一次请求过多工具")
+                    # Reject the entire batch before any tool side effect. Reuse
+                    # the existing repair/round budget; never truncate requests.
+                    if repairs >= self.max_format_repairs:
+                        raise ModelTaskError("invalid_model_output", "模型一次请求过多工具，有限修正后仍未拆批")
+                    if any(not isinstance(c, dict) or not isinstance(c.get('id'), str) for c in calls):
+                        raise ModelTaskError("invalid_model_output", "工具请求缺少有效身份")
+                    repairs += 1
+                    rejected = {"role": "assistant", "content": response.get("content"), "tool_calls": calls}
+                    if isinstance(response.get("reasoning_content"), str):
+                        rejected["reasoning_content"] = response['reasoning_content']
+                    messages.append(rejected)
+                    messages.extend({"role": "tool", "tool_call_id": c['id'],
+                        "content": '{"executed":false,"error":"batch_limit","max_calls":8}'} for c in calls)
+                    messages.append({"role":"user","content":"本批工具均未执行。每轮最多8个工具请求；同一素材的时点合并到一次inspect_media（最多8帧），优先实际缺口，分批请求。不得把未执行请求当作观察证据。"})
+                    continue
                 assistant = {"role": "assistant", "content": response.get("content"), "tool_calls": calls}
                 # Replay provider reasoning privately in the same tool exchange; never log it.
                 if isinstance(response.get("reasoning_content"), str):

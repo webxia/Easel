@@ -1272,3 +1272,18 @@ G4真实证据：原生连续length空回复，现有模型运行预算contextTo
 当前阻断根因：首次edit只把unresolved_scene_ids转换为泛化错误，未复用已有修订库存补料。现在CreationTasks只针对冻结Plan的最多4个明确缺口镜头生成一次MaterialIntent，调用既有revision_visuals（授权、Rights、围栏与持久回执复用），然后用新候选再次编排；仍有缺口停止并带具体镜头，不循环补料、不重新规划或配音。原生模型请求使用稳定命名空间，旧UNKNOWN前置保护仍保留。补料排除原edit素材，避免重取同一不适用候选。未新增表、状态、Agent或Worker节点。
 
 软件：42项剪辑/恢复回归与75项素材/运行时/修订回归通过；候选配置官方本地schema校验通过。服务空闲后仅Web重载，27表业务摘要一致（仅既有cleanup更新时间变化）、5条UNKNOWN及89个保护文件不变，外键/完整性正常，reload_required=false、Gateway9工具。真实补料与成片尚待原Web确认后复验，不记REAL_PRODUCTION_PASS或Creator接受。
+
+## 2026-10-22 第03轮三项真实阻断修复与部署
+
+范围：S6 CURRENT_BLOCKER，沿用V1.4及当前Codex直接执行覆盖。保留原Work、冻结Plan、声音、素材与UNKNOWN，不新增Agent/状态机/表，不推进S7。
+
+根因与修复：
+- 原剪辑已在visual_evidence中识别标题主题冲突和缺少动作，却仅写uncertainty继续选用。既有VisualSelection增加兼容默认的match_status，区分抽样未知、合理示意、匹配、明确缺核心动作及主题冲突。程序只对模型明确自报的后两类要求换片或进入对应场景既有素材缺口；不做关键词语义裁判，不把小字不可读/普通气氛镜头作为新增否决。首次剪辑及修订共用验证，修订补料仍沿material_searches。该修复不能保证模型不会漏判，真实视觉结果仍须QC与Creator核验。
+- 原ModelTaskRunner对超过8个工具直接退出。现在整批不执行，并逐一返回executed=false，复用现有max_format_repairs/max_rounds要求拆批；达到既有限额仍明确停止。保留工具白名单、作用域、每次调用授权和UNKNOWN保护，不增加自动修订轮数。
+- 原对话Markdown中的video未带controls；内容库播放器本来正常。渲染器在DOMPurify消毒之后统一添加音视频controls/preload=metadata并移除autoplay；没有放宽HTML权限。
+
+验证：两组46和110项单元/组件通过（重叠24项，合计132个不同测试）；前端TypeScript/Vite构建通过，lint仅原linkifyOutputs无用转义警告。空闲核对：生产Run/Task、在途Operation、活动原生回合、待回传结果、Gateway active/queued均0。创建一致性恢复点后定向重载Web，未重启Gateway。27表业务快照一致（仅既有cleanup更新时间例外），89项受保护文件与180条登记文件路径核验一致；UNKNOWN仍5条，integrity_check=ok、foreign_key_check无异常，reload_required=false、Gateway九工具完整。
+
+正式原Web非付费定向复验：旧MP4 controls=true、readyState=4、duration=45；用户界面播放后currentTime实际到8.413秒、paused=false，随后暂停。原对话G5播放缺口已修复。画像异常为旧页面列表：同浏览器/api/personas返回当前画像，刷新后列表及原会话恢复；未修改画像或新建会话。
+
+结果：SOFTWARE_PASS/BUILD_PASS/DEPLOY_PASS=PASS；G5定向复验PASS；REAL_PRODUCTION_PASS仍FAIL、CREATOR_ACCEPTED=NOT_TESTED。未重发付费修订、未生成新媒体、未改旧UNKNOWN。原视频仍needs_fix；后端变化的真实修订效果尚未复验。下一步沿原作品、合法修订入口定向验证，不能以本次软件通过冒充原片视觉通过。
