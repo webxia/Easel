@@ -290,14 +290,15 @@ def test_failed_draft_is_not_delivered_as_confirmable_plan(env):
     assert 'UNAPPROVED_PRIVATE_DRAFT' not in encode(pipe(b,i,'pending'))
 
 
-def test_known_edit_failure_exposes_existing_resume_without_resubmission(env):
+@pytest.mark.parametrize("kind,code", [("edit","invalid_edit_project"),("revise","invalid_revision_search")])
+def test_known_edit_failure_exposes_existing_resume_without_resubmission(env,kind,code):
     from easel.production.errors import ProductionError
     s,c,b,i,req,r=start(env)
     with s.store.transaction() as conn:
-        conn.execute("UPDATE tasks SET kind='edit' WHERE run_id=?",(r['run_id'],))
+        conn.execute("UPDATE tasks SET kind=? WHERE run_id=?",(kind,r['run_id']))
     async def fail_edit(ctx):
-        return TaskResult(state='needs_decision',error=ProductionError('invalid_edit_project','source exceeds media',requires_decision=True))
-    asyncio.run(Worker(s.store,{'edit':fail_edit}).run_once())
+        return TaskResult(state='needs_decision',error=ProductionError(code,'known boundary failure',requires_decision=True))
+    asyncio.run(Worker(s.store,{kind:fail_edit}).run_once())
     pending=pipe(b,i,'pending');choice=pending['blockers'][0]['choices'][0]
     assert choice['action']=='resume' and choice['values']['decision_id']
     assert '阻断已解决' in choice['requires']

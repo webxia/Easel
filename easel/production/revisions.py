@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import asyncio
 import json
+import re
 from typing import Literal
 from pydantic import Field
 from .contracts import Contract
@@ -65,6 +66,27 @@ class RevisionProposal(Contract):
     reason: str
     edit: CreativeEdit
     material_searches: list[VisualIntent] = Field(default_factory=list,max_length=4)
+
+
+def revision_plan_searches(plan, base, searches):
+    """Translate registered timeline shots to frozen Plan identities for supply.
+
+    Do not rewrite the edit, model receipt, or stock acquisition's Plan guard.
+    A suffix alone is insufficient: the shot must exist in the base project.
+    """
+    plan_ids={s['id'] for s in plan['scenes']}
+    shot_ids={s.scene_id for s in base.scenes}
+    result=[]
+    for search in searches:
+        identity=search.scene_id
+        if identity not in plan_ids and identity in shot_ids:
+            # Existing recuts can themselves be split on a later revision.
+            while identity not in plan_ids and re.search(r'-cut[1-9][0-9]*$',identity):
+                identity=re.sub(r'-cut[1-9][0-9]*$','',identity)
+        if identity not in plan_ids or identity in {s['scene_id'] for s in result} or len(result)>=4:
+            raise ModelTaskError('invalid_revision_search','局部补料须映射到本方案不重复的场景；拆分镜头须来自当前剪辑，单次最多4场')
+        result.append({**search.model_dump(mode='json'),'scene_id':identity})
+    return result
 
 
 def recorded_proposal(service,ctx,review,output):
@@ -249,7 +271,8 @@ class RevisionTasks:
                     media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair)
             if proposal.material_searches and not (proposal.expands_scope or proposal.requires_new_generation):
                 if not self.supply:raise ModelTaskError('material_gap','局部库存补料尚不可用，原版与配音已保留')
-                new_ids=await asyncio.to_thread(self.supply.revision_visuals,ctx,[s.model_dump(mode='json') for s in proposal.material_searches])
+                searches=revision_plan_searches(context.plan,base,proposal.material_searches)
+                new_ids=await asyncio.to_thread(self.supply.revision_visuals,ctx,searches)
                 records,_=self.creation.assets(ctx,list(dict.fromkeys([*payload['revision_asset_ids'],*new_ids])))
                 observations,needs=await self._observe(
                     [r for r in records if r['id'] in new_ids] if budget is not None else records,

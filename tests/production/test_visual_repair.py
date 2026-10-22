@@ -30,3 +30,20 @@ def test_native_recut_preserves_voice_group_time_and_approved_overlay_only():
         if change=='new_text':bad['captions'][1]['text']='未经确认的新观点'
         with pytest.raises(EditError):
             assert_visual_repair(base,EditProject.model_validate(bad),overlay_texts=approved)
+
+
+def test_revision_search_maps_only_existing_split_shots_to_plan():
+    from easel.production.revisions import revision_plan_searches
+    from easel.production.material_intent import VisualIntent
+    from easel.production.model_tasks import ModelTaskError
+    base=fixture().model_copy(update={'scenes':tuple(fixture().scenes[0].model_copy(update={'scene_id':s,'duration':2}) for s in ['s1-cut1','s1-cut2'])})
+    plan={'scenes':[{'id':'s1'}]}
+    search=VisualIntent(scene_id='s1-cut2',query='save document',media_types=['video'],options=2)
+    result=revision_plan_searches(plan,base,[search])
+    assert result==[{**search.model_dump(mode='json'),'scene_id':'s1'}]
+    assert search.scene_id=='s1-cut2'
+    assert revision_plan_searches(plan,base,[search.model_copy(update={'scene_id':'s1'})])==result
+    for bad in ['s1-cut3','s1-extra','foreign-cut2','s1-cut0']:
+        with pytest.raises(ModelTaskError):revision_plan_searches(plan,base,[search.model_copy(update={'scene_id':bad})])
+    with pytest.raises(ModelTaskError):
+        revision_plan_searches(plan,base,[search,search.model_copy(update={'scene_id':'s1-cut1'})])
