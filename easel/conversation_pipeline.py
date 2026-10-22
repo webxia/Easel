@@ -237,7 +237,7 @@ def pending(conversations, conn, segment):
             if (not unknown and active_run and not active_run['cancel_requested']
                     and active_run['state'] in {'needs_decision','paused','failed'}
                     and task['kind']=='edit' and error.get('code') in {
-                        'invalid_edit_project','invalid_model_output','editor_rejected',
+                        'invalid_edit_project','invalid_edit','invalid_model_output','editor_rejected',
                         'edit_duration_mismatch','visual_material_gap'}):
                 choices.append({'kind':'resume','label':'阻断解决后继续原剪辑，复用已成功产物',
                     'action':'resume','values':{'decision_id':task['id']},

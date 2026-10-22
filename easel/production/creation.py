@@ -232,6 +232,8 @@ class CreationTasks:
             font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'}
             horizontal=context.plan['settings']['aspect_ratio']=='16:9'
             def check_measured_edit(candidate):
+                from .editors.base import check_timeline_identities
+                check_timeline_identities(candidate.scenes,candidate.audio,candidate.captions)
                 check_edit_source_bounds(candidate,source_durations,target_seconds=context.plan['settings']['duration_seconds'])
                 check_visual_evidence(align_editor_frames(compensate_edit_overlap(candidate,
                     target_seconds=context.plan['settings']['duration_seconds'])),observed)

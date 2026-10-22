@@ -1318,3 +1318,8 @@ G4真实证据：原生连续length空回复，现有模型运行预算contextTo
 现有机制内修复：源界反馈明确编译后取源长度及合法起点；画面观察区间同样以最终编译长度核对。只有用户明确resume且edit为invalid_model_output时，在既有Task payload固定最后已成功CreativeEdit回执；用既有RecordedModelTransport的固定来源命名空间继续有界修正，不重做作者、Plan、素材或VOICE。每次明确恢复最多沿既有2次修正预算；进程重启仍回放同一来源和请求，不自动无限换来源。当前Task有任何在途/UNKNOWN立即阻断，读取来源核对work/run/task/model/config/state；原授权、源长度及素材权益检查保留。无新表、状态、Agent或调度器。
 
 98项关联单元/组件通过，另38项含明确恢复来源、UNKNOWN拒绝、修正预算及对话等待回归通过（测试集有交集，不累加）。正式空闲后定向重载Web；27表、89保护文件、195登记路径和5条UNKNOWN一致（cleanup时间例外），完整性/FK正常、reload_required=false、九工具完整。真实原UI恢复待执行，不标生产通过。
+
+
+### 同轮取源实证与后置身份校验补齐
+
+原Web明确恢复后，仅一次模型修正将末镜头起点改为7.8秒，编译后止于13.20秒，真实源界通过；Plan/VOICE未重做。随后EditProject拒绝重复timeline ID：模型将同一场景拆为多个镜头却重用scene_id，之前该最终合同未进入纠错回调。复用最终编辑合同的同一身份检查函数，提前到有限纠错回调，反馈要求保留场景前缀并同步引用唯一-cut后缀；不人工改镜头。既有invalid_edit失败增加同一resume选择及来源固定，仍需原UI确认，UNKNOWN不变。76项关联回归通过，补充9项通过（含交集）。空闲重载前后27表/89文件/195路径/5UNKNOWN一致，完整性/FK及reload_required=false、九工具通过。待原作品再次定向复验，不标完整E2E通过。

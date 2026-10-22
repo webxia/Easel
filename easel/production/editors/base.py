@@ -111,6 +111,13 @@ class Caption(Contract):
         return self
 
 
+def check_timeline_identities(scenes, audio, captions):
+    for entries, key in ((scenes, 'scene_id'), (audio, 'clip_id'), (captions, 'caption_id')):
+        ids=[getattr(entry,key) for entry in entries]
+        if len(ids)!=len(set(ids)):
+            raise ValueError(key+'必须在时间线上唯一；拆分镜头保留方案场景前缀并使用-cut1/-cut2等唯一后缀，同步visual_evidence引用，不改画面、时长或旁白')
+
+
 class EditProject(Contract):
     schema_version: Literal[1] = 1
     editor: Literal["ffmpeg-timeline-v1"] = "ffmpeg-timeline-v1"
@@ -143,10 +150,7 @@ class EditProject(Contract):
                          *[s.transition_seconds for s in self.scenes]]:
             if abs(duration * self.fps - round(duration * self.fps)) > 1e-5:
                 raise ValueError("visual timing must align to an output frame")
-        for entries, key in ((self.scenes, "scene_id"), (self.audio, "clip_id"), (self.captions, "caption_id")):
-            ids = [getattr(entry, key) for entry in entries]
-            if len(ids) != len(set(ids)):
-                raise ValueError("timeline identities must be unique")
+        check_timeline_identities(self.scenes,self.audio,self.captions)
         if any(a.at + a.duration > self.duration + 1e-6 for a in self.audio):
             raise ValueError("audio lies outside the confirmed duration")
         if any(c.end > self.duration for c in self.captions):

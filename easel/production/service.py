@@ -514,7 +514,7 @@ class WorkService:
             fail('stale_revision','需要解决的决定已变化',409)
         # Explicit user resume can repair the last known edit, without replaying
         # its author or silently resetting a running attempt's repair budget.
-        if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code')=='invalid_model_output':
+        if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_edit'}:
             if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
                 fail('result_unknown','剪辑存在未确定调用，不能另发修正')
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()

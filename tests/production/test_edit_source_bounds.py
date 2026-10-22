@@ -134,3 +134,13 @@ def test_explicit_resume_pins_known_source_and_preserves_unknown(tmp_path,unknow
             assert json.loads(task['payload_json'])['edit_recovery_source']==spec['operation_id']
             assert task['state']=='pending'
         assert ops.get(spec['operation_id'])['state']=='succeeded'
+
+
+def test_timeline_identity_contract_is_actionable_before_project_submission():
+    from easel.production.editors.base import check_timeline_identities
+    value=CreativeEdit(scenes=[{'scene_id':'s1','asset_id':'video','duration':2},
+                               {'scene_id':'s1','asset_id':'video','duration':2}])
+    with pytest.raises(ValueError,match='scene_id.*-cut1'):
+        check_timeline_identities(value.scenes,[],[])
+    corrected=[value.scenes[0],value.scenes[1].model_copy(update={'scene_id':'s1-cut2'})]
+    check_timeline_identities(corrected,[],[])
