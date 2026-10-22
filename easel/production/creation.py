@@ -104,7 +104,7 @@ def compensate_edit_overlap(answer: CreativeEdit, *, target_seconds: float, fps:
 
 def check_edit_source_bounds(answer, durations, *, target_seconds):
     """Validate the compiled source intervals inside existing model repair rounds."""
-    compiled=compensate_edit_overlap(align_editor_frames(answer),target_seconds=target_seconds)
+    compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=target_seconds))
     for scene in compiled.scenes:
         available=durations.get(scene.asset_id)
         if available is not None and scene.source_start+scene.duration>available+0.5/30:
@@ -275,9 +275,8 @@ class CreationTasks:
                     return await self.edit(ctx,_stock_assets=ids)
                 raise ModelTaskError('visual_material_gap','未落实镜头：'+','.join(answer.unresolved_scene_ids)+
                     '；已有局部补料仍不足时不重复检索，保留方案、素材与旁白，尚未渲染')
-            answer=align_editor_frames(answer)
             settings=context.plan['settings']
-            answer=compensate_edit_overlap(answer,target_seconds=settings['duration_seconds'])
+            answer=align_editor_frames(compensate_edit_overlap(answer,target_seconds=settings['duration_seconds']))
             answer,unverified_editor_notes=project_editor_features(answer)
             horizontal=settings['aspect_ratio']=='16:9'
             if not style.enabled and answer.captions:

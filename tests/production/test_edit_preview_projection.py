@@ -83,3 +83,15 @@ def test_many_native_shots_keep_total_and_every_boundary_without_rounding_drift(
         assert compiled.scene_id==native.scene_id and compiled.asset_id==native.asset_id
         assert compiled.source_start==native.source_start
     assert answer.model_dump()==original
+
+
+def test_fractional_overlap_is_compiled_before_frame_quantization():
+    from easel.production.creation import compensate_edit_overlap
+    from easel.production.editors import Scene
+    durations=[6,4.4,3.6,8,7,4.6,2.975,3.425,5]
+    overlaps=[0,0,0,0,.35,0,.3,0,.4]
+    answer=CreativeEdit(scenes=[Scene(scene_id=f's{i}',asset_id='a',duration=d,transition='dissolve' if o else 'cut',transition_seconds=o) for i,(d,o) in enumerate(zip(durations,overlaps))],audio=[],captions=[])
+    from easel.production.creation import check_edit_source_bounds
+    check_edit_source_bounds(answer,{},target_seconds=45)
+    compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=45))
+    assert sum(round((s.duration-s.transition_seconds)*30) for s in compiled.scenes)==1350
