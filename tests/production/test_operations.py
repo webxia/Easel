@@ -18,12 +18,13 @@ def environment(tmp_path):
     return store, OperationService(store, clock=lambda: 1000), FakeProvider(tmp_path / "provider.sqlite3")
 
 
-def owned_request(store, *, kind="IMAGE", limit=1, purpose="production"):
+def owned_request(store, *, kind="IMAGE", limit=1, purpose="production", expression_policy=None):
     work = store.create_work({"title": "真实事务测试"})
     revision = None
     if purpose == "production":
         saved = store.save_plan(work["id"], {
             "title": "片子", "summary": "摘要", "script": "完整表达",
+            "conversation_basis": {"expression_policy": expression_policy} if expression_policy else None,
             "scenes": [{"id": "s1", "purpose": "说明", "visual": "桌面素材"}],
             "settings": {"duration_seconds": 90, "audio_mode": "silent"},
         }, expected_revision=1)

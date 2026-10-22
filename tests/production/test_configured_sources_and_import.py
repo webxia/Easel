@@ -115,9 +115,10 @@ def test_stock_provider_http_failures_are_bounded_and_not_retried(tmp_path):
     def rate_limited(request):
         calls.append(request.url.path)
         return httpx.Response(429, json={'private': 'remote-secret'})
-    with pytest.raises(StockUnavailable, match='HTTP 429') as pixabay:
+    with pytest.raises(StockUnavailable) as pixabay:
         PixabayStockProvider('private-test-key', transport=httpx.MockTransport(rate_limited),
             cache_root=tmp_path / 'cache').search('city', media_type=MediaType.IMAGE)
+    assert pixabay.value.code == 'http_rate_limited'
     from easel.production.providers.unsplash import UnsplashDiscoveryProvider
     with pytest.raises(StockUnavailable, match='HTTP 429') as unsplash:
         UnsplashDiscoveryProvider('private-test-key', transport=httpx.MockTransport(rate_limited)).search('city')

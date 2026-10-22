@@ -68,5 +68,8 @@ def test_known_native_draft_recovery_preserves_receipt_and_never_adopts_external
     else:
         assert after['state']=='awaiting_confirmation' and after['plans'][0]['plan']['title']=='native-repaired'
         assert len(model.calls)==4 and model.authors==2
+        from easel.production.expression_policy import RULES
+        assert RULES["write"] in model.calls[-2][0]["content"]
+        assert RULES["review"] in model.calls[-1][0]["content"]
         with store.connection() as c:
             assert c.execute("SELECT count(*) FROM events WHERE work_id=? AND kind='native_draft_recovered'",(work,)).fetchone()[0]==1

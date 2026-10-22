@@ -175,7 +175,7 @@ class CreationTasks:
             context,'只为以下已观察到的画面缺口提出一次局部库存补料词，复用其余素材和旁白。'
             'visuals逐一对应缺口scene_id，query为简短英文主体/动作，options最多4；不生成媒体、不改方案。'
             +encode({'unresolved_scene_ids':gaps,'visual_evidence':[v.model_dump() for v in answer.visual_evidence]}),
-            MaterialIntent,validate_result=check)
+            MaterialIntent,validate_result=check, expression_role="visual")
         ids=await asyncio.to_thread(self.supply.revision_visuals,ctx,[v.model_dump(mode='json') for v in intent.visuals])
         return list(dict.fromkeys([*asset_ids,*ids]))
 
@@ -297,7 +297,7 @@ class CreationTasks:
                 '同一图解可跨段落复用、回看或加局部特写，board_scene_ids是本次素材映射提示，图解定义所在的scene_id不是排他的使用限制。'
                 '图解已画出标题、卡片、类别和假设/概念标识，不要只剩裁切而失去全貌，避免重复叠同义解释字；有必要时可以安排不遮挡证据的补充标注。'
                 '避免同义空镜反复堆积，旁白说到具体关系时应让画面或必要字幕提供相应信息。'
-                '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),tools=observation_tools,validate_result=check_measured_edit,recovery=recovery)
+                '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),tools=observation_tools,validate_result=check_measured_edit,recovery=recovery, expression_role="visual")
             if answer.unresolved_scene_ids:
                 if _stock_assets is None and self.supply:
                     ids=await self.supplement_visuals(ctx,context,answer,asset_ids)

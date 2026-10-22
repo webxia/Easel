@@ -126,6 +126,8 @@ class SupplyTasks:
             plan = conn.execute('SELECT * FROM plan_revisions WHERE work_id=? AND revision=?', (ctx.work_id, ctx.plan_revision)).fetchone()
             if not plan or not plan['confirmed_at']:
                 raise ProductionError('plan_unconfirmed', '先确认本次完整创作方案', requires_decision=True)
+            from .expression_policy import validate
+            validate((json.loads(plan['payload_json']).get('conversation_basis') or {}).get('expression_policy'))
             inputs = [dict(r) for r in conn.execute('SELECT * FROM work_inputs WHERE work_id=?', (ctx.work_id,))]
             records = [dict(r) for r in conn.execute("SELECT * FROM artifacts WHERE work_id=? AND deleted_at IS NULL AND json_extract(metadata_json,'$.supply_task_id')=? ORDER BY created_at,id", (ctx.work_id, ctx.task_id))]
         for record in records:
@@ -367,7 +369,7 @@ class SupplyTasks:
                 allowed_handles=context.allowed_handles|frozenset(r['id'] for r in records))
             answer=await self.planning.runner(ctx).run(context,
                 '已先尝试素材库与外部来源。仅针对这些缺口场景提出 AI 补料创作请求：'+canonical_json(gaps)+
-                '。可用生成能力：'+canonical_json(capabilities)+'。不得改写已确认事实、观点、必用素材或风格；需要实质变更的场景放入 unresolved_scene_ids。VIDEO 必须明确时长与分辨率，IMAGE 不设置视频参数。',SupplyDecision)
+                '。可用生成能力：'+canonical_json(capabilities)+'。不得改写已确认事实、观点、必用素材或风格；需要实质变更的场景放入 unresolved_scene_ids。VIDEO 必须明确时长与分辨率，IMAGE 不设置视频参数。',SupplyDecision, expression_role="visual")
         else:
             answer=SupplyDecision(unresolved_scene_ids=gaps)
         # Persist semantic intent before any media generation. Restarts reuse it.

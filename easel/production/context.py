@@ -25,6 +25,7 @@ class TaskContext:
     prohibitions: tuple[str, ...] = ()
     adaptation_permissions: tuple[str, ...] = ()
     capabilities: dict[str, Any] = field(default_factory=dict)
+    expression_policy: dict[str, Any] = field(default_factory=dict)
     schema_version: int = 1
 
     def creative_data(self) -> dict[str, Any]:
@@ -41,9 +42,14 @@ class TaskContext:
         }
         if self.capabilities:
             result['production_capabilities'] = self.capabilities
-        return deepcopy(result)
+        result = deepcopy(result)
+        basis = result["plan"].get("conversation_basis")
+        if isinstance(basis, dict):
+            basis.pop("expression_policy", None)
+        return result
 
     @property
     def fingerprint(self) -> str:
-        return hashlib.sha256(json.dumps(self.creative_data(), sort_keys=True,
+        return hashlib.sha256(json.dumps({"creative": self.creative_data(),
+                                        "expression_policy": self.expression_policy}, sort_keys=True,
                                         ensure_ascii=False).encode()).hexdigest()

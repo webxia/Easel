@@ -44,6 +44,8 @@ def test_worker_creates_proposal_and_records_model_receipt(tmp_path):
     assert len(snap['plans'])==1
     assert not snap['plans'][0]['confirmed_at']
     assert transport.calls==1
+    from easel.production.expression_policy import RULES
+    assert RULES["write"] in transport.requests[0][0][0]["content"]
     with service.store.connection() as conn:
         op=dict(conn.execute('SELECT * FROM operations').fetchone())
     assert op['kind']=='MODEL' and op['state']=='succeeded'
@@ -163,7 +165,7 @@ def test_planning_commit_before_worker_finish_reuses_proposal_after_restart(tmp_
 
 
 @pytest.mark.parametrize('old_profile',[True,False])
-def test_replanning_uses_frozen_profile_identity_with_frozen_content(tmp_path,old_profile):
+def test_replanning_uses_frozen_profile_identity_with_frozen_content(tmp_path,old_profile,monkeypatch):
     from .test_director_runtime import service_at,IDENTITY
     service=service_at(tmp_path)
     (service.profiles/'other').mkdir();(service.profiles/'other'/'identity.md').write_text('别的画像内容',encoding='utf8')
@@ -173,7 +175,10 @@ def test_replanning_uses_frozen_profile_identity_with_frozen_content(tmp_path,ol
     original={'title':'旧方案','summary':'保持依据','script':'观点不变','scenes':[{'id':'s1','purpose':'表达','visual':'清楚画面'}],
         'settings':values['settings']}
     saved=service.command('plan',{'generate':False,'plan':original},command_id='original-plan',work_id=work,expected_revision=1)
-    original_snapshot=service.snapshot(work)['plans'][0]['plan']['profile_snapshot']
+    original_plan=service.snapshot(work)['plans'][0]['plan']
+    original_snapshot=original_plan['profile_snapshot']
+    from easel.production import expression_policy
+    monkeypatch.setattr(expression_policy,'VERSION','future-default-version')
     with service.store.transaction() as conn:
         # Simulate a work reassigned after retaining an old version. The next
         # planning task deliberately binds that version as its revision basis.
@@ -202,6 +207,8 @@ def test_replanning_uses_frozen_profile_identity_with_frozen_content(tmp_path,ol
     result=asyncio.run(planning.plan(ctx));assert result.state=='succeeded'
     newest=service.snapshot(work)['plans'][0]['plan']
     assert newest['profile_snapshot']==original_snapshot
+    assert newest['conversation_basis']==original_plan['conversation_basis']
+    assert context.expression_policy==original_plan['conversation_basis']['expression_policy']
     model_context=json.loads(transport.requests[0][0][1]['content'][0]['text'])
     assert model_context['profile']==context.profile and '别的画像内容' not in json.dumps(model_context['profile'],ensure_ascii=False)
 

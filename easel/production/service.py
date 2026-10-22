@@ -393,6 +393,9 @@ class WorkService:
                 self._insert_grant(conn,work,'planning',data)
             payload={'request':data.get('request',''),'creation_basis':self._basis(conn,work)}
             if recovery:
+                from .expression_policy import validate
+                payload['creation_basis']['expression_policy']=validate(
+                    (recovery['protected_plan'].get('conversation_basis') or {}).get('expression_policy'))
                 payload.update(protected_plan=recovery['protected_plan'],
                                request='只将已确认方案改为纯旁白，无背景音乐或可选音效；保留其他全部内容和设置。')
             run_id=self._run(conn,work,'planning',payload=payload)
@@ -408,6 +411,7 @@ class WorkService:
         return {'work_id':work['id'],'plan_revision':rev,'plan_hash':digest(payload)}
 
     def _basis(self,conn,work):
+        from . import expression_policy
         settings=json.loads(work['settings_json'])
         director={}
         if settings.get('director_revision'):
@@ -417,13 +421,17 @@ class WorkService:
         return {'conversation_brief': None if not brief else {'revision':brief['revision'],'hash':brief['body_hash'],'body':json.loads(brief['body_json'])},
                 'channel_basis':json.loads(work.get('creation_context_json','{}')).get('channel_basis',json.loads(channel['creative_basis_json']) if channel else {}),
                 'profile_ref':work['profile_ref'],'profile':self.profile_snapshot(conn,work['profile_ref']),
-                'channel_id':work['channel_id'],'settings':settings,'director':director}
+                'channel_id':work['channel_id'],'settings':settings,'director':director,
+                'expression_policy':expression_policy.snapshot()}
 
     def freeze_plan(self,conn,work,payload,*,basis=None):
-        basis=basis or self._basis(conn,work)
+        from .expression_policy import validate
+        basis=basis if basis is not None else self._basis(conn,work)
+        policy=validate(basis.get('expression_policy'))
         payload={**payload,'schema_version':1,'profile_snapshot':None,
                  'director_revision_id':basis['settings'].get('director_revision'),
-                 'conversation_basis':{k:basis.get(k) for k in ('conversation_brief','channel_basis')}}
+                 'conversation_basis':{**{k:basis.get(k) for k in ('conversation_brief','channel_basis')},
+                                       'expression_policy':policy}}
         if work['profile_ref']:
             content=encode(basis['profile'])
             payload['profile_snapshot']={'profile_ref':work['profile_ref'],'content':content,
@@ -474,6 +482,8 @@ class WorkService:
         plan=conn.execute('SELECT * FROM plan_revisions WHERE work_id=? AND revision=?',(work['id'],revision)).fetchone()
         if not plan or plan['plan_hash']!=data.get('plan_hash') or plan['confirmed_at']:
             fail('stale_revision','方案摘要不匹配或已确认',409)
+        from .expression_policy import validate
+        validate((json.loads(plan['payload_json']).get('conversation_basis') or {}).get('expression_policy'))
         self.validate_plan(conn,work,json.loads(plan['payload_json']))
         conn.execute('UPDATE plan_revisions SET confirmed_at=? WHERE id=?',(now(),plan['id']))
         grant=self._insert_grant(conn,work,'production',data,revision)

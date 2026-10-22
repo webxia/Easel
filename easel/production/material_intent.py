@@ -148,7 +148,7 @@ class FrozenIntentCompiler:
                     '静音方案禁止音效；固定旁白不交由图库替代。结合完整画像、导演风格、事实、禁区和适配许可，'
                     '不把候选或文字意图称作已看过/听过素材。具体候选、许可证、署名、混音与音效动作匹配'
                     '本来就由后续供料、绑定和审片验证，不能在检索前把这些待执行工作写成阻断问题；'
-                    '仅将需要 Creator 提供、在当前冻结方案中确实缺失的创作信息列入unresolved。', MaterialIntent,validate_result=checked)
+                    '仅将需要 Creator 提供、在当前冻结方案中确实缺失的创作信息列入unresolved。', MaterialIntent,validate_result=checked, expression_role="visual")
             check_intent(intent, plan)
             with ctx.transaction() as writer:
                 current = json.loads(writer.execute('SELECT payload_json FROM tasks WHERE id=?', (ctx.task_id,)).fetchone()[0])

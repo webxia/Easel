@@ -44,7 +44,7 @@ async def review_visual_preview(path, *, runner, context):
         '缺重要说明、误导性示意或关键动作不可见须明确指出，不因工程能导出就pass。'
         '本轮仅有离散画面，未听声音、未观察完整动作，limitations必须说明；'
         'verdict只表示本次视觉抽样，不是全片语义、电影感或Creator接受通过。',
-        VisualPreviewReview, media=blocks, required=required | frozenset({'text'}))
+        VisualPreviewReview, media=blocks, required=required | frozenset({'text'}), expression_role="review")
     status = 'fail' if answer.findings else answer.verdict
     return status, {'review': answer.model_dump(), 'evidence': evidence,
                     'scope': 'sampled_visual_only', 'audio_reviewed': False, 'full_av_reviewed': False}
@@ -81,7 +81,7 @@ async def review_full_video(path: Path, *, cache_root: Path, info: dict, transpo
                 '不得用文件名、计划或字幕文本代替观看收听。不得将本段结果称为全片已通过。'
                 'findings 只列有证据的必须修复问题、受损要求及全片时间；可选审美优化放suggestions，不因建议返回fail；观察不足、采样漏掉关键动作或无法听到音轨时'
                 '返回 partial 并说明 limitations。不得声称 Creator 已接受。',
-                review_type, required=required, media=blocks)
+                review_type, required=required, media=blocks, expression_role="review")
             data = {'start': chunk.start, 'end': chunk.end, 'review': answer.model_dump()}
             reviews.append(data)
             evidence['reviewed_chunks'].append({'start': chunk.start, 'end': chunk.end,
@@ -100,7 +100,7 @@ async def review_full_video(path: Path, *, cache_root: Path, info: dict, transpo
             '不能确认完整一致性时返回 partial；findings 只列需要修复的问题并注明时间。',
             review_type, required=frozenset({'text','structured'}),
             media=({'type': 'text', 'text': json.dumps({'actual_video_segment_reviews': reviews,
-                'duration': evidence['duration'], 'coverage_complete': True}, ensure_ascii=False)},))
+                'duration': evidence['duration'], 'coverage_complete': True}, ensure_ascii=False)},), expression_role="review")
         evidence['global_review_complete'] = True
     except ModelTaskError as exc:
         raise ModelTaskError(exc.code, exc.user_message,

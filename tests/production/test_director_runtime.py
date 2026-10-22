@@ -94,6 +94,8 @@ def test_director_handler_binds_two_actual_videos_audio_and_reference_evidence(t
     assert [e['digest'] for e in version['evidence']]==[service._file_hash(p) for _,p in inputs]
     assert not version['accepted_at'] and not version['style_confirmed']
     messages=transport.requests[0][0]
+    from easel.production.expression_policy import RULES
+    assert RULES['core'] not in messages[0]['content']
     content=messages[1]['content']
     data=json.loads(content[0]['text'])
     assert data['profile']['identity']=='我是一名正在学习金融和科技的创作者。'

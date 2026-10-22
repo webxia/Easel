@@ -14,6 +14,7 @@ from pydantic import BaseModel, ValidationError
 
 from easel.direct_api import api_config
 from .context import TaskContext
+from .expression_policy import ExpressionRole, instructions
 from .tools import ScopedTool, tool_registry
 
 PROMPT_VERSION = "production-1"
@@ -201,6 +202,7 @@ class ModelTaskRunner:
     legacy_first_repair: bool = False
 
     async def run(self, context: TaskContext, task_kind: str, result_type: type[T], *,
+                  expression_role: ExpressionRole | None = None,
                   required: frozenset[str] = frozenset({"text", "structured"}),
                   tools: tuple[ScopedTool, ...] = (), media: tuple[dict, ...] = (),
                   validate_result: Callable[[T], None] | None = None,
@@ -212,8 +214,9 @@ class ModelTaskRunner:
             raise ModelTaskError("capability_unavailable", "当前模型不支持受控工具")
         if not 1 <= self.max_rounds <= 20 or not 0 <= self.max_format_repairs <= 3:
             raise ValueError("Invalid bounded model task limits")
+        expression = instructions(context.expression_policy, expression_role) if expression_role is not None else ""
         data = json.dumps(context.creative_data(), ensure_ascii=False)
-        messages = [{"role": "system", "content": SYSTEM + "\n任务：" + task_kind +
+        messages = [{"role": "system", "content": SYSTEM + expression + "\n任务：" + task_kind +
                      "\n输出schema：" + json.dumps(result_type.model_json_schema(), ensure_ascii=False)},
                     {"role": "user", "content": [{"type": "text", "text": data}, *media]}]
         repairs = 0

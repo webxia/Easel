@@ -21,6 +21,9 @@ class ScriptedModel:
     calls=[]
     async def complete(self,messages,tools,schema):
         self.calls.append(messages)
+        from easel.production.expression_policy import RULES
+        role="visual" if schema["title"]=="CreativeEdit" else "review"
+        assert RULES[role] in messages[0]["content"]
         if schema['title']=='CreativeEdit':
             data=json.loads(messages[1]['content'][0]['text'])
             return {'content':json.dumps({'scenes':[{'scene_id':'s1','asset_id':data['artifacts'][0]['asset_id'],'duration':1}], 'audio':[],'captions':[]})}

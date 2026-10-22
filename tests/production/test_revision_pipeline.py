@@ -17,6 +17,8 @@ from easel.production.revisions import RevisionTasks
 class RevisionModel(ScriptedModel):
     async def complete(self,messages,tools,schema):
         if schema['title']=='RevisionProposal':
+            from easel.production.expression_policy import RULES
+            assert RULES['visual'] in messages[0]['content']
             self.calls.append(messages)
             context=json.loads(messages[1]['content'][0]['text'])
             base=context['artifacts'][0]['base_edit']

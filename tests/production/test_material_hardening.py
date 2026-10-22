@@ -148,14 +148,15 @@ def test_internal_projection_does_not_narrow_accepted_scene_identity_or_count():
     assert [v.scene_id for v in intent.visuals]==names
 
 
-def test_director_intent_preserves_frozen_context_and_replays_without_another_call(env):
+def test_director_intent_preserves_frozen_context_and_replays_without_another_call(env,monkeypatch):
     service,ops,ctx,_,_=env
     identity={'provider':'direct-api','model':'fixture','mode':'structured'}
     allow(env,identity)
     plan=plan_of(ctx)
     original=plan.model_dump_json()
     creative=CreativeContext(ctx.work_id,ctx.run_id,ctx.task_id,profile_ref='fixed-profile',
-        profile={'identity':'frozen-persona'},director={'visual':'restrained-blue'},plan=plan.model_dump(mode='json'))
+        profile={'identity':'frozen-persona'},director={'visual':'restrained-blue'},plan=plan.model_dump(mode='json'),
+        expression_policy=plan.conversation_basis['expression_policy'])
     class Model:
         capabilities=frozenset({'text','structured'})
         calls=0
@@ -164,6 +165,7 @@ def test_director_intent_preserves_frozen_context_and_replays_without_another_ca
             value=json.loads(messages[1]['content'][0]['text'])
             assert value['profile']['identity']=='frozen-persona'
             assert value['director']['visual']=='restrained-blue'
+            assert creative.expression_policy['rules']['visual'] in messages[0]['content']
             intent=material_intent().model_copy(update={'unresolved':['素材候选和授权应由供料实际检验']})
             return {'content':intent.model_dump_json()}
     model=Model();planning=PlanningTasks(service,ops,model,identity,'fixed')
@@ -173,8 +175,16 @@ def test_director_intent_preserves_frozen_context_and_replays_without_another_ca
     second,_=asyncio.run(compiler.prepare(ctx,plan))
     assert first==second and model.calls==1 and plan.model_dump_json()==original
     assert first.unresolved==['素材候选和授权应由供料实际检验']
+    # Changing policy cannot reuse an intent compiled for another snapshot.
+    from easel.production import expression_policy
+    monkeypatch.setattr(expression_policy,'VERSION','test-next')
+    changed=replace(creative,expression_policy=expression_policy.snapshot())
+    planning.context=lambda context:changed
+    with pytest.raises(ModelTaskError) as caught:
+        asyncio.run(compiler.prepare(ctx,plan))
+    assert caught.value.code=='material_context_changed' and model.calls==1
     # The original default operation namespace remains available, not ordinal1 of the new task.
-    asyncio.run(planning.runner(ctx).run(creative,'fixture',MaterialIntent))
+    asyncio.run(planning.runner(ctx).run(creative,'fixture',MaterialIntent,expression_role='visual'))
     with ctx.store.connection() as reader:
         ids={row[0] for row in reader.execute('SELECT id FROM operations WHERE task_id=?',(ctx.task_id,))}
     assert len(ids)==2 and hashlib.sha256(f'{ctx.task_id}:model:1'.encode()).hexdigest() in ids

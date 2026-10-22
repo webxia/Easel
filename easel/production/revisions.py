@@ -268,7 +268,7 @@ class RevisionTasks:
             reused=proposal is not None
             if proposal is None:
                 proposal=await self.planning.runner(ctx,max_format_repairs=2 if creative_repair else 1).run(candidate_context(records),instruction,RevisionProposal,
-                    media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair)
+                    media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair, expression_role="visual")
             if proposal.material_searches and not (proposal.expands_scope or proposal.requires_new_generation):
                 if not self.supply:raise ModelTaskError('material_gap','局部库存补料尚不可用，原版与配音已保留')
                 searches=revision_plan_searches(context.plan,base,proposal.material_searches)
@@ -279,7 +279,7 @@ class RevisionTasks:
                     audio_native=audio_native,observed=observed,budget=budget)
                 proposal=await self.planning.runner(ctx,namespace='revision-stock-selection-v1',max_format_repairs=2).run(
                     candidate_context(records),instruction+'本轮有限库存补料已经完成，不能再次请求检索。根据实际新候选完成修订；仍缺关键动作时在edit.unresolved_scene_ids明确报告并停止，不能改用无关画面。',
-                    RevisionProposal,media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair)
+                    RevisionProposal,media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair, expression_role="visual")
                 if proposal.material_searches:raise ModelTaskError('visual_material_gap','有限库存补料后仍缺所需画面，保留原片并等待处理')
             with ctx.transaction() as conn:
                 if not reused:

@@ -9,6 +9,7 @@ import subprocess
 import pytest
 
 from easel.production.context import TaskContext
+from easel.production.expression_policy import snapshot
 from easel.production.creation import SemanticReview
 from easel.production.inspection import observe_media, prepare_video_chunks
 from easel.production.media import probe_media
@@ -50,6 +51,7 @@ class Model:
 
     async def complete(self,messages,tools,schema):
         self.calls.append(messages)
+        assert snapshot()["rules"]["review"] in messages[0]["content"]
         if len(self.calls)==self.interrupt_at:
             raise ModelTaskError('result_unknown','fixture interrupted')
         native=next((b for b in messages[1]['content'] if b.get('type')=='video_url'),None)
@@ -73,7 +75,7 @@ class Model:
 def run_review(path, model, cache, progress=None):
     async def authorize(context):pass
     return asyncio.run(review_full_video(path,cache_root=cache,info=probe_media(path),transport=model,
-        runner=ModelTaskRunner(model,authorize),context=TaskContext('work','run','task'),
+        runner=ModelTaskRunner(model,authorize),context=TaskContext('work','run','task',expression_policy=snapshot()),
         review_type=SemanticReview,on_segment=progress))
 
 

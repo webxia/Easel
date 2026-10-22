@@ -31,7 +31,8 @@ def env(tmp_path):
     outputs=tmp_path/'outputs';outputs.mkdir()
     profiles=tmp_path/'profiles';profiles.mkdir()
     store=Store(outputs/'_production'/'production.sqlite3');store.initialize()
-    spec=owned_request(store,limit=2)
+    from easel.production.expression_policy import snapshot
+    spec=owned_request(store,limit=2,expression_policy=snapshot())
     service=WorkService(store,outputs=outputs,profiles=profiles)
     operations=OperationService(store,clock=lambda:1000)
     ctx=TaskContext(store,spec['work_id'],spec['run_id'],spec['task_id'],'owner',1,1,'input',{'schema_version':1},lambda:1000)
@@ -181,7 +182,8 @@ def test_model_can_choose_generation_within_existing_authorization(env):
     task,ctx,calls=generation(env);ctx=replace(ctx,payload={'schema_version':1})
     from easel.production.context import TaskContext as CreativeContext
     class Runner:
-        async def run(self,context,prompt,schema):
+        async def run(self,context,instruction,schema,*,expression_role):
+            assert expression_role == "visual"
             assert 'scene_id' not in context.creative_data()  # execution context isn't silently editable
             return SupplyDecision(generation_requests=[{'scene_id':'s1','kind':'IMAGE','prompt':'An accurate blue desk'}])
     class Planning:

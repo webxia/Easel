@@ -11,6 +11,7 @@
 | 模型、程序、用户分别负责什么 | [逻辑架构](02_ARCHITECTURE.md)及[已接受的逻辑边界 ADR](decisions/ADR-S5-001-work-production-boundary.md) |
 | 为什么推荐该技术，有什么替代和风险 | [技术选型](14_TECHNOLOGY_SELECTION.md)：推荐与条件未决项，不冒充全部已获批准 |
 | Coding 应遵守哪些数据、状态、API 和执行规则 | [实施合同](15_IMPLEMENTATION_DESIGN.md)：唯一实施合同；设计条款与已具名落地项分开，当前结果以Task/证据为准 |
+| 本期通用去AI味如何结合导演 | [需求补充](01_REQUIREMENTS.md#natural-expression)、[架构职责](02_ARCHITECTURE.md#41-通用自然表达与导演的结合2026-10-22)、[实施合同 §6.1](15_IMPLEMENTATION_DESIGN.md#natural-expression-design)：单一通用规则源融入既有任务，保留导演差异与冻结依据；SOFTWARE_PASS（发布快照864 passed / 5 skipped），离线证据见合同 §6.1.7；DEPLOY_PASS，制作仍暂停，视频清晰度整体留S7 |
 | 如何回到 Easel 对话式视频创作、前后端怎样衔接 | [交互设计与图](20_CONVERSATIONAL_INTERACTION.md)：参考 Easel 管线、含 OpenClaw 插件/受限运行配置研究、[完成与回写闭环](20_CONVERSATIONAL_INTERACTION.md#10-创作结束后的闭环与回写2026-10-18补充设计)、[导演/频道入口与整条闭环](20_CONVERSATIONAL_INTERACTION.md#11-导演频道入口与统一创作闭环)、[创建流程](diagrams/s6-14a-creation-flows.svg)及[交互分镜](diagrams/s6-14a-interaction-storyboard.svg)的设计提案，整体文档审查见[§12](20_CONVERSATIONAL_INTERACTION.md#12-本次整体方案审查与修正2026-10-18)；[S6-14A](tasks/S6-14A_conversation-integration.md) 登记新增交互任务；A1隔离验证保留；A2～A4已实现并通过具名软件/隔离Web验证，A5完整隔离流程与28项离线判据通过；[A6对话内三条管线入口](20_CONVERSATIONAL_INTERACTION.md#15-对话管线区域的统一入口用户澄清)及6项隔离入口验证完成；A7正式桥接/schema4迁移及真实Web频道→导演→完整生产→同对话审片回写通过；A8已通过真实Web局部修复画面动作、字幕对比及跨镜头合成，完整音轨复用不变；源片清晰度/夜景氛围限度与Creator待审独立记录 |
 | 任务顺序、依赖、覆盖关系与验收分工是什么 | [实施任务包](tasks/S6_IMPLEMENTATION_PLAN.md)及各卡；每张卡维护自身执行结果 |
 | S6-15 素材层完善完成了什么 | [S6-15 结案任务](tasks/S6-15_material-layer-hardening.md)：G0～G4 历史正反证据；**CLOSED/COMPLETE，不是当前开放前置** |
@@ -23,7 +24,7 @@
 
 产品内创作 Agent 使用[创作指令](../../agents/workspace/AGENTS.md)，仓库根 `AGENTS.md` 约束研发任务。实际指令加载边界须通过运行证据核验，不能仅凭目录分开宣称隔离完成。
 
-**当前对话执行状态（2026-10-20）**：[三条管线的现行交互合同§18](20_CONVERSATIONAL_INTERACTION.md#18-既有管线的对话执行接入方案2026-10-19)已实现并部署；正常授权执行保持当前原生回合等待真实结果，后台结果回合仅作中断恢复，见[§18.14.1](20_CONVERSATIONAL_INTERACTION.md)和[S6-14A](tasks/S6-14A_conversation-integration.md)。已有真实 Web 试跑并留存 FAIL 证据；本轮作品/Plan权威、预成片声音修订及素材代理/缺口说明修复已部署，见[§18.17](20_CONVERSATIONAL_INTERACTION.md#1817-当前作品的确认与预成片修订补充2026-10-20已部署真实路径待验)，尚未执行修后真实恢复、出片或 Creator 审阅；权威现场、清理后的数据和待办仅见[当前状态](04_CURRENT_STATE.md)，历史 Task 的“未部署/待测试”不得重新派发。
+**当前状态唯一入口**：[当前状态](04_CURRENT_STATE.md)维护最新授权、部署与停止点；[S6-14A](tasks/S6-14A_conversation-integration.md#natural-expression-implementation)维护本期实现和验证证据。历史轮次保留原判定，不根据旧“待部署/下一步”自动重派任务。
 
 ## 按需查阅的依据
 

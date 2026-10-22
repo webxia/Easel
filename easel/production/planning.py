@@ -132,7 +132,7 @@ class PlanningTasks:
             'narration': 'continuous speech; measured duration can drive unfixed-length films',
         }
 
-    def context(self, ctx):
+    def context(self, ctx, *, require_expression=True):
         with self.service.store.connection() as conn:
             work=row(conn,'works',ctx.work_id)
             basis=None
@@ -149,16 +149,22 @@ class PlanningTasks:
                 profile_ref=snapshot['profile_ref'] if snapshot else None
                 director_id=plan.get('director_revision_id')
                 director=json.loads(row(conn,'director_revisions',director_id)['style_json']) if director_id else {}
-                basis={'profile':profile,'director':director,'settings':plan['settings']}
+                basis={**(plan.get('conversation_basis') or {}),
+                       'profile':profile,'director':director,'settings':plan['settings']}
             else:
-                basis=ctx.payload.get('creation_basis') or self.service._basis(conn,work)
+                basis=ctx.payload.get('creation_basis')
+                if basis is None:
+                    basis=self.service._basis(conn,work)
+                    basis.pop('expression_policy',None)  # Never stamp an existing task on read.
+        from .expression_policy import validate
+        policy=validate(basis.get('expression_policy')) if require_expression else {}
         safe_inputs=tuple({'input_id':i['id'],'kind':i['kind'],'usage':i['usage'],'text':i['text_content'],
             'name':i['original_name'],'constraints':json.loads(i['metadata_json'])} for i in inputs)
         return TaskContext(work_id=ctx.work_id,run_id=ctx.run_id,task_id=ctx.task_id,
             profile_ref=profile_ref,profile=basis['profile'],director=basis['director'],
             brief=work['input_text']+'\n本次明确设置：'+encode(basis['settings'])+'\n本次对话依据：'+encode(basis.get('conversation_brief'))+'\n频道定位：'+encode(basis.get('channel_basis',{}))+'\n本次补充：'+str(ctx.payload.get('request','')),
             inputs=safe_inputs,allowed_handles=frozenset(i['id'] for i in inputs),plan=plan,
-            capabilities=self.execution_capabilities,
+            capabilities=self.execution_capabilities,expression_policy=policy,
             facts=tuple(plan.get('facts',[])),prohibitions=tuple(plan.get('constraints',[])),
             adaptation_permissions=tuple(plan.get('adaptation_permissions',[])))
 
@@ -374,6 +380,7 @@ class PlanningTasks:
                 '图解会由程序原样绘制，每个状态都有真实数量和概念/假设标识，不需搜索到完全相同的卡片。'
                 '图解只作概念/假设，不编造成真实资料；文字简短，按需用，不强制每场图解。'
                 '返回摘要、完整脚本、场景和视听设计。',VoiceReadyCreativePlan,
+                expression_role=None if protected else "write",
                 media=media,required=required,tools=self.tool_factory(ctx),validate_result=check_capabilities)
                 source=self._native_operation(ctx,author)
             with self.service.store.connection() as reader:
@@ -424,7 +431,7 @@ class PlanningTasks:
                         '不新增用户没有要求的品牌禁令或匿名条件，也不放宽用户实际隐私要求；公开库存只作示意、不能伪装用户经历。'
                         '未选素材和未试听声音留到实际生产检查，不将这些正常未执行步骤列成草稿缺陷。'
                         'findings只记录事实矛盾、明确用户要求冲突、错误示意或已证实不可执行问题，注明字段、依据与受损要求；审美取舍和可选优化放suggestions，不因建议返回fail。未选素材的效果未知放limitations，留到生产观察。无明确阻断问题时pass。',
-                        DraftReview,media=(*media,*board_media),required=required|board_needs)
+                        DraftReview,expression_role="review",media=(*media,*board_media),required=required|board_needs)
                 round_=recovered['correction_round'] if recovered else 0
                 history=list(recovered.get('history',[])) if recovered else []
                 review=DraftReview.model_validate(recovered['review']) if recovered and recovered.get('review') else None
@@ -452,7 +459,7 @@ class PlanningTasks:
                         '电影感要落实到可取得的具体场景动作、景别、光线与镜头联系，不用无关素材凑，也不把整片放回文字板fallback。'
                         '收到的字幕样例由正式排版函数生成；若旧审查的碰撞假设被真实像素/边界否定，可保留正确布局并如实说明，'
                         '不能把未实现的后期重排写成已完成，更不能借此忽略其他内容问题。原生审查记录：'+encode(history),
-                        VoiceReadyCreativePlan,media=(*media,*pictures),required=required|picture_needs,
+                        VoiceReadyCreativePlan,expression_role="write",media=(*media,*pictures),required=required|picture_needs,
                         tools=self.tool_factory(ctx),validate_result=preserve_choices)
                     source=self._native_operation(ctx,author);review=None
                     self._store_draft(ctx,proposed,source,round_,history,review)
@@ -477,13 +484,18 @@ class PlanningTasks:
                         mode = 'fixed'
                     payload['narration_policy'] = {'continuous': not protected_audio,
                         'duration_mode': mode}
-                payload=self.service.freeze_plan(conn,work,payload,basis=ctx.payload.get('creation_basis'))
+                freeze_basis=ctx.payload.get('creation_basis')
+                if ctx.payload.get('base_plan_revision'):
+                    freeze_basis={**(context.plan.get('conversation_basis') or {}),
+                        'profile':context.profile,'settings':context.plan['settings']}
+                payload=self.service.freeze_plan(conn,work,payload,basis=freeze_basis)
                 if protected:
                     for field in ('profile_snapshot','director_revision_id','conversation_basis'):
                         payload[field]=protected.get(field)
                 if ctx.payload.get('base_plan_revision'):
                     payload['profile_snapshot']=context.plan.get('profile_snapshot')
                     payload['director_revision_id']=context.plan.get('director_revision_id')
+                    payload['conversation_basis']=context.plan.get('conversation_basis')
                 requested=json.loads(work['settings_json'])
                 for field in ('duration_seconds','aspect_ratio','audio_mode','voice','subtitles'):
                     expected=requested.get(field)
@@ -538,7 +550,7 @@ class PlanningTasks:
                 blocks.append({'type':'text','text':'导演参考输入句柄 '+item['id']+'；以下实际媒体仅用于风格证据，不代表主人设经历。'})
                 blocks.extend(media);required.update(needs)
                 observations.append({'input_id':item['id'],'digest':item['digest'],**evidence})
-            answer=await self.runner(ctx).run(self.context(ctx),
+            answer=await self.runner(ctx).run(self.context(ctx,require_expression=False),
                 '根据实际参考画面和音轨拆解可跨题材复用的视听风格、叙事方式和变化边界。不要将参考中的人物事实变成主人设，也不要固定脚本套路。',
                 DirectorAnalysis,required=frozenset(required),media=tuple(blocks))
             with ctx.transaction() as conn:
