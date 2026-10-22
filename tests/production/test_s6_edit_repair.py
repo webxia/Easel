@@ -251,7 +251,7 @@ def test_protected_scope_uses_existing_confirmation_without_model(tmp_path):
     assert artifact_file(service,output).read_bytes()==file.read_bytes()
 
 
-def test_edit_component_receives_fixed_timing_without_changing_plan(monkeypatch):
+def test_edit_component_receives_fixed_timing_without_changing_plan(monkeypatch,tmp_path):
     from pathlib import Path
     from easel.production.creation import CreationTasks
     from easel.production.context import TaskContext
@@ -272,9 +272,11 @@ def test_edit_component_receives_fixed_timing_without_changing_plan(monkeypatch)
             raise ModelTaskError('fixture_stop','before any model or editor')
     context=TaskContext('w','r','t',plan=plan)
     planning=SimpleNamespace(context=lambda _:context,runner=lambda *a,**kw:Runner(),transport=None)
-    creation=CreationTasks(SimpleNamespace(),planning,editor=object())
+    from easel.production.store import Store
+    store=Store(tmp_path/"production.sqlite3");store.initialize()
+    creation=CreationTasks(SimpleNamespace(store=store),planning,editor=object())
     creation.assets=lambda *a:([voice],SimpleNamespace(assets={'voice-a':{}}))
-    result=asyncio.run(creation.edit(SimpleNamespace(payload={})))
+    result=asyncio.run(creation.edit(SimpleNamespace(payload={},task_id="fixture")))
     assert result.error.code=='fixture_stop' and plan==before
 
 

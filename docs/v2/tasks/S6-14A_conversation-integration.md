@@ -1253,3 +1253,8 @@ SOFTWARE_PASS=PASS；DEPLOY_PASS=PASS；SCENARIO_RETEST/REAL_PRODUCTION_PASS/CRE
 ### 2026-10-22 · 未通过草稿交付与已确认UNKNOWN作用域
 
 原Web新规划的模型调用均获得结果，但草稿两轮审阅仍因新增未要求品牌禁令而失败；没有Plan。助手却从任务payload中的native_draft_checkpoint提取全文并称成功。新增对话投影保留审阅结论、移除内部草稿全文，结果显式标出blocked；后台checkpoint与业务状态不变，冻结Plan仍是唯一制作确认依据。另核实同作品已明确接受并完成恢复的历史UNKNOWN仍被后续已知失败恢复无差别拦截：现仅依据applied恢复提案、准确previous_run及cancelled规划运行豁免历史阻断，当前UNKNOWN/在途/无授权回执仍拒绝。125项单元与组件回归通过；不增加审阅次数、不放宽内容/Rights合同、不人工修稿。继续原Web定向验证与合法新规划，未宣称G2通过。
+
+
+### 2026-10-22 · G4取源越界未进入模型修正
+
+原Web已完成正式方案确认，素材与配音成功；剪辑末段从11.3秒取6.4秒，但真实视频仅17.36秒，FFmpeg检查拒绝。原source检查在模型返回后，无法进入现有两次格式修正；未擅自循环或定格。现将实测视频长度和经帧对齐/转场编译的取源范围检查接入既有validate_result，保留最终FFmpeg复核与两次上限。剪辑请求使用版本化namespace，任务存在任何未定Operation时先阻断，不能绕过旧UNKNOWN。74项针对性单元/组件回归通过，保留Plan/素材/配音；后续仅经原Web确认恢复剪辑，不手改时间线。

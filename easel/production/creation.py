@@ -102,6 +102,17 @@ def compensate_edit_overlap(answer: CreativeEdit, *, target_seconds: float, fps:
     ]
     return answer.model_copy(update={'scenes':corrected})
 
+def check_edit_source_bounds(answer, durations, *, target_seconds):
+    """Validate the compiled source intervals inside existing model repair rounds."""
+    compiled=compensate_edit_overlap(align_editor_frames(answer),target_seconds=target_seconds)
+    for scene in compiled.scenes:
+        available=durations.get(scene.asset_id)
+        if available is not None and scene.source_start+scene.duration>available+0.5/30:
+            raise ValueError(f'镜头 {scene.scene_id} 取源区间 {scene.source_start:.3f}–'
+                f'{scene.source_start+scene.duration:.3f} 秒超过素材实际长度 {available:g} 秒；'
+                '调整取源位置或重新分配镜头，保持确认总时长；不能循环、定格或截短旁白。')
+
+
 def project_editor_features(answer: CreativeEdit) -> tuple[CreativeEdit,list[str]]:
     """Separate supported engine capability flags from model commentary.
 
@@ -147,6 +158,10 @@ class CreationTasks:
     async def edit(self,ctx):
         from .worker import TaskResult
         try:
+            # A new compiler namespace may not bypass unresolved old calls.
+            with self.service.store.connection() as conn:
+                if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(ctx.task_id,)).fetchone():
+                    raise ModelTaskError('result_unknown','剪辑存在未确定的调用，保留原请求，不能另行提交')
             context=self.planning.context(ctx)
             asset_ids=ctx.payload.get('asset_ids',[])
             if self.voice_tasks:
@@ -160,7 +175,7 @@ class CreationTasks:
                     brief=context.brief + ('\n本片按真实旁白定长，遵守实测音轨位置：' if timing['mode']=='voice_driven' else
                         '\n本片保持确认的固定总时长；以下是真实旁白长度与可靠字幕锚点，音轨位置仅为建议。按实际讲述安排核心画面，留白须有动作、阅读或叙事用途，不为凑时长堆积空镜。不能改写旁白、拉伸字幕或改声音参数；无法落实时如实报告未落实场景：') + encode(timing))
             context=replace(context,artifacts=tuple({'asset_id':r['id'],'kind':r['kind'],'metadata':json.loads(r['metadata_json'])} for r in records),allowed_handles=context.allowed_handles|frozenset(manifest.assets))
-            observations=[];required={'text','structured'};observed={}
+            observations=[];required={'text','structured'};observed={};source_durations={}
             # M3.1 accepts visual frames but not input_audio. Measured local
             # acoustic properties may support an EDIT PREVIEW; they do not
             # substitute for a Director actually listening or for final QC.
@@ -175,6 +190,10 @@ class CreationTasks:
                 media,needs,evidence=await asyncio.to_thread(observe_media,path,
                     include_audio=audio_native and record['kind'] in {'video','audio'},max_frames=4)
                 observed[record['id']]=evidence.get('frame_times',[])
+                if record['kind']=='video':
+                    from .media import probe_media
+                    source_durations[record['id']]=(await asyncio.to_thread(probe_media,path))['duration']
+                    observations.append({'type':'text','text':f"素材 {record['id']} 实测可用长度 {source_durations[record['id']]} 秒；取源结束点不得超出，转场重叠也需留足源帧。"})
                 observations.append({'type':'text','text':'候选素材句柄 '+record['id']})
                 observations.extend(media);required.update(needs)
                 if not audio_native and record['kind'] in {'video','audio'}:
@@ -189,6 +208,7 @@ class CreationTasks:
             font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'}
             horizontal=context.plan['settings']['aspect_ratio']=='16:9'
             def check_measured_edit(candidate):
+                check_edit_source_bounds(candidate,source_durations,target_seconds=context.plan['settings']['duration_seconds'])
                 check_visual_evidence(candidate,observed)
                 from .boards import check_board_usage
                 check_board_usage(candidate.scenes,records,overlays=[c for c in candidate.captions if c.role=='overlay'])
@@ -215,7 +235,7 @@ class CreationTasks:
             observation_tools = (edit_observation_tools({r['id']: artifact_file(self.service,r)
                 for r in records if r['kind']=='video'},observed)
                 if self.planning.transport and 'tools' in self.planning.transport.capabilities else ())
-            answer=await self.planning.runner(ctx,max_format_repairs=2).run(context,
+            answer=await self.planning.runner(ctx,namespace='edit-source-bounds-v1',max_format_repairs=2).run(context,
                 VISUAL_EVIDENCE_INSTRUCTION + '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
                 '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '连续旁白应跨镜头讲完；voice_driven严格遵守voice_schedule，fixed使用实测时间作安排依据、位置可按叙事调整，不按草稿分镜凑静默；'
