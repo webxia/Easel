@@ -212,6 +212,14 @@ def pending(conversations, conn, segment):
                 if error.get('code') in {'music_material_gap','sfx_material_gap'} and recovery and recovery.get('can_offer'):
                     choices.append({'kind':'voice_only_plan','label':'调整为纯旁白方案','action':'plan','values':recovery['values'],
                         'requires':'用户明确改变音频方案；展示规划费用，再确认；新方案仍须确认制作'})
+            if (not unknown and active_run and not active_run['cancel_requested']
+                    and active_run['state'] in {'needs_decision','paused','failed'}
+                    and task['kind']=='edit' and error.get('code') in {
+                        'invalid_edit_project','invalid_model_output','editor_rejected',
+                        'edit_duration_mismatch','visual_material_gap'}):
+                choices.append({'kind':'resume','label':'阻断解决后继续原剪辑，复用已成功产物',
+                    'action':'resume','values':{'decision_id':task['id']},
+                    'requires':'先确认阻断已解决；展示恢复范围及可能新增模型费用，再由用户确认。不重跑已成功素材或配音，不改方案，不重发UNKNOWN。'})
             blockers.append({'task_kind':task['kind'],'code':error.get('code'),'message':error.get('user_message'),
                 'searches':material_search_summary(searches) if task['kind']=='supply' else [],
                 'choices':choices,'unknown':bool(unknown),

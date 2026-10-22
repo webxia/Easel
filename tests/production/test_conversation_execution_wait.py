@@ -288,3 +288,24 @@ def test_failed_draft_is_not_delivered_as_confirmable_plan(env):
     assert '不能声称方案成功' in result['delivery_instruction']
     assert 'UNAPPROVED_PRIVATE_DRAFT' in encode(s.snapshot(r['work_id']))
     assert 'UNAPPROVED_PRIVATE_DRAFT' not in encode(pipe(b,i,'pending'))
+
+
+def test_known_edit_failure_exposes_existing_resume_without_resubmission(env):
+    from easel.production.errors import ProductionError
+    s,c,b,i,req,r=start(env)
+    with s.store.transaction() as conn:
+        conn.execute("UPDATE tasks SET kind='edit' WHERE run_id=?",(r['run_id'],))
+    async def fail_edit(ctx):
+        return TaskResult(state='needs_decision',error=ProductionError('invalid_edit_project','source exceeds media',requires_decision=True))
+    asyncio.run(Worker(s.store,{'edit':fail_edit}).run_once())
+    pending=pipe(b,i,'pending');choice=pending['blockers'][0]['choices'][0]
+    assert choice['action']=='resume' and choice['values']['decision_id']
+    assert '阻断已解决' in choice['requires']
+    proposal=pipe(b,i,'offer',action=choice['action'],values=choice['values'])
+    assert s.snapshot(r['work_id'])['runs'][0]['state']=='needs_decision'
+    ConversationResults(b).poll(req)
+    b.end(Identity(**i));b.complete_delivery('execute','说明失败与恢复范围')
+    b,i,_=turn(s,c,c.view('ui')['segment_id'],'确认修复后继续',id='resume-edit')
+    reply=pipe(b,i,'answer',proposal_id=proposal['proposal_id'],hash=proposal['hash'],user_quote='确认修复后继续')
+    assert reply['run_id']==r['run_id']
+    assert s.snapshot(r['work_id'])['tasks'][0]['state']=='pending'

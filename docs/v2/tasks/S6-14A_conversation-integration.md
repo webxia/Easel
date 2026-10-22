@@ -1258,3 +1258,8 @@ SOFTWARE_PASS=PASS；DEPLOY_PASS=PASS；SCENARIO_RETEST/REAL_PRODUCTION_PASS/CRE
 ### 2026-10-22 · G4取源越界未进入模型修正
 
 原Web已完成正式方案确认，素材与配音成功；剪辑末段从11.3秒取6.4秒，但真实视频仅17.36秒，FFmpeg检查拒绝。原source检查在模型返回后，无法进入现有两次格式修正；未擅自循环或定格。现将实测视频长度和经帧对齐/转场编译的取源范围检查接入既有validate_result，保留最终FFmpeg复核与两次上限。剪辑请求使用版本化namespace，任务存在任何未定Operation时先阻断，不能绕过旧UNKNOWN。74项针对性单元/组件回归通过，保留Plan/素材/配音；后续仅经原Web确认恢复剪辑，不手改时间线。
+
+
+### 2026-10-22 · 剪辑恢复入口可见性
+
+原Web对已修复的取源错误未能提出恢复，助手误称无接口；pending.blockers缺少可执行choice。现对已知剪辑阻断返回既有resume和准确decision_id，提示先解决原因、展示范围费用并由下一回合确认，当前UNKNOWN不提供该选项；无新接口/状态。83项回归通过，包括同任务恢复与提案不自动执行。
