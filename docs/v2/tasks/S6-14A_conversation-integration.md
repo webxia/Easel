@@ -1287,3 +1287,7 @@ G4真实证据：原生连续length空回复，现有模型运行预算contextTo
 正式原Web非付费定向复验：旧MP4 controls=true、readyState=4、duration=45；用户界面播放后currentTime实际到8.413秒、paused=false，随后暂停。原对话G5播放缺口已修复。画像异常为旧页面列表：同浏览器/api/personas返回当前画像，刷新后列表及原会话恢复；未修改画像或新建会话。
 
 结果：SOFTWARE_PASS/BUILD_PASS/DEPLOY_PASS=PASS；G5定向复验PASS；REAL_PRODUCTION_PASS仍FAIL、CREATOR_ACCEPTED=NOT_TESTED。未重发付费修订、未生成新媒体、未改旧UNKNOWN。原视频仍needs_fix；后端变化的真实修订效果尚未复验。下一步沿原作品、合法修订入口定向验证，不能以本次软件通过冒充原片视觉通过。
+
+## 第04轮G4实际帧边界阻断修复
+
+同一正式Web作品真实Planning及确认通过，素材供应和一条VOICE已成功。剪辑inspect_media请求13.2秒被拒，而实际素材25fps/331帧，末帧确为13.2秒；观察器为解码减去1微秒后又将该值用于校验，误拒合法末帧。真实同规格本地视频正反测试先失败，修复后通过。仅容许2微秒舍入/解码余量、实际seek夹至原安全末帧；13.21秒等真实越界仍拒绝，不放宽权限或增加重试。30项单元/组件通过。服务空闲后备份并定向重载Web，27表业务、89受保护文件、195登记路径和5条UNKNOWN核验一致（既有cleanup时间例外），数据库完整性/外键正常，reload_required=false、九工具完整。当前软件/部署通过，真实恢复待原UI执行，未新建作品或重配音。

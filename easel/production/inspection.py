@@ -38,13 +38,13 @@ def observe_media(path: Path, *, include_audio: bool = False, max_frames: int = 
             count=min(count,frame_count)
     if frame_times is not None:
         if (not info['video'] or not 1 <= len(frame_times) <= 8 or
-                any(not math.isfinite(t) or t < 0 or t > last for t in frame_times)):
+                any(not math.isfinite(t) or t < 0 or t > last + .000002 for t in frame_times)):
             raise ValueError('Frame times outside actual video bounds')
         count = len(frame_times)
     with tempfile.TemporaryDirectory(prefix='easel-observe-') as folder:
         for index in range(count):
             # Spread the actual count across the full span, including the tail.
-            at=frame_times[index] if frame_times is not None else (index*last/(count-1) if count>1 else last/2)
+            at=min(frame_times[index],last) if frame_times is not None else (index*last/(count-1) if count>1 else last/2)
             frame=Path(folder)/f'{index}.jpg'
             # Seeking even to zero can discard the sole frame in a still-image
             # demuxer. Decode from the beginning when the requested time is zero.
