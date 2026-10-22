@@ -132,8 +132,9 @@ def project_editor_features(answer: CreativeEdit) -> tuple[CreativeEdit,list[str
     return answer.model_copy(update={'required_features':declared}),unverified
 
 class CreationTasks:
-    def __init__(self,service,planning,editor=None,voice_tasks=None,manual_review_only=False,visual_review=False):
+    def __init__(self,service,planning,editor=None,voice_tasks=None,manual_review_only=False,visual_review=False,supply=None):
         self.service,self.planning=service,planning
+        self.supply=supply
         self.voice_tasks=voice_tasks
         # Temporary, explicitly enabled S6-14 release policy. Do not claim the
         # absent semantic inspection passed or accept a Creator output here.
@@ -155,7 +156,28 @@ class CreationTasks:
         manifest=AssetManifest(root=self.service.outputs,assets={r['id']:MediaAsset(locator=r['storage_ref'],sha256=r['digest'],kind=r['kind']) for r in records})
         return records,manifest
 
-    async def edit(self,ctx):
+    async def supplement_visuals(self,ctx,context,answer,asset_ids):
+        """One existing stock-repair pass; no Plan, voice or generation restart."""
+        gaps=list(dict.fromkeys(answer.unresolved_scene_ids))
+        if (not self.supply or not gaps or len(gaps)>4 or
+                not set(gaps)<={s['id'] for s in context.plan['scenes']}):
+            raise ModelTaskError('visual_material_gap','未落实镜头：'+','.join(gaps)+'；保留已有方案、素材与旁白，尚未渲染')
+        from .material_intent import MaterialIntent
+        def check(intent):
+            ids=[v.scene_id for v in intent.visuals]
+            if (set(ids)!=set(gaps) or len(ids)!=len(gaps) or intent.music_query or
+                    intent.sound_cues or intent.unresolved or
+                    any(v.board_id or v.board_state_indexes for v in intent.visuals)):
+                raise ValueError('只为已报告的缺口镜头提出库存检索；不能扩大场景、音乐、图解或生成范围')
+        intent=await self.planning.runner(ctx,namespace='edit-stock-intent-v1',max_format_repairs=2).run(
+            context,'只为以下已观察到的画面缺口提出一次局部库存补料词，复用其余素材和旁白。'
+            'visuals逐一对应缺口scene_id，query为简短英文主体/动作，options最多4；不生成媒体、不改方案。'
+            +encode({'unresolved_scene_ids':gaps,'visual_evidence':[v.model_dump() for v in answer.visual_evidence]}),
+            MaterialIntent,validate_result=check)
+        ids=await asyncio.to_thread(self.supply.revision_visuals,ctx,[v.model_dump(mode='json') for v in intent.visuals])
+        return list(dict.fromkeys([*asset_ids,*ids]))
+
+    async def edit(self,ctx,*,_stock_assets=None):
         from .worker import TaskResult
         try:
             # A new compiler namespace may not bypass unresolved old calls.
@@ -163,7 +185,7 @@ class CreationTasks:
                 if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(ctx.task_id,)).fetchone():
                     raise ModelTaskError('result_unknown','剪辑存在未确定的调用，保留原请求，不能另行提交')
             context=self.planning.context(ctx)
-            asset_ids=ctx.payload.get('asset_ids',[])
+            asset_ids=ctx.payload.get('asset_ids',[]) if _stock_assets is None else _stock_assets
             if self.voice_tasks:
                 asset_ids,outcome=await self.voice_tasks.prepare_assets(ctx,context.plan,asset_ids)
                 if outcome:return outcome
@@ -235,7 +257,7 @@ class CreationTasks:
             observation_tools = (edit_observation_tools({r['id']: artifact_file(self.service,r)
                 for r in records if r['kind']=='video'},observed)
                 if self.planning.transport and 'tools' in self.planning.transport.capabilities else ())
-            answer=await self.planning.runner(ctx,namespace='edit-source-bounds-v1',max_format_repairs=2).run(context,
+            answer=await self.planning.runner(ctx,namespace='edit-source-bounds-v1' if _stock_assets is None else 'edit-stock-selection-v1',max_format_repairs=2).run(context,
                 VISUAL_EVIDENCE_INSTRUCTION + '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
                 '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '连续旁白应跨镜头讲完；voice_driven严格遵守voice_schedule，fixed使用实测时间作安排依据、位置可按叙事调整，不按草稿分镜凑静默；'
@@ -247,6 +269,12 @@ class CreationTasks:
                 '图解已画出标题、卡片、类别和假设/概念标识，不要只剩裁切而失去全貌，避免重复叠同义解释字；有必要时可以安排不遮挡证据的补充标注。'
                 '避免同义空镜反复堆积，旁白说到具体关系时应让画面或必要字幕提供相应信息。'
                 '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),tools=observation_tools,validate_result=check_measured_edit)
+            if answer.unresolved_scene_ids:
+                if _stock_assets is None and self.supply:
+                    ids=await self.supplement_visuals(ctx,context,answer,asset_ids)
+                    return await self.edit(ctx,_stock_assets=ids)
+                raise ModelTaskError('visual_material_gap','未落实镜头：'+','.join(answer.unresolved_scene_ids)+
+                    '；已有局部补料仍不足时不重复检索，保留方案、素材与旁白，尚未渲染')
             answer=align_editor_frames(answer)
             settings=context.plan['settings']
             answer=compensate_edit_overlap(answer,target_seconds=settings['duration_seconds'])

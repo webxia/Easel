@@ -131,6 +131,7 @@ def create_runtime(root: Path, *, service=None, transport=None, handlers=None):
     # Concrete adapters are composed here; no fallback mock providers are installed.
     from .supply_tasks import configured_supply
     supply=configured_supply(service,operations,planning,settings)
+    creation.supply=supply
     planning.board_fonts = supply.board_fonts
     planning.execution_capabilities['native_explainer_boards']=bool(supply.board_fonts)
     if supply.board_fonts:

@@ -489,7 +489,7 @@ class SupplyTasks:
             with ctx.store.connection() as conn:
                 excluded=tuple(json.loads(row['metadata_json']).get('asset_ref') for row in
                     conn.execute('SELECT id,metadata_json FROM artifacts WHERE work_id=?',(ctx.work_id,))
-                    if row['id'] in payload.get('revision_asset_ids',[]) and json.loads(row['metadata_json']).get('asset_ref'))
+                    if row['id'] in payload.get('revision_asset_ids',payload.get('asset_ids',[])) and json.loads(row['metadata_json']).get('asset_ref'))
             # Existing candidates were actually observed and found unsuitable
             # before the director requests this bounded replacement search.
             scene_plan=plan.model_copy(update={'scenes':[s for s in plan.scenes if s.id==search.scene_id]})

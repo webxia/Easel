@@ -1263,3 +1263,12 @@ SOFTWARE_PASS=PASS；DEPLOY_PASS=PASS；SCENARIO_RETEST/REAL_PRODUCTION_PASS/CRE
 ### 2026-10-22 · 剪辑恢复入口可见性
 
 原Web对已修复的取源错误未能提出恢复，助手误称无接口；pending.blockers缺少可执行choice。现对已知剪辑阻断返回既有resume和准确decision_id，提示先解决原因、展示范围费用并由下一回合确认，当前UNKNOWN不提供该选项；无新接口/状态。83项回归通过，包括同任务恢复与提案不自动执行。
+
+
+### 2026-10-22 · 第03轮首次剪辑局部补料续接
+
+G4真实证据：原生连续length空回复，现有模型运行预算contextTokens=512000热加载并压缩后，同一原恢复提案成功执行；原取源越界不再阻断，剪辑明确报告一个镜头的收藏动作缺口，未渲染。输入重复负担为有证据因素，不能把供应商空回复唯一根因写成已证实。无新Agent或上下文架构，模型与8192输出预算未变。
+
+当前阻断根因：首次edit只把unresolved_scene_ids转换为泛化错误，未复用已有修订库存补料。现在CreationTasks只针对冻结Plan的最多4个明确缺口镜头生成一次MaterialIntent，调用既有revision_visuals（授权、Rights、围栏与持久回执复用），然后用新候选再次编排；仍有缺口停止并带具体镜头，不循环补料、不重新规划或配音。原生模型请求使用稳定命名空间，旧UNKNOWN前置保护仍保留。补料排除原edit素材，避免重取同一不适用候选。未新增表、状态、Agent或Worker节点。
+
+软件：42项剪辑/恢复回归与75项素材/运行时/修订回归通过；候选配置官方本地schema校验通过。服务空闲后仅Web重载，27表业务摘要一致（仅既有cleanup更新时间变化）、5条UNKNOWN及89个保护文件不变，外键/完整性正常，reload_required=false、Gateway9工具。真实补料与成片尚待原Web确认后复验，不记REAL_PRODUCTION_PASS或Creator接受。
