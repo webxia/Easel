@@ -13,11 +13,17 @@ def model_configuration(root: Path):
     except DirectAPIError:
         return settings,None,None
     # Endpoint identity is hashed; changing endpoint invalidates the recorded configuration.
-    version=hashlib.sha256(json.dumps({'base':base,'model':model,
+    configuration={'base':base,'model':model,
         'capabilities':sorted({part.strip() for part in settings.get('EASEL_PRODUCTION_MODEL_CAPABILITIES','image').split(',') if part.strip()}),
         'video_dialect':settings.get('EASEL_PRODUCTION_VIDEO_DIALECT','').strip(),
         'quality_chunk_seconds':settings.get('EASEL_PRODUCTION_QUALITY_CHUNK_SECONDS','30'),
-        'model_timeout_seconds':settings.get('EASEL_PRODUCTION_MODEL_TIMEOUT_SECONDS','900')},sort_keys=True).encode()).hexdigest()
+        'model_timeout_seconds':settings.get('EASEL_PRODUCTION_MODEL_TIMEOUT_SECONDS','900')}
+    # Omitted effort preserves historical configuration identities. An explicit
+    # choice is a different request configuration, never a rewrite of old intent.
+    effort=settings.get('EASEL_PRODUCTION_REASONING_EFFORT','').strip()
+    if effort:
+        configuration['reasoning_effort']=effort
+    version=hashlib.sha256(json.dumps(configuration,sort_keys=True).encode()).hexdigest()
     service={'provider':'direct-api','model':model,'mode':'structured'}
     return settings,service,version
 

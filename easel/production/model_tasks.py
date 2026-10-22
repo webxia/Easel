@@ -45,6 +45,9 @@ class HTTPModelTransport:
     """Reuses direct API configuration, without chat history or implicit tool execution."""
     def __init__(self, settings: dict[str, str], *, capabilities: frozenset[str] = frozenset({"text", "image", "structured", "tools"}), transport: httpx.AsyncBaseTransport | None = None):
         self.base, self.model, self._key = api_config(settings)
+        self.reasoning_effort = settings.get('EASEL_PRODUCTION_REASONING_EFFORT', '').strip()
+        if self.reasoning_effort and self.reasoning_effort not in {'low', 'medium', 'high', 'xhigh', 'max'}:
+            raise ModelTaskError('model_effort_invalid', '生产模型思考强度须为 low、medium、high、xhigh 或 max；留空沿用服务默认')
         self.capabilities = capabilities
         self.video_dialect = settings.get("EASEL_PRODUCTION_VIDEO_DIALECT", "").strip()
         self.quality_chunk_seconds = settings.get("EASEL_PRODUCTION_QUALITY_CHUNK_SECONDS", "30")
@@ -76,6 +79,8 @@ class HTTPModelTransport:
                                 "response_format": {"type": "json_object"}}
         if self.video_dialect == "qwen-omni-video-url":
             body.update(modalities=["text"], reasoning_effort="none")
+        elif self.reasoning_effort:
+            body['reasoning_effort'] = self.reasoning_effort
         if tools:
             body["tools"] = tools
         started = time.monotonic()

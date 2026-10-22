@@ -1226,3 +1226,20 @@ node --test tests/production/mainPipelinePlugin.test.mjs tests/production/execut
 未推送盘点：开工HEAD与origin无领先/落后提交；剩余为既有未提交内容而非漏推commit。包括8份研发/状态/任务文档修改、1份素材来源测试断言修改，以及11份E2E记录、2份研究文档、1份入口验证脚本、3份测试文件、2份临时技能文件及本地二维码/图片资产。仅检查与保留，不把它们打包进本次提交；真实记录和图片必须单独审查隐私与入库范围。当前没有遗漏的生产代码修改；本次修复文件与具名测试单独入库。
 
 SOFTWARE_PASS=PASS；DEPLOY_PASS=PASS；SCENARIO_RETEST/REAL_PRODUCTION_PASS/CREATOR_ACCEPTED=NOT_TESTED。真实首次失败保留，后续沿本任务已有E2E指令与V1.2进行正式Web准入和授权后复验；本轮停止，不自动重发或制片。
+
+
+## 2026-10-22 · 第03轮规划长等待的受控参数修复
+
+- 用户继续授权 Codex 调试、修改和发布，沿用 E2E 流程，不使用 WebCodex。S6/G2 CURRENT_BLOCKER：非流式规划请求900秒无响应头后进入UNKNOWN；既有成功规划还出现过838秒/16140个思考token、398秒/24716个思考token。成功与超时同属现有生产调用，不据此声称远端超时根因已完全确定。
+- 官方[模型调用](https://platform.minimax.cn/docs/guides/text-generation)与[OpenAI兼容接口](https://platform.minimax.cn/docs/api-reference/text-chat-openai)说明M3.1省略effort时默认为max，支持low/medium/high/xhigh/max且不能关闭思考。当前配置仍使用已选Preview模型身份，未擅自迁移GA或更换Provider。参数深度是可调的已知耗时因素，不是证明本次远端排队或链路故障的证据。
+- 最小实现：既有HTTPModelTransport支持可选`EASEL_PRODUCTION_REASONING_EFFORT`并记录实际档位；model_configuration将显式档位加入指纹，留空保持原配置指纹和原请求兼容。未知档位在发送前拒绝；不新增表/状态/Agent，不改变Plan/Rights/授权，不增加重试、不延长900秒超时、不截短输出、不关闭思考。
+- 预期部署选择high保留认真推理，实际有效性仍须正式Web验证；旧UNKNOWN不改写/重发，改参数不得覆盖原Operation，使用现有恢复提案建立新的授权尝试才可验证。
+- 软件验证：8个新增参数/历史身份测试先暴露缺口后通过，连同模型传输、诊断、Operation、首次规划恢复、UNKNOWN恢复、同回合等待共89 passed。既有默认请求不变、旧成功或UNKNOWN在新配置下拒绝同ID重放且零额外HTTP调用；正式E2E和部署结果另记。
+
+
+### 本轮参数修复发布核验
+
+- 正式发布前：无在途Run/Task/Operation、无活动原生回合或Gateway Job、无待回传结果；创建一致性SQLite及原配置恢复点。
+- 本机配置仅追加生产reasoning_effort=high，模型身份、Key、声音、Provider与900秒超时未变。只重载正式Web，未重启Gateway或发起模型调用；Web回读reload_required=false、Gateway九项工具正常。
+- 前后27张业务表核对：仅38条既有cleanup_jobs.updated_at因维护刷新变化，其余业务字段/表不变；5条UNKNOWN、156条登记文件路径及89份受保护文件均核验（.env只含本次明确参数变更），完整性/外键通过。没有触发历史生产重跑。
+- 软件89项通过；DEPLOY_PASS；真实复验尚未执行。已向用户说明原UNKNOWN仍可能计费，新的规划尝试须在原Web确认既有恢复提案；本次没有自动答复或取消原请求。不把软件/部署通过当作超时根因已根治。
