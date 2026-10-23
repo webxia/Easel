@@ -1,0 +1,101 @@
+{
+  "task": "S6-14A A6",
+  "result": "SOFTWARE_PASS / ISOLATED_ENTRY_PASS",
+  "date": "2026-10-18",
+  "start_head": "c38ccbb90403b511c793a77c8f6cc3cf5f33fa5a",
+  "scope": "Chat menu entries only; A5 historical 28-row evidence is unchanged.",
+  "entry_criteria": {
+    "ENTRY01": "PASS (browser + module tests; details in task card)",
+    "ENTRY02": "PASS (browser + module tests; details in task card)",
+    "ENTRY03": "PASS (browser + module tests; details in task card)",
+    "ENTRY04": "PASS (browser + module tests; details in task card)",
+    "ENTRY05": "PASS (browser + module tests; details in task card)",
+    "ENTRY06": "PASS (browser + module tests; details in task card)"
+  },
+  "before_reserved_turn": {
+    "works": 0,
+    "runs": 0,
+    "operations": 0,
+    "conversation_turns": 0
+  },
+  "final_counts": {
+    "works": 0,
+    "runs": 0,
+    "operations": 0,
+    "conversation_turns": 1
+  },
+  "segments": [
+    {
+      "id": "f589d4289743447bba3614bc01fdd261",
+      "ui_session": "mvduvah9e9hz1c",
+      "work_id": null,
+      "created_at": "2026-10-18T13:23:30.735662+00:00",
+      "kind": "director_formation"
+    },
+    {
+      "id": "afe7efa703f24d6f848dfa4dfd12d4b5",
+      "ui_session": "mvduvah9e9hz1c",
+      "work_id": null,
+      "created_at": "2026-10-18T13:24:09.478871+00:00",
+      "kind": "channel_create"
+    },
+    {
+      "id": "96a03b1596104d0d9acf9940a41c446f",
+      "ui_session": "mvduvah9e9hz1c",
+      "work_id": null,
+      "created_at": "2026-10-18T13:24:37.176991+00:00",
+      "kind": "new_work"
+    },
+    {
+      "id": "82446c64193b417baa1108c1c404bd6a",
+      "ui_session": "mvdv4r7y8hyrvz",
+      "work_id": null,
+      "created_at": "2026-10-18T13:30:25.474540+00:00",
+      "kind": "director_formation"
+    },
+    {
+      "id": "a8a14e56cfec47f49fb76f59dba66c0b",
+      "ui_session": "mvdv4r7y8hyrvz",
+      "work_id": null,
+      "created_at": "2026-10-18T13:30:38.213906+00:00",
+      "kind": "channel_create"
+    }
+  ],
+  "reserved_negative_case": {
+    "id": "a6-reserved-not-dispatched",
+    "segment_id": "96a03b1596104d0d9acf9940a41c446f",
+    "state": "reserved"
+  },
+  "original_current_segment_after_409": "96a03b1596104d0d9acf9940a41c446f",
+  "reserved_case_note": "Reserved via the actual bridge API in the isolated DB; not dispatched to Gateway/model.",
+  "verification": {
+    "node": {
+      "passed": 97,
+      "failed": 0,
+      "skipped": 0
+    },
+    "build": "PASS",
+    "lint": "PASS; existing linkifyOutputs escape warning",
+    "bundle_kb": 561.38,
+    "final_build_browser_smoke": "director_formation -> channel_create in one fresh UI; original text preserved",
+    "python_regression": "NOT_RERUN; frontend-only change"
+  },
+  "boundary": {
+    "paid_requests": 0,
+    "chat_requests_dispatched": 0,
+    "formal_environment_modified": false,
+    "production_data_modified": false,
+    "creator_acceptance": false,
+    "isolated_web_port_closed": true,
+    "gateway_root_process_check": "No matching isolated process remains"
+  },
+  "sha256": {
+    "web/frontend/src/components/BrushEntry.tsx": "39349585471fb92c4a9ec574a642e50891a1546da7696ea36de6d79cb49597b6",
+    "web/frontend/src/components/ChatPage.tsx": "15d75fae204e567c0bce55e3c0a533011c3ca5c59ff24d6f1f86e8f64ebb7685",
+    "web/frontend/src/components/VideoConversation.tsx": "f9bf823bf4f61f2b07112e5474b81d759c01dfb04e9fff3ea6ed126c90b74d7b",
+    "web/frontend/src/lib/conversationWorkflows.ts": "13e65a592d8d67ffccd404c31b9f98e1b9c61546240f655c777b6cf4a74761cd",
+    "tests/frontend/conversationWorkflows.test.mjs": "a0ecf83d96611186d93c3f1c7f626d3810a6cb8185f4306739d6f43306fd40f4",
+    "docs/v2/evidence/S6-14A_A6_chat-pipelines.png": "0a8c183427925c9b5ce59578b1cf50d46ef1554b876bab000ed4d4bead6f9263",
+    "docs/v2/evidence/S6-14A_A6_pending-browser.png": "fe3ba6dee536a35bfbdf20a1a1ae96e0f1fd848f3cff5af9b6b86ca2cddc7b30"
+  }
+}

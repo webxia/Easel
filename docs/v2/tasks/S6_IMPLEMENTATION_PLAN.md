@@ -1,66 +1,102 @@
-# AI Coding 实施任务包 · S6 首次真实生产与 S7 完整验收
+# 文档已迁移
 
-本文件维护实施依赖、共同执行规则和需求覆盖。Coding 合同见[可执行设计](../15_IMPLEMENTATION_DESIGN.md)，推荐与取舍见[技术选型](../14_TECHNOLOGY_SELECTION.md)。当前阶段与授权范围见[当前状态](../04_CURRENT_STATE.md)及用户当次指令；各卡记录自身实施结果。
+本页仅保留旧路径兼容；唯一维护位置：[主线文档](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md)。不在此新增规则、状态或记录。
 
-## 1. 基线、顺序与交付
+<a id="s6-closeout"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#s6-closeout)。
 
-**2026-10-22 本期范围补充**：按用户明确决定，通用自然表达纳入F3，设计及验收唯一见[实施合同 §6.1](../15_IMPLEMENTATION_DESIGN.md#natural-expression-design)，并由既有S6-14A记录后续实施证据。不重新打开01～13或新增独立Agent/制作流程。同日最新授权为完成实现与离线测试、文档收敛、部署及提交推送，旧制作停止保持；历史“只按具名故障修复”不否定这项新增需求。视频清晰度全部留S7，自然表达的跨作品完整矩阵也留S7，不能把本期通用功能一起延期。
+<a id="s7-architecture"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#s7-architecture)。
 
-- 从**包含本实施设计及已完成依赖代码**的已审查提交开工，实际工作树与基线见[当前状态](../04_CURRENT_STATE.md#唯一执行入口)。S5 基于 S4，业务事实仍为 `8eeafb6b`，V1 只读 `57c8e2ad`。依赖尚未合入时可从具备成果的父分支创建叠加分支，PR base 指向父开发分支，不绕过主线合并授权。
-- 首张卡为 **S6-01 领域合同/事务存储**。02 与 03 可在依赖满足后分工，06/08/09 按表中依赖推进；同文件或合同变更须协调。依赖按可用产物判定，不只看文档状态。
-- **S6-01～S6-14 是保留的任务 ID，不代表全部必须在路线图 S6 阶段一次完成。** 阶段定义以[路线图](../03_ROADMAP.md)为准，分批验证不能缩减 S4 正式范围。
-- **2026-10-19 用户关闭其它S6独立任务**：S6-01～13已实施并全部CLOSED；S6-14历史轮次CLOSED_HISTORY（质量仍PARTIAL），只保留当前一部真实自主作品/人工审片；S6-14A A1～A8 CLOSED、A9 CLOSED_DIAGNOSIS、A10 CLOSED_LEGACY_FIX，声音/交互/成片尚未完成项并入当前三个方向；S6-15维持CLOSED/COMPLETE。S7完整规格矩阵暂缓。详见[唯一当前状态](../04_CURRENT_STATE.md#唯一研发下一动作)。行政关闭不等于旧NOT_TESTED/FAIL/Creator未接受被改为PASS，不得重派旧卡。
-| 里程碑 | 任务与证据 | 能证明什么 |
-|---|---|---|
-| 执行基础 | 01～05 | 可观察、可恢复的软件骨架；不证明真实出片 |
-| 制作主线 | 06～11（按依赖推进） | 接通素材、可播放首版和自检；仍需真实证据 |
-| **已结案素材层依赖** | [S6-15](S6-15_material-layer-hardening.md) G0～G4：现状/缺口、合同回查、补强与素材层验收 | 素材库和供应链可安全交给制作主线，**不代替真实出片** |
-| **S6 首次真实生产与审阅** | 14 第一段，01～11 实际就绪后，用已支持输入和本次明确风格执行 | Web 到真实可审阅作品、Rights/授权/次数、恢复正反例及用户实际审阅；不冒充产品内接受保存或完整范围通过 |
-| 产品体验补齐 | 12～13，依赖满足即可推进，无须等待 14 全部完成 | 局部修订、版本比较、内容库接受、频道和参考形成导演；均是必做需求 |
-| **S7 质量、效率与完整范围验收** | 14 第二段，01～13及首次真实闭环就绪 | 完整 T08、S4 全范围、跨题材、音色、质量/耗时/调用及各类正反例；不得省略未测范围 |
+<a id="s7-work-packages"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#s7-work-packages)。
 
-S6-14 分段记录结果：第一段通过而第二段未完成时，卡整体为 **PARTIAL**，可据第一段证据判断 S6→S7，但不宣称全部产品完成。用户审阅可单独记录；产品内版本接受保存只有 S6-12 接通并实测后才可记通过。
+<a id="s7-source-mapping"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#s7-source-mapping)。
 
-| 任务 | 具体实施卡 | 依赖 | 需求主责任编号 |
-|---|---|---|---|
-| S6-01 | [领域合同、事务存储与迁移](S6-01_domain-store.md) | 无 | 002、005、020 |
-| S6-02 | [作品命令、输入登记与旧入口保护](S6-02_work-api.md) | S6-01 | 003、011、027、034 |
-| S6-03 | [外部操作准入、生成次数与未知结果](S6-03_operations.md) | S6-01 | 013、025 |
-| S6-04 | [本机worker与LangGraph持久编排](S6-04_worker-graph.md) | S6-01、S6-03 | 006 |
-| S6-05 | [作品导航与可观察制作工作台](S6-05_progress-ui.md) | S6-02、S6-04 | 024 |
-| S6-06 | [V1素材核心迁入与作用域适配](S6-06_materials-core.md) | S6-01、S6-02 | 031 |
-| S6-07 | [外部供应、权益与生成适配](S6-07_material-supply.md) | S6-03、S6-06 | 012、021 |
-| S6-08 | [任务化模型与受控工具执行](S6-08_model-tasks.md) | S6-02、S6-03、S6-06 | 032 |
-| S6-09 | [可编辑工程合同与渲染接入](S6-09_editor-adapter.md) | S6-01、S6-06 | 022 |
-| S6-10 | [固定音色、句段资产与字幕预览](S6-10_voice-subtitles.md) | S6-02、S6-06、S6-08、S6-09 | 010、023 |
-| S6-11 | [创作主线、首版与自检接通](S6-11_creation-first-cut.md) | S6-04、S6-05、S6-07、S6-08、S6-09、S6-10 | 001、004、014、015、016、033 |
-| S6-12 | [自然语言修订、版本接受与内容库](S6-12_revision-acceptance.md) | S6-02、S6-05、S6-11 | 007、008、017、026 |
-| S6-13 | [频道管理、参考拆解与导演版本](S6-13_channels-directors.md) | S6-02、S6-08、S6-10、S6-12 | 019 |
-| S6-14 | [首次真实生产与完整范围验收](S6-14_integration-release.md) | 首次真实生产：01～11；完整范围：01～13及首次真实闭环 | 009、018、028、029、030 |
-| S6-14A（新增子任务） | [对话式创作与生产后端接入](S6-14A_conversation-integration.md) | 第五轮成功后端；复用02/05/08/11/12/13 | 补齐既有对话体验；A1～A6软件/隔离、A7真实Web、A8局部修订均有具名证据，Creator待审 |
-| S6-15 | [素材层现状审计与完善](S6-15_material-layer-hardening.md) | 01～13相关实现；历史集成依赖已结案，不再阻断14 | 既有 011/012/013/021/025/031/032/033 协同验收；**不改变既有主责** |
+<a id="s7-acceptance"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#s7-acceptance)。
 
-**调度终态**：01～13软件任务CLOSED；14历史轮次不再派发，原PARTIAL证据保留，当前仅一部真实自主视频及审片开放；14A A1～A8 CLOSED、A9/A10独立旧专项CLOSED，后续实际体验/声音/质量只按三方向实证修复；15 CLOSED。未覆盖的服务/平台/自然声线/完整语义矩阵仍NOT_TESTED或原判定，S7延期。V3、新Provider和历史预研均不在S6当前范围。
-每个编号001～034有唯一主责任卡；关联卡和S6-14提供集成/真实验收。单卡通过不意味着该需求所有体验都已通过，必须按验收层次记录。
+<a id="s7-references"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#s7-references)。
 
-## 2. 每张卡开始与完成的共同约定
+<a id="s7-plan-review"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#s7-plan-review)。
 
-- **开工与依赖**：核对分支/HEAD/status、用户授权和本卡依赖的实际产物；读当前卡、相关合同和必要源码。依赖未满足可做只读定位，不假报完成。新阶段按[工程规则](../05_ENGINEERING.md) Fetch/Diff/报告上游，不自行合入。保护原有未跟踪资料、outputs 和 Profile。
-- **落点与合同**：卡内路径均相对仓库根，“新建”是本卡待实现目标。API、状态、身份/幂等规则只在[实施合同](../15_IMPLEMENTATION_DESIGN.md)维护；变更先更新合同和受影响卡，不另创同义接口。代码限本卡及必要依赖，不能只造空模块或成功空壳。
-- **运行与测试**：命令从仓库根、受测虚拟环境执行，不硬编码某台机器路径。新测试由负责卡创建，当前不存在不能成为跳过理由。测试使用临时根/库、许可媒体和 fake 服务，不初始化用户运行库；新能力写入新 V2 运行根须按启用授权。新测试统一 `tests/production/`；前端沿用 `node --test tests/frontend/*.test.mjs`，无 `npm test`。
-- **能力与依赖**：S6-04 按 Python 3.10/3.12 和已有平台矩阵落实传递依赖，不静默提高要求或开启云追踪；S6-09 不直接迁入机器绑定 parser。缺模型/服务时明确不可用，fake 输出不标为真实合格。
-- **授权**：用户启动具体 Coding 任务后，可执行该范围代码编辑、离线 fake 测试与已许可本地媒体测试，不反复询问普通可逆编辑。真实模型/媒体服务调用、影响用户 Runtime 的安装/生产重启、旧库迁移、合并或发布按实际授权执行；既有明确授权持续有效。没有真实调用授权时可完成 adapter/fake 测试，相应真实验收保持未测。文档中的模拟授权不能用于真实调用。
-- **完成与证据**：真实实现、调用接通、正反例、相关既有回归、明确错误及文档更新缺一不可，mock 演示不算完成。命令须实际运行，零收集/全部 skip 不算通过；未测平台/服务列明。每卡记录实际 HEAD、命令/结果、变更范围、剩余风险及下一依赖；软件、真实生产、自主完成、Creator 接受分开，CI 绑定确切 SHA。
-- **回退**：保留有效成果与失败证据，不以删除用户 outputs/画像或修改需求换 PASS。代码通过分支/提交回退，测试数据独立；新 schema 保留备份和向前修复策略，不随意降级用户库。停用 V2 不破坏原 Web/聊天/内容库。
-- **收尾**：按 AGENTS/工程规则检查敏感文件与变更范围，显式暂存，提交/推送自己的非保护分支并更新 PR。卡片维护执行结果，[当前状态](../04_CURRENT_STATE.md)仅汇总证据和唯一下一事项；不自动合并或发布。
+<a id="s7-implementation"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#s7-implementation)。
 
-## 3. 覆盖关系与验收口径
+<a id="easel-v2--s6-收口与-s7-统一实施规划"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#easel-v2--s6-收口与-s7-统一实施规划)。
 
-- 原 T01→S6-02/08，T02→01/02/08/11，T03→03/04/07，T04→05，T05→06/07，T06→09/10/12/14，T07→08/11/13/14，T08→14。[原清单](S5_VALIDATION_PLAN.md)保留场景与判据，不形成另一条执行排程；T08 全流程在 14 第二段验收，首次首版验证不冒充完整 T08。
-- 软件测试默认不付费。TTS 不纳入 IMAGE/VIDEO 额度不代表免费；试听/真实模型/Provider 按用户授权。UNKNOWN 不能为通过测试而放宽为自动重发。
-- S7 完整验收必须覆盖 1～900 秒、四声音、三类输入及组合、两画幅、中文、无画像、跨频道导演、固定声音、字幕、参考形成导演、进度、局部修改、版本接受。导演形成、声音选择和内容库接受不能成为可省略的体验优化。
-- 风格、自然音色与事实表达使用实际参考和完整视听证据，不用代码检查或模型自评分代替；样本/组合和标准须在验收前明确，不能事后改分母。
+<a id="1-基线顺序与交付"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#1-基线顺序与交付)。
 
-## 4. 接手与结果记录
+<a id="2-每张卡开始与完成的共同约定"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#2-每张卡开始与完成的共同约定)。
 
-历史上的S6-01～14连续授权不等于今天继续执行所有旧任务：2026-10-19最新用户决定关闭其它S6工作项，只保留F1画像、F2交互、F3真实出片和人工审阅。禁止从本表重开旧软件实施、测试矩阵、付费重跑或旧UNKNOWN。旧任务与证据留在原卡，唯一下一动作见[当前状态](../04_CURRENT_STATE.md)。如发生新的付费或不可逆操作，仍须满足实际授权边界。
+<a id="3-覆盖关系与验收口径"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#3-覆盖关系与验收口径)。
+
+<a id="31-历史接手与结果记录"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#31-历史接手与结果记录)。
+
+<a id="4-s6收口保留成果移交质量缺口"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#4-s6收口保留成果移交质量缺口)。
+
+<a id="5-s7架构取舍沿现有模块补能力"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#5-s7架构取舍沿现有模块补能力)。
+
+<a id="51-最小变更点"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#51-最小变更点)。
+
+<a id="52-版本保护与复杂度约束"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#52-版本保护与复杂度约束)。
+
+<a id="6-统一工作包依赖和退出条件"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#6-统一工作包依赖和退出条件)。
+
+<a id="61-批次与顺序"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#61-批次与顺序)。
+
+<a id="7-所有候选与当前缺口的归并"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#7-所有候选与当前缺口的归并)。
+
+<a id="71-条件项和明确后置范围"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#71-条件项和明确后置范围)。
+
+<a id="8-验收矩阵与落地检查"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#8-验收矩阵与落地检查)。
+
+<a id="81-s4需求全量追踪"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#81-s4需求全量追踪)。
+
+<a id="82-分层而非笛卡尔积"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#82-分层而非笛卡尔积)。
+
+<a id="83-每批完成标准"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#83-每批完成标准)。
+
+<a id="9-easel与开源参考采用方法不复制整套系统"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#9-easel与开源参考采用方法不复制整套系统)。
+
+<a id="10-审核与实施结果"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#10-审核与实施结果)。
+
+<a id="101-审核及范围"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#101-审核及范围)。
+
+<a id="102-八个工作包的软件交付"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#102-八个工作包的软件交付)。
+
+<a id="后端调试续接生成优先2026-10-23"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#后端调试续接生成优先2026-10-23)。
+
+<a id="新片后端父任务续接按新版统一开发规范"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#新片后端父任务续接按新版统一开发规范)。
+
+<a id="2026-10-23-正式web父任务收口"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#2026-10-23-正式web父任务收口)。
+
+<a id="2026-10-23-本轮对话进展与检查展示修复用户明确授权"></a>
+原章节见[迁移位置](../../mainline/project/tasks/S6_IMPLEMENTATION_PLAN.md#2026-10-23-本轮对话进展与检查展示修复用户明确授权)。

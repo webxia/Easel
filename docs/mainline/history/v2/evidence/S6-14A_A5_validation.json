@@ -1,0 +1,1029 @@
+{
+  "status": "ISOLATED_INTERACTION_PASS",
+  "date": "2026-10-18",
+  "implementation_start": "6efb91e9f8a13dbe9995b6dbcc3f71b4900a5c02",
+  "scope": "28 offline criteria: actual browser main journey plus native/API integration and executable regression negatives. Not 28 real-model browser E2Es.",
+  "native_local_media": {
+    "status": "PASS",
+    "scope": "isolated native Web + scripted creative model + real local Worker/FFmpeg; no production acceptance",
+    "checks": [
+      {
+        "name": "UI01_UI02_consultation_attachment_without_profile_no_work",
+        "pass": true
+      },
+      {
+        "name": "UI26_channel_save_replay_without_work",
+        "pass": true,
+        "channel": "f4434c19928748dc99c9926add513827"
+      },
+      {
+        "name": "UI02_UI05_discussion_brief_no_runs",
+        "pass": true
+      },
+      {
+        "name": "UI09_reference_rights_unknown",
+        "pass": true
+      },
+      {
+        "name": "UI22_UI27_analysis_requires_authorization",
+        "pass": true
+      },
+      {
+        "name": "UI22_UI27_analysis_draft_no_production",
+        "pass": true
+      },
+      {
+        "name": "UI05_UI21_frozen_sources_channel_profile_director",
+        "pass": true,
+        "plan_revision": 1,
+        "plan_hash": "60e04410d66c6d8a21d930e0085c6c4bc5a118e6b6fa9293863f0315b8fda90c"
+      },
+      {
+        "name": "UI06_confirm_replay_and_second_window",
+        "pass": true,
+        "run": "17f5032697e14762b096374de32787ef"
+      },
+      {
+        "name": "UI09_active_run_input_mutation_rejected",
+        "pass": true
+      },
+      {
+        "name": "UI06_UI08_disconnect_replay_without_redispatch",
+        "pass": true
+      },
+      {
+        "name": "UI08_stop_reply_does_not_cancel_run",
+        "pass": true
+      },
+      {
+        "name": "UI07_work_SSE_uses_authoritative_snapshot",
+        "pass": true
+      },
+      {
+        "name": "UI07_UI11_real_render_technical_manual_review",
+        "pass": true,
+        "tasks": [
+          {
+            "kind": "analyze_director",
+            "state": "succeeded"
+          },
+          {
+            "kind": "plan",
+            "state": "succeeded"
+          },
+          {
+            "kind": "supply",
+            "state": "succeeded"
+          },
+          {
+            "kind": "edit",
+            "state": "succeeded"
+          },
+          {
+            "kind": "render",
+            "state": "succeeded"
+          },
+          {
+            "kind": "quality",
+            "state": "succeeded"
+          }
+        ]
+      },
+      {
+        "name": "UI11_UI14_unaccepted_not_in_library",
+        "pass": true
+      },
+      {
+        "name": "UI11_manual_ack_required",
+        "pass": true
+      },
+      {
+        "name": "UI23_work_accept_does_not_accept_director",
+        "pass": true
+      },
+      {
+        "name": "UI23_director_accept_does_not_set_default",
+        "pass": true
+      },
+      {
+        "name": "UI10_revision_card_no_implicit_run",
+        "pass": true
+      },
+      {
+        "name": "UI10_UI14_local_revision_preserves_A",
+        "pass": true
+      },
+      {
+        "name": "UI10_decoded_audio_unchanged",
+        "pass": true
+      },
+      {
+        "name": "UI10_visual_change_produces_distinct_version",
+        "pass": true
+      },
+      {
+        "name": "UI10_protected_visual_interval_unchanged",
+        "pass": true
+      },
+      {
+        "name": "UI07_reconnect_cursor_replays_exact_event",
+        "pass": true
+      },
+      {
+        "name": "UI10_expanded_scope_waits_for_explicit_confirmation",
+        "pass": true
+      },
+      {
+        "name": "UI10_confirmed_expansion_creates_unconfirmed_plan",
+        "pass": true
+      },
+      {
+        "name": "UI15_proposal_does_not_write_profile",
+        "pass": true
+      },
+      {
+        "name": "UI16_explicit_profile_save_once",
+        "pass": true
+      },
+      {
+        "name": "UI17_new_style_draft_future_only",
+        "pass": true
+      },
+      {
+        "name": "UI18_library_exact_A",
+        "pass": true
+      },
+      {
+        "name": "UI25_fork_exact_director_no_grants",
+        "pass": true
+      },
+      {
+        "name": "UI19_UI20_UI21_channel_entry_no_empty_work",
+        "pass": true
+      },
+      {
+        "name": "UI19_director_entry_no_empty_work",
+        "pass": true
+      },
+      {
+        "name": "UI24_historical_plan_unchanged",
+        "pass": true
+      },
+      {
+        "name": "UI03_UI28_cross_profile_native_isolation",
+        "pass": true
+      },
+      {
+        "name": "UI28_old_segment_rejected",
+        "pass": true
+      },
+      {
+        "name": "UI08_delete_stop_preserve_outputs",
+        "pass": true
+      },
+      {
+        "name": "UI08_reopen_same_Work",
+        "pass": true
+      },
+      {
+        "name": "UI28_delete_inflight_native_end_reconciles_minimal_identity",
+        "pass": true
+      },
+      {
+        "name": "UI03_UI04_exact_native_tools_no_development_or_credentials",
+        "pass": true
+      },
+      {
+        "name": "UI03_all_six_dimensions_and_curated_Easel_knowledge",
+        "pass": true
+      },
+      {
+        "name": "all_operations_are_scripted_local_model_receipts",
+        "pass": true
+      },
+      {
+        "name": "local_only_model_receipts_no_generation_or_voice",
+        "pass": true
+      }
+    ],
+    "counts": {
+      "works": 2,
+      "runs": 6,
+      "operations": 6,
+      "acceptances": 1,
+      "conversation_turns": 20
+    },
+    "quality_checks": [
+      {
+        "check_kind": "technical",
+        "status": "pass"
+      },
+      {
+        "check_kind": "semantic",
+        "status": "not_tested"
+      },
+      {
+        "check_kind": "technical",
+        "status": "pass"
+      },
+      {
+        "check_kind": "semantic",
+        "status": "not_tested"
+      }
+    ],
+    "operations": [
+      {
+        "kind": "MODEL",
+        "provider": "direct-api",
+        "model": "a5-local-scripted",
+        "state": "succeeded"
+      },
+      {
+        "kind": "MODEL",
+        "provider": "direct-api",
+        "model": "a5-local-scripted",
+        "state": "succeeded"
+      },
+      {
+        "kind": "MODEL",
+        "provider": "direct-api",
+        "model": "a5-local-scripted",
+        "state": "succeeded"
+      },
+      {
+        "kind": "MODEL",
+        "provider": "direct-api",
+        "model": "a5-local-scripted",
+        "state": "succeeded"
+      },
+      {
+        "kind": "MODEL",
+        "provider": "direct-api",
+        "model": "a5-local-scripted",
+        "state": "succeeded"
+      },
+      {
+        "kind": "MODEL",
+        "provider": "direct-api",
+        "model": "a5-local-scripted",
+        "state": "succeeded"
+      }
+    ],
+    "chat_model_requests": 34,
+    "creative_model_calls": 6,
+    "paid_requests": 0,
+    "production_environment_changed": false,
+    "isolated_worker_started": true,
+    "production_worker_started": false,
+    "work_id": "24391f0db28c42f2a978d15058331d6b",
+    "channel_id": "f4434c19928748dc99c9926add513827",
+    "director_id": "34cb74163e524724b2d67d03a17261cf",
+    "director_revision_id": "5ac436f369e844988424c7b0ad8d71bb",
+    "outputs": [
+      {
+        "id": "e9a19b1ecc69445eae02e0b23fd71914",
+        "sha256": "69aee2ae9000cea44aca26bc714969dd78f3f11c46b7da35a2c9a495be04a22f",
+        "bytes": 450137
+      },
+      {
+        "id": "fe1c7dbb9b524890b725d29fdba4df6e",
+        "sha256": "bb51aaa3b1eb7ebe616518744b91bab69cce54aaae0bddda985f3c3cd53728be",
+        "bytes": 1066760
+      }
+    ],
+    "child_gateway_stopped": true,
+    "source_sha256": {
+      "easel/production/catalog.py": "266a36ed548c07627228fba6cdb59c9655eb6e83287900d8d823e720f8a748d7",
+      "easel/production/worker.py": "f1e523ada41a4f07512b12ad92a34c6e6a73a85f2f3168143166e6f83613685e",
+      "easel/production/store.py": "62a9332e98a21e085fa3022b76abd54df5f010c7ce5a2df2cc24b98d1eb302d6",
+      "easel/production/configuration.py": "ff60dba443ccf536f936e4471e69aac246da92ce1753e6ccfd2130ce9b6747c8",
+      "easel/production/service.py": "0d2dbef1d431b672abc4321b6123f00db2df361208c498f0777ff845cef81b32",
+      "easel/production/supply_tasks.py": "5a4966a160b63640255f5b2e8d8cd6a6dad7e977918e292a458ca2ddd7ebc8fd",
+      "easel/production/media.py": "1e8fa1550e4e37acfda499cc18206d5f9171523ce752f82e1cf61c7a1d0bc125",
+      "easel/production/subtitles.py": "c9c1c54f7ae8e36de19f6b07c1682d992841552e6346912c2bfabf8d5760fc7d",
+      "easel/production/creation.py": "f7f51e0ea6f26bc580da079609aa9e85523872b1b4cf6ac4bd0c8659cfd13228",
+      "easel/production/runtime_readiness.py": "7c795e97df57eb6ed9786ed3d41f59107653a448fdce3424d97fcf5f27619c19",
+      "easel/production/revisions.py": "b5fca565dc0328ce8c4d669cf4d3d183c3b7de3f0c3f0d0927088690c61d99fa",
+      "easel/production/tools.py": "44cac553e7a56eabec7e80083fcb4583656cd68ef28c920754859fe9650ca256",
+      "easel/production/graph.py": "cc272d670b779e72f7b3f437384c641f153677522324311ad0ab5741de460d39",
+      "easel/production/materials.py": "1cb603cee27f211235f9735093f7fae576ffcfededccebc2d2025e08c26f9c86",
+      "easel/production/__init__.py": "208d029e36c06d38a642f11a841f5d33967fa1f0b9a46a6e865bba853524f8d7",
+      "easel/production/runtime.py": "86e79e9abbd34671a2872365a901e6a9dda760d5e1e07ab79a5a313a2d321d86",
+      "easel/production/inspection.py": "cdd3af61f3b34e2414f1e42fa8eb84f5d3c245f66c98aef5aa3e0cb7b21820d4",
+      "easel/production/voice.py": "aa5e4877de25b671a00a8db4519d5e75c6ae49d39b369aeb5f4dc33db3adf7a9",
+      "easel/production/operations.py": "63e0767ef5d36b47e735656764d78ae8ac7dd8b1613118aaf4f68a03e6b0d1be",
+      "easel/production/context.py": "e55b02ca9e2560d1689d80a3022f33f34d330795b56c71a6e257813ae4c12c87",
+      "easel/production/material_binding.py": "58225eb683d69e2dbb0bc5f6456878e4af89a011d396b3c00e27b48d04c8a2ef",
+      "easel/production/material_intent.py": "49bff3164e37b5b38fde2d4c19d03e100aacbcb9d0c5aa22738c473b061e1486",
+      "easel/production/contracts.py": "200aec68ebb7c95dc458657b2c4f444f7cf5b4bb9dfdcbea18ea3e44bee0d961",
+      "easel/production/settings.py": "bb68ea4370fd1a77e3429a627e04999fa96d46d6b84bac1e75794201f65789e0",
+      "easel/production/planning.py": "0a5cb044a60c799abb6e7d543d182972db11024ce00e0dc155b7272b55c4944f",
+      "easel/production/deletion.py": "454f3f6278d8199fc3128c81def6f9958ef859e72f9d2094fffa966cde420ead",
+      "easel/production/model_tasks.py": "08930b615fbb4550061cb587f6863fcf1003f12ab3a896ef839a03df9349cd77",
+      "easel/production/public_facts.py": "3b9dc76b4d6cc80c21e57da5cbba0c4d075463917f3a812b8b1c0cd3ca4a910c",
+      "easel/production/artifacts.py": "45c304767ac441fb228f6355378a5bda1a70ce9c4606a6141cf6029b643c996d",
+      "easel/production/errors.py": "7f5cd60f240b2e14597f1fb6fc3acce43daaa3dd28d45075de21aee81b9490d6",
+      "easel/production/voice_budget.py": "6102e311b728a334e8fb3e3cf265a1d5fbac7ea7009a198f71305f43d9e23784",
+      "easel/production/model_operations.py": "8660800e27f2b561ada1cd7f9df9911e46c890aec188d9017dda181f7963d6c7",
+      "easel/production/quality.py": "d060524739e002f2c78836d4916fa5bc1d94588444814a501bd761d4a48f2131",
+      "easel/production/voice_tasks.py": "29189558c53eaa8b442d3ce9e24f5c5f4960a71b2b7e984fc652127fccbdc70a",
+      "easel/production/migrations/conversation.py": "38efe1cb67bd994192148c8b6b9c9a8f5aa0dc97a3981236bcb07396f529a59e",
+      "easel/production/migrations/__init__.py": "676dc95f7f068d7a0b16e378ed280224b82e64a4eaa2dbcca5c8f9d1b8366624",
+      "easel/production/providers/unsplash.py": "62a783b3b0dd9f1c7a4f92daecfb3c21574005035587bca35ec8eefaacd3fea8",
+      "easel/production/providers/__init__.py": "bb8a8bfb8a68616579aa711da084fc7f8892e6e0486a0fa2f5df5a772511030c",
+      "easel/production/providers/stock.py": "68d7af5509dd68bd72aa4b4380644e329a345ed2854e8a286efaed9048ad9f41",
+      "easel/production/providers/generation_http.py": "5e1bab93c9c873e6941e5e3ab4dab04a9a22ae60c760b1a729066e43c1191247",
+      "easel/production/providers/pixabay.py": "4ce259d38081304c9a9c7345cc09d915f044e13b48a70d9906f3019d9e1a4678",
+      "easel/production/providers/minimax_speech.py": "6d18d2d8e68acd932be0c142fedbac8b23fa65dddd48853480429433c28565b5",
+      "easel/production/providers/wikimedia_audio.py": "7745b1ef535d456f921a37201d47e9d6fd289327d9c1fbb24f69ce8c2bcdb178",
+      "easel/production/providers/base.py": "e4b32d876af8666610b5f830623578402aee8b804641aa48af900f79b578902d",
+      "easel/production/editors/render_worker.py": "7dab5017d81a715213868ed21e8c37dff0043c0f0dd3f1e86fee52a3079b1e58",
+      "easel/production/editors/ffmpeg.py": "d51c6bbd99952c6bf425428a3950b3535bf5d887a3b83d64f0f38562959c9e59",
+      "easel/production/editors/__init__.py": "49ecc3d3543bb80be14bb7a351e21301ebe2c5a1cc946d049e4679107199c3f1",
+      "easel/production/editors/base.py": "de7815360cee428d70c26e8f437d06843376ed8e5d56728cf17aa3dd48c44cfe",
+      "easel/conversation.py": "5710ac0c5541868bad78d6bf4724d14beac497fe36d63aa384f77c025ddae927",
+      "easel/conversation_inputs.py": "401cbd4aa746caa8923776ed2add05fc9dc7a0dc737636084460641387c53809",
+      "easel/conversation_bridge.py": "5269384d54f9143ab03726e662342b193b8239f81876e837b4e04dca4b246eba",
+      "easel/video_workspace.py": "e77efc75ea797b9d8e230e7ca6baf843043be8f9998848c5a3b160c908384446",
+      "web/app.py": "07e3b1ae9cdcd7f04cd208b111605652cde5287dc130ce5aa9aa20fd896110c0",
+      "web/production_api.py": "4fb04815866a306953009675d10b2f46e0869284fca892c517288357a3e20665",
+      "web/production_settings_api.py": "5bd5e4970785ffd1e6073ecf89816f6aa45ae1da16e2c4d7134a4e5f79e1ab1c",
+      "web/conversation_api.py": "bff81755ddd6fa977169621da045af77899d4de371cd2d8a663f12aae323e175",
+      "web/frontend/src/App.tsx": "cde697da7cc245309a9121a6626a5a3fcb9cf60ba3250e47123a3a7961e21b96",
+      "web/frontend/src/main.tsx": "8b191db4ebd16ab8a5c3233be80dc2f8df888da5f4ff1934297ea10ed333b1f5",
+      "web/frontend/src/components/ProductionSettings.tsx": "ecc8cd7340d73e11ffc672cd03532709418b2bbac61689e5567197eb938224b1",
+      "web/frontend/src/components/EnvBoard.tsx": "ea9513016e77050b47823cd73bf0280beca217266e2919db3996ce355f877080",
+      "web/frontend/src/components/ProductionPage.tsx": "b9fa266c3acbaf72288f450cd1934d71f1b12ce969b443e49cc1395bfd7f0356",
+      "web/frontend/src/components/WorkCards.tsx": "0f39c0e722a564ef6f00c99be9bda65f27cf849454cd7d29c7a9dea2b017def2",
+      "web/frontend/src/components/AccountsPage.tsx": "1a3990a1b8ae0c6d5b490b4847b2b937bba524a060ef813785ff8d662698708b",
+      "web/frontend/src/components/CalendarPage.tsx": "a644b084af87afc98b486e0775abe9471df575bdd31aaa36b2d161199b383317",
+      "web/frontend/src/components/QuestionCards.tsx": "7fef7508d072387b3f1f3e7e13ba4d8b2cc42e3d0615d5a42d47fdc37d072ccc",
+      "web/frontend/src/components/OutputsPage.tsx": "d530834b2b019e3f653a788bcc00882969ad40ea9c1b7de97bdcc013bb08b8db",
+      "web/frontend/src/components/ProfilePage.tsx": "a90c9c229fa421b4c729f4014c93266ec179e8c8568e5a012f95048e55f92947",
+      "web/frontend/src/components/ArtifactGallery.tsx": "12acf76848130bdb660963005d8492200153087ca6e16c264fd74d5f1217db98",
+      "web/frontend/src/components/BreakdownPage.tsx": "adceec292b57ffa37f25a9288b0651106401c8b98967d80f7799e828bbed2d8a",
+      "web/frontend/src/components/BrushEntry.tsx": "acc305dd741ef1dfff4ae48395217cd8d59e1cd1c6d520f3890ba6cb715a9b20",
+      "web/frontend/src/components/PublishPage.tsx": "13ae5f0a4c59b35ae8e2beec8d3adb37b796d44b892d13daa6c089fa7da27403",
+      "web/frontend/src/components/VideoConversation.tsx": "26887d8495cf680645b60d83bfbfd8a436cb851b66041f4ec9d500dd9fffd295",
+      "web/frontend/src/components/SubNav.tsx": "5d057964a93518664d1b7637d110b3b8ead2c2f15ce5d72a55dc49fbcd3d883c",
+      "web/frontend/src/components/OnboardingWizard.tsx": "8201bee1e17f1148bde57fc29420850f847e665bc2ef865a3d100b9dcafea528",
+      "web/frontend/src/components/settingsIcons.tsx": "f719d9783d66892a5aab13ee837e1e9a367ea510d39275441b53e4b62504bda8",
+      "web/frontend/src/components/MessageBubble.tsx": "a58624c60840f492f669e18fafe691afb645ff12e44ce6e543909980c63d716a",
+      "web/frontend/src/components/SettingsPanel.tsx": "d1bd71ff563bf600b78ad44509d6fa0b15d6f0f123e1293b4877bcb848605612",
+      "web/frontend/src/components/TrendsPage.tsx": "f83111963cd022381ef12c3c510d4fe73cf05effdaf7250f8a9c176d17e75362",
+      "web/frontend/src/components/ThemeToggle.tsx": "126681a63136e432077691c0740f49405e91f025c5a32c61c21d9fbe4eeacb4b",
+      "web/frontend/src/components/icons.tsx": "82e401d5a80a0c8acf7a032022ee04a771354da2c1ccc04b626ea4994dbfcc96",
+      "web/frontend/src/components/HarnessSettings.tsx": "e369254d16f3b759d2463c88cf12dfac341eae29cb1e224bffdbac94a68314aa",
+      "web/frontend/src/components/Sidebar.tsx": "48bea9369f7f946342f4d30fe8af596eb8701a5104ce97e26a237b6d7d277ec5",
+      "web/frontend/src/components/SkillDrawer.tsx": "315ffdd1bd52de0fd2a5edb24dce93e82db5d1a8f4309a9320b666546f067547",
+      "web/frontend/src/components/ChatPage.tsx": "6acae5aa12ad0920cabed060912af0c48b6d53d9bf37485f1044c821979c2876",
+      "web/frontend/src/components/DashboardPage.tsx": "b4daf79418a857890fb669f147ab077ea18fdf8105295b9a27a0984f6e34c5be",
+      "web/frontend/src/components/SkillPage.tsx": "0ea4fa00a119a70a3eb2044718912892dcf067cf672aef16fb5fe33f4838213a",
+      "web/frontend/src/components/ErrorBoundary.tsx": "41c090b3865f2cfbce7d6ddc1acd0b898537250760ebd1cf9e313d7d026d2059",
+      "web/frontend/src/components/IdeasPage.tsx": "4af0477232048c934f97fed3b6bd718b4bf8b8b9cf2e4e47ac7e160f3e22a0f9",
+      "web/frontend/src/components/SettingsSelect.tsx": "3078e6bafb17a6c19f4bd3cbd59a825491eef9bfc3ae771d169c1cdb251c771f",
+      "web/frontend/src/lib/conversationApi.ts": "b54280695194ad8e7c3d5bc3af84854a4abd441a584dfd2a9c134d7e0ed21eb8",
+      "web/frontend/src/lib/useWork.ts": "41f5634c333758a778e40020bb85d872ccacc91fd2991614e773731fdc92b3bd",
+      "web/frontend/src/lib/productionSettings.ts": "f86756c180104c75cd66fa7ad58035ee1540b1315e91ef728f8191f6710027fa",
+      "web/frontend/src/lib/sanitize.ts": "dfb4a133fefe77bebb9aea1e078f170d26e52f18dc6e55d19c9194c89f4cf713",
+      "web/frontend/src/lib/artifacts.ts": "3b5283ba49e7dd5b91a0fb8cd352ebdb1349c12d7f3668544fd98a0a72c2c6b2",
+      "web/frontend/src/lib/api.ts": "94d5697fa0c114b2098b820732bcdba20310fa66e77126e4e8ef70ed71635798",
+      "web/frontend/src/lib/whoami.ts": "8e91793555b5e0dc50177e7605360be25030893bfcce2c0d74f50d4ae7cdda8c",
+      "web/frontend/src/lib/capabilityMenu.ts": "499eb48ca1935d76b02bba681477e23c88594924c3dffe228da16275d8a7f92b",
+      "web/frontend/src/lib/skillDisplayNames.ts": "8ac5dffffbd177ae9ae8ee97ab6029e4e29679297c728c93f819343e56eeb2b9",
+      "web/frontend/src/lib/directorLifecycle.ts": "258dfbf8189bf0d68db3cf65b56eb511de403c1553aaf9ad1a375159cda12f40",
+      "web/frontend/src/lib/linkifyOutputs.ts": "d266b5c6f3c8d5676339459af2ddb408aaf5b586f55e08db59ac8dc6808c8ae0",
+      "web/frontend/src/lib/store.ts": "2310074c7e2bfac91c8cc677faf0848f662d72eb1e797a3c59a6e967e0b83ab6",
+      "web/frontend/src/lib/productionApi.ts": "99f22450c903b43f2e02c1e3ac781c04d29daf50cb1269fa6a9f155a8b5e1df4",
+      "agents/plugins/easel-work/openclaw.plugin.json": "4ae9690b92d642cae353981968d3e845879e81015a30fb4fe992543220eccc1f",
+      "agents/plugins/easel-work/README.md": "f7c24fde238b145aea2936f44728ee9786e9c77ef195fbc90013664b16a6de40",
+      "agents/plugins/easel-work/package.json": "8cab2fd8393eb28222c235672ada54cd2c586692bcb73bad60e20c989fde9ed7",
+      "agents/plugins/easel-work/index.mjs": "6623a362c3b9d6d03a7bc1bf3cc4e0e635d68ccd9133ce719429feb5b10614cd",
+      "agents/plugins/easel-work/tools.mjs": "c49a7e293d5fc607797a49f4ae878c393eff81cad2ca54e0fb5055596ea4704b",
+      "scripts/validate_conversation_a5.py": "425f275b48337ee0a7c756a724c75e12520f8b880d479f1386937585492a8fde",
+      "scripts/validate_video_conversation.py": "abfba1eb3f9a58141c5db0985edb8db11acce4d7f01dda6a749a50314b62b525",
+      "scripts/validate_openclaw_work_bridge.py": "0cdac366d2c8faa3b7b9bb7c7ac0875a11b910cd323c2bf742e01c579f387b55"
+    }
+  },
+  "native_memory_composition": {
+    "status": "PASS",
+    "checks": [
+      {
+        "name": "web_discussion_no_work_or_run",
+        "pass": true
+      },
+      {
+        "name": "native_draft_tool_returns_persistent_card_without_side_effect",
+        "pass": true
+      },
+      {
+        "name": "card_replay_one_work",
+        "pass": true
+      },
+      {
+        "name": "duplicate_chat_post_replays_without_model",
+        "pass": true
+      },
+      {
+        "name": "different_tool_call_ids_one_plan_proposal",
+        "pass": true
+      },
+      {
+        "name": "explicit_plan_card_uses_existing_work_service",
+        "pass": true
+      },
+      {
+        "name": "forbidden_tools_no_new_production",
+        "pass": true
+      },
+      {
+        "name": "no_paid_operations_or_grants",
+        "pass": true
+      },
+      {
+        "name": "cross_profile_native_session_has_no_previous_sentinel",
+        "pass": true
+      },
+      {
+        "name": "no_development_main_or_service_credentials",
+        "pass": true
+      },
+      {
+        "name": "effective_native_tool_surface_exactly_eight",
+        "pass": true
+      },
+      {
+        "name": "selected_product_personality_loaded",
+        "pass": true
+      },
+      {
+        "name": "old_segment_dispatch_rejected",
+        "pass": true
+      },
+      {
+        "name": "delete_chat_preserves_work_and_run",
+        "pass": true
+      },
+      {
+        "name": "bridge_credential_cannot_call_authority_api",
+        "pass": true
+      },
+      {
+        "name": "all_network_loopback_only",
+        "pass": true
+      }
+    ],
+    "fake_model_requests": 24,
+    "paid_requests": 0,
+    "production_environment_changed": false,
+    "production_worker_started": false,
+    "work_count": 1,
+    "planning_runs": 1,
+    "openclaw_version": "OpenClaw 2026.9.4 (3a9d69d)",
+    "child_gateway_stopped": true,
+    "memory_core_observed": true
+  },
+  "software": {
+    "python_passed": 557,
+    "python_skipped": 4,
+    "python_failed": 0,
+    "node_passed": 91,
+    "a1_native_compat_passed": 1,
+    "frontend_build": "PASS",
+    "frontend_lint": "PASS_WITH_EXISTING_WARNING",
+    "skips": [
+      {
+        "test": "tests.production.test_materials_paths.test_native_windows_junction_component_and_root_are_rejected[True]",
+        "reason": "Native Windows junction test runs on Windows CI"
+      },
+      {
+        "test": "tests.production.test_materials_paths.test_native_windows_junction_component_and_root_are_rejected[False]",
+        "reason": "Native Windows junction test runs on Windows CI"
+      },
+      {
+        "test": "tests.production.test_openclaw_work_bridge_native.test_native_openclaw_work_bridge_with_isolated_fakes",
+        "reason": "Opt-in installed OpenClaw integration; never uses real providers"
+      },
+      {
+        "test": "tests.production.test_render_local.test_900_second_boundary_real_encode",
+        "reason": "900 second real encode is opt-in; long-media evidence tracked separately"
+      }
+    ]
+  },
+  "criteria": [
+    {
+      "id": "UI01",
+      "status": "OFFLINE_PASS",
+      "observation": "有/无画像主题和附件可讨论；咨询不建作品",
+      "native_check_prefix": "UI01_UI02",
+      "regression": "test_discussion_proposals_do_not_start_production_and_draft_is_exactly_once"
+    },
+    {
+      "id": "UI02",
+      "status": "OFFLINE_PASS",
+      "observation": "讨论、解释与brief无Run；明确卡操作才规划",
+      "native_check_prefix": "UI02_UI05",
+      "regression": "test_multiturn_sourced_brief_frozen_in_plan_request_and_no_fabricated_requirements"
+    },
+    {
+      "id": "UI03",
+      "status": "OFFLINE_PASS",
+      "observation": "六维画像/频道/导演及受审查知识实际进入原生请求；跨画像哨兵不泄漏",
+      "native_check_prefix": "UI03",
+      "regression": "test_cross_work_profile_native_transcripts_isolated_and_old_cards_stale"
+    },
+    {
+      "id": "UI04",
+      "status": "OFFLINE_PASS",
+      "observation": "memory-core组合下仍严格8工具；exec/read/记忆/旧脚本/直接媒体拒绝，缺插件不兜底",
+      "native_check_prefix": "UI03_UI04",
+      "regression": "test_bound_video_session_cannot_fall_back_to_main_by_omitting_client_mode"
+    },
+    {
+      "id": "UI05",
+      "status": "OFFLINE_PASS",
+      "observation": "多轮来源brief进入Planning并冻结；硬要求伪造被拒绝，建议单列",
+      "native_check_prefix": "UI05_UI21",
+      "regression": "test_multiturn_sourced_brief_frozen_in_plan_request_and_no_fabricated_requirements"
+    },
+    {
+      "id": "UI06",
+      "status": "OFFLINE_PASS",
+      "observation": "断流同turn重放、不再调用；不同callId去重；确认重放同Run，第二窗口旧revision409",
+      "native_check_prefix": "UI06",
+      "regression": "test_process_restart_tool_tickets_results_and_turn_conflict"
+    },
+    {
+      "id": "UI07",
+      "status": "OFFLINE_PASS",
+      "observation": "真实Work SSE快照/游标事件重连一致；前端旧作品/旧cursor快照拒绝",
+      "native_check_prefix": "UI07",
+      "regression": "test_immutable_plan_new_revision_and_snapshot_cursor"
+    },
+    {
+      "id": "UI08",
+      "status": "OFFLINE_PASS",
+      "observation": "真实断流/停止回答不取消生产；关页/重启后恢复；删聊天保留作品/媒体",
+      "native_check_prefix": "UI08",
+      "regression": "test_late_native_tools_revoked_even_after_new_turn_and_deleted_chat"
+    },
+    {
+      "id": "UI09",
+      "status": "OFFLINE_PASS",
+      "observation": "实际上传参考；跨会话正例、伪造/越界/symlink/hash负例；未知Rights不可供剪辑，活动Run拒绝改输入",
+      "native_check_prefix": "UI09",
+      "regression": "test_legit_new_conversation_upload_and_original_rights_not_minted_by_model"
+    },
+    {
+      "id": "UI10",
+      "status": "OFFLINE_PASS",
+      "observation": "指定A只改12～15秒，0～12秒取样画面/完整解码音轨不变；扩大范围先暂停再出未确认新Plan",
+      "native_check_prefix": "UI10",
+      "regression": "test_expanded_scope_starts_new_planning_from_exact_old_version"
+    },
+    {
+      "id": "UI11",
+      "status": "OFFLINE_PASS",
+      "observation": "实际技术pass/语义not_tested；未勾选接受禁用/API拒绝；测试库明确接受才入库",
+      "native_check_prefix": "UI11",
+      "regression": "test_manual_only_finishes_run_without_faking_semantic_pass_or_creator_accept"
+    },
+    {
+      "id": "UI12",
+      "status": "OFFLINE_PASS",
+      "observation": "557个Python回归、91个Node回归；普通聊天/附件/问题卡/技能目录/内容库检查；未测边界单列",
+      "native_check_prefix": "local_only",
+      "regression": "test_bound_video_session_cannot_fall_back_to_main_by_omitting_client_mode"
+    },
+    {
+      "id": "UI13",
+      "status": "OFFLINE_PASS",
+      "observation": "普通聊天笔入口明确进入视频；持久绑定恢复；缺字段不落main；问题卡旧入口回归；CLI仅A1兼容",
+      "native_check_prefix": "UI28_old_segment",
+      "regression": "test_bound_video_session_cannot_fall_back_to_main_by_omitting_client_mode"
+    },
+    {
+      "id": "UI14",
+      "status": "OFFLINE_PASS",
+      "observation": "本地成片自动登记Artifact/QC/event；未接受库为空；接受A后B不替换选择，QC不改写",
+      "native_check_prefix": "UI10_UI14",
+      "regression": "test_independent_manual_work_and_director_acceptance_keeps_qc_truth"
+    },
+    {
+      "id": "UI15",
+      "status": "OFFLINE_PASS",
+      "observation": "本片修订不改长期项；1条长期建议在显式保存前零文件写入；拒绝/无画像负例",
+      "native_check_prefix": "UI15",
+      "regression": "test_rejected_learning_and_cross_segment_source_do_not_write"
+    },
+    {
+      "id": "UI16",
+      "status": "OFFLINE_PASS",
+      "observation": "明确目标/差异/hash保存一次；重复/文件先写崩溃恢复；并发hash冲突不覆盖",
+      "native_check_prefix": "UI16",
+      "regression": "test_profile_save_recovers_file_written_before_sqlite_receipt"
+    },
+    {
+      "id": "UI17",
+      "status": "OFFLINE_PASS",
+      "observation": "频道新默认和Profile保存不变旧Plan；导演另存2版仍待风格确认/试片，未自动出片",
+      "native_check_prefix": "UI17",
+      "regression": "test_channel_defaults_proposals_preserve_other_settings_and_use_current_target_version"
+    },
+    {
+      "id": "UI18",
+      "status": "OFFLINE_PASS",
+      "observation": "实际同一内容库展示A并续接具体A；fork来源保留且无旧授权；发布/日志/归因按原合同另测",
+      "native_check_prefix": "UI18",
+      "regression": "test_fork_exact_output_copies_reference_without_old_authority"
+    },
+    {
+      "id": "UI19",
+      "status": "OFFLINE_PASS",
+      "observation": "普通笔/频道/已接受导演入口汇入视频对话；浏览/进入无空Work/分析Run",
+      "native_check_prefix": "UI19",
+      "regression": "test_discussion_proposals_do_not_start_production_and_draft_is_exactly_once"
+    },
+    {
+      "id": "UI20",
+      "status": "OFFLINE_PASS",
+      "observation": "频道默认/明确导演优先，固定设置不丢；字幕字段继承一致；跨画像/归档默认拒绝",
+      "native_check_prefix": "UI19_UI20",
+      "regression": "test_entry_subtitle_layers_match_work_and_explicit_director_keeps_fixed_settings"
+    },
+    {
+      "id": "UI21",
+      "status": "OFFLINE_PASS",
+      "observation": "频道定位/主题/受众进入Work/Plan；无画像频道保存拒绝、临时无画像可讨论",
+      "native_check_prefix": "UI05_UI21",
+      "regression": "test_channel_save_without_profile_rejected_and_old_proposal_invalidated"
+    },
+    {
+      "id": "UI22",
+      "status": "OFFLINE_PASS",
+      "observation": "上传参考→实际媒体帧/音轨分析任务→风格确认→同Work正式试片；缺权限暂停；直链负例",
+      "native_check_prefix": "UI22",
+      "regression": "test_reference_import_uses_original_command_and_unknown_never_refetched"
+    },
+    {
+      "id": "UI23",
+      "status": "OFFLINE_PASS",
+      "observation": "同一输出作品/导演/频道默认三步独立、完成项显示禁用；精确试片和QC负例",
+      "native_check_prefix": "UI23",
+      "regression": "test_independent_manual_work_and_director_acceptance_keeps_qc_truth"
+    },
+    {
+      "id": "UI24",
+      "status": "OFFLINE_PASS",
+      "observation": "旧Plan/输出字节保留；确认前设置变更使旧Plan失效；确认后设置变更要求修订；收纳仅改归属",
+      "native_check_prefix": "UI24",
+      "regression": "test_work_setting_changes_invalidate_old_plan_and_confirmed_changes_require_revision"
+    },
+    {
+      "id": "UI25",
+      "status": "OFFLINE_PASS",
+      "observation": "实际fork选择继承导演/字幕，来源输出UNKNOWN参考且无旧grant；新主题采用有效默认",
+      "native_check_prefix": "UI25",
+      "regression": "test_explicit_fork_settings_no_grants_and_original_unchanged"
+    },
+    {
+      "id": "UI26",
+      "status": "OFFLINE_PASS",
+      "observation": "实际频道按钮/NL提案/保存/刷新/主题接续；重复只1频道，无Work/Run；非法名称失败不报保存",
+      "native_check_prefix": "UI26",
+      "regression": "test_channel_proposal_invalid_name_is_not_saved_or_reported_applied"
+    },
+    {
+      "id": "UI27",
+      "status": "OFFLINE_PASS",
+      "observation": "导演按钮与NL形成链分步恢复；分析需授权；风格草稿不可默认，试片后独立接受；UNKNOWN不重派",
+      "native_check_prefix": "UI22_UI27",
+      "regression": "test_director_reference_analysis_is_one_task_and_reanalysis_preserves_existing_evidence"
+    },
+    {
+      "id": "UI28",
+      "status": "OFFLINE_PASS",
+      "observation": "同UI跨Profile新原生段无旧哨兵；旧段409；删除在途后native end仍核实，保留最小身份不重发",
+      "native_check_prefix": "UI28",
+      "regression": "test_unknown_delivery_never_resent_or_released_until_native_end"
+    }
+  ],
+  "not_tested": [
+    "formal Gateway plugin/slash/automatic-memory composition and deployment",
+    "real chat/Planning/voice/media services and real public-video import",
+    "Creator judgement of aesthetics/semantic audiovisual quality",
+    "V2 publish/log/attribution adapters",
+    "all OS/credential physical isolation and terminal command surfaces"
+  ],
+  "production_environment_changed": false,
+  "real_paid_calls": 0,
+  "fifth_work_changed": false,
+  "production_creator_accepted": false,
+  "screenshots_sha256": {
+    "docs/v2/evidence/S6-14A_A5_review-browser.png": "514dbe4d2ebd25cae62e63ef6b4038e1babddde6b9d23551b1ce6c6c9e9fa979",
+    "docs/v2/evidence/S6-14A_A5_library-browser.png": "d6943b9f7e7916436d6c05797c6838fb42e644ea0bceb84c6c550b5e1d55bebe",
+    "docs/v2/evidence/S6-14A_A5_learning-browser.png": "ec4cecce1ce4a66b16ae548b403b251945caed9059d896967a1595d05a20985a"
+  },
+  "final_browser_frontend_source_sha256": {
+    "web/frontend/src/App.tsx": "cde697da7cc245309a9121a6626a5a3fcb9cf60ba3250e47123a3a7961e21b96",
+    "web/frontend/src/main.tsx": "8b191db4ebd16ab8a5c3233be80dc2f8df888da5f4ff1934297ea10ed333b1f5",
+    "web/frontend/src/index.css": "487e104245b5e1ef89088b33a1b7524d25d1658372d322c14c24032c7fbd527a",
+    "web/frontend/src/styles/theme.css": "c76c4fd27c1ffd0bc784321c3fb59f90cd54a2b81ed1538fbc1778732ff1b1d3",
+    "web/frontend/src/styles/index.css": "d5cb786243dbf0c9eff5005b767437c7a4fafe05dd43502207b4c7bb18e9de07",
+    "web/frontend/src/components/ProductionSettings.tsx": "ecc8cd7340d73e11ffc672cd03532709418b2bbac61689e5567197eb938224b1",
+    "web/frontend/src/components/EnvBoard.tsx": "ea9513016e77050b47823cd73bf0280beca217266e2919db3996ce355f877080",
+    "web/frontend/src/components/ProductionPage.tsx": "b9fa266c3acbaf72288f450cd1934d71f1b12ce969b443e49cc1395bfd7f0356",
+    "web/frontend/src/components/WorkCards.tsx": "0f39c0e722a564ef6f00c99be9bda65f27cf849454cd7d29c7a9dea2b017def2",
+    "web/frontend/src/components/AccountsPage.tsx": "1a3990a1b8ae0c6d5b490b4847b2b937bba524a060ef813785ff8d662698708b",
+    "web/frontend/src/components/CalendarPage.tsx": "a644b084af87afc98b486e0775abe9471df575bdd31aaa36b2d161199b383317",
+    "web/frontend/src/components/QuestionCards.tsx": "7fef7508d072387b3f1f3e7e13ba4d8b2cc42e3d0615d5a42d47fdc37d072ccc",
+    "web/frontend/src/components/OutputsPage.tsx": "d530834b2b019e3f653a788bcc00882969ad40ea9c1b7de97bdcc013bb08b8db",
+    "web/frontend/src/components/ProfilePage.tsx": "a90c9c229fa421b4c729f4014c93266ec179e8c8568e5a012f95048e55f92947",
+    "web/frontend/src/components/ArtifactGallery.tsx": "12acf76848130bdb660963005d8492200153087ca6e16c264fd74d5f1217db98",
+    "web/frontend/src/components/BreakdownPage.tsx": "adceec292b57ffa37f25a9288b0651106401c8b98967d80f7799e828bbed2d8a",
+    "web/frontend/src/components/BrushEntry.tsx": "acc305dd741ef1dfff4ae48395217cd8d59e1cd1c6d520f3890ba6cb715a9b20",
+    "web/frontend/src/components/PublishPage.tsx": "13ae5f0a4c59b35ae8e2beec8d3adb37b796d44b892d13daa6c089fa7da27403",
+    "web/frontend/src/components/VideoConversation.tsx": "26887d8495cf680645b60d83bfbfd8a436cb851b66041f4ec9d500dd9fffd295",
+    "web/frontend/src/components/SubNav.tsx": "5d057964a93518664d1b7637d110b3b8ead2c2f15ce5d72a55dc49fbcd3d883c",
+    "web/frontend/src/components/OnboardingWizard.tsx": "8201bee1e17f1148bde57fc29420850f847e665bc2ef865a3d100b9dcafea528",
+    "web/frontend/src/components/settingsIcons.tsx": "f719d9783d66892a5aab13ee837e1e9a367ea510d39275441b53e4b62504bda8",
+    "web/frontend/src/components/MessageBubble.tsx": "a58624c60840f492f669e18fafe691afb645ff12e44ce6e543909980c63d716a",
+    "web/frontend/src/components/SettingsPanel.tsx": "d1bd71ff563bf600b78ad44509d6fa0b15d6f0f123e1293b4877bcb848605612",
+    "web/frontend/src/components/TrendsPage.tsx": "f83111963cd022381ef12c3c510d4fe73cf05effdaf7250f8a9c176d17e75362",
+    "web/frontend/src/components/ThemeToggle.tsx": "126681a63136e432077691c0740f49405e91f025c5a32c61c21d9fbe4eeacb4b",
+    "web/frontend/src/components/icons.tsx": "82e401d5a80a0c8acf7a032022ee04a771354da2c1ccc04b626ea4994dbfcc96",
+    "web/frontend/src/components/HarnessSettings.tsx": "e369254d16f3b759d2463c88cf12dfac341eae29cb1e224bffdbac94a68314aa",
+    "web/frontend/src/components/Sidebar.tsx": "48bea9369f7f946342f4d30fe8af596eb8701a5104ce97e26a237b6d7d277ec5",
+    "web/frontend/src/components/SkillDrawer.tsx": "315ffdd1bd52de0fd2a5edb24dce93e82db5d1a8f4309a9320b666546f067547",
+    "web/frontend/src/components/ChatPage.tsx": "6acae5aa12ad0920cabed060912af0c48b6d53d9bf37485f1044c821979c2876",
+    "web/frontend/src/components/production.css": "2dec474103cd5ca54785aa081bcc5984e941f1e0b9bc7a44f527e542f06541b6",
+    "web/frontend/src/components/DashboardPage.tsx": "b4daf79418a857890fb669f147ab077ea18fdf8105295b9a27a0984f6e34c5be",
+    "web/frontend/src/components/SkillPage.tsx": "0ea4fa00a119a70a3eb2044718912892dcf067cf672aef16fb5fe33f4838213a",
+    "web/frontend/src/components/ErrorBoundary.tsx": "41c090b3865f2cfbce7d6ddc1acd0b898537250760ebd1cf9e313d7d026d2059",
+    "web/frontend/src/components/IdeasPage.tsx": "4af0477232048c934f97fed3b6bd718b4bf8b8b9cf2e4e47ac7e160f3e22a0f9",
+    "web/frontend/src/components/SettingsSelect.tsx": "3078e6bafb17a6c19f4bd3cbd59a825491eef9bfc3ae771d169c1cdb251c771f",
+    "web/frontend/src/lib/conversationApi.ts": "b54280695194ad8e7c3d5bc3af84854a4abd441a584dfd2a9c134d7e0ed21eb8",
+    "web/frontend/src/lib/useWork.ts": "41f5634c333758a778e40020bb85d872ccacc91fd2991614e773731fdc92b3bd",
+    "web/frontend/src/lib/productionSettings.ts": "f86756c180104c75cd66fa7ad58035ee1540b1315e91ef728f8191f6710027fa",
+    "web/frontend/src/lib/sanitize.ts": "dfb4a133fefe77bebb9aea1e078f170d26e52f18dc6e55d19c9194c89f4cf713",
+    "web/frontend/src/lib/artifacts.ts": "3b5283ba49e7dd5b91a0fb8cd352ebdb1349c12d7f3668544fd98a0a72c2c6b2",
+    "web/frontend/src/lib/api.ts": "94d5697fa0c114b2098b820732bcdba20310fa66e77126e4e8ef70ed71635798",
+    "web/frontend/src/lib/whoami.ts": "8e91793555b5e0dc50177e7605360be25030893bfcce2c0d74f50d4ae7cdda8c",
+    "web/frontend/src/lib/capabilityMenu.ts": "499eb48ca1935d76b02bba681477e23c88594924c3dffe228da16275d8a7f92b",
+    "web/frontend/src/lib/skillDisplayNames.ts": "8ac5dffffbd177ae9ae8ee97ab6029e4e29679297c728c93f819343e56eeb2b9",
+    "web/frontend/src/lib/directorLifecycle.ts": "258dfbf8189bf0d68db3cf65b56eb511de403c1553aaf9ad1a375159cda12f40",
+    "web/frontend/src/lib/linkifyOutputs.ts": "d266b5c6f3c8d5676339459af2ddb408aaf5b586f55e08db59ac8dc6808c8ae0",
+    "web/frontend/src/lib/store.ts": "2310074c7e2bfac91c8cc677faf0848f662d72eb1e797a3c59a6e967e0b83ab6",
+    "web/frontend/src/lib/productionApi.ts": "99f22450c903b43f2e02c1e3ac781c04d29daf50cb1269fa6a9f155a8b5e1df4"
+  },
+  "browser": {
+    "environment": "isolated loopback actual browser + native Gateway + WorkService/Worker",
+    "steps": [
+      "channel button -> sourced proposal -> explicit save -> refresh restore",
+      "existing topic -> draft card -> explicit Work creation",
+      "actual file chooser upload -> reference input",
+      "director analysis proposal -> permission pause -> explicit local-model grant -> resume",
+      "style confirmation -> same Work first-cut trial",
+      "plan proposal -> full script/storyboard -> single production confirmation",
+      "real playable MP4 metadata: 15s 1920x1080, readyState4, no media error",
+      "unchecked manual review disables both accept buttons",
+      "explicit Work acceptance -> independent Director acceptance -> optional channel default",
+      "specific A feedback -> B preview; A retained as accepted; compare action",
+      "optional profile proposal -> explicit save -> one appended entry",
+      "same content library A -> concrete output conversation",
+      "fork A -> explicit director/subtitle inheritance -> new topic conversation",
+      "channel and accepted director entry -> no empty Work",
+      "ordinary chat input/brush entry and skill directory114"
+    ],
+    "counts": {
+      "works": 2,
+      "runs": 4,
+      "operations": 4,
+      "acceptances": 1
+    },
+    "works": [
+      {
+        "id": "2dd9ba52211d4234bf402c2884d2f396",
+        "title": "创业笔记·先理解用户",
+        "state": "reviewable",
+        "accepted_output_id": "b59f27a9098c498b9ae33621e3976bc5"
+      },
+      {
+        "id": "1cf160a72dd04f37afd0233f89cb7d3c",
+        "title": "独立产品的新主题",
+        "state": "discussing",
+        "accepted_output_id": null
+      }
+    ],
+    "segments": [
+      {
+        "id": "302ce0dbe62d4ac980b723503d3e5a17",
+        "work_id": "2dd9ba52211d4234bf402c2884d2f396",
+        "entry": {
+          "channel": {
+            "creative_basis": {
+              "audience": "创业者",
+              "position": "克制地分享真实创业经历",
+              "themes": "创业与产品"
+            },
+            "id": "e13b00def57b49e58fae1f9036e45f1f",
+            "name": "创业笔记",
+            "revision": 1
+          },
+          "channel_id": "e13b00def57b49e58fae1f9036e45f1f",
+          "director_source": "none",
+          "kind": "channel_create",
+          "profile_name": "one",
+          "profile_ref": "466175fa3aa244049184676f29d5c42b",
+          "settings": {
+            "schema_version": 1
+          }
+        }
+      },
+      {
+        "id": "675a70a063154837bebbc621c55e38d4",
+        "work_id": "2dd9ba52211d4234bf402c2884d2f396",
+        "entry": {
+          "channel": {
+            "creative_basis": {
+              "audience": "创业者",
+              "position": "克制地分享真实创业经历",
+              "themes": "创业与产品"
+            },
+            "id": "e13b00def57b49e58fae1f9036e45f1f",
+            "name": "创业笔记",
+            "revision": 2
+          },
+          "channel_id": "e13b00def57b49e58fae1f9036e45f1f",
+          "director_source": "channel_default",
+          "kind": "continue",
+          "output_id": "b59f27a9098c498b9ae33621e3976bc5",
+          "profile_name": "one",
+          "profile_ref": "466175fa3aa244049184676f29d5c42b",
+          "settings": {
+            "aspect_ratio": "16:9",
+            "audio_mode": "music",
+            "director_revision": "474b4669b87c4dca8fa415592a2b1456",
+            "director_trial": true,
+            "duration_seconds": 15,
+            "schema_version": 1,
+            "subtitles": {
+              "background": "transparent",
+              "color": "#FFFFFF",
+              "enabled": false,
+              "font": "sans-serif",
+              "outline": "#000000",
+              "position": "bottom",
+              "size": 48
+            }
+          }
+        }
+      },
+      {
+        "id": "840914d00b77498ca412d0ed74eb1e80",
+        "work_id": "1cf160a72dd04f37afd0233f89cb7d3c",
+        "entry": {
+          "channel": {
+            "creative_basis": {
+              "audience": "创业者",
+              "position": "克制地分享真实创业经历",
+              "themes": "创业与产品"
+            },
+            "id": "e13b00def57b49e58fae1f9036e45f1f",
+            "name": "创业笔记",
+            "revision": 2
+          },
+          "channel_id": "e13b00def57b49e58fae1f9036e45f1f",
+          "director_source": "channel_default",
+          "kind": "continue",
+          "profile_name": "one",
+          "profile_ref": "466175fa3aa244049184676f29d5c42b",
+          "settings": {
+            "director_revision": "474b4669b87c4dca8fa415592a2b1456",
+            "director_trial": true,
+            "schema_version": 1,
+            "subtitles": {
+              "background": "transparent",
+              "color": "#FFFFFF",
+              "enabled": false,
+              "font": "sans-serif",
+              "outline": "#000000",
+              "position": "bottom",
+              "size": 48
+            }
+          }
+        }
+      },
+      {
+        "id": "4770e8473c9041dca2e1166e9b088284",
+        "work_id": null,
+        "entry": {
+          "channel": {
+            "creative_basis": {
+              "audience": "创业者",
+              "position": "克制地分享真实创业经历",
+              "themes": "创业与产品"
+            },
+            "id": "e13b00def57b49e58fae1f9036e45f1f",
+            "name": "创业笔记",
+            "revision": 2
+          },
+          "channel_id": "e13b00def57b49e58fae1f9036e45f1f",
+          "director_source": "channel_default",
+          "kind": "new_work",
+          "profile_name": "one",
+          "profile_ref": "466175fa3aa244049184676f29d5c42b",
+          "settings": {
+            "director_revision": "474b4669b87c4dca8fa415592a2b1456",
+            "schema_version": 1
+          }
+        }
+      },
+      {
+        "id": "9413362707ea49808b85c5609fbb836f",
+        "work_id": null,
+        "entry": {
+          "channel_id": null,
+          "director_source": "explicit",
+          "kind": "new_work",
+          "profile_name": "one",
+          "profile_ref": "466175fa3aa244049184676f29d5c42b",
+          "settings": {
+            "director_revision": "474b4669b87c4dca8fa415592a2b1456",
+            "director_trial": false,
+            "schema_version": 1
+          }
+        }
+      },
+      {
+        "id": "2994271aff2b48cf829764cc42d4cba5",
+        "work_id": null,
+        "entry": {
+          "channel_id": null,
+          "director_source": "none",
+          "kind": "new_work",
+          "profile_name": "one",
+          "profile_ref": "466175fa3aa244049184676f29d5c42b",
+          "settings": {
+            "schema_version": 1
+          }
+        }
+      },
+      {
+        "id": "5f261fb85a25444991e876fc095e4fbf",
+        "work_id": "2dd9ba52211d4234bf402c2884d2f396",
+        "entry": {
+          "channel": {
+            "creative_basis": {
+              "audience": "创业者",
+              "position": "克制地分享真实创业经历",
+              "themes": "创业与产品"
+            },
+            "id": "e13b00def57b49e58fae1f9036e45f1f",
+            "name": "创业笔记",
+            "revision": 2
+          },
+          "channel_id": "e13b00def57b49e58fae1f9036e45f1f",
+          "director_source": "channel_default",
+          "kind": "continue",
+          "output_id": "b59f27a9098c498b9ae33621e3976bc5",
+          "profile_name": "one",
+          "profile_ref": "466175fa3aa244049184676f29d5c42b",
+          "settings": {
+            "aspect_ratio": "16:9",
+            "audio_mode": "music",
+            "director_revision": "474b4669b87c4dca8fa415592a2b1456",
+            "director_trial": true,
+            "duration_seconds": 15,
+            "schema_version": 1,
+            "subtitles": {
+              "background": "transparent",
+              "color": "#FFFFFF",
+              "enabled": false,
+              "font": "sans-serif",
+              "outline": "#000000",
+              "position": "bottom",
+              "size": 48
+            }
+          }
+        }
+      },
+      {
+        "id": "104eb53f256b41b4b096b5f5a622d5fe",
+        "work_id": null,
+        "entry": {
+          "channel_id": null,
+          "director_source": "none",
+          "kind": "director_formation",
+          "profile_name": "one",
+          "profile_ref": "466175fa3aa244049184676f29d5c42b",
+          "settings": {
+            "schema_version": 1
+          }
+        }
+      }
+    ],
+    "profile_entry_count": 1,
+    "isolated_web_gateway_stopped": true
+  }
+}

@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="1240" viewBox="0 0 1660 1240" role="img" aria-labelledby="title"><title id="title">Easel 创作交付、长期回写与发布复盘闭环</title><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#54718b"/></marker><marker id="green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#27836a"/></marker></defs><style>text{font-family:"PingFang SC","Microsoft YaHei",sans-serif;fill:#19344a}.title{font-size:34px;font-weight:650}.sub{font-size:19px;fill:#60798e}.head{font-size:25px;font-weight:600}.body{font-size:20px}.small{font-size:17px;fill:#60798e}.tag{font-size:17px;font-weight:600}.button{font-size:18px;font-weight:600;fill:#fff}</style><rect width="100%" height="100%" fill="#f3f6fa"/>
+<text x="40" y="60" class="title">Easel · 创作完成后怎样闭环</text>
+<text x="40" y="102" class="sub">S6-14A 补充设计 · 2026-10-18 · 现有能力与待接入环节并列，非整体验收通过</text>
+<rect x="40" y="128" width="1580" height="42" rx="12" fill="#e9f1fd" stroke="#e9f1fd"/>
+<text x="60" y="156" class="tag">事实自动登记 · 长期经验明确保存 · 发布和数据查询另行发起 · 一个 Creator / Director 持续创作</text>
+<text x="40" y="199" class="head">① 作品交付闭环：复用现有作品后端与 Easel 内容库</text>
+<rect x="40" y="221" width="350" height="194" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="58" y="260" class="head">真实成果登记</text>
+<text x="58" y="302" class="body">视频 / 字幕 / 署名 / QC</text>
+<text x="58" y="336" class="body">Run / Artifact / hash / 来源</text>
+<text x="58" y="370" class="body">后端记录事实，卡片读快照</text>
+<rect x="450" y="221" width="350" height="194" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="468" y="260" class="head">对话审片与修改</text>
+<text x="468" y="302" class="body">反馈绑定所看具体版本</text>
+<text x="468" y="336" class="body">局部修改保留旧版和未改内容</text>
+<text x="468" y="370" class="body">可继续讨论，不自动接受</text>
+<rect x="860" y="221" width="350" height="194" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="878" y="260" class="head">明确接受 → 内容库</text>
+<text x="878" y="302" class="body">保存所选输出与接受回执</text>
+<text x="878" y="336" class="body">新B版不自动替换已接受A版</text>
+<text x="878" y="370" class="body">已接部分库展示；聊天待接入</text>
+<rect x="1270" y="221" width="350" height="194" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="1288" y="260" class="head">继续修改 / 基于旧作新作</text>
+<text x="1288" y="302" class="body">从同一内容库找回</text>
+<text x="1288" y="336" class="body">沿用允许的参考与已保存偏好</text>
+<text x="1288" y="370" class="body">新作重新确认方案与授权</text>
+<path d="M390 318 H450" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M800 318 H860" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1210 318 H1270" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M610 415 V457 H215 V415" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="273" y="437" width="288" height="32" rx="4" fill="#f3f6fa" stroke="#f3f6fa"/>
+<text x="284" y="459" class="small">修改具体版本 → 产生新输出</text>
+<text x="40" y="511" class="head">② 创作经验回流：有价值才提议，明确保存后影响后续新作</text>
+<rect x="40" y="538" width="480" height="222" rx="18" fill="#fffaf0" stroke="#eaddc1"/>
+<text x="60" y="580" class="head">少量有来源的经验提议</text>
+<text x="60" y="624" class="body">用户明确偏好 / 重复认可的方法</text>
+<text x="60" y="659" class="body">本片反馈、实际接受与数据来源</text>
+<text x="60" y="694" class="body">不记录流水账、凭证或工程故障</text>
+<rect x="590" y="538" width="480" height="222" rx="18" fill="#fffaf0" stroke="#eaddc1"/>
+<text x="610" y="580" class="head">展示目标、差异与适用范围</text>
+<text x="610" y="624" class="body">建议保存 1～3 条，可调整或忽略</text>
+<text x="610" y="659" class="body">明确保存一次，程序校验并去重</text>
+<text x="610" y="694" class="body">拒绝 / 忽略 / 无画像：不写长期</text>
+<rect x="1140" y="538" width="480" height="222" rx="18" fill="#fffaf0" stroke="#eaddc1"/>
+<text x="1160" y="580" class="head">写回 Easel 既有对象</text>
+<text x="1160" y="624" class="body">Profile：style / preferences / memory</text>
+<text x="1160" y="659" class="body">频道：明确保存默认项</text>
+<text x="1160" y="694" class="body">Director：新版本确认 + 真实试片</text>
+<path d="M520 650 H590" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1070 650 H1140" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1505 538 V415" stroke="#27836a" stroke-width="2.5" fill="none" marker-end="url(#green)"/>
+<rect x="1516" y="455" width="115" height="42" rx="4" fill="#f3f6fa" stroke="#f3f6fa"/>
+<text x="1521" y="481" class="small" style="fill:#27836a">仅后续新作</text>
+<text x="40" y="804" class="sub">长期保存与成片接受分开：接受作品不自动改画像、导演或频道；旧 Plan 快照保持不变。</text>
+<text x="40" y="865" class="head">③ 可选运营闭环：参考原有发布、日历、数据追踪和归因；V2 版本关联尚待接入</text>
+<rect x="40" y="893" width="480" height="222" rx="18" fill="#eef6f3" stroke="#d1e6dc"/>
+<text x="60" y="935" class="head">另行明确发布具体成片</text>
+<text x="60" y="979" class="body">固定版本、平台账号、文案与署名</text>
+<text x="60" y="1014" class="body">受控 Artifact → 原 publisher</text>
+<text x="60" y="1049" class="body">有平台回执后才登记发布 / 草稿</text>
+<rect x="590" y="893" width="480" height="222" rx="18" fill="#eef6f3" stroke="#d1e6dc"/>
+<text x="610" y="935" class="head">复用现有日历 / 日志 / 快照</text>
+<text x="610" y="979" class="body">作品、输出与远端帖子精确关联</text>
+<text x="610" y="1014" class="body">记录失败只补记录，不重复发布</text>
+<text x="610" y="1049" class="body">按账号 / 画像采集已获准的数据</text>
+<rect x="1140" y="893" width="480" height="222" rx="18" fill="#eef6f3" stroke="#d1e6dc"/>
+<text x="1160" y="935" class="head">复用归因 / 复盘能力</text>
+<text x="1160" y="979" class="body">用真实指标、评论与结构证据分析</text>
+<text x="1160" y="1014" class="body">报告保留来源、日期与局限</text>
+<text x="1160" y="1049" class="body">可提出经验建议，再按上方确认</text>
+<path d="M520 1005 H590" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1070 1005 H1140" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M1400 1115 V1155 H20 V650 H40" stroke="#27836a" stroke-width="2.5" fill="none" marker-end="url(#green)"/>
+<rect x="350" y="1135" width="900" height="34" rx="4" fill="#f3f6fa" stroke="#f3f6fa"/>
+<text x="365" y="1161" class="small" style="fill:#27836a">复盘结论 → 可选长期经验提议；无数据不编造效果，不写全局 MEMORY 或跨画像共享上下文</text>
+<text x="40" y="1205" class="small">当前已存在：产物 / 接受 / 修订 / 部分内容库 / 原发布与分析工具。待接入：持久对话卡、受控长期保存、V2发布版本关联。</text>
+</svg>

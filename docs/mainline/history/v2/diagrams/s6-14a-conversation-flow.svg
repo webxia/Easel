@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="1080" viewBox="0 0 1660 1080" role="img" aria-labelledby="title"><title id="title">Easel 与 OpenClaw、现有生产后端的接入方案</title><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#54718b"/></marker><marker id="green" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8 Z" fill="#27836a"/></marker></defs><style>text{font-family:"PingFang SC","Microsoft YaHei",sans-serif;fill:#19344a}.title{font-size:34px;font-weight:650}.sub{font-size:19px;fill:#60798e}.head{font-size:25px;font-weight:600}.body{font-size:20px}.small{font-size:17px;fill:#60798e}.tag{font-size:17px;font-weight:600}.button{font-size:18px;font-weight:600;fill:#fff}</style><rect width="100%" height="100%" fill="#f3f6fa"/>
+<text x="40" y="60" class="title">Easel · OpenClaw 与现有后端如何衔接</text>
+<text x="40" y="100" class="sub">S6-14A · 2026-10-18 · A1隔离工具桥已通过；图中正式Web接线尚未实施</text>
+<rect x="40" y="128" width="1580" height="42" rx="12" fill="#e9f1fd" stroke="#e9f1fd"/>
+<text x="60" y="156" class="tag">一个助手界面 · 一个作品后端 · 普通聊天保留原能力 · 视频模式使用内部受限运行配置</text>
+<rect x="40" y="200" width="390" height="570" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="65" y="242" class="head">① Easel 对话与作品卡</text>
+<text x="65" y="286" class="body">沿用 ChatPage、历史、附件</text>
+<text x="65" y="320" class="body">画像 / 频道 / Director 上下文</text>
+<text x="65" y="354" class="body">用户说想法，助手持续讨论</text>
+<rect x="60" y="398" width="350" height="154" rx="12" fill="#f2f6fe" stroke="#dce6f7"/>
+<text x="78" y="429" class="tag">方案卡 / 授权卡 / 决定卡</text>
+<text x="78" y="465" class="body">明确确认具体版本与用途</text>
+<text x="78" y="499" class="body">不从模型文字推导授权</text>
+<text x="65" y="597" class="body">真实阶段与已有成果</text>
+<text x="65" y="631" class="body">播放器 · 指定版本反馈 · 接受</text>
+<text x="65" y="705" class="small">卡片跨回复结束、刷新继续存在</text>
+<text x="65" y="736" class="small">停止回答 ≠ 取消作品制作</text>
+<rect x="490" y="200" width="520" height="206" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="515" y="241" class="head">② 现有 OpenClaw Gateway</text>
+<text x="515" y="278" class="body">新增内部 easel-video 配置</text>
+<text x="515" y="315" class="body">同一 Easel 助手 · 原生会话与流式</text>
+<text x="515" y="346" class="body">经审查创作知识 + 具名作品工具</text>
+<text x="515" y="377" class="body">不开放 shell / 文件 / 直接媒体工具</text>
+<rect x="490" y="487" width="520" height="283" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="515" y="528" class="head">③ 薄插件 → Web 内部适配</text>
+<text x="515" y="569" class="body">插件：可信会话身份 + toolCallId</text>
+<text x="515" y="603" class="body">Web：绑定 / 来源 / 版本 / 幂等校验</text>
+<text x="515" y="637" class="body">工具：查询、草稿、输入、依据、规划、修订</text>
+<rect x="510" y="672" width="480" height="72" rx="10" fill="#fff3df" stroke="#f3debb"/>
+<text x="525" y="701" class="small">新增有限转发入口，复用 WorkService</text>
+<text x="525" y="727" class="small">缺插件 / 身份不符：阻断，不退回 main</text>
+<rect x="1070" y="200" width="550" height="570" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="1095" y="242" class="head">④ 现有作品后端</text>
+<text x="1095" y="286" class="body">WorkService · 原命令与版本合同</text>
+<text x="1095" y="320" class="body">Plan / 授权 / command_receipts</text>
+<text x="1095" y="354" class="body">既有持久 Worker 与 Operation</text>
+<rect x="1090" y="407" width="510" height="146" rx="12" fill="#eaf5ef" stroke="#cfe5d8"/>
+<text x="1110" y="442" class="tag">正式生产的唯一执行入口</text>
+<text x="1110" y="480" class="body">后端执行准入、费用与恢复检查</text>
+<text x="1110" y="514" class="body">聊天结束后，制作继续</text>
+<text x="1095" y="600" class="body">snapshot + cursor + SSE</text>
+<text x="1095" y="634" class="body">素材 / 成片 / QC / 接受记录</text>
+<text x="1095" y="705" class="small">继续使用第五轮成功生产链</text>
+<text x="1095" y="736" class="small">新增接入尚不代表实际 Web 已通过</text>
+<path d="M430 292 H490" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<text x="434" y="275" class="small">经Web</text>
+<path d="M750 406 V487" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<path d="M430 449 H1070" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<rect x="708" y="425" width="180" height="34" rx="4" fill="#f3f6fa" stroke="#f3f6fa"/>
+<text x="720" y="449" class="small">明确业务卡操作</text>
+<path d="M1010 600 H1070" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<text x="1016" y="580" class="small">命令</text>
+<path d="M1255 770 V815 H235 V770" stroke="#27836a" stroke-width="2.5" fill="none" marker-end="url(#green)"/>
+<rect x="600" y="793" width="426" height="36" rx="4" fill="#f3f6fa" stroke="#f3f6fa"/>
+<text x="614" y="818" class="tag" style="fill:#27836a">独立作品事件 → 更新同一持久卡片</text>
+<path d="M1420 770 V864" stroke="#54718b" stroke-width="2.5" fill="none" marker-end="url(#arrow)"/>
+<text x="1440" y="831" class="small">后台执行</text>
+<rect x="40" y="864" width="1580" height="150" rx="18" fill="#fff" stroke="#d4dfe8"/>
+<text x="65" y="906" class="head">沿用已验证生产链</text>
+<text x="65" y="946" class="body">MiniMax Planning → 素材供应 / 固定 TTS → Director Edit → FFmpeg → 技术 QC → 可审阅成片</text>
+<text x="65" y="985" class="small">复用执行与回执；自动语义 QC 仍未测，Creator 审片与明确接受单独记录。</text>
+<text x="40" y="1050" class="small">当前范围：A1隔离验证已通过；A2～A5尚未实施。本轮仅修订文档与图，完成后停止。</text>
+</svg>
