@@ -388,7 +388,9 @@ class CreationTasks:
         except ModelTaskError as exc:
             return TaskResult(state='needs_decision',work_state='needs_decision',
                 error=ProductionError(exc.code,exc.user_message,requires_decision=True))
-        job=await asyncio.to_thread(self.editor.build,project,manifest,job_id=ctx.task_id)
+        attempt=ctx.payload.get('render_attempt',0)
+        job_id=f'{ctx.task_id}_retry{attempt}' if attempt else ctx.task_id
+        job=await asyncio.to_thread(self.editor.build,project,manifest,job_id=job_id)
         # Worker resumes this exact job ID; editor refuses conflicting content.
         job=await asyncio.to_thread(self.editor.observe,job.job_id)
         with ctx.transaction() as conn:

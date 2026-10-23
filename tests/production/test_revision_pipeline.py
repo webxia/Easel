@@ -31,7 +31,7 @@ class RevisionModel(ScriptedModel):
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
 def test_local_revision_keeps_accepted_version_then_explicitly_switches(tmp_path):
-    _first_cut(tmp_path,True)
+    _first_cut(tmp_path,True,False)
     store=Store(tmp_path/'outputs/_production/production.sqlite3')
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     work=service.list_works()['items'][0]['id'];snap=service.snapshot(work)
@@ -159,7 +159,7 @@ def test_render_only_reuses_exact_project_without_model_or_voice_and_rejects_kno
     from easel.production.errors import ProductionError
     from easel.production.service import row,encode,new_id,now
     from easel.production.media import file_sha256
-    _first_cut(tmp_path,True)
+    _first_cut(tmp_path,True,False)
     store=Store(tmp_path/'outputs/_production/production.sqlite3')
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     work=service.list_works()['items'][0]['id'];first=service.snapshot(work)

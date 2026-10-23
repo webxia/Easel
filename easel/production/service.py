@@ -522,6 +522,12 @@ class WorkService:
         task=row(conn,'tasks',data.get('decision_id',''))
         if task['run_id']!=run['id'] or task['state'] not in {'needs_decision','retryable_failed','waiting_external','failed'}:
             fail('stale_revision','需要解决的决定已变化',409)
+        if task['kind']=='render' and json.loads(task['error_json'] or '{}').get('code')=='render_failed':
+            # Only an explicit resume starts another local attempt. A failed
+            # editor job stays immutable; worker polling must never restart it.
+            payload=json.loads(task['payload_json'])
+            payload['render_attempt']=payload.get('render_attempt',0)+1
+            conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
         # Explicit user resume can repair the last known edit, without replaying
         # its author or silently resetting a running attempt's repair budget.
         if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_edit'}:

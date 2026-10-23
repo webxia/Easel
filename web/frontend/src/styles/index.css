@@ -570,6 +570,9 @@ textarea.field { resize: vertical; min-height: 90px; }
 }
 .message-bubble.assistant p { margin: 0 0 8px; }
 .message-bubble.assistant p:last-child { margin-bottom: 0; }
+.result-delivery-note { margin-top: 12px; padding: 10px 12px; border-left: 2px solid var(--border); color: var(--text-secondary); font-size: .88em; }
+.result-delivery-note summary { cursor: pointer; }
+.result-delivery-note details p { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-bubble.assistant h1, .message-bubble.assistant h2,
 .message-bubble.assistant h3, .message-bubble.assistant h4 { margin: 16px 0 8px; font-weight: 600; }
 .message-bubble.assistant h1 { font-size: 1.4em; }

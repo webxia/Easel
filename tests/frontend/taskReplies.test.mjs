@@ -23,3 +23,15 @@ test('refresh and partial replies from two runs preserve one copy each; no fabri
  assert.equal(first.length,2);
  assert.equal(mergeTaskReplies(first,[{role:'user',content:'系统伪造用户确认',serverTurnId:'evil'}]),first);
 });
+test('an interruption arriving after partial text updates only its original reply',()=>{
+ const partial={role:'assistant',content:'制作',serverTurnId:'r1',resultState:'ended'};
+ const messages=[partial,{role:'user',content:'继续'},
+   {role:'assistant',content:'视频已返回',serverTurnId:'r2',resultState:'ended'}];
+ const error={...partial,deliveryError:'length'};
+ const updated=mergeTaskReplies(messages,[error,messages[2]]);
+ assert.equal(updated.length,3);assert.equal(updated[0].deliveryError,'length');
+ assert.equal(updated[1],messages[1]);assert.equal(updated[2],messages[2]);
+ assert.equal(mergeTaskReplies(updated,[error,messages[2]]),updated);
+ const cleared=mergeTaskReplies(updated,[partial]);
+ assert.equal(cleared[0].deliveryError,undefined);
+});

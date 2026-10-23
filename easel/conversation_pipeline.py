@@ -317,6 +317,9 @@ def production_values(conversations,conn,segment,values,*,applying=False):
     for key in ('image_limit','video_limit'):
         if key in data and (type(data[key]) is not int or data[key]<0):fail('invalid_input','生成次数须为非负整数')
     document=json.loads(plan['payload_json']);settings=document['settings']
+    supplied=data.get('services',[])
+    if not isinstance(supplied,list):
+        fail('invalid_input','服务清单必须是数组')
     voice=settings.get('voice') or {}
     required=[]
     available=capabilities(conversations.service.outputs.parent)['services']
@@ -341,6 +344,11 @@ def production_values(conversations,conn,segment,values,*,applying=False):
                 audio_allowed=('music' in roles and settings['audio_mode'] in {'music','mixed'} or
                     'sfx' in roles and settings['audio_mode']!='silent' and
                     '本片不使用背景音乐或可选音效' not in document.get('constraints',[]))
+                # An explicit service list may omit optional SFX search. Do not
+                # silently put it back into the offer or expand it on answer.
+                identity={k:item[k] for k in ('provider','model','mode')}
+                if roles=={'sfx'} and supplied and identity not in supplied:
+                    audio_allowed=False
                 include=include or audio_allowed
         if item['mode']=='speech':
             include=(settings['audio_mode'] in {'voice','mixed'} and
@@ -349,7 +357,6 @@ def production_values(conversations,conn,segment,values,*,applying=False):
             include=bool(data.get('allow_ai') and data.get('image_limit' if item['kind']=='IMAGE' else 'video_limit',0))
         identity={k:item[k] for k in ('provider','model','mode')}
         if include and identity not in required:required.append(identity)
-    supplied=data.get('services',[])
     if not isinstance(supplied,list) or any(s not in required for s in supplied):
         fail('invalid_input','服务清单包含当前方案未使用或未允许的服务')
     if applying and supplied!=required:

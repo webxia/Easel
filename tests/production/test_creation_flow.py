@@ -31,8 +31,8 @@ class ScriptedModel:
 
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
-@pytest.mark.parametrize('full_video',[True,False])
-def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_path,full_video):
+@pytest.mark.parametrize('full_video,recover_render',[(True,False),(False,False),(True,True)])
+def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_path,full_video,recover_render):
     store=Store(tmp_path/'outputs/_production/production.sqlite3');store.initialize()
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     model=ScriptedModel();model.calls=[]
@@ -40,6 +40,21 @@ def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_pat
     identity={'provider':'direct-api','model':'offline-scripted','mode':'structured'}
     planning=PlanningTasks(service,OperationService(store),model,identity,'offline')
     creation=CreationTasks(service,planning)
+    if recover_render:
+        from easel.production.editors import RenderJob
+        from easel.production.service import now
+        class FailFirstRender:
+            def __init__(self,delegate):self.delegate=delegate;self.failed=None
+            def __getattr__(self,name):return getattr(self.delegate,name)
+            def build(self,project,manifest,*,job_id):
+                if self.failed is None:
+                    self.failed=RenderJob(job_id=job_id,project_hash='a'*64,status='failed',
+                        updated_at=now(),error='synthetic local renderer failure')
+                if job_id==self.failed.job_id:return self.failed
+                return self.delegate.build(project,manifest,job_id=job_id)
+            def observe(self,job_id):
+                return self.failed if self.failed and job_id==self.failed.job_id else self.delegate.observe(job_id)
+        creation.editor=FailFirstRender(creation.editor)
     image=tmp_path/'input.png';Image.new('RGB',(400,300),'blue').save(image)
     async def supply(ctx):
         artifact=register_file(service,ctx,image,kind='image',media_type='image/png',metadata={'source':'synthetic test'})
@@ -49,14 +64,32 @@ def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_pat
     plan={'title':'one second','summary':'local media test','script':'fixture','scenes':[{'id':'s1','purpose':'test','visual':'blue','narration':''}], 'settings':{'duration_seconds':1,'aspect_ratio':'16:9','audio_mode':'silent'}}
     result=service.command('plan',{'generate':False,'plan':plan},command_id='plan',work_id=id,expected_revision=1)
     service.command('confirm',{'plan_revision':1,'plan_hash':result['plan_hash'],'services':[identity]},command_id='confirm',work_id=id,expected_revision=2)
+    resumed=False
     deadline=time.monotonic()+35
     while time.monotonic()<deadline:
         asyncio.run(worker.run_once())
         snap=service.snapshot(id)
+        if recover_render and not resumed and snap['state']=='needs_decision':
+            failed=next(t for t in snap['tasks'] if t['kind']=='render')
+            assert json.loads(failed['error_json'])['code']=='render_failed'
+            calls_before=len(model.calls)
+            service.command('resume',{'decision_id':failed['id']},command_id='retry-local-render',
+                work_id=id,expected_revision=snap['revision'])
+            # Idempotent command replay must not create a second local attempt.
+            service.command('resume',{'decision_id':failed['id']},command_id='retry-local-render',
+                work_id=id,expected_revision=snap['revision'])
+            resumed=True
+            continue
         if snap['runs'][-1]['state'] in {'succeeded','failed','needs_decision'}:break
         time.sleep(.1)
     assert snap['state']==('reviewable' if full_video else 'needs_decision'),[(t['kind'],t['state'],t['error_json']) for t in snap['tasks']]
     assert snap['accepted_output_id'] is None
+    if recover_render:
+        assert resumed and calls_before==1
+        render=next(t for t in snap['tasks'] if t['kind']=='render')
+        assert json.loads(render['payload_json'])['render_attempt']==1
+        assert creation.editor.observe(creation.editor.failed.job_id).status=='failed'
+        assert creation.editor.observe(creation.editor.failed.job_id+'_retry1').status=='completed'
     outputs=[a for a in snap['artifacts'] if a['kind']=='output']
     assert len(outputs)==1 and outputs[0]['quality_state']==('passed' if full_video else 'needs_fix')
     path,_=service.artifact_path(outputs[0]['id']);assert path.stat().st_size>1000

@@ -25,6 +25,5 @@ export default function VideoConversation({sessionId,segmentId,onBound,onBinding
   const channelFlow=kind==='channel_create',directorFlow=kind==='director_formation';
   return <section className="video-conversation" aria-label={channelFlow?'频道设置对话':directorFlow?'导演设置对话':'视频创作对话'}>
     {error&&<p role="alert">{error}</p>}
-    {view?.result_messages?.filter(m=>m.deliveryError).map(m=><p role="alert" key={m.serverTurnId}>{m.deliveryError}</p>)}
   </section>;
 }

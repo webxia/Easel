@@ -7,7 +7,8 @@ export function mergeTaskReplies(messages: ChatMessage[], replies: ChatMessage[]
     if (!reply.serverTurnId || reply.role !== 'assistant') continue;
     const index = result.findIndex(m => m.serverTurnId === reply.serverTurnId);
     if (index < 0) result = [...result, reply];
-    else if (result[index].content !== reply.content || result[index].resultState !== reply.resultState) {
+    else if (result[index].content !== reply.content || result[index].resultState !== reply.resultState
+      || result[index].deliveryError !== reply.deliveryError) {
       result = result.slice(); result[index] = reply;
     }
   }

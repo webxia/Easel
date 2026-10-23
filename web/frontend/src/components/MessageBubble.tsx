@@ -118,6 +118,12 @@ export default function MessageBubble({ message, isStreaming, thinking, activity
         <div className="message-bubble assistant">
           {livePanel}
           {message.content && <div dangerouslySetInnerHTML={{ __html: rendered.html }} />}
+          {message.deliveryError && !isStreaming && (
+            <div className="result-delivery-note">
+              <p>这条结果回复未完整返回，已保存的制作记录仍然保留。</p>
+              <details><summary>中断详情</summary><p>{message.deliveryError}</p></details>
+            </div>
+          )}
           {!isStreaming && (rendered.artifacts.length > 0 || rendered.archives.length > 0) && (
             <ArtifactGallery artifacts={rendered.artifacts} archives={rendered.archives} />
           )}

@@ -371,7 +371,8 @@ class LocalRender:
         scene = p.scenes[index]
         asset = self.manifest.assets[scene.asset_id]
         key = _hash({"scene": scene.model_dump(), "sha": asset.sha256,
-                     "size": [p.width, p.height], "fps": p.fps, "engine": self.engine["version"]})
+                     "size": [p.width, p.height], "fps": p.fps, "engine": self.engine["version"],
+                     "color_range": "limited-1"})
         target = self.path / "scenes" / f"{index:04d}.mp4"
         target.parent.mkdir(exist_ok=True)
         receipt = target.with_suffix(".json")
@@ -387,9 +388,9 @@ class LocalRender:
         cx, cy = min(sw - cw, int(sw * crop.x)), min(sh - ch, int(sh * crop.y))
         vf = [f"crop={cw}:{ch}:{cx}:{cy}"]
         if scene.fit == "cover":
-            vf += [f"scale={p.width}:{p.height}:force_original_aspect_ratio=increase", f"crop={p.width}:{p.height}"]
+            vf += [f"scale={p.width}:{p.height}:force_original_aspect_ratio=increase:out_range=tv", f"crop={p.width}:{p.height}"]
         else:
-            vf += [f"scale={p.width}:{p.height}:force_original_aspect_ratio=decrease",
+            vf += [f"scale={p.width}:{p.height}:force_original_aspect_ratio=decrease:out_range=tv",
                    f"pad={p.width}:{p.height}:(ow-iw)/2:(oh-ih)/2:color=black"]
         vf += ["setsar=1", f"fps={p.fps}", "setpts=PTS-STARTPTS"]
         frames = round(scene.duration * p.fps)
@@ -400,6 +401,9 @@ class LocalRender:
             vf += [f"fade=t=in:st=0:d={scene.fade_in}"]
         if scene.fade_out:
             vf += [f"fade=t=out:st={scene.duration-scene.fade_out}:d={scene.fade_out}"]
+        # Stream-copy montage must not switch yuv420p/yuvj420p at a cut:
+        # subtitle overlay keeps its graph alive to preserve sparse frames.
+        vf += ["setparams=range=limited"]
         args = []
         if asset.kind == "image":
             args += ["-loop", "1", "-framerate", str(p.fps)]

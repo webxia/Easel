@@ -643,7 +643,8 @@ def test_cancel_offer_reports_work_scope_and_new_work_entry_still_works(env):
 
 @pytest.mark.parametrize('allow_ai',[False,True])
 @pytest.mark.parametrize('no_optional_audio',[False,True])
-def test_production_services_use_frozen_voice_and_ai_scope(env,monkeypatch,allow_ai,no_optional_audio):
+@pytest.mark.parametrize('narrow_sfx',[False,True])
+def test_production_services_use_frozen_voice_and_ai_scope(env,monkeypatch,allow_ai,no_optional_audio,narrow_sfx):
     from types import SimpleNamespace
     from easel.production import configuration,voice as voice_module
     from easel.production.contracts import VoiceIdentity
@@ -660,7 +661,13 @@ def test_production_services_use_frozen_voice_and_ai_scope(env,monkeypatch,allow
           {'provider':'minimax','model':'image-01','mode':'text_to_image','kind':'IMAGE','available':True}]
     monkeypatch.setattr(configuration,'capabilities',lambda root:{'services':caps})
     monkeypatch.setattr(voice_module,'configured_speech_configs',lambda config:[SimpleNamespace(voices=[SimpleNamespace(available=True,identity=voice)])])
+    values={'allow_ai':allow_ai,'image_limit':2}
+    if narrow_sfx:
+        values['services']=[{'provider':'direct-api','model':'fixture-model','mode':'structured'},
+                            {'provider':'speech','model':'fixed','mode':'speech'}]
     with s.store.connection() as conn:
-        result=production_values(c,conn,{'work_id':w},{'allow_ai':allow_ai,'image_limit':2})
-    assert {x['model'] for x in result['services']}==({'fixture-model','fixed'} | ({'image-01'} if allow_ai else set()) | (set() if no_optional_audio else {'stock'}))
+        result=production_values(c,conn,{'work_id':w},values)
+        applied=production_values(c,conn,{'work_id':w},result,applying=True)
+    assert applied==result
+    assert {x['model'] for x in result['services']}==({'fixture-model','fixed'} | ({'image-01'} if allow_ai else set()) | (set() if no_optional_audio or narrow_sfx else {'stock'}))
     assert 'wikimedia_bgm' not in {x['provider'] for x in result['services']}

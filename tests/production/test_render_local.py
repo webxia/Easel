@@ -206,7 +206,8 @@ def test_captions_survive_color_metadata_changes_across_cuts(tmp_path,sources,wi
     for index,color_space in enumerate(('bt709','smpte170m','bt470bg')):
         path=tmp_path/f'color-{index}.mp4'
         run(['-f','lavfi','-i','color=blue:size=640x360:rate=30:duration=1',
-             '-c:v','libx264','-preset','ultrafast','-colorspace',color_space,str(path)])
+             '-c:v','libx264','-preset','ultrafast','-colorspace',color_space,
+             '-color_range','pc' if index==2 else 'tv',str(path)])
         assets[f'color-{index}']=MediaAsset(locator=path.name,sha256=file_sha256(path),kind='video')
     manifest=AssetManifest(root=tmp_path,assets=assets)
     p=project(duration=3,audio_mode='music' if with_audio else 'silent',
