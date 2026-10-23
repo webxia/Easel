@@ -151,7 +151,8 @@ type TitleIntent = 'issue' | 'create' | 'optimize' | 'publish' | 'inspect' | 'ge
 function titleIntent(text: string): TitleIntent {
   // 明确请求比“有点问题”更能表达用户意图，所以 issue 放在最后。
   if (/(?:优化|改进|调整|完善|增强|多样|随机)/.test(text)) return 'optimize';
-  if (/(?:发布|投稿|分发)|(?:上传.*(?:平台|账号|小红书|抖音|B站|bilibili))/i.test(text)) return 'publish';
+  const affirmative = text.replace(/(?:不需要|不用|不要|暂不|不想|不|禁止|无需)[^，。；！？\n]{0,8}?(?:发布|投稿|分发|上传)/g, '');
+  if (/(?:发布|投稿|分发)|(?:上传.*(?:平台|账号|小红书|抖音|B站|bilibili))/i.test(affirmative)) return 'publish';
   if (/(?:制作|生成|创建|设计|写一|做一|剪辑|合成)/.test(text)) return 'create';
   if (/(?:检查|排查|分析|看看|查看|确认|什么逻辑)/.test(text)) return 'inspect';
   if (/(?:bug|修复|解决|问题|异常|报错|失败|卡住|断开|不对|不生效|混乱|拉伸)/i.test(text)) return 'issue';

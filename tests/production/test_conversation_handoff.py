@@ -73,6 +73,8 @@ def test_natural_entry_requires_authenticated_end(env):
 def test_web_binding_continues_before_single_done(env,tmp_path,monkeypatch):
     import asyncio
     import web.conversation_api as api
+    from tests.production.test_context_preparation import NoPressureRPC
+    monkeypatch.setattr('easel.conversation_compaction.SessionRPC',NoPressureRPC)
     s,c=env;channel=seed(env);seg=entry(c,profile_ref='one')
     b=PersistentWorkToolBridge(s)
     initial=b.reserve(ui_session='ui',turn_id='first',segment_id=seg,message='用频道甲和导演甲讨论视频',attachments=[])

@@ -20,6 +20,8 @@ from .base import (AssetManifest, CheckResult, EditError, EditProject, MediaAsse
                    RenderJob, RenderOutput)
 from ..media import MEDIA_FORMATS, atomic_json, caption_image, file_sha256, local_path, probe_media, process_environment
 
+ENCODING = {"version":"1080p-h264-2","codec":"libx264","preset":"medium","crf":18,"pixel_format":"yuv420p"}
+
 FEATURES = ("video", "image", "trim", "crop", "contain", "cover", "pan_zoom", "dissolve",
             "fade", "source_audio", "multi_audio", "captions", "caption_background")
 SUFFIXES = {"video": {".mp4", ".mov", ".m4v", ".webm", ".mkv"},
@@ -180,7 +182,7 @@ class FFmpegEditor:
     def build(self, project: EditProject, manifest: AssetManifest, *, job_id: str) -> RenderJob:
         project = EditProject.model_validate(project.model_dump())
         manifest = AssetManifest.model_validate(manifest.model_dump())
-        fingerprint = _hash({"project": project.model_dump(mode="json"), "assets": {
+        fingerprint = _hash({"encoding": ENCODING, "project": project.model_dump(mode="json"), "assets": {
             k: manifest.assets[k].model_dump() for k in sorted(self._assets(project)) if k in manifest.assets}})
         path = self._job(job_id)
         path.mkdir(exist_ok=True)
@@ -220,7 +222,7 @@ class FFmpegEditor:
                 staged[identity] = MediaAsset(locator=locator, sha256=asset.sha256, kind=asset.kind).model_dump()
             atomic_json(path / "project.json", project.model_dump(mode="json"))
             atomic_json(path / "manifest.json", {"assets": staged})
-            atomic_json(path / "engine.json", {"ffmpeg": self.ffmpeg, "ffprobe": self.ffprobe, "version": self._version})
+            atomic_json(path / "engine.json", {"ffmpeg": self.ffmpeg, "ffprobe": self.ffprobe, "version": self._version,"encoding": ENCODING})
             job = RenderJob(job_id=job_id, project_hash=fingerprint, status="queued", updated_at=_now(),
                             total_steps=len(project.scenes) + 3)
             atomic_json(path / "job.json", job.model_dump())
@@ -312,6 +314,7 @@ class LocalRender:
         self.project = EditProject.model_validate(_read(path / "project.json"))
         self.manifest = AssetManifest(root=path, **_read(path / "manifest.json"))
         self.engine = _read(path / "engine.json")
+        if self.engine.get("encoding")!=ENCODING:raise EditError("render encoding specification changed; create a new render job")
         self.job = RenderJob.model_validate(_read(path / "job.json"))
         self.env = process_environment(path / "process-home")
         # A crashed Python worker may leave an encoding subprocess alive. Its
@@ -361,9 +364,9 @@ class LocalRender:
     def input(path: Path) -> list[str]:
         return ["-protocol_whitelist", "file,pipe", "-format_whitelist", MEDIA_FORMATS, "-i", str(path)]
 
-    @staticmethod
-    def encode() -> list[str]:
-        return ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "20", "-threads", "2",
+    def encode(self) -> list[str]:
+        encoding=self.engine["encoding"]
+        return ["-c:v", encoding["codec"], "-preset", encoding["preset"], "-crf", str(encoding["crf"]), "-threads", "2",
                 "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
 
     def scene(self, index: int) -> Path:
@@ -372,7 +375,7 @@ class LocalRender:
         asset = self.manifest.assets[scene.asset_id]
         key = _hash({"scene": scene.model_dump(), "sha": asset.sha256,
                      "size": [p.width, p.height], "fps": p.fps, "engine": self.engine["version"],
-                     "color_range": "limited-1"})
+                     "color_range": "limited-1", "encoding": self.engine["encoding"]})
         target = self.path / "scenes" / f"{index:04d}.mp4"
         target.parent.mkdir(exist_ok=True)
         receipt = target.with_suffix(".json")
@@ -580,7 +583,7 @@ class LocalRender:
                 output = RenderOutput(job_id=self.job.job_id, project_hash=self.job.project_hash,
                     project_path=self.path / "project.json", video_path=final, sha256=file_sha256(final),
                     duration=info["duration"], width=info["width"], height=info["height"],
-                    audio_present=info["audio"], engine_version=self.engine["version"],
+                    audio_present=info["audio"], engine_version=self.engine["version"], encoding=self.engine["encoding"],
                     caption_base_path=video, caption_base_sha256=file_sha256(video))
                 with _lock(self.path / "terminal.lock"):
                     if (self.path / "cancel.request").exists():

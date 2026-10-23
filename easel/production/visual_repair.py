@@ -23,7 +23,7 @@ def assert_visual_repair(base, revised, *, overlay_texts, protected_caption_styl
     for scene in revised.scenes:
         parent=scene.scene_id if scene.scene_id in old else re.sub(r'-cut[1-9][0-9]*$', '', scene.scene_id)
         if parent not in old:
-            raise EditError('新镜头必须属于原场景，不新增叙事范围')
+            raise EditError('新镜头 '+scene.scene_id+' 必须属于已登记镜头；可用原ID或完整原ID-cut1等。原ID列表：'+','.join(old))
         groups[parent].append(scene)
         if not order or order[-1]!=parent:order.append(parent)
     if order != list(old):

@@ -291,3 +291,23 @@ def test_configuration_adds_two_stock_choices_only_when_enabled(tmp_path):
     choices=[service for service in all_services if service["provider"].startswith("wikimedia")]
     assert len(choices)==2
     assert all(service["available"] and service["supports_auto_supply"] for service in choices)
+
+
+def test_music_empty_query_broadens_with_same_rights_checks():
+    calls=[]
+    def handle(request):
+        query=request.url.params['gsrsearch'];calls.append(query)
+        pages=[_file()] if query=='acoustic filetype:audio' else []
+        return httpx.Response(200,json={'query':{'pages':pages}})
+    p=WikimediaAudioProvider('music',transport=httpx.MockTransport(handle))
+    assert len(p.search('ambient acoustic instrumental',media_type=MediaType.AUDIO))==1
+    assert calls==['ambient acoustic instrumental filetype:audio','ambient filetype:audio','acoustic filetype:audio']
+
+
+def test_music_network_error_does_not_broaden():
+    calls=[]
+    def handle(request):
+        calls.append(request);raise httpx.ReadTimeout('offline')
+    p=WikimediaAudioProvider('music',transport=httpx.MockTransport(handle))
+    with pytest.raises(StockUnavailable):p.search('ambient acoustic',media_type=MediaType.AUDIO)
+    assert len(calls)==1

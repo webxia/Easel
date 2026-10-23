@@ -28,9 +28,58 @@ def model_configuration(root: Path):
     return settings,service,version
 
 
+def review_configuration(settings):
+    """Optional separate review identity; never silently replaces the author."""
+    if not settings.get('EASEL_REVIEW_MODEL','').strip():return None
+    mapped=dict(settings)
+    for source,target in {'BASE_URL':'EASEL_DIRECT_API_BASE_URL','MODEL':'EASEL_DIRECT_API_MODEL','KEY':'EASEL_DIRECT_API_KEY',
+            'CAPABILITIES':'EASEL_PRODUCTION_MODEL_CAPABILITIES','VIDEO_DIALECT':'EASEL_PRODUCTION_VIDEO_DIALECT',
+            'CHUNK_SECONDS':'EASEL_PRODUCTION_QUALITY_CHUNK_SECONDS'}.items():
+        mapped[target]=settings.get('EASEL_REVIEW_'+source,'30' if source=='CHUNK_SECONDS' else '')
+    api_config(mapped)
+    identity={'provider':'review-api','model':mapped['EASEL_DIRECT_API_MODEL'],'mode':'structured'}
+    version=hashlib.sha256(json.dumps({k:v for k,v in mapped.items() if k in {
+        'EASEL_DIRECT_API_BASE_URL','EASEL_DIRECT_API_MODEL','EASEL_PRODUCTION_MODEL_CAPABILITIES',
+        'EASEL_PRODUCTION_VIDEO_DIALECT','EASEL_PRODUCTION_QUALITY_CHUNK_SECONDS'}},sort_keys=True).encode()).hexdigest()
+    return mapped,identity,version
+
+
+def review_readiness(settings, *, audio=True):
+    from types import SimpleNamespace
+    from .inspection import native_video_requirements
+    from .model_tasks import ModelTaskError
+    transport=SimpleNamespace(video_dialect=settings.get('EASEL_PRODUCTION_VIDEO_DIALECT',''),
+        quality_chunk_seconds=settings.get('EASEL_PRODUCTION_QUALITY_CHUNK_SECONDS','30'),
+        capabilities=frozenset({'text','structured'}|set(settings.get('EASEL_PRODUCTION_MODEL_CAPABILITIES','image').split(','))))
+    try:
+        dialect,seconds,required=native_video_requirements(transport,audio=audio)
+        return {'available':True,'protocol':dialect,'chunk_seconds':seconds,'required':sorted(required),'verified_live':False}
+    except ModelTaskError as exc:
+        return {'available':False,'reason':exc.code,'message':exc.user_message,'verified_live':False}
+
+
 def capabilities(root: Path):
     settings,model,_=model_configuration(root)
     services=[]
+    review_settings=settings
+    review=review_readiness(settings)
+    try:
+        separate=review_configuration(settings)
+        if separate:
+            review_settings=separate[0]
+            review=review_readiness(review_settings)
+            services.append({**separate[1],'label':'完整音视频审片 · '+separate[1]['model'],**review})
+    except DirectAPIError:
+        review={'available':False,'reason':'review_configuration_invalid','verified_live':False}
+    # Full-AV readiness is not the status of the explicitly selected manual policy.
+    # Do not present manual/sample review as full semantic coverage or as a failed task.
+    manual=settings.get('EASEL_PRODUCTION_QC_MODE','full').strip()=='manual'
+    visual=settings.get('EASEL_PRODUCTION_VISUAL_REVIEW','').strip()=='1'
+    review={**review,'configured_mode':'manual' if manual else 'full',
+        'active_scope':('manual_with_visual_samples' if visual else 'manual') if manual else 'full_audio_video',
+        'full_av_required':not manual,
+        'blocking':review.get('reason')=='review_configuration_invalid' or (not manual and not review['available']),
+        'visual_video':review_readiness(review_settings,audio=False)}
     if model:services.append({**model,'label':'创作模型 · '+model['model'],'available':True})
     from .supply_tasks import supply_capabilities
     services.extend(supply_capabilities(settings))
@@ -93,5 +142,5 @@ def capabilities(root: Path):
     from .boards import VERSION
     local=[{'renderer':VERSION,'available':bool(configured_fonts(settings)),
             'label':'原生概念/假设图解','counts_toward_generation':False}]
-    return {'services':services,'local_visuals':local,'generation_limits':['IMAGE','VIDEO'],
+    return {'review':review,'services':services,'local_visuals':local,'generation_limits':['IMAGE','VIDEO'],
             'voice_counts_toward_generation':False,'model_configured':bool(model)}

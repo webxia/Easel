@@ -94,7 +94,8 @@ def test_unknown_input_list_repairs_inside_same_native_model_task():
     assert 'required_input_ids' in t.calls[1][-1]['content']
 
 
-def test_autonomous_worker_reviews_draft_and_freezes_measured_policy(tmp_path):
+@pytest.mark.parametrize('review_verdict',['pass','fail'])
+def test_autonomous_worker_reviews_draft_and_freezes_measured_policy(tmp_path,review_verdict):
     from easel.production.store import Store
     from easel.production.service import WorkService
     from easel.production.operations import OperationService
@@ -118,7 +119,7 @@ def test_autonomous_worker_reviews_draft_and_freezes_measured_policy(tmp_path):
         def __init__(self): self.calls = []
         async def complete(self, messages, tools, schema):
             self.calls.append(deepcopy(messages))
-            value = {'verdict':'pass','findings':[],'observations':['fixture text review']} if schema['title']=='DraftReview' else answer
+            value = {'verdict':review_verdict,'findings':[],'observations':['fixture text review'],'suggestions':['可选表达优化'],'limitations':['尚未生成素材，效果未知']} if schema['title']=='DraftReview' else answer
             return {'content': json.dumps(value)}
     transport = Transport()
     planning = PlanningTasks(service, OperationService(store), transport, identity, 'fixture')
@@ -284,3 +285,33 @@ def test_draft_auditor_cannot_approve_changed_fixed_voice(tmp_path):
     asyncio.run(Worker(store,{'plan':planning.plan}).run_once());snap=service.snapshot(work)
     assert snap['state']=='awaiting_confirmation' and model.authors==2
     assert snap['plans'][0]['plan']['settings']['voice']['voice_id']=='fixed'
+
+
+def test_confirmed_ending_trims_tail_not_speech_or_caption():
+    from easel.production.editors import EditProject, Scene, AudioClip, Caption, EditError
+    from easel.production.narration import trim_confirmed_ending
+    p=EditProject(work_id='w',plan_revision=1,revision=3,duration=30,audio_mode='mixed',
+        scenes=(Scene(scene_id='s',asset_id='v',duration=30,fade_out=.6),),
+        audio=(AudioClip(clip_id='voice',asset_id='a',role='voice',at=.2,duration=24.984),
+               AudioClip(clip_id='bgm',asset_id='b',role='music',at=0,duration=30,gain=.22,fade_out=1.2)),
+        captions=(Caption(caption_id='c',font_asset_id='f',text='结尾',start=21,end=25.25),))
+    r=trim_confirmed_ending(p,26)
+    assert r.duration==26 and r.scenes[-1].duration==26
+    assert r.audio[0]==p.audio[0] and r.captions==p.captions
+    assert r.audio[1].duration==26 and r.audio[1].gain==.22
+    assert p.duration==30 and r.revision==4
+    for bad in (25,30,31,True,float('nan'),26.01):
+        with pytest.raises(EditError):trim_confirmed_ending(p,bad)
+
+
+def test_confirmed_ending_accounts_for_overlap_and_protects_source_audio():
+    from easel.production.editors import EditProject, Scene, EditError
+    from easel.production.narration import trim_confirmed_ending
+    p=EditProject(work_id='w',plan_revision=1,revision=1,duration=30,
+        scenes=(Scene(scene_id='a',asset_id='v',duration=21),
+                Scene(scene_id='b',asset_id='z',duration=9.4,transition='dissolve',transition_seconds=.4)))
+    r=trim_confirmed_ending(p,26)
+    assert r.scenes[-1].duration==pytest.approx(5.4)
+    assert r.scenes[0]==p.scenes[0]
+    protected=p.model_copy(update={'scenes':(p.scenes[0],p.scenes[1].model_copy(update={'source_audio':True}))})
+    with pytest.raises(EditError):trim_confirmed_ending(protected,26)

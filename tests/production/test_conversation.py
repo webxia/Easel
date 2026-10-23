@@ -730,7 +730,7 @@ def test_natural_entry_failure_has_no_success_receipt_or_partial_segment(env, mo
         def broken_pending(*args):
             raise RuntimeError('fixture pending failure')
         monkeypatch.setattr('easel.conversation_pipeline.pending', broken_pending)
-    request = EntryCall(**identity, mode='enter', prompt='', kind='invalid' if failure == 'kind_rejected' else 'new_work',
+    request = EntryCall(**identity, mode='enter', prompt='', kind='invalid' if failure == 'kind_rejected' else ('channel_create' if failure == 'profile_missing' else 'new_work'),
                         user_quote='只讨论', tool_call_id='call')
     with pytest.raises(RuntimeError if failure == 'pending_failed' else ProductionError):
         gate.call(service, request)

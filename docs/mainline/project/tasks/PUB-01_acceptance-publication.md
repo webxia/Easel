@@ -72,3 +72,9 @@ A/B是本父Task内的交付项，不预建空子任务；确需独立依赖或�
 - CI：`gh run list --branch codex/pub-01-publication` 返回空；当前workflow的push过滤仅覆盖main与长期主线，因此本任务分支没有触发CI，**CI NOT_RUN**，不以本地PASS冒充远端PASS。未开PR或合并。
 - 主工作区复核：仍为 `easel-v2-rebuild@41a4d047`，原Dirty、未跟踪文件和个人资料未纳入本任务提交；原服务和生产断点未操作。
 - 最终判定：本轮授权范围 **SOFTWARE_PASS / BUILD_PASS**；**DEPLOY NOT_TESTED / REAL_PUBLICATION NOT_TESTED**；父任务 **PARTIAL**。后续先按具体授权整合与部署，再使用用户指定账号和具体接受版复验，不自动进入CTX或恢复视频制作。
+
+### 主线安排更新
+
+2026-10-23用户明确要求使用唯一主线：PUB-01已整合到 `easel-v2-rebuild`，后续在该主工作区继续。原有未提交改动与CTX登记保留；独立分支仅作历史交付记录，不再作为活动开发入口。此决定不授权部署、付费或真实发布。整合后的Dirty回归另行记录，不冒用此前独立分支结果。
+
+主线整合验证：发布、结果回传、版本接受关联测试 **56 passed**；`git diff --check`通过。备份比对确认5个交集文件之外的原有已跟踪Dirty字节未变。主线新增整合增量仍未提交，远端主线未推送；不自动纳入其他任务改动。

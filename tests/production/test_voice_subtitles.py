@@ -191,3 +191,19 @@ def test_subtitle_preview_and_export_use_identical_layer_and_never_change_text(t
     cached=service.preview(manifest=manifest, frame_asset_id='frame', at=0,
         settings=single,text=long_text,fonts={'Fixture':'font'})
     assert cached['reused'] and cached['preview_text']==result['preview_text']
+
+
+def test_compiled_request_changes_audio_cache_identity(speech,monkeypatch):
+    _,_,binding,voice,calls,adapter,service=speech
+    original=adapter.request
+    def request(**kwargs):return {**original(**kwargs),'compiler_version':'new'}
+    first=service.synthesize(binding,identity=voice,text='同稿。',segment_id='one')
+    monkeypatch.setattr(adapter,'request',request)
+    other=VoiceBinding(**{**binding.__dict__,'operation_id':'compiled-new'})
+    changed=service.synthesize(other,identity=voice,text='同稿。',segment_id='one')
+    assert not changed['reused'] and len(calls)==2
+    again=service.synthesize(other,identity=voice,text='同稿。',segment_id='one')
+    assert again['reused'] and len(calls)==2
+    monkeypatch.setattr(adapter,'request',original)
+    restored=service.synthesize(VoiceBinding(**{**binding.__dict__,'operation_id':'restored'}),identity=voice,text='同稿。',segment_id='another')
+    assert restored['asset']==first['asset'] and len(calls)==2

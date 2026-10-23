@@ -81,6 +81,20 @@ class WikimediaAudioProvider:
         self._transport, self._timeout = transport, timeout
 
     def search(self, query: str, *, media_type: MediaType, limit: int = 8) -> tuple[ExternalCandidate, ...]:
+        result = self._search_once(query, media_type=media_type, limit=limit)
+        # Commons combines words restrictively. Broaden only empty music results;
+        # network/rights errors still propagate and every candidate uses the same checks.
+        if result or self.role != 'music':
+            return result
+        words = query.strip().split()
+        if 1 < len(words) <= 3 and all(re.fullmatch(r'[A-Za-z]+', word) for word in words):
+            for word in dict.fromkeys(words):
+                result = self._search_once(word, media_type=media_type, limit=limit)
+                if result:
+                    return result
+        return result
+
+    def _search_once(self, query: str, *, media_type: MediaType, limit: int = 8) -> tuple[ExternalCandidate, ...]:
         if media_type is not MediaType.AUDIO:
             raise StockUnavailable("Wikimedia audio supports audio only", code="capability_unavailable")
         if not isinstance(query, str) or not query.strip() or len(query) > 140 or not 1 <= limit <= 20:

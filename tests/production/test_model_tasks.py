@@ -221,3 +221,17 @@ def test_oversized_tool_batch_corrected_without_partial_execution():
     with pytest.raises(ModelTaskError,match='拆批'):
         asyncio.run(runner.run(context(),'revise',Answer,tools=(tool,)))
     assert len(auth)==2 and invoked==['a0']
+
+
+def test_minimax_video_protocol_keeps_native_payload_without_qwen_only_parameters():
+    settings={'EASEL_DIRECT_API_BASE_URL':'https://gateway.example/v1',
+              'EASEL_DIRECT_API_MODEL':'MiniMax-M3.1-Flash-Preview','EASEL_DIRECT_API_KEY':'test-key',
+              'EASEL_PRODUCTION_VIDEO_DIALECT':'minimax-video-url','EASEL_PRODUCTION_REASONING_EFFORT':'low'}
+    media={'type':'video_url','video_url':{'url':'data:video/mp4;base64,fixture'}}
+    def handler(req):
+        body=json.loads(req.content)
+        assert body['messages'][0]['content']==[media]
+        assert 'modalities' not in body and body['reasoning_effort']=='low'
+        return httpx.Response(200,json={'choices':[{'finish_reason':'stop','message':{'content':'{}'}}]})
+    asyncio.run(HTTPModelTransport(settings,transport=httpx.MockTransport(handler)).complete(
+        [{'role':'user','content':[media]}],[],{}))

@@ -81,6 +81,7 @@ def test_manual_only_finishes_run_without_faking_semantic_pass_or_creator_accept
     output = next(a for a in snapshot["artifacts"] if a["kind"]=="output")
     assert output["quality_state"]=="needs_fix"  # never semantic PASS
     assert output["manual_review_required"] is True
+    assert [(q["kind"],q["status"]) for q in output["checks"]]==[("technical","pass"),("semantic","not_tested")]
     with store.connection() as conn:
         checks = [dict(x) for x in conn.execute(
             "SELECT check_kind,status,findings_json FROM quality_checks")]
@@ -145,8 +146,8 @@ def test_manual_review_gate_refuses_known_failed_semantic_evidence(tmp_path,fail
 
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'), reason='real rendered frames required')
-@pytest.mark.parametrize('findings', [['0.5秒的蓝色图不能承担要求的示意'], []])
-def test_actual_visual_check_never_fakes_audio_and_routes_bounded_repair(tmp_path,findings):
+@pytest.mark.parametrize('findings,verdict', [(['0.5秒的蓝色图不能承担要求的示意'],'fail'),([], 'pass'),([], 'partial'),([], 'fail')])
+def test_actual_visual_check_never_fakes_audio_and_routes_bounded_repair(tmp_path,findings,verdict):
     store=Store(tmp_path/'outputs/db');store.initialize()
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     class Model(OfflineEditorProposal):
@@ -156,7 +157,7 @@ def test_actual_visual_check_never_fakes_audio_and_routes_bounded_repair(tmp_pat
             assert schema['title']=='VisualPreviewReview'
             assert any(b.get('type')=='image_url' for b in messages[1]['content'])
             assert not any(b.get('type')=='input_audio' for b in messages[1]['content'])
-            return {'content':json.dumps({'verdict':'pass' if not findings else 'fail',
+            return {'content':json.dumps({'verdict':verdict,'suggestions':['可以采用不同构图，但不是缺陷'],
                 'observations':['实际渲染画面0.5秒为蓝色'],'findings':findings,
                 'limitations':['离散画面；未听音频，不能证明全片质量']})}
     identity={'provider':'direct-api','model':'fixture','mode':'structured'}
@@ -191,5 +192,8 @@ def test_actual_visual_check_never_fakes_audio_and_routes_bounded_repair(tmp_pat
         assert checked['status']=='fail' and not any(a.get('manual_review_required') for a in snap['artifacts'])
     else:
         assert snap['state']=='reviewable' and checked['status']=='not_tested'
+        assert not any(t['kind']=='revise' for t in snap['tasks'])
+        assert any(a.get('manual_review_required') for a in snap['artifacts'])
+        assert evidence['review']['verdict']==verdict
         with store.connection() as conn:
             assert conn.execute("SELECT status FROM quality_checks WHERE check_kind='semantic'").fetchone()[0]=='not_tested'

@@ -32,3 +32,6 @@
 - [V3 个人方向与一年行动路线图](product/v3-direction.md)：已认可总体方向，含 M0～M6 里程碑、前三个月与首月安排、灵感取舍；ROADMAP，滚动调整，不替代生产任务，未授权技术选型或开发。
 
 - [成片确认到发布](architecture/publication-proposal.md)：优先复用原发布能力，列明现状、补齐范围、版本/账号/确认与平台回执；首批B站已授权开发；由[父任务PUB-01](project/tasks/PUB-01_acceptance-publication.md)记录实现、离线验收与后续真实复验；未授权部署或真实投稿。
+
+
+- [上下文超预算后的发送前压缩](architecture/context-compaction-proposal.md)：任务[CTX-01](project/tasks/CTX-01_context-compaction.md)首批Easel去重与官方压缩接入已实现，新增32项离线用例通过；关联回归有1项开工前已存在的失败，详见父任务。仅覆盖有效历史压力，未承诺当前请求实时预检；未部署、未真实压缩、不修改OpenClaw、不升级、不恢复制作。

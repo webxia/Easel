@@ -29,3 +29,9 @@ test('native abort interrupts pending sleep without calling cancel or dispatch',
   const pending=awaitExecution(async path=>{assert.equal(path,'result');called++;return {waiting:true};},{},{},controller.signal,undefined,{intervalMs:1000});
   await new Promise(r=>setTimeout(r,5));controller.abort();await assert.rejects(pending,{name:'AbortError'});assert.equal(called,1);
 });
+
+test('real progress in same stage emits native updates without fabricated idle heartbeats', async () => {
+  const updates=[];let n=0;
+  await awaitExecution(async()=> ++n===5 ? {waiting:false,result:{done:true}} : {waiting:true,task:{kind:'supply'},progress_seq:n<3?1:2},{},{},undefined,v=>updates.push(v),{intervalMs:1});
+  assert.deepEqual(updates.map(v=>v.details.progress_seq),[1,2]);
+});

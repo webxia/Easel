@@ -7,11 +7,11 @@ from easel.production.editors import EditProject,Scene,Caption,assert_local_revi
 
 
 @pytest.fixture
-def prepared(tmp_path):
+def prepared(tmp_path, request):
     store=Store(tmp_path/'outputs/_production/production.sqlite3');store.initialize()
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     work=service.command('create',{'title':'review'},command_id='create')['work_id']
-    plan={'title':'t','summary':'s','script':'true story','scenes':[{'id':'s','purpose':'explain','visual':'video','narration':'true story'}],'settings':{'duration_seconds':1,'audio_mode':'silent'}}
+    plan={'title':'t','summary':'s','script':'true story','scenes':[{'id':'s','purpose':'explain','visual':'video','narration':'true story'}],'settings':{'duration_seconds':1,'audio_mode':getattr(request,'param','silent')}}
     proposal=service.command('plan',{'generate':False,'plan':plan},command_id='plan',work_id=work,expected_revision=1)
     run=service.command('confirm',{'plan_revision':1,'plan_hash':proposal['plan_hash']},command_id='confirm',work_id=work,expected_revision=2)['run_id']
     path=service.outputs/'works'/work/'video.mp4';path.parent.mkdir(parents=True);path.write_bytes(b'fixture-output')
@@ -86,3 +86,56 @@ def test_fork_exact_output_copies_reference_without_old_authority(prepared):
     assert source['source_ref'].startswith('works/'+result['work_id']+'/references/')
     assert (service.outputs/source['source_ref']).read_bytes()==b'fixture-output'
     assert json.loads(source['metadata_json'])['source']['rights']['status']=='UNKNOWN'
+
+
+@pytest.mark.parametrize('prepared',['voice'],indirect=True)
+def test_narration_scope_is_explicit_and_protected(prepared):
+    service,work=prepared
+    for patch in ({'preserve_audio':True},{'render_only':True},{'scope':'invalid'}):
+        with pytest.raises(ProductionError):
+            service.command('revise',{'output_id':'passed','feedback':'改写口播','scope':'narration',**patch},
+                command_id='reject-'+next(iter(patch)),work_id=work,expected_revision=3)
+    result=service.command('revise',{'output_id':'passed','feedback':'改写口播','scope':'narration'},
+        command_id='narration',work_id=work,expected_revision=3)
+    snap=service.snapshot(work)
+    task=next(t for t in snap['tasks'] if t['run_id']==result['run_id'])
+    assert json.loads(task['payload_json'])['scope']=='narration'
+
+
+def test_non_voice_narration_revision_rejected(prepared):
+    service,work=prepared
+    with pytest.raises(ProductionError,match='纯旁白'):
+        service.command('revise',{'output_id':'passed','feedback':'改口播','scope':'narration'},
+            command_id='narration',work_id=work,expected_revision=3)
+
+
+@pytest.mark.parametrize('prepared',['voice'],indirect=True)
+def test_narration_worker_proposes_scope_then_plans_without_synthesizing(prepared):
+    import asyncio
+    from easel.production.worker import Worker
+    from easel.production.revisions import RevisionTasks
+    service,work=prepared
+    project=EditProject(work_id=work,plan_revision=1,revision=1,duration=1,
+        scenes=(Scene(scene_id='s',asset_id='fixture',duration=1),))
+    path=service.outputs/'works'/work/'project.json';path.write_text(project.model_dump_json())
+    with service.store.transaction() as conn:
+        source=conn.execute("SELECT run_id FROM artifacts WHERE id='passed'").fetchone()[0]
+        conn.execute('INSERT INTO artifacts(id,work_id,run_id,kind,storage_ref,digest,size_bytes,media_type,created_at) VALUES (?,?,?,?,?,?,?,?,?)',
+            ('project',work,source,'edit_project',path.relative_to(service.outputs).as_posix(),service._file_hash(path),path.stat().st_size,'application/json','now'))
+        conn.execute("UPDATE artifacts SET metadata_json=? WHERE id='passed'",(json.dumps({'schema_version':1,'project_id':'project'}),))
+    result=service.command('revise',{'output_id':'passed','feedback':'改稿重配','scope':'narration'},
+        command_id='rewrite',work_id=work,expected_revision=3)
+    # This branch must need neither a model nor a synthesis service.
+    worker=Worker(service.store,{'revise':RevisionTasks(service,None,None).revise})
+    asyncio.run(worker.run_once())
+    snap=service.snapshot(work)
+    assert snap['state']=='needs_decision'
+    review=next(r for r in snap['reviews'] if r['id']==result['review_id'])
+    assert review['changes']['affected']==['audio','captions','content']
+    service.command('confirm_revision',{'review_id':review['id'],'change_hash':review['change_hash']},
+        command_id='confirm-rewrite',work_id=work,expected_revision=snap['revision'])
+    snap=service.snapshot(work)
+    task=next(t for t in snap['tasks'] if t['run_id']==snap['active_run_id'])
+    assert task['kind']=='plan'
+    assert json.loads(task['payload_json'])['revision_scope']=='narration'
+    assert json.loads(task['payload_json'])['base_plan_revision']==1

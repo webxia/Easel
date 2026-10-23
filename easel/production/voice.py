@@ -149,6 +149,13 @@ class VoiceHTTPAdapter:
                 raise ValueError("audio verification executable is unavailable")
             identity = VoiceIdentity.model_validate(request["voice"])
             expected = self.request(identity=identity, text=request["text"], segment_id=request["segment_id"])
+            if "prosody_version" in request:
+                from .prosody import compile_pauses,VERSION
+                if request["prosody_version"]!=VERSION or not request.get("pauses"):
+                    raise ValueError("speech prosody version changed")
+                if compile_pauses(request["literal_text"],request["pauses"],identity)!=request["text"]:
+                    raise ValueError("speech prosody input changed")
+                expected={**expected,"literal_text":request["literal_text"],"prosody_version":VERSION,"pauses":request["pauses"]}
             if request != expected:
                 raise ValueError("speech intent changed")
             endpoint, payload = self._wire_request(request, identity)
@@ -261,13 +268,17 @@ class VoiceService:
         return candidates[0]
 
     def synthesize(self, binding: VoiceBinding, *, identity: VoiceIdentity, text: str,
-                   segment_id: str, regenerate: bool = False) -> dict:
+                   segment_id: str, regenerate: bool = False, pauses=None) -> dict:
         adapter = self._adapter(identity, require_available=False)
-        request = adapter.request(identity=identity, text=text, segment_id=segment_id, require_available=False)
+        from .prosody import compile_pauses,VERSION
+        spoken=compile_pauses(text,pauses or [],identity)
+        request = adapter.request(identity=identity, text=spoken, segment_id=segment_id, require_available=False)
+        if pauses:request={**request,"literal_text":text,"prosody_version":VERSION,"pauses":pauses}
         # Segment location is not acoustic identity: equal text in a different
         # scene or the preview can reuse an already paid audio asset in this work.
         key = fingerprint({"work_id": binding.work_id, "text": text, "voice": identity.model_dump(mode="json"),
                            "config": adapter.config.config_version, "format": adapter.config.response_format,
+                           "acoustic_request": {k:v for k,v in request.items() if k != "segment_id"},
                            **({"explicit_regeneration": binding.operation_id} if regenerate else {})})
         pointer = self.root / f"{key}.json"
         with _lock(self.root / f"{key}.lock"):
@@ -450,7 +461,7 @@ async def prepare_voice_segments(context, *, service: VoiceService, outputs: Pat
         binding = VoiceBinding("voice_" + fingerprint([context.task_id, segment["segment_id"], segment["text"], identity.model_dump()])[:32],
                                context.work_id, context.run_id, context.task_id, grant_id, context.owner_epoch)
         result = await asyncio.to_thread(service.synthesize, binding, identity=identity, text=segment["text"],
-                                         segment_id=segment["segment_id"], regenerate=regenerate)
+                                         segment_id=segment["segment_id"], regenerate=regenerate,**({"pauses":segment["pauses"]} if segment.get("pauses") else {}))
         if result["state"] != "succeeded":
             return {"state": result["state"], "segments": prepared, "pending": result}
         artifact_id = register_voice_asset(context, outputs=outputs, result=result)

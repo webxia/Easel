@@ -156,13 +156,29 @@ class VideoSettings(Contract):
     subtitles: SubtitleSettings = Field(default_factory=SubtitleSettings)
 
 
+class NarrationPause(Contract):
+    after: int = Field(gt=0, strict=True)
+    seconds: float = Field(ge=.05, le=1, allow_inf_nan=False)
+
+
 class Scene(Contract):
     id: Identifier
     purpose: str = Field(min_length=1)
     visual: str = Field(min_length=1)
     narration: str = ""
+    narration_pauses: list[NarrationPause] = Field(default_factory=list,max_length=4)
     duration_seconds: float | None = Field(default=None, gt=0, le=900, allow_inf_nan=False)
     required_input_ids: list[Identifier] = Field(default_factory=list)
+
+    @model_validator(mode='after')
+    def valid_pauses(self):
+        if '<#' in self.narration:
+            raise ValueError('供应商停顿标签不能写入口播正文，请使用narration_pauses')
+        positions=[p.after for p in self.narration_pauses]
+        if positions!=sorted(set(positions)) or any(p>=len(self.narration.strip()) for p in positions):
+            raise ValueError('停顿必须按顺序位于口播正文内部，不能重复或放在末尾')
+        if sum(p.seconds for p in self.narration_pauses)>3:raise ValueError('单场停顿总量不能超过3秒')
+        return self
 
 
 class ProfileSnapshot(Contract):

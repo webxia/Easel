@@ -47,3 +47,12 @@ def test_revision_search_maps_only_existing_split_shots_to_plan():
         with pytest.raises(ModelTaskError):revision_plan_searches(plan,base,[search.model_copy(update={'scene_id':bad})])
     with pytest.raises(ModelTaskError):
         revision_plan_searches(plan,base,[search,search.model_copy(update={'scene_id':'s1-cut1'})])
+
+
+def test_split_shot_error_identifies_actual_registered_parent():
+    base=fixture().model_copy(update={'scenes':(fixture().scenes[0].model_copy(update={'scene_id':'s1_a'}),)})
+    bad=base.model_copy(update={'scenes':(base.scenes[0].model_copy(update={'scene_id':'s1-cut1'}),)})
+    with pytest.raises(EditError,match='s1_a'):
+        assert_visual_repair(base,bad,overlay_texts=[])
+    good=base.model_copy(update={'scenes':(base.scenes[0].model_copy(update={'scene_id':'s1_a-cut1'}),)})
+    assert_visual_repair(base,good,overlay_texts=[])

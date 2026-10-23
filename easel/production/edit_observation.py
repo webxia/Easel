@@ -29,7 +29,8 @@ class ObservationBudget:
     async def observe(self, asset_id, path, *, frame_times=None, max_frames=2, include_audio=False):
         known = self.observed.get(asset_id, [])
         requested = list(dict.fromkeys(frame_times)) if frame_times is not None else None
-        missing = [t for t in requested if t not in known] if requested is not None else None
+        seen = lambda t: any(abs(t-k)<=.002 for k in known if k is not None)
+        missing = [t for t in requested if not seen(t)] if requested is not None else None
         count = min(self.remaining, len(missing) if missing is not None else max_frames)
         blocks, required = (), frozenset()
         if count and (missing or (requested is None and asset_id not in self.sampled)):
@@ -45,9 +46,9 @@ class ObservationBudget:
             blocks = ({'type':'text','text':'实际观察素材 '+asset_id}, *blocks)
             self.media.extend(blocks)
             self.required.update(required)
-        unseen = [t for t in requested if t not in known] if requested is not None else []
+        unseen = [t for t in requested if not seen(t)] if requested is not None else []
         return MediaToolResult({'asset_id':asset_id,
-            'frame_times': [t for t in known if requested is None or t in requested],
+            'frame_times': [t for t in known if requested is None or any(abs(t-r)<=.002 for r in requested)],
             'unobserved_times':unseen, 'budget_exhausted':self.remaining <= 0,
             'remaining_frames':self.remaining, 'audio_observed':False,
             'limitation':'只对已返回画面作判断；缺证据请报告缺口，不必反复请求。'},

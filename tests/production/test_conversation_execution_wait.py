@@ -310,3 +310,15 @@ def test_known_edit_failure_exposes_existing_resume_without_resubmission(env,kin
     reply=pipe(b,i,'answer',proposal_id=proposal['proposal_id'],hash=proposal['hash'],user_quote='确认修复后继续')
     assert reply['run_id']==r['run_id']
     assert s.snapshot(r['work_id'])['tasks'][0]['state']=='pending'
+
+
+def test_same_stage_real_events_refresh_native_progress_without_fake_ticks(env):
+    s,c,b,i,req,receipt=start(env);results=ConversationResults(b)
+    before=results.poll(req)
+    assert results.poll(req)==before
+    with s.store.transaction() as conn:
+        s.store.append_event(conn,receipt['work_id'],'material_search_completed',{},run_id=receipt['run_id'])
+    after=results.poll(req)
+    assert after['waiting'] and after['task']==before['task']
+    assert after['progress_seq']>before['progress_seq']
+    assert results.poll(req)==after

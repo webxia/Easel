@@ -42,6 +42,23 @@ def create_router(service_provider: Callable[[], WorkService]) -> APIRouter:
         return {**capabilities(service_provider().outputs.parent),
                 'backend':backend_code_freshness()}
 
+    @router.get('/maintenance/summary')
+    def maintenance_summary():
+        from easel.production.maintenance import operating_summary
+        return operating_summary(service_provider())
+
+    @router.get('/maintenance/render-cache/{job_id}')
+    def cache_preview(job_id:str):
+        from easel.production.maintenance import render_cache
+        return render_cache(service_provider(),job_id)
+
+    @router.post('/maintenance/render-cache/{job_id}')
+    def cache_reclaim(job_id:str,request:Command):
+        from easel.production.maintenance import render_cache
+        value=request.payload.get('preview_hash')
+        if not isinstance(value,str) or not value:raise ProductionError('invalid_input','请先取得具体缓存清理预览')
+        return render_cache(service_provider(),job_id,preview_hash=value)
+
     @router.post('/material-sources/unsplash/preview-search')
     def unsplash_preview_search(request: StockPreviewSearch):
         # Read-only discovery from an explicit UI command, never background supply.

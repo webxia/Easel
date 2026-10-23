@@ -10,7 +10,7 @@ from .voice import sentence_segments
 from .model_tasks import ModelTaskError
 
 
-def narration_segments(plan: dict, protected: set[str] | None = None) -> list[dict]:
+def _literal_narration_segments(plan: dict, protected: set[str] | None = None) -> list[dict]:
     protected = protected or set()
     scenes = [s for s in plan['scenes'] if not protected.intersection(s.get('required_input_ids', []))]
     if not (plan.get('narration_policy') or {}).get('continuous'):
@@ -33,6 +33,25 @@ def narration_segments(plan: dict, protected: set[str] | None = None) -> list[di
     return [{'segment_id': 'narration-' + fingerprint([text, ids])[:24], 'text': text,
              'text_hash': fingerprint(text), 'scene_ids': ids, 'scene_id': ids[0]}
             for text, ids in groups]
+
+
+def narration_segments(plan, protected=None):
+    segments=_literal_narration_segments(plan,protected)
+    scenes={s['id']:s for s in plan['scenes']}
+    if not any(s.get('narration_pauses') for s in scenes.values()):return segments
+    if any(s.get('narration_pauses') for s in scenes.values()) and not (plan.get('narration_policy') or {}).get('continuous'):
+        raise ModelTaskError('voice_prosody_requires_continuous','停顿控制需要连续口播，不能拆句后丢失控制位置')
+    for segment in segments:
+        pauses=[];cursor=0
+        for sid in segment['scene_ids']:
+            scene=scenes[sid];literal=scene.get('narration','').strip()
+            if not literal:continue
+            at=segment['text'].find(literal,cursor)
+            if at<0:raise ModelTaskError('voice_prosody_invalid','口播位置无法映射')
+            pauses.extend({'after':at+p['after'],'seconds':p['seconds']} for p in scene.get('narration_pauses',[]))
+            cursor=at+len(literal)
+        if pauses:segment['pauses']=pauses
+    return segments
 
 
 def measured_execution_plan(plan: dict, records: list[dict]) -> tuple[dict, dict | None]:
@@ -170,3 +189,70 @@ def project_timing_evidence(project, caption_roles=None) -> dict:
             'scenes': scenes, 'unvoiced_tail_seconds': max(0, project.duration-max(
                 (v['end'] for v in voice), default=project.duration)),
             'basis': 'edit timeline only; silence is not automatically a defect; audio not reviewed'}
+
+
+ENDING_INSTRUCTION = (
+    '收尾按真实完整旁白结束点设计：voice_driven沿用实测定长，fixed保留确认片长；'
+    '不能把剩余时长默认变成无声空镜，也不能挪出同样长的空白片头。'
+    '固定片长的无口播段须有明确的画面动作/阅读或可听音乐收束，说明用途；'
+    'BGM增益是线性倍率，不能把0.1等固定数值当作合适音量。结合实测源mean/max dB、'
+    '旁白与音乐的相对响度选择增益，增益造成的电平变化为20*log10(gain)。'
+    '源音乐本就轻时再次大幅压低会近乎无声；留出混音峰值余量。'
+    '淡出应服务结尾，在收尾最后短段完成，不把整段无口播时间都淡成听不见。'
+    '这些是生成/剪辑依据，不是听审结果或新的通过门槛。'
+)
+
+
+def closing_mix_evidence(project, measurements):
+    """Deterministic gain arithmetic for the editor, never a loudness verdict."""
+    from math import isfinite, log10
+    clips = []
+    for clip in project.audio:
+        measure = measurements.get(clip.asset_id, {})
+        item = {'clip_id': clip.clip_id, 'role': clip.role, 'gain': clip.gain,
+                'at': clip.at, 'end': clip.at + clip.duration,
+                'fade_out_start': clip.at + clip.duration - clip.fade_out,
+                'measurement': measure}
+        for key in ('mean_volume_db', 'max_volume_db'):
+            try:
+                value = float(measure[key])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if isfinite(value) and clip.gain > 0:
+                item['estimated_pre_fade_' + key] = round(value + 20 * log10(clip.gain), 2)
+        clips.append(item)
+    return {'timeline': project_timing_evidence(project), 'clips': clips,
+            'basis': 'sampled source level plus clip gain; excludes fades and summation; not listening'}
+
+
+def trim_confirmed_ending(project, duration):
+    """Compile an explicitly confirmed shorter ending; never infer permission."""
+    from math import isfinite
+    from .editors import EditProject, EditError
+    if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not isfinite(duration):
+        raise EditError('收尾时长必须是有限秒数')
+    if not 1 <= duration < project.duration or abs(duration*project.fps-round(duration*project.fps)) > 1e-5:
+        raise EditError('收尾须短于原片且落在完整帧上')
+    if any(c.end > duration for c in project.captions) or any(
+            a.at+a.duration > duration for a in project.audio if a.role != 'music'):
+        raise EditError('收尾不能截掉完整配音、音效或字幕')
+    scenes = []
+    for scene, start in zip(project.scenes, project.scene_starts()):
+        if start >= duration:
+            if scene.source_audio:
+                raise EditError('不能移除原声镜头')
+            continue
+        seconds = min(scene.duration, duration-start)
+        if seconds < scene.duration and scene.source_audio:
+            raise EditError('不能截短原声镜头')
+        scenes.append(scene.model_copy(update={'duration': seconds,
+            'fade_out': min(scene.fade_out, max(0, seconds-scene.fade_in))}))
+    audio = []
+    for clip in project.audio:
+        if clip.at >= duration:
+            continue
+        seconds = min(clip.duration, duration-clip.at)
+        audio.append(clip.model_copy(update={'duration': seconds,
+            'fade_out': min(clip.fade_out, max(0, seconds-clip.fade_in))}))
+    return EditProject.model_validate({**project.model_dump(), 'revision': project.revision+1,
+        'duration': duration, 'scenes': scenes, 'audio': audio})

@@ -28,6 +28,27 @@ from .providers.base import ProviderResult
 from .worker import TaskResult
 
 
+class MusicSearchEmpty(ProductionError):
+    """All attempted music sources returned no candidates, without transport failures."""
+
+
+class SoundSearchEmpty(ProductionError):
+    """A required sound has no search candidates; provider failures are separate."""
+
+
+class SoundAlternative(Contract):
+    query: str = Field(min_length=1, max_length=100)
+    basis: str = Field(min_length=1, max_length=1200)
+
+
+class SoundRecovery(Contract):
+    alternatives: list[SoundAlternative] = Field(default_factory=list, max_length=2)
+
+
+class MusicQuery(Contract):
+    query: str = Field(min_length=1, max_length=100)
+
+
 class GenerationChoice(Contract):
     scene_id: str = Field(min_length=1)
     kind: Literal['IMAGE', 'VIDEO']
@@ -299,7 +320,8 @@ class SupplyTasks:
             if not allowed:
                 raise ProductionError('capability_unavailable',
                     '本方案需要音乐，库内尚无合格音频，且未配置有使用权依据的外部音频来源；请提供音乐或配置已审查公开来源，不会改成静音或生成 AI 音乐', requires_decision=True)
-            raise ProductionError('music_material_gap',
+            error_type = MusicSearchEmpty if answer.attempted_sources and answer.failures and all(f.reason=='no_results' for f in answer.failures) else ProductionError
+            raise error_type('music_material_gap',
                 '已尝试音乐素材库和已审查公开来源，但未取得可供导演选择的合格音频；请补充素材或使用权依据，保留已取得成果', requires_decision=True)
 
     def _acquire_sfx(self, ctx, plan, records, scope, context, intent):
@@ -327,9 +349,11 @@ class SupplyTasks:
             with ctx.transaction() as writer:
                 ctx.store.append_event(writer,ctx.work_id,'material_search_completed',
                     {'kind':'audio','role':'sfx','cue_id':cue.cue_id,'candidate_count':len(answer.candidates),
-                     'sources':list(answer.attempted_sources),'required':cue.required},run_id=ctx.run_id)
+                     'sources':list(answer.attempted_sources),'required':cue.required,
+                     'failures':[{'source':f.source,'code':f.reason} for f in answer.failures]},run_id=ctx.run_id)
             if not answer.candidates and cue.required:
-                raise ProductionError('sfx_material_gap','已确认所需音效缺少合法素材，保留已有成果，不会静默省略',
+                error_type = SoundSearchEmpty if answer.attempted_sources and answer.failures and all(f.reason=='no_results' for f in answer.failures) else ProductionError
+                raise error_type('sfx_material_gap','已确认所需音效缺少合法素材，保留已有成果，不会静默省略',
                                       affected_ids=[cue.cue_id],requires_decision=True)
 
     def _grant(self, ctx, adapter):
@@ -428,6 +452,76 @@ class SupplyTasks:
             raise ProductionError('generated_material_unavailable','生成回执已保留，但素材技术检查或使用权尚不满足',requires_decision=True,operation_id=operation_id)
         return self._register(ctx,handle,scope=scope,context=context,scene_ids=[choice.scene_id],operation_id=operation_id),None
 
+    async def _music_with_recovery(self, ctx, plan, records, scope, context, intent, creative):
+        # Keep the confirmed musical intent; broaden discovery once only after empty results.
+        with ctx.store.connection() as reader:
+            payload=json.loads(reader.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()[0])
+        saved=payload.get('music_search_recovery')
+        if saved and intent:
+            query=MusicQuery.model_validate(saved)
+            await asyncio.to_thread(self._acquire_music,ctx,plan,records,scope,context,
+                                    intent.model_copy(update={'music_query':query.query}))
+            return
+        try:
+            await asyncio.to_thread(self._acquire_music,ctx,plan,records,scope,context,intent)
+        except MusicSearchEmpty:
+            if not intent or not self.planning or not creative:
+                raise
+            query=await self.planning.runner(ctx,namespace='music-search-recovery-v1').run(
+                creative, '音乐检索没有候选。原查询：'+str(intent.music_query)+
+                '。只简化为1至3个核心英文流派或乐器关键词，去掉情绪形容词和混音要求；保持方案的音乐用途，不重写方案、不判断候选合格。', MusicQuery)
+            with ctx.transaction() as writer:
+                current=json.loads(writer.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()[0])
+                current['music_search_recovery']=query.model_dump(mode='json')
+                writer.execute('UPDATE tasks SET payload_json=? WHERE id=?',(canonical_json(current),ctx.task_id))
+            await asyncio.to_thread(self._acquire_music,ctx,plan,records,scope,context,
+                                    intent.model_copy(update={'music_query':query.query}))
+
+    async def _sfx_with_recovery(self, ctx, plan, records, scope, context, intent, creative):
+        for cue in intent.sound_cues:
+            # Successful cues carry their precise binding, including any substitute basis.
+            if any(use.get('cue_id')==cue.cue_id for record in records
+                   for use in json.loads(record['metadata_json']).get('material_uses', [])):
+                continue
+            with ctx.store.connection() as reader:
+                payload=json.loads(reader.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()[0])
+            if cue.cue_id in payload.get('optional_sfx_ids',[]):
+                with ctx.transaction() as writer:
+                    ctx.store.append_event(writer,ctx.work_id,'optional_sound_omitted',
+                        {'cue_id':cue.cue_id,'reason':'user_relaxed_requirement'},run_id=ctx.run_id)
+                continue
+            saved=payload.get('sfx_search_recovery',{}).get(cue.cue_id)
+            if saved is None:
+                try:
+                    await asyncio.to_thread(self._acquire_sfx,ctx,plan,records,scope,context,
+                                            intent.model_copy(update={'sound_cues':[cue]}))
+                    continue
+                except SoundSearchEmpty:
+                    if not self.planning or not creative:
+                        raise
+                recovery=await self.planning.runner(ctx,namespace='sfx-search-recovery-v1-'+cue.cue_id).run(
+                    creative, '此必需音效搜索无合格候选：'+canonical_json(cue.model_dump(mode='json'))+
+                    '。给至多两个有序替代检索策略：优先简化同一动作的英文关键词；其次可选同场景、同声音用途的拟音替代，并在basis说明原动作、替代关系和剪辑如何配合。'
+                    '不得改变场景、事实、旁白、音效时点或必需性；不得将破碎声、音乐或语音冒充轻放物品。候选仍需导演实际选用，不宣称已听过。没有合理替代则返回空列表。', SoundRecovery)
+                with ctx.transaction() as writer:
+                    current=json.loads(writer.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()[0])
+                    current.setdefault('sfx_search_recovery',{})[cue.cue_id]=recovery.model_dump(mode='json')
+                    writer.execute('UPDATE tasks SET payload_json=? WHERE id=?',(canonical_json(current),ctx.task_id))
+            else:
+                recovery=SoundRecovery.model_validate(saved)
+            for alternative in recovery.alternatives:
+                replacement=cue.model_copy(update={'query':alternative.query,
+                    'basis':cue.basis+'；供料替代策略：'+alternative.basis})
+                try:
+                    await asyncio.to_thread(self._acquire_sfx,ctx,plan,records,scope,context,
+                                            intent.model_copy(update={'sound_cues':[replacement]}))
+                    break
+                except SoundSearchEmpty:
+                    continue
+            else:
+                raise ProductionError('sfx_material_gap','音效有界检索与合理替代后仍缺素材，已保留其他成果',
+                                      affected_ids=[cue.cue_id],requires_decision=True)
+
     async def supply(self,ctx):
         try:
             work,plan,inputs,records=await asyncio.to_thread(self._snapshot,ctx)
@@ -441,9 +535,9 @@ class SupplyTasks:
                 **({'director':creative.director,'creator_context_hash':creative.fingerprint} if creative else {})})
             await asyncio.to_thread(self._board_assets,ctx,plan,records,scope,context,intent)
             records,gaps=await asyncio.to_thread(self._acquire,ctx,plan,inputs,records,scope,context,intent)
-            await asyncio.to_thread(self._acquire_music,ctx,plan,records,scope,context,intent)
+            await self._music_with_recovery(ctx,plan,records,scope,context,intent,creative)
             if intent:
-                await asyncio.to_thread(self._acquire_sfx,ctx,plan,records,scope,context,intent)
+                await self._sfx_with_recovery(ctx,plan,records,scope,context,intent,creative)
             decision=await self._decision(ctx,plan,records,gaps)
             if set(decision.unresolved_scene_ids) & set(gaps):
                 return self._blocked('material_gap','场景素材仍有缺口或需要修改已确认方案，请明确本次调整',ids=decision.unresolved_scene_ids)

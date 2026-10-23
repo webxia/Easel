@@ -1,3 +1,4 @@
+import json
 import asyncio
 from types import SimpleNamespace
 import pytest
@@ -52,7 +53,9 @@ def test_edit_stops_after_one_stock_pass_without_render_or_voice(monkeypatch):
     import sqlite3
     from contextlib import nullcontext
     from easel.production.context import TaskContext
-    db=sqlite3.connect(':memory:');db.execute('CREATE TABLE operations(task_id,state)')
+    db=sqlite3.connect(':memory:');db.row_factory=sqlite3.Row;db.execute('CREATE TABLE operations(task_id,state)')
+    db.execute('CREATE TABLE tasks(id,payload_json)')
+    db.execute("INSERT INTO tasks VALUES('t',?)",(json.dumps({'asset_ids':['old']}),))
     service=SimpleNamespace(store=SimpleNamespace(connection=lambda:nullcontext(db)))
     namespaces=[];supplies=[]
     answer=CreativeEdit(scenes=[{'scene_id':'s1','asset_id':'old','duration':1}],unresolved_scene_ids=['s1'])
@@ -68,7 +71,8 @@ def test_edit_stops_after_one_stock_pass_without_render_or_voice(monkeypatch):
         supplies.append(ids);return [*ids,'new']
     creation.supplement_visuals=supplement
     monkeypatch.setattr('easel.production.narration.measured_execution_plan',lambda p,r:(p,None))
-    result=asyncio.run(creation.edit(SimpleNamespace(task_id='t',payload={'asset_ids':['old']})))
+    result=asyncio.run(creation.edit(SimpleNamespace(task_id='t',payload={'asset_ids':['old']},transaction=lambda:nullcontext(db))))
     assert result.state=='needs_decision' and result.error.code=='visual_material_gap'
     assert 's1' in result.error.user_message and len(supplies)==1
     assert namespaces==['edit-source-bounds-v1','edit-stock-selection-v1']
+    assert json.loads(db.execute("SELECT payload_json FROM tasks WHERE id='t'").fetchone()[0])['asset_ids']==['old','new']
