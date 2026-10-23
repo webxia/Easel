@@ -8,3 +8,7 @@
 - [已结案/前期任务](../../history/tasks/)：仅历史追溯，不自动重开。
 
 新任务按[任务衔接](../../development/task-handoff.md)和[原Task模板](../../development/templates/TASK.md)执行。当前代码Bug优先在原活动Task内承接，修复后继续父任务剩余验收。
+
+## 待评审父任务
+
+- [PUB-01 · 成片交付引导、确认与发布衔接](PUB-01_acceptance-publication.md)：仅方案及文档，当前方案待评审，未授权编码或真实发布。与当前生产任务分开登记，不替换其断点。

@@ -26,3 +26,7 @@
 <a id="冲突与证据"></a>
 <a id="按需查阅的依据"></a>
 <a id="正式入口与维护职责"></a>
+
+## 待审阅的新需求方案
+
+- [成片确认到发布](architecture/publication-proposal.md)：优先复用原发布能力，列明现状、补齐范围、版本/账号/确认与平台回执；PROPOSED，仅供审阅，尚未实施或授权发布；由[父任务PUB-01](project/tasks/PUB-01_acceptance-publication.md)记录待评审方案及后续开发/验收建议，未授权编码。
