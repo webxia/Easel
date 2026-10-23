@@ -123,7 +123,10 @@ def _gateway_healthy() -> bool:
     不是 18789，写死就会「gateway 活着、doctor 报 FAIL」。
     """
     try:
-        with urllib.request.urlopen(healthz_url(), timeout=5) as response:
+        # 127.0.0.1 探针绝不能继承系统 http_proxy（direct_api 同款 doctrine）：
+        # 默认 opener 会把回环请求发给代理，代理不可达时健康的网关被误报为 FAIL。
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with opener.open(healthz_url(), timeout=5) as response:
             return response.status == 200
     except (OSError, urllib.error.URLError):
         return False
@@ -156,6 +159,10 @@ def _env_key_valid() -> bool:
 
     ping 才是权威连通性测试；这里只做静态配置存在性检查。
     """
+    cli_ok, _detail = _primary_model_cli_available()
+    if cli_ok:
+        return True
+
     settings = read_settings(PROJECT_ROOT / ".env")
     if any(settings.get(name, "").strip() for name in (
             "EASEL_DIRECT_API_BASE_URL", "EASEL_DIRECT_API_MODEL", "EASEL_DIRECT_API_KEY")):
@@ -206,6 +213,40 @@ def _env_key_valid() -> bool:
     return False
 
 
+def _cli_backend(primary: str) -> dict[str, object] | None:
+    if "/" not in primary:
+        return None
+    provider = primary.split("/", 1)[0]
+    try:
+        from easel.local_agents import KNOWN_AGENT_CLIS
+    except Exception:  # noqa: BLE001
+        return None
+    for item in KNOWN_AGENT_CLIS:
+        if item.get("openclaw_provider") == provider:
+            return item
+    return None
+
+
+def _primary_model_cli_available() -> tuple[bool, str]:
+    cfg_path = _openclaw_config_path()
+    if not cfg_path.is_file():
+        return False, ""
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False, ""
+    primary = (((cfg.get("agents") or {}).get("defaults") or {})
+               .get("model") or {}).get("primary") or ""
+    backend = _cli_backend(primary)
+    if not backend:
+        return False, ""
+    commands = tuple(backend.get("commands") or ())
+    if any(shutil.which(str(cmd)) for cmd in commands):
+        return True, ""
+    label = backend.get("label") or backend.get("id") or primary.split("/", 1)[0]
+    return False, f"primary 是 {primary}，但未在 PATH 找到 {label} CLI（{', '.join(map(str, commands))}）"
+
+
 def _openclaw_config_path() -> Path:
     """easel 用独立 profile，不碰用户本机的 OpenClaw 配置。
 
@@ -245,6 +286,12 @@ def _primary_model_routable() -> tuple[bool, str]:
         return True, ""
 
     provider = primary.split("/", 1)[0]
+    backend = _cli_backend(primary)
+    if backend:
+        if any(shutil.which(str(cmd)) for cmd in (backend.get("commands") or ())):
+            return True, ""
+        return False, (f"primary 是 {primary}，但未在 PATH 找到 "
+                       f"{backend.get('label') or provider} CLI —— 请先安装并登录后再试")
     providers = (cfg.get("models") or {}).get("providers") or {}
     entry = providers.get(provider)
     if not isinstance(entry, dict):
@@ -257,6 +304,126 @@ def _primary_model_routable() -> tuple[bool, str]:
         return False, (f"models.providers.{provider} 没有 apiKey —— "
                        "在 .env 填好真实 key 后重新跑 setup 脚本")
     return True, ""
+
+
+def _tool_loop_policy() -> list[str]:
+    """Describe saved switches only; do not infer runtime support or defaults."""
+    try:
+        cfg = json.loads(_openclaw_config_path().read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return ["无法读取 JSON 配置；循环保护状态未知"]
+    if not isinstance(cfg, dict):
+        return ["配置根节点不是对象；循环保护状态未知"]
+
+    def switch(scope):
+        if not isinstance(scope, dict):
+            return "格式异常"
+        for key in ("tools", "loopDetection"):
+            if key not in scope:
+                return "未设置"
+            scope = scope[key]
+            if not isinstance(scope, dict):
+                return "格式异常"
+        if "enabled" not in scope:
+            return "未设置"
+        value = scope["enabled"]
+        if type(value) is not bool:
+            return "格式异常"
+        return "显式开启" if value else "显式关闭"
+
+    lines = [f"tools.loopDetection.enabled：{switch(cfg)}"]
+    agents = cfg.get("agents", {})
+    if not isinstance(agents, dict):
+        return lines + ["agents 格式异常；无法检查 Agent 覆盖"]
+    # Both saved layouts exist in supported-era OpenClaw releases. Inspect
+    # separately; do not guess which one a running gateway actually consumes.
+    for layout, expected in (("list", list), ("entries", dict)):
+        if layout not in agents:
+            continue
+        entries = agents[layout]
+        if not isinstance(entries, expected):
+            lines.append(f"agents.{layout} 格式异常；无法检查 Agent 覆盖")
+            continue
+        states = [switch(entry) for entry in (entries.values() if layout == "entries" else entries)]
+        counts = "，".join(f"{state} {states.count(state)}" for state in
+                           ("显式开启", "显式关闭", "未设置", "格式异常"))
+        lines.append(f"agents.{layout} 的 Agent 开关：{counts}")
+    if "list" in agents and "entries" in agents:
+        lines.append("同时存在 list / entries；请用所装 OpenClaw 版本核对配置布局")
+    return lines
+
+
+_COMPACTION_RESERVE_FLOOR = 20_000
+
+
+def _compaction_threshold(context_window: int) -> int:
+    """按常见默认预留参数估算压缩阈值（token），不代表运行时保证。"""
+    reserve = min(_COMPACTION_RESERVE_FLOOR, context_window // 4)
+    return context_window - reserve
+
+
+def _context_budget_policy() -> list[str]:
+    """描述已保存的上下文预算配置；不改配置，也不假设运行时已加载。"""
+    try:
+        cfg = json.loads(_openclaw_config_path().read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError):
+        return ["无法读取 JSON 配置；上下文预算状态未知"]
+    if not isinstance(cfg, dict):
+        return ["配置根节点不是对象；上下文预算状态未知"]
+
+    lines: list[str] = []
+    agents = cfg.get("agents")
+    defaults = agents.get("defaults") if isinstance(agents, dict) else None
+    context_cap = defaults.get("contextTokens") if isinstance(defaults, dict) else None
+    if type(context_cap) is not int or context_cap <= 0:
+        context_cap = None
+    compaction = defaults.get("compaction") if isinstance(defaults, dict) else None
+    disabled = isinstance(compaction, dict) and compaction.get("enabled") is False
+    if disabled:
+        lines.append("agents.defaults.compaction.enabled：显式关闭；以下仅为默认参数下的参考阈值")
+    models = cfg.get("models")
+    providers = models.get("providers") if isinstance(models, dict) else None
+    if not isinstance(providers, dict):
+        lines.append("models.providers 未设置；无法计算压缩阈值")
+    else:
+        for provider, spec in sorted(providers.items()):
+            if not isinstance(spec, dict):
+                lines.append(f"{provider}：格式异常；无法计算压缩阈值")
+                continue
+            entries = spec.get("models")
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                model_id = str(entry.get("id") or "?")
+                window = entry.get("contextWindow")
+                if isinstance(window, bool) or not isinstance(window, int) or window <= 0:
+                    lines.append(f"{provider}/{model_id}：未声明 contextWindow；阈值由 OpenClaw 推导")
+                    continue
+                effective = min(window, context_cap) if context_cap is not None else window
+                cap_note = f"；contextTokens 上限 {context_cap:,}" if context_cap is not None else ""
+                lines.append(f"{provider}/{model_id}：声明 {window:,}{cap_note} → "
+                             f"默认参数参考压缩阈值约 {_compaction_threshold(effective):,}")
+
+    skills = cfg.get("skills")
+    limits = skills.get("limits") if isinstance(skills, dict) else None
+    if not isinstance(limits, dict):
+        lines.append("skills.limits：未设置（技能目录预算走 OpenClaw 默认值）")
+    else:
+        chars = limits.get("maxSkillsPromptChars")
+        count = limits.get("maxSkillsInPrompt")
+        described = []
+        if type(chars) is int and chars > 0:
+            described.append(f"maxSkillsPromptChars={chars:,}")
+        elif chars is not None:
+            described.append("maxSkillsPromptChars 格式异常")
+        if type(count) is int and count > 0:
+            described.append(f"maxSkillsInPrompt={count}")
+        elif count is not None:
+            described.append("maxSkillsInPrompt 格式异常")
+        lines.append("skills.limits：已设置 " + ("，".join(described) if described else "（无可识别字段）"))
+    return lines
 
 
 def cmd_doctor(_args) -> int:
@@ -346,6 +513,16 @@ def cmd_doctor(_args) -> int:
         pass
 
     if not direct:
+        print("  OpenClaw 循环保护（只读配置诊断，不计入环境就绪结果）")
+        for line in _tool_loop_policy():
+            print(f"    └─ {line}")
+        print("    未设置不等于关闭；继承、默认值和运行时支持由 OpenClaw 版本决定。")
+        print("    已保存配置不证明网关已加载，也不代表每任务工具调用预算。")
+        print("  OpenClaw 上下文预算（只读配置诊断，不计入环境就绪结果）")
+        for line in _context_budget_policy():
+            print(f"    └─ {line}")
+        print("    阈值按常见默认预留参数估算；所装版本、运行时覆盖和压缩开关可能改变实际行为。")
+        print("    contextWindow 会影响本地请求预算；缓存命中与成本还取决于供应商和提示前缀。")
         # .env 填了 ≠ setup 真的把 provider 写进了 openclaw；不对账就会「doctor 全绿但对话报错」。
         route_ok, route_detail = _primary_model_routable()
         all_ok &= _check("OpenClaw model routing", route_ok, route_detail)

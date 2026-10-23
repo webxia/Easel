@@ -9,6 +9,10 @@
 
 新任务按[任务衔接](../../development/task-handoff.md)和[原Task模板](../../development/templates/TASK.md)执行。当前代码Bug优先在原活动Task内承接，修复后继续父任务剩余验收。
 
+## V3 同步
+
+- [V3-SYNC-01 · 官方更新同步](V3-SYNC-01_upstream-integration.md)：V3 分支整合与离线检查，不改变 V2 生产任务。
+
 ## 待评审父任务
 
 - [PUB-01 · 成片交付引导、确认与发布衔接](PUB-01_acceptance-publication.md)：已授权首批B站开发及离线验收；不部署、不付费或真实投稿。独立任务分支，不替换停止制作断点。

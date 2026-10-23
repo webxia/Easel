@@ -956,12 +956,36 @@ PY
 elif [ "$STANDARD_LLM_CONFIGURED" = false ] && usable_key "${GEMINI_MAAS_API_KEY:-}"; then
     GEMINI_PROVIDER="rednote-gemini"
     GEMINI_MODEL="${GEMINI_MAAS_MODEL:-gemini-3.1-pro-preview}"
+    GEMINI_CONTEXT_WINDOW="${GEMINI_CONTEXT_WINDOW:-1048576}"
+    GEMINI_MAX_TOKENS="${GEMINI_MAX_TOKENS:-65535}"
+    if ! GEMINI_MODELS_CONFIG=$(GEMINI_MODEL="$GEMINI_MODEL" \
+        GEMINI_CONTEXT_WINDOW="$GEMINI_CONTEXT_WINDOW" GEMINI_MAX_TOKENS="$GEMINI_MAX_TOKENS" \
+        python3 - <<'PYGEMINI'
+import json
+import os
+import re
+import sys
+
+values = [os.environ[key] for key in ("GEMINI_CONTEXT_WINDOW", "GEMINI_MAX_TOKENS")]
+if any(not re.fullmatch(r"[0-9]{1,16}", value) for value in values):
+    sys.exit(1)
+window, tokens = map(int, values)
+if not 0 < tokens <= window <= 9007199254740991:
+    sys.exit(1)
+print(json.dumps([{"id": os.environ["GEMINI_MODEL"], "name": "Gemini-compatible model",
+                   "reasoning": True, "input": ["text", "image"],
+                   "contextWindow": window, "maxTokens": tokens}], separators=(",", ":")))
+PYGEMINI
+    ); then
+        echo "GEMINI_CONTEXT_WINDOW / GEMINI_MAX_TOKENS 必须为正整数，且输出上限不能超过上下文窗口。" >&2
+        exit 1
+    fi
     oc_set 'Gemini 本地适配器' models.providers."$GEMINI_PROVIDER".baseUrl \
         "http://127.0.0.1:${GEMINI_ADAPTER_PORT:-18790}/v1"
     oc_set 'Gemini 本地适配器' models.providers."$GEMINI_PROVIDER".api "openai-completions"
     oc_set 'Gemini 本地适配器' models.providers."$GEMINI_PROVIDER".apiKey "local-adapter"
     oc_set 'Gemini 本地适配器' models.providers."$GEMINI_PROVIDER".models \
-        "[{\"id\":\"$GEMINI_MODEL\",\"name\":\"Gemini-compatible model\",\"reasoning\":true,\"input\":[\"text\",\"image\"],\"contextWindow\":1048576,\"maxTokens\":65535}]" \
+        "$GEMINI_MODELS_CONFIG" \
         --json
     oc_set 'Gemini 本地适配器' models.providers."$GEMINI_PROVIDER".timeoutSeconds 600 --json
     oc_set 'Gemini 本地适配器' models.providers."$GEMINI_PROVIDER".request.allowPrivateNetwork true --json
