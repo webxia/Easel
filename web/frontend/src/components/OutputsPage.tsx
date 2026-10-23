@@ -1,3 +1,4 @@
+import {openPublication} from '../lib/publicationApi';
 import type { VideoEntry } from '../lib/conversationApi';
 import { artifactURL, productionRequest } from '../lib/productionApi';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -266,7 +267,7 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
         <button className="btn btn-sm" onClick={load}><IconRefresh size={14} /> 刷新</button>
       </div>
 
-      {atTop && acceptedVideos.length > 0 && <section><h2>已接受的视频作品</h2><p>保存的是明确接受的版本；可回到对话继续修改、比较或创作新作。</p><div className="gallery-grid">{acceptedVideos.map(item => <article className="card" key={item.work_id}><h3>{item.title} · 版本{item.output_revision}</h3><video controls preload="metadata" src={artifactURL(item.artifact_id)} style={{width:'100%',maxHeight:360}} /><button className="btn btn-sm" onClick={()=>onContinue?.({work_id:item.work_id,output_id:item.artifact_id,kind:'continue'})}>围绕此版本继续创作</button></article>)}</div></section>}
+      {atTop && acceptedVideos.length > 0 && <section><h2>已接受的视频作品</h2><p>保存的是明确接受的版本；可回到对话继续修改、比较或创作新作。</p><div className="gallery-grid">{acceptedVideos.map(item => <article className="card" key={item.work_id}><h3>{item.title} · 版本{item.output_revision}</h3><video controls preload="metadata" src={artifactURL(item.artifact_id)} style={{width:'100%',maxHeight:360}} /><button className="btn btn-sm" onClick={()=>onContinue?.({work_id:item.work_id,output_id:item.artifact_id,kind:'continue'})}>围绕此版本继续创作</button><button className="btn btn-sm" onClick={()=>void openPublication(item.work_id,item.artifact_id).catch(e=>setTreeError(e.message))}>准备发布／查看记录</button></article>)}</div></section>}
       {treeError && <div className="notice-error">{treeError}</div>}
 
       {/* 项目主题标签（进入项目根时展示） */}

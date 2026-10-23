@@ -48,6 +48,8 @@ function onboardingSeen(): boolean {
 }
 
 export default function App() {
+  const [publicationId,setPublicationId]=useState<string>();
+  useEffect(()=>{const open=(e:Event)=>{setPublicationId((e as CustomEvent<string>).detail);setCurrentPage('publish');};window.addEventListener('easel:publication',open);return ()=>window.removeEventListener('easel:publication',open);},[]);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [personas, setPersonas] = useState<PersonaItem[]>([]);
   const [selectedPersona, setSelectedPersona] = useState('');
@@ -777,7 +779,7 @@ export default function App() {
       case 'calendar':
         return <CalendarPage />;
       case 'publish':
-        return <PublishPage persona={selectedPersona} />;
+        return <PublishPage persona={selectedPersona} publicationId={publicationId} />;
       case 'breakdown':
         return <BreakdownPage persona={selectedPersona} />;
       case 'production':

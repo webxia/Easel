@@ -31,4 +31,4 @@
 
 - [V3 个人方向与一年行动路线图](product/v3-direction.md)：已认可总体方向，含 M0～M6 里程碑、前三个月与首月安排、灵感取舍；ROADMAP，滚动调整，不替代生产任务，未授权技术选型或开发。
 
-- [成片确认到发布](architecture/publication-proposal.md)：优先复用原发布能力，列明现状、补齐范围、版本/账号/确认与平台回执；PROPOSED，仅供审阅，尚未实施或授权发布；由[父任务PUB-01](project/tasks/PUB-01_acceptance-publication.md)记录待评审方案及后续开发/验收建议，未授权编码。
+- [成片确认到发布](architecture/publication-proposal.md)：优先复用原发布能力，列明现状、补齐范围、版本/账号/确认与平台回执；首批B站已授权开发；由[父任务PUB-01](project/tasks/PUB-01_acceptance-publication.md)记录实现、离线验收与后续真实复验；未授权部署或真实投稿。

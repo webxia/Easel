@@ -699,6 +699,12 @@ class WorkService:
                 if artifact['kind']=='output':
                     artifact['export_artifact_id']=bundles.get(artifact['id'],artifact['id'])
                     artifact['manual_review_required']=self._manual_review_ready(conn,artifact)
+                    from .delivery import output_guidance
+                    publication=conn.execute("SELECT 1 FROM publication_drafts WHERE output_id=? AND state!='cancelled'",(artifact['id'],)).fetchone()
+                    artifact['delivery']=output_guidance(artifact,work['accepted_output_id']==artifact['id'],self._has_known_quality_failure(conn,artifact),bool(publication))
+                    artifact['publications']=[{'id':r['id'],'state':r['state'],'platform':'bilibili',
+                        'status':json.loads(r['receipt_json'] or '{}').get('matched',{}).get('status')}
+                        for r in conn.execute("SELECT d.id,COALESCE(a.state,d.state) AS state,a.receipt_json FROM publication_drafts d LEFT JOIN publication_attempts a ON a.draft_id=d.id WHERE d.output_id=?",(artifact['id'],))]
             work['progress']=[{'kind':r['kind'],'run_id':r['run_id'],'detail':json.loads(r['payload_json'])} for r in conn.execute("SELECT kind,run_id,payload_json FROM events WHERE work_id=? AND kind IN ('render_progress','quality_progress') ORDER BY seq DESC LIMIT 1",(id,))]
             work['reviews']=[{**dict(r),'changes':json.loads(r['changes_json']),'change_hash':digest(json.loads(r['changes_json']))} for r in conn.execute('SELECT * FROM reviews WHERE work_id=? ORDER BY created_at DESC',(id,))]
             work['cursor']=conn.execute('SELECT COALESCE(MAX(seq),0) FROM events WHERE work_id=?',(id,)).fetchone()[0]

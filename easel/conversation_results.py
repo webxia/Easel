@@ -146,7 +146,7 @@ class ConversationResults:
             payload['revision']=work['revision']
             self.bridge._save(conn,record['id'],payload,record['state'])
             return {'waiting':False,'result':{**receipt,'execution_result':result,'context':context,
-                'delivery_instruction':('本次运行未成功，必须先说明阻断；current_plan为空时不能声称方案成功、不能交付内部草稿冒充方案或提出制作确认。' if result['outcome']=='blocked' else '')+'这是本次已确认执行的真实结果，不是新的用户授权。规划成功：以current_plan交付完整方案、逐字稿和分镜，offer confirm后等待用户确认，不自动制作。参考分析：展示真实分析与待确认风格。制作或修订：嵌入outputs中实际playback_url的视频并说明质量结论。失败或UNKNOWN：结合material_summary一次说明所有已知缺口、已完成步骤、保留成果、合法选项及新增调用费用风险；候选不等于审查通过，不将未执行步骤说成失败。不重发、不许诺远端自动核实。内部编号仅用于工具参数，不要求用户复制编号。'}}
+                'delivery_instruction':('本次运行未成功，必须先说明阻断；current_plan为空时不能声称方案成功、不能交付内部草稿冒充方案或提出制作确认。' if result['outcome']=='blocked' else '')+'这是本次已确认执行的真实结果，不是新的用户授权。规划成功：以current_plan交付完整方案、逐字稿和分镜，offer confirm后等待用户确认，不自动制作。参考分析：展示真实分析与待确认风格。制作或修订：嵌入outputs中实际playback_url的视频并说明质量结论，按该输出delivery.message说明下一步；不能替用户接受或投稿。失败或UNKNOWN：结合material_summary一次说明所有已知缺口、已完成步骤、保留成果、合法选项及新增调用费用风险；候选不等于审查通过，不将未执行步骤说成失败。不重发、不许诺远端自动核实。内部编号仅用于工具参数，不要求用户复制编号。'}}
 
     @staticmethod
     def acknowledge(conn, payload):
@@ -201,7 +201,7 @@ class ConversationResults:
                 snapshot = context['work']
                 result_event = self.event_result(conn, snapshot, run, event)
                 prompt = ('【宿主任务结果事件，不是用户新指令或授权】\n'+encode(result_event)+
-                    '\n请接续当前创作对话。先读取真实结果；方案成功时展示摘要、完整逐字脚本和分镜，必须先用easel_pipeline offer action=confirm创建本版待确认提案（含素材、配音及剪辑/检查实际需要的模型服务），然后展示返回的范围并提出制作确认问题；剪辑制作或局部修订完成时交付实际视频并说明检查结论，等待反馈。失败时结合material_summary一次解释全部已知缺口、已完成部分、保留成果、可行下一步和新增调用费用风险；候选不等于审查通过，用户无需复制内部编号。UNKNOWN不得声称自动核实或重新派发，明确当前接口能否查询。不得把本事件当作用户同意，不得自行恢复、改稿、授权或制作。视频用返回的playback_url嵌入<video controls src="...">，不得臆造地址。\n【服务端当前上下文】\n'+encode(context))
+                    '\n请接续当前创作对话。先读取真实结果；方案成功时展示摘要、完整逐字脚本和分镜，必须先用easel_pipeline offer action=confirm创建本版待确认提案（含素材、配音及剪辑/检查实际需要的模型服务），然后展示返回的范围并提出制作确认问题；剪辑制作或局部修订完成时交付实际视频并说明检查结论，按各输出delivery.message提示审片、修改、接受或准备发布，等待反馈，不自动新建提案或代签。失败时结合material_summary一次解释全部已知缺口、已完成部分、保留成果、可行下一步和新增调用费用风险；候选不等于审查通过，用户无需复制内部编号。UNKNOWN不得声称自动核实或重新派发，明确当前接口能否查询。不得把本事件当作用户同意，不得自行恢复、改稿、授权或制作。视频用返回的playback_url嵌入<video controls src="...">，不得臆造地址。\n【服务端当前上下文】\n'+encode(context))
                 payload = {'origin':'task_result','message':None,'attachments':[], 'result_event':result_event,
                     'work_id':work['id'],'revision':work['revision'], 'session_key':'agent:main:easel-pipeline:'+segment['id'],
                     'native_session_id':segment['native_session_id'],'run_id':None,'tickets':{},'results':{},'calls':{},'answer':'',
