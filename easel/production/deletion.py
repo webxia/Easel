@@ -33,6 +33,10 @@ class DeletionService:
                 if expanded == candidates:
                     break
                 candidates = expanded
+        protected = {r[0] for r in connection.execute("SELECT d.output_id FROM publication_drafts d WHERE d.state='draft' OR EXISTS(SELECT 1 FROM publication_attempts p WHERE p.draft_id=d.id AND p.state IN ('sending','unknown'))")}
+        if candidates & protected:
+            from .service import fail
+            fail('publication_reference', '此版本有待发布或待核实记录；请保留文件供发布和核实。未提交草稿可先取消。', 409)
         all_live = {row[0] for row in connection.execute("SELECT a.id FROM artifacts a JOIN works w ON w.id=a.work_id WHERE a.deleted_at IS NULL AND w.deleted_at IS NULL")}
         director_refs = {row[0] for row in connection.execute("SELECT trial_artifact_id FROM director_revisions WHERE trial_artifact_id IS NOT NULL")}
         preserved = {dependency for parent, dependency in edges if parent in all_live-candidates and dependency in candidates}

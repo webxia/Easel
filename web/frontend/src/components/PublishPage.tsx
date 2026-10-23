@@ -1,3 +1,4 @@
+import AcceptedPublication from './AcceptedPublication';
 import { useState, useRef, useEffect } from 'react';
 import {
   createSchedule, executeSkill, runAgent, streamChat,
@@ -9,6 +10,7 @@ import { renderMarkdown } from '../lib/sanitize';
 import { IconPublish, IconCopy, IconCheck, IconCalendar, IconSkills, IconEdit, IconStop, IconTrash } from './icons';
 
 interface PublishPageProps {
+  publicationId?: string;
   persona: string;
 }
 
@@ -41,7 +43,7 @@ function parseSections(text: string): Record<string, string> {
 
 type PubState = { status: 'publishing' | 'ok' | 'fail'; msg: string };
 
-export default function PublishPage({ persona }: PublishPageProps) {
+export default function PublishPage({ persona, publicationId }: PublishPageProps) {
   const draft0 = loadPublishDraft();
   const [title, setTitle] = useState(draft0.title);
   const [body, setBody] = useState(draft0.body);
@@ -178,19 +180,10 @@ export default function PublishPage({ persona }: PublishPageProps) {
     if (empty || publishing || checking) return;
     const targets = PLATFORMS.filter((p) => platforms.includes(p.key) && PUBLISHABLE.has(p.key));
     if (targets.length === 0) {
-      showToast('所选平台暂不支持一键发布（B站请用「复制」或终端 biliup）');
+      showToast('所选平台暂不支持一键发布');
       return;
     }
-    setChecking(true);
-    try {
-      setCheckResult(await performPrecheck());
-    } catch (e) {
-      setCheckResult(`预检失败：${e instanceof Error ? e.message : '未知错误'}\n\n预检仅用于提醒，不会阻止你继续发布。`);
-    } finally {
-      setChecking(false);
-    }
     const okToSend = window.confirm(
-      `发布前预检已执行，结果已显示在页面中。人设评分只做提醒，不会阻止发布。\n\n` +
       `即将【真实发布】到：${targets.map((t) => t.label).join('、')}。\n` +
       `这会公开发布到你的账号，确定继续？`);
     if (!okToSend) return;
@@ -294,9 +287,10 @@ export default function PublishPage({ persona }: PublishPageProps) {
 
   return (
     <div className="publish-page">
+      <div style={{gridColumn:'1 / -1'}}><AcceptedPublication selectedId={publicationId}/></div>
       <div className="publish-editor">
         <h1 className="page-title"><IconPublish size={21} /> 发布中心</h1>
-        <p className="page-subtitle">一次编辑 → AI 一键改写成各平台版本 → 预检 → 附媒体 → 一键真发布。</p>
+        <p className="page-subtitle">普通文件发布；文案辅助与预检可按需点击。作品发布请使用上方已接受成片入口。</p>
 
         <label className="field-label">标题</label>
         <input className="field" value={title} placeholder="标题（部分平台需要）"

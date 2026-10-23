@@ -500,6 +500,8 @@ from web.production_api import create_router as _production_router, production_e
 from easel.production.errors import ProductionError
 app.add_exception_handler(ProductionError, production_error_handler)
 app.include_router(_production_router(_production_service))
+from web.publication_api import create_publication_router
+app.include_router(create_publication_router(_production_service))
 from web.production_settings_api import create_settings_router
 app.include_router(create_settings_router(_production_service))
 
@@ -5152,7 +5154,10 @@ async def api_publish(platform: str, req: PublishRequest):
     # 公众号走后台会话（Playwright，脚本自带 --proxy，默认直连）；其余平台走 _publish_env
     pub_env = _proxy_env() if platform == 'wechat-oa' else _publish_env()
     try:
-        proc = await asyncio.to_thread(subprocess.run, cmd, cwd=str(PROJECT_ROOT), env=pub_env,
+        from easel.publication_bilibili import legacy_bilibili_run
+        from functools import partial
+        runner = partial(legacy_bilibili_run, PROJECT_ROOT) if platform == 'bilibili' else subprocess.run
+        proc = await asyncio.to_thread(runner, cmd, cwd=str(PROJECT_ROOT), env=pub_env,
                                        capture_output=True, text=True, timeout=600)
     except subprocess.TimeoutExpired:
         raise HTTPException(504, '发布超时（媒体处理慢或流程卡住）')
@@ -5502,7 +5507,9 @@ class ScheduleItem(BaseModel):
 
 @app.get("/api/schedule")
 async def api_schedule_list():
-    return _read_schedule()
+    # Read-only projection; a calendar failure can never re-enter the publisher.
+    from easel.production.publication import calendar_projection
+    return _read_schedule() + calendar_projection(OUTPUTS_DIR / '_production' / 'production.sqlite3')
 
 
 @app.post("/api/schedule")

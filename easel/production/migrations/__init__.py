@@ -232,3 +232,6 @@ BEGIN SELECT RAISE(ABORT,'output_not_reviewable'); END;
 
 from .conversation import SQL as CONVERSATION_SQL
 MIGRATIONS[4] = CONVERSATION_SQL
+
+from .publication import SQL as PUBLICATION_SQL
+MIGRATIONS[5] = PUBLICATION_SQL

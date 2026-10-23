@@ -9,7 +9,7 @@ export interface CreativePlan {
   scenes: { id: string; purpose: string; visual: string; narration: string; duration_seconds?: number; required_input_ids: string[] }[];
   settings: VideoSettings; facts: string[]; core_views: string[]; constraints: string[]; adaptation_permissions: string[];
 }
-export interface ProductionArtifact { id: string; run_id?: string; kind: string; media_type: string; output_revision?: number; quality_state: string; manual_review_required?: boolean; export_artifact_id?: string }
+export interface ProductionArtifact { publications?:{id:string;state:string;platform:string;status?:string}[]; delivery?:{message:string;can_accept:boolean;can_publish:boolean}; id: string; run_id?: string; kind: string; media_type: string; output_revision?: number; quality_state: string; manual_review_required?: boolean; export_artifact_id?: string }
 export interface ProductionTask { id: string; run_id: string; kind: string; state: string; payload_json?: string; error_json?: string; result_json?: string }
 export interface WorkSummary { channel_id?:string; id: string; title: string; revision: number; state: string; updated_at: string; accepted_output_id?: string }
 export interface Work extends WorkSummary {

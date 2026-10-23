@@ -6,6 +6,10 @@
 
 > 上游已按新阶段要求Fetch/Diff：相对上次检查新增26提交，当前upstream/main为 `3f1d4fb8`；涉及本地渲染检查点、工具预算及BOM/CI修复。仅研究，未合入；V2代码HEAD仍 `79ebae55`。开源与Easel自身复用边界见[任务包§9](tasks/S6_IMPLEMENTATION_PLAN.md#s7-references)。
 
+## PUB-01研发入口
+
+2026-10-23用户授权[PUB-01](tasks/PUB-01_acceptance-publication.md)首批实施，并选定B站。独立分支 `codex/pub-01-publication` 基于 `41a4d047`，本轮开发与离线验收完成（936项后端通过、5项跳过；107项前端通过；构建通过），仅做任务分支提交推送。主工作区实际生产已停止重新制作，其最新断点在原工作区已有Dirty及原运行记录；本分支保留的上方历史快照不授权恢复。未部署、未迁移生产库、未付费或真实投稿；父任务真实闭环保留NOT_TESTED。下一研发任务仍按用户既定顺序在PUB之后处理，本次不实施上下文压缩。
+
 ## 已有基线
 
 代码基线79ebae55；真实Web可播放预览已成立，质量PARTIAL、Creator未接受。历史调试、部署与恢复流水见[S6-14A](tasks/S6-14A_conversation-integration.md)和[E2E-05](tasks/runs/2026-10-22-web-e2e-05.md)，不再逐条重复历史排程。
