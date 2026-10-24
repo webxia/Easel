@@ -240,7 +240,18 @@ class MaterialSemanticIndex:
             raise SemanticIndexError("Semantic search query must not be blank")
         if limit < 1 or limit > 1000:
             raise SemanticIndexError("Semantic search limit must be between 1 and 1000")
-        records = self.catalog.metadata_search(scope=scope, context=context, **(metadata_filters or {}))
+        filters = dict(metadata_filters or {})
+        filters.pop("limit", None)
+        records_list = []
+        cursor = ""
+        while True:
+            page = self.catalog.metadata_search(scope=scope, context=context,
+                                               limit=1000, after_asset_id=cursor, **filters)
+            records_list.extend(page)
+            if len(page) < 1000:
+                break
+            cursor = page[-1].library_asset_id
+        records = tuple(records_list)
         if provider is None:
             return self._metadata_fallback(query, records, limit, "embedding_provider_disabled")
         try:
@@ -310,6 +321,12 @@ class MaterialSemanticIndex:
             for record in records:
                 terms = self._tokens(self.semantic_text(record.asset))
                 score = len(query_terms & terms) / len(query_terms)
+                if record.asset.media_type.value == "audio":
+                    from .audio_search import score_audio
+                    audio_score = score_audio(query, record.asset.semantic.caption or "",
+                                              self.semantic_text(record.asset))
+                    if audio_score is not None:
+                        score = audio_score
                 if score:
                     scored.append((record, score))
         scored.sort(key=lambda item: (-item[1], item[0].created_at, item[0].library_asset_id))
