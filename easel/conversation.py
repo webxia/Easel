@@ -173,13 +173,13 @@ class ConversationService:
         # Repeating an unchanged pending production question does not create a
         # new question. Keep its original sources, so a later human answer is
         # still answering what was already shown. Changed scope remains new.
-        if kind=='pipeline' and values.get('action')=='confirm':
+        if kind=='pipeline' and values.get('action') in {'confirm','binding'}:
             for pending in conn.execute("SELECT * FROM conversation_proposals WHERE segment_id=? AND kind='pipeline' AND state='proposed'",(segment['id'],)):
                 prior=json.loads(pending['body_json'])
                 if (all(prior.get(k)==body[k] for k in ('target','work_id','work_revision'))
                         and all(prior['values'].get(k)==values.get(k) for k in ('action','payload','catalog_target'))):
                     return {'proposal_id':pending['id'],'hash':pending['body_hash'],'state':'proposed','already_proposed':True,'values':prior['values'],'requires_user_confirmation':True,
-                            'message':'这是已经展示的同一制作提案，未新建或修改。若本轮用户明确确认，请answer这个原提案，不要再要求确认。'}
+                            'message':'这是已经展示的同一提案，未新建或修改。若本轮用户明确确认，请answer这个原提案，不要再要求确认。'}
         checksum=digest(body)
         previous=conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? AND kind=? AND body_hash=?',(segment['id'],kind,checksum)).fetchone()
         details={'values':values,'requires_user_confirmation':True} if kind in {'plan','pipeline'} else {}
@@ -206,7 +206,7 @@ class ConversationService:
         if payload.get('answer'):messages.append({'role':'assistant','content':payload['answer']})
         return messages
 
-    def apply(self,session,id,checksum,command_id,*,dismiss=False,_connection=None,_turn_id=None):
+    def apply(self,session,id,checksum,command_id,*,dismiss=False,_connection=None,_turn_id=None,_bind=None):
         def execute(conn):
             p=row(conn,'conversation_proposals',id);segment=self.segment(conn,session,p['segment_id'])
             if conn.execute("SELECT 1 FROM conversation_turns WHERE segment_id=? AND id!=? AND state IN ('reserved','active','dispatching','unknown')",(segment['id'],_turn_id or '')).fetchone():fail('invocation_pending','本轮尚未结束，请先核实结果',409)
@@ -222,7 +222,11 @@ class ConversationService:
             self.source_refs(conn,segment,body['source_refs'],allow_results=True)
             if kind=='pipeline':
                 from .conversation_pipeline import execute_action
-                result=execute_action(self,conn,segment,body,command_id)
+                if values.get('action')=='binding':
+                    if _bind is None:fail('confirmation_required','请在原对话答复选择提案',409)
+                    result=_bind(values['payload'])
+                else:
+                    result=execute_action(self,conn,segment,body,command_id)
             elif kind=='draft':
                 if segment['work_id']:fail('work_already_bound','运行段已绑定作品',409)
                 if set(values)-{'title','input_text'}:fail('invalid_input','草稿字段无效')

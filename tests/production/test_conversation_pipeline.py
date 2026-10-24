@@ -673,3 +673,45 @@ def test_production_services_use_frozen_voice_and_ai_scope(env,monkeypatch,allow
     assert applied==result
     assert {x['model'] for x in result['services']}==({'fixture-model','fixed'} | ({'image-01'} if allow_ai else set()) | (set() if no_optional_audio or narrow_sfx else {'stock'}))
     assert 'wikimedia_bgm' not in {x['provider'] for x in result['services']}
+
+
+def test_topic_only_cannot_bind_available_channel_and_director(env):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
+    quote='讨论吾日三省吾身，完整方案和制作等我确认'
+    b,i,_=turn(s,c,seg,quote)
+    p=pipe(b,i,'bind',user_quote=quote,values={'channel_id':channel,'director_revision':'v4','director_trial':True})
+    assert p['selection_pending'] and not p['queued']
+    assert c.view('ui')['context']['channel_id'] is None
+    raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote=quote))
+    b.end(Identity(**i))
+    assert c.view('ui')['segment_id']==seg
+    assert b.continue_handoff('ui','turn') is None
+    assert not s.list_works()['items']
+
+
+@pytest.mark.parametrize('answer',['就这两个','选第一组','频道甲和导演甲'])
+def test_human_selects_shown_pair_binds_without_another_confirmation(env,answer):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
+    b,i,_=turn(s,c,seg,'讨论视频')
+    values={'channel_id':channel,'director_revision':'v4','director_trial':True}
+    p=pipe(b,i,'bind',user_quote='讨论视频',values=values)
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,answer,id='selection')
+    result=pipe(b,i,'bind',user_quote=answer,values=values)
+    assert result['queued'] and not result.get('selection_pending')
+    assert pipe(b,i,'bind',user_quote=answer,values=values)==result
+    b.end(Identity(**i))
+    view=c.view('ui')
+    assert view['context']['channel_id']==channel
+    assert view['context']['settings']['director_revision']=='v4'
+    assert not s.list_works()['items']
+
+
+def test_rejected_selection_stays_unbound(env):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
+    b,i,_=turn(s,c,seg,'讨论视频')
+    p=pipe(b,i,'bind',user_quote='讨论视频',values={'channel_id':channel})
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,'不要绑定',id='decline')
+    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='不要绑定',dismiss=True)
+    assert result['dismissed'] and c.view('ui')['context']['channel_id'] is None

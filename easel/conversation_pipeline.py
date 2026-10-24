@@ -481,6 +481,99 @@ def execute_action(conversations,conn,segment,body,key):
     return result
 
 
+def bind_selection(conversations,conn,record,payload,segment,values,*,confirmed=False):
+    if set(values)-{'kind','channel_id','director_revision','director_trial','work_id','output_id'}:fail('invalid_input','不能通过管线切换修改画像')
+    previous=json.loads(segment['context_json'])
+    next_kind=values.get('kind',previous.get('kind','new_work'))
+    inherited={}
+    if next_kind=='new_work' or next_kind==previous.get('kind','new_work') or (segment['work_id'] and next_kind in {'continue','revise'}):
+        if previous.get('channel_id'):inherited['channel_id']=previous['channel_id']
+        for key in ('director_revision','director_trial'):
+            if key in previous.get('settings',{}):inherited[key]=previous['settings'][key]
+    entry={'profile_ref':segment['profile_ref'],'kind':next_kind,**inherited,**values}
+    if entry.get('channel_id') and not entry.get('director_revision'):
+        default=row(conn,'channels',entry['channel_id'])['default_director_revision']
+        if default:entry['director_revision']=default
+    if segment['work_id'] and next_kind in {'new_work','continue','revise'}:
+        # New works use the explicit conversation entry, never an accidental
+        # omission in a model's rebind call.
+        entry.setdefault('work_id',segment['work_id'])
+        if (entry.get('channel_id')!=previous.get('channel_id')
+            or entry.get('director_revision')!=previous.get('settings',{}).get('director_revision')
+            or bool(entry.get('director_trial'))!=bool(previous.get('settings',{}).get('director_trial'))):
+            fail('revision_required','当前作品的设置变更须使用 basis 或方案修订；另建作品请使用新作入口',409)
+    if entry.get('kind','new_work') not in {'new_work','channel_create','director_formation','revise','continue'}:fail('invalid_input','管线无效')
+    if entry.get('work_id'):
+        work=row(conn,'works',entry['work_id'])
+        if work['profile_ref']!=segment['profile_ref']:fail('binding_mismatch','不能切换到其他画像作品',403)
+        if work['id']!=segment['work_id']:fail('binding_mismatch','请从作品库打开其他作品',403)
+    if entry.get('channel_id'):
+        channel=row(conn,'channels',entry['channel_id'])
+        if channel['archived'] or channel['profile_ref']!=segment['profile_ref']:fail('binding_mismatch','频道不可用或画像不一致',403)
+    if entry.get('director_revision'):
+        version=row(conn,'director_revisions',entry['director_revision'])
+        if row(conn,'directors',version['director_id'])['archived']:fail('invalid_input','导演已归档')
+        if entry.get('kind')!='director_formation':
+            conversations.service._director_version(conn,version['id'],bool(entry.get('director_trial')))
+    # Selecting the already active, unbound pipeline is not a handoff.
+    # Keep the native turn alive so explicit user choices can be resolved
+    # and used now, rather than asking the Creator to repeat them next turn.
+    unchanged=(segment['work_id']==entry.get('work_id')
+        and entry['kind']==previous.get('kind','new_work')
+        and entry.get('channel_id')==previous.get('channel_id')
+        and entry.get('director_revision')==previous.get('settings',{}).get('director_revision')
+        and bool(entry.get('director_trial'))==bool(previous.get('settings',{}).get('director_trial'))
+        and entry.get('output_id')==previous.get('output_id'))
+    if unchanged:
+        return {'already_bound':True,'queued':False,
+            'missing_choices':[k for k,v in [('channel',entry.get('channel_id') or not segment['profile_ref']),('director',entry.get('director_revision'))] if not v] if next_kind=='new_work' else [],
+            'message':'当前已在此管线，无需结束本轮。请继续读取pending与用户来源，解析已明确的频道/导演并绑定真实目标；已有选择不要重复询问。'}
+    selection_changed=(entry.get('channel_id')!=previous.get('channel_id')
+        or entry.get('director_revision')!=previous.get('settings',{}).get('director_revision')
+        or bool(entry.get('director_trial'))!=bool(previous.get('settings',{}).get('director_trial')))
+    if selection_changed and not confirmed:
+        # Semantic intent stays with the creator agent. Require concrete target
+        # provenance: names in this human turn, or a previously shown selection.
+        quote=payload.get('message','')
+        targets=[]
+        if entry.get('channel_id')!=previous.get('channel_id') and entry.get('channel_id'):
+            targets.append((entry['channel_id'],row(conn,'channels',entry['channel_id'])['name']))
+        if (entry.get('director_revision')!=previous.get('settings',{}).get('director_revision')
+                or bool(entry.get('director_trial'))!=bool(previous.get('settings',{}).get('director_trial'))):
+            if entry.get('director_revision'):
+                version=row(conn,'director_revisions',entry['director_revision'])
+                targets.append((version['id'],row(conn,'directors',version['director_id'])['name']))
+        confirmed=bool(targets) and all(any(value and value in quote for value in target) for target in targets)
+        if not confirmed:
+            for proposal_id in payload.get('visible_proposals',[]):
+                proposal=conn.execute("SELECT * FROM conversation_proposals WHERE id=? AND segment_id=? AND state='proposed'",(proposal_id,segment['id'])).fetchone()
+                if not proposal:continue
+                body=json.loads(proposal['body_json'])
+                selection=body.get('values',{})
+                if (selection.get('action')=='binding' and
+                        all(selection.get('payload',{}).get(k)==entry.get(k) for k in ('kind','channel_id','director_revision','director_trial','work_id','output_id'))):
+                    return conversations.apply(segment['ui_session'],proposal_id,proposal['body_hash'],
+                        'binding_answer_'+record['id'],_connection=conn,_turn_id=record['id'],
+                        _bind=lambda values:bind_selection(conversations,conn,record,payload,segment,values,confirmed=True))
+    if selection_changed and not confirmed:
+        names=[]
+        if entry.get('channel_id'):
+            names.append('频道「'+row(conn,'channels',entry['channel_id'])['name']+'」')
+        if entry.get('director_revision'):
+            version=row(conn,'director_revisions',entry['director_revision'])
+            names.append('导演「'+row(conn,'directors',version['director_id'])['name']+'」版本'+str(version['revision'])+('（试片）' if entry.get('director_trial') else ''))
+        proposal=conversations.proposal(conn,segment,'pipeline',
+            {'action':'binding','payload':{k:v for k,v in entry.items() if k!='profile_ref'},'summary':'建议选择'+'、'.join(names)+'；尚未绑定，请确认或调整。'},[record['id']])
+        return {**proposal,'queued':False,'selection_pending':True,
+            'message':'仅已建立选择提案，未绑定、未建草稿。简短展示这些具体选择，等用户答复后answer；不要声称已生效，也不要展开完整方案。'}
+    # Native turn must end before a new immutable segment may become current.
+    payload['pipeline_entry']=entry
+    prior=json.loads(segment['context_json']).get('handoff',{}).get('messages',[])
+    messages=[{'source_turn':r['id'],'text':json.loads(r['payload_json']).get('message','')} for r in conn.execute('SELECT id,payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at,id',(segment['id'],))]
+    payload['pipeline_handoff']={'source_segment':segment['id'],'source_turn':record['id'],'user_message':payload['message'],'messages':(prior+messages)[-40:]}
+    return {'queued':True,'message':'本轮结束后绑定所选管线，由宿主自动续接；不要让用户为了内部切换回复继续。','entry':entry}
+
+
 def dispatch(bridge,conn,record,payload,segment,args,command_id):
     conversations=bridge.conversations
     mode=args['mode']
@@ -489,56 +582,7 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
     if mode in {'answer','bind','draft'} and (not quote or quote not in payload['message']):
         fail('invalid_source','操作必须引用本轮用户的原话',403)
     if mode=='bind':
-        values=args.get('values',{})
-        if set(values)-{'kind','channel_id','director_revision','director_trial','work_id','output_id'}:fail('invalid_input','不能通过管线切换修改画像')
-        previous=json.loads(segment['context_json'])
-        next_kind=values.get('kind',previous.get('kind','new_work'))
-        inherited={}
-        if next_kind=='new_work' or next_kind==previous.get('kind','new_work') or (segment['work_id'] and next_kind in {'continue','revise'}):
-            if previous.get('channel_id'):inherited['channel_id']=previous['channel_id']
-            for key in ('director_revision','director_trial'):
-                if key in previous.get('settings',{}):inherited[key]=previous['settings'][key]
-        entry={'profile_ref':segment['profile_ref'],'kind':next_kind,**inherited,**values}
-        if segment['work_id'] and next_kind in {'new_work','continue','revise'}:
-            # New works use the explicit conversation entry, never an accidental
-            # omission in a model's rebind call.
-            entry.setdefault('work_id',segment['work_id'])
-            if (entry.get('channel_id')!=previous.get('channel_id')
-                or entry.get('director_revision')!=previous.get('settings',{}).get('director_revision')
-                or bool(entry.get('director_trial'))!=bool(previous.get('settings',{}).get('director_trial'))):
-                fail('revision_required','当前作品的设置变更须使用 basis 或方案修订；另建作品请使用新作入口',409)
-        if entry.get('kind','new_work') not in {'new_work','channel_create','director_formation','revise','continue'}:fail('invalid_input','管线无效')
-        if entry.get('work_id'):
-            work=row(conn,'works',entry['work_id'])
-            if work['profile_ref']!=segment['profile_ref']:fail('binding_mismatch','不能切换到其他画像作品',403)
-            if work['id']!=segment['work_id']:fail('binding_mismatch','请从作品库打开其他作品',403)
-        if entry.get('channel_id'):
-            channel=row(conn,'channels',entry['channel_id'])
-            if channel['archived'] or channel['profile_ref']!=segment['profile_ref']:fail('binding_mismatch','频道不可用或画像不一致',403)
-        if entry.get('director_revision'):
-            version=row(conn,'director_revisions',entry['director_revision'])
-            if row(conn,'directors',version['director_id'])['archived']:fail('invalid_input','导演已归档')
-            if entry.get('kind')!='director_formation':
-                conversations.service._director_version(conn,version['id'],bool(entry.get('director_trial')))
-        # Selecting the already active, unbound pipeline is not a handoff.
-        # Keep the native turn alive so explicit user choices can be resolved
-        # and used now, rather than asking the Creator to repeat them next turn.
-        unchanged=(segment['work_id']==entry.get('work_id')
-            and entry['kind']==previous.get('kind','new_work')
-            and entry.get('channel_id')==previous.get('channel_id')
-            and entry.get('director_revision')==previous.get('settings',{}).get('director_revision')
-            and bool(entry.get('director_trial'))==bool(previous.get('settings',{}).get('director_trial'))
-            and entry.get('output_id')==previous.get('output_id'))
-        if unchanged:
-            return {'already_bound':True,'queued':False,
-                'missing_choices':[k for k,v in [('channel',entry.get('channel_id') or not segment['profile_ref']),('director',entry.get('director_revision'))] if not v] if next_kind=='new_work' else [],
-                'message':'当前已在此管线，无需结束本轮。请继续读取pending与用户来源，解析已明确的频道/导演并绑定真实目标；已有选择不要重复询问。'}
-        # Native turn must end before a new immutable segment may become current.
-        payload['pipeline_entry']=entry
-        prior=json.loads(segment['context_json']).get('handoff',{}).get('messages',[])
-        messages=[{'source_turn':r['id'],'text':json.loads(r['payload_json']).get('message','')} for r in conn.execute('SELECT id,payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at,id',(segment['id'],))]
-        payload['pipeline_handoff']={'source_segment':segment['id'],'source_turn':record['id'],'user_message':payload['message'],'messages':(prior+messages)[-40:]}
-        return {'queued':True,'message':'本轮结束后绑定所选管线，由宿主自动续接；不要让用户为了内部切换回复继续。','entry':entry}
+        return bind_selection(conversations,conn,record,payload,segment,args.get('values',{}))
     if mode=='draft':
         kind=json.loads(segment['context_json']).get('kind','new_work')
         if kind=='channel_create':fail('pipeline_mismatch','频道设置不创建作品',409)
@@ -562,6 +606,7 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
         allowed={'channel_create':{'channel_create','channel_defaults','pipeline'},'director_formation':{'draft','director_formation','director_revision','pipeline'}}.get(kind,{'draft','plan','revision','pipeline'})
         if p['kind'] not in allowed:fail('pipeline_mismatch','此操作应在对应管线完成',409)
         if p['kind'] in {'plan','draft'} and kind!='director_formation':require_choices(segment)
-        result=conversations.apply(segment['ui_session'],p['id'],p['body_hash'],command_id,dismiss=args.get('dismiss',False),_connection=conn,_turn_id=record['id'])
+        result=conversations.apply(segment['ui_session'],p['id'],p['body_hash'],command_id,dismiss=args.get('dismiss',False),_connection=conn,_turn_id=record['id'],
+            _bind=lambda values:bind_selection(conversations,conn,record,payload,segment,values,confirmed=True))
         return {**result,'user_source':record['id'],'answered_proposal':p['id']}
     fail('invalid_input','管线操作无效')

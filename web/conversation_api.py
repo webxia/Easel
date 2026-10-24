@@ -235,6 +235,11 @@ class VideoChat:
         seq=0;chunks=[];done=False;next_result_write=0.0;finish_reason=None
         preparation=self.context_preparer(bridge,self.gateway_url,self.gateway_token)
         submitted=False
+        # Before a Work is bound, a native turn can hand off to a new segment.
+        # Its prose is intermediate; publish only the final segment's reply.
+        with service.store.connection() as conn:
+            segment=bridge.conversations.segment(conn,session)
+        buffer_reply=not segment['work_id']
         if event_path.exists() and event_sink is None:
             for line in event_path.read_text().splitlines():
                 try:seq=max(seq,json.loads(line).get('id',0))
@@ -276,7 +281,8 @@ class VideoChat:
                         finish_reason=choice.get('finish_reason') or finish_reason
                         text=(choice.get('delta') or {}).get('content')
                         if text:
-                            chunks.append(text);emit('token',text)
+                            chunks.append(text)
+                            if not buffer_reply:emit('token',text)
                             if background and asyncio.get_running_loop().time()>=next_result_write:
                                 bridge.record_result_text(turn_id,''.join(chunks))
                                 next_result_write=asyncio.get_running_loop().time()+0.25
@@ -300,6 +306,7 @@ class VideoChat:
                 return
             if data.get('pipeline_entry'):
                 raise ValueError('handoff_not_ready')
+            if buffer_reply:emit('token',''.join(chunks))
             bridge.complete_delivery(turn_id,''.join(chunks))
             view=ConversationService(service).view(session)
             self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':display_turn_id or turn_id})

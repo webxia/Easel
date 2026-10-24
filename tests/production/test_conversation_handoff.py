@@ -89,6 +89,7 @@ def test_web_binding_continues_before_single_done(env,tmp_path,monkeypatch):
             ident=dict(agent_id='main',session_key='agent:main:easel-pipeline:'+view['segment_id'],session_id='native-'+view['segment_id'],run_id='native-run-'+str(n))
             b.claim(Claim(**ident,prompt=self.body['messages'][0]['content']))
             if n==1:
+                yield 'data: '+json.dumps({'choices':[{'delta':{'content':'切换前的重复讨论'}}]})
                 pipe(b,ident,'bind',user_quote='用频道甲和导演甲',values={'channel_id':channel,'director_revision':'v4','director_trial':True})
             else:
                 assert not any(k=='done' for k,_ in events)
@@ -104,6 +105,7 @@ def test_web_binding_continues_before_single_done(env,tmp_path,monkeypatch):
     monkeypatch.setattr(api.httpx,'AsyncClient',Client)
     chat=api.VideoChat(lambda:s,lambda _:tmp_path/'events',lambda *a:saved.append(a),gateway_url='http://fixture',gateway_token='fixture')
     asyncio.run(chat._deliver('ui','first',initial,tmp_path/'events',event_sink=lambda k,v:events.append((k,v))))
+    assert ''.join(v for k,v in events if k=='token')=='开始讨论选题'
     assert len(calls)==2
     assert [k for k,_ in events].count('done')==1
     assert events[-1][0]=='done'
