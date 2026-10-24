@@ -201,7 +201,7 @@ class CreationTasks:
                 context = replace(context, plan=execution_plan,
                     brief=context.brief + ('\n本片按真实旁白定长，遵守实测音轨位置：' if timing['mode']=='voice_driven' else
                         '\n本片保持确认的固定总时长；以下是真实旁白长度与可靠字幕锚点，音轨位置仅为建议。按实际讲述安排核心画面，留白须有动作、阅读或叙事用途，不为凑时长堆积空镜。不能改写旁白、拉伸字幕或改声音参数；无法落实时如实报告未落实场景：') + encode(timing))
-            context=replace(context,artifacts=tuple({'asset_id':r['id'],'kind':r['kind'],'metadata':json.loads(r['metadata_json'])} for r in records),allowed_handles=context.allowed_handles|frozenset(manifest.assets))
+            context=replace(context,editor_view=True,artifacts=tuple({'asset_id':r['id'],'kind':r['kind'],'metadata':json.loads(r['metadata_json'])} for r in records),allowed_handles=context.allowed_handles|frozenset(manifest.assets))
             observations=[];required={'text','structured'};observed={};source_durations={}
             # M3.1 accepts visual frames but not input_audio. Measured local
             # acoustic properties may support an EDIT PREVIEW; they do not

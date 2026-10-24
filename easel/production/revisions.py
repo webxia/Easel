@@ -326,9 +326,10 @@ class RevisionTasks:
                 base_data['closing_mix_evidence'] = closing_mix_evidence(base, measures)
 
             def candidate_context(items):
-                return replace(context,brief=context.brief+'\n用户对指定版本的反馈：'+review['feedback'],
+                modern = context.expression_policy.get('version') == 'natural-expression-3'
+                return replace(context,editor_view=True,brief=context.brief+'\n用户对指定版本的反馈：'+review['feedback'],
                     artifacts=(base_data,*({'asset_id':r['id'],'kind':r['kind'],'metadata':{
-                        k:v for k,v in json.loads(r['metadata_json']).items() if k in {'source','rights','scene_ids','role','duration','segment_id','text','technical'}}} for r in items)),
+                        k:v for k,v in json.loads(r['metadata_json']).items() if modern or k in {'source','rights','scene_ids','role','duration','segment_id','text','technical'}}} for r in items)),
                     allowed_handles=context.allowed_handles|frozenset([output['id'],*(r['id'] for r in items)]))
             from .inspection import observe_media
             audio_native=bool(self.planning.transport and 'audio' in self.planning.transport.capabilities)

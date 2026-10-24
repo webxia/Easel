@@ -29,4 +29,4 @@
 
 ## 待评审方案
 
-- [CRE-01 · V2.1版本主任务](CRE-01_creative-context-expression.md)：[完整版本规划](../../architecture/creative-context-expression-proposal.md)；整体设计、一次性完成范围内实现、统一调试验收。P1/P2作为内部工作包全部纳入，任务/依赖/验收已建档；仅文档授权，未开发，不替换当前生产断点。
+- [CRE-01 · V2.1版本主任务](CRE-01_creative-context-expression.md)：[完整版本规划](../../architecture/creative-context-expression-proposal.md)；2026-10-25已授权从最新V2创建easel-v2.1-rebuild集中实施，完成后统一调试。当前离线验证通过，部署和真实制作未授权，原生产断点保留。

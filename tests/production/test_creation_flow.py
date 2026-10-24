@@ -27,6 +27,7 @@ class ScriptedModel:
         assert RULES[role] in messages[0]["content"]
         if schema['title']=='CreativeEdit':
             data=json.loads(messages[1]['content'][0]['text'])
+            assert data['task_view']['version'] == 'editor-context-1'
             captions=[]
             if self.overlay_repair:
                 font=next(a['asset_id'] for a in data['artifacts'] if a['kind']=='font')
@@ -68,7 +69,7 @@ def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_pat
         creation.editor=FailFirstRender(creation.editor)
     image=tmp_path/'input.png';Image.new('RGB',(400,300),'blue').save(image)
     async def supply(ctx):
-        artifact=register_file(service,ctx,image,kind='image',media_type='image/png',metadata={'source':'synthetic test'})
+        artifact=register_file(service,ctx,image,kind='image',media_type='image/png',metadata={'source':'synthetic test','semantic':{'caption':'offline synthetic image','observation_scope':'fixture'},'candidate_only':False})
         ids=[artifact['id']]
         if overlay_repair:
             from pathlib import Path

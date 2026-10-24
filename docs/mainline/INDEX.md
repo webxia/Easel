@@ -35,7 +35,7 @@
 
 ## 待审阅的新需求方案
 
-- [V2.1版本规划：创作依据、上下文与自然表达](architecture/creative-context-expression-proposal.md)：六维画像/频道/导演/本期内容、输入精简及表达改进整体设计，集中实现完成后统一调试验收；[CRE-01版本主任务](project/tasks/CRE-01_creative-context-expression.md)已建齐内部工作包、依赖和验收矩阵。本轮仅规划，未授权开发、部署或制作。
+- [V2.1版本规划：创作依据、上下文与自然表达](architecture/creative-context-expression-proposal.md)：已按2026-10-25授权在easel-v2.1-rebuild集中实施，统一离线验证通过；[CRE-01版本主任务](project/tasks/CRE-01_creative-context-expression.md)记录工作包、依赖与验收。未部署、未真实模型或媒体制作。
 
 - [成片确认到发布](architecture/publication-proposal.md)：优先复用原发布能力，列明现状、补齐范围、版本/账号/确认与平台回执；首批B站已授权开发；由[父任务PUB-01](project/tasks/PUB-01_acceptance-publication.md)记录实现、离线验收与后续真实复验；本轮真实B站投稿已获授权并实际提交，平台审核中；公开结果按父任务继续核实。
 
