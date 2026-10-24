@@ -207,3 +207,55 @@ test('in-flight entry blocks duplicate execution and transitions only on valid s
   assert.equal(dispatches,1);
  } finally {await r.hooks.get('agent_end')({},ordinary);globalThis.fetch=old;}
 });
+
+test('official overflow retry reclaims original turn despite continuation prompt; only final end closes it',async()=>{
+ const r=runtime(),old=globalThis.fetch,requests=[];
+ const initial='用户要求修改方案';const continuation='Continue from the current transcript after compaction.';
+ globalThis.fetch=async(url,options)=>{const body=JSON.parse(options.body);requests.push({url,body});
+  if(url.endsWith('/claim')){assert.equal(body.prompt,initial);return response({bound:true,permission_policy:'main-pipeline-v1',system_prompt:'PRODUCT ONLY'});}
+  return response(url.endsWith('/prepare')?{ticket:'server-owned-long-ticket-123456'}:{ended:true});
+ };
+ try{
+  await r.hooks.get('before_prompt_build')({prompt:initial},ctx);
+  await r.hooks.get('before_tool_call')({toolName:'easel_pipeline',toolCallId:'before-overflow',params:{mode:'pending'}},ctx);
+  await r.hooks.get('agent_end')({success:false,error:'Context overflow: prompt too large for the model (mid-turn precheck).'},ctx);
+  assert.equal(requests.filter(x=>x.url.endsWith('/end')).length,0);
+  await assert.rejects(r.tools(ctx).find(t=>t.name==='easel_pipeline').execute('before-overflow',{mode:'pending'}),/missing_native_call_binding/);
+  const policy=await r.hooks.get('before_prompt_build')({prompt:continuation},ctx);
+  assert.equal(policy.systemPrompt,'PRODUCT ONLY');
+  assert.equal(await r.hooks.get('before_agent_run')({prompt:continuation},ctx),undefined);
+  assert.equal((await r.hooks.get('before_tool_call')({toolName:'exec'},ctx)).block,true);
+  assert.equal((await r.hooks.get('before_agent_run')({prompt:continuation},{...ctx,runId:'different'})).outcome,'block');
+  assert.equal(requests.filter(x=>x.url.endsWith('/claim')).length,2);
+  await r.hooks.get('agent_end')({success:true,messages:[]},ctx);
+  assert.equal(requests.filter(x=>x.url.endsWith('/end')).length,1);
+  assert.equal((await r.hooks.get('before_agent_run')({prompt:continuation},ctx)).outcome,'block');
+ }finally{globalThis.fetch=old;}
+});
+
+test('overflow retry still checks server revocation; ordinary failure and quoted overflow do not keep turn active',async()=>{
+ const r=runtime(),old=globalThis.fetch;let deny=false;const calls=[];
+ globalThis.fetch=async(url)=>{calls.push(url);if(deny&&url.endsWith('/claim'))return new Response(JSON.stringify({error:{code:'binding_mismatch',user_message:'会话已撤销'}}),{status:403});return response({bound:true,permission_policy:'main-pipeline-v1',system_prompt:'ONLY'});};
+ try{
+  await r.hooks.get('before_prompt_build')({prompt:'first'},ctx);
+  await r.hooks.get('agent_end')({messages:[{role:'assistant',stopReason:'error',errorMessage:'Context overflow: prompt too large for the model'}]},ctx);
+  deny=true;
+  assert.deepEqual((await r.hooks.get('before_prompt_build')({prompt:'continue'},ctx)).toolsAllow,[]);
+  assert.equal((await r.hooks.get('before_agent_run')({prompt:'continue'},ctx)).outcome,'block');
+  deny=false;await r.hooks.get('before_prompt_build')({prompt:'first'},ctx);
+  await r.hooks.get('agent_end')({success:false,error:'network unavailable',messages:[{role:'user',content:'Context overflow:'}]},ctx);
+  assert.equal(calls.filter(x=>x.endsWith('/end')).length,1);
+  assert.equal((await r.hooks.get('before_agent_run')({prompt:'first'},ctx)).outcome,'block');
+ }finally{globalThis.fetch=old;}
+});
+
+test('specific missing revision target reaches the model instead of an ambiguous not_found',async()=>{
+ const r=runtime(),old=globalThis.fetch;
+ globalThis.fetch=async(url)=>url.endsWith('/claim')?response({bound:true,permission_policy:'main-pipeline-v1',system_prompt:'ONLY'}):url.endsWith('/prepare')?response({ticket:'server-owned-long-ticket-123456'}):new Response(JSON.stringify({error:{code:'plan_revision_required',user_message:'当前为未确认方案，使用plan和intent=replan，不要重复确认'}}),{status:409});
+ try{
+  await r.hooks.get('before_prompt_build')({prompt:'request'},ctx);
+  const params={mode:'offer',action:'revise',values:{feedback:'改口播'}};
+  await r.hooks.get('before_tool_call')({toolName:'easel_pipeline',toolCallId:'bad-revise',params},ctx);
+  await assert.rejects(r.tools(ctx).find(t=>t.name==='easel_pipeline').execute('bad-revise',params),/plan_revision_required:.*未确认方案.*不要重复确认/);
+ }finally{globalThis.fetch=old;}
+});

@@ -165,6 +165,9 @@ class ConversationService:
         # Proposed target comes only from the selected entry/Work, never free model IDs/paths.
         target=json.loads(segment['context_json'])
         if segment['work_id']:target={**target,'settings':json.loads(row(conn,'works',segment['work_id'])['settings_json'])}
+        if kind=='revision' and segment['work_id']:
+            from .production.revisions import revision_output
+            revision_output(conn,row(conn,'works',segment['work_id']),{'output_id':target.get('output_id','')})
         if kind=='channel_defaults' and target.get('channel_id'):
             channel=row(conn,'channels',target['channel_id'])
             target['channel']={'id':channel['id'],'name':channel['name'],'revision':channel['revision'],'settings':json.loads(channel['settings_json']),'creative_basis':json.loads(channel['creative_basis_json'])}

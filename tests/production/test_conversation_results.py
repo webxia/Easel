@@ -510,3 +510,48 @@ def test_recovered_second_output_delivered_locally_once_without_media_work(env):
     assert view['result_messages'][-1]['content']==result['answer']
     assert view['result_messages'][-1]['resultState']=='ended'
     assert '制作已暂停' in view['result_messages'][-2]['content']  # preserve historical evidence
+
+
+def test_unconfirmed_narration_change_reuses_plan_without_revision_confirmation(env):
+    s,c,seg,work,_,worker=planning(env)
+    asyncio.run(worker.run_once())
+    before=s.snapshot(work)
+    message='口播我不是很满意，句子短一点，按原观点改稿'
+    b,i,_=turn(s,c,seg,message,id='narration-edit')
+    with s.store.connection() as conn:
+        count=conn.execute('SELECT count(*) FROM conversation_proposals').fetchone()[0]
+    for action,values in [('revise',{'feedback':message,'scope':'narration','preserve_audio':False}),
+                          ('confirm_revision',{'review_id':'conversation-proposal-id','change_hash':'fake','services':[]})]:
+        with pytest.raises(ProductionError) as exc:
+            pipe(b,i,'offer',action=action,values=values)
+        assert exc.value.code in {'plan_revision_required','revision_review_missing'}
+    with pytest.raises(ProductionError,match='未确认方案'):
+        tool(b,i,'easel_work_request_revision',{'feedback':message})
+    with s.store.connection() as conn:
+        assert conn.execute('SELECT count(*) FROM conversation_proposals').fetchone()[0]==count
+    result=pipe(b,i,'offer',action='plan',values={'intent':'replan','request':message},user_quote=message)
+    assert result['replanned'] and not result['requires_user_confirmation']
+    assert pipe(b,i,'offer',action='plan',values={'intent':'replan','request':message},user_quote=message)==result
+    after=s.snapshot(work)
+    assert len(after['runs'])==len(before['runs'])+1
+    assert all(r['kind']=='planning' for r in after['runs'])
+    assert after['artifacts']==before['artifacts']==[]
+    assert after['plans']==before['plans']
+    with s.store.connection() as conn:
+        assert conn.execute('SELECT count(*) FROM reviews').fetchone()[0]==0
+        assert conn.execute("SELECT count(*) FROM authorization_grants WHERE purpose='production'").fetchone()[0]==0
+
+
+def test_historical_invalid_revision_proposal_is_readable_but_not_answerable(env):
+    s,c,seg,work,_,worker=planning(env);asyncio.run(worker.run_once())
+    b,i,_=turn(s,c,seg,'修改口播',id='old-bad-revision')
+    # Reproduce a proposal persisted by the old entry, without calling new validation.
+    with s.store.transaction() as conn:
+        from easel.production.service import row
+        p=c.proposal(conn,row(conn,'conversation_segments',seg),'pipeline',
+                     {'action':'revise','payload':{'feedback':'修改口播'},'catalog_target':{},'summary':'旧提案'},['old-bad-revision'])
+    pending=pipe(b,i,'pending')
+    old=next(v for v in pending['pending'] if v['id']==p['proposal_id'])
+    assert old['can_answer'] is False and old['validation_code']=='plan_revision_required'
+    assert '重新规划' in pending['replanning']['instruction']
+    assert not any(r['kind']=='revision' for r in s.snapshot(work)['runs'])

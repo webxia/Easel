@@ -738,3 +738,15 @@ def test_natural_entry_failure_has_no_success_receipt_or_partial_segment(env, mo
     with service.store.connection() as conn:
         for table in ('conversation_segments', 'conversation_turns', 'works', 'runs', 'tasks', 'operations', 'authorization_grants'):
             assert conn.execute('SELECT count(*) FROM '+table).fetchone()[0] == 0
+
+
+def test_same_native_turn_can_reclaim_during_compaction_but_not_after_end(env):
+    s,c=env;seg=entry(c,profile_ref='one')
+    b,i,reserved=turn(s,c,seg,'修改方案',id='compaction-reclaim')
+    # Plugin retains the original authenticated prompt only for an internal
+    # overflow retry; the server still verifies identity, liveness and revocation.
+    assert b.claim(Claim(**i,prompt=reserved['prompt']))['bound']
+    raises('binding_mismatch',lambda:b.claim(Claim(**i,prompt='Continue from transcript')))
+    raises('binding_mismatch',lambda:b.claim(Claim(**{**i,'run_id':'another-run'},prompt=reserved['prompt'])))
+    b.end(Identity(**i))
+    raises('binding_mismatch',lambda:b.claim(Claim(**i,prompt=reserved['prompt'])))

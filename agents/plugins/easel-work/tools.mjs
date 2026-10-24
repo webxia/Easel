@@ -116,7 +116,7 @@ export function createWorkBridge(api) {
     const result = await response.json();
     if (!response.ok) {
       const code = result?.error?.code ?? 'work_bridge_unavailable';
-      const hint = ['invalid_input','invalid_source','work_not_bound'].includes(code) ? result?.error?.user_message : undefined;
+      const hint = ['invalid_input','invalid_source','work_not_bound','not_found','plan_revision_required','revision_target_missing','revision_review_missing','stale_revision','binding_mismatch','confirmation_required'].includes(code) ? result?.error?.user_message : undefined;
       const error = new Error(code + (typeof hint === 'string' ? ': ' + hint : ''));
       // Only structured bridge codes may be echoed by the natural-entry gate.
       error.bridgeCode = typeof code === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(code) ? code : 'work_bridge_unavailable';
@@ -126,12 +126,16 @@ export function createWorkBridge(api) {
   }
   if (scopedMain) api.on('before_prompt_build', async (event, ctx) => {
     if (!inPipeline(ctx)) return;
+    const previous = prepared.get(runKey(ctx));
     prepared.delete(runKey(ctx));
     try {
       if (!ctx.runId || !ctx.sessionId) throw new Error('missing native identity');
-      const value = await send('claim', {...identity(ctx), prompt:event.prompt});
+      // A native mid-turn compaction retries with a continuation prompt. Reclaim
+      // the original authenticated turn, never adopt that text as new user intent.
+      const claimPrompt = previous?.retryPending ? previous.claimPrompt : event.prompt;
+      const value = await send('claim', {...identity(ctx), prompt:claimPrompt});
       if (!value.bound || value.permission_policy !== 'main-pipeline-v1' || typeof value.system_prompt !== 'string' || !value.system_prompt.trim()) throw new Error('missing scoped policy');
-      prepared.set(runKey(ctx), hash(event.prompt));
+      prepared.set(runKey(ctx), {promptHash:hash(event.prompt), claimPrompt, retryPending:false});
       return {systemPrompt:value.system_prompt, toolsAllow:[...names]};
     } catch {
       // The input gate below blocks model execution, not merely tool visibility.
@@ -153,7 +157,7 @@ export function createWorkBridge(api) {
       return;
     }
     if (scopedMain) {
-      if (prepared.get(runKey(ctx)) !== hash(event.prompt)) return {outcome:'block', reason:'easel_pipeline_not_prepared', message:'管线权限未就绪，本轮未执行。'};
+      if (prepared.get(runKey(ctx))?.promptHash !== hash(event.prompt)) return {outcome:'block', reason:'easel_pipeline_not_prepared', message:'管线权限未就绪，本轮未执行。'};
       return;
     }
     try {
@@ -198,6 +202,16 @@ export function createWorkBridge(api) {
     const entry = entries.get(runKey(ctx));
     if (scopedMain && ctx.agentId === 'main' && !inPipeline(ctx) && entry?.entered) {
       await send('entry', {...identity(ctx,event), mode:'end', prompt:''});
+    }
+    // OpenClaw emits agent_end for an internal attempt before its official
+    // overflow compaction/retry. That is not the end of the Easel turn.
+    const lastAssistant = Array.isArray(event.messages) ? event.messages.findLast(m => m?.role === 'assistant') : undefined;
+    const overflowError = event.error || (lastAssistant?.stopReason === 'error' ? lastAssistant.errorMessage : '');
+    const retryingOverflow = /^(?:Context overflow:|prompt too large for the model)/i.test(overflowError || '');
+    if (scopedMain && inPipeline(ctx) && prepared.has(runKey(ctx)) && retryingOverflow) {
+      prepared.get(runKey(ctx)).retryPending = true;
+      for (const [id, call] of calls) if (call.run_id === ctx.runId && call.session_key === ctx.sessionKey && call.session_id === ctx.sessionId) calls.delete(id);
+      return;
     }
     entries.delete(runKey(ctx));
     const bound = identity(ctx, event);

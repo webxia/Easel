@@ -218,6 +218,16 @@ def pending(conversations, conn, segment):
                 proposal['can_answer']=True
             except ProductionError as exc:
                 proposal.update(can_answer=False,validation_code=exc.code,validation_error=str(exc),next_action={'mode':'offer','action':'grant','values':{'purpose':'planning'}} if values['payload'].get('purpose')=='planning' and exc.code in {'invalid_input','stale_revision'} else None)
+        if r['state']=='proposed' and (r['kind']=='revision' or r['kind']=='pipeline' and values.get('action') in {'revise','confirm_revision'}):
+            try:
+                if r['kind']=='revision':
+                    from .production.revisions import revision_output
+                    revision_output(conn,row(conn,'works',segment['work_id']),{'output_id':proposal['body']['target'].get('output_id','')})
+                else:
+                    scoped(conversations,conn,segment,values['action'],values['payload'])
+                proposal['can_answer']=True
+            except ProductionError as exc:
+                proposal.update(can_answer=False,validation_code=exc.code,validation_error=str(exc))
         proposals.append(proposal)
     from .production.configuration import capabilities
     services = capabilities(conversations.service.outputs.parent)
@@ -285,7 +295,7 @@ def pending(conversations, conn, segment):
                 'input_constraint':'活动运行不允许改创作输入，不能承诺上传即可续作；不得为解除阻断擅自取消作品。',
                 'resume_instruction':'UNKNOWN不重发；普通恢复先核对缺口条件是否已改变，或是否为可安全重试的临时故障。resume不是修复本身，不盲目反复继续。',
                 'coverage':'只解释已有记录；未执行的后续步骤不得声称通过或失败。选项不构成授权。'})
-    return {'replanning':{'action':'plan','values':{'intent':'replan'},'instruction':'仅当本轮真人明确要求改变原方案重新规划时使用，request写明变更范围，user_quote引用真实原话；沿用已有规划授权直接执行。继续制作使用resume。新方案完成后仍须确认制作。'},'blockers':blockers,'failed_planning_replan':failed_recovery,'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
+    return {'replanning':{'action':'plan','values':{'intent':'replan'},'instruction':'未确认方案改口播、分镜或结构均使用此入口；已确认方案仅在真人明确要求重新规划时使用。request写明变更范围，user_quote引用真实原话；沿用已有规划授权直接执行。继续制作使用resume。新方案完成后仍须确认制作。'},'blockers':blockers,'failed_planning_replan':failed_recovery,'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
             'preoutput_replan':recovery,
             'current_plan':next((p for p in work['plans'] if p['revision']==work['current_plan_revision']),None) if work else None,
             'publication':{'platform':'bilibili','drafts':[publications(conversations)._get(conn,r[0]) for r in conn.execute('SELECT id FROM publication_drafts WHERE work_id=? ORDER BY updated_at DESC',(segment['work_id'],))], 'account_status':'not_checked','submission':'existing_publication_page_final_confirmation'},
@@ -321,6 +331,11 @@ def scoped(conversations,conn,segment,action,values):
         if action in {'plan','confirm','replan_after_unknown'}: require_choices(segment)
         if set(values)-WORK_ACTIONS[action]:fail('invalid_input','动作包含未允许字段')
         if not segment['work_id']:fail('work_not_bound','先建立本期草稿',409)
+        if action in {'revise','confirm_revision'}:
+            from .production.revisions import revision_output,revision_confirmation
+            work=row(conn,'works',segment['work_id'])
+            if action=='revise':revision_output(conn,work,values)
+            else:revision_confirmation(conn,work,values)
         if values.get('output_id'):
             artifact=row(conn,'artifacts',values['output_id'])
             if artifact['work_id']!=segment['work_id'] or artifact.get('deleted_at'):fail('binding_mismatch','成片不属于当前作品',403)

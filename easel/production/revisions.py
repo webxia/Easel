@@ -17,10 +17,23 @@ from .service import row,fail,encode,now,new_id,digest
 from .creative_captions import edit_data, check_caption_layout
 
 
+def revision_output(conn,work,data):
+    # Shared by proposal and execution: a plan is not a rendered output.
+    output=conn.execute('SELECT * FROM artifacts WHERE id=?',(data.get('output_id',''),)).fetchone()
+    if not output:
+        plan=conn.execute('SELECT confirmed_at FROM plan_revisions WHERE work_id=? AND revision=?',
+                          (work['id'],work['current_plan_revision'])).fetchone()
+        if plan and not plan['confirmed_at']:
+            fail('plan_revision_required','当前修改对象是未确认方案。改稿请使用已有plan入口，intent=replan，request写修改范围并引用本轮user_quote；已有规划授权不重复确认。不要重建成片修订提案。',409)
+        fail('revision_target_missing','没有找到指定成片版本，请读取当前作品选择真实output_id；这不是对话提案丢失，不要要求重复确认。',409)
+    output=dict(output)
+    if output['work_id']!=work['id'] or output['output_revision'] is None or output.get('deleted_at') or not output['displayable']:fail('invalid_input','请选择本作品的具体成片版本')
+    return output
+
+
 def request_revision(service,conn,work,data):
     service._ensure_idle(conn,work)
-    output=row(conn,'artifacts',data.get('output_id',''))
-    if output['work_id']!=work['id'] or output['output_revision'] is None or output.get('deleted_at') or not output['displayable']:fail('invalid_input','请选择本作品的具体成片版本')
+    output=revision_output(conn,work,data)
     feedback=str(data.get('feedback','')).strip()
     if not feedback or len(feedback)>10000:fail('invalid_input','请输入需要修改的具体内容')
     if type(data.get('preserve_audio',False)) is not bool:fail('invalid_input','声音保护选项须为布尔值')
@@ -417,16 +430,23 @@ class RevisionTasks:
             return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError(getattr(exc,'code','revision_scope_changed'),getattr(exc,'user_message',str(exc)),requires_decision=True))
 
 
-def confirm_revision_scope(service,conn,work,data):
-    review=row(conn,'reviews',data.get('review_id',''))
+def revision_confirmation(conn,work,data):
+    review=conn.execute('SELECT * FROM reviews WHERE id=?',(data.get('review_id',''),)).fetchone()
+    if not review:fail('revision_review_missing','没有对应的实际修订记录；review_id不是对话proposal_id。请读取真实任务状态；未确认方案改稿走plan、intent=replan，不重建确认提案。',409)
+    review=dict(review)
     if review['work_id']!=work['id']:fail('invalid_input','修订不属于当前作品')
-    changes=json.loads(review['changes_json'])
+    changes=json.loads(review['changes_json'] or '{}')
     if not changes.get('summary') or digest(changes)!=data.get('change_hash'):
         fail('stale_revision','修订影响已变化，请重新查看',409)
     active=row(conn,'runs',work['active_run_id']) if work['active_run_id'] else None
     pending=conn.execute("SELECT payload_json FROM tasks WHERE run_id=? AND kind='revise' AND state='needs_decision'",(active['id'],)).fetchone() if active else None
     if not active or active['kind'] not in {'revision','production'} or active['state']!='needs_decision' or not pending or json.loads(pending[0]).get('review_id')!=review['id']:
         fail('invalid_input','当前没有等待确认的此项修订')
+    return review,changes,active,pending
+
+
+def confirm_revision_scope(service,conn,work,data):
+    review,changes,active,pending=revision_confirmation(conn,work,data)
     conn.execute("UPDATE runs SET state='superseded',owner_epoch=owner_epoch+1,updated_at=? WHERE id=?",(now(),active['id']))
     conn.execute("UPDATE tasks SET state='cancelled',updated_at=? WHERE run_id=? AND state!='succeeded'",(now(),active['id']))
     if data.get('services'):service._insert_grant(conn,work,'planning',data)
