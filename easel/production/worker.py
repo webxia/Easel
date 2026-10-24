@@ -95,6 +95,34 @@ def _check_lease(connection, lease, now):
     return run, work
 
 
+def tasks_completed(connection, run_id):
+    """Retired failed renders count only with a committed recovery and replacement.
+
+    Cancellation itself is never success; dependency edges remain authoritative.
+    """
+    tasks = {t['id']: t for t in connection.execute('SELECT * FROM tasks WHERE run_id=?', (run_id,))}
+    if not tasks or connection.execute("SELECT 1 FROM operations WHERE run_id=? AND state IN ('reserved','sending','submitted','unknown')", (run_id,)).fetchone():
+        return False
+    dependencies = [(d['task_id'], d['depends_on']) for d in connection.execute(
+        'SELECT d.* FROM task_dependencies d JOIN tasks t ON t.id=d.task_id WHERE t.run_id=?', (run_id,))]
+    if any(child not in tasks or parent not in tasks or tasks[parent]['state'] != 'succeeded'
+           for child, parent in dependencies):
+        return False
+    retired = set()
+    for event in connection.execute("SELECT * FROM events WHERE run_id=? AND kind='edit_recovery_requested'", (run_id,)):
+        data = json.loads(event['payload_json'])
+        old, edit = tasks.get(data.get('render_task_id')), tasks.get(data.get('edit_task_id'))
+        if (old is None or edit is None or old['kind'] != 'render' or old['state'] != 'cancelled'
+                or edit['kind'] != 'edit' or edit['state'] != 'succeeded'
+                or (old['id'], edit['id']) not in dependencies):
+            continue
+        if any(t['kind'] == 'render' and t['state'] == 'succeeded'
+               and t['created_at'] >= event['created_at'] and (t['id'], edit['id']) in dependencies
+               for t in tasks.values()):
+            retired.add(old['id'])
+    return all(t['state'] == 'succeeded' or t['id'] in retired for t in tasks.values())
+
+
 Handler = Callable[[TaskContext], Awaitable[TaskResult]]
 
 
@@ -169,8 +197,7 @@ class Worker:
                 ORDER BY t.created_at,t.id LIMIT 1""", (lease.run_id,)).fetchone()
             if row:
                 return dict(row)
-            states = [item[0] for item in writer.execute("SELECT state FROM tasks WHERE run_id=?", (lease.run_id,))]
-            if states and all(state == "succeeded" for state in states):
+            if tasks_completed(writer, lease.run_id):
                 writer.execute("UPDATE runs SET state='succeeded',revision=revision+1,updated_at=? WHERE id=?", (utc_now(), lease.run_id))
                 self.store.append_event(writer, lease.work_id, "run_completed", {"run_id": lease.run_id}, run_id=lease.run_id)
             else:
@@ -178,6 +205,26 @@ class Worker:
                 writer.execute("UPDATE runs SET state='needs_decision',revision=revision+1,updated_at=? WHERE id=?", (utc_now(), lease.run_id))
                 self.store.append_event(writer, lease.work_id, "decision_required", error.as_dict(), run_id=lease.run_id)
             return None
+
+    def reconcile_completed_run(self, run_id: str) -> bool:
+        """Close a proven dependency-only false stop without executing any task."""
+        with self.store.transaction() as writer:
+            run = writer.execute('SELECT * FROM runs WHERE id=?', (run_id,)).fetchone()
+            if run is None or run['state'] != 'needs_decision' or run['owner_id'] or run['cancel_requested']:
+                return False
+            work = self.store.get_work(run['work_id'], connection=writer)
+            if (work['active_run_id'] != run_id or work['state'] == 'cancelled' or work.get('deleted_at')
+                    or run['graph_version'] != GRAPH_VERSION or run['plan_revision'] != work['current_plan_revision']):
+                return False
+            event = writer.execute('SELECT * FROM events WHERE run_id=? ORDER BY seq DESC LIMIT 1', (run_id,)).fetchone()
+            if (not event or event['kind'] != 'decision_required'
+                    or json.loads(event['payload_json']).get('code') != 'dependency_blocked'
+                    or not tasks_completed(writer, run_id)):
+                return False
+            writer.execute("UPDATE runs SET state='succeeded',revision=revision+1,updated_at=? WHERE id=?", (utc_now(), run_id))
+            self.store.append_event(writer, run['work_id'], 'run_completed',
+                                    {'run_id': run_id, 'reconciled_event_seq': event['seq']}, run_id=run_id)
+            return True
 
     def _start(self, lease: RunLease, task_id: str, kind: str) -> TaskContext | None:
         with self.store.transaction() as writer:

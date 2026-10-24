@@ -43,7 +43,16 @@ function parseSections(text: string): Record<string, string> {
 
 type PubState = { status: 'publishing' | 'ok' | 'fail'; msg: string };
 
-export default function PublishPage({ persona, publicationId }: PublishPageProps) {
+export default function PublishPage({persona,publicationId}:PublishPageProps) {
+  const [mode,setMode]=useState<'work'|'file'>(publicationId?'work':'file');
+  useEffect(()=>{if(publicationId)setMode('work');},[publicationId]);
+  return <div className="publication-center"><nav className="publication-modes" aria-label="发布方式">
+    <button className={`btn btn-sm ${mode==='work'?'btn-primary':'btn-ghost'}`} aria-pressed={mode==='work'} onClick={()=>setMode('work')}>成片发布</button>
+    <button className={`btn btn-sm ${mode==='file'?'btn-primary':'btn-ghost'}`} aria-pressed={mode==='file'} onClick={()=>setMode('file')}>文件发布</button>
+  </nav>{mode==='work'?<AcceptedPublication selectedId={publicationId}/>:<FilePublishPage persona={persona}/>}</div>;
+}
+
+function FilePublishPage({ persona }: {persona:string}) {
   const draft0 = loadPublishDraft();
   const [title, setTitle] = useState(draft0.title);
   const [body, setBody] = useState(draft0.body);
@@ -287,10 +296,9 @@ export default function PublishPage({ persona, publicationId }: PublishPageProps
 
   return (
     <div className="publish-page">
-      <div style={{gridColumn:'1 / -1'}}><AcceptedPublication selectedId={publicationId}/></div>
       <div className="publish-editor">
         <h1 className="page-title"><IconPublish size={21} /> 发布中心</h1>
-        <p className="page-subtitle">普通文件发布；文案辅助与预检可按需点击。作品发布请使用上方已接受成片入口。</p>
+        <p className="page-subtitle">选择媒体文件发布；已接受的视频作品可切换到“成片发布”。</p>
 
         <label className="field-label">标题</label>
         <input className="field" value={title} placeholder="标题（部分平台需要）"

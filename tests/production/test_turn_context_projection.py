@@ -16,7 +16,7 @@ def test_turn_bootstrap_omits_historical_payloads_but_preserves_authority(env, m
         'work': {'id': 'work', 'state': 'needs_decision', 'revision': 7,
                  'current_plan_revision': 1, 'plans': [{'revision': 1, 'plan_hash': 'frozen', 'plan': {'script': 'PLAN' * 10000}}],
                  'tasks': [{'id': 'edit', 'state': 'needs_decision', 'kind': 'edit', 'error_json': '{"code":"edit_duration_mismatch"}', 'result_json': 'RESULT' * 10000}],
-                 'artifacts': [{'id': 'voice', 'metadata_json': 'MEDIA' * 10000}],
+                 'artifacts': [{'id': 'voice', 'kind': 'narration', 'metadata_json': 'MEDIA' * 10000}],
                  'pending_operations': [{'id': 'unknown', 'state': 'unknown'}]},
         'current_plan': {'plan': {'script': 'PLAN' * 10000}},
         'blockers': [{'unknown': True}], 'model_calls': {'status': 'unknown'},

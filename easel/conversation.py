@@ -158,7 +158,7 @@ class ConversationService:
             if not segment['work_id']:fail('work_not_bound','请先确认参考作品并登记视频',409)
             validate_director_references(conn,segment['work_id'],values.get('reference_input_ids'))
         if kind=='plan' and segment['work_id'] and conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(segment['work_id'],)).fetchone():
-            fail('revision_required','已有确认方案；未成片时读取 pending.preoutput_replan 的合法声音修订选项，已有成片使用 revise；原方案保持不变',409)
+            fail('revision_required','已有确认方案；明确重新规划使用easel_pipeline offer action=plan、intent=replan及本轮原话；继续制作走resume，局部修改走既有修订入口，按真实意图区分',409)
         if kind=='plan':
             from .conversation_pipeline import planning_values
             values=planning_values(self,conn,segment,values)
@@ -190,13 +190,15 @@ class ConversationService:
         return {'proposal_id':id,'hash':checksum,'state':'proposed',**details}
 
     def view(self,session):
+        from .conversation_results import production_status, result_messages
         with self.store.connection() as conn:
             segment=self.segment(conn,session)
             proposals=[]
             for r in conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? ORDER BY created_at,id',(segment['id'],)):
                 p=dict(r);p['body']=json.loads(p.pop('body_json'));p['receipt']=json.loads(p.pop('receipt_json')) if p['receipt_json'] else None;proposals.append(p)
             return {'segment_id':segment['id'],'work_id':segment['work_id'],'context':json.loads(segment['context_json']),
-                'result_messages':[{'role':'assistant','content':v.get('answer',''),'serverTurnId':t['id'],'resultState':t['state'],'deliveryError':v.get('delivery_error')} for t in conn.execute("SELECT id,state,payload_json FROM conversation_turns WHERE segment_id=? AND json_extract(payload_json,'$.origin')='task_result' ORDER BY created_at,id",(segment['id'],)) for v in [json.loads(t['payload_json'])]],
+                'production_status':production_status(conn,segment['work_id']),
+                'result_messages':result_messages(conn,segment),
                 'proposals':proposals,'messages':[message for t in conn.execute('SELECT payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at,id',(segment['id'],)) for message in self._visible_messages(json.loads(t['payload_json']))], 'turns':[{'id':r['id'],'state':r['state']} for r in conn.execute('SELECT id,state FROM conversation_turns WHERE segment_id=?',(segment['id'],))]}
 
     @staticmethod

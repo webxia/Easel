@@ -179,7 +179,7 @@ class RevisionTasks:
                               'caption_roles':json.loads(project_record['metadata_json']).get('caption_roles')},
                     dependencies=list(manifest.assets))
                 return TaskResult(result={'review_id':review['id'],'project_id':artifact['id']},next_kind='render',
-                    next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets),'repair_round':1})
+                    next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets),'repair_round':1,'reuse_existing_media_only':ctx.payload.get('reuse_existing_media_only',False)})
             if ctx.payload.get('repair_scope')=='protected_timing_or_content' or ctx.payload.get('scope') in {'narration','boards'}:
                 # A known QC finding outside visual-only authority needs the
                 # existing scope confirmation, not another paid creative call.
@@ -225,6 +225,9 @@ class RevisionTasks:
                 context = replace(context, plan=measured, brief=context.brief+'\n修订执行长度来自原片实测，不表示Creator重新确认过此片长；原确认方案及本轮反馈仍须分别核对。')
             base_data={'base_edit':{k:v for k,v in base.model_dump(mode='json').items() if k not in {'work_id','plan_revision','revision'}},
                        'protected':'未指出部分保持不变','preserve_audio':payload.get('preserve_audio',False),
+                       'reuse_existing_media_only':payload.get('reuse_existing_media_only',False),
+                       'review_output':{'asset_id':output['id'],'duration':base.duration,
+                           'usage':'只读复查本次修订的成片；时间为成片时间，不是候选素材源时间；不能用作替换素材'},
                        'duration_basis':{'source':'existing_output','seconds':base.duration}}
             if caption_roles is not None:base_data['caption_roles']=caption_roles
             # Give the editor actual mix arithmetic before authoring a repair.
@@ -246,7 +249,7 @@ class RevisionTasks:
                 return replace(context,brief=context.brief+'\n用户对指定版本的反馈：'+review['feedback'],
                     artifacts=(base_data,*({'asset_id':r['id'],'kind':r['kind'],'metadata':{
                         k:v for k,v in json.loads(r['metadata_json']).items() if k in {'source','rights','scene_ids','role','duration','segment_id','text','technical'}}} for r in items)),
-                    allowed_handles=context.allowed_handles|frozenset(r['id'] for r in items))
+                    allowed_handles=context.allowed_handles|frozenset([output['id'],*(r['id'] for r in items)]))
             from .inspection import observe_media
             audio_native=bool(self.planning.transport and 'audio' in self.planning.transport.capabilities)
             from .edit_observation import ObservationBudget
@@ -314,10 +317,14 @@ class RevisionTasks:
                     raise ValueError(str(exc)) from None
             from .edit_observation import edit_observation_tools
             def observation_tools(items):
-                return (edit_observation_tools({r['id']:artifact_file(self.service,r)
-                    for r in items if r['kind']=='video' or (budget is not None and r['kind']=='image')},observed,budget=budget)
-                    if self.planning.transport and 'tools' in self.planning.transport.capabilities else ())
-            instruction += '关键动作或切点不能由现有抽样确认时，可用inspect_media复查候选指定时间，不臆测未观察区间。'
+                if not self.planning.transport or 'tools' not in self.planning.transport.capabilities:return ()
+                paths={r['id']:artifact_file(self.service,r)
+                    for r in items if r['kind']=='video' or (budget is not None and r['kind']=='image')}
+                # The selected version is verified above; never admit unrelated
+                # outputs or make the composite a replacement source candidate.
+                paths[output['id']]=artifact_file(self.service,output)
+                return edit_observation_tools(paths,observed,budget=budget)
+            instruction += '关键动作或切点不能由现有抽样确认时，可用inspect_media复查候选指定时间或review_output中的本次成片。成片时间与素材源时间分别使用；成片只供复查，不是替换素材，不臆测未观察区间。'
             instruction+='已登记原镜头ID：'+encode([s.scene_id for s in base.scenes])+'。拆镜必须用该完整ID再加-cut1/-cut2，不能用Plan场景ID替代已登记镜头ID。'
             recovery=None
             recovery_source=ctx.payload.get('revision_recovery_source')
@@ -329,13 +336,14 @@ class RevisionTasks:
                     or any(source[k]!=v for k,v in self.planning.model_service.items())):
                     raise ModelTaskError('revision_recovery_invalid','修订恢复来源与本次已知结果不符')
                 request=json.loads(source['request_json']);message=json.loads(source['receipt_json'])['result']['message']
-                if request['schema'].get('title')!='RevisionProposal' or message.get('tool_calls'):
+                if request['schema'].get('title')!='RevisionProposal' or any(
+                        call.get('function',{}).get('name')!='inspect_media' for call in message.get('tool_calls',[])):
                     raise ModelTaskError('revision_recovery_invalid','修订恢复来源不是已知提案')
                 for prior in request['messages']:
                     if prior.get('role')!='tool':continue
                     try:evidence=json.loads(prior['content'])
                     except (ValueError,TypeError):continue
-                    if not isinstance(evidence,dict) or evidence.get('asset_id') not in {r['id'] for r in records}:continue
+                    if not isinstance(evidence,dict) or evidence.get('asset_id') not in {output['id'],*(r['id'] for r in records)}:continue
                     key=evidence['asset_id'];times=evidence.get('frame_times',[])
                     observed[key]=list(dict.fromkeys([*observed.get(key,[]),*times]))
                     if budget is not None:budget.observed[key]=observed[key]
@@ -345,6 +353,8 @@ class RevisionTasks:
             if proposal is None:
                 proposal=await self.planning.runner(ctx,namespace=('revision-repair-'+recovery_source[:32]) if recovery_source else None,max_format_repairs=2 if creative_repair else 1).run(candidate_context(records),instruction,RevisionProposal,
                     media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair, recovery=recovery, expression_role="visual")
+            if proposal.material_searches and payload.get('reuse_existing_media_only'):
+                raise ModelTaskError('material_gap','本次只允许复用已有素材与配音；当前修订需要新增素材，原成果已保留')
             if proposal.material_searches and not (proposal.expands_scope or proposal.requires_new_generation):
                 if not self.supply:raise ModelTaskError('material_gap','局部库存补料尚不可用，原版与配音已保留')
                 searches=revision_plan_searches(context.plan,base,proposal.material_searches)
@@ -400,7 +410,7 @@ class RevisionTasks:
             artifact=register_file(self.service,ctx,path,kind='edit_project',media_type='application/json',metadata={'base_project_id':project_record['id'],'review_id':review['id'],
                 'execution_timing':json.loads(project_record['metadata_json']).get('execution_timing'),
                 'audio_observation':'model_native' if audio_native else 'technical_only_unverified','audio_preserved':revised.audio==base.audio,'visual_evidence':[e.model_dump() for e in edit.visual_evidence],'unverified_editor_notes':notes},dependencies=list(manifest.assets))
-            return TaskResult(result={'review_id':review['id'],'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets),'repair_round':ctx.payload.get('repair_round',0)})
+            return TaskResult(result={'review_id':review['id'],'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets),'repair_round':ctx.payload.get('repair_round',0),'reuse_existing_media_only':payload.get('reuse_existing_media_only',False)})
         except StaleRevision:
             raise
         except (ModelTaskError,EditError,ProductionError) as exc:

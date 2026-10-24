@@ -10,7 +10,7 @@ from .production.errors import ProductionError
 
 WORK_ACTIONS = {
     'input': {'attachment_id','usage','original_audio','interval','rights_confirmed'},
-    'plan': {'request','services','duration_seconds','settings','restore_cancelled','decision_id'},
+    'plan': {'request','services','duration_seconds','settings','restore_cancelled','decision_id','intent'},
     'confirm': {'plan_revision','plan_hash','services','allow_ai','image_limit','video_limit'},
     'grant': {'purpose','services','allow_ai','image_limit','video_limit','target_ref','plan_revision','decision_id'},
     'resume': {'decision_id'}, 'cancel': set(),
@@ -20,6 +20,15 @@ WORK_ACTIONS = {
     'confirm_revision': {'review_id','change_hash','services'},
     'accept': {'output_id','manual_review_confirmed'},
 }
+PUBLICATION_ACTIONS = {'publication_prepare': {'output_id'}, 'publication_save': {'draft_id','revision','changes'}}
+
+
+def publications(conversations):
+    from .production.publication import Publications
+    from .publication_bilibili import BilibiliAdapter
+    return Publications(conversations.service, BilibiliAdapter(conversations.service.outputs.parent))
+
+
 CATALOG_ACTIONS = {'director_style','director_accept','channel_director'}
 
 
@@ -68,6 +77,16 @@ def grant_values(conversations,conn,segment,values,*,applying=False):
 def planning_values(conversations,conn,segment,values,*,applying=False):
     """Bind the model before asking; never expand an already approved proposal."""
     if set(values)-WORK_ACTIONS['plan']:fail('invalid_input','规划提案字段无效')
+    work=row(conn,'works',segment['work_id']) if segment['work_id'] else None
+    if 'intent' in values and values['intent']!='replan':fail('invalid_input','不支持的规划意图')
+    if values.get('intent')=='replan':
+        if not work or set(values)-{'intent','request','services'} or not str(values.get('request','')).strip():
+            fail('invalid_input','重新规划须绑定当前作品并说明变更范围')
+        conversations.service.replanning_target(conn,work)
+    elif work and work['active_run_id'] and not values.get('decision_id') and 'settings' not in values:
+        run=row(conn,'runs',work['active_run_id'])
+        if run['kind']=='production' and run['state'] in {'needs_decision','paused','failed'}:
+            fail('resume_required','请按本轮真实意图区分：继续原制作使用resume；用户明确要求重新规划时使用plan并传intent=replan和具体request；只重剪使用既有修订入口，不从暂停状态推断用户意图。',409)
     if values.get('decision_id'):
         conversations.service.failed_planning_target(conn,row(conn,'works',segment['work_id']),values['decision_id'])
         if set(values)-{'decision_id','request','services'}:fail('invalid_input','首次规划恢复须保持现有创作设置')
@@ -162,11 +181,22 @@ def turn_context(context):
         result['work']={k:v for k,v in work.items() if k not in {'plans','tasks','artifacts','creation_context','conversation_brief'}}
         result['work']['plans']=[{k:v for k,v in p.items() if k not in {'payload_json','plan'}} for p in work['plans']]
         result['work']['tasks']=[{k:v for k,v in t.items() if k in {'id','run_id','kind','state','error_json'}} for t in work['tasks']]
-        result['work']['artifacts']=[{k:v for k,v in a.items() if k in {'id','kind','output_revision','deleted_at','quality_state','manual_review_required','checks'}} for a in work['artifacts']]
+        result['work']['reviews']=[{k:v for k,v in review.items() if k not in {'changes_json','changes'}} for review in work.get('reviews',[])]
+        result['work']['artifacts']=[{k:v for k,v in a.items() if k in {'id','kind','output_revision','deleted_at','quality_state','manual_review_required','delivery'}} for a in work['artifacts'] if a['kind']=='output']
     plan=context.get('current_plan')
     result['current_plan']={k:v for k,v in plan.items() if k not in {'payload_json','plan'}} if plan else None
-    result['detail_access']='这是当前状态摘要；sources仅列来源引用，正文通过easel_work_context读取，本轮原话在新消息区。完整方案、历史提案和产物详情通过现有easel_pipeline pending读取；画像保存目标及来源通过easel_work_context读取。摘要省略不代表记录被删除或授权改变。'
+    result['detail_access']='这是当前状态摘要；sources仅列来源引用，正文通过easel_work_context读取，本轮原话在新消息区。历史提案和产物详情通过现有easel_pipeline pending传values.detail=full读取；画像保存目标及来源通过easel_work_context读取。摘要省略不代表记录被删除或授权改变。'
     return result
+
+
+def has_edit_resume(task):
+    """Existing edit recovery route, shared with user-facing continuation hints."""
+    error=json.loads(task.get('error_json') or '{}')
+    return ((task['kind']=='render' and error.get('code')=='render_failed') or
+            (task['kind']=='revise' and error.get('code') in {'invalid_revision_search','invalid_model_output'}) or
+            (task['kind']=='edit' and error.get('code') in {
+                'invalid_edit_project','invalid_edit','invalid_model_output','editor_rejected',
+                'edit_duration_mismatch','visual_material_gap'}))
 
 
 def pending(conversations, conn, segment):
@@ -244,13 +274,10 @@ def pending(conversations, conn, segment):
                     'requires':'展示原音乐来源内的有限补料及后续配音/剪辑费用，确认后恢复；保留已取得素材、原方案和BGM，不重发UNKNOWN。'})
             if (not unknown and active_run and not active_run['cancel_requested']
                     and active_run['state'] in {'needs_decision','paused','failed'}
-                    and ((task['kind']=='revise' and error.get('code')=='invalid_revision_search') or
-                    (task['kind']=='edit' and error.get('code') in {
-                        'invalid_edit_project','invalid_edit','invalid_model_output','editor_rejected',
-                        'edit_duration_mismatch','visual_material_gap'}))):
+                    and has_edit_resume(task)):
                 choices.append({'kind':'resume','label':'阻断解决后继续原剪辑，复用已成功产物',
                     'action':'resume','values':{'decision_id':task['id']},
-                    'requires':'先确认阻断已解决；展示恢复范围及可能新增模型费用，再由用户确认。不重跑已成功素材或配音，不改方案，不重发UNKNOWN。'})
+                    'requires':'先核对阻断已解决或已具备原结果修正入口。用户明确要求继续原制作时，offer action=resume并用user_quote引用本轮原话，在原授权内直接恢复，无需再次确认；文字越界已有原剪辑修正入口。只询问或尚未授权时说明范围后等待。不重跑已成功素材或配音，不改方案，不重发UNKNOWN。'})
             blockers.append({'task_kind':task['kind'],'code':error.get('code'),'message':error.get('user_message'),
                 'searches':material_search_summary(searches) if task['kind']=='supply' else [],
                 'choices':choices,'unknown':bool(unknown),
@@ -258,9 +285,10 @@ def pending(conversations, conn, segment):
                 'input_constraint':'活动运行不允许改创作输入，不能承诺上传即可续作；不得为解除阻断擅自取消作品。',
                 'resume_instruction':'UNKNOWN不重发；普通恢复先核对缺口条件是否已改变，或是否为可安全重试的临时故障。resume不是修复本身，不盲目反复继续。',
                 'coverage':'只解释已有记录；未执行的后续步骤不得声称通过或失败。选项不构成授权。'})
-    return {'blockers':blockers,'failed_planning_replan':failed_recovery,'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
+    return {'replanning':{'action':'plan','values':{'intent':'replan'},'instruction':'仅当本轮真人明确要求改变原方案重新规划时使用，request写明变更范围，user_quote引用真实原话；沿用已有规划授权直接执行。继续制作使用resume。新方案完成后仍须确认制作。'},'blockers':blockers,'failed_planning_replan':failed_recovery,'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
             'preoutput_replan':recovery,
             'current_plan':next((p for p in work['plans'] if p['revision']==work['current_plan_revision']),None) if work else None,
+            'publication':{'platform':'bilibili','drafts':[publications(conversations)._get(conn,r[0]) for r in conn.execute('SELECT id FROM publication_drafts WHERE work_id=? ORDER BY updated_at DESC',(segment['work_id'],))], 'account_status':'not_checked','submission':'existing_publication_page_final_confirmation'},
             'work':work,'capabilities':services,'model_calls':call_status(conversations,conn,segment),
             'missing_choices':[name for name,value in [('channel',entry.get('channel_id') or not segment['profile_ref']),('director',entry.get('settings',{}).get('director_revision'))] if not value] if entry.get('kind','new_work') not in {'channel_create','director_formation'} else []}
 
@@ -273,9 +301,21 @@ def require_choices(segment):
 
 def scoped(conversations,conn,segment,action,values):
     kind=json.loads(segment['context_json']).get('kind','new_work')
-    if action not in WORK_ACTIONS and action not in CATALOG_ACTIONS:
+    if action not in WORK_ACTIONS and action not in CATALOG_ACTIONS and action not in PUBLICATION_ACTIONS:
         fail('invalid_input','不支持的管线动作')
-    if action in WORK_ACTIONS:
+    if action in PUBLICATION_ACTIONS:
+        if kind in {'channel_create','director_formation'} or not segment['work_id']:
+            fail('pipeline_mismatch','请从具体成片的原对话准备发布',409)
+        if set(values)!=PUBLICATION_ACTIONS[action]:fail('invalid_input','请提供具体成片或草稿版本与修改字段')
+        if action=='publication_prepare':
+            publications(conversations)._source(conn,segment['work_id'],values['output_id'])
+        else:
+            draft=publications(conversations)._get(conn,values['draft_id'])
+            if draft['work_id']!=segment['work_id']:fail('binding_mismatch','草稿不属于当前作品',403)
+            changes=values['changes']
+            if not isinstance(changes,dict) or set(changes)-{'title','body','tags','tid','copyright','source'}:
+                fail('invalid_publication','对话只能修改发布文案，账号、署名和投稿动作沿用发布页')
+    elif action in WORK_ACTIONS:
         if kind=='channel_create' or (kind=='director_formation' and action not in {'input','grant','resume','cancel'}):
             fail('pipeline_mismatch','请先通过对话切换到对应管线',409)
         if action in {'plan','confirm','replan_after_unknown'}: require_choices(segment)
@@ -389,6 +429,9 @@ def offer(conversations,conn,segment,turn_id,action,values,summary):
         names='、'.join(s['provider']+'/'+s['model']+'/'+s['mode'] for s in values['services'])
         summary=f"授权服务：{names}；用途：{values['purpose']}。"+('授权后继续原整理方案任务。' if values.get('decision_id') else '本提案仅保存授权。')
     target={}
+    if action=='plan' and values.get('intent')=='replan':
+        target=conversations.service.replanning_target(conn,row(conn,'works',segment['work_id']))
+        summary='按本轮明确要求重新整理方案，保留旧方案、素材和配音；只替换已停止的运行，新方案完成后仍须确认制作。'+summary
     if action=='plan' and values.get('decision_id'):
         target=conversations.service.failed_planning_target(conn,row(conn,'works',segment['work_id']),values['decision_id'])
         from .production.configuration import model_configuration
@@ -436,6 +479,14 @@ def offer(conversations,conn,segment,turn_id,action,values,summary):
 def execute_action(conversations,conn,segment,body,key):
     values=body['values'];action=values['action'];data=values['payload']
     scoped(conversations,conn,segment,action,data)
+    if action in PUBLICATION_ACTIONS:
+        pub=publications(conversations)
+        if action=='publication_prepare':
+            draft=pub.prepare(segment['work_id'],data['output_id'],_connection=conn)
+        else:
+            previous=pub._get(conn,data['draft_id'])
+            draft=pub.save(previous['id'],data['revision'],{**previous['content'],**data['changes']},_connection=conn)
+        return {'publication':draft,'draft_url':'/#publication='+draft['id'],'submitted':False}
     if action=='replan_after_unknown':
         target=unknown_replan_target(conversations,conn,segment,data)
         if target!=values['catalog_target']:
@@ -454,6 +505,10 @@ def execute_action(conversations,conn,segment,body,key):
         if action=='confirm':data=production_values(conversations,conn,segment,data,applying=True)
         if action=='plan':
             data=planning_values(conversations,conn,segment,data,applying=True)
+            if data.get('intent')=='replan':
+                target=conversations.service.replanning_target(conn,row(conn,'works',segment['work_id']))
+                if target!=values['catalog_target']:fail('stale_revision','重新规划目标已变化',409)
+                data={**data,'replanning_target':target}
             if data.get('decision_id'):
                 target=conversations.service.failed_planning_target(conn,row(conn,'works',segment['work_id']),data['decision_id'])
                 if target!=values['catalog_target']:fail('stale_revision','失败规划目标已变化，请重新确认',409)
@@ -577,7 +632,16 @@ def bind_selection(conversations,conn,record,payload,segment,values,*,confirmed=
 def dispatch(bridge,conn,record,payload,segment,args,command_id):
     conversations=bridge.conversations
     mode=args['mode']
-    if mode=='pending':return pending(conversations,conn,segment)
+    if mode=='pending':
+        state=pending(conversations,conn,segment)
+        detail=args.get('values',{}).get('detail')
+        if detail=='full':return state
+        if detail is not None:fail('invalid_input','详情使用values.detail=full')
+        summary=turn_context(state)
+        # The current actionable plan remains available for actual confirmation;
+        # archived plans/artifacts are read explicitly instead of repeated.
+        summary['current_plan']=state['current_plan']
+        return summary
     quote=args.get('user_quote','').strip()
     if mode in {'answer','bind','draft'} and (not quote or quote not in payload['message']):
         fail('invalid_source','操作必须引用本轮用户的原话',403)
@@ -590,6 +654,42 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
         if segment['work_id']:return {'work_id':segment['work_id'],'already_created':True}
         result=conversations.proposal(conn,segment,'draft',args.get('values',{}),[record['id']])
         return conversations.apply(segment['ui_session'],result['proposal_id'],result['hash'],command_id,_connection=conn,_turn_id=record['id'])
+    if mode=='offer' and args.get('action')=='plan' and args.get('values',{}).get('intent')=='replan' and quote:
+        if payload.get('origin','user')!='user' or quote not in payload.get('message',''):
+            fail('invalid_source','重新规划必须引用本轮真人明确要求',403)
+        values=planning_values(conversations,conn,segment,args['values'])
+        result=offer(conversations,conn,segment,record['id'],'plan',values,args.get('summary',''))
+        # Existing planning permission covers a new plan, not a new production run.
+        from .production.configuration import model_configuration
+        _,model,_=model_configuration(conversations.service.outputs.parent)
+        authorized=any(model in json.loads(g[0]) for g in conn.execute(
+            "SELECT services_json FROM authorization_grants WHERE work_id=? AND purpose='planning' AND revoked_at IS NULL",(segment['work_id'],)))
+        if not authorized:return result
+        receipt=conversations.apply(segment['ui_session'],result['proposal_id'],result['hash'],command_id,
+                                    _connection=conn,_turn_id=record['id'])
+        return {**receipt,'user_source':record['id'],'replanned':True,'requires_user_confirmation':False}
+    if mode=='offer' and args.get('action') in {'accept',*PUBLICATION_ACTIONS} and quote:
+        if payload.get('origin','user')!='user' or quote not in payload.get('message',''):
+            fail('invalid_source','接受与草稿修改必须引用本轮真人明确要求',403)
+        result=offer(conversations,conn,segment,record['id'],args['action'],args.get('values',{}),args.get('summary',''))
+        receipt=conversations.apply(segment['ui_session'],result['proposal_id'],result['hash'],command_id,
+                                   _connection=conn,_turn_id=record['id'])
+        return {**receipt,'user_source':record['id'],'requires_user_confirmation':False}
+    if mode=='offer' and args.get('action')=='resume' and quote:
+        if payload.get('origin','user')!='user' or quote not in payload.get('message',''):
+            fail('invalid_source','恢复必须引用本轮真人明确续作原话',403)
+        values=args.get('values',{})
+        scoped(conversations,conn,segment,'resume',values)
+        work=row(conn,'works',segment['work_id'])
+        task=row(conn,'tasks',values.get('decision_id',''))
+        if task['run_id']!=work['active_run_id'] or task['work_id']!=work['id']:
+            fail('stale_revision','恢复目标已变化，请读取当前断点',409)
+        if conn.execute("SELECT 1 FROM operations WHERE run_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['run_id'],)).fetchone():
+            fail('result_unknown','存在未确定调用，不能重新派发',409)
+        result=offer(conversations,conn,segment,record['id'],'resume',values,args.get('summary',''))
+        receipt=conversations.apply(segment['ui_session'],result['proposal_id'],result['hash'],command_id,
+                                    _connection=conn,_turn_id=record['id'])
+        return {**receipt,'user_source':record['id'],'resumed':True,'requires_user_confirmation':False}
     if mode=='offer':
         return offer(conversations,conn,segment,record['id'],args.get('action',''),args.get('values',{}),args.get('summary',''))
     if mode=='answer':

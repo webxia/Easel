@@ -230,3 +230,18 @@ def test_renderer_does_not_add_an_unrequested_step_order_to_classification(font,
     assert path.is_file() and '1. 显式步骤' in labels
     assert not any(str(i) in labels for i in range(1,7))
     assert any('6 条' in value and '2 组' in value for value in labels)
+
+
+@pytest.mark.parametrize('aspect', ['16:9','9:16'])
+def test_dense_board_keeps_subtitle_space_and_all_card_text(font,tmp_path,aspect):
+    d=data()
+    d['cards']=[{'id':str(i),'text':f'第{i}项：对照具体行动'} for i in range(1,11)]
+    d['states']=[{'title':'两组行动对照','groups':{'a':[str(i) for i in range(1,6)],'b':[str(i) for i in range(6,11)]},'highlight_ids':['3']}]
+    b=ExplainerBoard.model_validate(d)
+    path=render_board(b,0,font_path=font,aspect_ratio=aspect,destination=tmp_path/'dense.png')
+    image=Image.open(path)
+    w,h=image.size
+    # Reserved lower region is actually clear, not just described in a prompt.
+    region=image.crop((0,int(h*.8),w,int(h*.93)))
+    assert len(region.getcolors(region.width*region.height))==1
+    assert [c.text for c in b.cards]==[c['text'] for c in d['cards']]

@@ -29,6 +29,7 @@ function setup(sessions, activeSessionId) {
     useCallback: callback => callback,
     setSelectedPersona: persona => { state.selectedPersona = persona; },
     setCurrentPage: page => { state.page = page; },
+    navigate: page => { state.page = page; },
     setSessions: update => { state.sessions = update(state.sessions); },
     saveSessions: updated => { state.saved = updated; },
     createSession: persona => ({ id: 'new-session', persona, messages: [] }),

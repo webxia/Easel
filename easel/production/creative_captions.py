@@ -35,7 +35,10 @@ def check_caption_layout(captions, *, font_paths, width, height):
     for c in captions:
         if c.font_asset_id not in font_paths:
             raise EditError('文字图层必须使用本次真实字体素材')
-        _, _, _, (x,y,w,h)=caption_layout(c,font_paths[c.font_asset_id],width=width,height=height)
+        try:
+            _, _, _, (x,y,w,h)=caption_layout(c,font_paths[c.font_asset_id],width=width,height=height)
+        except EditError as exc:
+            raise EditError(f'文字 {c.caption_id} 布局无效：{exc}；x/y是文字中心坐标，按实际文字宽高调整位置或字号，保留原文。') from None
         pad=10 if c.background else 0
         boxes.append((x-pad,y-pad,x+w+pad,y+h+pad))
     for i,a in enumerate(captions):

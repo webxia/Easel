@@ -235,3 +235,18 @@ MIGRATIONS[4] = CONVERSATION_SQL
 
 from .publication import SQL as PUBLICATION_SQL
 MIGRATIONS[5] = PUBLICATION_SQL
+
+
+# PUB-01: accepting a completed version must not depend on a later plan's state.
+# Keep the technical/manual/known-failure rules; superseded is eligible only
+# with immutable evidence that completion preceded supersession.
+MIGRATIONS[6] = MIGRATIONS[3].replace(
+    "AND r.work_id=a.work_id AND r.state='succeeded')",
+    """AND r.work_id=a.work_id AND (r.state='succeeded' OR (
+                      r.state='superseded' AND EXISTS (
+                        SELECT 1 FROM events done JOIN events replaced
+                          ON replaced.run_id=done.run_id AND replaced.work_id=done.work_id
+                        WHERE done.work_id=a.work_id AND done.run_id=r.id
+                          AND done.kind='run_completed' AND replaced.kind='run_superseded'
+                          AND done.seq<replaced.seq))))""",
+)

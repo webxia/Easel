@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from .editors import EditError
 
-VERSION='schematic-board-2'
+VERSION='schematic-board-3'
 
 
 def _label(draw,text,box,font,color,*,center=False):
@@ -26,13 +26,13 @@ def _label(draw,text,box,font,color,*,center=False):
 
 def render_board(board, index, *, font_path, aspect_ratio, destination):
     wide=aspect_ratio=='16:9';width,height=(1920,1080) if wide else (1080,1920)
-    im=Image.new('RGB',(width,height),'#F5F3ED');draw=ImageDraw.Draw(im)
+    im=Image.new('RGB',(width,height),'#F7F7F2');draw=ImageDraw.Draw(im)
     fonts={size:ImageFont.truetype(str(font_path),size) for size in [64,56,48,40,36,34,28,24,22]}
     margin=80 if wide else 48;available=width-2*margin;state=board.states[index]
     _label(draw,board.title,(margin,40,available,90 if wide else 140),fonts[64] if wide else fonts[48],'#163238')
     _label(draw,state.title,(margin,140 if wide else 190,available,75 if wide else 105),fonts[40] if wide else fonts[36],'#294D53')
     col_top,top,bottom=(230,300,840) if wide else (320,440,1510)
-    gap=24 if wide else 14;cw=(available-gap*(len(board.columns)-1))/len(board.columns)
+    gap=48 if wide else 28;cw=(available-gap*(len(board.columns)-1))/len(board.columns)
     row_count=max(len(s.groups[col.id]) for s in board.states for col in board.columns)
     cell_h=(bottom-top-12*(row_count-1))/row_count
     cards={c.id:c for c in board.cards}
@@ -41,18 +41,20 @@ def render_board(board, index, *, font_path, aspect_ratio, destination):
     measure=ImageDraw.Draw(Image.new('RGB',(1,1)))
     for size in [56,48,40,36,34]:
         try:
-            for card in board.cards:_label(measure,card.text,(0,0,cw-24,cell_h-24),fonts[size],'#000000')
+            for card in board.cards:_label(measure,card.text,(0,0,cw-48,cell_h-24),fonts[size],'#000000')
             card_font=fonts[size];break
         except EditError:
             if size==34:raise
     for col_index,col in enumerate(board.columns):
         x=margin+col_index*(cw+gap)
-        _label(draw,state.column_titles.get(col.id,col.title),(x,col_top,cw,60 if wide else 100),fonts[36] if wide else fonts[34],'#163238',center=True)
+        _label(draw,state.column_titles.get(col.id,col.title),(x,col_top,cw,60 if wide else 100),fonts[36] if wide else fonts[34],'#526A6C')
+        draw.line((x,col_top+58 if wide else col_top+98,x+cw,col_top+58 if wide else col_top+98),fill='#D8DFDA',width=2)
         for row,identifier in enumerate(state.groups[col.id]):
             y=top+row*(cell_h+12);highlight=identifier in state.highlight_ids
-            draw.rounded_rectangle((x,y,x+cw,y+cell_h),radius=12,fill='#FFFFFF',
-                outline='#B16B13' if highlight else '#CBD3D2',width=4 if highlight else 2)
-            _label(draw,cards[identifier].text,(x+12,y+12,cw-24,cell_h-24),card_font,'#163238')
+            draw.rounded_rectangle((x,y,x+cw,y+cell_h),radius=12,fill='#E8EFE8' if highlight else '#FFFFFF')
+            if highlight:
+                draw.rounded_rectangle((x,y+12,x+5,y+cell_h-12),radius=2,fill='#397465')
+            _label(draw,cards[identifier].text,(x+24,y+12,cw-48,cell_h-24),card_font,'#163238')
     count=sum(len(v) for v in state.groups.values())
     disclosure='假设示意' if board.kind=='hypothetical' else '概念示意'
     _label(draw,disclosure+'  ·  '+str(count)+' 条  /  '+str(len(board.columns))+' 组',

@@ -333,6 +333,20 @@ class WorkService:
                 'task_id':task['id'],'task_revision':task['revision'],
                 'basis_hash':digest(self._basis(conn,work))}
 
+    def replanning_target(self,conn,work):
+        """Pin a stopped run for an explicitly requested new plan, preserving media."""
+        if work['state']=='cancelled':fail('revision_required','已取消作品须使用明确恢复入口',409)
+        plan=conn.execute('SELECT revision,plan_hash FROM plan_revisions WHERE work_id=? AND revision=?',
+                          (work['id'],work['current_plan_revision'])).fetchone()
+        if not plan:fail('revision_required','当前没有已生成方案；首次规划失败请使用原规划恢复入口',409)
+        run=row(conn,'runs',work['active_run_id']) if work['active_run_id'] else None
+        if not run or run['owner_id'] or run['cancel_requested'] or run['state'] not in {'needs_decision','paused','failed','succeeded'}:
+            fail('active_run','当前运行尚未安全停止，保留原断点',409)
+        if conn.execute("SELECT 1 FROM operations WHERE work_id=? AND state IN ('reserved','sending','submitted','unknown')",(work['id'],)).fetchone():
+            fail('result_unknown','存在在途或未知调用，不能替换规划',409)
+        return {'run_id':run['id'],'run_revision':run['revision'],'plan_revision':plan['revision'],
+                'plan_hash':plan['plan_hash'],'basis_hash':digest(self._basis(conn,work))}
+
     def preoutput_target(self,conn,work,data):
         """Read-only eligibility and optimistic identity for an audio-only replan."""
         if data.get('settings')!={'audio_mode':'voice'} or set(data)-{'settings','restore_cancelled','request','services','recovery_target'}:
@@ -357,6 +371,20 @@ class WorkService:
 
     def _plan(self,conn,work,data):
         recovery=None
+        replan=data.get('intent')=='replan'
+        if 'intent' in data and not replan:fail('invalid_input','不支持的规划意图')
+        if replan:
+            if set(data)-{'intent','request','services','replanning_target'} or not str(data.get('request','')).strip():
+                fail('invalid_input','重新规划须说明本轮变更范围')
+            target=self.replanning_target(conn,work)
+            if data.get('replanning_target')!=target:fail('stale_revision','重新规划目标已变化，请读取当前状态',409)
+            stamp=now()
+            conn.execute("UPDATE runs SET state='superseded',owner_epoch=owner_epoch+1,revision=revision+1,updated_at=? WHERE id=?",(stamp,target['run_id']))
+            conn.execute("UPDATE tasks SET state='cancelled',revision=revision+1,updated_at=? WHERE run_id=? AND state NOT IN ('succeeded','cancelled')",(stamp,target['run_id']))
+            conn.execute("UPDATE authorization_grants SET revoked_at=? WHERE work_id=? AND purpose='production' AND revoked_at IS NULL",(stamp,work['id']))
+            self._change(conn,work,current_plan_revision=None,state='discussing')
+            self._event(conn,work['id'],'run_superseded',{'reason':'explicit_replanning'},run_id=target['run_id'])
+            work=row(conn,'works',work['id'])
         if 'decision_id' in data:
             if set(data)-{'decision_id','failed_planning_target','request','services'}:
                 fail('invalid_input','首次规划恢复须保持现有创作设置')
@@ -367,7 +395,7 @@ class WorkService:
             conn.execute("UPDATE runs SET state='superseded',owner_epoch=owner_epoch+1,revision=revision+1,updated_at=? WHERE id=?",(stamp,target['run_id']))
             conn.execute("UPDATE tasks SET state='cancelled',revision=revision+1,updated_at=? WHERE run_id=? AND state!='succeeded'",(stamp,target['run_id']))
             self._event(conn,work['id'],'run_superseded',{'reason':'confirmed_failed_planning_replacement'},run_id=target['run_id'])
-        if ('settings' not in data and data.get('generate',True) and
+        if (not replan and 'settings' not in data and data.get('generate',True) and
             conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(work['id'],)).fetchone()):
             fail('revision_required','已确认方案须通过明确的修订范围重新规划',409)
         if 'settings' in data or 'recovery_target' in data:
@@ -534,6 +562,32 @@ class WorkService:
             payload['optional_sfx_ids']=sorted(set(payload.get('optional_sfx_ids',[]))|set(ids))
             conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
             self._event(conn,work['id'],'sound_requirement_relaxed',{'cue_ids':ids},run_id=run['id'])
+        resume_decision_id=task['id']
+        render_error=json.loads(task['error_json'] or '{}')
+        if (task['kind']=='render' and render_error.get('code')=='render_failed'
+                and 'caption exceeds the frame' in render_error.get('user_message','')):
+            # The saved project is invalid: replay the known edit through its
+            # existing format-repair path, not the same failed render job.
+            edit=conn.execute("""SELECT t.* FROM task_dependencies d JOIN tasks t ON t.id=d.depends_on
+                WHERE d.task_id=? AND t.kind='edit' AND t.state='succeeded'""",(task['id'],)).fetchone()
+            if not edit:fail('invalid_edit_project','找不到原剪辑修正来源，保留当前断点')
+            edit=dict(edit)
+            if json.loads(edit['result_json'] or '{}').get('project_id')!=json.loads(task['payload_json']).get('project_id'):
+                fail('invalid_edit_project','剪辑来源与失败工程不一致，保留当前断点')
+            source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(edit['id'],)).fetchone()
+            if not source or source['state']!='succeeded':
+                fail('result_unknown','原剪辑回执尚未确定，不能另发修正')
+            request=json.loads(source['request_json'])
+            message=json.loads(source['receipt_json'])['result']['message']
+            if request['schema'].get('title')!='CreativeEdit' or message.get('tool_calls'):
+                fail('invalid_edit_project','原剪辑回执不是完整编辑结果')
+            payload=json.loads(edit['payload_json'])
+            payload['asset_ids']=sorted(set(payload.get('asset_ids',[]))|set(json.loads(task['payload_json']).get('asset_ids',[])))
+            payload['reuse_existing_media_only']=True
+            conn.execute("UPDATE tasks SET state='cancelled',revision=revision+1,updated_at=? WHERE id=?",(now(),task['id']))
+            conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),edit['id']))
+            task={**edit,'payload_json':encode(payload),'error_json':encode({'code':'invalid_edit_project'})}
+            self._event(conn,work['id'],'edit_recovery_requested',{'render_task_id':resume_decision_id,'edit_task_id':task['id']},run_id=run['id'])
         if task['kind']=='render' and json.loads(task['error_json'] or '{}').get('code')=='render_failed':
             # Only an explicit resume starts another local attempt. A failed
             # editor job stays immutable; worker polling must never restart it.
@@ -570,13 +624,14 @@ class WorkService:
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
             if source and source['state']=='succeeded':
                 request=json.loads(source['request_json']);message=json.loads(source['receipt_json'])['result']['message']
-                if request['schema'].get('title')=='RevisionProposal' and not message.get('tool_calls'):
+                if request['schema'].get('title')=='RevisionProposal' and all(
+                        call.get('function',{}).get('name')=='inspect_media' for call in message.get('tool_calls',[])):
                     payload=json.loads(task['payload_json']);payload['revision_recovery_source']=source['id']
                     conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
         conn.execute("UPDATE tasks SET state='pending',error_json=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),task['id']))
         conn.execute("UPDATE runs SET state='pending',owner_epoch=owner_epoch+1,lease_expires_at=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),run['id']))
         self._change(conn,work,state='discussing' if run['kind']=='planning' else 'producing')
-        self._event(conn,work['id'],'decision_resolved',{'decision_id':task['id']},run_id=run['id'])
+        self._event(conn,work['id'],'decision_resolved',{'decision_id':resume_decision_id},run_id=run['id'])
         return {'work_id':work['id'],'run_id':run['id']}
 
     @staticmethod
@@ -623,8 +678,18 @@ class WorkService:
                 fail('manual_review_confirmation_required',
                     '此版本尚未自动审查音视频语义，须人工看完整片并明确确认')
             run=row(conn,'runs',artifact['run_id'])
-            if run['state']!='succeeded' or work['state']!='reviewable':
-                fail('quality_blocked','人工审核必须等待正式制作任务成功结束')
+            # Accept the selected output, independently of a later planning run.
+            # Superseding a completed run does not invalidate its immutable media
+            # or erase its recorded completion. A stopped/incomplete run has no
+            # such proof and remains ineligible.
+            completed = run['state']=='succeeded' or (run['state']=='superseded' and conn.execute(
+                """SELECT 1 FROM events done JOIN events replaced
+                    ON replaced.run_id=done.run_id AND replaced.work_id=done.work_id
+                    WHERE done.work_id=? AND done.run_id=? AND done.kind='run_completed'
+                    AND replaced.kind='run_superseded' AND done.seq<replaced.seq LIMIT 1""",
+                (work['id'],run['id'])).fetchone())
+            if not completed or work['state']=='cancelled':
+                fail('quality_blocked','所选版本的制作尚未成功完成，不能登记人工接受')
         path=(self.outputs/artifact['storage_ref']).resolve()
         if self.outputs not in path.parents or not path.is_file() or self._file_hash(path)!=artifact['digest']:
             fail('quality_blocked','成片缺失或内容已变化，须重新检查')

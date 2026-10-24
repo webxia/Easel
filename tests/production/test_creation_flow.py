@@ -19,6 +19,7 @@ class ScriptedModel:
     video_dialect='qwen-vl-video-url'
     quality_chunk_seconds=30
     calls=[]
+    overlay_repair=False
     async def complete(self,messages,tools,schema):
         self.calls.append(messages)
         from easel.production.expression_policy import RULES
@@ -26,21 +27,31 @@ class ScriptedModel:
         assert RULES[role] in messages[0]["content"]
         if schema['title']=='CreativeEdit':
             data=json.loads(messages[1]['content'][0]['text'])
-            return {'content':json.dumps({'scenes':[{'scene_id':'s1','asset_id':data['artifacts'][0]['asset_id'],'duration':1}], 'audio':[],'captions':[]})}
+            captions=[]
+            if self.overlay_repair:
+                font=next(a['asset_id'] for a in data['artifacts'] if a['kind']=='font')
+                captions=[{'caption_id':'source-note','role':'overlay','text':'A source note with enough text to extend beyond the left edge',
+                    'font_asset_id':font,'start':0,'end':1,'size':32,'x':.06 if len(self.calls)==1 else .5,'y':.13}]
+            return {'content':json.dumps({'scenes':[{'scene_id':'s1','asset_id':data['artifacts'][0]['asset_id'],'duration':1}], 'audio':[],'captions':captions})}
         return {'content':json.dumps({'verdict':'pass','factual_fidelity':'fixture only','style_consistency':'fixture only','narrative_coherence':'fixture only','audiovisual_alignment':'silent fixture','findings':[],'limitations':[]})}
 
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
-@pytest.mark.parametrize('full_video,recover_render',[(True,False),(False,False),(True,True)])
-def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_path,full_video,recover_render):
+@pytest.mark.parametrize('full_video,recover_render,overlay_repair',[(True,False,False),(False,False,False),(True,True,False),(False,False,True),(False,True,True)])
+def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_path,full_video,recover_render,overlay_repair,monkeypatch):
     store=Store(tmp_path/'outputs/_production/production.sqlite3');store.initialize()
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
-    model=ScriptedModel();model.calls=[]
+    model=ScriptedModel();model.calls=[];model.overlay_repair=overlay_repair
     if not full_video:model.capabilities=frozenset({'text','structured','image','tools'})
     identity={'provider':'direct-api','model':'offline-scripted','mode':'structured'}
     planning=PlanningTasks(service,OperationService(store),model,identity,'offline')
     creation=CreationTasks(service,planning)
-    if recover_render:
+    late_caption=recover_render and overlay_repair
+    if late_caption:
+        import easel.production.creation as creation_module
+        original_check=creation_module.check_caption_layout
+        monkeypatch.setattr(creation_module,"check_caption_layout",lambda *a,**kw:None)
+    if recover_render and not late_caption:
         from easel.production.editors import RenderJob
         from easel.production.service import now
         class FailFirstRender:
@@ -58,10 +69,18 @@ def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_pat
     image=tmp_path/'input.png';Image.new('RGB',(400,300),'blue').save(image)
     async def supply(ctx):
         artifact=register_file(service,ctx,image,kind='image',media_type='image/png',metadata={'source':'synthetic test'})
-        return TaskResult(next_kind='edit',next_payload={'asset_ids':[artifact['id']]})
+        ids=[artifact['id']]
+        if overlay_repair:
+            from pathlib import Path
+            font=next((Path(p) for p in ['/System/Library/Fonts/Supplemental/Arial Unicode.ttf','/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'] if Path(p).is_file()),None)
+            if font is None:pytest.skip('font unavailable')
+            ids.append(register_file(service,ctx,font,kind='font',media_type='font/ttf',metadata={'font_name':'sans-serif'})['id'])
+        return TaskResult(next_kind='edit',next_payload={'asset_ids':ids})
     worker=Worker(store,{'supply':supply,'edit':creation.edit,'render':creation.render,'quality':creation.quality},poll_interval=.01)
     id=service.command('create',{'title':'offline local test'},command_id='create')['work_id']
     plan={'title':'one second','summary':'local media test','script':'fixture','scenes':[{'id':'s1','purpose':'test','visual':'blue','narration':''}], 'settings':{'duration_seconds':1,'aspect_ratio':'16:9','audio_mode':'silent'}}
+    if overlay_repair:
+        plan['narration_policy']={'continuous':True,'duration_mode':'fixed'}
     result=service.command('plan',{'generate':False,'plan':plan},command_id='plan',work_id=id,expected_revision=1)
     service.command('confirm',{'plan_revision':1,'plan_hash':result['plan_hash'],'services':[identity]},command_id='confirm',work_id=id,expected_revision=2)
     resumed=False
@@ -73,6 +92,11 @@ def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_pat
             failed=next(t for t in snap['tasks'] if t['kind']=='render')
             assert json.loads(failed['error_json'])['code']=='render_failed'
             calls_before=len(model.calls)
+            if late_caption:
+                monkeypatch.setattr(creation_module,"check_caption_layout",original_check)
+                class ForbiddenVoice:
+                    async def prepare_assets(self,*a,**kw):raise AssertionError('must reuse voice')
+                creation.voice_tasks=ForbiddenVoice()
             service.command('resume',{'decision_id':failed['id']},command_id='retry-local-render',
                 work_id=id,expected_revision=snap['revision'])
             # Idempotent command replay must not create a second local attempt.
@@ -84,7 +108,14 @@ def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_pat
         time.sleep(.1)
     assert snap['state']==('reviewable' if full_video else 'needs_decision'),[(t['kind'],t['state'],t['error_json']) for t in snap['tasks']]
     assert snap['accepted_output_id'] is None
-    if recover_render:
+    if late_caption:
+        assert resumed and calls_before==1
+        assert sum(t['kind']=='supply' for t in snap['tasks'])==1
+        assert sum(t['kind']=='render' and t['state']=='cancelled' for t in snap['tasks'])==1
+        edit=next(t for t in snap['tasks'] if t['kind']=='edit')
+        assert json.loads(edit['payload_json'])['reuse_existing_media_only']
+        assert all(json.loads(t['payload_json']).get('reuse_existing_media_only') for t in snap['tasks'] if t['kind'] in {'render','quality'} and t['state']!='cancelled')
+    if recover_render and not late_caption:
         assert resumed and calls_before==1
         render=next(t for t in snap['tasks'] if t['kind']=='render')
         assert json.loads(render['payload_json'])['render_attempt']==1
@@ -94,7 +125,7 @@ def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_pat
     assert len(outputs)==1 and outputs[0]['quality_state']==('passed' if full_video else 'needs_fix')
     path,_=service.artifact_path(outputs[0]['id']);assert path.stat().st_size>1000
     if not full_video:
-        assert len(model.calls)==1  # Edit only; sampled images never grant complete QC.
+        assert len(model.calls)==(2 if overlay_repair else 1)  # Edit only; sampled images never grant complete QC.
         quality=next(t for t in snap['tasks'] if t['kind']=='quality')
         assert quality['state']=='needs_decision' and 'capability_unavailable' in quality['error_json']
         with store.connection() as conn:

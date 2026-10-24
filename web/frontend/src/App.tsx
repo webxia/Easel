@@ -1,3 +1,4 @@
+import { publicationIdFromHash, sessionRestorePage } from './lib/publicationApi';
 import { mergeTaskReplies } from './lib/taskReplies';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { enterVideo, videoRequest, type ConversationView, type VideoEntry } from './lib/conversationApi';
@@ -49,8 +50,18 @@ function onboardingSeen(): boolean {
 
 export default function App() {
   const [publicationId,setPublicationId]=useState<string>();
-  useEffect(()=>{const open=(e:Event)=>{setPublicationId((e as CustomEvent<string>).detail);setCurrentPage('publish');};window.addEventListener('easel:publication',open);return ()=>window.removeEventListener('easel:publication',open);},[]);
+  useEffect(()=>{
+    const select=(id?:string)=>{if(id){setPublicationId(id);setCurrentPage('publish');}};
+    const open=(e:Event)=>select((e as CustomEvent<string>).detail);
+    const restore=()=>select(publicationIdFromHash(window.location.hash));
+    restore();window.addEventListener('easel:publication',open);window.addEventListener('hashchange',restore);
+    return ()=>{window.removeEventListener('easel:publication',open);window.removeEventListener('hashchange',restore);};
+  },[]);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
+  const navigate=(page:Page)=>{
+    if(page!=='publish'&&publicationIdFromHash(window.location.hash))window.history.replaceState(null,'',window.location.pathname+window.location.search);
+    setCurrentPage(page);
+  };
   const [personas, setPersonas] = useState<PersonaItem[]>([]);
   const [selectedPersona, setSelectedPersona] = useState('');
   const [sessions, setSessions] = useState<ChatSession[]>(() => loadSessions());
@@ -100,7 +111,8 @@ export default function App() {
       setActiveSessionId(id);
       const s = sess.find((x) => x.id === id);
       if (s) setSelectedPersona(s.persona || '');
-      if (s?.videoSegmentId) setCurrentPage('chat');
+      const destination=sessionRestorePage(window.location.hash,!!s?.videoSegmentId);
+      if(destination)setCurrentPage(destination);
       try { sessionStorage.setItem(TAB_SESSION_KEY, id); } catch { /* ignore */ }
       ch?.postMessage({ type: 'claim', sessionId: id });
     };
@@ -285,7 +297,13 @@ export default function App() {
     const turnId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try { sessionStorage.setItem(`easel_pending_turn:${sessionId}`, turnId); } catch { /* ignore */ }
     setSessions((prev) => {
-      const next = prev.map((s) => (s.id === sessionId ? { ...s, pendingTurnId: turnId } : s));
+      const next = prev.map((s) => {
+        if(s.id!==sessionId)return s;
+        const messages=s.messages.slice();
+        const last=messages.length-1;
+        if(last>=0 && messages[last].role==='user')messages[last]={...messages[last],userTurnId:turnId};
+        return {...s,messages,pendingTurnId:turnId};
+      });
       saveSessions(next); return next;
     });
     streamAcc.current[sessionId] = { content: '', thinking: '', steps: [], questions: [] };
@@ -559,7 +577,7 @@ export default function App() {
     const ns = createSession(selectedPersona || undefined);
     setSessions((prev) => { const u = [ns, ...prev]; saveSessions(u); return u; });
     setActiveSessionId(ns.id);
-    setCurrentPage('chat');
+    navigate('chat');
     sendUserAndStream(ns.id, prompt);
   }, [selectedPersona, sendUserAndStream]);
 
@@ -613,7 +631,7 @@ export default function App() {
         setSessions((prev) => { const u = [ns, ...prev]; saveSessions(u); return u; });
         setActiveSessionId(ns.id);
       }
-      setCurrentPage('chat');
+      navigate('chat');
     }
   }, [activeSessionId, selectedPersona]);
 
@@ -625,7 +643,7 @@ export default function App() {
       return updated;
     });
     setActiveSessionId(newSession.id);
-    setCurrentPage('chat');
+    navigate('chat');
   }, [selectedPersona]);
 
   const handleSessionSelect = useCallback((id: string) => {
@@ -634,7 +652,7 @@ export default function App() {
     if (target) {
       setSelectedPersona(target.persona || '');
     }
-    setCurrentPage('chat');
+    navigate('chat');
   }, [sessions]);
 
   const handleSessionDelete = useCallback((id: string) => {
@@ -719,7 +737,7 @@ export default function App() {
       next.videoSegmentId=binding.segment_id;
       next.title=entry.kind==='channel_create'?'创建频道':entry.kind==='director_formation'?'形成导演':'视频创作';
       setSessions(prev=>{const updated=[next,...prev];saveSessions(updated);return updated;});
-      setActiveSessionId(next.id);setCurrentPage('chat');
+      setActiveSessionId(next.id);navigate('chat');
     } catch(e) { window.alert((e as Error).message); }
   };
   const videoBound=useCallback((id:string)=>setSessions(prev=>{const next=prev.map(s=>s.id===activeSessionId?{...s,videoSegmentId:id}:s);saveSessions(next);return next;}),[activeSessionId]);
@@ -734,7 +752,7 @@ export default function App() {
             gatewayStatus={gatewayStatus}
             apiDirect={apiDirect}
             agentRuntime={agentRuntime}
-            onNavigate={setCurrentPage}
+            onNavigate={navigate}
             onUseTopic={handleUseTopic}
           />
         );
@@ -799,7 +817,7 @@ export default function App() {
 
   const handlePersonaChange = useCallback((persona: string) => {
     setSelectedPersona(persona);
-    setCurrentPage('chat');
+    navigate('chat');
     const cur = sessionsRef.current.find((s) => s.id === activeSessionId);
     if (cur && cur.messages.length === 0 && !cur.videoSegmentId) {
       setSessions((prev) => {
@@ -823,7 +841,7 @@ export default function App() {
     <div className="app-layout">
       <Sidebar
         currentPage={currentPage}
-        onPageChange={setCurrentPage}
+        onPageChange={navigate}
         personas={personas}
         selectedPersona={selectedPersona}
         onPersonaChange={handlePersonaChange}
@@ -842,7 +860,7 @@ export default function App() {
       />
       <main className="main-content">
         {(['trends', 'ideas', 'calendar', 'publish', 'breakdown'] as Page[]).includes(currentPage) && (
-          <SubNav current={currentPage} onNavigate={setCurrentPage} />
+          <SubNav current={currentPage} onNavigate={navigate} />
         )}
         <div className="page-host">
           {renderPage()}

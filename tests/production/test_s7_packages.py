@@ -97,7 +97,7 @@ def test_observation_rounding_reuses_actual_evidence_without_spending_budget():
     assert result.evidence['unobserved_times']==[] and budget.remaining==before
 
 
-def test_render_cache_preview_protects_live_jobs_and_export(tmp_path):
+def test_render_cache_preview_protects_live_jobs_and_export(tmp_path,monkeypatch):
     import shutil
     if not shutil.which('ffmpeg'):pytest.skip('FFmpeg unavailable')
     from tests.production.test_creation_flow import test_confirm_to_real_render_to_reviewable_without_creator_acceptance as first_cut
@@ -105,7 +105,7 @@ def test_render_cache_preview_protects_live_jobs_and_export(tmp_path):
     from easel.production.service import WorkService
     from easel.production.maintenance import render_cache,operating_summary
     from easel.production.editors.ffmpeg import _lock
-    first_cut(tmp_path,True,False)
+    first_cut(tmp_path,True,False,False,monkeypatch)
     service=WorkService(Store(tmp_path/'outputs/_production/production.sqlite3'),outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     job=next(p for p in (service.outputs/'_production/renders').iterdir() if (p/'job.json').is_file())
     preview=render_cache(service,job.name)

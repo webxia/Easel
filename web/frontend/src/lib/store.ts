@@ -3,8 +3,13 @@ import type { UploadedFile, ChatQuestion } from './api';
 export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
+  userTurnId?: string; // Stable identity for chronological task replies.
+  beforeUserTurnId?: string;
+  beforeUserMessage?: string; // Read-only anchor for existing local histories.
+  beforeUserOccurrence?: number;
   serverTurnId?: string; // Durable assistant reply to a background task result.
   resultState?: string;
+  publicationSource?: {work_id:string;output_id:string};
   deliveryError?: string; // Interruption belongs to this durable result reply.
   agentContent?: string; // 仅发给 Agent 的增强消息（如附件路径），不在对话页面展示
   attachments?: UploadedFile[]; // 结构化附件引用；仅用于请求/重试，不在消息气泡展示

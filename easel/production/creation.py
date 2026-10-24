@@ -188,8 +188,10 @@ class CreationTasks:
                 if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(ctx.task_id,)).fetchone():
                     raise ModelTaskError('result_unknown','剪辑存在未确定的调用，保留原请求，不能另行提交')
             context=self.planning.context(ctx)
+            if ctx.payload.get('reuse_existing_media_only'):
+                context=replace(context,brief=context.brief+'\n本次恢复只用已有素材和配音修正原剪辑，不重新获取或生成媒体；不足时如实说明。')
             asset_ids=ctx.payload.get('asset_ids',[]) if _stock_assets is None else _stock_assets
-            if self.voice_tasks:
+            if self.voice_tasks and not ctx.payload.get('reuse_existing_media_only'):
                 asset_ids,outcome=await self.voice_tasks.prepare_assets(ctx,context.plan,asset_ids)
                 if outcome:return outcome
             records,manifest=self.assets(ctx,asset_ids)
@@ -243,18 +245,18 @@ class CreationTasks:
                     target_seconds=context.plan['settings']['duration_seconds'])),observed)
                 from .boards import check_board_usage
                 check_board_usage(candidate.scenes,records,overlays=[c for c in candidate.captions if c.role=='overlay'])
-                if not timing or timing['mode']=='fixed':
-                    return
-                if any('role' not in c.model_fields_set for c in candidate.captions):
+                if timing and timing['mode']=='voice_driven' and any('role' not in c.model_fields_set for c in candidate.captions):
                     raise ValueError('必须明确每条文字的role：narration为旁白字幕，overlay为独立解释字')
                 try:
                     compiled=compile_captions(candidate.captions,style=style,fonts=fonts,
-                        aligned=aligned_captions(candidate.audio,records) if style.enabled else None,
+                        aligned=aligned_captions(candidate.audio,records) if style.enabled and (context.plan.get('narration_policy') or {}).get('continuous') else None,
                         font_paths=font_paths,width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
                     check_caption_layout(compiled,font_paths=font_paths,
                         width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
                 except EditError as exc:
                     raise ValueError(str(exc)) from None
+                if not timing or timing['mode']=='fixed':
+                    return
                 check_voice_schedule(candidate.audio, records, timing)
                 actual = sum(s.duration - s.transition_seconds for s in candidate.scenes)
                 raw = sum(s.duration for s in candidate.scenes)
@@ -292,18 +294,18 @@ class CreationTasks:
                 namespace='edit-repair-'+source['id'][:32]
             answer=await self.planning.runner(ctx,namespace=namespace,max_format_repairs=2).run(context,
                 ENDING_INSTRUCTION + VISUAL_EVIDENCE_INSTRUCTION + '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
-                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx；timing_basis=scene时按scene_id对应实际镜头安排音效，保留该镜头scene_id并让音效位于镜头范围内，at仅为草稿估计；absolute或未指定时保留at。duration是事件上限，短音效按实际源长播放，不循环凑长；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
+                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。文字x/y表示整块文字的中心坐标，不是左上角；资料说明放在边缘时，按实际字体宽高预留空间。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx；timing_basis=scene时按scene_id对应实际镜头安排音效，保留该镜头scene_id并让音效位于镜头范围内，at仅为草稿估计；absolute或未指定时保留at。duration是事件上限，短音效按实际源长播放，不循环凑长；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '连续旁白应跨镜头讲完；voice_driven严格遵守voice_schedule，fixed使用实测时间作安排依据、位置可按叙事调整，不按草稿分镜凑静默；'
                 '字幕短行分语义显示，不能将整段连续旁白一次堆在画面上。选择画质与景别适合、光线与动作相接的素材，'
                 '每条文字明确role：narration只显示旁白并继承频道字幕样式；overlay为独立解释文字，保留设计的字体、位置、字号，避开底部旁白区，不能叠字。'
                 '同时查看素材画面里原有的字幕、标题和图表文字；避开口播字幕区域，必要时换片段、调整构图或移开独立解释字，不要在已有文字上重复叠字。'
                 'material_uses含board_id的图解素材是已确认的连续状态：首次出现按board_frame_index顺序，应使必要类别、数量和关系可理解，不强制每态全幅，允许有意义的特写；'
                 '同一图解可跨段落复用、回看或加局部特写，board_scene_ids是本次素材映射提示，图解定义所在的scene_id不是排他的使用限制。'
-                '图解已画出标题、卡片、类别和假设/概念标识，不要只剩裁切而失去全貌，避免重复叠同义解释字；有必要时可以安排不遮挡证据的补充标注。'
+                '原生图解已为标题、分组、卡片和底部字幕留白；优先展示可读全貌与已规划状态高亮，不用机械推拉或截断邻近文字来制造变化。图解已画出标题、卡片、类别和假设/概念标识，不要只剩裁切而失去全貌，避免重复叠同义解释字；有必要时可以安排不遮挡证据的补充标注。'
                 '避免同义空镜反复堆积，旁白说到具体关系时应让画面或必要字幕提供相应信息。'
                 '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),tools=observation_tools,validate_result=check_measured_edit,recovery=recovery, expression_role="visual")
             if answer.unresolved_scene_ids:
-                if _stock_assets is None and self.supply:
+                if _stock_assets is None and self.supply and not ctx.payload.get('reuse_existing_media_only'):
                     ids=await self.supplement_visuals(ctx,context,answer,asset_ids)
                     with ctx.transaction() as conn:
                         payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
@@ -379,7 +381,7 @@ class CreationTasks:
                     'visual_evidence':[e.model_dump() for e in answer.visual_evidence],
                     'unverified_editor_notes':unverified_editor_notes},
                     dependencies=list(manifest.assets))
-            return TaskResult(result={'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets)})
+            return TaskResult(result={'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets),'reuse_existing_media_only':ctx.payload.get('reuse_existing_media_only',False)})
         except (ModelTaskError,EditError,ValidationError) as exc:
             message=('剪辑方案不符合严格编辑合同，请检查镜头时间、声音和素材引用'
                      if isinstance(exc,ValidationError) else getattr(exc,'user_message',str(exc)))
@@ -422,7 +424,7 @@ class CreationTasks:
                 archive.write(output.video_path,'video.mp4')
                 archive.writestr('credits.txt','\n\n'.join(dict.fromkeys(credits)))
             register_file(self.service,ctx,bundle,kind='export_bundle',media_type='application/zip',metadata={'output_id':artifact['id']},dependencies=[artifact['id']])
-        return TaskResult(result={'output_id':artifact['id']},next_kind='quality',next_payload={'output_id':artifact['id'],'project_id':record['id'],'repair_round':ctx.payload.get('repair_round',0)})
+        return TaskResult(result={'output_id':artifact['id']},next_kind='quality',next_payload={'output_id':artifact['id'],'project_id':record['id'],'repair_round':ctx.payload.get('repair_round',0),'reuse_existing_media_only':ctx.payload.get('reuse_existing_media_only',False)})
 
     async def quality(self,ctx):
         from .worker import TaskResult
@@ -483,6 +485,7 @@ class CreationTasks:
                             return TaskResult(result={'output_id':artifact['id'],'visual':'fail'},next_kind='revise',
                                 next_payload={'review_id':review_id,'output_id':artifact['id'],'repair_round':1,
                                     'preserve_audio':True,'creative_visual_repair':True,
+                                    'reuse_existing_media_only':ctx.payload.get('reuse_existing_media_only',False),
                                     'repair_scope':evidence['review'].get('repair_scope','visual'),
                                     'affected_scene_ids':[sid for sid in evidence['review'].get('affected_scene_ids',[])
                                         if sid in {s.scene_id for s in project.scenes}]},work_state='producing')

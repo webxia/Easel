@@ -290,7 +290,7 @@ def test_failed_draft_is_not_delivered_as_confirmable_plan(env):
     assert 'UNAPPROVED_PRIVATE_DRAFT' not in encode(pipe(b,i,'pending'))
 
 
-@pytest.mark.parametrize("kind,code", [("edit","invalid_edit_project"),("revise","invalid_revision_search")])
+@pytest.mark.parametrize("kind,code", [("edit","invalid_edit_project"),("revise","invalid_revision_search"),("revise","invalid_model_output")])
 def test_known_edit_failure_exposes_existing_resume_without_resubmission(env,kind,code):
     from easel.production.errors import ProductionError
     s,c,b,i,req,r=start(env)

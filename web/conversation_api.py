@@ -363,10 +363,19 @@ class VideoChat:
             candidate=conn.execute("SELECT 1 FROM conversation_proposals p JOIN runs r ON r.id=json_extract(p.receipt_json,'$.run_id') JOIN works w ON w.id=r.work_id AND w.active_run_id=r.id JOIN conversation_segments s ON s.id=p.segment_id WHERE s.revoked_at IS NULL AND s.id=(SELECT id FROM conversation_segments WHERE ui_session=s.ui_session AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1) AND p.state='applied' AND json_type(p.receipt_json,'$._result_delivery')='object' AND r.state IN ('succeeded','needs_decision','failed','paused','cancelled') AND EXISTS(SELECT 1 FROM events e WHERE e.work_id=r.work_id AND e.run_id=r.id AND e.seq>json_extract(p.receipt_json,'$._result_delivery.seen_seq') AND e.kind IN ('run_completed','decision_required','task_needs_decision','task_failed','run_cancelled')) LIMIT 1").fetchone()
             reserved=conn.execute("SELECT 1 FROM conversation_turns WHERE state='reserved' AND json_extract(payload_json,'$.origin')='task_result' LIMIT 1").fetchone()
         if not candidate and not reserved:return False
-        await asyncio.to_thread(self.preflight,self.gateway_url,self.gateway_token)
         from easel.conversation_results import ConversationResults
         result=await asyncio.to_thread(ConversationResults(PersistentWorkToolBridge(service)).reserve_next)
         if not result:return False
+        if result.get('local_delivery'):
+            self.save_turn('web:'+result['ui_session'],'done',result['answer'],{'turn_id':result['turn_id']})
+            return True
+        try:
+            await asyncio.to_thread(self.preflight,self.gateway_url,self.gateway_token)
+        except Exception:
+            # No chat was submitted: retain the existing reservation for recovery.
+            with service.store.transaction() as conn:
+                conn.execute("UPDATE conversation_turns SET state='reserved' WHERE id=? AND state='dispatching' AND json_extract(payload_json,'$.run_id') IS NULL",(result['turn_id'],))
+            raise
         path=self.event_file(result['turn_id']);path.parent.mkdir(parents=True,exist_ok=True);path.write_text('')
         self.tasks[result['ui_session']]=asyncio.create_task(self._deliver(result['ui_session'],result['turn_id'],result,path,background=True))
         return True

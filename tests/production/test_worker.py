@@ -216,3 +216,82 @@ def test_expired_heartbeat_releases_run_without_killing_the_worker_loop(store):
     assert asyncio.run(asyncio.wait_for(worker.run_once(), 5))
     assert record(store, "runs", run_id)["state"] == "pending"
     assert not worker._stopping.is_set()
+
+
+def retired_render(store, work_id, run_id, edit_id):
+    """Committed shape produced by caption edit recovery (old error immutable)."""
+    with store.transaction() as conn:
+        stamp=utc_now()
+        conn.execute("INSERT INTO tasks(id,work_id,run_id,kind,state,plan_revision,input_fingerprint,error_json,created_at,updated_at) SELECT 'retired',work_id,run_id,'render','cancelled',plan_revision,'old','{\"code\":\"render_failed\"}',?,? FROM tasks WHERE id=?",(stamp,stamp,edit_id))
+        conn.execute('INSERT INTO task_dependencies(task_id,depends_on) VALUES(?,?)',('retired',edit_id))
+        store.append_event(conn,work_id,'edit_recovery_requested',{'render_task_id':'retired','edit_task_id':edit_id},run_id=run_id)
+
+
+@pytest.mark.parametrize('fault',[None,'no_recovery','no_replacement','dependent_on_cancelled','ordinary_cancel','unknown'])
+def test_retired_render_completion_requires_replacement_and_satisfied_graph(store,fault):
+    if fault=='unknown':
+        from .test_operations import owned_request
+        from easel.production.operations import OperationService
+        spec=owned_request(store)
+        OperationService(store,clock=lambda:1000).reserve(**spec)
+        work,run,edit=spec['work_id'],spec['run_id'],spec['task_id']
+        with store.transaction() as conn:
+            conn.execute("UPDATE operations SET state='unknown' WHERE id=?",(spec['operation_id'],))
+            conn.execute("UPDATE runs SET state='pending',owner_id=NULL,lease_expires_at=NULL WHERE id=?",(run,))
+            conn.execute("UPDATE tasks SET kind='edit',state='pending' WHERE id=?",(edit,))
+    else:
+        work,run,edit=seed_run(store,kind='production',first='edit')
+    retired_render(store,work,run,edit)
+    async def edit_handler(ctx):return TaskResult(next_kind='render')
+    async def render_handler(ctx):return TaskResult(next_kind='quality')
+    async def quality(ctx):return TaskResult(result={'semantic':'not_tested'},work_state='reviewable')
+    worker=Worker(store,{'edit':edit_handler,'render':render_handler,'quality':quality})
+    if fault=='no_recovery':
+        # A cancelled render without recovery evidence must never be waived.
+        with store.transaction() as conn:
+            conn.execute("UPDATE events SET kind='unrelated' WHERE kind='edit_recovery_requested'")
+    if fault=='no_replacement':
+        worker.handlers['edit']=lambda ctx: quality(ctx)
+    if fault=='ordinary_cancel':
+        with store.transaction() as conn:conn.execute("UPDATE tasks SET kind='supply' WHERE id='retired'")
+    if fault=='dependent_on_cancelled':
+        async def blocked(ctx):
+            result=await render_handler(ctx)
+            with ctx.transaction() as conn:
+                conn.execute('INSERT INTO task_dependencies(task_id,depends_on) VALUES(?,?)',(ctx.task_id,'retired'))
+            return result
+        worker.handlers['render']=blocked
+    asyncio.run(worker.run_once())
+    assert record(store,'runs',run)['state']==('succeeded' if fault is None else 'needs_decision')
+    assert record(store,'tasks','retired')['state']=='cancelled'
+    assert json.loads(record(store,'tasks','retired')['error_json'])['code']=='render_failed'
+
+
+def test_reconcile_false_stop_is_idempotent_and_executes_nothing(store):
+    work,run,edit=seed_run(store,kind='production',first='edit')
+    retired_render(store,work,run,edit)
+    async def edit_handler(ctx):return TaskResult(next_kind='render')
+    async def render(ctx):return TaskResult(work_state='reviewable')
+    asyncio.run(Worker(store,{'edit':edit_handler,'render':render}).run_once())
+    with store.transaction() as conn:
+        conn.execute("UPDATE runs SET state='needs_decision' WHERE id=?",(run,))
+        store.append_event(conn,work,'decision_required',{'code':'dependency_blocked'},run_id=run)
+        before=[dict(t) for t in conn.execute('SELECT * FROM tasks WHERE run_id=?',(run,))]
+    worker=Worker(store,{})
+    assert worker.reconcile_completed_run(run)
+    assert not worker.reconcile_completed_run(run)
+    with store.connection() as conn:
+        assert [dict(t) for t in conn.execute('SELECT * FROM tasks WHERE run_id=?',(run,))]==before
+    assert record(store,'runs',run)['state']=='succeeded'
+
+
+@pytest.mark.parametrize('block',['user_cancel','owner','different_reason','unfinished'])
+def test_reconcile_does_not_override_other_stops(store,block):
+    work,run,task=seed_run(store,kind='production',first='render')
+    with store.transaction() as conn:
+        conn.execute("UPDATE tasks SET state=? WHERE id=?",('pending' if block=='unfinished' else 'succeeded',task))
+        conn.execute("UPDATE runs SET state='needs_decision',cancel_requested=?,owner_id=? WHERE id=?",
+                     (int(block=='user_cancel'),'worker' if block=='owner' else None,run))
+        store.append_event(conn,work,'decision_required',{'code':'quality_failed' if block=='different_reason' else 'dependency_blocked'},run_id=run)
+    assert not Worker(store,{}).reconcile_completed_run(run)
+    assert record(store,'runs',run)['state']=='needs_decision'

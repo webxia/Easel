@@ -15,6 +15,7 @@ function component(file,mocks={}) {
  return exports.default;
 }
 const Bubble=component('MessageBubble.tsx',{
+ '../lib/publicationApi':{openPublicationDraft:()=>{},publicationIdFromHash:()=>undefined},
  '../lib/sanitize':{renderMarkdown:s=>s},
  '../lib/linkifyOutputs':{linkifyOutputs:s=>s,externalizeMediaLinks:s=>s},
  './icons':{IconCopy:()=>null,IconCheck:()=>null,IconRetry:()=>null},

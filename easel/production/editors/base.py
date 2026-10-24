@@ -100,8 +100,8 @@ class Caption(Contract):
     outline_color: str = Field(default="#000000", pattern=r"^#[0-9A-Fa-f]{6}$")
     outline: int = Field(default=2, ge=0, le=20)
     background: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{8}$")
-    x: float = Field(default=0.5, ge=0, le=1)
-    y: float = Field(default=0.88, ge=0, le=1)
+    x: float = Field(default=0.5, ge=0, le=1, description="文字块中心的横向比例，不是左边界；须为文字宽度留出空间")
+    y: float = Field(default=0.88, ge=0, le=1, description="文字块中心的纵向比例，不是上边界")
     max_width: float = Field(default=0.9, gt=0, le=1)
 
     @model_validator(mode="after")

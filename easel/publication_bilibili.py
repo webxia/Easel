@@ -4,25 +4,82 @@ from __future__ import annotations
 from contextlib import contextmanager
 from datetime import datetime
 import os
+import json
+import re
+import time
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from easel.production.service import fail
 from skills.shared.scripts import platform_readback as readback
 
 
-def biliup_command(cookie_file, video, content):
+def biliup_command(cookie_file, video, content, cover_path=None):
     # Reuse the native skill's pure command builder, not its CLI side effects
     # (calendar writes and content precheck belong to that independent entry).
     from types import SimpleNamespace
     builder = _native_builder()
-    return builder(SimpleNamespace(cookie=str(cookie_file),video=str(video),
+    command=builder(SimpleNamespace(cookie=str(cookie_file),video=str(video),
         title=content['title'],partition=None,tid=content['tid'],
         desc='\n\n'.join(s for s in (content['body'],content.get('credits','')) if s),
-        tag=','.join(content['tags']),cover=None,copyright=content['copyright'],
+        tag=','.join(content['tags']),cover=str(cover_path) if cover_path else None,copyright=content['copyright'],
         source=content['source']))
+    return upload_route(command)
+
+
+def upload_route(command):
+    # Use the installed CLI's existing route override when the deployment has
+    # diagnosed an unavailable automatic route. Never disable TLS verification.
+    line=os.environ.get('EASEL_BILIBILI_UPLOAD_LINE','').strip()
+    if line and '--line' not in command and '-l' not in command:
+        if line not in {'bldsa','cnbldsa','andsa','atdsa','bda2','cnbd','anbd','atbd','tx','cntx','antx','attx','txa','alia','estx','akbd'}:
+            fail('invalid_upload_line','B站上传线路配置无效，尚未上传',503)
+        command.extend(['--line',line])
+    return command
+
+
+def cli_evidence(tail):
+    """Allowlisted CLI evidence; never return raw errors, URLs or credentials."""
+    clean=re.sub(r'\x1b\[[0-9;]*[A-Za-z]','',tail)
+    result={}
+    stages=(('number of concurrent futures:','upload_preparing'),
+            ('pre_upload:','pre_upload'),('Upload completed:','upload_complete'),
+            ('All files uploaded successfully','upload_complete'),
+            ('APP接口投稿成功','submit_acknowledged'),('Web 接口投稿成功','submit_acknowledged'))
+    found=[(clean.rfind(marker),stage) for marker,stage in stages if marker in clean]
+    if found:result['last_stage']=max(found)[1]
+    categories={'tls_error':('certificate verify failed','invalid peer certificate','certificate error','tls handshake'),
+                'certificate_expired':('证书已过期','certificate has expired','certificate expired'),
+                'network_timeout':('timed out','operation timeout'),
+                'connection_error':('connection refused','connection reset','error sending request'),
+                'dns_error':('dns error','failed to lookup address')}
+    errors=[name for name,markers in categories.items() if any(m in clean.lower() for m in markers)]
+    if errors:result['error_kinds']=errors
+    codes=[]
+    decoder=json.JSONDecoder()
+    for line in clean.splitlines():
+        # The installed CLI serializes ResponseData using Rust Debug, not JSON.
+        if 'ResponseData {' in line:
+            code=re.search(r'\bcode:\s*(-?\d+)\b',line)
+            if code:codes.append(int(code[1]))
+            remote=re.search(r'"bvid":\s*(?:String\()?"(BV[0-9A-Za-z]{10})"',line)
+            if code and int(code[1])==0 and remote:result['remote_id']=remote[1]
+        # tracing prefixes its JSON response with timestamp/level/module.
+        offset=line.find('{')
+        if offset<0:continue
+        try:payload,_=decoder.raw_decode(line[offset:])
+        except ValueError:continue
+        if not isinstance(payload,dict):continue
+        code=payload.get('code')
+        if type(code) is int:codes.append(code)
+        data=payload.get('data')
+        remote=data.get('bvid') if isinstance(data,dict) else None
+        if code==0 and isinstance(remote,str) and re.fullmatch(r'BV[0-9A-Za-z]{10}',remote):result['remote_id']=remote
+    if codes:result['response_codes']=list(dict.fromkeys(codes))
+    return result
 
 
 from functools import lru_cache
@@ -59,6 +116,8 @@ def publishing_lock(root):
 
 def legacy_bilibili_run(root, cmd, **kwargs):
     with publishing_lock(root):
+        if cmd and cmd[0]=='biliup':cmd=[BilibiliSession.publisher(),*cmd[1:]]
+        if 'upload' in cmd:cmd=upload_route(list(cmd))
         return subprocess.run(cmd,**kwargs)
 
 
@@ -105,7 +164,19 @@ class BilibiliAdapter:
 
 
 class BilibiliSession:
-    def __init__(self,root,cookie):self.root,self.cookie=root,cookie
+    def __init__(self,root,cookie):
+        self.root,self.cookie=root,cookie
+        self.executable=None
+
+    @staticmethod
+    def publisher():
+        # LaunchAgent's PATH need not include the active virtual environment.
+        # Prefer its installed console script before consulting global PATH.
+        local=Path(sys.executable).parent/('biliup.exe' if os.name=='nt' else 'biliup')
+        if local.is_file() and os.access(local,os.X_OK):return str(local)
+        found=shutil.which('biliup')
+        if not found:fail('publisher_unavailable','当前运行环境找不到已安装的 biliup 投稿工具，尚未投稿',503)
+        return found
 
     def account(self):
         try:
@@ -116,14 +187,21 @@ class BilibiliSession:
         except Exception:fail('account_unavailable','无法核实B站账号，尚未投稿',503)
 
     def snapshot(self):
-        if not shutil.which('biliup'):fail('publisher_unavailable','本机未安装原生 biliup 投稿工具，尚未投稿',503)
+        self.executable=self.publisher()
         # Unlike the legacy helper, errors cannot be converted to an empty list.
         try:return [w.platform_content_id for w in readback.read_bilibili_works(self.cookie,limit=50)]
         except Exception:fail('readback_unavailable','无法读取投稿前稿件列表，尚未投稿',503)
 
     def stage_video(self,path,expected_digest):
+        return self._stage_file(path,expected_digest,'video.mp4')
+
+    def stage_cover(self,path,expected_digest):
+        self.cover_path=self._stage_file(path,expected_digest,'cover.jpg')
+        return self.cover_path
+
+    def _stage_file(self,path,expected_digest,name):
         import hashlib
-        staged=self.cookie.parent/'video.mp4'
+        staged=self.cookie.parent/name
         checksum=hashlib.sha256()
         with Path(path).open('rb') as source, staged.open('xb') as target:
             for chunk in iter(lambda:source.read(1024*1024),b''):
@@ -134,9 +212,32 @@ class BilibiliSession:
     def upload(self,path,content):
         env=dict(os.environ)
         for key in ('http_proxy','https_proxy','all_proxy','HTTP_PROXY','HTTPS_PROXY','ALL_PROXY'):env.pop(key,None)
+        env['RUST_LOG']='info'
         # No raw stdout/stderr (potential credentials) is returned or persisted.
-        subprocess.run(biliup_command(self.cookie,path,content),cwd=self.root,env=env,
-                       stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=600,check=False)
+        command=biliup_command(self.cookie,path,content)
+        if content.get('cover') is not None:
+            if not getattr(self,'cover_path',None):fail('cover_changed','封面尚未准备，未投稿',409)
+            command=biliup_command(self.cookie,path,content,self.cover_path)
+        command[0]=self.executable or self.publisher()
+        started=time.monotonic()
+        # Keep raw CLI output only in an anonymous temporary file. Persist a
+        # small allowlisted receipt, never command arguments, cookies or logs.
+        with tempfile.TemporaryFile() as log:
+            try:
+                # biliup also writes download.log into cwd. Keep it inside the
+                # credential session's private temporary directory, not the repo.
+                process=subprocess.run(command,cwd=self.cookie.parent,env=env,
+                    stdout=log,stderr=subprocess.STDOUT,timeout=600,check=False)
+                result={'returncode':process.returncode,'timed_out':False}
+            except subprocess.TimeoutExpired:
+                result={'returncode':None,'timed_out':True}
+            log.seek(0,2);size=log.tell();log.seek(max(0,size-65536))
+            tail=log.read().decode('utf-8',errors='replace')
+        result.update(duration_ms=round((time.monotonic()-started)*1000),
+                      phase='process_finished',output_captured=True)
+        result.update(cli_evidence(tail))
+        # Exit success is NOT proof of remote submission; readback owns that.
+        return result
 
     def readback(self,content,snapshot,submitted_at,known_id=None):
         account=self.account()

@@ -237,7 +237,7 @@ body {
   border: none; background: var(--text); color: #fff;
   box-shadow: 0 4px 14px rgba(23,25,28,0.16);
 }
-.btn-primary:hover:not(:disabled) { filter: brightness(1.15); box-shadow: 0 6px 20px rgba(23,25,28,0.2); }
+.btn-primary:hover:not(:disabled) { background: var(--text); filter: brightness(1.15); box-shadow: 0 6px 20px rgba(23,25,28,0.2); }
 .btn-ghost { background: transparent; }
 .btn-sm { padding: 6px 11px; font-size: 13px; }
 .btn-block { width: 100%; }
@@ -1479,3 +1479,35 @@ textarea.field { resize: vertical; min-height: 90px; }
 }
 .proto-trigger:hover { border-color: #9db3d8; }
 .proto-trigger .proto-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+
+/* Accepted-output publishing uses the existing editor/preview, field, button,
+   status and modal surfaces; it is one mode, never a third squeezed column. */
+.publication-center {display:flex;flex-direction:column;height:100%;min-width:0;overflow:hidden;}
+.publication-modes {display:flex;gap:8px;padding:12px 28px;border-bottom:1px solid var(--border);}
+.publication-center > .publish-page {flex:1;min-height:0;}
+.publication-page .publish-editor {flex:1;min-width:0;max-width:640px;width:50%;}
+.publication-page .publish-previews {min-width:0;}
+.publication-picker {display:flex;gap:8px;align-items:center;margin-top:6px;}
+.publication-picker select {min-width:0;flex:1;}
+.publication-status {margin:18px 0;padding:14px;border-radius:var(--radius);background:var(--surface-2);}
+.publication-status p {color:var(--text-secondary);font-size:13px;line-height:1.7;margin:8px 0 0;}
+.publication-fields {border:0;padding:0;margin:0;min-width:0;}
+.publication-body {min-height:180px!important;}
+.publication-options {display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.publication-account {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:18px;}
+.publication-account small {display:block;color:var(--text-tertiary);margin-top:3px;}
+.publication-video {display:block;width:100%;max-height:360px;background:#111;}
+.publication-details {padding:16px;overflow-wrap:anywhere;}
+.publication-details h3 {font-size:15px;margin:0 0 10px;}
+.publication-details summary {cursor:pointer;font-size:13px;color:var(--text-secondary);}
+.publication-details .pv-text {font-size:12px;margin-top:12px;}
+.publication-confirm {width:min(620px,100%);max-height:85vh;overflow:auto;overflow-wrap:anywhere;}
+.publication-confirm h3 {margin:16px 0 10px;}
+@media(max-width:900px){.publication-center > .publish-page{overflow-y:auto;}.publication-page .publish-editor{width:100%;max-width:none;flex:none;overflow:visible;padding:20px;}.publication-page .publish-previews{overflow:visible;flex:none;padding:20px;}.publication-modes{padding:12px 20px;}}
+
+.publication-cover { margin: 16px 0; }
+.publication-cover-image { display: block; width: 100%; max-height: 280px; object-fit: contain; background: var(--bg); border-radius: 8px; margin: 10px 0; }
+.publication-cover-candidate { padding: 14px; margin-top: 12px; }
+.publication-frame-picker { margin: 12px 0; }
+.publication-cover .media-grid { max-height: 280px; overflow-y: auto; }

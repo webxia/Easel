@@ -30,8 +30,8 @@ class RevisionModel(ScriptedModel):
 
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
-def test_local_revision_keeps_accepted_version_then_explicitly_switches(tmp_path):
-    _first_cut(tmp_path,True,False)
+def test_local_revision_keeps_accepted_version_then_explicitly_switches(tmp_path,monkeypatch):
+    _first_cut(tmp_path,True,False,False,monkeypatch)
     store=Store(tmp_path/'outputs/_production/production.sqlite3')
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     work=service.list_works()['items'][0]['id'];snap=service.snapshot(work)
@@ -155,11 +155,11 @@ def test_image_only_revision_reuses_unselected_candidate_and_protects_audio_byte
 
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
-def test_render_only_reuses_exact_project_without_model_or_voice_and_rejects_known_gaps(tmp_path):
+def test_render_only_reuses_exact_project_without_model_or_voice_and_rejects_known_gaps(tmp_path,monkeypatch):
     from easel.production.errors import ProductionError
     from easel.production.service import row,encode,new_id,now
     from easel.production.media import file_sha256
-    _first_cut(tmp_path,True,False)
+    _first_cut(tmp_path,True,False,False,monkeypatch)
     store=Store(tmp_path/'outputs/_production/production.sqlite3')
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     work=service.list_works()['items'][0]['id'];first=service.snapshot(work)
@@ -203,3 +203,75 @@ def test_render_only_reuses_exact_project_without_model_or_voice_and_rejects_kno
     with store.connection() as conn:
         assert [tuple(r) for r in conn.execute('SELECT * FROM operations ORDER BY id')]==operations
         assert conn.execute("SELECT COUNT(*) FROM artifacts WHERE kind='edit_project'").fetchone()[0]==1
+
+
+@pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
+@pytest.mark.parametrize('scenario',['current_output','foreign_output','recover_known_tool_call'])
+def test_revision_inspects_only_selected_output_and_recovers_known_read_request(tmp_path,monkeypatch,scenario):
+    from easel.production import edit_observation
+    _first_cut(tmp_path,True,False,False,monkeypatch)
+    store=Store(tmp_path/'outputs/_production/production.sqlite3')
+    service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
+    work=service.list_works()['items'][0]['id'];before=service.snapshot(work)
+    output=next(a for a in before['artifacts'] if a['kind']=='output')
+    path,_=service.artifact_path(output['id']);original=path.read_bytes()
+    if scenario=='foreign_output':
+        from tests.production.test_store import insert_artifact
+        foreign=service.command('create',{'title':'other work'},command_id='other-work')['work_id']
+        with store.transaction() as conn:
+            fields=dict(conn.execute('SELECT storage_ref,digest,size_bytes FROM artifacts WHERE id=?',(output['id'],)).fetchone())
+            insert_artifact(conn,foreign,'other-work-output',kind='output',media_type='video/mp4',**fields)
+    class InspectingModel(RevisionModel):
+        inspected=False
+        author_calls=0
+        async def complete(self,messages,tools,schema):
+            if schema['title']=='RevisionProposal' and not self.inspected:
+                self.inspected=True;self.author_calls+=1
+                data=json.loads(messages[1]['content'][0]['text'])
+                assert data['artifacts'][0]['review_output']['asset_id']==output['id']
+                assert output['id'] not in [a.get('asset_id') for a in data['artifacts'][1:]]
+                self.calls.append(messages)
+                return {'tool_calls':[{'id':'inspect-output','type':'function','function':{'name':'inspect_media',
+                    'arguments':json.dumps({'asset_id':'other-work-output' if scenario=='foreign_output' else output['id'],'frame_times':[.4]})}}]}
+            if schema['title']=='RevisionProposal':
+                replies=[json.loads(m['content']) for m in messages if m.get('role')=='tool']
+                assert any(r.get('asset_id')==output['id'] and .4 in r.get('frame_times',[]) for r in replies)
+                assert any(m.get('role')=='user' and isinstance(m.get('content'),list) and
+                    any(b.get('type')=='image_url' for b in m['content']) for m in messages[2:])
+            return await super().complete(messages,tools,schema)
+    model=InspectingModel();model.calls=[]
+    planning=PlanningTasks(service,OperationService(store),model,{'provider':'direct-api','model':'offline-scripted','mode':'structured'},'offline')
+    creation=CreationTasks(service,planning)
+    revision=RevisionTasks(service,planning,creation)
+    service.command('revise',{'output_id':output['id'],'feedback':'查看本版0.4秒并增加推近，保留声音','preserve_audio':True},
+        command_id='inspect-revision',work_id=work,expected_revision=before['revision'])
+    from easel.production.worker import TaskResult
+    async def await_render(ctx):return TaskResult(state='waiting_external',result={'fixture':'render pending'})
+    worker=Worker(store,{'revise':revision.revise,'render':await_render})
+    original_tools=edit_observation.edit_observation_tools
+    if scenario=='recover_known_tool_call':
+        # Reproduce the old registry omission while retaining the real request/receipt.
+        monkeypatch.setattr(edit_observation,'edit_observation_tools',lambda paths,*a,**kw:
+            original_tools({k:v for k,v in paths.items() if k!=output['id']},*a,**kw))
+    asyncio.run(worker.run_once());snap=service.snapshot(work)
+    task=next(t for t in snap['tasks'] if t['kind']=='revise')
+    if scenario=='foreign_output':
+        assert task['state']=='needs_decision' and 'invalid_model_output' in task['error_json']
+        assert len(model.calls)==1 and snap['artifacts']==before['artifacts']
+        return
+    if scenario=='recover_known_tool_call':
+        assert task['state']=='needs_decision' and len(model.calls)==1
+        monkeypatch.setattr(edit_observation,'edit_observation_tools',original_tools)
+        with store.connection() as conn:old_ops=[tuple(r) for r in conn.execute('SELECT id,state,receipt_json FROM operations WHERE task_id=?',(task['id'],))]
+        service.command('resume',{'decision_id':task['id']},command_id='resume-read',work_id=work,expected_revision=snap['revision'])
+        asyncio.run(worker.run_once());snap=service.snapshot(work)
+        assert model.author_calls==1
+        with store.connection() as conn:
+            for old in old_ops:
+                assert tuple(conn.execute('SELECT id,state,receipt_json FROM operations WHERE id=?',(old[0],)).fetchone())==old
+    task=next(t for t in snap['tasks'] if t['kind']=='revise')
+    assert task['state']=='succeeded',task['error_json']
+    assert len(model.calls)==2
+    assert path.read_bytes()==original
+    assert [a for a in snap['artifacts'] if a['kind'] in {'image','video','audio'}]==[a for a in before['artifacts'] if a['kind'] in {'image','video','audio'}]
+    assert next(t for t in snap['tasks'] if t['kind']=='render' and t['state']=='waiting_external')
