@@ -27,10 +27,10 @@ class Publications:
             fail('media_changed', '接受版文件缺失或内容变化，不能发布', 409)
         return work, artifact, acceptance[0], path
 
-    def prepare(self, work_id, output_id, *, _connection=None):
+    def prepare(self, work_id, output_id, *, platform="bilibili", _connection=None):
         with (nullcontext(_connection) if _connection is not None else self.store.transaction()) as conn:
             work, artifact, acceptance, _ = self._source(conn, work_id, output_id)
-            existing = conn.execute('SELECT id FROM publication_drafts WHERE acceptance_id=? AND platform=?', (acceptance, 'bilibili')).fetchone()
+            existing = conn.execute('SELECT id FROM publication_drafts WHERE acceptance_id=? AND platform=?', (acceptance, platform)).fetchone()
             if existing:
                 conn.execute("UPDATE publication_drafts SET state='draft',revision=revision+1,updated_at=? WHERE id=? AND state='cancelled'",(utc_now(),existing[0]))
                 return self._get(conn, existing[0])
@@ -46,7 +46,7 @@ class Publications:
                        'credits':'\n\n'.join(dict.fromkeys(credits)), 'account':None, 'cover':None}
             identity, stamp = new_id('pub'), utc_now()
             conn.execute('INSERT INTO publication_drafts(id,work_id,output_id,acceptance_id,media_digest,output_revision,platform,content_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
-                         (identity, work_id, output_id, acceptance, artifact['digest'], artifact['output_revision'], 'bilibili', encode(content), stamp, stamp))
+                         (identity, work_id, output_id, acceptance, artifact['digest'], artifact['output_revision'], platform, encode(content), stamp, stamp))
             self.store.append_event(conn,work_id,'publication_changed',{'draft_id':identity})
             return self._get(conn, identity)
 
@@ -60,7 +60,7 @@ class Publications:
             for key in ('account','content','receipt','snapshot'):
                 attempt[key] = json.loads(attempt.pop(key+'_json'))
             # Sending includes a process lost after reservation: never offer retry.
-            attempt['can_reconcile'] = attempt['state'] in {'sending','unknown','verified'}
+            attempt['can_reconcile'] = draft['platform']=='bilibili' and attempt['state'] in {'sending','unknown','verified'}
             draft['attempts'].append(attempt)
         draft['confirmation_hash'] = digest({k:draft[k] for k in ('id','revision','work_id','output_id','acceptance_id','media_digest','content')})
         return draft
@@ -126,7 +126,7 @@ class Publications:
             account=session.account()
             if account != draft['content']['account']:
                 fail('account_changed','实际登录账号已变化，请重新读取账号并确认',409)
-            snapshot=session.snapshot()  # failure here is definitely before submit
+            snapshot=session.snapshot() if hasattr(session, "snapshot") else None  # Only platforms with real snapshot support.
             with self.store.connection() as conn:
                 _,_,_,source_path=self._source(conn,draft['work_id'],draft['output_id'],draft['acceptance_id'])
             staged_path=session.stage_video(source_path,draft['media_digest'])
@@ -141,9 +141,9 @@ class Publications:
                 if artifact['digest'] != draft['media_digest']:fail('media_changed','成片摘要变化',409)
                 pending=conn.execute("""SELECT 1 FROM publication_attempts a
                     JOIN publication_drafts d ON d.id=a.draft_id
-                    WHERE d.output_id=? AND a.state IN ('sending','unknown')
+                    WHERE d.output_id=? AND d.platform=? AND a.state IN ('sending','unknown','verified')
                     AND json_extract(a.account_json,'$.uid')=?""",
-                    (draft['output_id'],account['uid'])).fetchone()
+                    (draft['output_id'],draft['platform'],account['uid'])).fetchone()
                 if pending:
                     fail('publication_pending','同一成片在此账号有待核实投稿，请先查看原发布记录；重新接受不会解除该状态',409)
                 attempt_id,stamp=new_id('publish'),utc_now()
@@ -154,14 +154,19 @@ class Publications:
             try:
                 # Even rc!=0/timeout may follow a successful remote submission.
                 execution=session.upload(staged_path,draft['content'])
+                platform_receipt=execution.pop('platform_receipt',None) if isinstance(execution,dict) else None
                 # Persist execution before network readback, surviving a lost
                 # response/restart. This never changes UNKNOWN into retryable.
                 if isinstance(execution,dict):
                     with self.store.transaction() as conn:
                         conn.execute('UPDATE publication_attempts SET receipt_json=?,updated_at=? WHERE id=?',
                             (encode({'execution':execution}),utc_now(),attempt_id))
-                receipt=session.readback(draft['content'],snapshot,stamp,
+                receipt=(session.readback(draft['content'],snapshot,stamp,
                     known_id=execution.get('remote_id') if isinstance(execution,dict) else None)
+                    if hasattr(session, 'readback') else {'outcome':'unverified',
+                        'reason':'执行已结束；该平台未接入稿件读回，请在平台后台核实，勿重复发送。'})
+                if platform_receipt and platform_receipt.get('account_name')==account['name']:
+                    receipt={'outcome':'verified','account':account,'matched':platform_receipt['matched'],'evidence':{'method':'native_script_readback'}}
             except FileNotFoundError:
                 # Adapter checks executable availability before upload; unexpected
                 # missing files after reservation remain unknown, never auto retry.
@@ -193,6 +198,7 @@ class Publications:
 
     def reconcile(self, identity):
         with self.adapter.session() as session:
+            if not hasattr(session, 'readback'):fail('readback_unavailable','此平台暂不支持自动核实，请在平台后台查看原稿件',409)
             draft=self.get(identity)
             if not draft['attempts']:fail('no_attempt','没有已提交记录可核实',409)
             attempt=draft['attempts'][-1]
@@ -209,6 +215,7 @@ class Publications:
         account and unchanged, complete pre-submit snapshot under the existing
         publishing lock, then reopen the SAME draft with a new confirmation.
         """
+        if self.get(identity)['platform'] != 'bilibili':fail('readback_unavailable','此平台暂不支持自动确认未投稿，请保留原记录',409)
         if confirmed_absent is not True:fail('confirmation_required','须先在B站后台核实本片确实未投稿',409)
         with self.adapter.session() as session:
             draft=self.get(identity)
@@ -254,12 +261,12 @@ def calendar_projection(database):
     with Store(database).connection() as conn:
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='publication_attempts'").fetchone():return []
         items=[]
-        for row in conn.execute("SELECT a.*,d.id AS publication_id FROM publication_attempts a JOIN publication_drafts d ON d.id=a.draft_id WHERE a.state='verified'"):
+        for row in conn.execute("SELECT a.*,d.id AS publication_id,d.platform AS target_platform FROM publication_attempts a JOIN publication_drafts d ON d.id=a.draft_id WHERE a.state='verified'"):
             receipt=json.loads(row['receipt_json']);matched=receipt.get('matched') or {}
             if matched.get('status') not in {'published','已发布','开放浏览'}:continue
             stamp=row['submitted_at'];content=json.loads(row['content_json'])
             items.append({'id':row['id'],'title':content['title'],
-                'date':stamp[:10],'time':stamp[11:16],'platform':'B站','status':'published',
+                'date':stamp[:10],'time':stamp[11:16],'platform':{'bilibili':'B站','douyin':'抖音','kuaishou':'快手','xiaohongshu':'小红书','weixin-channels':'视频号'}.get(row['target_platform'],row['target_platform']),'status':'published',
                 'kind':'content','source':'accepted-publication',
                 'note':'具体接受版投稿记录；平台状态：'+matched['status'],
                 'publication_id':row['publication_id']})

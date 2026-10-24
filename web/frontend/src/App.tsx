@@ -1,4 +1,4 @@
-import { publicationIdFromHash, sessionRestorePage } from './lib/publicationApi';
+import { publicationIdFromHash, sessionRestorePage, publishSourceFromHash, type PublishSource } from './lib/publicationApi';
 import { mergeTaskReplies } from './lib/taskReplies';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { enterVideo, videoRequest, type ConversationView, type VideoEntry } from './lib/conversationApi';
@@ -50,6 +50,14 @@ function onboardingSeen(): boolean {
 
 export default function App() {
   const [publicationId,setPublicationId]=useState<string>();
+  const [publishSource,setPublishSource]=useState<PublishSource>();
+  useEffect(()=>{
+    const select=(value?:PublishSource)=>{if(value){setPublishSource(value);setPublicationId(undefined);setCurrentPage('publish');}};
+    const open=(e:Event)=>select((e as CustomEvent<PublishSource>).detail);
+    const restore=()=>select(publishSourceFromHash(window.location.hash));
+    restore();window.addEventListener('easel:publish-source',open);window.addEventListener('hashchange',restore);
+    return()=>{window.removeEventListener('easel:publish-source',open);window.removeEventListener('hashchange',restore);};
+  },[]);
   useEffect(()=>{
     const select=(id?:string)=>{if(id){setPublicationId(id);setCurrentPage('publish');}};
     const open=(e:Event)=>select((e as CustomEvent<string>).detail);
@@ -59,7 +67,7 @@ export default function App() {
   },[]);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const navigate=(page:Page)=>{
-    if(page!=='publish'&&publicationIdFromHash(window.location.hash))window.history.replaceState(null,'',window.location.pathname+window.location.search);
+    if(page!=='publish'&&(publicationIdFromHash(window.location.hash)||publishSourceFromHash(window.location.hash)))window.history.replaceState(null,'',window.location.pathname+window.location.search);
     setCurrentPage(page);
   };
   const [personas, setPersonas] = useState<PersonaItem[]>([]);
@@ -797,7 +805,7 @@ export default function App() {
       case 'calendar':
         return <CalendarPage />;
       case 'publish':
-        return <PublishPage persona={selectedPersona} publicationId={publicationId} />;
+        return <PublishPage persona={selectedPersona} publicationId={publicationId} source={publishSource} />;
       case 'breakdown':
         return <BreakdownPage persona={selectedPersona} />;
       case 'production':

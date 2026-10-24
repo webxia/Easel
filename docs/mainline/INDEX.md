@@ -29,6 +29,8 @@
 
 ## 本轮实施与验收
 
+- [PUB-01多平台成片与封面接线](project/tasks/PUB-01_acceptance-publication.md)：复用原发布中心/发布器，代码、离线检查、部署及不投稿的Web定向验证已交付；真实各平台发送与封面效果未测，原已发作品保持。
+
 - [LIB-01 · 内容库交付物与原生交互收敛](project/tasks/LIB-01_content-library-consistency.md)：本轮收窄范围已交付，代码、离线回归、部署与Web定向复验通过，功能提交已推送；保留原生文件项目、生产恢复和PUB-01链路，证据见任务记录。
 
 ## 待审阅的新需求方案

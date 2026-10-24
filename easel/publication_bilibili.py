@@ -94,10 +94,12 @@ def _native_builder():
 
 
 @contextmanager
-def publishing_lock(root):
+def publishing_lock(root, platform="bilibili"):
     folder=Path(root)/'outputs'/'_publish'
     folder.mkdir(parents=True,exist_ok=True)
-    with (folder/'bilibili.lock').open('a+b') as lock:
+    if platform not in {'bilibili','xiaohongshu','douyin','kuaishou','weixin-channels','zhihu','wechat-oa'}:
+        fail('invalid_platform','未知发布平台')
+    with (folder/(platform+'.lock')).open('a+b') as lock:
         if os.name=='nt':
             import msvcrt
             if lock.tell()==0:lock.write(b'0');lock.flush()
@@ -109,7 +111,7 @@ def publishing_lock(root):
             acquire=lambda:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
             release=lambda:fcntl.flock(lock,fcntl.LOCK_UN)
         try:acquire()
-        except OSError:fail('publication_busy','B站有正在执行的操作，请查看原记录',409)
+        except OSError:fail('publication_busy','该平台有正在执行的操作，请查看原记录',409)
         try:yield
         finally:release()
 

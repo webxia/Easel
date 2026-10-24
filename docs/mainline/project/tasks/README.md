@@ -13,9 +13,9 @@
 
 - [LIB-01 · 内容库交付物与 Easel 原生交互收敛](LIB-01_content-library-consistency.md)：本轮收窄范围COMPLETE，离线回归、部署及Web定向复验通过，功能提交ce08475c已推送；不替换PUB-01生产断点。
 
-## 待评审父任务
+## 父任务与剩余验收
 
-- [PUB-01 · 成片交付引导、确认与发布衔接](PUB-01_acceptance-publication.md)：已授权首批B站开发及离线验收；不部署、不付费或真实投稿。独立任务分支，不替换停止制作断点。
+- [PUB-01 · 成片交付引导、确认与发布衔接](PUB-01_acceptance-publication.md)：本轮原发布中心多平台成片/封面接线已实现、部署并通过不投稿的Web验证；实际各平台上传与封面效果未测，父任务PARTIAL。沿easel-v2-rebuild保留增量及生产断点。
 
 
 ## 已登记的后续顺序

@@ -495,7 +495,7 @@ export interface PublishResult {
  * 抖音返回 {async:true}，需轮询 publishStatus；其他平台同步返回结果。 */
 export function publishNow(
   platform: string,
-  payload: { title: string; body: string; media: string[]; tags?: string },
+  payload: { title: string; body: string; media: string[]; tags?: string; tid?:number; cover?: {digest:string;width:number;height:number}|null },
 ): Promise<PublishResult> {
   return request<PublishResult>(`/api/publish/${encodeURIComponent(platform)}`, {
     method: 'POST',

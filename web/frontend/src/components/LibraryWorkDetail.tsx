@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { artifactURL, productionRequest, workLabels, type Work } from '../lib/productionApi';
 import { libraryOutputs, libraryRelatedFiles, libraryVersionPlan, selectedLibraryOutput, type LibraryWork } from '../lib/contentLibrary';
-import { openPublication, openPublicationDraft, publicationStatus, type Publication } from '../lib/publicationApi';
+import { openPublishSource, openPublicationDraft, publicationStatus, type Publication } from '../lib/publicationApi';
 import type { VideoEntry } from '../lib/conversationApi';
 import { IconChevron, IconRefresh, IconTrash } from './icons';
 
@@ -70,7 +70,8 @@ export default function LibraryWorkDetail({ item, onBack, onContinue, onDelete, 
       </section>
       {!!related.length && <details className="library-detail-section"><summary>相关文件 · {related.length}</summary><p>以下为作品级文件；各版本交付请使用上方对应下载入口。</p><ul>{related.map((a, index) => <li key={a.id}><a href={artifactURL(a.id)} target="_blank" rel="noreferrer">{a.kind === 'export_bundle' ? '视频与署名包' : ({ voice: '配音', subtitles: '字幕', image: '图片', audio: '音频' } as Record<string, string>)[a.kind] || '相关媒体或文档'} · {index + 1}{a.output_revision != null ? ` · 版本 ${a.output_revision}` : ''}</a></li>)}</ul></details>}
       <section className="library-detail-section"><h3>发布</h3>
-        {publicationError ? <div className="notice-error" role="alert">发布记录读取失败：{publicationError}。请刷新后核实。</div> : !recordsLoaded ? <p>正在读取发布记录…</p> : records.length ? records.map(p => <div className="library-publication" key={p.id}><span>B站 · {publicationStatus(p)}</span><button className="btn btn-sm" onClick={() => openPublicationDraft(p.id)}>查看发布草稿或记录</button></div>) : output?.delivery?.can_publish ? <button className="btn btn-sm" disabled={busy} onClick={async () => { setBusy(true); try { await openPublication(item.work_id, output.id); } catch (e) { setPublicationError((e as Error).message); } finally { setBusy(false); } }}>准备发布</button> : <p>接受具体成片版本后，可准备发布；接受和投稿在现有流程中分别确认。</p>}
+        {output?.delivery?.can_publish && records.length>0&&<button className="btn btn-sm" onClick={()=>openPublishSource(item.work_id,output.id)}>选择其他平台</button>}
+        {publicationError ? <div className="notice-error" role="alert">发布记录读取失败：{publicationError}。请刷新后核实。</div> : !recordsLoaded ? <p>正在读取发布记录…</p> : records.length ? records.map(p => <div className="library-publication" key={p.id}><span>{({bilibili:'B站',douyin:'抖音',xiaohongshu:'小红书',kuaishou:'快手','weixin-channels':'视频号'} as Record<string,string>)[p.platform||'bilibili']||p.platform} · {publicationStatus(p)}</span><button className="btn btn-sm" onClick={() => openPublicationDraft(p.id)}>查看发布草稿或记录</button></div>) : output?.delivery?.can_publish ? <button className="btn btn-sm" disabled={busy} onClick={async () => { setBusy(true); try { openPublishSource(item.work_id, output.id); } catch (e) { setPublicationError((e as Error).message); } finally { setBusy(false); } }}>准备发布</button> : <p>接受具体成片版本后，可准备发布；接受和投稿在现有流程中分别确认。</p>}
       </section>
       <div className="library-detail-actions">
         {onContinue && <button className="btn btn-primary btn-sm" onClick={continueWork}>{output ? '围绕此版本继续创作' : '继续创作'}</button>}

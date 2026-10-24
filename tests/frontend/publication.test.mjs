@@ -9,11 +9,10 @@ const path=new URL('../../web/frontend/src/lib/publicationApi.ts',import.meta.ur
 const exports={};let calls=[];let events=[];
 runInNewContext(ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,
  {exports,require:()=>({productionRequest:async(...args)=>{calls.push(args);return {id:'draft1'};}}),window:{history:{replaceState:()=>{}},dispatchEvent:e=>events.push(e)},CustomEvent:class {constructor(type,options){this.type=type;this.detail=options.detail;}}});
-test('prepare navigates to the exact persisted draft, never submits or accepts',async()=>{
+test('generic publication entry opens exact accepted source without selecting a platform or preparing',async()=>{
  calls=[];events=[];await exports.openPublication('work','output2');
- assert.equal(calls.length,1);assert.equal(calls[0][0],'publications/prepare');
- assert.deepEqual(JSON.parse(calls[0][1].body),{work_id:'work',output_id:'output2'});
- assert.equal(events[0].detail,'draft1');
+ assert.equal(calls.length,0);assert.equal(events[0].type,'easel:publish-source');
+ assert.deepEqual(JSON.parse(JSON.stringify(events[0].detail)),{work_id:'work',output_id:'output2'});
 });
 test('pending moderation and unknown are not public success',()=>{
  assert.match(exports.publicationStatus({state:'draft',attempts:[]}),/尚未投稿/);

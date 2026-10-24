@@ -250,3 +250,20 @@ MIGRATIONS[6] = MIGRATIONS[3].replace(
                           AND done.kind='run_completed' AND replaced.kind='run_superseded'
                           AND done.seq<replaced.seq))))""",
 )
+
+# PUB-01: keep every existing field/identity; only extend the platform constraint.
+# Rebuild parent+child together under Store.initialize's single transaction;
+# foreign keys stay enabled throughout, including the final foreign_key_check.
+MIGRATIONS[7] = PUBLICATION_SQL.replace(
+    "CHECK(platform='bilibili')",
+    "CHECK(platform IN ('bilibili','douyin','xiaohongshu','kuaishou','weixin-channels'))",
+).replace('publication_drafts', 'publication_drafts_next').replace(
+    'publication_attempts', 'publication_attempts_next'
+) + r'''
+INSERT INTO publication_drafts_next SELECT * FROM publication_drafts;
+INSERT INTO publication_attempts_next SELECT * FROM publication_attempts;
+DROP TABLE publication_attempts;
+DROP TABLE publication_drafts;
+ALTER TABLE publication_drafts_next RENAME TO publication_drafts;
+ALTER TABLE publication_attempts_next RENAME TO publication_attempts;
+'''

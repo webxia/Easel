@@ -45,6 +45,9 @@ export interface PublishDraft {
   platforms: string[];
   overrides: Record<string, string>;
   tags: string;   // 话题标签，逗号分隔（小红书绑话题；其它平台按需写入）
+  media?: string[];
+  bilibiliTid?:number;
+  covers?: Record<string, import('./publicationApi').PublicationCover|null>;
 }
 const PUBLISH_KEY = 'easel_publish_draft';
 const PREVIOUS_BRAND = ['post', 'craft'].join('');

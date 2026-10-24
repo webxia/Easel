@@ -1221,7 +1221,10 @@ def _publish(a, kind: str) -> int:
             human_pace.pace("field-switch")              # 上传后到填写前
             if kind == "video":
                 _wait_video_processed(page)
-                _select_ai_cover(page)
+                if getattr(a, 'cover', None):
+                    from publish_cover import apply_custom_cover
+                    apply_custom_cover(page, 'douyin', a.cover)
+                else:_select_ai_cover(page)
             _fill_title_desc(page, a.title, a.content or "", tags)
             _click_publish(page, len(a.title) + len(a.content or ""))
             # 点击后轮询等风控墙浮现（2026-09-12 真机发现：墙的渲染晚于 2.5s，
@@ -1303,6 +1306,8 @@ def _publish(a, kind: str) -> int:
         login_state.write_status(sf, "success",
                                  f"发布成功（读回核验：作品 {m.platform_content_id}，{m.status}{_who}）")
         print(f"✅ 抖音发布成功（读回核验：{m.platform_content_id}{_who}）")
+        from publication_result import emit_verified
+        emit_verified("douyin",m,_acct)
         # 落统一内容日历（对话页自动；发布页由 web 设 AUTORECORD=0 跳过防重复）
         try:
             import calendar_ops
@@ -1480,6 +1485,7 @@ def main() -> int:
         p.add_argument("--content", help="作品简介")
         p.add_argument("--images", help="图片路径，逗号分隔（图文）")
         p.add_argument("--video", help="视频路径（视频）")
+        p.add_argument("--cover", help="自定义视频封面图片")
         p.add_argument("--tags", help="话题，逗号分隔（写入简介 # 话题）")
         p.add_argument("--exec", action="store_true", help="真正发布（默认 dry-run）")
         p.add_argument("--allow-unsafe", action="store_true",

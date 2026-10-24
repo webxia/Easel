@@ -56,7 +56,7 @@ function detail(value = work(), records = [], failRecords = false) {
   const h = harness('components/LibraryWorkDetail.tsx', {
     '../lib/contentLibrary': helpers,
     '../lib/productionApi': { artifactURL: id => '/artifact/' + id, workLabels: { reviewable: '可审阅' }, productionRequest: async (path, options) => { calls.push({ path, options }); if (path.startsWith('publications')) { if (failRecords) throw new Error('offline'); return records; } return value; } },
-    '../lib/publicationApi': { publicationStatus: p => p.state, openPublication: async (...args) => actions.push(['prepare', ...args]), openPublicationDraft: id => actions.push(['open', id]) },
+    '../lib/publicationApi': { publicationStatus: p => p.state, openPublishSource: (...args) => actions.push(['source', ...args]), openPublicationDraft: id => actions.push(['open', id]) },
     './icons': icons,
   }, { item: { work_id: 'w', artifact_id: 'a' }, onBack() {}, onContinue: e => actions.push(['continue', e]), onDelete: e => actions.push(['delete', e]), deleting: false });
   return { h, calls, actions };
@@ -98,12 +98,12 @@ test('switching to B keeps B preview, download and continue identity without pre
   assert.deepEqual(JSON.parse(JSON.stringify(actions)), [['continue', { work_id: 'w', output_id: 'b', kind: 'continue' }]]);
 });
 
-test('existing record opens original identity without preparing; no record prepares only on click', async () => {
+test('existing record opens original identity without preparing; no record navigates to platform selection only on click', async () => {
   const r = detail(work(), [{ id: 'pub', output_id: 'a', state: 'unknown' }]); await r.h.flush();
   assert.equal(r.actions.length, 0); r.h.click('查看发布草稿或记录'); assert.deepEqual(r.actions, [['open', 'pub']]);
   assert.doesNotMatch(r.h.html(), /准备发布<\/button>/);
   const fresh = detail(); await fresh.h.flush(); assert.equal(fresh.actions.length, 0);
-  await fresh.h.click('准备发布'); assert.deepEqual(fresh.actions, [['prepare', 'w', 'a']]);
+  await fresh.h.click('准备发布'); assert.deepEqual(fresh.actions, [['source', 'w', 'a']]);
 });
 
 test('unreadable publication history never offers to prepare; no-output work can still continue', async () => {

@@ -11,6 +11,7 @@ class Source(BaseModel):
     model_config=ConfigDict(extra='forbid')
     work_id: str
     output_id: str
+    platform: str = "bilibili"
 
 
 class Edit(BaseModel):
@@ -40,39 +41,54 @@ class CoverSource(Cancel):
     at: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
-def create_publication_router(service_provider,adapter_provider=None):
+def create_publication_router(service_provider,adapter_provider=None,platform_adapter_provider=None):
     router=APIRouter(prefix='/api/production/publications')
-    def service():
+    def service(identity=None, platform='bilibili'):
         production=service_provider()
-        return Publications(production,adapter_provider() if adapter_provider else BilibiliAdapter(production.outputs.parent))
+        if identity:
+            from easel.production.service import row
+            with production.store.connection() as conn:
+                platform=row(conn, 'publication_drafts', identity)['platform']
+        if platform != 'bilibili':
+            if platform_adapter_provider is None:
+                from easel.production.service import fail
+                fail('invalid_platform','此平台尚未接入视频发布')
+            adapter=platform_adapter_provider(platform)
+        else:adapter=adapter_provider() if adapter_provider else BilibiliAdapter(production.outputs.parent)
+        return Publications(production,adapter)
 
     @router.get('')
     def listing(work_id:str|None=None):return service().list(work_id)
 
+    @router.get('/partitions')
+    def partition_list(refresh:bool=False):
+        from easel.publication_partitions import partitions
+        return partitions(service_provider().outputs.parent,refresh=refresh)
+
     @router.post('/prepare')
-    def prepare(request:Source):return service().prepare(request.work_id,request.output_id)
+    def prepare(request:Source):return service(platform=request.platform).prepare(request.work_id,request.output_id,platform=request.platform)
 
     @router.post('/account')
-    def account():return service().adapter.account()
+    def account(platform:str='bilibili'):return service(platform=platform).adapter.account()
 
     @router.get('/{identity}')
-    def get(identity:str):return service().get(identity)
+    def get(identity:str):return service(identity).get(identity)
 
     @router.put('/{identity}')
-    def save(identity:str,request:Edit):return service().save(identity,request.revision,request.content)
+    def save(identity:str,request:Edit):return service(identity).save(identity,request.revision,request.content)
 
     @router.post('/{identity}/cancel')
-    def cancel(identity:str,request:Cancel):return service().cancel(identity,request.revision)
+    def cancel(identity:str,request:Cancel):return service(identity).cancel(identity,request.revision)
 
     @router.post('/{identity}/covers')
     def cover(identity:str,request:CoverSource):
         from easel.production.publication_covers import prepare_cover
-        return prepare_cover(service(),identity,request.revision,library_path=request.library_path,at=request.at)
+        return prepare_cover(service(identity),identity,request.revision,library_path=request.library_path,at=request.at)
 
     @router.post('/{identity}/covers/upload')
     def upload_cover(identity:str,revision:int=Form(...),file:UploadFile=File(...)):
         from easel.production.publication_covers import prepare_cover, MAX_IMAGE_BYTES
-        return prepare_cover(service(),identity,revision,data=file.file.read(MAX_IMAGE_BYTES+1))
+        return prepare_cover(service(identity),identity,revision,data=file.file.read(MAX_IMAGE_BYTES+1))
 
     @router.get('/{identity}/covers/{checksum}')
     def preview_cover(identity:str,checksum:str):
@@ -81,7 +97,7 @@ def create_publication_router(service_provider,adapter_provider=None):
         from easel.production.service import fail
         from PIL import Image
         import re
-        pub=service();draft=pub.get(identity)
+        pub=service(identity);draft=pub.get(identity)
         if not re.fullmatch(r'[a-f0-9]{64}',checksum):fail('invalid_cover','封面引用无效')
         try:
             path=local_path(pub.service.outputs,f'_production/publication-covers/{identity}/{checksum}.jpg')
@@ -91,12 +107,12 @@ def create_publication_router(service_provider,adapter_provider=None):
         return FileResponse(path,media_type='image/jpeg',headers={'Cache-Control':'no-store'})
 
     @router.post('/{identity}/submit')
-    def submit(identity:str,request:Confirm):return service().submit(identity,request.revision,request.confirmation_hash)
+    def submit(identity:str,request:Confirm):return service(identity).submit(identity,request.revision,request.confirmation_hash)
 
     @router.post('/{identity}/resolve-absent')
     def resolve_absent(identity:str,request:ResolveAbsent):
-        return service().resolve_absent(identity,request.revision,request.confirmation_hash,request.attempt_id,request.confirmed_absent)
+        return service(identity).resolve_absent(identity,request.revision,request.confirmation_hash,request.attempt_id,request.confirmed_absent)
 
     @router.post('/{identity}/reconcile')
-    def reconcile(identity:str):return service().reconcile(identity)
+    def reconcile(identity:str):return service(identity).reconcile(identity)
     return router

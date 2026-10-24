@@ -15,6 +15,8 @@ function render(value=draft,confirming=false){
  runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,
  {exports,require:name=>name==='react'?{...React,useState:()=>[states[index++],()=>{}],useEffect:()=>{}}:
  name==='../lib/productionApi'?{artifactURL:id=>'/media/'+id}:
+ name==='./BilibiliPartition'?{__esModule:true,default:()=>null}:
+ name==='../lib/bilibiliPartitions'?{useBilibiliPartitions:()=>({catalog:{groups:[]},refresh:()=>{}}),partitionLabel:()=> '知识'}:
  name==='./PublicationCover'?{__esModule:true,default:()=>null}:
  name==='../lib/publicationApi'?{publicationCoverURL:(id,digest)=>'/cover/'+digest,publicationExecutionText:()=>'',publicationStatus:()=>value.attempts.length?'投稿结果待核实':'草稿',publicationGuidance:()=>value.attempts.length?'上传和投稿均未确认':'请核对后投稿'}:
  name==='./icons'?{IconPublish:()=>null,IconRefresh:()=>null}:require(name)});

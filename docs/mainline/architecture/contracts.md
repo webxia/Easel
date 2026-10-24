@@ -589,4 +589,17 @@ A2持久记录/来源/工具桥与频道语义、A3统一对话/程序卡/共享
 
 ### PUB-01 投稿封面增量（2026-10-24）
 
-具体发布草稿的content可选cover={digest,width,height}或null。封面候选通过publications/{id}/covers（素材路径或成片时点）及covers/upload（multipart）建立，GET covers/{digest}预览；准备候选不选择、不投稿，原save才绑定。复用已接受版本校验、本地观察抽帧和原CLI --cover。封面进入已有最终确认摘要，发送前复制校验；已提交记录禁止改图，不改旧确认摘要。无数据库迁移、无新制作任务、无额外审核。验证/授权边界见[PUB-01](../project/tasks/PUB-01_acceptance-publication.md)。
+具体发布草稿的content可选cover={digest,width,height}或null。封面候选通过publications/{id}/covers（素材路径或成片时点）及covers/upload（multipart）建立，GET covers/{digest}预览；准备候选不选择、不投稿，原save才绑定。复用已接受版本校验、本地观察抽帧和原CLI --cover。封面进入已有最终确认摘要，发送前复制校验；已提交记录禁止改图，不改旧确认摘要。首批B站封面增量未引入数据库迁移、制作任务或额外审核；多平台schema扩展见下。验证/授权边界见[PUB-01](../project/tasks/PUB-01_acceptance-publication.md)。
+
+
+### 原发布中心的成片与文件来源衔接（2026-10-24）
+
+原PublishPage保留平台多选、逐平台文案、预览、账号及结果卡。媒体网格合并公共文件和既有已接受成片投影；不打开生产目录。通用对话/内容库发布入口仅导航到具体work/output的平台选择页；查看已有草稿仍走原publication深链，不prepare或重新提交。未接受新版不代替接受版。
+
+Publications.prepare及Web Source新增可选platform，默认bilibili兼容原调用；本批成片接入bilibili/douyin/xiaohongshu/kuaishou/weixin-channels，知乎/公众号保留原图文路径。现有B站适配器、封面、账号、snapshot/readback、恢复入口保留；其他平台由NativeAdapter薄接线调用原命令构造及发布脚本。草稿/尝试继续存原表，schema 7仅扩展平台约束并保留旧数据字段与身份。去重包含平台/账号/输出，旧文件和成片入口共享平台执行锁；原异步短信在锁内初始化，不能覆盖另一正在执行任务的状态/验证码。
+
+普通文件PublishRequest.media保持原相对路径，可选cover为受控图片引用。新增本地/api/publish/covers来源/上传/预览接口，沿原路径权限并拒绝私有路径及符号链接；共用encode_cover，文件来源不建立Work。原公众号默认首图封面仍可用；显式封面不丢弃正文图片顺序。封面在本地草稿自动保存；成片封面仍经原revision/save绑定，未保存不能进入最终确认。共用图按用户一次操作赋给目标，之后独立编辑保存；已发记录不参与应用。
+
+封面处理保持原比例，无新图片生成/复杂裁剪器。各原浏览器发布器新增显式封面上传步骤：入口/控件不存在时停止，不回退推荐图；无显式图保留原默认。视频号只允许提交前恢复frame，按发表后结果不明不得换frame再提交。真实平台控件/尺寸要求仍需具名验证，软件通过不承诺平台最终封面效果。
+
+非B站无独立读回能力时snapshot记null而非伪造空列表，自动核实能力关闭；现有脚本的明确读回证据复用，未核实返回UNKNOWN并沿原记录查看，不能自动重发。普通文件原接口及状态语义保持兼容，不自动迁入生产发布表。实际证据及未测范围见[PUB-01本轮记录](../project/tasks/runs/2026-10-24-pub-multiplatform-web-01.md)。

@@ -67,6 +67,10 @@ def prepare_cover(publications, identity, revision, *, data=None, library_path=N
             data = base64.b64decode(block['image_url']['url'].split(',', 1)[1])
         except (ToolInputError, ModelTaskError, ValueError, StopIteration, OSError, subprocess.TimeoutExpired):
             fail('cover_frame_unavailable', '无法截取该时点，请选择成片内的其他时间')
+    return store_cover(publications, draft, revision, data)
+
+
+def encode_cover(data):
     if not data or len(data) > MAX_IMAGE_BYTES:
         fail('invalid_cover', '请选择20MB以内的有效图片')
     try:
@@ -81,6 +85,12 @@ def prepare_cover(publications, identity, revision, *, data=None, library_path=N
         image.save(encoded, format='JPEG', quality=85, optimize=True)
     except (ValueError, OSError, Image.DecompressionBombError, Image.DecompressionBombWarning):
         fail('invalid_cover', '请选择有效的 JPG、PNG 或 WebP 图片')
+    return encoded.getvalue(), image.width, image.height
+
+
+def store_cover(publications, draft, revision, data):
+    identity = draft['id']
+    payload, width, height = encode_cover(data)
     # Preparation is not selection: save() subsequently binds these exact bytes
     # into the draft revision and its existing final-confirmation hash.
     folder = publications.service.outputs
@@ -90,15 +100,15 @@ def prepare_cover(publications, identity, revision, *, data=None, library_path=N
             fail('invalid_cover_storage', '封面存储目录不可用')
         folder.mkdir(exist_ok=True)
     from hashlib import sha256
-    checksum = sha256(encoded.getvalue()).hexdigest()
+    checksum = sha256(payload).hexdigest()
     target = folder / (checksum + '.jpg')
     if target.is_symlink():
         fail('invalid_cover_storage', '封面存储目录不可用')
     if not target.exists():
         with tempfile.NamedTemporaryFile(dir=folder, suffix='.tmp', delete=False) as tmp:
-            tmp.write(encoded.getvalue())
+            tmp.write(payload)
         Path(tmp.name).replace(target)
-    cover = {'digest': checksum, 'width': image.width, 'height': image.height}
+    cover = {'digest': checksum, 'width': width, 'height': height}
     cover_path(publications, draft, cover)
     current = publications.get(identity)
     if current['state'] != 'draft' or current['revision'] != revision:
