@@ -116,6 +116,14 @@ class GatewayQuestionError(RuntimeError):
     pass
 
 
+class GatewayRPCError(GatewayQuestionError):
+    """A rejected RPC, distinct from an uncertain transport outcome."""
+    def __init__(self, code, reason=None):
+        self.code = code
+        self.reason = reason
+        super().__init__("Gateway RPC rejected")
+
+
 class GatewayUnsupportedError(GatewayQuestionError):
     """The gateway does not expose the question RPC surface.
 
@@ -250,13 +258,15 @@ def _sign(payload: str) -> str:
 class GatewayClient:
     """Minimal Gateway WS RPC client (operator role, v2 device auth)."""
 
-    def __init__(self, timeout: float = 12.0):
+    def __init__(self, timeout: float = 12.0, *, url: str | None = None, token: str | None = None):
         import websocket  # local import: keep module import cheap
 
         self._ws_lib = websocket
         self.ws = None
         self.timeout = timeout
-        self._seq = 0
+        self._seq = 1
+        self.url = url
+        self.token = token
 
     def connect(self) -> None:
         import websocket  # noqa: F401
@@ -266,8 +276,9 @@ class GatewayClient:
         # header, which the gateway reads as a browser request and refuses to
         # silent-local-pair (NOT_PAIRED). A CLI operator must present no Origin.
         ws = self._ws_lib.create_connection(
-            websocket_url(), timeout=self.timeout,
+            self.url or websocket_url(), timeout=self.timeout,
             suppress_origin=True)
+        self.ws = ws
         try:
             first = json.loads(ws.recv())
             if first.get("event") != "connect.challenge":
@@ -279,10 +290,11 @@ class GatewayClient:
             ws.close()
             raise
 
+        token = self.token if self.token is not None else dev["token"]
         scopes = ["operator.admin", "operator.read", "operator.write"]
         payload = "|".join([
             "v2", dev["device_id"], "cli", "cli", "operator",
-            ",".join(scopes), str(ts), dev["token"], nonce,
+            ",".join(scopes), str(ts), token, nonce,
         ])
         sig = _sign(payload)
         conn = {
@@ -293,7 +305,7 @@ class GatewayClient:
                            **_client_identity(), "mode": "cli"},
                 "role": "operator", "scopes": scopes,
                 "caps": [], "commands": [], "permissions": {},
-                "auth": {"token": dev["token"]},
+                "auth": {"token": token},
                 "device": {
                     "id": dev["device_id"],
                     "publicKey": dev["public_key"],
@@ -309,6 +321,7 @@ class GatewayClient:
         ok = False
         deadline = time.time() + self.timeout
         while time.time() < deadline:
+            ws.settimeout(max(0.001, deadline-time.time()))
             msg = json.loads(ws.recv())
             if msg.get("id") == "1":
                 ok = msg.get("ok", False)
@@ -321,30 +334,38 @@ class GatewayClient:
             raise GatewayQuestionError("gateway connect timed out")
         self.ws = ws
 
-    def _rpc(self, method: str, params: dict, timeout: float | None = None):
+    def rpc(self, method: str, params: dict, timeout: float | None = None):
         if self.ws is None:
             self.connect()
         self._seq += 1
         req_id = str(self._seq)
-        self.ws.send(json.dumps({
-            "type": "req", "id": req_id, "method": method, "params": params,
-        }))
-        deadline = time.time() + (timeout or self.timeout)
-        while time.time() < deadline:
-            msg = json.loads(self.ws.recv())
-            if msg.get("id") == req_id:
+        self.ws.send(json.dumps({"type":"req", "id":req_id, "method":method, "params":params}))
+        deadline = time.monotonic() + (timeout if timeout is not None else self.timeout)
+        try:
+            while time.monotonic() < deadline:
+                self.ws.settimeout(max(0.001, deadline-time.monotonic()))
+                msg = json.loads(self.ws.recv())
+                if msg.get("id") != req_id:
+                    continue
                 if not msg.get("ok", False):
-                    err = msg.get("error") or {}
-                    detail = json.dumps(err)[:200]
-                    # An unknown method surfaces as INVALID_REQUEST here (the
-                    # question RPCs don't exist pre-2026.9.x). Flag it so callers
-                    # can quietly disable the bridge instead of retrying forever.
-                    if err.get("code") == "INVALID_REQUEST":
-                        raise GatewayUnsupportedError(
-                            f"{method} not supported by this gateway: {detail}")
-                    raise GatewayQuestionError(f"{method} failed: {detail}")
+                    error = msg.get("error") or {}
+                    message = str(error.get("message", "")).lower()
+                    if error.get("code") == "INVALID_REQUEST" and any(
+                        term in message for term in ("unknown method", "method not found", "unsupported method")
+                    ):
+                        raise GatewayUnsupportedError("Gateway method unavailable")
+                    raise GatewayRPCError(error.get("code"), (error.get("details") or {}).get("reason"))
                 return msg.get("payload")
-        raise GatewayQuestionError(f"{method} timed out")
+            raise TimeoutError("Gateway RPC timed out")
+        finally:
+            if self.ws is not None:
+                try:
+                    self.ws.settimeout(self.timeout)
+                except OSError:
+                    pass  # Preserve the original transport result if the socket closed.
+
+    def _rpc(self, method: str, params: dict, timeout: float | None = None):
+        return self.rpc(method, params, timeout)
 
     def list_questions(self, session_key: str | None = None,
                        status: str | None = None) -> list[dict]:

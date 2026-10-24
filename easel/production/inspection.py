@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 from .media import probe_media, process_environment, MEDIA_FORMATS, file_sha256, atomic_json, local_path
 from .model_tasks import ModelTaskError
+from .tools import ToolInputError
 
 
 def observe_media(path: Path, *, include_audio: bool = False, max_frames: int = 12, frame_times: tuple[float, ...] | None = None) -> tuple[tuple[dict,...],frozenset[str],dict]:
@@ -39,7 +40,9 @@ def observe_media(path: Path, *, include_audio: bool = False, max_frames: int = 
     if frame_times is not None:
         if (not info['video'] or not 1 <= len(frame_times) <= 8 or
                 any(not math.isfinite(t) or t < 0 or t > last + .000002 for t in frame_times)):
-            raise ValueError('Frame times outside actual video bounds')
+            raise ToolInputError('Frame times outside actual video bounds', {
+                'min_seconds': 0, 'max_seconds': last,
+                'instruction': '请求时点必须不晚于max_seconds；文件总时长不是可抽取的末帧时间。未抽帧，请修正时点。'})
         count = len(frame_times)
     with tempfile.TemporaryDirectory(prefix='easel-observe-') as folder:
         for index in range(count):
@@ -79,7 +82,7 @@ def observe_media(path: Path, *, include_audio: bool = False, max_frames: int = 
 
 
 
-def observe_audio_technical(path: Path, *, info: dict | None = None, sample_seconds: float = 10.0) -> dict:
+def observe_audio_technical(path: Path, *, info: dict | None = None, sample_seconds: float = 10.0, source_start: float = 0.0) -> dict:
     """Bounded real local acoustic measurements, NOT audio understanding/listening.
 
     Supported for text-and-vision edit planning when the configured model cannot
@@ -91,6 +94,9 @@ def observe_audio_technical(path: Path, *, info: dict | None = None, sample_seco
         return {'audio_present': False, 'auditory_semantics': 'not_tested'}
     if not 0 < sample_seconds <= 15:
         raise ValueError('audio measurement sample must be bounded')
+    if not math.isfinite(source_start) or not 0 <= source_start < info['duration']:
+        raise ValueError('audio measurement start must lie inside the source')
+    measured_seconds = min(sample_seconds, info['duration'] - source_start)
     stream = next((x for x in info['streams'] if x.get('codec_type') == 'audio'), {})
     ffmpeg = shutil.which('ffmpeg')
     if not ffmpeg:
@@ -100,7 +106,7 @@ def observe_audio_technical(path: Path, *, info: dict | None = None, sample_seco
             result = subprocess.run([
                 ffmpeg, '-hide_banner', '-nostdin', '-loglevel', 'info',
                 '-protocol_whitelist', 'file,pipe', '-format_whitelist', MEDIA_FORMATS,
-                '-i', str(path), '-map', '0:a:0', '-t', str(min(sample_seconds, info['duration'])),
+                '-ss', str(source_start), '-i', str(path), '-map', '0:a:0', '-t', str(measured_seconds),
                 '-af', 'volumedetect', '-f', 'null', '-'
             ], capture_output=True, timeout=25, env=process_environment(Path(folder)))
         except subprocess.TimeoutExpired:
@@ -118,12 +124,12 @@ def observe_audio_technical(path: Path, *, info: dict | None = None, sample_seco
         'audio_present': True, 'duration_seconds': round(info['duration'], 3),
         'codec': str(stream.get('codec_name', 'unknown'))[:40],
         'channels': stream.get('channels'), 'sample_rate': str(stream.get('sample_rate',''))[:20],
-        'measured_seconds': round(min(sample_seconds, info['duration']), 3),
+        'measured_seconds': round(measured_seconds, 3), 'source_start': source_start,
         **levels, 'measurement': 'ffprobe_and_ffmpeg_volumedetect',
         'heard_by_model': False, 'auditory_semantics': 'not_tested'
     }
 
-VIDEO_DIALECTS = frozenset({'qwen-omni-video-url', 'qwen-vl-video-url'})
+VIDEO_DIALECTS = frozenset({'qwen-omni-video-url', 'qwen-vl-video-url', 'minimax-video-url'})
 MAX_VIDEO_BASE64 = 9_900_000  # Qwen's documented encoded payload ceiling is <10 MB.
 INSPECTION_VERSION = 'native-video-1'
 

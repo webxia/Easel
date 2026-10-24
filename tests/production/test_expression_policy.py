@@ -143,7 +143,9 @@ def test_manual_freeze_ignores_client_policy_and_does_not_rewrite_script(tmp_pat
     with service.store.transaction() as conn:
         frozen = service.freeze_plan(conn, row(conn, 'works', work), submitted)
     assert frozen['conversation_basis']['expression_policy'] == policy.snapshot()
-    assert frozen['script'] == submitted['script'] and frozen['scenes'] == submitted['scenes']
+    assert frozen['script'] == submitted['script']
+    from easel.production.contracts import Scene
+    assert frozen['scenes'] == [Scene.model_validate(scene).model_dump(mode='json') for scene in submitted['scenes']]
     assert transport.calls == 0
 
 

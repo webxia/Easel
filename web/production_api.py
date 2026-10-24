@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Callable
+from typing import Callable, Literal
 
 from fastapi import APIRouter, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -42,6 +42,23 @@ def create_router(service_provider: Callable[[], WorkService]) -> APIRouter:
         return {**capabilities(service_provider().outputs.parent),
                 'backend':backend_code_freshness()}
 
+    @router.get('/maintenance/summary')
+    def maintenance_summary():
+        from easel.production.maintenance import operating_summary
+        return operating_summary(service_provider())
+
+    @router.get('/maintenance/render-cache/{job_id}')
+    def cache_preview(job_id:str):
+        from easel.production.maintenance import render_cache
+        return render_cache(service_provider(),job_id)
+
+    @router.post('/maintenance/render-cache/{job_id}')
+    def cache_reclaim(job_id:str,request:Command):
+        from easel.production.maintenance import render_cache
+        value=request.payload.get('preview_hash')
+        if not isinstance(value,str) or not value:raise ProductionError('invalid_input','请先取得具体缓存清理预览')
+        return render_cache(service_provider(),job_id,preview_hash=value)
+
     @router.post('/material-sources/unsplash/preview-search')
     def unsplash_preview_search(request: StockPreviewSearch):
         # Read-only discovery from an explicit UI command, never background supply.
@@ -59,9 +76,18 @@ def create_router(service_provider: Callable[[], WorkService]) -> APIRouter:
         return {'provider': provider.provider_id, 'production_ready': False, 'results': list(results)}
 
     @router.get('/library')
-    def accepted_library():
+    def accepted_library(scope: Literal['accepted', 'unaccepted'] = 'accepted'):
         service=service_provider()
         with service.store.connection() as conn:
+            if scope == 'unaccepted':
+                return [dict(r) for r in conn.execute("""SELECT w.id AS work_id,w.title,w.state,
+                    w.revision,a.id AS artifact_id,a.output_revision
+                    FROM works w LEFT JOIN artifacts a ON a.id=(
+                        SELECT id FROM artifacts WHERE work_id=w.id AND kind='output'
+                        AND output_revision IS NOT NULL AND deleted_at IS NULL AND displayable=1
+                        ORDER BY output_revision DESC,id DESC LIMIT 1)
+                    WHERE w.deleted_at IS NULL AND w.accepted_output_id IS NULL
+                    ORDER BY w.updated_at DESC,w.id""")]
             return [dict(r) for r in conn.execute('''SELECT w.id AS work_id,w.title,a.id AS artifact_id,a.output_revision
                 FROM works w JOIN artifacts a ON a.id=w.accepted_output_id AND a.work_id=w.id
                 WHERE w.deleted_at IS NULL AND a.deleted_at IS NULL AND a.displayable=1

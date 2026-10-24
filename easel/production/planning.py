@@ -119,6 +119,28 @@ class DraftReview(Contract):
     limitations: list[str] = Field(default_factory=list,max_length=12)
 
 
+def validate_narration_revision(answer, base):
+    """Narration rewrites retain confirmed delivery and visual choices."""
+    proposed=answer.model_dump(mode='json')
+    for field in ('duration_seconds','aspect_ratio','audio_mode','voice','subtitles'):
+        if proposed['settings'].get(field)!=base['settings'].get(field):
+            raise ValueError('改稿重配须保留已确认设置：'+field)
+    def visuals(scenes):
+        return [{k:v for k,v in scene.items() if k not in {'narration','narration_pauses','duration_seconds'}} for scene in scenes]
+    if visuals(proposed['scenes'])!=visuals(base['scenes']) or proposed.get('explainer_boards',[])!=base.get('explainer_boards',[]):
+        raise ValueError('本次仅改口播，须保留原场景身份、画面要求和图解内容')
+
+
+def validate_board_revision(answer, base):
+    proposed=answer.model_dump(mode='json')
+    if proposed['settings']!=base['settings'] or proposed['script']!=base['script'] or proposed['scenes']!=base['scenes']:
+        raise ValueError('图解修订不能改变口播、场景或交付设置')
+    def facts(boards):
+        return [{k:v for k,v in board.items() if k!='states'} for board in boards]
+    if facts(proposed.get('explainer_boards',[]))!=facts(base.get('explainer_boards',[])):
+        raise ValueError('图解修订须保留原图解身份、卡片文字及事实')
+
+
 class PlanningTasks:
     def __init__(self, service, operations, transport, model_service, config_version):
         self.service, self.operations, self.transport = service, operations, transport
@@ -160,9 +182,15 @@ class PlanningTasks:
         policy=validate(basis.get('expression_policy')) if require_expression else {}
         safe_inputs=tuple({'input_id':i['id'],'kind':i['kind'],'usage':i['usage'],'text':i['text_content'],
             'name':i['original_name'],'constraints':json.loads(i['metadata_json'])} for i in inputs)
+        sound_notes=[]
+        with self.service.store.connection() as reader:
+            for task in reader.execute("SELECT id,payload_json FROM tasks WHERE run_id=? AND kind='supply'",(ctx.run_id,)):
+                if task['id']!=ctx.task_id:
+                    sound_notes.extend(json.loads(task['payload_json']).get('optional_sfx_ids',[]))
+        sound_note=('\n用户后续已允许以下音效缺料时省略，优先于原方案相应音效要求；保留已取得声音，不将省略当作缺陷，交付说明如实披露：'+encode(sound_notes)) if sound_notes else ''
         return TaskContext(work_id=ctx.work_id,run_id=ctx.run_id,task_id=ctx.task_id,
             profile_ref=profile_ref,profile=basis['profile'],director=basis['director'],
-            brief=work['input_text']+'\n本次明确设置：'+encode(basis['settings'])+'\n本次对话依据：'+encode(basis.get('conversation_brief'))+'\n频道定位：'+encode(basis.get('channel_basis',{}))+'\n本次补充：'+str(ctx.payload.get('request','')),
+            brief=work['input_text']+'\n本次明确设置：'+encode(basis['settings'])+'\n本次对话依据：'+encode(basis.get('conversation_brief'))+'\n频道定位：'+encode(basis.get('channel_basis',{}))+'\n本次补充：'+str(ctx.payload.get('request',''))+sound_note,
             inputs=safe_inputs,allowed_handles=frozenset(i['id'] for i in inputs),plan=plan,
             capabilities=self.execution_capabilities,expression_policy=policy,
             facts=tuple(plan.get('facts',[])),prohibitions=tuple(plan.get('constraints',[])),
@@ -346,6 +374,10 @@ class PlanningTasks:
                 return TaskResult(result=cached,work_state='awaiting_confirmation')
             context=self.context(ctx)
             protected=ctx.payload.get('protected_plan')
+            if ctx.payload.get('revision_scope')=='narration':
+                context=replace(context,brief=context.brief+'\n本次只改口播和对应脚本，保留场景身份、画面要求、图解、音色、字幕样式、画幅和固定片长；为完整旁白重新分配必要场景时长。')
+            if ctx.payload.get('revision_scope')=='boards':
+                context=replace(context,brief=context.brief+'\n仅修订已有图解状态顺序、分组和高亮；保留文字事实、口播、场景身份、非图解画面与声音设置。不得新增未经确认的事实。')
             if protected:
                 context=replace(context,plan=protected,
                     brief=context.brief+'\n仅允许audio_mode改为voice，无BGM或可选SFX；其他字段逐字保持，包括旁白、镜头、观点和时长。')
@@ -361,7 +393,14 @@ class PlanningTasks:
                     actual=answer.settings.voice
                     if all(getattr(actual,k)==getattr(fixed,k) for k in ('provider','model','voice_id','engine')):
                         actual.parameters=dict(fixed.parameters)
+                if any(s.narration_pauses for s in answer.scenes):
+                    from .prosody import compile_pauses
+                    if not answer.settings.voice or answer.settings.audio_mode not in {'voice','mixed'}:raise ValueError('停顿控制需要固定旁白声音')
+                    if any(i.get('constraints',{}).get('original_audio') for i in context.inputs):raise ValueError('保留原声时不能使用连续旁白停顿控制')
+                    for scene in answer.scenes:compile_pauses(scene.narration.strip(),[p.model_dump() for p in scene.narration_pauses],answer.settings.voice)
                 if protected:validate_audio_replan(answer,protected)
+                if ctx.payload.get("revision_scope")=="narration":validate_narration_revision(answer,context.plan)
+                if ctx.payload.get("revision_scope")=="boards":validate_board_revision(answer,context.plan)
                 if answer.explainer_boards and not self.execution_capabilities.get('native_explainer_boards'):
                     raise ValueError('本次尚未配置原生图解字体，不能使用explainer_boards；不得虚构图解能力')
             recovered=self._recover_draft(ctx)
@@ -372,9 +411,10 @@ class PlanningTasks:
                 author=self.runner(ctx,max_format_repairs=2)
                 proposed=await author.run(context,
                 '提出完整创作方案；遵守明确时长、画幅、声音设置；全部必用输入须落实到场景。'
-                '旁白片在narration_policy明确时长策略：用户已指定片长用fixed；只有未限定片长时才选择voice_driven并在摘要说明实际长度随完整旁白决定。continuous与片长独立。'
+                '旁白片在narration_policy明确时长策略：用户明确要求精确片长才用fixed；约、大约、左右或已允许自然收尾的时长是目标，不是硬性长度，应选择voice_driven并在摘要说明实际长度随完整旁白决定。未限定片长同样用voice_driven。continuous与片长独立。'
                 'Scene.narration 只能是将由 TTS 实际朗读的简短口播原文，不能包含时间码、朗读窗口、'
                 '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明写入 script/visual。'
+                '仅固定MiniMax speech-2.8时可按必要语义填写独立narration_pauses，after是去除首尾空白后的字符位置，seconds为0.05到1秒；不在正文写供应商标签，不逐句加停顿，默认空列表。'
                 '中文口播要有明显时间余量，不超过冻结时长预算；所有镜头累计时长仍须精确。'
                 '具体的分组、比较、数量关系或条件变化，可以用原生explainer_boards自主写出文字卡片、类别和前后状态；'
                 '图解会由程序原样绘制，每个状态都有真实数量和概念/假设标识，不需搜索到完全相同的卡片。'
@@ -441,7 +481,8 @@ class PlanningTasks:
                         review=await audit(proposed,'draft-audit-v3-'+str(round_),history)
                         history.append(review.model_dump(mode='json'))
                         self._store_draft(ctx,proposed,source,round_,history,review)
-                    if not review.findings and review.verdict=='pass':break
+                    # Rewrite only for stated defects, never for an unexplained label or optional taste.
+                    if not review.findings:break
                     if round_>=2:
                         raise ModelTaskError('draft_review_failed','原生草稿经过两轮修正仍有明确问题，未冻结、未配音',
                             diagnostic={'findings':review.findings})
@@ -480,7 +521,7 @@ class PlanningTasks:
                     policy = proposed.narration_policy
                     # Absence of a Work setting is not permission to shorten a confirmed plan.
                     mode = policy.duration_mode if policy else 'fixed'
-                    if 'duration_seconds' in requested or protected_audio or proposed.settings.audio_mode != 'voice':
+                    if ctx.payload.get('revision_scope')=='narration' or 'duration_seconds' in requested or protected_audio or proposed.settings.audio_mode != 'voice':
                         mode = 'fixed'
                     payload['narration_policy'] = {'continuous': not protected_audio,
                         'duration_mode': mode}

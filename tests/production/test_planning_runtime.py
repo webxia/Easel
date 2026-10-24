@@ -226,3 +226,28 @@ def test_fixed_voice_parameters_are_program_owned(tmp_path):
     assert snapshot['state']=='awaiting_confirmation'
     assert snapshot['plans'][0]['plan']['settings']['voice']==voice
     assert transport.calls==1
+
+
+@pytest.mark.parametrize('field',['voice','duration_seconds','aspect_ratio','audio_mode','subtitles','visual'])
+def test_narration_revision_protects_frozen_choices(tmp_path,field):
+    from easel.production.planning import VoiceReadyCreativePlan,validate_narration_revision
+    service,work,transport,worker=setup(tmp_path)
+    plan=VoiceReadyCreativePlan.model_validate(transport.answer)
+    base=plan.model_dump(mode='json')
+    plan.scenes[0].narration='重新说清同一个意思。'
+    validate_narration_revision(plan,base)
+    altered=json.loads(json.dumps(base))
+    if field=='visual':altered['scenes'][0]['visual']='不同画面'
+    else:altered['settings'][field]='different'
+    with pytest.raises(ValueError):validate_narration_revision(plan,altered)
+
+
+def test_runtime_projects_real_generation_readiness(tmp_path,monkeypatch):
+    from easel.production.runtime import create_runtime
+    from easel.production import supply_tasks
+    expected=[{'kind':'IMAGE','available':True,'readiness_note':'grant required'},
+              {'kind':'VIDEO','available':False,'reason':'capability_unavailable'}]
+    monkeypatch.setattr(supply_tasks,'supply_capabilities',lambda settings:expected)
+    runtime=create_runtime(tmp_path)
+    assert runtime.planning.execution_capabilities['generation']==expected
+    assert 'grant' in runtime.planning.execution_capabilities['generation_authorization']

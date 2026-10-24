@@ -379,3 +379,17 @@ def test_native_tts_invalid_json_result_is_not_resent(speech,tmp_path,response):
     assert result['state']=='failed_after_submit'
     assert service.synthesize(binding,identity=voice,text='句子。',segment_id='one')['state']=='failed_after_submit'
     assert len(calls)==1
+
+
+def test_short_sfx_uses_actual_source_without_changing_voice_or_music():
+    from easel.production.material_binding import fit_sound_effects
+    clips=[AudioClip(clip_id='door',asset_id='a',role='sfx',at=.8,duration=1,fade_in=.5,fade_out=.5),
+           AudioClip(clip_id='voice',asset_id='v',role='voice',at=0,duration=2),
+           AudioClip(clip_id='bgm',asset_id='m',role='music',at=0,duration=5)]
+    actual=fit_sound_effects(clips,{'a':.905578,'v':1,'m':1})
+    assert actual[0].duration==pytest.approx(.905578) and actual[0].at==.8
+    assert actual[0].fade_in+actual[0].fade_out<=actual[0].duration
+    assert actual[1:]==clips[1:]
+    assert fit_sound_effects(actual,{'a':.905578})==actual
+    with pytest.raises(ModelTaskError):
+        fit_sound_effects([clips[0].model_copy(update={'source_start':1})],{'a':.905578})

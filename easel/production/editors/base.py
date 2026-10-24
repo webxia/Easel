@@ -205,6 +205,7 @@ class RenderOutput(Contract):
     height: int
     audio_present: bool
     engine_version: str
+    encoding: dict = Field(default_factory=dict)
     caption_base_path: Path | None = None
     caption_base_sha256: str | None = None
 

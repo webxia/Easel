@@ -123,15 +123,24 @@ def create_runtime(root: Path, *, service=None, transport=None, handlers=None):
     # S6-14 temporary policy: skip automatic semantic Gate only when the
     # operator explicitly opts in. Default remains the full AV quality Gate.
     manual_review_only = settings.get('EASEL_PRODUCTION_QC_MODE','full').strip() == 'manual'
-    creation=CreationTasks(service,planning,voice_tasks=voice_tasks,
+    from .configuration import review_configuration
+    review_config=review_configuration(settings)
+    review_planning=None
+    if review_config:
+        review_settings,review_identity,review_version=review_config
+        review_transport=HTTPModelTransport(review_settings,capabilities=frozenset({'text','structured'}|set(review_settings['EASEL_PRODUCTION_MODEL_CAPABILITIES'].split(','))))
+        review_planning=PlanningTasks(service,operations,review_transport,review_identity,review_version)
+    creation=CreationTasks(service,planning,voice_tasks=voice_tasks,review_planning=review_planning,
                            manual_review_only=manual_review_only,
                            visual_review=settings.get('EASEL_PRODUCTION_VISUAL_REVIEW','').strip()=='1')
     mapping={'plan':planning.plan,'analyze_director':planning.analyze_director,
              'edit':creation.edit,'render':creation.render,'quality':creation.quality}
     # Concrete adapters are composed here; no fallback mock providers are installed.
-    from .supply_tasks import configured_supply
+    from .supply_tasks import configured_supply, supply_capabilities
     supply=configured_supply(service,operations,planning,settings)
     creation.supply=supply
+    planning.execution_capabilities['generation'] = supply_capabilities(settings)
+    planning.execution_capabilities['generation_authorization'] = 'Available means configured; production still requires this work’s service grant and remaining generation quota.'
     planning.board_fonts = supply.board_fonts
     planning.execution_capabilities['native_explainer_boards']=bool(supply.board_fonts)
     if supply.board_fonts:

@@ -12,3 +12,11 @@
 ## 待评审父任务
 
 - [PUB-01 · 成片交付引导、确认与发布衔接](PUB-01_acceptance-publication.md)：已授权首批B站开发及离线验收；不部署、不付费或真实投稿。独立任务分支，不替换停止制作断点。
+
+
+## 已登记的后续顺序
+
+1. [PUB-01 · 成片交付引导、确认与发布衔接](PUB-01_acceptance-publication.md)：现有前序任务。
+2. [CTX-01 · 上下文超预算后的发送前压缩](CTX-01_context-compaction.md)：用户指定排在PUB-01之后；[方案](../../architecture/context-compaction-proposal.md)首批Easel侧去重与官方压缩接入已实现并完成离线验收；父功能PARTIAL，关联既有失败及证据见父任务。未部署、未真实压缩、不修改OpenClaw、不升级、不恢复制作。
+
+排序不代表自动开工；当前生产停止决定和各卡授权边界保持有效。

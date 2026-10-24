@@ -166,6 +166,8 @@ def test_no_retroactive_paid_reply_for_legacy_receipt_or_revoked_segment(env):
 
 def test_delivery_failure_never_redispatches_assistant_or_production(env,tmp_path,monkeypatch):
     import web.conversation_api as api
+    from tests.production.test_context_preparation import NoPressureRPC
+    monkeypatch.setattr('easel.conversation_compaction.SessionRPC',NoPressureRPC)
     s,c,seg,work,_,worker=planning(env);asyncio.run(worker.run_once())
     calls=[]
     class Client:

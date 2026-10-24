@@ -57,6 +57,23 @@ def validate_material_records(service, ctx, records):
             raise ModelTaskError('material_binding_invalid', '所选素材的内容、来源、使用权或引用已失效，不能用其他候选的可用状态替代') from None
 
 
+def fit_sound_effects(audio, source_durations):
+    """A cue is a placement window, not permission to play past a short sound."""
+    result=[]
+    for clip in audio:
+        available=source_durations.get(clip.asset_id)
+        if clip.role!='sfx' or clip.loop or available is None:
+            result.append(clip);continue
+        remaining=available-clip.source_start
+        if remaining<=0:
+            raise ModelTaskError('invalid_edit_project','音效取源起点超出实际素材')
+        duration=min(clip.duration,remaining)
+        scale=min(1, duration/(clip.fade_in+clip.fade_out)) if clip.fade_in+clip.fade_out else 1
+        result.append(type(clip).model_validate({**clip.model_dump(),'duration':duration,
+            'fade_in':clip.fade_in*scale,'fade_out':clip.fade_out*scale}))
+    return result
+
+
 def validate_audio_bindings(project, records):
     cues = {}
     by_id = {r['id']:json.loads(r['metadata_json']) for r in records}
@@ -85,8 +102,8 @@ def validate_audio_bindings(project, records):
             continue
         if (len(clips) != 1 or clips[0].role != 'sfx' or clips[0].asset_id not in entry['assets']
                 or clips[0].gain <= 0 or abs(clips[0].at-use['at']) > .02
-                or abs(clips[0].duration-use['duration']) > .02):
-            raise ModelTaskError('sfx_binding_missing','必要音效必须使用对应候选及事件ID，并保留已明确的时间位置和长度')
+                or clips[0].duration>use['duration']+.02):
+            raise ModelTaskError('sfx_binding_missing','必要音效必须使用对应候选及事件ID，保留时间位置且不超过事件窗口')
 
 
 def selected_asset_ids(project):

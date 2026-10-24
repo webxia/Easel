@@ -16,7 +16,7 @@ WORK_ACTIONS = {
     'resume': {'decision_id'}, 'cancel': set(),
     'replan_after_unknown': {'decision_id'},
     'basis': {'settings','input_text'},
-    'revise': {'output_id','feedback','preserve_audio'},
+    'revise': {'output_id','feedback','preserve_audio','scope','duration_seconds'},
     'confirm_revision': {'review_id','change_hash','services'},
     'accept': {'output_id','manual_review_confirmed'},
 }
@@ -154,16 +154,18 @@ def turn_context(context):
     """
     result={**context}
     result['context']={k:v for k,v in context['context'].items() if k!='profile_save_target'}
+    result['context']['sources']=[{k:v for k,v in source.items() if k!='text'}
+                                  for source in context['context'].get('sources',[])]
     result['pending']=[p for p in context['pending'] if p['state']=='proposed']
     work=context.get('work')
     if work:
         result['work']={k:v for k,v in work.items() if k not in {'plans','tasks','artifacts','creation_context','conversation_brief'}}
         result['work']['plans']=[{k:v for k,v in p.items() if k not in {'payload_json','plan'}} for p in work['plans']]
         result['work']['tasks']=[{k:v for k,v in t.items() if k in {'id','run_id','kind','state','error_json'}} for t in work['tasks']]
-        result['work']['artifacts']=[{k:v for k,v in a.items() if k in {'id','kind','output_revision','deleted_at'}} for a in work['artifacts']]
+        result['work']['artifacts']=[{k:v for k,v in a.items() if k in {'id','kind','output_revision','deleted_at','quality_state','manual_review_required','checks'}} for a in work['artifacts']]
     plan=context.get('current_plan')
     result['current_plan']={k:v for k,v in plan.items() if k not in {'payload_json','plan'}} if plan else None
-    result['detail_access']='这是当前状态摘要。完整方案、历史提案和产物详情通过现有easel_pipeline pending读取；画像保存目标及来源通过easel_work_context读取。摘要省略不代表记录被删除或授权改变。'
+    result['detail_access']='这是当前状态摘要；sources仅列来源引用，正文通过easel_work_context读取，本轮原话在新消息区。完整方案、历史提案和产物详情通过现有easel_pipeline pending读取；画像保存目标及来源通过easel_work_context读取。摘要省略不代表记录被删除或授权改变。'
     return result
 
 
@@ -236,6 +238,12 @@ def pending(conversations, conn, segment):
                         'requires':'用户明确改变音频方案；展示规划费用，再确认；新方案仍须确认制作'})
             if (not unknown and active_run and not active_run['cancel_requested']
                     and active_run['state'] in {'needs_decision','paused','failed'}
+                    and task['kind']=='supply' and error.get('code')=='music_material_gap'):
+                choices.append({'kind':'resume','label':'解决音乐检索缺口后继续原制作',
+                    'action':'resume','values':{'decision_id':task['id']},
+                    'requires':'展示原音乐来源内的有限补料及后续配音/剪辑费用，确认后恢复；保留已取得素材、原方案和BGM，不重发UNKNOWN。'})
+            if (not unknown and active_run and not active_run['cancel_requested']
+                    and active_run['state'] in {'needs_decision','paused','failed'}
                     and ((task['kind']=='revise' and error.get('code')=='invalid_revision_search') or
                     (task['kind']=='edit' and error.get('code') in {
                         'invalid_edit_project','invalid_edit','invalid_model_output','editor_rejected',
@@ -254,12 +262,12 @@ def pending(conversations, conn, segment):
             'preoutput_replan':recovery,
             'current_plan':next((p for p in work['plans'] if p['revision']==work['current_plan_revision']),None) if work else None,
             'work':work,'capabilities':services,'model_calls':call_status(conversations,conn,segment),
-            'missing_choices':[name for name,value in [('channel',entry.get('channel_id')),('director',entry.get('settings',{}).get('director_revision'))] if not value] if entry.get('kind','new_work') not in {'channel_create','director_formation'} else []}
+            'missing_choices':[name for name,value in [('channel',entry.get('channel_id') or not segment['profile_ref']),('director',entry.get('settings',{}).get('director_revision'))] if not value] if entry.get('kind','new_work') not in {'channel_create','director_formation'} else []}
 
 
 def require_choices(segment):
     entry=json.loads(segment['context_json'])
-    if not entry.get('channel_id') or not entry.get('settings',{}).get('director_revision'):
+    if (segment['profile_ref'] and not entry.get('channel_id')) or not entry.get('settings',{}).get('director_revision'):
         fail('selection_required','请先在对话中让用户选择频道和导演；已有选择不重复询问',409)
 
 
@@ -523,7 +531,7 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
             and entry.get('output_id')==previous.get('output_id'))
         if unchanged:
             return {'already_bound':True,'queued':False,
-                'missing_choices':[k for k,v in [('channel',entry.get('channel_id')),('director',entry.get('director_revision'))] if not v] if next_kind=='new_work' else [],
+                'missing_choices':[k for k,v in [('channel',entry.get('channel_id') or not segment['profile_ref']),('director',entry.get('director_revision'))] if not v] if next_kind=='new_work' else [],
                 'message':'当前已在此管线，无需结束本轮。请继续读取pending与用户来源，解析已明确的频道/导演并绑定真实目标；已有选择不要重复询问。'}
         # Native turn must end before a new immutable segment may become current.
         payload['pipeline_entry']=entry

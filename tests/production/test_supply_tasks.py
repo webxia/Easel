@@ -523,3 +523,92 @@ def test_generation_readiness_explains_local_rights_without_claiming_remote_acce
     assert not supply_capabilities(settings)[0]['available']
     settings['MINIMAX_API_KEY']=''
     assert supply_capabilities(settings)[0]['reason']=='capability_unavailable'
+
+@pytest.mark.parametrize('failure',['empty','network','still_empty'])
+def test_music_query_recovery_is_bounded_and_reused(env,failure):
+    from types import SimpleNamespace
+    from easel.production.errors import ProductionError
+    from easel.production.supply_tasks import MusicSearchEmpty, MusicQuery
+    from easel.production.material_intent import MaterialIntent
+    service,ops,ctx,_,_=env
+    calls=[]; model_calls=[]
+    class Runner:
+        async def run(self,*args):
+            model_calls.append(args)
+            return MusicQuery(query='ambient')
+    planning=SimpleNamespace(runner=lambda *a,**k:Runner())
+    task=SupplyTasks(service,ops,planning=planning)
+    def acquire(*args):
+        query=args[-1].music_query;calls.append(query)
+        if failure=='network':raise ProductionError('music_material_gap','network unavailable')
+        if query!='ambient' or failure=='still_empty':raise MusicSearchEmpty('music_material_gap','no results')
+    task._acquire_music=acquire
+    intent=MaterialIntent(visuals=[],music_query='gentle ambient, warm, no vocals')
+    async def attempt():await task._music_with_recovery(ctx,None,[],None,None,intent,object())
+    if failure=='network':
+        with pytest.raises(ProductionError):asyncio.run(attempt())
+        assert model_calls==[]
+    elif failure=='still_empty':
+        for _ in range(2):
+            with pytest.raises(MusicSearchEmpty):asyncio.run(attempt())
+        assert len(model_calls)==1 and calls==[intent.music_query,'ambient','ambient']
+    else:
+        asyncio.run(attempt());asyncio.run(attempt())
+        assert len(model_calls)==1 and calls==[intent.music_query,'ambient','ambient']
+
+@pytest.mark.parametrize('outcome',['substitute','empty','network','unknown'])
+def test_sfx_recovery_preserves_cue_and_reuses_strategy(env,outcome):
+    from types import SimpleNamespace
+    from easel.production.errors import ProductionError
+    from easel.production.model_tasks import ModelTaskError
+    from easel.production.supply_tasks import SoundSearchEmpty, SoundRecovery
+    from easel.production.material_intent import MaterialIntent, SoundCue
+    service,ops,ctx,_,_=env;calls=[];models=[]
+    class Runner:
+        async def run(self,*args):
+            models.append(args)
+            if outcome=='unknown':raise ModelTaskError('unknown','unresolved operation')
+            return SoundRecovery(alternatives=[{'query':'glass','basis':'同一放杯动作'},
+                {'query':'soft tap','basis':'以轻触桌面的拟音表现轻放杯子'}])
+    task=SupplyTasks(service,ops,planning=SimpleNamespace(runner=lambda *a,**kw:Runner()))
+    cue=SoundCue(cue_id='cup',scene_id='s1',query='glass cup set down',at=2,duration=.5,required=True,basis='放杯')
+    intent=MaterialIntent(sound_cues=[cue]);records=[]
+    def acquire(*args):
+        current=args[-1].sound_cues[0];calls.append(current)
+        assert (current.cue_id,current.scene_id,current.at,current.duration,current.required)==('cup','s1',2,.5,True)
+        if outcome=='network':raise ProductionError('sfx_material_gap','network')
+        if current.query!='soft tap' or outcome=='empty':raise SoundSearchEmpty('sfx_material_gap','empty')
+        assert '拟音' in current.basis and '放杯' in current.basis
+        records.append({'metadata_json':json.dumps({'material_uses':[{'cue_id':'cup','basis':current.basis}]})})
+    task._acquire_sfx=acquire
+    async def attempt():await task._sfx_with_recovery(ctx,None,records,None,None,intent,object())
+    if outcome=='substitute':
+        asyncio.run(attempt());asyncio.run(attempt())
+        assert len(models)==1 and len(calls)==3
+    elif outcome=='empty':
+        for _ in range(2):
+            with pytest.raises(ProductionError):asyncio.run(attempt())
+        assert len(models)==1 and len(calls)==5
+    elif outcome=='network':
+        with pytest.raises(ProductionError):asyncio.run(attempt())
+        assert models==[] and len(calls)==1
+    else:
+        with pytest.raises(ModelTaskError):asyncio.run(attempt())
+        assert len(calls)==1
+
+
+def test_explicit_sound_downgrade_skips_failed_search_without_model(env):
+    from easel.production.material_intent import MaterialIntent,SoundCue
+    service,ops,ctx,_,_=env
+    with ctx.store.transaction() as conn:
+        p=json.loads(conn.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()[0])
+        p['optional_sfx_ids']=['cup']
+        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(json.dumps(p),ctx.task_id))
+    task=SupplyTasks(service,ops)
+    def forbidden(*args):raise AssertionError('must not repeat an explicitly waived search')
+    task._acquire_sfx=forbidden
+    intent=MaterialIntent(sound_cues=[SoundCue(cue_id='cup',scene_id='s1',query='cup',at=1,duration=1,required=True,basis='accent')])
+    asyncio.run(task._sfx_with_recovery(ctx,None,[],None,None,intent,None))
+    with ctx.store.connection() as conn:
+        event=conn.execute("SELECT payload_json FROM events WHERE work_id=? AND kind='optional_sound_omitted'",(ctx.work_id,)).fetchone()
+    assert json.loads(event[0])['cue_id']=='cup'

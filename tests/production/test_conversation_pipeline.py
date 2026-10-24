@@ -332,6 +332,8 @@ def test_interrupted_reply_reports_saved_permission_pause_without_replaying(env)
 
 def test_stream_failure_preserves_turn_and_does_not_dispatch_twice(env,tmp_path,monkeypatch):
     import asyncio
+    from tests.production.test_context_preparation import NoPressureRPC
+    monkeypatch.setattr('easel.conversation_compaction.SessionRPC', NoPressureRPC)
     from types import SimpleNamespace
     from web.conversation_api import VideoChat
     import web.conversation_api as api

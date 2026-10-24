@@ -12,7 +12,7 @@ from .inspection import observe_media
 from .model_tasks import ModelTaskError
 from .errors import ProductionError
 from .service import row,encode,now,new_id
-from .material_binding import validate_material_records, validate_audio_bindings, selected_asset_ids
+from .material_binding import validate_material_records, validate_audio_bindings, selected_asset_ids, fit_sound_effects
 from .creative_captions import CreativeCaption, compile_captions, check_caption_layout
 
 
@@ -134,8 +134,9 @@ def project_editor_features(answer: CreativeEdit) -> tuple[CreativeEdit,list[str
     return answer.model_copy(update={'required_features':declared}),unverified
 
 class CreationTasks:
-    def __init__(self,service,planning,editor=None,voice_tasks=None,manual_review_only=False,visual_review=False,supply=None):
+    def __init__(self,service,planning,editor=None,voice_tasks=None,manual_review_only=False,visual_review=False,supply=None,review_planning=None):
         self.service,self.planning=service,planning
+        self.review_planning=review_planning or planning
         self.supply=supply
         self.voice_tasks=voice_tasks
         # Temporary, explicitly enabled S6-14 release policy. Do not claim the
@@ -192,7 +193,7 @@ class CreationTasks:
                 asset_ids,outcome=await self.voice_tasks.prepare_assets(ctx,context.plan,asset_ids)
                 if outcome:return outcome
             records,manifest=self.assets(ctx,asset_ids)
-            from .narration import measured_execution_plan, check_voice_schedule, aligned_captions, narration_segments
+            from .narration import measured_execution_plan, check_voice_schedule, aligned_captions, narration_segments, ENDING_INSTRUCTION
             execution_plan, timing = measured_execution_plan(context.plan, records)
             if timing:
                 context = replace(context, plan=execution_plan,
@@ -214,6 +215,9 @@ class CreationTasks:
                 media,needs,evidence=await asyncio.to_thread(observe_media,path,
                     include_audio=audio_native and record['kind'] in {'video','audio'},max_frames=4)
                 observed[record['id']]=evidence.get('frame_times',[])
+                if record['kind']=='audio' and any(u.get('role')=='sfx' for u in json.loads(record['metadata_json']).get('material_uses',[])):
+                    from .media import probe_media
+                    source_durations[record['id']]=(await asyncio.to_thread(probe_media,path))['duration']
                 if record['kind']=='video':
                     from .media import probe_media
                     source_durations[record['id']]=(await asyncio.to_thread(probe_media,path))['duration']
@@ -287,8 +291,8 @@ class CreationTasks:
                 recovery=(request['messages'],message)
                 namespace='edit-repair-'+source['id'][:32]
             answer=await self.planning.runner(ctx,namespace=namespace,max_format_repairs=2).run(context,
-                VISUAL_EVIDENCE_INSTRUCTION + '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
-                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at/duration；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
+                ENDING_INSTRUCTION + VISUAL_EVIDENCE_INSTRUCTION + '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
+                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at，duration是事件上限，短音效按实际源长播放，不循环凑长；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '连续旁白应跨镜头讲完；voice_driven严格遵守voice_schedule，fixed使用实测时间作安排依据、位置可按叙事调整，不按草稿分镜凑静默；'
                 '字幕短行分语义显示，不能将整段连续旁白一次堆在画面上。选择画质与景别适合、光线与动作相接的素材，'
                 '每条文字明确role：narration只显示旁白并继承频道字幕样式；overlay为独立解释文字，保留设计的字体、位置、字号，避开底部旁白区，不能叠字。'
@@ -301,6 +305,10 @@ class CreationTasks:
             if answer.unresolved_scene_ids:
                 if _stock_assets is None and self.supply:
                     ids=await self.supplement_visuals(ctx,context,answer,asset_ids)
+                    with ctx.transaction() as conn:
+                        payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
+                        payload['asset_ids']=ids
+                        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
                     return await self.edit(ctx,_stock_assets=ids)
                 raise ModelTaskError('visual_material_gap','未落实镜头：'+','.join(answer.unresolved_scene_ids)+
                     '；已有局部补料仍不足时不重复检索，保留方案、素材与旁白，尚未渲染')
@@ -313,6 +321,7 @@ class CreationTasks:
             aligned = aligned_captions(answer.audio, records) if (context.plan.get('narration_policy') or {}).get('continuous') else None
             captions=compile_captions(answer.captions,style=style,fonts=fonts,aligned=aligned if style.enabled else None,
                 font_paths=font_paths,width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
+            answer=answer.model_copy(update={'audio':fit_sound_effects(answer.audio,source_durations)})
             data=answer.model_dump(exclude={'visual_evidence'});data['captions']=captions
             project=EditProject(work_id=ctx.work_id,plan_revision=ctx.plan_revision,revision=1,
                 width=1920 if horizontal else 1080,height=1080 if horizontal else 1920,
@@ -435,12 +444,13 @@ class CreationTasks:
         quality_context = replace(quality_context, brief=quality_context.brief +
             '\n实际编辑时间依据（不是听审结论）：' + encode(project_timing_evidence(project,
                 json.loads(project_record['metadata_json']).get('caption_roles'))))
-        if (quality_context.plan.get('narration_policy') or {}).get('duration_mode') == 'voice_driven':
+        if ((quality_context.plan.get('narration_policy') or {}).get('duration_mode') == 'voice_driven' or
+                (json.loads(project_record['metadata_json']).get('execution_timing') or {}).get('mode') == 'confirmed_ending'):
             from copy import deepcopy
             measured_plan = deepcopy(quality_context.plan)
             measured_plan['settings']['duration_seconds'] = project.duration
             quality_context = replace(quality_context, plan=measured_plan,
-                brief=quality_context.brief + '\n本片采用实测语音定长，实际剪辑工程时长：' + str(project.duration))
+                brief=quality_context.brief + '\n本片按实测语音或明确确认的收尾调整执行，实际剪辑工程时长：' + str(project.duration))
         if self.manual_review_only:
             if self.visual_review and quality_context.plan.get('narration_policy'):
                 try:
@@ -449,11 +459,13 @@ class CreationTasks:
                         runner=self.planning.runner(ctx,namespace='visual-review-v1'),context=quality_context)
                     # Existing semantic ledger, explicitly limited scope. A
                     # sampled visual pass NEVER becomes a semantic pass.
-                    self._check(ctx,artifact,'semantic','not_tested' if status=='pass' else status,
+                    findings=evidence['review']['findings']
+                    self._check(ctx,artifact,'semantic','fail' if findings else 'not_tested',
                         {**evidence,'visual_status':status},rule_version='visual-preview-1')
-                    if status != 'pass':
+                    # Limited observation or a bare verdict is not evidence of a defect.
+                    # Keep the original review, but do not rerender or block human review.
+                    if findings:
                         self._quality_state(ctx,artifact,'needs_fix')
-                        findings=evidence['review']['findings']
                         if findings and ctx.payload.get('repair_round',0)<1:
                             with ctx.transaction() as conn:
                                 payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
@@ -511,7 +523,7 @@ class CreationTasks:
                     self.service._event(conn,ctx.work_id,'quality_progress',{'completed_segments':completed,'total_segments':total,
                         'start':segment['start'],'end':segment['end'],'verdict':segment['review']['verdict']},run_id=ctx.run_id)
             answer=await review_full_video(path,cache_root=self.service.outputs/'works'/ctx.work_id/'inspection'/ctx.task_id,
-                info=info,transport=self.planning.transport,runner=self.planning.runner(ctx),
+                info=info,transport=self.review_planning.transport,runner=self.review_planning.runner(ctx),
                 context=quality_context,review_type=SemanticReview,on_segment=progress)
             self._check(ctx,artifact,'semantic',answer.verdict,{'review':answer.review,'evidence':answer.evidence})
             passed=answer.verdict=='pass' and not answer.limitations

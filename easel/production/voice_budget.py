@@ -28,7 +28,7 @@ def reserve_narration_slots(plan: dict) -> dict:
         cjk=sum(1 for c in text if '\u3400' <= c <= '\u9fff')
         latin=sum(1 for c in text if c.isascii() and c.isalnum())
         return ceil((cjk/3.8 + latin/6.0 + 0.35)*30)/30
-    floors=[reserved(s.get('narration','')) for s in scenes]
+    floors=[reserved(s.get('narration',''))+sum(p['seconds'] for p in s.get('narration_pauses',[])) for s in scenes]
     if sum(floors)>duration+1e-6:
         raise ModelTaskError('plan_voice_budget_unavailable','旁白估算时长超过总片长，请压缩旁白或由Creator调整片长')
     result=original[:]

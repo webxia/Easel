@@ -119,3 +119,28 @@ def test_cancel_revokes_and_fork_does_not_copy_authority(client,service):
     assert fork.status_code==202,fork.text
     fresh=service.snapshot(fork.json()['work_id'])
     assert fresh['image_limit']==0 and not fresh['plans'] and not fresh['runs']
+
+
+def test_library_unaccepted_includes_drafts_latest_preview_and_deletes(client, service):
+    from .test_store import insert_artifact
+    draft = create(client, title='未制作')
+    preview = create(client, title='待修')
+    accepted = create(client, title='已接受')
+    with service.store.transaction() as conn:
+        for artifact_id, work_id, revision in [('old', preview, 1), ('latest', preview, 2), ('accepted', accepted, 1)]:
+            insert_artifact(conn, work_id, artifact_id, kind='output', output_revision=revision, displayable=1)
+        insert_artifact(conn, preview, 'hidden', kind='output', output_revision=3, displayable=0)
+        conn.execute("UPDATE works SET state='preview_needs_fix' WHERE id=?", (preview,))
+        conn.execute('UPDATE works SET accepted_output_id=? WHERE id=?', ('accepted', accepted))
+    rows = {r['work_id']: r for r in client.get('/api/production/library?scope=unaccepted').json()}
+    assert set(rows) == {draft, preview}
+    assert rows[draft]['artifact_id'] is None
+    assert rows[preview]['artifact_id'] == 'latest'
+    assert rows[preview]['state'] == 'preview_needs_fix'
+    assert [r['work_id'] for r in client.get('/api/production/library').json()] == [accepted]
+    impact = client.get(f'/api/production/works/{preview}/deletion-preview').json()
+    response = send(client, f'works/{preview}/delete', {'preview_hash': impact['preview_hash']}, impact['expected_revision'])
+    assert response.status_code == 200
+    assert {r['work_id'] for r in client.get('/api/production/library?scope=unaccepted').json()} == {draft}
+    assert client.get(f'/api/production/works/{preview}').status_code == 404
+    assert client.get('/api/production/library?scope=invalid').status_code == 422

@@ -522,6 +522,18 @@ class WorkService:
         task=row(conn,'tasks',data.get('decision_id',''))
         if task['run_id']!=run['id'] or task['state'] not in {'needs_decision','retryable_failed','waiting_external','failed'}:
             fail('stale_revision','需要解决的决定已变化',409)
+        if 'optional_sfx_ids' in data:
+            ids=data['optional_sfx_ids']
+            payload=json.loads(task['payload_json'])
+            cues={c['cue_id'] for c in (payload.get('material_intent') or {}).get('sound_cues',[])}
+            if (task['kind']!='supply' or not isinstance(ids,list) or not ids
+                or any(not isinstance(i,str) for i in ids) or len(ids)!=len(set(ids)) or not set(ids)<=cues):
+                fail('invalid_input','音效降级须指定本次供料已登记的音效')
+            if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
+                fail('result_unknown','存在未确定调用，暂不能调整音效要求')
+            payload['optional_sfx_ids']=sorted(set(payload.get('optional_sfx_ids',[]))|set(ids))
+            conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
+            self._event(conn,work['id'],'sound_requirement_relaxed',{'cue_ids':ids},run_id=run['id'])
         if task['kind']=='render' and json.loads(task['error_json'] or '{}').get('code')=='render_failed':
             # Only an explicit resume starts another local attempt. A failed
             # editor job stays immutable; worker polling must never restart it.
@@ -530,7 +542,7 @@ class WorkService:
             conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
         # Explicit user resume can repair the last known edit, without replaying
         # its author or silently resetting a running attempt's repair budget.
-        if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_edit'}:
+        if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_edit','invalid_edit_project'}:
             if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
                 fail('result_unknown','剪辑存在未确定调用，不能另发修正')
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
@@ -541,9 +553,26 @@ class WorkService:
                     value=json.loads(message.get('content') or '')
                     if request['schema'].get('title')=='CreativeEdit' and isinstance(value,dict) and not message.get('tool_calls'):
                         payload=json.loads(task['payload_json'])
+                        refs={item.get('asset_id') for key in ('scenes','audio') for item in value.get(key,[]) if isinstance(item,dict)}
+                        refs.update(item.get('font_asset_id') for item in value.get('captions',[]) if isinstance(item,dict))
+                        restored=[]
+                        for ref in refs:
+                            asset=conn.execute('SELECT id FROM artifacts WHERE id=? AND work_id=? AND run_id=? AND deleted_at IS NULL',
+                                (ref,work['id'],run['id'])).fetchone()
+                            if asset:restored.append(asset['id'])
+                        payload['asset_ids']=sorted(set(payload.get('asset_ids',[]))|set(restored))
                         payload['edit_recovery_source']=source['id']
                         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
                 except (ValueError,KeyError,TypeError):pass
+        if task['kind']=='revise' and json.loads(task['error_json'] or '{}').get('code')=='invalid_model_output':
+            if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
+                fail('result_unknown','修订存在未确定调用，不能另发修正')
+            source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
+            if source and source['state']=='succeeded':
+                request=json.loads(source['request_json']);message=json.loads(source['receipt_json'])['result']['message']
+                if request['schema'].get('title')=='RevisionProposal' and not message.get('tool_calls'):
+                    payload=json.loads(task['payload_json']);payload['revision_recovery_source']=source['id']
+                    conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
         conn.execute("UPDATE tasks SET state='pending',error_json=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),task['id']))
         conn.execute("UPDATE runs SET state='pending',owner_epoch=owner_epoch+1,lease_expires_at=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),run['id']))
         self._change(conn,work,state='discussing' if run['kind']=='planning' else 'producing')
@@ -699,6 +728,7 @@ class WorkService:
                 if artifact['kind']=='output':
                     artifact['export_artifact_id']=bundles.get(artifact['id'],artifact['id'])
                     artifact['manual_review_required']=self._manual_review_ready(conn,artifact)
+                    artifact['checks']=[{'kind':q['check_kind'],'rule_version':q['rule_version'],'status':q['status'],'findings':json.loads(q['findings_json'])} for q in conn.execute('SELECT * FROM quality_checks WHERE artifact_id=? AND artifact_digest=? ORDER BY created_at,id',(artifact['id'],artifact['digest']))]
                     from .delivery import output_guidance
                     publication=conn.execute("SELECT 1 FROM publication_drafts WHERE output_id=? AND state!='cancelled'",(artifact['id'],)).fetchone()
                     artifact['delivery']=output_guidance(artifact,work['accepted_output_id']==artifact['id'],self._has_known_quality_failure(conn,artifact),bool(publication))

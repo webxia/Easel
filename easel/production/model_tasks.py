@@ -15,7 +15,7 @@ from pydantic import BaseModel, ValidationError
 from easel.direct_api import api_config
 from .context import TaskContext
 from .expression_policy import ExpressionRole, instructions
-from .tools import ScopedTool, tool_registry
+from .tools import ScopedTool, ToolInputError, tool_registry
 
 PROMPT_VERSION = "production-1"
 SYSTEM = """你是 Easel 的视频创作导演。根据本次明确输入、六维画像和导演风格创作。
@@ -257,6 +257,7 @@ class ModelTaskRunner:
                     assistant["reasoning_content"] = response["reasoning_content"]
                 messages.append(assistant)
                 tool_media = []
+                correcting_tool_inputs = False
                 for call in calls:
                     try:
                         name = call["function"]["name"]
@@ -277,6 +278,14 @@ class ModelTaskRunner:
                         if observed:
                             # Append media only after all tool replies, keeping provider protocol valid.
                             tool_media.extend(observed.media)
+                    except ToolInputError as exc:
+                        if not correcting_tool_inputs:
+                            if repairs >= self.max_format_repairs:
+                                raise ModelTaskError("invalid_model_output", "工具参数在有限纠正后仍然无效") from None
+                            repairs += 1
+                            correcting_tool_inputs = True
+                        messages.append({"role": "tool", "tool_call_id": call["id"],
+                                         "content": json.dumps(exc.feedback, ensure_ascii=False)})
                     except (KeyError, TypeError, ValueError, ValidationError):
                         raise ModelTaskError("invalid_model_output", "工具请求无效、越界或没有新证据") from None
                 if tool_media:

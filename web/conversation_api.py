@@ -17,6 +17,7 @@ from easel.conversation_bridge import PersistentWorkToolBridge, PersistentCall, 
 from easel.work_bridge import Claim, Identity
 from easel.production.service import fail
 from easel.native_diagnostics import NativeEnd
+from easel.conversation_compaction import ContextPreparation, ContextPreparationError
 
 
 class Entry(BaseModel):
@@ -124,7 +125,7 @@ class NaturalEntry:
             if t['result']:
                 if request.kind!=t['kind']:fail('binding_mismatch','本轮已进入另一管线',409)
                 return t['result']
-            if not t['profile']:fail('invalid_input','请先选择画像，再进入创作讨论',400)
+            if not t['profile'] and request.kind=='channel_create':fail('invalid_input','创建频道须先选择画像；临时视频创作不需要画像',400)
             conversations=ConversationService(service)
             cid='natural_entry_'+hashlib.sha256((t['session']+'\0'+t['turn']).encode()).hexdigest()[:40]
             with service.store.transaction() as conn:
@@ -179,11 +180,12 @@ def create_internal_router(provider,token_provider):
 
 class VideoChat:
     """Owns only delivery; native lifecycle establishes tool authority independently."""
-    def __init__(self,provider,event_file,save_turn,*,gateway_url=None,gateway_token=None,preflight=None):
+    def __init__(self,provider,event_file,save_turn,*,gateway_url=None,gateway_token=None,preflight=None,context_preparer=ContextPreparation):
         self.provider,self.event_file,self.save_turn=provider,event_file,save_turn
         self.gateway_url=gateway_url or os.environ.get('EASEL_VIDEO_GATEWAY_URL','')
         self.gateway_token=gateway_token or os.environ.get('EASEL_VIDEO_GATEWAY_TOKEN','')
         self.preflight=preflight or require_persistent_gateway
+        self.context_preparer=context_preparer
         self.tasks={}
 
     @staticmethod
@@ -211,6 +213,10 @@ class VideoChat:
             existing=conn.execute('SELECT 1 FROM conversation_turns WHERE id=?',(req.turnId,)).fetchone()
         if existing:
             await asyncio.to_thread(bridge.reserve,ui_session=req.sessionId,turn_id=req.turnId,segment_id=req.videoSegmentId,message=req.message,attachments=[a.model_dump() for a in req.attachments])
+            recovery=ContextPreparation.recoverable(bridge,turn_id=req.turnId)
+            if recovery and req.sessionId not in self.tasks:
+                path=self.event_file(req.turnId)
+                self.tasks[req.sessionId]=asyncio.create_task(self._deliver(req.sessionId,req.turnId,recovery,path))
             return await replay(req.turnId,0)
         if not self.gateway_url or not self.gateway_token:
             fail('capability_unavailable','受限视频对话尚未配置，请核实Gateway和插件接入；本轮未调用模型或制作',503)
@@ -227,6 +233,12 @@ class VideoChat:
     async def _deliver(self,session,turn_id,result,event_path,*,background=False,event_sink=None,display_turn_id=None):
         service=self.provider();bridge=PersistentWorkToolBridge(service)
         seq=0;chunks=[];done=False;next_result_write=0.0;finish_reason=None
+        preparation=self.context_preparer(bridge,self.gateway_url,self.gateway_token)
+        submitted=False
+        if event_path.exists() and event_sink is None:
+            for line in event_path.read_text().splitlines():
+                try:seq=max(seq,json.loads(line).get('id',0))
+                except (ValueError,TypeError):pass
         def emit(kind,data):
             nonlocal seq
             if event_sink is not None:
@@ -234,7 +246,6 @@ class VideoChat:
                 return
             seq+=1
             with event_path.open('a',encoding='utf-8') as f:f.write(json.dumps({'id':seq,'event':kind,'data':data},ensure_ascii=False)+'\n')
-        bridge.delivery(turn_id,'dispatching')
         emit('activity','正在处理本轮创作，确认执行后等待实际结果')
         async def keep_delivery():
             from easel.conversation_results import ConversationResults
@@ -247,6 +258,9 @@ class VideoChat:
                     emit('activity',activity);previous=activity
         heartbeat=asyncio.create_task(keep_delivery())
         try:
+            result=await asyncio.to_thread(preparation.prepare,turn_id)
+            preparation.submitted(turn_id,result['preparation_owner'])
+            submitted=True
             async with httpx.AsyncClient(timeout=httpx.Timeout(7200,connect=10),trust_env=False,follow_redirects=False) as client:
                 async with client.stream('POST',self.gateway_url.rstrip('/')+'/v1/chat/completions',
                     headers={'Authorization':'Bearer '+self.gateway_token,'x-openclaw-agent-id':'main','x-openclaw-session-key':result['payload']['session_key']},
@@ -291,7 +305,16 @@ class VideoChat:
             self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':display_turn_id or turn_id})
             emit('work_card',view)
             emit('done',{'sessionKey':session})
+        except ContextPreparationError as exc:
+            message='本轮消息尚未发送：上下文准备未完成，原消息与任务记录已保留。'
+            if exc.code=='compaction_unresolved':message='历史整理的结果尚待核实，本轮消息未发送；不会重复发起压缩或制作。'
+            if background:bridge.record_result_text(turn_id,'',error=message)
+            emit('error',message)
         except asyncio.CancelledError:
+            if not submitted:
+                preparation.cancel(turn_id)
+                emit('error','已停止本次回答，本轮消息尚未发送；任务记录已保留。')
+                return
             if background:bridge.record_result_text(turn_id,''.join(chunks),error='已停止本次结果回复；制作记录已保留。')
             bridge.delivery(turn_id,'unknown',''.join(chunks))
             emit('error','已停止回答；作品制作继续。原生运行结束前，本轮保持待核实。')
@@ -324,6 +347,11 @@ class VideoChat:
     async def process_results_once(self):
         if self.tasks or not self.gateway_url or not self.gateway_token:return False
         service=self.provider()
+        recovery=ContextPreparation.recoverable(PersistentWorkToolBridge(service))
+        if recovery:
+            path=self.event_file(recovery['turn_id']);path.parent.mkdir(parents=True,exist_ok=True)
+            self.tasks[recovery['ui_session']]=asyncio.create_task(self._deliver(recovery['ui_session'],recovery['turn_id'],recovery,path,background=recovery['payload'].get('origin')=='task_result'))
+            return True
         with service.store.connection() as conn:
             candidate=conn.execute("SELECT 1 FROM conversation_proposals p JOIN runs r ON r.id=json_extract(p.receipt_json,'$.run_id') JOIN works w ON w.id=r.work_id AND w.active_run_id=r.id JOIN conversation_segments s ON s.id=p.segment_id WHERE s.revoked_at IS NULL AND s.id=(SELECT id FROM conversation_segments WHERE ui_session=s.ui_session AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1) AND p.state='applied' AND json_type(p.receipt_json,'$._result_delivery')='object' AND r.state IN ('succeeded','needs_decision','failed','paused','cancelled') AND EXISTS(SELECT 1 FROM events e WHERE e.work_id=r.work_id AND e.run_id=r.id AND e.seq>json_extract(p.receipt_json,'$._result_delivery.seen_seq') AND e.kind IN ('run_completed','decision_required','task_needs_decision','task_failed','run_cancelled')) LIMIT 1").fetchone()
             reserved=conn.execute("SELECT 1 FROM conversation_turns WHERE state='reserved' AND json_extract(payload_json,'$.origin')='task_result' LIMIT 1").fetchone()
@@ -349,4 +377,10 @@ class VideoChat:
     def stop(self,session):
         task=self.tasks.get(session)
         if task:task.cancel()
-        return {'stopped':bool(task),'production_cancelled':False}
+        bridge=PersistentWorkToolBridge(self.provider())
+        with bridge.store.connection() as conn:
+            turns=[r[0] for r in conn.execute("SELECT t.id FROM conversation_turns t JOIN conversation_segments s ON s.id=t.segment_id WHERE s.ui_session=? AND t.state IN ('reserved','dispatching')",(session,))]
+        stopped=bool(task)
+        for turn_id in turns:
+            stopped=self.context_preparer(bridge,self.gateway_url,self.gateway_token).cancel(turn_id) or stopped
+        return {'stopped':stopped,'production_cancelled':False}

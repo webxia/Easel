@@ -1,0 +1,52 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": [
+        "ALIGNED",
+        "DONE",
+        "NEEDS_DECISION",
+        "BLOCKED"
+      ]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "impact": {
+      "type": "string"
+    },
+    "options": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recommendation": {
+      "type": "string"
+    },
+    "question": {
+      "type": "string"
+    },
+    "next_action": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "decision",
+    "reason",
+    "evidence",
+    "impact",
+    "options",
+    "recommendation",
+    "question",
+    "next_action"
+  ]
+}

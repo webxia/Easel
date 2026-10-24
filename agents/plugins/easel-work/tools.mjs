@@ -39,7 +39,7 @@ const pipelineValuesSchema = {
     title: { type: 'string', description: 'Draft title.' },
     input_text: { type: 'string', description: 'Draft content or basis input; preserve user facts.' },
     request: { type: 'string', description: 'Plan request; not the finished plan.' },
-    duration_seconds: {type:'number',minimum:1,maximum:900,description:'For plan: explicitly requested fixed film length. Include it in the planning proposal and its summary; stored atomically when the user confirms. Omit if length is unconstrained.'},
+    duration_seconds: {type:'number',minimum:1,maximum:900,description:'For plan: explicitly requested fixed film length. For revise: explicitly confirmed shorter ending, preserving complete speech and captions; requires preserve_audio=false because music is trimmed. Show the new duration in the proposal before confirmation. Omit otherwise.'},
     settings: { type: 'object', description: 'Only the typed delta actually requested by the user, never copy all settings. basis is for unconfirmed work. For a safely stopped pre-output mixed plan, plan may use exactly {audio_mode:"voice"}: no BGM or optional SFX, all other content protected; show the returned scope and costs before confirmation.' },
     restore_cancelled: {type:'boolean',description:'For plan audio-only recovery of a cancelled work: true only when the user explicitly requests restoring this work; a later human answer must confirm the displayed proposal.'},
     plan_revision: { type: 'integer', minimum: 1, description: 'Current plan revision number from pending.work.' },
@@ -261,7 +261,7 @@ export function createWorkBridge(api) {
 
 // Native execution remains pending, not a detached result job. Short HTTP reads
 // release all DB resources between polls; the native run's own abort still wins.
-export async function awaitExecution(send, request, receipt, signal, onUpdate, {intervalMs=1000, budgetMs=7000000}={}) {
+export async function awaitExecution(send, request, receipt, signal, onUpdate, {intervalMs=1000, budgetMs=300000}={}) {
   const deadline=Date.now()+budgetMs;
   let previous;
   try {
