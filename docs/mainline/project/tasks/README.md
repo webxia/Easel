@@ -11,7 +11,7 @@
 
 ## 本轮实施交付
 
-- [LIB-01 · 内容库交付物与 Easel 原生交互收敛](LIB-01_content-library-consistency.md)：本轮已授权实施、部署调试与提交推送；离线和Web定向复验通过，不替换PUB-01生产断点。
+- [LIB-01 · 内容库交付物与 Easel 原生交互收敛](LIB-01_content-library-consistency.md)：本轮收窄范围COMPLETE，离线回归、部署及Web定向复验通过，功能提交ce08475c已推送；不替换PUB-01生产断点。
 
 ## 待评审父任务
 

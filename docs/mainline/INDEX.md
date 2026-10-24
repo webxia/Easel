@@ -29,7 +29,7 @@
 
 ## 本轮实施与验收
 
-- [LIB-01 · 内容库交付物与原生交互收敛](project/tasks/LIB-01_content-library-consistency.md)：代码、离线回归、部署与Web定向复验通过；保留原生文件项目、生产恢复和PUB-01链路，收口按任务记录。
+- [LIB-01 · 内容库交付物与原生交互收敛](project/tasks/LIB-01_content-library-consistency.md)：本轮收窄范围已交付，代码、离线回归、部署与Web定向复验通过，功能提交已推送；保留原生文件项目、生产恢复和PUB-01链路，证据见任务记录。
 
 ## 待审阅的新需求方案
 
