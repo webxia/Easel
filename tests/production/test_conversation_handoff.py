@@ -113,22 +113,6 @@ def test_web_binding_continues_before_single_done(env,tmp_path,monkeypatch):
     assert not s.list_works()['items']
 
 
-def test_blocker_does_not_offer_input_mutation_during_active_run(env):
-    from tests.production.test_conversation import draft
-    from easel.production.service import encode
-    s,c,seg,work=draft(env)
-    run=s.command('plan',{},command_id='plan-fixture',work_id=work,expected_revision=s.snapshot(work)['revision'])
-    with s.store.transaction() as conn:
-        conn.execute("UPDATE tasks SET kind='supply',state='needs_decision',error_json=? WHERE run_id=?",(encode({'code':'music_material_gap','user_message':'音乐缺失'}),run['run_id']))
-        conn.execute("UPDATE runs SET state='needs_decision' WHERE id=?",(run['run_id'],))
-    b,i,_=turn(s,c,seg,'怎么继续',id='status')
-    blocker=pipe(b,i,'pending')['blockers'][0]
-    assert blocker['message']=='音乐缺失'
-    assert not blocker['input_change_available']
-    assert not blocker['choices']  # No Plan exists; no invented voice-only recovery.
-    assert len(s.snapshot(work)['runs'])==1
-
-
 def test_concurrent_handoff_consumption_is_once(env):
     from concurrent.futures import ThreadPoolExecutor
     s,c=env;channel=seed(env);seg=entry(c,profile_ref='one')

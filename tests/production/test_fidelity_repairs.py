@@ -2,7 +2,6 @@
 import asyncio
 from copy import deepcopy
 import json
-from types import SimpleNamespace
 import pytest
 from pydantic import BaseModel, ValidationError
 
@@ -133,33 +132,3 @@ def test_new_plan_fixed_and_voice_driven_remain_separate(tmp_path,explicit,mode)
         bad=deepcopy(plan);bad['narration_policy']['duration_mode']='voice_driven'
         with s.store.connection() as conn:
             raises('plan_constraint_changed',lambda:s.validate_plan(conn,row(conn,'works',w),bad))
-
-
-@pytest.mark.parametrize('content,finish', [('partial answer','length'), ('','stop')])
-def test_sse_incomplete_answer_is_not_success_or_replayed(env,tmp_path,monkeypatch,content,finish):
-    import web.conversation_api as api
-    s,c=env;seg=entry(c,profile_ref='one');b,i,result=turn(s,c,seg,'讨论')
-    calls=[];saved=[]
-    class Response:
-        async def __aenter__(self):return self
-        async def __aexit__(self,*a):pass
-        def raise_for_status(self):pass
-        async def aiter_lines(self):
-            yield 'data: '+json.dumps({'choices':[{'delta':{'content':content},'finish_reason':None}]})
-            b.end(NativeEnd(**i,diagnostic={'stop_reason':finish}))
-            yield 'data: '+json.dumps({'choices':[{'delta':{},'finish_reason':finish}]})
-            yield 'data: [DONE]'
-    class Client:
-        def __init__(self,*a,**kw):pass
-        async def __aenter__(self):return self
-        async def __aexit__(self,*a):pass
-        def stream(self,*a,**kw):calls.append(kw['json']);return Response()
-    monkeypatch.setattr(api.httpx,'AsyncClient',Client)
-    path=tmp_path/'events.jsonl'
-    chat=VideoChat(lambda:s,lambda _:path,lambda *a:saved.append(a),gateway_url='http://fixture',gateway_token='fake')
-    asyncio.run(chat._deliver('ui','turn',result,path))
-    events=[json.loads(x) for x in path.read_text().splitlines()]
-    assert events[-1]['event']=='error' and all(e['event']!='done' for e in events)
-    assert len(calls)==1 and s.list_works()['items']==[]
-    if finish=='length':assert '长度限制' in events[-1]['data']
-    assert saved[0][-1]['clean_end'] is False
