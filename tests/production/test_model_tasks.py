@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field
 from easel.production.context import TaskContext
 from easel.production.model_tasks import ModelTaskRunner,ModelTaskError,HTTPModelTransport
-from easel.production.tools import ScopedTool
+from easel.production.tools import ScopedTool, ToolInputError
 import httpx
 
 
@@ -83,6 +83,41 @@ def test_actual_scoped_tool_dispatch_and_repeat_stops():
     with pytest.raises(ModelTaskError):asyncio.run(runner.run(context(allowed_handles=frozenset({'a1'})),'select',Answer,tools=(tool,)))
     runner,_,_=run([{'tool_calls':[call]}])
     with pytest.raises(ModelTaskError):asyncio.run(runner.run(context(),'select',Answer,tools=(tool,)))
+
+
+def test_known_tool_input_errors_return_bounds_and_share_existing_repair_budget():
+    class TimedArgs(BaseModel):
+        asset_id: str
+        at: float
+    executed = []
+    async def inspect(args, ctx):
+        if args.at > 12.76:
+            raise ToolInputError('frame_bounds', {'max_seconds': 12.76})
+        executed.append(args.asset_id)
+        return {'frame_time': args.at}
+    tool = ScopedTool('inspect_media', 'inspect', TimedArgs, inspect, ('asset_id',))
+    def call(i, at):
+        return {'id': i, 'function': {'name': 'inspect_media',
+            'arguments': json.dumps({'asset_id': i, 'at': at})}}
+    bad = [call('a1', 12.8), call('a2', 19.4)]
+    fixed = [call('a1', 12.7), call('a2', 12.7)]
+    runner, transport, auth = run([{'tool_calls': bad}, {'tool_calls': fixed},
+                                  {'content': '{"summary":"done"}'}])
+    ctx = context(allowed_handles=frozenset({'a1', 'a2'}))
+    result = asyncio.run(runner.run(ctx, 'edit', Answer, tools=(tool,)))
+    assert result.summary == 'done' and executed == ['a1', 'a2'] and len(auth) == 3
+    replies = [json.loads(m['content']) for m in transport.calls[1] if m['role'] == 'tool']
+    assert len(replies) == 2
+    assert all(r == {'executed': False, 'error': 'frame_bounds', 'max_seconds': 12.76} for r in replies)
+    # A different invalid request cannot buy another correction round.
+    runner, _, auth = run([{'tool_calls': bad}, {'tool_calls': [call('a1', 13)]}])
+    with pytest.raises(ModelTaskError, match='有限纠正'):
+        asyncio.run(runner.run(ctx, 'edit', Answer, tools=(tool,)))
+    assert len(auth) == 2
+    runner, _, auth = run([{'tool_calls': bad}], max_format_repairs=0)
+    with pytest.raises(ModelTaskError):
+        asyncio.run(runner.run(ctx, 'edit', Answer, tools=(tool,)))
+    assert len(auth) == 1
 
 
 def test_http_adapter_uses_existing_config_no_redirect_or_tool_execution():

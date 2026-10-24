@@ -9,7 +9,18 @@ def approved_overlay_texts(plan):
 
 
 def assert_visual_repair(base, revised, *, overlay_texts, protected_caption_style_ids=frozenset(), allow_retiming=False):
-    if base.audio != revised.audio or any(s.source_audio for s in base.scenes + revised.scenes):
+    def source_audio_scenes(project):
+        cursor = 0
+        sources = []
+        for scene in project.scenes:
+            if scene.source_audio:
+                sources.append((cursor, scene))
+            cursor += scene.duration - scene.transition_seconds
+        return sources
+    before, after = source_audio_scenes(base), source_audio_scenes(revised)
+    if (base.audio != revised.audio or len(before) != len(after)
+            or any(old != new or abs(old_at-new_at) > .000001
+                   for (old_at, old), (new_at, new) in zip(before, after))):
         raise EditError('原生视觉修复必须保留完整音轨，不改含原声的镜头')
     for field in ('work_id','plan_revision','width','height','duration','audio_mode','fps'):
         if getattr(base, field) != getattr(revised, field):

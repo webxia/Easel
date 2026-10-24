@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 from .media import probe_media, process_environment, MEDIA_FORMATS, file_sha256, atomic_json, local_path
 from .model_tasks import ModelTaskError
+from .tools import ToolInputError
 
 
 def observe_media(path: Path, *, include_audio: bool = False, max_frames: int = 12, frame_times: tuple[float, ...] | None = None) -> tuple[tuple[dict,...],frozenset[str],dict]:
@@ -39,7 +40,9 @@ def observe_media(path: Path, *, include_audio: bool = False, max_frames: int = 
     if frame_times is not None:
         if (not info['video'] or not 1 <= len(frame_times) <= 8 or
                 any(not math.isfinite(t) or t < 0 or t > last + .000002 for t in frame_times)):
-            raise ValueError('Frame times outside actual video bounds')
+            raise ToolInputError('Frame times outside actual video bounds', {
+                'min_seconds': 0, 'max_seconds': last,
+                'instruction': '请求时点必须不晚于max_seconds；文件总时长不是可抽取的末帧时间。未抽帧，请修正时点。'})
         count = len(frame_times)
     with tempfile.TemporaryDirectory(prefix='easel-observe-') as folder:
         for index in range(count):

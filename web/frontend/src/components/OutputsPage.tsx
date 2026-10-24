@@ -1,6 +1,6 @@
 import {openPublication} from '../lib/publicationApi';
 import type { VideoEntry } from '../lib/conversationApi';
-import { artifactURL, productionRequest } from '../lib/productionApi';
+import { artifactURL, productionRequest, productionCommand, workLabels } from '../lib/productionApi';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { fetchOutputs, fetchOutputContent, mediaUrl, deleteOutput } from '../lib/api';
@@ -85,8 +85,13 @@ interface OutputsPageProps {
   onJumpHandled?: () => void;
 }
 
+interface LibraryWork { work_id: string; title: string; state: string; artifact_id: string | null; output_revision: number | null }
+
 export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: OutputsPageProps) {
   const [acceptedVideos,setAcceptedVideos] = useState<{work_id:string;title:string;artifact_id:string;output_revision:number}[]>([]);
+  const [unacceptedVideos, setUnacceptedVideos] = useState<LibraryWork[]>([]);
+  const [libraryError, setLibraryError] = useState('');
+  const [deletingWork, setDeletingWork] = useState<string | null>(null);
   const [roots, setRoots] = useState<OutputNode[]>([]);
   const [treeError, setTreeError] = useState('');
   const [stack, setStack] = useState<string[]>([]);   // 当前所在的文件夹名称路径
@@ -98,7 +103,9 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
 
   const load = useCallback(() => {
     setTreeError('');
-    productionRequest<typeof acceptedVideos>('library').then(setAcceptedVideos).catch(() => setAcceptedVideos([]));
+    setLibraryError('');
+    productionRequest<typeof acceptedVideos>('library').then(setAcceptedVideos).catch(e => setLibraryError(e.message));
+    productionRequest<LibraryWork[]>('library?scope=unaccepted').then(setUnacceptedVideos).catch(e => setLibraryError(e.message));
     fetchOutputs().then(setRoots).catch(() => setTreeError('加载产物列表失败'));
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -145,6 +152,19 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
       alert((err as Error).message || '删除失败');
     }
   }, [load]);
+
+  const removeWork = async (item: { work_id: string; title: string }) => {
+    if (deletingWork) return;
+    setDeletingWork(item.work_id);
+    try {
+      const preview = await productionRequest<{expected_revision:number;preview_hash:string;outputs:unknown[];will_cancel_run:boolean}>(`works/${encodeURIComponent(item.work_id)}/deletion-preview`);
+      if (!window.confirm(`确定删除作品「${item.title}」？\n包含 ${preview.outputs.length} 个视频版本及本作品的素材、配音和过程产物，此操作不可恢复。${preview.will_cancel_run ? '\n正在进行的制作将取消。' : ''}\n共享或仍有引用的文件会保留，其他文件按现有清理流程处理。`)) return;
+      await productionCommand(`works/${encodeURIComponent(item.work_id)}/delete`, {preview_hash:preview.preview_hash}, preview.expected_revision);
+      load();
+    } catch (err) {
+      setLibraryError((err as Error).message || '删除作品失败');
+    } finally { setDeletingWork(null); }
+  };
 
   const open = useCallback(async (f: OutputNode) => {
     const seq = ++reqSeq.current;
@@ -260,13 +280,25 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
           </h1>
           <p className="page-subtitle">
             {atTop
-              ? `已接受视频 ${acceptedVideos.length} 部 · 文件项目 ${roots.length} 个。可打开具体版本继续创作。`
+              ? `未接受创作 ${unacceptedVideos.length} 部 · 已接受视频 ${acceptedVideos.length} 部 · 文件项目 ${roots.length} 个。可打开具体版本继续创作。`
               : `${dirs.length} 个文件夹 · ${files.length} 个文件（可继续点开子文件夹）`}
           </p>
         </div>
         <button className="btn btn-sm" onClick={load}><IconRefresh size={14} /> 刷新</button>
       </div>
 
+      {libraryError && <div className="notice-error" role="alert">{libraryError}</div>}
+      {atTop && unacceptedVideos.length > 0 && <section>
+        <h2>未接受的创作</h2>
+        <p>包含待修预览、待审阅及未完成的作品；可继续创作或删除整部作品。</p>
+        <div className="gallery-grid">{unacceptedVideos.map(item => <article className="card" key={item.work_id}>
+          <h3>{item.title}{item.output_revision != null ? ` · 版本${item.output_revision}` : ''}</h3>
+          <p>{workLabels[item.state] || item.state} · 尚未接受</p>
+          {item.artifact_id && <video controls preload="metadata" src={artifactURL(item.artifact_id)} style={{width:'100%',maxHeight:360}} />}
+          <button className="btn btn-sm" onClick={()=>onContinue?.({work_id:item.work_id,...(item.artifact_id ? {output_id:item.artifact_id} : {}),kind:'continue'})}>查看／继续创作</button>
+          <button className="btn btn-sm btn-danger" disabled={deletingWork !== null} onClick={()=>void removeWork(item)}><IconTrash size={13} /> 删除作品</button>
+        </article>)}</div>
+      </section>}
       {atTop && acceptedVideos.length > 0 && <section><h2>已接受的视频作品</h2><p>保存的是明确接受的版本；可回到对话继续修改、比较或创作新作。</p><div className="gallery-grid">{acceptedVideos.map(item => <article className="card" key={item.work_id}><h3>{item.title} · 版本{item.output_revision}</h3><video controls preload="metadata" src={artifactURL(item.artifact_id)} style={{width:'100%',maxHeight:360}} /><button className="btn btn-sm" onClick={()=>onContinue?.({work_id:item.work_id,output_id:item.artifact_id,kind:'continue'})}>围绕此版本继续创作</button><button className="btn btn-sm" onClick={()=>void openPublication(item.work_id,item.artifact_id).catch(e=>setTreeError(e.message))}>准备发布／查看记录</button></article>)}</div></section>}
       {treeError && <div className="notice-error">{treeError}</div>}
 
@@ -289,7 +321,7 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
         </div>
       )}
 
-      {empty && !treeError && !(atTop && acceptedVideos.length > 0) ? (
+      {empty && !treeError && !libraryError && !(atTop && (acceptedVideos.length > 0 || unacceptedVideos.length > 0)) ? (
         <div className="empty-state" style={{ height: 300 }}>
           <div className="empty-icon"><IconOutputs size={44} /></div>
           <p>{atTop ? '还没有产物——去对话或技能库生成第一条内容吧' : '这个文件夹是空的'}</p>

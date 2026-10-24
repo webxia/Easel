@@ -8,6 +8,14 @@ from pydantic import BaseModel
 from .context import TaskContext
 
 
+class ToolInputError(ValueError):
+    """A known, side-effect-free parameter error the model can correct."""
+
+    def __init__(self, code: str, details: dict):
+        super().__init__(code)
+        self.feedback = {"executed": False, "error": code, **details}
+
+
 @dataclass(frozen=True)
 class MediaToolResult:
     """Only trusted local tools can return actual media, never model arguments."""
