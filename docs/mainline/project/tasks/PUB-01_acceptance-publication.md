@@ -269,3 +269,5 @@ Web结果：
 最终源码回归：`python -m pytest -q --ignore=outputs` → **2377 passed / 16 skipped / 0 failed**（168.21秒；14条依赖弃用警告）；包含仓库tests及skills，跳过项保留原判据。前端全部 **127 passed**；oxlint退出0，保留linkifyOutputs无用转义及AcceptedPublication effect依赖两条警告；TypeScript/Vite构建PASS，既有bundle大小提示保留。Markdown路径3014项及暂存差异检查PASS。54个研发文件的凭证模式扫描无匹配，显式暂存范围不含生产库、凭证、个人图片和临时脚本；排除的5个本地文件摘要未变。
 
 本次提交固定本卡与全部现有研发增量，用户已明确授权直接推送origin/easel-v2-rebuild；实际提交号、远端一致性及CI状态以本次Git交付回执为准。测试日志留本机临时路径，不提交原始运行日志。本轮不重启后端、不做平台查询/投稿、不改已发视频或封面、不恢复制作。父任务PARTIAL，真实携封面投稿与公开结果仍NOT_TESTED；后续只在具名作品与对应授权下继续。
+
+Git交付已核实：研发检查点 **e77c687b9abf400f5978cc10bc9eb94d7faf0320** 已按本轮明确授权推送至origin/easel-v2-rebuild，`git ls-remote`与本地HEAD一致。全部54个研发文件已入库；工作区仅余原二维码、scratch临时脚本和两个个人图片目录，均保留未提交。推送后按完整SHA查询GitHub Actions，暂未返回本提交运行记录，CI为NOT_TESTED，不能将本地通过写为远端CI通过。本条文档追记单独提交，不含新增业务或生产动作。
