@@ -13,7 +13,7 @@ from .test_model_tasks import run, Answer
 
 def fixture_context():
     profile = {key: key + '明确偏好' for key in ('identity', 'style', 'audience', 'platforms', 'preferences', 'memory')}
-    constraints = {'director': {'narrative': '保留真实矛盾' * 100}, 'confirmed_constraints': ['不移植他人经历'],
+    constraints = {'director': {'narrative': '保留真实矛盾' * 100}, 'confirmed_constraints': ['不移植他人经历' * 50],
                    'plan_hash': 'frozen-plan', 'duration_seconds': 180}
     uses = [
         {'role': 'visual', 'scene_id': 's1', 'board_id': 'board', 'board_frame_index': 2, 'board_scene_ids': ['s1', 's3']},
@@ -31,7 +31,7 @@ def fixture_context():
             'timing': {'local_alignment': {'status': 'received'}, 'duration': 4},
             'future_field': {'must_keep': i}}})
     return TaskContext('work', 'run', 'task', profile_ref='author', profile=profile,
-        plan={'script': '仅在条件成立时有效', 'profile_snapshot': {'profile_ref': 'author', 'content': json.dumps(profile), 'content_hash': 'original'}},
+        director=deepcopy(constraints['director']), plan={'script': '仅在条件成立时有效', 'profile_snapshot': {'profile_ref': 'author', 'content': json.dumps(profile), 'content_hash': 'original'}},
         artifacts=tuple(artifacts), allowed_handles=frozenset(a['asset_id'] for a in artifacts),
         expression_policy=snapshot(), editor_view=True)
 
@@ -45,6 +45,15 @@ def expand(view, original_content):
         for parent, key in slots:
             if set(parent[key]) == {'task_view_ref'}:
                 parent[key] = deepcopy(shared[parent[key]['task_view_ref']])
+    def resolve(value):
+        if isinstance(value, dict):
+            if value == {'context_ref': '/director'}:
+                return deepcopy(data['director'])
+            return {k: resolve(v) for k, v in value.items()}
+        if isinstance(value, (tuple, list)):
+            return type(value)(resolve(v) for v in value)
+        return value
+    data = resolve(data)
     saved = data['plan']['profile_snapshot']
     if saved.pop('content_ref', None):
         saved['content'] = original_content
@@ -96,7 +105,7 @@ def test_runner_sends_view_but_authorizes_original_context_and_handles():
     runner, transport, authorized = run([{'content': '{"summary":"ok"}'}])
     asyncio.run(runner.run(ctx, 'edit', Answer, expression_role='visual'))
     sent = json.loads(transport.calls[0][1]['content'][0]['text'])
-    assert sent['task_view']['version'] == 'editor-context-1'
+    assert sent['task_view']['version'] == 'editor-context-2'
     assert sent['allowed_handles'] == sorted(ctx.allowed_handles)
     assert authorized == ['task']
     assert expand(sent, ctx.plan['profile_snapshot']['content']) == json.loads(json.dumps(ctx.creative_data()))
@@ -157,3 +166,37 @@ def test_legacy_editor_operation_replays_or_waits_after_upgrade(tmp_path, unknow
         after = dict(conn.execute('SELECT * FROM operations').fetchone())
     assert provider.calls == 1
     assert before == after
+
+
+def test_director_reference_only_deduplicates_equal_known_constraints():
+    ctx = fixture_context()
+    ctx.artifacts[1]['metadata']['use_constraints']['director']['narrative'] = '不同版本必须保留'
+    ctx.artifacts[2]['metadata']['future_director'] = deepcopy(ctx.director)
+    view = ctx.model_data()
+    assert view['artifacts'][1]['metadata']['use_constraints']['director']['narrative'] == '不同版本必须保留'
+    assert view['artifacts'][2]['metadata']['future_director'] == ctx.director
+    assert next(iter(view['task_view']['shared_constraints'].values()))['director'] == {'context_ref': '/director'}
+    assert expand(view, ctx.plan['profile_snapshot']['content']) == ctx.creative_data()
+
+
+def test_frozen_v3_view_stays_byte_identical_to_previous_implementation():
+    # Frozen source from the released v3 function, independent of today's version.
+    import hashlib
+    ctx = fixture_context()
+    old = snapshot(); old['version'] = 'natural-expression-3'
+    old['digest'] = _digest(old['version'], old['rules'])
+    ctx = replace(ctx, expression_policy=old)
+    data = ctx.creative_data()
+    constraint = deepcopy(data['artifacts'][0]['metadata']['use_constraints'])
+    key = 'constraints_' + hashlib.sha256(json.dumps(constraint, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
+    chars = len(json.dumps(data, ensure_ascii=False))
+    fields = {k: len(json.dumps(v, ensure_ascii=False)) for k, v in data.items()}
+    for artifact in data['artifacts']:
+        artifact['metadata']['use_constraints'] = {'task_view_ref': key}
+        artifact['metadata']['material_uses'][0]['need']['constraints'] = {'task_view_ref': key}
+    data['plan']['profile_snapshot'].pop('content')
+    data['plan']['profile_snapshot']['content_ref'] = '/profile'
+    data['task_view'] = {'version':'editor-context-1', 'source_characters':chars, 'source_field_characters':fields,
+        'reference_semantics':'task_view_ref引用本输入shared_constraints中的完整约束；content_ref=/profile引用本输入完整画像，原content_hash保留。每个引用仍只作用于其原素材/need位置，不扩大作用域，不代表已观察或已获新授权。',
+        'shared_constraints':{key:constraint}}
+    assert json.dumps(ctx.model_data(), ensure_ascii=False) == json.dumps(data, ensure_ascii=False)

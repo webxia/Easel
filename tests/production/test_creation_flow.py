@@ -27,7 +27,7 @@ class ScriptedModel:
         assert RULES[role] in messages[0]["content"]
         if schema['title']=='CreativeEdit':
             data=json.loads(messages[1]['content'][0]['text'])
-            assert data['task_view']['version'] == 'editor-context-1'
+            assert data['task_view']['version'] == 'editor-context-2'
             captions=[]
             if self.overlay_repair:
                 font=next(a['asset_id'] for a in data['artifacts'] if a['kind']=='font')

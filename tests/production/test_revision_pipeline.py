@@ -21,7 +21,7 @@ class RevisionModel(ScriptedModel):
             assert RULES['visual'] in messages[0]['content']
             self.calls.append(messages)
             context=json.loads(messages[1]['content'][0]['text'])
-            assert context['task_view']['version'] == 'editor-context-1'
+            assert context['task_view']['version'] == 'editor-context-2'
             image = next(a for a in context['artifacts'][1:] if a['kind'] == 'image')
             assert image['metadata']['semantic']['observation_scope'] == 'fixture'
             assert image['metadata']['candidate_only'] is False

@@ -56,9 +56,9 @@ class TaskContext:
             return data
         from .expression_policy import validate
         policy = validate(self.expression_policy)
-        if policy['version'] != 'natural-expression-3':
+        if policy['version'] not in {'natural-expression-3', 'natural-expression-4'}:
             return data
-        return _editor_view(data)
+        return _editor_view(data, director_reference=policy['version'] == 'natural-expression-4')
 
     @property
     def fingerprint(self) -> str:
@@ -67,7 +67,7 @@ class TaskContext:
                                         ensure_ascii=False).encode()).hexdigest()
 
 
-def _editor_view(data: dict[str, Any]) -> dict[str, Any]:
+def _editor_view(data: dict[str, Any], *, director_reference: bool = False) -> dict[str, Any]:
     """Lossless interning at known constraint paths, not a metadata whitelist.
 
     Every occurrence keeps a reference at its original scope. Unknown fields,
@@ -88,6 +88,12 @@ def _editor_view(data: dict[str, Any]) -> dict[str, Any]:
             need = use.get('need') if isinstance(use, dict) else None
             if isinstance(need, dict) and isinstance(need.get('constraints'), dict):
                 slots.append((need, 'constraints'))
+    # Preserve v3 request bytes. Only newly frozen v4 tasks use director refs.
+    # Scope stays at the original constraint; a differing director stays inline.
+    if director_reference and data['director']:
+        for parent, key in slots:
+            if parent[key].get('director') == data['director']:
+                parent[key]['director'] = {'context_ref': '/director'}
     grouped = {}
     for parent, key in slots:
         encoded = json.dumps(parent[key], sort_keys=True, ensure_ascii=False, separators=(',', ':'))
@@ -113,7 +119,7 @@ def _editor_view(data: dict[str, Any]) -> dict[str, Any]:
             snapshot.pop('content')
             snapshot['content_ref'] = '/profile'
     data['task_view'] = {
-        'version': 'editor-context-1',
+        'version': 'editor-context-2' if director_reference else 'editor-context-1',
         'source_characters': source_characters,
         'source_field_characters': source_fields,
         'reference_semantics': 'task_view_ref引用本输入shared_constraints中的完整约束；'
@@ -121,4 +127,6 @@ def _editor_view(data: dict[str, Any]) -> dict[str, Any]:
             '每个引用仍只作用于其原素材/need位置，不扩大作用域，不代表已观察或已获新授权。',
         'shared_constraints': shared,
     }
+    if director_reference:
+        data['task_view']['reference_semantics'] += 'context_ref=/director引用本输入完整导演配置，作用域保持在原约束位置。'
     return data

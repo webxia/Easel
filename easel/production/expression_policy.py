@@ -12,7 +12,7 @@ from typing import Literal
 from .errors import ProductionError
 
 ExpressionRole = Literal['write', 'visual', 'review']
-VERSION = 'natural-expression-3'
+VERSION = 'natural-expression-4'
 RULES = {
     'core': (
         '结合本期内容、六维画像、频道和导演作具体选择：画像提供身份、表达偏好、受众关系、平台、边界和已确认经验；'
