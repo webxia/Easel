@@ -62,7 +62,7 @@ def measured_execution_plan(plan: dict, records: list[dict]) -> tuple[dict, dict
     if policy.get('duration_mode') != 'voice_driven':
         return plan, None
     meta = [json.loads(r['metadata_json']) for r in records]
-    if any(m.get('original_audio') or any(u.get('role') == 'sfx'
+    if any(m.get('original_audio') or any(u.get('role') == 'sfx' and u.get('timing_basis', 'absolute') != 'scene'
            for u in m.get('material_uses', [])) for m in meta):
         raise ModelTaskError('timed_audio_requires_fixed_duration', '有冻结时间音效的作品须明确时长，不能挤压原声或事件')
     voice = {m['segment_id']: m for m in meta if m.get('role') == 'voice'}

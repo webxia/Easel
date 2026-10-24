@@ -116,3 +116,15 @@ def test_silent_scene_not_subject_to_spoken_voice_budget():
     sample['settings']['audio_mode']='silent'
     sample['settings']['voice']=None
     assert VoiceReadyCreativePlan.model_validate(sample)
+
+
+@pytest.mark.parametrize('audio_mode', ['voice', 'mixed'])
+def test_natural_duration_estimate_does_not_force_script_compression(audio_mode):
+    candidate = plan('这是一段完整的解释，预计时长不应截断这个思路。' * 30)
+    candidate['settings']['audio_mode'] = audio_mode
+    candidate['narration_policy'] = {'continuous': True, 'duration_mode': 'voice_driven'}
+    parsed = VoiceReadyCreativePlan.model_validate(candidate).model_dump(mode='json')
+    assert reserve_narration_slots(parsed) == parsed
+    candidate['narration_policy']['duration_mode'] = 'fixed'
+    with pytest.raises(ValidationError, match='plan_voice_budget_unavailable'):
+        VoiceReadyCreativePlan.model_validate(candidate)

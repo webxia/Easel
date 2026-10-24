@@ -25,7 +25,8 @@ def change_defaults(monkeypatch):
 
 
 @pytest.mark.parametrize('role', ['write', 'visual', 'review'])
-@pytest.mark.parametrize('director', [{}, {'narrative': '严肃分析，保留术语与推理'}])
+@pytest.mark.parametrize('director', [{}, {'narrative': '严肃分析，保留术语与推理'},
+    {'storytelling': '朋友聊天，从生活观察解释问题'}, {'storytelling': '诗性独白，保留含蓄与意象'}])
 def test_explicit_role_uses_shared_core_without_changing_director_or_facts(role, director):
     saved = policy.snapshot()
     text = '我计划做一次试验；仅当条件成立时可能有效，不代表必然有效。'

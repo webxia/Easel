@@ -338,6 +338,7 @@ class SupplyTasks:
                 check_provider=lambda provider_id:self._check_provider(ctx,'audio',provider_id))
             use={'need_id':need.need_id,'role':'sfx','cue_id':cue.cue_id,'scene_id':cue.scene_id,
                  'at':cue.at,'duration':cue.duration,'required':cue.required,'basis':cue.basis,
+                 'timing_basis':cue.timing_basis if plan.narration_policy and plan.narration_policy.duration_mode=='voice_driven' else 'absolute',
                  'need':need.model_dump(mode='json')}
             for candidate in answer.candidates:
                 handle=self.materials.resolve(candidate.library_asset_id,visibility=scope,context=context)

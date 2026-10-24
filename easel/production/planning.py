@@ -37,7 +37,7 @@ class CreativePlan(Contract):
     scenes: list[Scene] = Field(min_length=1)
     settings: VideoSettings
     narration_policy: NarrationPolicy | None = Field(default=None,
-        description='明确片长（包括对话中的要求）用fixed；用户未限定片长、允许随旁白安排时才用voice_driven。continuous独立控制连续口播。')
+        description='精确片长用fixed；约数目标或未限定片长用voice_driven。BGM不改变时长策略。continuous独立控制连续口播。')
     facts: list[str] = Field(default_factory=list)
     core_views: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
@@ -375,7 +375,7 @@ class PlanningTasks:
             context=self.context(ctx)
             protected=ctx.payload.get('protected_plan')
             if ctx.payload.get('revision_scope')=='narration':
-                context=replace(context,brief=context.brief+'\n本次只改口播和对应脚本，保留场景身份、画面要求、图解、音色、字幕样式、画幅和固定片长；为完整旁白重新分配必要场景时长。')
+                context=replace(context,brief=context.brief+'\n本次只改口播和对应脚本，保留场景身份、画面要求、图解、音色、字幕样式、画幅和已确认的时长策略；为完整旁白重新分配必要场景时长。')
             if ctx.payload.get('revision_scope')=='boards':
                 context=replace(context,brief=context.brief+'\n仅修订已有图解状态顺序、分组和高亮；保留文字事实、口播、场景身份、非图解画面与声音设置。不得新增未经确认的事实。')
             if protected:
@@ -415,7 +415,11 @@ class PlanningTasks:
                 'Scene.narration 只能是将由 TTS 实际朗读的简短口播原文，不能包含时间码、朗读窗口、'
                 '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明写入 script/visual。'
                 '仅固定MiniMax speech-2.8时可按必要语义填写独立narration_pauses，after是去除首尾空白后的字符位置，seconds为0.05到1秒；不在正文写供应商标签，不逐句加停顿，默认空列表。'
-                '中文口播要有明显时间余量，不超过冻结时长预算；所有镜头累计时长仍须精确。'
+                'fixed口播须适合明确片长；voice_driven的秒数只是规划估计，最终随完整实测旁白定长，不为填满估计秒数增加内容或留白。'
+                '在同一次创作中先按选定导演的讲述方式组织完整思路，再落实分镜；频道提供定位与受众，不是固定文体。'
+                '区分用户硬要求和讨论建议：保留已确认观点与事实，未确认的候选概念、结构和素材不必逐项展开。'
+                '口播只讲听众理解所需的信息；补充出处与资料按用途放facts或visual，不把资料清单全部念出。'
+                '解释用可理解的条件、动作和关系承接术语，不强制聊天、案例数量、幽默或结尾总结。'
                 '具体的分组、比较、数量关系或条件变化，可以用原生explainer_boards自主写出文字卡片、类别和前后状态；'
                 '图解会由程序原样绘制，每个状态都有真实数量和概念/假设标识，不需搜索到完全相同的卡片。'
                 '图解只作概念/假设，不编造成真实资料；文字简短，按需用，不强制每场图解。'
@@ -514,17 +518,19 @@ class PlanningTasks:
                     validate_audio_replan(proposed,protected)
                     if '本片不使用背景音乐或可选音效' not in payload['constraints']:
                         payload['constraints'].append('本片不使用背景音乐或可选音效')
-                else:
-                    payload=reserve_narration_slots(payload)
                 if not protected and proposed.settings.audio_mode in {'voice', 'mixed'}:
                     protected_audio = any(i.get('constraints', {}).get('original_audio') for i in context.inputs)
                     policy = proposed.narration_policy
                     # Absence of a Work setting is not permission to shorten a confirmed plan.
                     mode = policy.duration_mode if policy else 'fixed'
-                    if ctx.payload.get('revision_scope')=='narration' or 'duration_seconds' in requested or protected_audio or proposed.settings.audio_mode != 'voice':
+                    if ctx.payload.get('revision_scope') in {'narration', 'boards'}:
+                        mode = (context.plan.get('narration_policy') or {}).get('duration_mode', 'fixed')
+                    if 'duration_seconds' in requested or protected_audio:
                         mode = 'fixed'
                     payload['narration_policy'] = {'continuous': not protected_audio,
                         'duration_mode': mode}
+                if not protected:
+                    payload=reserve_narration_slots(payload)
                 freeze_basis=ctx.payload.get('creation_basis')
                 if ctx.payload.get('base_plan_revision'):
                     freeze_basis={**(context.plan.get('conversation_basis') or {}),

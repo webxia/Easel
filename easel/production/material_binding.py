@@ -7,6 +7,7 @@ for an invalid already-selected asset.
 from __future__ import annotations
 
 import json
+import re
 from .contracts import PlanDocument
 from .model_tasks import ModelTaskError
 from .materials import MaterialService
@@ -84,7 +85,7 @@ def validate_audio_bindings(project, records):
                 continue
             cue_id = use['cue_id']
             entry = cues.setdefault(cue_id, {'use':use,'assets':set()})
-            identity = lambda v: {k:v.get(k) for k in ('cue_id','scene_id','at','duration','required')}
+            identity = lambda v: {k:v.get(k) for k in ('cue_id','scene_id','at','duration','required','timing_basis')}
             if identity(entry['use']) != identity(use):
                 raise ModelTaskError('sfx_binding_conflict','同一音效事件的冻结时序不一致')
             entry['assets'].add(record['id'])
@@ -100,8 +101,19 @@ def validate_audio_bindings(project, records):
         clips = [a for a in project.audio if a.clip_id == cue_id]
         if not clips and not use.get('required', True):
             continue
+        position_ok = False
+        if len(clips) == 1:
+            if use.get('timing_basis', 'absolute') == 'scene':
+                # Resolve against the actual edited scene, never scale draft seconds.
+                position_ok = any((scene.scene_id == use['scene_id']
+                    or re.fullmatch(re.escape(use['scene_id']) + r'-cut[0-9]+', scene.scene_id))
+                    and start - .02 <= clips[0].at
+                    and clips[0].at + clips[0].duration <= start + scene.duration + .02
+                    for scene, start in zip(project.scenes, project.scene_starts()))
+            else:
+                position_ok = abs(clips[0].at-use['at']) <= .02
         if (len(clips) != 1 or clips[0].role != 'sfx' or clips[0].asset_id not in entry['assets']
-                or clips[0].gain <= 0 or abs(clips[0].at-use['at']) > .02
+                or clips[0].gain <= 0 or not position_ok
                 or clips[0].duration>use['duration']+.02):
             raise ModelTaskError('sfx_binding_missing','必要音效必须使用对应候选及事件ID，保留时间位置且不超过事件窗口')
 

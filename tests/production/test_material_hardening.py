@@ -393,3 +393,75 @@ def test_short_sfx_uses_actual_source_without_changing_voice_or_music():
     assert fit_sound_effects(actual,{'a':.905578})==actual
     with pytest.raises(ModelTaskError):
         fit_sound_effects([clips[0].model_copy(update={'source_start':1})],{'a':.905578})
+
+
+@pytest.mark.parametrize('timing_basis', ['scene', 'absolute'])
+def test_effect_binding_uses_actual_scene_only_when_authorized(timing_basis):
+    records = [{'id': 'fx', 'metadata_json': json.dumps({'material_uses': [{
+        'role': 'sfx', 'cue_id': 'click', 'scene_id': 's2', 'at': 70,
+        'duration': 1, 'required': True, 'timing_basis': timing_basis}]})}]
+    project = EditProject(work_id='w', plan_revision=1, revision=1, duration=10,
+        audio_mode='mixed', scenes=(Scene(scene_id='s1', asset_id='image', duration=5),
+                                  Scene(scene_id='s2', asset_id='image', duration=5)),
+        audio=(AudioClip(clip_id='click', asset_id='fx', role='sfx', at=6, duration=1),
+               AudioClip(clip_id='voice', asset_id='voice', role='voice', at=0, duration=9),
+               AudioClip(clip_id='music', asset_id='music', role='music', at=0, duration=10)))
+    if timing_basis == 'absolute':
+        with pytest.raises(ModelTaskError):
+            validate_audio_bindings(project, records)
+        return
+    validate_audio_bindings(project, records)
+    split = project.model_copy(update={'scenes': (project.scenes[0],
+        project.scenes[1].model_copy(update={'scene_id': 's2-cut1'}))})
+    validate_audio_bindings(split, records)
+    for bad in [project.audio[0].model_copy(update={'at': 2}),
+                project.audio[0].model_copy(update={'at': 9.5}),
+                project.audio[0].model_copy(update={'role': 'music'})]:
+        with pytest.raises(ModelTaskError):
+            validate_audio_bindings(project.model_copy(update={'audio': (bad,)}), records)
+    with pytest.raises(ModelTaskError):
+        validate_audio_bindings(project.model_copy(update={'audio': ()}), records)
+
+
+def test_supply_persists_scene_timing_for_natural_mixed_audio(env):
+    import shutil
+    if not shutil.which('ffprobe'):
+        pytest.skip('actual local audio inspection unavailable')
+    input_media(env)
+    plan_settings(env, audio_mode='mixed')
+    service, ops, ctx, _, _ = env
+    # Only the isolated fixture is changed; no runtime database is opened.
+    with ctx.store.transaction() as conn:
+        row = conn.execute('SELECT payload_json FROM plan_revisions WHERE work_id=? AND revision=?',
+                           (ctx.work_id, ctx.plan_revision)).fetchone()
+        plan = json.loads(row[0])
+        plan['narration_policy'] = {'continuous': True, 'duration_mode': 'voice_driven'}
+        work = ctx.store.get_work(ctx.work_id, connection=conn)
+        saved = ctx.store.save_plan(ctx.work_id, plan, expected_revision=work['revision'], connection=conn)
+        revision = saved['revision']
+        conn.execute('UPDATE plan_revisions SET confirmed_at=? WHERE work_id=? AND revision=?',
+                     ('2026-01-01T00:00:00Z', ctx.work_id, revision))
+        conn.execute('UPDATE runs SET plan_revision=? WHERE id=?', (revision, ctx.run_id))
+        conn.execute('UPDATE tasks SET plan_revision=? WHERE id=?', (revision, ctx.task_id))
+        conn.execute('UPDATE authorization_grants SET plan_revision=? WHERE work_id=?', (revision, ctx.work_id))
+    ctx = replace(ctx, plan_revision=revision)
+    materials = MaterialService(service.outputs / '_production/materials')
+    for role in ['music', 'sfx']:
+        source = service.outputs / (role + '.wav')
+        source.write_bytes(wav_bytes())
+        ingest(materials, source, ctx, roles=[role], caption='calm music door click')
+    intent = material_intent(music_query='calm music', sound_cues=[{
+        'cue_id': 'click', 'scene_id': 's1', 'query': 'door', 'at': 70,
+        'duration': .1, 'basis': 'door action', 'timing_basis': 'scene'}])
+    class Compiler:
+        async def prepare(self, context, plan):
+            check_intent(intent, plan)
+            return intent, CreativeContext(ctx.work_id, ctx.run_id, ctx.task_id)
+    supply = SupplyTasks(service, ops, materials=materials, intent_compiler=Compiler())
+    result = asyncio.run(supply.supply(ctx))
+    assert result.state == 'succeeded'
+    with ctx.store.connection() as conn:
+        uses = [use for row in conn.execute('SELECT metadata_json FROM artifacts')
+                for use in json.loads(row[0]).get('material_uses', []) if use.get('role') == 'sfx']
+    assert uses and all(use['timing_basis'] == 'scene' and use['at'] == 70 for use in uses)
+    assert asyncio.run(supply.supply(ctx)).next_payload == result.next_payload

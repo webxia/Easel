@@ -28,6 +28,8 @@ class SoundCue(Contract):
     query: str = Field(min_length=1, max_length=100)
     at: float = Field(ge=0, le=900, allow_inf_nan=False)
     duration: float = Field(gt=0, le=900, allow_inf_nan=False)
+    timing_basis: Literal['absolute', 'scene'] = Field(default='absolute',
+        description='absolute保留明确绝对时间；自然定长普通音效用scene，at仅为草稿估计，由剪辑按scene_id的实际画面安排。')
     required: bool = False
     basis: str = Field(min_length=1, max_length=1200)
 
@@ -140,6 +142,7 @@ class FrozenIntentCompiler:
                     '不要把比喻或抽象判断按字面变成无关道具查询。'
                     '按冻结visual语义将explainer_boards的状态映射到对应段落：每段仍给一个visuals，图解段设置board_id为图解scene_id、board_state_indexes为0起始状态索引，media_types=[image]、query=native schematic、options=1；'
                     '同一图解可以跨多个段落使用、回看或复用某状态，不要求所有状态挤在图解定义的单个场景内；每个已定义状态至少在一处展示。图解段不搜索相似道具，其余段落照常给真实库存查询。'
+                    '自然定长的普通装饰音效使用timing_basis=scene，跟随scene_id实际画面；明确绝对时间事件使用absolute，不得挪动原声或固定事件。'
                     'sound_cues按本片实际需要提出：给稳定cue_id、已知scene_id、全片时间at/duration、query和basis。'
                     '音效query必须是方便Wikimedia Commons检索的简短英文关键词（如room tone、keyboard typing、city traffic、mouse click）；'
                     'basis必须明确中文声音用途和与实际画面动作的对应依据，后续仍要实际试听及Rights核验。'

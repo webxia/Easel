@@ -15,6 +15,9 @@ def reserve_narration_slots(plan: dict) -> dict:
     settings=plan['settings']
     if settings['audio_mode'] not in {'voice','mixed'}:
         return plan
+    # A natural-duration estimate is not a contract to fit or pad speech.
+    if (plan.get('narration_policy') or {}).get('duration_mode') == 'voice_driven':
+        return plan
     scenes=plan['scenes']
     if not scenes or any(s.get('duration_seconds') is None for s in scenes):
         return plan
