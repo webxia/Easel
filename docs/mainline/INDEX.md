@@ -27,6 +27,10 @@
 <a id="按需查阅的依据"></a>
 <a id="正式入口与维护职责"></a>
 
+## 本轮实施与验收
+
+- [LIB-01 · 内容库交付物与原生交互收敛](project/tasks/LIB-01_content-library-consistency.md)：代码、离线回归、部署与Web定向复验通过；保留原生文件项目、生产恢复和PUB-01链路，收口按任务记录。
+
 ## 待审阅的新需求方案
 
 - [成片确认到发布](architecture/publication-proposal.md)：优先复用原发布能力，列明现状、补齐范围、版本/账号/确认与平台回执；首批B站已授权开发；由[父任务PUB-01](project/tasks/PUB-01_acceptance-publication.md)记录实现、离线验收与后续真实复验；本轮真实B站投稿已获授权并实际提交，平台审核中；公开结果按父任务继续核实。

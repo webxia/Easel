@@ -9,6 +9,10 @@
 
 新任务按[任务衔接](../../development/task-handoff.md)和[原Task模板](../../development/templates/TASK.md)执行。当前代码Bug优先在原活动Task内承接，修复后继续父任务剩余验收。
 
+## 本轮实施交付
+
+- [LIB-01 · 内容库交付物与 Easel 原生交互收敛](LIB-01_content-library-consistency.md)：本轮已授权实施、部署调试与提交推送；离线和Web定向复验通过，不替换PUB-01生产断点。
+
 ## 待评审父任务
 
 - [PUB-01 · 成片交付引导、确认与发布衔接](PUB-01_acceptance-publication.md)：已授权首批B站开发及离线验收；不部署、不付费或真实投稿。独立任务分支，不替换停止制作断点。
