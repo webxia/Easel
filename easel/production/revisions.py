@@ -5,9 +5,12 @@ import asyncio
 import json
 import re
 from typing import Literal
-from pydantic import Field
+from pydantic import Field, model_validator
 from .contracts import Contract
-from .creation import CreativeEdit, project_editor_features
+from .edit_observation import VisualSelection
+from .creation import CreativeEdit, project_editor_features, align_editor_frames, compensate_edit_overlap
+from .editors.base import Scene
+from .creative_captions import CreativeCaption
 from .material_intent import VisualIntent
 from .editors import EditProject, assert_local_revision, EditError
 from .artifacts import artifact_file,register_file
@@ -90,14 +93,77 @@ def request_revision(service,conn,work,data):
     return {'work_id':work['id'],'run_id':run,'review_id':review_id}
 
 
-class RevisionProposal(Contract):
+class SceneReplacement(Contract):
+    scene_id: str
+    scenes: list[Scene] = Field(min_length=1)
+
+
+class RevisionChanges(Contract):
+    scenes: list[SceneReplacement] = Field(default_factory=list)
+    captions: list[CreativeCaption] = Field(default_factory=list)
+    visual_evidence: list[VisualSelection] = Field(default_factory=list)
+
+
+class RevisionSummary(Contract):
     summary: str = Field(min_length=1)
     affected: list[Literal['visual','captions','audio','content','materials']] = Field(min_length=1)
     expands_scope: bool
     requires_new_generation: bool
     reason: str
-    edit: CreativeEdit
     material_searches: list[VisualIntent] = Field(default_factory=list,max_length=4)
+
+
+class VisualRevisionProposal(RevisionSummary):
+    model_config = {"title":"RevisionProposal"}
+    changes: RevisionChanges
+
+
+class RevisionProposal(RevisionSummary):
+    edit: CreativeEdit | None = None
+    changes: RevisionChanges | None = None
+
+    @model_validator(mode='after')
+    def one_edit(self):
+        if (self.edit is None) == (self.changes is None):
+            raise ValueError('只提供changes局部修改或edit完整工程其中一个')
+        return self
+
+
+def merge_revision_changes(proposal, base):
+    """Apply addressed replacements; omitted scenes, captions and audio inherit."""
+    if proposal.changes is None:
+        return proposal.edit
+    changes=proposal.changes
+    replacements={c.scene_id:c.scenes for c in changes.scenes}
+    known={s.scene_id for s in base.scenes}
+    if len(replacements)!=len(changes.scenes) or set(replacements)-known:
+        raise ValueError('局部修改必须引用不重复的已登记镜头ID')
+    captions={c.caption_id:c for c in changes.captions}
+    if len(captions)!=len(changes.captions):raise ValueError('局部字幕ID重复')
+    data={k:v for k,v in base.model_dump().items() if k in CreativeEdit.model_fields}
+    data.update(scenes=[s.model_dump() for old in base.scenes for s in replacements.get(old.scene_id,[old])],
+        captions=[captions.pop(c.caption_id,c).model_dump() for c in base.captions],
+        visual_evidence=[v.model_dump() for v in changes.visual_evidence])
+    data['captions'].extend(c.model_dump() for c in captions.values())
+    return CreativeEdit.model_validate(data)
+
+
+def compile_revision_edit(edit, base):
+    try:
+        return align_editor_frames(compensate_edit_overlap(edit,target_seconds=base.duration,fps=base.fps),fps=base.fps)
+    except ModelTaskError:
+        actual=sum(s.duration-s.transition_seconds for s in edit.scenes)
+        raise ValueError(f'修订时间线净长{actual:.3f}秒，原片{base.duration:.3f}秒，差值{actual-base.duration:+.3f}秒；转场重叠计入净长，不得补尾凑长') from None
+
+
+def revision_recovery_messages(messages, instruction, result_type=RevisionProposal):
+    # Keep evidence/history, but a new repair must use the current contract.
+    # The stored receipt/request stays immutable; caller verified its identity.
+    result=[dict(message) for message in messages]
+    if result and result[0].get('role')=='system':
+        prefix=result[0]['content'].split('\n任务：',1)[0]
+        result[0]['content']=prefix+'\n任务：'+instruction+'\n输出schema：'+encode(result_type.model_json_schema())
+    return result
 
 
 def revision_plan_searches(plan, base, searches):
@@ -136,7 +202,8 @@ def recorded_proposal(service,ctx,review,output):
     for receipt in receipts:
         try:
             content=json.loads(receipt[0])['result']['message']['content']
-            if RevisionProposal.model_validate_json(content)==proposal:return proposal
+            from .model_tasks import parse_model_json
+            if RevisionProposal.model_validate(parse_model_json(content))==proposal:return proposal
         except (ValueError,KeyError,TypeError):continue
     raise ModelTaskError('revision_provenance_missing','修订方案缺少本任务已成功模型回执，未重新发送模型')
 
@@ -274,10 +341,7 @@ class RevisionTasks:
                 # The source ranges actually in use come first. Other candidate
                 # metadata stays visible and can be inspected on demand.
                 initial=[r for r in records if r['id'] in wanted][:12]
-                cursor, times = 0, []
-                for scene in base.scenes:
-                    if scene in selected:times.append(cursor+scene.duration/2)
-                    cursor+=scene.duration-scene.transition_seconds
+                times = [at+scene.duration/2 for scene,at in zip(base.scenes,base.scene_starts()) if scene in selected]
                 await budget.observe(output['id'],artifact_file(self.service,output),
                     frame_times=times[:8] if affected and times else None,max_frames=8)
                 for record in initial:
@@ -296,8 +360,9 @@ class RevisionTasks:
             from .edit_observation import check_visual_evidence, VISUAL_EVIDENCE_INSTRUCTION
             from .narration import ENDING_INSTRUCTION
             instruction=(ENDING_INSTRUCTION + VISUAL_EVIDENCE_INSTRUCTION + '修订reason逐项回应已有findings：哪些实际画面改变了，哪些仍缺证据；不能只声称问题已解决。'
-                '解释本次局部修改范围并返回完整编辑时间线。未指出部分不得改写；保留scene_id、时长、转场、旁白和字幕文本/时间。'
-                'preserve_audio=true时AudioClip必须逐字段原样返回，包括声音身份、at、duration、gain。'
+                '解释本次局部修改范围，优先返回changes：scenes按已登记scene_id替换该镜头（可拆镜），captions只列改动项；未列项及全部AudioClip由原工程继承，visual_evidence列实际选择证据。不要重写整份工程。仅需调整独立音轨时使用edit。未指出部分不得改写；保留scene_id、时长、转场、旁白和字幕文本/时间。'
+                'preserve_audio=true时独立AudioClip继承原版；使用完整edit时逐字段保留，包括声音身份、at、duration、gain。'
+                '含原声镜头的素材、source_start、duration、source_gain、实际时间线位置须保持；可改crop、fit、motion等纯画面字段，不通过替换镜头意外移除或新增原声。'
                 'preserve_audio=false且用户反馈涉及声音时，可调整现有音轨gain/fade_in/fade_out，保留素材身份、完整配音、位置和时长；复用配音资产不等于冻结混音参数。'
                 '先实际复查全部候选，禁止把未观察过的文件名当画面事实。可用同方案合格库存替换用户要求修复的画面。关键动作必须发生在实际source_start至source_start+duration内，不能用源片尾部动作冒充选取前段；technical.duration_seconds给出源片真实长度。'
                 '缺少关键主体或动作时，在material_searches列出最多4个本方案场景的简短英文主体/动作搜索词，options最多4、media_types仅image/video；'
@@ -315,19 +380,47 @@ class RevisionTasks:
             if budget is not None:
                 instruction=instruction.replace('先实际复查全部候选，', '优先复核失败场景及实际选用区间，其他候选按需观察，')
                 instruction+='本次观察有共享帧预算，已观察时点复用；预算耗尽不必继续请求，基于已有证据完成或明确缺口，不把未观察素材当事实。'
+            result_type=VisualRevisionProposal if creative_repair or payload.get('preserve_audio') else RevisionProposal
+            if result_type is VisualRevisionProposal:
+                instruction+='本轮输出仅允许changes局部变更，禁止edit完整工程；未改镜头、字幕与所有独立音轨由原工程继承。没有修改的列表留空。'
+            def normalize(candidate):
+                proposal=RevisionProposal.model_validate(candidate.model_dump(mode='json'))
+                compiled=compile_revision_edit(merge_revision_changes(proposal,base),base)
+                return proposal.model_copy(update={'edit':compiled,'changes':None})
+
+            source_durations={}
+            def check_sources(edit):
+                from .media import probe_media
+                from .creation import check_edit_source_bounds
+                selected={s.asset_id for s in edit.scenes}
+                for record in records:
+                    if record['kind']=='video' and record['id'] in selected and record['id'] not in source_durations:
+                        source_durations[record['id']]=probe_media(artifact_file(self.service,record))['duration']
+                check_edit_source_bounds(edit,source_durations,target_seconds=base.duration,fps=base.fps)
+
             def check_creative_repair(candidate):
-                check_visual_evidence(candidate.edit,observed,pending_materials=bool(candidate.material_searches))
-                if not creative_repair or candidate.material_searches or candidate.expands_scope or candidate.requires_new_generation:
-                    return
+                from .model_tasks import ResultCorrectionError
                 try:
-                    draft=EditProject.model_validate({**base.model_dump(),'revision':base.revision+1,**edit_data(candidate.edit)})
-                    assert_visual_repair(base,draft,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles,allow_retiming=True)
-                    from .boards import check_board_usage
-                    check_board_usage(draft.scenes,records)
-                    check_caption_layout(draft.captions,font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'},
-                        width=base.width,height=base.height)
-                except (EditError,ValueError) as exc:
-                    raise ValueError(str(exc)) from None
+                    candidate=normalize(candidate)
+                except ValueError as exc:
+                    raise ResultCorrectionError(str(exc)) from None
+                errors=[]
+                def collect(check):
+                    try:check()
+                    except (EditError,ValueError) as exc:errors.append(str(exc))
+                collect(lambda: check_sources(candidate.edit))
+                collect(lambda: check_visual_evidence(candidate.edit,observed,pending_materials=bool(candidate.material_searches)))
+                if creative_repair and not (candidate.material_searches or candidate.expands_scope or candidate.requires_new_generation):
+                    try:
+                        draft=EditProject.model_validate({**base.model_dump(),'revision':base.revision+1,**edit_data(candidate.edit)})
+                    except ValueError as exc:
+                        errors.append(str(exc))
+                    else:
+                        collect(lambda: assert_visual_repair(base,draft,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles,allow_retiming=True))
+                        from .boards import check_board_usage
+                        collect(lambda: check_board_usage(draft.scenes,records))
+                        collect(lambda: check_caption_layout(draft.captions,font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'},width=base.width,height=base.height))
+                if errors:raise ResultCorrectionError('；'.join(errors))
             from .edit_observation import edit_observation_tools
             def observation_tools(items):
                 if not self.planning.transport or 'tools' not in self.planning.transport.capabilities:return ()
@@ -360,12 +453,13 @@ class RevisionTasks:
                     key=evidence['asset_id'];times=evidence.get('frame_times',[])
                     observed[key]=list(dict.fromkeys([*observed.get(key,[]),*times]))
                     if budget is not None:budget.observed[key]=observed[key]
-                recovery=(request['messages'],message)
+                recovery=(revision_recovery_messages(request['messages'],instruction,result_type),message)
             proposal=recorded_proposal(self.service,ctx,review,output)
             reused=proposal is not None
             if proposal is None:
-                proposal=await self.planning.runner(ctx,namespace=('revision-repair-'+recovery_source[:32]) if recovery_source else None,max_format_repairs=2 if creative_repair else 1).run(candidate_context(records),instruction,RevisionProposal,
+                proposal=await self.planning.runner(ctx,namespace=('revision-repair-'+recovery_source[:32]) if recovery_source else None,max_format_repairs=2 if creative_repair else 1).run(candidate_context(records),instruction,result_type,
                     media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair, recovery=recovery, expression_role="visual")
+            if not reused:proposal=normalize(proposal)
             if proposal.material_searches and payload.get('reuse_existing_media_only'):
                 raise ModelTaskError('material_gap','本次只允许复用已有素材与配音；当前修订需要新增素材，原成果已保留')
             if proposal.material_searches and not (proposal.expands_scope or proposal.requires_new_generation):
@@ -377,8 +471,9 @@ class RevisionTasks:
                     [r for r in records if r['id'] in new_ids] if budget is not None else records,
                     audio_native=audio_native,observed=observed,budget=budget)
                 proposal=await self.planning.runner(ctx,namespace='revision-stock-selection-v1',max_format_repairs=2).run(
-                    candidate_context(records),instruction+'本轮有限库存补料已经完成，不能再次请求检索。根据实际新候选完成修订；仍缺关键动作时在edit.unresolved_scene_ids明确报告并停止，不能改用无关画面。',
-                    RevisionProposal,media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair, expression_role="visual")
+                    candidate_context(records),instruction+'本轮有限库存补料已经完成，不能再次请求检索。根据实际新候选完成修订；仍缺关键动作时在material_searches明确报告缺口并停止（不会再次检索），不能改用无关画面。',
+                    result_type,media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair, expression_role="visual")
+                proposal=normalize(proposal)
                 if proposal.material_searches:raise ModelTaskError('visual_material_gap','有限库存补料后仍缺所需画面，保留原片并等待处理')
             with ctx.transaction() as conn:
                 if not reused:
@@ -386,6 +481,10 @@ class RevisionTasks:
                 self.service._event(conn,ctx.work_id,'revision_proposal_reused' if reused else 'revision_proposed',{'review_id':review['id'],'summary':proposal.summary,'affected':proposal.affected},run_id=ctx.run_id)
             if proposal.expands_scope or proposal.requires_new_generation or not set(proposal.affected)<={'visual','captions','audio','materials'}:
                 return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError('revision_scope_confirmation',proposal.summary+'。'+proposal.reason,requires_decision=True),result={'review_id':review['id']})
+            try:
+                proposal=proposal.model_copy(update={'edit':compile_revision_edit(merge_revision_changes(proposal,base),base),'changes':None})
+            except ValueError as exc:
+                raise ModelTaskError('invalid_model_output',str(exc)) from None
             edit,notes=project_editor_features(proposal.edit)
             revised=EditProject.model_validate({**base.model_dump(), 'revision':base.revision+1,**edit_data(edit)})
             if payload.get('preserve_audio') and (revised.audio!=base.audio or

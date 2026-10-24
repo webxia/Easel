@@ -30,7 +30,7 @@ def _file(*, license="CC BY 4.0", license_url="https://creativecommons.org/licen
           mime="audio/wav", url="https://upload.wikimedia.org/wikipedia/commons/a/aa/City_sound.wav"):
     meta = {"LicenseShortName": {"value": license}, "LicenseUrl": {"value": license_url},
             "Artist": {"value": creator}}
-    return {"ns": 6, "pageid": 4288, "title": "File:City sound.wav",
+    return {"ns": 6, "pageid": 4288, "title": "File:Calm piano instrumental.wav",
             "imageinfo": [{"url": url,
                            "descriptionurl": "https://commons.wikimedia.org/wiki/File:City_sound.wav",
                            "mime": mime, "size": 40000, "sha1": sha1(wav_bytes()).hexdigest(), "extmetadata": meta}]}
@@ -297,11 +297,11 @@ def test_music_empty_query_broadens_with_same_rights_checks():
     calls=[]
     def handle(request):
         query=request.url.params['gsrsearch'];calls.append(query)
-        pages=[_file()] if query=='acoustic filetype:audio' else []
+        pages=[_file()] if query=='acoustic (instrumental OR music) filetype:audio' else []
         return httpx.Response(200,json={'query':{'pages':pages}})
     p=WikimediaAudioProvider('music',transport=httpx.MockTransport(handle))
     assert len(p.search('ambient acoustic instrumental',media_type=MediaType.AUDIO))==1
-    assert calls==['ambient acoustic instrumental filetype:audio','ambient filetype:audio','acoustic filetype:audio']
+    assert calls==['ambient acoustic instrumental (instrumental OR music) filetype:audio','ambient (instrumental OR music) filetype:audio','acoustic (instrumental OR music) filetype:audio']
 
 
 def test_music_network_error_does_not_broaden():
@@ -311,3 +311,48 @@ def test_music_network_error_does_not_broaden():
     p=WikimediaAudioProvider('music',transport=httpx.MockTransport(handle))
     with pytest.raises(StockUnavailable):p.search('ambient acoustic',media_type=MediaType.AUDIO)
     assert len(calls)==1
+
+
+@pytest.mark.parametrize('title,categories',[
+    ('Inleiding Spark Of Being (audio).mp3','Music|Introductory audios from deSingel'),
+    ('Interview about ambient piano.mp3','Music'),
+    ('Evening.wav','Introductory audios from deSingel'),
+    ('Podcast about instrumental music.ogg','Music'),
+    ('City sound.wav','Audio files'),
+])
+def test_music_search_rejects_spoken_or_unclassified_file_despite_topic(title,categories):
+    page=_file();page['title']='File:'+title
+    page['imageinfo'][0]['extmetadata'].update({'Categories':{'value':categories},
+        'ImageDescription':{'value':'Beautiful piano, ambient music and instrumental performances'}})
+    provider,_=_mock_provider('music',[page])
+    assert provider._candidate(page) is None
+    # The same bytes can remain available for a different legitimate audio use.
+    assert _mock_provider('sfx',[page])[0]._candidate(page) is not None
+
+
+def test_music_classification_uses_file_categories_without_claiming_listening():
+    page=_file();page['title']='File:Evening.ogg'
+    page['imageinfo'][0]['extmetadata']['Categories']={'value':'Instrumental music|CC-BY-4.0'}
+    candidate=_mock_provider('music',[page])[0]._candidate(page)
+    assert candidate.semantic.attributes['audio_content_kind']=='music'
+    assert candidate.semantic.attributes['audio_content_basis'].endswith('not_listening')
+
+
+def test_speech_result_does_not_hide_later_music_candidate_at_limit_one():
+    speech=_file();speech['title']='File:Inleiding Spark Of Being (audio).mp3'
+    provider,_=_mock_provider('music',[speech,_file()])
+    found=provider.search('ambient',media_type=MediaType.AUDIO,limit=1)
+    assert len(found)==1 and 'piano' in found[0].semantic.caption
+
+
+def test_punctuated_music_query_broadens_after_only_speech_hits():
+    calls=[]
+    def handle(request):
+        query=request.url.params['gsrsearch'];calls.append(query)
+        spoken=_file();spoken['title']='File:Inleiding Spark Of Being (audio).mp3'
+        pages=[_file()] if query=='piano (instrumental OR music) filetype:audio' else [spoken]
+        return httpx.Response(200,json={'query':{'pages':pages}})
+    provider=WikimediaAudioProvider('music',transport=httpx.MockTransport(handle))
+    found=provider.search('ambient electronic, piano',media_type=MediaType.AUDIO)
+    assert found and 'piano' in found[0].semantic.caption
+    assert len(calls)==4 and all('(instrumental OR music)' in q for q in calls)

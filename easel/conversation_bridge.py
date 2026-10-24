@@ -36,7 +36,7 @@ class ProposalArgs(Strict):
     source_refs: list[str] = Field(min_length=1,max_length=40)
 
 class PipelineArgs(Strict):
-    mode: Literal['pending','bind','draft','offer','answer']
+    mode: Literal['pending','preview','bind','draft','offer','answer']
     action: str = ''
     values: dict = Field(default_factory=dict)
     summary: str = Field(default='', max_length=10000)

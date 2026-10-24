@@ -19,6 +19,7 @@ import httpx
 
 from easel.materials.domain import (CandidateSource, MediaType, RightsEvidence,
                                     RightsInfo, RightsStatus, SemanticInfo)
+from easel.materials.audio_search import audio_content_kind
 from .stock import ExternalCandidate, StockUnavailable, _https_url, http_failure_code, search_failure_code
 
 
@@ -86,8 +87,8 @@ class WikimediaAudioProvider:
         # network/rights errors still propagate and every candidate uses the same checks.
         if result or self.role != 'music':
             return result
-        words = query.strip().split()
-        if 1 < len(words) <= 3 and all(re.fullmatch(r'[A-Za-z]+', word) for word in words):
+        words = re.findall(r'[A-Za-z]+',query)
+        if 1 < len(words) <= 3 and re.fullmatch(r'[A-Za-z\s,;-]+',query.strip()):
             for word in dict.fromkeys(words):
                 result = self._search_once(word, media_type=media_type, limit=limit)
                 if result:
@@ -101,10 +102,11 @@ class WikimediaAudioProvider:
             raise ValueError("Invalid Wikimedia audio query")
         # Preserve the director's query. Requiring a literal phrase 'sound effect'
         # suppresses otherwise legitimate Commons audio search hits.
-        # Role isolation is provided by the distinct source identity.
+        # Music intent survives bounded broadening; file-level content metadata
+        # below decides whether a hit can be a music candidate.
         params = {
             "action": "query", "format": "json", "formatversion": 2,
-            "generator": "search", "gsrsearch": f"{query.strip()} filetype:audio",
+            "generator": "search", "gsrsearch": f"{query.strip()}" + (" (instrumental OR music)" if self.role == "music" else "") + " filetype:audio",
             "gsrnamespace": 6, "gsrlimit": 40,
             "prop": "imageinfo", "iiprop": "url|mime|size|sha1|extmetadata",
             "maxlag": 5,
@@ -219,6 +221,10 @@ class WikimediaAudioProvider:
             summary="Wikimedia Commons file page declares " + license_name +
                     "; creator and underlying rights are not independently verified"),)
         title_text = _plain(title.removeprefix("File:"), max_length=160)
+        categories=_plain(metadata.get('Categories',{}).get('value','') if isinstance(metadata.get('Categories'),dict) else '',max_length=1000)
+        content_kind=audio_content_kind(title_text,categories)
+        if self.role=='music' and content_kind!='music':
+            return None
         if license_name == "CC BY 4.0":
             credit = f'"{title_text}" by {artist}; {page_url}; {license_name} ({license_url})'
             rights = RightsInfo(status=RightsStatus.ATTRIBUTION_REQUIRED, license_name=license_name,
@@ -233,4 +239,6 @@ class WikimediaAudioProvider:
             source, rights, SemanticInfo(caption=title_text,
                 tags=(self.role,), attributes={"audio_roles": [self.role],
                      "media_origin": "wikimedia_commons_file",
+                     "audio_content_kind": content_kind, "source_categories": categories,
+                     "audio_content_basis": "file_title_and_categories_not_listening",
                      "license_claim_reviewed_at": stamp.isoformat()}))

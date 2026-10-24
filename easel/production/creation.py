@@ -102,12 +102,12 @@ def compensate_edit_overlap(answer: CreativeEdit, *, target_seconds: float, fps:
     ]
     return answer.model_copy(update={'scenes':corrected})
 
-def check_edit_source_bounds(answer, durations, *, target_seconds):
+def check_edit_source_bounds(answer, durations, *, target_seconds, fps=30):
     """Validate the compiled source intervals inside existing model repair rounds."""
-    compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=target_seconds))
+    compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=target_seconds,fps=fps),fps=fps)
     for scene in compiled.scenes:
         available=durations.get(scene.asset_id)
-        if available is not None and scene.source_start+scene.duration>available+0.5/30:
+        if available is not None and scene.source_start+scene.duration>available+0.5/fps:
             raise ValueError(f'镜头 {scene.scene_id} 取源区间 {scene.source_start:.3f}–'
                 f'{scene.source_start+scene.duration:.3f} 秒超过素材实际长度 {available:g} 秒；'
                 f'编译后实际取源长度为{scene.duration:.3f}秒（已包含转场补偿），'
@@ -243,6 +243,18 @@ class CreationTasks:
                 check_edit_source_bounds(candidate,source_durations,target_seconds=context.plan['settings']['duration_seconds'])
                 check_visual_evidence(align_editor_frames(compensate_edit_overlap(candidate,
                     target_seconds=context.plan['settings']['duration_seconds'])),observed)
+                # Same binding rules as final project validation, inside the
+                # existing bounded model correction loop, after source fitting.
+                from .material_binding import AUDIO_EDIT_ERRORS
+                try:
+                    compiled=align_editor_frames(compensate_edit_overlap(candidate,
+                        target_seconds=context.plan['settings']['duration_seconds']))
+                    compiled=compiled.model_copy(update={'audio':fit_sound_effects(compiled.audio,source_durations)})
+                    validate_audio_bindings(compiled,records)
+                except ModelTaskError as exc:
+                    if exc.code not in AUDIO_EDIT_ERRORS:raise
+                    from .model_tasks import ResultCorrectionError
+                    raise ResultCorrectionError(exc.user_message) from None
                 from .boards import check_board_usage
                 check_board_usage(candidate.scenes,records,overlays=[c for c in candidate.captions if c.role=='overlay'])
                 if timing and timing['mode']=='voice_driven' and any('role' not in c.model_fields_set for c in candidate.captions):
@@ -294,7 +306,7 @@ class CreationTasks:
                 namespace='edit-repair-'+source['id'][:32]
             answer=await self.planning.runner(ctx,namespace=namespace,max_format_repairs=2).run(context,
                 ENDING_INSTRUCTION + VISUAL_EVIDENCE_INSTRUCTION + '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
-                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。文字x/y表示整块文字的中心坐标，不是左上角；资料说明放在边缘时，按实际字体宽高预留空间。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx；timing_basis=scene时按scene_id对应实际镜头安排音效，保留该镜头scene_id并让音效位于镜头范围内，at仅为草稿估计；absolute或未指定时保留at。duration是事件上限，短音效按实际源长播放，不循环凑长；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
+                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。文字x/y表示整块文字的中心坐标，不是左上角；资料说明放在边缘时，按实际字体宽高预留空间。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx；timing_basis=scene时按scene_id对应实际镜头安排音效，拆镜保留原场景ID或使用原场景ID-cut数字/原场景ID_数字；音效可跨同场景连续镜头，但不能跨到其他场景或越过场景窗口，at仅为草稿估计；absolute或未指定时保留at。duration是事件上限，短音效按实际源长播放，不循环凑长；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '连续旁白应跨镜头讲完；voice_driven严格遵守voice_schedule，fixed使用实测时间作安排依据、位置可按叙事调整，不按草稿分镜凑静默；'
                 '字幕短行分语义显示，不能将整段连续旁白一次堆在画面上。选择画质与景别适合、光线与动作相接的素材，'
                 '每条文字明确role：narration只显示旁白并继承频道字幕样式；overlay为独立解释文字，保留设计的字体、位置、字号，避开底部旁白区，不能叠字。'

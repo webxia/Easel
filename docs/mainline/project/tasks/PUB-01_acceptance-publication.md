@@ -320,3 +320,22 @@ Git交付已核实：研发检查点 **e77c687b9abf400f5978cc10bc9eb94d7faf0320*
 验收：分区净化/隐私字段排除、登录变化/缓存/刷新/失败回退、接口路由、原文件CLI参数与默认值、父/子/未知编号及只读控件、文件草稿持久化和确认名称均有离线用例。关联后端86 passed，前端全量147 passed；构建与lint通过（原2条警告、原bundle体积提示保留），git diff --check通过。该增量未重跑全量后端，上一节2403项仅属于前一受测版本。
 
 已部署本机Easel，资源index-BI7orfyF.js / index-DXFBy5Nh.css，schema仍7。正式目录接口成功返回20个顶层分区；正式Web只读核对已发记录的原分区“知识（未细分）”，不改稿件。独立临时库通过Web选“生活”→保存→刷新→最终确认名称一致→取消，亦验证未登录时原生常用分区回退；测试服务与标签关闭。无真实投稿，真实携新分区投稿NOT_TESTED，父任务仍PARTIAL。既有工作区增量保留、未提交推送。
+
+
+### 本版查看与Creator最终接受修复（2026-10-24）
+
+用户在本轮明确授权“把这几个衔接问题修好，测试后部署，不要重新制作或改动当前成片，我自己在原对话验证”，并确认人工全部通过后不因内部技术衔接卡住。本轮按此决定调整旧合同中模型semantic fail/partial一律禁止人工接受的规则；只作用于作品接受，Director独立试片接受仍沿原合同。归入PUB-01原对话接受衔接，不扩展为新片或投稿授权。
+
+已证根因：原对话查看第2版时摘要省略播放地址及本版findings，模型错误提出revise来获取链接；自动抽帧意见把完整Creator接受挡在quality_blocked，发布校验与数据库触发器也沿用相同限制。方案复用真实Artifact/QC及原acceptance：新增现有pipeline的只读preview模式，按本作品output_id/output_revision选择或默认最新，返回真实播放器、本版检查和独立的持久交付文本；pending摘要保留链接与本版findings，省略完整观察长文。人工完整确认可接受技术合格、成功完成且文件身份未变的具体版本，保留自动检查记录与quality_state，接受事件记录版本摘要及所审检查ID，发布准备认可同一人工接受。schema8仅更新接受触发器，不重写历史行；旧schema不可直接回退。源数据/文件缺失或篡改、跨作品、未完成制作、缺少人工事实及真实Rights/UNKNOWN/费用边界不放开。不会执行原错误“获取链接”修订提案或代签本片接受。
+
+受测基线easel-v2-rebuild / 5f1c6d3a及保留Dirty；此时另有其他研发在同一工作区推进，不把其他Dirty归为本轮实现。定向回归187通过，产品插件Node回归36通过；完整源码回归、部署与业务数据保护核验结果随后记入本节。此前用默认Python3启动检查因未安装pytest未运行，改用已有项目.venv，不安装依赖。按新人工决议更新旧接受断言和两处夹具：完成状态改变只影响派生接受指引，底层Artifact/QC/任务仍须逐项不变；不删测试或增加skip。
+
+完整首轮回归2499通过/2失败/16跳过：两项均为本轮合同更新后的测试夹具，一处删除测试将带output_revision的成片写作普通video素材，已补齐真实kind=output；另一处旧schema6升级用例固定断言7，现跟随SCHEMA_VERSION，逐行业务数据及外键断言全部保留。最终63项定向复验通过，补充两版本的查看/最新findings隔离用例通过；正在固定最终完整回归。插件同步公开原已实现的publication_prepare/publication_save动作及草稿字段，避免接受后受限工具schema不暴露草稿能力；不公开submit/upload/publish。无新增发布执行能力。
+
+最终源码回归（2026-10-25部署收口）：` .venv/bin/python -m pytest -q --ignore=outputs ` → **2507 passed / 16 skipped / 0 failed**（171.85秒，14条原依赖警告）；产品插件36 passed，前端147 passed；文档路径3081条及差异格式检查通过。Python源码在最终完整回归到部署之间摘要一致；期间仅补齐产品插件的原有发布草稿工具schema，并完成最终36项Node回归。前端源码未改，保留原构建不重新构建。未提交/推送，不将其他工作区研发Dirty归为本轮独立提交或CI PASS。
+
+已部署本机Easel，最终进程46446；服务gateway=true，backend.reload_required=false，正式第2版Range读取206 / video/mp4。网关原受管服务在重启时自动启动新进程46217，已核对实际受管日志23:59加载仓库easel-work插件，认证状态接口返回protocol2、main-pipeline-v1、9工具；脚本另起的重复实例因生命周期锁退出，未更改OpenClaw或配置。首次Web重启漏传EASEL_PRODUCTION_ENABLED，被部署检查发现并补回原功能开关，最终原生产域接口正常，不把中间503记成功。
+
+部署前29张业务表备份在本机忽略的outputs/_diagnostics/2026-10-24-creator-review，目录及证据600/700保护。schema7→8只改接受触发器，外键检查通过；部署前后除cleanup_jobs.updated_at原维护更新外，全部业务表逐行一致；两版成片文件SHA256均与部署前及Artifact登记一致。未创建/恢复Run、调用模型、重新剪辑渲染、替换素材或配音，也未执行任何接受/投稿；历史UNKNOWN六项及原unknown对话保留。正式只读Work接口显示第2版真实playback_url、manual_review_required=true、can_accept=true，accepted_output_id仍为空；不代签Creator。
+
+本轮软件与部署范围SOFTWARE_PASS / DEPLOY_PASS；原对话真实查看重发、人工接受及后续发布草稿交互由用户自行验证，NOT_TESTED，不关闭PUB-01父任务、不宣称REAL_PRODUCTION_PASS或CREATOR_ACCEPTED。下一动作：用户在原对话查看第二版，完整审阅后明确确认全部通过；只查看不执行原“获取链接”的修订提案，接受不等于投稿授权。

@@ -166,7 +166,8 @@ def test_schema6_upgrade_preserves_every_existing_publication_field(publication,
     with old.connection() as c:
         for t,rows in before.items():assert [tuple(r) for r in c.execute('select * from '+t)]==rows
         assert c.execute('PRAGMA foreign_key_check').fetchall()==[]
-        assert c.execute('PRAGMA user_version').fetchone()[0]==7
+        from easel.production.store import SCHEMA_VERSION
+        assert c.execute('PRAGMA user_version').fetchone()[0]==SCHEMA_VERSION
 
 
 @pytest.mark.parametrize('platform',['douyin','xiaohongshu','kuaishou','weixin-channels'])

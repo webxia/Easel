@@ -17,10 +17,11 @@ class Publications:
                 work['accepted_output_id'] != output_id or artifact['work_id'] != work_id or
                 artifact['kind'] != 'output' or not artifact['displayable']):
             fail('acceptance_changed', '请从当前已接受的具体成片准备发布', 409)
-        acceptance = conn.execute('SELECT id FROM acceptances WHERE work_id=? AND output_id=? ORDER BY created_at DESC,id DESC LIMIT 1', (work_id, output_id)).fetchone()
+        acceptance = conn.execute('SELECT id,source FROM acceptances WHERE work_id=? AND output_id=? ORDER BY created_at DESC,id DESC LIMIT 1', (work_id, output_id)).fetchone()
         if not acceptance or acceptance_id and acceptance[0] != acceptance_id:
             fail('acceptance_changed', '接受记录已变化，请重新准备发布', 409)
-        if self.service._has_known_quality_failure(conn, artifact):
+        if self.service._has_known_quality_failure(conn, artifact) and not (
+                acceptance['source']=='explicit_manual_review' and self.service._creator_review_ready(conn,artifact)):
             fail('quality_blocked', '此版本存在已知检查失败，不能发布', 409)
         path = (self.service.outputs / artifact['storage_ref']).resolve()
         if self.service.outputs not in path.parents or not path.is_file() or self.service._file_hash(path) != artifact['digest']:

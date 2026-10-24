@@ -25,7 +25,8 @@ class RevisionModel(ScriptedModel):
             edit={key:base[key] for key in ('scenes','audio','captions','required_features')}
             edit['scenes'][0]['motion']='push_in'
             return {'content':json.dumps({'summary':'只增加缓慢推近','affected':['visual'],'expands_scope':False,
-                'requires_new_generation':False,'reason':'现有画面内调整','edit':edit})}
+                'requires_new_generation':False,'reason':'现有画面内调整',
+                **({'edit':edit} if 'edit' in schema['properties'] else {'changes':{'scenes':[{'scene_id':edit['scenes'][0]['scene_id'],'scenes':[edit['scenes'][0]]}]}})})}
         return await super().complete(messages,tools,schema)
 
 
@@ -61,8 +62,8 @@ def test_local_revision_keeps_accepted_version_then_explicitly_switches(tmp_path
 
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
-@pytest.mark.parametrize('change_protected_audio,recut',[(False,False),(True,False),(False,True)])
-def test_image_only_revision_reuses_unselected_candidate_and_protects_audio_bytes(tmp_path,change_protected_audio,recut):
+@pytest.mark.parametrize('change_protected_audio,recut,partial',[(False,False,False),(True,False,False),(False,True,False),(False,True,True)])
+def test_image_only_revision_reuses_unselected_candidate_and_protects_audio_bytes(tmp_path,change_protected_audio,recut,partial):
     import hashlib
     import subprocess
     import wave
@@ -93,7 +94,8 @@ def test_image_only_revision_reuses_unselected_candidate_and_protects_audio_byte
                                 {**edit['scenes'][0],'scene_id':'s1-cut2','duration':.5}]
             if change_protected_audio:edit['audio'][0]['gain']=.5
             return {'content':json.dumps({'summary':'仅替换为同批现有红画面','affected':['visual','audio'] if change_protected_audio else ['visual'],
-                'expands_scope':False,'requires_new_generation':False,'reason':'保留原声音','edit':edit})}
+                'expands_scope':False,'requires_new_generation':False,'reason':'保留原声音',
+                **({'changes':{'scenes':[{'scene_id':'s1','scenes':edit['scenes']}]}} if partial or not change_protected_audio else {'edit':edit})})}
     model=Model();identity={'provider':'direct-api','model':'offline-model','mode':'structured'}
     planning=PlanningTasks(service,OperationService(store),model,identity,'offline')
     creation=CreationTasks(service,planning,manual_review_only=True)
@@ -131,18 +133,14 @@ def test_image_only_revision_reuses_unselected_candidate_and_protects_audio_byte
     assert not any(b.get('type')=='input_audio' for b in model.requests[-1][1]['content'])
     if change_protected_audio:
         assert len(outputs)==1 and last['state']=='needs_decision'
-        assert '保留声音' in next(t for t in last['tasks'] if t['kind']=='revise')['error_json']
-        # A known, persisted answer is not resent when a later guard failed,
-        # even when upgrading an older proposal without the new task marker.
-        with store.transaction() as conn:
-            review=conn.execute('SELECT id,changes_json FROM reviews').fetchone()
-            saved=json.loads(review['changes_json']);saved.pop('producer_task_id')
-            conn.execute('UPDATE reviews SET changes_json=? WHERE id=?',(json.dumps(saved),review['id']))
-        calls=len(model.requests)
         pending=next(t for t in last['tasks'] if t['kind']=='revise')
+        assert 'invalid_model_output' in pending['error_json']
+        # The same task resumes from its latest known receipt, never a new run.
         service.command('resume',{'decision_id':pending['id']},command_id='resume-known-proposal',work_id=work,expected_revision=last['revision'])
         retry=finish()
-        assert retry['state']=='needs_decision' and len(model.requests)==calls
+        again=next(t for t in retry['tasks'] if t['id']==pending['id'])
+        assert retry['state']=='needs_decision'
+        assert json.loads(again['payload_json'])['revision_recovery_source']
     else:
         assert len(outputs)==2 and last['state']=='reviewable'
         b=next(v for v in outputs if v['id']!=a['id']);path_b,_=service.artifact_path(b['id'])

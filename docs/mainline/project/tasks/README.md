@@ -26,3 +26,7 @@
 排序不代表自动开工；当前生产停止决定和各卡授权边界保持有效。
 
 - [SFX-01 · 本地音效检索与导入](SFX-01_local-audio-search.md)：独立修复与素材追加，不恢复视频制作。
+
+## 待评审方案
+
+- [CRE-01 · V2.1版本主任务](CRE-01_creative-context-expression.md)：[完整版本规划](../../architecture/creative-context-expression-proposal.md)；整体设计、一次性完成范围内实现、统一调试验收。P1/P2作为内部工作包全部纳入，任务/依赖/验收已建档；仅文档授权，未开发，不替换当前生产断点。

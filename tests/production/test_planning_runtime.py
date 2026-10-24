@@ -251,3 +251,39 @@ def test_runtime_projects_real_generation_readiness(tmp_path,monkeypatch):
     runtime=create_runtime(tmp_path)
     assert runtime.planning.execution_capabilities['generation']==expected
     assert 'grant' in runtime.planning.execution_capabilities['generation_authorization']
+
+
+def test_replan_carries_original_plan_and_explicit_changes_without_production(tmp_path):
+    service,work,transport,worker=setup(tmp_path)
+    asyncio.run(worker.run_once())
+    with service.store.connection() as conn:
+        from easel.production.service import row
+        target=service.replanning_target(conn,row(conn,'works',work))
+    snap=service.snapshot(work)
+    service.command('plan',{'intent':'replan','request':'把开头改成具体动作，保留其他内容','replanning_target':target},
+        work_id=work,expected_revision=snap['revision'],command_id='replan')
+    asyncio.run(worker.run_once())
+    request=transport.requests[-1][0]
+    data=json.loads(request[1]['content'][0]['text'])
+    assert data['plan']['script']==transport.answer['script']
+    assert '本轮改稿要求' in data['brief']
+    snap=service.snapshot(work)
+    assert snap['state']=='awaiting_confirmation'
+    assert len(snap['plans'])==2 and not snap['plans'][-1]['confirmed_at']
+    assert all(t['kind']=='plan' for t in snap['tasks'])
+
+
+def test_sparse_plan_correction_preserves_unchanged_fields_and_receipt_provenance(tmp_path):
+    from easel.production.planning import CreativePlanChanges,merge_plan_changes,received_plan
+    from easel.production.service import encode
+    _,_,transport,_=setup(tmp_path)
+    base=transport.answer
+    changes=CreativePlanChanges.model_validate({'summary':'更清楚的摘要'})
+    merged=merge_plan_changes(changes,base)
+    assert merged.script==base['script'] and merged.scenes[0].visual==base['scenes'][0]['visual']
+    op={'receipt_json':encode({'result':{'message':{'content':'```json\n{"summary":"更清楚的摘要"}\n```'}}}),
+        'request_json':encode({'schema':{'title':'CreativePlanChanges'},'messages':[{},
+            {'content':[{'type':'text','text':encode({'plan':base})}]}]})}
+    assert received_plan(op)==merged
+    with pytest.raises(ValueError):merge_plan_changes(CreativePlanChanges.model_validate({'scenes':[]}),base)
+    with pytest.raises(ValueError):CreativePlanChanges.model_validate({'quota':999})

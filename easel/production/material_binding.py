@@ -48,7 +48,10 @@ def validate_material_records(service, ctx, records):
                     intent=NeedIntent(description=plan.title))]
             for need in needs:
                 result = materials.reuse.find_candidates(need,scope=scope,context=context,records=(current,))
-                if not result.candidates:
+                from easel.materials.audio_search import MUSIC_CONTENT_ISSUES
+                # Content fitness belongs to selected AudioClips, not every
+                # unselected candidate. Provenance/rights still fail here.
+                if not result.candidates and not (result.rejected and all(r.reason in MUSIC_CONTENT_ISSUES for r in result.rejected)):
                     raise ValueError('bound material no longer eligible')
             attribution = materials.resolve(current.asset_ref,visibility=scope,context=context).attribution
             expected = attribution.__dict__ if attribution else None
@@ -75,6 +78,25 @@ def fit_sound_effects(audio, source_durations):
     return result
 
 
+# These deterministic edit errors can be corrected against a known model receipt.
+AUDIO_EDIT_ERRORS = frozenset({'sfx_binding_missing', 'audio_role_changed', 'music_content_mismatch'})
+
+
+def scene_audio_windows(scenes, scene_id):
+    """Union only adjacent/overlapping cuts of this scene; never span other scenes."""
+    windows=[]; cursor=0.0
+    for scene in scenes:
+        cursor-=scene.transition_seconds
+        start=cursor; cursor+=scene.duration
+        belongs=(scene.scene_id==scene_id or
+            re.fullmatch(re.escape(scene_id)+r'(?:-cut|_)[0-9]+',scene.scene_id))
+        if not belongs:continue
+        if windows and start<=windows[-1][1]+1e-8:
+            windows[-1]=(windows[-1][0],max(windows[-1][1],cursor))
+        else:windows.append((start,cursor))
+    return windows
+
+
 def validate_audio_bindings(project, records):
     cues = {}
     by_id = {r['id']:json.loads(r['metadata_json']) for r in records}
@@ -94,6 +116,11 @@ def validate_audio_bindings(project, records):
         roles = {u.get('role') for u in meta.get('material_uses', []) if u.get('role') in {'music','sfx','voice'}}
         if meta.get('role') == 'voice':
             roles = {'voice'}
+        if clip.role=='music':
+            from easel.materials.audio_search import music_candidate_issue
+            issue=music_candidate_issue(meta.get('semantic') or {},meta.get('source') or {})
+            if issue:
+                raise ModelTaskError('music_content_mismatch',f'音乐候选 {clip.asset_id} 的文件内容声明为讲话或尚不能识别为音乐（{issue}），不能当作BGM；从本批其他音乐候选重新选择，不改旁白、音效或方案')
         if roles and clip.role not in roles:
             raise ModelTaskError('audio_role_changed','编辑器不能将已绑定的旁白、音乐或音效互相替换')
     for cue_id, entry in cues.items():
@@ -104,18 +131,21 @@ def validate_audio_bindings(project, records):
         position_ok = False
         if len(clips) == 1:
             if use.get('timing_basis', 'absolute') == 'scene':
-                # Resolve against the actual edited scene, never scale draft seconds.
-                position_ok = any((scene.scene_id == use['scene_id']
-                    or re.fullmatch(re.escape(use['scene_id']) + r'-cut[0-9]+', scene.scene_id))
-                    and start - .02 <= clips[0].at
-                    and clips[0].at + clips[0].duration <= start + scene.duration + .02
-                    for scene, start in zip(project.scenes, project.scene_starts()))
+                windows=scene_audio_windows(project.scenes,use['scene_id'])
+                position_ok=any(start-.02<=clips[0].at and
+                    clips[0].at+clips[0].duration<=end+.02 for start,end in windows)
             else:
                 position_ok = abs(clips[0].at-use['at']) <= .02
         if (len(clips) != 1 or clips[0].role != 'sfx' or clips[0].asset_id not in entry['assets']
                 or clips[0].gain <= 0 or not position_ok
                 or clips[0].duration>use['duration']+.02):
-            raise ModelTaskError('sfx_binding_missing','必要音效必须使用对应候选及事件ID，保留时间位置且不超过事件窗口')
+            requirement='必需' if use.get('required',True) else '可选但已选用'
+            window=(scene_audio_windows(project.scenes,use['scene_id'])
+                if use.get('timing_basis','absolute')=='scene' else {'at':use['at']})
+            actual=[{'asset_id':a.asset_id,'role':a.role,'at':a.at,'duration':a.duration} for a in clips]
+            raise ModelTaskError('sfx_binding_missing',f'音效 {cue_id}（{requirement}）绑定不符：'
+                f'对应场景 {use.get("scene_id")}，允许窗口 {window}，时长上限 {use["duration"]} 秒；'
+                f'候选 {sorted(entry["assets"])}，当前 {actual}。保留事件ID和素材用途，按实际场景窗口修正位置或时长。')
 
 
 def selected_asset_ids(project):

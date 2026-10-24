@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
+import math
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -110,19 +111,32 @@ class MaterialService:
 
     def candidates(self, need: MaterialNeed, *, visibility: LibraryVisibility, context: UseContext,
                    query: str = "", limit: int = 100,
-                   embedding_provider: EmbeddingProvider | None = None) -> LibraryReuseSearchResult:
+                   embedding_provider: EmbeddingProvider | None = None,
+                   semantic_supplement: bool = False) -> LibraryReuseSearchResult:
         if not 1 <= limit <= 1000:
             raise MaterialLibraryError("Candidate limit must be between 1 and 1000")
+        if semantic_supplement:
+            minimum = getattr(embedding_provider, 'minimum_score', None)
+            if (need.media_type is not MediaType.AUDIO or need.role != 'sfx' or not query.strip()
+                    or embedding_provider is None or not isinstance(minimum, (int, float))
+                    or not math.isfinite(minimum) or not -1 <= minimum <= 1):
+                return LibraryReuseSearchResult((), (), fallback_reason='semantic_supplement_unavailable')
         # Rank a bounded pool first, but apply the requested top-k only after
         # eligibility. An old invalid Rights record must not hide a valid one.
         if not query.strip():
             checked = self.reuse.find_candidates(need, scope=visibility, context=context, limit=1000)
             mode, reason = checked.search_mode, checked.fallback_reason
         else:
+            options = ({'allow_partial': True, 'audio_role': 'sfx', 'min_score': minimum}
+                       if semantic_supplement else {})
             search = self.index.search(query, scope=visibility, context=context, provider=embedding_provider,
-                                       limit=1000, metadata_filters={"media_type": need.media_type, "limit": 1000})
+                                       limit=1000, metadata_filters={"media_type": need.media_type, "limit": 1000}, **options)
+            records = tuple(hit.record for hit in search.hits)
+            if semantic_supplement:
+                from easel.materials.audio_search import audio_action_conflict
+                records = tuple(r for r in records if not audio_action_conflict(query, r.asset.semantic.caption or ''))
             checked = self.reuse.find_candidates(need, scope=visibility, context=context,
-                records=tuple(hit.record for hit in search.hits), limit=1000)
+                records=records, limit=1000)
             mode, reason = search.mode.value, search.fallback_reason
         candidates, seen = [], set()
         for candidate in checked.candidates:

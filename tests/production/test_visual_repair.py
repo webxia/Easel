@@ -69,17 +69,81 @@ def test_visual_repair_preserves_unchanged_source_audio_and_its_timeline_positio
         s.model_copy(update={'asset_id':'replacement'}) if s.scene_id=='s3' else s for s in base.scenes)})
     assert_visual_repair(base,revised,overlay_texts=[],allow_retiming=True)
     for field, value in [('asset_id','other'),('source_start',.1),('source_gain',.5),
-                         ('source_audio',False),('fade_out',.2)]:
+                         ('source_audio',False)]:
         bad = revised.model_copy(update={'scenes':tuple(
             s.model_copy(update={field:value}) if s.scene_id=='s2' else s for s in revised.scenes)})
-        with pytest.raises(EditError,match='完整音轨'):
+        with pytest.raises(EditError,match='原声发生变化'):
             assert_visual_repair(base,bad,overlay_texts=[],allow_retiming=True)
     moved = revised.model_copy(update={'scenes':tuple(
         s.model_copy(update={'duration':s.duration + (.2 if s.scene_id=='s1' else -.2)})
         if s.scene_id!='s2' else s for s in revised.scenes)})
-    with pytest.raises(EditError,match='完整音轨'):
+    with pytest.raises(EditError,match='原声发生变化'):
         assert_visual_repair(base,moved,overlay_texts=[],allow_retiming=True)
     added = revised.model_copy(update={'scenes':tuple(
         s.model_copy(update={'source_audio':True}) if s.scene_id=='s3' else s for s in revised.scenes)})
-    with pytest.raises(EditError,match='完整音轨'):
+    with pytest.raises(EditError,match='原声发生变化'):
         assert_visual_repair(base,added,overlay_texts=[],allow_retiming=True)
+
+
+def test_source_audio_allows_visual_only_changes():
+    base=fixture()
+    base=base.model_copy(update={'scenes':(base.scenes[0].model_copy(update={'source_audio':True}),)})
+    after=base.model_copy(update={'scenes':(base.scenes[0].model_copy(update={'fit':'contain','motion':'push_in','fade_out':.2}),)})
+    assert_visual_repair(base,after,overlay_texts=[])
+
+
+def test_local_changes_inherit_audio_and_unaffected_fields_and_compile_overlap():
+    from easel.production.revisions import RevisionProposal, merge_revision_changes, compile_revision_edit
+    base=fixture()
+    proposal=RevisionProposal(summary='局部',affected=['visual'],expands_scope=False,requires_new_generation=False,reason='取景',
+        changes={'scenes':[{'scene_id':'s1','scenes':[
+            {'scene_id':'s1-cut1','asset_id':'old','duration':2},
+            {'scene_id':'s1-cut2','asset_id':'new','duration':2,'transition':'dissolve','transition_seconds':.5}]}]})
+    edit=compile_revision_edit(merge_revision_changes(proposal,base),base)
+    from easel.production.creative_captions import edit_data
+    assert edit.audio==list(base.audio) and edit_data(edit)['captions']==list(base.model_dump()['captions'])
+    assert [s.duration for s in edit.scenes]==[2,2.5]
+    assert compile_revision_edit(edit,base)==edit
+    bad=edit.model_copy(update={'scenes':[s.model_copy(update={'duration':1}) for s in edit.scenes]})
+    with pytest.raises(ValueError,match='差值'):compile_revision_edit(bad,base)
+    proposal.changes.scenes[0].scene_id='foreign'
+    with pytest.raises(ValueError,match='已登记'):merge_revision_changes(proposal,base)
+
+
+def test_recovery_updates_instruction_without_changing_evidence_or_receipt():
+    from easel.production.revisions import revision_recovery_messages
+    original=[{'role':'system','content':'authority\n任务：返回完整时间线\n输出schema：old'},
+              {'role':'user','content':'base'}, {'role':'tool','content':'observed'}]
+    updated=revision_recovery_messages(original,'只修改局部changes')
+    assert original[0]['content'].endswith('old')
+    assert updated[1:]==original[1:]
+    assert updated[0]['content'].startswith('authority\n任务：只修改局部changes')
+    assert '返回完整时间线' not in updated[0]['content']
+    assert 'RevisionChanges' in updated[0]['content']
+
+
+@pytest.mark.parametrize('fps',[24,25,30])
+def test_revision_compiles_with_original_frame_rate(fps):
+    from easel.production.revisions import RevisionProposal,merge_revision_changes,compile_revision_edit
+    from easel.production.creation import check_edit_source_bounds
+    base=fixture().model_copy(update={'fps':fps})
+    proposal=RevisionProposal(summary='局部',affected=['visual'],expands_scope=False,requires_new_generation=False,reason='分镜',
+        changes={'scenes':[{'scene_id':'s1','scenes':[
+            {'scene_id':'s1-cut1','asset_id':'old','duration':25/fps},
+            {'scene_id':'s1-cut2','asset_id':'new','duration':4-25/fps}]}]})
+    edit=compile_revision_edit(merge_revision_changes(proposal,base),base)
+    check_edit_source_bounds(edit,{'old':25/fps,'new':4-25/fps},target_seconds=4,fps=fps)
+    assert sum(s.duration for s in edit.scenes)==4
+
+
+def test_visual_response_schema_excludes_full_edit_but_legacy_reader_keeps_it():
+    from easel.production.revisions import VisualRevisionProposal,RevisionProposal
+    from pydantic import ValidationError
+    fields={'summary':'修画面','affected':['visual'],'expands_scope':False,'requires_new_generation':False,'reason':'裁切'}
+    schema=VisualRevisionProposal.model_json_schema()
+    assert schema['title']=='RevisionProposal' and 'edit' not in schema['properties']
+    assert 'changes' in schema['required']
+    old={**fields,'edit':{'scenes':[s.model_dump() for s in fixture().scenes]}}
+    assert RevisionProposal.model_validate(old).edit
+    with pytest.raises(ValidationError):VisualRevisionProposal.model_validate(old)
+    assert VisualRevisionProposal.model_validate({**fields,'changes':{}}).changes.scenes==[]

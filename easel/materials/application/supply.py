@@ -28,22 +28,24 @@ class MaterialSupplyResult:
     failures: tuple[SupplyFailure, ...]
     gap: str | None = None
     generation_route: dict | None = None
+    search_diagnostics: tuple[SupplyFailure, ...] = ()
 
 
 class MaterialSupply:
     def __init__(self, materials, *, providers=(), downloaders=None,
-                 max_sources: int = 3, max_candidates: int = 8):
+                 max_sources: int = 3, max_candidates: int = 8, sfx_embedding_provider=None):
         if not 1 <= max_sources <= 10 or not 1 <= max_candidates <= 80:
             raise ValueError("Invalid bounded supply limits")
         self.materials, self.providers = materials, tuple(providers)
         self.downloaders = downloaders or {}
         self.max_sources, self.max_candidates = max_sources, max_candidates
+        self.sfx_embedding_provider = sfx_embedding_provider
 
     def supply(self, need: MaterialNeed, *, visibility: LibraryVisibility, context: UseContext,
                required_asset_refs: tuple[str, ...] = (), allowed_providers: tuple[str, ...] = (),
                allow_generation: bool = False, excluded_asset_refs: tuple[str, ...] = (),
                check_current=None, check_provider=None) -> MaterialSupplyResult:
-        selected, failures, attempted = [], [], []
+        selected, failures, attempted, diagnostics = [], [], [], []
         # Required input cannot be silently replaced by a stock or generated hit.
         for asset_ref in required_asset_refs:
             record = self.materials.catalog.get(asset_ref, scope=visibility, context=context, missing_ok=True)
@@ -67,6 +69,29 @@ class MaterialSupply:
             digests.add(candidate.asset.file.sha256)
         if len(selected) >= need.desired_options:
             return MaterialSupplyResult(tuple(selected), required_asset_refs, (), ())
+        if (not exact_source and need.media_type.value == 'audio' and need.role == 'sfx'
+                and self.sfx_embedding_provider is not None and len(selected) < self.max_candidates):
+            if check_current is not None:
+                check_current()
+            supplement = self.materials.candidates(need, visibility=visibility, context=context,
+                query=need.intent.description, limit=self.max_candidates,
+                embedding_provider=self.sfx_embedding_provider, semantic_supplement=True)
+            if supplement.fallback_reason:
+                diagnostics.append(SupplyFailure('local_sfx_semantic', supplement.fallback_reason))
+            for candidate in supplement.candidates:
+                if (candidate.library_asset_id in seen or candidate.library_asset_id in excluded_asset_refs
+                        or candidate.asset.file.sha256 in digests):
+                    continue
+                selected.append(candidate)
+                seen.add(candidate.library_asset_id)
+                digests.add(candidate.asset.file.sha256)
+                if len(selected) >= self.max_candidates:
+                    break
+            if check_current is not None:
+                check_current()
+            if len(selected) >= need.desired_options:
+                return MaterialSupplyResult(tuple(selected), required_asset_refs, (), tuple(failures),
+                    search_diagnostics=tuple(diagnostics))
         for provider in self.providers:
             if check_current is not None:
                 check_current()
@@ -147,4 +172,5 @@ class MaterialSupply:
         gap = "insufficient_eligible_materials" if len(selected) < need.desired_options else None
         route = {"kind": need.media_type.value.upper(), "need_id": need.need_id,
                  "requires_director_selection": True} if gap and allow_generation and need.media_type.value in {"image", "video"} else None
-        return MaterialSupplyResult(tuple(selected), required_asset_refs, tuple(attempted), tuple(failures), gap, route)
+        return MaterialSupplyResult(tuple(selected), required_asset_refs, tuple(attempted), tuple(failures), gap, route,
+                                   search_diagnostics=tuple(diagnostics))

@@ -420,6 +420,8 @@ class WorkService:
             if data.get('services'):
                 self._insert_grant(conn,work,'planning',data)
             payload={'request':data.get('request',''),'creation_basis':self._basis(conn,work)}
+            if replan:
+                payload['reference_plan_revision']=target['plan_revision']
             if recovery:
                 from .expression_policy import validate
                 payload['creation_basis']['expression_policy']=validate(
@@ -596,7 +598,8 @@ class WorkService:
             conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
         # Explicit user resume can repair the last known edit, without replaying
         # its author or silently resetting a running attempt's repair budget.
-        if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_edit','invalid_edit_project'}:
+        from .material_binding import AUDIO_EDIT_ERRORS
+        if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code') in ({'invalid_model_output','invalid_edit','invalid_edit_project'} | AUDIO_EDIT_ERRORS):
             if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
                 fail('result_unknown','剪辑存在未确定调用，不能另发修正')
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
@@ -604,7 +607,8 @@ class WorkService:
                 try:
                     request=json.loads(source['request_json'])
                     message=json.loads(source['receipt_json'])['result']['message']
-                    value=json.loads(message.get('content') or '')
+                    from .model_tasks import parse_model_json
+                    value=parse_model_json(message.get('content') or '')
                     if request['schema'].get('title')=='CreativeEdit' and isinstance(value,dict) and not message.get('tool_calls'):
                         payload=json.loads(task['payload_json'])
                         refs={item.get('asset_id') for key in ('scenes','audio') for item in value.get(key,[]) if isinstance(item,dict)}
@@ -616,6 +620,8 @@ class WorkService:
                             if asset:restored.append(asset['id'])
                         payload['asset_ids']=sorted(set(payload.get('asset_ids',[]))|set(restored))
                         payload['edit_recovery_source']=source['id']
+                        if json.loads(task['error_json'] or '{}').get('code') in AUDIO_EDIT_ERRORS:
+                            payload['reuse_existing_media_only']=True
                         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
                 except (ValueError,KeyError,TypeError):pass
         if task['kind']=='revise' and json.loads(task['error_json'] or '{}').get('code')=='invalid_model_output':
@@ -664,32 +670,45 @@ class WorkService:
         return bool(semantic and semantic['status']=='not_tested' and
                     json.loads(semantic['findings_json']).get('mode')=='manual_review_only')
 
+    @staticmethod
+    def _creator_review_ready(conn, artifact) -> bool:
+        """Human review can resolve model findings without rewriting QC history.
+
+        Director trial acceptance keeps its separate _manual_review_ready rule.
+        """
+        if (artifact['kind']!='output' or not artifact['displayable'] or artifact.get('deleted_at') or
+                artifact['output_revision'] is None or artifact['quality_state']=='unchecked'):
+            return False
+        technical=conn.execute("""SELECT status FROM quality_checks WHERE artifact_id=? AND artifact_digest=?
+            AND check_kind='technical' ORDER BY created_at DESC,id DESC LIMIT 1""",
+            (artifact['id'],artifact['digest'])).fetchone()
+        if not technical or technical[0]!='pass':return False
+        run=conn.execute('SELECT state FROM runs WHERE id=? AND work_id=?',
+                         (artifact['run_id'],artifact['work_id'])).fetchone()
+        work=conn.execute('SELECT state,deleted_at FROM works WHERE id=?',(artifact['work_id'],)).fetchone()
+        if not work or work['state']=='cancelled' or work['deleted_at'] or not run:return False
+        return run['state']=='succeeded' or bool(run['state']=='superseded' and conn.execute(
+            """SELECT 1 FROM events done JOIN events replaced
+            ON replaced.run_id=done.run_id AND replaced.work_id=done.work_id
+            WHERE done.work_id=? AND done.run_id=? AND done.kind='run_completed'
+            AND replaced.kind='run_superseded' AND done.seq<replaced.seq LIMIT 1""",
+            (artifact['work_id'],artifact['run_id'])).fetchone())
+
     def _accept(self,conn,work,data):
         artifact=row(conn,'artifacts',data.get('output_id',''))
         if artifact.get('deleted_at') or not artifact['displayable']:fail('not_found','成果已删除或不可接受',404)
-        manual_ready=self._manual_review_ready(conn,artifact)
+        manual_ready=self._creator_review_ready(conn,artifact)
         if (artifact['work_id']!=work['id'] or artifact['output_revision'] is None or
-                (artifact['quality_state']!='passed' and not manual_ready) or self._has_known_quality_failure(conn,artifact)):
-            fail('quality_blocked','请选择可审阅的技术合格版本')
+                (artifact['quality_state']!='passed' and not manual_ready) or
+                (self._has_known_quality_failure(conn,artifact) and not manual_ready)):
+            fail('quality_blocked','请选择技术合格且制作已成功完成的可审阅版本；制作尚未成功完成或文件技术检查未通过时不能登记接受')
+        manual_ready=manual_ready and (artifact['quality_state']!='passed' or self._has_known_quality_failure(conn,artifact))
         if manual_ready:
-            # Explicit human confirmation is mandatory, even though the
-            # automatic semantic Gate was disabled by this work's operator.
+            # Explicit complete human review resolves model content findings;
+            # it never rewrites automatic check history or creates new media.
             if data.get('manual_review_confirmed') is not True:
                 fail('manual_review_confirmation_required',
-                    '此版本尚未自动审查音视频语义，须人工看完整片并明确确认')
-            run=row(conn,'runs',artifact['run_id'])
-            # Accept the selected output, independently of a later planning run.
-            # Superseding a completed run does not invalidate its immutable media
-            # or erase its recorded completion. A stopped/incomplete run has no
-            # such proof and remains ineligible.
-            completed = run['state']=='succeeded' or (run['state']=='superseded' and conn.execute(
-                """SELECT 1 FROM events done JOIN events replaced
-                    ON replaced.run_id=done.run_id AND replaced.work_id=done.work_id
-                    WHERE done.work_id=? AND done.run_id=? AND done.kind='run_completed'
-                    AND replaced.kind='run_superseded' AND done.seq<replaced.seq LIMIT 1""",
-                (work['id'],run['id'])).fetchone())
-            if not completed or work['state']=='cancelled':
-                fail('quality_blocked','所选版本的制作尚未成功完成，不能登记人工接受')
+                    '请完整审阅此版的画面、声音、字幕和同步，并明确确认全部通过；自动检查意见将保留')
         path=(self.outputs/artifact['storage_ref']).resolve()
         if self.outputs not in path.parents or not path.is_file() or self._file_hash(path)!=artifact['digest']:
             fail('quality_blocked','成片缺失或内容已变化，须重新检查')
@@ -698,7 +717,10 @@ class WorkService:
                      (new_id(),work['id'],artifact['id'],source,now()))
         self._change(conn,work,accepted_output_id=artifact['id'])
         self._event(conn,work['id'],'output_accepted',
-                    {'output_id':artifact['id'],'acceptance_mode':source})
+                    {'output_id':artifact['id'],'acceptance_mode':source,'artifact_digest':artifact['digest'],
+                     'reviewed_check_ids':[r[0] for r in conn.execute(
+                         'SELECT id FROM quality_checks WHERE artifact_id=? AND artifact_digest=? ORDER BY created_at,id',
+                         (artifact['id'],artifact['digest']))]})
         return {'work_id':work['id'],'output_id':artifact['id']}
 
     def _assignment(self,conn,work,data):
@@ -792,7 +814,13 @@ class WorkService:
             for artifact in work['artifacts']:
                 if artifact['kind']=='output':
                     artifact['export_artifact_id']=bundles.get(artifact['id'],artifact['id'])
-                    artifact['manual_review_required']=self._manual_review_ready(conn,artifact)
+                    artifact['playback_url']=f"/api/production/artifacts/{artifact['id']}/content"
+                    artifact['manual_review_required']=self._creator_review_ready(conn,artifact) and (
+                        artifact['quality_state']!='passed' or self._has_known_quality_failure(conn,artifact))
+                    acceptance=conn.execute('SELECT source FROM acceptances WHERE output_id=? ORDER BY created_at DESC,id DESC LIMIT 1',
+                                            (artifact['id'],)).fetchone()
+                    artifact['creator_accepted']=bool(work['accepted_output_id']==artifact['id'] and acceptance and
+                        acceptance['source']=='explicit_manual_review' and self._creator_review_ready(conn,artifact))
                     artifact['checks']=[{'kind':q['check_kind'],'rule_version':q['rule_version'],'status':q['status'],'findings':json.loads(q['findings_json'])} for q in conn.execute('SELECT * FROM quality_checks WHERE artifact_id=? AND artifact_digest=? ORDER BY created_at,id',(artifact['id'],artifact['digest']))]
                     from .delivery import output_guidance
                     publication=conn.execute("SELECT 1 FROM publication_drafts WHERE output_id=? AND state!='cancelled'",(artifact['id'],)).fetchone()

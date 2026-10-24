@@ -267,3 +267,34 @@ DROP TABLE publication_drafts;
 ALTER TABLE publication_drafts_next RENAME TO publication_drafts;
 ALTER TABLE publication_attempts_next RENAME TO publication_attempts;
 '''
+
+# Creator review is authoritative for content findings. Retain all QC rows and
+# media identities; this migration changes only the acceptance constraint.
+MIGRATIONS[8] = r'''
+DROP TRIGGER acceptance_requires_reviewable;
+CREATE TRIGGER acceptance_requires_reviewable BEFORE INSERT ON acceptances
+WHEN NOT EXISTS (
+ SELECT 1 FROM artifacts a WHERE a.id=NEW.output_id AND a.work_id=NEW.work_id
+ AND a.kind='output' AND a.deleted_at IS NULL AND a.output_revision IS NOT NULL AND a.displayable=1
+ AND (
+   (a.quality_state='passed' AND NOT EXISTS (
+     SELECT 1 FROM quality_checks q JOIN artifacts same ON same.id=q.artifact_id
+     WHERE same.work_id=a.work_id AND same.digest=a.digest AND q.artifact_digest=a.digest
+     AND q.check_kind='semantic' AND q.status IN ('fail','partial')))
+   OR (
+     NEW.source='explicit_manual_review' AND a.quality_state IN ('needs_fix','passed')
+     AND EXISTS (SELECT 1 FROM works w WHERE w.id=a.work_id AND w.state!='cancelled' AND w.deleted_at IS NULL)
+     AND EXISTS (SELECT 1 FROM runs r WHERE r.id=a.run_id AND r.work_id=a.work_id
+       AND (r.state='succeeded' OR (r.state='superseded' AND EXISTS (
+         SELECT 1 FROM events done JOIN events replaced
+         ON replaced.run_id=done.run_id AND replaced.work_id=done.work_id
+         WHERE done.work_id=a.work_id AND done.run_id=r.id
+         AND done.kind='run_completed' AND replaced.kind='run_superseded' AND done.seq<replaced.seq))))
+     AND (SELECT q.status FROM quality_checks q WHERE q.artifact_id=a.id
+       AND q.artifact_digest=a.digest AND q.check_kind='technical'
+       ORDER BY q.created_at DESC,q.id DESC LIMIT 1)='pass'
+   )
+ )
+)
+BEGIN SELECT RAISE(ABORT,'output_not_reviewable'); END;
+'''

@@ -77,6 +77,11 @@ test('protocol 2 exposes nine bounded tools and retains independent lifecycle ga
   createWorkBridge({pluginConfig:{baseUrl:'http://127.0.0.1:12345',token:'test-credential-long-enough-32',protocolVersion:2},on(){},registerTool(fn){factory=fn;},registerHttpRoute(value){route=value;}});
   const tools=factory({...ctx,agentId:'main',sessionKey:'agent:main:easel-pipeline:one'});
   assert.equal(tools.length,9);
+  const pipeline=tools.find(t=>t.name==='easel_pipeline').parameters.properties;
+  assert.ok(pipeline.mode.enum.includes('preview'));
+  assert.equal(pipeline.values.properties.output_revision.type,'integer');
+  for(const action of ['accept','publication_prepare','publication_save'])assert.ok(pipeline.action.enum.includes(action));
+  for(const action of ['submit','upload','publish'])assert.ok(!pipeline.action.enum.includes(action));
   const proposalValues=tools.find(t=>t.name==='easel_work_propose').parameters.properties.values;
   assert.equal(proposalValues.properties.reference_input_ids.type,'array');
   assert.equal(proposalValues.properties.creative_basis.properties.themes.type,'string');

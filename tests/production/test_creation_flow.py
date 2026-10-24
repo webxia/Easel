@@ -143,3 +143,70 @@ def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_pat
     with store.connection() as conn:
         task=conn.execute("SELECT id FROM tasks WHERE kind='quality'").fetchone()
         assert conn.execute('SELECT COUNT(*) FROM operations WHERE task_id=?',(task['id'],)).fetchone()[0]==2
+
+
+@pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
+@pytest.mark.parametrize('legacy_resume',[False,True])
+def test_audio_binding_repairs_inside_existing_loop_and_resumes_latest_receipt(tmp_path,legacy_resume,monkeypatch):
+    import wave
+    import easel.production.creation as module
+    from easel.production.model_tasks import ModelTaskError
+    from easel.conversation_pipeline import has_edit_resume
+    store=Store(tmp_path/'db');store.initialize()
+    service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
+    identity={'provider':'direct-api','model':'offline','mode':'structured'}
+    image=tmp_path/'image.png';Image.new('RGB',(64,64),'blue').save(image)
+    sound=tmp_path/'sound.wav'
+    with wave.open(str(sound),'wb') as f:
+        f.setparams((1,2,8000,0,'NONE','not compressed'));f.writeframes(b'\0\0'*16000)
+    ids={};calls=[]
+    class Model:
+        capabilities=frozenset({'text','structured','image'})
+        async def complete(self,messages,tools,schema):
+            calls.append(messages)
+            return {'content':json.dumps({'scenes':[
+                {'scene_id':'s_1','asset_id':ids['image'],'duration':1},
+                {'scene_id':'s_2','asset_id':ids['image'],'duration':1}],
+                'audio':[{'clip_id':'music','asset_id':ids['sound'],'role':'music','at':0,'duration':2},
+                    {'clip_id':'room','asset_id':ids['sound'],'role':'sfx','at':.5,'duration':1.2 if len(calls)==1 else 1}],
+                'captions':[]})}
+    planning=PlanningTasks(service,OperationService(store),Model(),identity,'fixture')
+    creation=CreationTasks(service,planning)
+    async def supply(ctx):
+        ids['image']=register_file(service,ctx,image,kind='image',media_type='image/png',metadata={})['id']
+        ids['sound']=register_file(service,ctx,sound,kind='audio',media_type='audio/wav',metadata={
+            'material_uses':[{'role':'music'},{'role':'sfx','cue_id':'room','scene_id':'s',
+                'timing_basis':'scene','at':0,'duration':1,'required':False}]})['id']
+        return TaskResult(next_kind='edit',next_payload={'asset_ids':list(ids.values())})
+    w=service.command('create',{'title':'fixture'},command_id='create')['work_id']
+    plan={'title':'fixture','summary':'fixture','script':'fixture','scenes':[{'id':'s','purpose':'fixture','visual':'blue'}],
+        'settings':{'duration_seconds':2,'audio_mode':'music','subtitles':{'enabled':False}}}
+    p=service.command('plan',{'generate':False,'plan':plan},work_id=w,expected_revision=1,command_id='plan')
+    service.command('confirm',{'plan_revision':1,'plan_hash':p['plan_hash'],'services':[identity]},work_id=w,expected_revision=2,command_id='confirm')
+    worker=Worker(store,{'supply':supply,'edit':creation.edit})
+    original=module.validate_audio_bindings
+    if legacy_resume:
+        # Reproduce an old post-model failure without giving it a repair turn.
+        def legacy(project,records):
+            if type(project).__name__=='CreativeEdit':return
+            raise ModelTaskError('sfx_binding_missing','old binding failure')
+        monkeypatch.setattr(module,'validate_audio_bindings',legacy)
+    asyncio.run(worker.run_once())
+    if legacy_resume:
+        snap=service.snapshot(w);task=next(t for t in snap['tasks'] if t['kind']=='edit')
+        assert has_edit_resume(task),task
+        with store.connection() as c:
+            source=c.execute("SELECT id FROM operations WHERE task_id=? ORDER BY created_at DESC LIMIT 1",(task['id'],)).fetchone()[0]
+        service.command('resume',{'decision_id':task['id']},work_id=w,expected_revision=snap['revision'],command_id='resume')
+        task=next(t for t in service.snapshot(w)['tasks'] if t['kind']=='edit')
+        payload=json.loads(task['payload_json'])
+        assert payload['edit_recovery_source']==source and payload['reuse_existing_media_only']
+        class NoVoice:
+            async def prepare_assets(self,*a):raise AssertionError('must not regenerate voice')
+        creation.voice_tasks=NoVoice()
+        monkeypatch.setattr(module,'validate_audio_bindings',original)
+        asyncio.run(worker.run_once())
+    snap=service.snapshot(w);task=next(t for t in snap['tasks'] if t['kind']=='edit')
+    assert task['state']=='succeeded',task['error_json']
+    assert len(calls)==2 and 'room' in calls[-1][-1]['content'] and '允许窗口' in calls[-1][-1]['content']
+    assert sum(t['kind']=='supply' for t in snap['tasks'])==1

@@ -32,6 +32,7 @@ dependencies = [
 easel = "easel.cli:main"
 
 [project.optional-dependencies]
+semantic = ["sentence-transformers==5.1.2"]
 # Keep V2 persistence optional so a missing workflow dependency cannot break chat.
 # These tested versions retain Python 3.10; ormsgpack 1.13+ requires 3.11.
 production = [

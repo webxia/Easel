@@ -178,7 +178,7 @@ def test_output_reference_cannot_point_to_another_work(store):
 def test_accepted_or_dependent_artifact_cannot_be_removed(store):
     work = store.create_work({"title": "作品"})
     with store.transaction() as writer:
-        insert_artifact(writer, work["id"], output_revision=1, displayable=1, quality_state="passed")
+        insert_artifact(writer, work["id"], kind="output", output_revision=1, displayable=1, quality_state="passed")
         writer.execute("INSERT INTO acceptances(id,work_id,output_id,source,created_at) VALUES('accepted',?,'artifact','explicit-user',?)", (work["id"], utc_now()))
     with pytest.raises(Conflict):
         with store.transaction() as writer:

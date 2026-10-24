@@ -182,21 +182,53 @@ def turn_context(context):
         result['work']['plans']=[{k:v for k,v in p.items() if k not in {'payload_json','plan'}} for p in work['plans']]
         result['work']['tasks']=[{k:v for k,v in t.items() if k in {'id','run_id','kind','state','error_json'}} for t in work['tasks']]
         result['work']['reviews']=[{k:v for k,v in review.items() if k not in {'changes_json','changes'}} for review in work.get('reviews',[])]
-        result['work']['artifacts']=[{k:v for k,v in a.items() if k in {'id','kind','output_revision','deleted_at','quality_state','manual_review_required','delivery'}} for a in work['artifacts'] if a['kind']=='output']
+        result['work']['artifacts']=[output_summary(a) for a in work['artifacts'] if a['kind']=='output']
     plan=context.get('current_plan')
     result['current_plan']={k:v for k,v in plan.items() if k not in {'payload_json','plan'}} if plan else None
     result['detail_access']='这是当前状态摘要；sources仅列来源引用，正文通过easel_work_context读取，本轮原话在新消息区。历史提案和产物详情通过现有easel_pipeline pending传values.detail=full读取；画像保存目标及来源通过easel_work_context读取。摘要省略不代表记录被删除或授权改变。'
     return result
 
 
+def output_summary(artifact):
+    """Only this version's current findings; observation prose stays in full detail."""
+    result={k:v for k,v in artifact.items() if k in {
+        'id','kind','output_revision','deleted_at','quality_state','manual_review_required','delivery','playback_url'}}
+    latest={}
+    for check in artifact.get('checks',[]):
+        findings=check.get('findings',{})
+        scope=findings.get('scope',check['kind'])
+        latest[(check['kind'],scope)]={'kind':check['kind'],'status':check['status'],'scope':scope,
+            'findings':findings.get('review',{}).get('findings',findings.get('findings',[]))}
+    result['checks']=list(latest.values())
+    return result
+
+
+def preview(conversations, segment, values):
+    if set(values)-{'output_id','output_revision'}:
+        fail('invalid_input','查看成片只需output_id或output_revision，不接受制作参数')
+    if not segment['work_id']:fail('not_found','当前对话尚无成片',404)
+    work=conversations.service.snapshot(segment['work_id'])
+    outputs=[a for a in work['artifacts'] if a['kind']=='output' and a.get('playback_url')]
+    if values.get('output_id'):
+        outputs=[a for a in outputs if a['id']==values['output_id']]
+    if values.get('output_revision') is not None:
+        outputs=[a for a in outputs if a['output_revision']==values['output_revision']]
+    if not outputs:fail('not_found','当前作品没有指定的可查看成片，请读取pending选择实际版本',404)
+    output=max(outputs,key=lambda a:a['output_revision'])
+    from .conversation_results import preview_text
+    return {'work_id':work['id'],'preview_output':output,'preview_text':preview_text(output),
+            'read_only':True,'requires_user_confirmation':False}
+
+
 def has_edit_resume(task):
     """Existing edit recovery route, shared with user-facing continuation hints."""
+    from .production.material_binding import AUDIO_EDIT_ERRORS
     error=json.loads(task.get('error_json') or '{}')
     return ((task['kind']=='render' and error.get('code')=='render_failed') or
             (task['kind']=='revise' and error.get('code') in {'invalid_revision_search','invalid_model_output'}) or
-            (task['kind']=='edit' and error.get('code') in {
+            (task['kind']=='edit' and error.get('code') in (AUDIO_EDIT_ERRORS | {
                 'invalid_edit_project','invalid_edit','invalid_model_output','editor_rejected',
-                'edit_duration_mismatch','visual_material_gap'}))
+                'edit_duration_mismatch','visual_material_gap'})))
 
 
 def pending(conversations, conn, segment):
@@ -294,7 +326,7 @@ def pending(conversations, conn, segment):
                 'input_change_available':not active_run or active_run['state'] not in {'pending','running','waiting_external','needs_decision','paused'},
                 'input_constraint':'活动运行不允许改创作输入，不能承诺上传即可续作；不得为解除阻断擅自取消作品。',
                 'resume_instruction':'UNKNOWN不重发；普通恢复先核对缺口条件是否已改变，或是否为可安全重试的临时故障。resume不是修复本身，不盲目反复继续。',
-                'coverage':'只解释已有记录；未执行的后续步骤不得声称通过或失败。选项不构成授权。'})
+                'coverage':'本条是当前有效阻断；旧对话或旧尝试的错误不代表仍未解决，不合并为当前故障。正常模型回执不等于剪辑通过。未执行步骤不声称通过或失败。只提供本条choices实际支持的恢复选项，不为绑定错误推荐取消BGM或改纯旁白。选项不构成授权。'})
     return {'replanning':{'action':'plan','values':{'intent':'replan'},'instruction':'未确认方案改口播、分镜或结构均使用此入口；已确认方案仅在真人明确要求重新规划时使用。request写明变更范围，user_quote引用真实原话；沿用已有规划授权直接执行。继续制作使用resume。新方案完成后仍须确认制作。'},'blockers':blockers,'failed_planning_replan':failed_recovery,'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
             'preoutput_replan':recovery,
             'current_plan':next((p for p in work['plans'] if p['revision']==work['current_plan_revision']),None) if work else None,
@@ -647,6 +679,7 @@ def bind_selection(conversations,conn,record,payload,segment,values,*,confirmed=
 def dispatch(bridge,conn,record,payload,segment,args,command_id):
     conversations=bridge.conversations
     mode=args['mode']
+    if mode=='preview':return preview(conversations,segment,args.get('values',{}))
     if mode=='pending':
         state=pending(conversations,conn,segment)
         detail=args.get('values',{}).get('detail')

@@ -241,9 +241,9 @@ def test_sfx_two_events_share_bytes_but_retain_distinct_bindings(env):
             AudioClip(clip_id='bgm',asset_id=bgm['id'],role='music',at=0,duration=90,loop=True),
             *[AudioClip(clip_id=f'cue{i}',asset_id=effects[0]['id'],role='sfx',at=i,duration=.1) for i in (1,2)]))
     validate_audio_bindings(project,records)
-    with pytest.raises(ModelTaskError,match='必要音效'):
+    with pytest.raises(ModelTaskError,match='cue2.*必需'):
         validate_audio_bindings(project.model_copy(update={'audio':project.audio[:-1]}),records)
-    with pytest.raises(ModelTaskError,match='时间位置'):
+    with pytest.raises(ModelTaskError,match='cue1.*允许窗口'):
         validate_audio_bindings(project.model_copy(update={'audio':(project.audio[0],project.audio[1].model_copy(update={'at':3}),project.audio[2])}),records)
 
 
@@ -465,3 +465,78 @@ def test_supply_persists_scene_timing_for_natural_mixed_audio(env):
                 for use in json.loads(row[0]).get('material_uses', []) if use.get('role') == 'sfx']
     assert uses and all(use['timing_basis'] == 'scene' and use['at'] == 70 for use in uses)
     assert asyncio.run(supply.supply(ctx)).next_payload == result.next_payload
+
+
+@pytest.mark.parametrize('suffix',['_','-cut'])
+def test_scene_sound_spans_adjacent_cuts_without_spanning_other_scene(suffix):
+    records=[{'id':'fx','metadata_json':json.dumps({'material_uses':[{'role':'sfx',
+        'cue_id':'room','scene_id':'s','timing_basis':'scene','at':70,'duration':4,'required':False}]})}]
+    project=EditProject(work_id='w',plan_revision=1,revision=1,duration=6,audio_mode='silent',
+        scenes=(Scene(scene_id='s'+suffix+'1',asset_id='image',duration=3),
+                Scene(scene_id='s'+suffix+'2',asset_id='image',duration=3)))
+    # Binding helper accepts the same shape before final EditProject compilation.
+    from types import SimpleNamespace
+    candidate=SimpleNamespace(scenes=project.scenes,audio=(AudioClip(clip_id='room',asset_id='fx',role='sfx',at=1,duration=4),))
+    validate_audio_bindings(candidate,records)
+    candidate.scenes=(project.scenes[0],Scene(scene_id='other',asset_id='image',duration=1),project.scenes[1])
+    with pytest.raises(ModelTaskError,match='room.*可选但已选用.*允许窗口'):
+        validate_audio_bindings(candidate,records)
+    candidate.audio=()
+    validate_audio_bindings(candidate,records)
+    candidate.audio=(AudioClip(clip_id='room',asset_id='wrong',role='sfx',at=1,duration=1),)
+    with pytest.raises(ModelTaskError):validate_audio_bindings(candidate,records)
+
+
+def test_scene_sound_windows_do_not_match_arbitrary_prefix_and_merge_transitions():
+    from easel.production.material_binding import scene_audio_windows
+    scenes=(Scene(scene_id='s_1',asset_id='a',duration=3),
+        Scene(scene_id='s_2',asset_id='a',duration=3,transition='dissolve',transition_seconds=.5),
+        Scene(scene_id='s_other_1',asset_id='a',duration=2))
+    assert scene_audio_windows(scenes,'s')==[(0,5.5)]
+
+
+def test_music_library_reuse_excludes_old_speech_role_before_top_k_without_deleting(env):
+    from easel.materials.domain import MaterialNeed,NeedScope,NeedScopeType,NeedImportance,NeedIntent
+    service,_,ctx,_,_=env
+    materials=MaterialService(service.outputs/'_production/materials')
+    source=service.outputs/'intro.wav';source.write_bytes(wav_bytes())
+    bad=ingest(materials,source,ctx,roles=['music'],caption='Inleiding Spark Of Being (audio)')
+    music=service.outputs/'instrumental.wav';music.write_bytes(wav_bytes())
+    good=ingest(materials,music,ctx,roles=['music'],caption='Calm instrumental piano')
+    music_need=MaterialNeed(need_id='music',media_type=MediaType.AUDIO,role='music',
+        scope=NeedScope(type=NeedScopeType.GLOBAL,ref=ctx.work_id),importance=NeedImportance.REQUIRED,
+        intent=NeedIntent(description='piano music'))
+    result=materials.candidates(music_need,visibility=LibraryVisibility(),context=UseContext(work_id=ctx.work_id),limit=1)
+    assert [c.library_asset_id for c in result.candidates]==[good.asset_ref]
+    assert any(r.library_asset_id==bad.asset_ref and r.reason=='spoken_audio_not_music' for r in result.rejected)
+    assert materials.resolve(bad.asset_ref,visibility=LibraryVisibility(),context=UseContext(work_id=ctx.work_id)).local_path.is_file()
+
+
+def test_selected_music_rejects_speech_but_not_other_unselected_candidates():
+    from easel.production.material_binding import AUDIO_EDIT_ERRORS
+    from easel.production.creation import CreativeEdit
+    from easel.production.model_tasks import ModelTaskRunner,ResultCorrectionError
+    from easel.production.context import TaskContext as CreativeContext
+    metadata=lambda title:{'candidate_role':'music','semantic':{'caption':title,'attributes':{'audio_roles':['music']}},
+        'material_uses':[{'role':'music'}]}
+    records=[{'id':'speech','metadata_json':json.dumps(metadata('Inleiding Spark Of Being (audio)'))},
+             {'id':'music','metadata_json':json.dumps(metadata('Calm piano instrumental'))}]
+    class Transport:
+        capabilities=frozenset({'text','structured'})
+        calls=[]
+        async def complete(self,messages,tools,schema):
+            self.calls.append(messages)
+            return {'content':json.dumps({'scenes':[{'scene_id':'s','asset_id':'image','duration':4}],
+                'audio':[{'clip_id':'bgm','role':'music','asset_id':'speech' if len(self.calls)==1 else 'music','at':0,'duration':4}]})}
+    async def authorize(ctx):pass
+    def validate(edit):
+        try:validate_audio_bindings(edit,records)
+        except ModelTaskError as exc:
+            assert exc.code in AUDIO_EDIT_ERRORS
+            raise ResultCorrectionError(exc.user_message) from None
+    transport=Transport()
+    result=asyncio.run(ModelTaskRunner(transport,authorize,max_format_repairs=1).run(
+        CreativeContext('w','r','t',allowed_handles=frozenset({'image','speech','music'})),
+        'select music',CreativeEdit,validate_result=validate))
+    assert result.audio[0].asset_id=='music' and len(transport.calls)==2
+    assert '不能当作BGM' in transport.calls[1][-1]['content']

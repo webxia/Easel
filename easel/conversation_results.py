@@ -95,6 +95,19 @@ def output_text(event):
                         output.get('delivery', {}).get('message') or '请完整播放后告诉我审阅意见。'])
 
 
+def preview_text(output):
+    """Re-open existing bytes without a render task or a confirmation proposal."""
+    lines=[f'第 {output["output_revision"]} 版，可播放审阅。',
+           f'<video controls src="{output["playback_url"]}"></video>']
+    from .conversation_pipeline import output_summary
+    for check in output_summary(output)['checks']:
+        label='技术检查' if check['kind']=='technical' else '本版画面抽样检查' if check['scope']=='sampled_visual_only' else '本版内容检查'
+        lines.append(label+'：'+{'pass':'通过','fail':'发现问题','partial':'部分完成','not_tested':'未完整验证'}.get(check['status'],check['status']))
+        lines.extend(str(f) for f in check['findings'])
+    lines.append(output.get('delivery',{}).get('message','请完整播放审阅。'))
+    return '\n\n'.join(lines)
+
+
 def production_status(conn, work_id):
     if not work_id:
         return None
@@ -138,9 +151,11 @@ def result_messages(conn, segment):
                     if artifact:
                         accepted.append('第 '+str(artifact['output_revision'])+' 版已接受并保存到内容库。可准备发布、继续修改或下载成片。')
                         publication_source={'work_id':segment['work_id'],'output_id':receipt['output_id']}
-            if not drafts and not accepted:continue
+            previews=[r['preview_text'] for r in payload.get('results',{}).values()
+                      if isinstance(r,dict) and r.get('read_only') is True and r.get('preview_output') and r.get('preview_text')]
+            if not drafts and not accepted and not previews:continue
             answer='\n\n'.join('发布草稿已保存，成片版本 '+str(d['output_revision'])+
-                '。尚未投稿，请在发布页核对账号和最终内容。\n[查看发布草稿](/#publication='+d['id']+')' for d in drafts.values()) if drafts else '\n\n'.join(accepted)
+                '。尚未投稿，请在发布页核对账号和最终内容。\n[查看发布草稿](/#publication='+d['id']+')' for d in drafts.values()) if drafts else '\n\n'.join(accepted or list(dict.fromkeys(previews)))
             error=None;publication_reply=True
         else:
             answer=payload.get('answer','');error=payload.get('delivery_error')

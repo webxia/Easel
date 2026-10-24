@@ -48,7 +48,7 @@ def test_incomplete_superseded_run_never_qualifies(env,proof,reversed_events):
             conn.execute("INSERT INTO acceptances VALUES ('forged',?,'out','explicit_manual_review',?)",(w,now()))
 
 
-def test_missing_human_fact_and_known_failure_remain_blocked(env):
+def test_missing_human_fact_blocks_but_creator_can_resolve_content_findings(env):
     s,c,seg,w,run=historical(env)
     with pytest.raises(ProductionError) as error:
         s.command('accept',{'output_id':'out'},command_id='no-human',work_id=w,expected_revision=s.snapshot(w)['revision'])
@@ -56,6 +56,8 @@ def test_missing_human_fact_and_known_failure_remain_blocked(env):
     with s.store.transaction() as conn:
         checksum=conn.execute("SELECT digest FROM artifacts WHERE id='out'").fetchone()[0]
         conn.execute('INSERT INTO quality_checks VALUES (?,?,?,?,?,?,?,?)',('failure','out',checksum,'semantic','fixture','fail',encode({'findings':['known defect']}),now()))
-    with pytest.raises(ProductionError) as error:
-        s.command('accept',{'output_id':'out','manual_review_confirmed':True},command_id='known-failure',work_id=w,expected_revision=s.snapshot(w)['revision'])
-    assert error.value.code=='quality_blocked'
+    result=s.command('accept',{'output_id':'out','manual_review_confirmed':True},command_id='known-failure',work_id=w,expected_revision=s.snapshot(w)['revision'])
+    assert result['output_id']=='out'
+    with s.store.connection() as conn:
+        assert conn.execute("SELECT status FROM quality_checks WHERE id='failure'").fetchone()[0]=='fail'
+    assert Publications(s,BilibiliAdapter(s.outputs.parent)).prepare(w,'out')['output_id']=='out'

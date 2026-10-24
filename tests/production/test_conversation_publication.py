@@ -76,7 +76,9 @@ def test_direct_accept_retains_manual_review_requirement(prepared,monkeypatch):
     s,w,c,seg=setup(prepared)
     # Isolate the existing manual-review predicate; the bridge must neither
     # invent that human fact nor bypass the domain's requirement.
-    monkeypatch.setattr(s,'_manual_review_ready',lambda conn,artifact:True)
+    with s.store.transaction() as conn:
+        conn.execute("UPDATE artifacts SET quality_state='needs_fix' WHERE id='passed'")
+        conn.execute("INSERT INTO quality_checks SELECT 'tech','passed',digest,'technical','fixture','pass','{}','now' FROM artifacts WHERE id='passed'")
     b,i,_=turn(s,c,seg,'接受此版')
     raises('manual_review_confirmation_required',lambda:pipe(b,i,'offer',action='accept',values={'output_id':'passed'},user_quote='接受此版'))
     with s.store.connection() as conn:assert conn.execute('SELECT count(*) FROM acceptances').fetchone()[0]==0

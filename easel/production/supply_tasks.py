@@ -286,7 +286,12 @@ class SupplyTasks:
     def _acquire_music(self, ctx, plan, records, scope, context, intent=None):
         if plan.settings.audio_mode not in {'music', 'mixed'}:
             return
-        if any(r['kind'] == 'audio' and json.loads(r['metadata_json']).get('candidate_role') == 'music' for r in records):
+        from easel.materials.audio_search import music_candidate_issue
+        def eligible_music(record):
+            meta=json.loads(record['metadata_json'])
+            return (record['kind']=='audio' and meta.get('candidate_role')=='music'
+                and not music_candidate_issue(meta.get('semantic') or {},meta.get('source') or {}))
+        if any(eligible_music(r) for r in records):
             return
         need = MaterialNeed(need_id='work-music', media_type=MediaType.AUDIO, role='music',
             scope=NeedScope(type=NeedScopeType.GLOBAL, ref=ctx.work_id), importance=NeedImportance.REQUIRED,
@@ -351,6 +356,7 @@ class SupplyTasks:
                 ctx.store.append_event(writer,ctx.work_id,'material_search_completed',
                     {'kind':'audio','role':'sfx','cue_id':cue.cue_id,'candidate_count':len(answer.candidates),
                      'sources':list(answer.attempted_sources),'required':cue.required,
+                     'search_diagnostics':[{'source':d.source,'code':d.reason} for d in getattr(answer,'search_diagnostics',())],
                      'failures':[{'source':f.source,'code':f.reason} for f in answer.failures]},run_id=ctx.run_id)
             if not answer.candidates and cue.required:
                 error_type = SoundSearchEmpty if answer.attempted_sources and answer.failures and all(f.reason=='no_results' for f in answer.failures) else ProductionError
@@ -702,6 +708,8 @@ def configured_supply(service,operations,planning,settings):
                        generation_rights=_configured_rights(settings),config_version=version,source_configuration_error=source_error,
                        enforce_provider_grants=True,
                        intent_compiler=FrozenIntentCompiler(planning) if planning is not None else None)
+    from easel.materials.local_embedding import configured_sfx_embedding
+    task.supplier.sfx_embedding_provider = configured_sfx_embedding(settings)
     from .subtitles import configured_fonts
     task.board_fonts=configured_fonts(settings)
     return task

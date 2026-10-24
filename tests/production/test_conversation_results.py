@@ -505,7 +505,10 @@ def test_recovered_second_output_delivered_locally_once_without_media_work(env):
     assert result['payload']['delivery_state']=='delivered'
     assert relay.reserve_next() is None
     after=s.snapshot(work)
-    assert before['tasks']==after['tasks'] and before['artifacts']==after['artifacts']
+    assert before['tasks']==after['tasks']
+    # Completion changes derived acceptance guidance, never the stored media/QC.
+    stored=lambda artifacts:[{k:v for k,v in a.items() if k not in {'manual_review_required','delivery'}} for a in artifacts]
+    assert stored(before['artifacts'])==stored(after['artifacts'])
     view=c.view('ui')
     assert view['result_messages'][-1]['content']==result['answer']
     assert view['result_messages'][-1]['resultState']=='ended'
@@ -555,3 +558,16 @@ def test_historical_invalid_revision_proposal_is_readable_but_not_answerable(env
     assert old['can_answer'] is False and old['validation_code']=='plan_revision_required'
     assert '重新规划' in pending['replanning']['instruction']
     assert not any(r['kind']=='revision' for r in s.snapshot(work)['runs'])
+
+
+def test_current_audio_failure_keeps_resume_without_old_model_error():
+    from easel.conversation_results import failure_details, failure_text
+    tasks=[{'kind':'supply','state':'succeeded'},
+        {'kind':'edit','state':'cancelled','error_json':encode({'code':'invalid_model_output','user_message':'历史模型错误'})},
+        {'kind':'edit','state':'needs_decision','error_json':encode({'code':'sfx_binding_missing','user_message':'当前音效窗口不符'})}]
+    details=failure_details(tasks,'needs_decision')
+    text=failure_text(tasks,'needs_decision')
+    assert '当前音效窗口不符' in text and '历史模型错误' not in text
+    assert '继续制作' in text and '纯旁白' not in text
+    assert len(details['issues'])==1
+    assert failure_details(tasks,'needs_decision',unknown=True)['next_step'] is None

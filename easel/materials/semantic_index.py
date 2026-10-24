@@ -143,7 +143,7 @@ class MaterialSemanticIndex:
             raise SemanticIndexError("Only cataloged assets can be semantically indexed") from exc
         if persisted != record:
             raise SemanticIndexError("Semantic index input differs from the scoped catalog record")
-        text = self.semantic_text(record.asset)
+        text = self._document_text(record.asset, provider)
         text_sha256 = self._fingerprint(text)
         vector = self._validate_vector(provider.embed(text), provider.dimensions)
         contract = EmbeddingContract(
@@ -193,10 +193,25 @@ class MaterialSemanticIndex:
         self,
         scope: LibraryVisibility,
         provider: EmbeddingProvider,
-        *, context: UseContext,
+        *, context: UseContext, media_type=None, audio_role: str | None = None,
+        skip_fresh: bool = False,
     ) -> tuple[EmbeddingContract, ...]:
         """Explicitly rebuild or refresh semantic vectors for one scope."""
-        return tuple(self.index_record(record, provider) for record in self.catalog.list_scope(scope=scope, context=context))
+        rebuilt = []
+        cursor = ""
+        while True:
+            page = self.catalog.list_scope(scope=scope, context=context,
+                media_type=media_type, limit=1000, after_asset_id=cursor)
+            for record in page:
+                if audio_role and audio_role not in record.asset.semantic.attributes.get("audio_roles", ()):
+                    continue
+                if skip_fresh and not self.is_stale(record, provider):
+                    continue
+                rebuilt.append(self.index_record(record, provider))
+            if len(page) < 1000:
+                break
+            cursor = page[-1].library_asset_id
+        return tuple(rebuilt)
 
     def invalidate_record(self, library_asset_id: str, *, scope: LibraryVisibility) -> bool:
         """Remove one stale or withdrawn vector without touching catalog data."""
@@ -212,18 +227,23 @@ class MaterialSemanticIndex:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT asset_sha256, provider_id, model_version, dimensions, text_sha256
+                SELECT *
                 FROM semantic_vectors WHERE owner_id=? AND profile_key=? AND library_asset_id=?
                 """,
                 (record.scope.owner_id, record.scope.profile_key, record.library_asset_id),
             ).fetchone()
+        return self._row_stale(record, provider, row)
+
+    def _row_stale(self, record, provider, row):
         return (
             row is None
+            or row["owner_id"] != record.scope.owner_id
+            or row["profile_key"] != record.scope.profile_key
             or row["asset_sha256"] != record.asset.file.sha256
             or row["provider_id"] != provider.provider_id
             or row["model_version"] != provider.model_version
             or row["dimensions"] != provider.dimensions
-            or row["text_sha256"] != self._fingerprint(self.semantic_text(record.asset))
+            or row["text_sha256"] != self._fingerprint(self._document_text(record.asset, provider))
         )
 
     def search(
@@ -235,6 +255,9 @@ class MaterialSemanticIndex:
         provider: EmbeddingProvider | None,
         limit: int = 20,
         metadata_filters: dict[str, object] | None = None,
+        allow_partial: bool = False,
+        audio_role: str | None = None,
+        min_score: float | None = None,
     ) -> SemanticSearchResult:
         if not query.strip():
             raise SemanticIndexError("Semantic search query must not be blank")
@@ -251,29 +274,33 @@ class MaterialSemanticIndex:
             if len(page) < 1000:
                 break
             cursor = page[-1].library_asset_id
-        records = tuple(records_list)
+        records = tuple(record for record in records_list
+            if not audio_role or audio_role in record.asset.semantic.attributes.get("audio_roles", ()))
         if provider is None:
             return self._metadata_fallback(query, records, limit, "embedding_provider_disabled")
+        query_vector = None
         try:
             self._validate_provider(provider)
-            query_vector = self._validate_vector(provider.embed(query.strip()), provider.dimensions)
-        except Exception as exc:
+            if not allow_partial:
+                query_vector = self._validate_vector(provider.embed(query.strip()), provider.dimensions)
+        except Exception:
+            if allow_partial:
+                return SemanticSearchResult((), SearchMode.VECTOR, (), "embedding_provider_failed")
             return self._metadata_fallback(query, records, limit, "embedding_provider_failed")
-
         rows_by_id: dict[str, sqlite3.Row] = {}
         if records:
             with self._connect() as connection:
                 rows = connection.execute(
-                    "SELECT * FROM semantic_vectors WHERE owner_id=? AND profile_key=?",
-                    (scope.owner_id, scope.profile_key),
+                    "SELECT * FROM semantic_vectors WHERE owner_id=?",
+                    (scope.owner_id,),
                 ).fetchall()
             rows_by_id = {row["library_asset_id"]: row for row in rows}
 
-        hits: list[tuple[MaterialLibraryRecord, float]] = []
+        fresh = []
         stale: list[str] = []
         for record in records:
             row = rows_by_id.get(record.library_asset_id)
-            if row is None or self.is_stale(record, provider):
+            if self._row_stale(record, provider, row):
                 stale.append(record.library_asset_id)
                 continue
             try:
@@ -281,16 +308,34 @@ class MaterialSemanticIndex:
             except (json.JSONDecodeError, SemanticIndexError):
                 stale.append(record.library_asset_id)
                 continue
-            hits.append((record, self._cosine(query_vector, vector)))
-        if stale:
+            fresh.append((record, vector))
+        if stale and not allow_partial:
             result = self._metadata_fallback(query, records, limit, "embedding_index_incomplete")
             return SemanticSearchResult(result.hits, result.mode, tuple(sorted(stale)), result.fallback_reason)
+        if allow_partial and not fresh:
+            return SemanticSearchResult((), SearchMode.VECTOR, tuple(sorted(stale)), "embedding_index_incomplete")
+        try:
+            if query_vector is None:
+                query_vector = self._validate_vector(provider.embed(query.strip()), provider.dimensions)
+        except Exception:
+            if allow_partial:
+                return SemanticSearchResult((), SearchMode.VECTOR, tuple(sorted(stale)), "embedding_provider_failed")
+            return self._metadata_fallback(query, records, limit, "embedding_provider_failed")
+        hits = [(record, self._cosine(query_vector, vector)) for record, vector in fresh]
+        if min_score is not None:
+            hits = [(record, score) for record, score in hits if score >= min_score]
         hits.sort(key=lambda item: (-item[1], item[0].created_at, item[0].library_asset_id))
         return SemanticSearchResult(
             hits=tuple(SemanticSearchHit(record, score, rank) for rank, (record, score) in enumerate(hits[:limit], 1)),
             mode=SearchMode.VECTOR,
             stale_asset_ids=tuple(sorted(stale)),
+            fallback_reason="embedding_index_incomplete" if stale else None,
         )
+
+    @staticmethod
+    def _document_text(asset, provider):
+        projection = getattr(provider, 'document_text', None)
+        return projection(asset) if projection else MaterialSemanticIndex.semantic_text(asset)
 
     @staticmethod
     def semantic_text(asset: MaterialAsset) -> str:

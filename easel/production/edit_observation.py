@@ -110,7 +110,17 @@ def check_visual_evidence(edit, observed, *, pending_materials=False):
         if not selected:
             raise ValueError('画面依据必须引用本次实际选用的镜头和素材')
         for at in evidence.observed_times:
-            if not any(abs(at-t) <= .002 for t in observed.get(evidence.asset_id, []) if t is not None):
-                raise ValueError('画面依据时间未被实际观察；可使用inspect_media或如实说明不确定')
-            if not any(s.source_start-.002 <= at <= s.source_start+s.duration+.002 for s in selected):
-                raise ValueError('观察时间不在本次选用片段内，不能用其他区间证明关键动作')
+            times=[t for t in observed.get(evidence.asset_id, []) if t is not None]
+            matches=[t for t in times if abs(at-t)<=.002]
+            if not matches:
+                # A two-decimal rendering of a received timestamp is not a new
+                # observation. Resolve only a unique rounding match, then use
+                # the actual sampled instant for source-interval validation.
+                matches=list(set(t for t in times if abs(at-round(t,2))<1e-9))
+                if len(matches)!=1:
+                    raise ValueError('画面依据时间未被实际观察：'+evidence.scene_id+
+                        '，请求时间 '+str(at)+'；可使用inspect_media或如实说明不确定')
+            if not any(s.source_start-.002 <= t <= s.source_start+s.duration+.002 for t in matches for s in selected):
+                raise ValueError('观察时间不在本次选用片段内：'+evidence.scene_id+
+                    '，引用 '+str(at)+' 秒，取源区间 '+str([(s.source_start, s.source_start+s.duration) for s in selected])+
+                    '；改用该区间内实际抽帧，或调用inspect_media；不能用其他区间证明关键动作')

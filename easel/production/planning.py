@@ -4,10 +4,10 @@ import json
 import re
 import hashlib
 from dataclasses import replace
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, create_model
 from .contracts import Contract, Scene, VideoSettings, ExplainerBoard, NarrationPolicy
 from .context import TaskContext
-from .model_tasks import ModelTaskRunner, ModelTaskError
+from .model_tasks import ModelTaskRunner, ModelTaskError, parse_model_json
 from .errors import ProductionError
 from .model_operations import RecordedModelTransport
 from .service import row, encode, digest, now, new_id
@@ -111,6 +111,26 @@ class VoiceReadyCreativePlan(CreativePlan):
         return self
 
 
+# Same plan fields, omitted fields retain their original values. This is a
+# model response format, not a second plan contract or an execution command.
+CreativePlanChanges = create_model('CreativePlanChanges', __base__=Contract,
+    **{name: (field.annotation, Field(default=None, description='省略表示保持原值；填写时提供该字段完整新值'))
+       for name, field in CreativePlan.model_fields.items()})
+
+
+def merge_plan_changes(changes, base):
+    return VoiceReadyCreativePlan.model_validate({**base, **changes.model_dump(exclude_unset=True, mode='json')})
+
+
+def received_plan(operation):
+    value=parse_model_json(json.loads(operation['receipt_json'])['result']['message']['content'])
+    request=json.loads(operation['request_json'])
+    if request.get('schema',{}).get('title')=='CreativePlanChanges':
+        base=json.loads(request['messages'][1]['content'][0]['text'])['plan']
+        return merge_plan_changes(CreativePlanChanges.model_validate(value),base)
+    return VoiceReadyCreativePlan.model_validate(value)
+
+
 class DraftReview(Contract):
     suggestions: list[str] = Field(default_factory=list, max_length=16, description='非阻断的审美或表达建议；不能用于隐藏事实错误、明确要求冲突或已证实质量缺陷')
     verdict: str = Field(pattern='^(pass|fail)$')
@@ -174,6 +194,10 @@ class PlanningTasks:
                 basis={**(plan.get('conversation_basis') or {}),
                        'profile':profile,'director':director,'settings':plan['settings']}
             else:
+                reference=ctx.payload.get('reference_plan_revision')
+                if reference:
+                    record=conn.execute('SELECT payload_json FROM plan_revisions WHERE work_id=? AND revision=?',(ctx.work_id,reference)).fetchone()
+                    if record:plan=json.loads(record[0])
                 basis=ctx.payload.get('creation_basis')
                 if basis is None:
                     basis=self.service._basis(conn,work)
@@ -281,9 +305,9 @@ class PlanningTasks:
             try:
                 op=by_id[state['source_operation_id']]
                 draft=VoiceReadyCreativePlan.model_validate(state['draft'])
-                received=VoiceReadyCreativePlan.model_validate_json(content(op))
+                received=received_plan(op)
                 if (state['producer_task_id']!=ctx.task_id or not known(op) or draft!=received
-                        or json.loads(op['request_json']).get('schema',{}).get('title')!='VoiceReadyCreativePlan'
+                        or json.loads(op['request_json']).get('schema',{}).get('title')not in {'VoiceReadyCreativePlan','CreativePlanChanges'}
                         or state['draft_hash']!=digest(draft.model_dump(mode='json'))
                         or not 0<=state['correction_round']<=2):raise ValueError
                 return state
@@ -296,13 +320,13 @@ class PlanningTasks:
         if not candidates:return None
         source=candidates[-1]
         try:
-            draft=VoiceReadyCreativePlan.model_validate_json(content(source))
+            draft=received_plan(source)
             reviews=[];last=None
             for r in ops:
                 if not known(r):continue
                 request=json.loads(r['request_json'])
                 if request.get('schema',{}).get('title')!='DraftReview':continue
-                review=DraftReview.model_validate_json(content(r));reviews.append(review.model_dump(mode='json'))
+                review=DraftReview.model_validate(parse_model_json(content(r)));reviews.append(review.model_dump(mode='json'))
                 if r['created_at']>source['created_at']:last=review
             if last is None:raise ValueError
         except (ValueError,KeyError,TypeError):
@@ -381,6 +405,8 @@ class PlanningTasks:
             if protected:
                 context=replace(context,plan=protected,
                     brief=context.brief+'\n仅允许audio_mode改为voice，无BGM或可选SFX；其他字段逐字保持，包括旁白、镜头、观点和时长。')
+            if ctx.payload.get('request') and not protected:
+                context=replace(context,brief='本轮改稿要求见本次补充，优先落实；旧稿是待修改基线。\n'+context.brief+'\n先定位要求涉及的原句和场景，按要求改变表达本身，不只替换近义词；同步script与场景narration。保留未涉及的事实与选择；本任务只产出待确认方案，不执行配音或制作。')
             media,required=await self.observe_inputs(ctx)
             with self.service.store.connection() as reader:
                 selected = json.loads(row(reader, 'works', ctx.work_id)['settings_json']).get('voice')
@@ -496,16 +522,18 @@ class PlanningTasks:
                     except EditError:
                         pictures,picture_needs=(),frozenset()
                     author=self.runner(ctx,namespace='draft-correction-v3-'+str(round_),max_format_repairs=2)
-                    proposed=await author.run(
-                        replace(context,plan=proposed.model_dump(mode='json')),
-                        '依据独立草稿审查修正并返回完整可执行方案；这是尚未确认的草稿，允许实际调整叙事、具体例子、'
+                    base=proposed.model_dump(mode='json')
+                    changes=await author.run(
+                        replace(context,plan=base),
+                        '依据独立草稿审查仅返回需要修改的顶层字段，未涉及字段省略并沿用原值，不能用null代替省略；script与scenes涉及口播时一起同步；不要重复输出未改字段。这是尚未确认的草稿，允许实际调整叙事、具体例子、'
                         '图解分类/状态与视觉策略，不得编造个人经历或事实，不改变已选声音、字幕、画幅和声音模式。'
                         '逐项解决全部有依据的问题，文案与narration一致，术语用具体条件变化解释，不能只改形容词。'
                         '电影感要落实到可取得的具体场景动作、景别、光线与镜头联系，不用无关素材凑，也不把整片放回文字板fallback。'
                         '收到的字幕样例由正式排版函数生成；若旧审查的碰撞假设被真实像素/边界否定，可保留正确布局并如实说明，'
                         '不能把未实现的后期重排写成已完成，更不能借此忽略其他内容问题。原生审查记录：'+encode(history),
-                        VoiceReadyCreativePlan,expression_role="write",media=(*media,*pictures),required=required|picture_needs,
-                        tools=self.tool_factory(ctx),validate_result=preserve_choices)
+                        CreativePlanChanges,expression_role="write",media=(*media,*pictures),required=required|picture_needs,
+                        tools=self.tool_factory(ctx),validate_result=lambda changes: preserve_choices(merge_plan_changes(changes,base)))
+                    proposed=merge_plan_changes(changes,base)
                     source=self._native_operation(ctx,author);review=None
                     self._store_draft(ctx,proposed,source,round_,history,review)
                 preserve_choices(proposed)
