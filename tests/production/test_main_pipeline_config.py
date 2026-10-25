@@ -31,3 +31,13 @@ def test_main_policy_is_bounded_and_preserves_restrictions():
 def test_unbounded_or_ambiguous_policy_requires_review(policy):
     with pytest.raises(ValueError):
         main_pipeline_tools(policy)
+
+
+def test_bound_dialogue_system_separates_operation_manual_without_dropping_safety():
+    from easel.video_workspace import pipeline_system_prompt,DIALOGUE_POLICY,POLICY
+    prompt=pipeline_system_prompt()
+    assert DIALOGUE_POLICY in prompt and POLICY not in prompt
+    assert len(DIALOGUE_POLICY)<len(POLICY)//2
+    # Primary execution boundaries remain unconditional, even before a full read.
+    for boundary in ['UNKNOWN','下一真人回合','完整逐字稿','Rights','不自动投稿','不能编造用户亲历']:
+        assert boundary in prompt

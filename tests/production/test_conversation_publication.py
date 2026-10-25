@@ -112,6 +112,9 @@ def test_pending_uses_existing_projection_and_full_detail_remains_explicit(prepa
     assert summary['work']['revision']==detail['work']['revision']
     assert summary['current_plan']=={k:v for k,v in detail['current_plan'].items() if k not in {'payload_json','plan'}}
     assert 'plan' in detail['current_plan'] and 'plan' not in summary['current_plan']
+    from easel.video_workspace import POLICY, KNOWLEDGE
+    assert detail['operation_guide']==POLICY+KNOWLEDGE
+    assert 'operation_guide' not in summary
     assert summary['work']['artifacts'][0]['id'] in {'passed','unchecked'}
     assert 'long-history-' not in json.dumps(summary)
     assert 'long-history-' in json.dumps(detail)

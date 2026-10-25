@@ -732,7 +732,9 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
     if mode=='pending':
         state=pending(conversations,conn,segment)
         detail=args.get('values',{}).get('detail')
-        if detail=='full':return state
+        if detail=='full':
+            from .video_workspace import POLICY, KNOWLEDGE
+            return {**state,'operation_guide':POLICY+KNOWLEDGE}
         if detail is not None:fail('invalid_input','详情使用values.detail=full')
         summary=turn_context(state)
         return summary
