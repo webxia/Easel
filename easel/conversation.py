@@ -162,6 +162,34 @@ class ConversationService:
         if kind=='plan':
             from .conversation_pipeline import planning_values
             values=planning_values(self,conn,segment,values)
+        # Preserve actual human creative instructions at the handoff boundary.
+        # A model summary is useful, but cannot stand in for omitted negations.
+        action = values.get('action') if kind == 'pipeline' else kind
+        field = {'plan': 'request', 'revise': 'feedback', 'revision': 'feedback'}.get(action) if isinstance(action,str) else None
+        if field:
+            sources = []
+            for ref in refs:
+                source = json.loads(row(conn,'conversation_turns',ref)['payload_json'])
+                if source.get('origin','user') == 'user' and source.get('message'):
+                    sources.append({'source_turn': ref, 'text': source['message']})
+            if sources:
+                if kind=='pipeline' and not isinstance(values.get('payload',{}),dict):
+                    fail('invalid_input','创作提案内容必须是对象')
+                creative = dict(values.get('payload',{})) if kind == 'pipeline' else dict(values)
+                request = creative.get(field,'')
+                # Reissuing an unchanged pre-Work proposal must not nest its
+                # already verified source view or alter its creative identity.
+                try:
+                    prior = json.loads(request)
+                except (ValueError,TypeError):
+                    prior = None
+                if (isinstance(prior,dict) and set(prior)=={'user_sources','agent_request'}
+                        and prior['user_sources']==sources and isinstance(prior['agent_request'],str)):
+                    request = prior['agent_request']
+                creative[field] = encode({'user_sources': sources, 'agent_request': request})
+                values = {**values, 'payload': creative} if kind == 'pipeline' else creative
+                if len(encode(values)) > 100000 or (field=='feedback' and len(creative[field])>10000):
+                    fail('invalid_input','创作原文与整理要求超出提案/修订长度上限；请缩短整理摘要或拆分输入，不能省略真人原文')
         # Proposed target comes only from the selected entry/Work, never free model IDs/paths.
         target=json.loads(segment['context_json'])
         if segment['work_id']:target={**target,'settings':json.loads(row(conn,'works',segment['work_id'])['settings_json'])}

@@ -831,3 +831,72 @@ def test_nested_answer_must_also_supply_explicit_decision():
         PipelineArgs(mode='answer',values={'proposal_id':'a'*32,'hash':'b'*64,'user_quote':'取消'})
     assert PipelineArgs(mode='answer',values={'dismiss':True}).dismiss is True
     assert PipelineArgs(mode='pending').mode=='pending'
+
+
+def test_worker_receives_literal_human_revocations_even_when_summary_omits_them(env):
+    from types import SimpleNamespace
+    from easel.production.planning import PlanningTasks
+    from easel.production.operations import OperationService
+    s,c=env;channel=seed(env)
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    message='做完整方案。撤销杯子归位、纸张叠齐条件；不要图解，BGM和音效保留。'
+    b,i,_=turn(s,c,seg,message)
+    w=pipe(b,i,'draft',user_quote='做完整方案',values={'title':'真实要求','input_text':'一个小变化'})['work_id']
+    question=pipe(b,i,'offer',action='plan',values={'request':'改成纯实拍'})
+    scope=json.loads(question['values']['payload']['request'])
+    assert scope=={'user_sources':[{'source_turn':'turn','text':message}],'agent_request':'改成纯实拍'}
+    b.end(Identity(**i));b,i,_=turn(s,c,seg,'确认规划服务，只出方案',id='yes')
+    result=pipe(b,i,'answer',dismiss=False,proposal_id=question['proposal_id'],hash=question['hash'],user_quote='确认规划服务，只出方案')
+    snap=s.snapshot(w);task=snap['tasks'][0];payload=json.loads(task['payload_json'])
+    assert payload['request']==question['values']['payload']['request']
+    assert '确认规划服务，只出方案' not in payload['request']
+    ctx=SimpleNamespace(work_id=w,run_id=result['run_id'],task_id=task['id'],plan_revision=None,payload=payload)
+    view=PlanningTasks(s,OperationService(s.store),None,{'provider':'direct-api','model':'fixture-model','mode':'structured'},'fixture').context(ctx)
+    assert message in view.brief and '改成纯实拍' in view.brief
+    assert not snap['artifacts'] and len(snap['runs'])==1
+
+
+def test_creative_source_capture_does_not_treat_task_events_as_human(env):
+    s,c=env;channel=seed(env)
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'只讨论，不规划')
+    # A task result can stage a proposal, never manufacture a human source.
+    with s.store.transaction() as conn:
+        t=row(conn,'conversation_turns','turn');p=json.loads(t['payload_json']);p['origin']='task_result'
+        conn.execute('UPDATE conversation_turns SET payload_json=? WHERE id=?',(encode(p),'turn'))
+        q=c.proposal(conn,c.segment(conn,'ui',seg),'plan',{'request':'待讨论提案'},['turn'])
+        body=json.loads(row(conn,'conversation_proposals',q['proposal_id'])['body_json'])
+        assert body['values']['request']=='待讨论提案'
+    assert not s.list_works()['items']
+
+
+def test_creative_source_preserves_false_literals_and_rejects_size_overflow(env):
+    s,c=env;seg=entry(c,profile_ref='one')
+    text='不要图解。'+('原文不可省略。'*7000)
+    b,i,_=turn(s,c,seg,text)
+    with s.store.transaction() as conn:
+        raises('invalid_input',lambda:c.proposal(conn,c.segment(conn,'ui',seg),'plan',{'request':'摘要'*40000},['turn']))
+        assert conn.execute('SELECT count(*) FROM conversation_proposals').fetchone()[0]==0
+    assert not s.list_works()['items']
+
+
+def test_output_revision_receives_original_feedback_not_only_model_summary(env):
+    from tests.production.test_conversation import output_fixture
+    s,c=env
+    work=s.command('create',{'title':'成片','input_text':'一件小事','profile_ref':'one'},command_id='revision-work')['work_id']
+    output_fixture(s,work)
+    channel=CreativeCatalog(s).command('channels','create',{'name':'频道','profile_ref':'one'},command_id='revision-channel')['id']
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='style',director_trial=True,work_id=work,kind='revise',output_id='out')
+    text='撤销之前的图解许可，只用实拍；不要重配旁白，保留BGM和音效。'
+    b,i,_=turn(s,c,seg,text)
+    q=pipe(b,i,'offer',action='revise',values={'output_id':'out','feedback':'换画面','preserve_audio':True})
+    scope=json.loads(q['values']['payload']['feedback'])
+    assert scope['user_sources']==[{'source_turn':'turn','text':text}]
+    assert scope['agent_request']=='换画面'
+    b.end(Identity(**i));b,i,_=turn(s,c,seg,'同意这次修订',id='revision-yes')
+    pipe(b,i,'answer',dismiss=False,proposal_id=q['proposal_id'],hash=q['hash'],user_quote='同意这次修订')
+    task=next(t for t in s.snapshot(work)['tasks'] if t['kind']=='revise')
+    payload=json.loads(task['payload_json'])
+    with s.store.connection() as conn:
+        assert json.loads(row(conn,'reviews',payload['review_id'])['feedback'])==scope
+    assert payload['preserve_audio'] is True
