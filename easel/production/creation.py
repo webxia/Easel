@@ -72,7 +72,13 @@ def align_editor_frames(answer: CreativeEdit, *, fps: int = 30) -> CreativeEdit:
             raise ModelTaskError('edit_frame_alignment_invalid','镜头边界修正超出帧精度')
         aligned.append(scene.model_copy(update={'duration':duration,'transition_seconds':overlap}))
         previous_frame=end_frame
-    return answer.model_copy(update={'scenes':aligned})
+    end = previous_frame / fps
+    # A background bed may round its endpoint to fewer decimal places than
+    # the frame timeline. Trim only subframe excess; never touch speech/SFX.
+    audio = [clip.model_copy(update={'duration':end-clip.at})
+             if clip.role=='music' and clip.at<end and 1e-6<clip.at+clip.duration-end<=.5/fps+1e-8
+             else clip for clip in answer.audio]
+    return answer.model_copy(update={'scenes':aligned,'audio':audio})
 
 
 def compensate_edit_overlap(answer: CreativeEdit, *, target_seconds: float, fps: int = 30) -> CreativeEdit:
@@ -86,25 +92,31 @@ def compensate_edit_overlap(answer: CreativeEdit, *, target_seconds: float, fps:
     """
     requested_frames = round(target_seconds * fps)
     scenes = answer.scenes
-    rendered_frames = sum(round((s.duration - s.transition_seconds) * fps) for s in scenes)
-    raw_frames = sum(round(s.duration * fps) for s in scenes)
+    rendered_frames = round(sum(s.duration - s.transition_seconds for s in scenes) * fps)
+    raw_frames = round(sum(s.duration for s in scenes) * fps)
     if rendered_frames == requested_frames:
         return answer
     if raw_frames != requested_frames or rendered_frames > requested_frames:
         raise ModelTaskError('edit_duration_mismatch','分镜时长或转场无法落实到确认总片长')
-    overlap_frames = sum(round(s.transition_seconds * fps) for s in scenes)
-    if rendered_frames + overlap_frames != requested_frames:
-        raise ModelTaskError('edit_duration_mismatch','转场帧计算不一致')
-    corrected = [
-        s.model_copy(update={'duration':(round(s.duration*fps) +
-                    round(s.transition_seconds*fps))/fps})
-        for s in scenes
-    ]
+    # Keep native slot boundaries until align_editor_frames quantizes the
+    # cumulative timeline. Per-shot rounding would reintroduce frame drift.
+    corrected = [s.model_copy(update={'duration': s.duration + s.transition_seconds})
+                 for s in scenes]
     return answer.model_copy(update={'scenes':corrected})
 
 def check_edit_source_bounds(answer, durations, *, target_seconds, fps=30):
     """Validate the compiled source intervals inside existing model repair rounds."""
-    compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=target_seconds,fps=fps),fps=fps)
+    try:
+        compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=target_seconds,fps=fps),fps=fps)
+    except ModelTaskError as exc:
+        if exc.code not in {'edit_duration_mismatch','edit_frame_alignment_conflict','edit_frame_alignment_invalid'}:
+            raise
+        from .model_tasks import ResultCorrectionError
+        actual=sum(s.duration-s.transition_seconds for s in answer.scenes)
+        raw=sum(s.duration for s in answer.scenes)
+        raise ResultCorrectionError(f'{exc.user_message}；确认总片长{target_seconds:.6f}秒，'
+            f'当前镜头合计{raw:.6f}秒、扣除转场后{actual:.6f}秒。'
+            '调整镜头时长或转场，不修改、截短或变速原旁白。') from None
     for scene in compiled.scenes:
         available=durations.get(scene.asset_id)
         if available is not None and scene.source_start+scene.duration>available+0.5/fps:
@@ -252,6 +264,7 @@ class CreationTasks:
                         target_seconds=context.plan['settings']['duration_seconds']))
                     compiled=compiled.model_copy(update={'audio':fit_sound_effects(compiled.audio,source_durations)})
                     validate_audio_bindings(compiled,records)
+                    compiled_edit=compiled
                 except ModelTaskError as exc:
                     if exc.code not in AUDIO_EDIT_ERRORS:raise
                     from .model_tasks import ResultCorrectionError
@@ -266,6 +279,12 @@ class CreationTasks:
                         font_paths=font_paths,width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
                     check_caption_layout(compiled,font_paths=font_paths,
                         width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
+                    EditProject(work_id=ctx.work_id,plan_revision=ctx.plan_revision,revision=1,
+                        width=1920 if horizontal else 1080,height=1080 if horizontal else 1920,
+                        duration=context.plan['settings']['duration_seconds'],
+                        audio_mode=context.plan['settings']['audio_mode'],scenes=compiled_edit.scenes,
+                        audio=compiled_edit.audio,captions=compiled)
+
                 except EditError as exc:
                     raise ValueError(str(exc)) from None
                 if not timing or timing['mode']=='fixed':

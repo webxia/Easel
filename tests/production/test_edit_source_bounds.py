@@ -104,7 +104,8 @@ def test_recovery_does_not_expand_bounded_repair_limit():
 
 
 @pytest.mark.parametrize('unknown',[False,True])
-def test_explicit_resume_pins_known_source_and_preserves_unknown(tmp_path,unknown):
+@pytest.mark.parametrize('error_code',['invalid_model_output','edit_duration_mismatch'])
+def test_explicit_resume_pins_known_source_and_preserves_unknown(tmp_path,unknown,error_code):
     import json
     from tests.production.test_operations import owned_request
     from easel.production.store import Store
@@ -121,7 +122,7 @@ def test_explicit_resume_pins_known_source_and_preserves_unknown(tmp_path,unknow
     else:ops.receive(spec['operation_id'],ProviderResult('succeeded',result={'message':{'content':edit().model_dump_json()}}))
     service=WorkService(store,outputs=tmp_path,profiles=tmp_path/'profiles')
     with store.transaction() as conn:
-        conn.execute("UPDATE tasks SET kind='edit',state='needs_decision',error_json=?",(json.dumps({'code':'invalid_model_output'}),))
+        conn.execute("UPDATE tasks SET kind='edit',state='needs_decision',error_json=?",(json.dumps({'code':error_code}),))
         conn.execute("UPDATE runs SET state='needs_decision'")
     if unknown:
         with pytest.raises(ProductionError):
@@ -133,6 +134,7 @@ def test_explicit_resume_pins_known_source_and_preserves_unknown(tmp_path,unknow
             task=row(conn,'tasks',spec['task_id'])
             assert json.loads(task['payload_json'])['edit_recovery_source']==spec['operation_id']
             assert task['state']=='pending'
+            if error_code=='edit_duration_mismatch':assert json.loads(task['payload_json'])['reuse_existing_media_only']
         assert ops.get(spec['operation_id'])['state']=='succeeded'
 
 
@@ -144,3 +146,16 @@ def test_timeline_identity_contract_is_actionable_before_project_submission():
         check_timeline_identities(value.scenes,[],[])
     corrected=[value.scenes[0],value.scenes[1].model_copy(update={'scene_id':'s1-cut2'})]
     check_timeline_identities(corrected,[],[])
+
+
+
+def test_real_duration_mismatch_uses_existing_repair_budget_without_relaxing_target():
+    import asyncio
+    from .test_model_tasks import run,context
+    bad=edit(duration=4,start=0)
+    good=edit(duration=5,start=0)
+    runner,transport,_=run([{'content':bad.model_dump_json()},{'content':good.model_dump_json()}])
+    result=asyncio.run(runner.run(context(allowed_handles=frozenset({'video'})),'edit',CreativeEdit,
+        validate_result=lambda candidate:check_edit_source_bounds(candidate,{'video':8},target_seconds=5)))
+    assert result.scenes[0].duration==5 and len(transport.calls)==2
+    assert '确认总片长5.000000秒' in transport.calls[1][-1]['content']

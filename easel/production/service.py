@@ -599,7 +599,7 @@ class WorkService:
         # Explicit user resume can repair the last known edit, without replaying
         # its author or silently resetting a running attempt's repair budget.
         from .material_binding import AUDIO_EDIT_ERRORS
-        if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code') in ({'invalid_model_output','invalid_edit','invalid_edit_project'} | AUDIO_EDIT_ERRORS):
+        if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code') in ({'invalid_model_output','invalid_edit','invalid_edit_project','edit_duration_mismatch'} | AUDIO_EDIT_ERRORS):
             if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
                 fail('result_unknown','剪辑存在未确定调用，不能另发修正')
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
@@ -620,7 +620,7 @@ class WorkService:
                             if asset:restored.append(asset['id'])
                         payload['asset_ids']=sorted(set(payload.get('asset_ids',[]))|set(restored))
                         payload['edit_recovery_source']=source['id']
-                        if json.loads(task['error_json'] or '{}').get('code') in AUDIO_EDIT_ERRORS:
+                        if json.loads(task['error_json'] or '{}').get('code') in (AUDIO_EDIT_ERRORS | {'edit_duration_mismatch'}):
                             payload['reuse_existing_media_only']=True
                         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
                 except (ValueError,KeyError,TypeError):pass
