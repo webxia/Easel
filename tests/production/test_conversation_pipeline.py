@@ -767,7 +767,9 @@ def test_only_failed_narration_delta_has_existing_resume_option(scope,code,expec
     ('current-draft-1','draft_provenance_missing',True,True),
     ('current-draft-2','draft_provenance_missing',True,False),
     ('current-draft-1','draft_provenance_missing',False,False),
-    (None,'result_unknown',True,False)])
+    (None,'result_unknown',True,False),
+    ('current-draft-2','command_conflict',True,True),
+    ('current-draft-2','command_conflict',False,False)])
 def test_native_draft_reaudit_resume_is_only_exposed_for_outdated_known_view(version,code,source,expected):
     from easel.conversation_pipeline import has_edit_resume
     checkpoint={'draft':{'script':'候选稿'},'review_context_version':version}

@@ -111,6 +111,7 @@ def test_normalized_voice_draft_recovery_preserves_actual_provenance(tmp_path,ta
         author=planning.runner(ctx)
         candidate=await author.run(planning.context(ctx),'native draft',VoiceReadyCreativePlan)
         preserve_selected_voice_parameters(candidate,voice)
+        await planning.runner(ctx,namespace='draft-audit-v4-2').run(planning.context(ctx),'old view audit',DraftReview)
         planning._store_draft(ctx,candidate,planning._native_operation(ctx,author),2,[],DraftReview(verdict='fail',findings=['缺少volume/pitch']))
         with ctx.transaction() as c:
             p=json.loads(c.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()[0])
@@ -143,9 +144,9 @@ def test_normalized_voice_draft_recovery_preserves_actual_provenance(tmp_path,ta
         assert cp['correction_round']==2
     if tamper:
         assert after['state']=='needs_decision' and not after['plans']
-        assert transport.calls==1
+        assert transport.calls==2
         assert json.loads(after['tasks'][0]['error_json'])['code']==('result_unknown' if tamper=='unknown' else 'draft_provenance_missing')
     else:
         assert after['state']=='awaiting_confirmation',after['tasks'][0]['error_json']
-        assert transport.calls==2
+        assert transport.calls==3
         assert after['plans'][0]['plan']['settings']['voice']==voice

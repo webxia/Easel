@@ -248,9 +248,12 @@ def has_edit_resume(task):
     outdated_review=(task['kind']=='plan' and error.get('code') in {'draft_review_failed','draft_provenance_missing'}
                      and checkpoint.get('source_operation_id') and checkpoint.get('draft')
                      and checkpoint.get('review_context_version')!=DRAFT_REVIEW_CONTEXT_VERSION)
+    interrupted_reaudit=(task['kind']=='plan' and error.get('code')=='command_conflict'
+                         and checkpoint.get('source_operation_id') and checkpoint.get('draft')
+                         and checkpoint.get('review') is None)
     scoped_plan=(task['kind']=='plan' and error.get('code')=='invalid_model_output'
                  and payload.get('revision_scope')=='narration')
-    return (bool(outdated_review) or scoped_plan or (task['kind']=='render' and error.get('code')=='render_failed') or
+    return (bool(outdated_review or interrupted_reaudit) or scoped_plan or (task['kind']=='render' and error.get('code')=='render_failed') or
             (task['kind']=='revise' and error.get('code') in {'invalid_revision_search','invalid_model_output'}) or
             (task['kind']=='edit' and error.get('code') in (AUDIO_EDIT_ERRORS | {
                 'invalid_edit_project','invalid_edit','invalid_model_output','editor_rejected',

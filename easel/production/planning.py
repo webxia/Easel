@@ -558,7 +558,7 @@ class PlanningTasks:
                 self._store_draft(ctx,proposed,source,round_,history,review)
                 while True:
                     if review is None:
-                        review=await audit(proposed,'draft-audit-v4-'+str(round_),history)
+                        review=await audit(proposed,'draft-audit-'+DRAFT_REVIEW_CONTEXT_VERSION+'-'+str(round_),history)
                         history.append(review.model_dump(mode='json'))
                         self._store_draft(ctx,proposed,source,round_,history,review)
                     # Rewrite only for stated defects, never for an unexplained label or optional taste.
