@@ -47,6 +47,9 @@ class TaskContext:
         basis = result["plan"].get("conversation_basis")
         if isinstance(basis, dict):
             basis.pop("expression_policy", None)
+            request=basis.get('creative_request')
+            if isinstance(request,str) and request and request in result['brief']:
+                basis.pop('creative_request')  # Already present verbatim in the current supplement.
         return result
 
     def model_data(self) -> dict[str, Any]:

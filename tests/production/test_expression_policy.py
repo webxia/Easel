@@ -139,17 +139,19 @@ def test_manual_freeze_ignores_client_policy_and_does_not_rewrite_script(tmp_pat
     service, work, transport, _ = setup(tmp_path)
     submitted = deepcopy(transport.answer)
     submitted['script'] = '仅当条件成立时可能有效，不代表必然有效。'
-    submitted['conversation_basis'] = {'expression_policy': {'rules': 'client instructions'}}
+    submitted['conversation_basis'] = {'expression_policy': {'rules': 'client instructions'},'creative_request':'forged human source'}
     with service.store.transaction() as conn:
         frozen = service.freeze_plan(conn, row(conn, 'works', work), submitted)
     assert frozen['conversation_basis']['expression_policy'] == policy.snapshot()
+    assert 'creative_request' not in frozen['conversation_basis']
     assert frozen['script'] == submitted['script']
     from easel.production.contracts import Scene
     assert frozen['scenes'] == [Scene.model_validate(scene).model_dump(mode='json') for scene in submitted['scenes']]
     assert transport.calls == 0
 
 
-def test_protected_replan_keeps_saved_policy_without_write_instructions(tmp_path):
+@pytest.mark.parametrize('episode_request',[None,'本次只将声音模式改为voice，旧BGM要求撤销'])
+def test_protected_replan_keeps_saved_policy_without_write_instructions(tmp_path,episode_request):
     service, work, transport, worker = setup(tmp_path)
     with service.store.transaction() as conn:
         protected = service.freeze_plan(conn, row(conn, 'works', work), transport.answer)
@@ -164,6 +166,7 @@ def test_protected_replan_keeps_saved_policy_without_write_instructions(tmp_path
         task = dict(conn.execute('SELECT * FROM tasks').fetchone())
         payload = json.loads(task['payload_json'])
         payload['protected_plan'] = protected
+        if episode_request:payload['request']=episode_request
         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?', (json.dumps(payload), task['id']))
     asyncio.run(worker.run_once())
     assert transport.calls == 1
@@ -172,7 +175,8 @@ def test_protected_replan_keeps_saved_policy_without_write_instructions(tmp_path
     assert snap['state'] == 'awaiting_confirmation', snap['tasks']
     frozen = snap['plans'][0]['plan']
     assert frozen['script'] == protected['script'] and frozen['scenes'] == protected['scenes']
-    assert frozen['conversation_basis'] == protected['conversation_basis']
+    expected={**protected['conversation_basis'],**({'creative_request':episode_request} if episode_request else {})}
+    assert frozen['conversation_basis']==expected
 
 
 def test_old_confirmed_plan_cannot_start_supply_or_spend(tmp_path):

@@ -196,7 +196,7 @@ def test_replanning_uses_frozen_profile_identity_with_frozen_content(tmp_path,ol
         service._insert_grant(conn,bound,'planning',{'services':[IDENTITY]})
         service._run(conn,bound,'planning',payload={'creation_basis':service._basis(conn,bound)})
     with service.store.transaction() as conn:
-        task=conn.execute('SELECT * FROM tasks').fetchone();payload=json.loads(task['payload_json']);payload['base_plan_revision']=1
+        task=conn.execute('SELECT * FROM tasks').fetchone();payload=json.loads(task['payload_json']);payload['base_plan_revision']=1;payload['request']='新反馈：不使用图解，保留原身份与其他设置'
         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(json.dumps(payload),task['id']))
     transport=Transport(original)
     planning=PlanningTasks(service,OperationService(service.store),transport,IDENTITY,'fixture-v1')
@@ -209,7 +209,8 @@ def test_replanning_uses_frozen_profile_identity_with_frozen_content(tmp_path,ol
     result=asyncio.run(planning.plan(ctx));assert result.state=='succeeded'
     newest=service.snapshot(work)['plans'][0]['plan']
     assert newest['profile_snapshot']==original_snapshot
-    assert newest['conversation_basis']==original_plan['conversation_basis']
+    assert {k:v for k,v in newest['conversation_basis'].items() if k!='creative_request'}==original_plan['conversation_basis']
+    assert newest['conversation_basis']['creative_request']=='新反馈：不使用图解，保留原身份与其他设置'
     assert context.expression_policy==original_plan['conversation_basis']['expression_policy']
     model_context=json.loads(transport.requests[0][0][1]['content'][0]['text'])
     assert model_context['profile']==context.profile and '别的画像内容' not in json.dumps(model_context['profile'],ensure_ascii=False)
@@ -502,3 +503,33 @@ def test_native_voice_critic_gets_adapter_contract_and_frozen_plan_parameters(tm
     assert snap['plans'][0]['plan']['settings']['voice']==voice
     assert service.store.get_work(work)['settings_json']==encode(settings)
     assert transport.calls==2
+
+
+def test_frozen_episode_source_reaches_downstream_without_task_request(tmp_path):
+    from types import SimpleNamespace
+    from easel.production.service import encode
+    from easel.production.context import TaskContext
+    service,work,transport,worker=setup(tmp_path)
+    source=encode({'user_sources':[{'source_turn':'real-source','text':'撤销必要图解，只用纯实拍，保留整条旁白。'}],
+                   'agent_request':'重做画面'})
+    with service.store.transaction() as c:
+        row=c.execute('SELECT * FROM tasks').fetchone();payload=json.loads(row['payload_json'])
+        payload['request']=source
+        payload['creation_basis']['conversation_brief']={'body':{'entries':[{'text':'旧方案要求必要图解'}]}}
+        c.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),row['id']))
+    assert asyncio.run(worker.run_once())
+    plan=service.snapshot(work)['plans'][0]['plan']
+    assert plan['conversation_basis']['creative_request']==source
+    assert plan['conversation_basis']['conversation_brief']['body']['entries'][0]['text']=='旧方案要求必要图解'
+    from easel.production.operations import OperationService
+    planning=PlanningTasks(service,OperationService(service.store),None,{'provider':'direct-api','model':'fixture','mode':'structured'},'fixture-v1')
+    ctx=SimpleNamespace(work_id=work,run_id='execution-run',task_id='quality-task',plan_revision=1,payload={})
+    view=planning.context(ctx)
+    assert source in view.brief
+    assert view.plan['conversation_basis']['creative_request']==source
+    data=view.creative_data()
+    assert source in data['brief']
+    assert 'creative_request' not in data['plan']['conversation_basis']
+    assert view.plan['conversation_basis']['creative_request']==source  # Projection never mutates the snapshot.
+    standalone=TaskContext('work','run','task',plan={'conversation_basis':{'creative_request':source}})
+    assert standalone.creative_data()['plan']['conversation_basis']['creative_request']==source

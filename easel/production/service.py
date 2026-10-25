@@ -463,6 +463,8 @@ class WorkService:
                  'director_revision_id':basis['settings'].get('director_revision'),
                  'conversation_basis':{**{k:basis.get(k) for k in ('conversation_brief','channel_basis')},
                                        'expression_policy':policy}}
+        if basis.get('creative_request'):
+            payload['conversation_basis']['creative_request']=basis['creative_request']
         if work['profile_ref']:
             content=encode(basis['profile'])
             payload['profile_snapshot']={'profile_ref':work['profile_ref'],'content':content,

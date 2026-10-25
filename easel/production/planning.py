@@ -279,7 +279,7 @@ class PlanningTasks:
         sound_note=('\n用户后续已允许以下音效缺料时省略，优先于原方案相应音效要求；保留已取得声音，不将省略当作缺陷，交付说明如实披露：'+encode(sound_notes)) if sound_notes else ''
         return TaskContext(work_id=ctx.work_id,run_id=ctx.run_id,task_id=ctx.task_id,
             profile_ref=profile_ref,profile=basis['profile'],director=basis['director'],
-            brief=work['input_text']+'\n本次明确设置：'+encode(basis['settings'])+'\n本次对话依据：'+encode(basis.get('conversation_brief'))+'\n频道定位：'+encode(basis.get('channel_basis',{}))+'\n本次补充：'+str(ctx.payload.get('request',''))+sound_note,
+            brief=work['input_text']+'\n本次明确设置：'+encode(basis['settings'])+'\n本次对话依据：'+encode(basis.get('conversation_brief'))+'\n频道定位：'+encode(basis.get('channel_basis',{}))+'\n本次补充：'+str(ctx.payload.get('request') or basis.get('creative_request',''))+sound_note,
             inputs=safe_inputs,allowed_handles=frozenset(i['id'] for i in inputs),plan=plan,
             capabilities=self.execution_capabilities,expression_policy=policy,
             facts=tuple(plan.get('facts',[])),prohibitions=tuple(plan.get('constraints',[])),
@@ -624,14 +624,15 @@ class PlanningTasks:
                 if ctx.payload.get('base_plan_revision'):
                     freeze_basis={**(context.plan.get('conversation_basis') or {}),
                         'profile':context.profile,'settings':context.plan['settings']}
+                request_basis={'creative_request':ctx.payload['request']} if ctx.payload.get('request') else {}
+                if request_basis:
+                    freeze_basis={**(freeze_basis if freeze_basis is not None else self.service._basis(conn,work)),**request_basis}
                 payload=self.service.freeze_plan(conn,work,payload,basis=freeze_basis)
-                if protected:
-                    for field in ('profile_snapshot','director_revision_id','conversation_basis'):
-                        payload[field]=protected.get(field)
-                if ctx.payload.get('base_plan_revision'):
-                    payload['profile_snapshot']=context.plan.get('profile_snapshot')
-                    payload['director_revision_id']=context.plan.get('director_revision_id')
-                    payload['conversation_basis']=context.plan.get('conversation_basis')
+                reference=protected if protected else (context.plan if ctx.payload.get('base_plan_revision') else None)
+                if reference:
+                    for field in ('profile_snapshot','director_revision_id'):
+                        payload[field]=reference.get(field)
+                    payload['conversation_basis']={**(reference.get('conversation_basis') or {}),**request_basis}
                 requested=json.loads(work['settings_json'])
                 for field in ('duration_seconds','aspect_ratio','audio_mode','voice','subtitles'):
                     expected=requested.get(field)

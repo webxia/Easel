@@ -22,6 +22,9 @@ class ScriptedModel:
     overlay_repair=False
     async def complete(self,messages,tools,schema):
         self.calls.append(messages)
+        if getattr(self,'expected_episode_request',None):
+            data=json.loads(messages[1]['content'][0]['text'])
+            assert self.expected_episode_request in data['brief']
         from easel.production.expression_policy import RULES
         role="visual" if schema["title"]=="CreativeEdit" else "review"
         assert RULES[role] in messages[0]["content"]
@@ -79,6 +82,12 @@ def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_pat
         return TaskResult(next_kind='edit',next_payload={'asset_ids':ids})
     worker=Worker(store,{'supply':supply,'edit':creation.edit,'render':creation.render,'quality':creation.quality},poll_interval=.01)
     id=service.command('create',{'title':'offline local test'},command_id='create')['work_id']
+    model.expected_episode_request=json.dumps({'user_sources':[{'source_turn':'fixture-user',
+        'text':'撤销原来的图解要求，本期只使用明确的新方案。'}],'agent_request':'本期纯实拍'},ensure_ascii=False)
+    original_basis=service._basis
+    def episode_basis(conn,work):
+        return {**original_basis(conn,work),'creative_request':model.expected_episode_request}
+    monkeypatch.setattr(service,'_basis',episode_basis)
     plan={'title':'one second','summary':'local media test','script':'fixture','scenes':[{'id':'s1','purpose':'test','visual':'blue','narration':''}], 'settings':{'duration_seconds':1,'aspect_ratio':'16:9','audio_mode':'silent'}}
     if overlay_repair:
         plan['narration_policy']={'continuous':True,'duration_mode':'fixed'}
