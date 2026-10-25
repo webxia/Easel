@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 
-from easel.conversation_bridge import TOOLS
+from easel.conversation_bridge import NATIVE_TOOLS
 from easel.video_workspace import main_pipeline_tools
 
 
@@ -17,7 +17,7 @@ def test_main_policy_is_bounded_and_preserves_restrictions():
     result = main_pipeline_tools(original)
     assert original == before
     assert result['profile'] == 'full'
-    assert set(result['allow']) == set(original['allow']) | set(TOOLS)
+    assert set(result['allow']) == set(original['allow']) | set(NATIVE_TOOLS)
     assert len(result['allow']) == len(set(result['allow']))
     for key in ('deny', 'byProvider', 'exec'):
         assert result[key] == original[key]

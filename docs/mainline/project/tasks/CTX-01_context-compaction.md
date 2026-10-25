@@ -150,3 +150,8 @@ Easel源码确认reserve经turn_context保留历史sources全文，当前原话�
 
 
 本轮离线与部署收口：全量后端2410 passed / 16 skipped / 14原警告（后续增加1个claim正反例，并补齐旧revision提案读取和空changes_json处理）；最终关联175 passed，前端与插件183 passed。文档路径检查与git diff --check通过。已重启本机Easel服务及网关加载仓库内easel-work插件，/api/status返回gateway=true；不升级/修改OpenClaw源码或配置，无新增模型/媒体调用。部署前后10类业务表摘要完全一致，原未确认方案及所有生产断点保留。私有摘要证据位于outputs/_diagnostics/2026-10-24-plan-revision-compaction/，不纳入Git。SOFTWARE_PASS；真实原对话修订与压缩续跑NOT_TESTED，由用户自行验证。本轮后续授权：仅提交并推送本修复代码、测试与文档到easel-v2-rebuild，排除个人及运行文件；不恢复制作。
+
+
+## CRE-01主线多轮调试衔接（2026-10-25）
+
+沿原CRE-01授权在主工作区V2修复，不另建CTX任务或更换OpenClaw：结果等待载荷复用既有任务视图，原Task请求不改；新增仅已结束、同模型、空length回复后下一条新消息的受控官方压缩触发，保留压缩未知不重发及旧消息不重派。真实诊断官方压缩220494→58918 Token后同会话只读取回方案，自动触发条件的正反例另据离线证据，不混为真实自动触发。首次暴增输入实时预算预估仍未覆盖。完整变更、验收和运行身份唯一见[CRE-01本轮记录](runs/2026-10-25-web-e2e-02.md)。

@@ -715,3 +715,35 @@ def test_rejected_selection_stays_unbound(env):
     b,i,_=turn(s,c,seg,'不要绑定',id='decline')
     result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='不要绑定',dismiss=True)
     assert result['dismissed'] and c.view('ui')['context']['channel_id'] is None
+
+
+@pytest.mark.parametrize('code,visible',[('draft_review_failed',True),('plan_constraint_changed',False)])
+def test_current_draft_failure_exposes_bounded_findings_not_raw_checkpoint(env,code,visible):
+    import asyncio
+    from easel.production.worker import Worker,TaskResult
+    s,c=env;channel=seed(env)
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'做视频')
+    work=pipe(b,i,'draft',user_quote='做视频',values={'title':'本期','input_text':'讨论问题'})['work_id']
+    b.end(Identity(**i))
+    s.command('plan',{'request':'完整方案'},work_id=work,expected_revision=s.snapshot(work)['revision'],command_id='start')
+    async def failed(ctx):
+        with ctx.transaction() as conn:
+            payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
+            payload['native_draft_checkpoint']={'draft':{'private_marker':'full-draft-must-stay-private'},
+                'review':{'findings':['场景与状态不符','长'*3000]+['其他']*12,'observations':['not-for-summary']}}
+            conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
+        return TaskResult(state='needs_decision',work_state='needs_decision',
+            error=ProductionError(code,'草稿未通过',requires_decision=True))
+    asyncio.run(Worker(s.store,{'plan':failed}).run_once())
+    b,i,_=turn(s,c,seg,'为什么没完成',id='explain')
+    state=pipe(b,i,'pending')
+    blocker=state['blockers'][0]
+    assert ('draft_review' in blocker)==visible
+    if visible:
+        detail=blocker['draft_review']
+        assert detail['findings'][0]=='场景与状态不符'
+        assert len(detail['findings'])==8 and len(detail['findings'][1])==2000
+        assert '不是新增用户要求' in detail['scope']
+    assert 'full-draft-must-stay-private' not in encode(state)
+    assert 'not-for-summary' not in encode(state)

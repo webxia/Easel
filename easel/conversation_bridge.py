@@ -67,6 +67,9 @@ TOOLS={
     'easel_work_input_evidence':EvidenceArgs,'easel_work_register_inputs':RegisterArgs,
     'easel_work_update_brief':BriefArgs,'easel_work_request_revision':RevisionArgs,'easel_work_propose':ProposalArgs,
 }
+# Protocol-1 proposal adapters remain readable/applicable through their stored
+# receipts, but are not choices for a new persistent native conversation.
+NATIVE_TOOLS = frozenset(TOOLS) - {'easel_work_create_draft','easel_work_request_plan'}
 
 class PersistentCall(Identity):
     tool_call_id: str = Field(min_length=1,max_length=256)
@@ -341,4 +344,4 @@ class PersistentWorkToolBridge:
 
 def require_persistent_gateway(base_url,token):
     from .work_bridge import require_gateway_bridge
-    return require_gateway_bridge(base_url,token,expected_tools=set(TOOLS),protocol=2,agent_id='main',permission_policy='main-pipeline-v1')
+    return require_gateway_bridge(base_url,token,expected_tools=set(NATIVE_TOOLS),protocol=2,agent_id='main',permission_policy='main-pipeline-v1')

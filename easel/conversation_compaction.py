@@ -99,6 +99,38 @@ class ContextPreparation:
         if not isinstance(session, dict) or not session.get('sessionId') or (expected and session['sessionId'] != expected):
             raise ContextPreparationError('session_changed')
 
+    def _empty_length_evidence(self, turn_id, segment, session):
+        """One known empty reply can justify compacting before a NEW message.
+
+        This is not a token-budget estimate or permission to replay the failed
+        turn. A native-ended reply, unchanged model and official checkpoint are
+        required; UNKNOWN and partial/tool replies never qualify.
+        """
+        if (not isinstance(session,dict) or session.get('hasActiveRun')
+                or session.get('status') in {'running','queued'} or session.get('liveModelSwitchPending')):
+            return None
+        with self.store.connection() as conn:
+            prior=conn.execute('SELECT * FROM conversation_turns WHERE segment_id=? AND id!=? ORDER BY created_at DESC,id DESC LIMIT 1',
+                               (segment['id'],turn_id)).fetchone()
+        if not prior or prior['state']!='ended':return None
+        payload=json.loads(prior['payload_json']);diagnostic=payload.get('model_diagnostic') or {}
+        prep=payload.get('context_preparation') or {}
+        if (payload.get('delivery_state')!='interrupted' or not prep.get('chat_submitted')
+                or diagnostic.get('stop_reason')!='length' or diagnostic.get('text_chars')!=0
+                or diagnostic.get('tool_calls')!=0 or payload.get('answer')
+                or not session.get('model') or not session.get('modelProvider')
+                or diagnostic.get('model')!=session['model'] or diagnostic.get('provider')!=session['modelProvider']
+                or (prep.get('evidence') or {}).get('source')=='known-empty-length'):
+            return None
+        from datetime import datetime
+        failed_at=datetime.fromisoformat(prior['created_at'].replace('Z','+00:00')).timestamp()*1000
+        latest=session.get('latestCompactionCheckpoint') or {}
+        if isinstance(latest.get('createdAt'),(int,float)) and latest['createdAt']>=failed_at:
+            return None
+        return {'source':'known-empty-length','source_turn_id':prior['id'],
+                'sessionId':session['sessionId'],'provider':session['modelProvider'],
+                'model':session['model'],'contextTokenBudget':session.get('contextTokens')}
+
     def prepare(self, turn_id):
         owner = secrets.token_hex(16)
         with self.store.transaction() as conn:
@@ -135,7 +167,7 @@ class ContextPreparation:
                     raise ContextPreparationError('compaction_unresolved')
                 self._update(turn_id, owner, state='compacted', after_checkpoint=after)
             elif prior_state not in {'compacted', 'ready'}:
-                evidence = pressure(session)
+                evidence = pressure(session) or self._empty_length_evidence(turn_id,segment,session)
                 if evidence:
                     self._update(turn_id, owner, state='compacting', evidence=evidence,
                                  session_id=session['sessionId'], checkpoint=checkpoint(session))

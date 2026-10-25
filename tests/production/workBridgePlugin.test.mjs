@@ -72,11 +72,13 @@ test('native identity, tool name and ticket forwarded separately from model para
   } finally { globalThis.fetch = original; }
 });
 
-test('protocol 2 exposes nine bounded tools and retains independent lifecycle gates', () => {
+test('protocol 2 exposes one draft/plan route and retains independent lifecycle gates', () => {
   let factory, route;
   createWorkBridge({pluginConfig:{baseUrl:'http://127.0.0.1:12345',token:'test-credential-long-enough-32',protocolVersion:2},on(){},registerTool(fn){factory=fn;},registerHttpRoute(value){route=value;}});
   const tools=factory({...ctx,agentId:'main',sessionKey:'agent:main:easel-pipeline:one'});
-  assert.equal(tools.length,9);
+  assert.equal(tools.length,7);
+  for (const name of ['easel_work_create_draft','easel_work_request_plan'])
+    assert.ok(!tools.some(t=>t.name===name));
   const pipeline=tools.find(t=>t.name==='easel_pipeline').parameters.properties;
   assert.ok(pipeline.mode.enum.includes('preview'));
   assert.equal(pipeline.values.properties.output_revision.type,'integer');
@@ -90,7 +92,7 @@ test('protocol 2 exposes nine bounded tools and retains independent lifecycle ga
   for(const name of ['exec','accept','grant','publish','write','sessions_spawn'])assert.ok(!tools.some(t=>t.name===name));
   let status;route.handler({method:'GET'},{setHeader(){},end(text){status=JSON.parse(text);}});
   assert.equal(status.protocol,2);
-  assert.equal(status.tools.length,9);
+  assert.equal(status.tools.length,7);
 });
 
 

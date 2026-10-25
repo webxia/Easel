@@ -20,6 +20,10 @@ def failure_details(tasks, state, *, unknown=False):
     # Repeated exports/checks share a run. Only the newest task for each
     # stage describes its current status; cancelled attempts retain audit data.
     latest={task['kind']:task for task in tasks}
+    planning_only = set(latest)=={'plan'}
+    if planning_only:
+        labels = {'needs_decision':'方案整理已暂停', 'failed':'方案整理失败',
+                  'paused':'方案整理已暂停', 'cancelled':'方案整理已取消'}
     completed = [_STAGE_NAMES.get(t['kind'], t['kind']) for t in latest.values()
                  if t['state']=='succeeded' and t['kind']!='quality']
     checks=[]
@@ -52,7 +56,9 @@ def failure_details(tasks, state, *, unknown=False):
             for t in latest.values())):
         next_step='下一步：你可以在本对话回复「继续制作」。我会核对恢复条件，从原断点继续，保留已有素材和配音。'
     return {'title':labels.get(state, '制作状态待核实'), 'completed_steps':completed,
-            'issues':issues, 'check_results':checks, 'next_step':next_step, 'retained_message':'已有方案、素材、配音和执行成果均已保留。',
+            'issues':issues, 'check_results':checks, 'next_step':next_step,
+            'retained_message':('本轮输入与执行记录均已保留；本轮尚未进入配音、素材下载或成片制作。'
+                if planning_only else '已有方案、素材、配音和执行成果均已保留。'),
             'unknown_message':'有调用结果尚待核实，不能自动重发；当前模型接口不能查询该调用结果。' if unknown else None}
 
 
@@ -102,7 +108,10 @@ def preview_text(output):
     from .conversation_pipeline import output_summary
     for check in output_summary(output)['checks']:
         label='技术检查' if check['kind']=='technical' else '本版画面抽样检查' if check['scope']=='sampled_visual_only' else '本版内容检查'
-        lines.append(label+'：'+{'pass':'通过','fail':'发现问题','partial':'部分完成','not_tested':'未完整验证'}.get(check['status'],check['status']))
+        status=check.get('visual_status',check['status']) if check['scope']=='sampled_visual_only' else check['status']
+        verdict={'pass':'通过','fail':'发现问题','partial':'部分完成','not_tested':'未完整验证'}.get(status,status)
+        if check['scope']=='sampled_visual_only':verdict+='（仅抽样）'
+        lines.append(label+'：'+verdict)
         lines.extend(str(f) for f in check['findings'])
     lines.append(output.get('delivery',{}).get('message','请完整播放审阅。'))
     return '\n\n'.join(lines)
@@ -262,7 +271,8 @@ class ConversationResults:
                     'note':'仅汇总当前运行已有记录，未追加检索。候选尚不代表通过内容、权益及成片审查；保留方案、素材和回执。'},
                 'plan_ready':any(p['revision']==snapshot['current_plan_revision'] and not p['confirmed_at'] for p in snapshot['plans']),
                 'model_result_query_available':False,
-                'tasks':[dialogue_task(t) for t in snapshot['tasks'] if t['run_id']==run['id']],
+                'tasks':[{k:v for k,v in dialogue_task(t).items() if k!='payload_json'}
+                         for t in snapshot['tasks'] if t['run_id']==run['id']],
                 'outputs':[{**a,'playback_url':f"/api/production/artifacts/{a['id']}/content"} for a in snapshot['artifacts'] if a['kind']=='output' and a['run_id']==run['id'] and a['displayable'] and not a.get('deleted_at')],
                 'unknown_operations':[dict(r) for r in conn.execute("SELECT id,kind,state FROM operations WHERE work_id=? AND run_id=? AND state='unknown'",(snapshot['id'],run['id']))]}
 
@@ -309,7 +319,8 @@ class ConversationResults:
             # creation must bind to the actual completed work revision.
             payload['revision']=work['revision']
             self.bridge._save(conn,record['id'],payload,record['state'])
-            return {'waiting':False,'result':{**receipt,'execution_result':result,'context':context,
+            from .conversation_pipeline import turn_context
+            return {'waiting':False,'result':{**receipt,'execution_result':result,'context':turn_context(context),
                 'delivery_instruction':('本次运行未成功，必须先说明阻断；current_plan为空时不能声称方案成功、不能交付内部草稿冒充方案或提出制作确认。' if result['outcome']=='blocked' else '')+'这是本次已确认执行的真实结果，不是新的用户授权。规划成功：以current_plan交付完整方案、逐字稿和分镜，offer confirm后等待用户确认，不自动制作。参考分析：展示真实分析与待确认风格。制作或修订：嵌入outputs中实际playback_url的视频，按checks分别说明技术、抽帧视觉、完整语义和声音检查；manual_review_required表示待人工审阅，不单凭needs_fix推断存在缺陷；按输出delivery.message说明后续动作，不能替用户接受或投稿。失败或UNKNOWN：结合material_summary一次说明所有已知缺口、已完成步骤、保留成果、合法选项及新增调用费用风险；候选不等于审查通过，不将未执行步骤说成失败。不重发、不许诺远端自动核实。内部编号仅用于工具参数，不要求用户复制编号。'}}
 
     @staticmethod

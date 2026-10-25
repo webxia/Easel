@@ -629,12 +629,15 @@ def test_main_claim_returns_product_policy_only(env):
 
 def test_production_preflight_requires_scoped_main_policy(monkeypatch):
     import httpx
-    from easel.conversation_bridge import require_persistent_gateway,TOOLS
-    value={'protocol':2,'agent_id':'main','tools':list(TOOLS)}
+    from easel.conversation_bridge import require_persistent_gateway,NATIVE_TOOLS
+    value={'protocol':2,'agent_id':'main','tools':list(NATIVE_TOOLS)}
     monkeypatch.setattr(httpx,'get',lambda *a,**k:httpx.Response(200,json=value,request=httpx.Request('GET','http://127.0.0.1:12345')))
     raises('gateway_bridge_incompatible',lambda:require_persistent_gateway('http://127.0.0.1:12345','token'))
     value['permission_policy']='main-pipeline-v1'
     assert require_persistent_gateway('http://127.0.0.1:12345','token')['agent_id']=='main'
+    for name in ['easel_work_create_draft','easel_work_request_plan','exec']:
+        value['tools']=[*NATIVE_TOOLS,name]
+        raises('gateway_bridge_incompatible',lambda:require_persistent_gateway('http://127.0.0.1:12345','token'))
 
 @pytest.mark.parametrize('kind',['new_work','channel_create','director_formation'])
 def test_natural_entry_binds_only_discussion_and_preserves_source(env,kind):

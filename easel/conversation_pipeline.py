@@ -199,6 +199,8 @@ def output_summary(artifact):
         scope=findings.get('scope',check['kind'])
         latest[(check['kind'],scope)]={'kind':check['kind'],'status':check['status'],'scope':scope,
             'findings':findings.get('review',{}).get('findings',findings.get('findings',[]))}
+        if scope=='sampled_visual_only' and findings.get('visual_status') in {'pass','fail','partial'}:
+            latest[(check['kind'],scope)]['visual_status']=findings['visual_status']
     result['checks']=list(latest.values())
     return result
 
@@ -327,6 +329,13 @@ def pending(conversations, conn, segment):
                 'input_constraint':'活动运行不允许改创作输入，不能承诺上传即可续作；不得为解除阻断擅自取消作品。',
                 'resume_instruction':'UNKNOWN不重发；普通恢复先核对缺口条件是否已改变，或是否为可安全重试的临时故障。resume不是修复本身，不盲目反复继续。',
                 'coverage':'本条是当前有效阻断；旧对话或旧尝试的错误不代表仍未解决，不合并为当前故障。正常模型回执不等于剪辑通过。未执行步骤不声称通过或失败。只提供本条choices实际支持的恢复选项，不为绑定错误推荐取消BGM或改纯旁白。选项不构成授权。'})
+            if task['kind']=='plan' and error.get('code')=='draft_review_failed':
+                checkpoint=json.loads(row(conn,'tasks',task['id'])['payload_json']).get('native_draft_checkpoint') or {}
+                review=checkpoint.get('review') or {}
+                findings=review.get('findings',[])
+                blockers[-1]['draft_review']={
+                    'findings':[value[:2000] for value in findings if isinstance(value,str)][:8],
+                    'scope':'当前草稿的模型审阅意见，不是新增用户要求或已核实事实；核对字段合同及实际证据，不能只凭通用失败码猜测原因或擅自缩减交付范围。'}
     return {'replanning':{'action':'plan','values':{'intent':'replan'},'instruction':'未确认方案改口播、分镜或结构均使用此入口；已确认方案仅在真人明确要求重新规划时使用。request写明变更范围，user_quote引用真实原话；沿用已有规划授权直接执行。继续制作使用resume。新方案完成后仍须确认制作。'},'blockers':blockers,'failed_planning_replan':failed_recovery,'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
             'preoutput_replan':recovery,
             'current_plan':next((p for p in work['plans'] if p['revision']==work['current_plan_revision']),None) if work else None,

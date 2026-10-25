@@ -50,6 +50,12 @@ def test_wait_receipt_is_committed_worker_writes_then_same_turn_acknowledges(env
     assert not ready['waiting']
     assert ready['result']['execution_result']['run_state']=='succeeded'
     assert '技术服务人。' in encode(ready)
+    actual=s.snapshot(receipt['work_id'])
+    assert ready['result']['execution_result']['current_plan']['plan']==actual['plans'][0]['plan']
+    assert 'plan' not in ready['result']['context']['current_plan']
+    assert all('plan' not in p for p in ready['result']['context']['work']['plans'])
+    assert all('payload_json' not in t for t in ready['result']['execution_result']['tasks'])
+    assert actual['tasks'][0]['payload_json']  # canonical input remains durable
     assert results.reserve_next() is None
     b.end(Identity(**i))
     assert results.reserve_next() is None  # end hook can precede the last Web token.

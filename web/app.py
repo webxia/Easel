@@ -3472,7 +3472,10 @@ async def api_chat_stream(req: ChatRequest):
             finally:
                 # 先把 SENTINEL 排进 q（FIFO 保证它排在本轮所有 token 之后），再标记完成：
                 # 主循环读到它时，前面的 token 必然已全部消费过。
-                q.put_nowait(SENTINEL)
+                # _emit schedules its queue writes even on this event loop.
+                # Schedule the sentinel too, so a final synchronous SSE batch
+                # cannot overtake its own pending tokens.
+                loop.call_soon_threadsafe(q.put_nowait, SENTINEL)
                 hproc.finish()
 
         _heal_openclaw_session(sk)       # 清洗历史里无签名 thinking 块，防回放失效
@@ -3725,7 +3728,10 @@ async def api_chat_stream(req: ChatRequest):
             except Exception:
                 pass
             finally:
-                loop.call_soon_threadsafe(q.put_nowait, SENTINEL)
+                # In HTTP mode this reader supplies thinking/activity only.
+                # Its failure cannot finish the authoritative HTTP text queue.
+                if not is_http:
+                    loop.call_soon_threadsafe(q.put_nowait, SENTINEL)
 
         stdout_fut = None
         if is_http:
@@ -3767,7 +3773,11 @@ async def api_chat_stream(req: ChatRequest):
                 if item["t"] == "token":
                     emitted = True
                     full_text.append(item["text"])
-                    to_client("token", item["text"])
+                    # Entry has handed the reply to the scoped pipeline. Its
+                    # original agent may still write a draft before ending;
+                    # that intermediate answer must not precede a second one.
+                    if not natural_entry.source(sk, turn_id):
+                        to_client("token", item["text"])
                 elif item["t"] == "thinking":
                     to_client("thinking", item["text"])
                 elif item["t"] == "activity":
@@ -3787,7 +3797,8 @@ async def api_chat_stream(req: ChatRequest):
                 if clean:
                     emitted = True
                     full_text.append(clean)
-                    to_client("token", clean)
+                    if not natural_entry.source(sk, turn_id):
+                        to_client("token", clean)
                 elif rc not in (0, None):
                     err = clean_agent_output("".join(stdout_lines))[:200]
                     to_client("error", f"❌ 执行失败（退出码 {rc}）{' — ' + err if err else ''}")
@@ -3890,7 +3901,7 @@ async def api_chat_stream(req: ChatRequest):
                         to_client("error", "管线交接尚未核实完成，未自动重派。请在本对话核对当前状态。")
                 # The continuation owns the final persisted reply when dispatched.
                 if not continued:
-                    _save_turn(pk, "done", "".join(full_text), {
+                    _save_turn(pk, "done", "" if source else "".join(full_text), {
                         "turn_id": turn_id,
                         "clean_end": not source and _chat_stream_clean_end(run_info, is_http=is_http),
                         "stop_reason": "user_stopped" if user_stopped else run_info.get("stop_reason"),

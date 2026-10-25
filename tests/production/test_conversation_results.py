@@ -571,3 +571,40 @@ def test_current_audio_failure_keeps_resume_without_old_model_error():
     assert '继续制作' in text and '纯旁白' not in text
     assert len(details['issues'])==1
     assert failure_details(tasks,'needs_decision',unknown=True)['next_step'] is None
+
+
+@pytest.mark.parametrize('state,title', [('needs_decision','方案整理已暂停'),
+    ('failed','方案整理失败'), ('cancelled','方案整理已取消')])
+def test_planning_failure_does_not_claim_media_production(state,title):
+    from easel.conversation_results import failure_text
+    task={'kind':'plan','state':state,'error_json':encode({
+        'code':'draft_review_failed','user_message':'原生草稿经过两轮修正仍有明确问题，未冻结、未配音'})}
+    text=failure_text([task],state)
+    assert text.startswith(title)
+    assert '本轮尚未进入配音、素材下载或成片制作' in text
+    assert '已有方案、素材、配音' not in text
+    assert '继续制作' not in text
+    # Real production failures keep their existing media-retention scope.
+    text=failure_text([{'kind':'supply','state':'succeeded'},
+        {'kind':'edit','state':state}],state)
+    assert '已有方案、素材、配音' in text
+
+
+@pytest.mark.parametrize('visual', ['pass','fail','partial',None])
+def test_preview_preserves_visual_verdict_without_promoting_full_semantics(visual):
+    from easel.conversation_pipeline import output_summary
+    from easel.conversation_results import preview_text
+    findings={'scope':'sampled_visual_only','review':{'findings':[]}}
+    if visual:findings['visual_status']=visual
+    output={'output_revision':1,'playback_url':'/actual-output','checks':[
+        {'kind':'technical','status':'pass','findings':{}},
+        {'kind':'semantic','status':'not_tested','findings':findings},
+        {'kind':'semantic','status':'not_tested','findings':{'mode':'manual_review_only'}}]}
+    checks=output_summary(output)['checks']
+    assert checks[1]['status']=='not_tested'
+    assert checks[1].get('visual_status')==visual
+    assert checks[2]['status']=='not_tested' and 'visual_status' not in checks[2]
+    text=preview_text(output)
+    verdict={'pass':'通过','fail':'发现问题','partial':'部分完成',None:'未完整验证'}[visual]
+    assert '本版画面抽样检查：'+verdict+'（仅抽样）' in text
+    assert '本版内容检查：未完整验证' in text

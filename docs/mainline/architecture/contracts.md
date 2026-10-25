@@ -204,7 +204,7 @@ RevisionPlanner输出ChangeSet：base_output、affected_scene_ids、changed_audi
 
 自然表达的产品职责与规则冻结合同见本节；既有任务不补标/迁移的适用范围见§6.1.3。2026-10-22的软件、部署、停止制作及清晰度延期决定均为历史轮次记录，不作为当前授权或能力判定；演绎和编码的后续合同见本页末节，最新验收见[状态](../project/status.md)。
 
-**V2.1 / CRE-01实现增量（2026-10-25，开发分支，未部署）**：仅执行当前`natural-expression-4`规则格式及`editor-context-2`编辑视图；保留core/write/visual/review四片段，不增加审核轮次。当前任务的规则正文与摘要冻结，不受之后默认正文变化影响；非当前版本或缺少规则的历史任务在模型调用前停止，提示重新规划，不自动升级、恢复或重发。历史成果和记录保留查看。
+**V2.1 / CRE-01实现增量（2026-10-25，已合入V2；运行状态见CRE-01）**：仅执行当前`natural-expression-4`规则格式及`editor-context-2`编辑视图；保留core/write/visual/review四片段，不增加审核轮次。当前任务的规则正文与摘要冻结，不受之后默认正文变化影响；非当前版本或缺少规则的历史任务在模型调用前停止，提示重新规划，不自动升级、恢复或重发。历史成果和记录保留查看。
 
 编辑上下文统一使用`TaskContext.model_data()`投影，`creative_data()`及fingerprint仍保留原始语义。首版编辑和局部修订传完整素材元数据；不再存在旧版白名单、旧编辑视图、旧格式修正请求或检查点机制前的推断恢复入口。成功回执、UNKNOWN保护和当前native_draft_checkpoint恢复不变。
 
@@ -635,3 +635,12 @@ Wikimedia音乐检索和有限回退均保留music/instrumental用途；按文�
 **PUB-01 Creator审阅优先及只读重发（2026-10-24，用户明确调整）**：本条取代前述“作品人工接受必须manual_review_only且没有任何semantic fail/partial”的限制；Director独立试片接受保持原合同。技术检查通过且制作成功完成（含有完成先于supersede事件证明的历史Run）、文件身份不变的具体成片，Creator完整审阅画面、声音、字幕、同步并明确全部通过时，可用manual_review_confirmed=true登记explicit_manual_review接受。自动抽帧或内容意见保留为原始QC，不冒充自动PASS、不强制重制或清除needs_fix；事件留存artifact_digest和reviewed_check_ids，发布准备校验同一人工接受及当前文件。没有完整人工确认仍拒绝，缺失/篡改文件、未完成运行及技术检查失败仍不能伪报成功；不推定Rights或发布授权。schema8只替换接受约束，保留历史业务数据。
 
 `easel_pipeline`mode=preview是原对话的只读成片查看：values仅允许output_id/output_revision，均缺省时返回本Work最新可见输出；不存在或跨作品版本拒绝，返回preview_output.playback_url和preview_text。此动作不创建提案/Run/模型调用/媒体制作，无需用户确认；宿主沿原持久消息投影回显播放器，即使模型答复中断也可恢复。pending摘要提供真实播放地址及所选版本最新检查findings，完整观察仍通过detail=full读取；旧版本问题不得解释成新版检查结论。
+
+
+### CRE-01 主线多轮对话投影补充（2026-10-25）
+
+受控原生对话只公开pipeline draft/offer plan这一组草稿/规划入口；内部建稿与费用授权、方案制作确认分别处理，不以模糊认可执行制作。原生工具集合、Gateway准入与配置生成一致。
+
+结果投影保留唯一完整当前Plan及任务身份/状态/结果/错误/UNKNOWN，不重复执行输入payload；原规范记录与请求身份不变。视觉抽样visual_status和完整语义status分列，不能彼此替代。仅plan失败不声称已进入媒体制作。当前草稿失败仅投影有界审阅发现，审阅意见不升级为用户事实或需求。
+
+ContextPreparation既有官方压缩允许在上一条已知原生结束的空length回复后，为下一条新消息做一次受控准备；须同会话/模型、无正文/工具输出，压缩未知不重发。此为有证据的恢复触发，不是长度根因断言，不重发旧消息、UNKNOWN或制作，也不承诺实时预估首次输入暴增。真实证据与限制见[CRE-01多轮调试](../project/tasks/runs/2026-10-25-web-e2e-02.md)。
