@@ -338,9 +338,9 @@ LIB-01内容库按已接受作品、未接受创作和其他文件项目收纳�
 | easel_work_request_plan | request | 产生版本化规划提案；下一真人轮确认后沿受控命令排程，不接受模型自行补写 services/grant |
 | easel_work_request_revision | feedback,protected,interval | 绑定已选 Output 的修订提案；下一真人轮确认后走原 revise，扩大范围继续按既有确认规则 |
 | easel_work_propose | 固定kind,values,source_refs | 只提议 channel_create/channel_defaults/director_formation/profile/director_revision；目标与来源由程序校验，应用须用户下一真人回合明确 `answer`，旧卡接口仅作兼容 |
-| easel_pipeline | mode=pending/bind/draft/offer/answer，offer 带受限 action 与 values；answer 带 proposal_id/hash/user_quote | 统一三条管线的目录读取、绑定、提案及文字确认；只有当前用户后续明确答复才能应用，UNKNOWN 新规划须单独说明重复调用风险，不得同轮自行授权或制作 |
+| easel_pipeline | mode=pending/bind/draft/offer/answer，offer 带受限 action 与 values；answer 带 proposal_id/hash/user_quote/dismiss | 统一三条管线的目录读取、绑定、提案及文字确认；只有当前用户后续明确答复才能应用，UNKNOWN 新规划须单独说明重复调用风险，不得同轮自行授权或制作 |
 
-协议2当前沿用“先提出具体提案、下一真人回合明确确认”的执行边界，主要在原生对话中通过 `easel_pipeline offer → answer` 应用；旧卡片可在独立高级路径兼容使用，但不是对话的必选提交步骤。候选正文、自动任务事件都不能冒充用户授权。无需 Work 的频道提案不创建空 Work。
+协议2当前沿用“先提出具体提案、下一真人回合明确确认”的执行边界，主要在原生对话中通过 `easel_pipeline offer → answer` 应用；旧卡片可在独立高级路径兼容使用，但不是对话的必选提交步骤。候选正文、自动任务事件都不能冒充用户授权。无需 Work 的频道提案不创建空 Work。 answer必须显式携带严格布尔dismiss：true仅拒绝当前提案，false明确批准已展示操作；省略、null、字符串或数字均拒绝，不能把缺失决策当作批准。该校验不替代模型对真人语义的正确理解，仍保留来源、展示版本及UNKNOWN保护。
 
 内部传输包括 `/api/chat/work-tools/entry|claim|prepare|dispatch|result|end` 入口；`result` 只凭原生可信回执读取本次 Run 的真实收口状态，不触发再次提交；由 `web/conversation_api.py` 挂载，`result` 使用 `ConversationResults` 读取状态，其他受控命令沿 `PersistentWorkToolBridge`。独立插件凭证至少24字符，只允许回环对端，使用该凭证访问其他Web路由403；浏览器Origin/Host写保护保持原规则，不全局放宽。凭证不成为模型参数或工具结果。插件只连接显式127.0.0.1 HTTP端口，禁止重定向或任意目标；可信本机安装代码不等于OS/运维隔离。
 
@@ -644,3 +644,9 @@ Wikimedia音乐检索和有限回退均保留music/instrumental用途；按文�
 结果投影保留唯一完整当前Plan及任务身份/状态/结果/错误/UNKNOWN，不重复执行输入payload；原规范记录与请求身份不变。视觉抽样visual_status和完整语义status分列，不能彼此替代。仅plan失败不声称已进入媒体制作。当前草稿失败仅投影有界审阅发现，审阅意见不升级为用户事实或需求。
 
 ContextPreparation既有官方压缩允许在上一条已知原生结束的空length回复后，为下一条新消息做一次受控准备；须同会话/模型、无正文/工具输出，压缩未知不重发。此为有证据的恢复触发，不是长度根因断言，不重发旧消息、UNKNOWN或制作，也不承诺实时预估首次输入暴增。真实证据与限制见[CRE-01多轮调试](../project/tasks/runs/2026-10-25-web-e2e-02.md)。
+
+
+当前草稿审阅视图为current-draft-3：当前candidate的facts/constraints与原参考历史分开，MiniMax声音适配器固定wire参数以同源合同投影，不成为Plan可编辑参数；图解源PNG尺寸/比例、字幕坐标空间及固定页脚能力由实际文件和渲染器测量/派生。审阅操作namespace随视图版本变化，旧成功请求/回执不改写。恢复先验证同Task原生来源；只对原回执应用与保存时相同的固定声线参数投影，保存稿自身不被规范化以掩盖篡改。视图变化可以复核既有草稿，但不重置已用纠正次数。明确改稿时，失效的当前指针不等于无历史方案；已有Plan的入口须显式replan，并绑定本Work当前或最新保留Plan与安全停止Run。
+
+
+创作原话交接：新plan/revise提案在既有request/feedback中分别保存服务器从已验证source_refs读取的origin=user原文与agent_request派生整理；宿主事件不能成为真人源，确认/服务授权本身不变。新方案conversation_basis.creative_request冻结本任务最新本期补充，所有后续生产/审阅上下文优先本Task.request，否则读取所选已确认Plan的creative_request；口播/图解差量和受保护声音模式新版本保留原画像/频道/导演身份，同时更新本期补充。旧Plan及其哈希、已发送请求/回执不回填或改写，真实新依据改变新Plan/hash。仅当完整补充已在brief时，模型视图去掉Plan中的重复副本，内部冻结记录始终保留；缺源旧任务不因读取自动新增字段。

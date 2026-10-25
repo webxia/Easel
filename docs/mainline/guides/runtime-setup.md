@@ -6,9 +6,9 @@
 
 安装与基础启动沿用[官方README](../../../README.md)。从实际仓库根、项目虚拟环境执行；生产依赖使用production extra，前端按项目脚本构建。启用EASEL_PRODUCTION_ENABLED=1后Web装配持久Worker；已有Web时不另起第二个Worker。关闭入口不删除生产库、outputs、Profile或历史回执。
 
-受控对话使用现役main，easel-work的agentId=main、protocolVersion=2、permission_policy=main-pipeline-v1及九个具名业务工具。使用显式EASEL_VIDEO_GATEWAY_URL、EASEL_VIDEO_GATEWAY_TOKEN与独立EASEL_WORK_BRIDGE_TOKEN；缺配置/插件/握手失败须明确不可用，不切CLI绕过。旧easel-video双Agent部署步骤已归档，不能再照抄安装。
+受控对话使用现役main，easel-work的agentId=main、protocolVersion=2、permission_policy=main-pipeline-v1及具名业务工具。使用显式EASEL_VIDEO_GATEWAY_URL、EASEL_VIDEO_GATEWAY_TOKEN与独立EASEL_WORK_BRIDGE_TOKEN；缺配置/插件/握手失败须明确不可用，不切CLI绕过。旧easel-video双Agent部署步骤已归档，不能再照抄安装。
 
-保留main原工作区、模型和普通工具配置；插件在受控namespace内注入产品指令、收窄工具并核对逐次票据。不能通过文件分开放置宣称根开发指令已隔离。配置合成不得覆盖原plugins成员或私人配置；具体生成器选项先核对当前源码和--help。首次安装、重载、迁移及真实调用按任务授权执行。
+保留main原工作区、模型和普通工具配置；仅对agent:main:easel-pipeline受控会话，插件通过原生agent:bootstrap在上下文编译前将bootstrapFiles投影为服务端产品指令，排除通用AGENTS/SOUL/IDENTITY/MEMORY；其他main会话不变。bootstrap只读接口不绑定运行或授权，读取失败时在原生模型前阻断，不回退通用工作区。握手须包含bootstrap_policy=product-bootstrap-v1，仍由claim、toolsAllow及逐次票据控制执行。日常使用活动状态摘要，完整方案/历史及操作手册通过既有pending的detail=full读取；实际新方案交付仍完整。插件修改须重载Gateway，Web重载不能代替；隔离效果以原生运行报告/真实输入与会话测试核对，不仅凭文件分开放置或claim源码宣称。配置合成不得覆盖原plugins成员或私人配置；具体生成器选项先核对当前源码和--help。首次安装、重载、迁移及真实调用按任务授权执行。
 
 ## 创作模型
 

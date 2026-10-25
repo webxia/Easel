@@ -77,6 +77,35 @@ def test_context_fingerprint_tracks_rule_text_without_duplicate_model_metadata(m
     assert policy.validate(old) == old  # Frozen rules remain authoritative within the current format.
 
 
+@pytest.mark.parametrize('role', ['write', 'visual'])
+def test_wording_change_keeps_frozen_request_and_creative_basis(monkeypatch, role):
+    saved = policy.snapshot()
+    ctx = TaskContext('w', 'r', 't', expression_policy=saved,
+        director={'storytelling': '倒叙、长镜头，结尾保留悬念'},
+        brief='频道：严肃技术分析，保留专业术语',
+        adaptation_permissions=('仅替换第二镜画面，保留原旁白和音轨',))
+    fingerprint = ctx.fingerprint
+
+    def request(context):
+        runner, transport, authorized = run([{'content': '{"summary":"ok"}'}])
+        asyncio.run(runner.run(context, '局部创作', Answer, expression_role=role))
+        assert authorized == ['t'] and len(transport.calls) == 1
+        return deepcopy(transport.calls[0])
+
+    before = request(ctx)
+    monkeypatch.setattr(policy, 'RULES', {**policy.RULES, role: 'Future wording.'})
+    future = replace(ctx, expression_policy=policy.snapshot())
+    assert future.expression_policy['version'] == saved['version']
+    assert future.expression_policy['digest'] != saved['digest']
+    assert future.fingerprint != fingerprint
+    assert ctx.fingerprint == fingerprint
+    assert request(ctx) == before
+    changed = request(future)
+    assert changed[0] != before[0]
+    assert changed[1:] == before[1:]  # Channel, director and revision scope unchanged.
+    assert policy.validate(saved) == saved
+
+
 def test_plan_uses_creation_snapshot_and_receipt_after_default_change_and_crash(tmp_path, monkeypatch):
     service, work, transport, worker = setup(tmp_path)
     planning = worker.handlers['plan'].__self__
