@@ -433,3 +433,67 @@ def test_replan_review_and_correction_use_current_draft_metadata(tmp_path,unreso
     assert len(after['plans'])==(1 if unresolved else 2)
     assert seen.count('CreativePlanChanges')==(2 if unresolved else 1)
     assert all(t['kind']=='plan' for t in after['tasks'])
+
+
+@pytest.mark.parametrize('engine',['minimax-speech-v1','http-speech-v1'])
+def test_draft_voice_execution_view_matches_native_wire_without_editing_plan(tmp_path, engine):
+    from copy import deepcopy
+    from easel.production.context import TaskContext
+    from easel.production.planning import current_draft_context, VoiceReadyCreativePlan
+    from easel.production.providers.minimax_speech import MiniMaxSpeechAdapter
+    from types import SimpleNamespace
+    _,_,transport,_=setup(tmp_path)
+    transport.answer['settings'].update(audio_mode='mixed',voice={
+        'provider':'fixture','model':'speech','engine':engine,'voice_id':'fixed',
+        'parameters':{'speed':1.2,'emotion':'calm','subtitle_enable':True}})
+    draft=VoiceReadyCreativePlan.model_validate(transport.answer)
+    before=deepcopy(draft.model_dump(mode='json'))
+    context=TaskContext('work','run','task',capabilities={'native_explainer_boards':True})
+    view=current_draft_context(context,draft)
+    assert draft.model_dump(mode='json')==before and view.plan==before
+    assert context.capabilities=={'native_explainer_boards':True}
+    if engine=='minimax-speech-v1':
+        adapter=object.__new__(MiniMaxSpeechAdapter)
+        adapter.config=SimpleNamespace(base_url='https://example.test/v1',response_format='wav')
+        _,wire=adapter._wire_request({'text':'口播'},draft.settings.voice)
+        contract=view.capabilities['voice_execution_contract']
+        assert contract['effective_wire_voice_setting']==wire['voice_setting']
+        assert contract['fixed_wire_parameters']=={'vol':1,'pitch':0}
+        assert contract['supported_plan_parameters']==['emotion','speed','subtitle_enable']
+        assert wire['voice_setting']['speed']==1.2 and wire['voice_setting']['emotion']=='calm'
+        assert wire['subtitle_enable'] is True
+        assert 'volume' not in view.plan['settings']['voice']['parameters']
+        assert 'pitch' not in view.plan['settings']['voice']['parameters']
+    else:
+        assert 'voice_execution_contract' not in view.capabilities
+
+
+def test_native_voice_critic_gets_adapter_contract_and_frozen_plan_parameters(tmp_path):
+    from easel.production.service import encode,row
+    service,work,transport,worker=setup(tmp_path)
+    voice={'provider':'fixture','model':'speech','engine':'minimax-speech-v1','voice_id':'fixed','parameters':{'speed':1}}
+    settings={'schema_version':1,'audio_mode':'mixed','voice':voice,'aspect_ratio':'16:9','duration_seconds':20}
+    with service.store.transaction() as conn:
+        conn.execute('UPDATE works SET settings_json=? WHERE id=?',(encode(settings),work))
+        task=conn.execute('SELECT * FROM tasks').fetchone();payload=json.loads(task['payload_json'])
+        payload['creation_basis']=service._basis(conn,row(conn,'works',work))
+        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
+    transport.answer['settings']={k:v for k,v in settings.items() if k!='schema_version'}
+    transport.answer['settings']['voice']={**voice,'parameters':{'speed':1,'volume':1,'pitch':0}}
+    transport.answer['scenes'][0]['duration_seconds']=20
+    complete=transport.complete
+    async def verify_review(messages,tools,schema):
+        if schema['title']=='DraftReview':
+            data=json.loads(messages[1]['content'][0]['text'])
+            assert data['plan']['settings']['voice']==voice
+            contract=data['production_capabilities']['voice_execution_contract']
+            assert contract['effective_wire_voice_setting']=={'voice_id':'fixed','speed':1,'vol':1,'pitch':0}
+            assert 'volume' not in contract['supported_plan_parameters']
+        return await complete(messages,tools,schema)
+    transport.complete=verify_review
+    assert asyncio.run(worker.run_once())
+    snap=service.snapshot(work)
+    assert snap['state']=='awaiting_confirmation',snap['tasks'][0]['error_json']
+    assert snap['plans'][0]['plan']['settings']['voice']==voice
+    assert service.store.get_work(work)['settings_json']==encode(settings)
+    assert transport.calls==2

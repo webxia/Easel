@@ -12,17 +12,22 @@ from .errors import ProductionError
 from .model_operations import RecordedModelTransport
 from .service import row, encode, digest, now, new_id
 
-DRAFT_REVIEW_CONTEXT_VERSION = 'current-draft-1'
+DRAFT_REVIEW_CONTEXT_VERSION = 'current-draft-2'
 
 
 def current_draft_context(context, draft):
     """Project one candidate consistently; retain baseline requirements as history."""
     plan=draft.model_dump(mode='json')
+    capabilities = dict(context.capabilities)
+    voice = draft.settings.voice
+    if voice and voice.engine == 'minimax-speech-v1':
+        from .providers.minimax_speech import voice_execution_contract
+        capabilities['voice_execution_contract'] = voice_execution_contract(voice)
     reference=''
     if context.plan:
         reference='\n参考方案的事实与限制（历史基线，不是当前草稿字段；按本次明确补充判断哪些要求已被撤销，其余仍须遵守；不能要求作者修改这份只读参考）：'+encode({
             'facts':list(context.facts),'constraints':list(context.prohibitions)})
-    return replace(context,plan=plan,facts=tuple(plan.get('facts',[])),
+    return replace(context,plan=plan,capabilities=capabilities,facts=tuple(plan.get('facts',[])),
                    prohibitions=tuple(plan.get('constraints',[])),brief=context.brief+reference)
 
 

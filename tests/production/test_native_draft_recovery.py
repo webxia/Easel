@@ -10,7 +10,7 @@ from easel.production.worker import Worker,TaskResult
 from easel.production.errors import ProductionError
 
 
-@pytest.mark.parametrize('tamper',[None,'draft','unknown','legacy_exhausted'])
+@pytest.mark.parametrize('tamper',[None,'draft','unknown','legacy_exhausted','previous_voice_view'])
 def test_known_native_draft_recovery_preserves_receipt_and_never_adopts_external_copy(tmp_path,tamper):
     store=Store(tmp_path/'db');store.initialize();service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     voice={'provider':'fixture','model':'speech','engine':'fixture','voice_id':'fixed'}
@@ -62,6 +62,7 @@ def test_known_native_draft_recovery_preserves_receipt_and_never_adopts_external
                 payload=json.loads(c.execute('SELECT payload_json FROM tasks WHERE id=?',(task['id'],)).fetchone()[0])
                 checkpoint=payload['native_draft_checkpoint']
                 checkpoint.pop('review_context_version')
+                if tamper=='previous_voice_view':checkpoint['review_context_version']='current-draft-1'
                 checkpoint['correction_round']=2
                 c.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
     service.command('resume',{'decision_id':task['id']},work_id=work,expected_revision=before['revision'],command_id='resume')
@@ -73,7 +74,7 @@ def test_known_native_draft_recovery_preserves_receipt_and_never_adopts_external
         assert after['state']=='needs_decision' and not after['plans'] and len(model.calls)==2
         error=json.loads(after['tasks'][0]['error_json'])
         assert error['code']==('result_unknown' if tamper=='unknown' else 'draft_provenance_missing')
-    elif tamper=='legacy_exhausted':
+    elif tamper in {'legacy_exhausted','previous_voice_view'}:
         assert after['state']=='awaiting_confirmation'
         assert after['plans'][0]['plan']['title']=='native-old'
         assert len(model.calls)==3 and model.authors==1 and model.reviews==2

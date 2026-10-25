@@ -761,7 +761,8 @@ def test_only_failed_narration_delta_has_existing_resume_option(scope,code,expec
 
 @pytest.mark.parametrize('version,code,source,expected',[
     (None,'draft_review_failed',True,True),
-    ('current-draft-1','draft_review_failed',True,False),
+    ('current-draft-2','draft_review_failed',True,False),
+    ('current-draft-1','draft_review_failed',True,True),
     (None,'draft_review_failed',False,False),
     (None,'result_unknown',True,False)])
 def test_native_draft_reaudit_resume_is_only_exposed_for_outdated_known_view(version,code,source,expected):
