@@ -12,6 +12,19 @@ from .errors import ProductionError
 from .model_operations import RecordedModelTransport
 from .service import row, encode, digest, now, new_id
 
+DRAFT_REVIEW_CONTEXT_VERSION = 'current-draft-1'
+
+
+def current_draft_context(context, draft):
+    """Project one candidate consistently; retain baseline requirements as history."""
+    plan=draft.model_dump(mode='json')
+    reference=''
+    if context.plan:
+        reference='\n参考方案的事实与限制（历史基线，不是当前草稿字段；按本次明确补充判断哪些要求已被撤销，其余仍须遵守；不能要求作者修改这份只读参考）：'+encode({
+            'facts':list(context.facts),'constraints':list(context.prohibitions)})
+    return replace(context,plan=plan,facts=tuple(plan.get('facts',[])),
+                   prohibitions=tuple(plan.get('constraints',[])),brief=context.brief+reference)
+
 
 def validate_audio_replan(answer, protected):
     """Only the explicitly approved audio mode may change in a frozen work."""
@@ -314,6 +327,7 @@ class PlanningTasks:
         state={'producer_task_id':ctx.task_id,'draft':draft.model_dump(mode='json'),
                'draft_hash':digest(draft.model_dump(mode='json')),'source_operation_id':source,
                'correction_round':round_,'history':history,
+               'review_context_version':DRAFT_REVIEW_CONTEXT_VERSION,
                'review':review.model_dump(mode='json') if review is not None else None}
         with ctx.transaction() as conn:
             payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
@@ -501,9 +515,10 @@ class PlanningTasks:
                     except EditError as exc:
                         return DraftReview(verdict='fail',findings=['实际草稿图解渲染失败：'+str(exc)],
                             limitations=['未获得完整可读像素；需先修正草稿文字或布局数据'])
+                    candidate_context=current_draft_context(context,draft)
                     return await self.runner(ctx,namespace=namespace,max_format_repairs=2).run(
-                        replace(context,plan=draft.model_dump(mode='json'),
-                            brief=context.brief+'\n原生既有审查记录，请逐项核对本次是否已解决；若原判断被实际像素否定，明确依据，不照搬：'+encode(history)),
+                        replace(candidate_context,
+                            brief=candidate_context.brief+'\n原生既有审查记录，请逐项核对本次是否已解决；若原判断被当前字段或实际像素否定，明确依据，不照搬：'+encode(history)),
                         '独立审查尚未确认草稿；只返回有依据的观察和必须修正的问题，不改稿、不声称已看过未选的库存或听过声音。'
                         '逐项核对本次brief中的明确表达要求和constraints，包括未被后续反馈撤销的原要求；有冲突时在findings引用原要求及具体句段，不能因结构通顺就pass。'
                         '遵守实际输出字段合同：script和scene.narration只放真实口播；语气、重音、停顿说明放purpose/visual或narration_pauses。即使整理后的request写了“逐字稿标注语气/停顿”，也不得要求把非口播标记塞回script或新增schema外的第二份TTS稿。'
@@ -523,10 +538,14 @@ class PlanningTasks:
                 round_=recovered['correction_round'] if recovered else 0
                 history=list(recovered.get('history',[])) if recovered else []
                 review=DraftReview.model_validate(recovered['review']) if recovered and recovered.get('review') else None
+                if recovered and recovered.get('review_context_version')!=DRAFT_REVIEW_CONTEXT_VERSION:
+                    # Re-audit the verified native draft under the corrected view.
+                    # Preserve spent correction rounds and all original receipts.
+                    review=None
                 self._store_draft(ctx,proposed,source,round_,history,review)
                 while True:
                     if review is None:
-                        review=await audit(proposed,'draft-audit-v3-'+str(round_),history)
+                        review=await audit(proposed,'draft-audit-v4-'+str(round_),history)
                         history.append(review.model_dump(mode='json'))
                         self._store_draft(ctx,proposed,source,round_,history,review)
                     # Rewrite only for stated defects, never for an unexplained label or optional taste.
@@ -539,10 +558,10 @@ class PlanningTasks:
                         pictures,picture_needs=await self.draft_board_media(ctx,proposed)
                     except EditError:
                         pictures,picture_needs=(),frozenset()
-                    author=self.runner(ctx,namespace='draft-correction-v3-'+str(round_),max_format_repairs=2)
+                    author=self.runner(ctx,namespace='draft-correction-v4-'+str(round_),max_format_repairs=2)
                     base=proposed.model_dump(mode='json')
                     changes=await author.run(
-                        replace(context,plan=base),
+                        current_draft_context(context,proposed),
                         '依据独立草稿审查仅返回需要修改的顶层字段，未涉及字段省略并沿用原值，不能用null代替省略；script与scenes涉及口播时一起同步；不要重复输出未改字段。这是尚未确认的草稿，允许实际调整叙事、具体例子、'
                         '图解分类/状态与视觉策略，不得编造个人经历或事实，不改变已选声音、字幕、画幅和声音模式。'
                         '逐项解决全部有依据的问题，文案与narration一致，术语用具体条件变化解释，不能只改形容词。'

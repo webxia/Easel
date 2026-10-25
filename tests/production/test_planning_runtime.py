@@ -386,3 +386,50 @@ def test_narration_delta_and_known_receipt_preserve_protected_fields(tmp_path,au
             merge_narration_changes(NarrationPlanChanges.model_validate({'scenes':scenes}),base)
     with pytest.raises(ValueError,match='script须'):
         merge_narration_changes(NarrationPlanChanges.model_validate({**change,'script':'不是这句话。'}),base)
+
+
+@pytest.mark.parametrize('unresolved',[False,True])
+def test_replan_review_and_correction_use_current_draft_metadata(tmp_path,unresolved):
+    """A withdrawn sentence may remain in history, never as a candidate requirement."""
+    from easel.production.service import encode,row
+    service,work,transport,worker=setup(tmp_path)
+    voice={'provider':'fixture','model':'speech','engine':'fixture','voice_id':'fixed'}
+    settings={'schema_version':1,'audio_mode':'voice','voice':voice,'aspect_ratio':'16:9','duration_seconds':20}
+    with service.store.transaction() as conn:
+        conn.execute('UPDATE works SET settings_json=? WHERE id=?',(encode(settings),work))
+        task=conn.execute('SELECT * FROM tasks').fetchone();payload=json.loads(task['payload_json'])
+        payload['creation_basis']=service._basis(conn,row(conn,'works',work))
+        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
+    old='录完后，他又拿不准。';new='可再往下想，做到哪里算完？'
+    transport.answer.update(script=old,settings={k:v for k,v in settings.items() if k!='schema_version'},
+        facts=['第二段为：'+old],constraints=['第二段必须为：'+old,'不得虚构我的经历'],
+        scenes=[{'id':'s1','purpose':'提问','visual':'设备近景','duration_seconds':20,'narration':old}])
+    asyncio.run(worker.run_once());baseline=service.snapshot(work)['plans'][0]['plan']
+    with service.store.connection() as conn:
+        target=service.replanning_target(conn,row(conn,'works',work))
+    snap=service.snapshot(work)
+    service.command('plan',{'intent':'replan','request':'撤回第二段，恢复为“'+new+'”，其余保留','replanning_target':target},
+        work_id=work,expected_revision=snap['revision'],command_id='withdraw')
+    transport.answer.update(script=new,facts=['第二段为：'+new],constraints=['第二段必须为：'+new,'不得虚构我的经历'],
+        scenes=[{**transport.answer['scenes'][0],'narration':new}])
+    complete=transport.complete;seen=[]
+    async def review(messages,tools,schema):
+        if schema['title'] in {'DraftReview','CreativePlanChanges'}:
+            data=json.loads(messages[1]['content'][0]['text']);seen.append(schema['title'])
+            assert data['facts']==data['plan']['facts']==['第二段为：'+new]
+            assert data['prohibitions']==data['plan']['constraints']
+            assert '不得虚构我的经历' in data['prohibitions']
+            assert old in data['brief'] and '历史基线' in data['brief']
+            assert baseline['facts']==['第二段为：'+old]
+            if schema['title']=='CreativePlanChanges':
+                return {'content':encode({'summary':'纠正后的摘要'})}
+            fail=unresolved or seen.count('DraftReview')==1
+            return {'content':encode({'verdict':'fail' if fail else 'pass',
+                'findings':['当前稿有未解决的真实缺陷'] if fail else []})}
+        return await complete(messages,tools,schema)
+    transport.complete=review
+    asyncio.run(worker.run_once());after=service.snapshot(work)
+    assert after['state']==('needs_decision' if unresolved else 'awaiting_confirmation')
+    assert len(after['plans'])==(1 if unresolved else 2)
+    assert seen.count('CreativePlanChanges')==(2 if unresolved else 1)
+    assert all(t['kind']=='plan' for t in after['tasks'])

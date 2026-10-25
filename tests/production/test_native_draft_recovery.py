@@ -10,7 +10,7 @@ from easel.production.worker import Worker,TaskResult
 from easel.production.errors import ProductionError
 
 
-@pytest.mark.parametrize('tamper',[None,'draft','unknown'])
+@pytest.mark.parametrize('tamper',[None,'draft','unknown','legacy_exhausted'])
 def test_known_native_draft_recovery_preserves_receipt_and_never_adopts_external_copy(tmp_path,tamper):
     store=Store(tmp_path/'db');store.initialize();service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     voice={'provider':'fixture','model':'speech','engine':'fixture','voice_id':'fixed'}
@@ -57,16 +57,32 @@ def test_known_native_draft_recovery_preserves_receipt_and_never_adopts_external
                 payload['native_draft_checkpoint']={'producer_task_id':task['id'],'draft':forged,'draft_hash':digest(forged),
                     'source_operation_id':ops[0]['id'],'correction_round':1,'history':[],'review':None}
                 c.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
-            else:c.execute("UPDATE operations SET state='unknown',receipt_json=NULL WHERE id=?",(ops[1]['id'],))
+            elif tamper=='unknown':c.execute("UPDATE operations SET state='unknown',receipt_json=NULL WHERE id=?",(ops[1]['id'],))
+            else:
+                payload=json.loads(c.execute('SELECT payload_json FROM tasks WHERE id=?',(task['id'],)).fetchone()[0])
+                checkpoint=payload['native_draft_checkpoint']
+                checkpoint.pop('review_context_version')
+                checkpoint['correction_round']=2
+                c.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
     service.command('resume',{'decision_id':task['id']},work_id=work,expected_revision=before['revision'],command_id='resume')
     asyncio.run(Worker(store,{'plan':planning.plan}).run_once());after=service.snapshot(work)
     with store.connection() as c:
         assert c.execute('SELECT receipt_json FROM operations WHERE id=?',(ops[0]['id'],)).fetchone()[0]==original
         assert c.execute("SELECT count(*) FROM operations WHERE kind!='MODEL'").fetchone()[0]==0
-    if tamper:
+    if tamper in {'draft','unknown'}:
         assert after['state']=='needs_decision' and not after['plans'] and len(model.calls)==2
         error=json.loads(after['tasks'][0]['error_json'])
         assert error['code']==('result_unknown' if tamper=='unknown' else 'draft_provenance_missing')
+    elif tamper=='legacy_exhausted':
+        assert after['state']=='awaiting_confirmation'
+        assert after['plans'][0]['plan']['title']=='native-old'
+        assert len(model.calls)==3 and model.authors==1 and model.reviews==2
+        with store.connection() as c:
+            payload=json.loads(c.execute('SELECT payload_json FROM tasks WHERE id=?',(task['id'],)).fetchone()[0])
+            assert payload['native_draft_checkpoint']['correction_round']==2
+            for op in ops:
+                saved=dict(c.execute('SELECT * FROM operations WHERE id=?',(op['id'],)).fetchone())
+                assert saved['request_json']==op['request_json'] and saved['receipt_json']==op['receipt_json']
     else:
         assert after['state']=='awaiting_confirmation' and after['plans'][0]['plan']['title']=='native-repaired'
         assert len(model.calls)==4 and model.authors==2
