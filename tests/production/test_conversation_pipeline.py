@@ -600,7 +600,7 @@ def test_confirm_binds_current_plan_and_model_before_answer(env):
     assert payload['plan_hash']==state['current_plan']['plan_hash']
     assert payload['services']==[{'provider':'direct-api','model':'fixture-model','mode':'structured'}]
     assert 'IMAGE' not in str(payload['services'])
-    assert state['current_plan']['plan']['script']=='原稿'
+    assert pipe(b,i,'pending',values={'detail':'full'})['current_plan']['plan']['script']=='原稿'
 
 
 def test_confirm_freezes_complete_services_and_never_expands_on_answer(env,monkeypatch):

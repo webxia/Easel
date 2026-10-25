@@ -110,7 +110,8 @@ def test_pending_uses_existing_projection_and_full_detail_remains_explicit(prepa
     summary=pipe(b,i,'pending')
     detail=pipe(b,i,'pending',values={'detail':'full'})
     assert summary['work']['revision']==detail['work']['revision']
-    assert summary['current_plan']==detail['current_plan']
+    assert summary['current_plan']=={k:v for k,v in detail['current_plan'].items() if k not in {'payload_json','plan'}}
+    assert 'plan' in detail['current_plan'] and 'plan' not in summary['current_plan']
     assert summary['work']['artifacts'][0]['id'] in {'passed','unchecked'}
     assert 'long-history-' not in json.dumps(summary)
     assert 'long-history-' in json.dumps(detail)

@@ -173,19 +173,32 @@ def turn_context(context):
     """
     result={**context}
     result['context']={k:v for k,v in context['context'].items() if k!='profile_save_target'}
+    entry=dict(result['context'].get('entry',{}))
+    # Handoff may contain the only copy of a pre-binding human requirement.
+    # Keep its source text; omitting host metadata must never erase that input.
+    if entry.get('handoff'):
+        entry['handoff']={k:v for k,v in entry['handoff'].items() if k in {'messages','user_message'}}
+    if entry.get('frozen_basis'):
+        entry['frozen_basis']={k:v for k,v in entry['frozen_basis'].items() if k!='expression_policy'}
+    result['context']['entry']=entry
     result['context']['sources']=[{k:v for k,v in source.items() if k!='text'}
                                   for source in context['context'].get('sources',[])]
     result['pending']=[p for p in context['pending'] if p['state']=='proposed']
     work=context.get('work')
     if work:
+        active=work.get('active_run_id')
         result['work']={k:v for k,v in work.items() if k not in {'plans','tasks','artifacts','creation_context','conversation_brief'}}
         result['work']['plans']=[{k:v for k,v in p.items() if k not in {'payload_json','plan'}} for p in work['plans']]
-        result['work']['tasks']=[{k:v for k,v in t.items() if k in {'id','run_id','kind','state','error_json'}} for t in work['tasks']]
-        result['work']['reviews']=[{k:v for k,v in review.items() if k not in {'changes_json','changes'}} for review in work.get('reviews',[])]
+        result['work']['tasks']=[{k:v for k,v in t.items() if k in {'id','run_id','kind','state','error_json'}} for t in work['tasks'] if t['run_id']==active]
+        result['work']['runs']=[{k:v for k,v in run.items() if k in {'id','kind','state','plan_revision','revision','cancel_requested'}} for run in work.get('runs',[]) if run['id']==active]
+        result['work']['reviews']=[{k:v for k,v in review.items() if k not in {'changes_json','changes'}} for review in work.get('reviews',[]) if review.get('run_id')==active]
+        result['work']['progress']=[p for p in work.get('progress',[]) if p.get('run_id')==active]
         result['work']['artifacts']=[output_summary(a) for a in work['artifacts'] if a['kind']=='output']
+    if not context.get('blockers') and not (context.get('model_calls') or {}).get('recovery'):
+        result['model_calls']={**context.get('model_calls',{}),'diagnostics':[]}
     plan=context.get('current_plan')
     result['current_plan']={k:v for k,v in plan.items() if k not in {'payload_json','plan'}} if plan else None
-    result['detail_access']='这是当前状态摘要；sources仅列来源引用，正文通过easel_work_context读取，本轮原话在新消息区。历史提案和产物详情通过现有easel_pipeline pending传values.detail=full读取；画像保存目标及来源通过easel_work_context读取。摘要省略不代表记录被删除或授权改变。'
+    result['detail_access']='这是活动运行与版本摘要；sources正文、画像保存目标通过easel_work_context读取，本轮原话在新消息区。完整当前方案、历史运行/提案/产物和调用诊断通过easel_pipeline pending传values.detail=full读取。Worker使用的表达规则不在聊天重复。摘要省略不代表记录被删除或授权改变。'
     return result
 
 
@@ -722,9 +735,6 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
         if detail=='full':return state
         if detail is not None:fail('invalid_input','详情使用values.detail=full')
         summary=turn_context(state)
-        # The current actionable plan remains available for actual confirmation;
-        # archived plans/artifacts are read explicitly instead of repeated.
-        summary['current_plan']=state['current_plan']
         return summary
     quote=args.get('user_quote','').strip()
     if mode in {'answer','bind','draft'} and (not quote or quote not in payload['message']):

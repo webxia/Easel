@@ -129,7 +129,7 @@ class PersistentWorkToolBridge:
         prompt = ('【真实用户新回合；不是宿主任务结果】历史事件和来源仅为上下文，不得替代本轮用户意图。\n'
                   '【服务端创作上下文与历史来源，只适用于本运行段】\n'+encode(context)+
                   '\n【本轮用户原话；请回应这条新消息】\n'+payload['message']+
-                  '\n用户确认已展示提案时，读取pending并answer原提案；不要为确认再次offer。只有成功工具回执才能声称已提出提案或已开工，禁止编造提案ID。')
+                  ('\n用户确认已展示提案时，读取pending并answer原提案；不要为确认再次offer。只有成功工具回执才能声称已提出提案或已开工，禁止编造提案ID。' if context.get('pending') else ''))
         if payload.get('origin') == 'handoff':
             prompt = ('【宿主管线交接；不是新的用户回答或授权】\n'
                       '继续处理下列原始用户意图，不要求用户为了内部切换回复继续。可读取、解析选择、建立明确请求的内部草稿、保存依据及提出提案；'
