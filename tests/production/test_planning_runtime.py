@@ -178,7 +178,7 @@ def test_replanning_uses_frozen_profile_identity_with_frozen_content(tmp_path,ol
     original_plan=service.snapshot(work)['plans'][0]['plan']
     original_snapshot=original_plan['profile_snapshot']
     from easel.production import expression_policy
-    monkeypatch.setattr(expression_policy,'VERSION','future-default-version')
+    monkeypatch.setattr(expression_policy,'RULES',{**expression_policy.RULES,'core':'changed current defaults'})
     with service.store.transaction() as conn:
         # Simulate a work reassigned after retaining an old version. The next
         # planning task deliberately binds that version as its revision basis.

@@ -69,7 +69,7 @@ def snapshot() -> dict:
 
 
 def validate(policy) -> dict:
-    # Validate the stored finite snapshot, not equality with today's defaults.
+    # Keep frozen rule content, but execute only the current format.
     # The digest detects corruption; provenance is enforced by creation/freeze.
     if not policy:
         raise ProductionError('expression_policy_missing',
@@ -82,6 +82,9 @@ def validate(policy) -> dict:
             or policy['digest'] != _digest(policy['version'], policy['rules'])):
         raise ProductionError('expression_policy_invalid',
             '自然表达规则快照无效，已停止执行并保留原任务，未自动替换规则。', requires_decision=True)
+    if policy['version'] != VERSION:
+        raise ProductionError('expression_policy_unsupported',
+            '此任务的规则版本不受当前V2.1执行路径支持；历史成果保留，请重新规划。', requires_decision=True)
     return deepcopy(policy)
 
 

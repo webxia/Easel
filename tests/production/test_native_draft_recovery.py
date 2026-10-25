@@ -1,5 +1,5 @@
 """A failed pre-freeze native draft is recoverable without an outside script."""
-import asyncio,json,hashlib
+import asyncio,json
 from copy import deepcopy
 import pytest
 from easel.production.store import Store
@@ -36,12 +36,14 @@ def test_known_native_draft_recovery_preserves_receipt_and_never_adopts_external
                     answer['title']='native-repaired'
             return {'content':json.dumps(answer)}
     model=Model();planning=PlanningTasks(service,OperationService(store),model,identity,'fixture')
-    async def old_handler(ctx):
+    async def checkpoint_handler(ctx):
         context=planning.context(ctx)
-        await planning.runner(ctx,namespace='draft-correction-v2').run(context,'legacy native correction',VoiceReadyCreativePlan)
-        await planning.runner(ctx,namespace='draft-recheck-v2').run(context,'legacy native review',DraftReview)
-        return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError('draft_review_failed','旧草稿未通过'))
-    asyncio.run(Worker(store,{'plan':old_handler}).run_once());before=service.snapshot(work)
+        author=planning.runner(ctx)
+        candidate=await author.run(context,'native draft',VoiceReadyCreativePlan)
+        review=await planning.runner(ctx,namespace='draft-audit-v3-0').run(context,'native review',DraftReview)
+        planning._store_draft(ctx,candidate,planning._native_operation(ctx,author),0,[review.model_dump(mode='json')],review)
+        return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError('draft_review_failed','草稿未通过'))
+    asyncio.run(Worker(store,{'plan':checkpoint_handler}).run_once());before=service.snapshot(work)
     assert before['state']=='needs_decision' and len(model.calls)==2
     task=before['tasks'][0]
     with store.connection() as c:
@@ -72,4 +74,5 @@ def test_known_native_draft_recovery_preserves_receipt_and_never_adopts_external
         assert RULES["write"] in model.calls[-2][0]["content"]
         assert RULES["review"] in model.calls[-1][0]["content"]
         with store.connection() as c:
-            assert c.execute("SELECT count(*) FROM events WHERE work_id=? AND kind='native_draft_recovered'",(work,)).fetchone()[0]==1
+            payload=json.loads(c.execute('SELECT payload_json FROM tasks WHERE id=?',(task['id'],)).fetchone()[0])
+            assert payload['native_draft_checkpoint']['draft']['title']=='native-repaired'

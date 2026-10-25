@@ -177,7 +177,7 @@ def test_director_intent_preserves_frozen_context_and_replays_without_another_ca
     assert first.unresolved==['素材候选和授权应由供料实际检验']
     # Changing policy cannot reuse an intent compiled for another snapshot.
     from easel.production import expression_policy
-    monkeypatch.setattr(expression_policy,'VERSION','test-next')
+    monkeypatch.setattr(expression_policy,'RULES',{**expression_policy.RULES,'core':'changed defaults'})
     changed=replace(creative,expression_policy=expression_policy.snapshot())
     planning.context=lambda context:changed
     with pytest.raises(ModelTaskError) as caught:

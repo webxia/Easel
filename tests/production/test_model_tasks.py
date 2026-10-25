@@ -195,18 +195,6 @@ def test_schema_specific_errors_guide_bounded_third_repair_without_relaxing_cont
         assert 'title' in feedback and 'extra_forbidden' in feedback
 
 
-def test_legacy_replay_preserves_first_repair_request_then_uses_specific_feedback():
-    responses=[{'content':'{"summary":"a","title":"unexpected"}'},
-               {'content':'{"summary":"b","title":"unexpected"}'},
-               {'content':'{"summary":"valid"}'}]
-    runner,transport,_=run(responses,max_format_repairs=2,legacy_first_repair=True)
-    answer=asyncio.run(runner.run(context(),'material_intent',Answer))
-    assert answer.summary=='valid'
-    assert len(transport.calls)==3
-    assert transport.calls[1][-1]['content']==('上次结果无效。严格按schema输出JSON；'
-                                               '不要包含执行权限字段或不存在的媒体引用。')
-    assert 'title (extra_forbidden)' in transport.calls[2][-1]['content']
-
 def test_long_field_feedback_names_path_and_violation():
     class ShortQuery(BaseModel):
         model_config=ConfigDict(extra='forbid')

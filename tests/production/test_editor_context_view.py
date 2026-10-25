@@ -89,15 +89,10 @@ def test_different_profile_snapshot_is_not_replaced_with_current_profile():
     assert ctx.model_data()['plan']['profile_snapshot'] == ctx.plan['profile_snapshot']
 
 
-def test_supply_identity_and_legacy_editor_payload_remain_exact():
+def test_nonediting_context_and_identity_remain_unprojected():
     ctx = fixture_context()
     assert replace(ctx, editor_view=False).model_data() == ctx.creative_data()
-    old = snapshot()
-    old['version'] = 'natural-expression-2'
-    old['digest'] = _digest(old['version'], old['rules'])
-    legacy = replace(ctx, expression_policy=old)
-    assert legacy.model_data() == legacy.creative_data()
-    assert legacy.fingerprint == replace(legacy, editor_view=False).fingerprint
+    assert ctx.fingerprint == replace(ctx, editor_view=False).fingerprint
 
 
 def test_runner_sends_view_but_authorizes_original_context_and_handles():
@@ -120,7 +115,7 @@ def test_invalid_saved_policy_cannot_enable_view():
 
 
 @pytest.mark.parametrize('unknown', [False, True])
-def test_legacy_editor_operation_replays_or_waits_after_upgrade(tmp_path, unknown):
+def test_current_editor_operation_replays_or_waits_without_resending(tmp_path, unknown):
     from types import SimpleNamespace
     from easel.production.operations import OperationService
     from easel.production.store import Store
@@ -132,10 +127,8 @@ def test_legacy_editor_operation_replays_or_waits_after_upgrade(tmp_path, unknow
     ops = OperationService(store, clock=lambda: 1000)
     binding = SimpleNamespace(**{k: spec[k] for k in ('work_id', 'run_id', 'task_id', 'owner_epoch')}, plan_revision=1)
     identity = {k: spec[k] for k in ('provider', 'model', 'mode')}
-    old = snapshot(); old['version'] = 'natural-expression-2'
-    old['digest'] = _digest(old['version'], old['rules'])
     context = replace(fixture_context(), work_id=spec['work_id'], run_id=spec['run_id'],
-                      task_id=spec['task_id'], expression_policy=old, editor_view=False)
+                      task_id=spec['task_id'], editor_view=True)
     class Provider:
         capabilities = frozenset({'text', 'structured'})
         calls = 0
@@ -156,12 +149,11 @@ def test_legacy_editor_operation_replays_or_waits_after_upgrade(tmp_path, unknow
         assert execute(context).summary == 'saved'
     with store.connection() as conn:
         before = dict(conn.execute('SELECT * FROM operations').fetchone())
-    upgraded = replace(context, editor_view=True)
     if unknown:
-        with pytest.raises(ModelTaskError) as caught: execute(upgraded)
+        with pytest.raises(ModelTaskError) as caught: execute(context)
         assert caught.value.code == 'result_unknown'
     else:
-        assert execute(upgraded).summary == 'saved'
+        assert execute(context).summary == 'saved'
     with store.connection() as conn:
         after = dict(conn.execute('SELECT * FROM operations').fetchone())
     assert provider.calls == 1
@@ -179,24 +171,14 @@ def test_director_reference_only_deduplicates_equal_known_constraints():
     assert expand(view, ctx.plan['profile_snapshot']['content']) == ctx.creative_data()
 
 
-def test_frozen_v3_view_stays_byte_identical_to_previous_implementation():
-    # Frozen source from the released v3 function, independent of today's version.
-    import hashlib
+@pytest.mark.parametrize('version', ['natural-expression-2', 'natural-expression-3', 'future-version'])
+def test_unsupported_policy_stops_before_model_authorization(version):
+    from easel.production.errors import ProductionError
     ctx = fixture_context()
-    old = snapshot(); old['version'] = 'natural-expression-3'
-    old['digest'] = _digest(old['version'], old['rules'])
-    ctx = replace(ctx, expression_policy=old)
-    data = ctx.creative_data()
-    constraint = deepcopy(data['artifacts'][0]['metadata']['use_constraints'])
-    key = 'constraints_' + hashlib.sha256(json.dumps(constraint, sort_keys=True, ensure_ascii=False, separators=(',', ':')).encode()).hexdigest()
-    chars = len(json.dumps(data, ensure_ascii=False))
-    fields = {k: len(json.dumps(v, ensure_ascii=False)) for k, v in data.items()}
-    for artifact in data['artifacts']:
-        artifact['metadata']['use_constraints'] = {'task_view_ref': key}
-        artifact['metadata']['material_uses'][0]['need']['constraints'] = {'task_view_ref': key}
-    data['plan']['profile_snapshot'].pop('content')
-    data['plan']['profile_snapshot']['content_ref'] = '/profile'
-    data['task_view'] = {'version':'editor-context-1', 'source_characters':chars, 'source_field_characters':fields,
-        'reference_semantics':'task_view_ref引用本输入shared_constraints中的完整约束；content_ref=/profile引用本输入完整画像，原content_hash保留。每个引用仍只作用于其原素材/need位置，不扩大作用域，不代表已观察或已获新授权。',
-        'shared_constraints':{key:constraint}}
-    assert json.dumps(ctx.model_data(), ensure_ascii=False) == json.dumps(data, ensure_ascii=False)
+    ctx.expression_policy['version'] = version
+    ctx.expression_policy['digest'] = _digest(version, ctx.expression_policy['rules'])
+    runner, transport, authorized = run([])
+    with pytest.raises(ProductionError) as caught:
+        asyncio.run(runner.run(ctx, 'edit', Answer, expression_role='visual'))
+    assert caught.value.code == 'expression_policy_unsupported'
+    assert transport.calls == [] and authorized == []

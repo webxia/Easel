@@ -6,7 +6,6 @@ One persisted, bounded interpretation is shared by all configured providers.
 from __future__ import annotations
 
 import json
-import hashlib
 from typing import Literal
 from pydantic import Field
 from .contracts import Contract, Identifier, PlanDocument, canonical_json
@@ -115,9 +114,6 @@ class FrozenIntentCompiler:
         context_hash = context.fingerprint
         with ctx.store.connection() as reader:
             payload = json.loads(reader.execute('SELECT payload_json FROM tasks WHERE id=?', (ctx.task_id,)).fetchone()[0])
-            second_id = hashlib.sha256(f'{ctx.task_id}:model:material-intent-v1:2'.encode()).hexdigest()
-            prior_second = reader.execute('SELECT state FROM operations WHERE id=?', (second_id,)).fetchone()
-            legacy_replay = bool(prior_second and prior_second['state'] == 'succeeded')
         saved = payload.get('material_intent')
         if saved is not None:
             if payload.get('material_intent_context_hash') != context_hash:
@@ -133,7 +129,7 @@ class FrozenIntentCompiler:
                 # projection. Recorded receipts from earlier attempts replay;
                 # only the new correction round can issue another MODEL call.
                 intent = await self.planning.runner(ctx, namespace='material-intent-v1',
-                    max_format_repairs=2, legacy_first_repair=legacy_replay).run(context,
+                    max_format_repairs=2).run(context,
                     '仅把已确认方案翻译成素材检索意图，不重写方案。每个场景给一个visuals项，query最多100字；'
                     'visuals.query使用简短英文主体和关键动作（如 using phone in bed、eating while using phone、putting phone down），不要把中文导演说明、许可条款、灯光和构图整段塞进搜索词；必须保留方案要求的核心物件及动作。'
                     '媒体类型根据冻结创作需求选择，options为有限候选数。music/mixed必须给music_query，其余为null。'

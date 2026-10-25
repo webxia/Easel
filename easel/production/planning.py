@@ -33,7 +33,7 @@ def validate_audio_replan(answer, protected):
 class CreativePlan(Contract):
     title: str = Field(min_length=1)
     summary: str = Field(min_length=1)
-    script: str = Field(min_length=1)
+    script: str = Field(min_length=1, description='完整口播原文，与各场景narration按顺序拼接一致；不含场景编号、章节标签、时间码或导演注释，非口播说明写purpose/visual。')
     scenes: list[Scene] = Field(min_length=1)
     settings: VideoSettings
     narration_policy: NarrationPolicy | None = Field(default=None,
@@ -97,7 +97,7 @@ class VoiceReadyCreativePlan(CreativePlan):
                     f'场景 {scene.id} 的 narration 包含时间码或导演注释。'
                     'narration 只能是最终真实 TTS 要朗读的短句，'
                     '不要放旁白窗口、时间段、语速、停顿、换气、字幕或镜头说明；'
-                    '这些说明请写在 script 或 visual 字段。'
+                    '这些说明请写在 visual 字段；script保留完整口播原文。'
                 )
         from .voice_budget import reserve_narration_slots
         try:
@@ -234,15 +234,14 @@ class PlanningTasks:
         payload['business_result']=result
         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
 
-    def runner(self, ctx, *, namespace=None, max_format_repairs=1, legacy_first_repair=False):
+    def runner(self, ctx, *, namespace=None, max_format_repairs=1):
         if self.transport is None:
             raise ModelTaskError('service_unavailable','请先配置创作模型服务，再授权当前任务使用')
         recorded=RecordedModelTransport(self.transport,self.operations,ctx,self.model_service,self.config_version,namespace=namespace)
         async def authorize(_context):
             # Actual per-request authorization and durable receipt happen inside recorded.complete.
             return None
-        return ModelTaskRunner(recorded,authorize,max_format_repairs=max_format_repairs,
-                               legacy_first_repair=legacy_first_repair)
+        return ModelTaskRunner(recorded,authorize,max_format_repairs=max_format_repairs)
 
     async def observe_inputs(self,ctx):
         import asyncio
@@ -299,7 +298,6 @@ class PlanningTasks:
             return (r['state']=='succeeded' and r['work_id']==ctx.work_id
                     and r['config_version']==self.config_version and r['provider']==self.model_service['provider']
                     and r['model']==self.model_service['model'] and r['mode']==self.model_service['mode'])
-        def content(r):return json.loads(r['receipt_json'])['result']['message']['content']
         state=payload.get('native_draft_checkpoint')
         if state:
             try:
@@ -313,29 +311,7 @@ class PlanningTasks:
                 return state
             except (KeyError,TypeError,ValueError):
                 raise ModelTaskError('draft_provenance_missing','草稿缺少相符的本任务原生模型回执，未采用外部替换稿') from None
-        # Compatibility for the real v2 audit failure before checkpoints existed.
-        # Do not replay changed schema requests or repeat the expensive author.
-        author_ids={hashlib.sha256((ctx.task_id+':model:draft-correction-v2:'+str(i)).encode()).hexdigest() for i in range(1,7)}
-        candidates=[r for r in ops if r['id'] in author_ids and known(r)]
-        if not candidates:return None
-        source=candidates[-1]
-        try:
-            draft=received_plan(source)
-            reviews=[];last=None
-            for r in ops:
-                if not known(r):continue
-                request=json.loads(r['request_json'])
-                if request.get('schema',{}).get('title')!='DraftReview':continue
-                review=DraftReview.model_validate(parse_model_json(content(r)));reviews.append(review.model_dump(mode='json'))
-                if r['created_at']>source['created_at']:last=review
-            if last is None:raise ValueError
-        except (ValueError,KeyError,TypeError):
-            raise ModelTaskError('draft_provenance_missing','旧草稿未取得完整原生修正与复核回执，未重新发送') from None
-        state=self._store_draft(ctx,draft,source['id'],1,reviews,last)
-        with ctx.transaction() as conn:
-            self.service._event(conn,ctx.work_id,'native_draft_recovered',
-                {'source_operation_id':source['id'],'draft_hash':state['draft_hash'],'correction_round':1},run_id=ctx.run_id)
-        return state
+        return None
 
     async def draft_board_media(self,ctx,plan):
         """Actual local draft pixels, not registered final assets or user evidence."""
@@ -439,7 +415,7 @@ class PlanningTasks:
                 '提出完整创作方案；遵守明确时长、画幅、声音设置；全部必用输入须落实到场景。'
                 '旁白片在narration_policy明确时长策略：用户明确要求精确片长才用fixed；约、大约、左右或已允许自然收尾的时长是目标，不是硬性长度，应选择voice_driven并在摘要说明实际长度随完整旁白决定。未限定片长同样用voice_driven。continuous与片长独立。'
                 'Scene.narration 只能是将由 TTS 实际朗读的简短口播原文，不能包含时间码、朗读窗口、'
-                '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明写入 script/visual。'
+                '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明只写入 visual；script与各场景narration按顺序拼接一致，不含分镜编号或章节标签。'
                 '仅固定MiniMax speech-2.8时可按必要语义填写独立narration_pauses，after是去除首尾空白后的字符位置，seconds为0.05到1秒；不在正文写供应商标签，不逐句加停顿，默认空列表。'
                 'fixed口播须适合明确片长；voice_driven的秒数只是规划估计，最终随完整实测旁白定长，不为填满估计秒数增加内容或留白。'
                 '在同一次创作中先按选定导演的讲述方式组织完整思路，再落实分镜；频道提供定位与受众，不是固定文体。'

@@ -213,8 +213,6 @@ class ModelTaskRunner:
     authorize: Callable[[TaskContext], Awaitable[None]]
     max_rounds: int = 6
     max_format_repairs: int = 1
-    # Replay compatibility for an already-recorded first repair request.
-    legacy_first_repair: bool = False
 
     async def run(self, context: TaskContext, task_kind: str, result_type: type[T], *,
                   expression_role: ExpressionRole | None = None,
@@ -335,15 +333,10 @@ class ModelTaskRunner:
                                                      "prompt_version": PROMPT_VERSION,
                                                      "schema_violations": correction[:2000]}) from None
                 repairs += 1
-                messages.append({"role": "assistant", "content": str(raw)[:16000] if self.legacy_first_repair and repairs == 1 else str(raw)})
-                if self.legacy_first_repair and repairs == 1:
-                    # Exact old request bytes are mandatory for durable replay.
-                    # New diagnostics apply only to the next, as-yet-unsent round.
-                    feedback = "上次结果无效。严格按schema输出JSON；不要包含执行权限字段或不存在的媒体引用。"
-                else:
-                    feedback = ('上次结果不符合schema：' + correction[:2000] +
-                        '。请按具体字段路径修正，删除extra_forbidden字段、缩短string_too_long字段；'
-                        '不要更改已确认事实、导演、声音及场景身份。只输出schema允许的JSON；'
-                        '不得包含执行权限字段或不存在的媒体引用。')
+                messages.append({"role": "assistant", "content": str(raw)})
+                feedback = ('上次结果不符合schema：' + correction[:2000] +
+                    '。请按具体字段路径修正，删除extra_forbidden字段、缩短string_too_long字段；'
+                    '不要更改已确认事实、导演、声音及场景身份。只输出schema允许的JSON；'
+                    '不得包含执行权限字段或不存在的媒体引用。')
                 messages.append({"role": "user", "content": feedback})
         raise ModelTaskError("invalid_model_output", "模型达到技术尝试上限，保留现有成果并等待处理")

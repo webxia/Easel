@@ -20,7 +20,6 @@ from .test_director_runtime import claim_context
 
 
 def change_defaults(monkeypatch):
-    monkeypatch.setattr(policy, 'VERSION', 'test-next-version')
     monkeypatch.setattr(policy, 'RULES', {**policy.RULES, 'core': 'Changed future default.'})
 
 
@@ -75,7 +74,7 @@ def test_context_fingerprint_tracks_rule_text_without_duplicate_model_metadata(m
     second = replace(first, expression_policy=policy.snapshot())
     assert first.creative_data() == second.creative_data()
     assert first.fingerprint != second.fingerprint
-    assert policy.validate(old) == old  # Prior saved version remains supported.
+    assert policy.validate(old) == old  # Frozen rules remain authoritative within the current format.
 
 
 def test_plan_uses_creation_snapshot_and_receipt_after_default_change_and_crash(tmp_path, monkeypatch):
