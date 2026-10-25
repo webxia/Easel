@@ -28,11 +28,11 @@ def test_fixed_duration_survives_confirmed_dialogue_into_planning_basis(env):
     p=pipe(b,i,'offer',action='plan',values={'request':'固定30秒','duration_seconds':30},summary='整理固定30秒方案')
     assert 'duration_seconds' not in s.snapshot(w)['settings']
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'同意整理30秒方案',id='yes')
-    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意整理30秒方案')
+    result=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意整理30秒方案')
     assert s.snapshot(w)['settings']['duration_seconds']==30
     task=s.snapshot(w)['tasks'][0]
     assert json.loads(task['payload_json'])['creation_basis']['settings']['duration_seconds']==30
-    assert pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意整理30秒方案')==result
+    assert pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意整理30秒方案')==result
     assert len(s.snapshot(w)['runs'])==1
     with s.store.connection() as conn:assert conn.execute('select count(*) from operations').fetchone()[0]==0
 

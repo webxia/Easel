@@ -81,6 +81,9 @@ test('protocol 2 exposes one draft/plan route and retains independent lifecycle 
     assert.ok(!tools.some(t=>t.name===name));
   const pipeline=tools.find(t=>t.name==='easel_pipeline').parameters.properties;
   assert.ok(pipeline.mode.enum.includes('preview'));
+  assert.deepEqual(tools.find(t=>t.name==='easel_pipeline').parameters.allOf,[{if:{properties:{mode:{const:'answer'}},required:['mode']},then:{required:['dismiss']}}]);
+  assert.equal(pipeline.dismiss.type,'boolean');
+  assert.match(pipeline.dismiss.description,/REQUIRED for answer/);
   assert.equal(pipeline.values.properties.output_revision.type,'integer');
   for(const action of ['accept','publication_prepare','publication_save'])assert.ok(pipeline.action.enum.includes(action));
   for(const action of ['submit','upload','publish'])assert.ok(!pipeline.action.enum.includes(action));

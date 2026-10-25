@@ -50,12 +50,12 @@ def test_local_draft_and_plan_confirmation_are_separate(env):
     d=pipe(b,i,'draft',user_quote='把今天的想法做视频',values={'title':'想法','input_text':'今天的想法'})
     assert not s.snapshot(d['work_id'])['runs']
     p=pipe(b,i,'offer',action='plan',values={'request':'深入分析','services':[]},summary='整理完整方案')
-    raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='把今天的想法做视频'))
+    raises('confirmation_required',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='把今天的想法做视频'))
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'同意整理方案',id='answer')
-    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意整理方案')
+    result=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意整理方案')
     assert result['run_id']
-    assert pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意整理方案')==result
+    assert pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意整理方案')==result
     assert len(s.snapshot(d['work_id'])['runs'])==1
     with s.store.connection() as conn:assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
 
@@ -66,8 +66,8 @@ def test_channel_save_from_user_reply_and_forbidden_source(env):
     p=proposal(s,c,seg,'channel_create',{'name':'学习频道','creative_basis':{'position':'学习','themes':'实践','audience':'普通人'}})
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'保存这个频道',id='save')
-    raises('invalid_source',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='助手说同意'))
-    saved=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='保存这个频道')
+    raises('invalid_source',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='助手说同意'))
+    saved=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='保存这个频道')
     assert c.view('ui')['context']['channel_id']==saved['id']
     assert s.list_works()['items']==[]
 
@@ -79,13 +79,13 @@ def test_director_revision_then_style_confirm_without_acceptance(env):
     p=proposal(s,c,seg,'director_revision',{'style':{'visual_style':'清晰','storytelling':'松弛'},'base_revision':rev})
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'保存新风格',id='save')
-    pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='保存新风格')
+    pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='保存新风格')
     with s.store.connection() as conn:v=dict(conn.execute('SELECT * FROM director_revisions ORDER BY revision DESC').fetchone())
     assert v['revision']==5 and not v['style_confirmed'] and not v['accepted_at']
     p=pipe(b,i,'offer',action='director_style',values={'revision_id':v['id']},summary='确认新风格，仍待试片')
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'确认这个风格',id='confirm')
-    pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认这个风格')
+    pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认这个风格')
     with s.store.connection() as conn:
         v=row(conn,'director_revisions',v['id']);assert v['style_confirmed'] and not v['accepted_at']
     assert s.list_works()['items']==[]
@@ -99,8 +99,8 @@ def test_pipeline_scope_and_stale_proposals(env):
     first=proposal(s,c,seg,'channel_create',{'name':'旧'})
     second=proposal(s,c,seg,'channel_create',{'name':'新'})
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'保存',id='save')
-    raises('stale_revision',lambda:pipe(b,i,'answer',proposal_id=first['proposal_id'],hash=first['hash'],user_quote='保存'))
-    pipe(b,i,'answer',proposal_id=second['proposal_id'],hash=second['hash'],user_quote='保存')
+    raises('stale_revision',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=first['proposal_id'],hash=first['hash'],user_quote='保存'))
+    pipe(b,i,'answer',dismiss=False,proposal_id=second['proposal_id'],hash=second['hash'],user_quote='保存')
 
 
 def test_bind_cross_profile_and_unconfirmed_director_rejected(env):
@@ -128,7 +128,7 @@ def test_full_plan_confirm_uses_exact_version_and_creates_only_one_run(env):
     assert not s.snapshot(d['work_id'])['runs']
     repeated_question=pipe(b,i,'offer',action='confirm',values=values,summary='相同范围的不同说明')
     assert repeated_question['proposal_id']==p['proposal_id']
-    raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='给我看看方案'))
+    raises('confirmation_required',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='给我看看方案'))
     before=s.snapshot(d['work_id'])
     raises('proposal_already_offered',lambda:tool(b,i,'easel_work_update_brief',{'entries':[{'kind':'user_requirement','text':'给我看看方案','source_refs':['show']}]}))
     after=s.snapshot(d['work_id'])
@@ -138,9 +138,9 @@ def test_full_plan_confirm_uses_exact_version_and_creates_only_one_run(env):
     repeated_question=pipe(b,i,'offer',action='confirm',values=values,summary='再次提及同一制作范围')
     assert repeated_question['already_proposed']
     assert (repeated_question['proposal_id'],repeated_question['hash'])==(p['proposal_id'],p['hash'])
-    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='就按这个方案制作')
+    result=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='就按这个方案制作')
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'就按这个方案制作',id='duplicate')
-    repeated=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='就按这个方案制作')
+    repeated=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='就按这个方案制作')
     assert repeated['run_id']==result['run_id']
     snapshot=s.snapshot(d['work_id']);assert len(snapshot['runs'])==1
     assert snapshot['plans'][0]['confirmed_at'] is not None
@@ -182,11 +182,11 @@ def test_input_rights_and_original_audio_require_prior_dialogue_confirmation(env
     work=pipe(b,i,'draft',user_quote='参考我上传的视频',values={'title':'参考','input_text':'分析参考'})['work_id']
     raises('rights_confirmation_required',lambda:tool(b,i,'easel_work_register_inputs',{'attachment_id':a['id'],'original_audio':True}))
     p=pipe(b,i,'offer',action='input',values={'attachment_id':a['id'],'usage':'must_use','original_audio':True,'interval':{'start':1,'end':3},'rights_confirmed':True},summary='将clip.mp4用于本片，保留1到3秒原声，请确认本片使用权')
-    raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='参考我上传的视频'))
+    raises('confirmation_required',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='参考我上传的视频'))
     assert not s.snapshot(work)['inputs']
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'确认，我有本片使用权，保留这段原声',id='rights')
-    r=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认，我有本片使用权，保留这段原声')
-    assert pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认，我有本片使用权，保留这段原声')==r
+    r=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认，我有本片使用权，保留这段原声')
+    assert pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认，我有本片使用权，保留这段原声')==r
     snap=s.snapshot(work);assert len(snap['inputs'])==1 and not snap['runs']
     meta=json.loads(snap['inputs'][0]['metadata_json'])
     assert meta['original_audio'] and meta['interval']=={'start':1,'end':3}
@@ -202,7 +202,7 @@ def test_input_confirmation_rejects_foreign_or_changed_attachment(env):
     p=pipe(b,i,'offer',action='input',values={'attachment_id':a['id'],'original_audio':True},summary='保留原声但未声明使用权')
     b.end(Identity(**i));(s.outputs/a['path']).write_bytes(b'changed video')
     b,i,_=turn(s,c,seg,'确认登记',id='changed')
-    raises('stale_revision',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认登记'))
+    raises('stale_revision',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认登记'))
     assert not s.snapshot(work)['inputs']
 
 
@@ -216,7 +216,7 @@ def test_partial_selection_reports_remaining_choice_and_channel_scope(env):
     b,i,_=turn(s,c,seg,'修改频道',id='channel-edit')
     p=proposal(s,c,seg,'channel_defaults',{'name':'新频道名'},ref='channel-edit')
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'确认保存',id='channel-save')
-    pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认保存')
+    pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认保存')
     assert c.view('ui')['context']['channel']['name']=='新频道名'
     assert not s.list_works()['items']
 
@@ -243,8 +243,8 @@ def test_plan_confirmation_runs_worker_with_bound_model_grant(env,legacy):
         assert conn.execute('select count(*) from runs').fetchone()[0]==0
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'同意使用所述模型整理方案',id='yes')
-    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意使用所述模型整理方案')
-    assert pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意使用所述模型整理方案')==result
+    result=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意使用所述模型整理方案')
+    assert pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意使用所述模型整理方案')==result
     b.end(Identity(**i))
     answer={'title':'想法','summary':'具体分析','script':'今天的想法','scenes':[{'id':'s1','purpose':'解释','visual':'书桌','narration':''}], 'settings':{'duration_seconds':3,'aspect_ratio':'16:9','audio_mode':'silent'}}
     transport=Transport(answer)
@@ -306,9 +306,9 @@ def test_existing_permission_pause_is_granted_and_resumed_by_one_answer(env,mini
     assert '继续原整理方案' in p['values']['summary']
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'同意授权并继续',id='grant-yes')
-    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意授权并继续')
+    result=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意授权并继续')
     assert result['run_id']==run['run_id']
-    assert pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意授权并继续')==result
+    assert pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意授权并继续')==result
     snap=s.snapshot(work)
     assert len(snap['runs'])==1 and snap['tasks'][0]['state']=='pending'
     with s.store.connection() as conn:
@@ -400,13 +400,13 @@ def test_legacy_bad_grant_is_unanswerable_and_replacement_uses_catalog(env):
     bad=next(p for p in pending['pending'] if p['id']==old['proposal_id'])
     assert bad['can_answer'] is False
     assert bad['next_action']=={'mode':'offer','action':'grant','values':{'purpose':'planning'}}
-    raises('invalid_input',lambda:pipe(b,i,'answer',proposal_id=old['proposal_id'],hash=old['hash'],user_quote='重新授权'))
+    raises('invalid_input',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=old['proposal_id'],hash=old['hash'],user_quote='重新授权'))
     p=pipe(b,i,**bad['next_action'])
     assert p['values']['payload']['services']==[MODEL_SERVICE]
     assert next(p for p in c.view('ui')['proposals'] if p['id']==old['proposal_id'])['state']=='stale'
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'同意这次授权',id='repair-answer')
-    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意这次授权')
+    result=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意这次授权')
     assert result['grant_id']
     with s.store.connection() as conn:
         assert json.loads(conn.execute('select services_json from authorization_grants').fetchone()[0])==[MODEL_SERVICE]
@@ -429,7 +429,7 @@ def test_grant_rechecks_displayed_scope_before_saving(env,changed):
     else:
         with s.store.transaction() as conn:conn.execute("update tasks set error_json=?",(encode({'code':'result_unknown'}),))
     b,i,_=turn(s,c,seg,'同意授权',id='answer-grant')
-    raises('capability_unavailable' if changed=='model' else 'stale_revision',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意授权'))
+    raises('capability_unavailable' if changed=='model' else 'stale_revision',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意授权'))
     with s.store.connection() as conn:assert conn.execute('select count(*) from authorization_grants').fetchone()[0]==0
 
 
@@ -498,7 +498,7 @@ def test_invalid_answer_identity_guides_model_to_existing_pending_without_new_pr
     b,i,_=turn(s,c,seg,'确认之前已展示的内容')
     before=c.view('ui')['proposals']
     with pytest.raises(ProductionError,match='重新读取pending') as error:
-        pipe(b,i,'answer',proposal_id='shortened...',hash='fake',user_quote='确认之前已展示的内容')
+        pipe(b,i,'answer',dismiss=False,proposal_id='shortened...',hash='fake',user_quote='确认之前已展示的内容')
     assert error.value.code=='not_found'
     assert c.view('ui')['proposals']==before
     assert s.list_works()['items']==[]
@@ -532,7 +532,7 @@ def test_changed_production_scope_still_needs_a_new_human_answer(env):
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'增加一张生图',id='expanded')
     changed=pipe(b,i,'offer',action='confirm',values={**values,'allow_ai':True,'image_limit':1},summary='扩大范围')
     assert changed['proposal_id']!=original['proposal_id']
-    raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=changed['proposal_id'],hash=changed['hash'],user_quote='增加一张生图'))
+    raises('confirmation_required',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=changed['proposal_id'],hash=changed['hash'],user_quote='增加一张生图'))
     assert not s.snapshot(d['work_id'])['runs']
 
 
@@ -553,7 +553,7 @@ def test_nested_answer_identity_is_lossless_and_still_requires_current_human_quo
     d=pipe(b,i,'draft',user_quote='做个视频',values={'title':'小事','input_text':'具体想法'})
     p=pipe(b,i,'offer',action='plan',values={'request':'整理方案'},summary='仅用已展示的规划模型')
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'确认这条方案提案',id='answer')
-    nested={'proposal_id':p['proposal_id'],'hash':p['hash'],'user_quote':'做个视频'}
+    nested={'dismiss':False,'proposal_id':p['proposal_id'],'hash':p['hash'],'user_quote':'做个视频'}
     raises('invalid_source',lambda:pipe(b,i,'answer',values=nested))
     nested['user_quote']='确认这条方案提案'
     raises('invalid_tool_arguments',lambda:pipe(b,i,'answer',values=nested,proposal_id='conflicting'))
@@ -623,7 +623,7 @@ def test_confirm_freezes_complete_services_and_never_expands_on_answer(env,monke
     b.end(Identity(**i))
     services.append({'provider':'pixabay','model':'stock','mode':'search','available':True,'supports_auto_supply':True,'media_types':['video']})
     b,i,_=turn(s,c,seg,'确认',id='answer')
-    raises('stale_revision',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认'))
+    raises('stale_revision',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认'))
     assert s.snapshot(work)['runs']==[]
     assert s.snapshot(work)['plans'][0]['confirmed_at'] is None
 
@@ -682,7 +682,7 @@ def test_topic_only_cannot_bind_available_channel_and_director(env):
     p=pipe(b,i,'bind',user_quote=quote,values={'channel_id':channel,'director_revision':'v4','director_trial':True})
     assert p['selection_pending'] and not p['queued']
     assert c.view('ui')['context']['channel_id'] is None
-    raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote=quote))
+    raises('confirmation_required',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote=quote))
     b.end(Identity(**i))
     assert c.view('ui')['segment_id']==seg
     assert b.continue_handoff('ui','turn') is None
@@ -789,3 +789,34 @@ def test_existing_plan_cannot_stage_a_first_plan_question_but_grant_is_independe
     grant=pipe(b,i,'offer',action='grant',values={'purpose':'planning'})
     assert grant['values']['action']=='grant'
     assert s.snapshot(work)==before
+
+
+@pytest.mark.parametrize('decision', ['omitted', None, 'false', 'true', 0, 1])
+def test_answer_missing_or_coerced_decision_cannot_authorize_or_cancel_work(env, decision):
+    channel=seed(env);s,c=env
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'做个视频')
+    d=pipe(b,i,'draft',user_quote='做个视频',values={'title':'小事','input_text':'具体想法'})
+    p=pipe(b,i,'offer',action='plan',values={'request':'整理方案'},summary='只规划')
+    b.end(Identity(**i))
+    quote='先取消这条提案，只保留方案和作品，继续改稿，不制作。'
+    b,i,_=turn(s,c,seg,quote,id='decline')
+    before=s.snapshot(d['work_id'])
+    args={'proposal_id':p['proposal_id'],'hash':p['hash'],'user_quote':quote}
+    if decision!='omitted':args['dismiss']=decision
+    raises('invalid_tool_arguments',lambda:pipe(b,i,'answer',**args))
+    assert s.snapshot(d['work_id'])==before
+    assert next(x for x in c.view('ui')['proposals'] if x['id']==p['proposal_id'])['state']=='proposed'
+    result=pipe(b,i,'answer',**{**args,'dismiss':True})
+    assert result['dismissed']
+    assert s.snapshot(d['work_id'])==before
+    assert next(x for x in c.view('ui')['proposals'] if x['id']==p['proposal_id'])['state']=='dismissed'
+
+
+def test_nested_answer_must_also_supply_explicit_decision():
+    from pydantic import ValidationError
+    from easel.conversation_bridge import PipelineArgs
+    with pytest.raises(ValidationError,match='explicit dismiss'):
+        PipelineArgs(mode='answer',values={'proposal_id':'a'*32,'hash':'b'*64,'user_quote':'取消'})
+    assert PipelineArgs(mode='answer',values={'dismiss':True}).dismiss is True
+    assert PipelineArgs(mode='pending').mode=='pending'

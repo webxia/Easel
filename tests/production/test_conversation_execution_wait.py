@@ -26,7 +26,7 @@ def start(env,legacy=False):
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'确认规划',id='execute')
     with s.store.transaction() as conn:
         conn.execute("UPDATE conversation_turns SET payload_json=json_set(payload_json,'$.delivery_state','streaming','$.delivery_lease_until',?) WHERE id='execute'",(time.time()+30,))
-    args=dict(mode='answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认规划')
+    args=dict(mode='answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认规划')
     call=PersistentCall(**i,tool_call_id='execute-call',tool='easel_pipeline',params=args)
     req=PersistentDispatch(**call.model_dump(),ticket=b.prepare(call)['ticket'])
     receipt=b.dispatch(req)
@@ -106,7 +106,7 @@ def test_no_wait_for_read_or_proposal(env):
 
 
 def answer(b,i,p,quote):
-    call=PersistentCall(**i,tool_call_id='answer-'+i['run_id'],tool='easel_pipeline',params={'mode':'answer','proposal_id':p['proposal_id'],'hash':p['hash'],'user_quote':quote})
+    call=PersistentCall(**i,tool_call_id='answer-'+i['run_id'],tool='easel_pipeline',params={'mode':'answer','dismiss':False,'proposal_id':p['proposal_id'],'hash':p['hash'],'user_quote':quote})
     req=PersistentDispatch(**call.model_dump(),ticket=b.prepare(call)['ticket'])
     receipt=b.dispatch(req)
     return ExecutionPoll(**req.model_dump()),receipt
@@ -313,7 +313,7 @@ def test_known_edit_failure_exposes_existing_resume_without_resubmission(env,kin
     ConversationResults(b).poll(req)
     b.end(Identity(**i));b.complete_delivery('execute','说明失败与恢复范围')
     b,i,_=turn(s,c,c.view('ui')['segment_id'],'确认修复后继续',id='resume-edit')
-    reply=pipe(b,i,'answer',proposal_id=proposal['proposal_id'],hash=proposal['hash'],user_quote='确认修复后继续')
+    reply=pipe(b,i,'answer',dismiss=False,proposal_id=proposal['proposal_id'],hash=proposal['hash'],user_quote='确认修复后继续')
     assert reply['run_id']==r['run_id']
     assert s.snapshot(r['work_id'])['tasks'][0]['state']=='pending'
 

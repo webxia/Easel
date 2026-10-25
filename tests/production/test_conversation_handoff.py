@@ -31,7 +31,7 @@ def test_binding_continuation_is_once_and_cannot_authorize(env):
     assert b.continue_handoff('ui','turn') is None
     ident=dict(agent_id='main',session_key=r['payload']['session_key'],session_id='native-next',run_id='run-next')
     b.claim(Claim(**ident,prompt=r['prompt']))
-    raises('handoff_confirmation_required',lambda:pipe(b,ident,'answer',proposal_id='a'*32,hash='b'*64,user_quote='用频道甲和导演甲'))
+    raises('handoff_confirmation_required',lambda:pipe(b,ident,'answer',dismiss=False,proposal_id='a'*32,hash='b'*64,user_quote='用频道甲和导演甲'))
     assert not s.list_works()['items']
 
 

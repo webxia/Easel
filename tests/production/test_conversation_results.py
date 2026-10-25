@@ -27,7 +27,7 @@ def planning(env, *, fail=False):
     p=pipe(b,i,'offer',action='plan',values={'request':'完整方案'})
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'同意整理方案',id='plan-yes')
-    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意整理方案')
+    result=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意整理方案')
     b.end(Identity(**i))
     answer={'title':'任务结果','summary':'方案摘要','script':'技术服务人。','scenes':[{'id':'s1','purpose':'解释','visual':'科技画面','narration':'技术服务人。','duration_seconds':3,'required_input_ids':[]}],'settings':{'duration_seconds':3,'aspect_ratio':'16:9','audio_mode':'silent'}}
     transport=Transport(answer)
@@ -105,10 +105,10 @@ def confirm_production(env):
     result=ConversationResults(PersistentWorkToolBridge(s)).reserve_next();b,i=claim_result(s,result)
     plan=s.snapshot(work)['plans'][0]
     p=pipe(b,i,'offer',action='confirm',values={'plan_revision':plan['revision'],'plan_hash':plan['plan_hash'],'services':[],'allow_ai':False,'image_limit':0,'video_limit':0},summary='已展示完整方案，确认后制作')
-    raises('result_event_read_only',lambda:pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意'))
+    raises('result_event_read_only',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意'))
     b.end(Identity(**i));b.delivery(result['turn_id'],'unknown','完整方案和所需服务已展示。是否确认制作？')
     b,i,_=turn(s,c,seg,'同意制作这个方案',id='make-yes')
-    r=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意制作这个方案')
+    r=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意制作这个方案')
     assert r['run_id']!=result['payload']['result_event']['run_id']
     assert len(s.snapshot(work)['runs'])==2
     b.end(Identity(**i))
@@ -214,7 +214,7 @@ def test_explicit_resume_same_run_delivers_new_outcome_once(env):
     p=pipe(b,i,'offer',action='resume',values={'decision_id':task['id']},summary='继续原任务，不新建运行')
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'同意继续',id='resume-answer')
-    pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意继续');b.end(Identity(**i))
+    pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='同意继续');b.end(Identity(**i))
     assert relay.reserve_next() is None
     asyncio.run(planning_worker.run_once())
     second=relay.reserve_next();assert second['turn_id']!=first['turn_id']
@@ -368,7 +368,7 @@ def test_explicit_replan_preserves_media_and_only_starts_planning(env,authorized
         assert s.snapshot(work)==before
         b.end(Identity(**i))
         b,i,_=turn(s,c,seg,'同意本次规划服务',id='replan-grant')
-        result=pipe(b,i,'answer',proposal_id=result['proposal_id'],hash=result['hash'],user_quote='同意本次规划服务')
+        result=pipe(b,i,'answer',dismiss=False,proposal_id=result['proposal_id'],hash=result['hash'],user_quote='同意本次规划服务')
     else:
         assert result['replanned'] and result['requires_user_confirmation'] is False
         assert pipe(b,i,'offer',**args)==result

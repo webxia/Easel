@@ -7,7 +7,7 @@ import time
 import secrets
 from contextlib import nullcontext
 from typing import Literal
-from pydantic import Field, model_validator
+from pydantic import Field, StrictBool, model_validator
 from .work_bridge import Strict, Identity, Claim, Call, Dispatch, Invocation, ContextArgs, DraftArgs, PlanArgs, canonical, reject
 from .conversation import ConversationService
 from .production.service import row, encode, digest, now, fail
@@ -49,7 +49,7 @@ class PipelineArgs(Strict):
     user_quote: str = Field(default='', max_length=10000)
     proposal_id: str = ''
     hash: str = ''
-    dismiss: bool = False
+    dismiss: StrictBool = False
 
     @model_validator(mode='before')
     @classmethod
@@ -66,6 +66,13 @@ class PipelineArgs(Strict):
             result[key]=value
         result['values']={}
         return result
+
+    @model_validator(mode='after')
+    def explicit_answer_decision(self):
+        # Omission is not consent. Keep non-answer reads and offers unchanged.
+        if self.mode == 'answer' and 'dismiss' not in self.model_fields_set:
+            raise ValueError('answer requires explicit dismiss=true to decline or dismiss=false to approve; omission does not authorize execution')
+        return self
 
 TOOLS={
     'easel_pipeline':PipelineArgs,
