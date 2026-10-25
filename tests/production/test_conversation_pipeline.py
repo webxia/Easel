@@ -730,7 +730,8 @@ def test_current_draft_failure_exposes_bounded_findings_not_raw_checkpoint(env,c
     async def failed(ctx):
         with ctx.transaction() as conn:
             payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
-            payload['native_draft_checkpoint']={'draft':{'private_marker':'full-draft-must-stay-private'},
+            payload['native_draft_checkpoint']={'source_operation_id':'known-native-receipt',
+                'draft':{'private_marker':'full-draft-must-stay-private'},
                 'review':{'findings':['场景与状态不符','长'*3000]+['其他']*12,'observations':['not-for-summary']}}
             conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
         return TaskResult(state='needs_decision',work_state='needs_decision',
@@ -742,6 +743,8 @@ def test_current_draft_failure_exposes_bounded_findings_not_raw_checkpoint(env,c
     assert ('draft_review' in blocker)==visible
     if visible:
         detail=blocker['draft_review']
+        assert any(choice['action']=='resume' and choice['values']['decision_id']==s.snapshot(work)['tasks'][0]['id']
+                   for choice in blocker['choices'])
         assert detail['findings'][0]=='场景与状态不符'
         assert len(detail['findings'])==8 and len(detail['findings'][1])==2000
         assert '不是新增用户要求' in detail['scope']
@@ -754,3 +757,16 @@ def test_only_failed_narration_delta_has_existing_resume_option(scope,code,expec
     from easel.conversation_pipeline import has_edit_resume
     assert has_edit_resume({'kind':'plan','error_json':encode({'code':code}),
                            'payload_json':encode({'revision_scope':scope})}) is expected
+
+
+@pytest.mark.parametrize('version,code,source,expected',[
+    (None,'draft_review_failed',True,True),
+    ('current-draft-1','draft_review_failed',True,False),
+    (None,'draft_review_failed',False,False),
+    (None,'result_unknown',True,False)])
+def test_native_draft_reaudit_resume_is_only_exposed_for_outdated_known_view(version,code,source,expected):
+    from easel.conversation_pipeline import has_edit_resume
+    checkpoint={'draft':{'script':'候选稿'},'review_context_version':version}
+    if source:checkpoint['source_operation_id']='known-native-receipt'
+    assert has_edit_resume({'kind':'plan','error_json':encode({'code':code}),
+        'payload_json':encode({'native_draft_checkpoint':checkpoint})}) is expected

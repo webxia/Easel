@@ -225,10 +225,16 @@ def preview(conversations, segment, values):
 def has_edit_resume(task):
     """Existing edit recovery route, shared with user-facing continuation hints."""
     from .production.material_binding import AUDIO_EDIT_ERRORS
+    from .production.planning import DRAFT_REVIEW_CONTEXT_VERSION
     error=json.loads(task.get('error_json') or '{}')
+    payload=json.loads(task.get('payload_json') or '{}')
+    checkpoint=payload.get('native_draft_checkpoint') or {}
+    outdated_review=(task['kind']=='plan' and error.get('code')=='draft_review_failed'
+                     and checkpoint.get('source_operation_id') and checkpoint.get('draft')
+                     and checkpoint.get('review_context_version')!=DRAFT_REVIEW_CONTEXT_VERSION)
     scoped_plan=(task['kind']=='plan' and error.get('code')=='invalid_model_output'
-                 and json.loads(task.get('payload_json') or '{}').get('revision_scope')=='narration')
-    return (scoped_plan or (task['kind']=='render' and error.get('code')=='render_failed') or
+                 and payload.get('revision_scope')=='narration')
+    return (bool(outdated_review) or scoped_plan or (task['kind']=='render' and error.get('code')=='render_failed') or
             (task['kind']=='revise' and error.get('code') in {'invalid_revision_search','invalid_model_output'}) or
             (task['kind']=='edit' and error.get('code') in (AUDIO_EDIT_ERRORS | {
                 'invalid_edit_project','invalid_edit','invalid_model_output','editor_rejected',
@@ -320,10 +326,10 @@ def pending(conversations, conn, segment):
                     'requires':'展示原音乐来源内的有限补料及后续配音/剪辑费用，确认后恢复；保留已取得素材、原方案和BGM，不重发UNKNOWN。'})
             if (not unknown and active_run and not active_run['cancel_requested']
                     and active_run['state'] in {'needs_decision','paused','failed'}
-                    and has_edit_resume(task)):
-                choices.append({'kind':'resume','label':('阻断解决后继续原改稿，保留已确认修订范围' if task['kind']=='plan' else '阻断解决后继续原剪辑，复用已成功产物'),
+                    and has_edit_resume(row(conn,'tasks',task['id']))):
+                choices.append({'kind':'resume','label':('阻断解决后继续原改稿，保留原范围与回执' if task['kind']=='plan' else '阻断解决后继续原剪辑，复用已成功产物'),
                     'action':'resume','values':{'decision_id':task['id']},
-                    'requires':'先核对阻断已解决或已具备原结果修正入口。改稿差量修复使用新响应合同，不重发旧调用；新增模型费用须明确。用户明确要求继续原制作或原改稿时，offer action=resume并用user_quote引用本轮原话，在原授权内直接恢复，无需再次确认；文字越界已有原剪辑修正入口。只询问或尚未授权时说明范围后等待。不重跑已成功素材或配音，不改方案，不重发UNKNOWN。'})
+                    'requires':'先核对阻断已解决或已具备原结果修正入口。旧审阅视图失败沿原plan任务重新审阅已验证草稿，保留已用纠错次数；差量改稿沿新响应合同。新增模型费用须明确。用户明确要求继续原制作或原改稿时，offer action=resume并用user_quote引用本轮原话，在原授权内直接恢复，无需再次确认；文字越界已有原剪辑修正入口。只询问或尚未授权时说明范围后等待。不重跑已成功素材或配音，不重发旧调用或UNKNOWN。'})
             if (not unknown and active_run and not active_run['cancel_requested']
                     and task['kind']=='revise' and error.get('code')=='revision_scope_confirmation'):
                 # This is an existing scope decision, not a failed creative call.
