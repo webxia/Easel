@@ -336,8 +336,9 @@ class WorkService:
     def replanning_target(self,conn,work):
         """Pin a stopped run for an explicitly requested new plan, preserving media."""
         if work['state']=='cancelled':fail('revision_required','已取消作品须使用明确恢复入口',409)
-        plan=conn.execute('SELECT revision,plan_hash FROM plan_revisions WHERE work_id=? AND revision=?',
-                          (work['id'],work['current_plan_revision'])).fetchone()
+        plan=conn.execute('''SELECT revision,plan_hash FROM plan_revisions WHERE work_id=?
+                             AND (? IS NULL OR revision=?) ORDER BY revision DESC LIMIT 1''',
+                          (work['id'],work['current_plan_revision'],work['current_plan_revision'])).fetchone()
         if not plan:fail('revision_required','当前没有已生成方案；首次规划失败请使用原规划恢复入口',409)
         run=row(conn,'runs',work['active_run_id']) if work['active_run_id'] else None
         if not run or run['owner_id'] or run['cancel_requested'] or run['state'] not in {'needs_decision','paused','failed','succeeded'}:

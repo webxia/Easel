@@ -257,9 +257,14 @@ def test_runtime_projects_real_generation_readiness(tmp_path,monkeypatch):
     assert 'grant' in runtime.planning.execution_capabilities['generation_authorization']
 
 
-def test_replan_carries_original_plan_and_explicit_changes_without_production(tmp_path):
+@pytest.mark.parametrize('updated_basis',[False,True])
+def test_replan_carries_original_plan_and_explicit_changes_without_production(tmp_path,updated_basis):
     service,work,transport,worker=setup(tmp_path)
     asyncio.run(worker.run_once())
+    if updated_basis:
+        service.command('basis',{'input_text':'增加本轮明确表达要求'},work_id=work,
+                        expected_revision=service.snapshot(work)['revision'],command_id='basis-before-replan')
+        assert service.snapshot(work)['current_plan_revision'] is None
     with service.store.connection() as conn:
         from easel.production.service import row
         target=service.replanning_target(conn,row(conn,'works',work))

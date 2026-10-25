@@ -88,7 +88,7 @@ def planning_values(conversations,conn,segment,values,*,applying=False,authoriza
         if run['kind']=='production' and run['state'] in {'needs_decision','paused','failed'}:
             fail('resume_required','请按本轮真实意图区分：继续原制作使用resume；用户明确要求重新规划时使用plan并传intent=replan和具体request；只重剪使用既有修订入口，不从暂停状态推断用户意图。',409)
     if (not authorization_only and values.get('intent')!='replan' and work
-            and work['current_plan_revision'] is not None and not values.get('decision_id') and 'settings' not in values):
+            and conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? LIMIT 1',(work['id'],)).fetchone() and not values.get('decision_id') and 'settings' not in values):
         fail('plan_revision_required','已有可审阅方案；改稿使用plan、values.intent=replan及本轮request，并以user_quote引用真人明确改稿要求。不要重复首次规划确认；继续制作使用原确认或resume入口。',409)
     if values.get('decision_id'):
         conversations.service.failed_planning_target(conn,row(conn,'works',segment['work_id']),values['decision_id'])
