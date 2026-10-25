@@ -60,7 +60,7 @@ def grant_values(conversations,conn,segment,values,*,applying=False):
         if key in data and (type(data[key]) is not int or data[key]<0):fail('invalid_input','生成次数须为非负整数')
     if 'allow_ai' in data and type(data['allow_ai']) is not bool:fail('invalid_input','allow_ai须为布尔值')
     if purpose=='planning':
-        planning_values(conversations,conn,segment,{'services':services},applying=True)
+        planning_values(conversations,conn,segment,{'services':services},applying=True,authorization_only=True)
         decision=planning_decision(conversations,conn,segment)
         if decision and not data.get('decision_id'):
             if applying:fail('stale_revision','此旧授权提案未绑定暂停任务，请重新offer grant，values只传{"purpose":"planning"}，展示授权并继续原任务后确认',409)
@@ -74,7 +74,7 @@ def grant_values(conversations,conn,segment,values,*,applying=False):
     return data
 
 
-def planning_values(conversations,conn,segment,values,*,applying=False):
+def planning_values(conversations,conn,segment,values,*,applying=False,authorization_only=False):
     """Bind the model before asking; never expand an already approved proposal."""
     if set(values)-WORK_ACTIONS['plan']:fail('invalid_input','规划提案字段无效')
     work=row(conn,'works',segment['work_id']) if segment['work_id'] else None
@@ -87,6 +87,9 @@ def planning_values(conversations,conn,segment,values,*,applying=False):
         run=row(conn,'runs',work['active_run_id'])
         if run['kind']=='production' and run['state'] in {'needs_decision','paused','failed'}:
             fail('resume_required','请按本轮真实意图区分：继续原制作使用resume；用户明确要求重新规划时使用plan并传intent=replan和具体request；只重剪使用既有修订入口，不从暂停状态推断用户意图。',409)
+    if (not authorization_only and values.get('intent')!='replan' and work
+            and work['current_plan_revision'] is not None and not values.get('decision_id') and 'settings' not in values):
+        fail('plan_revision_required','已有可审阅方案；改稿使用plan、values.intent=replan及本轮request，并以user_quote引用真人明确改稿要求。不要重复首次规划确认；继续制作使用原确认或resume入口。',409)
     if values.get('decision_id'):
         conversations.service.failed_planning_target(conn,row(conn,'works',segment['work_id']),values['decision_id'])
         if set(values)-{'decision_id','request','services'}:fail('invalid_input','首次规划恢复须保持现有创作设置')

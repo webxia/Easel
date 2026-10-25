@@ -770,3 +770,22 @@ def test_native_draft_reaudit_resume_is_only_exposed_for_outdated_known_view(ver
     if source:checkpoint['source_operation_id']='known-native-receipt'
     assert has_edit_resume({'kind':'plan','error_json':encode({'code':code}),
         'payload_json':encode({'native_draft_checkpoint':checkpoint})}) is expected
+
+
+def test_existing_plan_cannot_stage_a_first_plan_question_but_grant_is_independent(env):
+    s,c=env;channel=seed(env)
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'建立作品')
+    work=pipe(b,i,'draft',user_quote='建立作品',values={'title':'本期','input_text':'一个问题'})['work_id']
+    b.end(Identity(**i))
+    s.command('plan',{'generate':False,'plan':{'title':'本期','summary':'概要','script':'原稿',
+        'scenes':[{'id':'s1','purpose':'说明','visual':'设备'}],'settings':{'duration_seconds':10,'audio_mode':'silent'}}},
+        command_id='frozen',work_id=work,expected_revision=s.snapshot(work)['revision'])
+    b,i,_=turn(s,c,seg,'整篇重写，沿用现有范围，只出方案',id='rewrite')
+    before=s.snapshot(work)
+    raises('plan_revision_required',lambda:pipe(b,i,'offer',action='plan',values={'request':'整篇重写'},user_quote='整篇重写'))
+    assert s.snapshot(work)==before
+    assert not pipe(b,i,'pending')['pending']
+    grant=pipe(b,i,'offer',action='grant',values={'purpose':'planning'})
+    assert grant['values']['action']=='grant'
+    assert s.snapshot(work)==before
