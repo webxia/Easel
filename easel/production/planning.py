@@ -15,6 +15,18 @@ from .service import row, encode, digest, now, new_id
 DRAFT_REVIEW_CONTEXT_VERSION = 'current-draft-2'
 
 
+def preserve_selected_voice_parameters(answer, selected):
+    """Apply only the deterministic parameter projection used before storage."""
+    if selected and answer.settings.voice:
+        from .contracts import VoiceIdentity
+        fixed = VoiceIdentity.model_validate(selected)
+        actual = answer.settings.voice
+        if all(getattr(actual, key) == getattr(fixed, key)
+               for key in ('provider', 'model', 'voice_id', 'engine')):
+            actual.parameters = dict(fixed.parameters)
+    return answer
+
+
 def current_draft_context(context, draft):
     """Project one candidate consistently; retain baseline requirements as history."""
     plan=draft.model_dump(mode='json')
@@ -344,6 +356,7 @@ class PlanningTasks:
         """Only typed same-task successful native receipts; never operator drafts."""
         with self.service.store.connection() as conn:
             payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
+            selected=json.loads(row(conn,'works',ctx.work_id)['settings_json']).get('voice')
             ops=[dict(r) for r in conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at",(ctx.task_id,))]
         if any(r['state'] in {'reserved','sending','submitted','unknown'} for r in ops):
             raise ModelTaskError('result_unknown','本草稿仍有结果待核实的原请求，未重新发送')
@@ -357,7 +370,7 @@ class PlanningTasks:
             try:
                 op=by_id[state['source_operation_id']]
                 draft=VoiceReadyCreativePlan.model_validate(state['draft'])
-                received=received_plan(op)
+                received=preserve_selected_voice_parameters(received_plan(op),selected)
                 if (state['producer_task_id']!=ctx.task_id or not known(op) or draft!=received
                         or json.loads(op['request_json']).get('schema',{}).get('title')not in {'VoiceReadyCreativePlan','CreativePlanChanges','NarrationPlanChanges'}
                         or state['draft_hash']!=digest(draft.model_dump(mode='json'))
@@ -444,12 +457,7 @@ class PlanningTasks:
             def check_capabilities(answer):
                 # Fixed synthesis parameters belong to the selected voice configuration.
                 # The creative model may not introduce extra knobs or change their values.
-                if selected and answer.settings.voice:
-                    from .contracts import VoiceIdentity
-                    fixed=VoiceIdentity.model_validate(selected)
-                    actual=answer.settings.voice
-                    if all(getattr(actual,k)==getattr(fixed,k) for k in ('provider','model','voice_id','engine')):
-                        actual.parameters=dict(fixed.parameters)
+                preserve_selected_voice_parameters(answer,selected)
                 if any(s.narration_pauses for s in answer.scenes):
                     from .prosody import compile_pauses
                     if not answer.settings.voice or answer.settings.audio_mode not in {'voice','mixed'}:raise ValueError('停顿控制需要固定旁白声音')

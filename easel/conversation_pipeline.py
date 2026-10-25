@@ -245,7 +245,7 @@ def has_edit_resume(task):
     error=json.loads(task.get('error_json') or '{}')
     payload=json.loads(task.get('payload_json') or '{}')
     checkpoint=payload.get('native_draft_checkpoint') or {}
-    outdated_review=(task['kind']=='plan' and error.get('code')=='draft_review_failed'
+    outdated_review=(task['kind']=='plan' and error.get('code') in {'draft_review_failed','draft_provenance_missing'}
                      and checkpoint.get('source_operation_id') and checkpoint.get('draft')
                      and checkpoint.get('review_context_version')!=DRAFT_REVIEW_CONTEXT_VERSION)
     scoped_plan=(task['kind']=='plan' and error.get('code')=='invalid_model_output'

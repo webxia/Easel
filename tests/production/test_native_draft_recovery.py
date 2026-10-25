@@ -93,3 +93,59 @@ def test_known_native_draft_recovery_preserves_receipt_and_never_adopts_external
         with store.connection() as c:
             payload=json.loads(c.execute('SELECT payload_json FROM tasks WHERE id=?',(task['id'],)).fetchone()[0])
             assert payload['native_draft_checkpoint']['draft']['title']=='native-repaired'
+
+
+@pytest.mark.parametrize('tamper',[None,'parameters','identity','script','unknown'])
+def test_normalized_voice_draft_recovery_preserves_actual_provenance(tmp_path,tamper):
+    from easel.production.planning import preserve_selected_voice_parameters
+    from tests.production.test_planning_runtime import setup
+    service,work,transport,_=setup(tmp_path)
+    voice={'provider':'fixture','model':'speech','engine':'minimax-speech-v1','voice_id':'fixed','parameters':{'speed':1}}
+    settings={'schema_version':1,'audio_mode':'mixed','voice':voice,'aspect_ratio':'16:9','duration_seconds':3}
+    with service.store.transaction() as c:
+        c.execute('UPDATE works SET settings_json=? WHERE id=?',(encode(settings),work))
+    transport.answer['settings']={k:v for k,v in settings.items() if k!='schema_version'}
+    transport.answer['settings']['voice']={**voice,'parameters':{'speed':1.4,'volume':1,'pitch':0}}
+    planning=PlanningTasks(service,OperationService(service.store),transport,{'provider':'direct-api','model':'fixture','mode':'structured'},'fixture-v1')
+    async def save_old_view(ctx):
+        author=planning.runner(ctx)
+        candidate=await author.run(planning.context(ctx),'native draft',VoiceReadyCreativePlan)
+        preserve_selected_voice_parameters(candidate,voice)
+        planning._store_draft(ctx,candidate,planning._native_operation(ctx,author),2,[],DraftReview(verdict='fail',findings=['缺少volume/pitch']))
+        with ctx.transaction() as c:
+            p=json.loads(c.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()[0])
+            p['native_draft_checkpoint']['review_context_version']='current-draft-1'
+            c.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(p),ctx.task_id))
+        return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError('draft_review_failed','旧视图'))
+    asyncio.run(Worker(service.store,{'plan':save_old_view}).run_once())
+    before=service.snapshot(work);task=before['tasks'][0]
+    with service.store.connection() as c:
+        op=dict(c.execute('SELECT * FROM operations').fetchone())
+    if tamper:
+        with service.store.transaction() as c:
+            p=json.loads(c.execute('SELECT payload_json FROM tasks WHERE id=?',(task['id'],)).fetchone()[0])
+            cp=p['native_draft_checkpoint']
+            if tamper=='unknown':c.execute("UPDATE operations SET state='unknown' WHERE id=?",(op['id'],))
+            else:
+                if tamper=='parameters':cp['draft']['settings']['voice']['parameters']={'speed':1.9}
+                elif tamper=='identity':cp['draft']['settings']['voice']['voice_id']='forged'
+                else:
+                    cp['draft']['script']='外部替换。';cp['draft']['scenes'][0]['narration']='外部替换。'
+                cp['draft_hash']=digest(cp['draft'])
+                c.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(p),task['id']))
+    service.command('resume',{'decision_id':task['id']},work_id=work,expected_revision=before['revision'],command_id='resume-normalized')
+    asyncio.run(Worker(service.store,{'plan':planning.plan}).run_once())
+    after=service.snapshot(work)
+    with service.store.connection() as c:
+        saved=dict(c.execute('SELECT * FROM operations WHERE id=?',(op['id'],)).fetchone())
+        assert saved['request_json']==op['request_json'] and saved['receipt_json']==op['receipt_json']
+        cp=json.loads(c.execute('SELECT payload_json FROM tasks WHERE id=?',(task['id'],)).fetchone()[0])['native_draft_checkpoint']
+        assert cp['correction_round']==2
+    if tamper:
+        assert after['state']=='needs_decision' and not after['plans']
+        assert transport.calls==1
+        assert json.loads(after['tasks'][0]['error_json'])['code']==('result_unknown' if tamper=='unknown' else 'draft_provenance_missing')
+    else:
+        assert after['state']=='awaiting_confirmation',after['tasks'][0]['error_json']
+        assert transport.calls==2
+        assert after['plans'][0]['plan']['settings']['voice']==voice
