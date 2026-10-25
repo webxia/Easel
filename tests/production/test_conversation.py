@@ -634,6 +634,8 @@ def test_production_preflight_requires_scoped_main_policy(monkeypatch):
     monkeypatch.setattr(httpx,'get',lambda *a,**k:httpx.Response(200,json=value,request=httpx.Request('GET','http://127.0.0.1:12345')))
     raises('gateway_bridge_incompatible',lambda:require_persistent_gateway('http://127.0.0.1:12345','token'))
     value['permission_policy']='main-pipeline-v1'
+    raises('gateway_bridge_incompatible',lambda:require_persistent_gateway('http://127.0.0.1:12345','token'))
+    value['bootstrap_policy']='product-bootstrap-v1'
     assert require_persistent_gateway('http://127.0.0.1:12345','token')['agent_id']=='main'
     for name in ['easel_work_create_draft','easel_work_request_plan','exec']:
         value['tools']=[*NATIVE_TOOLS,name]
@@ -753,3 +755,25 @@ def test_same_native_turn_can_reclaim_during_compaction_but_not_after_end(env):
     raises('binding_mismatch',lambda:b.claim(Claim(**{**i,'run_id':'another-run'},prompt=reserved['prompt'])))
     b.end(Identity(**i))
     raises('binding_mismatch',lambda:b.claim(Claim(**i,prompt=reserved['prompt'])))
+
+
+def test_bootstrap_only_reads_product_policy_for_current_controlled_turn(env):
+    from easel.conversation_bridge import PersistentWorkToolBridge,BootstrapContext
+    from easel.video_workspace import pipeline_system_prompt
+    s,c=env;seg=entry(c,profile_ref='one');b=PersistentWorkToolBridge(s)
+    reserved=b.reserve(ui_session='ui',turn_id='bootstrap',segment_id=seg,message='只讨论',attachments=[])
+    req=BootstrapContext(agent_id='main',session_key='agent:main:easel-pipeline:'+seg,session_id='native')
+    with s.store.connection() as conn:
+        before=dict(conn.execute('SELECT * FROM conversation_turns WHERE id=?',('bootstrap',)).fetchone())
+    assert b.bootstrap(req)=={'bootstrap_policy':'product-bootstrap-v1','system_prompt':pipeline_system_prompt()}
+    with s.store.connection() as conn:
+        assert dict(conn.execute('SELECT * FROM conversation_turns WHERE id=?',('bootstrap',)).fetchone())==before
+        assert conn.execute('SELECT count(*) FROM works').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+    raises('binding_mismatch',lambda:b.bootstrap(req.model_copy(update={'session_key':'agent:main:ordinary'})))
+    with s.store.transaction() as conn:
+        conn.execute('UPDATE conversation_segments SET native_session_id=? WHERE id=?',('native',seg))
+    raises('binding_mismatch',lambda:b.bootstrap(req.model_copy(update={'session_id':'other'})))
+    with s.store.transaction() as conn:
+        conn.execute("UPDATE conversation_turns SET state='ended' WHERE id='bootstrap'")
+    raises('binding_mismatch',lambda:b.bootstrap(req))

@@ -20,7 +20,7 @@ test('installed OpenClaw filters coding plugin tools; bounded full admits them a
   let factory;
   createWorkBridge({
     pluginConfig:{baseUrl:'http://127.0.0.1:12349',token:'offline-fixture-only-credential-123456',agentId:'main',protocolVersion:2},
-    on(){},registerHttpRoute(){},registerTool(fn){factory=fn;},
+    on(){},registerHook(){},registerHttpRoute(){},registerTool(fn){factory=fn;},
   });
   const names=persistentToolDefinitions.map(t=>t.name);
   function visible(profile,sessionKey){

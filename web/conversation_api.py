@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
 from easel.conversation import ConversationService
-from easel.conversation_bridge import PersistentWorkToolBridge, PersistentCall, PersistentDispatch, ExecutionPoll, require_persistent_gateway
+from easel.conversation_bridge import PersistentWorkToolBridge, PersistentCall, PersistentDispatch, ExecutionPoll, BootstrapContext, require_persistent_gateway
 from easel.work_bridge import Claim, Identity
 from easel.production.service import fail
 from easel.native_diagnostics import NativeEnd
@@ -165,6 +165,9 @@ def create_internal_router(provider,token_provider):
         return natural_entry.call(bridge.service,request)
     @router.post('/claim')
     def claim(request:Claim,authorization:str|None=Header(default=None)):return authenticate(authorization).claim(request)
+    @router.post('/bootstrap')
+    def bootstrap(request:BootstrapContext,authorization:str|None=Header(default=None)):
+        return authenticate(authorization).bootstrap(request)
     @router.post('/prepare')
     def prepare(request:PersistentCall,authorization:str|None=Header(default=None)):return authenticate(authorization).prepare(request)
     @router.post('/dispatch')

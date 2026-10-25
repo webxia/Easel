@@ -3,11 +3,22 @@ import assert from 'node:assert/strict';
 import {createWorkBridge,persistentToolDefinitions} from '../../agents/plugins/easel-work/tools.mjs';
 const ctx={agentId:'main',sessionKey:'agent:main:easel-pipeline:segment',sessionId:'native',runId:'run'};
 const ordinary={...ctx,sessionKey:'agent:main:ordinary',runId:'ordinary'};
-function runtime(){
- const hooks=new Map();let factory,route;
+function runtime(automaticBootstrap=true){
+ const hooks=new Map(),nativeHooks=new Map();let factory,route;
  createWorkBridge({pluginConfig:{baseUrl:'http://127.0.0.1:12349',token:'fixture-only-long-credential-123456',agentId:'main',protocolVersion:2},
-  on:(n,f)=>hooks.set(n,f),registerTool:f=>factory=f,registerHttpRoute:r=>route=r});
- return {hooks,tools:factory,route};
+  on:(n,f)=>hooks.set(n,f),registerHook:(n,f)=>nativeHooks.set(n,f),registerTool:f=>factory=f,registerHttpRoute:r=>route=r});
+ const rawPrompt=hooks.get('before_prompt_build');
+ if(automaticBootstrap) hooks.set('before_prompt_build',async(event,context)=>{
+  if(context.sessionKey?.startsWith('agent:main:easel-pipeline:')){
+   const old=globalThis.fetch;
+   try{
+    globalThis.fetch=async()=>response({bootstrap_policy:'product-bootstrap-v1',system_prompt:'PRODUCT ONLY'});
+    await nativeHooks.get('agent:bootstrap')({context:{...context,workspaceDir:'/fixture',bootstrapFiles:[]}});
+   }finally{globalThis.fetch=old;}
+  }
+  return rawPrompt(event,context);
+ });
+ return {hooks,nativeHooks,rawPrompt,tools:factory,route};
 }
 const response=data=>new Response(JSON.stringify(data),{status:200});
 test('native tool factory without runId dispatches only the hook-bound entry call',async()=>{
@@ -257,5 +268,38 @@ test('specific missing revision target reaches the model instead of an ambiguous
   const params={mode:'offer',action:'revise',values:{feedback:'改口播'}};
   await r.hooks.get('before_tool_call')({toolName:'easel_pipeline',toolCallId:'bad-revise',params},ctx);
   await assert.rejects(r.tools(ctx).find(t=>t.name==='easel_pipeline').execute('bad-revise',params),/plan_revision_required:.*未确认方案.*不要重复确认/);
+ }finally{globalThis.fetch=old;}
+});
+
+test('native bootstrap replaces global instruction files only for a pipeline',async()=>{
+ const r=runtime(false),old=globalThis.fetch,requests=[];
+ globalThis.fetch=async(url,options)=>{requests.push({url,body:JSON.parse(options.body)});return response({bootstrap_policy:'product-bootstrap-v1',system_prompt:'PRODUCT ONLY'});};
+ try{
+  const original=[{name:'AGENTS.md',path:'/fixture/AGENTS.md',content:'GENERAL'},
+   {name:'SOUL.md',path:'/fixture/SOUL.md',content:'OLD OPTIONS'},
+   {name:'MEMORY.md',path:'/fixture/MEMORY.md',content:'OTHER ACCOUNT'}];
+  const general={context:{...ordinary,workspaceDir:'/fixture',bootstrapFiles:structuredClone(original)}};
+  await r.nativeHooks.get('agent:bootstrap')(general);
+  assert.deepEqual(general.context.bootstrapFiles,original);assert.equal(requests.length,0);
+  const scoped={context:{...ctx,workspaceDir:'/fixture',bootstrapFiles:structuredClone(original)}};
+  await r.nativeHooks.get('agent:bootstrap')(scoped);
+  assert.deepEqual(scoped.context.bootstrapFiles,[{name:'AGENTS.md',path:'/fixture/AGENTS.md',missing:false,content:'PRODUCT ONLY'}]);
+  assert.deepEqual(original.map(x=>x.content),['GENERAL','OLD OPTIONS','OTHER ACCOUNT']);
+  assert.ok(requests[0].url.endsWith('/bootstrap'));
+  assert.deepEqual(requests[0].body,{agent_id:'main',session_key:ctx.sessionKey,session_id:ctx.sessionId});
+ }finally{globalThis.fetch=old;}
+});
+
+test('missing or failed bootstrap blocks model and never restores global memory',async()=>{
+ const r=runtime(false),old=globalThis.fetch;
+ globalThis.fetch=async()=>{throw Error('offline')};
+ try{
+  const fresh={...ctx,sessionKey:ctx.sessionKey+'-cold',sessionId:'cold',runId:'cold'};
+  assert.deepEqual((await r.rawPrompt({prompt:'request'},fresh)).toolsAllow,[]);
+  const event={context:{...fresh,workspaceDir:'/fixture',bootstrapFiles:[{name:'MEMORY.md',content:'PRIVATE'}]}};
+  await r.nativeHooks.get('agent:bootstrap')(event);
+  assert.deepEqual(event.context.bootstrapFiles,[]);
+  assert.deepEqual((await r.rawPrompt({prompt:'request'},fresh)).toolsAllow,[]);
+  assert.equal((await r.hooks.get('before_agent_run')({prompt:'request'},fresh)).outcome,'block');
  }finally{globalThis.fetch=old;}
 });

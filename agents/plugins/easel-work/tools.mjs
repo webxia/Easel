@@ -99,7 +99,7 @@ export function createWorkBridge(api) {
     handler(req, res) {
       if (req.method !== 'GET') { res.statusCode = 405; res.end(); return; }
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, permission_policy: scopedMain ? 'main-pipeline-v1' : undefined, natural_entry: scopedMain, automatic_handoff: scopedMain, host_owned_entry_input: scopedMain, tools: definitions.map(t => t.name) }));
+      res.end(JSON.stringify({ protocol: protocolVersion, agent_id: agentId, permission_policy: scopedMain ? 'main-pipeline-v1' : undefined, bootstrap_policy: scopedMain ? 'product-bootstrap-v1' : undefined, natural_entry: scopedMain, automatic_handoff: scopedMain, host_owned_entry_input: scopedMain, tools: definitions.map(t => t.name) }));
     },
   });
   const scope = createHash('sha256').update(JSON.stringify([baseUrl, agentId, protocolVersion, token])).digest('hex');
@@ -109,6 +109,8 @@ export function createWorkBridge(api) {
   registries.set(scope + ':entries', entries);
   const prepared = registries.get(scope + ':prepared') ?? new Map();
   registries.set(scope + ':prepared', prepared);
+  const bootstraps = registries.get(scope + ':bootstrap') ?? new Map();
+  registries.set(scope + ':bootstrap', bootstraps);
   const runKey = ctx => JSON.stringify([ctx.sessionKey, ctx.sessionId, ctx.runId]);
   const hash = text => createHash('sha256').update(text).digest('hex');
   const names = new Set(definitions.map(t => t.name));
@@ -130,11 +132,32 @@ export function createWorkBridge(api) {
     }
     return result;
   }
+  if (scopedMain) {
+    if (typeof api.registerHook !== 'function') throw new Error('Easel pipeline requires native bootstrap filtering');
+    api.registerHook('agent:bootstrap', async event => {
+      const ctx=event.context;
+      if (!ctx || !inPipeline({...ctx,agentId:ctx.agentId ?? 'main'})) return;
+      const original=ctx.bootstrapFiles ?? [];
+      const source=original.find(file=>file.name==='AGENTS.md');
+      // Remove general memory/personality BEFORE native context compilation.
+      // On failure the native pre-model gate below also blocks this turn.
+      ctx.bootstrapFiles=[];
+      bootstraps.set(ctx.sessionKey,{sessionId:ctx.sessionId,ready:false});
+      try {
+        const value=await send('bootstrap',{agent_id:agentId,session_key:ctx.sessionKey,session_id:ctx.sessionId ?? null});
+        if (value.bootstrap_policy!=='product-bootstrap-v1' || typeof value.system_prompt!=='string' || !value.system_prompt.trim()) throw new Error('missing product bootstrap');
+        ctx.bootstrapFiles=[{name:'AGENTS.md',path:source?.path ?? `${ctx.workspaceDir}/AGENTS.md`,missing:false,content:value.system_prompt}];
+        bootstraps.set(ctx.sessionKey,{sessionId:ctx.sessionId,ready:true});
+      } catch { /* No fallback to global workspace files. */ }
+    },{name:'easel-pipeline-bootstrap'});
+  }
   if (scopedMain) api.on('before_prompt_build', async (event, ctx) => {
     if (!inPipeline(ctx)) return;
     const previous = prepared.get(runKey(ctx));
     prepared.delete(runKey(ctx));
     try {
+      const bootstrap=bootstraps.get(ctx.sessionKey);
+      if (!bootstrap?.ready || (bootstrap.sessionId && bootstrap.sessionId!==ctx.sessionId)) throw new Error('product bootstrap unavailable');
       if (!ctx.runId || !ctx.sessionId) throw new Error('missing native identity');
       // A native mid-turn compaction retries with a continuation prompt. Reclaim
       // the original authenticated turn, never adopt that text as new user intent.

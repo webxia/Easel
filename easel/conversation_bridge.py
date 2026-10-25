@@ -16,6 +16,12 @@ from .production.service import row, encode, digest, now, fail
 class EvidenceArgs(Strict):
     input_ids: list[str] = Field(default_factory=list,max_length=100)
 
+
+class BootstrapContext(Strict):
+    agent_id: Literal['main']
+    session_key: str
+    session_id: str | None = None
+
 class RegisterArgs(Strict):
     attachment_id: str
     usage: Literal['reference','must_use'] = 'reference'
@@ -184,6 +190,20 @@ class PersistentWorkToolBridge:
         if payload.get('run_id')!=identity.run_id or segment['native_session_id']!=identity.session_id or (active and record['state']!='active'):reject('binding_mismatch')
         return dict(record),payload,segment
 
+    def bootstrap(self,request:BootstrapContext):
+        """Static product instructions only; this does not claim a run or grant tools."""
+        prefix='agent:main:easel-pipeline:'
+        if not request.session_key.startswith(prefix):reject('binding_mismatch')
+        with self.store.connection() as conn:
+            sid=request.session_key.removeprefix(prefix)
+            segment=row(conn,'conversation_segments',sid)
+            turn=conn.execute('SELECT state FROM conversation_turns WHERE segment_id=? ORDER BY created_at DESC,id DESC LIMIT 1',(sid,)).fetchone()
+            if (segment['revoked_at'] or not turn or turn['state'] not in {'reserved','dispatching','active'}
+                    or (segment['native_session_id'] and request.session_id!=segment['native_session_id'])):
+                reject('binding_mismatch')
+        from .video_workspace import pipeline_system_prompt
+        return {'bootstrap_policy':'product-bootstrap-v1','system_prompt':pipeline_system_prompt()}
+
     def claim(self,request:Claim):
         with self.store.transaction() as conn:
             if request.agent_id!='main' or not request.session_key.startswith('agent:main:easel-pipeline:'):reject('binding_mismatch')
@@ -344,4 +364,4 @@ class PersistentWorkToolBridge:
 
 def require_persistent_gateway(base_url,token):
     from .work_bridge import require_gateway_bridge
-    return require_gateway_bridge(base_url,token,expected_tools=set(NATIVE_TOOLS),protocol=2,agent_id='main',permission_policy='main-pipeline-v1')
+    return require_gateway_bridge(base_url,token,expected_tools=set(NATIVE_TOOLS),protocol=2,agent_id='main',permission_policy='main-pipeline-v1',bootstrap_policy='product-bootstrap-v1')

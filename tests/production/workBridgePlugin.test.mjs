@@ -74,7 +74,7 @@ test('native identity, tool name and ticket forwarded separately from model para
 
 test('protocol 2 exposes one draft/plan route and retains independent lifecycle gates', () => {
   let factory, route;
-  createWorkBridge({pluginConfig:{baseUrl:'http://127.0.0.1:12345',token:'test-credential-long-enough-32',protocolVersion:2},on(){},registerTool(fn){factory=fn;},registerHttpRoute(value){route=value;}});
+  createWorkBridge({pluginConfig:{baseUrl:'http://127.0.0.1:12345',token:'test-credential-long-enough-32',protocolVersion:2},on(){},registerHook(){},registerTool(fn){factory=fn;},registerHttpRoute(value){route=value;}});
   const tools=factory({...ctx,agentId:'main',sessionKey:'agent:main:easel-pipeline:one'});
   assert.equal(tools.length,7);
   for (const name of ['easel_work_create_draft','easel_work_request_plan'])
