@@ -35,7 +35,7 @@
 
 ## 待审阅的新需求方案
 
-- [V2.1版本规划：创作依据、上下文与自然表达](architecture/creative-context-expression-proposal.md)：已按2026-10-25授权在easel-v2.1-rebuild集中实施，最新授权已清理旧执行分支并复核遗漏，统一离线2523通过/16跳过，隔离后端19次真实调用已完成，表达仍有未通过项；[CRE-01版本主任务](project/tasks/CRE-01_creative-context-expression.md)记录工作包、依赖与验收。未部署、未媒体制作或前端联调；父版本PARTIAL，软件通过不代表表达通过。
+- [V2.1版本规划：创作依据、上下文与自然表达](architecture/creative-context-expression-proposal.md)：已清理旧执行分支、补齐真实失败缺口并统一软件验收（最终2536通过/16跳过）；隔离API19次真实调用为历史证据，本轮真实工作区Web已导出含BGM/音效的98.17秒成片，技术及视觉抽样通过，原对话连续播放通过，条件合并/统一部署收尾中。[CRE-01版本主任务](project/tasks/CRE-01_creative-context-expression.md)记录工作包与证据；完整听感、语义及Creator接受仍待人工，不宣称长期表达稳定。
 
 - [成片确认到发布](architecture/publication-proposal.md)：优先复用原发布能力，列明现状、补齐范围、版本/账号/确认与平台回执；首批B站已授权开发；由[父任务PUB-01](project/tasks/PUB-01_acceptance-publication.md)记录实现、离线验收与后续真实复验；本轮真实B站投稿已获授权并实际提交，平台审核中；公开结果按父任务继续核实。
 

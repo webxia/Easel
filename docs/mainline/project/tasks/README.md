@@ -29,4 +29,4 @@
 
 ## 待评审方案
 
-- [CRE-01 · V2.1版本主任务](CRE-01_creative-context-expression.md)：[完整版本规划](../../architecture/creative-context-expression-proposal.md)；2026-10-25已授权从最新V2创建easel-v2.1-rebuild集中实施，完成后统一调试。已按最新授权清理旧执行分支、核对补齐，统一离线2523通过/16跳过；隔离后端19次真实调用完成，表达仍PARTIAL；不部署/制作，原生产断点保留。
+- [CRE-01 · V2.1版本主任务](CRE-01_creative-context-expression.md)：[完整版本规划](../../architecture/creative-context-expression-proposal.md)；2026-10-25已授权从最新V2创建easel-v2.1-rebuild集中实施，完成后统一调试。已按最新授权清理旧执行分支、核对补齐，最终统一离线2536通过/16跳过；历史API19次真实调用，本轮真实Web已导出含BGM/必需音效的成片，技术及视觉抽样通过、原对话连续播放通过；按授权条件合并V2/统一部署收尾。完整听感、语义和Creator接受仍人工待审，历史生产断点保留。
