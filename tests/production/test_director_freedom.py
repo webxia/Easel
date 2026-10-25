@@ -67,3 +67,29 @@ def test_automatic_retiming_keeps_story_voice_and_subtitles():
         elif field=='duration':bad['scenes'][0]['duration']=1.5
         else:bad['work_id']='other'
         with pytest.raises((EditError,ValueError)):assert_visual_repair(base,EditProject.model_validate(bad),overlay_texts=[],allow_retiming=True)
+
+
+def test_admitted_audio_inspection_is_correctable_without_claiming_it_was_heard(tmp_path):
+    from easel.production.tools import ToolInputError
+    tools=edit_observation_tools({})
+    ctx=TaskContext('w','r','t',allowed_handles=frozenset({'voice'}),artifacts=({'asset_id':'voice','kind':'audio'},))
+    calls=[{'id':'voice-check','function':{'name':'inspect_media',
+            'arguments':json.dumps({'asset_id':'voice','frame_times':[0.2]})}}]
+    class Transport:
+        capabilities=frozenset({'text','structured','tools'})
+        calls=0
+        async def complete(self,messages,definitions,schema):
+            self.calls+=1
+            assert '不支持音频' in definitions[0]['function']['description']
+            feedback=json.loads(next(m['content'] for m in messages if m.get('role')=='tool'))
+            assert feedback['executed'] is False and feedback['audio_observed'] is False
+            assert feedback['error']=='visual_only'
+            return {'content':'{"summary":"use known timing, no audio observation"}'}
+    transport=Transport()
+    async def authorize(ctx):pass
+    # Recover the known request; it must not be sent to the provider again.
+    result=asyncio.run(ModelTaskRunner(transport,authorize,max_format_repairs=1).run(
+        ctx,'edit',Answer,tools=tools,recovery=([],{'tool_calls':calls})))
+    assert transport.calls==1 and result.summary.startswith('use known timing')
+    with pytest.raises(ValueError,match='outside current work'):
+        asyncio.run(tools[0].invoke({'asset_id':'foreign','frame_times':[0]},ctx))

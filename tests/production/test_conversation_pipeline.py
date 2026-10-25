@@ -747,3 +747,10 @@ def test_current_draft_failure_exposes_bounded_findings_not_raw_checkpoint(env,c
         assert '不是新增用户要求' in detail['scope']
     assert 'full-draft-must-stay-private' not in encode(state)
     assert 'not-for-summary' not in encode(state)
+
+
+@pytest.mark.parametrize('scope,code,expected',[('narration','invalid_model_output',True),('boards','invalid_model_output',False),('narration','result_unknown',False),(None,'invalid_model_output',False)])
+def test_only_failed_narration_delta_has_existing_resume_option(scope,code,expected):
+    from easel.conversation_pipeline import has_edit_resume
+    assert has_edit_resume({'kind':'plan','error_json':encode({'code':code}),
+                           'payload_json':encode({'revision_scope':scope})}) is expected

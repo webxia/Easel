@@ -58,7 +58,7 @@ def request_revision(service,conn,work,data):
     if scope=='narration':
         plan=json.loads(conn.execute('SELECT payload_json FROM plan_revisions WHERE work_id=? AND revision=?',
             (work['id'],source_run['plan_revision'])).fetchone()[0])
-        if plan['settings']['audio_mode']!='voice':fail('invalid_input','改稿重配首批仅支持纯旁白作品')
+        if plan['settings']['audio_mode'] not in {'voice','mixed'}:fail('invalid_input','改稿重配需要含旁白的作品；保留BGM和音效模式，不改成纯旁白')
         if any(json.loads(r[0]).get('original_audio') for r in conn.execute('SELECT metadata_json FROM work_inputs WHERE work_id=?',(work['id'],))):
             fail('invalid_input','保留原声的作品尚不支持改稿重配')
     render_payload=None
@@ -179,10 +179,14 @@ def revision_plan_searches(plan, base, searches):
         identity=search.scene_id
         if identity not in plan_ids and identity in shot_ids:
             # Existing recuts can themselves be split on a later revision.
-            while identity not in plan_ids and re.search(r'-cut[1-9][0-9]*$',identity):
-                identity=re.sub(r'-cut[1-9][0-9]*$','',identity)
-        if identity not in plan_ids or identity in {s['scene_id'] for s in result} or len(result)>=4:
-            raise ModelTaskError('invalid_revision_search','局部补料须映射到本方案不重复的场景；拆分镜头须来自当前剪辑，单次最多4场')
+            while identity not in plan_ids and re.search(r'(?:-cut|_)[1-9][0-9]*$',identity):
+                identity=re.sub(r'(?:-cut|_)[1-9][0-9]*$','',identity)
+        if identity not in plan_ids:
+            raise ModelTaskError('invalid_revision_search','局部补料场景 '+search.scene_id+' 未映射到原方案；拆镜必须来自已登记剪辑')
+        if identity in {s['scene_id'] for s in result}:
+            raise ModelTaskError('invalid_revision_search','局部补料场景 '+identity+' 重复；同一原场景只能保留一条简短检索词，不同拆镜也须合并为一条请求')
+        if len(result)>=4:
+            raise ModelTaskError('invalid_revision_search','局部补料单次最多4个不重复的原方案场景')
         result.append({**search.model_dump(mode='json'),'scene_id':identity})
     return result
 
@@ -409,6 +413,9 @@ class RevisionTasks:
                     except (EditError,ValueError) as exc:errors.append(str(exc))
                 collect(lambda: check_sources(candidate.edit))
                 collect(lambda: check_visual_evidence(candidate.edit,observed,pending_materials=bool(candidate.material_searches)))
+                if candidate.material_searches and not (candidate.expands_scope or candidate.requires_new_generation):
+                    try:revision_plan_searches(context.plan,base,candidate.material_searches)
+                    except ModelTaskError as exc:errors.append(exc.user_message)
                 if creative_repair and not (candidate.material_searches or candidate.expands_scope or candidate.requires_new_generation):
                     try:
                         draft=EditProject.model_validate({**base.model_dump(),'revision':base.revision+1,**edit_data(candidate.edit)})

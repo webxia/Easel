@@ -32,21 +32,22 @@ def test_native_recut_preserves_voice_group_time_and_approved_overlay_only():
             assert_visual_repair(base,EditProject.model_validate(bad),overlay_texts=approved)
 
 
-def test_revision_search_maps_only_existing_split_shots_to_plan():
+@pytest.mark.parametrize('suffix',['-cut','_'])
+def test_revision_search_maps_only_existing_split_shots_to_plan(suffix):
     from easel.production.revisions import revision_plan_searches
     from easel.production.material_intent import VisualIntent
     from easel.production.model_tasks import ModelTaskError
-    base=fixture().model_copy(update={'scenes':tuple(fixture().scenes[0].model_copy(update={'scene_id':s,'duration':2}) for s in ['s1-cut1','s1-cut2'])})
+    base=fixture().model_copy(update={'scenes':tuple(fixture().scenes[0].model_copy(update={'scene_id':s,'duration':2}) for s in ['s1'+suffix+'1','s1'+suffix+'2'])})
     plan={'scenes':[{'id':'s1'}]}
-    search=VisualIntent(scene_id='s1-cut2',query='save document',media_types=['video'],options=2)
+    search=VisualIntent(scene_id='s1'+suffix+'2',query='save document',media_types=['video'],options=2)
     result=revision_plan_searches(plan,base,[search])
     assert result==[{**search.model_dump(mode='json'),'scene_id':'s1'}]
-    assert search.scene_id=='s1-cut2'
+    assert search.scene_id=='s1'+suffix+'2'
     assert revision_plan_searches(plan,base,[search.model_copy(update={'scene_id':'s1'})])==result
-    for bad in ['s1-cut3','s1-extra','foreign-cut2','s1-cut0']:
+    for bad in ['s1'+suffix+'3','s1-extra','foreign'+suffix+'2','s1'+suffix+'0']:
         with pytest.raises(ModelTaskError):revision_plan_searches(plan,base,[search.model_copy(update={'scene_id':bad})])
     with pytest.raises(ModelTaskError):
-        revision_plan_searches(plan,base,[search,search.model_copy(update={'scene_id':'s1-cut1'})])
+        revision_plan_searches(plan,base,[search,search.model_copy(update={'scene_id':'s1'+suffix+'1','query':'another valid query'})])
 
 
 def test_split_shot_error_identifies_actual_registered_parent():

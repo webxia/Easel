@@ -231,10 +231,12 @@ def test_fixed_voice_parameters_are_program_owned(tmp_path):
 
 
 @pytest.mark.parametrize('field',['voice','duration_seconds','aspect_ratio','audio_mode','subtitles','visual'])
-def test_narration_revision_protects_frozen_choices(tmp_path,field):
+@pytest.mark.parametrize('audio_mode',['voice','mixed'])
+def test_narration_revision_protects_frozen_choices(tmp_path,field,audio_mode):
     from easel.production.planning import VoiceReadyCreativePlan,validate_narration_revision
     service,work,transport,worker=setup(tmp_path)
     plan=VoiceReadyCreativePlan.model_validate(transport.answer)
+    plan.settings.audio_mode=audio_mode
     base=plan.model_dump(mode='json')
     plan.scenes[0].narration='重新说清同一个意思。'
     validate_narration_revision(plan,base)
@@ -353,3 +355,34 @@ def test_generated_voice_script_must_match_spoken_scene_text(script):
         VoiceReadyCreativePlan.model_validate({'title':'问题','summary':'待确认','script':script,
             'settings':{'duration_seconds':20,'audio_mode':'voice','voice':{'provider':'fixture','model':'voice','engine':'fixture','voice_id':'fixed'}},
             'scenes':[{'id':'s1','purpose':'提问','visual':'动作','narration':'保留这个问题。','duration_seconds':20}]})
+
+
+@pytest.mark.parametrize('audio_mode',['voice','mixed'])
+def test_narration_delta_and_known_receipt_preserve_protected_fields(tmp_path,audio_mode):
+    from easel.production.planning import NarrationPlanChanges,merge_narration_changes,received_plan,VoiceReadyCreativePlan
+    from pydantic import ValidationError
+    service,work,transport,worker=setup(tmp_path)
+    base=transport.answer
+    base['settings']['audio_mode']=audio_mode
+    base['scenes'][0]['visual']='原画面；旧字幕“技术服务人。”；原分镜时间仅估计。'
+    base=VoiceReadyCreativePlan.model_validate(base).model_dump(mode='json')
+    change={'scenes':[{'id':'s1','narration':'技术也需要判断。'}]}
+    delta=NarrationPlanChanges.model_validate(change)
+    answer=merge_narration_changes(delta,base)
+    assert answer.script=='技术也需要判断。'
+    assert answer.scenes[0].visual==base['scenes'][0]['visual']
+    assert answer.settings.audio_mode==audio_mode
+    assert answer.scenes[0].purpose==base['scenes'][0]['purpose']
+    operation={'request_json':json.dumps({'schema':NarrationPlanChanges.model_json_schema(),
+        'messages':[{}, {'content':[{'type':'text','text':json.dumps({'plan':base})}]}]}),
+        'receipt_json':json.dumps({'result':{'message':{'content':json.dumps(change)}}})}
+    assert received_plan(operation)==answer
+    for extra in ({'settings':base['settings']},{'explainer_boards':[]},
+                  {'scenes':[{'id':'s1','narration':'改变。','visual':'不同画面'}]}):
+        with pytest.raises(ValidationError):NarrationPlanChanges.model_validate(extra)
+    for scenes in ([{'id':'unknown','narration':'改变。'}],
+                   [{'id':'s1','narration':'改变。'},{'id':'s1','narration':'重复。'}]):
+        with pytest.raises(ValueError,match='原场景身份'):
+            merge_narration_changes(NarrationPlanChanges.model_validate({'scenes':scenes}),base)
+    with pytest.raises(ValueError,match='script须'):
+        merge_narration_changes(NarrationPlanChanges.model_validate({**change,'script':'不是这句话。'}),base)

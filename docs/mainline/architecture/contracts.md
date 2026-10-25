@@ -501,7 +501,7 @@ A2持久记录/来源/工具桥与频道语义、A3统一对话/程序卡/共享
 
 ### S7 工作包实施合同（2026-10-23）
 
-只针对新建作品。`revise.scope`为`edit`（默认）、`narration`或`boards`。narration仅纯旁白且无受保护原声，与preserve_audio/render_only互斥；boards与render_only互斥。两者沿既有范围确认→新规划→正式制作确认，未确认不调用新TTS/供料。narration保护交付设置、场景身份、画面与图解；boards保护设置、脚本、全部场景及图解身份/卡片事实，只允许states变化。原版及授权/UNKNOWN保护保持；新版依据生成受影响图片，不放宽旧图解顺序校验。
+只针对新建作品。`revise.scope`为`edit`（默认）、`narration`或`boards`。narration支持含旁白的voice/mixed且无受保护原声，与preserve_audio/render_only互斥；mixed保留原BGM/音效模式、语音与交付设置，按新音轨重新编排，不将冻结整条旧音轨冒充改稿；boards与render_only互斥。两者沿既有范围确认→新规划→正式制作确认，未确认不调用新TTS/供料。narration保护交付设置、场景身份、画面与图解；原生规划以口播差量响应合并完整方案，只允许原场景的narration/narration_pauses/必要duration及口播元信息，受保护设置、visual/purpose和图解不由模型重写；回执按实际请求schema重建。visual里的旧口播锚点/字幕说明不能覆盖新版narration及实际对齐结果。boards保护设置、脚本、全部场景及图解身份/卡片事实，只允许states变化。原版及授权/UNKNOWN保护保持；新版依据生成受影响图片，不放宽旧图解顺序校验。
 
 `Scene.narration_pauses`默认空，最多4项`{after,seconds}`：after为去首尾空白后严格递增的内部字符位置，seconds为0.05～1秒，单场总计不超过3秒。正文禁止供应商停顿标签。仅固定MiniMax speech-2.8-hd/turbo、连续旁白且无原声保护可用；不支持则明确失败，不切声音。按连续片段映射位置，编译版本minimax-pauses-1，每请求最多32处；预留时间包含停顿，实际音频过长仍停止。TTS请求保存literal_text、pauses、prosody_version及编译text；发送前重新编译严格核对。Operation和音频复用键包含实际请求（segment_id不参与声学复用）；字幕、对齐与语义正文使用literal_text，不含标签。自然表达规则natural-expression-2随作品冻结，复用原写稿调用；软件通过不证明听感。
 

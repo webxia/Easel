@@ -88,7 +88,7 @@ def test_fork_exact_output_copies_reference_without_old_authority(prepared):
     assert json.loads(source['metadata_json'])['source']['rights']['status']=='UNKNOWN'
 
 
-@pytest.mark.parametrize('prepared',['voice'],indirect=True)
+@pytest.mark.parametrize('prepared',['voice','mixed'],indirect=True)
 def test_narration_scope_is_explicit_and_protected(prepared):
     service,work=prepared
     for patch in ({'preserve_audio':True},{'render_only':True},{'scope':'invalid'}):
@@ -102,14 +102,14 @@ def test_narration_scope_is_explicit_and_protected(prepared):
     assert json.loads(task['payload_json'])['scope']=='narration'
 
 
-def test_non_voice_narration_revision_rejected(prepared):
+def test_silent_narration_revision_rejected(prepared):
     service,work=prepared
-    with pytest.raises(ProductionError,match='纯旁白'):
+    with pytest.raises(ProductionError,match='含旁白'):
         service.command('revise',{'output_id':'passed','feedback':'改口播','scope':'narration'},
             command_id='narration',work_id=work,expected_revision=3)
 
 
-@pytest.mark.parametrize('prepared',['voice'],indirect=True)
+@pytest.mark.parametrize('prepared',['voice','mixed'],indirect=True)
 def test_narration_worker_proposes_scope_then_plans_without_synthesizing(prepared):
     import asyncio
     from easel.production.worker import Worker
@@ -132,10 +132,66 @@ def test_narration_worker_proposes_scope_then_plans_without_synthesizing(prepare
     assert snap['state']=='needs_decision'
     review=next(r for r in snap['reviews'] if r['id']==result['review_id'])
     assert review['changes']['affected']==['audio','captions','content']
-    service.command('confirm_revision',{'review_id':review['id'],'change_hash':review['change_hash']},
+    from easel.conversation import ConversationService
+    from easel.conversation_pipeline import pending
+    conversations=ConversationService(service)
+    segment_id=conversations.enter('scope-ui',{'work_id':work},'link-scope')['segment_id']
+    def scope_choices():
+        with service.store.connection() as conn:
+            segment=conversations.segment(conn,'scope-ui',segment_id)
+            return pending(conversations,conn,segment)['blockers'][0]['choices']
+    choice=scope_choices()[0]
+    assert choice['action']=='confirm_revision'
+    assert choice['values']=={'review_id':review['id'],'change_hash':review['change_hash']}
+    assert choice['scope']['reason']==review['changes']['reason']
+    assert choice['scope']['requires_new_generation'] is True
+    assert 'edit' not in choice['scope']
+    assert '新方案完成后另确认制作' in choice['requires']
+    with service.store.transaction() as conn:
+        conn.execute('UPDATE runs SET cancel_requested=1 WHERE id=?',(result['run_id'],))
+    assert scope_choices()==[]
+    with service.store.transaction() as conn:
+        conn.execute('UPDATE runs SET cancel_requested=0 WHERE id=?',(result['run_id'],))
+    service.command('confirm_revision',{'review_id':review['id'],'change_hash':review['change_hash'],
+        'services':[{'provider':'direct-api','model':'fixture','mode':'structured'}]},
         command_id='confirm-rewrite',work_id=work,expected_revision=snap['revision'])
     snap=service.snapshot(work)
     task=next(t for t in snap['tasks'] if t['run_id']==snap['active_run_id'])
     assert task['kind']=='plan'
     assert json.loads(task['payload_json'])['revision_scope']=='narration'
     assert json.loads(task['payload_json'])['base_plan_revision']==1
+    from tests.production.test_planning_runtime import Transport
+    from easel.production.planning import PlanningTasks,received_plan
+    from easel.production.operations import OperationService
+    transport=Transport({'scenes':[{'id':'s','narration':'新句。'}]})
+    planning=PlanningTasks(service,OperationService(service.store),transport,
+        {'provider':'direct-api','model':'fixture','mode':'structured'},'fixture-v1')
+    assert asyncio.run(Worker(service.store,{'plan':planning.plan}).run_once())
+    revised=service.snapshot(work)
+    assert revised['state']=='awaiting_confirmation'
+    latest=max(revised['plans'],key=lambda p:p['revision'])
+    original=next(p for p in revised['plans'] if p['revision']==1)
+    assert latest['plan']['script']=='新句。'
+    assert latest['plan']['settings']==original['plan']['settings']
+    assert latest['plan']['scenes'][0]['visual']==original['plan']['scenes'][0]['visual']
+    assert transport.requests[0][2]['title']=='NarrationPlanChanges'
+    with service.store.connection() as conn:
+        ops=[dict(o) for o in conn.execute("SELECT * FROM operations WHERE work_id=?",(work,))]
+    assert len(ops)==1 and ops[0]['kind']=='MODEL' and ops[0]['state']=='succeeded'
+    assert received_plan(ops[0]).script=='新句。'
+    assert not latest['confirmed_at']
+
+
+@pytest.mark.parametrize('prepared',['voice','mixed'],indirect=True)
+def test_narration_revision_still_rejects_protected_original_audio(prepared):
+    service,work=prepared
+    with service.store.transaction() as conn:
+        conn.execute("INSERT INTO work_inputs(id,work_id,kind,usage,source_ref,digest,metadata_json,created_at) VALUES('original',?,'video','must_use','source.mp4','original',?,'now')",
+                     (work,json.dumps({'schema_version':1,'original_audio':True})))
+    before=service.snapshot(work)
+    with pytest.raises(ProductionError,match='保留原声'):
+        service.command('revise',{'output_id':'passed','feedback':'只改结尾','scope':'narration'},
+                        command_id='protected-original',work_id=work,expected_revision=3)
+    after=service.snapshot(work)
+    assert after['runs']==before['runs'] and after['tasks']==before['tasks']
+    assert after['artifacts']==before['artifacts']

@@ -4,7 +4,7 @@ from pydantic import Field
 from typing import Annotated, Literal
 from .contracts import Contract
 from .inspection import observe_media
-from .tools import MediaToolResult, ScopedTool
+from .tools import MediaToolResult, ScopedTool, ToolInputError
 
 
 class InspectCandidate(Contract):
@@ -59,7 +59,11 @@ def edit_observation_tools(paths, observed=None, *, budget=None):
     # Paths come from validated artifact_file, never from the model.
     async def inspect(args, context):
         if args.asset_id not in paths:
-            raise ValueError('Only current admitted visual candidates may be observed')
+            if not any(a.get('asset_id')==args.asset_id and a.get('kind')=='audio' for a in context.artifacts):
+                raise ValueError('Only current admitted visual candidates may be observed')
+            raise ToolInputError('visual_only', {
+                'asset_id':args.asset_id,'audio_observed':False,
+                'instruction':'inspect_media只查看已准入图片/视频画面，不读取音频、波形、字幕对齐或静音点。旁白使用已给voice_schedule和实际timing；未提供的细粒度听感不能虚构。请选择已准入视觉素材或直接提交剪辑，不重复请求此音频。'})
         if budget is not None:
             result = await budget.observe(args.asset_id, paths[args.asset_id], frame_times=args.frame_times)
             if observed is not None:
@@ -72,7 +76,7 @@ def edit_observation_tools(paths, observed=None, *, budget=None):
         label = {'type':'text','text':'复查素材 '+args.asset_id+'；仅抽样实际画面，未听声音、未观察完整动作。'}
         return MediaToolResult({'asset_id':args.asset_id, **evidence}, (label, *blocks), required)
     return (ScopedTool('inspect_media',
-        '复查本次已准入素材或指定成片的时间画面，用于核对实际动作与切点；只读，不搜索、不生成、不改工程。',
+        '只复查本次已准入图片/视频或指定成片的时间画面；不支持音频、波形、静音点或语音对齐。只读，不搜索、不生成、不改工程。',
         InspectCandidate, inspect, ('asset_id',)),)
 
 

@@ -159,3 +159,32 @@ def test_real_duration_mismatch_uses_existing_repair_budget_without_relaxing_tar
         validate_result=lambda candidate:check_edit_source_bounds(candidate,{'video':8},target_seconds=5)))
     assert result.scenes[0].duration==5 and len(transport.calls)==2
     assert '确认总片长5.000000秒' in transport.calls[1][-1]['content']
+
+
+@pytest.mark.parametrize('tool_name,unknown,expected',[('inspect_media',False,True),('inspect_media',True,False),('search_materials',False,False)])
+def test_resume_known_readonly_tool_reply_keeps_original_operation(tmp_path,tool_name,unknown,expected):
+    import json
+    from tests.production.test_operations import owned_request
+    from easel.production.store import Store
+    from easel.production.operations import OperationService
+    from easel.production.providers.base import ProviderResult
+    from easel.production.service import WorkService,row
+    from easel.production.errors import ProductionError
+    store=Store(tmp_path/'db.sqlite');store.initialize();ops=OperationService(store,clock=lambda:1000)
+    spec=owned_request(store,kind='MODEL');spec['request']={'schema':{'title':'CreativeEdit'},'messages':[]}
+    ops.reserve(**spec);ops.mark_sending(spec['operation_id'],1)
+    if unknown:ops.mark_unknown(spec['operation_id'])
+    else:ops.receive(spec['operation_id'],ProviderResult('succeeded',result={'message':{'content':'',
+        'tool_calls':[{'id':'known-inspection','function':{'name':tool_name,'arguments':'{}'}}]}}))
+    service=WorkService(store,outputs=tmp_path,profiles=tmp_path/'profiles')
+    with store.transaction() as conn:
+        conn.execute("UPDATE tasks SET kind='edit',state='needs_decision',error_json=?",(json.dumps({'code':'invalid_model_output'}),))
+        conn.execute("UPDATE runs SET state='needs_decision'")
+    if unknown:
+        with pytest.raises(ProductionError):
+            with store.transaction() as conn:service._resume(conn,row(conn,'works',spec['work_id']),{'decision_id':spec['task_id']})
+    else:
+        with store.transaction() as conn:service._resume(conn,row(conn,'works',spec['work_id']),{'decision_id':spec['task_id']})
+    with store.connection() as conn:payload=json.loads(row(conn,'tasks',spec['task_id'])['payload_json'])
+    assert (payload.get('edit_recovery_source')==spec['operation_id']) is expected
+    assert ops.get(spec['operation_id'])['state']==('unknown' if unknown else 'succeeded')

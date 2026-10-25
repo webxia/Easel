@@ -226,7 +226,9 @@ def has_edit_resume(task):
     """Existing edit recovery route, shared with user-facing continuation hints."""
     from .production.material_binding import AUDIO_EDIT_ERRORS
     error=json.loads(task.get('error_json') or '{}')
-    return ((task['kind']=='render' and error.get('code')=='render_failed') or
+    scoped_plan=(task['kind']=='plan' and error.get('code')=='invalid_model_output'
+                 and json.loads(task.get('payload_json') or '{}').get('revision_scope')=='narration')
+    return (scoped_plan or (task['kind']=='render' and error.get('code')=='render_failed') or
             (task['kind']=='revise' and error.get('code') in {'invalid_revision_search','invalid_model_output'}) or
             (task['kind']=='edit' and error.get('code') in (AUDIO_EDIT_ERRORS | {
                 'invalid_edit_project','invalid_edit','invalid_model_output','editor_rejected',
@@ -319,9 +321,28 @@ def pending(conversations, conn, segment):
             if (not unknown and active_run and not active_run['cancel_requested']
                     and active_run['state'] in {'needs_decision','paused','failed'}
                     and has_edit_resume(task)):
-                choices.append({'kind':'resume','label':'阻断解决后继续原剪辑，复用已成功产物',
+                choices.append({'kind':'resume','label':('阻断解决后继续原改稿，保留已确认修订范围' if task['kind']=='plan' else '阻断解决后继续原剪辑，复用已成功产物'),
                     'action':'resume','values':{'decision_id':task['id']},
-                    'requires':'先核对阻断已解决或已具备原结果修正入口。用户明确要求继续原制作时，offer action=resume并用user_quote引用本轮原话，在原授权内直接恢复，无需再次确认；文字越界已有原剪辑修正入口。只询问或尚未授权时说明范围后等待。不重跑已成功素材或配音，不改方案，不重发UNKNOWN。'})
+                    'requires':'先核对阻断已解决或已具备原结果修正入口。改稿差量修复使用新响应合同，不重发旧调用；新增模型费用须明确。用户明确要求继续原制作或原改稿时，offer action=resume并用user_quote引用本轮原话，在原授权内直接恢复，无需再次确认；文字越界已有原剪辑修正入口。只询问或尚未授权时说明范围后等待。不重跑已成功素材或配音，不改方案，不重发UNKNOWN。'})
+            if (not unknown and active_run and not active_run['cancel_requested']
+                    and task['kind']=='revise' and error.get('code')=='revision_scope_confirmation'):
+                # This is an existing scope decision, not a failed creative call.
+                # Expose only its bound summary and confirmation identity, not
+                # the full source edit (which can dominate the next context).
+                from .production.revisions import revision_confirmation
+                review_id=json.loads(task['payload_json']).get('review_id')
+                review=next((r for r in work.get('reviews',[]) if r['id']==review_id),None)
+                if review:
+                    values={'review_id':review['id'],'change_hash':review['change_hash']}
+                    try:
+                        _,changes,_,_=revision_confirmation(conn,row(conn,'works',work['id']),values)
+                    except ProductionError:
+                        pass
+                    else:
+                        choices.append({'kind':'confirm_revision','label':changes['summary'],
+                            'action':'confirm_revision','values':values,
+                            'scope':{k:changes[k] for k in ('summary','affected','reason','requires_new_generation') if k in changes},
+                            'requires':'这是本轮已生成的实际修订范围待确认，不是旧约束冲突；展示本条真实范围和规划服务费用，offer confirm_revision并等待真人答复。不要新建revise、取消作品或臆测冲突；新方案完成后另确认制作，未确认不配音。'})
             blockers.append({'task_kind':task['kind'],'code':error.get('code'),'message':error.get('user_message'),
                 'searches':material_search_summary(searches) if task['kind']=='supply' else [],
                 'choices':choices,'unknown':bool(unknown),

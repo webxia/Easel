@@ -277,3 +277,42 @@ def test_revision_inspects_only_selected_output_and_recovers_known_read_request(
     assert path.read_bytes()==original
     assert [a for a in snap['artifacts'] if a['kind'] in {'image','video','audio'}]==[a for a in before['artifacts'] if a['kind'] in {'image','video','audio'}]
     assert next(t for t in snap['tasks'] if t['kind']=='render' and t['state']=='waiting_external')
+
+
+@pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
+def test_duplicate_scene_search_is_corrected_before_any_stock_acquisition(tmp_path,monkeypatch):
+    _first_cut(tmp_path,True,False,False,monkeypatch)
+    store=Store(tmp_path/'outputs/_production/production.sqlite3')
+    service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
+    work=service.list_works()['items'][0]['id'];before=service.snapshot(work)
+    output=next(a for a in before['artifacts'] if a['kind']=='output')
+    class SearchModel(RevisionModel):
+        async def complete(self,messages,tools,schema):
+            result=await super().complete(messages,tools,schema)
+            if schema['title']=='RevisionProposal':
+                value=json.loads(result['content']);count=len(self.calls)
+                if count==2:
+                    assert any('同一原场景只能保留一条' in m.get('content','') for m in messages if isinstance(m.get('content'),str))
+                value['material_searches']=([{'scene_id':'s1','query':query,'media_types':['image'],'options':1}
+                    for query in (['blue image','blue desk'] if count==1 else ['blue image'])] if count<3 else [])
+                result={'content':json.dumps(value)}
+            return result
+    model=SearchModel();model.calls=[]
+    planning=PlanningTasks(service,OperationService(store),model,{'provider':'direct-api','model':'offline-scripted','mode':'structured'},'offline')
+    creation=CreationTasks(service,planning)
+    class Supply:
+        calls=[]
+        def revision_visuals(self,ctx,searches):
+            self.calls.append(searches)
+            assert len(searches)==1 and len(model.calls)==2
+            return []
+    supply=Supply();supply.calls=[]
+    revision=RevisionTasks(service,planning,creation,supply=supply)
+    service.command('revise',{'output_id':output['id'],'feedback':'局部补一张蓝色示意图','preserve_audio':True},
+        command_id='search-revision',work_id=work,expected_revision=before['revision'])
+    from easel.production.worker import TaskResult
+    async def await_render(ctx):return TaskResult(state='waiting_external')
+    asyncio.run(Worker(store,{'revise':revision.revise,'render':await_render}).run_once())
+    snapshot=service.snapshot(work);task=next(t for t in snapshot['tasks'] if t['kind']=='revise')
+    assert task['state']=='succeeded',task['error_json']
+    assert len(supply.calls)==1 and len(model.calls)==3

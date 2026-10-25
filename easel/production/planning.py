@@ -125,9 +125,41 @@ def merge_plan_changes(changes, base):
     return VoiceReadyCreativePlan.model_validate({**base, **changes.model_dump(exclude_unset=True, mode='json')})
 
 
+# Narration scope must not ask the model to re-author protected visuals/settings.
+# These are response deltas only; the persisted plan remains CreativePlan.
+NarrationSceneChanges = create_model('NarrationSceneChanges', __base__=Contract,
+    id=(str, Field(min_length=1)),
+    **{name:(Scene.model_fields[name].annotation, Field(default=None))
+       for name in ('narration','narration_pauses','duration_seconds')})
+NarrationPlanChanges = create_model('NarrationPlanChanges', __base__=Contract,
+    scenes=(list[NarrationSceneChanges], Field(default_factory=list)),
+    **{name:(field.annotation, Field(default=None, description='省略保持原值；只同步本次口播变化'))
+       for name,field in CreativePlan.model_fields.items()
+       if name not in {'scenes','settings','narration_policy','explainer_boards'}})
+
+
+def merge_narration_changes(changes, base):
+    updates=changes.model_dump(exclude_unset=True,mode='json')
+    patches=updates.pop('scenes',[])
+    ids=[item['id'] for item in patches]
+    if len(ids)!=len(set(ids)) or not set(ids)<={s['id'] for s in base['scenes']}:
+        raise ValueError('口播差量须引用不重复的原场景身份，不得新增或删除场景')
+    by_id={item['id']:item for item in patches}
+    scenes=[{**scene,**by_id.get(scene['id'],{})} for scene in base['scenes']]
+    payload={**{k:v for k,v in base.items() if k in CreativePlan.model_fields},**updates,'scenes':scenes}
+    if patches and 'script' not in updates:
+        payload['script']='\n'.join(scene['narration'] for scene in scenes)
+    answer=VoiceReadyCreativePlan.model_validate(payload)
+    validate_narration_revision(answer,base)
+    return answer
+
+
 def received_plan(operation):
     value=parse_model_json(json.loads(operation['receipt_json'])['result']['message']['content'])
     request=json.loads(operation['request_json'])
+    if request.get('schema',{}).get('title')=='NarrationPlanChanges':
+        base=json.loads(request['messages'][1]['content'][0]['text'])['plan']
+        return merge_narration_changes(NarrationPlanChanges.model_validate(value),base)
     if request.get('schema',{}).get('title')=='CreativePlanChanges':
         base=json.loads(request['messages'][1]['content'][0]['text'])['plan']
         return merge_plan_changes(CreativePlanChanges.model_validate(value),base)
@@ -308,7 +340,7 @@ class PlanningTasks:
                 draft=VoiceReadyCreativePlan.model_validate(state['draft'])
                 received=received_plan(op)
                 if (state['producer_task_id']!=ctx.task_id or not known(op) or draft!=received
-                        or json.loads(op['request_json']).get('schema',{}).get('title')not in {'VoiceReadyCreativePlan','CreativePlanChanges'}
+                        or json.loads(op['request_json']).get('schema',{}).get('title')not in {'VoiceReadyCreativePlan','CreativePlanChanges','NarrationPlanChanges'}
                         or state['draft_hash']!=digest(draft.model_dump(mode='json'))
                         or not 0<=state['correction_round']<=2):raise ValueError
                 return state
@@ -377,8 +409,9 @@ class PlanningTasks:
                 return TaskResult(result=cached,work_state='awaiting_confirmation')
             context=self.context(ctx)
             protected=ctx.payload.get('protected_plan')
-            if ctx.payload.get('revision_scope')=='narration':
-                context=replace(context,brief=context.brief+'\n本次只改口播和对应脚本，保留场景身份、画面要求、图解、音色、字幕样式、画幅和已确认的时长策略；为完整旁白重新分配必要场景时长。')
+            narration_scope=ctx.payload.get('revision_scope')=='narration'
+            if narration_scope:
+                context=replace(context,brief=context.brief+'\n本次只返回口播差量：scenes只填受影响原场景的id/narration/narration_pauses/duration_seconds，script可省略由程序拼接。不得输出purpose/visual/settings/explainer_boards；程序保留原值。可同步summary/facts/constraints中被本轮明确取代的旧句要求。原visual内旧时间/字幕/朗读锚点为历史说明，以新版narration和实测音轨重排字幕及声音位置，不能把旧引文当作须朗读或禁止改稿的指令。')
             if ctx.payload.get('revision_scope')=='boards':
                 context=replace(context,brief=context.brief+'\n仅修订已有图解状态顺序、分组和高亮；保留文字事实、口播、场景身份、非图解画面与声音设置。不得新增未经确认的事实。')
             if protected:
@@ -413,7 +446,7 @@ class PlanningTasks:
                 proposed=VoiceReadyCreativePlan.model_validate(recovered['draft'])
                 source=recovered['source_operation_id']
             else:
-                author=self.runner(ctx,max_format_repairs=2)
+                author=self.runner(ctx,namespace='narration-delta-v1' if narration_scope else None,max_format_repairs=2)
                 proposed=await author.run(context,
                 '提出完整创作方案；遵守明确时长、画幅、声音设置；全部必用输入须落实到场景。'
                 '旁白片在narration_policy明确时长策略：用户明确要求精确片长才用fixed；约、大约、左右或已允许自然收尾的时长是目标，不是硬性长度，应选择voice_driven并在摘要说明实际长度随完整旁白决定。未限定片长同样用voice_driven。continuous与片长独立。'
@@ -429,9 +462,11 @@ class PlanningTasks:
                 '具体的分组、比较、数量关系或条件变化，可以用原生explainer_boards自主写出文字卡片、类别和前后状态；'
                 '图解会由程序原样绘制，每个状态都有真实数量和概念/假设标识，不需搜索到完全相同的卡片。当前图解为固定浅底配色，visual文字不能新增底色、安全带或装饰；不能承诺未由结构化字段和实际渲染支持的设计。不适合时可不使用非必需图解。'
                 '图解只作概念/假设，不编造成真实资料；文字简短，按需用，不强制每场图解。'
-                '返回摘要、完整脚本、场景和视听设计。',VoiceReadyCreativePlan,
+                + ('只返回本轮口播差量，不重写受保护画面、设置或图解。' if narration_scope else '返回摘要、完整脚本、场景和视听设计。'),NarrationPlanChanges if narration_scope else VoiceReadyCreativePlan,
                 expression_role=None if protected else "write",
-                media=media,required=required,tools=self.tool_factory(ctx),validate_result=check_capabilities)
+                media=media,required=required,tools=self.tool_factory(ctx),
+                validate_result=(lambda changes:check_capabilities(merge_narration_changes(changes,context.plan))) if narration_scope else check_capabilities)
+                if narration_scope:proposed=merge_narration_changes(proposed,context.plan)
                 source=self._native_operation(ctx,author)
             with self.service.store.connection() as reader:
                 requested = json.loads(row(reader, 'works', ctx.work_id)['settings_json'])

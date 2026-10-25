@@ -35,7 +35,7 @@
 
 ## 待审阅的新需求方案
 
-- [V2.1版本规划：创作依据、上下文与自然表达](architecture/creative-context-expression-proposal.md)：已清理旧执行分支、补齐真实失败缺口并统一软件验收（最终2536通过/16跳过）；隔离API19次真实调用为历史证据，本轮真实工作区Web已导出含BGM/音效的98.17秒成片，技术及视觉抽样通过，原对话连续播放通过，已快进合并V2并统一部署、刷新后播放复验通过。[CRE-01版本主任务](project/tasks/CRE-01_creative-context-expression.md)记录工作包与证据；后续已按授权直接在主工作区V2完成多轮讨论/改稿、取消和长对话恢复调试，最终固定软件2560通过/16跳过，已统一部署并复验，见[调试02](project/tasks/runs/2026-10-25-web-e2e-02.md)。完整听感、语义及Creator接受仍待人工，不宣称长期表达稳定。
+- [V2.1版本规划：创作依据、上下文与自然表达](architecture/creative-context-expression-proposal.md)：已清理旧执行分支、补齐真实失败缺口并统一软件验收（最终2536通过/16跳过）；隔离API19次真实调用为历史证据，本轮真实工作区Web已导出含BGM/音效的98.17秒成片，技术及视觉抽样通过，原对话连续播放通过，已快进合并V2并统一部署、刷新后播放复验通过。[CRE-01版本主任务](project/tasks/CRE-01_creative-context-expression.md)记录工作包与证据；后续已按授权直接在主工作区V2完成多轮讨论/改稿、取消和长对话恢复调试，最终固定软件2560通过/16跳过，已统一部署并复验，见[调试02](project/tasks/runs/2026-10-25-web-e2e-02.md)。后续[制作复验03](project/tasks/runs/2026-10-25-web-e2e-03.md)已完成含BGM/音效的首片、成片后改稿重制与局部画面修复，最终2583软件通过，50.6秒第3版技术/视觉抽样及完整播放通过。完整听感、语义及Creator接受仍待人工，不宣称长期表达稳定。
 
 - [成片确认到发布](architecture/publication-proposal.md)：优先复用原发布能力，列明现状、补齐范围、版本/账号/确认与平台回执；首批B站已授权开发；由[父任务PUB-01](project/tasks/PUB-01_acceptance-publication.md)记录实现、离线验收与后续真实复验；本轮真实B站投稿已获授权并实际提交，平台审核中；公开结果按父任务继续核实。
 

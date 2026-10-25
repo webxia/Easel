@@ -608,7 +608,17 @@ class WorkService:
                     request=json.loads(source['request_json'])
                     message=json.loads(source['receipt_json'])['result']['message']
                     from .model_tasks import parse_model_json
-                    value=parse_model_json(message.get('content') or '')
+                    calls=message.get('tool_calls') or []
+                    if calls:
+                        if request['schema'].get('title')!='CreativeEdit' or any(
+                                call.get('function',{}).get('name')!='inspect_media' for call in calls):
+                            raise ValueError('unrecoverable tool request')
+                        payload=json.loads(task['payload_json'])
+                        payload['edit_recovery_source']=source['id']
+                        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
+                        value={}
+                    else:
+                        value=parse_model_json(message.get('content') or '')
                     if request['schema'].get('title')=='CreativeEdit' and isinstance(value,dict) and not message.get('tool_calls'):
                         payload=json.loads(task['payload_json'])
                         refs={item.get('asset_id') for key in ('scenes','audio') for item in value.get(key,[]) if isinstance(item,dict)}
@@ -624,7 +634,7 @@ class WorkService:
                             payload['reuse_existing_media_only']=True
                         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
                 except (ValueError,KeyError,TypeError):pass
-        if task['kind']=='revise' and json.loads(task['error_json'] or '{}').get('code')=='invalid_model_output':
+        if task['kind']=='revise' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_revision_search'}:
             if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
                 fail('result_unknown','修订存在未确定调用，不能另发修正')
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()

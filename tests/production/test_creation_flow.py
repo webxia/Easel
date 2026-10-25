@@ -211,3 +211,40 @@ def test_audio_binding_repairs_inside_existing_loop_and_resumes_latest_receipt(t
     assert task['state']=='succeeded',task['error_json']
     assert len(calls)==2 and 'room' in calls[-1][-1]['content'] and '允许窗口' in calls[-1][-1]['content']
     assert sum(t['kind']=='supply' for t in snap['tasks'])==1
+
+
+def test_caption_overlap_exhaustion_keeps_actual_diagnostic_and_blocks_render(tmp_path):
+    from pathlib import Path
+    font=next((Path(p) for p in ['/System/Library/Fonts/Supplemental/Arial Unicode.ttf','/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf'] if Path(p).is_file()),None)
+    if font is None:pytest.skip('font unavailable')
+    store=Store(tmp_path/'outputs/_production/production.sqlite3');store.initialize()
+    service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
+    class OverlapModel(ScriptedModel):
+        async def complete(self,messages,tools,schema):
+            self.calls.append(messages)
+            data=json.loads(messages[1]['content'][0]['text'])
+            image=next(a['asset_id'] for a in data['artifacts'] if a['kind']=='image')
+            font=next(a['asset_id'] for a in data['artifacts'] if a['kind']=='font')
+            return {'content':json.dumps({'scenes':[{'scene_id':'s1','asset_id':image,'duration':1}],
+                'captions':[{'caption_id':identity,'role':'overlay','text':'Visible text','font_asset_id':font,
+                             'start':0,'end':1,'x':.5,'y':.5} for identity in ('cap_13','cap_14')]})}
+    model=OverlapModel();model.calls=[];identity={'provider':'direct-api','model':'offline-scripted','mode':'structured'}
+    planning=PlanningTasks(service,OperationService(store),model,identity,'offline');creation=CreationTasks(service,planning)
+    image=tmp_path/'input.png';Image.new('RGB',(400,300),'blue').save(image)
+    async def supply(ctx):
+        a=register_file(service,ctx,image,kind='image',media_type='image/png',metadata={'source':'fixture'})
+        f=register_file(service,ctx,font,kind='font',media_type='font/ttf',metadata={'font_name':'sans-serif'})
+        return TaskResult(next_kind='edit',next_payload={'asset_ids':[a['id'],f['id']]})
+    work=service.command('create',{'title':'overlap'},command_id='create')['work_id']
+    plan={'title':'one','summary':'test','script':'fixture','scenes':[{'id':'s1','purpose':'test','visual':'blue','narration':''}],
+          'settings':{'duration_seconds':1,'aspect_ratio':'16:9','audio_mode':'silent'}}
+    draft=service.command('plan',{'generate':False,'plan':plan},command_id='plan',work_id=work,expected_revision=1)
+    service.command('confirm',{'plan_revision':1,'plan_hash':draft['plan_hash'],'services':[identity]},command_id='confirm',work_id=work,expected_revision=2)
+    worker=Worker(store,{'supply':supply,'edit':creation.edit})
+    assert asyncio.run(worker.run_once())
+    assert not asyncio.run(worker.run_once())
+    snapshot=service.snapshot(work);task=next(t for t in snapshot['tasks'] if t['kind']=='edit')
+    assert task['state']=='needs_decision' and len(model.calls)==3
+    message=json.loads(task['error_json'])['user_message']
+    assert '叠字' in message and 'cap_13' in message and 'cap_14' in message
+    assert not any(a['kind']=='output' for a in snapshot['artifacts'])

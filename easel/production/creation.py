@@ -286,7 +286,8 @@ class CreationTasks:
                         audio=compiled_edit.audio,captions=compiled)
 
                 except EditError as exc:
-                    raise ValueError(str(exc)) from None
+                    from .model_tasks import ResultCorrectionError
+                    raise ResultCorrectionError(str(exc)) from None
                 if not timing or timing['mode']=='fixed':
                     return
                 check_voice_schedule(candidate.audio, records, timing)
@@ -312,8 +313,9 @@ class CreationTasks:
                     raise ModelTaskError('edit_recovery_invalid','剪辑修正来源与当前已知回执不符，未发起调用')
                 request=json.loads(source['request_json'])
                 message=json.loads(source['receipt_json'])['result']['message']
-                if request['schema'].get('title')!='CreativeEdit' or message.get('tool_calls'):
-                    raise ModelTaskError('edit_recovery_invalid','剪辑修正来源不是已返回的剪辑结果')
+                if request['schema'].get('title')!='CreativeEdit' or any(
+                        call.get('function',{}).get('name')!='inspect_media' for call in message.get('tool_calls',[])):
+                    raise ModelTaskError('edit_recovery_invalid','剪辑修正来源不是已返回的剪辑结果或只读查看请求')
                 # These tool replies are the actual observed frames sent in the
                 # known request, not model-authored visual claims.
                 for m in request['messages']:
