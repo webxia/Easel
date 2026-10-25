@@ -113,7 +113,7 @@ def test_autonomous_worker_reviews_draft_and_freezes_measured_policy(tmp_path,re
                                       'settings': settings}, command_id='create')['work_id']
     identity = {'provider': 'direct-api', 'model': 'fixture', 'mode': 'structured'}
     service.command('plan', {'services': [identity]}, command_id='plan', work_id=work, expected_revision=1)
-    answer = {'title': '学习', 'summary': '一个假设例子，长度随完整旁白', 'script': '说明逻辑',
+    answer = {'title': '学习', 'summary': '一个假设例子，长度随完整旁白', 'script': '假设换一个条件，你还能自己解释吗？',
               'narration_policy': {'continuous': True, 'duration_mode': 'voice_driven'},
               'settings': {**settings, 'duration_seconds': 20},
               'scenes': [{'id': 's1', 'purpose': '解释', 'visual': '翻阅笔记', 'duration_seconds': 20,
@@ -130,10 +130,8 @@ def test_autonomous_worker_reviews_draft_and_freezes_measured_policy(tmp_path,re
     worker = Worker(store, {'plan': planning.plan})
     assert asyncio.run(worker.run_once())
     snap = service.snapshot(work)
-    assert snap['state'] == 'awaiting_confirmation' and len(transport.calls) == (1 if explicit_duration else 2)
+    assert snap['state'] == 'awaiting_confirmation' and len(transport.calls) == 2
     assert snap['plans'][0]['plan']['narration_policy'] == {'continuous': True, 'duration_mode': 'fixed' if explicit_duration else 'voice_driven'}
-    if explicit_duration:
-        return
     context = json.loads(transport.calls[1][1]['content'][0]['text'])
     assert context['plan']['scenes'][0]['narration'] == answer['scenes'][0]['narration']
     assert context['production_capabilities']['unavailable']
@@ -277,7 +275,7 @@ def test_draft_auditor_cannot_approve_changed_fixed_voice(tmp_path):
     work=service.command('create',{'title':'idea','input_text':'一个问题','settings':settings},command_id='create')['work_id']
     model_id={'provider':'direct-api','model':'fixture','mode':'structured'}
     service.command('plan',{'services':[model_id]},work_id=work,expected_revision=1,command_id='plan')
-    answer={'title':'问题','summary':'假设例子','script':'一起看条件','settings':{**settings,'duration_seconds':20},
+    answer={'title':'问题','summary':'假设例子','script':'先看条件，再一起解释。','settings':{**settings,'duration_seconds':20},
         'scenes':[{'id':'s1','purpose':'解释','visual':'真实场景','duration_seconds':20,'narration':'先看条件，再一起解释。'}]}
     class Model:
         capabilities=frozenset({'text','structured'})

@@ -18,7 +18,7 @@ def test_known_native_draft_recovery_preserves_receipt_and_never_adopts_external
     work=service.command('create',{'title':'one idea','input_text':'学会了吗？','settings':settings},command_id='create')['work_id']
     identity={'provider':'direct-api','model':'fixture','mode':'structured'}
     service.command('plan',{'services':[identity]},work_id=work,expected_revision=1,command_id='plan')
-    draft={'title':'native-old','summary':'假设例子','script':'看具体条件',
+    draft={'title':'native-old','summary':'假设例子','script':'换一个条件，自己再试一次。',
            'settings':{**settings,'duration_seconds':20},'scenes':[{'id':'s1','purpose':'解释','visual':'真实场景',
            'duration_seconds':20,'narration':'换一个条件，自己再试一次。','required_input_ids':[]}]}
     class Model:

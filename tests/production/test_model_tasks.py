@@ -332,3 +332,17 @@ def test_visual_recovery_repairs_old_full_answer_using_patch_contract():
     assert transport.calls[0][1]['content']=='original base'
     assert 'extra_forbidden' in transport.calls[0][-1]['content']
     assert '只返回changes' in transport.calls[0][0]['content']
+
+
+
+def test_missing_confirmed_bgm_is_corrected_inside_existing_model_budget():
+    from easel.production.creation import CreativeEdit
+    from easel.production.editors.base import check_audio_delivery
+    bad={'scenes':[{'scene_id':'s1','asset_id':'visual','duration':1}],
+         'audio':[{'clip_id':'voice-1','asset_id':'voice','role':'voice','at':0,'duration':1}]}
+    good={**bad,'audio':[*bad['audio'],{'clip_id':'music-1','asset_id':'bgm','role':'music','at':0,'duration':1}]}
+    runner,transport,_=run([{'content':json.dumps(bad)},{'content':json.dumps(good)}])
+    result=asyncio.run(runner.run(context(allowed_handles=frozenset({'visual','voice','bgm'})),
+        '落实混合声音',CreativeEdit,validate_result=lambda edit:check_audio_delivery('mixed',edit.scenes,edit.audio)))
+    assert len(transport.calls)==2 and any(a.role=='music' for a in result.audio)
+    assert 'mixed delivery needs voice/source sound and music' in transport.calls[1][-1]['content']

@@ -116,7 +116,7 @@ def test_new_plan_fixed_and_voice_driven_remain_separate(tmp_path,explicit,mode)
         capabilities=frozenset({'text','structured'})
         async def complete(self,messages,tools,schema):
             value={'verdict':'pass','findings':[]} if schema['title']=='DraftReview' else {
-                'title':'fixture','summary':'fixture','script':'fixture','settings':{**settings,'duration_seconds':30},
+                'title':'fixture','summary':'fixture','script':'先做一件小事。','settings':{**settings,'duration_seconds':30},
                 'scenes':[{'id':'s1','purpose':'think','visual':'desk','narration':'先做一件小事。','duration_seconds':30}],
                 'narration_policy':{'continuous':True,'duration_mode':mode} if mode else None}
             return {'content':json.dumps(value)}

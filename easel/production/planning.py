@@ -99,6 +99,9 @@ class VoiceReadyCreativePlan(CreativePlan):
                     '不要放旁白窗口、时间段、语速、停顿、换气、字幕或镜头说明；'
                     '这些说明请写在 visual 字段；script保留完整口播原文。'
                 )
+        spoken = ''.join(scene.narration for scene in self.scenes)
+        if spoken.strip() and re.sub(r'\s+', '', self.script) != re.sub(r'\s+', '', spoken):
+            raise ValueError('script须与各场景narration按顺序拼接一致；不要添加场景标签或导演说明，修改口播时同步两个字段')
         from .voice_budget import reserve_narration_slots
         try:
             reserve_narration_slots(self.model_dump(mode='json'))
@@ -419,6 +422,7 @@ class PlanningTasks:
                 '仅固定MiniMax speech-2.8时可按必要语义填写独立narration_pauses，after是去除首尾空白后的字符位置，seconds为0.05到1秒；不在正文写供应商标签，不逐句加停顿，默认空列表。'
                 'fixed口播须适合明确片长；voice_driven的秒数只是规划估计，最终随完整实测旁白定长，不为填满估计秒数增加内容或留白。'
                 '在同一次创作中先按选定导演的讲述方式组织完整思路，再落实分镜；频道提供定位与受众，不是固定文体。'
+                '将本期明确的表达要求写入已有constraints，改稿继承未撤销要求并逐项落实；新反馈没有重提不代表原要求失效。'
                 '区分用户硬要求和讨论建议：保留已确认观点与事实，未确认的候选概念、结构和素材不必逐项展开。'
                 '口播只讲听众理解所需的信息；补充出处与资料按用途放facts或visual，不把资料清单全部念出。'
                 '解释用可理解的条件、动作和关系承接术语，不强制聊天、案例数量、幽默或结尾总结。'
@@ -431,14 +435,14 @@ class PlanningTasks:
                 source=self._native_operation(ctx,author)
             with self.service.store.connection() as reader:
                 requested = json.loads(row(reader, 'works', ctx.work_id)['settings_json'])
-            autonomous = (not protected and 'duration_seconds' not in requested and
-                          requested.get('audio_mode',proposed.settings.audio_mode) in {'voice', 'mixed'})
-            if autonomous:
+            review_draft = (not protected and ctx.payload.get('revision_scope') not in {'narration', 'boards'}
+                            and requested.get('audio_mode', proposed.settings.audio_mode) in {'voice', 'mixed'})
+            if review_draft:
                 from .contracts import SubtitleSettings, VoiceIdentity
                 from .editors import EditError
                 def preserve_choices(answer):
                     check_capabilities(answer)
-                    for field in ('voice', 'subtitles', 'aspect_ratio', 'audio_mode'):
+                    for field in ('voice', 'subtitles', 'aspect_ratio', 'audio_mode', 'duration_seconds'):
                         if field not in requested:
                             continue
                         expected = requested[field]
@@ -466,6 +470,8 @@ class PlanningTasks:
                         replace(context,plan=draft.model_dump(mode='json'),
                             brief=context.brief+'\n原生既有审查记录，请逐项核对本次是否已解决；若原判断被实际像素否定，明确依据，不照搬：'+encode(history)),
                         '独立审查尚未确认草稿；只返回有依据的观察和必须修正的问题，不改稿、不声称已看过未选的库存或听过声音。'
+                        '逐项核对本次brief中的明确表达要求和constraints，包括未被后续反馈撤销的原要求；有冲突时在findings引用原要求及具体句段，不能因结构通顺就pass。'
+                        '核对第一人称习惯、已做事项和成果是否确由输入/画像支持；建议做法不能写成已经长期执行的自述。'
                         '核对是否回应一句想法及画像表达目标。分析内容核对依据、逻辑与边界；感悟可以保留问题，不强制案例、教程、结论或升华。'
                         '逐项检查图解所有状态：每张卡与所在列的字面含义一致，结果、行为和结论不能混装成错误分类；'
                         '类别重命名必须在对应状态的column_titles真实填写，不能只在visual里口头说会改。'

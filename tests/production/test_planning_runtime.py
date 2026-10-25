@@ -19,6 +19,8 @@ class Transport:
         self.calls+=1
         self.requests.append(json.loads(json.dumps(args)))
         if self.fail:raise TimeoutError('no receipt')
+        if args[2].get('title') == 'DraftReview':
+            return {'content': json.dumps({'verdict':'pass','findings':[]})}
         return {'content':json.dumps(self.answer)}
 
 
@@ -40,7 +42,7 @@ def test_worker_creates_proposal_and_records_model_receipt(tmp_path):
     service,id,transport,worker=setup(tmp_path)
     assert asyncio.run(worker.run_once())
     snap=service.snapshot(id)
-    assert snap['state']=='awaiting_confirmation',snap['tasks']
+    assert snap['state']=='awaiting_confirmation',snap['tasks'][0].get('error_json')
     assert len(snap['plans'])==1
     assert not snap['plans'][0]['confirmed_at']
     assert transport.calls==1
@@ -287,3 +289,67 @@ def test_sparse_plan_correction_preserves_unchanged_fields_and_receipt_provenanc
     assert received_plan(op)==merged
     with pytest.raises(ValueError):merge_plan_changes(CreativePlanChanges.model_validate({'scenes':[]}),base)
     with pytest.raises(ValueError):CreativePlanChanges.model_validate({'quota':999})
+
+
+@pytest.mark.parametrize('fixed', [True, False])
+def test_voice_drafts_review_explicit_requirements_before_freezing(tmp_path, fixed):
+    service,work,transport,worker=setup(tmp_path)
+    from easel.production.service import encode
+    voice={'provider':'fixture','model':'speech','engine':'fixture','voice_id':'fixed'}
+    settings={'schema_version':1,'audio_mode':'voice','voice':voice,'aspect_ratio':'16:9'}
+    if fixed:settings['duration_seconds']=20
+    with service.store.transaction() as conn:
+        conn.execute('UPDATE works SET settings_json=?,input_text=? WHERE id=?',
+            (encode(settings),'保留四条依据，但不要第一条第二条；不编造我的习惯；结尾不升华',work))
+        # Rebuild the enqueued basis before running this synthetic fixture.
+        from easel.production.service import row
+        task=conn.execute('SELECT * FROM tasks WHERE work_id=?',(work,)).fetchone()
+        payload=json.loads(task['payload_json']);payload['creation_basis']=service._basis(conn,row(conn,'works',work))
+        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
+    transport.answer.update(script='我还不知道该选哪一条。',settings={k:v for k,v in {**settings,'duration_seconds':20}.items() if k!='schema_version'},
+        scenes=[{'id':'s1','purpose':'留下问题','visual':'拟议动作','narration':'我还不知道该选哪一条。','duration_seconds':20}])
+    assert asyncio.run(worker.run_once())
+    snap=service.snapshot(work)
+    assert snap['state']=='awaiting_confirmation',snap['tasks'][0].get('error_json')
+    audits=[r for r in transport.requests if r[2]['title']=='DraftReview']
+    assert len(audits)==1
+    assert '不要第一条第二条' in audits[0][0][1]['content'][0]['text']
+    assert len(snap['plans'])==1
+
+
+def test_fixed_voice_review_failure_does_not_freeze_or_change_delivery(tmp_path):
+    service,work,transport,worker=setup(tmp_path)
+    from easel.production.service import encode,row
+    voice={'provider':'fixture','model':'speech','engine':'fixture','voice_id':'fixed'}
+    settings={'schema_version':1,'audio_mode':'voice','voice':voice,'aspect_ratio':'16:9','duration_seconds':20}
+    with service.store.transaction() as conn:
+        conn.execute('UPDATE works SET settings_json=? WHERE id=?',(encode(settings),work))
+        task=conn.execute('SELECT * FROM tasks').fetchone();payload=json.loads(task['payload_json'])
+        payload['creation_basis']=service._basis(conn,row(conn,'works',work))
+        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
+    transport.answer.update(script='第一条。',settings={k:v for k,v in settings.items() if k!='schema_version'},scenes=[{'id':'s1','purpose':'讲述','visual':'拟议动作','narration':'第一条。','duration_seconds':20}])
+    complete=transport.complete
+    async def fail_review(messages,tools,schema):
+        if schema['title']=='DraftReview':
+            transport.calls+=1
+            return {'content':encode({'verdict':'fail','findings':['原要求禁止编号，script仍为第一条']})}
+        if schema['title']=='CreativePlanChanges':
+            transport.calls+=1
+            return {'content':'{}'}
+        return await complete(messages,tools,schema)
+    transport.complete=fail_review
+    assert asyncio.run(worker.run_once())
+    snap=service.snapshot(work)
+    assert snap['state']=='needs_decision' and snap['plans']==[]
+    assert json.loads(snap['tasks'][0]['error_json'])['code']=='draft_review_failed'
+    assert service.store.get_work(work)['settings_json']==encode(settings)
+
+
+@pytest.mark.parametrize('script',['【S1】保留这个问题。','这是另一份口播。'])
+def test_generated_voice_script_must_match_spoken_scene_text(script):
+    from pydantic import ValidationError
+    from easel.production.planning import VoiceReadyCreativePlan
+    with pytest.raises(ValidationError,match='script须与'):
+        VoiceReadyCreativePlan.model_validate({'title':'问题','summary':'待确认','script':script,
+            'settings':{'duration_seconds':20,'audio_mode':'voice','voice':{'provider':'fixture','model':'voice','engine':'fixture','voice_id':'fixed'}},
+            'scenes':[{'id':'s1','purpose':'提问','visual':'动作','narration':'保留这个问题。','duration_seconds':20}]})

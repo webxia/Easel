@@ -170,7 +170,7 @@ def test_native_draft_audit_sees_real_board_pixels_before_freeze_and_speech(tmp_
     work=service.command('create',{'title':'idea','input_text':'条件变化后，还会吗？','settings':settings},command_id='create')['work_id']
     identity={'provider':'direct-api','model':'fixture','mode':'structured'}
     service.command('plan',{'services':[identity]},work_id=work,expected_revision=1,command_id='plan')
-    draft={'title':'变化','summary':'假设演示','script':'检查条件和边界',
+    draft={'title':'变化','summary':'假设演示','script':'假设条件变了，换个办法再试。',
         'settings':{**settings,'duration_seconds':20},'scenes':[{'id':'s1','purpose':'解释','visual':'图解状态变化',
         'duration_seconds':20,'narration':'假设条件变了，换个办法再试。','required_input_ids':[]}], 'explainer_boards':[data()]}
     class Model:

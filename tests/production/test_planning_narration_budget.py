@@ -16,7 +16,7 @@ def plan(narration: str):
     return {
         'title': '从想法到作品',
         'summary': '真实尝试和留痕',
-        'script': '安静现实主义短章，保持文字、画面与BGM风格',
+        'script': narration + '把一次真实尝试留下来。',
         'settings': {
             'duration_seconds': 45, 'aspect_ratio': '9:16', 'audio_mode': 'mixed',
             'voice': {
