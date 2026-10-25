@@ -12,7 +12,7 @@ from .errors import ProductionError
 from .model_operations import RecordedModelTransport
 from .service import row, encode, digest, now, new_id
 
-DRAFT_REVIEW_CONTEXT_VERSION = 'current-draft-2'
+DRAFT_REVIEW_CONTEXT_VERSION = 'current-draft-3'
 
 
 def preserve_selected_voice_parameters(answer, selected):
@@ -385,7 +385,7 @@ class PlanningTasks:
         if not plan.explainer_boards or not self.board_fonts:
             return (),frozenset()
         import asyncio
-        from .boards import render_board, VERSION
+        from .boards import render_board, board_footer, VERSION
         from .inspection import observe_media
         from .media import atomic_json, file_sha256
         font=self.board_fonts.get(plan.settings.subtitles.font)
@@ -423,11 +423,22 @@ class PlanningTasks:
                         Image.alpha_composite(background.convert('RGBA'),overlay.convert('RGBA')).convert('RGB').save(preview)
                     entry.update(caption_sample_bounds=list(bounds),caption_sample_source='same scene narration prefix, not final segmentation',
                                  preview_sha256=file_sha256(preview))
+                from PIL import Image
+                from math import gcd
+                with Image.open(path) as source_image, Image.open(preview) as preview_image:
+                    source_size = source_image.size
+                    preview_size = preview_image.size
+                divisor = gcd(*source_size)
+                entry['render_contract'] = {
+                    'source_size': list(source_size), 'preview_size': list(preview_size),
+                    'source_aspect_ratio': str(source_size[0]//divisor)+':'+str(source_size[1]//divisor),
+                    'caption_coordinate_size': list(source_size),
+                    'footer_text': board_footer(board,index), 'footer_editable': False}
                 manifest.append(entry)
                 if visual:
                     media,needs,_=await asyncio.to_thread(observe_media,preview,include_audio=False,max_frames=1)
                     blocks.append({'type':'text','text':'尚未确认草稿的本地真实图解 '+board.scene_id+' 状态 '+str(index)+
-                        '；不是实证资料。若有字幕，叠加的是当前固定样式与本段原文前缀的实际排版样例，不是最终断句或时码。实际样例边界(x,y,w,h)：'+str(entry.get('caption_sample_bounds'))})
+                        '；实际源PNG和字幕坐标合同：'+encode(entry['render_contract'])+'；不是实证资料。若有字幕，叠加的是当前固定样式与本段原文前缀的实际排版样例，不是最终断句或时码。实际样例边界(x,y,w,h)：'+str(entry.get('caption_sample_bounds'))})
                     blocks.extend(media);required.update(needs)
         atomic_json(folder/'manifest.json',{'draft_hash':digest(plan.model_dump(mode='json')),
             'font_sha256':file_sha256(font),'renderer':VERSION,'preview_version':'caption-sample-1','images_sent':visual,'frames':manifest})

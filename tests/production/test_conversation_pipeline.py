@@ -6,6 +6,7 @@ from easel.work_bridge import Identity
 from easel.production.service import now, encode, row
 from easel.production.catalog import CreativeCatalog
 from easel.production.errors import ProductionError
+from easel.production.planning import DRAFT_REVIEW_CONTEXT_VERSION
 
 
 def seed(env):
@@ -761,11 +762,11 @@ def test_only_failed_narration_delta_has_existing_resume_option(scope,code,expec
 
 @pytest.mark.parametrize('version,code,source,expected',[
     (None,'draft_review_failed',True,True),
-    ('current-draft-2','draft_review_failed',True,False),
+    (DRAFT_REVIEW_CONTEXT_VERSION,'draft_review_failed',True,False),
     ('current-draft-1','draft_review_failed',True,True),
     (None,'draft_review_failed',False,False),
     ('current-draft-1','draft_provenance_missing',True,True),
-    ('current-draft-2','draft_provenance_missing',True,False),
+    (DRAFT_REVIEW_CONTEXT_VERSION,'draft_provenance_missing',True,False),
     ('current-draft-1','draft_provenance_missing',False,False),
     (None,'result_unknown',True,False),
     ('current-draft-2','command_conflict',True,True),

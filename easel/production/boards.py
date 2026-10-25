@@ -24,6 +24,12 @@ def _label(draw,text,box,font,color,*,center=False):
         value,font=font,fill=color,spacing=6,align='center' if center else 'left')
 
 
+def board_footer(board, index):
+    count = sum(len(v) for v in board.states[index].groups.values())
+    disclosure = '假设示意' if board.kind == 'hypothetical' else '概念示意'
+    return disclosure+'  ·  '+str(count)+' 条  /  '+str(len(board.columns))+' 组'
+
+
 def render_board(board, index, *, font_path, aspect_ratio, destination):
     wide=aspect_ratio=='16:9';width,height=(1920,1080) if wide else (1080,1920)
     im=Image.new('RGB',(width,height),'#F7F7F2');draw=ImageDraw.Draw(im)
@@ -55,9 +61,7 @@ def render_board(board, index, *, font_path, aspect_ratio, destination):
             if highlight:
                 draw.rounded_rectangle((x,y+12,x+5,y+cell_h-12),radius=2,fill='#397465')
             _label(draw,cards[identifier].text,(x+24,y+12,cw-48,cell_h-24),card_font,'#163238')
-    count=sum(len(v) for v in state.groups.values())
-    disclosure='假设示意' if board.kind=='hypothetical' else '概念示意'
-    _label(draw,disclosure+'  ·  '+str(count)+' 条  /  '+str(len(board.columns))+' 组',
+    _label(draw,board_footer(board,index),
         (margin,height-65,available,40),fonts[28],'#526A6C')
     destination=Path(destination);destination.parent.mkdir(parents=True,exist_ok=True);im.save(destination,'PNG')
     return destination
