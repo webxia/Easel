@@ -39,5 +39,6 @@ def test_bound_dialogue_system_separates_operation_manual_without_dropping_safet
     assert DIALOGUE_POLICY in prompt and POLICY not in prompt
     assert len(DIALOGUE_POLICY)<len(POLICY)//2
     # Primary execution boundaries remain unconditional, even before a full read.
-    for boundary in ['UNKNOWN','下一真人回合','完整逐字稿','Rights','不自动投稿','不能编造用户亲历']:
+    for boundary in ['UNKNOWN','下一真人回合','完整逐字稿','Rights','不自动投稿','不能编造用户亲历',
+                     '新建方案','draft→保存依据→plan','成功持久化的Plan','不冒充正式方案','offer action=confirm','不新建提案供取消']:
         assert boundary in prompt

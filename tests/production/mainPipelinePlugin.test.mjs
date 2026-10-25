@@ -303,3 +303,24 @@ test('missing or failed bootstrap blocks model and never restores global memory'
   assert.equal((await r.hooks.get('before_agent_run')({prompt:'request'},fresh)).outcome,'block');
  }finally{globalThis.fetch=old;}
 });
+
+
+test('confirmed-film route hint survives native dispatch but private server failures do not',async()=>{
+ const r=runtime(),old=globalThis.fetch;let code='revision_required';
+ const hint='已有确认方案；不要更新brief，请绑定成片走scope=narration修订';
+ globalThis.fetch=async(url)=>{
+  if(url.endsWith('/claim'))return response({bound:true,system_prompt:'PRODUCT ONLY',permission_policy:'main-pipeline-v1'});
+  if(url.endsWith('/prepare'))return response({ticket:'server-native-ticket-32-characters'});
+  return new Response(JSON.stringify({error:{code,user_message:hint,private:'private-provider-details'}}),{status:409});
+ };
+ try{
+  await r.hooks.get('before_prompt_build')({prompt:'只改最后一句'},ctx);
+  const params={entries:[{kind:'user_requirement',text:'只改最后一句',source_refs:['fixture-turn']}]};
+  const event={toolName:'easel_work_update_brief',toolCallId:'route-hint',params};
+  await r.hooks.get('before_tool_call')(event,ctx);
+  const tool=r.tools(ctx).find(t=>t.name==='easel_work_update_brief');
+  await assert.rejects(tool.execute(event.toolCallId,params),error=>error.bridgeCode===code && error.message===code+': '+hint);
+  code='internal_error';await r.hooks.get('before_tool_call')({...event,toolCallId:'private'},ctx);
+  await assert.rejects(tool.execute('private',params),error=>error.message===code);
+ }finally{globalThis.fetch=old;}
+});

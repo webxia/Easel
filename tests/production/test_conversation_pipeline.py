@@ -48,6 +48,11 @@ def test_selected_pipeline_handoff_waits_native_end(env):
 def test_local_draft_and_plan_confirmation_are_separate(env):
     channel=seed(env);s,c=env;seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
     b,i,_=turn(s,c,seg,'把今天的想法做视频')
+    with pytest.raises(ProductionError) as error:
+        pipe(b,i,'draft',user_quote='把今天的想法做视频',values={'title':'想法','input_text':'今天的想法','settings':{}})
+    assert error.value.code == 'invalid_input'
+    assert 'title和input_text' in error.value.user_message
+    assert s.list_works()['items'] == []
     d=pipe(b,i,'draft',user_quote='把今天的想法做视频',values={'title':'想法','input_text':'今天的想法'})
     assert not s.snapshot(d['work_id'])['runs']
     p=pipe(b,i,'offer',action='plan',values={'request':'深入分析','services':[]},summary='整理完整方案')

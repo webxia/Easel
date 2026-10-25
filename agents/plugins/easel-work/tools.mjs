@@ -124,7 +124,7 @@ export function createWorkBridge(api) {
     const result = await response.json();
     if (!response.ok) {
       const code = result?.error?.code ?? 'work_bridge_unavailable';
-      const hint = ['invalid_input','invalid_source','work_not_bound','not_found','plan_revision_required','revision_target_missing','revision_review_missing','stale_revision','binding_mismatch','confirmation_required'].includes(code) ? result?.error?.user_message : undefined;
+      const hint = ['invalid_input','invalid_source','work_not_bound','not_found','plan_revision_required','revision_required','revision_target_missing','revision_review_missing','stale_revision','binding_mismatch','confirmation_required'].includes(code) ? result?.error?.user_message : undefined;
       const error = new Error(code + (typeof hint === 'string' ? ': ' + hint : ''));
       // Only structured bridge codes may be echoed by the natural-entry gate.
       error.bridgeCode = typeof code === 'string' && /^[a-z][a-z0-9_]{0,79}$/.test(code) ? code : 'work_bridge_unavailable';

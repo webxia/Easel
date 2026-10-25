@@ -131,7 +131,7 @@ class ConversationService:
         if not segment['work_id']:fail('work_not_bound','请先确认作品草稿',409)
         work=row(conn,'works',segment['work_id']);self.service._ensure_idle(conn,work)
         if conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(work['id'],)).fetchone():
-            fail('revision_required','已有确认方案；本片修改意见请绑定具体成片走修订，讨论仍可继续',409)
+            fail('revision_required','已有确认方案；不要更新brief。请读取当前成片，用easel_pipeline offer action=revise绑定output_id；改口播用scope=narration、preserve_audio=false，只改画面用scope=edit；讨论仍可继续',409)
         if not isinstance(entries,list) or not entries or len(entries)>100:fail('invalid_input','创作依据无效')
         for item in entries:
             if not isinstance(item,dict) or set(item)!={'kind','text','source_refs'} or item['kind'] not in {'user_requirement','suggestion','unresolved'} or not isinstance(item['text'],str) or not item['text'].strip() or len(item['text'])>10000:fail('invalid_input','请区分用户要求、建议与未决项')
@@ -262,7 +262,7 @@ class ConversationService:
                     result=execute_action(self,conn,segment,body,command_id)
             elif kind=='draft':
                 if segment['work_id']:fail('work_already_bound','运行段已绑定作品',409)
-                if set(values)-{'title','input_text'}:fail('invalid_input','草稿字段无效')
+                if set(values)-{'title','input_text'}:fail('invalid_input','草稿values只接受title和input_text；声线、字幕、时长等设置沿用已绑定频道，明确变更使用offer action=basis；不要向draft添加settings、request或work_id')
                 if target.get('channel'):
                     current=row(conn,'channels',target['channel_id'])
                     if current['revision']!=target['channel']['revision']:fail('stale_revision','频道默认已变化，请重新选择',409)
