@@ -447,6 +447,20 @@ def register_voice_asset(context, *, outputs: Path, result: dict) -> str:
     return identifier
 
 
+def effective_segment_voice(identity: VoiceIdentity, segment: dict) -> VoiceIdentity:
+    """Keep selected identity/settings; only confirmed group expression varies."""
+    emotion = segment.get('emotion')
+    if emotion is None:
+        return identity
+    from .providers.minimax_speech import supported_emotions
+    if identity.engine != 'minimax-speech-v1' or emotion not in supported_emotions(identity.model):
+        raise ProductionError('voice_parameter_unsupported', '当前固定声音不支持此组表达；未替换服务或音色')
+    fixed = identity.parameters.get('emotion')
+    if fixed is not None and fixed != emotion:
+        raise ProductionError('voice_expression_conflict', '本组表达与已明确固定的声音情绪冲突，请确认调整；未覆盖原设置', requires_decision=True)
+    return identity.model_copy(update={'parameters': {**identity.parameters, 'emotion': emotion}})
+
+
 async def prepare_voice_segments(context, *, service: VoiceService, outputs: Path, identity: VoiceIdentity,
                                  grant_id: str, segments: list[dict], regenerate: bool = False) -> dict:
     """Prepare only supplied narration; each sentence remains a reusable asset.
@@ -456,11 +470,13 @@ async def prepare_voice_segments(context, *, service: VoiceService, outputs: Pat
     returned durations and planned scene slots; quality checks inspect the joins.
     """
     prepared = []
-    for segment in segments:
+    # Reject a conflicting later group before any earlier group incurs a call.
+    identities = [effective_segment_voice(identity, segment) for segment in segments]
+    for segment, effective_identity in zip(segments, identities):
         context.assert_current()
-        binding = VoiceBinding("voice_" + fingerprint([context.task_id, segment["segment_id"], segment["text"], identity.model_dump()])[:32],
+        binding = VoiceBinding("voice_" + fingerprint([context.task_id, segment["segment_id"], segment["text"], effective_identity.model_dump()])[:32],
                                context.work_id, context.run_id, context.task_id, grant_id, context.owner_epoch)
-        result = await asyncio.to_thread(service.synthesize, binding, identity=identity, text=segment["text"],
+        result = await asyncio.to_thread(service.synthesize, binding, identity=effective_identity, text=segment["text"],
                                          segment_id=segment["segment_id"], regenerate=regenerate,**({"pauses":segment["pauses"]} if segment.get("pauses") else {}))
         if result["state"] != "succeeded":
             return {"state": result["state"], "segments": prepared, "pending": result}

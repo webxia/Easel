@@ -1,5 +1,9 @@
 # 当前主线状态
 
+## 隔离专项 WV-01（2026-10-27）
+
+本分支仅开展[写稿与声音表达专项](tasks/WV-01_writing-voice.md)，基线5809a94c；不部署/合并、不干预原生产断点。调查与离线开发已授权，新付费调用未授权。下方为基线继承的主线历史状态。
+
 ## 当前代码统一部署与人工接受准入（2026-10-26，已部署）
 
 用户明确“你部署一下”，当前已受测的人工接受修复及此前暂缓的来源/表达代码统一部署到主工作区V2。最终2660通过/11跳过、插件42通过/14环境跳过，源码patch相等；22:53重载Web/Gateway、schema8→9事务升级，外键通过、gateway=true、reload_required=false、原6工具保持。28表相等，清理队列仅19行updated_at例行变化，7UNKNOWN和原片摘要不变，无新增调用/制作或接受。正式接口第1版can_accept=true、manual_review_required=true、尚未接受；下一动作是Creator原对话完整审片后接受，不必重制。[实现/部署证据](tasks/CRE-01_creative-context-expression.md)及[原E2E断点](tasks/runs/2026-10-26-web-e2e-05.md)；父E2E其他未测项仍保留。

@@ -19,6 +19,13 @@ from .base import ProviderResult
 PLAN_VOICE_PARAMETERS = frozenset({'speed', 'emotion', 'subtitle_enable'})
 
 
+def supported_emotions(model):
+    permitted = {'happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm'}
+    if model in {'speech-2.6-hd', 'speech-2.6-turbo'}:
+        permitted |= {'fluent', 'whisper'}
+    return permitted
+
+
 def native_voice_settings(identity):
     """The exact native voice wire fields; fixed knobs are not Plan parameters."""
     settings = {'voice_id': identity.voice_id, 'speed': identity.parameters.get('speed', 1),
@@ -59,9 +66,7 @@ class MiniMaxSpeechAdapter(VoiceHTTPAdapter):
     def option(self, identity, *, require_available=True):
         option = super().option(identity, require_available=require_available)
         emotion = identity.parameters.get('emotion')
-        permitted = {'happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm'}
-        if identity.model in {'speech-2.6-hd', 'speech-2.6-turbo'}:
-            permitted |= {'fluent', 'whisper'}
+        permitted = supported_emotions(identity.model)
         if (emotion is not None and emotion not in permitted) or (
                 'subtitle_enable' in identity.parameters and type(identity.parameters['subtitle_enable']) is not bool):
             raise ProductionError('voice_parameter_unsupported', '所选MiniMax模型不支持该情绪或字幕参数')
@@ -69,7 +74,7 @@ class MiniMaxSpeechAdapter(VoiceHTTPAdapter):
 
     def request(self, *, identity, text, segment_id, require_available=True):
         value = super().request(identity=identity,text=text,segment_id=segment_id,require_available=require_available)
-        if (len(text)>10000 or self.config.response_format not in {'wav','mp3','flac'}
+        if (len(text)>=10000 or self.config.response_format not in {'wav','mp3','flac'}
                 or set(identity.parameters)-PLAN_VOICE_PARAMETERS
                 or not .5<=identity.parameters.get('speed',1)<=2):
             raise ProductionError('voice_parameter_unsupported','MiniMax 原生旁白的文本长度、速度或输出格式不支持；未发送请求')

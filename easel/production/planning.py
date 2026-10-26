@@ -5,7 +5,7 @@ import re
 import hashlib
 from dataclasses import replace
 from pydantic import Field, model_validator, create_model
-from .contracts import Contract, Scene, VideoSettings, ExplainerBoard, NarrationPolicy
+from .contracts import Contract, Scene, VideoSettings, ExplainerBoard, NarrationPolicy, validate_narration_groups
 from .context import TaskContext
 from .model_tasks import ModelTaskRunner, ModelTaskError, parse_model_json
 from .errors import ProductionError
@@ -78,6 +78,7 @@ class CreativePlan(Contract):
 
     @model_validator(mode='after')
     def executable_boards(self):
+        validate_narration_groups(self.narration_policy, self.scenes, self.settings)
         refs=[b.scene_id for b in self.explainer_boards]
         if len(refs)!=len(set(refs)) or not set(refs)<={s.id for s in self.scenes}:
             raise ValueError('原生图解必须绑定已定义场景，每场景一组状态')
@@ -124,6 +125,10 @@ class VoiceReadyCreativePlan(CreativePlan):
         if self.settings.audio_mode not in {'voice', 'mixed'}:
             return self
         for scene in self.scenes:
+            if self.settings.voice and self.settings.voice.engine == 'minimax-speech-v1':
+                from .prosody import valid_pause_precision
+                if any(not valid_pause_precision(p.seconds) for p in scene.narration_pauses):
+                    raise ValueError(f'场景 {scene.id} 的 MiniMax 停顿秒数最多两位小数；请明确调整，不自动四舍五入')
             if _SPOKEN_STAGE_DIRECTIONS.search(scene.narration):
                 raise ValueError(
                     f'场景 {scene.id} 的 narration 包含时间码或导演注释。'
@@ -131,6 +136,12 @@ class VoiceReadyCreativePlan(CreativePlan):
                     '不要放旁白窗口、时间段、语速、停顿、换气、字幕或镜头说明；'
                     '这些说明请写在 visual 字段；script保留完整口播原文。'
                 )
+        if (self.narration_policy and self.narration_policy.groups) or any(s.narration_pauses for s in self.scenes):
+            from .narration import validate_narration_execution
+            try:
+                validate_narration_execution(self.model_dump(mode='json'))
+            except (ProductionError, ModelTaskError) as exc:
+                raise ValueError(str(exc)) from None
         spoken = ''.join(scene.narration for scene in self.scenes)
         if spoken.strip() and re.sub(r'\s+', '', self.script) != re.sub(r'\s+', '', spoken):
             script_text=re.sub(r'\s+', '', self.script)
@@ -171,6 +182,8 @@ NarrationSceneChanges = create_model('NarrationSceneChanges', __base__=Contract,
        for name in ('narration','narration_pauses','duration_seconds')})
 NarrationPlanChanges = create_model('NarrationPlanChanges', __base__=Contract,
     scenes=(list[NarrationSceneChanges], Field(default_factory=list)),
+    narration_policy=(NarrationPolicy | None, Field(default=None,
+        description='仅可修改既有groups的emotion；保留组id/scene_ids、continuous和duration_mode。省略保持原策略，重新分组须重新规划。')),
     **{name:(field.annotation, Field(default=None, description='省略保持原值；只同步本次口播变化'))
        for name,field in CreativePlan.model_fields.items()
        if name not in {'scenes','settings','narration_policy','explainer_boards'}})
@@ -218,6 +231,13 @@ def validate_narration_revision(answer, base):
     for field in ('duration_seconds','aspect_ratio','audio_mode','voice','subtitles'):
         if proposed['settings'].get(field)!=base['settings'].get(field):
             raise ValueError('改稿重配须保留已确认设置：'+field)
+    def grouping(policy):
+        if not policy:
+            return policy
+        return {**policy, **({'groups': [{k:v for k,v in g.items() if k != 'emotion'}
+                                        for g in policy['groups']]} if policy.get('groups') else {})}
+    if grouping(proposed.get('narration_policy')) != grouping(base.get('narration_policy')):
+        raise ValueError('局部改稿须保留旁白分组与时长策略；重新分组需要明确重新规划')
     def visuals(scenes):
         return [{k:v for k,v in scene.items() if k not in {'narration','narration_pauses','duration_seconds'}} for scene in scenes]
     if visuals(proposed['scenes'])!=visuals(base['scenes']) or proposed.get('explainer_boards',[])!=base.get('explainer_boards',[]):
@@ -477,11 +497,11 @@ class PlanningTasks:
                 # Fixed synthesis parameters belong to the selected voice configuration.
                 # The creative model may not introduce extra knobs or change their values.
                 preserve_selected_voice_parameters(answer,selected)
-                if any(s.narration_pauses for s in answer.scenes):
-                    from .prosody import compile_pauses
+                if any(s.narration_pauses for s in answer.scenes) or (answer.narration_policy and answer.narration_policy.groups):
+                    from .narration import validate_narration_execution
                     if not answer.settings.voice or answer.settings.audio_mode not in {'voice','mixed'}:raise ValueError('停顿控制需要固定旁白声音')
                     if any(i.get('constraints',{}).get('original_audio') for i in context.inputs):raise ValueError('保留原声时不能使用连续旁白停顿控制')
-                    for scene in answer.scenes:compile_pauses(scene.narration.strip(),[p.model_dump() for p in scene.narration_pauses],answer.settings.voice)
+                    validate_narration_execution(answer.model_dump(mode='json'))
                 if protected:validate_audio_replan(answer,protected)
                 if ctx.payload.get("revision_scope")=="narration":validate_narration_revision(answer,context.plan)
                 if ctx.payload.get("revision_scope")=="boards":validate_board_revision(answer,context.plan)
@@ -499,6 +519,8 @@ class PlanningTasks:
                 'Scene.narration 只能是将由 TTS 实际朗读的简短口播原文，不能包含时间码、朗读窗口、'
                 '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明只写入 visual；script与各场景narration按顺序拼接一致，不含分镜编号或章节标签。'
                 '仅固定MiniMax speech-2.8时可按必要语义填写独立narration_pauses，after是去除首尾空白后的字符位置，seconds为0.05到1秒；不在正文写供应商标签，不逐句加停顿，默认空列表。'
+                '需要语义段独立表达或后续局部重做时，可在narration_policy.groups设计稳定id和按顺序完整覆盖有声场景的scene_ids；组内连续合成，建议每组不超过3000字符，不逐句拆分。'
+                'groups可选emotion须由内容目的决定，省略沿用已选声音；不得覆盖明确固定的情绪或替换音色。局部改稿只改既有组表达，分组边界保持；新增分组会增加配音调用，须随方案确认。'
                 'fixed口播须适合明确片长；voice_driven的秒数只是规划估计，最终随完整实测旁白定长，不为填满估计秒数增加内容或留白。'
                 '在同一次创作中先按选定导演的讲述方式组织完整思路，再落实分镜；频道提供定位与受众，不是固定文体。'
                 '将本期明确的表达要求写入已有constraints，改稿继承未撤销要求并逐项落实；新反馈没有重提不代表原要求失效。'
@@ -624,7 +646,7 @@ class PlanningTasks:
                         mode = (context.plan.get('narration_policy') or {}).get('duration_mode', 'fixed')
                     if 'duration_seconds' in requested or protected_audio:
                         mode = 'fixed'
-                    payload['narration_policy'] = {'continuous': not protected_audio,
+                    payload['narration_policy'] = {**(payload.get('narration_policy') or {}), 'continuous': not protected_audio,
                         'duration_mode': mode}
                 if not protected:
                     payload=reserve_narration_slots(payload)
