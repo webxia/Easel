@@ -155,3 +155,16 @@ def test_unknown_platform_is_rejected_without_creating_package(client, tmp_path)
     response = client.post("/api/manual-publish/unknown/export", json={"title": "Draft", "reviewed": True})
     assert response.status_code == 400
     assert not (tmp_path / "_publish").exists()
+
+
+def test_native_publish_merge_preserves_profile_and_tags(client, monkeypatch):
+    recorded = []
+    monkeypatch.setattr(web, 'profile_exists', lambda profile: profile == 'merge-profile')
+    monkeypatch.setattr(web, 'valid_persona_name', lambda profile: True)
+    monkeypatch.setattr(web, '_legacy_native_run', lambda *a, **k: SimpleNamespace(returncode=0, stdout='', stderr=''))
+    monkeypatch.setattr(web, '_record_successful_publish', lambda *args: recorded.append(args))
+    result = client.post('/api/publish/zhihu', json={
+        'title': 'Merged title', 'body': 'Body', 'tags': 'test', 'persona': 'merge-profile'})
+    assert result.status_code == 200, result.text
+    assert result.json()['ok'] is True
+    assert recorded[0][3:] == ('merge-profile', 'test', '图文')

@@ -27,6 +27,7 @@ interface ChatPageProps {
     legacyAgentText?: string,
   ) => void; // 重试：仅对最后一轮
   onQuestionAnswered?: (questionId: string) => void;   // 某道问答题提交成功（App 记录答过，重放不再出现）
+  onQuestionClosed?: (id: string, status: string) => void;
 }
 
 // 空态推荐（贴合 Easel 社媒创作场景）
@@ -43,7 +44,7 @@ function greeting(): string {
   return `${g}，想创作点什么？`;
 }
 
-export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, session, stream, onSend, onStop, onResend, onQuestionAnswered }: ChatPageProps) {
+export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, session, stream, onSend, onStop, onResend, onQuestionAnswered, onQuestionClosed }: ChatPageProps) {
   const [input, setInput] = useState('');
   const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -279,6 +280,7 @@ export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, sess
               }
             }
             return (
+              <div key={`${i}-${msg.role}`}>
               <MessageBubble
                 key={msg.serverTurnId || `${i}-${msg.role}`}
                 message={msg}
@@ -288,11 +290,13 @@ export default function ChatPage({ onVideoBound, onRestoreVideo, apiDirect, sess
                 stillWorking={live ? stream!.stillWorking : ''}
                 actions={actions}
               />
+              {!live && msg.questions && <QuestionCards questions={msg.questions} onDone={onQuestionAnswered} onClosed={onQuestionClosed} />}
+              </div>
             );
           })}
           {videoPanel}
           {isStreaming && (stream!.questions?.length ?? 0) > 0 && (
-            <QuestionCards questions={stream!.questions || []} onDone={(qid) => onQuestionAnswered?.(qid)} />
+            <QuestionCards questions={stream!.questions || []} onDone={(qid) => onQuestionAnswered?.(qid)} onClosed={onQuestionClosed} />
           )}
 
         </div>

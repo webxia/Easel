@@ -167,15 +167,17 @@ test('policy lookup completing after unmount does not update the page', async ()
 
 test('accepted publication survives publishing workflow switches', async () => {
   const app = setup();
-  const props = { publicationId: 'accepted-publication' };
+  const props = { publicationId: 'accepted-publication', source: { kind: 'file', path: 'sample.mp4' } };
   app.render(props);
   await settle();
   let tree = app.render(props);
   assert.equal(nodes(tree).find(node => node.type === 'automated-page').props.publicationId, props.publicationId);
+  assert.equal(nodes(tree).find(node => node.type === 'automated-page').props.source, props.source);
   button(tree, '人工审核发布').props.onClick();
   tree = app.render(props);
   button(tree, '自动发布').props.onClick();
   tree = app.render(props);
   assert.equal(nodes(tree).find(node => node.type === 'automated-page').props.publicationId, props.publicationId);
+  assert.equal(nodes(tree).find(node => node.type === 'automated-page').props.source, props.source);
   assert.equal(app.requests(), 1);
 });

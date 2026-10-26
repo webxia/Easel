@@ -124,6 +124,24 @@ class GatewayRPCError(GatewayQuestionError):
         super().__init__("Gateway RPC rejected")
 
 
+class GatewayQuestionClosedError(GatewayQuestionError):
+    """A question is no longer answerable, not a missing gateway capability."""
+
+    STATUSES = {
+        "QUESTION_NOT_FOUND": "not_found",
+        "QUESTION_ALREADY_TERMINAL": "closed",
+        "QUESTION_REQUESTER_INACTIVE": "cancelled",
+        "QUESTION_EXPIRED": "expired",
+        "QUESTION_CANCELLED": "cancelled",
+        "QUESTION_CLOSED": "closed",
+    }
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        self.status = self.STATUSES[reason]
+        super().__init__(f"question is closed or expired ({reason})")
+
+
 class GatewayUnsupportedError(GatewayQuestionError):
     """The gateway does not expose the question RPC surface.
 
@@ -353,13 +371,25 @@ class GatewayClient:
                 if msg.get("id") != req_id:
                     continue
                 if not msg.get("ok", False):
-                    error = msg.get("error") or {}
-                    message = str(error.get("message", "")).lower()
-                    if error.get("code") == "INVALID_REQUEST" and any(
-                        term in message for term in ("unknown method", "method not found", "unsupported method")
-                    ):
-                        raise GatewayUnsupportedError("Gateway method unavailable")
-                    raise GatewayRPCError(error.get("code"), (error.get("details") or {}).get("reason"))
+                    err = msg.get("error") or {}
+                    detail = json.dumps(err)[:200]
+                    details = err.get("details")
+                    reason = details.get("reason") if isinstance(details, dict) else None
+                    reason = reason if isinstance(reason, str) else None
+                    if reason in GatewayQuestionClosedError.STATUSES:
+                        raise GatewayQuestionClosedError(reason)
+                    missing_method = reason in {
+                        "METHOD_NOT_FOUND", "UNKNOWN_METHOD", "UNSUPPORTED_METHOD",
+                    }
+                    message = err.get("message")
+                    unknown_method = (not reason and isinstance(message, str)
+                                      and re.fullmatch(r"unknown method:\s*" + re.escape(method),
+                                                       message.strip(), flags=re.IGNORECASE))
+                    if (err.get("code") == "METHOD_NOT_FOUND"
+                            or err.get("code") == "INVALID_REQUEST" and (missing_method or unknown_method)):
+                        raise GatewayUnsupportedError(
+                            f"{method} not supported by this gateway: {detail}")
+                    raise GatewayRPCError(err.get("code"), reason)
                 return msg.get("payload")
             raise TimeoutError("Gateway RPC timed out")
         finally:
