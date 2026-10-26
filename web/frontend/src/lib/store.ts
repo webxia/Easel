@@ -128,20 +128,42 @@ export function loadSessions(): ChatSession[] {
   }
 }
 
-/** 保存前清理：只保留最新 1 个空会话（避免空会话无限堆积），并封顶总数。 */
-function prune(sessions: ChatSession[]): ChatSession[] {
-  let keptEmpty = false;
-  const pruned = sessions.filter((s) => {
-    if (s.messages.length > 0) return true;
-    if (keptEmpty) return false;
-    keptEmpty = true;
-    return true;
-  });
-  return pruned.slice(0, MAX_SESSIONS);
-}
+/** Persist only the caller's changed sessions; another tab owns its other rows. */
+type SessionChanges = {
+  create?: string[];
+  update?: Record<string, (keyof ChatSession)[]>;
+  remove?: string[];
+};
 
-export function saveSessions(sessions: ChatSession[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(prune(sessions)));
+export function saveSessions(sessions: ChatSession[], changes: SessionChanges): Promise<void> {
+  // React callbacks may mutate their arrays after returning. Freeze this write now.
+  const local = new Map((JSON.parse(JSON.stringify(sessions)) as ChatSession[]).map(s => [s.id, s]));
+  const apply = () => {
+    const current = new Map(loadSessions().map(s => [s.id, s]));
+    for (const id of changes.remove || []) current.delete(id);
+    for (const [id, fields] of Object.entries(changes.update || {})) {
+      const saved = current.get(id), next = local.get(id);
+      // An update from a stale tab must not resurrect a deleted conversation.
+      if (!saved || !next) continue;
+      const patch = Object.fromEntries(fields.map(field => [field, next[field]]));
+      current.set(id, { ...saved, ...patch });
+    }
+    const created: ChatSession[] = [];
+    for (const id of changes.create || []) {
+      const next = local.get(id);
+      if (next && !current.has(id)) { created.push(next); current.set(id, next); }
+    }
+    const newIds = new Set(created.map(s => s.id));
+    // Empty sessions may be active in other tabs; never prune them as duplicates.
+    const merged = [...created, ...Array.from(current.values()).filter(s => !newIds.has(s.id))];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(merged.slice(0, MAX_SESSIONS)));
+  };
+  // Serialize cross-tab read/modify/write on supported secure browser contexts.
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    return navigator.locks.request(STORAGE_KEY, apply);
+  }
+  apply();
+  return Promise.resolve();
 }
 
 export function createSession(persona?: string): ChatSession {

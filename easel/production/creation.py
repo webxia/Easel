@@ -492,12 +492,14 @@ class CreationTasks:
                 try:
                     from .quality import review_visual_preview
                     status, evidence = await review_visual_preview(path,
-                        runner=self.planning.runner(ctx,namespace='visual-review-v1'),context=quality_context)
+                        runner=self.planning.runner(ctx,namespace='visual-review-v2'),context=quality_context)
                     # Existing semantic ledger, explicitly limited scope. A
                     # sampled visual pass NEVER becomes a semantic pass.
                     findings=evidence['review']['findings']
+                    if ctx.payload.get('visual_recheck_source'):
+                        evidence['rechecks_invalid_review']=ctx.payload['visual_recheck_source']
                     self._check(ctx,artifact,'semantic','fail' if findings else 'not_tested',
-                        {**evidence,'visual_status':status},rule_version='visual-preview-1')
+                        {**evidence,'visual_status':status},rule_version='visual-preview-2')
                     # Limited observation or a bare verdict is not evidence of a defect.
                     # Keep the original review, but do not rerender or block human review.
                     if findings:
@@ -525,15 +527,16 @@ class CreationTasks:
                                         if sid in {s.scene_id for s in project.scenes}]},work_state='producing')
                         return TaskResult(work_state='preview_needs_fix',result={'output_id':artifact['id'],'visual':status,'semantic':'not_tested'})
                 except ModelTaskError as exc:
-                    self._check(ctx,artifact,'semantic','not_tested',{'code':exc.code,'scope':'sampled_visual_only'},rule_version='visual-preview-1')
+                    self._check(ctx,artifact,'semantic','not_tested',{'code':exc.code,'scope':'sampled_visual_only'},rule_version='visual-preview-2')
                     return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError(exc.code,exc.user_message,requires_decision=True))
             # Temporary S6-14 manual-review policy, enabled ONLY by a private
             # runtime switch. Keep technical QC mandatory and retain real
             # negative semantic findings as blockers; never invent a PASS.
             with self.service.store.connection() as reader:
-                prior = reader.execute("""SELECT status FROM quality_checks
+                from .quality import effective_quality_checks
+                prior = effective_quality_checks(reader.execute("""SELECT * FROM quality_checks
                     WHERE artifact_id=? AND artifact_digest=? AND check_kind='semantic'""",
-                    (artifact['id'],artifact['digest'])).fetchall()
+                    (artifact['id'],artifact['digest'])).fetchall())
             if any(record['status'] in {'fail','partial'} for record in prior):
                 return TaskResult(state='needs_decision',work_state='needs_decision',
                     error=ProductionError('semantic_findings_require_review',

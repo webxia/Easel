@@ -45,6 +45,18 @@ def test_selected_pipeline_handoff_waits_native_end(env):
     assert s.list_works()['items']==[]
 
 
+@pytest.mark.parametrize('mode', ['bind', 'draft'])
+def test_pipeline_source_error_locates_root_quote_without_side_effects(env, mode):
+    s,c=env;seg=entry(c,profile_ref='one')
+    b,i,_=turn(s,c,seg,'做一条视频')
+    for args in ({}, {'values':{'user_quote':'做一条视频'}}, {'user_quote':'助手同意'}):
+        with pytest.raises(ProductionError) as error:
+            pipe(b,i,mode,**args)
+        assert error.value.code=='invalid_source'
+        assert '顶层传user_quote' in error.value.user_message
+    assert s.list_works()['items']==[]
+
+
 def test_local_draft_and_plan_confirmation_are_separate(env):
     channel=seed(env);s,c=env;seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
     b,i,_=turn(s,c,seg,'把今天的想法做视频')

@@ -85,19 +85,22 @@ def output_text(event):
     output = next((a for a in event.get('outputs', []) if a['id'] == output_id), None)
     if not output:
         return None
-    checks = output.get('checks', [])
+    from .conversation_pipeline import output_summary
+    checks = output_summary(output)['checks']
     labels = []
     technical = [q for q in checks if q['kind'] == 'technical']
     labels.append('技术检查通过' if technical and technical[-1]['status'] == 'pass' else '技术检查结果请查看成片记录')
-    visual = [q['findings']['visual_status'] for q in checks if q.get('findings', {}).get('scope') == 'sampled_visual_only' and q['findings'].get('visual_status')]
+    visual = [q.get('visual_status',q['status']) for q in checks if q.get('scope') == 'sampled_visual_only']
     if visual:
-        labels.append('画面抽样检查通过（仅抽样）' if visual[-1] == 'pass' else '画面抽样检查发现问题')
-    semantic = [q for q in checks if q['kind'] == 'semantic' and q.get('findings', {}).get('scope') != 'sampled_visual_only']
+        labels.append({'pass':'画面抽样检查通过（仅抽样）','partial':'画面抽样结论待复核'}.get(visual[-1],'画面抽样检查发现问题'))
+    semantic = [q for q in checks if q['kind'] == 'semantic' and q.get('scope') != 'sampled_visual_only']
     labels.append({'pass':'内容检查返回通过结论','fail':'内容检查发现问题','partial':'内容检查未完整完成'}.get(semantic[-1]['status'] if semantic else None, '完整语义与声音检查未验证'))
     revision = output.get('output_revision')
     title = f'第 {revision} 版已完成，可播放审阅。' if revision else '成片已完成，可播放审阅。'
+    details=[str(f) for check in checks for f in check['findings']][:3]
     return '\n\n'.join([title, f'<video controls src="{output["playback_url"]}"></video>',
                         '检查结果：' + '；'.join(labels) + '。',
+                        *details,
                         output.get('delivery', {}).get('message') or '请完整播放后告诉我审阅意见。'])
 
 

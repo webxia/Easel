@@ -132,3 +132,14 @@ def test_schema_seven_upgrade_retains_all_existing_rows(tmp_path,monkeypatch):
         assert not conn.execute('PRAGMA foreign_key_check').fetchall()
     s.command('accept',{'output_id':'out','manual_review_confirmed':True},command_id='accept',
               work_id=w,expected_revision=s.snapshot(w)['revision'])
+
+
+def test_followup_stays_in_dialogue_text_with_specific_next_steps(env):
+    s,c,seg,w,path=checked(env);before=tables(s)
+    b,i,_=turn(s,c,seg,'只重新展示当前视频，不修改',id='dialogue-followup')
+    result=pipe(b,i,'preview')
+    assert '本版画面待人工判断' in result['preview_text']
+    assert '要改画面' in result['preview_text'] and '原句和替换句' in result['preview_text']
+    assert '完整看过并确认' in result['preview_text'] and '接受第1版' in result['preview_text']
+    assert 'output_followup' not in c.view('ui')
+    b.end(Identity(**i));assert tables(s)==before

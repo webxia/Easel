@@ -181,7 +181,7 @@ def test_actual_visual_check_never_fakes_audio_and_routes_bounded_repair(tmp_pat
         if any(t['kind']=='quality' and t['state']=='succeeded' for t in snap['tasks']):break
         time.sleep(.05)
     with store.connection() as conn:
-        checked=conn.execute("SELECT status,findings_json FROM quality_checks WHERE rule_version='visual-preview-1'").fetchone()
+        checked=conn.execute("SELECT status,findings_json FROM quality_checks WHERE rule_version='visual-preview-2'").fetchone()
         evidence=json.loads(checked['findings_json'])
         assert evidence['audio_reviewed'] is False and evidence['full_av_reviewed'] is False
     assert snap['accepted_output_id'] is None

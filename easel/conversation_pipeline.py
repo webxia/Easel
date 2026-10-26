@@ -217,6 +217,10 @@ def output_summary(artifact):
             'findings':findings.get('review',{}).get('findings',findings.get('findings',[]))}
         if scope=='sampled_visual_only' and findings.get('visual_status') in {'pass','fail','partial'}:
             latest[(check['kind'],scope)]['visual_status']=findings['visual_status']
+        if (scope=='sampled_visual_only' and findings.get('review',{}).get('verdict')=='pass'
+                and findings.get('review',{}).get('findings')):
+            latest[(check['kind'],scope)].update(visual_status='partial',
+                findings=['这份抽样审片的通过结论与问题列表不一致，需要复核；尚不能据此认定画面有缺陷。'])
     result['checks']=list(latest.values())
     return result
 
@@ -382,6 +386,14 @@ def pending(conversations, conn, segment):
                 blockers[-1]['draft_review']={
                     'findings':[value[:2000] for value in findings if isinstance(value,str)][:8],
                     'scope':'当前草稿的模型审阅意见，不是新增用户要求或已核实事实；核对字段合同及实际证据，不能只凭通用失败码猜测原因或擅自缩减交付范围。'}
+    if work:
+        recheck=conversations.service.visual_review_recheck(conn,row(conn,'works',work['id']))
+        if recheck:
+            blockers.append({'task_kind':'quality','code':'visual_review_inconsistent',
+                'message':'此前抽样审片结论与问题列表矛盾；可仅复核当前原片，不重做素材、配音或渲染。',
+                'unknown':False,'choices':[{'kind':'review_current_output','action':'resume',
+                    'values':{'decision_id':recheck['decision_id']},
+                    'requires':'仅重新审阅当前MP4，保留旧回执；可能新增现有模型审阅费用，展示范围后等真人确认。'}]})
     return {'replanning':{'action':'plan','values':{'intent':'replan'},'instruction':'未确认方案改口播、分镜或结构均使用此入口；已确认方案仅在真人明确要求重新规划时使用。request写明变更范围，user_quote引用真实原话；沿用已有规划授权直接执行。继续制作使用resume。新方案完成后仍须确认制作。'},'blockers':blockers,'failed_planning_replan':failed_recovery,'handoff_result':handoff,'context':context,'channels':channels,'directors':directors,'pending':proposals,
             'preoutput_replan':recovery,
             'current_plan':next((p for p in work['plans'] if p['revision']==work['current_plan_revision']),None) if work else None,
@@ -746,7 +758,7 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
         return summary
     quote=args.get('user_quote','').strip()
     if mode in {'answer','bind','draft'} and (not quote or quote not in payload['message']):
-        fail('invalid_source','操作必须引用本轮用户的原话',403)
+        fail('invalid_source','bind/draft/answer必须在参数顶层传user_quote，内容逐字引用本轮用户原话；不要用source_refs或放进values。draft的values只传title和input_text。',403)
     if mode=='bind':
         return bind_selection(conversations,conn,record,payload,segment,args.get('values',{}))
     if mode=='draft':

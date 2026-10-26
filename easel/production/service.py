@@ -547,14 +547,35 @@ class WorkService:
         self._event(conn,work['id'],'authorization_updated',{'purpose':purpose})
         return {'work_id':work['id'],'grant_id':grant}
 
+    def visual_review_recheck(self, conn, work):
+        """Narrow recovery for the legacy contradictory visual-review classification."""
+        if work['state'] != 'preview_needs_fix' or not work['active_run_id']:return None
+        run=row(conn,'runs',work['active_run_id'])
+        if run['state']!='succeeded' or run['cancel_requested']:return None
+        if conn.execute("SELECT 1 FROM operations WHERE work_id=? AND state IN ('reserved','sending','submitted','unknown')",(work['id'],)).fetchone():return None
+        artifact=conn.execute("SELECT * FROM artifacts WHERE work_id=? AND kind='output' AND deleted_at IS NULL AND displayable=1 ORDER BY output_revision DESC LIMIT 1",(work['id'],)).fetchone()
+        if not artifact or artifact['run_id']!=run['id']:return None
+        task=conn.execute("SELECT * FROM tasks WHERE run_id=? AND kind='quality' AND state='succeeded' AND json_extract(payload_json,'$.output_id')=? ORDER BY created_at DESC LIMIT 1",(run['id'],artifact['id'])).fetchone()
+        if not task:return None
+        from .quality import effective_quality_checks,invalid_legacy_visual_check
+        checks=effective_quality_checks(conn.execute('SELECT * FROM quality_checks WHERE artifact_id=? AND artifact_digest=? ORDER BY created_at,id',(artifact['id'],artifact['digest'])).fetchall())
+        invalid=[check for check in checks if invalid_legacy_visual_check(check)]
+        if not invalid:return None
+        return {'decision_id':task['id'],'output_id':artifact['id'],'check_id':invalid[-1]['id']}
+
     def _resume(self,conn,work,data):
         if not work['active_run_id']:fail('invalid_input','没有可恢复运行')
         run=row(conn,'runs',work['active_run_id'])
-        if run['cancel_requested'] or run['state'] not in {'needs_decision','paused','waiting_external','failed'}:
-            fail('invalid_input','当前运行不能直接恢复')
         task=row(conn,'tasks',data.get('decision_id',''))
-        if task['run_id']!=run['id'] or task['state'] not in {'needs_decision','retryable_failed','waiting_external','failed'}:
+        recheck=self.visual_review_recheck(conn,work)
+        recheck=recheck if recheck and recheck['decision_id']==task['id'] else None
+        if run['cancel_requested'] or (not recheck and run['state'] not in {'needs_decision','paused','waiting_external','failed'}):
+            fail('invalid_input','当前运行不能直接恢复')
+        if task['run_id']!=run['id'] or (not recheck and task['state'] not in {'needs_decision','retryable_failed','waiting_external','failed'}):
             fail('stale_revision','需要解决的决定已变化',409)
+        if recheck:
+            payload=json.loads(task['payload_json']);payload['visual_recheck_source']=recheck['check_id']
+            conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
         if 'optional_sfx_ids' in data:
             ids=data['optional_sfx_ids']
             payload=json.loads(task['payload_json'])
@@ -656,10 +677,11 @@ class WorkService:
     @staticmethod
     def _has_known_quality_failure(conn, artifact) -> bool:
         # Re-exported bytes retain their findings even under another artifact ID.
-        return bool(conn.execute("""SELECT 1 FROM quality_checks q JOIN artifacts a ON a.id=q.artifact_id
-            WHERE a.work_id=? AND a.digest=? AND q.artifact_digest=?
-            AND q.check_kind='semantic' AND q.status IN ('fail','partial') LIMIT 1""",
-            (artifact['work_id'],artifact['digest'],artifact['digest'])).fetchone())
+        from .quality import effective_quality_checks
+        checks=effective_quality_checks(conn.execute("""SELECT q.* FROM quality_checks q JOIN artifacts a ON a.id=q.artifact_id
+            WHERE a.work_id=? AND a.digest=? AND q.artifact_digest=? AND q.check_kind='semantic'""",
+            (artifact['work_id'],artifact['digest'],artifact['digest'])).fetchall())
+        return any(check['status'] in {'fail','partial'} for check in checks)
 
     @staticmethod
     def _manual_review_ready(conn, artifact) -> bool:
@@ -668,10 +690,11 @@ class WorkService:
                 artifact['output_revision'] is None or artifact['quality_state'] != 'needs_fix'):
             return False
         if WorkService._has_known_quality_failure(conn,artifact):return False
-        checks = conn.execute("""SELECT check_kind,status,findings_json
+        from .quality import effective_quality_checks
+        checks = effective_quality_checks(conn.execute("""SELECT *
             FROM quality_checks WHERE artifact_id=? AND artifact_digest=?
             ORDER BY created_at DESC,id DESC""",
-            (artifact['id'],artifact['digest'])).fetchall()
+            (artifact['id'],artifact['digest'])).fetchall())
         if any(c['check_kind']=='semantic' and c['status'] in {'fail','partial'} for c in checks):
             return False
         latest = {}
