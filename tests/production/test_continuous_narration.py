@@ -94,8 +94,10 @@ def test_unknown_input_list_repairs_inside_same_native_model_task():
     assert 'required_input_ids' in t.calls[1][-1]['content']
 
 
+@pytest.mark.parametrize('explicit_duration', [False, True])
+@pytest.mark.parametrize('audio_mode', ['voice', 'mixed'])
 @pytest.mark.parametrize('review_verdict',['pass','fail'])
-def test_autonomous_worker_reviews_draft_and_freezes_measured_policy(tmp_path,review_verdict):
+def test_autonomous_worker_reviews_draft_and_freezes_measured_policy(tmp_path,review_verdict,audio_mode,explicit_duration):
     from easel.production.store import Store
     from easel.production.service import WorkService
     from easel.production.operations import OperationService
@@ -104,12 +106,14 @@ def test_autonomous_worker_reviews_draft_and_freezes_measured_policy(tmp_path,re
     store = Store(tmp_path / 'db'); store.initialize()
     service = WorkService(store, outputs=tmp_path / 'outputs', profiles=tmp_path / 'profiles')
     voice = {'provider': 'fixture', 'model': 'speech', 'engine': 'fixture', 'voice_id': 'fixed'}
-    settings = {'audio_mode': 'voice', 'voice': voice, 'aspect_ratio': '16:9'}
+    settings = {'audio_mode': audio_mode, 'voice': voice, 'aspect_ratio': '16:9'}
+    if explicit_duration:
+        settings['duration_seconds'] = 20
     work = service.command('create', {'title': 'autonomous', 'input_text': '做完等于学会吗？',
                                       'settings': settings}, command_id='create')['work_id']
     identity = {'provider': 'direct-api', 'model': 'fixture', 'mode': 'structured'}
     service.command('plan', {'services': [identity]}, command_id='plan', work_id=work, expected_revision=1)
-    answer = {'title': '学习', 'summary': '一个假设例子，长度随完整旁白', 'script': '说明逻辑',
+    answer = {'title': '学习', 'summary': '一个假设例子，长度随完整旁白', 'script': '假设换一个条件，你还能自己解释吗？',
               'narration_policy': {'continuous': True, 'duration_mode': 'voice_driven'},
               'settings': {**settings, 'duration_seconds': 20},
               'scenes': [{'id': 's1', 'purpose': '解释', 'visual': '翻阅笔记', 'duration_seconds': 20,
@@ -127,7 +131,7 @@ def test_autonomous_worker_reviews_draft_and_freezes_measured_policy(tmp_path,re
     assert asyncio.run(worker.run_once())
     snap = service.snapshot(work)
     assert snap['state'] == 'awaiting_confirmation' and len(transport.calls) == 2
-    assert snap['plans'][0]['plan']['narration_policy'] == {'continuous': True, 'duration_mode': 'voice_driven'}
+    assert snap['plans'][0]['plan']['narration_policy'] == {'continuous': True, 'duration_mode': 'fixed' if explicit_duration else 'voice_driven'}
     context = json.loads(transport.calls[1][1]['content'][0]['text'])
     assert context['plan']['scenes'][0]['narration'] == answer['scenes'][0]['narration']
     assert context['production_capabilities']['unavailable']
@@ -271,7 +275,7 @@ def test_draft_auditor_cannot_approve_changed_fixed_voice(tmp_path):
     work=service.command('create',{'title':'idea','input_text':'一个问题','settings':settings},command_id='create')['work_id']
     model_id={'provider':'direct-api','model':'fixture','mode':'structured'}
     service.command('plan',{'services':[model_id]},work_id=work,expected_revision=1,command_id='plan')
-    answer={'title':'问题','summary':'假设例子','script':'一起看条件','settings':{**settings,'duration_seconds':20},
+    answer={'title':'问题','summary':'假设例子','script':'先看条件，再一起解释。','settings':{**settings,'duration_seconds':20},
         'scenes':[{'id':'s1','purpose':'解释','visual':'真实场景','duration_seconds':20,'narration':'先看条件，再一起解释。'}]}
     class Model:
         capabilities=frozenset({'text','structured'})
@@ -315,3 +319,43 @@ def test_confirmed_ending_accounts_for_overlap_and_protects_source_audio():
     assert r.scenes[0]==p.scenes[0]
     protected=p.model_copy(update={'scenes':(p.scenes[0],p.scenes[1].model_copy(update={'source_audio':True}))})
     with pytest.raises(EditError):trim_confirmed_ending(protected,26)
+
+
+@pytest.mark.parametrize('audio_mode', ['voice', 'mixed'])
+def test_scene_effects_follow_natural_duration_but_absolute_events_are_protected(audio_mode):
+    p = sample()
+    p['settings']['audio_mode'] = audio_mode
+    effect = {'id': 'effect', 'metadata_json': json.dumps({'material_uses': [
+        {'role': 'sfx', 'cue_id': 'click', 'scene_id': 's2', 'at': 95,
+         'duration': 1, 'timing_basis': 'scene'}]})}
+    before = deepcopy(effect)
+    measured, timing = measured_execution_plan(p, [record(p), effect])
+    assert timing['duration'] < 95 and measured['settings']['audio_mode'] == audio_mode
+    assert effect == before
+    absolute = deepcopy(effect)
+    meta = json.loads(absolute['metadata_json'])
+    meta['material_uses'][0].pop('timing_basis')
+    absolute['metadata_json'] = json.dumps(meta)
+    from easel.production.model_tasks import ModelTaskError
+    with pytest.raises(ModelTaskError, match='冻结时间音效'):
+        measured_execution_plan(p, [record(p), absolute])
+    with pytest.raises(ModelTaskError):
+        measured_execution_plan(p, [record(p), {'metadata_json': json.dumps({'original_audio': True})}])
+
+
+@pytest.mark.parametrize('mode',['fixed','voice_driven'])
+def test_duration_review_contract_agrees_with_actual_execution(mode):
+    from easel.production.narration import duration_execution_contract
+    p=sample();p['narration_policy']['duration_mode']=mode;before=deepcopy(p)
+    contract=duration_execution_contract(p)
+    executed,timing=measured_execution_plan(p,[record(p)])
+    assert p==before and contract['duration_seconds_required'] is True
+    assert contract['draft_duration_seconds']==105
+    if mode=='voice_driven':
+        assert contract['duration_seconds_meaning']=='planning_estimate'
+        assert contract['execution_basis']=='complete_measured_speech'
+        assert executed['settings']['duration_seconds']==timing['duration']!=105
+    else:
+        assert contract['duration_seconds_meaning']=='fixed_duration'
+        assert contract['execution_basis']=='confirmed_duration'
+        assert executed['settings']['duration_seconds']==timing['duration']==105

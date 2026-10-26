@@ -1,0 +1,18 @@
+.content-library .library-section { max-width: 1160px; margin: 22px auto; }
+.content-library .library-work-detail, .content-library > .section-label { max-width: 1160px; margin-left: auto; margin-right: auto; }
+.content-library .library-section h2 { font-size: 15px; margin: 0 0 10px; }
+.content-library .library-work-card { cursor: pointer; text-align: left; }
+.content-library .library-work-card:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
+.content-library .library-detail-section { margin: 18px 0; }
+.content-library .card.library-detail-section { padding: 16px; }
+.content-library .library-detail-section h3 { font-size: 14px; margin: 0 0 12px; }
+.content-library .library-detail-section video { display: block; width: 100%; max-height: 58vh; border-radius: var(--radius); background: #000; }
+.content-library .library-detail-section p, .content-library .library-detail-hint { color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+.content-library .library-detail-section summary { cursor: pointer; font-size: 13px; }
+.content-library .library-detail-actions, .content-library .library-publication { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.content-library .library-publication { margin: 10px 0; font-size: 13px; }
+.content-library .library-detail-heading { display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.content-library .library-detail-heading h2 { font-size: 18px; overflow-wrap: anywhere; }
+.content-library .library-detail-heading span { color: var(--text-secondary); font-size: 12px; }
+.content-library .library-script { white-space: pre-wrap; line-height: 1.8; font-size: 14px; }
+.content-library .library-detail-section li { padding: 6px 0; overflow-wrap: anywhere; font-size: 13px; }

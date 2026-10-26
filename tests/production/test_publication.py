@@ -27,6 +27,7 @@ class Fake:
         if self.before:self.before()
         return ['old']
     def stage_video(self,path,digest):return path
+    def stage_cover(self,path,digest):return path
     def upload(self,path,content):
         self.calls+=1
         if self.entered:self.entered.set();self.release.wait(5)
@@ -283,7 +284,7 @@ def test_forward_migration_preserves_existing_work(tmp_path,monkeypatch):
     target.initialize()
     assert target.get_work(work['id'])['title']=='retained'
     with target.connection() as c:
-        assert c.execute('PRAGMA user_version').fetchone()[0]==5
+        assert c.execute('PRAGMA user_version').fetchone()[0]==module.SCHEMA_VERSION
         assert c.execute('select count(*) from publication_drafts').fetchone()[0]==0
 
 
@@ -308,3 +309,149 @@ def test_reaccepting_does_not_bypass_unresolved_submission(publication):
     again=p.save(again['id'],again['revision'],{**again['content'],'tags':['test'],'account':ACCOUNT})
     with pytest.raises(ProductionError,match='待核实'):send(p,again)
     assert a.calls==1
+
+
+
+def test_launchagent_finds_active_environment_publisher_without_path(tmp_path,monkeypatch):
+    from easel import publication_bilibili as module
+    binary=tmp_path/'bin';binary.mkdir()
+    monkeypatch.setattr(module.sys,'executable',str(binary/'python'))
+    monkeypatch.setattr(module.os,'name','posix')
+    monkeypatch.setattr(module.shutil,'which',lambda name:None)
+    local=binary/'biliup';local.write_text('#!/bin/sh\nexit 0\n');local.chmod(0o700)
+    session=BilibiliSession(tmp_path,tmp_path/'cookies.json')
+    monkeypatch.setattr(module.readback,'read_bilibili_works',lambda *a,**k:[])
+    assert session.snapshot()==[] and session.executable==str(local)
+    commands=[]
+    from types import SimpleNamespace
+    monkeypatch.setattr(module.subprocess,'run',lambda command,**kwargs:(commands.append(command),SimpleNamespace(returncode=0))[1])
+    session.upload(tmp_path/'video.mp4',{'title':'测试','body':'','credits':'','tags':['思考'],'copyright':1,'source':'','tid':36})
+    assert len(commands)==1 and commands[0][0]==str(local)
+    local.unlink()
+    with pytest.raises(ProductionError) as error:BilibiliSession.publisher()
+    assert error.value.code=='publisher_unavailable'
+
+
+
+def test_upload_receipt_preserves_exit_and_allowlisted_api_fields_only(tmp_path,monkeypatch):
+    from easel import publication_bilibili as module
+    import sys
+    session=BilibiliSession(tmp_path,tmp_path/'cookies.json');session.executable=sys.executable
+    script='import json; print(json.dumps({"code":0,"data":{"bvid":"BV1abcDEF234","SESSDATA":"PRIVATE_TEST_VALUE"}})); print("cookie=PRIVATE_TEST_VALUE"); raise SystemExit(7)'
+    monkeypatch.setattr(module,'biliup_command',lambda *args:[sys.executable,'-c',script])
+    receipt=session.upload(tmp_path/'not-used.mp4',{})
+    assert receipt['returncode']==7 and not receipt['timed_out']
+    assert receipt['remote_id']=='BV1abcDEF234' and receipt['response_codes']==[0]
+    assert 'PRIVATE_TEST_VALUE' not in json.dumps(receipt) and 'cookie' not in json.dumps(receipt)
+    assert 'outcome' not in receipt  # neither CLI zero nor an ID marks platform success
+
+
+def test_upload_timeout_is_diagnostic_not_proof_of_no_submission(tmp_path,monkeypatch):
+    from easel import publication_bilibili as module
+    session=BilibiliSession(tmp_path,tmp_path/'cookies.json');session.executable='fixture'
+    def timeout(*args,**kwargs):raise module.subprocess.TimeoutExpired(args[0],600)
+    monkeypatch.setattr(module.subprocess,'run',timeout)
+    receipt=session.upload(tmp_path/'video.mp4',{'title':'t','body':'','credits':'','tags':['t'],'tid':36,'copyright':1,'source':''})
+    assert receipt['timed_out'] and receipt['returncode'] is None
+    assert 'submitted' not in receipt
+
+
+def test_execution_receipt_survives_readback_exception_restart_and_reconcile(publication,monkeypatch):
+    p,a,d=publication
+    def upload(*args):a.calls+=1;return {'returncode':8,'timed_out':False,'output_captured':True}
+    def broken(*args,**kwargs):raise OSError('fixture readback failure')
+    monkeypatch.setattr(a,'upload',upload);monkeypatch.setattr(a,'readback',broken)
+    result=send(p,d)
+    assert result['attempts'][0]['state']=='unknown'
+    assert result['attempts'][0]['receipt']['execution']['returncode']==8
+    restarted=Publications(p.service,a)
+    assert restarted.reconcile(d['id'])['attempts'][0]['receipt']['execution']['returncode']==8
+    assert send(restarted,d)['attempts'][0]['state']=='unknown' and a.calls==1
+
+
+def test_explicit_verified_absence_restores_same_draft_without_upload_and_new_confirm(publication):
+    p,a,d=publication
+    a.receipt={'outcome':'unverified','account':dict(ACCOUNT),'candidate_count':0}
+    unknown=send(p,d);attempt=unknown['attempts'][-1]
+    reopened=p.resolve_absent(d['id'],unknown['revision'],unknown['confirmation_hash'],attempt['id'],True)
+    assert reopened['id']==d['id'] and reopened['output_id']==d['output_id']
+    assert reopened['state']=='draft' and reopened['revision']==d['revision']+1
+    assert reopened['attempts'][0]['state']=='failed_before_submit'
+    assert reopened['attempts'][0]['receipt']['resolution']['kind']=='explicit_creator_backend_verification'
+    assert a.calls==1
+    assert p.resolve_absent(d['id'],unknown['revision'],unknown['confirmation_hash'],attempt['id'],True)==reopened
+    send(p,d);assert a.calls==1  # reusing the original confirm never uploads again
+    a.receipt={'outcome':'verified','account':dict(ACCOUNT),'matched':{'status':'pending','platform_content_id':'BVsecond'}}
+    completed=send(p,reopened)
+    assert a.calls==2 and len(completed['attempts'])==2
+    assert completed['attempts'][-1]['state']=='verified'
+
+
+@pytest.mark.parametrize('problem',['no_confirmation','wrong_account','changed_list','incomplete_list','known_remote','wrong_revision'])
+def test_verified_absence_never_reopens_without_valid_same_record_evidence(publication,problem,monkeypatch):
+    p,a,d=publication;a.receipt={'outcome':'unverified','account':dict(ACCOUNT)}
+    unknown=send(p,d);attempt=unknown['attempts'][-1]
+    confirm=True;revision=unknown['revision']
+    if problem=='no_confirmation':confirm=False
+    if problem=='wrong_account':a.identity={**ACCOUNT,'uid':'another'}
+    if problem=='changed_list':monkeypatch.setattr(a,'snapshot',lambda:['old','new'])
+    if problem=='incomplete_list':monkeypatch.setattr(a,'snapshot',lambda:[str(i) for i in range(50)])
+    if problem=='known_remote':
+        with p.store.transaction() as conn:conn.execute('UPDATE publication_attempts SET receipt_json=? WHERE id=?',(json.dumps({'execution':{'remote_id':'BVknown'}}),attempt['id']))
+    if problem=='wrong_revision':revision+=1
+    with pytest.raises(ProductionError):p.resolve_absent(d['id'],revision,unknown['confirmation_hash'],attempt['id'],confirm)
+    current=p.get(d['id'])
+    assert current['state']=='submitted' and current['attempts'][-1]['state']=='unknown' and a.calls==1
+
+
+def test_api_explicit_absence_recovery_requires_true_statement_and_exact_identity(publication):
+    p,a,d=publication;a.receipt={'outcome':'unverified','account':dict(ACCOUNT)}
+    unknown=send(p,d)
+    app=FastAPI();app.add_exception_handler(ProductionError,production_error_handler)
+    app.include_router(create_publication_router(lambda:p.service,lambda:a))
+    client=TestClient(app);path='/api/production/publications/'+d['id']+'/resolve-absent'
+    payload={'revision':unknown['revision'],'confirmation_hash':unknown['confirmation_hash'],'attempt_id':unknown['attempts'][-1]['id'],'confirmed_absent':True}
+    assert client.post(path,json={**payload,'confirmed_absent':False}).status_code==422
+    assert client.post(path,json={**payload,'attempt_id':'other'}).status_code==409
+    response=client.post(path,json=payload)
+    assert response.status_code==200 and response.json()['state']=='draft' and a.calls==1
+
+
+def test_prefixed_cli_evidence_keeps_stage_and_codes_without_raw_output():
+    from easel.publication_bilibili import cli_evidence
+    raw='\x1b[32mINFO\x1b[0m uploader: pre_upload: {"name":"PRIVATE_TEST_VALUE"}\nINFO Upload completed: PRIVATE_TEST_VALUE\nINFO response: {"code":-101,"message":"PRIVATE_TEST_VALUE"}\nerror sending request: invalid peer certificate PRIVATE_TEST_VALUE'
+    evidence=cli_evidence(raw)
+    assert evidence=={'last_stage':'upload_complete','error_kinds':['tls_error','connection_error'],'response_codes':[-101]}
+    assert 'PRIVATE_TEST_VALUE' not in json.dumps(evidence)
+    assert cli_evidence('unknown arbitrary error PRIVATE_TEST_VALUE')=={}
+
+
+def test_native_cli_route_override_is_optional_and_validated(monkeypatch):
+    from easel.publication_bilibili import biliup_command
+    content={'title':'t','body':'','credits':'','tags':['t'],'copyright':1,'source':'','tid':36}
+    monkeypatch.delenv('EASEL_BILIBILI_UPLOAD_LINE',raising=False)
+    assert '--line' not in biliup_command('cookie','video',content)
+    monkeypatch.setenv('EASEL_BILIBILI_UPLOAD_LINE','tx')
+    assert biliup_command('cookie','video',content)[-2:]==['--line','tx']
+    monkeypatch.setenv('EASEL_BILIBILI_UPLOAD_LINE','--insecure')
+    with pytest.raises(ProductionError):biliup_command('cookie','video',content)
+
+
+def test_rust_response_and_expired_route_evidence():
+    from easel.publication_bilibili import cli_evidence
+    failed=cli_evidence('INFO pre_upload: {}\nERROR invalid peer certificate: 证书已过期')
+    assert failed['last_stage']=='pre_upload'
+    assert failed['error_kinds']==['tls_error','certificate_expired']
+    response=cli_evidence('INFO ResponseData { code: 0, data: Some(Object {"bvid": String("BV1abcDEF234"), "token": String("PRIVATE")}), message: "" }\nINFO Web 接口投稿成功')
+    assert response=={'last_stage':'submit_acknowledged','remote_id':'BV1abcDEF234','response_codes':[0]}
+
+
+def test_remote_id_with_delayed_list_readback_keeps_acknowledgement(publication,monkeypatch):
+    p,a,d=publication
+    monkeypatch.setattr(a,'upload',lambda *args:{'returncode':0,'remote_id':'BV1abcDEF234'})
+    monkeypatch.setattr(a,'readback',lambda *args,**kwargs:{'outcome':'unverified','account':a.account()})
+    result=send(p,d)
+    last=result['attempts'][-1]
+    assert last['state']=='unknown'
+    assert 'B站已返回稿件编号' in last['receipt']['reason']
+    assert last['receipt']['execution']['remote_id']=='BV1abcDEF234'

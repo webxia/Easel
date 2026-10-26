@@ -245,7 +245,7 @@ def create_work_tool_router(bridge, token):
     return router
 
 
-def require_gateway_bridge(base_url, gateway_token, *, expected_tools=None, protocol=1, agent_id='easel-video', permission_policy=None):
+def require_gateway_bridge(base_url, gateway_token, *, expected_tools=None, protocol=1, agent_id='easel-video', permission_policy=None, bootstrap_policy=None):
     """Read active plugin readiness before dispatch; never fall back to main."""
     url = urlsplit(base_url)
     if (url.scheme != 'http' or url.hostname != '127.0.0.1' or not url.port
@@ -259,6 +259,7 @@ def require_gateway_bridge(base_url, gateway_token, *, expected_tools=None, prot
         ready = response.json()
         if (ready.get('protocol') != protocol or ready.get('agent_id') != agent_id
                 or (permission_policy is not None and ready.get('permission_policy') != permission_policy)
+                or (bootstrap_policy is not None and ready.get('bootstrap_policy') != bootstrap_policy)
                 or set(ready.get('tools', [])) != (set(ARGUMENTS) if expected_tools is None else expected_tools)):
             reject('gateway_bridge_incompatible', 503)
     except (httpx.HTTPError, ValueError, TypeError):

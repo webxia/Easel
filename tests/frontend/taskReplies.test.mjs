@@ -35,3 +35,39 @@ test('an interruption arriving after partial text updates only its original repl
  const cleared=mergeTaskReplies(updated,[partial]);
  assert.equal(cleared[0].deliveryError,undefined);
 });
+test('late failure returns to its original chronological position and stays there',()=>{
+ const messages=[{role:'user',content:'确认制作'}, {role:'assistant',content:'正在制作'},
+   {role:'user',content:'继续制作',userTurnId:'u2'}, {role:'assistant',content:'收到'}];
+ const failure={role:'assistant',content:'渲染失败',serverTurnId:'failure',resultState:'ended',beforeUserTurnId:'u2'};
+ const result=mergeTaskReplies(messages,[failure]);
+ assert.equal(result[2],failure);assert.equal(result[3],messages[2]);
+ assert.equal(mergeTaskReplies(result,[failure]),result);
+ const extra=[...result,{role:'user',content:'现在呢'}];
+ assert.equal(mergeTaskReplies(extra,[failure]),extra);
+});
+test('existing local history uses the matching user occurrence, without duplicate failures',()=>{
+ const failure={role:'assistant',content:'暂停',serverTurnId:'failure',resultState:'ended'};
+ const messages=[{role:'user',content:'继续'}, {role:'assistant',content:'第一轮'},
+   {role:'user',content:'继续'}, failure];
+ const anchored={...failure,beforeUserMessage:'继续',beforeUserOccurrence:2};
+ const result=mergeTaskReplies(messages,[anchored]);
+ assert.equal(result[2],anchored);assert.equal(result[3],messages[2]);
+ assert.equal(result.filter(m=>m.serverTurnId==='failure').length,1);
+ assert.equal(mergeTaskReplies(result,[anchored]),result);
+});
+test('multiple results before the same user remain stable across polling',()=>{
+ const user={role:'user',content:'继续',userTurnId:'u'};
+ const a={role:'assistant',content:'A',serverTurnId:'a',beforeUserTurnId:'u'};
+ const b={role:'assistant',content:'B',serverTurnId:'b',beforeUserTurnId:'u'};
+ const result=mergeTaskReplies([user],[a,b]);
+ assert.equal(result[0],a);assert.equal(result[1],b);assert.equal(result[2],user);
+ assert.equal(mergeTaskReplies(result,[a,b]),result);
+});
+
+test('accepted-version action restores from polling without moving or duplicating messages',()=>{
+ const first={role:'assistant',content:'已接受',serverTurnId:'accept',publicationSource:{work_id:'w',output_id:'o'}};
+ const messages=mergeTaskReplies([],[first]);
+ assert.equal(mergeTaskReplies(messages,[JSON.parse(JSON.stringify(first))]),messages);
+ const changed={...first,publicationSource:{work_id:'w',output_id:'o2'}};
+ assert.equal(mergeTaskReplies(messages,[changed])[0].publicationSource.output_id,'o2');
+});

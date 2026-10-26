@@ -138,3 +138,20 @@ Easel源码确认reserve经turn_context保留历史sources全文，当前原话�
 首版渲染和技术检查成功，已有视觉抽样检查触发局部修订。最后模型回执已修正前两次引用/观察区间错误，但assert_visual_repair对任意source_audio镜头一律拒绝，实际保存回执中的AudioClip及带原声s4镜头完全未改，属于程序误拒。修复为比较完整AudioClip、每个原声镜头完整字段与实际时间线位置：原声镜头保持原样时允许修改其他无声镜头；新增/删除/改变原声镜头、增益、源起点、淡出或时间位置仍拒绝。不放宽声音合同、不新增审核。25项关联测试PASS，包含新增正反例；本片最终修订回执离线作用域校验PASS。随后部署并从原Web恢复现有修订，不重跑素材/配音。
 
 第03轮最终断点：第二处修复后原Web恢复成功，保存的修订回执通过，未重新生成配音或检索，产出revision 2并自动回传、浏览器完整播放30秒。当前预览仍有视觉检查失败，声音及完整语义未测；没有在途调用，历史UNKNOWN六项不变。CTX真实压缩样本PASS；视频质量和PUB剩余项不混记CTX通过，亦不声称整组父目标闭环。停止追加制作/付费，等待Creator审片。
+
+
+## 2026-10-24 · 官方中途压缩后的同回合衔接修复
+
+用户授权Easel侧修复、离线测试后部署，不改/升级OpenClaw，不恢复制作，真实原场景由用户验证。归因来自同轮日志及已安装原生生命周期源码：一次内部尝试因context overflow触发agent_end，随后官方压缩成功并使用continuation prompt重试；Easel曾在第一次agent_end清除prepared并end持久回合，后续claim/门禁拒绝。不能仅移除prompt检查，否则会放宽首次绑定。
+
+复用原claim：只对已经绑定的同一原生sessionKey/sessionId/runId，在原生错误回执明确为上下文溢出时保留回合准备信息、清掉过期工具ticket，不发送最终end。续跑仍向原claim提交最初已鉴权prompt，并核对服务端回合仍active；新continuation prompt仅用于本次before_agent_run匹配，不覆盖用户原话或生成授权。正常终态/其他错误仍end。跨run/session、已结束、撤销或服务不可用均不放行，不增加自动重发或模型调用，不提高额度。
+
+离线测试覆盖官方事件顺序、continuation prompt变化、旧ticket清理、终态只关闭一次、通用工具仍被拒绝、跨run隔离、服务端撤销、非overflow错误、用户正文中的overflow不被当成原生错误；Python验证同回合可再次claim，改prompt/换run/结束后均拒绝。当前真实业务没有重放，压缩后原对话实际继续NOT_TESTED；父任务仍PARTIAL。
+
+
+本轮离线与部署收口：全量后端2410 passed / 16 skipped / 14原警告（后续增加1个claim正反例，并补齐旧revision提案读取和空changes_json处理）；最终关联175 passed，前端与插件183 passed。文档路径检查与git diff --check通过。已重启本机Easel服务及网关加载仓库内easel-work插件，/api/status返回gateway=true；不升级/修改OpenClaw源码或配置，无新增模型/媒体调用。部署前后10类业务表摘要完全一致，原未确认方案及所有生产断点保留。私有摘要证据位于outputs/_diagnostics/2026-10-24-plan-revision-compaction/，不纳入Git。SOFTWARE_PASS；真实原对话修订与压缩续跑NOT_TESTED，由用户自行验证。本轮后续授权：仅提交并推送本修复代码、测试与文档到easel-v2-rebuild，排除个人及运行文件；不恢复制作。
+
+
+## CRE-01主线多轮调试衔接（2026-10-25）
+
+沿原CRE-01授权在主工作区V2修复，不另建CTX任务或更换OpenClaw：结果等待载荷复用既有任务视图，原Task请求不改；新增仅已结束、同模型、空length回复后下一条新消息的受控官方压缩触发，保留压缩未知不重发及旧消息不重派。真实诊断官方压缩220494→58918 Token后同会话只读取回方案，自动触发条件的正反例另据离线证据，不混为真实自动触发。首次暴增输入实时预算预估仍未覆盖。完整变更、验收和运行身份唯一见[CRE-01本轮记录](runs/2026-10-25-web-e2e-02.md)。

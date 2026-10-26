@@ -72,7 +72,13 @@ def align_editor_frames(answer: CreativeEdit, *, fps: int = 30) -> CreativeEdit:
             raise ModelTaskError('edit_frame_alignment_invalid','镜头边界修正超出帧精度')
         aligned.append(scene.model_copy(update={'duration':duration,'transition_seconds':overlap}))
         previous_frame=end_frame
-    return answer.model_copy(update={'scenes':aligned})
+    end = previous_frame / fps
+    # A background bed may round its endpoint to fewer decimal places than
+    # the frame timeline. Trim only subframe excess; never touch speech/SFX.
+    audio = [clip.model_copy(update={'duration':end-clip.at})
+             if clip.role=='music' and clip.at<end and 1e-6<clip.at+clip.duration-end<=.5/fps+1e-8
+             else clip for clip in answer.audio]
+    return answer.model_copy(update={'scenes':aligned,'audio':audio})
 
 
 def compensate_edit_overlap(answer: CreativeEdit, *, target_seconds: float, fps: int = 30) -> CreativeEdit:
@@ -86,28 +92,34 @@ def compensate_edit_overlap(answer: CreativeEdit, *, target_seconds: float, fps:
     """
     requested_frames = round(target_seconds * fps)
     scenes = answer.scenes
-    rendered_frames = sum(round((s.duration - s.transition_seconds) * fps) for s in scenes)
-    raw_frames = sum(round(s.duration * fps) for s in scenes)
+    rendered_frames = round(sum(s.duration - s.transition_seconds for s in scenes) * fps)
+    raw_frames = round(sum(s.duration for s in scenes) * fps)
     if rendered_frames == requested_frames:
         return answer
     if raw_frames != requested_frames or rendered_frames > requested_frames:
         raise ModelTaskError('edit_duration_mismatch','分镜时长或转场无法落实到确认总片长')
-    overlap_frames = sum(round(s.transition_seconds * fps) for s in scenes)
-    if rendered_frames + overlap_frames != requested_frames:
-        raise ModelTaskError('edit_duration_mismatch','转场帧计算不一致')
-    corrected = [
-        s.model_copy(update={'duration':(round(s.duration*fps) +
-                    round(s.transition_seconds*fps))/fps})
-        for s in scenes
-    ]
+    # Keep native slot boundaries until align_editor_frames quantizes the
+    # cumulative timeline. Per-shot rounding would reintroduce frame drift.
+    corrected = [s.model_copy(update={'duration': s.duration + s.transition_seconds})
+                 for s in scenes]
     return answer.model_copy(update={'scenes':corrected})
 
-def check_edit_source_bounds(answer, durations, *, target_seconds):
+def check_edit_source_bounds(answer, durations, *, target_seconds, fps=30):
     """Validate the compiled source intervals inside existing model repair rounds."""
-    compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=target_seconds))
+    try:
+        compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=target_seconds,fps=fps),fps=fps)
+    except ModelTaskError as exc:
+        if exc.code not in {'edit_duration_mismatch','edit_frame_alignment_conflict','edit_frame_alignment_invalid'}:
+            raise
+        from .model_tasks import ResultCorrectionError
+        actual=sum(s.duration-s.transition_seconds for s in answer.scenes)
+        raw=sum(s.duration for s in answer.scenes)
+        raise ResultCorrectionError(f'{exc.user_message}；确认总片长{target_seconds:.6f}秒，'
+            f'当前镜头合计{raw:.6f}秒、扣除转场后{actual:.6f}秒。'
+            '调整镜头时长或转场，不修改、截短或变速原旁白。') from None
     for scene in compiled.scenes:
         available=durations.get(scene.asset_id)
-        if available is not None and scene.source_start+scene.duration>available+0.5/30:
+        if available is not None and scene.source_start+scene.duration>available+0.5/fps:
             raise ValueError(f'镜头 {scene.scene_id} 取源区间 {scene.source_start:.3f}–'
                 f'{scene.source_start+scene.duration:.3f} 秒超过素材实际长度 {available:g} 秒；'
                 f'编译后实际取源长度为{scene.duration:.3f}秒（已包含转场补偿），'
@@ -188,8 +200,10 @@ class CreationTasks:
                 if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(ctx.task_id,)).fetchone():
                     raise ModelTaskError('result_unknown','剪辑存在未确定的调用，保留原请求，不能另行提交')
             context=self.planning.context(ctx)
+            if ctx.payload.get('reuse_existing_media_only'):
+                context=replace(context,brief=context.brief+'\n本次恢复只用已有素材和配音修正原剪辑，不重新获取或生成媒体；不足时如实说明。')
             asset_ids=ctx.payload.get('asset_ids',[]) if _stock_assets is None else _stock_assets
-            if self.voice_tasks:
+            if self.voice_tasks and not ctx.payload.get('reuse_existing_media_only'):
                 asset_ids,outcome=await self.voice_tasks.prepare_assets(ctx,context.plan,asset_ids)
                 if outcome:return outcome
             records,manifest=self.assets(ctx,asset_ids)
@@ -199,7 +213,7 @@ class CreationTasks:
                 context = replace(context, plan=execution_plan,
                     brief=context.brief + ('\n本片按真实旁白定长，遵守实测音轨位置：' if timing['mode']=='voice_driven' else
                         '\n本片保持确认的固定总时长；以下是真实旁白长度与可靠字幕锚点，音轨位置仅为建议。按实际讲述安排核心画面，留白须有动作、阅读或叙事用途，不为凑时长堆积空镜。不能改写旁白、拉伸字幕或改声音参数；无法落实时如实报告未落实场景：') + encode(timing))
-            context=replace(context,artifacts=tuple({'asset_id':r['id'],'kind':r['kind'],'metadata':json.loads(r['metadata_json'])} for r in records),allowed_handles=context.allowed_handles|frozenset(manifest.assets))
+            context=replace(context,editor_view=True,artifacts=tuple({'asset_id':r['id'],'kind':r['kind'],'metadata':json.loads(r['metadata_json'])} for r in records),allowed_handles=context.allowed_handles|frozenset(manifest.assets))
             observations=[];required={'text','structured'};observed={};source_durations={}
             # M3.1 accepts visual frames but not input_audio. Measured local
             # acoustic properties may support an EDIT PREVIEW; they do not
@@ -236,25 +250,46 @@ class CreationTasks:
             font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'}
             horizontal=context.plan['settings']['aspect_ratio']=='16:9'
             def check_measured_edit(candidate):
-                from .editors.base import check_timeline_identities
+                from .editors.base import check_timeline_identities, check_audio_delivery
                 check_timeline_identities(candidate.scenes,candidate.audio,candidate.captions)
+                check_audio_delivery(context.plan['settings']['audio_mode'],candidate.scenes,candidate.audio)
                 check_edit_source_bounds(candidate,source_durations,target_seconds=context.plan['settings']['duration_seconds'])
                 check_visual_evidence(align_editor_frames(compensate_edit_overlap(candidate,
                     target_seconds=context.plan['settings']['duration_seconds'])),observed)
+                # Same binding rules as final project validation, inside the
+                # existing bounded model correction loop, after source fitting.
+                from .material_binding import AUDIO_EDIT_ERRORS
+                try:
+                    compiled=align_editor_frames(compensate_edit_overlap(candidate,
+                        target_seconds=context.plan['settings']['duration_seconds']))
+                    compiled=compiled.model_copy(update={'audio':fit_sound_effects(compiled.audio,source_durations)})
+                    validate_audio_bindings(compiled,records)
+                    compiled_edit=compiled
+                except ModelTaskError as exc:
+                    if exc.code not in AUDIO_EDIT_ERRORS:raise
+                    from .model_tasks import ResultCorrectionError
+                    raise ResultCorrectionError(exc.user_message) from None
                 from .boards import check_board_usage
                 check_board_usage(candidate.scenes,records,overlays=[c for c in candidate.captions if c.role=='overlay'])
-                if not timing or timing['mode']=='fixed':
-                    return
-                if any('role' not in c.model_fields_set for c in candidate.captions):
+                if timing and timing['mode']=='voice_driven' and any('role' not in c.model_fields_set for c in candidate.captions):
                     raise ValueError('必须明确每条文字的role：narration为旁白字幕，overlay为独立解释字')
                 try:
                     compiled=compile_captions(candidate.captions,style=style,fonts=fonts,
-                        aligned=aligned_captions(candidate.audio,records) if style.enabled else None,
+                        aligned=aligned_captions(candidate.audio,records) if style.enabled and (context.plan.get('narration_policy') or {}).get('continuous') else None,
                         font_paths=font_paths,width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
                     check_caption_layout(compiled,font_paths=font_paths,
                         width=1920 if horizontal else 1080,height=1080 if horizontal else 1920)
+                    EditProject(work_id=ctx.work_id,plan_revision=ctx.plan_revision,revision=1,
+                        width=1920 if horizontal else 1080,height=1080 if horizontal else 1920,
+                        duration=context.plan['settings']['duration_seconds'],
+                        audio_mode=context.plan['settings']['audio_mode'],scenes=compiled_edit.scenes,
+                        audio=compiled_edit.audio,captions=compiled)
+
                 except EditError as exc:
-                    raise ValueError(str(exc)) from None
+                    from .model_tasks import ResultCorrectionError
+                    raise ResultCorrectionError(str(exc)) from None
+                if not timing or timing['mode']=='fixed':
+                    return
                 check_voice_schedule(candidate.audio, records, timing)
                 actual = sum(s.duration - s.transition_seconds for s in candidate.scenes)
                 raw = sum(s.duration for s in candidate.scenes)
@@ -278,8 +313,9 @@ class CreationTasks:
                     raise ModelTaskError('edit_recovery_invalid','剪辑修正来源与当前已知回执不符，未发起调用')
                 request=json.loads(source['request_json'])
                 message=json.loads(source['receipt_json'])['result']['message']
-                if request['schema'].get('title')!='CreativeEdit' or message.get('tool_calls'):
-                    raise ModelTaskError('edit_recovery_invalid','剪辑修正来源不是已返回的剪辑结果')
+                if request['schema'].get('title')!='CreativeEdit' or any(
+                        call.get('function',{}).get('name')!='inspect_media' for call in message.get('tool_calls',[])):
+                    raise ModelTaskError('edit_recovery_invalid','剪辑修正来源不是已返回的剪辑结果或只读查看请求')
                 # These tool replies are the actual observed frames sent in the
                 # known request, not model-authored visual claims.
                 for m in request['messages']:
@@ -292,18 +328,18 @@ class CreationTasks:
                 namespace='edit-repair-'+source['id'][:32]
             answer=await self.planning.runner(ctx,namespace=namespace,max_format_repairs=2).run(context,
                 ENDING_INSTRUCTION + VISUAL_EVIDENCE_INSTRUCTION + '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'
-                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx并保留at，duration是事件上限，短音效按实际源长播放，不循环凑长；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
+                '把已确认方案落实为精确剪辑时间线。只能使用给定素材句柄；逐场景决定裁剪、运动、转场、音轨和字幕。时长须精确，旁白与原声不能循环。缺素材不能用无关素材替代；无法落实的场景必须列入unresolved_scene_ids，不得把缺口藏在required_features中再输出概念替代片。字幕必须有真实字体素材。文字x/y表示整块文字的中心坐标，不是左上角；资料说明放在边缘时，按实际字体宽高预留空间。对metadata.material_uses里的音效事件，以cue_id作为AudioClip.clip_id，role=sfx；timing_basis=scene时按scene_id对应实际镜头安排音效，拆镜保留原场景ID或使用原场景ID-cut数字/原场景ID_数字；音效可跨同场景连续镜头，但不能跨到其他场景或越过场景窗口，at仅为草稿估计；absolute或未指定时保留at。duration是事件上限，短音效按实际源长播放，不循环凑长；required事件不得省略，可选事件可以省略。音乐/旁白/音效不得互换用途。'
                 '连续旁白应跨镜头讲完；voice_driven严格遵守voice_schedule，fixed使用实测时间作安排依据、位置可按叙事调整，不按草稿分镜凑静默；'
                 '字幕短行分语义显示，不能将整段连续旁白一次堆在画面上。选择画质与景别适合、光线与动作相接的素材，'
                 '每条文字明确role：narration只显示旁白并继承频道字幕样式；overlay为独立解释文字，保留设计的字体、位置、字号，避开底部旁白区，不能叠字。'
                 '同时查看素材画面里原有的字幕、标题和图表文字；避开口播字幕区域，必要时换片段、调整构图或移开独立解释字，不要在已有文字上重复叠字。'
                 'material_uses含board_id的图解素材是已确认的连续状态：首次出现按board_frame_index顺序，应使必要类别、数量和关系可理解，不强制每态全幅，允许有意义的特写；'
                 '同一图解可跨段落复用、回看或加局部特写，board_scene_ids是本次素材映射提示，图解定义所在的scene_id不是排他的使用限制。'
-                '图解已画出标题、卡片、类别和假设/概念标识，不要只剩裁切而失去全貌，避免重复叠同义解释字；有必要时可以安排不遮挡证据的补充标注。'
+                '原生图解已为标题、分组、卡片和底部字幕留白；优先展示可读全貌与已规划状态高亮，不用机械推拉或截断邻近文字来制造变化。图解已画出标题、卡片、类别和假设/概念标识，不要只剩裁切而失去全貌，避免重复叠同义解释字；有必要时可以安排不遮挡证据的补充标注。'
                 '避免同义空镜反复堆积，旁白说到具体关系时应让画面或必要字幕提供相应信息。'
                 '如果输入中只有音轨技术证据，没有真实听觉观察，只能提供未试听的剪辑预览方案，不能声称已听过音频、确认了音乐情绪或音画同步；可选SFX不确定就省略，最终音画语义审核必须另行通过。',CreativeEdit,media=tuple(observations),required=frozenset(required),tools=observation_tools,validate_result=check_measured_edit,recovery=recovery, expression_role="visual")
             if answer.unresolved_scene_ids:
-                if _stock_assets is None and self.supply:
+                if _stock_assets is None and self.supply and not ctx.payload.get('reuse_existing_media_only'):
                     ids=await self.supplement_visuals(ctx,context,answer,asset_ids)
                     with ctx.transaction() as conn:
                         payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
@@ -379,7 +415,7 @@ class CreationTasks:
                     'visual_evidence':[e.model_dump() for e in answer.visual_evidence],
                     'unverified_editor_notes':unverified_editor_notes},
                     dependencies=list(manifest.assets))
-            return TaskResult(result={'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets)})
+            return TaskResult(result={'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets),'reuse_existing_media_only':ctx.payload.get('reuse_existing_media_only',False)})
         except (ModelTaskError,EditError,ValidationError) as exc:
             message=('剪辑方案不符合严格编辑合同，请检查镜头时间、声音和素材引用'
                      if isinstance(exc,ValidationError) else getattr(exc,'user_message',str(exc)))
@@ -422,7 +458,7 @@ class CreationTasks:
                 archive.write(output.video_path,'video.mp4')
                 archive.writestr('credits.txt','\n\n'.join(dict.fromkeys(credits)))
             register_file(self.service,ctx,bundle,kind='export_bundle',media_type='application/zip',metadata={'output_id':artifact['id']},dependencies=[artifact['id']])
-        return TaskResult(result={'output_id':artifact['id']},next_kind='quality',next_payload={'output_id':artifact['id'],'project_id':record['id'],'repair_round':ctx.payload.get('repair_round',0)})
+        return TaskResult(result={'output_id':artifact['id']},next_kind='quality',next_payload={'output_id':artifact['id'],'project_id':record['id'],'repair_round':ctx.payload.get('repair_round',0),'reuse_existing_media_only':ctx.payload.get('reuse_existing_media_only',False)})
 
     async def quality(self,ctx):
         from .worker import TaskResult
@@ -456,12 +492,14 @@ class CreationTasks:
                 try:
                     from .quality import review_visual_preview
                     status, evidence = await review_visual_preview(path,
-                        runner=self.planning.runner(ctx,namespace='visual-review-v1'),context=quality_context)
+                        runner=self.planning.runner(ctx,namespace='visual-review-v2'),context=quality_context)
                     # Existing semantic ledger, explicitly limited scope. A
                     # sampled visual pass NEVER becomes a semantic pass.
                     findings=evidence['review']['findings']
+                    if ctx.payload.get('visual_recheck_source'):
+                        evidence['rechecks_invalid_review']=ctx.payload['visual_recheck_source']
                     self._check(ctx,artifact,'semantic','fail' if findings else 'not_tested',
-                        {**evidence,'visual_status':status},rule_version='visual-preview-1')
+                        {**evidence,'visual_status':status},rule_version='visual-preview-2')
                     # Limited observation or a bare verdict is not evidence of a defect.
                     # Keep the original review, but do not rerender or block human review.
                     if findings:
@@ -483,20 +521,22 @@ class CreationTasks:
                             return TaskResult(result={'output_id':artifact['id'],'visual':'fail'},next_kind='revise',
                                 next_payload={'review_id':review_id,'output_id':artifact['id'],'repair_round':1,
                                     'preserve_audio':True,'creative_visual_repair':True,
+                                    'reuse_existing_media_only':ctx.payload.get('reuse_existing_media_only',False),
                                     'repair_scope':evidence['review'].get('repair_scope','visual'),
                                     'affected_scene_ids':[sid for sid in evidence['review'].get('affected_scene_ids',[])
                                         if sid in {s.scene_id for s in project.scenes}]},work_state='producing')
                         return TaskResult(work_state='preview_needs_fix',result={'output_id':artifact['id'],'visual':status,'semantic':'not_tested'})
                 except ModelTaskError as exc:
-                    self._check(ctx,artifact,'semantic','not_tested',{'code':exc.code,'scope':'sampled_visual_only'},rule_version='visual-preview-1')
+                    self._check(ctx,artifact,'semantic','not_tested',{'code':exc.code,'scope':'sampled_visual_only'},rule_version='visual-preview-2')
                     return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError(exc.code,exc.user_message,requires_decision=True))
             # Temporary S6-14 manual-review policy, enabled ONLY by a private
             # runtime switch. Keep technical QC mandatory and retain real
             # negative semantic findings as blockers; never invent a PASS.
             with self.service.store.connection() as reader:
-                prior = reader.execute("""SELECT status FROM quality_checks
+                from .quality import effective_quality_checks
+                prior = effective_quality_checks(reader.execute("""SELECT * FROM quality_checks
                     WHERE artifact_id=? AND artifact_digest=? AND check_kind='semantic'""",
-                    (artifact['id'],artifact['digest'])).fetchall()
+                    (artifact['id'],artifact['digest'])).fetchall())
             if any(record['status'] in {'fail','partial'} for record in prior):
                 return TaskResult(state='needs_decision',work_state='needs_decision',
                     error=ProductionError('semantic_findings_require_review',

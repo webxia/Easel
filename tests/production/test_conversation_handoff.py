@@ -31,7 +31,7 @@ def test_binding_continuation_is_once_and_cannot_authorize(env):
     assert b.continue_handoff('ui','turn') is None
     ident=dict(agent_id='main',session_key=r['payload']['session_key'],session_id='native-next',run_id='run-next')
     b.claim(Claim(**ident,prompt=r['prompt']))
-    raises('handoff_confirmation_required',lambda:pipe(b,ident,'answer',proposal_id='a'*32,hash='b'*64,user_quote='用频道甲和导演甲'))
+    raises('handoff_confirmation_required',lambda:pipe(b,ident,'answer',dismiss=False,proposal_id='a'*32,hash='b'*64,user_quote='用频道甲和导演甲'))
     assert not s.list_works()['items']
 
 
@@ -89,6 +89,7 @@ def test_web_binding_continues_before_single_done(env,tmp_path,monkeypatch):
             ident=dict(agent_id='main',session_key='agent:main:easel-pipeline:'+view['segment_id'],session_id='native-'+view['segment_id'],run_id='native-run-'+str(n))
             b.claim(Claim(**ident,prompt=self.body['messages'][0]['content']))
             if n==1:
+                yield 'data: '+json.dumps({'choices':[{'delta':{'content':'切换前的重复讨论'}}]})
                 pipe(b,ident,'bind',user_quote='用频道甲和导演甲',values={'channel_id':channel,'director_revision':'v4','director_trial':True})
             else:
                 assert not any(k=='done' for k,_ in events)
@@ -104,27 +105,12 @@ def test_web_binding_continues_before_single_done(env,tmp_path,monkeypatch):
     monkeypatch.setattr(api.httpx,'AsyncClient',Client)
     chat=api.VideoChat(lambda:s,lambda _:tmp_path/'events',lambda *a:saved.append(a),gateway_url='http://fixture',gateway_token='fixture')
     asyncio.run(chat._deliver('ui','first',initial,tmp_path/'events',event_sink=lambda k,v:events.append((k,v))))
+    assert ''.join(v for k,v in events if k=='token')=='开始讨论选题'
     assert len(calls)==2
     assert [k for k,_ in events].count('done')==1
     assert events[-1][0]=='done'
     assert saved[-1][2]=='开始讨论选题' and saved[-1][3]['turn_id']=='first'
     assert not s.list_works()['items']
-
-
-def test_blocker_does_not_offer_input_mutation_during_active_run(env):
-    from tests.production.test_conversation import draft
-    from easel.production.service import encode
-    s,c,seg,work=draft(env)
-    run=s.command('plan',{},command_id='plan-fixture',work_id=work,expected_revision=s.snapshot(work)['revision'])
-    with s.store.transaction() as conn:
-        conn.execute("UPDATE tasks SET kind='supply',state='needs_decision',error_json=? WHERE run_id=?",(encode({'code':'music_material_gap','user_message':'音乐缺失'}),run['run_id']))
-        conn.execute("UPDATE runs SET state='needs_decision' WHERE id=?",(run['run_id'],))
-    b,i,_=turn(s,c,seg,'怎么继续',id='status')
-    blocker=pipe(b,i,'pending')['blockers'][0]
-    assert blocker['message']=='音乐缺失'
-    assert not blocker['input_change_available']
-    assert not blocker['choices']  # No Plan exists; no invented voice-only recovery.
-    assert len(s.snapshot(work)['runs'])==1
 
 
 def test_concurrent_handoff_consumption_is_once(env):

@@ -7,6 +7,20 @@ from typing import Literal, Protocol
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+def check_audio_delivery(audio_mode, scenes, audio):
+    """One delivery contract, shared by proposal repair and final compilation."""
+    voice = any(a.role == "voice" for a in audio) or any(s.source_audio for s in scenes)
+    music = any(a.role == "music" for a in audio)
+    if audio_mode == "silent" and (audio or voice):
+        raise ValueError("silent delivery cannot contain audio")
+    if audio_mode == "voice" and (not voice or music):
+        raise ValueError("voice delivery needs voice/source sound and no music")
+    if audio_mode == "music" and (not music or voice):
+        raise ValueError("music delivery needs music and no voice/source sound")
+    if audio_mode == "mixed" and not (voice and music):
+        raise ValueError("mixed delivery needs voice/source sound and music")
+
+
 class EditError(ValueError):
     def __init__(self, message: str, code: str = "invalid_edit_project"):
         super().__init__(message)
@@ -100,8 +114,8 @@ class Caption(Contract):
     outline_color: str = Field(default="#000000", pattern=r"^#[0-9A-Fa-f]{6}$")
     outline: int = Field(default=2, ge=0, le=20)
     background: str | None = Field(default=None, pattern=r"^#[0-9A-Fa-f]{8}$")
-    x: float = Field(default=0.5, ge=0, le=1)
-    y: float = Field(default=0.88, ge=0, le=1)
+    x: float = Field(default=0.5, ge=0, le=1, description="文字块中心的横向比例，不是左边界；须为文字宽度留出空间")
+    y: float = Field(default=0.88, ge=0, le=1, description="文字块中心的纵向比例，不是上边界")
     max_width: float = Field(default=0.9, gt=0, le=1)
 
     @model_validator(mode="after")
@@ -155,16 +169,7 @@ class EditProject(Contract):
             raise ValueError("audio lies outside the confirmed duration")
         if any(c.end > self.duration for c in self.captions):
             raise ValueError("caption lies outside the confirmed duration")
-        voice = any(a.role == "voice" for a in self.audio) or any(s.source_audio for s in self.scenes)
-        music = any(a.role == "music" for a in self.audio)
-        if self.audio_mode == "silent" and (self.audio or voice):
-            raise ValueError("silent delivery cannot contain audio")
-        if self.audio_mode == "voice" and (not voice or music):
-            raise ValueError("voice delivery needs voice/source sound and no music")
-        if self.audio_mode == "music" and (not music or voice):
-            raise ValueError("music delivery needs music and no voice/source sound")
-        if self.audio_mode == "mixed" and not (voice and music):
-            raise ValueError("mixed delivery needs voice/source sound and music")
+        check_audio_delivery(self.audio_mode, self.scenes, self.audio)
         return self
 
     def scene_starts(self) -> tuple[float, ...]:

@@ -95,3 +95,51 @@ def test_fractional_overlap_is_compiled_before_frame_quantization():
     check_edit_source_bounds(answer,{},target_seconds=45)
     compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=45))
     assert sum(round((s.duration-s.transition_seconds)*30) for s in compiled.scenes)==1350
+
+
+
+def test_real_fifteen_cut_timeline_compiles_using_cumulative_frame_boundaries():
+    from easel.production.creation import compensate_edit_overlap
+    lengths=[5.05,6.85,4,9,8.9,9.35,8.32,8.3,3.617,2.4,12.58,8.2,1.2,8.04,2.36]
+    answer=CreativeEdit(scenes=[{'scene_id':f's{i}','asset_id':f'a{i}','duration':d} for i,d in enumerate(lengths)])
+    original=answer.model_dump()
+    target=98+5/30
+    compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=target))
+    assert sum(s.duration-s.transition_seconds for s in compiled.scenes)==pytest.approx(target)
+    before=after=0
+    for native,actual in zip(answer.scenes,compiled.scenes):
+        before+=native.duration;after+=actual.duration
+        assert abs(before-after)<=.5/30+1e-8
+        assert actual.scene_id==native.scene_id and actual.source_start==native.source_start
+    assert answer.model_dump()==original
+
+
+def test_subframe_slots_and_dissolves_do_not_round_each_clip_before_compiling():
+    from easel.production.creation import compensate_edit_overlap
+    answer=CreativeEdit(scenes=[{'scene_id':f's{i}','asset_id':f'a{i}','duration':d,
+        'transition':'dissolve' if i else 'cut','transition_seconds':.15 if i else 0}
+        for i,d in enumerate([1.51,1.51,1.98])])
+    compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=5))
+    assert sum(s.duration-s.transition_seconds for s in compiled.scenes)==pytest.approx(5)
+    assert [s.transition for s in compiled.scenes]==['cut','dissolve','dissolve']
+
+
+
+def test_subframe_bgm_end_is_aligned_but_speech_and_effects_are_never_trimmed():
+    target=98+5/30
+    audio=[{'clip_id':'bgm','asset_id':'bgm','role':'music','at':0,'duration':98.17},
+           {'clip_id':'voice','asset_id':'voice','role':'voice','at':.2,'duration':97.164},
+           {'clip_id':'page','asset_id':'sfx','role':'sfx','at':19.5,'duration':1.17}]
+    answer=CreativeEdit(scenes=[{'scene_id':'s','asset_id':'v','duration':target}],audio=audio)
+    compiled=align_editor_frames(answer)
+    assert compiled.audio[0].duration==pytest.approx(target)
+    assert compiled.audio[1:]==answer.audio[1:]
+    too_long=answer.model_copy(update={'audio':[answer.audio[0].model_copy(update={'duration':target+.1})]})
+    assert align_editor_frames(too_long).audio[0].duration==target+.1
+
+
+
+def test_bgm_within_existing_float_tolerance_remains_byte_identical():
+    answer=CreativeEdit(scenes=[{'scene_id':'s','asset_id':'v','duration':5}],
+        audio=[{'clip_id':'bgm','asset_id':'bgm','role':'music','at':.1,'duration':4.90000001}])
+    assert align_editor_frames(answer).audio==answer.audio

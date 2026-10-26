@@ -92,10 +92,10 @@ def test_conversation_recovery_requires_new_human_confirmation(env):
     assert '不取消整部作品' in proposed['values']['summary']
     assert '费用' in proposed['values']['summary']
     assert len(s.snapshot(w)['runs'])==1
-    raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=proposed['proposal_id'],hash=proposed['hash'],user_quote='继续整理方案'))
+    raises('confirmation_required',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=proposed['proposal_id'],hash=proposed['hash'],user_quote='继续整理方案'))
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'确认重新规划的费用和范围',id='answer')
-    pipe(b,i,'answer',proposal_id=proposed['proposal_id'],hash=proposed['hash'],user_quote='确认重新规划的费用和范围')
+    pipe(b,i,'answer',dismiss=False,proposal_id=proposed['proposal_id'],hash=proposed['hash'],user_quote='确认重新规划的费用和范围')
     snap=s.snapshot(w)
     assert len(snap['runs'])==2 and snap['state']=='discussing'
     assert not snap['plans']

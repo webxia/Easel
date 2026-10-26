@@ -16,6 +16,26 @@ from ..media import atomic_json
 from .base import ProviderResult
 
 
+PLAN_VOICE_PARAMETERS = frozenset({'speed', 'emotion', 'subtitle_enable'})
+
+
+def native_voice_settings(identity):
+    """The exact native voice wire fields; fixed knobs are not Plan parameters."""
+    settings = {'voice_id': identity.voice_id, 'speed': identity.parameters.get('speed', 1),
+                'vol': 1, 'pitch': 0}
+    if 'emotion' in identity.parameters:
+        settings['emotion'] = identity.parameters['emotion']
+    return settings
+
+
+def voice_execution_contract(identity):
+    return {'engine': 'minimax-speech-v1',
+            'supported_plan_parameters': sorted(PLAN_VOICE_PARAMETERS),
+            'fixed_wire_parameters': {'vol': native_voice_settings(identity)['vol'],
+                                      'pitch': native_voice_settings(identity)['pitch']},
+            'effective_wire_voice_setting': native_voice_settings(identity)}
+
+
 class MiniMaxSpeechAdapter(VoiceHTTPAdapter):
     additional_parameters = frozenset({'emotion', 'subtitle_enable'})
     subtitle_hosts = ('minimax.chat', 'minimaxi.chat', 'minimax.cn', 'minimaxi.com',
@@ -50,7 +70,7 @@ class MiniMaxSpeechAdapter(VoiceHTTPAdapter):
     def request(self, *, identity, text, segment_id, require_available=True):
         value = super().request(identity=identity,text=text,segment_id=segment_id,require_available=require_available)
         if (len(text)>10000 or self.config.response_format not in {'wav','mp3','flac'}
-                or set(identity.parameters)-{'speed', 'emotion', 'subtitle_enable'}
+                or set(identity.parameters)-PLAN_VOICE_PARAMETERS
                 or not .5<=identity.parameters.get('speed',1)<=2):
             raise ProductionError('voice_parameter_unsupported','MiniMax 原生旁白的文本长度、速度或输出格式不支持；未发送请求')
         return value
@@ -58,10 +78,8 @@ class MiniMaxSpeechAdapter(VoiceHTTPAdapter):
     def _wire_request(self, request, identity):
         payload = {
             'model':identity.model,'text':request['text'],'stream':False,'output_format':'hex',
-            'voice_setting':{'voice_id':identity.voice_id,'speed':identity.parameters.get('speed',1),'vol':1,'pitch':0},
+            'voice_setting':native_voice_settings(identity),
             'audio_setting':{'format':self.config.response_format,'sample_rate':32000,'channel':1}}
-        if 'emotion' in identity.parameters:
-            payload['voice_setting']['emotion'] = identity.parameters['emotion']
         if identity.parameters.get('subtitle_enable'):
             payload['subtitle_enable'] = True
         return self.config.base_url.rstrip('/') + '/t2a_v2', payload

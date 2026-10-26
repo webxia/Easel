@@ -133,9 +133,9 @@ def test_cancelled_work_recovery_requires_later_human_answer(env):
     raises('confirmation_required',lambda:pipe(b,i,'offer',action='plan',values={'settings':{'audio_mode':'voice'}}))
     proposal=pipe(b,i,'offer',action='plan',values={'settings':{'audio_mode':'voice'},'restore_cancelled':True})
     assert proposal['values']['payload']['services']
-    raises('confirmation_required',lambda:pipe(b,i,'answer',proposal_id=proposal['proposal_id'],hash=proposal['hash'],user_quote='恢复本作品'))
+    raises('confirmation_required',lambda:pipe(b,i,'answer',dismiss=False,proposal_id=proposal['proposal_id'],hash=proposal['hash'],user_quote='恢复本作品'))
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'确认恢复并重新规划',id='yes')
-    result=pipe(b,i,'answer',proposal_id=proposal['proposal_id'],hash=proposal['hash'],user_quote='确认恢复并重新规划')
+    result=pipe(b,i,'answer',dismiss=False,proposal_id=proposal['proposal_id'],hash=proposal['hash'],user_quote='确认恢复并重新规划')
     assert result['run_id']
     assert s.snapshot(w)['plans'][0]['confirmed_at']
     assert s.snapshot(w)['input_text']=='原文'

@@ -2,6 +2,7 @@
 import asyncio
 import copy
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -375,3 +376,58 @@ def test_web_stop_while_rpc_thread_finishes_never_posts(env,tmp_path,monkeypatch
     assert payload['context_preparation']['cancel_requested']
     assert not payload['context_preparation'].get('chat_submitted')
     assert bridge.service.list_works()['items']==[]
+
+
+def empty_length(env):
+    bridge,request,session=reserve(env)
+    session.pop('contextBudgetStatus')
+    with bridge.store.transaction() as conn:
+        record=dict(conn.execute("SELECT * FROM conversation_turns WHERE id='history'").fetchone())
+        payload=json.loads(record['payload_json'])
+        payload.update(delivery_state='interrupted',answer='',
+            context_preparation={'state':'ready','chat_submitted':True},
+            model_diagnostic={'stop_reason':'length','text_chars':0,'tool_calls':0,
+                'provider':session['modelProvider'],'model':session['model']})
+        bridge._save(conn,'history',payload,'ended')
+        before=dict(conn.execute("SELECT * FROM conversation_turns WHERE id='history'").fetchone())
+    return bridge,request,session,before
+
+
+def test_known_empty_length_compacts_before_new_turn_without_replaying_old_one(env):
+    bridge,request,session,before=empty_length(env)
+    rpc=FakeRPC(session);result=preparation(bridge,rpc).prepare('next')
+    assert [c[0] for c in rpc.calls]==['describe','compact','describe']
+    assert result['payload']['message']=='CURRENT_SENTINEL'
+    assert result['payload']['context_preparation']['evidence']['source']=='known-empty-length'
+    with bridge.store.connection() as conn:
+        assert dict(conn.execute("SELECT * FROM conversation_turns WHERE id='history'").fetchone())==before
+    assert stored(bridge)[0]['state']=='reserved'
+    assert not result['payload']['context_preparation'].get('chat_submitted')
+
+
+@pytest.mark.parametrize('change',['partial_text','tool_call','unknown','not_submitted','changed_model','already_compacted','failed_after_compact'])
+def test_empty_length_does_not_guess_pressure_or_repeat_compression(env,change):
+    bridge,_,session,_=empty_length(env)
+    with bridge.store.transaction() as conn:
+        row=conn.execute("SELECT * FROM conversation_turns WHERE id='history'").fetchone()
+        payload=json.loads(row['payload_json']);state=row['state']
+        if change=='partial_text':payload['model_diagnostic']['text_chars']=1
+        if change=='tool_call':payload['model_diagnostic']['tool_calls']=1
+        if change=='unknown':state='unknown'
+        if change=='not_submitted':payload['context_preparation']['chat_submitted']=False
+        if change=='changed_model':session['model']='other'
+        if change=='already_compacted':session['latestCompactionCheckpoint']={'createdAt':time.time()*1000+1000}
+        if change=='failed_after_compact':payload['context_preparation']['evidence']={'source':'known-empty-length'}
+        bridge._save(conn,'history',payload,state)
+        segment=dict(conn.execute('SELECT * FROM conversation_segments WHERE id=?',(row['segment_id'],)).fetchone())
+    assert preparation(bridge,FakeRPC(session))._empty_length_evidence('next',segment,session) is None
+
+
+def test_empty_length_uncertain_compaction_is_not_reissued(env):
+    bridge,_,session,_=empty_length(env)
+    rpc=FakeRPC(session,outcome={'ok':True,'compacted':False,'result':{'details':{'pending':True}}})
+    with pytest.raises(ContextPreparationError):preparation(bridge,rpc).prepare('next')
+    expire(bridge)
+    with pytest.raises(ContextPreparationError,match='compaction_unresolved'):
+        preparation(bridge,rpc).prepare('next')
+    assert len([c for c in rpc.calls if c[0]=='compact'])==1

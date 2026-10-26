@@ -149,7 +149,7 @@ class SubtitleSettings(Contract):
 
 
 class VideoSettings(Contract):
-    duration_seconds: float = Field(ge=1, le=900, allow_inf_nan=False)
+    duration_seconds: float = Field(ge=1, le=900, allow_inf_nan=False, description="必填秒数；narration_policy.duration_mode=fixed时为固定片长，voice_driven时仅为规划估计，实际按完整配音实测定长。")
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"
     audio_mode: Literal["silent", "music", "voice", "mixed"]
     voice: VoiceIdentity | None = None

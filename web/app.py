@@ -502,7 +502,9 @@ from easel.production.errors import ProductionError
 app.add_exception_handler(ProductionError, production_error_handler)
 app.include_router(_production_router(_production_service))
 from web.publication_api import create_publication_router
-app.include_router(create_publication_router(_production_service))
+app.include_router(create_publication_router(_production_service, platform_adapter_provider=lambda platform: _native_publication_adapter(platform)))
+from web.publication_files import create_file_cover_router
+app.include_router(create_file_cover_router(lambda: OUTPUTS_DIR, lambda path: _safe_output_path(path)))
 from web.production_settings_api import create_settings_router
 app.include_router(create_settings_router(_production_service))
 
@@ -3506,7 +3508,10 @@ async def api_chat_stream(req: ChatRequest):
             finally:
                 # 先把 SENTINEL 排进 q（FIFO 保证它排在本轮所有 token 之后），再标记完成：
                 # 主循环读到它时，前面的 token 必然已全部消费过。
-                q.put_nowait(SENTINEL)
+                # _emit schedules its queue writes even on this event loop.
+                # Schedule the sentinel too, so a final synchronous SSE batch
+                # cannot overtake its own pending tokens.
+                loop.call_soon_threadsafe(q.put_nowait, SENTINEL)
                 hproc.finish()
 
         cmd = openclaw_base_cmd() + [
@@ -3832,7 +3837,11 @@ async def api_chat_stream(req: ChatRequest):
                 if item["t"] == "token":
                     emitted = True
                     full_text.append(item["text"])
-                    to_client("token", item["text"])
+                    # Entry has handed the reply to the scoped pipeline. Its
+                    # original agent may still write a draft before ending;
+                    # that intermediate answer must not precede a second one.
+                    if not natural_entry.source(sk, turn_id):
+                        to_client("token", item["text"])
                 elif item["t"] == "thinking":
                     to_client("thinking", item["text"])
                 elif item["t"] == "activity":
@@ -3852,7 +3861,8 @@ async def api_chat_stream(req: ChatRequest):
                 if clean:
                     emitted = True
                     full_text.append(clean)
-                    to_client("token", clean)
+                    if not natural_entry.source(sk, turn_id):
+                        to_client("token", clean)
                 elif rc not in (0, None):
                     err = clean_agent_output("".join(stdout_lines))[:200]
                     to_client("error", f"❌ 执行失败（退出码 {rc}）{' — ' + err if err else ''}")
@@ -3955,7 +3965,7 @@ async def api_chat_stream(req: ChatRequest):
                         to_client("error", "管线交接尚未核实完成，未自动重派。请在本对话核对当前状态。")
                 # The continuation owns the final persisted reply when dispatched.
                 if not continued:
-                    _save_turn(pk, "done", "".join(full_text), {
+                    _save_turn(pk, "done", "" if source else "".join(full_text), {
                         "turn_id": turn_id,
                         "clean_end": not source and _chat_stream_clean_end(run_info, is_http=is_http),
                         "stop_reason": "user_stopped" if user_stopped else run_info.get("stop_reason"),
@@ -5057,6 +5067,8 @@ class PublishRequest(BaseModel):
     body: str = ''
     media: list[str] = []
     tags: str = ''
+    cover: dict | None = None
+    tid: int = Field(default=36, strict=True, gt=0)
     persona: str = ''
 
 
@@ -5131,14 +5143,14 @@ def _record_successful_publish(title: str, body: str, cfg: dict, profile: str = 
 
 
 def _run_publish_bg(platform: str, cmd: list, title: str, body: str, cfg: dict,
-                    status_file: Path, code_file: Path, profile: str = '',
+                    status_file: Path, code_file: Path, lease=None, profile: str = '',
                     tags: str = '', ptype: str = '') -> None:
     """后台线程跑发布脚本（脚本自身把 starting/sms_required/verifying/success/error 写进 status_file）。
     结束后兜底补写终态 + 记 _publish.log + 成功则回流排期。"""
     ok = False
     out = err = ''
     try:
-        proc = subprocess.run(cmd, cwd=str(PROJECT_ROOT), env=_publish_env(),
+        proc = (subprocess.run if lease else lambda *a,**kw:_legacy_native_run(platform,*a,**kw))(cmd, cwd=str(PROJECT_ROOT), env=_publish_env(),
                               capture_output=True, text=True, timeout=900)
         ok = proc.returncode == 0
         out, err = proc.stdout or '', proc.stderr or ''
@@ -5169,14 +5181,19 @@ def _start_async_publish(platform: str, cmd: list, title: str, body: str, cfg: d
                          tags: str = '', ptype: str = '') -> dict:
     """启动异步发布：清旧码/状态 → 起后台线程 → 立即返回。前端轮询 /api/publish/{p}/status，
     遇 sms_required 弹输入框、提交到 /api/publish/{p}/sms。"""
+    from easel.publication_bilibili import publishing_lock
+    lease=publishing_lock(PROJECT_ROOT,platform)
+    lease.__enter__()
+    def work():
+        try:_run_publish_bg(platform,cmd,title,body,cfg,status_file,code_file,lease,profile,tags,ptype)
+        finally:lease.__exit__(None,None,None)
     try:
-        code_file.unlink()
-    except OSError:
-        pass
-    _write_publish_status(status_file, 'starting', '发布中…（若触发风控会要求短信验证）')
-    threading.Thread(target=_run_publish_bg,
-                     args=(platform, cmd, title, body, cfg, status_file, code_file, profile, tags, ptype),
-                     daemon=True).start()
+        code_file.unlink(missing_ok=True)
+        _write_publish_status(status_file, 'starting', '发布中…（若触发风控会要求短信验证）')
+        threading.Thread(target=work,daemon=True).start()
+    except BaseException:
+        lease.__exit__(None,None,None)
+        raise
     # 关键：**不返回 ok:true**——这只是「已启动」的应答，真正结果要靠轮询 /status。
     # 若这里给 ok:true，旧前端会把它当「已发布」立刻显示成功（假成功 bug，真机踩过）。
     return {'async': True, 'pending': True, 'message': '发布已启动，请稍候…'}
@@ -5204,35 +5221,7 @@ async def api_publish_sms(platform: str, req: SmsCodeRequest):
     return {'ok': True}
 
 
-@app.post("/api/publish/{platform}")
-async def api_publish(platform: str, req: PublishRequest):
-    """一键发布：分发到对应 publisher 脚本真发（--exec）。二次确认在前端。"""
-    _require_automated_publishing()
-    cfg = LOGIN_RUNNERS.get(platform)
-    if not cfg:
-        raise HTTPException(404, '未知平台')
-    backend = cfg['backend']
-    if backend == 'unsupported':
-        raise HTTPException(400, f"{cfg['name']} 暂不支持一键发布")
-    profile = (req.persona or '').strip()
-    if profile and (not valid_persona_name(profile) or not profile_exists(profile)):
-        raise HTTPException(400, '选择的画像不存在或名称非法')
-    if not req.title.strip() and not req.body.strip():
-        raise HTTPException(400, '标题/正文不能为空')
-    imgs, vids = [], []
-    for rel in req.media or []:
-        full = _safe_output_path(rel)
-        ext = full.suffix.lower()
-        if ext in VIDEO_EXTS:
-            vids.append(str(full))
-        elif ext in IMAGE_EXTS:
-            imgs.append(str(full))
-    if platform in MEDIA_REQUIRED and not imgs and not vids:
-        raise HTTPException(400, f"{cfg['name']} 需附带图片或视频")
-    if imgs and vids:
-        raise HTTPException(400, '同一条内容不能同时发图片和视频，请二选一')
-    if platform in VIDEO_ONLY_PUBLISH and not vids:
-        raise HTTPException(400, f"{cfg['name']} 只能发视频，请附带一个视频文件")
+def _native_publish_command(platform, req, imgs, vids, cfg):
     title = req.title.strip() or req.body.strip()[:20]
     tags = req.tags or ''
     publish_type = '视频' if vids else ('文章' if platform == 'wechat-oa' else '图文')
@@ -5246,7 +5235,7 @@ async def api_publish(platform: str, req: PublishRequest):
         # tid=36「知识」；B站投稿必须≥1 标签，无则兜底「日常」。
         bili_tag = tags.replace('#', '').replace('，', ',').strip().strip(',') or '日常'
         cmd = ['biliup', '-u', str(PROJECT_ROOT / 'cookies.json'), 'upload', vids[0],
-               '--title', title[:80], '--tid', '36', '--copyright', '1', '--tag', bili_tag]
+               '--title', title[:80], '--tid', str(req.tid), '--copyright', '1', '--tag', bili_tag]
         if req.body.strip():
             cmd += ['--desc', req.body[:2000]]
     elif platform == 'douyin':
@@ -5258,29 +5247,30 @@ async def api_publish(platform: str, req: PublishRequest):
         status_file = PUBLISH_DIR / 'douyin.json'
         code_file = PUBLISH_DIR / 'douyin.code'
         cmd += ['--status-file', str(status_file), '--sms-code-file', str(code_file)]
-        return _start_async_publish(platform, cmd, title, req.body, cfg, status_file, code_file,
-                                    profile, tags, publish_type)
+
     elif platform == 'wechat-oa':
         # 微信公众号：走「后台会话」发布（免 AppID/AppSecret、免 IP 白名单）。
         # 正文 MD → 公众号 HTML（skill 排版器）→ 会话建草稿（weixin_mp_stats.py publish，内嵌图传 mp CDN）。
         if _mp_login_status().get('state') != 'success':
             raise HTTPException(400, '公众号后台未登录：请先在账号页点「登录公众号后台」扫码')
-        if not imgs:
+        if not imgs and req.cover is None:
             raise HTTPException(400, '公众号文章需要一张封面图，请附带至少一张图片')
         if vids:
             raise HTTPException(400, '公众号发图文文章，请附带封面/正文图片而非视频')
-        cover = imgs[0]
+        if imgs:cover = imgs[0]
+        else:
+            from web.publication_files import file_cover_path
+            cover = str(file_cover_path(OUTPUTS_DIR,req.cover))
         PUBLISH_DIR.mkdir(parents=True, exist_ok=True)
         stamp = uuid.uuid4().hex[:12]
         md_path = PUBLISH_DIR / f'wechat-oa-{stamp}.md'
         html_path = PUBLISH_DIR / f'wechat-oa-{stamp}.html'
         body_md = req.body or ''
-        extra_imgs = imgs[1:]
+        extra_imgs = imgs if req.cover else imgs[1:]
         if extra_imgs:
             body_md += "\n\n" + "\n\n".join(f'![]({p})' for p in extra_imgs)
         md_path.write_text(f"# {title}\n\n{body_md}\n", encoding='utf-8')
-        conv = await asyncio.to_thread(
-            subprocess.run, [py, str(WECHAT_SKILL_SCRIPTS / 'html_converter.py'),
+        conv = subprocess.run([py, str(WECHAT_SKILL_SCRIPTS / 'html_converter.py'),
                              str(md_path), '-o', str(html_path)],
             cwd=str(PROJECT_ROOT), env=_proxy_env(),
             capture_output=True, text=True, timeout=60)
@@ -5298,11 +5288,58 @@ async def api_publish(platform: str, req: PublishRequest):
         if media:
             cmd += ['--media', media]
     # 公众号走后台会话（Playwright，脚本自带 --proxy，默认直连）；其余平台走 _publish_env
+    if req.cover is not None:
+        from web.publication_files import file_cover_path
+        cover_path=file_cover_path(OUTPUTS_DIR,req.cover)
+        if platform == 'wechat-oa':
+            cmd[cmd.index('--cover')+1]=str(cover_path)
+        else:cmd += ['--cover',str(cover_path)]
+    return cmd
+
+
+@app.post("/api/publish/{platform}")
+async def api_publish(platform: str, req: PublishRequest):
+    """一键发布：分发到对应 publisher 脚本真发（--exec）。二次确认在前端。"""
+    _require_automated_publishing()
+    cfg = LOGIN_RUNNERS.get(platform)
+    if not cfg:
+        raise HTTPException(404, '未知平台')
+    backend = cfg['backend']
+    if backend == 'unsupported':
+        raise HTTPException(400, f"{cfg['name']} 暂不支持一键发布")
+    profile = (req.persona or '').strip()
+    if profile and (not valid_persona_name(profile) or not profile_exists(profile)):
+        raise HTTPException(400, '选择的画像不存在或名称非法')
+    tags = req.tags or ''
+    publish_type = '视频' if platform in VIDEO_ONLY_PUBLISH else ('文章' if platform == 'wechat-oa' else '图文')
+    if not req.title.strip() and not req.body.strip():
+        raise HTTPException(400, '标题/正文不能为空')
+    if platform=='bilibili' and (type(req.tid) is not int or req.tid<=0):
+        raise HTTPException(400,'请选择有效的B站分区')
+    imgs, vids = [], []
+    for rel in req.media or []:
+        full = _safe_output_path(rel)
+        ext = full.suffix.lower()
+        if ext in VIDEO_EXTS:
+            vids.append(str(full))
+        elif ext in IMAGE_EXTS:
+            imgs.append(str(full))
+    if platform in MEDIA_REQUIRED and not imgs and not vids and not (platform=='wechat-oa' and req.cover is not None):
+        raise HTTPException(400, f"{cfg['name']} 需附带图片或视频")
+    if imgs and vids:
+        raise HTTPException(400, '同一条内容不能同时发图片和视频，请二选一')
+    if platform in VIDEO_ONLY_PUBLISH and not vids:
+        raise HTTPException(400, f"{cfg['name']} 只能发视频，请附带一个视频文件")
+    title = req.title.strip() or req.body.strip()[:20]
+    cmd = _native_publish_command(platform, req, imgs, vids, cfg)
+    if platform == 'douyin':
+        return _start_async_publish(platform, cmd, title, req.body, cfg,
+            PUBLISH_DIR/'douyin.json', PUBLISH_DIR/'douyin.code',profile,tags,publish_type)
     pub_env = _proxy_env() if platform == 'wechat-oa' else _publish_env()
     try:
         from easel.publication_bilibili import legacy_bilibili_run
         from functools import partial
-        runner = partial(legacy_bilibili_run, PROJECT_ROOT) if platform == 'bilibili' else subprocess.run
+        runner = partial(legacy_bilibili_run, PROJECT_ROOT) if platform == 'bilibili' else partial(_legacy_native_run, platform)
         proc = await asyncio.to_thread(runner, cmd, cwd=str(PROJECT_ROOT), env=pub_env,
                                        capture_output=True, text=True, timeout=600)
     except subprocess.TimeoutExpired:
@@ -5808,6 +5845,27 @@ async def api_ideas_delete(iid: str):
         raise HTTPException(404, "选题不存在")
     _write_ideas(new)
     return {"ok": True, "deleted": iid}
+
+
+def _legacy_native_run(platform, cmd, **kwargs):
+    from easel.publication_bilibili import publishing_lock
+    with publishing_lock(PROJECT_ROOT,platform):return subprocess.run(cmd,**kwargs)
+
+
+def _native_publication_adapter(platform):
+    from easel.publication_native import NativeAdapter
+    def account(key):
+        # Reuse the original live whoami, not the cached account-list boolean.
+        return asyncio.run(_check_account_whoami(key,force=True))
+    def command(key,path,content,cover):
+        request=PublishRequest(title=content['title'],body='\n\n'.join(x for x in (content['body'],content['credits']) if x),tags=','.join(content['tags']))
+        cmd=_native_publish_command(key,request,[],[str(path)],LOGIN_RUNNERS[key])
+        if key=='douyin':
+            (PUBLISH_DIR/'douyin.code').unlink(missing_ok=True)
+            _write_publish_status(PUBLISH_DIR/'douyin.json','starting','发布中…')
+        if cover:cmd += ['--cover',str(cover)]
+        return cmd
+    return NativeAdapter(PROJECT_ROOT,platform,command,account,_publish_env)
 
 
 if __name__ == "__main__":

@@ -26,7 +26,7 @@ def start(env,legacy=False):
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'确认规划',id='execute')
     with s.store.transaction() as conn:
         conn.execute("UPDATE conversation_turns SET payload_json=json_set(payload_json,'$.delivery_state','streaming','$.delivery_lease_until',?) WHERE id='execute'",(time.time()+30,))
-    args=dict(mode='answer',proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认规划')
+    args=dict(mode='answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认规划')
     call=PersistentCall(**i,tool_call_id='execute-call',tool='easel_pipeline',params=args)
     req=PersistentDispatch(**call.model_dump(),ticket=b.prepare(call)['ticket'])
     receipt=b.dispatch(req)
@@ -50,6 +50,12 @@ def test_wait_receipt_is_committed_worker_writes_then_same_turn_acknowledges(env
     assert not ready['waiting']
     assert ready['result']['execution_result']['run_state']=='succeeded'
     assert '技术服务人。' in encode(ready)
+    actual=s.snapshot(receipt['work_id'])
+    assert ready['result']['execution_result']['current_plan']['plan']==actual['plans'][0]['plan']
+    assert 'plan' not in ready['result']['context']['current_plan']
+    assert all('plan' not in p for p in ready['result']['context']['work']['plans'])
+    assert all('payload_json' not in t for t in ready['result']['execution_result']['tasks'])
+    assert actual['tasks'][0]['payload_json']  # canonical input remains durable
     assert results.reserve_next() is None
     b.end(Identity(**i))
     assert results.reserve_next() is None  # end hook can precede the last Web token.
@@ -100,7 +106,7 @@ def test_no_wait_for_read_or_proposal(env):
 
 
 def answer(b,i,p,quote):
-    call=PersistentCall(**i,tool_call_id='answer-'+i['run_id'],tool='easel_pipeline',params={'mode':'answer','proposal_id':p['proposal_id'],'hash':p['hash'],'user_quote':quote})
+    call=PersistentCall(**i,tool_call_id='answer-'+i['run_id'],tool='easel_pipeline',params={'mode':'answer','dismiss':False,'proposal_id':p['proposal_id'],'hash':p['hash'],'user_quote':quote})
     req=PersistentDispatch(**call.model_dump(),ticket=b.prepare(call)['ticket'])
     receipt=b.dispatch(req)
     return ExecutionPoll(**req.model_dump()),receipt
@@ -290,7 +296,7 @@ def test_failed_draft_is_not_delivered_as_confirmable_plan(env):
     assert 'UNAPPROVED_PRIVATE_DRAFT' not in encode(pipe(b,i,'pending'))
 
 
-@pytest.mark.parametrize("kind,code", [("edit","invalid_edit_project"),("revise","invalid_revision_search")])
+@pytest.mark.parametrize("kind,code", [("edit","invalid_edit_project"),("revise","invalid_revision_search"),("revise","invalid_model_output")])
 def test_known_edit_failure_exposes_existing_resume_without_resubmission(env,kind,code):
     from easel.production.errors import ProductionError
     s,c,b,i,req,r=start(env)
@@ -307,7 +313,7 @@ def test_known_edit_failure_exposes_existing_resume_without_resubmission(env,kin
     ConversationResults(b).poll(req)
     b.end(Identity(**i));b.complete_delivery('execute','说明失败与恢复范围')
     b,i,_=turn(s,c,c.view('ui')['segment_id'],'确认修复后继续',id='resume-edit')
-    reply=pipe(b,i,'answer',proposal_id=proposal['proposal_id'],hash=proposal['hash'],user_quote='确认修复后继续')
+    reply=pipe(b,i,'answer',dismiss=False,proposal_id=proposal['proposal_id'],hash=proposal['hash'],user_quote='确认修复后继续')
     assert reply['run_id']==r['run_id']
     assert s.snapshot(r['work_id'])['tasks'][0]['state']=='pending'
 

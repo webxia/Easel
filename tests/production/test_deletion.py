@@ -28,7 +28,8 @@ def asset(env, id, *, work_id=None, revision=None, ref=None, content=None):
         path.write_bytes(content or id.encode())
     with store.transaction() as writer:
         insert_artifact(writer, work_id, id, storage_ref=ref, digest=hashlib.sha256(path.read_bytes()).hexdigest(),
-                        size_bytes=path.stat().st_size, output_revision=revision, displayable=1, quality_state="passed")
+                        size_bytes=path.stat().st_size, kind='output' if revision is not None else 'source',
+                        output_revision=revision, displayable=1, quality_state="passed")
     return path
 
 

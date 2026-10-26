@@ -248,12 +248,12 @@ class MaterialLibraryCatalog:
                    rights_status: RightsStatus | None = None, provider: str | None = None,
                    creator: str | None = None, tags_all: tuple[str, ...] = (), tags_any: tuple[str, ...] = (),
                    caption: str | None = None, sha256: str | None = None,
-                   limit: int = 100) -> tuple[MaterialLibraryRecord, ...]:
+                   limit: int = 100, after_asset_id: str = "") -> tuple[MaterialLibraryRecord, ...]:
         if not 1 <= limit <= 1000:
             raise MaterialLibraryError("Search limit must be between 1 and 1000")
         with self._connect() as db:
-            rows = db.execute("SELECT record_json FROM library_assets WHERE owner_id=? AND (profile_key=? OR profile_key='') AND lifecycle_status='ACTIVE' ORDER BY library_asset_id",
-                              (scope.owner_id, scope.profile_key)).fetchall()
+            rows = db.execute("SELECT record_json FROM library_assets WHERE owner_id=? AND (profile_key=? OR profile_key='') AND lifecycle_status='ACTIVE' AND library_asset_id>? ORDER BY library_asset_id",
+                              (scope.owner_id, scope.profile_key, after_asset_id)).fetchall()
         matches = []
         for row in rows:
             record = MaterialLibraryRecord.model_validate_json(row[0])

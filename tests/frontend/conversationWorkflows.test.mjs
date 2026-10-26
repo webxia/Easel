@@ -91,3 +91,13 @@ test('native confirmation identity cannot be abbreviated and production payload 
  assert.equal(p.values.properties.image_limit.minimum,0);
  assert.equal(p.values.properties.manual_review_confirmed.type,'boolean');
 });
+
+ test('native draft source and replan intent have explicit schema locations',async()=>{
+ const {persistentToolDefinitions}=await import('../../agents/plugins/easel-work/tools.mjs');
+ const tool=persistentToolDefinitions.find(t=>t.name==='easel_pipeline');
+ const requiredQuote=tool.parameters.allOf.find(r=>r.then.required.includes('user_quote'));
+ assert.deepEqual(requiredQuote.if.properties.mode.enum,['bind','draft','answer']);
+ assert.deepEqual(tool.parameters.properties.values.properties.intent.enum,['replan']);
+ assert.match(tool.description,/ROOT user_quote/);
+ assert.match(tool.description,/values \{title,input_text\}/);
+});

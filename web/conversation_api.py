@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sse_starlette.sse import EventSourceResponse
 
 from easel.conversation import ConversationService
-from easel.conversation_bridge import PersistentWorkToolBridge, PersistentCall, PersistentDispatch, ExecutionPoll, require_persistent_gateway
+from easel.conversation_bridge import PersistentWorkToolBridge, PersistentCall, PersistentDispatch, ExecutionPoll, BootstrapContext, require_persistent_gateway
 from easel.work_bridge import Claim, Identity
 from easel.production.service import fail
 from easel.native_diagnostics import NativeEnd
@@ -165,6 +165,9 @@ def create_internal_router(provider,token_provider):
         return natural_entry.call(bridge.service,request)
     @router.post('/claim')
     def claim(request:Claim,authorization:str|None=Header(default=None)):return authenticate(authorization).claim(request)
+    @router.post('/bootstrap')
+    def bootstrap(request:BootstrapContext,authorization:str|None=Header(default=None)):
+        return authenticate(authorization).bootstrap(request)
     @router.post('/prepare')
     def prepare(request:PersistentCall,authorization:str|None=Header(default=None)):return authenticate(authorization).prepare(request)
     @router.post('/dispatch')
@@ -235,6 +238,11 @@ class VideoChat:
         seq=0;chunks=[];done=False;next_result_write=0.0;finish_reason=None
         preparation=self.context_preparer(bridge,self.gateway_url,self.gateway_token)
         submitted=False
+        # Before a Work is bound, a native turn can hand off to a new segment.
+        # Its prose is intermediate; publish only the final segment's reply.
+        with service.store.connection() as conn:
+            segment=bridge.conversations.segment(conn,session)
+        buffer_reply=not segment['work_id']
         if event_path.exists() and event_sink is None:
             for line in event_path.read_text().splitlines():
                 try:seq=max(seq,json.loads(line).get('id',0))
@@ -276,7 +284,8 @@ class VideoChat:
                         finish_reason=choice.get('finish_reason') or finish_reason
                         text=(choice.get('delta') or {}).get('content')
                         if text:
-                            chunks.append(text);emit('token',text)
+                            chunks.append(text)
+                            if not buffer_reply:emit('token',text)
                             if background and asyncio.get_running_loop().time()>=next_result_write:
                                 bridge.record_result_text(turn_id,''.join(chunks))
                                 next_result_write=asyncio.get_running_loop().time()+0.25
@@ -300,6 +309,7 @@ class VideoChat:
                 return
             if data.get('pipeline_entry'):
                 raise ValueError('handoff_not_ready')
+            if buffer_reply:emit('token',''.join(chunks))
             bridge.complete_delivery(turn_id,''.join(chunks))
             view=ConversationService(service).view(session)
             self.save_turn('web:'+session,'done',''.join(chunks),{'turn_id':display_turn_id or turn_id})
@@ -356,10 +366,19 @@ class VideoChat:
             candidate=conn.execute("SELECT 1 FROM conversation_proposals p JOIN runs r ON r.id=json_extract(p.receipt_json,'$.run_id') JOIN works w ON w.id=r.work_id AND w.active_run_id=r.id JOIN conversation_segments s ON s.id=p.segment_id WHERE s.revoked_at IS NULL AND s.id=(SELECT id FROM conversation_segments WHERE ui_session=s.ui_session AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1) AND p.state='applied' AND json_type(p.receipt_json,'$._result_delivery')='object' AND r.state IN ('succeeded','needs_decision','failed','paused','cancelled') AND EXISTS(SELECT 1 FROM events e WHERE e.work_id=r.work_id AND e.run_id=r.id AND e.seq>json_extract(p.receipt_json,'$._result_delivery.seen_seq') AND e.kind IN ('run_completed','decision_required','task_needs_decision','task_failed','run_cancelled')) LIMIT 1").fetchone()
             reserved=conn.execute("SELECT 1 FROM conversation_turns WHERE state='reserved' AND json_extract(payload_json,'$.origin')='task_result' LIMIT 1").fetchone()
         if not candidate and not reserved:return False
-        await asyncio.to_thread(self.preflight,self.gateway_url,self.gateway_token)
         from easel.conversation_results import ConversationResults
         result=await asyncio.to_thread(ConversationResults(PersistentWorkToolBridge(service)).reserve_next)
         if not result:return False
+        if result.get('local_delivery'):
+            self.save_turn('web:'+result['ui_session'],'done',result['answer'],{'turn_id':result['turn_id']})
+            return True
+        try:
+            await asyncio.to_thread(self.preflight,self.gateway_url,self.gateway_token)
+        except Exception:
+            # No chat was submitted: retain the existing reservation for recovery.
+            with service.store.transaction() as conn:
+                conn.execute("UPDATE conversation_turns SET state='reserved' WHERE id=? AND state='dispatching' AND json_extract(payload_json,'$.run_id') IS NULL",(result['turn_id'],))
+            raise
         path=self.event_file(result['turn_id']);path.parent.mkdir(parents=True,exist_ok=True);path.write_text('')
         self.tasks[result['ui_session']]=asyncio.create_task(self._deliver(result['ui_session'],result['turn_id'],result,path,background=True))
         return True

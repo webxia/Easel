@@ -79,19 +79,25 @@ def create_router(service_provider: Callable[[], WorkService]) -> APIRouter:
     def accepted_library(scope: Literal['accepted', 'unaccepted'] = 'accepted'):
         service=service_provider()
         with service.store.connection() as conn:
-            if scope == 'unaccepted':
-                return [dict(r) for r in conn.execute("""SELECT w.id AS work_id,w.title,w.state,
-                    w.revision,a.id AS artifact_id,a.output_revision
-                    FROM works w LEFT JOIN artifacts a ON a.id=(
-                        SELECT id FROM artifacts WHERE work_id=w.id AND kind='output'
-                        AND output_revision IS NOT NULL AND deleted_at IS NULL AND displayable=1
-                        ORDER BY output_revision DESC,id DESC LIMIT 1)
-                    WHERE w.deleted_at IS NULL AND w.accepted_output_id IS NULL
-                    ORDER BY w.updated_at DESC,w.id""")]
-            return [dict(r) for r in conn.execute('''SELECT w.id AS work_id,w.title,a.id AS artifact_id,a.output_revision
-                FROM works w JOIN artifacts a ON a.id=w.accepted_output_id AND a.work_id=w.id
-                WHERE w.deleted_at IS NULL AND a.deleted_at IS NULL AND a.displayable=1
-                ORDER BY w.updated_at DESC''')]
+            # Preserve the selected artifact/default scope; add only read summaries.
+            selected = 'latest.id' if scope == 'unaccepted' else 'w.accepted_output_id'
+            accepted = 'IS NULL' if scope == 'unaccepted' else 'IS NOT NULL'
+            query = f'''SELECT w.id AS work_id,w.title,w.state,w.revision,w.updated_at,
+                w.accepted_output_id,a.id AS artifact_id,a.output_revision,
+                latest.id AS latest_artifact_id,latest.output_revision AS latest_output_revision
+                FROM works w LEFT JOIN artifacts latest ON latest.id=(
+                    SELECT id FROM artifacts WHERE work_id=w.id AND kind='output'
+                    AND output_revision IS NOT NULL AND deleted_at IS NULL AND displayable=1
+                    ORDER BY output_revision DESC,id DESC LIMIT 1)
+                LEFT JOIN artifacts a ON a.id={selected} AND a.work_id=w.id
+                WHERE w.deleted_at IS NULL AND w.accepted_output_id {accepted}
+                {'AND a.deleted_at IS NULL AND a.displayable=1 AND a.id IS NOT NULL' if scope == 'accepted' else ''}
+                ORDER BY w.updated_at DESC,w.id'''
+            items = [dict(r) for r in conn.execute(query)]
+            for item in items:
+                item['has_newer_preview'] = bool(item['accepted_output_id'] and
+                    (item['latest_output_revision'] or 0) > (item['output_revision'] or 0))
+            return items
 
     @router.get('/works')
     def list_works(after:str|None=None,limit:int=30,state:str|None=None,profile_ref:str|None=None,channel_id:str|None=None):

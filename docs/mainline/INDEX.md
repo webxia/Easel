@@ -27,11 +27,21 @@
 <a id="按需查阅的依据"></a>
 <a id="正式入口与维护职责"></a>
 
+## 本轮实施与验收
+
+- [PUB-01多平台成片与封面接线](project/tasks/PUB-01_acceptance-publication.md)：复用原发布中心/发布器，代码、离线检查、部署及不投稿的Web定向验证已交付；真实各平台发送与封面效果未测，原已发作品保持。
+
+- [LIB-01 · 内容库交付物与原生交互收敛](project/tasks/LIB-01_content-library-consistency.md)：本轮收窄范围已交付，代码、离线回归、部署与Web定向复验通过，功能提交已推送；保留原生文件项目、生产恢复和PUB-01链路，证据见任务记录。
+
 ## 待审阅的新需求方案
 
 - [V3 个人方向与一年行动路线图](product/v3-direction.md)：已认可总体方向，含 M0～M6 里程碑、前三个月与首月安排、灵感取舍；ROADMAP，滚动调整，不替代生产任务，未授权技术选型或开发。
 
-- [成片确认到发布](architecture/publication-proposal.md)：优先复用原发布能力，列明现状、补齐范围、版本/账号/确认与平台回执；首批B站已授权开发；由[父任务PUB-01](project/tasks/PUB-01_acceptance-publication.md)记录实现、离线验收与后续真实复验；本轮已获部署和Web新片复验授权，未授权真实投稿。
+- [V2.1版本规划：创作依据、上下文与自然表达](architecture/creative-context-expression-proposal.md)：已清理旧执行分支、补齐真实失败缺口并统一软件验收（最终2536通过/16跳过）；隔离API19次真实调用为历史证据，本轮真实工作区Web已导出含BGM/音效的98.17秒成片，技术及视觉抽样通过，原对话连续播放通过，已快进合并V2并统一部署、刷新后播放复验通过。[CRE-01版本主任务](project/tasks/CRE-01_creative-context-expression.md)记录工作包与证据；后续已按授权直接在主工作区V2完成多轮讨论/改稿、取消和长对话恢复调试，最终固定软件2560通过/16跳过，已统一部署并复验，见[调试02](project/tasks/runs/2026-10-25-web-e2e-02.md)。后续[制作复验03](project/tasks/runs/2026-10-25-web-e2e-03.md)已完成含BGM/音效的首片、成片后改稿重制与局部画面修复，最终2583软件通过，50.6秒第3版技术/视觉抽样及完整播放通过。完整听感、语义及Creator接受仍待人工，不宣称长期表达稳定。
+
+- [成片确认到发布](architecture/publication-proposal.md)：优先复用原发布能力，列明现状、补齐范围、版本/账号/确认与平台回执；首批B站已授权开发；由[父任务PUB-01](project/tasks/PUB-01_acceptance-publication.md)记录实现、离线验收与后续真实复验；本轮真实B站投稿已获授权并实际提交，平台审核中；公开结果按父任务继续核实。
 
 
 - [上下文超预算后的发送前压缩](architecture/context-compaction-proposal.md)：任务[CTX-01](project/tasks/CTX-01_context-compaction.md)首批Easel去重与官方压缩接入已实现，新增32项离线用例通过；关联回归有1项开工前已存在的失败，详见父任务。仅覆盖有效历史压力，未承诺当前请求实时预检；已部署并开始Web新片复验，无压力路径及一个真实压力触发官方压缩后原请求完成的样本已验证；不修改OpenClaw、不升级。
+
+- [自然定长与图解呈现衔接](architecture/natural-duration-board-proposal.md)：2026-10-24长尾BGM与图解裁切问题的根因方案；区分已有时长修复、基础图解排版及旧片修订；基础排版已获实施与部署授权，不做复杂动态图解，验收归入PUB-01本轮增量。

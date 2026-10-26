@@ -45,8 +45,9 @@ def test_explicit_context_without_workspace_or_other_profile():
 @pytest.mark.parametrize('bad',[{}, {'owner_epoch':5,'summary':'x'},{'summary':'x','artifact_id':'foreign'}])
 def test_invalid_and_forged_authority_rejected(bad):
     runner,_,calls=run([{'content':json.dumps(bad)}],max_format_repairs=0)
-    with pytest.raises(ModelTaskError,match='有效创作结果'):
+    with pytest.raises(ModelTaskError,match='summary.*missing' if bad=={} else '有效创作结果') as failure:
         asyncio.run(runner.run(context(),'plan',Answer))
+    assert failure.value.code=='invalid_model_output'
     assert len(calls)==1
 
 
@@ -194,18 +195,6 @@ def test_schema_specific_errors_guide_bounded_third_repair_without_relaxing_cont
         assert 'title' in feedback and 'extra_forbidden' in feedback
 
 
-def test_legacy_replay_preserves_first_repair_request_then_uses_specific_feedback():
-    responses=[{'content':'{"summary":"a","title":"unexpected"}'},
-               {'content':'{"summary":"b","title":"unexpected"}'},
-               {'content':'{"summary":"valid"}'}]
-    runner,transport,_=run(responses,max_format_repairs=2,legacy_first_repair=True)
-    answer=asyncio.run(runner.run(context(),'material_intent',Answer))
-    assert answer.summary=='valid'
-    assert len(transport.calls)==3
-    assert transport.calls[1][-1]['content']==('上次结果无效。严格按schema输出JSON；'
-                                               '不要包含执行权限字段或不存在的媒体引用。')
-    assert 'title (extra_forbidden)' in transport.calls[2][-1]['content']
-
 def test_long_field_feedback_names_path_and_violation():
     class ShortQuery(BaseModel):
         model_config=ConfigDict(extra='forbid')
@@ -270,3 +259,90 @@ def test_minimax_video_protocol_keeps_native_payload_without_qwen_only_parameter
         return httpx.Response(200,json={'choices':[{'finish_reason':'stop','message':{'content':'{}'}}]})
     asyncio.run(HTTPModelTransport(settings,transport=httpx.MockTransport(handler)).complete(
         [{'role':'user','content':[media]}],[],{}))
+
+
+def test_exact_json_fence_needs_no_model_rewrite_but_contract_remains_strict():
+    runner, transport, _ = run([{'content':'```json\n{"summary":"完整结果"}\n```'}])
+    assert asyncio.run(runner.run(context(),'edit',Answer)).summary == '完整结果'
+    assert len(transport.calls) == 1
+    for raw in ('说明\n```json\n{"summary":"x"}\n```',
+                '```json\n{"summary":"x","owner_epoch":2}\n```',
+                '```json\n{"summary":"x"}\n',
+                '{"summary":"x"}\n```'):
+        runner, _, _ = run([{'content':raw}], max_format_repairs=0)
+        with pytest.raises(ModelTaskError):
+            asyncio.run(runner.run(context(),'edit',Answer))
+
+
+def test_format_repair_preserves_complete_long_answer():
+    raw=json.dumps({'summary':'x'*20000,'extra':'remove only this'})
+    runner,transport,_=run([{'content':raw},{'content':'{"summary":"fixed"}'}])
+    asyncio.run(runner.run(context(),'edit',Answer))
+    assert transport.calls[1][-2]['content']==raw
+    assert 'extra' in transport.calls[1][-1]['content']
+
+
+def test_observation_rounding_resolves_only_actual_unique_sample():
+    from types import SimpleNamespace
+    from easel.production.edit_observation import check_visual_evidence, VisualSelection
+    evidence=VisualSelection(scene_id='s',asset_id='a',observed_times=[6.64],observation='实际抽帧')
+    scene=SimpleNamespace(scene_id='s',asset_id='a',source_start=6,duration=1)
+    edit=SimpleNamespace(scenes=[scene],visual_evidence=[evidence],unresolved_scene_ids=[])
+    check_visual_evidence(edit,{'a':[6.644]})
+    with pytest.raises(ValueError,match='未被实际观察'):
+        check_visual_evidence(edit,{'a':[6.65]})
+    with pytest.raises(ValueError,match='未被实际观察'):
+        check_visual_evidence(edit,{'a':[6.643,6.644]})
+    scene.duration=.64
+    with pytest.raises(ValueError,match='不在本次选用片段'):
+        check_visual_evidence(edit,{'a':[6.644]})
+
+
+def test_final_failure_preserves_current_deterministic_cause():
+    from easel.production.model_tasks import ResultCorrectionError
+    runner,transport,_=run([{'content':'{"summary":"x"}'}],max_format_repairs=0)
+    def validate(answer):raise ResultCorrectionError('原声发生变化：scene_2；须保留取源起点')
+    with pytest.raises(ModelTaskError) as failure:
+        asyncio.run(runner.run(context(),'revise',Answer,validate_result=validate))
+    assert failure.value.code=='invalid_model_output'
+    assert 'scene_2' in failure.value.user_message
+
+
+@pytest.mark.parametrize('raw', ['{"font_asset_id="abc"}', '{"changes":'])
+def test_json_failure_reports_location_and_reason_without_raw_content(raw):
+    runner,transport,_=run([{'content':raw}],max_format_repairs=0)
+    with pytest.raises(ModelTaskError) as failure:
+        asyncio.run(runner.run(context(),'revise',Answer))
+    assert failure.value.code=='invalid_model_output'
+    assert 'JSON语法错误' in failure.value.user_message
+    assert '第1行' in failure.value.user_message and 'Expecting' in failure.value.user_message
+    assert 'abc' not in failure.value.user_message
+
+
+def test_visual_recovery_repairs_old_full_answer_using_patch_contract():
+    from easel.production.revisions import VisualRevisionProposal, revision_recovery_messages
+    fields={'summary':'局部','affected':['visual'],'expands_scope':False,'requires_new_generation':False,'reason':'裁切'}
+    old={'content':json.dumps({**fields,'edit':{'scenes':[]}})}
+    response={'content':json.dumps({**fields,'changes':{}})}
+    runner,transport,_=run([response],max_format_repairs=1)
+    messages=revision_recovery_messages([{'role':'system','content':'authority\n任务：完整工程'},
+        {'role':'user','content':'original base'}],'只返回changes',VisualRevisionProposal)
+    result=asyncio.run(runner.run(context(),'revise',VisualRevisionProposal,recovery=(messages,old)))
+    assert result.changes.scenes==[] and len(transport.calls)==1
+    assert transport.calls[0][1]['content']=='original base'
+    assert 'extra_forbidden' in transport.calls[0][-1]['content']
+    assert '只返回changes' in transport.calls[0][0]['content']
+
+
+
+def test_missing_confirmed_bgm_is_corrected_inside_existing_model_budget():
+    from easel.production.creation import CreativeEdit
+    from easel.production.editors.base import check_audio_delivery
+    bad={'scenes':[{'scene_id':'s1','asset_id':'visual','duration':1}],
+         'audio':[{'clip_id':'voice-1','asset_id':'voice','role':'voice','at':0,'duration':1}]}
+    good={**bad,'audio':[*bad['audio'],{'clip_id':'music-1','asset_id':'bgm','role':'music','at':0,'duration':1}]}
+    runner,transport,_=run([{'content':json.dumps(bad)},{'content':json.dumps(good)}])
+    result=asyncio.run(runner.run(context(allowed_handles=frozenset({'visual','voice','bgm'})),
+        '落实混合声音',CreativeEdit,validate_result=lambda edit:check_audio_delivery('mixed',edit.scenes,edit.audio)))
+    assert len(transport.calls)==2 and any(a.role=='music' for a in result.audio)
+    assert 'mixed delivery needs voice/source sound and music' in transport.calls[1][-1]['content']

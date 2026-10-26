@@ -1,3 +1,4 @@
+import { openPublication, openPublicationDraft, publicationIdFromHash } from '../lib/publicationApi';
 import { useMemo, useState } from 'react';
 import type { ChatMessage } from '../lib/store';
 import { renderMarkdown } from '../lib/sanitize';
@@ -41,6 +42,8 @@ function ActionBar({ actions }: { actions: BubbleActions }) {
 }
 
 export default function MessageBubble({ message, isStreaming, thinking, activity, stillWorking, actions }: MessageBubbleProps) {
+  const [publicationError,setPublicationError]=useState('');
+  const [publicationBusy,setPublicationBusy]=useState(false);
   const rendered = useMemo(() => {
     if (message.role === 'user') return { html: '', artifacts: [], archives: [] };
     // A mentioned path can be a proposal, not an existing artifact. Preserve bare/code
@@ -117,7 +120,17 @@ export default function MessageBubble({ message, isStreaming, thinking, activity
       <div className="msg-col assistant">
         <div className="message-bubble assistant">
           {livePanel}
-          {message.content && <div dangerouslySetInnerHTML={{ __html: rendered.html }} />}
+          {message.content && <div onClick={event=>{
+            const anchor=(event.target as HTMLElement).closest('a');
+            if(!anchor)return;
+            const url=new URL(anchor.href,window.location.href);
+            const id=url.origin===window.location.origin && url.pathname==='/' ? publicationIdFromHash(url.hash):undefined;
+            if(id){event.preventDefault();openPublicationDraft(id);}
+          }} dangerouslySetInnerHTML={{ __html: rendered.html }} />}
+          {message.publicationSource&&!isStreaming&&<div className="publish-actions"><button className="btn btn-sm" disabled={publicationBusy} onClick={async()=>{
+            const source=message.publicationSource!;setPublicationBusy(true);setPublicationError('');
+            try{await openPublication(source.work_id,source.output_id);}catch(error){setPublicationError((error as Error).message);}finally{setPublicationBusy(false);}
+          }}>准备发布／查看记录</button>{publicationError&&<p role="alert">{publicationError}</p>}</div>}
           {message.deliveryError && !isStreaming && (
             <div className="result-delivery-note">
               <p>这条结果回复未完整返回，已保存的制作记录仍然保留。</p>

@@ -15,6 +15,7 @@ function component(file,mocks={}) {
  return exports.default;
 }
 const Bubble=component('MessageBubble.tsx',{
+ '../lib/publicationApi':{openPublicationDraft:()=>{},publicationIdFromHash:()=>undefined},
  '../lib/sanitize':{renderMarkdown:s=>s},
  '../lib/linkifyOutputs':{linkifyOutputs:s=>s,externalizeMediaLinks:s=>s},
  './icons':{IconCopy:()=>null,IconCheck:()=>null,IconRetry:()=>null},
@@ -43,4 +44,16 @@ test('old result errors never become a current global alert; request failures st
  }
  assert.doesNotMatch(render(),/OLD_LENGTH|role="alert"/);
  assert.match(render('当前请求失败'),/role="alert">当前请求失败/);
+});
+
+test('video lifecycle panel never substitutes workflow buttons for dialogue',()=>{
+ let state=0;
+ const Panel=component('VideoConversation.tsx',{
+  react:{...React,useState:()=>[state++===0?{context:{},work_id:'w',turns:[],result_messages:[],
+   output_followup:{title:'第4版 · 接下来',actions:[{label:'改稿重制',prompt:'start'}]}}:'',()=>{}],
+   useRef:v=>({current:v}),useEffect:()=>{},useCallback:f=>f},
+  '../lib/conversationApi':{},
+ });
+ const html=renderToStaticMarkup(React.createElement(Panel,{sessionId:'s',onBound:()=>{},onRestore:()=>{},onBindingPending:()=>{}}));
+ assert.doesNotMatch(html,/<button|video-followup|改稿重制|接下来/);
 });

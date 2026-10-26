@@ -54,6 +54,17 @@ def narration_segments(plan, protected=None):
     return segments
 
 
+def duration_execution_contract(plan: dict) -> dict:
+    """Expose existing duration semantics to candidate review, without editing it."""
+    mode=(plan.get('narration_policy') or {}).get('duration_mode','fixed')
+    return {'duration_mode':mode,'duration_seconds_required':True,
+            'draft_duration_seconds':plan['settings']['duration_seconds'],
+            'duration_seconds_meaning':'planning_estimate' if mode=='voice_driven' else 'fixed_duration',
+            'execution_basis':'complete_measured_speech' if mode=='voice_driven' else 'confirmed_duration',
+            'description':('voice_driven下settings.duration_seconds仍为必填规划估计值，不是固定截断点；measured_execution_plan按完整配音实测覆盖执行时长，冻结稿保留估计值。不能要求删除必填字段。'
+                           if mode=='voice_driven' else 'fixed按已确认settings.duration_seconds执行，不能把固定片长当估计值或擅自延长。')}
+
+
 def measured_execution_plan(plan: dict, records: list[dict]) -> tuple[dict, dict | None]:
     """The opt-in runtime follows measured speech; the frozen draft stays intact."""
     policy = plan.get('narration_policy') or {}
@@ -62,7 +73,7 @@ def measured_execution_plan(plan: dict, records: list[dict]) -> tuple[dict, dict
     if policy.get('duration_mode') != 'voice_driven':
         return plan, None
     meta = [json.loads(r['metadata_json']) for r in records]
-    if any(m.get('original_audio') or any(u.get('role') == 'sfx'
+    if any(m.get('original_audio') or any(u.get('role') == 'sfx' and u.get('timing_basis', 'absolute') != 'scene'
            for u in m.get('material_uses', [])) for m in meta):
         raise ModelTaskError('timed_audio_requires_fixed_duration', '有冻结时间音效的作品须明确时长，不能挤压原声或事件')
     voice = {m['segment_id']: m for m in meta if m.get('role') == 'voice'}

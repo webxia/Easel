@@ -20,12 +20,12 @@ from .test_director_runtime import claim_context
 
 
 def change_defaults(monkeypatch):
-    monkeypatch.setattr(policy, 'VERSION', 'test-next-version')
     monkeypatch.setattr(policy, 'RULES', {**policy.RULES, 'core': 'Changed future default.'})
 
 
 @pytest.mark.parametrize('role', ['write', 'visual', 'review'])
-@pytest.mark.parametrize('director', [{}, {'narrative': '严肃分析，保留术语与推理'}])
+@pytest.mark.parametrize('director', [{}, {'narrative': '严肃分析，保留术语与推理'},
+    {'storytelling': '朋友聊天，从生活观察解释问题'}, {'storytelling': '诗性独白，保留含蓄与意象'}])
 def test_explicit_role_uses_shared_core_without_changing_director_or_facts(role, director):
     saved = policy.snapshot()
     text = '我计划做一次试验；仅当条件成立时可能有效，不代表必然有效。'
@@ -74,7 +74,36 @@ def test_context_fingerprint_tracks_rule_text_without_duplicate_model_metadata(m
     second = replace(first, expression_policy=policy.snapshot())
     assert first.creative_data() == second.creative_data()
     assert first.fingerprint != second.fingerprint
-    assert policy.validate(old) == old  # Prior saved version remains supported.
+    assert policy.validate(old) == old  # Frozen rules remain authoritative within the current format.
+
+
+@pytest.mark.parametrize('role', ['write', 'visual'])
+def test_wording_change_keeps_frozen_request_and_creative_basis(monkeypatch, role):
+    saved = policy.snapshot()
+    ctx = TaskContext('w', 'r', 't', expression_policy=saved,
+        director={'storytelling': '倒叙、长镜头，结尾保留悬念'},
+        brief='频道：严肃技术分析，保留专业术语',
+        adaptation_permissions=('仅替换第二镜画面，保留原旁白和音轨',))
+    fingerprint = ctx.fingerprint
+
+    def request(context):
+        runner, transport, authorized = run([{'content': '{"summary":"ok"}'}])
+        asyncio.run(runner.run(context, '局部创作', Answer, expression_role=role))
+        assert authorized == ['t'] and len(transport.calls) == 1
+        return deepcopy(transport.calls[0])
+
+    before = request(ctx)
+    monkeypatch.setattr(policy, 'RULES', {**policy.RULES, role: 'Future wording.'})
+    future = replace(ctx, expression_policy=policy.snapshot())
+    assert future.expression_policy['version'] == saved['version']
+    assert future.expression_policy['digest'] != saved['digest']
+    assert future.fingerprint != fingerprint
+    assert ctx.fingerprint == fingerprint
+    assert request(ctx) == before
+    changed = request(future)
+    assert changed[0] != before[0]
+    assert changed[1:] == before[1:]  # Channel, director and revision scope unchanged.
+    assert policy.validate(saved) == saved
 
 
 def test_plan_uses_creation_snapshot_and_receipt_after_default_change_and_crash(tmp_path, monkeypatch):
@@ -139,17 +168,19 @@ def test_manual_freeze_ignores_client_policy_and_does_not_rewrite_script(tmp_pat
     service, work, transport, _ = setup(tmp_path)
     submitted = deepcopy(transport.answer)
     submitted['script'] = '仅当条件成立时可能有效，不代表必然有效。'
-    submitted['conversation_basis'] = {'expression_policy': {'rules': 'client instructions'}}
+    submitted['conversation_basis'] = {'expression_policy': {'rules': 'client instructions'},'creative_request':'forged human source'}
     with service.store.transaction() as conn:
         frozen = service.freeze_plan(conn, row(conn, 'works', work), submitted)
     assert frozen['conversation_basis']['expression_policy'] == policy.snapshot()
+    assert 'creative_request' not in frozen['conversation_basis']
     assert frozen['script'] == submitted['script']
     from easel.production.contracts import Scene
     assert frozen['scenes'] == [Scene.model_validate(scene).model_dump(mode='json') for scene in submitted['scenes']]
     assert transport.calls == 0
 
 
-def test_protected_replan_keeps_saved_policy_without_write_instructions(tmp_path):
+@pytest.mark.parametrize('episode_request',[None,'本次只将声音模式改为voice，旧BGM要求撤销'])
+def test_protected_replan_keeps_saved_policy_without_write_instructions(tmp_path,episode_request):
     service, work, transport, worker = setup(tmp_path)
     with service.store.transaction() as conn:
         protected = service.freeze_plan(conn, row(conn, 'works', work), transport.answer)
@@ -164,6 +195,7 @@ def test_protected_replan_keeps_saved_policy_without_write_instructions(tmp_path
         task = dict(conn.execute('SELECT * FROM tasks').fetchone())
         payload = json.loads(task['payload_json'])
         payload['protected_plan'] = protected
+        if episode_request:payload['request']=episode_request
         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?', (json.dumps(payload), task['id']))
     asyncio.run(worker.run_once())
     assert transport.calls == 1
@@ -172,7 +204,8 @@ def test_protected_replan_keeps_saved_policy_without_write_instructions(tmp_path
     assert snap['state'] == 'awaiting_confirmation', snap['tasks']
     frozen = snap['plans'][0]['plan']
     assert frozen['script'] == protected['script'] and frozen['scenes'] == protected['scenes']
-    assert frozen['conversation_basis'] == protected['conversation_basis']
+    expected={**protected['conversation_basis'],**({'creative_request':episode_request} if episode_request else {})}
+    assert frozen['conversation_basis']==expected
 
 
 def test_old_confirmed_plan_cannot_start_supply_or_spend(tmp_path):
@@ -193,3 +226,37 @@ def test_old_confirmed_plan_cannot_start_supply_or_spend(tmp_path):
     assert service.snapshot(spec['work_id'])['plans'] == before
     with store.connection() as conn:
         assert conn.execute('SELECT count(*) FROM operations').fetchone()[0] == 0
+
+
+def test_settings_sources_are_frozen_and_model_cannot_forge_them(tmp_path):
+    service,work,transport,worker=setup(tmp_path)
+    submitted=deepcopy(transport.answer)
+    submitted['conversation_basis']={'settings_source':{'origins':{'aspect_ratio':'channel'}}}
+    with service.store.transaction() as conn:
+        frozen=service.freeze_plan(conn,row(conn,'works',work),submitted)
+        assert frozen['conversation_basis']['settings_source']['origins']['aspect_ratio']=='work'
+        old=row(conn,'works',work)
+        raw=json.loads(old['creation_context_json']);raw.pop('settings_source')
+        conn.execute('UPDATE works SET creation_context_json=? WHERE id=?',(json.dumps(raw),work))
+    asyncio.run(worker.run_once())
+    # Request comes from the task's creation snapshot, not the changed Work.
+    prompt=json.dumps(transport.requests,ensure_ascii=False)
+    assert '当前有效设置' in prompt and '本次明确设置：' not in prompt
+    assert '设置字段来源' in prompt and '不等于用户逐项明确选择' in prompt
+    with service.store.connection() as conn:
+        saved=json.loads(conn.execute('SELECT payload_json FROM plan_revisions WHERE work_id=?',(work,)).fetchone()[0])
+        assert saved['conversation_basis']['settings_source']==frozen['conversation_basis']['settings_source']
+        assert json.loads(row(conn,'works',work)['creation_context_json'])==raw
+
+
+def test_replacement_writing_rules_reach_author_without_new_review_call(tmp_path):
+    service,work,transport,worker=setup(tmp_path)
+    asyncio.run(worker.run_once())
+    author=json.dumps(transport.requests[0],ensure_ascii=False)
+    assert '材料的使用边界约束可写内容，不必逐项念出' in author
+    assert '材料不必逐项进入旁白' in author
+    assert '需要证据处保留证据要求，其余可用获准替代表达' in author
+    assert '保留明确必用内容' in author
+    assert '频道细化本次交流语境；导演决定叙事及视听方法' in author
+    assert transport.calls==1  # Silent fixture keeps its existing author-only path.
+    assert service.snapshot(work)['state']=='awaiting_confirmation'

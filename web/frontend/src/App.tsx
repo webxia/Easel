@@ -1,3 +1,4 @@
+import { publicationIdFromHash, sessionRestorePage, publishSourceFromHash, type PublishSource } from './lib/publicationApi';
 import { mergeTaskReplies } from './lib/taskReplies';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { enterVideo, videoRequest, type ConversationView, type VideoEntry } from './lib/conversationApi';
@@ -49,8 +50,26 @@ function onboardingSeen(): boolean {
 
 export default function App() {
   const [publicationId,setPublicationId]=useState<string>();
-  useEffect(()=>{const open=(e:Event)=>{setPublicationId((e as CustomEvent<string>).detail);setCurrentPage('publish');};window.addEventListener('easel:publication',open);return ()=>window.removeEventListener('easel:publication',open);},[]);
+  const [publishSource,setPublishSource]=useState<PublishSource>();
+  useEffect(()=>{
+    const select=(value?:PublishSource)=>{if(value){setPublishSource(value);setPublicationId(undefined);setCurrentPage('publish');}};
+    const open=(e:Event)=>select((e as CustomEvent<PublishSource>).detail);
+    const restore=()=>select(publishSourceFromHash(window.location.hash));
+    restore();window.addEventListener('easel:publish-source',open);window.addEventListener('hashchange',restore);
+    return()=>{window.removeEventListener('easel:publish-source',open);window.removeEventListener('hashchange',restore);};
+  },[]);
+  useEffect(()=>{
+    const select=(id?:string)=>{if(id){setPublicationId(id);setCurrentPage('publish');}};
+    const open=(e:Event)=>select((e as CustomEvent<string>).detail);
+    const restore=()=>select(publicationIdFromHash(window.location.hash));
+    restore();window.addEventListener('easel:publication',open);window.addEventListener('hashchange',restore);
+    return ()=>{window.removeEventListener('easel:publication',open);window.removeEventListener('hashchange',restore);};
+  },[]);
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
+  const navigate=(page:Page)=>{
+    if(page!=='publish'&&(publicationIdFromHash(window.location.hash)||publishSourceFromHash(window.location.hash)))window.history.replaceState(null,'',window.location.pathname+window.location.search);
+    setCurrentPage(page);
+  };
   const [personas, setPersonas] = useState<PersonaItem[]>([]);
   const [selectedPersona, setSelectedPersona] = useState('');
   const [sessions, setSessions] = useState<ChatSession[]>(() => loadSessions());
@@ -100,14 +119,15 @@ export default function App() {
       setActiveSessionId(id);
       const s = sess.find((x) => x.id === id);
       if (s) setSelectedPersona(s.persona || '');
-      if (s?.videoSegmentId) setCurrentPage('chat');
+      const destination=sessionRestorePage(window.location.hash,!!s?.videoSegmentId);
+      if(destination)setCurrentPage(destination);
       try { sessionStorage.setItem(TAB_SESSION_KEY, id); } catch { /* ignore */ }
       ch?.postMessage({ type: 'claim', sessionId: id });
     };
     const openNew = (sess: ChatSession[]) => {
       const ns = createSession();
       const updated = [ns, ...sess];
-      saveSessions(updated);
+      saveSessions(updated, {create:[ns.id]});
       settle(ns.id, updated);
     };
 
@@ -258,7 +278,7 @@ export default function App() {
         s.id === sessionId
           ? { ...s, messages: [...s.messages, msg], sessionKey: sessionKey || s.sessionKey, pendingTurnId: undefined }
           : s);
-      saveSessions(next);
+      saveSessions(next, {update:{[sessionId]:['messages','sessionKey','pendingTurnId']}});
       return next;
     });
   }, []);
@@ -285,8 +305,14 @@ export default function App() {
     const turnId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try { sessionStorage.setItem(`easel_pending_turn:${sessionId}`, turnId); } catch { /* ignore */ }
     setSessions((prev) => {
-      const next = prev.map((s) => (s.id === sessionId ? { ...s, pendingTurnId: turnId } : s));
-      saveSessions(next); return next;
+      const next = prev.map((s) => {
+        if(s.id!==sessionId)return s;
+        const messages=s.messages.slice();
+        const last=messages.length-1;
+        if(last>=0 && messages[last].role==='user')messages[last]={...messages[last],userTurnId:turnId};
+        return {...s,messages,pendingTurnId:turnId};
+      });
+      saveSessions(next, {update:{[sessionId]:['messages','pendingTurnId']}}); return next;
     });
     streamAcc.current[sessionId] = { content: '', thinking: '', steps: [], questions: [] };
     setStreams((prev) => ({ ...prev, [sessionId]: { content: '', thinking: '', activity: '', questions: [] } }));
@@ -307,7 +333,7 @@ export default function App() {
         void videoRequest<ConversationView>(encodeURIComponent(sessionId)).then(view => {
           setSessions(prev => {
             const next=prev.map(s=>s.id===sessionId?{...s,videoSegmentId:view.segment_id}:s);
-            saveSessions(next);return next;
+            saveSessions(next, {update:{[sessionId]:['videoSegmentId']}});return next;
           });
         }).catch(()=>{});
         // done 不能立即 flush——token 和 done 几乎同时到达（OpenClaw 攒批），
@@ -532,7 +558,7 @@ export default function App() {
         updateSessionTitle(updated);
         return updated;
       });
-      saveSessions(next);
+      saveSessions(next, {update:{[sessionId]:['messages','title']}});
       return next;
     });
     startStream(sessionId, agentMessage, persona, attachments);
@@ -557,9 +583,9 @@ export default function App() {
   const handleUseTopic = useCallback((title: string) => {
     const prompt = `围绕当前热点「${title}」：先判断它适不适合我的账号赛道；若合适，给 2-3 个差异化的二创角度，并把你最推荐的那条写成可直接发布的文案初稿。`;
     const ns = createSession(selectedPersona || undefined);
-    setSessions((prev) => { const u = [ns, ...prev]; saveSessions(u); return u; });
+    setSessions((prev) => { const u = [ns, ...prev]; saveSessions(u, {create:[ns.id]}); return u; });
     setActiveSessionId(ns.id);
-    setCurrentPage('chat');
+    navigate('chat');
     sendUserAndStream(ns.id, prompt);
   }, [selectedPersona, sendUserAndStream]);
 
@@ -581,7 +607,7 @@ export default function App() {
     // 关键：清掉「本轮进行中」标记，否则下一句被判为「上一条还没跑完」拦下
     setSessions((prev) => {
       const next = prev.map((s) => (s.id === sessionId ? { ...s, pendingTurnId: undefined } : s));
-      saveSessions(next);
+      saveSessions(next, {update:{[sessionId]:['pendingTurnId']}});
       return next;
     });
     try { sessionStorage.removeItem(`easel_pending_turn:${sessionId}`); } catch { /* ignore */ }
@@ -592,7 +618,7 @@ export default function App() {
     if (!t) return;
     setSessions((prev) => {
       const next = prev.map((s) => (s.id === id ? { ...s, title: t } : s));
-      saveSessions(next);
+      saveSessions(next, {update:{[id]:['title']}});
       return next;
     });
   }, []);
@@ -600,7 +626,7 @@ export default function App() {
   const handleSessionArchive = useCallback((id: string, archived: boolean) => {
     setSessions((prev) => {
       const next = prev.map((s) => (s.id === id ? { ...s, archived } : s));
-      saveSessions(next);
+      saveSessions(next, {update:{[id]:['archived']}});
       return next;
     });
     // 归档当前激活会话 → 切到另一个未归档会话或新建
@@ -610,10 +636,10 @@ export default function App() {
         setActiveSessionId(rest[0].id);
       } else {
         const ns = createSession(selectedPersona || undefined);
-        setSessions((prev) => { const u = [ns, ...prev]; saveSessions(u); return u; });
+        setSessions((prev) => { const u = [ns, ...prev]; saveSessions(u, {create:[ns.id]}); return u; });
         setActiveSessionId(ns.id);
       }
-      setCurrentPage('chat');
+      navigate('chat');
     }
   }, [activeSessionId, selectedPersona]);
 
@@ -621,11 +647,11 @@ export default function App() {
     const newSession = createSession(selectedPersona || undefined);
     setSessions((prev) => {
       const updated = [newSession, ...prev];
-      saveSessions(updated);
+      saveSessions(updated, {create:[newSession.id]});
       return updated;
     });
     setActiveSessionId(newSession.id);
-    setCurrentPage('chat');
+    navigate('chat');
   }, [selectedPersona]);
 
   const handleSessionSelect = useCallback((id: string) => {
@@ -634,7 +660,7 @@ export default function App() {
     if (target) {
       setSelectedPersona(target.persona || '');
     }
-    setCurrentPage('chat');
+    navigate('chat');
   }, [sessions]);
 
   const handleSessionDelete = useCallback((id: string) => {
@@ -657,7 +683,7 @@ export default function App() {
 
     setSessions((prev) => {
       const updated = prev.filter((s) => s.id !== id);
-      saveSessions(updated);
+      saveSessions(updated, {remove:[id]});
 
       if (id === activeSessionId) {
         if (updated.length > 0) {
@@ -665,7 +691,7 @@ export default function App() {
         } else {
           const newSession = createSession();
           updated.unshift(newSession);
-          saveSessions(updated);
+          saveSessions(updated, {create:[newSession.id]});
           setActiveSessionId(newSession.id);
         }
       }
@@ -696,7 +722,7 @@ export default function App() {
       const newSession = createSession(name);
       setSessions((prev) => {
         const updated = [newSession, ...prev];
-        saveSessions(updated);
+        saveSessions(updated, {create:[newSession.id]});
         return updated;
       });
       setActiveSessionId(newSession.id);
@@ -718,11 +744,11 @@ export default function App() {
       const binding=await enterVideo(next.id,entry);
       next.videoSegmentId=binding.segment_id;
       next.title=entry.kind==='channel_create'?'创建频道':entry.kind==='director_formation'?'形成导演':'视频创作';
-      setSessions(prev=>{const updated=[next,...prev];saveSessions(updated);return updated;});
-      setActiveSessionId(next.id);setCurrentPage('chat');
+      setSessions(prev=>{const updated=[next,...prev];saveSessions(updated, {create:[next.id]});return updated;});
+      setActiveSessionId(next.id);navigate('chat');
     } catch(e) { window.alert((e as Error).message); }
   };
-  const videoBound=useCallback((id:string)=>setSessions(prev=>{const next=prev.map(s=>s.id===activeSessionId?{...s,videoSegmentId:id}:s);saveSessions(next);return next;}),[activeSessionId]);
+  const videoBound=useCallback((id:string)=>{const sessionId=activeSessionId;if(!sessionId)return;setSessions(prev=>{const next=prev.map(s=>s.id===sessionId?{...s,videoSegmentId:id}:s);saveSessions(next, {update:{[sessionId]:['videoSegmentId']}});return next;});},[activeSessionId]);
 
   // 流式生命周期在 App，页面切换随意——ChatPage 可自由卸载/重挂，回来从 props 读流式态即可。
   const renderPage = () => {
@@ -734,7 +760,7 @@ export default function App() {
             gatewayStatus={gatewayStatus}
             apiDirect={apiDirect}
             agentRuntime={agentRuntime}
-            onNavigate={setCurrentPage}
+            onNavigate={navigate}
             onUseTopic={handleUseTopic}
           />
         );
@@ -742,7 +768,7 @@ export default function App() {
         return activeSession ? (
           <ChatPage
             personas={personas}
-            onRestoreVideo={replies=>setSessions(prev=>{let changed=false;const next=prev.map(s=>{if(s.id!==activeSession.id)return s;const messages=mergeTaskReplies(s.messages,replies);if(messages===s.messages)return s;changed=true;return {...s,messages};});if(!changed)return prev;saveSessions(next);return next;})}
+            onRestoreVideo={replies=>setSessions(prev=>{let changed=false;const next=prev.map(s=>{if(s.id!==activeSession.id)return s;const messages=mergeTaskReplies(s.messages,replies);if(messages===s.messages)return s;changed=true;return {...s,messages};});if(!changed)return prev;saveSessions(next, {update:{[activeSession.id]:['messages']}});return next;})}
             onVideoBound={videoBound}
             apiDirect={apiDirect}
             key={activeSession.id}
@@ -779,7 +805,7 @@ export default function App() {
       case 'calendar':
         return <CalendarPage />;
       case 'publish':
-        return <PublishPage persona={selectedPersona} publicationId={publicationId} />;
+        return <PublishPage persona={selectedPersona} publicationId={publicationId} source={publishSource} />;
       case 'breakdown':
         return <BreakdownPage persona={selectedPersona} />;
       case 'production':
@@ -799,13 +825,13 @@ export default function App() {
 
   const handlePersonaChange = useCallback((persona: string) => {
     setSelectedPersona(persona);
-    setCurrentPage('chat');
+    navigate('chat');
     const cur = sessionsRef.current.find((s) => s.id === activeSessionId);
     if (cur && cur.messages.length === 0 && !cur.videoSegmentId) {
       setSessions((prev) => {
         const updated = prev.map((s) =>
           s.id === activeSessionId ? { ...s, persona: persona || undefined } : s);
-        saveSessions(updated);
+        saveSessions(updated, {update:{[cur.id]:['persona']}});
         return updated;
       });
       return;
@@ -813,7 +839,7 @@ export default function App() {
     const newSession = createSession(persona || undefined);
     setSessions((prev) => {
       const updated = [newSession, ...prev];
-      saveSessions(updated);
+      saveSessions(updated, {create:[newSession.id]});
       return updated;
     });
     setActiveSessionId(newSession.id);
@@ -823,7 +849,7 @@ export default function App() {
     <div className="app-layout">
       <Sidebar
         currentPage={currentPage}
-        onPageChange={setCurrentPage}
+        onPageChange={navigate}
         personas={personas}
         selectedPersona={selectedPersona}
         onPersonaChange={handlePersonaChange}
@@ -842,7 +868,7 @@ export default function App() {
       />
       <main className="main-content">
         {(['trends', 'ideas', 'calendar', 'publish', 'breakdown'] as Page[]).includes(currentPage) && (
-          <SubNav current={currentPage} onNavigate={setCurrentPage} />
+          <SubNav current={currentPage} onNavigate={navigate} />
         )}
         <div className="page-host">
           {renderPage()}

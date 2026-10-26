@@ -4,13 +4,13 @@ from pydantic import Field
 from typing import Annotated, Literal
 from .contracts import Contract
 from .inspection import observe_media
-from .tools import MediaToolResult, ScopedTool
+from .tools import MediaToolResult, ScopedTool, ToolInputError
 
 
 class InspectCandidate(Contract):
     asset_id: str
     frame_times: list[Annotated[float, Field(ge=0, allow_inf_nan=False)]] = Field(min_length=1, max_length=8,
-        description='源视频内要查看的实际秒数，最多8帧；不得超出源片长度')
+        description='所选素材或成片内要查看的实际秒数，最多8帧；不得超出该视频长度，成片时间与素材源时间分别使用')
 
 
 class ObservationBudget:
@@ -59,7 +59,11 @@ def edit_observation_tools(paths, observed=None, *, budget=None):
     # Paths come from validated artifact_file, never from the model.
     async def inspect(args, context):
         if args.asset_id not in paths:
-            raise ValueError('Only current admitted visual candidates may be observed')
+            if not any(a.get('asset_id')==args.asset_id and a.get('kind')=='audio' for a in context.artifacts):
+                raise ValueError('Only current admitted visual candidates may be observed')
+            raise ToolInputError('visual_only', {
+                'asset_id':args.asset_id,'audio_observed':False,
+                'instruction':'inspect_media只查看已准入图片/视频画面，不读取音频、波形、字幕对齐或静音点。旁白使用已给voice_schedule和实际timing；未提供的细粒度听感不能虚构。请选择已准入视觉素材或直接提交剪辑，不重复请求此音频。'})
         if budget is not None:
             result = await budget.observe(args.asset_id, paths[args.asset_id], frame_times=args.frame_times)
             if observed is not None:
@@ -72,7 +76,7 @@ def edit_observation_tools(paths, observed=None, *, budget=None):
         label = {'type':'text','text':'复查素材 '+args.asset_id+'；仅抽样实际画面，未听声音、未观察完整动作。'}
         return MediaToolResult({'asset_id':args.asset_id, **evidence}, (label, *blocks), required)
     return (ScopedTool('inspect_media',
-        '复查本次已准入候选的指定时间画面，用于核对实际动作与切点；只读，不搜索、不生成、不改工程。',
+        '只复查本次已准入图片/视频或指定成片的时间画面；不支持音频、波形、静音点或语音对齐。只读，不搜索、不生成、不改工程。',
         InspectCandidate, inspect, ('asset_id',)),)
 
 
@@ -110,7 +114,17 @@ def check_visual_evidence(edit, observed, *, pending_materials=False):
         if not selected:
             raise ValueError('画面依据必须引用本次实际选用的镜头和素材')
         for at in evidence.observed_times:
-            if not any(abs(at-t) <= .002 for t in observed.get(evidence.asset_id, []) if t is not None):
-                raise ValueError('画面依据时间未被实际观察；可使用inspect_media或如实说明不确定')
-            if not any(s.source_start-.002 <= at <= s.source_start+s.duration+.002 for s in selected):
-                raise ValueError('观察时间不在本次选用片段内，不能用其他区间证明关键动作')
+            times=[t for t in observed.get(evidence.asset_id, []) if t is not None]
+            matches=[t for t in times if abs(at-t)<=.002]
+            if not matches:
+                # A two-decimal rendering of a received timestamp is not a new
+                # observation. Resolve only a unique rounding match, then use
+                # the actual sampled instant for source-interval validation.
+                matches=list(set(t for t in times if abs(at-round(t,2))<1e-9))
+                if len(matches)!=1:
+                    raise ValueError('画面依据时间未被实际观察：'+evidence.scene_id+
+                        '，请求时间 '+str(at)+'；可使用inspect_media或如实说明不确定')
+            if not any(s.source_start-.002 <= t <= s.source_start+s.duration+.002 for t in matches for s in selected):
+                raise ValueError('观察时间不在本次选用片段内：'+evidence.scene_id+
+                    '，引用 '+str(at)+' 秒，取源区间 '+str([(s.source_start, s.source_start+s.duration) for s in selected])+
+                    '；改用该区间内实际抽帧，或调用inspect_media；不能用其他区间证明关键动作')

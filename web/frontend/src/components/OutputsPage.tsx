@@ -1,4 +1,6 @@
-import {openPublication} from '../lib/publicationApi';
+import LibraryWorkDetail from './LibraryWorkDetail';
+import type { LibraryWork } from '../lib/contentLibrary';
+import './content-library.css';
 import type { VideoEntry } from '../lib/conversationApi';
 import { artifactURL, productionRequest, productionCommand, workLabels } from '../lib/productionApi';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
@@ -85,12 +87,11 @@ interface OutputsPageProps {
   onJumpHandled?: () => void;
 }
 
-interface LibraryWork { work_id: string; title: string; state: string; artifact_id: string | null; output_revision: number | null }
-
 export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: OutputsPageProps) {
-  const [acceptedVideos,setAcceptedVideos] = useState<{work_id:string;title:string;artifact_id:string;output_revision:number}[]>([]);
+  const [acceptedVideos,setAcceptedVideos] = useState<LibraryWork[]>([]);
   const [unacceptedVideos, setUnacceptedVideos] = useState<LibraryWork[]>([]);
   const [libraryError, setLibraryError] = useState('');
+  const [activeWork, setActiveWork] = useState<LibraryWork | null>(null);
   const [deletingWork, setDeletingWork] = useState<string | null>(null);
   const [roots, setRoots] = useState<OutputNode[]>([]);
   const [treeError, setTreeError] = useState('');
@@ -137,7 +138,7 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
     [files, deliverableSet, hasSplit]);
 
   const enterDir = useCallback((name: string) => { setStack((s) => [...s, name]); setFilter('all'); }, []);
-  const goTo = useCallback((depth: number) => { setStack((s) => s.slice(0, depth)); setFilter('all'); }, []);
+  const goTo = useCallback((depth: number) => { setActiveWork(null); setStack((s) => s.slice(0, depth)); setFilter('all'); }, []);
 
   const remove = useCallback(async (node: OutputNode, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -160,6 +161,7 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
       const preview = await productionRequest<{expected_revision:number;preview_hash:string;outputs:unknown[];will_cancel_run:boolean}>(`works/${encodeURIComponent(item.work_id)}/deletion-preview`);
       if (!window.confirm(`确定删除作品「${item.title}」？\n包含 ${preview.outputs.length} 个视频版本及本作品的素材、配音和过程产物，此操作不可恢复。${preview.will_cancel_run ? '\n正在进行的制作将取消。' : ''}\n共享或仍有引用的文件会保留，其他文件按现有清理流程处理。`)) return;
       await productionCommand(`works/${encodeURIComponent(item.work_id)}/delete`, {preview_hash:preview.preview_hash}, preview.expected_revision);
+      setActiveWork(null);
       load();
     } catch (err) {
       setLibraryError((err as Error).message || '删除作品失败');
@@ -192,6 +194,7 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
       nodes = node.children || [];
     }
     if (node?.path !== parts.join('/')) node = undefined;
+    setActiveWork(null);
     setStack(parent);
     setFilter('all');
     if (node?.type === 'file') void open(node);
@@ -260,10 +263,32 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
     </div>
   );
 
+  const renderWork = (item: LibraryWork, accepted: boolean) => <article key={item.work_id}
+    className="card card-hover gcard library-work-card" role="button" tabIndex={0}
+    aria-label={`查看作品：${item.title}`} onClick={() => setActiveWork(item)}
+    onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setActiveWork(item); } }}>
+    <div className="gcard-thumb">
+      <span className="gcard-kind">视频</span>
+      <button className="gcard-del" title="删除作品" disabled={deletingWork !== null} onClick={e => { e.stopPropagation(); void removeWork(item); }}><IconTrash size={14} /></button>
+      {item.artifact_id ? <video src={artifactURL(item.artifact_id)} preload="metadata" muted /> : <div className="gcard-ph"><IconVideo size={38} /></div>}
+    </div>
+    <div className="gcard-meta"><div className="gcard-name" title={item.title}>{item.title}</div>
+      <div className="gcard-sub"><span>{accepted ? '已接受' : workLabels[item.state || ''] || '尚未接受'}{item.output_revision != null ? ` · 版本 ${item.output_revision}` : ''}</span>
+        {item.has_newer_preview && <span style={badge}>有未接受版本</span>}
+      </div>
+    </div>
+  </article>;
+
   const empty = dirs.length === 0 && files.length === 0;
 
+  if (activeWork) return <div className="gallery-page content-library">
+    <h1 className="page-title"><IconOutputs size={21} /><span className="crumb" onClick={() => { setActiveWork(null); load(); }}>内容库</span><span className="crumb-sep">/</span><span>作品详情</span></h1>
+    {libraryError && <div className="notice-error" role="alert">{libraryError}</div>}
+    <LibraryWorkDetail key={activeWork.work_id} item={activeWork} onBack={() => { setActiveWork(null); load(); }} onContinue={onContinue} onDelete={item => void removeWork(item)} deleting={deletingWork !== null} />
+  </div>;
+
   return (
-    <div className="gallery-page">
+    <div className="gallery-page content-library">
       <div className="gallery-head">
         <div>
           <h1 className="page-title">
@@ -288,18 +313,13 @@ export default function OutputsPage({ jumpPath, onJumpHandled, onContinue }: Out
       </div>
 
       {libraryError && <div className="notice-error" role="alert">{libraryError}</div>}
-      {atTop && unacceptedVideos.length > 0 && <section>
-        <h2>未接受的创作</h2>
-        <p>包含待修预览、待审阅及未完成的作品；可继续创作或删除整部作品。</p>
-        <div className="gallery-grid">{unacceptedVideos.map(item => <article className="card" key={item.work_id}>
-          <h3>{item.title}{item.output_revision != null ? ` · 版本${item.output_revision}` : ''}</h3>
-          <p>{workLabels[item.state] || item.state} · 尚未接受</p>
-          {item.artifact_id && <video controls preload="metadata" src={artifactURL(item.artifact_id)} style={{width:'100%',maxHeight:360}} />}
-          <button className="btn btn-sm" onClick={()=>onContinue?.({work_id:item.work_id,...(item.artifact_id ? {output_id:item.artifact_id} : {}),kind:'continue'})}>查看／继续创作</button>
-          <button className="btn btn-sm btn-danger" disabled={deletingWork !== null} onClick={()=>void removeWork(item)}><IconTrash size={13} /> 删除作品</button>
-        </article>)}</div>
+      {atTop && acceptedVideos.length > 0 && <section className="library-section" aria-label="已接受作品">
+        <h2>已接受作品 · {acceptedVideos.length}</h2><div className="gallery-grid">{acceptedVideos.map(item => renderWork(item, true))}</div>
       </section>}
-      {atTop && acceptedVideos.length > 0 && <section><h2>已接受的视频作品</h2><p>保存的是明确接受的版本；可回到对话继续修改、比较或创作新作。</p><div className="gallery-grid">{acceptedVideos.map(item => <article className="card" key={item.work_id}><h3>{item.title} · 版本{item.output_revision}</h3><video controls preload="metadata" src={artifactURL(item.artifact_id)} style={{width:'100%',maxHeight:360}} /><button className="btn btn-sm" onClick={()=>onContinue?.({work_id:item.work_id,output_id:item.artifact_id,kind:'continue'})}>围绕此版本继续创作</button><button className="btn btn-sm" onClick={()=>void openPublication(item.work_id,item.artifact_id).catch(e=>setTreeError(e.message))}>准备发布／查看记录</button></article>)}</div></section>}
+      {atTop && unacceptedVideos.length > 0 && <section className="library-section" aria-label="未接受创作">
+        <h2>未接受创作 · {unacceptedVideos.length}</h2><div className="gallery-grid">{unacceptedVideos.map(item => renderWork(item, false))}</div>
+      </section>}
+      {atTop && roots.length > 0 && <h2 className="section-label">其他内容项目 · {roots.length}</h2>}
       {treeError && <div className="notice-error">{treeError}</div>}
 
       {/* 项目主题标签（进入项目根时展示） */}

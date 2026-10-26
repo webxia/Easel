@@ -4,13 +4,45 @@ import json
 import re
 import hashlib
 from dataclasses import replace
-from pydantic import Field, model_validator
+from pydantic import Field, model_validator, create_model
 from .contracts import Contract, Scene, VideoSettings, ExplainerBoard, NarrationPolicy
 from .context import TaskContext
-from .model_tasks import ModelTaskRunner, ModelTaskError
+from .model_tasks import ModelTaskRunner, ModelTaskError, parse_model_json
 from .errors import ProductionError
 from .model_operations import RecordedModelTransport
 from .service import row, encode, digest, now, new_id
+
+DRAFT_REVIEW_CONTEXT_VERSION = 'current-draft-4'
+
+
+def preserve_selected_voice_parameters(answer, selected):
+    """Apply only the deterministic parameter projection used before storage."""
+    if selected and answer.settings.voice:
+        from .contracts import VoiceIdentity
+        fixed = VoiceIdentity.model_validate(selected)
+        actual = answer.settings.voice
+        if all(getattr(actual, key) == getattr(fixed, key)
+               for key in ('provider', 'model', 'voice_id', 'engine')):
+            actual.parameters = dict(fixed.parameters)
+    return answer
+
+
+def current_draft_context(context, draft):
+    """Project one candidate consistently; retain baseline requirements as history."""
+    plan=draft.model_dump(mode='json')
+    capabilities = dict(context.capabilities)
+    from .narration import duration_execution_contract
+    capabilities['duration_execution_contract'] = duration_execution_contract(plan)
+    voice = draft.settings.voice
+    if voice and voice.engine == 'minimax-speech-v1':
+        from .providers.minimax_speech import voice_execution_contract
+        capabilities['voice_execution_contract'] = voice_execution_contract(voice)
+    reference=''
+    if context.plan:
+        reference='\n参考方案的事实与限制（历史基线，不是当前草稿字段；按本次明确补充判断哪些要求已被撤销，其余仍须遵守；不能要求作者修改这份只读参考）：'+encode({
+            'facts':list(context.facts),'constraints':list(context.prohibitions)})
+    return replace(context,plan=plan,capabilities=capabilities,facts=tuple(plan.get('facts',[])),
+                   prohibitions=tuple(plan.get('constraints',[])),brief=context.brief+reference)
 
 
 def validate_audio_replan(answer, protected):
@@ -33,11 +65,11 @@ def validate_audio_replan(answer, protected):
 class CreativePlan(Contract):
     title: str = Field(min_length=1)
     summary: str = Field(min_length=1)
-    script: str = Field(min_length=1)
+    script: str = Field(min_length=1, description='完整口播原文，与各场景narration按顺序拼接一致；不含场景编号、章节标签、时间码或导演注释，非口播说明写purpose/visual。')
     scenes: list[Scene] = Field(min_length=1)
     settings: VideoSettings
     narration_policy: NarrationPolicy | None = Field(default=None,
-        description='明确片长（包括对话中的要求）用fixed；用户未限定片长、允许随旁白安排时才用voice_driven。continuous独立控制连续口播。')
+        description='精确片长用fixed；约数目标或未限定片长用voice_driven。BGM不改变时长策略。continuous独立控制连续口播。')
     facts: list[str] = Field(default_factory=list)
     core_views: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
@@ -97,8 +129,17 @@ class VoiceReadyCreativePlan(CreativePlan):
                     f'场景 {scene.id} 的 narration 包含时间码或导演注释。'
                     'narration 只能是最终真实 TTS 要朗读的短句，'
                     '不要放旁白窗口、时间段、语速、停顿、换气、字幕或镜头说明；'
-                    '这些说明请写在 script 或 visual 字段。'
+                    '这些说明请写在 visual 字段；script保留完整口播原文。'
                 )
+        spoken = ''.join(scene.narration for scene in self.scenes)
+        if spoken.strip() and re.sub(r'\s+', '', self.script) != re.sub(r'\s+', '', spoken):
+            script_text=re.sub(r'\s+', '', self.script)
+            scene_text=re.sub(r'\s+', '', spoken)
+            offset=next((i for i,(a,b) in enumerate(zip(script_text,scene_text)) if a!=b), min(len(script_text),len(scene_text)))
+            raise ValueError(
+                f'script须与各场景narration按顺序拼接一致；忽略空白后首个差异在第{offset+1}字符：'
+                f'script={script_text[offset:offset+1]!r}，narration={scene_text[offset:offset+1]!r}（空串表示已结束）。'
+                '不要添加场景标签或导演说明，修改口播时同步两个字段，包括标点')
         from .voice_budget import reserve_narration_slots
         try:
             reserve_narration_slots(self.model_dump(mode='json'))
@@ -109,6 +150,58 @@ class VoiceReadyCreativePlan(CreativePlan):
                 '遵守本次真实片长与明确设置，并保留固定音色与导演风格。'
             ) from None
         return self
+
+
+# Same plan fields, omitted fields retain their original values. This is a
+# model response format, not a second plan contract or an execution command.
+CreativePlanChanges = create_model('CreativePlanChanges', __base__=Contract,
+    **{name: (field.annotation, Field(default=None, description='省略表示保持原值；填写时提供该字段完整新值'))
+       for name, field in CreativePlan.model_fields.items()})
+
+
+def merge_plan_changes(changes, base):
+    return VoiceReadyCreativePlan.model_validate({**base, **changes.model_dump(exclude_unset=True, mode='json')})
+
+
+# Narration scope must not ask the model to re-author protected visuals/settings.
+# These are response deltas only; the persisted plan remains CreativePlan.
+NarrationSceneChanges = create_model('NarrationSceneChanges', __base__=Contract,
+    id=(str, Field(min_length=1)),
+    **{name:(Scene.model_fields[name].annotation, Field(default=None))
+       for name in ('narration','narration_pauses','duration_seconds')})
+NarrationPlanChanges = create_model('NarrationPlanChanges', __base__=Contract,
+    scenes=(list[NarrationSceneChanges], Field(default_factory=list)),
+    **{name:(field.annotation, Field(default=None, description='省略保持原值；只同步本次口播变化'))
+       for name,field in CreativePlan.model_fields.items()
+       if name not in {'scenes','settings','narration_policy','explainer_boards'}})
+
+
+def merge_narration_changes(changes, base):
+    updates=changes.model_dump(exclude_unset=True,mode='json')
+    patches=updates.pop('scenes',[])
+    ids=[item['id'] for item in patches]
+    if len(ids)!=len(set(ids)) or not set(ids)<={s['id'] for s in base['scenes']}:
+        raise ValueError('口播差量须引用不重复的原场景身份，不得新增或删除场景')
+    by_id={item['id']:item for item in patches}
+    scenes=[{**scene,**by_id.get(scene['id'],{})} for scene in base['scenes']]
+    payload={**{k:v for k,v in base.items() if k in CreativePlan.model_fields},**updates,'scenes':scenes}
+    if patches and 'script' not in updates:
+        payload['script']='\n'.join(scene['narration'] for scene in scenes)
+    answer=VoiceReadyCreativePlan.model_validate(payload)
+    validate_narration_revision(answer,base)
+    return answer
+
+
+def received_plan(operation):
+    value=parse_model_json(json.loads(operation['receipt_json'])['result']['message']['content'])
+    request=json.loads(operation['request_json'])
+    if request.get('schema',{}).get('title')=='NarrationPlanChanges':
+        base=json.loads(request['messages'][1]['content'][0]['text'])['plan']
+        return merge_narration_changes(NarrationPlanChanges.model_validate(value),base)
+    if request.get('schema',{}).get('title')=='CreativePlanChanges':
+        base=json.loads(request['messages'][1]['content'][0]['text'])['plan']
+        return merge_plan_changes(CreativePlanChanges.model_validate(value),base)
+    return VoiceReadyCreativePlan.model_validate(value)
 
 
 class DraftReview(Contract):
@@ -174,6 +267,10 @@ class PlanningTasks:
                 basis={**(plan.get('conversation_basis') or {}),
                        'profile':profile,'director':director,'settings':plan['settings']}
             else:
+                reference=ctx.payload.get('reference_plan_revision')
+                if reference:
+                    record=conn.execute('SELECT payload_json FROM plan_revisions WHERE work_id=? AND revision=?',(ctx.work_id,reference)).fetchone()
+                    if record:plan=json.loads(record[0])
                 basis=ctx.payload.get('creation_basis')
                 if basis is None:
                     basis=self.service._basis(conn,work)
@@ -190,7 +287,7 @@ class PlanningTasks:
         sound_note=('\n用户后续已允许以下音效缺料时省略，优先于原方案相应音效要求；保留已取得声音，不将省略当作缺陷，交付说明如实披露：'+encode(sound_notes)) if sound_notes else ''
         return TaskContext(work_id=ctx.work_id,run_id=ctx.run_id,task_id=ctx.task_id,
             profile_ref=profile_ref,profile=basis['profile'],director=basis['director'],
-            brief=work['input_text']+'\n本次明确设置：'+encode(basis['settings'])+'\n本次对话依据：'+encode(basis.get('conversation_brief'))+'\n频道定位：'+encode(basis.get('channel_basis',{}))+'\n本次补充：'+str(ctx.payload.get('request',''))+sound_note,
+            brief=work['input_text']+'\n当前有效设置（含继承默认值，不等于用户逐项明确选择）：'+encode(basis['settings'])+'\n设置字段来源（未记录的字段来源未知）：'+encode((basis.get('settings_source') or {}).get('origins',{}))+'\n文字要求与设置冲突时说明差异，沿现有本片设置变更入口处理；不得自行覆盖设置或宣称用户已确认。'+'\n本次对话依据：'+encode(basis.get('conversation_brief'))+'\n频道定位：'+encode(basis.get('channel_basis',{}))+'\n本次补充：'+str(ctx.payload.get('request') or basis.get('creative_request',''))+sound_note,
             inputs=safe_inputs,allowed_handles=frozenset(i['id'] for i in inputs),plan=plan,
             capabilities=self.execution_capabilities,expression_policy=policy,
             facts=tuple(plan.get('facts',[])),prohibitions=tuple(plan.get('constraints',[])),
@@ -210,15 +307,14 @@ class PlanningTasks:
         payload['business_result']=result
         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
 
-    def runner(self, ctx, *, namespace=None, max_format_repairs=1, legacy_first_repair=False):
+    def runner(self, ctx, *, namespace=None, max_format_repairs=1):
         if self.transport is None:
             raise ModelTaskError('service_unavailable','请先配置创作模型服务，再授权当前任务使用')
         recorded=RecordedModelTransport(self.transport,self.operations,ctx,self.model_service,self.config_version,namespace=namespace)
         async def authorize(_context):
             # Actual per-request authorization and durable receipt happen inside recorded.complete.
             return None
-        return ModelTaskRunner(recorded,authorize,max_format_repairs=max_format_repairs,
-                               legacy_first_repair=legacy_first_repair)
+        return ModelTaskRunner(recorded,authorize,max_format_repairs=max_format_repairs)
 
     async def observe_inputs(self,ctx):
         import asyncio
@@ -256,6 +352,7 @@ class PlanningTasks:
         state={'producer_task_id':ctx.task_id,'draft':draft.model_dump(mode='json'),
                'draft_hash':digest(draft.model_dump(mode='json')),'source_operation_id':source,
                'correction_round':round_,'history':history,
+               'review_context_version':DRAFT_REVIEW_CONTEXT_VERSION,
                'review':review.model_dump(mode='json') if review is not None else None}
         with ctx.transaction() as conn:
             payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
@@ -267,6 +364,7 @@ class PlanningTasks:
         """Only typed same-task successful native receipts; never operator drafts."""
         with self.service.store.connection() as conn:
             payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
+            selected=json.loads(row(conn,'works',ctx.work_id)['settings_json']).get('voice')
             ops=[dict(r) for r in conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at",(ctx.task_id,))]
         if any(r['state'] in {'reserved','sending','submitted','unknown'} for r in ops):
             raise ModelTaskError('result_unknown','本草稿仍有结果待核实的原请求，未重新发送')
@@ -275,50 +373,27 @@ class PlanningTasks:
             return (r['state']=='succeeded' and r['work_id']==ctx.work_id
                     and r['config_version']==self.config_version and r['provider']==self.model_service['provider']
                     and r['model']==self.model_service['model'] and r['mode']==self.model_service['mode'])
-        def content(r):return json.loads(r['receipt_json'])['result']['message']['content']
         state=payload.get('native_draft_checkpoint')
         if state:
             try:
                 op=by_id[state['source_operation_id']]
                 draft=VoiceReadyCreativePlan.model_validate(state['draft'])
-                received=VoiceReadyCreativePlan.model_validate_json(content(op))
+                received=preserve_selected_voice_parameters(received_plan(op),selected)
                 if (state['producer_task_id']!=ctx.task_id or not known(op) or draft!=received
-                        or json.loads(op['request_json']).get('schema',{}).get('title')!='VoiceReadyCreativePlan'
+                        or json.loads(op['request_json']).get('schema',{}).get('title')not in {'VoiceReadyCreativePlan','CreativePlanChanges','NarrationPlanChanges'}
                         or state['draft_hash']!=digest(draft.model_dump(mode='json'))
                         or not 0<=state['correction_round']<=2):raise ValueError
                 return state
             except (KeyError,TypeError,ValueError):
                 raise ModelTaskError('draft_provenance_missing','草稿缺少相符的本任务原生模型回执，未采用外部替换稿') from None
-        # Compatibility for the real v2 audit failure before checkpoints existed.
-        # Do not replay changed schema requests or repeat the expensive author.
-        author_ids={hashlib.sha256((ctx.task_id+':model:draft-correction-v2:'+str(i)).encode()).hexdigest() for i in range(1,7)}
-        candidates=[r for r in ops if r['id'] in author_ids and known(r)]
-        if not candidates:return None
-        source=candidates[-1]
-        try:
-            draft=VoiceReadyCreativePlan.model_validate_json(content(source))
-            reviews=[];last=None
-            for r in ops:
-                if not known(r):continue
-                request=json.loads(r['request_json'])
-                if request.get('schema',{}).get('title')!='DraftReview':continue
-                review=DraftReview.model_validate_json(content(r));reviews.append(review.model_dump(mode='json'))
-                if r['created_at']>source['created_at']:last=review
-            if last is None:raise ValueError
-        except (ValueError,KeyError,TypeError):
-            raise ModelTaskError('draft_provenance_missing','旧草稿未取得完整原生修正与复核回执，未重新发送') from None
-        state=self._store_draft(ctx,draft,source['id'],1,reviews,last)
-        with ctx.transaction() as conn:
-            self.service._event(conn,ctx.work_id,'native_draft_recovered',
-                {'source_operation_id':source['id'],'draft_hash':state['draft_hash'],'correction_round':1},run_id=ctx.run_id)
-        return state
+        return None
 
     async def draft_board_media(self,ctx,plan):
         """Actual local draft pixels, not registered final assets or user evidence."""
         if not plan.explainer_boards or not self.board_fonts:
             return (),frozenset()
         import asyncio
-        from .boards import render_board, VERSION
+        from .boards import render_board, board_footer, VERSION
         from .inspection import observe_media
         from .media import atomic_json, file_sha256
         font=self.board_fonts.get(plan.settings.subtitles.font)
@@ -356,11 +431,22 @@ class PlanningTasks:
                         Image.alpha_composite(background.convert('RGBA'),overlay.convert('RGBA')).convert('RGB').save(preview)
                     entry.update(caption_sample_bounds=list(bounds),caption_sample_source='same scene narration prefix, not final segmentation',
                                  preview_sha256=file_sha256(preview))
+                from PIL import Image
+                from math import gcd
+                with Image.open(path) as source_image, Image.open(preview) as preview_image:
+                    source_size = source_image.size
+                    preview_size = preview_image.size
+                divisor = gcd(*source_size)
+                entry['render_contract'] = {
+                    'source_size': list(source_size), 'preview_size': list(preview_size),
+                    'source_aspect_ratio': str(source_size[0]//divisor)+':'+str(source_size[1]//divisor),
+                    'caption_coordinate_size': list(source_size),
+                    'footer_text': board_footer(board,index), 'footer_editable': False}
                 manifest.append(entry)
                 if visual:
                     media,needs,_=await asyncio.to_thread(observe_media,preview,include_audio=False,max_frames=1)
                     blocks.append({'type':'text','text':'尚未确认草稿的本地真实图解 '+board.scene_id+' 状态 '+str(index)+
-                        '；不是实证资料。若有字幕，叠加的是当前固定样式与本段原文前缀的实际排版样例，不是最终断句或时码。实际样例边界(x,y,w,h)：'+str(entry.get('caption_sample_bounds'))})
+                        '；实际源PNG和字幕坐标合同：'+encode(entry['render_contract'])+'；不是实证资料。若有字幕，叠加的是当前固定样式与本段原文前缀的实际排版样例，不是最终断句或时码。实际样例边界(x,y,w,h)：'+str(entry.get('caption_sample_bounds'))})
                     blocks.extend(media);required.update(needs)
         atomic_json(folder/'manifest.json',{'draft_hash':digest(plan.model_dump(mode='json')),
             'font_sha256':file_sha256(font),'renderer':VERSION,'preview_version':'caption-sample-1','images_sent':visual,'frames':manifest})
@@ -374,25 +460,23 @@ class PlanningTasks:
                 return TaskResult(result=cached,work_state='awaiting_confirmation')
             context=self.context(ctx)
             protected=ctx.payload.get('protected_plan')
-            if ctx.payload.get('revision_scope')=='narration':
-                context=replace(context,brief=context.brief+'\n本次只改口播和对应脚本，保留场景身份、画面要求、图解、音色、字幕样式、画幅和固定片长；为完整旁白重新分配必要场景时长。')
+            narration_scope=ctx.payload.get('revision_scope')=='narration'
+            if narration_scope:
+                context=replace(context,brief=context.brief+'\n本次只返回口播差量：scenes只填受影响原场景的id/narration/narration_pauses/duration_seconds，script可省略由程序拼接。不得输出purpose/visual/settings/explainer_boards；程序保留原值。可同步summary/facts/constraints中被本轮明确取代的旧句要求。原visual内旧时间/字幕/朗读锚点为历史说明，以新版narration和实测音轨重排字幕及声音位置，不能把旧引文当作须朗读或禁止改稿的指令。')
             if ctx.payload.get('revision_scope')=='boards':
                 context=replace(context,brief=context.brief+'\n仅修订已有图解状态顺序、分组和高亮；保留文字事实、口播、场景身份、非图解画面与声音设置。不得新增未经确认的事实。')
             if protected:
                 context=replace(context,plan=protected,
                     brief=context.brief+'\n仅允许audio_mode改为voice，无BGM或可选SFX；其他字段逐字保持，包括旁白、镜头、观点和时长。')
+            if ctx.payload.get('request') and not protected:
+                context=replace(context,brief='本轮改稿要求见本次补充，优先落实；旧稿是待修改基线。\n'+context.brief+'\n先定位要求涉及的原句和场景，按要求改变表达本身，不只替换近义词；同步script与场景narration。保留未涉及的事实与选择；本任务只产出待确认方案，不执行配音或制作。')
             media,required=await self.observe_inputs(ctx)
             with self.service.store.connection() as reader:
                 selected = json.loads(row(reader, 'works', ctx.work_id)['settings_json']).get('voice')
             def check_capabilities(answer):
                 # Fixed synthesis parameters belong to the selected voice configuration.
                 # The creative model may not introduce extra knobs or change their values.
-                if selected and answer.settings.voice:
-                    from .contracts import VoiceIdentity
-                    fixed=VoiceIdentity.model_validate(selected)
-                    actual=answer.settings.voice
-                    if all(getattr(actual,k)==getattr(fixed,k) for k in ('provider','model','voice_id','engine')):
-                        actual.parameters=dict(fixed.parameters)
+                preserve_selected_voice_parameters(answer,selected)
                 if any(s.narration_pauses for s in answer.scenes):
                     from .prosody import compile_pauses
                     if not answer.settings.voice or answer.settings.audio_mode not in {'voice','mixed'}:raise ValueError('停顿控制需要固定旁白声音')
@@ -408,31 +492,38 @@ class PlanningTasks:
                 proposed=VoiceReadyCreativePlan.model_validate(recovered['draft'])
                 source=recovered['source_operation_id']
             else:
-                author=self.runner(ctx,max_format_repairs=2)
+                author=self.runner(ctx,namespace='narration-delta-v1' if narration_scope else None,max_format_repairs=2)
                 proposed=await author.run(context,
                 '提出完整创作方案；遵守明确时长、画幅、声音设置；全部必用输入须落实到场景。'
                 '旁白片在narration_policy明确时长策略：用户明确要求精确片长才用fixed；约、大约、左右或已允许自然收尾的时长是目标，不是硬性长度，应选择voice_driven并在摘要说明实际长度随完整旁白决定。未限定片长同样用voice_driven。continuous与片长独立。'
                 'Scene.narration 只能是将由 TTS 实际朗读的简短口播原文，不能包含时间码、朗读窗口、'
-                '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明写入 script/visual。'
+                '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明只写入 visual；script与各场景narration按顺序拼接一致，不含分镜编号或章节标签。'
                 '仅固定MiniMax speech-2.8时可按必要语义填写独立narration_pauses，after是去除首尾空白后的字符位置，seconds为0.05到1秒；不在正文写供应商标签，不逐句加停顿，默认空列表。'
-                '中文口播要有明显时间余量，不超过冻结时长预算；所有镜头累计时长仍须精确。'
+                'fixed口播须适合明确片长；voice_driven的秒数只是规划估计，最终随完整实测旁白定长，不为填满估计秒数增加内容或留白。'
+                '在同一次创作中先按选定导演的讲述方式组织完整思路，再落实分镜；频道提供定位与受众，不是固定文体。'
+                '将本期明确的表达要求写入已有constraints，改稿继承未撤销要求并逐项落实；新反馈没有重提不代表原要求失效。'
+                '区分用户硬要求和讨论建议：保留已确认观点与事实，未确认的候选概念、结构和素材不必逐项展开。'
+                '口播只讲听众理解所需的信息；补充出处与资料按用途放facts或visual，不把资料清单全部念出。'
+                '解释用可理解的条件、动作和关系承接术语，不强制聊天、案例数量、幽默或结尾总结。'
                 '具体的分组、比较、数量关系或条件变化，可以用原生explainer_boards自主写出文字卡片、类别和前后状态；'
-                '图解会由程序原样绘制，每个状态都有真实数量和概念/假设标识，不需搜索到完全相同的卡片。'
+                '图解会由程序原样绘制，每个状态都有真实数量和概念/假设标识，不需搜索到完全相同的卡片。当前图解为固定浅底配色，visual文字不能新增底色、安全带或装饰；不能承诺未由结构化字段和实际渲染支持的设计。不适合时可不使用非必需图解。'
                 '图解只作概念/假设，不编造成真实资料；文字简短，按需用，不强制每场图解。'
-                '返回摘要、完整脚本、场景和视听设计。',VoiceReadyCreativePlan,
+                + ('只返回本轮口播差量，不重写受保护画面、设置或图解。' if narration_scope else '返回摘要、完整脚本、场景和视听设计。'),NarrationPlanChanges if narration_scope else VoiceReadyCreativePlan,
                 expression_role=None if protected else "write",
-                media=media,required=required,tools=self.tool_factory(ctx),validate_result=check_capabilities)
+                media=media,required=required,tools=self.tool_factory(ctx),
+                validate_result=(lambda changes:check_capabilities(merge_narration_changes(changes,context.plan))) if narration_scope else check_capabilities)
+                if narration_scope:proposed=merge_narration_changes(proposed,context.plan)
                 source=self._native_operation(ctx,author)
             with self.service.store.connection() as reader:
                 requested = json.loads(row(reader, 'works', ctx.work_id)['settings_json'])
-            autonomous = (not protected and 'duration_seconds' not in requested and
-                          requested.get('audio_mode',proposed.settings.audio_mode) in {'voice', 'mixed'})
-            if autonomous:
+            review_draft = (not protected and ctx.payload.get('revision_scope') not in {'narration', 'boards'}
+                            and requested.get('audio_mode', proposed.settings.audio_mode) in {'voice', 'mixed'})
+            if review_draft:
                 from .contracts import SubtitleSettings, VoiceIdentity
                 from .editors import EditError
                 def preserve_choices(answer):
                     check_capabilities(answer)
-                    for field in ('voice', 'subtitles', 'aspect_ratio', 'audio_mode'):
+                    for field in ('voice', 'subtitles', 'aspect_ratio', 'audio_mode', 'duration_seconds'):
                         if field not in requested:
                             continue
                         expected = requested[field]
@@ -456,15 +547,19 @@ class PlanningTasks:
                     except EditError as exc:
                         return DraftReview(verdict='fail',findings=['实际草稿图解渲染失败：'+str(exc)],
                             limitations=['未获得完整可读像素；需先修正草稿文字或布局数据'])
+                    candidate_context=current_draft_context(context,draft)
                     return await self.runner(ctx,namespace=namespace,max_format_repairs=2).run(
-                        replace(context,plan=draft.model_dump(mode='json'),
-                            brief=context.brief+'\n原生既有审查记录，请逐项核对本次是否已解决；若原判断被实际像素否定，明确依据，不照搬：'+encode(history)),
+                        replace(candidate_context,
+                            brief=candidate_context.brief+'\n原生既有审查记录，请逐项核对本次是否已解决；若原判断被当前字段或实际像素否定，明确依据，不照搬：'+encode(history)),
                         '独立审查尚未确认草稿；只返回有依据的观察和必须修正的问题，不改稿、不声称已看过未选的库存或听过声音。'
+                        '逐项核对本次brief中的明确表达要求和constraints，包括未被后续反馈撤销的原要求；有冲突时在findings引用原要求及具体句段，不能因结构通顺就pass。'
+                        '遵守实际输出字段合同：script和scene.narration只放真实口播；语气、重音、停顿说明放purpose/visual或narration_pauses。即使整理后的request写了“逐字稿标注语气/停顿”，也不得要求把非口播标记塞回script或新增schema外的第二份TTS稿。'
+                        '核对第一人称习惯、已做事项和成果是否确由输入/画像支持；建议做法不能写成已经长期执行的自述。'
                         '核对是否回应一句想法及画像表达目标。分析内容核对依据、逻辑与边界；感悟可以保留问题，不强制案例、教程、结论或升华。'
                         '逐项检查图解所有状态：每张卡与所在列的字面含义一致，结果、行为和结论不能混装成错误分类；'
                         '类别重命名必须在对应状态的column_titles真实填写，不能只在visual里口头说会改。'
                         '收到的PNG是当前草稿按实际字体与固定字幕样式渲染的真实像素，结合JSON及实际字幕样例边界检查文字、数量、留白及安全区；'
-                        '不要仅因页脚和字幕都在底部就断言叠字，按真实合成区域判断；字幕样例不代表最终断句、时码或同步。没有PNG时明确只审文字。'
+                        '不要仅因页脚和字幕都在底部就断言叠字，按真实合成区域判断；白字带黑描边须按实际合成字形判断可读性，不仅凭白字与浅底同色推断不可读。字幕样例不代表最终断句、时码或同步。没有PNG时明确只审文字。'
                         '按既有导演判断整片视觉策略：电影感要求光线、构图、动作与场景联系；检查是否把整片机械地替换成重复文字说明板。'
                         '图解服务关键解释，场景素材服务动作、环境与情绪，不设两者比例，不为了热闹堆无关空镜。'
                         '核对production_capabilities与供料可行性：不能凭空承诺库存必然没有品牌或有指定屏幕数据；'
@@ -475,10 +570,14 @@ class PlanningTasks:
                 round_=recovered['correction_round'] if recovered else 0
                 history=list(recovered.get('history',[])) if recovered else []
                 review=DraftReview.model_validate(recovered['review']) if recovered and recovered.get('review') else None
+                if recovered and recovered.get('review_context_version')!=DRAFT_REVIEW_CONTEXT_VERSION:
+                    # Re-audit the verified native draft under the corrected view.
+                    # Preserve spent correction rounds and all original receipts.
+                    review=None
                 self._store_draft(ctx,proposed,source,round_,history,review)
                 while True:
                     if review is None:
-                        review=await audit(proposed,'draft-audit-v3-'+str(round_),history)
+                        review=await audit(proposed,'draft-audit-'+DRAFT_REVIEW_CONTEXT_VERSION+'-'+str(round_),history)
                         history.append(review.model_dump(mode='json'))
                         self._store_draft(ctx,proposed,source,round_,history,review)
                     # Rewrite only for stated defects, never for an unexplained label or optional taste.
@@ -491,17 +590,19 @@ class PlanningTasks:
                         pictures,picture_needs=await self.draft_board_media(ctx,proposed)
                     except EditError:
                         pictures,picture_needs=(),frozenset()
-                    author=self.runner(ctx,namespace='draft-correction-v3-'+str(round_),max_format_repairs=2)
-                    proposed=await author.run(
-                        replace(context,plan=proposed.model_dump(mode='json')),
-                        '依据独立草稿审查修正并返回完整可执行方案；这是尚未确认的草稿，允许实际调整叙事、具体例子、'
+                    author=self.runner(ctx,namespace='draft-correction-v4-'+str(round_),max_format_repairs=2)
+                    base=proposed.model_dump(mode='json')
+                    changes=await author.run(
+                        current_draft_context(context,proposed),
+                        '依据独立草稿审查仅返回需要修改的顶层字段，未涉及字段省略并沿用原值，不能用null代替省略；script与scenes涉及口播时一起同步；不要重复输出未改字段。这是尚未确认的草稿，允许实际调整叙事、具体例子、'
                         '图解分类/状态与视觉策略，不得编造个人经历或事实，不改变已选声音、字幕、画幅和声音模式。'
                         '逐项解决全部有依据的问题，文案与narration一致，术语用具体条件变化解释，不能只改形容词。'
                         '电影感要落实到可取得的具体场景动作、景别、光线与镜头联系，不用无关素材凑，也不把整片放回文字板fallback。'
                         '收到的字幕样例由正式排版函数生成；若旧审查的碰撞假设被真实像素/边界否定，可保留正确布局并如实说明，'
                         '不能把未实现的后期重排写成已完成，更不能借此忽略其他内容问题。原生审查记录：'+encode(history),
-                        VoiceReadyCreativePlan,expression_role="write",media=(*media,*pictures),required=required|picture_needs,
-                        tools=self.tool_factory(ctx),validate_result=preserve_choices)
+                        CreativePlanChanges,expression_role="write",media=(*media,*pictures),required=required|picture_needs,
+                        tools=self.tool_factory(ctx),validate_result=lambda changes: preserve_choices(merge_plan_changes(changes,base)))
+                    proposed=merge_plan_changes(changes,base)
                     source=self._native_operation(ctx,author);review=None
                     self._store_draft(ctx,proposed,source,round_,history,review)
                 preserve_choices(proposed)
@@ -514,29 +615,32 @@ class PlanningTasks:
                     validate_audio_replan(proposed,protected)
                     if '本片不使用背景音乐或可选音效' not in payload['constraints']:
                         payload['constraints'].append('本片不使用背景音乐或可选音效')
-                else:
-                    payload=reserve_narration_slots(payload)
                 if not protected and proposed.settings.audio_mode in {'voice', 'mixed'}:
                     protected_audio = any(i.get('constraints', {}).get('original_audio') for i in context.inputs)
                     policy = proposed.narration_policy
                     # Absence of a Work setting is not permission to shorten a confirmed plan.
                     mode = policy.duration_mode if policy else 'fixed'
-                    if ctx.payload.get('revision_scope')=='narration' or 'duration_seconds' in requested or protected_audio or proposed.settings.audio_mode != 'voice':
+                    if ctx.payload.get('revision_scope') in {'narration', 'boards'}:
+                        mode = (context.plan.get('narration_policy') or {}).get('duration_mode', 'fixed')
+                    if 'duration_seconds' in requested or protected_audio:
                         mode = 'fixed'
                     payload['narration_policy'] = {'continuous': not protected_audio,
                         'duration_mode': mode}
+                if not protected:
+                    payload=reserve_narration_slots(payload)
                 freeze_basis=ctx.payload.get('creation_basis')
                 if ctx.payload.get('base_plan_revision'):
                     freeze_basis={**(context.plan.get('conversation_basis') or {}),
                         'profile':context.profile,'settings':context.plan['settings']}
+                request_basis={'creative_request':ctx.payload['request']} if ctx.payload.get('request') else {}
+                if request_basis:
+                    freeze_basis={**(freeze_basis if freeze_basis is not None else self.service._basis(conn,work)),**request_basis}
                 payload=self.service.freeze_plan(conn,work,payload,basis=freeze_basis)
-                if protected:
-                    for field in ('profile_snapshot','director_revision_id','conversation_basis'):
-                        payload[field]=protected.get(field)
-                if ctx.payload.get('base_plan_revision'):
-                    payload['profile_snapshot']=context.plan.get('profile_snapshot')
-                    payload['director_revision_id']=context.plan.get('director_revision_id')
-                    payload['conversation_basis']=context.plan.get('conversation_basis')
+                reference=protected if protected else (context.plan if ctx.payload.get('base_plan_revision') else None)
+                if reference:
+                    for field in ('profile_snapshot','director_revision_id'):
+                        payload[field]=reference.get(field)
+                    payload['conversation_basis']={**(reference.get('conversation_basis') or {}),**request_basis}
                 requested=json.loads(work['settings_json'])
                 for field in ('duration_seconds','aspect_ratio','audio_mode','voice','subtitles'):
                     expected=requested.get(field)
@@ -547,7 +651,7 @@ class PlanningTasks:
                         from .contracts import VoiceIdentity
                         expected=VoiceIdentity.model_validate(expected).model_dump(mode='json')
                     if field in requested and expected != payload['settings'].get(field):
-                        raise ModelTaskError('plan_constraint_changed','模型方案改变了本次明确设置：settings.'+field+'，需要修正方案')
+                        raise ModelTaskError('plan_constraint_changed','模型方案改变了当前有效设置：settings.'+field+'，需要修正方案')
                 rev=conn.execute('SELECT COALESCE(MAX(revision),0)+1 FROM plan_revisions WHERE work_id=?',(ctx.work_id,)).fetchone()[0]
                 conn.execute('INSERT INTO plan_revisions(id,work_id,revision,payload_json,plan_hash,created_at) VALUES (?,?,?,?,?,?)',
                     (new_id(),ctx.work_id,rev,encode(payload),digest(payload),now()))

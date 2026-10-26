@@ -177,7 +177,7 @@ def test_director_intent_preserves_frozen_context_and_replays_without_another_ca
     assert first.unresolved==['素材候选和授权应由供料实际检验']
     # Changing policy cannot reuse an intent compiled for another snapshot.
     from easel.production import expression_policy
-    monkeypatch.setattr(expression_policy,'VERSION','test-next')
+    monkeypatch.setattr(expression_policy,'RULES',{**expression_policy.RULES,'core':'changed defaults'})
     changed=replace(creative,expression_policy=expression_policy.snapshot())
     planning.context=lambda context:changed
     with pytest.raises(ModelTaskError) as caught:
@@ -241,9 +241,9 @@ def test_sfx_two_events_share_bytes_but_retain_distinct_bindings(env):
             AudioClip(clip_id='bgm',asset_id=bgm['id'],role='music',at=0,duration=90,loop=True),
             *[AudioClip(clip_id=f'cue{i}',asset_id=effects[0]['id'],role='sfx',at=i,duration=.1) for i in (1,2)]))
     validate_audio_bindings(project,records)
-    with pytest.raises(ModelTaskError,match='必要音效'):
+    with pytest.raises(ModelTaskError,match='cue2.*必需'):
         validate_audio_bindings(project.model_copy(update={'audio':project.audio[:-1]}),records)
-    with pytest.raises(ModelTaskError,match='时间位置'):
+    with pytest.raises(ModelTaskError,match='cue1.*允许窗口'):
         validate_audio_bindings(project.model_copy(update={'audio':(project.audio[0],project.audio[1].model_copy(update={'at':3}),project.audio[2])}),records)
 
 
@@ -393,3 +393,150 @@ def test_short_sfx_uses_actual_source_without_changing_voice_or_music():
     assert fit_sound_effects(actual,{'a':.905578})==actual
     with pytest.raises(ModelTaskError):
         fit_sound_effects([clips[0].model_copy(update={'source_start':1})],{'a':.905578})
+
+
+@pytest.mark.parametrize('timing_basis', ['scene', 'absolute'])
+def test_effect_binding_uses_actual_scene_only_when_authorized(timing_basis):
+    records = [{'id': 'fx', 'metadata_json': json.dumps({'material_uses': [{
+        'role': 'sfx', 'cue_id': 'click', 'scene_id': 's2', 'at': 70,
+        'duration': 1, 'required': True, 'timing_basis': timing_basis}]})}]
+    project = EditProject(work_id='w', plan_revision=1, revision=1, duration=10,
+        audio_mode='mixed', scenes=(Scene(scene_id='s1', asset_id='image', duration=5),
+                                  Scene(scene_id='s2', asset_id='image', duration=5)),
+        audio=(AudioClip(clip_id='click', asset_id='fx', role='sfx', at=6, duration=1),
+               AudioClip(clip_id='voice', asset_id='voice', role='voice', at=0, duration=9),
+               AudioClip(clip_id='music', asset_id='music', role='music', at=0, duration=10)))
+    if timing_basis == 'absolute':
+        with pytest.raises(ModelTaskError):
+            validate_audio_bindings(project, records)
+        return
+    validate_audio_bindings(project, records)
+    split = project.model_copy(update={'scenes': (project.scenes[0],
+        project.scenes[1].model_copy(update={'scene_id': 's2-cut1'}))})
+    validate_audio_bindings(split, records)
+    for bad in [project.audio[0].model_copy(update={'at': 2}),
+                project.audio[0].model_copy(update={'at': 9.5}),
+                project.audio[0].model_copy(update={'role': 'music'})]:
+        with pytest.raises(ModelTaskError):
+            validate_audio_bindings(project.model_copy(update={'audio': (bad,)}), records)
+    with pytest.raises(ModelTaskError):
+        validate_audio_bindings(project.model_copy(update={'audio': ()}), records)
+
+
+def test_supply_persists_scene_timing_for_natural_mixed_audio(env):
+    import shutil
+    if not shutil.which('ffprobe'):
+        pytest.skip('actual local audio inspection unavailable')
+    input_media(env)
+    plan_settings(env, audio_mode='mixed')
+    service, ops, ctx, _, _ = env
+    # Only the isolated fixture is changed; no runtime database is opened.
+    with ctx.store.transaction() as conn:
+        row = conn.execute('SELECT payload_json FROM plan_revisions WHERE work_id=? AND revision=?',
+                           (ctx.work_id, ctx.plan_revision)).fetchone()
+        plan = json.loads(row[0])
+        plan['narration_policy'] = {'continuous': True, 'duration_mode': 'voice_driven'}
+        work = ctx.store.get_work(ctx.work_id, connection=conn)
+        saved = ctx.store.save_plan(ctx.work_id, plan, expected_revision=work['revision'], connection=conn)
+        revision = saved['revision']
+        conn.execute('UPDATE plan_revisions SET confirmed_at=? WHERE work_id=? AND revision=?',
+                     ('2026-01-01T00:00:00Z', ctx.work_id, revision))
+        conn.execute('UPDATE runs SET plan_revision=? WHERE id=?', (revision, ctx.run_id))
+        conn.execute('UPDATE tasks SET plan_revision=? WHERE id=?', (revision, ctx.task_id))
+        conn.execute('UPDATE authorization_grants SET plan_revision=? WHERE work_id=?', (revision, ctx.work_id))
+    ctx = replace(ctx, plan_revision=revision)
+    materials = MaterialService(service.outputs / '_production/materials')
+    for role in ['music', 'sfx']:
+        source = service.outputs / (role + '.wav')
+        source.write_bytes(wav_bytes())
+        ingest(materials, source, ctx, roles=[role], caption='calm music door click')
+    intent = material_intent(music_query='calm music', sound_cues=[{
+        'cue_id': 'click', 'scene_id': 's1', 'query': 'door', 'at': 70,
+        'duration': .1, 'basis': 'door action', 'timing_basis': 'scene'}])
+    class Compiler:
+        async def prepare(self, context, plan):
+            check_intent(intent, plan)
+            return intent, CreativeContext(ctx.work_id, ctx.run_id, ctx.task_id)
+    supply = SupplyTasks(service, ops, materials=materials, intent_compiler=Compiler())
+    result = asyncio.run(supply.supply(ctx))
+    assert result.state == 'succeeded'
+    with ctx.store.connection() as conn:
+        uses = [use for row in conn.execute('SELECT metadata_json FROM artifacts')
+                for use in json.loads(row[0]).get('material_uses', []) if use.get('role') == 'sfx']
+    assert uses and all(use['timing_basis'] == 'scene' and use['at'] == 70 for use in uses)
+    assert asyncio.run(supply.supply(ctx)).next_payload == result.next_payload
+
+
+@pytest.mark.parametrize('suffix',['_','-cut'])
+def test_scene_sound_spans_adjacent_cuts_without_spanning_other_scene(suffix):
+    records=[{'id':'fx','metadata_json':json.dumps({'material_uses':[{'role':'sfx',
+        'cue_id':'room','scene_id':'s','timing_basis':'scene','at':70,'duration':4,'required':False}]})}]
+    project=EditProject(work_id='w',plan_revision=1,revision=1,duration=6,audio_mode='silent',
+        scenes=(Scene(scene_id='s'+suffix+'1',asset_id='image',duration=3),
+                Scene(scene_id='s'+suffix+'2',asset_id='image',duration=3)))
+    # Binding helper accepts the same shape before final EditProject compilation.
+    from types import SimpleNamespace
+    candidate=SimpleNamespace(scenes=project.scenes,audio=(AudioClip(clip_id='room',asset_id='fx',role='sfx',at=1,duration=4),))
+    validate_audio_bindings(candidate,records)
+    candidate.scenes=(project.scenes[0],Scene(scene_id='other',asset_id='image',duration=1),project.scenes[1])
+    with pytest.raises(ModelTaskError,match='room.*可选但已选用.*允许窗口'):
+        validate_audio_bindings(candidate,records)
+    candidate.audio=()
+    validate_audio_bindings(candidate,records)
+    candidate.audio=(AudioClip(clip_id='room',asset_id='wrong',role='sfx',at=1,duration=1),)
+    with pytest.raises(ModelTaskError):validate_audio_bindings(candidate,records)
+
+
+def test_scene_sound_windows_do_not_match_arbitrary_prefix_and_merge_transitions():
+    from easel.production.material_binding import scene_audio_windows
+    scenes=(Scene(scene_id='s_1',asset_id='a',duration=3),
+        Scene(scene_id='s_2',asset_id='a',duration=3,transition='dissolve',transition_seconds=.5),
+        Scene(scene_id='s_other_1',asset_id='a',duration=2))
+    assert scene_audio_windows(scenes,'s')==[(0,5.5)]
+
+
+def test_music_library_reuse_excludes_old_speech_role_before_top_k_without_deleting(env):
+    from easel.materials.domain import MaterialNeed,NeedScope,NeedScopeType,NeedImportance,NeedIntent
+    service,_,ctx,_,_=env
+    materials=MaterialService(service.outputs/'_production/materials')
+    source=service.outputs/'intro.wav';source.write_bytes(wav_bytes())
+    bad=ingest(materials,source,ctx,roles=['music'],caption='Inleiding Spark Of Being (audio)')
+    music=service.outputs/'instrumental.wav';music.write_bytes(wav_bytes())
+    good=ingest(materials,music,ctx,roles=['music'],caption='Calm instrumental piano')
+    music_need=MaterialNeed(need_id='music',media_type=MediaType.AUDIO,role='music',
+        scope=NeedScope(type=NeedScopeType.GLOBAL,ref=ctx.work_id),importance=NeedImportance.REQUIRED,
+        intent=NeedIntent(description='piano music'))
+    result=materials.candidates(music_need,visibility=LibraryVisibility(),context=UseContext(work_id=ctx.work_id),limit=1)
+    assert [c.library_asset_id for c in result.candidates]==[good.asset_ref]
+    assert any(r.library_asset_id==bad.asset_ref and r.reason=='spoken_audio_not_music' for r in result.rejected)
+    assert materials.resolve(bad.asset_ref,visibility=LibraryVisibility(),context=UseContext(work_id=ctx.work_id)).local_path.is_file()
+
+
+def test_selected_music_rejects_speech_but_not_other_unselected_candidates():
+    from easel.production.material_binding import AUDIO_EDIT_ERRORS
+    from easel.production.creation import CreativeEdit
+    from easel.production.model_tasks import ModelTaskRunner,ResultCorrectionError
+    from easel.production.context import TaskContext as CreativeContext
+    metadata=lambda title:{'candidate_role':'music','semantic':{'caption':title,'attributes':{'audio_roles':['music']}},
+        'material_uses':[{'role':'music'}]}
+    records=[{'id':'speech','metadata_json':json.dumps(metadata('Inleiding Spark Of Being (audio)'))},
+             {'id':'music','metadata_json':json.dumps(metadata('Calm piano instrumental'))}]
+    class Transport:
+        capabilities=frozenset({'text','structured'})
+        calls=[]
+        async def complete(self,messages,tools,schema):
+            self.calls.append(messages)
+            return {'content':json.dumps({'scenes':[{'scene_id':'s','asset_id':'image','duration':4}],
+                'audio':[{'clip_id':'bgm','role':'music','asset_id':'speech' if len(self.calls)==1 else 'music','at':0,'duration':4}]})}
+    async def authorize(ctx):pass
+    def validate(edit):
+        try:validate_audio_bindings(edit,records)
+        except ModelTaskError as exc:
+            assert exc.code in AUDIO_EDIT_ERRORS
+            raise ResultCorrectionError(exc.user_message) from None
+    transport=Transport()
+    result=asyncio.run(ModelTaskRunner(transport,authorize,max_format_repairs=1).run(
+        CreativeContext('w','r','t',allowed_handles=frozenset({'image','speech','music'})),
+        'select music',CreativeEdit,validate_result=validate))
+    assert result.audio[0].asset_id=='music' and len(transport.calls)==2
+    assert '不能当作BGM' in transport.calls[1][-1]['content']

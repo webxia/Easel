@@ -188,9 +188,14 @@ class WorkService:
         conn.execute('''INSERT INTO works(id,title,input_text,profile_ref,channel_id,settings_json,source_session_id,created_at,updated_at)
                         VALUES (?,?,?,?,?,?,?,?,?)''',
                      (id,title,brief,profile,channel_id,encode(settings),data.get('session_id'),stamp,stamp))
+        from .settings import settings_origins
         context={'channel_basis':json.loads(channel['creative_basis_json']) if channel_id else {},
                  'channel_revision':channel['revision'] if channel_id else None,
-                 'settings_source':{'profile_ref':profile,'channel_id':channel_id,'explicit':own_settings}}
+                 'settings_source':{'profile_ref':profile,'channel_id':channel_id,'explicit':own_settings,
+                    'origins':settings_origins(
+                        profile=json.loads(row(conn,'profile_refs',profile)['settings_json']) if profile else {},
+                        channel={**json.loads(channel['settings_json']),**({'director_revision':channel['default_director_revision']} if channel['default_director_revision'] else {})} if channel_id else {},
+                        work=own_settings)}}
         conn.execute('UPDATE works SET creation_context_json=? WHERE id=?',(encode(context),id))
         self._event(conn,id,'work_created',{'title':title})
         return {'work_id':id}
@@ -333,6 +338,21 @@ class WorkService:
                 'task_id':task['id'],'task_revision':task['revision'],
                 'basis_hash':digest(self._basis(conn,work))}
 
+    def replanning_target(self,conn,work):
+        """Pin a stopped run for an explicitly requested new plan, preserving media."""
+        if work['state']=='cancelled':fail('revision_required','已取消作品须使用明确恢复入口',409)
+        plan=conn.execute('''SELECT revision,plan_hash FROM plan_revisions WHERE work_id=?
+                             AND (? IS NULL OR revision=?) ORDER BY revision DESC LIMIT 1''',
+                          (work['id'],work['current_plan_revision'],work['current_plan_revision'])).fetchone()
+        if not plan:fail('revision_required','当前没有已生成方案；首次规划失败请使用原规划恢复入口',409)
+        run=row(conn,'runs',work['active_run_id']) if work['active_run_id'] else None
+        if not run or run['owner_id'] or run['cancel_requested'] or run['state'] not in {'needs_decision','paused','failed','succeeded'}:
+            fail('active_run','当前运行尚未安全停止，保留原断点',409)
+        if conn.execute("SELECT 1 FROM operations WHERE work_id=? AND state IN ('reserved','sending','submitted','unknown')",(work['id'],)).fetchone():
+            fail('result_unknown','存在在途或未知调用，不能替换规划',409)
+        return {'run_id':run['id'],'run_revision':run['revision'],'plan_revision':plan['revision'],
+                'plan_hash':plan['plan_hash'],'basis_hash':digest(self._basis(conn,work))}
+
     def preoutput_target(self,conn,work,data):
         """Read-only eligibility and optimistic identity for an audio-only replan."""
         if data.get('settings')!={'audio_mode':'voice'} or set(data)-{'settings','restore_cancelled','request','services','recovery_target'}:
@@ -357,6 +377,20 @@ class WorkService:
 
     def _plan(self,conn,work,data):
         recovery=None
+        replan=data.get('intent')=='replan'
+        if 'intent' in data and not replan:fail('invalid_input','不支持的规划意图')
+        if replan:
+            if set(data)-{'intent','request','services','replanning_target'} or not str(data.get('request','')).strip():
+                fail('invalid_input','重新规划须说明本轮变更范围')
+            target=self.replanning_target(conn,work)
+            if data.get('replanning_target')!=target:fail('stale_revision','重新规划目标已变化，请读取当前状态',409)
+            stamp=now()
+            conn.execute("UPDATE runs SET state='superseded',owner_epoch=owner_epoch+1,revision=revision+1,updated_at=? WHERE id=?",(stamp,target['run_id']))
+            conn.execute("UPDATE tasks SET state='cancelled',revision=revision+1,updated_at=? WHERE run_id=? AND state NOT IN ('succeeded','cancelled')",(stamp,target['run_id']))
+            conn.execute("UPDATE authorization_grants SET revoked_at=? WHERE work_id=? AND purpose='production' AND revoked_at IS NULL",(stamp,work['id']))
+            self._change(conn,work,current_plan_revision=None,state='discussing')
+            self._event(conn,work['id'],'run_superseded',{'reason':'explicit_replanning'},run_id=target['run_id'])
+            work=row(conn,'works',work['id'])
         if 'decision_id' in data:
             if set(data)-{'decision_id','failed_planning_target','request','services'}:
                 fail('invalid_input','首次规划恢复须保持现有创作设置')
@@ -367,7 +401,7 @@ class WorkService:
             conn.execute("UPDATE runs SET state='superseded',owner_epoch=owner_epoch+1,revision=revision+1,updated_at=? WHERE id=?",(stamp,target['run_id']))
             conn.execute("UPDATE tasks SET state='cancelled',revision=revision+1,updated_at=? WHERE run_id=? AND state!='succeeded'",(stamp,target['run_id']))
             self._event(conn,work['id'],'run_superseded',{'reason':'confirmed_failed_planning_replacement'},run_id=target['run_id'])
-        if ('settings' not in data and data.get('generate',True) and
+        if (not replan and 'settings' not in data and data.get('generate',True) and
             conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(work['id'],)).fetchone()):
             fail('revision_required','已确认方案须通过明确的修订范围重新规划',409)
         if 'settings' in data or 'recovery_target' in data:
@@ -379,7 +413,7 @@ class WorkService:
             conn.execute("UPDATE tasks SET state='cancelled',revision=revision+1,updated_at=? WHERE run_id=? AND state NOT IN ('succeeded','cancelled')",(stamp,recovery['run_id']))
             conn.execute("UPDATE authorization_grants SET revoked_at=? WHERE work_id=? AND revoked_at IS NULL",(stamp,work['id']))
             settings=json.loads(work['settings_json']);settings.update(data['settings'])
-            self._change(conn,work,settings_json=encode(settings))
+            self._change(conn,work,settings_json=encode(settings),creation_context_json=self._settings_context(work,data['settings']))
             self._event(conn,work['id'],'run_superseded',{'reason':'confirmed_audio_replan'},run_id=recovery['run_id'])
             work=row(conn,'works',work['id'])
         self._ensure_idle(conn,work)
@@ -392,6 +426,8 @@ class WorkService:
             if data.get('services'):
                 self._insert_grant(conn,work,'planning',data)
             payload={'request':data.get('request',''),'creation_basis':self._basis(conn,work)}
+            if replan:
+                payload['reference_plan_revision']=target['plan_revision']
             if recovery:
                 from .expression_policy import validate
                 payload['creation_basis']['expression_policy']=validate(
@@ -412,6 +448,7 @@ class WorkService:
 
     def _basis(self,conn,work):
         from . import expression_policy
+        from .settings import recorded_settings_source
         settings=json.loads(work['settings_json'])
         director={}
         if settings.get('director_revision'):
@@ -422,6 +459,7 @@ class WorkService:
                 'channel_basis':json.loads(work.get('creation_context_json','{}')).get('channel_basis',json.loads(channel['creative_basis_json']) if channel else {}),
                 'profile_ref':work['profile_ref'],'profile':self.profile_snapshot(conn,work['profile_ref']),
                 'channel_id':work['channel_id'],'settings':settings,'director':director,
+                'settings_source':recorded_settings_source(json.loads(work.get('creation_context_json','{}'))),
                 'expression_policy':expression_policy.snapshot()}
 
     def freeze_plan(self,conn,work,payload,*,basis=None):
@@ -430,8 +468,10 @@ class WorkService:
         policy=validate(basis.get('expression_policy'))
         payload={**payload,'schema_version':1,'profile_snapshot':None,
                  'director_revision_id':basis['settings'].get('director_revision'),
-                 'conversation_basis':{**{k:basis.get(k) for k in ('conversation_brief','channel_basis')},
+                 'conversation_basis':{**{k:basis.get(k) for k in ('conversation_brief','channel_basis','settings_source')},
                                        'expression_policy':policy}}
+        if basis.get('creative_request'):
+            payload['conversation_basis']['creative_request']=basis['creative_request']
         if work['profile_ref']:
             content=encode(basis['profile'])
             payload['profile_snapshot']={'profile_ref':work['profile_ref'],'content':content,
@@ -514,14 +554,35 @@ class WorkService:
         self._event(conn,work['id'],'authorization_updated',{'purpose':purpose})
         return {'work_id':work['id'],'grant_id':grant}
 
+    def visual_review_recheck(self, conn, work):
+        """Narrow recovery for the legacy contradictory visual-review classification."""
+        if work['state'] != 'preview_needs_fix' or not work['active_run_id']:return None
+        run=row(conn,'runs',work['active_run_id'])
+        if run['state']!='succeeded' or run['cancel_requested']:return None
+        if conn.execute("SELECT 1 FROM operations WHERE work_id=? AND state IN ('reserved','sending','submitted','unknown')",(work['id'],)).fetchone():return None
+        artifact=conn.execute("SELECT * FROM artifacts WHERE work_id=? AND kind='output' AND deleted_at IS NULL AND displayable=1 ORDER BY output_revision DESC LIMIT 1",(work['id'],)).fetchone()
+        if not artifact or artifact['run_id']!=run['id']:return None
+        task=conn.execute("SELECT * FROM tasks WHERE run_id=? AND kind='quality' AND state='succeeded' AND json_extract(payload_json,'$.output_id')=? ORDER BY created_at DESC LIMIT 1",(run['id'],artifact['id'])).fetchone()
+        if not task:return None
+        from .quality import effective_quality_checks,invalid_legacy_visual_check
+        checks=effective_quality_checks(conn.execute('SELECT * FROM quality_checks WHERE artifact_id=? AND artifact_digest=? ORDER BY created_at,id',(artifact['id'],artifact['digest'])).fetchall())
+        invalid=[check for check in checks if invalid_legacy_visual_check(check)]
+        if not invalid:return None
+        return {'decision_id':task['id'],'output_id':artifact['id'],'check_id':invalid[-1]['id']}
+
     def _resume(self,conn,work,data):
         if not work['active_run_id']:fail('invalid_input','没有可恢复运行')
         run=row(conn,'runs',work['active_run_id'])
-        if run['cancel_requested'] or run['state'] not in {'needs_decision','paused','waiting_external','failed'}:
-            fail('invalid_input','当前运行不能直接恢复')
         task=row(conn,'tasks',data.get('decision_id',''))
-        if task['run_id']!=run['id'] or task['state'] not in {'needs_decision','retryable_failed','waiting_external','failed'}:
+        recheck=self.visual_review_recheck(conn,work)
+        recheck=recheck if recheck and recheck['decision_id']==task['id'] else None
+        if run['cancel_requested'] or (not recheck and run['state'] not in {'needs_decision','paused','waiting_external','failed'}):
+            fail('invalid_input','当前运行不能直接恢复')
+        if task['run_id']!=run['id'] or (not recheck and task['state'] not in {'needs_decision','retryable_failed','waiting_external','failed'}):
             fail('stale_revision','需要解决的决定已变化',409)
+        if recheck:
+            payload=json.loads(task['payload_json']);payload['visual_recheck_source']=recheck['check_id']
+            conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
         if 'optional_sfx_ids' in data:
             ids=data['optional_sfx_ids']
             payload=json.loads(task['payload_json'])
@@ -534,6 +595,32 @@ class WorkService:
             payload['optional_sfx_ids']=sorted(set(payload.get('optional_sfx_ids',[]))|set(ids))
             conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
             self._event(conn,work['id'],'sound_requirement_relaxed',{'cue_ids':ids},run_id=run['id'])
+        resume_decision_id=task['id']
+        render_error=json.loads(task['error_json'] or '{}')
+        if (task['kind']=='render' and render_error.get('code')=='render_failed'
+                and 'caption exceeds the frame' in render_error.get('user_message','')):
+            # The saved project is invalid: replay the known edit through its
+            # existing format-repair path, not the same failed render job.
+            edit=conn.execute("""SELECT t.* FROM task_dependencies d JOIN tasks t ON t.id=d.depends_on
+                WHERE d.task_id=? AND t.kind='edit' AND t.state='succeeded'""",(task['id'],)).fetchone()
+            if not edit:fail('invalid_edit_project','找不到原剪辑修正来源，保留当前断点')
+            edit=dict(edit)
+            if json.loads(edit['result_json'] or '{}').get('project_id')!=json.loads(task['payload_json']).get('project_id'):
+                fail('invalid_edit_project','剪辑来源与失败工程不一致，保留当前断点')
+            source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(edit['id'],)).fetchone()
+            if not source or source['state']!='succeeded':
+                fail('result_unknown','原剪辑回执尚未确定，不能另发修正')
+            request=json.loads(source['request_json'])
+            message=json.loads(source['receipt_json'])['result']['message']
+            if request['schema'].get('title')!='CreativeEdit' or message.get('tool_calls'):
+                fail('invalid_edit_project','原剪辑回执不是完整编辑结果')
+            payload=json.loads(edit['payload_json'])
+            payload['asset_ids']=sorted(set(payload.get('asset_ids',[]))|set(json.loads(task['payload_json']).get('asset_ids',[])))
+            payload['reuse_existing_media_only']=True
+            conn.execute("UPDATE tasks SET state='cancelled',revision=revision+1,updated_at=? WHERE id=?",(now(),task['id']))
+            conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),edit['id']))
+            task={**edit,'payload_json':encode(payload),'error_json':encode({'code':'invalid_edit_project'})}
+            self._event(conn,work['id'],'edit_recovery_requested',{'render_task_id':resume_decision_id,'edit_task_id':task['id']},run_id=run['id'])
         if task['kind']=='render' and json.loads(task['error_json'] or '{}').get('code')=='render_failed':
             # Only an explicit resume starts another local attempt. A failed
             # editor job stays immutable; worker polling must never restart it.
@@ -542,7 +629,8 @@ class WorkService:
             conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
         # Explicit user resume can repair the last known edit, without replaying
         # its author or silently resetting a running attempt's repair budget.
-        if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_edit','invalid_edit_project'}:
+        from .material_binding import AUDIO_EDIT_ERRORS
+        if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code') in ({'invalid_model_output','invalid_edit','invalid_edit_project','edit_duration_mismatch'} | AUDIO_EDIT_ERRORS):
             if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
                 fail('result_unknown','剪辑存在未确定调用，不能另发修正')
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
@@ -550,7 +638,18 @@ class WorkService:
                 try:
                     request=json.loads(source['request_json'])
                     message=json.loads(source['receipt_json'])['result']['message']
-                    value=json.loads(message.get('content') or '')
+                    from .model_tasks import parse_model_json
+                    calls=message.get('tool_calls') or []
+                    if calls:
+                        if request['schema'].get('title')!='CreativeEdit' or any(
+                                call.get('function',{}).get('name')!='inspect_media' for call in calls):
+                            raise ValueError('unrecoverable tool request')
+                        payload=json.loads(task['payload_json'])
+                        payload['edit_recovery_source']=source['id']
+                        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
+                        value={}
+                    else:
+                        value=parse_model_json(message.get('content') or '')
                     if request['schema'].get('title')=='CreativeEdit' and isinstance(value,dict) and not message.get('tool_calls'):
                         payload=json.loads(task['payload_json'])
                         refs={item.get('asset_id') for key in ('scenes','audio') for item in value.get(key,[]) if isinstance(item,dict)}
@@ -562,30 +661,34 @@ class WorkService:
                             if asset:restored.append(asset['id'])
                         payload['asset_ids']=sorted(set(payload.get('asset_ids',[]))|set(restored))
                         payload['edit_recovery_source']=source['id']
+                        if json.loads(task['error_json'] or '{}').get('code') in (AUDIO_EDIT_ERRORS | {'edit_duration_mismatch'}):
+                            payload['reuse_existing_media_only']=True
                         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
                 except (ValueError,KeyError,TypeError):pass
-        if task['kind']=='revise' and json.loads(task['error_json'] or '{}').get('code')=='invalid_model_output':
+        if task['kind']=='revise' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_revision_search'}:
             if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
                 fail('result_unknown','修订存在未确定调用，不能另发修正')
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
             if source and source['state']=='succeeded':
                 request=json.loads(source['request_json']);message=json.loads(source['receipt_json'])['result']['message']
-                if request['schema'].get('title')=='RevisionProposal' and not message.get('tool_calls'):
+                if request['schema'].get('title')=='RevisionProposal' and all(
+                        call.get('function',{}).get('name')=='inspect_media' for call in message.get('tool_calls',[])):
                     payload=json.loads(task['payload_json']);payload['revision_recovery_source']=source['id']
                     conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
         conn.execute("UPDATE tasks SET state='pending',error_json=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),task['id']))
         conn.execute("UPDATE runs SET state='pending',owner_epoch=owner_epoch+1,lease_expires_at=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),run['id']))
         self._change(conn,work,state='discussing' if run['kind']=='planning' else 'producing')
-        self._event(conn,work['id'],'decision_resolved',{'decision_id':task['id']},run_id=run['id'])
+        self._event(conn,work['id'],'decision_resolved',{'decision_id':resume_decision_id},run_id=run['id'])
         return {'work_id':work['id'],'run_id':run['id']}
 
     @staticmethod
     def _has_known_quality_failure(conn, artifact) -> bool:
         # Re-exported bytes retain their findings even under another artifact ID.
-        return bool(conn.execute("""SELECT 1 FROM quality_checks q JOIN artifacts a ON a.id=q.artifact_id
-            WHERE a.work_id=? AND a.digest=? AND q.artifact_digest=?
-            AND q.check_kind='semantic' AND q.status IN ('fail','partial') LIMIT 1""",
-            (artifact['work_id'],artifact['digest'],artifact['digest'])).fetchone())
+        from .quality import effective_quality_checks
+        checks=effective_quality_checks(conn.execute("""SELECT q.* FROM quality_checks q JOIN artifacts a ON a.id=q.artifact_id
+            WHERE a.work_id=? AND a.digest=? AND q.artifact_digest=? AND q.check_kind='semantic'""",
+            (artifact['work_id'],artifact['digest'],artifact['digest'])).fetchall())
+        return any(check['status'] in {'fail','partial'} for check in checks)
 
     @staticmethod
     def _manual_review_ready(conn, artifact) -> bool:
@@ -594,10 +697,11 @@ class WorkService:
                 artifact['output_revision'] is None or artifact['quality_state'] != 'needs_fix'):
             return False
         if WorkService._has_known_quality_failure(conn,artifact):return False
-        checks = conn.execute("""SELECT check_kind,status,findings_json
+        from .quality import effective_quality_checks
+        checks = effective_quality_checks(conn.execute("""SELECT *
             FROM quality_checks WHERE artifact_id=? AND artifact_digest=?
             ORDER BY created_at DESC,id DESC""",
-            (artifact['id'],artifact['digest'])).fetchall()
+            (artifact['id'],artifact['digest'])).fetchall())
         if any(c['check_kind']=='semantic' and c['status'] in {'fail','partial'} for c in checks):
             return False
         latest = {}
@@ -609,22 +713,86 @@ class WorkService:
         return bool(semantic and semantic['status']=='not_tested' and
                     json.loads(semantic['findings_json']).get('mode')=='manual_review_only')
 
+    @staticmethod
+    def _stopped_visual_repair_ready(conn, artifact, run, work) -> bool:
+        """A rendered version survives a safely stopped automatic picture repair.
+
+        Do not finish or resume the run, waive unknown operations, or treat the
+        model's findings as passed. The caller still requires technical PASS,
+        an intact file and explicit complete human review.
+        """
+        if (run['kind']!='production' or run['state']!='needs_decision'
+                or run['owner_id'] or run['cancel_requested']
+                or work['active_run_id']!=artifact['run_id']):
+            return False
+        if conn.execute("""SELECT 1 FROM operations WHERE run_id=?
+                AND state IN ('reserved','sending','submitted','unknown') LIMIT 1""",
+                (artifact['run_id'],)).fetchone():
+            return False
+        tasks=conn.execute('SELECT * FROM tasks WHERE run_id=?',(artifact['run_id'],)).fetchall()
+        unfinished=[t for t in tasks if t['state'] not in {'succeeded','cancelled'}]
+        if len(unfinished)!=1:return False
+        repair=unfinished[0]
+        payload=json.loads(repair['payload_json'])
+        error=json.loads(repair['error_json'] or '{}')
+        if (repair['kind']!='revise' or repair['state']!='needs_decision'
+                or error.get('code')!='visual_material_gap'
+                or payload.get('creative_visual_repair') is not True
+                or payload.get('repair_scope')!='visual'
+                or payload.get('preserve_audio') is not True
+                or payload.get('output_id')!=artifact['id']
+                or not payload.get('review_id')):
+            return False
+        review=conn.execute('SELECT 1 FROM reviews WHERE id=? AND work_id=? AND output_id=?',
+            (payload['review_id'],artifact['work_id'],artifact['id'])).fetchone()
+        if not review:return False
+        completed=[t for t in tasks if t['state']=='succeeded'
+                   and json.loads(t['result_json'] or '{}').get('output_id')==artifact['id']]
+        return (any(t['kind']=='render' for t in completed)
+                and any(t['kind']=='quality' and
+                    json.loads(t['payload_json']).get('visual_repair_review_id')==payload['review_id']
+                    for t in completed))
+
+    @staticmethod
+    def _creator_review_ready(conn, artifact) -> bool:
+        """Human review can resolve model findings without rewriting QC history.
+
+        Director trial acceptance keeps its separate _manual_review_ready rule.
+        """
+        if (artifact['kind']!='output' or not artifact['displayable'] or artifact.get('deleted_at') or
+                artifact['output_revision'] is None or artifact['quality_state']=='unchecked'):
+            return False
+        technical=conn.execute("""SELECT status FROM quality_checks WHERE artifact_id=? AND artifact_digest=?
+            AND check_kind='technical' ORDER BY created_at DESC,id DESC LIMIT 1""",
+            (artifact['id'],artifact['digest'])).fetchone()
+        if not technical or technical[0]!='pass':return False
+        run=conn.execute('SELECT * FROM runs WHERE id=? AND work_id=?',
+                         (artifact['run_id'],artifact['work_id'])).fetchone()
+        work=conn.execute('SELECT * FROM works WHERE id=?',(artifact['work_id'],)).fetchone()
+        if not work or work['state']=='cancelled' or work['deleted_at'] or not run:return False
+        return (WorkService._stopped_visual_repair_ready(conn,artifact,run,work)
+                or run['state']=='succeeded' or bool(run['state']=='superseded' and conn.execute(
+            """SELECT 1 FROM events done JOIN events replaced
+            ON replaced.run_id=done.run_id AND replaced.work_id=done.work_id
+            WHERE done.work_id=? AND done.run_id=? AND done.kind='run_completed'
+            AND replaced.kind='run_superseded' AND done.seq<replaced.seq LIMIT 1""",
+            (artifact['work_id'],artifact['run_id'])).fetchone()))
+
     def _accept(self,conn,work,data):
         artifact=row(conn,'artifacts',data.get('output_id',''))
         if artifact.get('deleted_at') or not artifact['displayable']:fail('not_found','成果已删除或不可接受',404)
-        manual_ready=self._manual_review_ready(conn,artifact)
+        manual_ready=self._creator_review_ready(conn,artifact)
         if (artifact['work_id']!=work['id'] or artifact['output_revision'] is None or
-                (artifact['quality_state']!='passed' and not manual_ready) or self._has_known_quality_failure(conn,artifact)):
-            fail('quality_blocked','请选择可审阅的技术合格版本')
+                (artifact['quality_state']!='passed' and not manual_ready) or
+                (self._has_known_quality_failure(conn,artifact) and not manual_ready)):
+            fail('quality_blocked','此版尚不具备接受条件：须有技术检查通过的完整成片，且源制作已成功完成，或仅自动画面修订缺素材并已安全暂停；制作尚未成功完成且不属于上述安全暂停情形，或仍在执行/有待核实调用时不能接受。自动内容检查fail本身不禁止完整人工审片后接受')
+        manual_ready=manual_ready and (artifact['quality_state']!='passed' or self._has_known_quality_failure(conn,artifact))
         if manual_ready:
-            # Explicit human confirmation is mandatory, even though the
-            # automatic semantic Gate was disabled by this work's operator.
+            # Explicit complete human review resolves model content findings;
+            # it never rewrites automatic check history or creates new media.
             if data.get('manual_review_confirmed') is not True:
                 fail('manual_review_confirmation_required',
-                    '此版本尚未自动审查音视频语义，须人工看完整片并明确确认')
-            run=row(conn,'runs',artifact['run_id'])
-            if run['state']!='succeeded' or work['state']!='reviewable':
-                fail('quality_blocked','人工审核必须等待正式制作任务成功结束')
+                    '请完整审阅此版的画面、声音、字幕和同步，并明确确认全部通过；自动检查意见将保留')
         path=(self.outputs/artifact['storage_ref']).resolve()
         if self.outputs not in path.parents or not path.is_file() or self._file_hash(path)!=artifact['digest']:
             fail('quality_blocked','成片缺失或内容已变化，须重新检查')
@@ -633,7 +801,10 @@ class WorkService:
                      (new_id(),work['id'],artifact['id'],source,now()))
         self._change(conn,work,accepted_output_id=artifact['id'])
         self._event(conn,work['id'],'output_accepted',
-                    {'output_id':artifact['id'],'acceptance_mode':source})
+                    {'output_id':artifact['id'],'acceptance_mode':source,'artifact_digest':artifact['digest'],
+                     'reviewed_check_ids':[r[0] for r in conn.execute(
+                         'SELECT id FROM quality_checks WHERE artifact_id=? AND artifact_digest=? ORDER BY created_at,id',
+                         (artifact['id'],artifact['digest']))]})
         return {'work_id':work['id'],'output_id':artifact['id']}
 
     def _assignment(self,conn,work,data):
@@ -660,15 +831,27 @@ class WorkService:
             fail('revision_required','已确认方案的创作变更须走修订，原方案保持不变',409)
         if set(data)-{'settings','input_text'}:fail('invalid_input','只能调整本片设置与内容')
         settings=json.loads(work['settings_json']);patch=data.get('settings',{})
+        original_patch=patch
         self._validate_settings(patch)
         if patch.get('director_revision'):self._director_version(conn,patch['director_revision'],bool(patch.get('director_trial')))
         if 'subtitles' in patch:patch={**patch,'subtitles':{**settings.get('subtitles',{}),**patch['subtitles']}}
         settings.update(patch)
         text=data.get('input_text',work['input_text'])
         if not isinstance(text,str) or len(text)>100000:fail('invalid_input','本期内容无效')
-        self._change(conn,work,settings_json=settings,input_text=text,current_plan_revision=None,state='discussing')
+        self._change(conn,work,settings_json=settings,input_text=text,creation_context_json=self._settings_context(work,original_patch),current_plan_revision=None,state='discussing')
         self._event(conn,work['id'],'basis_updated',{'settings':settings})
         return {'work_id':work['id']}
+
+    @staticmethod
+    def _settings_context(work, patch):
+        from .settings import settings_origins, merge_creation_settings
+        context=json.loads(work.get('creation_context_json','{}'))
+        source=context.setdefault('settings_source',{})
+        known=bool(source.get('origins'))
+        source['origins']={**source.get('origins',{}),**settings_origins(work=patch)}
+        # Old snapshots without origins are unknown, not proof of user selection.
+        source['explicit']=merge_creation_settings(source.get('explicit',{}) if known else {},patch)
+        return context
 
     @staticmethod
     def _fork_settings(work,data):
@@ -727,14 +910,20 @@ class WorkService:
             for artifact in work['artifacts']:
                 if artifact['kind']=='output':
                     artifact['export_artifact_id']=bundles.get(artifact['id'],artifact['id'])
-                    artifact['manual_review_required']=self._manual_review_ready(conn,artifact)
+                    artifact['playback_url']=f"/api/production/artifacts/{artifact['id']}/content"
+                    artifact['manual_review_required']=self._creator_review_ready(conn,artifact) and (
+                        artifact['quality_state']!='passed' or self._has_known_quality_failure(conn,artifact))
+                    acceptance=conn.execute('SELECT source FROM acceptances WHERE output_id=? ORDER BY created_at DESC,id DESC LIMIT 1',
+                                            (artifact['id'],)).fetchone()
+                    artifact['creator_accepted']=bool(work['accepted_output_id']==artifact['id'] and acceptance and
+                        acceptance['source']=='explicit_manual_review' and self._creator_review_ready(conn,artifact))
                     artifact['checks']=[{'kind':q['check_kind'],'rule_version':q['rule_version'],'status':q['status'],'findings':json.loads(q['findings_json'])} for q in conn.execute('SELECT * FROM quality_checks WHERE artifact_id=? AND artifact_digest=? ORDER BY created_at,id',(artifact['id'],artifact['digest']))]
                     from .delivery import output_guidance
                     publication=conn.execute("SELECT 1 FROM publication_drafts WHERE output_id=? AND state!='cancelled'",(artifact['id'],)).fetchone()
                     artifact['delivery']=output_guidance(artifact,work['accepted_output_id']==artifact['id'],self._has_known_quality_failure(conn,artifact),bool(publication))
-                    artifact['publications']=[{'id':r['id'],'state':r['state'],'platform':'bilibili',
+                    artifact['publications']=[{'id':r['id'],'state':r['state'],'platform':r['platform'],
                         'status':json.loads(r['receipt_json'] or '{}').get('matched',{}).get('status')}
-                        for r in conn.execute("SELECT d.id,COALESCE(a.state,d.state) AS state,a.receipt_json FROM publication_drafts d LEFT JOIN publication_attempts a ON a.draft_id=d.id WHERE d.output_id=?",(artifact['id'],))]
+                        for r in conn.execute("SELECT d.id,d.platform,COALESCE(a.state,d.state) AS state,a.receipt_json FROM publication_drafts d LEFT JOIN publication_attempts a ON a.id=(SELECT last.id FROM publication_attempts last WHERE last.draft_id=d.id ORDER BY last.submitted_at DESC,last.id DESC LIMIT 1) WHERE d.output_id=?",(artifact['id'],))]
             work['progress']=[{'kind':r['kind'],'run_id':r['run_id'],'detail':json.loads(r['payload_json'])} for r in conn.execute("SELECT kind,run_id,payload_json FROM events WHERE work_id=? AND kind IN ('render_progress','quality_progress') ORDER BY seq DESC LIMIT 1",(id,))]
             work['reviews']=[{**dict(r),'changes':json.loads(r['changes_json']),'change_hash':digest(json.loads(r['changes_json']))} for r in conn.execute('SELECT * FROM reviews WHERE work_id=? ORDER BY created_at DESC',(id,))]
             work['cursor']=conn.execute('SELECT COALESCE(MAX(seq),0) FROM events WHERE work_id=?',(id,)).fetchone()[0]

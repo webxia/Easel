@@ -26,6 +26,27 @@ def merge_creation_settings(*layers: dict) -> dict:
     return result
 
 
+def settings_origins(*, profile=None, channel=None, work=None) -> dict:
+    """Field provenance for already-validated layers, without inventing defaults."""
+    origins = {}
+    for scope, values in (("profile", profile), ("channel", channel), ("work", work)):
+        for key, value in (values or {}).items():
+            if key == "schema_version":
+                continue
+            if key == "subtitles":
+                for field in value:
+                    origins[f"subtitles.{field}"] = scope
+            else:
+                origins[key] = scope
+    return origins
+
+
+def recorded_settings_source(context: dict) -> dict:
+    """Legacy resolved 'explicit' bags are not evidence of per-field choices."""
+    source = context.get('settings_source') or {}
+    return deepcopy(source) if 'origins' in source else {}
+
+
 def validate_settings_patch(settings: dict) -> dict:
     """Validate partial defaults without inventing missing per-work choices."""
     if not isinstance(settings, dict) or set(settings) - _KEYS:
@@ -50,18 +71,14 @@ def resolve_settings(*, work: dict | None = None, channel: dict | None = None,
     neither this function nor changing a default mutates an earlier snapshot.
     """
     result: dict = {}
-    origins: dict = {}
     for scope, values in (("profile", profile), ("channel", channel), ("work", work)):
         patch = validate_settings_patch(values or {})
         for key, value in patch.items():
             if key == "subtitles":
                 result[key] = {**result.get(key, {}), **deepcopy(value)}
-                for field in value:
-                    origins[f"subtitles.{field}"] = scope
             else:
                 result[key] = deepcopy(value)
-                origins[key] = scope
-    return {"settings": result, "origins": origins}
+    return {"settings": result, "origins": settings_origins(profile=profile, channel=channel, work=work)}
 
 
 def settings_save_request(*, scope: SettingsScope, settings: dict,

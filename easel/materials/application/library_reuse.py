@@ -11,6 +11,7 @@ from easel.materials.application.rights import RightsAdmission, RightsAdmissionS
 from easel.materials.domain import MaterialNeed, TechnicalStatus
 from easel.materials.library import LibraryVisibility, MaterialLibraryCatalog, MaterialLibraryRecord, UseContext
 from easel.materials.store import MaterialStoreError
+from easel.materials.audio_search import music_candidate_issue
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,8 @@ class LibraryReuseService:
                 # must still listen before selecting an unclassified track.
                 if isinstance(roles, (list, tuple)) and roles and need.role not in roles:
                     reason = "audio_role_incompatible"
+                if not reason and need.role=='music':
+                    reason=music_candidate_issue(record.asset.semantic.model_dump(mode='json'),record.asset.source.model_dump(mode='json'))
             try:
                 self.catalog.resolve_physical_locator(record)
             except (MaterialStoreError, OSError):

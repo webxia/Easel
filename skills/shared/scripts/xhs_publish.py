@@ -1337,6 +1337,9 @@ def _publish(a, kind: str) -> int:
                     _click_publish_tab(page, "上传视频")
                     page.wait_for_timeout(1000)
                     _upload_video(page, media[0])
+                if getattr(a, 'cover', None):
+                    from publish_cover import apply_custom_cover
+                    apply_custom_cover(page, 'xiaohongshu', a.cover)
                 _fill_and_submit(page, a.title, a.content or "", tags)
             except PWTimeout as e:
                 _die(f"步骤超时（选择器可能已失效，检查 SELECTORS）：{e}")
@@ -1486,6 +1489,7 @@ def main() -> int:
         p.add_argument("--content", help="正文")
         p.add_argument("--images", help="图片路径，逗号分隔（图文发布）")
         p.add_argument("--video", help="视频路径（视频发布）")
+        p.add_argument("--cover", help="自定义视频封面图片")
         p.add_argument("--tags", help="话题，逗号分隔（如 'AI,教程'）")
         p.add_argument("--exec", action="store_true", help="真正发布（默认 dry-run）")
         p.add_argument("--allow-unsafe", action="store_true",

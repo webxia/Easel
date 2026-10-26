@@ -9,19 +9,16 @@ def approved_overlay_texts(plan):
 
 
 def assert_visual_repair(base, revised, *, overlay_texts, protected_caption_style_ids=frozenset(), allow_retiming=False):
+    if base.audio != revised.audio:
+        raise EditError('局部画面修订改变了独立音轨；必须保留原配音、BGM和音效的位置、时长与增益')
     def source_audio_scenes(project):
-        cursor = 0
-        sources = []
-        for scene in project.scenes:
-            if scene.source_audio:
-                sources.append((cursor, scene))
-            cursor += scene.duration - scene.transition_seconds
-        return sources
-    before, after = source_audio_scenes(base), source_audio_scenes(revised)
-    if (base.audio != revised.audio or len(before) != len(after)
-            or any(old != new or abs(old_at-new_at) > .000001
-                   for (old_at, old), (new_at, new) in zip(before, after))):
-        raise EditError('原生视觉修复必须保留完整音轨，不改含原声的镜头')
+        return [(s.scene_id, (s.asset_id,s.source_start,s.duration,s.source_gain,round(at,6)))
+                for s,at in zip(project.scenes,project.scene_starts()) if s.source_audio]
+    before,after=source_audio_scenes(base),source_audio_scenes(revised)
+    if [v for _,v in before] != [v for _,v in after]:
+        old=dict(before);new=dict(after)
+        changed=[key for key in dict.fromkeys([*old,*new]) if old.get(key)!=new.get(key)]
+        raise EditError('原声发生变化：'+','.join(changed)+'；须保留原素材、取源起点、时长、音量和时间线位置；裁切、适配和运动可单独修改')
     for field in ('work_id','plan_revision','width','height','duration','audio_mode','fps'):
         if getattr(base, field) != getattr(revised, field):
             raise EditError('视觉修复不能改变作品身份、规格或总时长')

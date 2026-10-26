@@ -11,7 +11,7 @@ from .inspection import native_video_requirements, prepare_video_chunks
 from .model_tasks import ModelTaskError
 from .editors import EditError
 from .contracts import Contract
-from pydantic import Field
+from pydantic import Field, model_validator
 
 
 class VisualPreviewReview(Contract):
@@ -22,8 +22,44 @@ class VisualPreviewReview(Contract):
     suggestions: list[str] = Field(default_factory=list, max_length=16, description='非阻断的审美或表达建议；不能用于隐藏事实错误、明确要求冲突或已证实质量缺陷')
     verdict: str = Field(pattern='^(pass|fail|partial)$')
     observations: list[str] = Field(min_length=1, max_length=32)
-    findings: list[str] = Field(max_length=32)
+    findings: list[str] = Field(max_length=32, description='只列必须修复的问题；verdict=pass时必须为空，正面观察放observations、可选优化放suggestions')
     limitations: list[str] = Field(max_length=16)
+
+
+    @model_validator(mode='after')
+    def consistent_pass(self):
+        if self.verdict == 'pass' and self.findings:
+            raise ValueError('verdict=pass时findings必须为空；有必须修复问题则改为fail，正面评价放observations，可选建议放suggestions')
+        return self
+
+
+def invalid_legacy_visual_check(record):
+    data = json.loads(record['findings_json'])
+    return (isinstance(data, dict) and record['rule_version'] == 'visual-preview-1' and record['status'] == 'fail'
+            and data.get('scope') == 'sampled_visual_only'
+            and data.get('review', {}).get('verdict') == 'pass'
+            and bool(data.get('review', {}).get('findings')))
+
+
+def effective_quality_checks(records):
+    """Retain history; only a new, consistent recheck can resolve an invalid old label."""
+    records = [dict(record) for record in records]
+    resolved = set()
+    for record in records:
+        data = json.loads(record['findings_json'])
+        source = data.get('rechecks_invalid_review') if isinstance(data, dict) else None
+        if not source or record['rule_version'] != 'visual-preview-2' or data.get('visual_status') != 'pass':
+            continue
+        try:
+            review = VisualPreviewReview.model_validate(data.get('review'))
+        except ValueError:
+            continue
+        if (record['status'] == 'not_tested' and data.get('scope') == 'sampled_visual_only'
+                and review.verdict == 'pass'):
+            resolved.add((source, record['artifact_id'], record['artifact_digest']))
+    return [record for record in records if not (
+        (record['id'], record['artifact_id'], record['artifact_digest']) in resolved
+        and invalid_legacy_visual_check(record))]
 
 
 async def review_visual_preview(path, *, runner, context):

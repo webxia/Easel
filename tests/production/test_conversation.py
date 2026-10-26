@@ -629,12 +629,17 @@ def test_main_claim_returns_product_policy_only(env):
 
 def test_production_preflight_requires_scoped_main_policy(monkeypatch):
     import httpx
-    from easel.conversation_bridge import require_persistent_gateway,TOOLS
-    value={'protocol':2,'agent_id':'main','tools':list(TOOLS)}
+    from easel.conversation_bridge import require_persistent_gateway,NATIVE_TOOLS
+    value={'protocol':2,'agent_id':'main','tools':list(NATIVE_TOOLS)}
     monkeypatch.setattr(httpx,'get',lambda *a,**k:httpx.Response(200,json=value,request=httpx.Request('GET','http://127.0.0.1:12345')))
     raises('gateway_bridge_incompatible',lambda:require_persistent_gateway('http://127.0.0.1:12345','token'))
     value['permission_policy']='main-pipeline-v1'
+    raises('gateway_bridge_incompatible',lambda:require_persistent_gateway('http://127.0.0.1:12345','token'))
+    value['bootstrap_policy']='product-bootstrap-v1'
     assert require_persistent_gateway('http://127.0.0.1:12345','token')['agent_id']=='main'
+    for name in ['easel_work_create_draft','easel_work_request_plan','easel_work_request_revision','exec']:
+        value['tools']=[*NATIVE_TOOLS,name]
+        raises('gateway_bridge_incompatible',lambda:require_persistent_gateway('http://127.0.0.1:12345','token'))
 
 @pytest.mark.parametrize('kind',['new_work','channel_create','director_formation'])
 def test_natural_entry_binds_only_discussion_and_preserves_source(env,kind):
@@ -738,3 +743,101 @@ def test_natural_entry_failure_has_no_success_receipt_or_partial_segment(env, mo
     with service.store.connection() as conn:
         for table in ('conversation_segments', 'conversation_turns', 'works', 'runs', 'tasks', 'operations', 'authorization_grants'):
             assert conn.execute('SELECT count(*) FROM '+table).fetchone()[0] == 0
+
+
+def test_same_native_turn_can_reclaim_during_compaction_but_not_after_end(env):
+    s,c=env;seg=entry(c,profile_ref='one')
+    b,i,reserved=turn(s,c,seg,'修改方案',id='compaction-reclaim')
+    # Plugin retains the original authenticated prompt only for an internal
+    # overflow retry; the server still verifies identity, liveness and revocation.
+    assert b.claim(Claim(**i,prompt=reserved['prompt']))['bound']
+    raises('binding_mismatch',lambda:b.claim(Claim(**i,prompt='Continue from transcript')))
+    raises('binding_mismatch',lambda:b.claim(Claim(**{**i,'run_id':'another-run'},prompt=reserved['prompt'])))
+    b.end(Identity(**i))
+    raises('binding_mismatch',lambda:b.claim(Claim(**i,prompt=reserved['prompt'])))
+
+
+def test_bootstrap_only_reads_product_policy_for_current_controlled_turn(env):
+    from easel.conversation_bridge import PersistentWorkToolBridge,BootstrapContext
+    from easel.video_workspace import pipeline_system_prompt
+    s,c=env;seg=entry(c,profile_ref='one');b=PersistentWorkToolBridge(s)
+    reserved=b.reserve(ui_session='ui',turn_id='bootstrap',segment_id=seg,message='只讨论',attachments=[])
+    req=BootstrapContext(agent_id='main',session_key='agent:main:easel-pipeline:'+seg,session_id='native')
+    with s.store.connection() as conn:
+        before=dict(conn.execute('SELECT * FROM conversation_turns WHERE id=?',('bootstrap',)).fetchone())
+    assert b.bootstrap(req)=={'bootstrap_policy':'product-bootstrap-v1','system_prompt':pipeline_system_prompt()}
+    with s.store.connection() as conn:
+        assert dict(conn.execute('SELECT * FROM conversation_turns WHERE id=?',('bootstrap',)).fetchone())==before
+        assert conn.execute('SELECT count(*) FROM works').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+    raises('binding_mismatch',lambda:b.bootstrap(req.model_copy(update={'session_key':'agent:main:ordinary'})))
+    with s.store.transaction() as conn:
+        conn.execute('UPDATE conversation_segments SET native_session_id=? WHERE id=?',('native',seg))
+    raises('binding_mismatch',lambda:b.bootstrap(req.model_copy(update={'session_id':'other'})))
+    with s.store.transaction() as conn:
+        conn.execute("UPDATE conversation_turns SET state='ended' WHERE id='bootstrap'")
+    raises('binding_mismatch',lambda:b.bootstrap(req))
+
+
+def test_draft_preserves_inherited_settings_sources_and_snapshot(env):
+    service,c=env
+    channel=CreativeCatalog(service).command('channels','create',{
+        'name':'来源测试','profile_ref':'one','settings':{'aspect_ratio':'16:9',
+        'subtitles':{'size':40}}},command_id='source-channel')['id']
+    with service.store.transaction() as conn:
+        profile=row(conn,'channels',channel)['profile_ref']
+        conn.execute('UPDATE profile_refs SET settings_json=? WHERE id=?',
+                     (encode({'schema_version':1,'audio_mode':'silent','subtitles':{'position':'bottom'}}),profile))
+    seg=entry(c,profile_ref='one',channel_id=channel)
+    b,i,_=turn(service,c,seg,'先讨论竖屏创作')
+    p=tool(b,i,'easel_work_create_draft',{'title':'来源测试','input_text':'先讨论竖屏创作'})
+    b.end(Identity(**i))
+    # Profile changes after entry must not replace the frozen entry values.
+    with service.store.transaction() as conn:
+        conn.execute('UPDATE profile_refs SET settings_json=? WHERE id=?',
+                     (encode({'schema_version':1,'audio_mode':'mixed'}),profile))
+    work=apply(c,p)['work_id']
+    with service.store.connection() as conn:
+        saved=row(conn,'works',work);ctx=json.loads(saved['creation_context_json'])
+        settings=json.loads(saved['settings_json'])
+        assert settings['audio_mode']=='silent' and settings['aspect_ratio']=='16:9'
+        assert ctx['settings_source']['explicit']=={}
+        assert ctx['settings_source']['origins']=={'aspect_ratio':'channel',
+            'subtitles.size':'channel','subtitles.position':'profile','audio_mode':'profile'}
+    service.command('basis',{'settings':{'aspect_ratio':'9:16','subtitles':{'size':44}}},
+        command_id='source-basis',work_id=work,expected_revision=saved['revision'])
+    with service.store.connection() as conn:
+        updated=row(conn,'works',work);basis=service._basis(conn,updated)
+        assert basis['settings']['aspect_ratio']=='9:16'
+        assert basis['settings']['subtitles']=={'size':44,'position':'bottom'}
+        assert basis['settings_source']['origins']=={'aspect_ratio':'work',
+            'subtitles.size':'work','subtitles.position':'profile','audio_mode':'profile'}
+        assert basis['settings_source']['explicit']=={'aspect_ratio':'9:16','subtitles':{'size':44}}
+    with service.store.connection() as conn:
+        assert c.context(conn,c.segment(conn,'ui',seg))['entry']['settings_source']==basis['settings_source']
+
+
+def test_legacy_entry_does_not_invent_explicit_settings_sources(env):
+    service,c=env;seg=entry(c,profile_ref='one')
+    with service.store.transaction() as conn:
+        context=json.loads(c.segment(conn,'ui',seg)['context_json'])
+        context.pop('settings_source');context['settings']={'aspect_ratio':'16:9'}
+        conn.execute('UPDATE conversation_segments SET context_json=? WHERE id=?',(encode(context),seg))
+    b,i,_=turn(service,c,seg)
+    p=tool(b,i,'easel_work_create_draft',{'title':'旧入口','input_text':'保留来源未知'})
+    b.end(Identity(**i));work=apply(c,p)['work_id']
+    with service.store.connection() as conn:
+        saved=row(conn,'works',work)
+        assert service._basis(conn,saved)['settings_source']=={}
+        assert json.loads(saved['settings_json'])['aspect_ratio']=='16:9'
+
+
+def test_legacy_explicit_bag_is_unknown_on_read_without_rewriting(env):
+    service,c,seg,work=draft(env)
+    with service.store.transaction() as conn:
+        raw=encode({'settings_source':{'explicit':{'aspect_ratio':'16:9'}}})
+        conn.execute('UPDATE works SET creation_context_json=? WHERE id=?',(raw,work))
+    with service.store.connection() as conn:
+        assert service._basis(conn,row(conn,'works',work))['settings_source']=={}
+        assert c.context(conn,c.segment(conn,'ui',seg))['entry']['settings_source']=={}
+        assert row(conn,'works',work)['creation_context_json']==raw

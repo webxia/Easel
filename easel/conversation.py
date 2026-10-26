@@ -8,7 +8,7 @@ from pathlib import Path
 from .production.service import digest, encode, fail, new_id, now, row
 from .production.catalog import CreativeCatalog, validate_channel_basis, validate_director_references
 
-PROPOSALS = {'draft', 'plan', 'revision', 'channel_create', 'channel_defaults', 'director_formation', 'profile', 'director_revision', 'pipeline'}
+PROPOSALS = {'draft', 'plan', 'channel_create', 'channel_defaults', 'director_formation', 'profile', 'director_revision', 'pipeline'}
 
 
 class ConversationService:
@@ -45,7 +45,12 @@ class ConversationService:
             if work:
                 settings=json.loads(work['settings_json'])
             else:
-                from .production.settings import merge_creation_settings
+                from .production.settings import merge_creation_settings, settings_origins
+                context['settings_source']={'origins':settings_origins(
+                    profile=json.loads(row(conn,'profile_refs',profile)['settings_json']) if profile else {},
+                    channel={**json.loads(ch['settings_json']),**({'director_revision':ch['default_director_revision']} if ch['default_director_revision'] else {})} if channel else {},
+                    work={k:entry[k] for k in ('director_revision','director_trial') if k in entry}),
+                    'explicit':{k:entry[k] for k in ('director_revision','director_trial') if k in entry}}
                 settings={}
                 if profile:settings.update(json.loads(row(conn,'profile_refs',profile)['settings_json']))
                 if channel:
@@ -77,6 +82,7 @@ class ConversationService:
         return self.store.execute_command(command_id,{'enter':entry,'session':session},execute,connection=_connection)
 
     def context(self, conn, segment):
+        from .production.settings import recorded_settings_source
         entry=json.loads(segment['context_json'])
         work=row(conn,'works',segment['work_id']) if segment['work_id'] else None
         if work:
@@ -85,10 +91,12 @@ class ConversationService:
             if plan:
                 payload=json.loads(plan[0]);snap=payload.get('profile_snapshot')
                 profile=json.loads(snap['content']) if snap else {}
-                entry={**entry,'settings':{**payload['settings'],'director_revision':payload.get('director_revision_id')},'frozen_basis':payload.get('conversation_basis')}
+                entry={**entry,'settings':{**payload['settings'],'director_revision':payload.get('director_revision_id')},'frozen_basis':payload.get('conversation_basis'),
+                       'settings_source':recorded_settings_source(payload.get('conversation_basis') or {})}
             else:
                 profile=self.service.profile_snapshot(conn,segment['profile_ref'])
-                entry={**entry,'settings':json.loads(work['settings_json'])}
+                entry={**entry,'settings':json.loads(work['settings_json']),
+                       'settings_source':recorded_settings_source(json.loads(work['creation_context_json']))}
         else:profile=self.service.profile_snapshot(conn,segment['profile_ref'])
         director_id=entry.get('settings',{}).get('director_revision')
         if director_id:
@@ -131,7 +139,7 @@ class ConversationService:
         if not segment['work_id']:fail('work_not_bound','请先确认作品草稿',409)
         work=row(conn,'works',segment['work_id']);self.service._ensure_idle(conn,work)
         if conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(work['id'],)).fetchone():
-            fail('revision_required','已有确认方案；本片修改意见请绑定具体成片走修订，讨论仍可继续',409)
+            fail('revision_required','已有确认方案；不要更新brief。请读取当前成片，用easel_pipeline offer action=revise绑定output_id；改口播用scope=narration、preserve_audio=false，只改画面用scope=edit；讨论仍可继续',409)
         if not isinstance(entries,list) or not entries or len(entries)>100:fail('invalid_input','创作依据无效')
         for item in entries:
             if not isinstance(item,dict) or set(item)!={'kind','text','source_refs'} or item['kind'] not in {'user_requirement','suggestion','unresolved'} or not isinstance(item['text'],str) or not item['text'].strip() or len(item['text'])>10000:fail('invalid_input','请区分用户要求、建议与未决项')
@@ -142,7 +150,7 @@ class ConversationService:
         body={'entries':entries,'sources':{ref:json.loads(row(conn,'conversation_turns',ref)['payload_json']).get('message','') for entry in entries for ref in entry['source_refs']}};revision=conn.execute('SELECT COALESCE(MAX(revision),0)+1 FROM work_briefs WHERE work_id=?',(work['id'],)).fetchone()[0]
         conn.execute('INSERT INTO work_briefs VALUES (?,?,?,?,?)',(work['id'],revision,encode(body),digest(body),now()))
         self.service._change(conn,work,current_plan_revision=None,state='discussing')
-        conn.execute("UPDATE conversation_proposals SET state='stale' WHERE state='proposed' AND kind IN ('plan','revision','director_formation') AND json_extract(body_json,'$.work_id')=?",(work['id'],))
+        conn.execute("UPDATE conversation_proposals SET state='stale' WHERE state='proposed' AND kind IN ('plan','director_formation') AND json_extract(body_json,'$.work_id')=?",(work['id'],))
         self.service._event(conn,work['id'],'brief_updated',{'brief_revision':revision,'brief_hash':digest(body)})
         return {'work_id':work['id'],'revision':row(conn,'works',work['id'])['revision'],'brief_revision':revision,'brief_hash':digest(body)}
 
@@ -158,10 +166,38 @@ class ConversationService:
             if not segment['work_id']:fail('work_not_bound','请先确认参考作品并登记视频',409)
             validate_director_references(conn,segment['work_id'],values.get('reference_input_ids'))
         if kind=='plan' and segment['work_id'] and conn.execute('SELECT 1 FROM plan_revisions WHERE work_id=? AND confirmed_at IS NOT NULL',(segment['work_id'],)).fetchone():
-            fail('revision_required','已有确认方案；未成片时读取 pending.preoutput_replan 的合法声音修订选项，已有成片使用 revise；原方案保持不变',409)
+            fail('revision_required','已有确认方案；明确重新规划使用easel_pipeline offer action=plan、intent=replan及本轮原话；继续制作走resume，局部修改走既有修订入口，按真实意图区分',409)
         if kind=='plan':
             from .conversation_pipeline import planning_values
             values=planning_values(self,conn,segment,values)
+        # Preserve actual human creative instructions at the handoff boundary.
+        # A model summary is useful, but cannot stand in for omitted negations.
+        action = values.get('action') if kind == 'pipeline' else kind
+        field = {'plan': 'request', 'revise': 'feedback'}.get(action) if isinstance(action,str) else None
+        if field:
+            sources = []
+            for ref in refs:
+                source = json.loads(row(conn,'conversation_turns',ref)['payload_json'])
+                if source.get('origin','user') == 'user' and source.get('message'):
+                    sources.append({'source_turn': ref, 'text': source['message']})
+            if sources:
+                if kind=='pipeline' and not isinstance(values.get('payload',{}),dict):
+                    fail('invalid_input','创作提案内容必须是对象')
+                creative = dict(values.get('payload',{})) if kind == 'pipeline' else dict(values)
+                request = creative.get(field,'')
+                # Reissuing an unchanged pre-Work proposal must not nest its
+                # already verified source view or alter its creative identity.
+                try:
+                    prior = json.loads(request)
+                except (ValueError,TypeError):
+                    prior = None
+                if (isinstance(prior,dict) and set(prior)=={'user_sources','agent_request'}
+                        and prior['user_sources']==sources and isinstance(prior['agent_request'],str)):
+                    request = prior['agent_request']
+                creative[field] = encode({'user_sources': sources, 'agent_request': request})
+                values = {**values, 'payload': creative} if kind == 'pipeline' else creative
+                if len(encode(values)) > 100000 or (field=='feedback' and len(creative[field])>10000):
+                    fail('invalid_input','创作原文与整理要求超出提案/修订长度上限；请缩短整理摘要或拆分输入，不能省略真人原文')
         # Proposed target comes only from the selected entry/Work, never free model IDs/paths.
         target=json.loads(segment['context_json'])
         if segment['work_id']:target={**target,'settings':json.loads(row(conn,'works',segment['work_id'])['settings_json'])}
@@ -173,13 +209,13 @@ class ConversationService:
         # Repeating an unchanged pending production question does not create a
         # new question. Keep its original sources, so a later human answer is
         # still answering what was already shown. Changed scope remains new.
-        if kind=='pipeline' and values.get('action')=='confirm':
+        if kind=='pipeline' and values.get('action') in {'confirm','binding'}:
             for pending in conn.execute("SELECT * FROM conversation_proposals WHERE segment_id=? AND kind='pipeline' AND state='proposed'",(segment['id'],)):
                 prior=json.loads(pending['body_json'])
                 if (all(prior.get(k)==body[k] for k in ('target','work_id','work_revision'))
                         and all(prior['values'].get(k)==values.get(k) for k in ('action','payload','catalog_target'))):
                     return {'proposal_id':pending['id'],'hash':pending['body_hash'],'state':'proposed','already_proposed':True,'values':prior['values'],'requires_user_confirmation':True,
-                            'message':'这是已经展示的同一制作提案，未新建或修改。若本轮用户明确确认，请answer这个原提案，不要再要求确认。'}
+                            'message':'这是已经展示的同一提案，未新建或修改。若本轮用户明确确认，请answer这个原提案，不要再要求确认。'}
         checksum=digest(body)
         previous=conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? AND kind=? AND body_hash=?',(segment['id'],kind,checksum)).fetchone()
         details={'values':values,'requires_user_confirmation':True} if kind in {'plan','pipeline'} else {}
@@ -190,13 +226,15 @@ class ConversationService:
         return {'proposal_id':id,'hash':checksum,'state':'proposed',**details}
 
     def view(self,session):
+        from .conversation_results import production_status, result_messages
         with self.store.connection() as conn:
             segment=self.segment(conn,session)
             proposals=[]
             for r in conn.execute('SELECT * FROM conversation_proposals WHERE segment_id=? ORDER BY created_at,id',(segment['id'],)):
                 p=dict(r);p['body']=json.loads(p.pop('body_json'));p['receipt']=json.loads(p.pop('receipt_json')) if p['receipt_json'] else None;proposals.append(p)
             return {'segment_id':segment['id'],'work_id':segment['work_id'],'context':json.loads(segment['context_json']),
-                'result_messages':[{'role':'assistant','content':v.get('answer',''),'serverTurnId':t['id'],'resultState':t['state'],'deliveryError':v.get('delivery_error')} for t in conn.execute("SELECT id,state,payload_json FROM conversation_turns WHERE segment_id=? AND json_extract(payload_json,'$.origin')='task_result' ORDER BY created_at,id",(segment['id'],)) for v in [json.loads(t['payload_json'])]],
+                'production_status':production_status(conn,segment['work_id']),
+                'result_messages':result_messages(conn,segment),
                 'proposals':proposals,'messages':[message for t in conn.execute('SELECT payload_json FROM conversation_turns WHERE segment_id=? ORDER BY created_at,id',(segment['id'],)) for message in self._visible_messages(json.loads(t['payload_json']))], 'turns':[{'id':r['id'],'state':r['state']} for r in conn.execute('SELECT id,state FROM conversation_turns WHERE segment_id=?',(segment['id'],))]}
 
     @staticmethod
@@ -206,7 +244,7 @@ class ConversationService:
         if payload.get('answer'):messages.append({'role':'assistant','content':payload['answer']})
         return messages
 
-    def apply(self,session,id,checksum,command_id,*,dismiss=False,_connection=None,_turn_id=None):
+    def apply(self,session,id,checksum,command_id,*,dismiss=False,_connection=None,_turn_id=None,_bind=None):
         def execute(conn):
             p=row(conn,'conversation_proposals',id);segment=self.segment(conn,session,p['segment_id'])
             if conn.execute("SELECT 1 FROM conversation_turns WHERE segment_id=? AND id!=? AND state IN ('reserved','active','dispatching','unknown')",(segment['id'],_turn_id or '')).fetchone():fail('invocation_pending','本轮尚未结束，请先核实结果',409)
@@ -222,14 +260,24 @@ class ConversationService:
             self.source_refs(conn,segment,body['source_refs'],allow_results=True)
             if kind=='pipeline':
                 from .conversation_pipeline import execute_action
-                result=execute_action(self,conn,segment,body,command_id)
+                if values.get('action')=='binding':
+                    if _bind is None:fail('confirmation_required','请在原对话答复选择提案',409)
+                    result=_bind(values['payload'])
+                else:
+                    result=execute_action(self,conn,segment,body,command_id,answer_turn_id=_turn_id)
             elif kind=='draft':
                 if segment['work_id']:fail('work_already_bound','运行段已绑定作品',409)
-                if set(values)-{'title','input_text'}:fail('invalid_input','草稿字段无效')
+                if set(values)-{'title','input_text'}:fail('invalid_input','草稿values只接受title和input_text；声线、字幕、时长等设置沿用已绑定频道，明确变更使用offer action=basis；不要向draft添加settings、request或work_id')
                 if target.get('channel'):
                     current=row(conn,'channels',target['channel_id'])
                     if current['revision']!=target['channel']['revision']:fail('stale_revision','频道默认已变化，请重新选择',409)
                 result=self.service.command('create',{**values,'profile_ref':segment['profile_ref'],'channel_id':target.get('channel_id'),'settings':target.get('settings',{}),'session_id':session},command_id=command_id+'_work',_connection=conn)
+                # The server-owned entry snapshot is resolved defaults, not an explicit
+                # per-work patch. Preserve its sources in the same creation transaction.
+                created=row(conn,'works',result['work_id'])
+                creation=json.loads(created['creation_context_json'])
+                creation['settings_source']=target.get('settings_source',{})
+                conn.execute('UPDATE works SET creation_context_json=? WHERE id=?',(encode(creation),result['work_id']))
                 conn.execute('UPDATE conversation_segments SET work_id=? WHERE id=?',(result['work_id'],segment['id']))
                 conn.execute('INSERT OR IGNORE INTO work_conversation_links VALUES (?,?,?)',(result['work_id'],session,now()))
                 self._capture_messages(conn,segment,result['work_id'])
@@ -241,15 +289,13 @@ class ConversationService:
                 for pending_plan in pending_plans:
                     proposed=json.loads(pending_plan['body_json'])
                     self.proposal(conn,bound,'plan',proposed['values'],proposed['source_refs'])
-            elif kind in {'plan','revision'}:
+            elif kind=='plan':
                 if not segment['work_id']:fail('work_not_bound','请先确认作品',409)
-                allowed={'request','services','duration_seconds'} if kind=='plan' else {'feedback','protected','interval'}
-                if set(values)-allowed:fail('invalid_input','提案字段无效')
-                if kind=='plan':
-                    from .conversation_pipeline import planning_values
-                    payload=planning_values(self,conn,segment,values,applying=True)
-                else:payload={'output_id':target.get('output_id'),'feedback':str(values.get('feedback',''))+'\n保护项：'+encode(values.get('protected',[]))+'\n区间：'+encode(values.get('interval'))}
-                result=self.service.command('plan' if kind=='plan' else 'revise',payload,command_id=command_id+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
+                if set(values)-{'request','services','duration_seconds'}:fail('invalid_input','提案字段无效')
+                from .conversation_pipeline import planning_values,planning_answer_values
+                payload=planning_values(self,conn,segment,values,applying=True)
+                payload=planning_answer_values(conn,segment,payload,_turn_id)
+                result=self.service.command('plan',payload,command_id=command_id+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
             elif kind in {'channel_create','channel_defaults'}:
                 if set(values)-{'name','creative_basis','settings'}:fail('invalid_input','频道提案字段无效')
                 channel=target.get('channel') if kind=='channel_defaults' else None
@@ -277,6 +323,11 @@ class ConversationService:
                     settings=merge_creation_settings(json.loads(row(conn,'profile_refs',segment['profile_ref'])['settings_json']),json.loads(saved['settings_json']))
                     for key in ('director_revision','director_trial'):
                         if key in target.get('settings',{}):settings[key]=target['settings'][key]
+                    from .production.settings import settings_origins
+                    explicit=(target.get('settings_source') or {}).get('explicit',{})
+                    target['settings_source']={'explicit':explicit,'origins':settings_origins(
+                        profile=json.loads(row(conn,'profile_refs',segment['profile_ref'])['settings_json']),
+                        channel=json.loads(saved['settings_json']),work=explicit)}
                     target.update(channel_id=saved['id'],channel={'id':saved['id'],'name':saved['name'],'revision':saved['revision'],'creative_basis':json.loads(saved['creative_basis_json'])},settings=settings)
                     conn.execute('UPDATE conversation_segments SET context_json=? WHERE id=?',(encode(target),segment['id']))
             elif kind=='director_formation':

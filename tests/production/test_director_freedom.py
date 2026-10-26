@@ -7,6 +7,7 @@ from easel.production.context import TaskContext
 from easel.production.model_tasks import ModelTaskRunner, ModelTaskError
 from easel.production.edit_observation import edit_observation_tools
 from easel.production.quality import VisualPreviewReview, review_visual_preview
+from easel.production.expression_policy import snapshot as expression_snapshot
 from easel.production.visual_repair import assert_visual_repair
 from easel.production.editors import EditProject, EditError
 
@@ -45,7 +46,7 @@ def test_advice_is_not_a_quality_failure_but_evidence_is(monkeypatch):
         async def run(self,*a,**kw):return self.answer
     runner=Runner()
     for findings,expected in [([], 'pass'), (['0秒核心证据被遮挡'], 'fail')]:
-        runner.answer=VisualPreviewReview(verdict='pass', observations=['构图可读'], findings=findings,
+        runner.answer=VisualPreviewReview(verdict='fail' if findings else 'pass', observations=['构图可读'], findings=findings,
             suggestions=['可以更早切近景'], limitations=['仅抽帧，未听声音'])
         status,data=asyncio.run(review_visual_preview(None,runner=runner,context=None))
         assert status==expected and data['review']['suggestions']
@@ -67,3 +68,51 @@ def test_automatic_retiming_keeps_story_voice_and_subtitles():
         elif field=='duration':bad['scenes'][0]['duration']=1.5
         else:bad['work_id']='other'
         with pytest.raises((EditError,ValueError)):assert_visual_repair(base,EditProject.model_validate(bad),overlay_texts=[],allow_retiming=True)
+
+
+def test_admitted_audio_inspection_is_correctable_without_claiming_it_was_heard(tmp_path):
+    from easel.production.tools import ToolInputError
+    tools=edit_observation_tools({})
+    ctx=TaskContext('w','r','t',allowed_handles=frozenset({'voice'}),artifacts=({'asset_id':'voice','kind':'audio'},))
+    calls=[{'id':'voice-check','function':{'name':'inspect_media',
+            'arguments':json.dumps({'asset_id':'voice','frame_times':[0.2]})}}]
+    class Transport:
+        capabilities=frozenset({'text','structured','tools'})
+        calls=0
+        async def complete(self,messages,definitions,schema):
+            self.calls+=1
+            assert '不支持音频' in definitions[0]['function']['description']
+            feedback=json.loads(next(m['content'] for m in messages if m.get('role')=='tool'))
+            assert feedback['executed'] is False and feedback['audio_observed'] is False
+            assert feedback['error']=='visual_only'
+            return {'content':'{"summary":"use known timing, no audio observation"}'}
+    transport=Transport()
+    async def authorize(ctx):pass
+    # Recover the known request; it must not be sent to the provider again.
+    result=asyncio.run(ModelTaskRunner(transport,authorize,max_format_repairs=1).run(
+        ctx,'edit',Answer,tools=tools,recovery=([],{'tool_calls':calls})))
+    assert transport.calls==1 and result.summary.startswith('use known timing')
+    with pytest.raises(ValueError,match='outside current work'):
+        asyncio.run(tools[0].invoke({'asset_id':'foreign','frame_times':[0]},ctx))
+
+
+@pytest.mark.parametrize('finding',['没有发现必须修复的问题','0秒核心证据被遮挡'])
+def test_visual_review_rejects_conflicting_pass_instead_of_guessing_text(finding):
+    with pytest.raises(ValueError,match='findings必须为空'):
+        VisualPreviewReview(verdict='pass',observations=['actual frame'],findings=[finding],limitations=[])
+
+
+def test_visual_review_repairs_conflicting_real_response_without_rendering(monkeypatch):
+    monkeypatch.setattr('easel.production.inspection.observe_media',lambda *a,**kw:((),frozenset(),{}))
+    class Transport:
+        capabilities=frozenset({'text','structured'})
+        calls=0
+        async def complete(self,messages,tools,schema):
+            self.calls+=1
+            return {'content':json.dumps({'verdict':'pass','observations':['实际画面可读'],
+                'findings':['未发现必须修复问题'] if self.calls==1 else [],'limitations':['未听声音']})}
+    transport=Transport()
+    async def authorize(ctx):pass
+    status,evidence=asyncio.run(review_visual_preview(None,runner=ModelTaskRunner(transport,authorize),context=TaskContext('w','r','t',expression_policy=expression_snapshot())))
+    assert transport.calls==2 and status=='pass'
+    assert evidence['review']['findings']==[] and not evidence['audio_reviewed']

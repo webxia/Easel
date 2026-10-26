@@ -6,9 +6,9 @@
 
 安装与基础启动沿用[官方README](../../../README.md)。从实际仓库根、项目虚拟环境执行；生产依赖使用production extra，前端按项目脚本构建。启用EASEL_PRODUCTION_ENABLED=1后Web装配持久Worker；已有Web时不另起第二个Worker。关闭入口不删除生产库、outputs、Profile或历史回执。
 
-受控对话使用现役main，easel-work的agentId=main、protocolVersion=2、permission_policy=main-pipeline-v1及九个具名业务工具。使用显式EASEL_VIDEO_GATEWAY_URL、EASEL_VIDEO_GATEWAY_TOKEN与独立EASEL_WORK_BRIDGE_TOKEN；缺配置/插件/握手失败须明确不可用，不切CLI绕过。旧easel-video双Agent部署步骤已归档，不能再照抄安装。
+受控对话使用现役main，easel-work的agentId=main、protocolVersion=2、permission_policy=main-pipeline-v1及具名业务工具。使用显式EASEL_VIDEO_GATEWAY_URL、EASEL_VIDEO_GATEWAY_TOKEN与独立EASEL_WORK_BRIDGE_TOKEN；缺配置/插件/握手失败须明确不可用，不切CLI绕过。旧easel-video双Agent部署步骤已归档，不能再照抄安装。
 
-保留main原工作区、模型和普通工具配置；插件在受控namespace内注入产品指令、收窄工具并核对逐次票据。不能通过文件分开放置宣称根开发指令已隔离。配置合成不得覆盖原plugins成员或私人配置；具体生成器选项先核对当前源码和--help。首次安装、重载、迁移及真实调用按任务授权执行。
+保留main原工作区、模型和普通工具配置；仅对agent:main:easel-pipeline受控会话，插件通过原生agent:bootstrap在上下文编译前将bootstrapFiles投影为服务端产品指令，排除通用AGENTS/SOUL/IDENTITY/MEMORY；其他main会话不变。bootstrap只读接口不绑定运行或授权，读取失败时在原生模型前阻断，不回退通用工作区。握手须包含bootstrap_policy=product-bootstrap-v1，仍由claim、toolsAllow及逐次票据控制执行。日常使用活动状态摘要，完整方案/历史及操作手册通过既有pending的detail=full读取；实际新方案交付仍完整。插件修改须重载Gateway，Web重载不能代替；隔离效果以原生运行报告/真实输入与会话测试核对，不仅凭文件分开放置或claim源码宣称。配置合成不得覆盖原plugins成员或私人配置；具体生成器选项先核对当前源码和--help。首次安装、重载、迁移及真实调用按任务授权执行。
 
 ## 创作模型
 
@@ -202,3 +202,20 @@ Freesound 暂不接入：官方要求开发者申请 API Key，原始文件下�
 视频视觉协议minimax-video-url不代表音轨可听。能力目录的configured_mode/active_scope/full_av_required/blocking与visual_video区分当前策略和完整音视频能力；available或verified_live=false不能当作真实全审通过。
 
 历史安装/部署命令和各轮探针结果保留在[运行配置原文](runtime-setup.md)，仅供追溯。
+
+
+## 可选本地SFX语义补充
+
+复用原MaterialSupply、素材目录和SQLite索引；原有效候选足够时不调用模型，仅SFX不足分支可补充。原候选顺序、外部授权回退、必用引用、音效角色及BGM讲话保护保持。覆盖和实测限制见[SFX-01实施记录](../project/tasks/SFX-01_local-audio-search.md)，未承诺所有中文表达命中或实际听音。
+
+可选依赖为`pip install '.[semantic]'`（固定sentence-transformers版本）；模型须预先在本机准备，维护时核对官方revision及文件摘要。运行入口不下载、不启动远程推理或自动重建。当前适配器只接本地BAAI/bge-m3 dense编码器；模型目录应包含官方配置/权重及`easel-model-identity.json`，内容为model_id、revision、dimensions=1024，具体已验revision见任务记录。
+
+本机忽略的.env使用`EASEL_SFX_SEMANTIC_ENABLED=1`、`EASEL_SFX_EMBEDDING_PATH=<本地模型目录绝对路径>`及`EASEL_SFX_SEMANTIC_MIN_SCORE=<该模型实测标定值>`。当前版本实测值0.712只适用于本次固定BGE-M3/标题投影，不应套用其他模型。缺配置、依赖或模型时沿原检索/外部回退，不增加确认步骤；启用配置后仍需正常重启worker加载。设enabled=0即可关闭补充，不删除索引或媒体。模型首次需要时懒加载并复用；本机实测峰值约2.08GiB，部署前应考虑这一资源占用。
+
+显式维护沿原索引API，保留已有业务记录与许可：
+
+```bash
+python scripts/index_sfx_materials.py --library outputs/_production/materials --model-path /absolute/model-directory
+```
+
+脚本要求已有V2目录，先备份派生索引，再按原可见范围分页更新SFX、跳过新鲜记录；可传owner/profile限定既有范围。共享素材按原scope保存，不复制到每个频道。不同模型/投影版本不得混用，变更后需显式刷新。原目录、音效、配音和作品引用不属于索引重建或回退的删除范围。

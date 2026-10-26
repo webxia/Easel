@@ -235,3 +235,98 @@ MIGRATIONS[4] = CONVERSATION_SQL
 
 from .publication import SQL as PUBLICATION_SQL
 MIGRATIONS[5] = PUBLICATION_SQL
+
+
+# PUB-01: accepting a completed version must not depend on a later plan's state.
+# Keep the technical/manual/known-failure rules; superseded is eligible only
+# with immutable evidence that completion preceded supersession.
+MIGRATIONS[6] = MIGRATIONS[3].replace(
+    "AND r.work_id=a.work_id AND r.state='succeeded')",
+    """AND r.work_id=a.work_id AND (r.state='succeeded' OR (
+                      r.state='superseded' AND EXISTS (
+                        SELECT 1 FROM events done JOIN events replaced
+                          ON replaced.run_id=done.run_id AND replaced.work_id=done.work_id
+                        WHERE done.work_id=a.work_id AND done.run_id=r.id
+                          AND done.kind='run_completed' AND replaced.kind='run_superseded'
+                          AND done.seq<replaced.seq))))""",
+)
+
+# PUB-01: keep every existing field/identity; only extend the platform constraint.
+# Rebuild parent+child together under Store.initialize's single transaction;
+# foreign keys stay enabled throughout, including the final foreign_key_check.
+MIGRATIONS[7] = PUBLICATION_SQL.replace(
+    "CHECK(platform='bilibili')",
+    "CHECK(platform IN ('bilibili','douyin','xiaohongshu','kuaishou','weixin-channels'))",
+).replace('publication_drafts', 'publication_drafts_next').replace(
+    'publication_attempts', 'publication_attempts_next'
+) + r'''
+INSERT INTO publication_drafts_next SELECT * FROM publication_drafts;
+INSERT INTO publication_attempts_next SELECT * FROM publication_attempts;
+DROP TABLE publication_attempts;
+DROP TABLE publication_drafts;
+ALTER TABLE publication_drafts_next RENAME TO publication_drafts;
+ALTER TABLE publication_attempts_next RENAME TO publication_attempts;
+'''
+
+# Creator review is authoritative for content findings. Retain all QC rows and
+# media identities; this migration changes only the acceptance constraint.
+MIGRATIONS[8] = r'''
+DROP TRIGGER acceptance_requires_reviewable;
+CREATE TRIGGER acceptance_requires_reviewable BEFORE INSERT ON acceptances
+WHEN NOT EXISTS (
+ SELECT 1 FROM artifacts a WHERE a.id=NEW.output_id AND a.work_id=NEW.work_id
+ AND a.kind='output' AND a.deleted_at IS NULL AND a.output_revision IS NOT NULL AND a.displayable=1
+ AND (
+   (a.quality_state='passed' AND NOT EXISTS (
+     SELECT 1 FROM quality_checks q JOIN artifacts same ON same.id=q.artifact_id
+     WHERE same.work_id=a.work_id AND same.digest=a.digest AND q.artifact_digest=a.digest
+     AND q.check_kind='semantic' AND q.status IN ('fail','partial')))
+   OR (
+     NEW.source='explicit_manual_review' AND a.quality_state IN ('needs_fix','passed')
+     AND EXISTS (SELECT 1 FROM works w WHERE w.id=a.work_id AND w.state!='cancelled' AND w.deleted_at IS NULL)
+     AND EXISTS (SELECT 1 FROM runs r WHERE r.id=a.run_id AND r.work_id=a.work_id
+       AND (r.state='succeeded' OR (r.state='superseded' AND EXISTS (
+         SELECT 1 FROM events done JOIN events replaced
+         ON replaced.run_id=done.run_id AND replaced.work_id=done.work_id
+         WHERE done.work_id=a.work_id AND done.run_id=r.id
+         AND done.kind='run_completed' AND replaced.kind='run_superseded' AND done.seq<replaced.seq))))
+     AND (SELECT q.status FROM quality_checks q WHERE q.artifact_id=a.id
+       AND q.artifact_digest=a.digest AND q.check_kind='technical'
+       ORDER BY q.created_at DESC,q.id DESC LIMIT 1)='pass'
+   )
+ )
+)
+BEGIN SELECT RAISE(ABORT,'output_not_reviewable'); END;
+'''
+
+# A finished output may be reviewed while its *automatic picture-only* repair
+# is safely stopped. Mirror WorkService's guard; retain every row and QC result.
+_STOPPED_VISUAL_REPAIR = r'''
+ r.kind='production' AND r.state='needs_decision' AND r.owner_id IS NULL
+ AND r.cancel_requested=0
+ AND EXISTS (SELECT 1 FROM works current WHERE current.id=a.work_id AND current.active_run_id=r.id)
+ AND NOT EXISTS (SELECT 1 FROM operations op WHERE op.run_id=r.id
+   AND op.state IN ('reserved','sending','submitted','unknown'))
+ AND (SELECT count(*) FROM tasks t WHERE t.run_id=r.id AND t.state NOT IN ('succeeded','cancelled'))=1
+ AND EXISTS (
+   SELECT 1 FROM tasks repair JOIN reviews v ON v.id=json_extract(repair.payload_json,'$.review_id')
+   WHERE repair.run_id=r.id AND repair.kind='revise' AND repair.state='needs_decision'
+   AND json_extract(repair.error_json,'$.code')='visual_material_gap'
+   AND json_type(repair.payload_json,'$.creative_visual_repair')='true'
+   AND json_extract(repair.payload_json,'$.repair_scope')='visual'
+   AND json_type(repair.payload_json,'$.preserve_audio')='true'
+   AND json_extract(repair.payload_json,'$.output_id')=a.id
+   AND v.work_id=a.work_id AND v.output_id=a.id
+   AND EXISTS (SELECT 1 FROM tasks rendered WHERE rendered.run_id=r.id
+     AND rendered.kind='render' AND rendered.state='succeeded'
+     AND json_extract(rendered.result_json,'$.output_id')=a.id)
+   AND EXISTS (SELECT 1 FROM tasks checked WHERE checked.run_id=r.id
+     AND checked.kind='quality' AND checked.state='succeeded'
+     AND json_extract(checked.result_json,'$.output_id')=a.id
+     AND json_extract(checked.payload_json,'$.visual_repair_review_id')=v.id)
+ )
+'''
+MIGRATIONS[9] = MIGRATIONS[8].replace(
+    "AND (r.state='succeeded' OR (r.state='superseded'",
+    "AND ((" + _STOPPED_VISUAL_REPAIR + ") OR r.state='succeeded' OR (r.state='superseded'",
+)

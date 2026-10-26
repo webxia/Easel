@@ -158,7 +158,8 @@ def test_model_authored_boards_plan_to_real_render_without_external_art_or_paid_
 
 
 @pytest.mark.parametrize('remains_invalid',[False,True])
-def test_native_draft_audit_sees_real_board_pixels_before_freeze_and_speech(tmp_path,font,remains_invalid):
+@pytest.mark.parametrize('aspect,size',[('16:9',[1920,1080]),('9:16',[1080,1920])])
+def test_native_draft_audit_sees_real_board_pixels_before_freeze_and_speech(tmp_path,font,remains_invalid,aspect,size):
     from easel.production.store import Store
     from easel.production.service import WorkService
     from easel.production.operations import OperationService
@@ -166,11 +167,11 @@ def test_native_draft_audit_sees_real_board_pixels_before_freeze_and_speech(tmp_
     from easel.production.worker import Worker
     store=Store(tmp_path/'db');store.initialize();service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     voice={'provider':'fixture','model':'speech','engine':'fixture','voice_id':'fixed'}
-    settings={'audio_mode':'voice','voice':voice,'aspect_ratio':'16:9'}
+    settings={'audio_mode':'voice','voice':voice,'aspect_ratio':aspect}
     work=service.command('create',{'title':'idea','input_text':'条件变化后，还会吗？','settings':settings},command_id='create')['work_id']
     identity={'provider':'direct-api','model':'fixture','mode':'structured'}
     service.command('plan',{'services':[identity]},work_id=work,expected_revision=1,command_id='plan')
-    draft={'title':'变化','summary':'假设演示','script':'检查条件和边界',
+    draft={'title':'变化','summary':'假设演示','script':'假设条件变了，换个办法再试。',
         'settings':{**settings,'duration_seconds':20},'scenes':[{'id':'s1','purpose':'解释','visual':'图解状态变化',
         'duration_seconds':20,'narration':'假设条件变了，换个办法再试。','required_input_ids':[]}], 'explainer_boards':[data()]}
     class Model:
@@ -181,6 +182,9 @@ def test_native_draft_audit_sees_real_board_pixels_before_freeze_and_speech(tmp_
             if schema['title']=='DraftReview':
                 self.audits+=1
                 assert sum(b.get('type')=='image_url' for b in messages[1]['content'])==2
+                descriptions=[b['text'] for b in messages[1]['content'] if b.get('type')=='text' and '实际源PNG和字幕坐标合同' in b['text']]
+                assert len(descriptions)==2
+                assert all(('\"source_size\":'+json.dumps(size,separators=(',',':'))) in value and '\"footer_editable\":false' in value for value in descriptions)
                 fail=self.audits==1 or remains_invalid
                 value={'verdict':'fail' if fail else 'pass','findings':['第二状态列标题无法容纳结果项'] if fail else [],
                     'observations':['实际草稿PNG两状态已观察'],'limitations':['未听声音、未选库存']}
@@ -197,8 +201,14 @@ def test_native_draft_audit_sees_real_board_pixels_before_freeze_and_speech(tmp_
     manifests=list((service.outputs/'_production/plan-previews').rglob('manifest.json'));assert len(manifests)==2
     for manifest in manifests:
         entries=json.loads(manifest.read_text())['frames']
-        assert all(e['caption_sample_bounds'][1]+e['caption_sample_bounds'][3]<1080-65 for e in entries)
+        assert all(e['caption_sample_bounds'][1]+e['caption_sample_bounds'][3]<size[1]-65 for e in entries)
         assert all(e['preview_sha256']!=e['sha256'] for e in entries)
+        for entry in entries:
+            contract=entry['render_contract']
+            assert contract['source_size']==contract['preview_size']==contract['caption_coordinate_size']==size
+            assert contract['source_aspect_ratio']==aspect
+            assert contract['footer_editable'] is False
+            assert contract['footer_text'].startswith('假设示意')
     if remains_invalid:
         assert snap['state']=='needs_decision' and not snap['plans']
     else:
@@ -230,3 +240,18 @@ def test_renderer_does_not_add_an_unrequested_step_order_to_classification(font,
     assert path.is_file() and '1. 显式步骤' in labels
     assert not any(str(i) in labels for i in range(1,7))
     assert any('6 条' in value and '2 组' in value for value in labels)
+
+
+@pytest.mark.parametrize('aspect', ['16:9','9:16'])
+def test_dense_board_keeps_subtitle_space_and_all_card_text(font,tmp_path,aspect):
+    d=data()
+    d['cards']=[{'id':str(i),'text':f'第{i}项：对照具体行动'} for i in range(1,11)]
+    d['states']=[{'title':'两组行动对照','groups':{'a':[str(i) for i in range(1,6)],'b':[str(i) for i in range(6,11)]},'highlight_ids':['3']}]
+    b=ExplainerBoard.model_validate(d)
+    path=render_board(b,0,font_path=font,aspect_ratio=aspect,destination=tmp_path/'dense.png')
+    image=Image.open(path)
+    w,h=image.size
+    # Reserved lower region is actually clear, not just described in a prompt.
+    region=image.crop((0,int(h*.8),w,int(h*.93)))
+    assert len(region.getcolors(region.width*region.height))==1
+    assert [c.text for c in b.cards]==[c['text'] for c in d['cards']]

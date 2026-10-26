@@ -456,6 +456,7 @@ def _publish_weixin_channels(page, ctx: dict) -> None:
     desc = "\n".join(x for x in (ctx.get("title"), ctx.get("desc"), ctx.get("tags")) if x)
     deadline = time.time() + 300
     published = False
+    commit_attempted = False
     last_err = None
     while time.time() < deadline and not published:
         fr = next((f for f in page.frames if "micro/content/post/create" in (f.url or "")), None)
@@ -482,6 +483,9 @@ def _publish_weixin_channels(page, ctx: dict) -> None:
                     }
                 }""", desc)
                 page.wait_for_timeout(1200)
+            if ctx.get('cover'):
+                from publish_cover import apply_custom_cover
+                apply_custom_cover(fr, 'weixin-channels', ctx['cover'])
             # 真机 2026-08 验证的可靠提交法：该 composer 是 OOPIF——Playwright locator 解析不到、
             # evaluate 合成点击不被视频号信任（校验 isTrusted）。故 evaluate 聚焦发表按钮 →
             # page.keyboard 按 Enter（CDP 系统级注入的可信键盘事件，路由到聚焦元素触发真实提交）。
@@ -504,6 +508,7 @@ def _publish_weixin_channels(page, ctx: dict) -> None:
                 last_err = "未找到发表按钮"
                 page.wait_for_timeout(3000)
                 continue
+            commit_attempted = True
             page.keyboard.press("Enter")   # 可信提交
             # 等 URL 离开创作页 = 提交成功（真机 ~6s 跳 /post/list）
             for _ in range(12):
@@ -512,8 +517,10 @@ def _publish_weixin_channels(page, ctx: dict) -> None:
                     published = True
                     break
             if not published:
-                last_err = "发表后未跳转（可能未提交），换新 frame 重试"
+                raise RuntimeError("发表动作已发出，平台结果待核实；不再重复提交")
         except Exception as e:
+            if commit_attempted:
+                raise RuntimeError("发表动作已发出，平台结果待核实；请查看原稿件，勿重发") from e
             last_err = e
             page.wait_for_timeout(3000)   # 多半是 frame 刚重载，换新 frame 重试
     if not published:
@@ -654,6 +661,9 @@ def _run_browser(a, headed: bool, do_publish: bool) -> int:
                 opt = s.get("optional", False)  # 可选步骤失败不中断（如清理旧草稿弹窗）
                 print(f"  步骤 {i}/{len(steps)}: {act} {sel}", file=sys.stderr)
                 if s.get("commit") and submitted_at_ms is None:
+                    if ctx.get('cover'):
+                        from publish_cover import apply_custom_cover
+                        apply_custom_cover(page, a.platform, ctx['cover'])
                     submitted_at_ms = int(time.time() * 1000)
                     print("  ⏱ 提交步（读回时间窗基准已记录）", file=sys.stderr)
                     # 单次提交契约 × 人类节奏：提交前「复核 + 反应」双停顿（human_pace）
@@ -791,6 +801,8 @@ def _run_browser(a, headed: bool, do_publish: bool) -> int:
                 _acct = (verdict.evidence or {}).get("account") or {}
                 _who = f"；账号：{_acct.get('display_name')}" if _acct.get("display_name") else ""
                 print(f"✅ {cfg['name']}发布成功（读回核验：作品 {m.platform_content_id}，{m.status or 'published'}{_who}）")
+                from publication_result import emit_verified
+                emit_verified(a.platform,m,_acct)
             elif chk:
                 if not ui_ok:
                     try:  # 仅失败时截图，供排错（正常成功不截）
