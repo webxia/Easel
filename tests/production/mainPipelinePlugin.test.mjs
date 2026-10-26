@@ -324,3 +324,68 @@ test('confirmed-film route hint survives native dispatch but private server fail
   await assert.rejects(tool.execute('private',params),error=>error.message===code);
  }finally{globalThis.fetch=old;}
 });
+
+test('native precheck success at tool boundary retains turn but requires authenticated rebuild',async()=>{
+ const r=runtime(),old=globalThis.fetch,requests=[];let deny=false;
+ const initial='查看已保存的方案，不启动制作';
+ globalThis.fetch=async(url,options)=>{
+  const body=JSON.parse(options.body);requests.push({url,body});
+  if(url.endsWith('/claim')){
+   assert.equal(body.prompt,initial);
+   if(deny)return new Response(JSON.stringify({error:{code:'binding_mismatch',user_message:'已撤销'}}),{status:403});
+   return response({bound:true,permission_policy:'main-pipeline-v1',system_prompt:'PRODUCT ONLY'});
+  }
+  return response(url.endsWith('/prepare')?{ticket:'server-owned-long-ticket-123456'}:{ended:true});
+ };
+ const boundary={success:true,messages:[{role:'assistant',stopReason:'toolUse',content:[]},{role:'toolResult',content:[]}]};
+ try{
+  await r.hooks.get('before_prompt_build')({prompt:initial},ctx);
+  await r.hooks.get('before_tool_call')({toolName:'easel_pipeline',toolCallId:'old-ticket',params:{mode:'pending'}},ctx);
+  // Exact installed native precheck shape: no event.error or assistant error.
+  await r.hooks.get('agent_end')(boundary,ctx);
+  assert.equal(requests.filter(x=>x.url.endsWith('/end')).length,0);
+  await assert.rejects(r.tools(ctx).find(t=>t.name==='easel_pipeline').execute('old-ticket',{mode:'pending'}),/missing_native_call_binding/);
+  assert.equal((await r.hooks.get('before_agent_run')({prompt:initial},ctx)).outcome,'block');
+  const continuation='Continue from the current transcript after precheck.';
+  assert.equal((await r.hooks.get('before_prompt_build')({prompt:continuation},ctx)).systemPrompt,'PRODUCT ONLY');
+  assert.equal(await r.hooks.get('before_agent_run')({prompt:continuation},ctx),undefined);
+  assert.equal((await r.hooks.get('before_agent_run')({prompt:continuation},{...ctx,runId:'foreign'})).outcome,'block');
+  await r.hooks.get('agent_end')(boundary,ctx);deny=true;
+  assert.deepEqual((await r.hooks.get('before_prompt_build')({prompt:'retry again'},ctx)).toolsAllow,[]);
+  assert.equal((await r.hooks.get('before_agent_run')({prompt:'retry again'},ctx)).outcome,'block');
+ }finally{globalThis.fetch=old;}
+});
+
+test('tool boundary failure, abort and final assistant still end exactly once',async()=>{
+ for(const ending of [
+  {success:false,error:'network unavailable',messages:[{role:'assistant',stopReason:'toolUse'},{role:'toolResult'}]},
+  {success:false,messages:[{role:'assistant',stopReason:'toolUse'},{role:'toolResult'}]},
+  {success:true,messages:[{role:'assistant',stopReason:'toolUse'},{role:'toolResult'},{role:'assistant',stopReason:'stop',content:[]}]},
+  {success:true,messages:[{role:'user',content:'Context overflow:'}]},
+ ]){
+  const r=runtime(),old=globalThis.fetch,requests=[];
+  globalThis.fetch=async(url)=>{requests.push(url);return response({bound:true,permission_policy:'main-pipeline-v1',system_prompt:'ONLY'});};
+  try{
+   await r.hooks.get('before_prompt_build')({prompt:'view'},ctx);
+   await r.hooks.get('agent_end')(ending,ctx);
+   assert.equal(requests.filter(x=>x.endsWith('/end')).length,1);
+   assert.equal((await r.hooks.get('before_agent_run')({prompt:'view'},ctx)).outcome,'block');
+  }finally{globalThis.fetch=old;}
+ }
+});
+
+test('acceptance rejection retains the exact safe service reason rather than a bare code',async()=>{
+ for(const [code,message] of [
+  ['quality_blocked','源制作仍在执行，不能接受；自动内容fail本身不禁止完整人工审片后接受'],
+  ['manual_review_confirmation_required','请完整审阅画面声音字幕同步并确认全部通过'],
+ ]){
+  const r=runtime(),old=globalThis.fetch;
+  globalThis.fetch=async(url)=>url.endsWith('/claim')?response({bound:true,permission_policy:'main-pipeline-v1',system_prompt:'ONLY'}):url.endsWith('/prepare')?response({ticket:'server-owned-long-ticket-123456'}):new Response(JSON.stringify({error:{code,user_message:message}}),{status:422});
+  try{
+   await r.hooks.get('before_prompt_build')({prompt:'接受此版'},ctx);
+   const params={mode:'offer',action:'accept',values:{output_id:'out'}};
+   await r.hooks.get('before_tool_call')({toolName:'easel_pipeline',toolCallId:'accept',params},ctx);
+   await assert.rejects(r.tools(ctx).find(t=>t.name==='easel_pipeline').execute('accept',params),error=>error.message===code+': '+message);
+  }finally{globalThis.fetch=old;}
+ }
+});

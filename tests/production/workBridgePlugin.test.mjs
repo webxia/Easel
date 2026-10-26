@@ -76,8 +76,8 @@ test('protocol 2 exposes one draft/plan route and retains independent lifecycle 
   let factory, route;
   createWorkBridge({pluginConfig:{baseUrl:'http://127.0.0.1:12345',token:'test-credential-long-enough-32',protocolVersion:2},on(){},registerHook(){},registerTool(fn){factory=fn;},registerHttpRoute(value){route=value;}});
   const tools=factory({...ctx,agentId:'main',sessionKey:'agent:main:easel-pipeline:one'});
-  assert.equal(tools.length,7);
-  for (const name of ['easel_work_create_draft','easel_work_request_plan'])
+  assert.equal(tools.length,6);
+  for (const name of ['easel_work_create_draft','easel_work_request_plan','easel_work_request_revision'])
     assert.ok(!tools.some(t=>t.name===name));
   const pipeline=tools.find(t=>t.name==='easel_pipeline').parameters.properties;
   assert.ok(pipeline.mode.enum.includes('preview'));
@@ -85,6 +85,9 @@ test('protocol 2 exposes one draft/plan route and retains independent lifecycle 
   assert.equal(pipeline.dismiss.type,'boolean');
   assert.match(pipeline.dismiss.description,/REQUIRED for answer/);
   assert.equal(pipeline.values.properties.output_revision.type,'integer');
+  assert.deepEqual(pipeline.values.properties.scope.enum,['edit','narration','boards']);
+  assert.match(pipeline.values.properties.output_id.description,/Exact current-work/);
+  assert.match(pipeline.values.properties.preserve_audio.description,/narration requires false/);
   for(const action of ['accept','publication_prepare','publication_save'])assert.ok(pipeline.action.enum.includes(action));
   for(const action of ['submit','upload','publish'])assert.ok(!pipeline.action.enum.includes(action));
   const proposalValues=tools.find(t=>t.name==='easel_work_propose').parameters.properties.values;
@@ -95,7 +98,7 @@ test('protocol 2 exposes one draft/plan route and retains independent lifecycle 
   for(const name of ['exec','accept','grant','publish','write','sessions_spawn'])assert.ok(!tools.some(t=>t.name===name));
   let status;route.handler({method:'GET'},{setHeader(){},end(text){status=JSON.parse(text);}});
   assert.equal(status.protocol,2);
-  assert.equal(status.tools.length,7);
+  assert.equal(status.tools.length,6);
 });
 
 

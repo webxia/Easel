@@ -618,7 +618,11 @@ def test_confirm_binds_current_plan_and_model_before_answer(env):
     assert payload['plan_hash']==state['current_plan']['plan_hash']
     assert payload['services']==[{'provider':'direct-api','model':'fixture-model','mode':'structured'}]
     assert 'IMAGE' not in str(payload['services'])
-    assert pipe(b,i,'pending',values={'detail':'full'})['current_plan']['plan']['script']=='原稿'
+    detailed=pipe(b,i,'pending',values={'detail':'full'})
+    assert detailed['current_plan']['plan']['script']=='原稿'
+    current=next(plan for plan in detailed['work']['plans'] if plan['revision']==detailed['current_plan']['revision'])
+    assert current['plan_ref']=='current_plan.plan' and 'plan' not in current
+    assert s.snapshot(work)['plans'][0]['plan']['script']=='原稿'
 
 
 def test_confirm_freezes_complete_services_and_never_expands_on_answer(env,monkeypatch):
@@ -865,8 +869,9 @@ def test_worker_receives_literal_human_revocations_even_when_summary_omits_them(
     b.end(Identity(**i));b,i,_=turn(s,c,seg,'确认规划服务，只出方案',id='yes')
     result=pipe(b,i,'answer',dismiss=False,proposal_id=question['proposal_id'],hash=question['hash'],user_quote='确认规划服务，只出方案')
     snap=s.snapshot(w);task=snap['tasks'][0];payload=json.loads(task['payload_json'])
-    assert payload['request']==question['values']['payload']['request']
-    assert '确认规划服务，只出方案' not in payload['request']
+    actual=json.loads(payload['request'])
+    assert actual['agent_request']==scope['agent_request']
+    assert actual['user_sources']==[*scope['user_sources'],{'source_turn':'yes','text':'确认规划服务，只出方案'}]
     ctx=SimpleNamespace(work_id=w,run_id=result['run_id'],task_id=task['id'],plan_revision=None,payload=payload)
     view=PlanningTasks(s,OperationService(s.store),None,{'provider':'direct-api','model':'fixture-model','mode':'structured'},'fixture').context(ctx)
     assert message in view.brief and '改成纯实拍' in view.brief
@@ -917,3 +922,138 @@ def test_output_revision_receives_original_feedback_not_only_model_summary(env):
     with s.store.connection() as conn:
         assert json.loads(row(conn,'reviews',payload['review_id'])['feedback'])==scope
     assert payload['preserve_audio'] is True
+
+
+def test_planning_answer_preserves_added_content_without_mutating_proposal_scope(env):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'做一个记录疑问的视频')
+    d=pipe(b,i,'draft',user_quote='做一个记录疑问的视频',values={'title':'疑问','input_text':'记录疑问'})
+    p=pipe(b,i,'offer',action='plan',values={'request':'记录疑问','services':[]},summary='只规划')
+    with s.store.connection() as conn:before=dict(conn.execute('SELECT * FROM conversation_proposals WHERE id=?',(p['proposal_id'],)).fetchone())
+    b.end(Identity(**i))
+    message='确认规划；开头用“有些问题，我当时想不明白。”结尾用“先记在这里，过几天再看。”不制作。'
+    b,i,_=turn(s,c,seg,message,id='mixed-answer')
+    result=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],dismiss=False,user_quote=message)
+    repeated=pipe(b,i,'answer',proposal_id=p['proposal_id'],hash=p['hash'],dismiss=False,user_quote=message)
+    assert repeated==result
+    snapshot=s.snapshot(d['work_id']);assert len(snapshot['runs'])==1
+    assert all(t['kind']=='plan' for t in snapshot['tasks'])
+    with s.store.connection() as conn:
+        task=conn.execute("SELECT payload_json FROM tasks WHERE run_id=? AND kind='plan'",(result['run_id'],)).fetchone()
+        request=json.loads(json.loads(task[0])['request'])
+        assert request['agent_request']=='记录疑问'
+        assert request['user_sources'][-1]=={'source_turn':'mixed-answer','text':message}
+        after=dict(conn.execute('SELECT * FROM conversation_proposals WHERE id=?',(p['proposal_id'],)).fetchone())
+        assert before['body_json']==after['body_json'] and before['body_hash']==after['body_hash']
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+
+
+def test_planning_answer_context_is_scoped_and_never_uses_task_events(env):
+    from easel.conversation_pipeline import planning_answer_values
+    s,c=env;seg=entry(c,profile_ref='one')
+    b,i,_=turn(s,c,seg,'用户原话',id='source')
+    with s.store.transaction() as conn:
+        segment=c.segment(conn,'ui',seg);data={'request':'原提案','services':[]}
+        assert planning_answer_values(conn,segment,data,'missing')==data
+        other={**dict(segment),'id':'another-segment'}
+        assert planning_answer_values(conn,other,data,'source')==data
+        raw=json.loads(conn.execute('SELECT payload_json FROM conversation_turns WHERE id=?',('source',)).fetchone()[0])
+        raw['origin']='task_result'
+        conn.execute('UPDATE conversation_turns SET payload_json=? WHERE id=?',(encode(raw),'source'))
+        assert planning_answer_values(conn,segment,data,'source')==data
+
+
+@pytest.mark.parametrize('scope,preserve_audio',[('edit',True),('narration',False)])
+def test_rendered_revision_explicit_target_does_not_require_preselected_output(env,scope,preserve_audio):
+    from tests.production.test_conversation import output_fixture
+    from pydantic import ValidationError
+    s,c=env
+    work=s.command('create',{'title':'成片','input_text':'已成片内容','profile_ref':'one'},command_id='film')['work_id']
+    output_fixture(s,work)
+    seg=entry(c,profile_ref='one',work_id=work)
+    before=s.snapshot(work)
+    b,i,_=turn(s,c,seg,'只提出修改范围，等我确认',id='explicit-output')
+    with pytest.raises(ValidationError):
+        tool(b,i,'easel_work_request_revision',{'feedback':'改末句'})
+    q=pipe(b,i,'offer',action='revise',values={'output_id':'out','scope':scope,'preserve_audio':preserve_audio,'feedback':'只改指定部分'})
+    assert q['requires_user_confirmation']
+    values=q['values']['payload']
+    assert values['output_id']=='out' and values['scope']==scope and values['preserve_audio'] is preserve_audio
+    after=s.snapshot(work)
+    for key in ['plans','runs','tasks','artifacts']:
+        assert after[key]==before[key]
+    with s.store.connection() as conn:
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+
+
+def test_retired_revision_proposal_cannot_be_created_or_executed(env):
+    s,c=env;seg=entry(c,profile_ref='one');b,i,_=turn(s,c,seg,'展示改稿范围',id='retired-source')
+    with s.store.transaction() as conn:
+        segment=c.segment(conn,'ui',seg)
+        raises('invalid_input',lambda:c.proposal(conn,segment,'revision',{'feedback':'旧入口'},['retired-source']))
+        body={'values':{'feedback':'旧入口'},'source_refs':['retired-source'],'target':{},'work_id':None,'work_revision':None}
+        conn.execute('INSERT INTO conversation_proposals(id,segment_id,kind,revision,body_json,body_hash,state,receipt_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)',('retired',seg,'revision',1,encode(body),'hash','proposed',None,now()))
+    b.end(Identity(**i))
+    raises('invalid_input',lambda:c.apply('ui','retired','hash','no-old-execution'))
+    assert s.list_works()['items']==[]
+
+
+def test_planning_fee_scope_is_task_policy_not_one_invocation_and_keeps_identity(env):
+    from easel.conversation_pipeline import planning_execution_scope
+    channel=seed(env);s,c=env
+    seg=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(s,c,seg,'整理精确20秒的方案')
+    work=pipe(b,i,'draft',user_quote='整理精确20秒的方案',values={'title':'20秒','input_text':'一个观察'})['work_id']
+    values={'request':'只整理方案，保留完整旁白','duration_seconds':20}
+    p=pipe(b,i,'offer',action='plan',values=values)
+    scope=p['execution_scope']
+    assert scope['execution_unit']=='planning_task' and scope['scope_kind']=='execution_policy_not_actual_usage'
+    assert 'unit' not in scope and '固定计费单位' in scope['billing_basis']
+    assert scope['service_count']==1 and scope['fixed_model_call_count'] is None
+    assert scope['may_make_multiple_model_calls'] is True
+    assert scope['includes_media_production'] is False
+    assert '多次模型调用' in scope['fee_message'] and '不等于只调用或只计费一次' in scope['fee_message']
+    with s.store.connection() as conn:
+        stored=dict(conn.execute('SELECT * FROM conversation_proposals WHERE id=?',(p['proposal_id'],)).fetchone())
+    assert 'execution_scope' not in json.loads(stored['body_json'])
+    before=s.snapshot(work)
+    for detail in ({},{'detail':'full'}):
+        shown=next(x for x in pipe(b,i,'pending',values=detail)['pending'] if x['id']==p['proposal_id'])
+        assert shown['execution_scope']==scope
+        assert shown['hash']==p['hash'] and shown['body']==json.loads(stored['body_json'])
+    again=pipe(b,i,'offer',action='plan',values=values)
+    assert (again['proposal_id'],again['hash'])==(p['proposal_id'],p['hash'])
+    assert again['execution_scope']==scope
+    with s.store.connection() as conn:
+        assert dict(conn.execute('SELECT * FROM conversation_proposals WHERE id=?',(p['proposal_id'],)).fetchone())==stored
+    assert s.snapshot(work)==before
+    assert before['runs']==[] and before['pending_operations']==[]
+    assert planning_execution_scope('confirm',{}) is None
+
+
+def test_full_context_returns_current_plan_once_without_losing_distinct_history():
+    import copy
+    from easel.conversation_pipeline import full_context
+    current={'revision':2,'plan_hash':'current','confirmed_at':None,
+             'plan':{'script':'全部真实口播','scenes':[{'id':'s1','visual':'实拍，不用图解'}],
+                     'constraints':['BGM和音效都要','AI额度0','完整旁白不能截断'],
+                     'settings':{'duration_seconds':20,'voice':{'voice_id':'fixed','speed':1}}}}
+    historical={'revision':1,'plan_hash':'old','plan':{'script':'历史稿'}}
+    inconsistent={**copy.deepcopy(current),'plan':{'script':'身份相同但内容不同，不能隐藏'}}
+    source={'context':{'sources':[{'text':'用户原话','ref':'user'}]},'current_plan':current,
+            'pending':[{'body':{'rights':'完整许可约束'}}],
+            'work':{'plans':[historical,copy.deepcopy(current),inconsistent],
+                    'tasks':[{'payload_json':'原记录'}],'artifacts':[{'kind':'output','checks':['原始检查']}]} }
+    before=copy.deepcopy(source)
+    view=full_context(source)
+    assert view['current_plan']==current
+    assert view['work']['plans'][0]==historical
+    assert view['work']['plans'][1]['plan_ref']=='current_plan.plan'
+    assert 'plan' not in view['work']['plans'][1]
+    assert view['work']['plans'][2]==inconsistent
+    assert view['context']==source['context'] and view['pending']==source['pending']
+    assert view['work']['tasks']==source['work']['tasks']
+    assert view['work']['artifacts']==source['work']['artifacts']
+    assert source==before
+    assert full_context(view)==view
+    assert full_context({'current_plan':None,'work':{'plans':[]}})=={'current_plan':None,'work':{'plans':[]}}

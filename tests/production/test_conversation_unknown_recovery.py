@@ -170,7 +170,17 @@ def test_explicitly_retired_unknown_does_not_block_later_known_failure(env):
         conn.execute("UPDATE conversation_proposals SET state='proposed' WHERE id=?",(p['proposal_id'],))
         raises('result_unknown',lambda:s.failed_planning_target(conn,row(conn,'works',work),option['values']['decision_id']))
         conn.execute("UPDATE conversation_proposals SET state='applied' WHERE id=?",(p['proposal_id'],))
-    fresh=pipe(b,i,'offer',action='plan',values=option['values'])
+    # Run05: repeating an unchanged duration is still an illegal recovery key.
+    before=s.snapshot(work)
+    for extra in ({'duration_seconds':3},{'duration_seconds':3,'settings':{}}):
+        with pytest.raises(ProductionError) as error:
+            pipe(b,i,'offer',action='plan',values={**option['values'],**extra,'request':'修正口播'})
+        assert error.value.code=='invalid_input'
+        assert 'duration_seconds' in error.value.user_message and 'request可' in error.value.user_message
+        assert '仅允许decision_id、request、services' in error.value.user_message
+        assert s.snapshot(work)==before
+    assert '不传duration_seconds/settings' in option['note']
+    fresh=pipe(b,i,'offer',action='plan',values={**option['values'],'request':'修正口播'})
     b.end(Identity(**i))
     b,i,_=turn(s,c,seg,'确认已知失败的新规划范围及费用',id='final-answer')
     latest=pipe(b,i,'answer',dismiss=False,proposal_id=fresh['proposal_id'],hash=fresh['hash'],user_quote='确认已知失败的新规划范围及费用')
@@ -178,3 +188,15 @@ def test_explicitly_retired_unknown_does_not_block_later_known_failure(env):
     with s.store.connection() as conn:
         assert dict(conn.execute('SELECT * FROM operations WHERE id=?',(old['id'],)).fetchone())==old
     assert len(calls)==1
+
+
+def test_model_diagnostics_do_not_attribute_previous_runs_to_current_revision(env):
+    s,c,seg,work,old,calls=paused(env)
+    with s.store.transaction() as conn:
+        s._event(conn,work,'model_call_diagnostic',{'operation_id':'previous-run-call','total_tokens':999999},run_id=None)
+    b,i,_=turn(s,c,seg,'本次花费',id='diagnostic-scope')
+    status=pipe(b,i,'pending')['model_calls']
+    assert status['diagnostic_scope']['run_id']==s.snapshot(work)['active_run_id']
+    assert '非完整调用数或费用账单' in status['diagnostic_scope']['coverage']
+    assert all(d.get('operation_id')!='previous-run-call' for d in status['diagnostics'])
+    assert status['diagnostics'][0]['operation_id']==old['id']

@@ -7,7 +7,8 @@ from .model_tasks import ModelTaskError
 def reserve_narration_slots(plan: dict) -> dict:
     """Allocate model-authored scene slack before Creator confirms the plan.
 
-    Each CJK character gets a conservative 0.22s plus 0.3s per scene.
+    Reserve CJK at 3.8 chars/s, ASCII alphanumerics at 6 chars/s,
+    plus 0.35s per spoken scene and explicit pauses, rounded to 30fps.
     No text, scene ordering, total film duration, or voice identity changes.
     Cannot silently modify an explicitly creator-frozen plan; call only when
     registering a newly generated draft.
@@ -24,7 +25,7 @@ def reserve_narration_slots(plan: dict) -> dict:
     duration=float(settings['duration_seconds'])
     original=[float(s['duration_seconds']) for s in scenes]
     if abs(sum(original)-duration)>0.03:
-        raise ModelTaskError('plan_scene_duration_invalid','模型分镜时长合计与已确认总时长不符')
+        raise ModelTaskError('plan_scene_duration_invalid',f'模型分镜时长合计{sum(original):.3f}秒，与已确认总时长{duration:.3f}秒不符；请同步分镜时长，不能更改总片长')
     def reserved(text: str) -> float:
         if not text.strip():return 0.0
         # Chinese-first spoken narration; Latin words are less predictable.
@@ -33,7 +34,12 @@ def reserve_narration_slots(plan: dict) -> dict:
         return ceil((cjk/3.8 + latin/6.0 + 0.35)*30)/30
     floors=[reserved(s.get('narration',''))+sum(p['seconds'] for p in s.get('narration_pauses',[])) for s in scenes]
     if sum(floors)>duration+1e-6:
-        raise ModelTaskError('plan_voice_budget_unavailable','旁白估算时长超过总片长，请压缩旁白或由Creator调整片长')
+        pauses=sum(sum(p['seconds'] for p in s.get('narration_pauses',[])) for s in scenes)
+        raise ModelTaskError('plan_voice_budget_unavailable',
+            f'旁白预留估算合计{sum(floors):.3f}秒（正文及逐场余量{sum(floors)-pauses:.3f}秒，'
+            f'显式停顿{pauses:.3f}秒），超过固定总片长{duration:.3f}秒约{sum(floors)-duration:.3f}秒。'
+            '这是3.8汉字/秒、6个ASCII字母数字/秒、每个有声场景0.35秒及30fps归帧的预留估算，不是配音实测。'
+            '请在已确认字数、固定首尾、自然停顿和语速内调整；无法同时满足时报告冲突，由Creator决定，不得自行删减到字数下限以下或改变片长/语速')
     result=original[:]
     for i in range(len(result)):
         shortage=max(0.0,floors[i]-result[i])

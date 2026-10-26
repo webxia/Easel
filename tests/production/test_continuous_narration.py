@@ -341,3 +341,21 @@ def test_scene_effects_follow_natural_duration_but_absolute_events_are_protected
         measured_execution_plan(p, [record(p), absolute])
     with pytest.raises(ModelTaskError):
         measured_execution_plan(p, [record(p), {'metadata_json': json.dumps({'original_audio': True})}])
+
+
+@pytest.mark.parametrize('mode',['fixed','voice_driven'])
+def test_duration_review_contract_agrees_with_actual_execution(mode):
+    from easel.production.narration import duration_execution_contract
+    p=sample();p['narration_policy']['duration_mode']=mode;before=deepcopy(p)
+    contract=duration_execution_contract(p)
+    executed,timing=measured_execution_plan(p,[record(p)])
+    assert p==before and contract['duration_seconds_required'] is True
+    assert contract['draft_duration_seconds']==105
+    if mode=='voice_driven':
+        assert contract['duration_seconds_meaning']=='planning_estimate'
+        assert contract['execution_basis']=='complete_measured_speech'
+        assert executed['settings']['duration_seconds']==timing['duration']!=105
+    else:
+        assert contract['duration_seconds_meaning']=='fixed_duration'
+        assert contract['execution_basis']=='confirmed_duration'
+        assert executed['settings']['duration_seconds']==timing['duration']==105

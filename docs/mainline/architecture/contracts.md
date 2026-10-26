@@ -220,6 +220,8 @@ RevisionPlanner输出ChangeSet：base_output、affected_scene_ids、changed_audi
 
 事实、已确认观点、必用内容、固定声音/字幕与权限为保护项。自然表达的软性偏好须服从本片文体和明确风格：正式分析不强制聊天化，诗性表达不强制全变事实短句，有意的排比、反复、停留或快切不因形式被判失败。参考样本只用于节奏、措辞等风格校准；没有样本也可工作，不强制上传样本或重新确认画像。
 
+材料事实保护不等于逐项写入口播：按表达目的取舍，保留明确必用内容；使用边界约束可写范围，影响判断的条件与不确定性必须保留。画面按目的选择，需要证据处保留证据要求，其余可使用获准替代表达，不冒充事实证据；不固定叙事结构或素材比例。新规则正文只在新任务冻结，既有任务不换快照。
+
 #### 6.1.2 嵌入现有任务的设计落点
 
 | 既有任务/入口 | 本期设计行为 | 保护边界 |
@@ -336,9 +338,10 @@ LIB-01内容库按已接受作品、未接受创作和其他文件项目收纳�
 | easel_work_register_inputs | attachment_id,usage | 仅登记本 segment 当前用户来源消息中的真实附件句柄及参考/必用用途；原声、区间、Rights 不属于本原生工具参数，须沿独立具来源的确认提案处理 |
 | easel_work_update_brief | entries(kind,text,source_refs) | user_requirement必须引用可见用户原话；归纳标suggestion，未决项标unresolved；活动Run拒绝修改冻结依据 |
 | easel_work_request_plan | request | 产生版本化规划提案；下一真人轮确认后沿受控命令排程，不接受模型自行补写 services/grant |
-| easel_work_request_revision | feedback,protected,interval | 绑定已选 Output 的修订提案；下一真人轮确认后走原 revise，扩大范围继续按既有确认规则 |
 | easel_work_propose | 固定kind,values,source_refs | 只提议 channel_create/channel_defaults/director_formation/profile/director_revision；目标与来源由程序校验，应用须用户下一真人回合明确 `answer`，旧卡接口仅作兼容 |
 | easel_pipeline | mode=pending/bind/draft/offer/answer，offer 带受限 action 与 values；answer 带 proposal_id/hash/user_quote/dismiss | 统一三条管线的目录读取、绑定、提案及文字确认；只有当前用户后续明确答复才能应用，UNKNOWN 新规划须单独说明重复调用风险，不得同轮自行授权或制作 |
+
+成片修订统一使用easel_pipeline offer action=revise，显式选择真实output_id及scope；旁白改稿用scope=narration、preserve_audio=false。协议2已删除无output_id/scope参数的request_revision工具、声明和解析；旧revision提案不再创建或执行，历史记录不删除。正式领域revise和已绑定范围的pipeline提案继续使用同一生产修订实现。
 
 协议2当前沿用“先提出具体提案、下一真人回合明确确认”的执行边界，主要在原生对话中通过 `easel_pipeline offer → answer` 应用；旧卡片可在独立高级路径兼容使用，但不是对话的必选提交步骤。候选正文、自动任务事件都不能冒充用户授权。无需 Work 的频道提案不创建空 Work。 answer必须显式携带严格布尔dismiss：true仅拒绝当前提案，false明确批准已展示操作；省略、null、字符串或数字均拒绝，不能把缺失决策当作批准。该校验不替代模型对真人语义的正确理解，仍保留来源、展示版本及UNKNOWN保护。
 
@@ -457,7 +460,7 @@ A2持久记录/来源/工具桥与频道语义、A3统一对话/程序卡/共享
 
 入口导航每次具名选择生成新的enter命令；服务端按同Work/依据复用原运行段。导航不创建Work/Run，避免永久复用旧导航回执导致当前段未切换。生产/保存命令仍按精确目标、版本和载荷持久去重。
 
-创建前对话与Work创建共用merge_creation_settings，字幕按字段继承，音色与导演身份整体覆盖。Planning将固定voice/subtitles按同一Pydantic合同展开后比较，等价缺省值可通过，明确变更仍阻断。频道名称要求非空文字，非法提案保存失败时保留proposed且无catalog回执。
+创建前对话与Work创建共用merge_creation_settings，字幕按字段继承，音色与导演身份整体覆盖。设置来源沿现有creation_context、creation_basis及Plan的conversation_basis保存：profile/channel/work逐字段标记，字幕细到子字段；入口已解析快照不冒充Work显式补丁。Planning称为“当前有效设置”，继承默认不等于逐项用户确认。来源缺失保持未知，文本冲突沿既有basis/修订入口处理，不自动覆盖有效设置或迁移旧任务。Planning将固定voice/subtitles按同一Pydantic合同展开后比较，等价缺省值可通过，明确变更仍阻断。频道名称要求非空文字，非法提案保存失败时保留proposed且无catalog回执。
 
 受限工作区装载经审查的Easel产线交互知识及来源SHA，保留“先让用户看见方案、预览和真实检查，再作明确决定”的经验；不加载旧可执行技能。A5 历史 memory-core 组合实测仅暴露8个作品工具；当前部署后受限插件精确握手为9个工具，更广泛插件/自动记忆/slash入口的安全保证仍以实际核验为准，不能推广为OS隔离。
 
@@ -636,6 +639,12 @@ Wikimedia音乐检索和有限回退均保留music/instrumental用途；按文�
 
 `easel_pipeline`mode=preview是原对话的只读成片查看：values仅允许output_id/output_revision，均缺省时返回本Work最新可见输出；不存在或跨作品版本拒绝，返回preview_output.playback_url和preview_text。此动作不创建提案/Run/模型调用/媒体制作，无需用户确认；宿主沿原持久消息投影回显播放器，即使模型答复中断也可恢复。pending摘要提供真实播放地址及所选版本最新检查findings，完整观察仍通过detail=full读取；旧版本问题不得解释成新版检查结论。
 
+普通plan提案的回执与pending待答视图附只读execution_scope：execution_unit为规划任务（执行单位，不是固定计费单位），service_count是模型服务数，fixed_model_call_count未固定且可能有多次有界调用。写稿、审阅、工具/格式纠正按实际调用计量，不能承诺仅调用或计费一次，也不在规划阶段包含配音或成片制作。该说明不写入提案正文，不改变hash、授权、请求或预算，保留既有回执与恢复身份。
+
+preview_output.audio_usage只读指定成片所绑定的注册剪辑工程：核对同Work、Plan与实际依赖、文件摘要和删除状态后，返回input_clips中实际混音输入片段的角色、时间区间、增益及来源名，并单列镜头原声；project_duration不是旁白片段长度。exported_audio仅从本版已有技术检查投影真实导出流及声道信息，没有该记录则标为unavailable，不能将多个输入片段或双声道误称额外导出流。available证明工程中的编排，不代表已试听或同步通过；缺工程或绑定无法核实时返回unavailable，不返回伪造的零音轨结论。未选候选与本地路径/原始metadata不进入清单，不新增制作或接口。
+
+模型侧pending与preview的成片投影不将内部quality_state直接作为缺陷结论；保留检查状态、实际findings，单列非阻断suggestions和已观察范围。显式详情保留原始观察与限制于observation_details，不因精简丢失证据；原域状态与人工接受规则不改，未经听审不能将工程有音轨、技术检查或视觉抽样当作完整声音/语义通过。
+
 
 ### CRE-01 主线多轮对话投影补充（2026-10-25）
 
@@ -650,3 +659,13 @@ ContextPreparation既有官方压缩允许在上一条已知原生结束的空le
 
 
 创作原话交接：新plan/revise提案在既有request/feedback中分别保存服务器从已验证source_refs读取的origin=user原文与agent_request派生整理；宿主事件不能成为真人源，确认/服务授权本身不变。新方案conversation_basis.creative_request冻结本任务最新本期补充，所有后续生产/审阅上下文优先本Task.request，否则读取所选已确认Plan的creative_request；口播/图解差量和受保护声音模式新版本保留原画像/频道/导演身份，同时更新本期补充。旧Plan及其哈希、已发送请求/回执不回填或改写，真实新依据改变新Plan/hash。仅当完整补充已在brief时，模型视图去掉Plan中的重复副本，内部冻结记录始终保留；缺源旧任务不因读取自动新增字段。
+
+
+pending的detail=full保留完整当前方案于current_plan.plan；work.plans中仅当revision、plan_hash及实际正文均相同时，用plan_ref=current_plan.plan代替重复正文，版本身份与确认状态仍保留。历史版本/不一致正文保持完整，来源、任务回执、许可与设置不裁剪；只改模型读取投影，不改冻结方案/指纹/授权。此去重不承诺覆盖任意上下文压力。
+
+原生agent_end的success=true并不单独证明Easel整轮完成：底座mid-turn预检恢复可能先移除合成error，末尾为toolResult且最近assistant.stopReason=toolUse。该非终态工具边界与显式overflow均仅保留原run/session的原始claimPrompt并销毁旧call绑定；未经过下一次before_prompt_build服务端claim重校时before_agent_run仍阻断。明确错误/中止/最终assistant按正常结束，续接文字不得成为新真人授权，不新增模型重试或改变UNKNOWN保护。
+
+
+人工接受的源成片完成性补充（schema9）：同一production Run若仅剩绑定所选成片的自动画面修订因visual_material_gap停在needs_decision，且无owner、无取消、无在途/UNKNOWN，已有同输出的成功render与quality记录及quality→review→repair绑定，则该完整首片可沿原人工接受入口确认。仍须本版技术PASS、文件存在/摘要相等，以及明确完整审阅画面/声音/字幕/同步的manual_review_confirmed；数据库触发器与业务校验独立约束同一范围。不同任务、手动修订、旁白/声音改动、缺渲染/检查证据或结果待核实不适用。接受只登记具体版本与人工结论，保留原自动fail/暂停Task/Run/已用媒体和费用；不标制作成功、不恢复或重发。已接受版本可沿原发布草稿校验准备，仍须独立发布授权。导演接受规则不变。schema9仅替换既有acceptance触发器，不改业务行或重写历史证据；上线需按当前部署授权，不能靠改生产状态绕过。
+
+原生插件对quality_blocked及manual_review_confirmation_required传回现有服务端user_message，而非只交付裸错误码；两者均为本地定义的安全业务说明。未在既有安全白名单内的错误不透出任意provider正文或凭证，不能据通用错误码臆测语义fail永远不可人工接受。

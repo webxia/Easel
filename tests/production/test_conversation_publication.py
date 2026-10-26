@@ -118,4 +118,12 @@ def test_pending_uses_existing_projection_and_full_detail_remains_explicit(prepa
     assert summary['work']['artifacts'][0]['id'] in {'passed','unchecked'}
     assert 'long-history-' not in json.dumps(summary)
     assert 'long-history-' in json.dumps(detail)
-    assert summary['work']['artifacts'][0]['quality_state'] in {'passed','unchecked'}
+    presented=summary['work']['artifacts'][0]
+    raw=next(a for a in s.snapshot(w)['artifacts'] if a['id']==presented['id'])
+    assert raw['quality_state'] in {'passed','unchecked'}
+    assert 'quality_state' not in presented
+    assert presented['delivery']==raw['delivery']
+    assert presented['manual_review_required']==raw['manual_review_required']
+    detailed=next(a for a in detail['work']['artifacts'] if a['id']==presented['id'])
+    assert detailed['delivery']==presented['delivery']
+    assert [{k:v for k,v in q.items() if k!='observation_details'} for q in detailed['checks']]==presented['checks']

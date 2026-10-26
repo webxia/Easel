@@ -42,3 +42,12 @@ def test_bound_dialogue_system_separates_operation_manual_without_dropping_safet
     for boundary in ['UNKNOWN','下一真人回合','完整逐字稿','Rights','不自动投稿','不能编造用户亲历',
                      '新建方案','draft→保存依据→plan','成功持久化的Plan','不冒充正式方案','offer action=confirm','不新建提案供取消']:
         assert boundary in prompt
+
+
+def test_retired_revision_name_is_removed_from_bounded_policy():
+    original={'profile':'full','allow':['read','easel_work_request_revision'],'deny':['exec']}
+    result=main_pipeline_tools(original)
+    assert 'easel_work_request_revision' not in result['allow']
+    assert set(result['allow'])=={'read',*NATIVE_TOOLS}
+    assert result['deny']==original['deny']
+    assert original['allow']==['read','easel_work_request_revision']

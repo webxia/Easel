@@ -198,11 +198,12 @@ class Store:
 
     def bump_work(self, connection: sqlite3.Connection, work_id: str, expected_revision: int, **updates) -> dict:
         allowed = {"title", "input_text", "profile_ref", "channel_id", "state", "current_plan_revision",
-                   "active_run_id", "accepted_output_id", "image_limit", "video_limit", "settings_json"}
+                   "active_run_id", "accepted_output_id", "image_limit", "video_limit", "settings_json", "creation_context_json"}
         if set(updates) - allowed:
             raise ValueError("unsupported work fields")
-        if isinstance(updates.get("settings_json"), dict):
-            updates["settings_json"] = canonical_json(updates["settings_json"])
+        for field in ("settings_json", "creation_context_json"):
+            if isinstance(updates.get(field), dict):
+                updates[field] = canonical_json(updates[field])
         updates["updated_at"] = utc_now()
         assignments = ",".join(f"{key}=?" for key in updates)
         cursor = connection.execute(

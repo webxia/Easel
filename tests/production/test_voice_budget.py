@@ -47,3 +47,31 @@ def test_budget_fails_before_paid_voice_call_when_impossible():
 def test_budget_does_not_touch_silent_creative_plan():
     p={'settings':{'duration_seconds':4,'audio_mode':'silent'},'scenes':[{'duration_seconds':4,'narration':'非常多的话'*50}]}
     assert reserve_narration_slots(p)==p
+
+
+def test_fixed_budget_feedback_reports_pause_cost_without_changing_contract():
+    # Run05: explicit pauses plus a near-limit script exceed a fixed 20s.
+    p={'settings':{'duration_seconds':20,'audio_mode':'mixed'},'scenes':[
+        {'id':str(i),'duration_seconds':d,'narration':'字'*n,
+         'narration_pauses':[{'after':1,'seconds':pause}]}
+        for i,(d,n,pause) in enumerate([(4,14,.4),(8,32,.45),(8,28,.6)])]}
+    before=copy.deepcopy(p)
+    with pytest.raises(ModelTaskError) as exc:reserve_narration_slots(p)
+    msg=exc.value.user_message
+    assert '22.050秒' in msg and '1.450秒' in msg and '20.000秒' in msg
+    assert '不是配音实测' in msg and '字数下限' in msg
+    assert p==before
+    # A valid lower-bound draft fits; no arbitrary loosening of the estimate.
+    for scene,n in zip(p['scenes'],[14,26,30]):
+        scene['narration']='字'*n
+        scene['narration_pauses']=[]
+    revised=reserve_narration_slots(p)
+    assert sum(s['duration_seconds'] for s in revised['scenes'])==20
+    assert revised['settings']==p['settings']
+    assert ''.join(s['narration'] for s in revised['scenes'])=='字'*70
+
+
+def test_fixed_scene_sum_feedback_exposes_both_durations():
+    p={'settings':{'duration_seconds':20,'audio_mode':'voice'},'scenes':[
+        {'duration_seconds':d,'narration':'一句话'} for d in (4,6,7.5)]}
+    with pytest.raises(ModelTaskError,match='17.500秒.*20.000秒'):reserve_narration_slots(p)

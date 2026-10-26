@@ -21,7 +21,7 @@ Python 对应 `easel/work_bridge.py` 不在正式 Web 挂载，其 invocation/ti
 
 ## S6-14A协议2（A2～A4源码已实现）
 
-设置`protocolVersion=2`启用8个具名工具及持久宿主`easel/conversation_bridge.py`；create_draft/request_plan/request_revision返回待确认卡，实际提交由Web卡操作执行。新增propose只创建频道/导演/长期保存提议，不应用目标。原协议1保留A1兼容，不可用内存探针替代持久宿主。
+设置`protocolVersion=2`启用6个具名工具及持久宿主`easel/conversation_bridge.py`。草稿/规划/修订统一沿easel_pipeline；修订显式绑定output_id，改旁白用scope=narration、preserve_audio=false，展示范围后由下一真人回合answer确认。propose只创建频道/导演/长期保存提议，不应用目标。原协议1仅为A1原型，不可用内存探针替代持久宿主。
 
 部署字段与明确边界见[运行说明](../../../docs/v2/16_RUNTIME_SETUP.md)，源码/验证证据见[S6-14A](../../../docs/v2/tasks/S6-14A_conversation-integration.md)。`scripts/prepare_video_workspace.py`只准备新工作区及待合并patch；合并时保留main和原plugins allow/load成员，正式安装、权限合成及服务加载仍须按部署安排验收。本轮未修改实际OpenClaw或生产数据库。
 

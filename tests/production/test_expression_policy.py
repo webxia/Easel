@@ -226,3 +226,37 @@ def test_old_confirmed_plan_cannot_start_supply_or_spend(tmp_path):
     assert service.snapshot(spec['work_id'])['plans'] == before
     with store.connection() as conn:
         assert conn.execute('SELECT count(*) FROM operations').fetchone()[0] == 0
+
+
+def test_settings_sources_are_frozen_and_model_cannot_forge_them(tmp_path):
+    service,work,transport,worker=setup(tmp_path)
+    submitted=deepcopy(transport.answer)
+    submitted['conversation_basis']={'settings_source':{'origins':{'aspect_ratio':'channel'}}}
+    with service.store.transaction() as conn:
+        frozen=service.freeze_plan(conn,row(conn,'works',work),submitted)
+        assert frozen['conversation_basis']['settings_source']['origins']['aspect_ratio']=='work'
+        old=row(conn,'works',work)
+        raw=json.loads(old['creation_context_json']);raw.pop('settings_source')
+        conn.execute('UPDATE works SET creation_context_json=? WHERE id=?',(json.dumps(raw),work))
+    asyncio.run(worker.run_once())
+    # Request comes from the task's creation snapshot, not the changed Work.
+    prompt=json.dumps(transport.requests,ensure_ascii=False)
+    assert '当前有效设置' in prompt and '本次明确设置：' not in prompt
+    assert '设置字段来源' in prompt and '不等于用户逐项明确选择' in prompt
+    with service.store.connection() as conn:
+        saved=json.loads(conn.execute('SELECT payload_json FROM plan_revisions WHERE work_id=?',(work,)).fetchone()[0])
+        assert saved['conversation_basis']['settings_source']==frozen['conversation_basis']['settings_source']
+        assert json.loads(row(conn,'works',work)['creation_context_json'])==raw
+
+
+def test_replacement_writing_rules_reach_author_without_new_review_call(tmp_path):
+    service,work,transport,worker=setup(tmp_path)
+    asyncio.run(worker.run_once())
+    author=json.dumps(transport.requests[0],ensure_ascii=False)
+    assert '材料的使用边界约束可写内容，不必逐项念出' in author
+    assert '材料不必逐项进入旁白' in author
+    assert '需要证据处保留证据要求，其余可用获准替代表达' in author
+    assert '保留明确必用内容' in author
+    assert '频道细化本次交流语境；导演决定叙事及视听方法' in author
+    assert transport.calls==1  # Silent fixture keeps its existing author-only path.
+    assert service.snapshot(work)['state']=='awaiting_confirmation'

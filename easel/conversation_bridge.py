@@ -31,11 +31,6 @@ class RegisterArgs(Strict):
 class BriefArgs(Strict):
     entries: list[dict] = Field(min_length=1,max_length=100)
 
-class RevisionArgs(Strict):
-    feedback: str = Field(min_length=1,max_length=10000)
-    protected: list[str] = Field(default_factory=list,max_length=100)
-    interval: dict | None = None
-
 class ProposalArgs(Strict):
     kind: Literal['channel_create','channel_defaults','director_formation','profile','director_revision']
     values: dict
@@ -78,7 +73,7 @@ TOOLS={
     'easel_pipeline':PipelineArgs,
     'easel_work_context':ContextArgs,'easel_work_create_draft':DraftArgs,'easel_work_request_plan':PlanArgs,
     'easel_work_input_evidence':EvidenceArgs,'easel_work_register_inputs':RegisterArgs,
-    'easel_work_update_brief':BriefArgs,'easel_work_request_revision':RevisionArgs,'easel_work_propose':ProposalArgs,
+    'easel_work_update_brief':BriefArgs,'easel_work_propose':ProposalArgs,
 }
 # Protocol-1 proposal adapters remain readable/applicable through their stored
 # receipts, but are not choices for a new persistent native conversation.
@@ -86,7 +81,7 @@ NATIVE_TOOLS = frozenset(TOOLS) - {'easel_work_create_draft','easel_work_request
 
 class PersistentCall(Identity):
     tool_call_id: str = Field(min_length=1,max_length=256)
-    tool: Literal['easel_pipeline','easel_work_context','easel_work_create_draft','easel_work_request_plan','easel_work_input_evidence','easel_work_register_inputs','easel_work_update_brief','easel_work_request_revision','easel_work_propose']
+    tool: Literal['easel_pipeline','easel_work_context','easel_work_create_draft','easel_work_request_plan','easel_work_input_evidence','easel_work_register_inputs','easel_work_update_brief','easel_work_propose']
     params: dict
 
 class PersistentDispatch(PersistentCall):
@@ -287,7 +282,6 @@ class PersistentWorkToolBridge:
                 refs=[record['id']]
                 if request.tool=='easel_work_create_draft':kind,values='draft',args
                 elif request.tool=='easel_work_request_plan':kind,values='plan',args
-                elif request.tool=='easel_work_request_revision':kind,values='revision',args
                 else:kind,values,refs=args['kind'],args['values'],args['source_refs']
                 result=self.conversations.proposal(conn,segment,kind,values,refs)
                 result['requires_user_confirmation']=True

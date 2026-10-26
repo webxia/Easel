@@ -8,7 +8,7 @@ from pathlib import Path
 from .production.service import digest, encode, fail, new_id, now, row
 from .production.catalog import CreativeCatalog, validate_channel_basis, validate_director_references
 
-PROPOSALS = {'draft', 'plan', 'revision', 'channel_create', 'channel_defaults', 'director_formation', 'profile', 'director_revision', 'pipeline'}
+PROPOSALS = {'draft', 'plan', 'channel_create', 'channel_defaults', 'director_formation', 'profile', 'director_revision', 'pipeline'}
 
 
 class ConversationService:
@@ -45,7 +45,12 @@ class ConversationService:
             if work:
                 settings=json.loads(work['settings_json'])
             else:
-                from .production.settings import merge_creation_settings
+                from .production.settings import merge_creation_settings, settings_origins
+                context['settings_source']={'origins':settings_origins(
+                    profile=json.loads(row(conn,'profile_refs',profile)['settings_json']) if profile else {},
+                    channel={**json.loads(ch['settings_json']),**({'director_revision':ch['default_director_revision']} if ch['default_director_revision'] else {})} if channel else {},
+                    work={k:entry[k] for k in ('director_revision','director_trial') if k in entry}),
+                    'explicit':{k:entry[k] for k in ('director_revision','director_trial') if k in entry}}
                 settings={}
                 if profile:settings.update(json.loads(row(conn,'profile_refs',profile)['settings_json']))
                 if channel:
@@ -77,6 +82,7 @@ class ConversationService:
         return self.store.execute_command(command_id,{'enter':entry,'session':session},execute,connection=_connection)
 
     def context(self, conn, segment):
+        from .production.settings import recorded_settings_source
         entry=json.loads(segment['context_json'])
         work=row(conn,'works',segment['work_id']) if segment['work_id'] else None
         if work:
@@ -85,10 +91,12 @@ class ConversationService:
             if plan:
                 payload=json.loads(plan[0]);snap=payload.get('profile_snapshot')
                 profile=json.loads(snap['content']) if snap else {}
-                entry={**entry,'settings':{**payload['settings'],'director_revision':payload.get('director_revision_id')},'frozen_basis':payload.get('conversation_basis')}
+                entry={**entry,'settings':{**payload['settings'],'director_revision':payload.get('director_revision_id')},'frozen_basis':payload.get('conversation_basis'),
+                       'settings_source':recorded_settings_source(payload.get('conversation_basis') or {})}
             else:
                 profile=self.service.profile_snapshot(conn,segment['profile_ref'])
-                entry={**entry,'settings':json.loads(work['settings_json'])}
+                entry={**entry,'settings':json.loads(work['settings_json']),
+                       'settings_source':recorded_settings_source(json.loads(work['creation_context_json']))}
         else:profile=self.service.profile_snapshot(conn,segment['profile_ref'])
         director_id=entry.get('settings',{}).get('director_revision')
         if director_id:
@@ -142,7 +150,7 @@ class ConversationService:
         body={'entries':entries,'sources':{ref:json.loads(row(conn,'conversation_turns',ref)['payload_json']).get('message','') for entry in entries for ref in entry['source_refs']}};revision=conn.execute('SELECT COALESCE(MAX(revision),0)+1 FROM work_briefs WHERE work_id=?',(work['id'],)).fetchone()[0]
         conn.execute('INSERT INTO work_briefs VALUES (?,?,?,?,?)',(work['id'],revision,encode(body),digest(body),now()))
         self.service._change(conn,work,current_plan_revision=None,state='discussing')
-        conn.execute("UPDATE conversation_proposals SET state='stale' WHERE state='proposed' AND kind IN ('plan','revision','director_formation') AND json_extract(body_json,'$.work_id')=?",(work['id'],))
+        conn.execute("UPDATE conversation_proposals SET state='stale' WHERE state='proposed' AND kind IN ('plan','director_formation') AND json_extract(body_json,'$.work_id')=?",(work['id'],))
         self.service._event(conn,work['id'],'brief_updated',{'brief_revision':revision,'brief_hash':digest(body)})
         return {'work_id':work['id'],'revision':row(conn,'works',work['id'])['revision'],'brief_revision':revision,'brief_hash':digest(body)}
 
@@ -165,7 +173,7 @@ class ConversationService:
         # Preserve actual human creative instructions at the handoff boundary.
         # A model summary is useful, but cannot stand in for omitted negations.
         action = values.get('action') if kind == 'pipeline' else kind
-        field = {'plan': 'request', 'revise': 'feedback', 'revision': 'feedback'}.get(action) if isinstance(action,str) else None
+        field = {'plan': 'request', 'revise': 'feedback'}.get(action) if isinstance(action,str) else None
         if field:
             sources = []
             for ref in refs:
@@ -193,9 +201,6 @@ class ConversationService:
         # Proposed target comes only from the selected entry/Work, never free model IDs/paths.
         target=json.loads(segment['context_json'])
         if segment['work_id']:target={**target,'settings':json.loads(row(conn,'works',segment['work_id'])['settings_json'])}
-        if kind=='revision' and segment['work_id']:
-            from .production.revisions import revision_output
-            revision_output(conn,row(conn,'works',segment['work_id']),{'output_id':target.get('output_id','')})
         if kind=='channel_defaults' and target.get('channel_id'):
             channel=row(conn,'channels',target['channel_id'])
             target['channel']={'id':channel['id'],'name':channel['name'],'revision':channel['revision'],'settings':json.loads(channel['settings_json']),'creative_basis':json.loads(channel['creative_basis_json'])}
@@ -259,7 +264,7 @@ class ConversationService:
                     if _bind is None:fail('confirmation_required','请在原对话答复选择提案',409)
                     result=_bind(values['payload'])
                 else:
-                    result=execute_action(self,conn,segment,body,command_id)
+                    result=execute_action(self,conn,segment,body,command_id,answer_turn_id=_turn_id)
             elif kind=='draft':
                 if segment['work_id']:fail('work_already_bound','运行段已绑定作品',409)
                 if set(values)-{'title','input_text'}:fail('invalid_input','草稿values只接受title和input_text；声线、字幕、时长等设置沿用已绑定频道，明确变更使用offer action=basis；不要向draft添加settings、request或work_id')
@@ -267,6 +272,12 @@ class ConversationService:
                     current=row(conn,'channels',target['channel_id'])
                     if current['revision']!=target['channel']['revision']:fail('stale_revision','频道默认已变化，请重新选择',409)
                 result=self.service.command('create',{**values,'profile_ref':segment['profile_ref'],'channel_id':target.get('channel_id'),'settings':target.get('settings',{}),'session_id':session},command_id=command_id+'_work',_connection=conn)
+                # The server-owned entry snapshot is resolved defaults, not an explicit
+                # per-work patch. Preserve its sources in the same creation transaction.
+                created=row(conn,'works',result['work_id'])
+                creation=json.loads(created['creation_context_json'])
+                creation['settings_source']=target.get('settings_source',{})
+                conn.execute('UPDATE works SET creation_context_json=? WHERE id=?',(encode(creation),result['work_id']))
                 conn.execute('UPDATE conversation_segments SET work_id=? WHERE id=?',(result['work_id'],segment['id']))
                 conn.execute('INSERT OR IGNORE INTO work_conversation_links VALUES (?,?,?)',(result['work_id'],session,now()))
                 self._capture_messages(conn,segment,result['work_id'])
@@ -278,15 +289,13 @@ class ConversationService:
                 for pending_plan in pending_plans:
                     proposed=json.loads(pending_plan['body_json'])
                     self.proposal(conn,bound,'plan',proposed['values'],proposed['source_refs'])
-            elif kind in {'plan','revision'}:
+            elif kind=='plan':
                 if not segment['work_id']:fail('work_not_bound','请先确认作品',409)
-                allowed={'request','services','duration_seconds'} if kind=='plan' else {'feedback','protected','interval'}
-                if set(values)-allowed:fail('invalid_input','提案字段无效')
-                if kind=='plan':
-                    from .conversation_pipeline import planning_values
-                    payload=planning_values(self,conn,segment,values,applying=True)
-                else:payload={'output_id':target.get('output_id'),'feedback':str(values.get('feedback',''))+'\n保护项：'+encode(values.get('protected',[]))+'\n区间：'+encode(values.get('interval'))}
-                result=self.service.command('plan' if kind=='plan' else 'revise',payload,command_id=command_id+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
+                if set(values)-{'request','services','duration_seconds'}:fail('invalid_input','提案字段无效')
+                from .conversation_pipeline import planning_values,planning_answer_values
+                payload=planning_values(self,conn,segment,values,applying=True)
+                payload=planning_answer_values(conn,segment,payload,_turn_id)
+                result=self.service.command('plan',payload,command_id=command_id+'_work',work_id=segment['work_id'],expected_revision=body['work_revision'],_connection=conn)
             elif kind in {'channel_create','channel_defaults'}:
                 if set(values)-{'name','creative_basis','settings'}:fail('invalid_input','频道提案字段无效')
                 channel=target.get('channel') if kind=='channel_defaults' else None
@@ -314,6 +323,11 @@ class ConversationService:
                     settings=merge_creation_settings(json.loads(row(conn,'profile_refs',segment['profile_ref'])['settings_json']),json.loads(saved['settings_json']))
                     for key in ('director_revision','director_trial'):
                         if key in target.get('settings',{}):settings[key]=target['settings'][key]
+                    from .production.settings import settings_origins
+                    explicit=(target.get('settings_source') or {}).get('explicit',{})
+                    target['settings_source']={'explicit':explicit,'origins':settings_origins(
+                        profile=json.loads(row(conn,'profile_refs',segment['profile_ref'])['settings_json']),
+                        channel=json.loads(saved['settings_json']),work=explicit)}
                     target.update(channel_id=saved['id'],channel={'id':saved['id'],'name':saved['name'],'revision':saved['revision'],'creative_basis':json.loads(saved['creative_basis_json'])},settings=settings)
                     conn.execute('UPDATE conversation_segments SET context_json=? WHERE id=?',(encode(target),segment['id']))
             elif kind=='director_formation':

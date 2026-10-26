@@ -128,3 +128,15 @@ def test_natural_duration_estimate_does_not_force_script_compression(audio_mode)
     candidate['narration_policy']['duration_mode'] = 'fixed'
     with pytest.raises(ValidationError, match='plan_voice_budget_unavailable'):
         VoiceReadyCreativePlan.model_validate(candidate)
+
+
+def test_explicit_script_scene_punctuation_conflict_is_not_silently_reconciled():
+    from easel.production.planning import CreativePlanChanges,merge_plan_changes
+    base=plan('具体看看缺的是信息，还是下一步没想清楚。')
+    changes={'scenes':[dict(s) for s in base['scenes']], 'script':base['script']}
+    changes['scenes'][0]['narration']=changes['scenes'][0]['narration'][:-1]+'？'
+    with pytest.raises(ValidationError,match="script='。'，narration='？'"):
+        merge_plan_changes(CreativePlanChanges.model_validate(changes),base)
+    assert base['scenes'][0]['narration'].endswith('。')
+    changes['script']='\n'.join(s['narration'] for s in changes['scenes'])
+    assert merge_plan_changes(CreativePlanChanges.model_validate(changes),base).script==changes['script']

@@ -151,6 +151,34 @@ class SupplyTasks:
             validate((json.loads(plan['payload_json']).get('conversation_basis') or {}).get('expression_policy'))
             inputs = [dict(r) for r in conn.execute('SELECT * FROM work_inputs WHERE work_id=?', (ctx.work_id,))]
             records = [dict(r) for r in conn.execute("SELECT * FROM artifacts WHERE work_id=? AND deleted_at IS NULL AND json_extract(metadata_json,'$.supply_task_id')=? ORDER BY created_at,id", (ctx.work_id, ctx.task_id))]
+            # A narration-only plan keeps the selected output's visual/audio
+            # choices. Recover that exact binding through its successful plan
+            # task and review, rather than running new keyword searches.
+            source=conn.execute("""SELECT v.output_id FROM tasks t
+                JOIN runs r ON r.id=t.run_id JOIN reviews v ON v.id=r.target_ref
+                WHERE t.work_id=? AND v.work_id=t.work_id AND t.kind='plan'
+                AND t.state='succeeded' AND json_extract(t.result_json,'$.plan_revision')=?
+                AND json_extract(t.payload_json,'$.revision_scope')='narration'
+                ORDER BY t.created_at DESC LIMIT 1""",(ctx.work_id,ctx.plan_revision)).fetchone()
+            if source:
+                output=conn.execute('SELECT metadata_json FROM artifacts WHERE id=? AND work_id=? AND deleted_at IS NULL',
+                    (source['output_id'],ctx.work_id)).fetchone()
+                if not output:
+                    raise ProductionError('material_changed','原修订成片不可用，请核实后继续',requires_decision=True)
+                project_id=json.loads(output['metadata_json'])['project_id']
+                project=conn.execute("SELECT id FROM artifacts WHERE id=? AND work_id=? AND kind='edit_project' AND deleted_at IS NULL",
+                    (project_id,ctx.work_id)).fetchone()
+                if not project:
+                    raise ProductionError('material_changed','原修订剪辑工程不可用，请核实后继续',requires_decision=True)
+                inherited=[dict(r) for r in conn.execute("""SELECT a.* FROM artifacts a
+                    JOIN artifact_edges e ON e.dependency_id=a.id
+                    WHERE e.artifact_id=? AND a.work_id=?
+                    AND a.kind IN ('image','video','audio')
+                    AND json_extract(a.metadata_json,'$.asset_ref') IS NOT NULL
+                    ORDER BY a.created_at,a.id""",(project_id,ctx.work_id))]
+                if any(r['deleted_at'] for r in inherited):
+                    raise ProductionError('material_changed','原修订已选素材不可用，请核实后继续',requires_decision=True)
+                records.extend(r for r in inherited if r['id'] not in {v['id'] for v in records})
         for record in records:
             path = MaterialFileStore(self.service.outputs).resolve_asset_locator(record['storage_ref'])
             if digest_file(path) != record['digest']:

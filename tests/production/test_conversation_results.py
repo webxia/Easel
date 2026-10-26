@@ -528,7 +528,8 @@ def test_unconfirmed_narration_change_reuses_plan_without_revision_confirmation(
         with pytest.raises(ProductionError) as exc:
             pipe(b,i,'offer',action=action,values=values)
         assert exc.value.code in {'plan_revision_required','revision_review_missing'}
-    with pytest.raises(ProductionError,match='未确认方案'):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
         tool(b,i,'easel_work_request_revision',{'feedback':message})
     with s.store.connection() as conn:
         assert conn.execute('SELECT count(*) FROM conversation_proposals').fetchone()[0]==count
@@ -608,3 +609,33 @@ def test_preview_preserves_visual_verdict_without_promoting_full_semantics(visua
     verdict={'pass':'通过','fail':'发现问题','partial':'部分完成',None:'未完整验证'}[visual]
     assert '本版画面抽样检查：'+verdict+'（仅抽样）' in text
     assert '本版内容检查：未完整验证' in text
+
+
+def test_output_projection_separates_suggestions_from_actual_findings():
+    from easel.conversation_pipeline import output_summary
+    raw={'id':'out','quality_state':'needs_fix','manual_review_required':True,'checks':[
+        {'kind':'technical','status':'pass','findings':{}},
+        {'kind':'semantic','status':'not_tested','findings':{'scope':'sampled_visual_only',
+            'visual_status':'pass','audio_reviewed':False,'full_av_reviewed':False,
+            'evidence':[{'time':.5,'observation':'笔尖触纸'}],
+            'review':{'verdict':'pass','findings':[],'suggestions':['构图可以更松一点'],
+                      'limitations':['仅抽样，不含听审']}}}]}
+    projected=output_summary(raw)
+    assert 'quality_state' not in projected
+    assert projected['manual_review_required'] is True
+    check=projected['checks'][-1]
+    assert check['visual_status']=='pass' and check['status']=='not_tested'
+    assert check['findings']==[] and check['suggestions']==['构图可以更松一点']
+    assert check['audio_reviewed'] is False and check['full_av_reviewed'] is False
+    assert 'observation_details' not in check
+    detailed=output_summary(raw,detail=True)['checks'][-1]
+    assert detailed['observation_details']['evidence']==[{'time':.5,'observation':'笔尖触纸'}]
+    assert detailed['observation_details']['review_observations']['limitations']==['仅抽样，不含听审']
+    assert 'findings' not in detailed['observation_details']
+    assert raw['quality_state']=='needs_fix'
+    raw['checks'][-1]['status']='fail'
+    raw['checks'][-1]['findings']['visual_status']='fail'
+    raw['checks'][-1]['findings']['review']={'verdict':'fail','findings':['字幕超出画面'],'suggestions':[]}
+    failed=output_summary(raw)['checks'][-1]
+    assert failed['status']=='fail' and failed['visual_status']=='fail'
+    assert failed['findings']==['字幕超出画面']

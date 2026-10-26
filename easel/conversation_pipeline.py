@@ -32,6 +32,17 @@ def publications(conversations):
 CATALOG_ACTIONS = {'director_style','director_accept','channel_director'}
 
 
+def planning_execution_scope(action, values):
+    """Execution policy is not an invocation count or an alteration of consent."""
+    if action!='plan':return None
+    return {'scope_kind':'execution_policy_not_actual_usage','execution_unit':'planning_task',
+        'service_count':len(values.get('services',[])),
+        'fixed_model_call_count':None,'may_make_multiple_model_calls':True,
+        'includes_media_production':False,
+        'billing_basis':'由服务商计费规则和实际用量决定；规划任务不是Easel承诺的固定计费单位。',
+        'fee_message':'一次规划任务可能包含写稿、审阅和有界工具/格式纠正，产生多次模型调用；一个模型服务不等于只调用或只计费一次。次数及费用以实际回执与服务商计费为准，本提案不含配音、取素材或成片制作。'}
+
+
 def planning_decision(conversations,conn,segment):
     return conn.execute("""SELECT t.* FROM tasks t JOIN works w ON w.active_run_id=t.run_id
         WHERE w.id=? AND t.kind='plan' AND t.state='needs_decision'
@@ -92,7 +103,11 @@ def planning_values(conversations,conn,segment,values,*,applying=False,authoriza
         fail('plan_revision_required','已有可审阅方案；改稿使用plan、values.intent=replan及本轮request，并以user_quote引用真人明确改稿要求。不要重复首次规划确认；继续制作使用原确认或resume入口。',409)
     if values.get('decision_id'):
         conversations.service.failed_planning_target(conn,row(conn,'works',segment['work_id']),values['decision_id'])
-        if set(values)-{'decision_id','request','services'}:fail('invalid_input','首次规划恢复须保持现有创作设置')
+        extra=set(values)-{'decision_id','request','services'}
+        if extra:fail('invalid_input',
+            '首次规划恢复须保持现有创作设置；values仅允许decision_id、request、services。'
+            '本次不允许的字段：'+','.join(sorted(extra))+'。'
+            '省略duration_seconds和settings，即使与原值相同也不要重传；片长和声音等沿用当前作品。request可说明本轮修正要求')
     if 'duration_seconds' in values:
         conversations.service._validate_settings({'duration_seconds':values['duration_seconds']})
     if 'settings' in values:
@@ -153,8 +168,9 @@ def unknown_replan_target(conversations, conn, segment, values):
 
 def call_status(conversations, conn, segment):
     if not segment['work_id']: return {'diagnostics': [], 'recovery': None}
+    active_run=row(conn,'works',segment['work_id'])['active_run_id']
     diagnostics = [json.loads(r[0]) for r in conn.execute(
-        "SELECT payload_json FROM events WHERE work_id=? AND kind='model_call_diagnostic' ORDER BY seq DESC LIMIT 5", (segment['work_id'],))]
+        "SELECT payload_json FROM events WHERE work_id=? AND run_id=? AND kind='model_call_diagnostic' ORDER BY seq DESC LIMIT 5", (segment['work_id'],active_run))]
     task = conn.execute("SELECT t.id FROM tasks t JOIN works w ON w.active_run_id=t.run_id WHERE w.id=? AND t.kind='plan' AND t.state='needs_decision' AND EXISTS (SELECT 1 FROM operations o WHERE o.task_id=t.id AND o.state='unknown')", (segment['work_id'],)).fetchone()
     recovery = None
     if task:
@@ -165,7 +181,30 @@ def call_status(conversations, conn, segment):
             recovery.update(can_offer=True, next_action={'mode': 'offer', 'action': 'replan_after_unknown', 'values': {'decision_id': task['id']}})
         except ProductionError as exc:
             recovery.update(code=exc.code, reason=exc.user_message)
-    return {'diagnostics': diagnostics, 'recovery': recovery}
+    return {'diagnostics': diagnostics, 'diagnostic_scope':{'run_id':active_run,
+        'coverage':'当前运行最近最多5条诊断，非完整调用数或费用账单；不包含此前运行'}, 'recovery': recovery}
+
+
+def full_context(context):
+    """One canonical current plan body; distinct historical plans stay complete.
+
+    This is a read view only. Compare content as well as identity before replacing
+    a duplicate, so an inconsistent snapshot can never hide a different plan.
+    """
+    current=context.get('current_plan')
+    work=context.get('work')
+    if not current or not work or 'plan' not in current:
+        return context
+    plans=[]
+    for plan in work.get('plans',[]):
+        if (plan.get('revision')==current.get('revision')
+                and plan.get('plan_hash')==current.get('plan_hash')
+                and plan.get('plan')==current['plan']):
+            plan={**{k:v for k,v in plan.items() if k!='plan'},
+                  'plan_ref':'current_plan.plan'}
+        plans.append(plan)
+    return {**context,'work':{**work,'plans':plans}}
+
 
 def turn_context(context):
     """Project the current state for automatic injection; full reads stay available.
@@ -205,16 +244,27 @@ def turn_context(context):
     return result
 
 
-def output_summary(artifact):
+def output_summary(artifact, *, detail=False):
     """Only this version's current findings; observation prose stays in full detail."""
     result={k:v for k,v in artifact.items() if k in {
-        'id','kind','output_revision','deleted_at','quality_state','manual_review_required','delivery','playback_url'}}
+        'id','kind','output_revision','deleted_at','manual_review_required','delivery','playback_url',
+        'digest','run_id','creator_accepted','media_type','displayable','export_artifact_id','publications'}}
     latest={}
     for check in artifact.get('checks',[]):
         findings=check.get('findings',{})
         scope=findings.get('scope',check['kind'])
         latest[(check['kind'],scope)]={'kind':check['kind'],'status':check['status'],'scope':scope,
             'findings':findings.get('review',{}).get('findings',findings.get('findings',[]))}
+        review=findings.get('review',{})
+        if review.get('suggestions'):
+            latest[(check['kind'],scope)]['suggestions']=review['suggestions']
+        for key in ('audio_reviewed','full_av_reviewed'):
+            if key in findings:latest[(check['kind'],scope)][key]=findings[key]
+        if detail:
+            observations={k:v for k,v in findings.items() if k not in {'review','findings'}}
+            review_observations={k:v for k,v in review.items() if k not in {'findings','suggestions'}}
+            if review_observations:observations['review_observations']=review_observations
+            latest[(check['kind'],scope)]['observation_details']=observations
         if scope=='sampled_visual_only' and findings.get('visual_status') in {'pass','fail','partial'}:
             latest[(check['kind'],scope)]['visual_status']=findings['visual_status']
         if (scope=='sampled_visual_only' and findings.get('review',{}).get('verdict')=='pass'
@@ -223,6 +273,56 @@ def output_summary(artifact):
                 findings=['这份抽样审片的通过结论与问题列表不一致，需要复核；尚不能据此认定画面有缺陷。'])
     result['checks']=list(latest.values())
     return result
+
+
+def output_audio_usage(service, output):
+    """Read the selected render's registered mix, never candidate audio or settings."""
+    from .production.artifacts import artifact_file
+    from .production.editors import EditProject
+    scope='registered_edit_project input clips mixed into the output; not separately exported streams; not listening or sync verification'
+    try:
+        with service.store.connection() as conn:
+            rendered=row(conn,'artifacts',output['id'])
+            if rendered['work_id']!=output['work_id'] or rendered['kind']!='output' or rendered.get('deleted_at'):
+                raise ValueError('invalid output binding')
+            project_id=json.loads(rendered['metadata_json'])['project_id']
+            project_record=row(conn,'artifacts',project_id)
+            if (project_record['work_id']!=rendered['work_id'] or project_record['kind']!='edit_project'
+                    or not conn.execute('SELECT 1 FROM artifact_edges WHERE artifact_id=? AND dependency_id=?',
+                        (rendered['id'],project_id)).fetchone()):
+                raise ValueError('invalid render project binding')
+            source_run=row(conn,'runs',rendered['run_id'])
+            project=EditProject.model_validate_json(artifact_file(service,project_record).read_text())
+            if project.work_id!=rendered['work_id'] or project.plan_revision!=source_run['plan_revision']:
+                raise ValueError('invalid project identity')
+            tracks=[]
+            for clip in project.audio:
+                asset=row(conn,'artifacts',clip.asset_id)
+                if (asset['work_id']!=rendered['work_id'] or asset['kind']!='audio'
+                        or not conn.execute('SELECT 1 FROM artifact_edges WHERE artifact_id=? AND dependency_id=?',
+                            (project_id,asset['id'])).fetchone()):
+                    raise ValueError('invalid audio binding')
+                artifact_file(service,asset)
+                source=json.loads(asset['metadata_json']).get('source') or {}
+                tracks.append({'asset_id':asset['id'],'role':clip.role,'at':clip.at,
+                    'duration':clip.duration,'gain':clip.gain,'source_start':clip.source_start,
+                    'fade_in':clip.fade_in,'fade_out':clip.fade_out,'loop':clip.loop,
+                    'source':{k:source[k] for k in ('provider','creator') if k in source}})
+        technical=[q for q in output.get('checks',[]) if q['kind']=='technical' and q['status']=='pass'
+                   and isinstance(q.get('findings',{}).get('probe',{}).get('streams'),list)]
+        exported={'status':'unavailable'}
+        if technical:
+            streams=[{k:s[k] for k in ('codec_name','sample_rate','channels','channel_layout','duration') if k in s}
+                     for s in technical[-1]['findings']['probe']['streams'] if s.get('codec_type')=='audio']
+            exported={'status':'available','stream_count':len(streams),'streams':streams}
+        return {'status':'available','evidence_scope':scope,'output_id':rendered['id'],
+            'project_id':project_id,'project_duration':project.duration,'input_clips':tracks,
+            'input_clip_counts':{role:sum(t['role']==role for t in tracks) for role in ('voice','music','sfx')},
+            'exported_audio':exported,
+            'source_audio_scenes':[s.scene_id for s in project.scenes if s.source_audio]}
+    except (ProductionError,ValueError,KeyError,OSError):
+        return {'status':'unavailable','evidence_scope':scope,
+            'reason':'指定版本的登记工程或音轨绑定暂不可核实；不能据此断言没有BGM或音效。'}
 
 
 def preview(conversations, segment, values):
@@ -238,7 +338,8 @@ def preview(conversations, segment, values):
     if not outputs:fail('not_found','当前作品没有指定的可查看成片，请读取pending选择实际版本',404)
     output=max(outputs,key=lambda a:a['output_revision'])
     from .conversation_results import preview_text
-    return {'work_id':work['id'],'preview_output':output,'preview_text':preview_text(output),
+    return {'work_id':work['id'],'preview_output':{**output_summary(output,detail=True),
+                'audio_usage':output_audio_usage(conversations.service,output)},'preview_text':preview_text(output),
             'read_only':True,'requires_user_confirmation':False}
 
 
@@ -277,19 +378,18 @@ def pending(conversations, conn, segment):
     for r in conn.execute("SELECT * FROM conversation_proposals WHERE segment_id=? AND state IN ('proposed','applied') ORDER BY created_at,id",(segment['id'],)):
         proposal={'id':r['id'],'hash':r['body_hash'],'kind':r['kind'],'state':r['state'],'body':json.loads(r['body_json']),'receipt':json.loads(r['receipt_json']) if r['receipt_json'] else None}
         values=proposal['body']['values']
+        if r['kind']=='pipeline':
+            execution_scope=planning_execution_scope(values.get('action'),values.get('payload',{}))
+            if execution_scope:proposal['execution_scope']=execution_scope
         if r['state']=='proposed' and r['kind']=='pipeline' and values.get('action')=='grant':
             try:
                 grant_values(conversations,conn,segment,values['payload'],applying=True)
                 proposal['can_answer']=True
             except ProductionError as exc:
                 proposal.update(can_answer=False,validation_code=exc.code,validation_error=str(exc),next_action={'mode':'offer','action':'grant','values':{'purpose':'planning'}} if values['payload'].get('purpose')=='planning' and exc.code in {'invalid_input','stale_revision'} else None)
-        if r['state']=='proposed' and (r['kind']=='revision' or r['kind']=='pipeline' and values.get('action') in {'revise','confirm_revision'}):
+        if r['state']=='proposed' and r['kind']=='pipeline' and values.get('action') in {'revise','confirm_revision'}:
             try:
-                if r['kind']=='revision':
-                    from .production.revisions import revision_output
-                    revision_output(conn,row(conn,'works',segment['work_id']),{'output_id':proposal['body']['target'].get('output_id','')})
-                else:
-                    scoped(conversations,conn,segment,values['action'],values['payload'])
+                scoped(conversations,conn,segment,values['action'],values['payload'])
                 proposal['can_answer']=True
             except ProductionError as exc:
                 proposal.update(can_answer=False,validation_code=exc.code,validation_error=str(exc))
@@ -321,7 +421,7 @@ def pending(conversations, conn, segment):
             try:
                 conversations.service.failed_planning_target(conn,row(conn,'works',work['id']),task['id'])
                 failed_recovery={'can_offer':True,'action':'plan','values':{'decision_id':task['id']},
-                    'note':'保留同一作品与历史回执，替换已失败的规划运行；新的规划可能收费，须展示提案并经下一真人回合确认，不取消作品。'}
+                    'note':'保留同一作品与历史回执，替换已失败的规划运行；values只传本项decision_id及可选request/services，不传duration_seconds/settings，片长和声音等沿用当前作品。新的规划可能收费，须展示提案并经下一真人回合确认，不取消作品。'}
             except ProductionError as exc:
                 failed_recovery={'can_offer':False,'code':exc.code,'reason':exc.user_message}
     blockers=[]
@@ -587,10 +687,31 @@ def offer(conversations,conn,segment,turn_id,action,values,summary):
             channel=row(conn,'channels',entry.get('channel_id') or '')
             if channel['profile_ref']!=segment['profile_ref']:fail('binding_mismatch','频道画像不一致',403)
             target.update(channel_id=channel['id'],channel_revision=channel['revision'])
-    return conversations.proposal(conn,segment,'pipeline',{'action':action,'payload':values,'summary':summary,'catalog_target':target},[turn_id])
+    result=conversations.proposal(conn,segment,'pipeline',{'action':action,'payload':values,'summary':summary,'catalog_target':target},[turn_id])
+    execution_scope=planning_execution_scope(action,values)
+    return {**result,'execution_scope':execution_scope} if execution_scope else result
 
 
-def execute_action(conversations,conn,segment,body,key):
+def planning_answer_values(conn, segment, data, turn_id):
+    """Preserve the real planning answer as content, never as executable scope."""
+    if not turn_id:return data
+    turn=conn.execute('SELECT payload_json FROM conversation_turns WHERE id=? AND segment_id=?',(turn_id,segment['id'])).fetchone()
+    if not turn:return data
+    payload=json.loads(turn['payload_json'])
+    if payload.get('origin','user')!='user':return data
+    message=payload.get('message','')
+    request=data.get('request','')
+    if not isinstance(message,str) or not message.strip():return data
+    try:scope=json.loads(request)
+    except (ValueError,TypeError):scope=None
+    if not (isinstance(scope,dict) and set(scope)=={'user_sources','agent_request'}
+            and isinstance(scope['user_sources'],list) and isinstance(scope['agent_request'],str)):
+        scope={'user_sources':[],'agent_request':request}
+    if any(isinstance(source,dict) and source.get('source_turn')==turn_id for source in scope['user_sources']):return data
+    return {**data,'request':encode({**scope,'user_sources':[*scope['user_sources'],{'source_turn':turn_id,'text':message}]})}
+
+
+def execute_action(conversations,conn,segment,body,key,*,answer_turn_id=None):
     values=body['values'];action=values['action'];data=values['payload']
     scoped(conversations,conn,segment,action,data)
     if action in PUBLICATION_ACTIONS:
@@ -619,6 +740,7 @@ def execute_action(conversations,conn,segment,body,key):
         if action=='confirm':data=production_values(conversations,conn,segment,data,applying=True)
         if action=='plan':
             data=planning_values(conversations,conn,segment,data,applying=True)
+            data=planning_answer_values(conn,segment,data,answer_turn_id)
             if data.get('intent')=='replan':
                 target=conversations.service.replanning_target(conn,row(conn,'works',segment['work_id']))
                 if target!=values['catalog_target']:fail('stale_revision','重新规划目标已变化',409)
@@ -752,7 +874,10 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
         detail=args.get('values',{}).get('detail')
         if detail=='full':
             from .video_workspace import POLICY, KNOWLEDGE
-            return {**state,'operation_guide':POLICY+KNOWLEDGE}
+            if state.get('work'):
+                state={**state,'work':{**state['work'],'artifacts':[
+                    output_summary(a,detail=True) if a['kind']=='output' else a for a in state['work']['artifacts']]}}
+            return {**full_context(state),'operation_guide':POLICY+KNOWLEDGE}
         if detail is not None:fail('invalid_input','详情使用values.detail=full')
         summary=turn_context(state)
         return summary
@@ -817,7 +942,7 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
         if record['id'] in body['source_refs']:fail('confirmation_required','请先向用户展示具体内容，等下一轮回答',409)
         if not any(ref in payload.get('visible_proposals',[]) for ref in [p['id']]):fail('confirmation_required','该提案尚未在本轮开始前展示',409)
         kind=json.loads(segment['context_json']).get('kind','new_work')
-        allowed={'channel_create':{'channel_create','channel_defaults','pipeline'},'director_formation':{'draft','director_formation','director_revision','pipeline'}}.get(kind,{'draft','plan','revision','pipeline'})
+        allowed={'channel_create':{'channel_create','channel_defaults','pipeline'},'director_formation':{'draft','director_formation','director_revision','pipeline'}}.get(kind,{'draft','plan','pipeline'})
         if p['kind'] not in allowed:fail('pipeline_mismatch','此操作应在对应管线完成',409)
         if p['kind'] in {'plan','draft'} and kind!='director_formation':require_choices(segment)
         result=conversations.apply(segment['ui_session'],p['id'],p['body_hash'],command_id,dismiss=args.get('dismiss',False),_connection=conn,_turn_id=record['id'],

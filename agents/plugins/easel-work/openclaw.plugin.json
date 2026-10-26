@@ -13,7 +13,6 @@
       "easel_work_input_evidence",
       "easel_work_register_inputs",
       "easel_work_update_brief",
-      "easel_work_request_revision",
       "easel_work_propose",
       "easel_pipeline"
     ]

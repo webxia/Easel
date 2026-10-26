@@ -612,3 +612,45 @@ def test_explicit_sound_downgrade_skips_failed_search_without_model(env):
     with ctx.store.connection() as conn:
         event=conn.execute("SELECT payload_json FROM events WHERE work_id=? AND kind='optional_sound_omitted'",(ctx.work_id,)).fetchone()
     assert json.loads(event[0])['cue_id']=='cup'
+
+
+@pytest.mark.parametrize('revision_scope',['narration','boards'])
+def test_narration_supply_inherits_only_selected_bound_source_material(env,monkeypatch,revision_scope):
+    input_media(env)
+    service,ops,ctx,_,_=env
+    task=SupplyTasks(service,ops)
+    first=run(task,ctx)
+    selected=first.result['asset_ids'][0]
+    with ctx.store.transaction() as conn:
+        # A real successful planning receipt binds the new plan to its review.
+        def clone(table,original,**changes):
+            data={**dict(conn.execute('SELECT * FROM '+table+' WHERE id=?',(original,)).fetchone()),**changes}
+            conn.execute('INSERT INTO '+table+' ('+','.join(data)+') VALUES ('+','.join('?' for _ in data)+')',tuple(data.values()))
+        clone('artifacts',selected,id='source-project',kind='edit_project',metadata_json=json.dumps({'schema_version':1}))
+        clone('artifacts',selected,id='source-output',kind='output',metadata_json=json.dumps({'schema_version':1,'project_id':'source-project'}))
+        conn.execute('INSERT INTO artifact_edges(artifact_id,dependency_id,role) VALUES (?,?,?)',('source-project',selected,'material'))
+        conn.execute('INSERT INTO reviews(id,work_id,output_id,feedback,created_at) VALUES (?,?,?,?,?)',('source-review',ctx.work_id,'source-output','只改口播',utc_now()))
+        clone('runs',ctx.run_id,id='source-planning',kind='planning',state='succeeded',target_ref='source-review')
+        clone('tasks',ctx.task_id,id='source-plan',run_id='source-planning',kind='plan',state='succeeded',
+              payload_json=json.dumps({'schema_version':1,'revision_scope':revision_scope}),result_json=json.dumps({'plan_revision':ctx.plan_revision}))
+        metadata=json.loads(conn.execute('SELECT metadata_json FROM artifacts WHERE id=?',(selected,)).fetchone()[0])
+        metadata['supply_task_id']='old-supply'
+        conn.execute('UPDATE artifacts SET metadata_json=? WHERE id=?',(json.dumps(metadata),selected))
+    if revision_scope=='boards':
+        assert task._snapshot(ctx)[3]==[]
+        return
+    monkeypatch.setattr(task.supplier,'supply',lambda *a,**kw:pytest.fail('must reuse selected source before external search'))
+    monkeypatch.setattr(task.materials,'ingest_input',lambda **kw:pytest.fail('must not recopy existing input'))
+    again=run(task,ctx)
+    assert again.state=='succeeded'
+    assert again.result['asset_ids']==[selected]
+    with ctx.store.transaction() as conn:
+        conn.execute('UPDATE artifacts SET deleted_at=? WHERE id=?',(utc_now(),selected))
+    assert run(task,ctx).error.code=='material_changed'
+    with ctx.store.transaction() as conn:
+        conn.execute('UPDATE artifacts SET deleted_at=NULL WHERE id=?',(selected,))
+    # Inherited records still pass the original digest/rights/reference checks.
+    with ctx.store.connection() as conn:
+        path=conn.execute('SELECT storage_ref FROM artifacts WHERE id=?',(selected,)).fetchone()[0]
+    (service.outputs/path).write_bytes(b'changed')
+    assert run(task,ctx).error.code=='material_changed'

@@ -533,3 +533,18 @@ def test_frozen_episode_source_reaches_downstream_without_task_request(tmp_path)
     assert view.plan['conversation_basis']['creative_request']==source  # Projection never mutates the snapshot.
     standalone=TaskContext('work','run','task',plan={'conversation_basis':{'creative_request':source}})
     assert standalone.creative_data()['plan']['conversation_basis']['creative_request']==source
+
+
+@pytest.mark.parametrize('mode',['fixed','voice_driven'])
+def test_current_candidate_review_receives_runtime_duration_semantics(tmp_path, mode):
+    from copy import deepcopy
+    from easel.production.context import TaskContext
+    from easel.production.planning import current_draft_context,VoiceReadyCreativePlan
+    from easel.production.narration import duration_execution_contract
+    _,_,transport,_=setup(tmp_path)
+    transport.answer['narration_policy']={'duration_mode':mode,'continuous':False}
+    draft=VoiceReadyCreativePlan.model_validate(transport.answer)
+    before=deepcopy(draft.model_dump(mode='json'));context=TaskContext('w','r','t')
+    view=current_draft_context(context,draft)
+    assert view.capabilities['duration_execution_contract']==duration_execution_contract(before)
+    assert draft.model_dump(mode='json')==before and context.capabilities=={}

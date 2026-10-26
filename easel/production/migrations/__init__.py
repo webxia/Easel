@@ -298,3 +298,35 @@ WHEN NOT EXISTS (
 )
 BEGIN SELECT RAISE(ABORT,'output_not_reviewable'); END;
 '''
+
+# A finished output may be reviewed while its *automatic picture-only* repair
+# is safely stopped. Mirror WorkService's guard; retain every row and QC result.
+_STOPPED_VISUAL_REPAIR = r'''
+ r.kind='production' AND r.state='needs_decision' AND r.owner_id IS NULL
+ AND r.cancel_requested=0
+ AND EXISTS (SELECT 1 FROM works current WHERE current.id=a.work_id AND current.active_run_id=r.id)
+ AND NOT EXISTS (SELECT 1 FROM operations op WHERE op.run_id=r.id
+   AND op.state IN ('reserved','sending','submitted','unknown'))
+ AND (SELECT count(*) FROM tasks t WHERE t.run_id=r.id AND t.state NOT IN ('succeeded','cancelled'))=1
+ AND EXISTS (
+   SELECT 1 FROM tasks repair JOIN reviews v ON v.id=json_extract(repair.payload_json,'$.review_id')
+   WHERE repair.run_id=r.id AND repair.kind='revise' AND repair.state='needs_decision'
+   AND json_extract(repair.error_json,'$.code')='visual_material_gap'
+   AND json_type(repair.payload_json,'$.creative_visual_repair')='true'
+   AND json_extract(repair.payload_json,'$.repair_scope')='visual'
+   AND json_type(repair.payload_json,'$.preserve_audio')='true'
+   AND json_extract(repair.payload_json,'$.output_id')=a.id
+   AND v.work_id=a.work_id AND v.output_id=a.id
+   AND EXISTS (SELECT 1 FROM tasks rendered WHERE rendered.run_id=r.id
+     AND rendered.kind='render' AND rendered.state='succeeded'
+     AND json_extract(rendered.result_json,'$.output_id')=a.id)
+   AND EXISTS (SELECT 1 FROM tasks checked WHERE checked.run_id=r.id
+     AND checked.kind='quality' AND checked.state='succeeded'
+     AND json_extract(checked.result_json,'$.output_id')=a.id
+     AND json_extract(checked.payload_json,'$.visual_repair_review_id')=v.id)
+ )
+'''
+MIGRATIONS[9] = MIGRATIONS[8].replace(
+    "AND (r.state='succeeded' OR (r.state='superseded'",
+    "AND ((" + _STOPPED_VISUAL_REPAIR + ") OR r.state='succeeded' OR (r.state='superseded'",
+)

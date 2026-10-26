@@ -12,7 +12,7 @@ from .errors import ProductionError
 from .model_operations import RecordedModelTransport
 from .service import row, encode, digest, now, new_id
 
-DRAFT_REVIEW_CONTEXT_VERSION = 'current-draft-3'
+DRAFT_REVIEW_CONTEXT_VERSION = 'current-draft-4'
 
 
 def preserve_selected_voice_parameters(answer, selected):
@@ -31,6 +31,8 @@ def current_draft_context(context, draft):
     """Project one candidate consistently; retain baseline requirements as history."""
     plan=draft.model_dump(mode='json')
     capabilities = dict(context.capabilities)
+    from .narration import duration_execution_contract
+    capabilities['duration_execution_contract'] = duration_execution_contract(plan)
     voice = draft.settings.voice
     if voice and voice.engine == 'minimax-speech-v1':
         from .providers.minimax_speech import voice_execution_contract
@@ -131,7 +133,13 @@ class VoiceReadyCreativePlan(CreativePlan):
                 )
         spoken = ''.join(scene.narration for scene in self.scenes)
         if spoken.strip() and re.sub(r'\s+', '', self.script) != re.sub(r'\s+', '', spoken):
-            raise ValueError('script须与各场景narration按顺序拼接一致；不要添加场景标签或导演说明，修改口播时同步两个字段')
+            script_text=re.sub(r'\s+', '', self.script)
+            scene_text=re.sub(r'\s+', '', spoken)
+            offset=next((i for i,(a,b) in enumerate(zip(script_text,scene_text)) if a!=b), min(len(script_text),len(scene_text)))
+            raise ValueError(
+                f'script须与各场景narration按顺序拼接一致；忽略空白后首个差异在第{offset+1}字符：'
+                f'script={script_text[offset:offset+1]!r}，narration={scene_text[offset:offset+1]!r}（空串表示已结束）。'
+                '不要添加场景标签或导演说明，修改口播时同步两个字段，包括标点')
         from .voice_budget import reserve_narration_slots
         try:
             reserve_narration_slots(self.model_dump(mode='json'))
@@ -279,7 +287,7 @@ class PlanningTasks:
         sound_note=('\n用户后续已允许以下音效缺料时省略，优先于原方案相应音效要求；保留已取得声音，不将省略当作缺陷，交付说明如实披露：'+encode(sound_notes)) if sound_notes else ''
         return TaskContext(work_id=ctx.work_id,run_id=ctx.run_id,task_id=ctx.task_id,
             profile_ref=profile_ref,profile=basis['profile'],director=basis['director'],
-            brief=work['input_text']+'\n本次明确设置：'+encode(basis['settings'])+'\n本次对话依据：'+encode(basis.get('conversation_brief'))+'\n频道定位：'+encode(basis.get('channel_basis',{}))+'\n本次补充：'+str(ctx.payload.get('request') or basis.get('creative_request',''))+sound_note,
+            brief=work['input_text']+'\n当前有效设置（含继承默认值，不等于用户逐项明确选择）：'+encode(basis['settings'])+'\n设置字段来源（未记录的字段来源未知）：'+encode((basis.get('settings_source') or {}).get('origins',{}))+'\n文字要求与设置冲突时说明差异，沿现有本片设置变更入口处理；不得自行覆盖设置或宣称用户已确认。'+'\n本次对话依据：'+encode(basis.get('conversation_brief'))+'\n频道定位：'+encode(basis.get('channel_basis',{}))+'\n本次补充：'+str(ctx.payload.get('request') or basis.get('creative_request',''))+sound_note,
             inputs=safe_inputs,allowed_handles=frozenset(i['id'] for i in inputs),plan=plan,
             capabilities=self.execution_capabilities,expression_policy=policy,
             facts=tuple(plan.get('facts',[])),prohibitions=tuple(plan.get('constraints',[])),
@@ -643,7 +651,7 @@ class PlanningTasks:
                         from .contracts import VoiceIdentity
                         expected=VoiceIdentity.model_validate(expected).model_dump(mode='json')
                     if field in requested and expected != payload['settings'].get(field):
-                        raise ModelTaskError('plan_constraint_changed','模型方案改变了本次明确设置：settings.'+field+'，需要修正方案')
+                        raise ModelTaskError('plan_constraint_changed','模型方案改变了当前有效设置：settings.'+field+'，需要修正方案')
                 rev=conn.execute('SELECT COALESCE(MAX(revision),0)+1 FROM plan_revisions WHERE work_id=?',(ctx.work_id,)).fetchone()[0]
                 conn.execute('INSERT INTO plan_revisions(id,work_id,revision,payload_json,plan_hash,created_at) VALUES (?,?,?,?,?,?)',
                     (new_id(),ctx.work_id,rev,encode(payload),digest(payload),now()))

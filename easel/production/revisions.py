@@ -20,6 +20,22 @@ from .service import row,fail,encode,now,new_id,digest
 from .creative_captions import edit_data, check_caption_layout
 
 
+def revision_feedback_text(feedback):
+    """Present verified source text without exposing its transport envelope.
+
+    Stored feedback remains intact for provenance and model input.
+    """
+    try:
+        value=json.loads(feedback)
+    except (ValueError,TypeError):
+        return feedback
+    if not (isinstance(value,dict) and set(value)=={'user_sources','agent_request'}
+            and isinstance(value['agent_request'],str) and isinstance(value['user_sources'],list)
+            and all(isinstance(s,dict) and isinstance(s.get('text'),str) for s in value['user_sources'])):
+        return feedback
+    return '\n'.join(dict.fromkeys([s['text'] for s in value['user_sources']]+[value['agent_request']]))
+
+
 def revision_output(conn,work,data):
     # Shared by proposal and execution: a plan is not a rendered output.
     output=conn.execute('SELECT * FROM artifacts WHERE id=?',(data.get('output_id',''),)).fetchone()
@@ -270,7 +286,7 @@ class RevisionTasks:
                 board_revision=ctx.payload.get('scope')=='boards'
                 proposal=RevisionProposal(summary='请确认图解状态与高亮修订，保留口播和声音设置' if board_revision else '请确认涉及旁白、字幕时码或内容的修订范围',
                     affected=['visual','content','materials'] if board_revision else ['audio','captions','content'],expands_scope=True,requires_new_generation=ctx.payload.get('scope')=='narration',
-                    reason=(review['feedback']+'。生成新版图解方案及受影响图片，沿用口播与声音；确认新版方案后制作。') if board_revision else review['feedback']+'。确认后先改稿提出新版方案；新版制作确认后重新配音、按实测声音对齐字幕与画面，可能新增模型和配音消耗。保持音色和确认片长，不自动制作。',
+                    reason=(revision_feedback_text(review['feedback'])+'。生成新版图解方案及受影响图片，沿用口播与声音；确认新版方案后制作。') if board_revision else revision_feedback_text(review['feedback'])+'。确认后先改稿提出新版方案；新版制作确认后重新配音、按实测声音对齐字幕与画面，可能新增模型和配音消耗。保持音色和确认片长，不自动制作。',
                     edit=CreativeEdit.model_validate({k:v for k,v in base.model_dump().items()
                         if k in {'scenes','audio','captions','required_features'}}))
                 with ctx.transaction() as conn:
