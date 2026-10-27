@@ -37,6 +37,9 @@ def register_file(service,ctx,source:Path,*,kind:str,media_type:str,metadata:dic
 
 def artifact_file(service,record):
     if record.get('deleted_at'):raise ValueError('artifact has been deleted')
+    import json
+    if json.loads(record.get('metadata_json') or '{}').get('local_media_retention',{}).get('state')=='reclaimed':
+        raise ValueError('下载素材已按保留策略回收，来源和许可记录保留；再次使用须重新取得素材')
     with service.store.connection() as conn:
         if row(conn,'works',record['work_id']).get('deleted_at'):raise ValueError('work has been deleted')
     path=local_path(service.outputs,record['storage_ref'])

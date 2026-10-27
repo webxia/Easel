@@ -286,9 +286,12 @@ class Store:
         if destination == self.path or destination.exists():
             raise ValueError("backup destination must be a new file")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        with self.connection() as source:
-            target = sqlite3.connect(destination)
-            try:
-                source.backup(target)
-            finally:
-                target.close()
+        from .editors.ffmpeg import _lock
+        with _lock(self.path.parent/'storage-maintenance.lock'):
+            if destination.exists():raise ValueError("backup destination must be a new file")
+            with self.connection() as source:
+                target = sqlite3.connect(destination)
+                try:
+                    source.backup(target)
+                finally:
+                    target.close()

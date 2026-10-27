@@ -1,7 +1,16 @@
 """Bounded pauses are separate from literal narration and subtitle text."""
+from decimal import Decimal
 from .errors import ProductionError
 
 VERSION='minimax-pauses-1'
+
+
+def valid_pause_precision(seconds):
+    """Check protocol precision without rounding a confirmed creative choice."""
+    if type(seconds) not in (int, float):
+        return False
+    value = Decimal(str(seconds))
+    return value.is_finite() and value.as_tuple().exponent >= -2
 
 
 def compile_pauses(text, pauses, identity):
@@ -15,6 +24,8 @@ def compile_pauses(text, pauses, identity):
         at=item['after'];seconds=item['seconds']
         if type(at) is not int or not previous<at<len(text) or type(seconds) not in (int,float) or not .05<=seconds<=1:
             raise ProductionError('voice_prosody_invalid','停顿位置或时长无效')
+        if not valid_pause_precision(seconds):
+            raise ProductionError('voice_prosody_invalid','MiniMax停顿秒数最多两位小数；未四舍五入或发送，请明确调整停顿')
         pieces.extend((text[previous:at],f'<#{seconds:g}#>'));previous=at
     pieces.append(text[previous:])
     return ''.join(pieces)

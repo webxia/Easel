@@ -180,6 +180,8 @@ class SupplyTasks:
                     raise ProductionError('material_changed','原修订已选素材不可用，请核实后继续',requires_decision=True)
                 records.extend(r for r in inherited if r['id'] not in {v['id'] for v in records})
         for record in records:
+            if json.loads(record['metadata_json']).get('local_media_retention',{}).get('state')=='reclaimed':
+                raise ProductionError('material_reclaimed','下载素材已按保留策略回收；成片、配音和来源许可记录保留，再次使用须重新取得素材',requires_decision=True)
             path = MaterialFileStore(self.service.outputs).resolve_asset_locator(record['storage_ref'])
             if digest_file(path) != record['digest']:
                 raise ProductionError('material_changed', '本次已登记素材发生变化，请核实后继续', affected_ids=[record['id']], requires_decision=True)

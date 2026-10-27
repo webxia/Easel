@@ -240,7 +240,7 @@ def turn_context(context):
         result['model_calls']={**context.get('model_calls',{}),'diagnostics':[]}
     plan=context.get('current_plan')
     result['current_plan']={k:v for k,v in plan.items() if k not in {'payload_json','plan'}} if plan else None
-    result['detail_access']='这是活动运行与版本摘要；sources正文、画像保存目标通过easel_work_context读取，本轮原话在新消息区。完整当前方案、历史运行/提案/产物和调用诊断通过easel_pipeline pending传values.detail=full读取。Worker使用的表达规则不在聊天重复。摘要省略不代表记录被删除或授权改变。'
+    result['detail_access']='这是活动运行与版本摘要；sources正文、画像保存目标通过easel_work_context读取，本轮原话在新消息区。完整当前方案正文通过easel_pipeline pending传values.detail=plan读取；历史依据/运行/提案/产物和调用诊断传values.detail=full读取。Worker使用的表达规则不在聊天重复。摘要省略不代表记录被删除或授权改变。'
     return result
 
 
@@ -359,7 +359,7 @@ def has_edit_resume(task):
     scoped_plan=(task['kind']=='plan' and error.get('code')=='invalid_model_output'
                  and payload.get('revision_scope')=='narration')
     return (bool(outdated_review or interrupted_reaudit) or scoped_plan or (task['kind']=='render' and error.get('code')=='render_failed') or
-            (task['kind']=='revise' and error.get('code') in {'invalid_revision_search','invalid_model_output'}) or
+            (task['kind']=='revise' and error.get('code') in {'invalid_revision_search','invalid_model_output','invalid_edit_project','visual_material_gap'}) or
             (task['kind']=='edit' and error.get('code') in (AUDIO_EDIT_ERRORS | {
                 'invalid_edit_project','invalid_edit','invalid_model_output','editor_rejected',
                 'edit_duration_mismatch','visual_material_gap'})))
@@ -373,7 +373,10 @@ def pending(conversations, conn, segment):
         channels.append({k:r[k] for k in ('id','name','revision','default_director_revision')})
     directors = []
     for r in conn.execute('SELECT v.*,d.name,d.revision AS catalog_revision FROM director_revisions v JOIN directors d ON d.id=v.director_id WHERE d.archived=0 ORDER BY d.created_at,d.id,v.revision DESC'):
-        directors.append({k:r[k] for k in ('id','director_id','name','revision','catalog_revision','style_confirmed','accepted_at')})
+        version={k:r[k] for k in ('id','director_id','name','revision','catalog_revision','style_confirmed','accepted_at')}
+        status='已接受' if r['accepted_at'] else '未接受，可试片' if r['style_confirmed'] else '风格未确认'
+        version['display_label']=f"{r['name']}（第{r['revision']}版，{status}）"
+        directors.append(version)
     proposals = []
     for r in conn.execute("SELECT * FROM conversation_proposals WHERE segment_id=? AND state IN ('proposed','applied') ORDER BY created_at,id",(segment['id'],)):
         proposal={'id':r['id'],'hash':r['body_hash'],'kind':r['kind'],'state':r['state'],'body':json.loads(r['body_json']),'receipt':json.loads(r['receipt_json']) if r['receipt_json'] else None}
@@ -872,13 +875,23 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
     if mode=='pending':
         state=pending(conversations,conn,segment)
         detail=args.get('values',{}).get('detail')
+        if detail=='plan':
+            current=state.get('current_plan')
+            if current:
+                current={k:v for k,v in current.items() if k not in {'plan','payload_json'}} | {
+                    'plan':{k:v for k,v in state['current_plan']['plan'].items()
+                            if k not in {'profile_snapshot','conversation_basis'}}}
+            work=state.get('work')
+            return {'current_plan':current,
+                    'work':{k:v for k,v in work.items() if k in {'id','revision','state','current_plan_revision','active_run_id'}} if work else None,
+                    'basis_access':'画像快照与冻结创作依据未改动；审计时通过values.detail=full读取。'}
         if detail=='full':
             from .video_workspace import POLICY, KNOWLEDGE
             if state.get('work'):
                 state={**state,'work':{**state['work'],'artifacts':[
                     output_summary(a,detail=True) if a['kind']=='output' else a for a in state['work']['artifacts']]}}
             return {**full_context(state),'operation_guide':POLICY+KNOWLEDGE}
-        if detail is not None:fail('invalid_input','详情使用values.detail=full')
+        if detail is not None:fail('invalid_input','当前方案使用values.detail=plan，历史审计详情使用values.detail=full')
         summary=turn_context(state)
         return summary
     quote=args.get('user_quote','').strip()

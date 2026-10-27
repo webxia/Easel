@@ -224,7 +224,7 @@ class EditorAdapter(Protocol):
     def collect(self, job_id: str) -> RenderOutput: ...
 
 
-def assert_local_revision(base: EditProject, revised: EditProject, *, allowed: set[str]) -> None:
+def assert_local_revision(base: EditProject, revised: EditProject, *, allowed: set[str], removable_caption_ids=frozenset()) -> None:
     """Program-side protection, independent of a model's claim about its edit."""
     if not allowed or not allowed <= {"visual", "captions", "audio"}:
         raise EditError("unknown local revision scope")
@@ -232,6 +232,8 @@ def assert_local_revision(base: EditProject, revised: EditProject, *, allowed: s
     after = revised.model_dump(mode="json")
     before.pop("revision"); after.pop("revision")
     if "captions" in allowed:
+        remaining={c['caption_id'] for c in after['captions']}
+        before['captions']=[c for c in before['captions'] if c['caption_id'] not in removable_caption_ids or c['caption_id'] in remaining]
         # Caption styling is local; adding/rewording/removing text needs a new plan.
         for document in (before, after):
             document["captions"] = [{k: c[k] for k in ("caption_id", "text", "start", "end")}

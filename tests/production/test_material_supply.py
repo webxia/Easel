@@ -222,3 +222,54 @@ def test_explicit_source_page_never_falls_back_to_semantic_library_rank(env,monk
     assert first.candidates and second.candidates
     assert first.candidates[0].library_asset_id==second.candidates[0].library_asset_id
     assert provider.calls==2 and len(transport.calls)==1
+
+
+@pytest.mark.parametrize('code', ['network_connection', 'network_timeout'])
+def test_read_only_search_reconnects_once_and_preserves_admission(env, code):
+    service, scope, context = env
+    class Flaky(Provider):
+        def search(self, *args, **kwargs):
+            if self.calls == 0:
+                self.calls += 1
+                raise StockUnavailable('transient', code=code)
+            return super().search(*args, **kwargs)
+    provider, transport = Flaky(), Transport()
+    supply = MaterialSupply(service, providers=(provider,), downloaders={provider.provider_id: downloader(transport)})
+    result = supply.supply(need(), visibility=scope, context=context, allowed_providers=(provider.provider_id,))
+    assert provider.calls == 2 and len(transport.calls) == 1
+    assert len(result.candidates) == 1 and result.gap is None
+    assert not result.failures and result.search_diagnostics[0].reason == code
+    assert result.attempted_sources == (provider.provider_id,)
+
+
+@pytest.mark.parametrize('code,calls', [('network_connection', 2), ('network_timeout', 2),
+    ('http_permission', 1), ('http_rate_limited', 1), ('invalid_response', 1)])
+def test_search_retry_exhaustion_and_nontransient_errors_still_fall_back(env, code, calls):
+    service, scope, context = env
+    class Failing(Provider):
+        def search(self, *args, **kwargs):
+            self.calls += 1
+            raise StockUnavailable('PRIVATE', code=code)
+    provider, fallback, transport = Failing(), Provider(), Transport()
+    fallback.provider_id = 'fallback'
+    result = MaterialSupply(service, providers=(provider, fallback),
+        downloaders={fallback.provider_id: downloader(transport)}).supply(
+            need(), visibility=scope, context=context, allowed_providers=(provider.provider_id, fallback.provider_id))
+    assert provider.calls == calls and fallback.calls == 1 and len(result.candidates) == 1
+    assert result.failures[0].reason == code and 'PRIVATE' not in repr(result)
+
+
+def test_search_retry_rechecks_current_task_before_second_request(env):
+    service, scope, context = env
+    class Cancelled(Provider):
+        def search(self, *args, **kwargs):
+            self.calls += 1
+            raise StockUnavailable('transient', code='network_connection')
+    provider = Cancelled()
+    def current():
+        if provider.calls:
+            raise RuntimeError('task cancelled')
+    with pytest.raises(RuntimeError, match='task cancelled'):
+        MaterialSupply(service, providers=(provider,)).supply(need(), visibility=scope, context=context,
+            allowed_providers=(provider.provider_id,), check_current=current)
+    assert provider.calls == 1

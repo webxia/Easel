@@ -18,7 +18,7 @@ class VoiceTasks:
     def __init__(self, service, voice_service_provider, *, settings_provider):
         self.service, self.voice_service_provider, self.settings_provider = service, voice_service_provider, settings_provider
 
-    async def prepare_assets(self, context, plan: dict, asset_ids: list[str]) -> tuple[list[str], TaskResult | None]:
+    async def prepare_assets(self, context, plan: dict, asset_ids: list[str], *, reuse_only: bool = False) -> tuple[list[str], TaskResult | None]:
         """Return asset handles and optionally a durable pending/decision outcome.
 
         Only confirmed scene.narration becomes TTS. A scene that explicitly uses
@@ -47,8 +47,8 @@ class VoiceTasks:
                 protected = {item["id"] for item in reader.execute("SELECT * FROM work_inputs WHERE work_id=?", (context.work_id,))
                              if json.loads(item["metadata_json"]).get("original_audio")}
             scenes = plan["scenes"]
-            from .narration import narration_segments
-            segments = narration_segments(plan, protected)
+            from .narration import validate_narration_execution
+            segments = validate_narration_execution(plan, protected)
             if not segments:
                 if protected:
                     return identifiers, None
@@ -58,6 +58,14 @@ class VoiceTasks:
             identity = VoiceIdentity.model_validate(settings["voice"])
             voice = self.voice_service_provider()
             adapter = voice._adapter(identity)
+            # Validate the complete frozen grouping before dispatching its first
+            # paid segment. Do not partially synthesize an invalid later group.
+            from .voice import effective_segment_voice
+            from .prosody import compile_pauses
+            for segment in segments:
+                effective = effective_segment_voice(identity, segment)
+                spoken = compile_pauses(segment['text'], segment.get('pauses', []), effective)
+                adapter.request(identity=effective, text=spoken, segment_id=segment['segment_id'])
             required = {"provider": adapter.provider_id, "model": adapter.model, "mode": adapter.mode}
             with self.service.store.connection() as reader:
                 grants = [dict(item) for item in reader.execute("""SELECT * FROM authorization_grants WHERE work_id=?
@@ -67,7 +75,7 @@ class VoiceTasks:
             if grant is None:
                 raise ProductionError("permission_missing", "当前方案尚未允许所选声音服务；配音不占生图或生视频次数", requires_decision=True)
             result = await prepare_voice_segments(context, service=voice, outputs=self.service.outputs,
-                identity=identity, grant_id=grant["id"], segments=segments)
+                identity=identity, grant_id=grant["id"], segments=segments,**({"reuse_only":True} if reuse_only else {}))
             for segment in result["segments"]:
                 if segment["artifact_id"] not in identifiers:
                     identifiers.append(segment["artifact_id"])

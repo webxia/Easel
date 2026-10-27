@@ -112,7 +112,11 @@ class PersistentWorkToolBridge:
                 if prior['request_hash']!=fingerprint:reject('turn_conflict',409)
                 return {'new':False,'state':prior['state'],'payload':json.loads(prior['payload_json'])}
             if self.conversations.segment(conn,ui_session)['id']!=segment_id:reject('stale_revision',409)
-            if conn.execute("SELECT 1 FROM conversation_turns t JOIN conversation_segments s ON s.id=t.segment_id WHERE s.ui_session=? AND (t.state IN ('reserved','dispatching','active','unknown') OR (json_extract(t.payload_json,'$.delivery_state')='streaming' AND json_extract(t.payload_json,'$.delivery_lease_until')>?))",(ui_session,time.time())).fetchone():reject('invocation_pending',409)
+            occupied=conn.execute("SELECT t.state FROM conversation_turns t JOIN conversation_segments s ON s.id=t.segment_id WHERE s.ui_session=? AND (t.state IN ('reserved','dispatching','active','unknown') OR (json_extract(t.payload_json,'$.delivery_state')='streaming' AND json_extract(t.payload_json,'$.delivery_lease_until')>?)) ORDER BY t.created_at DESC LIMIT 1",(ui_session,time.time())).fetchone()
+            if occupied:
+                message=('上一轮回答已中断，原生运行是否结束尚待核实，当前对话不能重复发送。已保存作品保留；可从内容库打开该作品并选择“继续创作”，不会自动恢复制作或重发旧调用。'
+                         if occupied['state']=='unknown' else '当前对话上一轮尚未结束，请等待结果；不会重复发送本次请求。')
+                fail('invocation_pending',message,409)
             # Validate attachments through the same production path using a temporary read-only validator.
             from .conversation_inputs import validate_attachment
             for attachment in attachments:validate_attachment(self.service,ui_session,attachment)
@@ -251,7 +255,10 @@ class PersistentWorkToolBridge:
                     work=row(conn,'works',segment['work_id'])
                     if work['active_run_id']!=payload['result_event']['run_id'] or args['values'].get('plan_revision')!=work['current_plan_revision']:reject('stale_revision',409)
             fingerprint=digest([request.tool,args])
-            if fingerprint in payload['results']:return payload['results'][fingerprint]
+            live_read = request.tool in {'easel_work_context','easel_work_input_evidence'} or (
+                request.tool == 'easel_pipeline' and args['mode'] in {'pending','preview'})
+            if not live_read and fingerprint in payload['results']:
+                return payload['results'][fingerprint]
             # Business receipt and intent binding are committed in this SAME transaction.
             command_id='chat_'+digest([record['id'],request.tool,args])[:48]
             if payload.get('pipeline_entry'):reject('pipeline_switch_pending',409)

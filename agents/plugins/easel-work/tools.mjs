@@ -30,6 +30,7 @@ const pipelineValuesSchema = {
   type: 'object',
   description: 'Action-specific values. For bind, use kind, channel_id, director_revision (the exact revision ID, never director_id or a numeric version), and director_trial together for the targets already selected in user sources. For grant purpose=planning, send only {"purpose":"planning"}; the server returns exact services and the paused decision_id. Present returned values.payload and values.summary before asking for consent. Never wrap services in item, or copy label/available fields.',
   properties: {
+    detail: {type:'string',enum:['plan','full'],description:'pending only: plan reads the actual current plan body without replaying profile/history; full reads the complete audit context. Omit for current status. Repeated reads return fresh state.'},
     kind: { type: 'string', enum: ['new_work','channel_create','director_formation','revise','continue'], description: 'Existing conversation pipeline, not a production stage.' },
     channel_id: { type: 'string', description: 'Selected channel ID from pending.channels; preserve an already selected channel.' },
     director_revision: { type: 'string', description: 'Selected director VERSION ID from pending.directors[].id, matched by director name and revision number. Do not send director_id, director, label, or a numeric version.' },
@@ -155,6 +156,7 @@ export function createWorkBridge(api) {
   if (scopedMain) api.on('before_prompt_build', async (event, ctx) => {
     if (!inPipeline(ctx)) return;
     const previous = prepared.get(runKey(ctx));
+    if (previous?.endRequest) return {systemPrompt:'本轮正在结束，停止新的模型与工具调用。', toolsAllow:[]};
     prepared.delete(runKey(ctx));
     try {
       const bootstrap=bootstraps.get(ctx.sessionKey);
@@ -188,7 +190,7 @@ export function createWorkBridge(api) {
     }
     if (scopedMain) {
       const preparation = prepared.get(runKey(ctx));
-      if (!preparation || preparation.retryPending || preparation.promptHash !== hash(event.prompt)) return {outcome:'block', reason:'easel_pipeline_not_prepared', message:'管线权限未就绪，本轮未执行。'};
+      if (!preparation || preparation.retryPending || preparation.endRequest || preparation.promptHash !== hash(event.prompt)) return {outcome:'block', reason:'easel_pipeline_not_prepared', message:'管线权限未就绪，本轮未执行。'};
       return;
     }
     try {
@@ -219,7 +221,10 @@ export function createWorkBridge(api) {
       }
       return;
     }
-    if (scopedMain && !prepared.has(runKey(ctx))) return {block:true, blockReason:'easel_pipeline_not_prepared'};
+    // Compaction suspends this preparation until before_prompt_build reclaims
+    // the same authenticated turn. Presence alone is not executable authority.
+    const preparation = prepared.get(runKey(ctx));
+    if (scopedMain && (!preparation || preparation.retryPending || preparation.endRequest)) return {block:true, blockReason:'easel_pipeline_not_prepared'};
     if (!names.has(event.toolName)) return { block: true, blockReason: 'easel_work_tool_not_allowed' };
     try {
       const result = await send('prepare', { ...identity(ctx, event), tool_call_id: event.toolCallId ?? ctx.toolCallId, tool: event.toolName, params: event.params }, ctx.abortSignal);
@@ -246,7 +251,7 @@ export function createWorkBridge(api) {
     const lastMessage = Array.isArray(event.messages) ? event.messages.at(-1) : undefined;
     const toolBoundary = event.success === true && !event.error &&
       lastAssistant?.stopReason === 'toolUse' && lastMessage?.role === 'toolResult';
-    if (scopedMain && inPipeline(ctx) && prepared.has(runKey(ctx)) && (retryingOverflow || toolBoundary)) {
+    if (scopedMain && inPipeline(ctx) && prepared.has(runKey(ctx)) && !prepared.get(runKey(ctx)).endRequest && (retryingOverflow || toolBoundary)) {
       prepared.get(runKey(ctx)).retryPending = true;
       for (const [id, call] of calls) if (call.run_id === ctx.runId && call.session_key === ctx.sessionKey && call.session_id === ctx.sessionId) calls.delete(id);
       return;
@@ -255,9 +260,25 @@ export function createWorkBridge(api) {
     const bound = identity(ctx, event);
     for (const [id, call] of calls) if (call.run_id === bound.run_id && call.session_key === bound.session_key && call.session_id === bound.session_id) calls.delete(id);
     if (!inPipeline(ctx)) return;
-    prepared.delete(runKey(ctx));
-    // If delivery fails the reservation remains occupied. Never release it on a guessed timeout.
-    await send('end', {...bound, ...(finishDiagnostic ? {diagnostic:finishDiagnostic(event,ctx)} : {})});
+    const preparation = prepared.get(runKey(ctx));
+    // An unclaimed/repeated end has no authority to close a host turn. A known
+    // failed acknowledgement can be retried by this same native end callback,
+    // with the exact identity/diagnostic; no model or production is resubmitted.
+    if (scopedMain && !preparation) return;
+    if (!scopedMain) {
+      await send('end', {...bound, ...(finishDiagnostic ? {diagnostic:finishDiagnostic(event,ctx)} : {})});
+      return;
+    }
+    preparation.endRequest ??= {...bound, ...(finishDiagnostic ? {diagnostic:finishDiagnostic(event,ctx)} : {})};
+    preparation.ending ??= send('end', preparation.endRequest);
+    try {
+      await preparation.ending;
+      prepared.delete(runKey(ctx));
+    } catch (error) {
+      preparation.ending = null;
+      // Retain the closed-to-tools preparation and host reservation on failure.
+      throw error;
+    }
   });
   api.registerTool(ctx => {
     if (!inPipeline(ctx)) {

@@ -76,3 +76,24 @@ def test_edit_stops_after_one_stock_pass_without_render_or_voice(monkeypatch):
     assert 's1' in result.error.user_message and len(supplies)==1
     assert namespaces==['edit-source-bounds-v1','edit-stock-selection-v1']
     assert json.loads(db.execute("SELECT payload_json FROM tasks WHERE id='t'").fetchone()[0])['asset_ids']==['old','new']
+
+
+def test_prepared_voice_references_survive_a_later_edit_failure(monkeypatch):
+    import sqlite3
+    from contextlib import nullcontext
+    from easel.production.context import TaskContext
+    db=sqlite3.connect(':memory:');db.row_factory=sqlite3.Row
+    db.execute('CREATE TABLE operations(task_id,state)')
+    db.execute('CREATE TABLE tasks(id,payload_json)')
+    db.execute("INSERT INTO tasks VALUES('t',?)",(json.dumps({'schema_version':1,'asset_ids':['old']}),))
+    service=SimpleNamespace(store=SimpleNamespace(connection=lambda:nullcontext(db)))
+    context=TaskContext('w','r','t',plan={'settings':{'audio_mode':'voice'}})
+    class Voice:
+        async def prepare_assets(self,ctx,plan,ids):return [*ids,'paid-voice'],None
+    creation=CreationTasks(service,SimpleNamespace(context=lambda ctx:context),editor=object(),voice_tasks=Voice())
+    creation.assets=lambda ctx,ids:([],SimpleNamespace(assets={}))
+    def failed(*args):raise ModelTaskError('narration_timing_missing','fixture downstream failure')
+    monkeypatch.setattr('easel.production.narration.measured_execution_plan',failed)
+    result=asyncio.run(creation.edit(SimpleNamespace(task_id='t',payload={'asset_ids':['old']},transaction=lambda:nullcontext(db))))
+    assert result.state=='needs_decision'
+    assert json.loads(db.execute("SELECT payload_json FROM tasks WHERE id='t'").fetchone()[0])['asset_ids']==['old','paid-voice']

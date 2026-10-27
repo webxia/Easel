@@ -108,14 +108,30 @@ class MaterialSupply:
             if check_provider is not None:
                 check_provider(provider.provider_id)
             attempted.append(provider.provider_id)
-            try:
-                candidates = provider.search(need.intent.description, media_type=need.media_type, limit=self.max_candidates)
-            except Exception as exc:
-                code = getattr(exc, "code", None)
-                failures.append(SupplyFailure(provider.provider_id, code if code in {
-                    "capability_unavailable","source_unavailable","network_timeout",
-                    "network_connection","http_permission","http_rate_limited",
-                    "http_unavailable","invalid_response"} else "invalid_response"))
+            candidates = None
+            for search_attempt in range(2):
+                if search_attempt:
+                    if check_current is not None:
+                        check_current()
+                    if check_provider is not None:
+                        check_provider(provider.provider_id)
+                try:
+                    candidates = provider.search(need.intent.description, media_type=need.media_type, limit=self.max_candidates)
+                    break
+                except Exception as exc:
+                    code = getattr(exc, "code", None)
+                    failure = SupplyFailure(provider.provider_id, code if code in {
+                        "capability_unavailable","source_unavailable","network_timeout",
+                        "network_connection","http_permission","http_rate_limited",
+                        "http_unavailable","invalid_response"} else "invalid_response")
+                    # Stock search is read-only. Reconnect once on a transient
+                    # transport failure, never retry auth/rights or generation.
+                    if not search_attempt and code in {"network_connection", "network_timeout"}:
+                        diagnostics.append(failure)
+                        continue
+                    failures.append(failure)
+                    break
+            if candidates is None:
                 continue
             if not candidates:
                 failures.append(SupplyFailure(provider.provider_id,"no_results"))

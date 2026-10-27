@@ -31,6 +31,41 @@ def test_missing_choices_and_no_implicit_only_option(env):
     assert s.list_works()['items']==[]
 
 
+@pytest.mark.parametrize('status,label',[
+    ('accepted','已接受'),('trial','未接受，可试片'),('unconfirmed','风格未确认'),
+])
+def test_director_choices_display_one_actual_version_with_its_current_status(env,status,label):
+    channel=seed(env);s,c=env
+    if status=='accepted':
+        work=s.command('create',{'title':'catalog fixture'},command_id='catalog-fixture')['work_id']
+        with s.store.transaction() as conn:
+            conn.execute("INSERT INTO artifacts(id,work_id,kind,storage_ref,digest,size_bytes,created_at) VALUES ('trial',?,'output','fixture.mp4',?,1,?)",(work,'0'*64,now()))
+            conn.execute("UPDATE director_revisions SET accepted_at=?,trial_artifact_id='trial' WHERE id='v4'",(now(),))
+    elif status=='unconfirmed':
+        with s.store.transaction() as conn:conn.execute("UPDATE director_revisions SET style_confirmed=0 WHERE id='v4'")
+    seg=entry(c,profile_ref='one');b,i,_=turn(s,c,seg,'先讨论选题，不制作')
+    state=pipe(b,i,'pending')
+    assert [(v['id'],v['name'],v['display_label']) for v in state['directors']]==[
+        ('v4','导演甲',f'导演甲（第4版，{label}）')]
+    assert state['missing_choices']==['channel','director']
+    assert state['context']['entry']['settings'].get('director_revision') is None
+    assert not state['pending']
+    with s.store.connection() as conn:
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+
+
+def test_distinct_catalog_versions_are_not_collapsed_into_one_director_choice(env):
+    seed(env);s,c=env
+    with s.store.transaction() as conn:
+        conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,created_at) SELECT 'v5',director_id,5,style_json,evidence_json,1,? FROM director_revisions WHERE id='v4'",(now(),))
+    seg=entry(c,profile_ref='one');b,i,_=turn(s,c,seg,'比较现有版本，不制作')
+    versions=pipe(b,i,'pending')['directors']
+    assert [v['id'] for v in versions]==['v5','v4']
+    assert [v['display_label'] for v in versions]==[
+        '导演甲（第5版，未接受，可试片）','导演甲（第4版，未接受，可试片）']
+    assert all(v['name']=='导演甲' for v in versions)
+
+
 def test_selected_pipeline_handoff_waits_native_end(env):
     channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
     b,i,_=turn(s,c,seg,'用频道甲和导演甲')
@@ -1057,3 +1092,41 @@ def test_full_context_returns_current_plan_once_without_losing_distinct_history(
     assert source==before
     assert full_context(view)==view
     assert full_context({'current_plan':None,'work':{'plans':[]}})=={'current_plan':None,'work':{'plans':[]}}
+
+
+def test_pending_and_context_refresh_within_turn_after_plan_finishes(env):
+    channel=seed(env);service,c=env
+    segment=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(service,c,segment,'创建本期作品')
+    work=pipe(b,i,'draft',user_quote='创建本期作品',values={'title':'本期','input_text':'真实输入'})['work_id']
+    b.end(Identity(**i))
+    b,i,_=turn(service,c,segment,'查看最新方案',id='read-fresh')
+    before=pipe(b,i,'pending')
+    context_before=tool(b,i,'easel_work_context',{})
+    assert before['current_plan'] is None
+    service.command('plan',{'generate':False,'plan':{'title':'本期','summary':'概要','script':'新稿',
+        'scenes':[{'id':'s1','purpose':'讲述','visual':'桌面'}],
+        'settings':{'duration_seconds':10,'audio_mode':'silent'}}},command_id='offline-plan',
+        work_id=work,expected_revision=service.snapshot(work)['revision'])
+    after=pipe(b,i,'pending')
+    context_after=tool(b,i,'easel_work_context',{})
+    assert after['current_plan']['revision']==1
+    assert context_after['work']['current_plan_revision']==1
+    assert context_before['work']['current_plan_revision'] is None
+    compact=pipe(b,i,'pending',values={'detail':'plan'})
+    complete=pipe(b,i,'pending',values={'detail':'full'})
+    assert compact['current_plan']['plan_hash']==complete['current_plan']['plan_hash']
+    assert compact['current_plan']['plan']['script']=='新稿'
+    for field,value in compact['current_plan']['plan'].items():
+        assert value==complete['current_plan']['plan'][field]
+    assert 'conversation_basis' not in compact['current_plan']['plan']
+    assert 'profile_snapshot' not in compact['current_plan']['plan']
+    assert 'context' not in compact and 'operation_guide' not in compact
+    assert compact['work']['state']==service.snapshot(work)['state']
+    assert service.snapshot(work)['plans'][0]['plan']==complete['current_plan']['plan']
+
+
+@pytest.mark.parametrize('code,expected', [('visual_material_gap', True), ('invalid_model_output', True), ('invalid_edit_project', True), ('result_unknown', False), ('revision_scope_confirmation', False)])
+def test_visual_revision_exposes_existing_resume_route(code, expected):
+    from easel.conversation_pipeline import has_edit_resume
+    assert has_edit_resume({'kind': 'revise', 'error_json': encode({'code': code}), 'payload_json': '{}'}) is expected

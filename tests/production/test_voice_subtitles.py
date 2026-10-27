@@ -207,3 +207,22 @@ def test_compiled_request_changes_audio_cache_identity(speech,monkeypatch):
     monkeypatch.setattr(adapter,'request',original)
     restored=service.synthesize(VoiceBinding(**{**binding.__dict__,'operation_id':'restored'}),identity=voice,text='同稿。',segment_id='another')
     assert restored['asset']==first['asset'] and len(calls)==2
+
+
+def test_reuse_only_audio_never_synthesizes_missing_or_observes_unknown(speech,monkeypatch):
+    store,ops,binding,voice,calls,adapter,service=speech
+    with pytest.raises(ProductionError,match='未重新合成'):
+        service.synthesize(binding,identity=voice,text='还没有缓存。',segment_id='group',reuse_only=True)
+    assert not calls
+    result=service.synthesize(binding,identity=voice,text='已有配音。',segment_id='group')
+    with store.connection() as conn:
+        before=tuple(conn.execute('SELECT * FROM operations WHERE id=?',(binding.operation_id,)).fetchone())
+    cached=service.synthesize(binding,identity=voice,text='已有配音。',segment_id='group',reuse_only=True)
+    assert cached['asset']==result['asset'] and len(calls)==1
+    with store.connection() as conn:
+        assert tuple(conn.execute('SELECT * FROM operations WHERE id=?',(binding.operation_id,)).fetchone())==before
+    monkeypatch.setattr(ops,'get',lambda _: {'work_id':binding.work_id,'state':'unknown'})
+    monkeypatch.setattr(ops,'observe',lambda *a,**k:pytest.fail('UNKNOWN must not be queried or resent'))
+    with pytest.raises(ProductionError,match='未知调用'):
+        service.synthesize(binding,identity=voice,text='已有配音。',segment_id='group',reuse_only=True)
+    assert len(calls)==1

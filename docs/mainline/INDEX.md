@@ -8,7 +8,7 @@
 |---|---|---|
 | 产品 | 定位、已确认行为、用户旅程 | [定位](product/overview.md) · [需求](product/requirements.md) · [交互](product/interaction.md) |
 | 架构 | 实际源码装配、逻辑职责、实施合同、素材边界、长期决定 | [实现全景与二开导读](architecture/overview.md) · [领域职责](architecture/domain.md) · [合同](architecture/contracts.md) · [素材](architecture/materials.md) · [ADR](architecture/decisions/) |
-| 使用配置 | 当前运行配置、服务能力与验收边界 | [运行指南](guides/runtime-setup.md) |
+| 使用配置 | 当前运行配置、服务能力与验收边界 | [运行指南](guides/runtime-setup.md) · [本地存储清理操作单](guides/local-storage-cleanup.md) |
 | 开发规范 | 开发/Bug统一流程、Git、安全、调试与交接 | [工程规范](development/engineering.md) · [E2E调试](development/testing.md) · [任务衔接](development/task-handoff.md) · [模板](development/templates/) |
 | 项目执行 | 当前断点、候选、依赖、具体任务与运行证据 | [状态](project/status.md) · [候选池](project/backlog.md) · [路线图](project/roadmap.md) · [活动任务](project/tasks/README.md) |
 | 历史 | 早期研究、阶段设计、已结案任务及整理前快照 | [历史索引](history/INDEX.md) |

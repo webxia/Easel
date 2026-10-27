@@ -506,7 +506,7 @@ A2持久记录/来源/工具桥与频道语义、A3统一对话/程序卡/共享
 
 只针对新建作品。`revise.scope`为`edit`（默认）、`narration`或`boards`。narration支持含旁白的voice/mixed且无受保护原声，与preserve_audio/render_only互斥；mixed保留原BGM/音效模式、语音与交付设置，按新音轨重新编排，不将冻结整条旧音轨冒充改稿；boards与render_only互斥。两者沿既有范围确认→新规划→正式制作确认，未确认不调用新TTS/供料。narration保护交付设置、场景身份、画面与图解；原生规划以口播差量响应合并完整方案，只允许原场景的narration/narration_pauses/必要duration及口播元信息，受保护设置、visual/purpose和图解不由模型重写；回执按实际请求schema重建。visual里的旧口播锚点/字幕说明不能覆盖新版narration及实际对齐结果。boards保护设置、脚本、全部场景及图解身份/卡片事实，只允许states变化。原版及授权/UNKNOWN保护保持；新版依据生成受影响图片，不放宽旧图解顺序校验。
 
-`Scene.narration_pauses`默认空，最多4项`{after,seconds}`：after为去首尾空白后严格递增的内部字符位置，seconds为0.05～1秒，单场总计不超过3秒。正文禁止供应商停顿标签。仅固定MiniMax speech-2.8-hd/turbo、连续旁白且无原声保护可用；不支持则明确失败，不切声音。按连续片段映射位置，编译版本minimax-pauses-1，每请求最多32处；预留时间包含停顿，实际音频过长仍停止。TTS请求保存literal_text、pauses、prosody_version及编译text；发送前重新编译严格核对。Operation和音频复用键包含实际请求（segment_id不参与声学复用）；字幕、对齐与语义正文使用literal_text，不含标签。自然表达规则natural-expression-2随作品冻结，复用原写稿调用；软件通过不证明听感。
+`Scene.narration_pauses`默认空，最多4项`{after,seconds}`：after为去首尾空白后严格递增的内部字符位置，seconds为0.05～1秒且最多两位小数，单场总计不超过3秒。新稿与发送前拒绝更高精度，不四舍五入已确认值；旧冻结记录仍可读取。正文禁止供应商停顿标签。仅固定MiniMax speech-2.8-hd/turbo、连续旁白且无原声保护可用；不支持则明确失败，不切声音。按连续片段映射位置，编译版本minimax-pauses-1，每请求最多32处；预留时间包含停顿，实际音频过长仍停止。TTS请求保存literal_text、pauses、prosody_version及编译text；发送前重新编译严格核对。Operation和音频复用键包含实际请求（segment_id不参与声学复用）；字幕、对齐与语义正文使用literal_text，不含标签。自然表达规则natural-expression-2随作品冻结，复用原写稿调用；软件通过不证明听感。
 
 可选独立审片服务由`EASEL_REVIEW_*`选择，使用review-api/model/structured身份、独立配置指纹和同一Operation账本；runner仅替换完整审片调用，创作上下文/写稿模型不替换。新身份须在正式服务确认中授权；无授权阻断发送，UNKNOWN不重发。未配置沿原审片；显式配置无效时运行时拒绝初始化并报配置错误，不静默退到创作服务。能力目录只证明声明/协议符合，verified_live固定false，不证明供应商实际理解。
 
@@ -669,3 +669,14 @@ pending的detail=full保留完整当前方案于current_plan.plan；work.plans�
 人工接受的源成片完成性补充（schema9）：同一production Run若仅剩绑定所选成片的自动画面修订因visual_material_gap停在needs_decision，且无owner、无取消、无在途/UNKNOWN，已有同输出的成功render与quality记录及quality→review→repair绑定，则该完整首片可沿原人工接受入口确认。仍须本版技术PASS、文件存在/摘要相等，以及明确完整审阅画面/声音/字幕/同步的manual_review_confirmed；数据库触发器与业务校验独立约束同一范围。不同任务、手动修订、旁白/声音改动、缺渲染/检查证据或结果待核实不适用。接受只登记具体版本与人工结论，保留原自动fail/暂停Task/Run/已用媒体和费用；不标制作成功、不恢复或重发。已接受版本可沿原发布草稿校验准备，仍须独立发布授权。导演接受规则不变。schema9仅替换既有acceptance触发器，不改业务行或重写历史证据；上线需按当前部署授权，不能靠改生产状态绕过。
 
 原生插件对quality_blocked及manual_review_confirmation_required传回现有服务端user_message，而非只交付裸错误码；两者均为本地定义的安全业务说明。未在既有安全白名单内的错误不透出任意provider正文或凭证，不能据通用错误码臆测语义fail永远不可人工接受。
+
+
+### V2.1 写稿与声音专项：可确认的语义段（WV-01）
+
+`NarrationPolicy.groups`可选，每组包含稳定`id`、按原场景顺序连续列出的`scene_ids`及可选`emotion`。groups必须完整覆盖有声场景且不重复，须continuous及voice/mixed；不提供时序列化省略该字段，旧方案身份与分段保持。组内连续合成，不默认逐句拆分；原声场景不能被包含或跨越。每组建议3000字符以内，MiniMax实际发送正文（含标签）必须少于10000字符。停顿上限按最终请求聚合校验，不再只逐场检查。
+
+固定`settings.voice`保留身份与用户明确参数；本组emotion仅形成有效请求副本，复用适配器既有模型能力校验，不新增情绪枚举支持或自动默认值。与已固定全局emotion冲突则需明确调整，不能覆盖。实际有效参数进入Operation及缓存身份，音频记录保存真实voice参数。规划结果与正式确认保留groups；成片后narration范围只可修改既有组emotion及原口播差量，组身份/边界/时长策略不变，重分组须走重新规划。
+
+不变组可以复用同Work成功音频，新task登记自己的资产句柄；旧TTS不从素材继承通路重复进入新版。修改组的时长改变会使后续字幕与镜头按实测重排，保留音频字节不等于保留旧绝对时间。BGM/SFX仍走原绑定和实测规则。无对齐锚点时不能声称已具词级同步；成功/UNKNOWN不自动重发。组间沿用当前0.25秒建议间隔，真实衔接/自然度需试听，不能从软件测试推定。
+
+本轮[专项任务](../project/tasks/WV-01_writing-voice.md)维护基线、真实调用范围及四层验收结果；不更改生产配置或部署现有V2/V3。

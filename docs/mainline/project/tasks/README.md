@@ -15,6 +15,8 @@
 
 ## 本轮实施交付
 
+- [STORAGE-01 · 本地存储保留与自动回收](STORAGE-01_local-retention.md)：本机清理、自动维护与正式部署完成，原作品审片断点保持。
+
 - [LIB-01 · 内容库交付物与 Easel 原生交互收敛](LIB-01_content-library-consistency.md)：本轮收窄范围COMPLETE，离线回归、部署及Web定向复验通过，功能提交ce08475c已推送；不替换PUB-01生产断点。
 
 ## 父任务与剩余验收

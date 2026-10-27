@@ -101,6 +101,7 @@ class MaterialLibraryRecord(BaseModel):
     # Explicit verified owner-wide reuse applies only to imported local materials.
     owner_shared: bool = False
     lifecycle_status: Literal["ACTIVE", "DELETED"] = "ACTIVE"
+    reclaimed_at: datetime | None = None
     promotion_consent: PromotionConsent | None = None
     created_at: datetime
     updated_at: datetime
@@ -224,7 +225,13 @@ class MaterialLibraryCatalog:
             if existing:
                 previous = MaterialLibraryRecord.model_validate_json(existing[0])
                 if previous.lifecycle_status != "ACTIVE":
-                    raise MaterialLibraryError("Deleted input cannot be implicitly restored")
+                    if previous.reclaimed_at is None or previous.asset.source.kind != 'stock':
+                        raise MaterialLibraryError("Deleted input cannot be implicitly restored")
+                    # Fresh inspected bytes were explicitly received and staged
+                    # above. This is not a search hit resurrecting deleted media.
+                    previous=previous.model_copy(update={'lifecycle_status':'ACTIVE','reclaimed_at':None,'updated_at':now})
+                    db.execute("UPDATE library_assets SET lifecycle_status='ACTIVE',record_json=? WHERE library_asset_id=?",
+                               (previous.model_dump_json(),asset_ref))
                 return previous
             db.execute("INSERT INTO library_assets VALUES (?,?,?,?,?,?,?,?)", (
                 asset_ref, scope.owner_id, scope.profile_key, context.work_id, asset.file.sha256,
@@ -389,6 +396,33 @@ class MaterialLibraryCatalog:
             deleted = record.model_copy(update={"lifecycle_status": "DELETED", "updated_at": datetime.now(timezone.utc)})
             db.execute("UPDATE library_assets SET lifecycle_status='DELETED', record_json=? WHERE library_asset_id=?",
                        (deleted.model_dump_json(), asset_ref))
+
+    def retire_download(self, asset_ref: str, *, references: set[tuple[str,str]], source_work_id: str) -> bool:
+        """Retain provenance while releasing only production-authorized downloads.
+
+        Unknown, shared, promoted and original-input references fail closed.
+        The production caller holds its own authority write transaction.
+        """
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT record_json FROM library_assets WHERE library_asset_id=?',(asset_ref,)).fetchone()
+            if not row:return False
+            record=MaterialLibraryRecord.model_validate_json(row[0])
+            if (record.source_work_id!=source_work_id or record.asset.source.kind!='stock'
+                or record.input_purpose!='production' or record.reusable or record.owner_shared or record.promotion_consent):return False
+            if record.lifecycle_status=='DELETED':return record.reclaimed_at is not None
+            expected=references|{('input:'+asset_ref,source_work_id)}
+            actual={tuple(r) for r in db.execute('SELECT reference_id,work_id FROM library_asset_usage WHERE library_asset_id=?',(asset_ref,))}
+            if not actual<=expected:return False
+            path=self.root/canonical_locator(record.physical_locator)
+            reject_symlinks(self.root,path)
+            if path.exists() and digest_file(path)!=record.asset.file.sha256:return False
+            stamp=datetime.now(timezone.utc)
+            reclaimed=record.model_copy(update={'lifecycle_status':'DELETED','reclaimed_at':stamp,'updated_at':stamp})
+            db.execute('DELETE FROM library_asset_usage WHERE library_asset_id=?',(asset_ref,))
+            db.execute("UPDATE library_assets SET lifecycle_status='DELETED',record_json=? WHERE library_asset_id=?",
+                       (reclaimed.model_dump_json(),asset_ref))
+            return True
 
     def collect_deleted(self) -> tuple[str, ...]:
         """Explicit reconciliation after authorized reference release.

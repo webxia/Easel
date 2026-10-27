@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import asyncio
 import json
 import logging
+import time
 from pathlib import Path
 from .configuration import model_configuration
 from .store import Store
@@ -23,10 +24,10 @@ class ProductionRuntime:
     creation: CreationTasks
     _maintenance_stop: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     _cancel_cursor: str = field(default='', repr=False)
+    _storage_next: float = field(default=0, repr=False)
 
     async def maintenance_once(self):
         """Reconcile explicit cancels and deletion queues independently of claims."""
-        from .deletion import DeletionService
         from .editors import EditError
         with self.service.store.connection() as reader:
             cancelled = [dict(row) for row in reader.execute("""SELECT t.id,t.work_id,t.run_id,t.result_json
@@ -45,7 +46,14 @@ class ProductionRuntime:
                 # A cancelled handler may still be returning from local build in
                 # another thread. Do not mark it done before its job can be seen.
                 continue
-        return await asyncio.to_thread(DeletionService(self.service.store, outputs=self.service.outputs).reconcile_cleanup)
+        if time.time()>=self._storage_next:
+            from .storage_retention import storage_maintenance, DAILY_INTERVAL
+            self._storage_next=time.time()+DAILY_INTERVAL
+            result=await asyncio.to_thread(storage_maintenance,self.service,due_only=True)
+            if result and result.get('next_at'):
+                self._storage_next=result['next_at']
+            return (result or {}).get('deletion_queue',{})
+        return {}
 
     def _save_cancelled_render(self, task, job, output):
         from .contracts import canonical_json

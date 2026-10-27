@@ -331,6 +331,70 @@ def test_manual_director_acceptance_rejects_bad_evidence(env,failure):
     assert not CreativeCatalog(service).list('directors')[0]['versions'][0]['accepted_at']
 
 
+def accepted_trial_fixture(service, work, *, style=True):
+    path=output_fixture(service,work,style=style)
+    with service.store.transaction() as conn:
+        artifact=row(conn,'artifacts','out')
+        conn.execute('INSERT INTO quality_checks VALUES (?,?,?,?,?,?,?,?)',
+            ('visual-finding','out',artifact['digest'],'semantic','test','fail',
+             encode({'findings':['fixture visual finding']}),now()))
+        conn.execute("UPDATE works SET state='preview_needs_fix' WHERE id=?",(work,))
+    service.command('accept',{'output_id':'out','manual_review_confirmed':True},
+        command_id='reviewed-trial',work_id=work,expected_revision=service.snapshot(work)['revision'])
+    return path
+
+
+def test_director_accept_reuses_exact_manual_acceptance_via_api_without_reconfirmation(env):
+    service,c,_,work=draft(env);accepted_trial_fixture(service,work)
+    with service.store.connection() as conn:
+        before={table:[tuple(r) for r in conn.execute('SELECT * FROM '+table)]
+                for table in ('works','runs','tasks','artifacts','quality_checks','acceptances')}
+        acceptance_id=conn.execute('SELECT id FROM acceptances').fetchone()[0]
+    app=FastAPI();app.add_exception_handler(ProductionError,production_error_handler)
+    app.include_router(production_router(lambda:service))
+    request={'command_id':'accept-reviewed-director','expected_revision':1,
+             'payload':{'revision_id':'style','trial_artifact_id':'out'}}
+    with TestClient(app) as client:
+        response=client.post('/api/production/directors/director/accept',json=request)
+        assert response.status_code==202,response.text
+        assert client.post('/api/production/directors/director/accept',json=request).json()==response.json()
+    with service.store.connection() as conn:
+        assert before=={table:[tuple(r) for r in conn.execute('SELECT * FROM '+table)] for table in before}
+        version=row(conn,'director_revisions','style')
+        assert version['accepted_at'] and version['trial_artifact_id']=='out'
+        event=json.loads(conn.execute("SELECT payload_json FROM events WHERE kind='director_accepted'").fetchone()[0])
+        assert event['acceptance_id']==acceptance_id and event['mode']=='explicit_manual_review'
+        assert conn.execute("SELECT count(*) FROM events WHERE kind='director_accepted'").fetchone()[0]==1
+
+
+@pytest.mark.parametrize('failure',[
+    'no_acceptance','wrong_source','unselected_output','wrong_style','unconfirmed_style',
+    'technical_failure','bytes_changed','file_missing','deleted_output','cancelled_work','unfinished_run',
+])
+def test_reused_director_acceptance_keeps_exact_evidence_guards(env,failure):
+    service,c,_,work=draft(env)
+    path=accepted_trial_fixture(service,work,style=failure!='wrong_style')
+    with service.store.transaction() as conn:
+        if failure=='no_acceptance':conn.execute('DELETE FROM acceptances')
+        elif failure=='wrong_source':conn.execute("UPDATE acceptances SET source='explicit_user'")
+        elif failure=='unselected_output':conn.execute('UPDATE works SET accepted_output_id=NULL WHERE id=?',(work,))
+        elif failure=='unconfirmed_style':conn.execute("UPDATE director_revisions SET style_confirmed=0 WHERE id='style'")
+        elif failure=='technical_failure':
+            artifact=row(conn,'artifacts','out')
+            conn.execute('INSERT INTO quality_checks VALUES (?,?,?,?,?,?,?,?)',
+                ('new-technical','out',artifact['digest'],'technical','test','fail','{}',now()))
+        elif failure=='deleted_output':conn.execute("UPDATE artifacts SET deleted_at=? WHERE id='out'",(now(),))
+        elif failure=='cancelled_work':conn.execute("UPDATE works SET state='cancelled' WHERE id=?",(work,))
+        elif failure=='unfinished_run':conn.execute("UPDATE runs SET state='needs_decision' WHERE work_id=?",(work,))
+    if failure=='bytes_changed':path.write_bytes(b'changed after acceptance')
+    elif failure=='file_missing':path.unlink()
+    with pytest.raises(ProductionError):
+        CreativeCatalog(service).command('directors','accept',
+            {'revision_id':'style','trial_artifact_id':'out'},command_id='reject-reviewed-director',
+            id='director',expected_revision=1)
+    assert not CreativeCatalog(service).list('directors')[0]['versions'][0]['accepted_at']
+
+
 def test_channel_defaults_pin_and_frozen_basis_do_not_change_with_new_defaults(env):
     service,c=env;cat=CreativeCatalog(service)
     ch=cat.command('channels','create',{'name':'频道','profile_ref':'one','creative_basis':{'position':'旧定位'},'settings':{'duration_seconds':45}},command_id='channel')
@@ -841,3 +905,47 @@ def test_legacy_explicit_bag_is_unknown_on_read_without_rewriting(env):
         assert service._basis(conn,row(conn,'works',work))['settings_source']=={}
         assert c.context(conn,c.segment(conn,'ui',seg))['entry']['settings_source']=={}
         assert row(conn,'works',work)['creation_context_json']==raw
+
+
+def test_interrupted_turn_explains_legal_continuation_without_releasing_unknown(env):
+    service,c=env;segment=entry(c)
+    bridge,identity,_=turn(service,c,segment,'仅讨论，不制作')
+    with pytest.raises(ProductionError) as active:
+        bridge.reserve(ui_session='ui',turn_id='active-retry',segment_id=segment,message='继续',attachments=[])
+    assert active.value.code=='invocation_pending' and '请等待' in str(active.value)
+    bridge.delivery('turn','unknown','已保存讨论')
+    with pytest.raises(ProductionError) as interrupted:
+        bridge.reserve(ui_session='ui',turn_id='unknown-retry',segment_id=segment,message='继续',attachments=[])
+    assert interrupted.value.code=='invocation_pending'
+    assert all(text in str(interrupted.value) for text in ['尚待核实','内容库','继续创作','不会自动恢复制作'])
+    with service.store.connection() as conn:
+        assert conn.execute("SELECT state FROM conversation_turns WHERE id='turn'").fetchone()[0]=='unknown'
+        assert not conn.execute("SELECT 1 FROM conversation_turns WHERE id IN ('active-retry','unknown-retry')").fetchone()
+        assert not conn.execute('SELECT 1 FROM operations').fetchone()
+
+
+def test_bootstrap_uses_existing_plugin_credential_but_keeps_read_only_scope(env,monkeypatch):
+    import web.app as web
+    s,c=env;seg=entry(c,profile_ref='one');b=PersistentWorkToolBridge(s)
+    b.reserve(ui_session='ui',turn_id='bootstrap-http',segment_id=seg,message='只讨论',attachments=[])
+    token='isolated-bootstrap-credential-long-enough'
+    monkeypatch.setattr(web.app.state,'production_service',s,raising=False)
+    monkeypatch.setenv('EASEL_WORK_BRIDGE_TOKEN',token)
+    local=TestClient(web.app,base_url='http://127.0.0.1:7860',client=('127.0.0.1',12345))
+    args={'agent_id':'main','session_key':'agent:main:easel-pipeline:'+seg,'session_id':'native'}
+    headers={'Authorization':'Bearer '+token}
+    with s.store.connection() as conn:
+        before=[tuple(r) for r in conn.execute('SELECT * FROM conversation_turns')]
+    response=local.post('/api/chat/work-tools/bootstrap',headers=headers,json=args)
+    assert response.status_code==200,response.text
+    assert response.json()['bootstrap_policy']=='product-bootstrap-v1'
+    assert '默认用自然、完整的中文交流' in response.json()['system_prompt']
+    assert local.post('/api/chat/work-tools/bootstrap',json=args).status_code==401
+    assert local.post('/api/chat/work-tools/bootstrap',headers=headers,json={**args,'session_key':'agent:main:ordinary'}).status_code==403
+    remote=TestClient(web.app,base_url='http://127.0.0.1:7860',client=('192.0.2.4',12345))
+    assert remote.post('/api/chat/work-tools/bootstrap',headers=headers,json=args).status_code==403
+    assert local.post('/api/production/works',headers=headers,json={'command_id':'forbidden','payload':{'title':'no'}}).status_code==403
+    with s.store.connection() as conn:
+        assert [tuple(r) for r in conn.execute('SELECT * FROM conversation_turns')]==before
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM works').fetchone()[0]==0

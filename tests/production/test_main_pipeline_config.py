@@ -51,3 +51,22 @@ def test_retired_revision_name_is_removed_from_bounded_policy():
     assert set(result['allow'])=={'read',*NATIVE_TOOLS}
     assert result['deny']==original['deny']
     assert original['allow']==['read','easel_work_request_revision']
+
+
+def test_actual_product_prompt_carries_language_policy_through_both_native_entry_points():
+    from easel.video_workspace import pipeline_system_prompt
+    prompt = pipeline_system_prompt()
+    assert '默认用自然、完整的中文交流' in prompt
+    assert '工具调用前后的简短说明、异常解释和最终回复遵循同一语言' in prompt
+    assert '技术术语、代码标识、专有名称和必要原文可保留英文' in prompt
+    assert '用户明确要求其他语言时跟随' in prompt
+
+
+def test_directory_display_rule_reaches_live_bootstrap_and_operation_guide_once():
+    from easel.video_workspace import CATALOG_SELECTION_POLICY,DIALOGUE_POLICY,POLICY,pipeline_system_prompt
+    for prompt in (DIALOGUE_POLICY,POLICY,pipeline_system_prompt()):
+        assert prompt.count(CATALOG_SELECTION_POLICY)==1
+        assert '每个真实版本ID只对应一个选项' in prompt
+        assert '导演按display_label展示名称、版本和接受状态' in prompt
+        assert '不能自行增加“试片版”选项' in prompt
+        assert '历史回复也不能补充或覆盖当前目录' in prompt

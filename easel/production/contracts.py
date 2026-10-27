@@ -158,7 +158,8 @@ class VideoSettings(Contract):
 
 class NarrationPause(Contract):
     after: int = Field(gt=0, strict=True)
-    seconds: float = Field(ge=.05, le=1, allow_inf_nan=False)
+    seconds: float = Field(ge=.05, le=1, allow_inf_nan=False,
+        description='停顿秒数；MiniMax最多两位小数，不自动四舍五入。')
 
 
 class Scene(Contract):
@@ -187,10 +188,39 @@ class ProfileSnapshot(Contract):
     content_hash: Digest
 
 
+class NarrationGroup(Contract):
+    id: Identifier
+    scene_ids: list[Identifier] = Field(min_length=1,
+        description='连续语义段包含的有声场景，按原场景顺序完整列出；组内连续合成，不逐句拆分。')
+    emotion: Literal['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm', 'fluent', 'whisper'] | None = Field(
+        default=None, description='可选本组表达，只用当前模型支持的值；省略保留声音配置，不默认设置情绪。')
+
+
+def validate_narration_groups(policy, scenes, settings):
+    if not policy or not policy.groups:
+        return
+    if not policy.continuous or settings.audio_mode not in {'voice', 'mixed'} or not settings.voice:
+        raise ValueError('旁白分组需要连续口播和已固定声音')
+    ids = [g.id for g in policy.groups]
+    spoken = [s.id for s in scenes if s.narration.strip()]
+    listed = [sid for g in policy.groups for sid in g.scene_ids]
+    if len(ids) != len(set(ids)) or len(listed) != len(set(listed)) or listed != spoken:
+        raise ValueError('旁白分组须按顺序完整覆盖全部有声场景，不重复、遗漏或重排，组id须唯一')
+
+
 class NarrationPolicy(Contract):
     """New-draft opt-in; historical plans retain fixed sentence playback."""
     continuous: bool = True
     duration_mode: Literal['fixed', 'voice_driven'] = 'fixed'
+    groups: list[NarrationGroup] = Field(default_factory=list,
+        description='可选、须确认的语义合成段。省略沿用连续合成；每组建议不超过3000字符，包含停顿标签须满足当前服务限制（MiniMax少于10000字符）。稳定组id用于局部改稿复用，不能为逐句控制拆分。')
+
+    @model_serializer(mode='wrap')
+    def serialize_groups(self, handler):
+        data = handler(self)
+        if not self.groups:
+            data.pop('groups', None)
+        return data
 
 
 class BoardCard(Contract):
@@ -267,6 +297,7 @@ class PlanDocument(Contract):
         ids = [scene.id for scene in self.scenes]
         if len(ids) != len(set(ids)):
             raise ValueError("scene identifiers must be unique")
+        validate_narration_groups(self.narration_policy, self.scenes, self.settings)
         board_ids=[b.scene_id for b in self.explainer_boards]
         if len(board_ids)!=len(set(board_ids)) or not set(board_ids)<=set(ids):
             raise ValueError('图解须绑定真实场景，每场景最多一组')

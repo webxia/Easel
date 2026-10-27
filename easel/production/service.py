@@ -633,6 +633,9 @@ class WorkService:
         if task['kind']=='edit' and json.loads(task['error_json'] or '{}').get('code') in ({'invalid_model_output','invalid_edit','invalid_edit_project','edit_duration_mismatch'} | AUDIO_EDIT_ERRORS):
             if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
                 fail('result_unknown','剪辑存在未确定调用，不能另发修正')
+            if json.loads(task['error_json'] or '{}').get('code') in {'timed_audio_requires_fixed_duration','narration_timing_missing'}:
+                payload=json.loads(task['payload_json']);payload['reuse_existing_media_only']=True
+                conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
             if source and source['state']=='succeeded':
                 try:
@@ -665,7 +668,7 @@ class WorkService:
                             payload['reuse_existing_media_only']=True
                         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
                 except (ValueError,KeyError,TypeError):pass
-        if task['kind']=='revise' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_revision_search'}:
+        if task['kind']=='revise' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_edit_project','invalid_revision_search','visual_material_gap'}:
             if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
                 fail('result_unknown','修订存在未确定调用，不能另发修正')
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
@@ -674,6 +677,10 @@ class WorkService:
                 if request['schema'].get('title')=='RevisionProposal' and all(
                         call.get('function',{}).get('name')=='inspect_media' for call in message.get('tool_calls',[])):
                     payload=json.loads(task['payload_json']);payload['revision_recovery_source']=source['id']
+                    if json.loads(task['error_json'] or '{}').get('code')=='visual_material_gap':
+                        # Reconsider the known proposal, not another stock round.
+                        payload['revision_material_recovery']=True
+                        payload['reuse_existing_media_only']=True
                     conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
         conn.execute("UPDATE tasks SET state='pending',error_json=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),task['id']))
         conn.execute("UPDATE runs SET state='pending',owner_epoch=owner_epoch+1,lease_expires_at=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),run['id']))
@@ -757,7 +764,7 @@ class WorkService:
     def _creator_review_ready(conn, artifact) -> bool:
         """Human review can resolve model findings without rewriting QC history.
 
-        Director trial acceptance keeps its separate _manual_review_ready rule.
+        Director acceptance may reuse this readiness for an already accepted output.
         """
         if (artifact['kind']!='output' or not artifact['displayable'] or artifact.get('deleted_at') or
                 artifact['output_revision'] is None or artifact['quality_state']=='unchecked'):
@@ -954,6 +961,8 @@ class WorkService:
         with self.store.connection() as conn:
             artifact=row(conn,'artifacts',id)
             if row(conn,'works',artifact['work_id']).get('deleted_at'):fail('not_found','作品已删除',404)
+        if json.loads(artifact['metadata_json']).get('local_media_retention',{}).get('state')=='reclaimed':
+            fail('material_reclaimed','下载素材文件已按保留策略回收，来源和许可记录仍保留',410)
         path=(self.outputs/artifact['storage_ref']).resolve()
         allowed=self.outputs/'works'/artifact['work_id']
         if artifact.get('deleted_at') or not artifact['displayable'] or allowed not in path.parents or not path.is_file():

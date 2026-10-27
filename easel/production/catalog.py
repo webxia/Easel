@@ -130,12 +130,21 @@ class CreativeCatalog:
         elif action=='accept':
             version=row(conn,'director_revisions',data.get('revision_id',''))
             artifact=row(conn,'artifacts',data.get('trial_artifact_id',''))
+            work=row(conn,'works',artifact['work_id'])
+            acceptance=conn.execute("""SELECT id FROM acceptances
+                WHERE work_id=? AND output_id=? AND source='explicit_manual_review'
+                ORDER BY created_at DESC,id DESC LIMIT 1""",
+                (work['id'],artifact['id'])).fetchone()
+            # Reuse the reviewed exact output, not its pointer alone or another
+            # version's acceptance. Automatic findings remain unchanged.
+            accepted_manual=bool(acceptance and work['accepted_output_id']==artifact['id']
+                and self.service._creator_review_ready(conn,artifact))
             manual=self.service._manual_review_ready(conn,artifact)
-            if manual:
-                work=row(conn,'works',artifact['work_id'])
+            if manual and not accepted_manual:
                 run=row(conn,'runs',artifact['run_id'])
                 if data.get('manual_review_confirmed') is not True or work['state']!='reviewable' or run['state']!='succeeded':
                     fail('manual_review_confirmation_required','导演试片须人工完整审阅并明确确认')
+            manual=manual or accepted_manual
             if artifact['kind']!='output' or artifact.get('deleted_at') or version['director_id']!=id or not version['style_confirmed'] or (artifact['quality_state']!='passed' and not manual) or artifact['output_revision'] is None:
                 fail('invalid_input','请先确认风格并审阅该版本的合格试片')
             run=row(conn,'runs',artifact['run_id'])
@@ -144,7 +153,8 @@ class CreativeCatalog:
                 fail('invalid_input','试片并非使用该导演版本制作')
             self.service.artifact_path(artifact['id'])
             conn.execute('UPDATE director_revisions SET trial_artifact_id=?,accepted_at=? WHERE id=?',(artifact['id'],now(),version['id']))
-            self.service._event(conn,artifact['work_id'],'director_accepted',{'director_revision_id':version['id'],'output_id':artifact['id'],'mode':'explicit_manual_review' if manual else 'explicit_user'})
+            self.service._event(conn,artifact['work_id'],'director_accepted',{'director_revision_id':version['id'],'output_id':artifact['id'],'mode':'explicit_manual_review' if manual else 'explicit_user',
+                **({'acceptance_id':acceptance['id']} if accepted_manual else {})})
         else:
             if 'name' in data:
                 if not str(data['name']).strip():fail('invalid_input','导演名称不能为空')
