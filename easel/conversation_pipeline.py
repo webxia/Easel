@@ -240,7 +240,7 @@ def turn_context(context):
         result['model_calls']={**context.get('model_calls',{}),'diagnostics':[]}
     plan=context.get('current_plan')
     result['current_plan']={k:v for k,v in plan.items() if k not in {'payload_json','plan'}} if plan else None
-    result['detail_access']='这是活动运行与版本摘要；sources正文、画像保存目标通过easel_work_context读取，本轮原话在新消息区。完整当前方案、历史运行/提案/产物和调用诊断通过easel_pipeline pending传values.detail=full读取。Worker使用的表达规则不在聊天重复。摘要省略不代表记录被删除或授权改变。'
+    result['detail_access']='这是活动运行与版本摘要；sources正文、画像保存目标通过easel_work_context读取，本轮原话在新消息区。完整当前方案正文通过easel_pipeline pending传values.detail=plan读取；历史依据/运行/提案/产物和调用诊断传values.detail=full读取。Worker使用的表达规则不在聊天重复。摘要省略不代表记录被删除或授权改变。'
     return result
 
 
@@ -872,13 +872,23 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
     if mode=='pending':
         state=pending(conversations,conn,segment)
         detail=args.get('values',{}).get('detail')
+        if detail=='plan':
+            current=state.get('current_plan')
+            if current:
+                current={k:v for k,v in current.items() if k not in {'plan','payload_json'}} | {
+                    'plan':{k:v for k,v in state['current_plan']['plan'].items()
+                            if k not in {'profile_snapshot','conversation_basis'}}}
+            work=state.get('work')
+            return {'current_plan':current,
+                    'work':{k:v for k,v in work.items() if k in {'id','revision','state','current_plan_revision','active_run_id'}} if work else None,
+                    'basis_access':'画像快照与冻结创作依据未改动；审计时通过values.detail=full读取。'}
         if detail=='full':
             from .video_workspace import POLICY, KNOWLEDGE
             if state.get('work'):
                 state={**state,'work':{**state['work'],'artifacts':[
                     output_summary(a,detail=True) if a['kind']=='output' else a for a in state['work']['artifacts']]}}
             return {**full_context(state),'operation_guide':POLICY+KNOWLEDGE}
-        if detail is not None:fail('invalid_input','详情使用values.detail=full')
+        if detail is not None:fail('invalid_input','当前方案使用values.detail=plan，历史审计详情使用values.detail=full')
         summary=turn_context(state)
         return summary
     quote=args.get('user_quote','').strip()

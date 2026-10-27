@@ -474,10 +474,11 @@ def test_draft_voice_execution_view_matches_native_wire_without_editing_plan(tmp
         assert 'voice_execution_contract' not in view.capabilities
 
 
-def test_native_voice_critic_gets_adapter_contract_and_frozen_plan_parameters(tmp_path):
+@pytest.mark.parametrize('model,extra_emotions',[('speech-2.8-turbo',set()),('speech-2.6-turbo',{'fluent','whisper'})])
+def test_native_voice_author_and_critic_get_adapter_contract_and_frozen_plan_parameters(tmp_path,model,extra_emotions):
     from easel.production.service import encode,row
     service,work,transport,worker=setup(tmp_path)
-    voice={'provider':'fixture','model':'speech','engine':'minimax-speech-v1','voice_id':'fixed','parameters':{'speed':1}}
+    voice={'provider':'fixture','model':model,'engine':'minimax-speech-v1','voice_id':'fixed','parameters':{'speed':1}}
     settings={'schema_version':1,'audio_mode':'mixed','voice':voice,'aspect_ratio':'16:9','duration_seconds':20}
     with service.store.transaction() as conn:
         conn.execute('UPDATE works SET settings_json=? WHERE id=?',(encode(settings),work))
@@ -489,12 +490,21 @@ def test_native_voice_critic_gets_adapter_contract_and_frozen_plan_parameters(tm
     transport.answer['scenes'][0]['duration_seconds']=20
     complete=transport.complete
     async def verify_review(messages,tools,schema):
+        data=json.loads(messages[1]['content'][0]['text'])
+        contract=data['production_capabilities']['voice_execution_contract']
+        assert set(contract['supported_emotions']) == {'happy','sad','angry','fearful','disgusted','surprised','calm'} | extra_emotions
+        assert contract['effective_wire_voice_setting']=={'voice_id':'fixed','speed':1,'vol':1,'pitch':0}
+        assert 'volume' not in contract['supported_plan_parameters']
         if schema['title']=='DraftReview':
-            data=json.loads(messages[1]['content'][0]['text'])
             assert data['plan']['settings']['voice']==voice
-            contract=data['production_capabilities']['voice_execution_contract']
-            assert contract['effective_wire_voice_setting']=={'voice_id':'fixed','speed':1,'vol':1,'pitch':0}
-            assert 'volume' not in contract['supported_plan_parameters']
+            group_schema=data['production_capabilities']['narration_group_schema']
+            assert group_schema['additionalProperties'] is False
+            assert set(group_schema['properties'])=={'id','scene_ids','emotion'}
+            assert group_schema['properties']['emotion']['default'] is None
+            measurements=data['production_capabilities']['duration_execution_contract']['measurements']
+            assert measurements['script_characters']==len('技术服务人。')
+            assert measurements['scene_duration_seconds']==20
+            assert measurements['pause_seconds']==0
         return await complete(messages,tools,schema)
     transport.complete=verify_review
     assert asyncio.run(worker.run_once())

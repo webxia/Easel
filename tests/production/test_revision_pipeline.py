@@ -293,6 +293,8 @@ def test_duplicate_scene_search_is_corrected_before_any_stock_acquisition(tmp_pa
                 value=json.loads(result['content']);count=len(self.calls)
                 if count==2:
                     assert any('同一原场景只能保留一条' in m.get('content','') for m in messages if isinstance(m.get('content'),str))
+                    from easel.production.revisions import REVISION_MATERIAL_SCOPE
+                    assert REVISION_MATERIAL_SCOPE in messages[-1]['content']
                 value['material_searches']=([{'scene_id':'s1','query':query,'media_types':['image'],'options':1}
                     for query in (['blue image','blue desk'] if count==1 else ['blue image'])] if count<3 else [])
                 result={'content':json.dumps(value)}
@@ -316,3 +318,101 @@ def test_duplicate_scene_search_is_corrected_before_any_stock_acquisition(tmp_pa
     snapshot=service.snapshot(work);task=next(t for t in snapshot['tasks'] if t['kind']=='revise')
     assert task['state']=='succeeded',task['error_json']
     assert len(supply.calls)==1 and len(model.calls)==3
+
+
+@pytest.mark.skipif(not shutil.which('ffmpeg'), reason='FFmpeg unavailable')
+@pytest.mark.parametrize('case', ['authorized_substitute', 'authorized_after_gap', 'required_source', 'misleading', 'concealed_conflict'])
+def test_revision_material_scope_preserves_real_gap_and_visual_checks(tmp_path, monkeypatch, case):
+    """Scripted decisions test routing, not a model's ability to judge permission.
+
+    Mirrors the real failure: after finite stock supply, searches remain nonempty.
+    A resolved substitute must still pass the ordinary edit checks and render path.
+    """
+    _first_cut(tmp_path, True, False, False, monkeypatch)
+    store = Store(tmp_path/'outputs/_production/production.sqlite3')
+    service = WorkService(store, outputs=tmp_path/'outputs', profiles=tmp_path/'profiles')
+    work = service.list_works()['items'][0]['id']
+    before = service.snapshot(work)
+    output = next(a for a in before['artifacts'] if a['kind'] == 'output')
+    from easel.production.revisions import REVISION_MATERIAL_SCOPE
+
+    class ScopeModel(RevisionModel):
+        recovering = False
+        async def complete(self, messages, tools, schema):
+            assert REVISION_MATERIAL_SCOPE in messages[0]['content']
+            assert '非空会触发补料或暂停' in schema['properties']['material_searches']['description']
+            result = await super().complete(messages, tools, schema)
+            value = json.loads(result['content'])
+            base = json.loads(messages[1]['content'][0]['text'])['artifacts'][0]['base_edit']
+            scene = base['scenes'][0]
+            value['reason'] = {
+                'authorized_substitute': '用户允许情境画面，沿用无身份指向的素材；理想的本人录屏不再作为完成条件。',
+                'authorized_after_gap': '用户已允许情境替代，理想录屏仍列为补料的历史回执。',
+                'required_source': '用户明确必须本人录屏，现有素材不能替代。',
+                'misleading': '当前画面与说明冲突，示意许可不能解决这一实际误导。',
+                'concealed_conflict': '错误地声称冲突已解决。',
+            }[case]
+            evidence = [{'scene_id': scene['scene_id'], 'asset_id': scene['asset_id'],
+                         'observed_times': [], 'observation': '隔离夹具画面',
+                         'match_status': 'conflicting' if case in {'misleading', 'concealed_conflict'} else 'illustrative'}]
+            target = value.get('changes', value.get('edit'))
+            target['visual_evidence'] = evidence
+            value['material_searches'] = ([] if case in {'authorized_substitute', 'concealed_conflict'} or (case == 'authorized_after_gap' and self.recovering) else
+                [{'scene_id': scene['scene_id'], 'query': 'required source', 'media_types': ['image'], 'options': 1}])
+            return {'content': json.dumps(value)}
+
+    model = ScopeModel(); model.calls = []
+    planning = PlanningTasks(service, OperationService(store), model,
+        {'provider': 'direct-api', 'model': 'offline-scripted', 'mode': 'structured'}, 'offline')
+    creation = CreationTasks(service, planning)
+
+    class Supply:
+        calls = 0
+        def revision_visuals(self, ctx, searches):
+            self.calls += 1
+            return []
+    supply = Supply()
+    revision = RevisionTasks(service, planning, creation, supply=supply)
+    service.command('revise', {'output_id': output['id'], 'feedback': case, 'preserve_audio': True},
+        command_id='scope-revision', work_id=work, expected_revision=before['revision'])
+    from easel.production.worker import TaskResult
+    async def await_render(ctx):
+        return TaskResult(state='waiting_external')
+    asyncio.run(Worker(store, {'revise': revision.revise, 'render': await_render}).run_once())
+    after = service.snapshot(work)
+    task = next(t for t in after['tasks'] if t['kind'] == 'revise')
+    if case == 'authorized_substitute':
+        assert task['state'] == 'succeeded', task['error_json']
+        assert supply.calls == 0
+        assert any(t['kind'] == 'render' and t['state'] == 'waiting_external' for t in after['tasks'])
+    else:
+        assert task['state'] == 'needs_decision'
+        assert ('invalid_model_output' if case == 'concealed_conflict' else 'visual_material_gap') in task['error_json']
+        assert supply.calls == (0 if case == 'concealed_conflict' else 1)
+        assert not any(t['kind'] == 'render' and t['state'] == 'waiting_external' for t in after['tasks'])
+    assert after['accepted_output_id'] == before['accepted_output_id']
+    assert [a for a in after['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}] == [
+        a for a in before['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}]
+
+    if case in {'authorized_after_gap', 'required_source', 'misleading'}:
+        with store.connection() as conn:
+            receipts = [tuple(r) for r in conn.execute('SELECT id,state,request_json,receipt_json FROM operations WHERE task_id=?', (task['id'],))]
+        model.recovering = True
+        service.command('resume', {'decision_id': task['id']}, command_id='scope-resume',
+                        work_id=work, expected_revision=after['revision'])
+        asyncio.run(Worker(store, {'revise': revision.revise, 'render': await_render}).run_once())
+        resumed = service.snapshot(work)
+        task = next(t for t in resumed['tasks'] if t['kind'] == 'revise')
+        assert supply.calls == 1  # No new stock operation after explicit recovery.
+        assert len(model.calls) == 3  # Initial + stock selection + one correction.
+        assert '重新核对这些请求' in model.calls[-1][-1]['content']
+        if case == 'authorized_after_gap':
+            assert task['state'] == 'succeeded', task['error_json']
+            assert any(t['kind'] == 'render' and t['state'] == 'waiting_external' for t in resumed['tasks'])
+        else:
+            assert task['state'] == 'needs_decision' and 'material_gap' in task['error_json']
+        with store.connection() as conn:
+            for original in receipts:
+                assert tuple(conn.execute('SELECT id,state,request_json,receipt_json FROM operations WHERE id=?', (original[0],)).fetchone()) == original
+        assert [a for a in resumed['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}] == [
+            a for a in before['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}]

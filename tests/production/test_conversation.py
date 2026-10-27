@@ -841,3 +841,20 @@ def test_legacy_explicit_bag_is_unknown_on_read_without_rewriting(env):
         assert service._basis(conn,row(conn,'works',work))['settings_source']=={}
         assert c.context(conn,c.segment(conn,'ui',seg))['entry']['settings_source']=={}
         assert row(conn,'works',work)['creation_context_json']==raw
+
+
+def test_interrupted_turn_explains_legal_continuation_without_releasing_unknown(env):
+    service,c=env;segment=entry(c)
+    bridge,identity,_=turn(service,c,segment,'仅讨论，不制作')
+    with pytest.raises(ProductionError) as active:
+        bridge.reserve(ui_session='ui',turn_id='active-retry',segment_id=segment,message='继续',attachments=[])
+    assert active.value.code=='invocation_pending' and '请等待' in str(active.value)
+    bridge.delivery('turn','unknown','已保存讨论')
+    with pytest.raises(ProductionError) as interrupted:
+        bridge.reserve(ui_session='ui',turn_id='unknown-retry',segment_id=segment,message='继续',attachments=[])
+    assert interrupted.value.code=='invocation_pending'
+    assert all(text in str(interrupted.value) for text in ['尚待核实','内容库','继续创作','不会自动恢复制作'])
+    with service.store.connection() as conn:
+        assert conn.execute("SELECT state FROM conversation_turns WHERE id='turn'").fetchone()[0]=='unknown'
+        assert not conn.execute("SELECT 1 FROM conversation_turns WHERE id IN ('active-retry','unknown-retry')").fetchone()
+        assert not conn.execute('SELECT 1 FROM operations').fetchone()

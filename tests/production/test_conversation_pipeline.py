@@ -1057,3 +1057,35 @@ def test_full_context_returns_current_plan_once_without_losing_distinct_history(
     assert source==before
     assert full_context(view)==view
     assert full_context({'current_plan':None,'work':{'plans':[]}})=={'current_plan':None,'work':{'plans':[]}}
+
+
+def test_pending_and_context_refresh_within_turn_after_plan_finishes(env):
+    channel=seed(env);service,c=env
+    segment=entry(c,profile_ref='one',channel_id=channel,director_revision='v4',director_trial=True)
+    b,i,_=turn(service,c,segment,'创建本期作品')
+    work=pipe(b,i,'draft',user_quote='创建本期作品',values={'title':'本期','input_text':'真实输入'})['work_id']
+    b.end(Identity(**i))
+    b,i,_=turn(service,c,segment,'查看最新方案',id='read-fresh')
+    before=pipe(b,i,'pending')
+    context_before=tool(b,i,'easel_work_context',{})
+    assert before['current_plan'] is None
+    service.command('plan',{'generate':False,'plan':{'title':'本期','summary':'概要','script':'新稿',
+        'scenes':[{'id':'s1','purpose':'讲述','visual':'桌面'}],
+        'settings':{'duration_seconds':10,'audio_mode':'silent'}}},command_id='offline-plan',
+        work_id=work,expected_revision=service.snapshot(work)['revision'])
+    after=pipe(b,i,'pending')
+    context_after=tool(b,i,'easel_work_context',{})
+    assert after['current_plan']['revision']==1
+    assert context_after['work']['current_plan_revision']==1
+    assert context_before['work']['current_plan_revision'] is None
+    compact=pipe(b,i,'pending',values={'detail':'plan'})
+    complete=pipe(b,i,'pending',values={'detail':'full'})
+    assert compact['current_plan']['plan_hash']==complete['current_plan']['plan_hash']
+    assert compact['current_plan']['plan']['script']=='新稿'
+    for field,value in compact['current_plan']['plan'].items():
+        assert value==complete['current_plan']['plan'][field]
+    assert 'conversation_basis' not in compact['current_plan']['plan']
+    assert 'profile_snapshot' not in compact['current_plan']['plan']
+    assert 'context' not in compact and 'operation_guide' not in compact
+    assert compact['work']['state']==service.snapshot(work)['state']
+    assert service.snapshot(work)['plans'][0]['plan']==complete['current_plan']['plan']

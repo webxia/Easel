@@ -126,7 +126,19 @@ class RevisionSummary(Contract):
     expands_scope: bool
     requires_new_generation: bool
     reason: str
-    material_searches: list[VisualIntent] = Field(default_factory=list,max_length=4)
+    material_searches: list[VisualIntent] = Field(default_factory=list,max_length=4,
+        description='仅列仍阻止本轮完成的必要补料；已获许可且能实际落实的替代方案所放弃的理想素材写reason，不列入此处。非空会触发补料或暂停，不是一般局限清单。')
+
+
+REVISION_MATERIAL_SCOPE = (
+    '先结合用户明确要求、adaptation_permissions与实际画面判断本轮仍须满足的条件，不把检查建议自动升级为用户必需素材。'
+    '用户允许替代且现有画面能够落实时，执行具体替代，在reason说明许可依据、实际改动与剩余局限；'
+    '仅未达到的理想效果或已允许不提供的原始记录，不进入material_searches。'
+    '允许示意不等于允许误导：用户明确必需的真实素材、不可替代的核心动作、实际画面与事实冲突仍须解决；'
+    '不能只给画面标illustrative或写“不作证据”就宣布解决，须结合选用区间及实际呈现说明为何不误导。'
+    'material_searches只表达未解决且阻止完成的必要素材条件，reason逐项说明受损要求和现有候选不能解决的原因；'
+    '不要用它登记已接受替代后的理想素材愿望。程序不会替你删除请求或判断语义。'
+)
 
 
 class VisualRevisionProposal(RevisionSummary):
@@ -378,13 +390,13 @@ class RevisionTasks:
             observations,needs=await self._observe(initial,audio_native=audio_native,observed=observed,budget=budget)
             from .edit_observation import check_visual_evidence, VISUAL_EVIDENCE_INSTRUCTION
             from .narration import ENDING_INSTRUCTION
-            instruction=(ENDING_INSTRUCTION + VISUAL_EVIDENCE_INSTRUCTION + '修订reason逐项回应已有findings：哪些实际画面改变了，哪些仍缺证据；不能只声称问题已解决。'
+            instruction=(ENDING_INSTRUCTION + VISUAL_EVIDENCE_INSTRUCTION + REVISION_MATERIAL_SCOPE + '修订reason逐项回应已有findings：实际改动、仍阻断的缺陷与不阻断的局限分开说明；不能只声称问题已解决。'
                 '解释本次局部修改范围，优先返回changes：scenes按已登记scene_id替换该镜头（可拆镜），captions只列改动项；未列项及全部AudioClip由原工程继承，visual_evidence列实际选择证据。不要重写整份工程。仅需调整独立音轨时使用edit。未指出部分不得改写；保留scene_id、时长、转场、旁白和字幕文本/时间。'
                 'preserve_audio=true时独立AudioClip继承原版；使用完整edit时逐字段保留，包括声音身份、at、duration、gain。'
                 '含原声镜头的素材、source_start、duration、source_gain、实际时间线位置须保持；可改crop、fit、motion等纯画面字段，不通过替换镜头意外移除或新增原声。'
                 'preserve_audio=false且用户反馈涉及声音时，可调整现有音轨gain/fade_in/fade_out，保留素材身份、完整配音、位置和时长；复用配音资产不等于冻结混音参数。'
                 '先实际复查全部候选，禁止把未观察过的文件名当画面事实。可用同方案合格库存替换用户要求修复的画面。关键动作必须发生在实际source_start至source_start+duration内，不能用源片尾部动作冒充选取前段；technical.duration_seconds给出源片真实长度。'
-                '缺少关键主体或动作时，在material_searches列出最多4个本方案场景的简短英文主体/动作搜索词，options最多4、media_types仅image/video；'
+                '仍缺本轮不可替代的关键主体或动作时，在material_searches列出最多4个本方案场景的简短英文主体/动作搜索词，options最多4、media_types仅image/video；'
                 '这里只补指定镜头的库存，不重做方案、配音或生成媒体。此时edit先保持原版，说明缺口而非给无关概念画面；没有缺口则material_searches=[]。'
                 '仅实际新增文案/时长/生成需求才设expands_scope/requires_new_generation；不要把本次已明确要求的现有素材替换与字幕样式修复误作整片重建。'
                 '字幕对比不足时可以使用明确的深色半透明背景与较清楚的描边，保留文字和时间。')
@@ -417,8 +429,14 @@ class RevisionTasks:
                         source_durations[record['id']]=probe_media(artifact_file(self.service,record))['duration']
                 check_edit_source_bounds(edit,source_durations,target_seconds=base.duration,fps=base.fps)
 
+            reconsider_materials = bool(ctx.payload.get('revision_material_recovery'))
             def check_creative_repair(candidate):
+                nonlocal reconsider_materials
                 from .model_tasks import ResultCorrectionError
+                if reconsider_materials:
+                    reconsider_materials = False
+                    if candidate.material_searches:
+                        raise ResultCorrectionError('这是已成功返回但因必要素材请求而暂停的原回执；本次恢复只使用现有素材，不再补料。重新核对这些请求是否仍是不可替代条件，不能直接复用旧结论。' + REVISION_MATERIAL_SCOPE)
                 try:
                     candidate=normalize(candidate)
                 except ValueError as exc:
@@ -442,7 +460,11 @@ class RevisionTasks:
                         from .boards import check_board_usage
                         collect(lambda: check_board_usage(draft.scenes,records))
                         collect(lambda: check_caption_layout(draft.captions,font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'},width=base.width,height=base.height))
-                if errors:raise ResultCorrectionError('；'.join(errors))
+                if errors:
+                    # A format/timing repair must not fossilize an earlier stock
+                    # request. Re-evaluate its necessity under the same authority;
+                    # no semantic inference or removal of searches by the program.
+                    raise ResultCorrectionError('；'.join(errors) + '。' + REVISION_MATERIAL_SCOPE)
             from .edit_observation import edit_observation_tools
             def observation_tools(items):
                 if not self.planning.transport or 'tools' not in self.planning.transport.capabilities:return ()
@@ -493,7 +515,7 @@ class RevisionTasks:
                     [r for r in records if r['id'] in new_ids] if budget is not None else records,
                     audio_native=audio_native,observed=observed,budget=budget)
                 proposal=await self.planning.runner(ctx,namespace='revision-stock-selection-v1',max_format_repairs=2).run(
-                    candidate_context(records),instruction+'本轮有限库存补料已经完成，不能再次请求检索。根据实际新候选完成修订；仍缺关键动作时在material_searches明确报告缺口并停止（不会再次检索），不能改用无关画面。',
+                    candidate_context(records),instruction+'本轮有限库存补料已经完成，不能再次请求检索。按上述许可与实际画面区分必要缺口和已接受替代后的局限：可执行替代则完成修订；仍缺不可替代条件才在material_searches报告并停止（不会再次检索），不能改用无关画面。',
                     result_type,media=(*media,*observations),required=frozenset(set(required)|needs),tools=observation_tools(records),validate_result=check_creative_repair, expression_role="visual")
                 proposal=normalize(proposal)
                 if proposal.material_searches:raise ModelTaskError('visual_material_gap','有限库存补料后仍缺所需画面，保留原片并等待处理')

@@ -12,6 +12,27 @@ from .model_tasks import ModelTaskError
 
 def _literal_narration_segments(plan: dict, protected: set[str] | None = None) -> list[dict]:
     protected = protected or set()
+    groups = (plan.get('narration_policy') or {}).get('groups', [])
+    if groups:
+        from .contracts import NarrationPolicy, Scene, VideoSettings, validate_narration_groups
+        validate_narration_groups(NarrationPolicy.model_validate(plan['narration_policy']),
+            [Scene.model_validate(s) for s in plan['scenes']], VideoSettings.model_validate(plan['settings']))
+        by_id = {s['id']: s for s in plan['scenes']}
+        positions = {s['id']: i for i, s in enumerate(plan['scenes'])}
+        result = []
+        for group in groups:
+            ids = group['scene_ids']
+            interval = plan['scenes'][positions[ids[0]]:positions[ids[-1]] + 1]
+            if any(protected.intersection(s.get('required_input_ids', [])) for s in interval):
+                raise ModelTaskError('narration_group_original_audio', '旁白分组不能包含或跨越受保护原声场景')
+            text = '\n'.join(by_id[sid]['narration'].strip() for sid in ids)
+            native = plan['settings']['voice']['engine'] == 'minimax-speech-v1'
+            if (native and len(text) >= 10000) or (not native and len(text) > 12000):
+                raise ModelTaskError('narration_too_long', '已确认旁白组超过服务单段限制（MiniMax须少于10000字符），须明确重新分组，未自动拆分')
+            result.append({'segment_id': 'narration-group-' + group['id'], 'text': text,
+                'text_hash': fingerprint(text), 'scene_ids': list(ids), 'scene_id': ids[0],
+                **({'emotion': group['emotion']} if group.get('emotion') is not None else {})})
+        return result
     scenes = [s for s in plan['scenes'] if not protected.intersection(s.get('required_input_ids', []))]
     if not (plan.get('narration_policy') or {}).get('continuous'):
         return [{**part, 'segment_id': scene['id'] + '-' + part['segment_id'],
@@ -54,11 +75,41 @@ def narration_segments(plan, protected=None):
     return segments
 
 
+def validate_narration_execution(plan, protected=None):
+    """Check the same combined requests that synthesis will send, before fees."""
+    segments = narration_segments(plan, protected)
+    if not (plan.get('narration_policy') or {}).get('groups') and not any(s.get('pauses') for s in segments):
+        return segments
+    from .contracts import VoiceIdentity
+    from .voice import effective_segment_voice
+    from .prosody import compile_pauses
+    if plan['settings']['audio_mode'] not in {'voice', 'mixed'} or not plan['settings'].get('voice'):
+        raise ModelTaskError('voice_required', '旁白表达需要固定声音')
+    identity = VoiceIdentity.model_validate(plan['settings']['voice'])
+    for segment in segments:
+        effective = effective_segment_voice(identity, segment)
+        text = compile_pauses(segment['text'], segment.get('pauses', []), effective)
+        if ((effective.engine == 'minimax-speech-v1' and len(text) >= 10000)
+                or (effective.engine != 'minimax-speech-v1' and len(text) > 12000)):
+            raise ModelTaskError('narration_too_long', '旁白分组含停顿标签后超过服务单段限制（MiniMax须少于10000字符），请明确重新分组')
+    return segments
+
+
 def duration_execution_contract(plan: dict) -> dict:
     """Expose existing duration semantics to candidate review, without editing it."""
     mode=(plan.get('narration_policy') or {}).get('duration_mode','fixed')
+    scenes=plan.get('scenes',[])
     return {'duration_mode':mode,'duration_seconds_required':True,
             'draft_duration_seconds':plan['settings']['duration_seconds'],
+            'measurements': {
+                'script_characters': len(plan.get('script','')),
+                'character_count_basis': 'Python Unicode code points, including punctuation, Latin letters and whitespace; not a measured speech duration',
+                'scene_duration_seconds': (sum(scene['duration_seconds'] for scene in scenes)
+                    if all(scene.get('duration_seconds') is not None for scene in scenes) else None),
+                'pause_seconds': sum(pause['seconds'] for scene in scenes for pause in scene.get('narration_pauses',[])),
+                'scenes': [{'id':scene['id'],'narration_characters':len(scene.get('narration','')),
+                            'pause_seconds':sum(pause['seconds'] for pause in scene.get('narration_pauses',[]))}
+                           for scene in scenes]},
             'duration_seconds_meaning':'planning_estimate' if mode=='voice_driven' else 'fixed_duration',
             'execution_basis':'complete_measured_speech' if mode=='voice_driven' else 'confirmed_duration',
             'description':('voice_driven下settings.duration_seconds仍为必填规划估计值，不是固定截断点；measured_execution_plan按完整配音实测覆盖执行时长，冻结稿保留估计值。不能要求删除必填字段。'

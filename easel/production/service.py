@@ -665,7 +665,7 @@ class WorkService:
                             payload['reuse_existing_media_only']=True
                         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
                 except (ValueError,KeyError,TypeError):pass
-        if task['kind']=='revise' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_revision_search'}:
+        if task['kind']=='revise' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_revision_search','visual_material_gap'}:
             if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
                 fail('result_unknown','修订存在未确定调用，不能另发修正')
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
@@ -674,6 +674,10 @@ class WorkService:
                 if request['schema'].get('title')=='RevisionProposal' and all(
                         call.get('function',{}).get('name')=='inspect_media' for call in message.get('tool_calls',[])):
                     payload=json.loads(task['payload_json']);payload['revision_recovery_source']=source['id']
+                    if json.loads(task['error_json'] or '{}').get('code')=='visual_material_gap':
+                        # Reconsider the known proposal, not another stock round.
+                        payload['revision_material_recovery']=True
+                        payload['reuse_existing_media_only']=True
                     conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
         conn.execute("UPDATE tasks SET state='pending',error_json=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),task['id']))
         conn.execute("UPDATE runs SET state='pending',owner_epoch=owner_epoch+1,lease_expires_at=NULL,revision=revision+1,updated_at=? WHERE id=?",(now(),run['id']))

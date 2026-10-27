@@ -30,6 +30,7 @@ const pipelineValuesSchema = {
   type: 'object',
   description: 'Action-specific values. For bind, use kind, channel_id, director_revision (the exact revision ID, never director_id or a numeric version), and director_trial together for the targets already selected in user sources. For grant purpose=planning, send only {"purpose":"planning"}; the server returns exact services and the paused decision_id. Present returned values.payload and values.summary before asking for consent. Never wrap services in item, or copy label/available fields.',
   properties: {
+    detail: {type:'string',enum:['plan','full'],description:'pending only: plan reads the actual current plan body without replaying profile/history; full reads the complete audit context. Omit for current status. Repeated reads return fresh state.'},
     kind: { type: 'string', enum: ['new_work','channel_create','director_formation','revise','continue'], description: 'Existing conversation pipeline, not a production stage.' },
     channel_id: { type: 'string', description: 'Selected channel ID from pending.channels; preserve an already selected channel.' },
     director_revision: { type: 'string', description: 'Selected director VERSION ID from pending.directors[].id, matched by director name and revision number. Do not send director_id, director, label, or a numeric version.' },
