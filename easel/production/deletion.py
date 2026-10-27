@@ -215,6 +215,8 @@ class DeletionService:
     def _release_material(self, connection, job):
         artifact = connection.execute("SELECT metadata_json FROM artifacts WHERE id=?", (job["artifact_id"],)).fetchone()
         metadata = json.loads(artifact[0])
+        if metadata.get('local_media_retention',{}).get('state')=='reclaimed':
+            return  # Retention already released these catalog references.
         asset_ref = metadata.get("asset_ref")
         if not asset_ref:
             return

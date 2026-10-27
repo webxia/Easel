@@ -79,7 +79,7 @@ def fit_sound_effects(audio, source_durations):
 
 
 # These deterministic edit errors can be corrected against a known model receipt.
-AUDIO_EDIT_ERRORS = frozenset({'sfx_binding_missing', 'audio_role_changed', 'music_content_mismatch'})
+AUDIO_EDIT_ERRORS = frozenset({'sfx_binding_missing', 'audio_role_changed', 'music_content_mismatch', 'timed_audio_requires_fixed_duration', 'narration_timing_missing'})
 
 
 def scene_audio_windows(scenes, scene_id):

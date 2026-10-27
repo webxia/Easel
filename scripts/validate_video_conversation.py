@@ -77,7 +77,7 @@ if(!allowed.has(Number(o.port))||!['127.0.0.1','localhost','::1'].includes(o.hos
         'agents':{'defaults':{'model':{'primary':'a1fake/a1-fake'},'models':{'a1fake/a1-fake':{}},'timeoutSeconds':40,'heartbeat':{'every':'0m'}},'entries':{'main':{'default':True,'workspace':str(root/'workspace-main'),'tools':{'allow':['session_status']}},'easel-video':{k:v for k,v in workspace.items() if k in {'workspace','skills','tools'}}}},
         'models':{'mode':'replace','providers':{'a1fake':{'baseUrl':f'http://127.0.0.1:{web_port}/v1','apiKey':'offline-no-payment','api':'openai-completions','models':[{'id':'a1-fake','name':'offline','reasoning':False,'input':['text'],'cost':{'input':0,'output':0,'cacheRead':0,'cacheWrite':0},'contextWindow':65536,'maxTokens':2048}]}}},
         'skills':{'allowBundled':[]},'cron':{'enabled':False},'update':{'checkOnStart':False,'auto':{'enabled':False}},'telemetry':{'enabled':False},
-        'plugins':{'allow':['easel-work'],'load':{'paths':[str(plugin)]},'slots':{'memory':'none'},'entries':{'easel-work':{'enabled':True,'hooks':{'allowConversationAccess':True},'config':{'baseUrl':f'http://127.0.0.1:{web_port}','token':token,'protocolVersion':2}}}}}
+        'plugins':{'allow':['easel-work'],'load':{'paths':[str(plugin)]},'slots':{'memory':'none'},'entries':{'easel-work':{'enabled':True,'hooks':{'allowConversationAccess':True,'allowPromptInjection':True},'config':{'baseUrl':f'http://127.0.0.1:{web_port}','token':token,'protocolVersion':2}}}}}
     if memory_plugin:
         config['plugins']['allow'].append('memory-core')
         config['plugins']['slots']['memory']='memory-core'

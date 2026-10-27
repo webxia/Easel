@@ -389,3 +389,48 @@ test('acceptance rejection retains the exact safe service reason rather than a b
   }finally{globalThis.fetch=old;}
  }
 });
+
+test('overflow retry suspends tool hooks until the original turn is reclaimed',async()=>{
+ const r=runtime(),old=globalThis.fetch;const requests=[];
+ globalThis.fetch=async(url)=>{requests.push(url);return response(url.endsWith('/claim')?
+  {bound:true,permission_policy:'main-pipeline-v1',system_prompt:'ONLY'}:{ticket:'fixture-ticket'})};
+ try{
+  await r.hooks.get('before_prompt_build')({prompt:'original'},ctx);
+  await r.hooks.get('agent_end')({success:false,error:'Context overflow: prompt too large for the model'},ctx);
+  const before=requests.length;
+  assert.deepEqual(await r.hooks.get('before_tool_call')({toolName:'easel_pipeline',toolCallId:'during-retry',params:{mode:'pending'}},ctx),
+   {block:true,blockReason:'easel_pipeline_not_prepared'});
+  assert.equal(requests.length,before);
+  await r.hooks.get('before_prompt_build')({prompt:'native continuation'},ctx);
+  assert.equal(await r.hooks.get('before_tool_call')({toolName:'easel_pipeline',toolCallId:'after-reclaim',params:{mode:'pending'}},ctx),undefined);
+  await r.hooks.get('agent_end')({success:true,messages:[]},ctx);
+ }finally{globalThis.fetch=old;}
+});
+
+test('native end is claimed-only, coalesces duplicates and retries only its failed acknowledgement',async()=>{
+ const r=runtime(),old=globalThis.fetch;const ends=[];let fail=true;
+ globalThis.fetch=async(url,options)=>{
+  if(url.endsWith('/end')){
+   ends.push(JSON.parse(options.body));
+   await new Promise(resolve=>setTimeout(resolve,5));
+   if(fail)throw Error('fixture end transport failure');
+  }
+  return response({bound:true,permission_policy:'main-pipeline-v1',system_prompt:'ONLY'});
+ };
+ try{
+  const ending={success:true,messages:[{role:'assistant',stopReason:'stop',content:[{type:'text',text:'完成'}]}]};
+  await r.hooks.get('agent_end')(ending,{...ctx,runId:'unclaimed'});
+  assert.equal(ends.length,0);
+  await r.hooks.get('before_prompt_build')({prompt:'original'},ctx);
+  const results=await Promise.allSettled([r.hooks.get('agent_end')(ending,ctx),r.hooks.get('agent_end')(ending,ctx)]);
+  assert.equal(ends.length,1);
+  assert.ok(results.every(x=>x.status==='rejected'));
+  assert.equal((await r.hooks.get('before_tool_call')({toolName:'easel_pipeline',toolCallId:'after-end-failed',params:{mode:'pending'}},ctx)).block,true);
+  fail=false;
+  await r.hooks.get('agent_end')(ending,ctx);
+  assert.equal(ends.length,2);
+  assert.deepEqual(ends[1],ends[0]);
+  await r.hooks.get('agent_end')(ending,ctx);
+  assert.equal(ends.length,2);
+ }finally{globalThis.fetch=old;}
+});

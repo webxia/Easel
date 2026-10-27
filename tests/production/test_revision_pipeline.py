@@ -356,6 +356,14 @@ def test_revision_material_scope_preserves_real_gap_and_visual_checks(tmp_path, 
                          'observed_times': [], 'observation': '隔离夹具画面',
                          'match_status': 'conflicting' if case in {'misleading', 'concealed_conflict'} else 'illustrative'}]
             target = value.get('changes', value.get('edit'))
+            if case == 'authorized_after_gap' and self.recovering:
+                # The stock-selection receipt saw a new registered candidate,
+                # absent from the pre-supply frozen revision_asset_ids.
+                image = next(a for a in json.loads(messages[1]['content'][0]['text'])['artifacts'][1:]
+                             if a.get('asset_id') == supply.asset_id)
+                replacement = {**scene, 'asset_id': image['asset_id']}
+                target['scenes'] = [{'scene_id': scene['scene_id'], 'scenes': [replacement]}]
+                evidence[0]['asset_id'] = image['asset_id']
             target['visual_evidence'] = evidence
             value['material_searches'] = ([] if case in {'authorized_substitute', 'concealed_conflict'} or (case == 'authorized_after_gap' and self.recovering) else
                 [{'scene_id': scene['scene_id'], 'query': 'required source', 'media_types': ['image'], 'options': 1}])
@@ -370,6 +378,20 @@ def test_revision_material_scope_preserves_real_gap_and_visual_checks(tmp_path, 
         calls = 0
         def revision_visuals(self, ctx, searches):
             self.calls += 1
+            if case == 'authorized_after_gap':
+                from easel.production.artifacts import register_file, artifact_file
+                from easel.production.service import row, encode
+                with store.connection() as conn:
+                    original = dict(conn.execute("SELECT * FROM artifacts WHERE work_id=? AND kind='image' LIMIT 1", (work,)).fetchone())
+                added = register_file(service, ctx, artifact_file(service, original), kind='image',
+                                      media_type=original['media_type'], metadata=json.loads(original['metadata_json']))
+                self.asset_id = added['id']
+                with ctx.transaction() as conn:
+                    payload = json.loads(row(conn, 'tasks', ctx.task_id)['payload_json'])
+                    assert self.asset_id not in payload['revision_asset_ids']
+                    payload['revision_search_results'] = {'fixture-search': {'asset_ids': [self.asset_id], 'gap': False}}
+                    conn.execute('UPDATE tasks SET payload_json=? WHERE id=?', (encode(payload), ctx.task_id))
+                return [self.asset_id]
             return []
     supply = Supply()
     revision = RevisionTasks(service, planning, creation, supply=supply)
@@ -390,9 +412,11 @@ def test_revision_material_scope_preserves_real_gap_and_visual_checks(tmp_path, 
         assert ('invalid_model_output' if case == 'concealed_conflict' else 'visual_material_gap') in task['error_json']
         assert supply.calls == (0 if case == 'concealed_conflict' else 1)
         assert not any(t['kind'] == 'render' and t['state'] == 'waiting_external' for t in after['tasks'])
+    if case == 'authorized_after_gap':
+        before['artifacts'].extend(a for a in after['artifacts'] if a['id'] == supply.asset_id)
     assert after['accepted_output_id'] == before['accepted_output_id']
-    assert [a for a in after['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}] == [
-        a for a in before['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}]
+    assert {a['id']: a for a in after['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}} == {
+        a['id']: a for a in before['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}}
 
     if case in {'authorized_after_gap', 'required_source', 'misleading'}:
         with store.connection() as conn:
@@ -414,5 +438,5 @@ def test_revision_material_scope_preserves_real_gap_and_visual_checks(tmp_path, 
         with store.connection() as conn:
             for original in receipts:
                 assert tuple(conn.execute('SELECT id,state,request_json,receipt_json FROM operations WHERE id=?', (original[0],)).fetchone()) == original
-        assert [a for a in resumed['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}] == [
-            a for a in before['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}]
+        assert {a['id']: a for a in resumed['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}} == {
+            a['id']: a for a in before['artifacts'] if a['kind'] in {'image', 'video', 'audio', 'output'}}

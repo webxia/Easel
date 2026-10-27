@@ -15,10 +15,18 @@ def operating_summary(service):
         tasks=[dict(r) for r in conn.execute("SELECT kind,state,COUNT(*) AS count,SUM(MAX(0,(julianday(updated_at)-julianday(created_at))*86400)) AS elapsed_seconds FROM tasks GROUP BY kind,state")]
         assets=conn.execute('SELECT COUNT(*),COALESCE(SUM(size_bytes),0) FROM artifacts WHERE deleted_at IS NULL').fetchone()
     disk=shutil.disk_usage(service.outputs)
+    schedule={}
+    path=service.outputs/'_production/storage-cleanup-schedule.json'
+    if path.is_file() and not path.is_symlink() and path.stat().st_size<=4096:
+        try:
+            saved=json.loads(path.read_text())
+            schedule={key:saved.get(key) for key in ('state','last_at','next_at')}
+        except (OSError,ValueError,TypeError):pass
     return {'operations':calls,'tasks':tasks,'elapsed_basis':'created_to_updated_includes_waiting',
         'registered_artifacts':assets[0],'registered_bytes':assets[1],'free_bytes':disk.free,
         'usage_cost':None,'usage_note':'Missing provider usage is unknown, not zero.',
-        'automatic_cleanup':False}
+        'automatic_cleanup':True,'cleanup_interval_seconds':86400,'cleanup_schedule':schedule,
+        'cleanup_scope':'daily: unused downloaded stock; used stock after Creator acceptance; render scratch and backup rotation; final videos, voice and provenance retained'}
 
 
 def _folder(service,job_id):

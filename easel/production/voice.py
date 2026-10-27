@@ -268,7 +268,7 @@ class VoiceService:
         return candidates[0]
 
     def synthesize(self, binding: VoiceBinding, *, identity: VoiceIdentity, text: str,
-                   segment_id: str, regenerate: bool = False, pauses=None) -> dict:
+                   segment_id: str, regenerate: bool = False, pauses=None, reuse_only: bool = False) -> dict:
         adapter = self._adapter(identity, require_available=False)
         from .prosody import compile_pauses,VERSION
         spoken=compile_pauses(text,pauses or [],identity)
@@ -283,12 +283,16 @@ class VoiceService:
         pointer = self.root / f"{key}.json"
         with _lock(self.root / f"{key}.lock"):
             reused = pointer.is_file()
+            if reuse_only and not reused:
+                raise ProductionError('voice_asset_missing','仅复用恢复未找到对应配音缓存，未重新合成',requires_decision=True)
             if reused:
                 operation_id = json.loads(pointer.read_text())["operation_id"]
                 current = self.operations.get(operation_id)
                 if current["work_id"] != binding.work_id:
                     raise ProductionError("voice_cache_conflict", "配音缓存不属于当前作品")
-                if operation_id == binding.operation_id:
+                if reuse_only and current['state']!='succeeded':
+                    raise ProductionError('voice_asset_missing','仅复用恢复需要已成功的原配音，不重发或查询未知调用',requires_decision=True)
+                if operation_id == binding.operation_id and not reuse_only:
                     # A repeated intent cannot silently change text, voice or
                     # grant even if its previous result is already available.
                     self._reserve(binding, adapter, request)
@@ -467,7 +471,7 @@ def effective_segment_voice(identity: VoiceIdentity, segment: dict) -> VoiceIden
 
 
 async def prepare_voice_segments(context, *, service: VoiceService, outputs: Path, identity: VoiceIdentity,
-                                 grant_id: str, segments: list[dict], regenerate: bool = False) -> dict:
+                                 grant_id: str, segments: list[dict], regenerate: bool = False, reuse_only: bool = False) -> dict:
     """Prepare only supplied narration; each sentence remains a reusable asset.
 
     Input segment_id/text plus optional available_seconds. No timing stretch,
@@ -482,7 +486,7 @@ async def prepare_voice_segments(context, *, service: VoiceService, outputs: Pat
         binding = VoiceBinding("voice_" + fingerprint([context.task_id, segment["segment_id"], segment["text"], effective_identity.model_dump()])[:32],
                                context.work_id, context.run_id, context.task_id, grant_id, context.owner_epoch)
         result = await asyncio.to_thread(service.synthesize, binding, identity=effective_identity, text=segment["text"],
-                                         segment_id=segment["segment_id"], regenerate=regenerate,**({"pauses":segment["pauses"]} if segment.get("pauses") else {}))
+                                         segment_id=segment["segment_id"], regenerate=regenerate,**({"reuse_only":True} if reuse_only else {}),**({"pauses":segment["pauses"]} if segment.get("pauses") else {}))
         if result["state"] != "succeeded":
             return {"state": result["state"], "segments": prepared, "pending": result}
         artifact_id = register_voice_asset(context, outputs=outputs, result=result)

@@ -81,6 +81,26 @@ def check_intent(intent: MaterialIntent, plan: PlanDocument) -> None:
             raise ModelTaskError('invalid_material_intent', '音效意图需要明确用途与创作依据')
 
 
+def check_timing_basis(intent, plan):
+    if (plan.narration_policy and plan.narration_policy.duration_mode == 'voice_driven'
+            and any(c.timing_basis == 'absolute' for c in intent.sound_cues)):
+        raise ModelTaskError('timed_audio_requires_fixed_duration',
+            '自然定长不能冻结草稿估计的音效秒数。普通画面动作音效应使用scene；'
+            '确有不可移动的绝对事件须保留absolute并等待调整方案，不能移动原声或固定事件。')
+
+
+def check_timing_repair(candidate, original, plan):
+    """Only a director's explicit timing-coordinate correction is admissible."""
+    check_intent(candidate, plan)
+    before=original.model_dump(mode='json');after=candidate.model_dump(mode='json')
+    if len(after['sound_cues']) != len(before['sound_cues']):
+        raise ValueError('时间分类修正不能增删音效')
+    for old,new in zip(before['sound_cues'],after['sound_cues']):
+        new['timing_basis']=old['timing_basis']
+    if after != before:
+        raise ValueError('仅可修正timing_basis，不能改素材查询、场景、时间估计、声音用途或必需性')
+
+
 def fixed_visual_intent(plan: PlanDocument, context) -> MaterialIntent | None:
     """No semantic call is needed for a silent work fully covered by mandatory inputs."""
     if plan.settings.audio_mode != 'silent':
@@ -123,7 +143,9 @@ class FrozenIntentCompiler:
             intent = fixed_visual_intent(plan,context)
             if intent is None:
                 def checked(candidate):
-                    try:check_intent(candidate,plan)
+                    try:
+                        check_intent(candidate,plan)
+                        check_timing_basis(candidate,plan)
                     except ModelTaskError as exc:raise ValueError(exc.user_message) from None
                 # One extra bounded correction is allowed for this private
                 # projection. Recorded receipts from earlier attempts replay;
@@ -160,6 +182,7 @@ class FrozenIntentCompiler:
                 ctx.store.append_event(writer, ctx.work_id, 'material_intent_prepared',
                     {'scene_count': len(intent.visuals), 'sfx_count': len(intent.sound_cues), 'context_hash': context_hash}, run_id=ctx.run_id)
         check_intent(intent, plan)
+        check_timing_basis(intent, plan)
         # An intent projection cannot pre-emptively decide that actual assets/rights are
         # unavailable: finding candidates and checking licenses are Supply's job.
         # Keep model uncertainty in the persisted projection and trace it, but let
@@ -169,3 +192,61 @@ class FrozenIntentCompiler:
                 ctx.store.append_event(writer, ctx.work_id, 'material_intent_deferred_notes',
                     {'count': len(intent.unresolved), 'verification': 'supply_and_binding'}, run_id=ctx.run_id)
         return intent, context
+
+
+    async def repair_audio_timing(self, ctx, context, records):
+        """Repair a known projection mistake, reusing every acquired file and voice.
+
+        The original intent and MODEL receipt remain unchanged. Only this run's
+        unrendered material-use bindings may change, after a recorded decision.
+        """
+        from dataclasses import replace
+        from .service import row, encode
+        plan=PlanDocument.model_validate(context.plan)
+        metadata={r['id']:json.loads(r['metadata_json']) for r in records}
+        if any(m.get('original_audio') for m in metadata.values()):
+            raise ModelTaskError('timed_audio_requires_fixed_duration','受保护原声不能通过音效分类修正移动')
+        with ctx.store.connection() as conn:
+            source=conn.execute("SELECT payload_json FROM tasks WHERE run_id=? AND kind='supply' AND plan_revision=?",(ctx.run_id,ctx.plan_revision)).fetchone()
+        saved=json.loads(source[0]).get('material_intent') if source else None
+        if saved is None:
+            raise ModelTaskError('timed_audio_requires_fixed_duration','缺少本运行原素材意图，不能推断固定事件可移动')
+        original=MaterialIntent.model_validate(saved)
+        ids={c.cue_id for c in original.sound_cues}
+        with ctx.store.connection() as conn:
+            if conn.execute("SELECT 1 FROM artifacts WHERE run_id=? AND kind='edit_project'",(ctx.run_id,)).fetchone():
+                raise ModelTaskError('timed_audio_requires_fixed_duration','已有剪辑工程的音效时间绑定不能在原记录上改写')
+        if any(r['run_id']!=ctx.run_id or u.get('cue_id') not in ids
+               for r in records for u in metadata[r['id']].get('material_uses',[])
+               if u.get('role')=='sfx' and u.get('timing_basis','absolute')=='absolute'):
+            raise ModelTaskError('timed_audio_requires_fixed_duration','历史或未登记的固定事件不能自动修正')
+        view=replace(context,editor_view=True,artifacts=({'material_intent':saved},))
+        answer=await self.planning.runner(ctx,namespace='sfx-timing-repair-v1',max_format_repairs=1).run(
+            view,'原素材意图把部分普通动作音效标为absolute，导致已确认voice_driven剪辑被阻断。'
+            '只核对本期真实依据并修正timing_basis：scene跟随实际场景动作，at是规划估计；absolute只用于不可移动的明确绝对事件。'
+            '所有其他字段逐项保留，不增删音效、不改查询、用途、时间估计或素材，不重配旁白。'
+            '若方案确实要求绝对事件，必须保留absolute，程序会停止等待调整方案；不能为了通过而降级原声或固定事件。',
+            MaterialIntent,validate_result=lambda candidate:check_timing_repair(candidate,original,plan),expression_role='visual')
+        check_timing_basis(answer,plan)
+        timing={c.cue_id:c.timing_basis for c in answer.sound_cues}
+        changed=[]
+        with ctx.transaction() as conn:
+            operation=conn.execute("SELECT id FROM operations WHERE task_id=? AND kind='MODEL' AND state='succeeded' ORDER BY created_at DESC,id DESC LIMIT 1",(ctx.task_id,)).fetchone()
+            if not operation:raise ModelTaskError('timing_repair_missing','缺少已知模型修正回执')
+            if conn.execute("SELECT 1 FROM artifacts WHERE run_id=? AND kind='edit_project'",(ctx.run_id,)).fetchone():
+                raise ModelTaskError('material_binding_invalid','剪辑工程已建立，不能改写时间绑定')
+            for record in records:
+                meta=metadata[record['id']];altered=False
+                for use in meta.get('material_uses',[]):
+                    if use.get('role')=='sfx' and use.get('cue_id') in timing and use.get('timing_basis','absolute')!=timing[use['cue_id']]:
+                        use['timing_basis']=timing[use['cue_id']];changed.append(use['cue_id']);altered=True
+                if not altered:continue
+                current=row(conn,'artifacts',record['id'])
+                if current['run_id']!=ctx.run_id or current['metadata_json']!=record['metadata_json']:
+                    raise ModelTaskError('material_binding_invalid','音效绑定已变化，保留原结果')
+                record['metadata_json']=encode(meta)
+                conn.execute('UPDATE artifacts SET metadata_json=? WHERE id=?',(record['metadata_json'],record['id']))
+            ctx.store.append_event(conn,ctx.work_id,'sound_timing_corrected',
+                {'operation_id':operation['id'],'cue_ids':sorted(set(changed)),
+                 'scope':'only timing_basis; original intent, receipts, files and voice unchanged'},run_id=ctx.run_id)
+        return records

@@ -540,3 +540,64 @@ def test_selected_music_rejects_speech_but_not_other_unselected_candidates():
         'select music',CreativeEdit,validate_result=validate))
     assert result.audio[0].asset_id=='music' and len(transport.calls)==2
     assert '不能当作BGM' in transport.calls[1][-1]['content']
+
+
+def test_natural_cue_coordinates_are_checked_before_supply(env):
+    from easel.production.material_intent import check_timing_basis
+    from easel.production.contracts import NarrationPolicy
+    plan=plan_of(env[2]).model_copy(update={'narration_policy':NarrationPolicy(duration_mode='voice_driven')})
+    cue={'cue_id':'click','scene_id':'s1','query':'click','at':2,'duration':.2,'basis':'door action'}
+    absolute=material_intent(sound_cues=[cue])
+    with pytest.raises(ModelTaskError,match='不能冻结草稿估计'):
+        check_timing_basis(absolute,plan)
+    check_timing_basis(material_intent(sound_cues=[{**cue,'timing_basis':'scene'}]),plan)
+    check_timing_basis(absolute,plan.model_copy(update={'narration_policy':None}))
+
+
+@pytest.mark.parametrize('case',['repair','fixed_event','changed_query','original_audio','historical'])
+def test_recorded_sfx_timing_repair_keeps_files_voice_and_source_intent(env,case):
+    from easel.production.material_intent import check_timing_basis
+    from easel.production.contracts import NarrationPolicy,VideoSettings,VoiceIdentity
+    from easel.production.artifacts import register_file
+    service,ops,ctx,_,_=env
+    identity={'provider':'direct-api','model':'fixture','mode':'structured'};allow(env,identity)
+    plan=plan_of(ctx).model_copy(update={'narration_policy':NarrationPolicy(duration_mode='voice_driven'),
+        'settings':VideoSettings(duration_seconds=90,audio_mode='voice',voice=VoiceIdentity(provider='minimax',model='speech-2.8-turbo',voice_id='fixture',engine='minimax-speech-v1'))})
+    cue={'cue_id':'click','scene_id':'s1','query':'click','at':2,'duration':.2,'basis':'door action'}
+    original=material_intent(sound_cues=[cue])
+    with ctx.transaction() as conn:
+        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(canonical_json({'schema_version':1,'material_intent':original.model_dump(mode='json')}),ctx.task_id))
+    source=service.outputs/'click.wav';source.write_bytes(wav_bytes())
+    record=register_file(service,ctx,source,kind='audio',media_type='audio/wav',metadata={
+        'original_audio':case=='original_audio','material_uses':[{'role':'sfx',**original.sound_cues[0].model_dump(mode='json')} ]})
+    before=dict(record);body=source.read_bytes();plan_before=plan.model_dump_json()
+    if case=='historical':record={**record,'run_id':'another-run'}
+    class Model:
+        capabilities=frozenset({'text','structured'});calls=0
+        async def complete(self,messages,tools,schema):
+            self.calls+=1
+            answer=original.model_dump(mode='json')
+            if case!='fixed_event':answer['sound_cues'][0]['timing_basis']='scene'
+            if case=='changed_query':answer['sound_cues'][0]['query']='different sound'
+            return {'content':json.dumps(answer)}
+    model=Model();planning=PlanningTasks(service,ops,model,identity,'fixed')
+    context=CreativeContext(ctx.work_id,ctx.run_id,ctx.task_id,plan=plan.model_dump(mode='json'),
+        expression_policy=plan.conversation_basis['expression_policy'])
+    compiler=FrozenIntentCompiler(planning)
+    if case=='repair':
+        result=asyncio.run(compiler.repair_audio_timing(ctx,context,[record]))
+        meta=json.loads(result[0]['metadata_json'])
+        assert meta['material_uses'][0]['timing_basis']=='scene'
+        meta['material_uses'][0]['timing_basis']='absolute'
+        assert meta==json.loads(before['metadata_json'])
+        assert model.calls==1
+    else:
+        with pytest.raises(ModelTaskError):asyncio.run(compiler.repair_audio_timing(ctx,context,[record]))
+        with ctx.store.connection() as conn:
+            assert conn.execute('SELECT metadata_json FROM artifacts WHERE id=?',(before['id'],)).fetchone()[0]==before['metadata_json']
+        if case in {'historical','original_audio'}:assert model.calls==0
+    assert source.read_bytes()==body and plan.model_dump_json()==plan_before
+    with ctx.store.connection() as conn:
+        saved=json.loads(conn.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()[0])
+        assert saved['material_intent']==original.model_dump(mode='json')
+        assert conn.execute("SELECT count(*) FROM operations WHERE kind!='MODEL'").fetchone()[0]==0

@@ -10,6 +10,55 @@ def fixture():
         captions=[{'caption_id':'c1','text':'旁白原句','start':0,'end':4,'font_asset_id':'font'}])
 
 
+def test_local_overlay_removal_keeps_narration_audio_and_rejects_unknown_roles():
+    from easel.production.revisions import RevisionProposal, merge_revision_changes
+    from easel.production.editors import Caption, assert_local_revision
+    base=fixture()
+    overlay=Caption(caption_id='overlay',text='额外文字',start=1,end=3,font_asset_id='font',y=.2)
+    base=base.model_copy(update={'captions':(*base.captions,overlay)})
+    proposal=RevisionProposal(summary='删除额外文字',affected=['captions'],expands_scope=False,
+        requires_new_generation=False,reason='保留旁白',changes={'remove_caption_ids':['overlay']})
+    roles={'c1':'narration','overlay':'overlay'}
+    edit=merge_revision_changes(proposal,base,caption_roles=roles)
+    revised=base.model_copy(update={'captions':tuple(c for c in base.captions if c.caption_id!='overlay')})
+    assert len(edit.captions)==1 and edit.captions[0].text=='旁白原句'
+    assert edit.audio==list(base.audio) and edit.scenes==list(base.scenes)
+    assert_local_revision(base,revised,allowed={'captions'},removable_caption_ids={'overlay'})
+    with pytest.raises(EditError):assert_local_revision(base,revised,allowed={'visual'},removable_caption_ids={'overlay'})
+    with pytest.raises(EditError):assert_local_revision(base,revised,allowed={'captions'})
+    for ids,known in [(['c1'],roles),(['overlay'],{}),(['missing'],roles),(['overlay','overlay'],roles)]:
+        bad=proposal.model_copy(update={'changes':proposal.changes.model_copy(update={'remove_caption_ids':ids})})
+        with pytest.raises(ValueError,match='旁白'):merge_revision_changes(bad,base,caption_roles=known)
+    altered=revised.model_copy(update={'captions':(revised.captions[0].model_copy(update={'text':'篡改'}),)})
+    with pytest.raises(EditError):assert_local_revision(base,altered,allowed={'captions'},removable_caption_ids={'overlay'})
+
+
+def test_missing_revision_role_metadata_uses_matching_persisted_proposal_only():
+    import sqlite3,json
+    from easel.production.revisions import stored_caption_roles
+    conn=sqlite3.connect(':memory:');conn.row_factory=sqlite3.Row
+    conn.execute('CREATE TABLE reviews(id TEXT, changes_json TEXT)')
+    caption={**fixture().captions[0].model_dump(),'role':'overlay'}
+    conn.execute('INSERT INTO reviews VALUES (?,?)',('r',json.dumps({'edit':{'captions':[caption]}})))
+    record={'metadata_json':json.dumps({'review_id':'r'})}
+    assert stored_caption_roles(conn,record,fixture())=={'c1':'overlay'}
+    changed=fixture().model_copy(update={'captions':(fixture().captions[0].model_copy(update={'text':'不匹配'}),)})
+    assert stored_caption_roles(conn,record,changed)=={}
+    assert stored_caption_roles(conn,{'metadata_json':'{}'},fixture())=={}
+
+
+def test_revision_cannot_reclassify_existing_narration_as_removable_overlay():
+    from easel.production.revisions import revised_caption_roles
+    from easel.production.creation import CreativeEdit
+    base=fixture()
+    data={k:v for k,v in base.model_dump().items() if k in CreativeEdit.model_fields}
+    data['captions'][0]['role']='overlay'
+    edit=CreativeEdit.model_validate(data)
+    assert revised_caption_roles(base,edit,{'c1':'narration'})=={'c1':'narration'}
+    assert revised_caption_roles(base,edit,{})=={'c1':'narration'}
+    assert revised_caption_roles(base,edit,{'c1':'overlay'})=={'c1':'overlay'}
+
+
 def test_native_recut_preserves_voice_group_time_and_approved_overlay_only():
     base=fixture()
     data=base.model_dump();data['revision']=2

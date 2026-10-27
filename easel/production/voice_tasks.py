@@ -18,7 +18,7 @@ class VoiceTasks:
     def __init__(self, service, voice_service_provider, *, settings_provider):
         self.service, self.voice_service_provider, self.settings_provider = service, voice_service_provider, settings_provider
 
-    async def prepare_assets(self, context, plan: dict, asset_ids: list[str]) -> tuple[list[str], TaskResult | None]:
+    async def prepare_assets(self, context, plan: dict, asset_ids: list[str], *, reuse_only: bool = False) -> tuple[list[str], TaskResult | None]:
         """Return asset handles and optionally a durable pending/decision outcome.
 
         Only confirmed scene.narration becomes TTS. A scene that explicitly uses
@@ -75,7 +75,7 @@ class VoiceTasks:
             if grant is None:
                 raise ProductionError("permission_missing", "当前方案尚未允许所选声音服务；配音不占生图或生视频次数", requires_decision=True)
             result = await prepare_voice_segments(context, service=voice, outputs=self.service.outputs,
-                identity=identity, grant_id=grant["id"], segments=segments)
+                identity=identity, grant_id=grant["id"], segments=segments,**({"reuse_only":True} if reuse_only else {}))
             for segment in result["segments"]:
                 if segment["artifact_id"] not in identifiers:
                     identifiers.append(segment["artifact_id"])

@@ -51,3 +51,12 @@ def test_retired_revision_name_is_removed_from_bounded_policy():
     assert set(result['allow'])=={'read',*NATIVE_TOOLS}
     assert result['deny']==original['deny']
     assert original['allow']==['read','easel_work_request_revision']
+
+
+def test_actual_product_prompt_carries_language_policy_through_both_native_entry_points():
+    from easel.video_workspace import pipeline_system_prompt
+    prompt = pipeline_system_prompt()
+    assert '默认用自然、完整的中文交流' in prompt
+    assert '工具调用前后的简短说明、异常解释和最终回复遵循同一语言' in prompt
+    assert '技术术语、代码标识、专有名称和必要原文可保留英文' in prompt
+    assert '用户明确要求其他语言时跟随' in prompt

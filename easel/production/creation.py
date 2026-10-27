@@ -163,6 +163,8 @@ class CreationTasks:
         for item in records:
             if item['work_id']!=ctx.work_id or item['kind'] not in {'image','video','audio','font'}:
                 raise ModelTaskError('invalid_asset','素材不属于当前作品或类型不可用')
+            if json.loads(item['metadata_json']).get('local_media_retention',{}).get('state')=='reclaimed':
+                raise ModelTaskError('material_reclaimed','下载素材已按保留策略回收；成片、配音和来源许可记录保留，再改画面须重新取得素材')
             try:
                 artifact_file(self.service,item)
             except (ValueError,OSError):
@@ -203,12 +205,37 @@ class CreationTasks:
             if ctx.payload.get('reuse_existing_media_only'):
                 context=replace(context,brief=context.brief+'\n本次恢复只用已有素材和配音修正原剪辑，不重新获取或生成媒体；不足时如实说明。')
             asset_ids=ctx.payload.get('asset_ids',[]) if _stock_assets is None else _stock_assets
-            if self.voice_tasks and not ctx.payload.get('reuse_existing_media_only'):
-                asset_ids,outcome=await self.voice_tasks.prepare_assets(ctx,context.plan,asset_ids)
+            needs_voice_assets=not ctx.payload.get('reuse_existing_media_only')
+            if not needs_voice_assets and self.voice_tasks and context.plan['settings']['audio_mode'] in {'voice','mixed'}:
+                from .narration import narration_segments
+                from .contracts import VoiceIdentity
+                from .voice import effective_segment_voice
+                with self.service.store.connection() as conn:
+                    existing=[json.loads(r['metadata_json']) for r in conn.execute(
+                        "SELECT id,metadata_json FROM artifacts WHERE work_id=? AND run_id=? AND kind='audio' AND deleted_at IS NULL",(ctx.work_id,ctx.run_id)) if r['id'] in asset_ids]
+                identity=VoiceIdentity.model_validate(context.plan['settings']['voice'])
+                needs_voice_assets=any(not any(m.get('role')=='voice' and m.get('segment_id')==s['segment_id']
+                    and m.get('narration_text')==s['text'] and m.get('voice')==effective_segment_voice(identity,s).model_dump(mode='json')
+                    for m in existing) for s in narration_segments(context.plan))
+            if self.voice_tasks and needs_voice_assets:
+                asset_ids,outcome=await self.voice_tasks.prepare_assets(ctx,context.plan,asset_ids,
+                    **({'reuse_only':True} if ctx.payload.get('reuse_existing_media_only') else {}))
+                # Persist prepared references before any subsequent edit preflight
+                # can fail. Recovery must not forget already paid group audio.
+                with ctx.transaction() as conn:
+                    payload=json.loads(row(conn,'tasks',ctx.task_id)['payload_json'])
+                    payload['asset_ids']=asset_ids
+                    conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
                 if outcome:return outcome
             records,manifest=self.assets(ctx,asset_ids)
             from .narration import measured_execution_plan, check_voice_schedule, aligned_captions, narration_segments, ENDING_INSTRUCTION
-            execution_plan, timing = measured_execution_plan(context.plan, records)
+            try:
+                execution_plan, timing = measured_execution_plan(context.plan, records)
+            except ModelTaskError as exc:
+                if exc.code!='timed_audio_requires_fixed_duration':raise
+                from .material_intent import FrozenIntentCompiler
+                records=await FrozenIntentCompiler(self.planning).repair_audio_timing(ctx,context,records)
+                execution_plan,timing=measured_execution_plan(context.plan,records)
             if timing:
                 context = replace(context, plan=execution_plan,
                     brief=context.brief + ('\n本片按真实旁白定长，遵守实测音轨位置：' if timing['mode']=='voice_driven' else

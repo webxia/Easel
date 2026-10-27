@@ -117,6 +117,7 @@ class SceneReplacement(Contract):
 class RevisionChanges(Contract):
     scenes: list[SceneReplacement] = Field(default_factory=list)
     captions: list[CreativeCaption] = Field(default_factory=list)
+    remove_caption_ids: list[str] = Field(default_factory=list, description='仅删除已登记为overlay的独立叠加文字；旁白字幕不得删除。')
     visual_evidence: list[VisualSelection] = Field(default_factory=list)
 
 
@@ -157,7 +158,7 @@ class RevisionProposal(RevisionSummary):
         return self
 
 
-def merge_revision_changes(proposal, base):
+def merge_revision_changes(proposal, base, *, caption_roles=None):
     """Apply addressed replacements; omitted scenes, captions and audio inherit."""
     if proposal.changes is None:
         return proposal.edit
@@ -168,12 +169,37 @@ def merge_revision_changes(proposal, base):
         raise ValueError('局部修改必须引用不重复的已登记镜头ID')
     captions={c.caption_id:c for c in changes.captions}
     if len(captions)!=len(changes.captions):raise ValueError('局部字幕ID重复')
+    removed=set(changes.remove_caption_ids)
+    if (len(removed)!=len(changes.remove_caption_ids) or removed & captions.keys()
+        or not removed <= {c.caption_id for c in base.captions}
+        or any((caption_roles or {}).get(key)!='overlay' for key in removed)):
+        raise ValueError('只能删除不重复、已登记为overlay且未同时修改的独立文字；不能删除旁白或未知字幕')
     data={k:v for k,v in base.model_dump().items() if k in CreativeEdit.model_fields}
     data.update(scenes=[s.model_dump() for old in base.scenes for s in replacements.get(old.scene_id,[old])],
-        captions=[captions.pop(c.caption_id,c).model_dump() for c in base.captions],
+        captions=[captions.pop(c.caption_id,c).model_dump() for c in base.captions if c.caption_id not in removed],
         visual_evidence=[v.model_dump() for v in changes.visual_evidence])
     data['captions'].extend(c.model_dump() for c in captions.values())
     return CreativeEdit.model_validate(data)
+
+
+def stored_caption_roles(conn, project_record, base):
+    """Read roles from the producing receipt when an older revision omitted metadata."""
+    metadata=json.loads(project_record['metadata_json'])
+    if metadata.get('caption_roles') is not None:return metadata['caption_roles']
+    if not metadata.get('review_id') or not base.captions:return {}
+    review=conn.execute('SELECT changes_json FROM reviews WHERE id=?',(metadata.get('review_id',''),)).fetchone()
+    if not review:return {}
+    edit=json.loads(review['changes_json'] or '{}').get('edit') or {}
+    actual={c.caption_id:c for c in base.captions}
+    return {c['caption_id']:c.get('role','narration') for c in edit.get('captions',[])
+            if c.get('caption_id') in actual and (c.get('text'),c.get('start'),c.get('end')) ==
+               (actual[c['caption_id']].text,actual[c['caption_id']].start,actual[c['caption_id']].end)}
+
+
+def revised_caption_roles(base, edit, roles):
+    original_ids={c.caption_id for c in base.captions}
+    return {c.caption_id:(roles.get(c.caption_id,'narration') if c.caption_id in original_ids else c.role)
+            for c in edit.captions}
 
 
 def compile_revision_edit(edit, base):
@@ -323,11 +349,21 @@ class RevisionTasks:
                     if payload.get('creative_visual_repair'):
                         payload['observation_policy']='targeted-v1'
                     conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),ctx.task_id))
-            records,_=self.creation.assets(ctx,payload['revision_asset_ids'])
+            candidate_ids=payload['revision_asset_ids']
+            if payload.get('revision_recovery_source'):
+                # A paused stock-selection receipt already saw these acquired
+                # candidates. Restore only this task's durable search results;
+                # creation.assets still enforces identity, files and usage rights.
+                # Keep the original frozen set unchanged for operation replay.
+                supplied=[ref for result in payload.get('revision_search_results',{}).values()
+                          for ref in result.get('asset_ids',[])]
+                candidate_ids=list(dict.fromkeys([*candidate_ids,*supplied]))
+            records,_=self.creation.assets(ctx,candidate_ids)
             context=self.planning.context(ctx)
             creative_repair=bool(payload.get('creative_visual_repair') and context.plan.get('narration_policy'))
             from .visual_repair import approved_overlay_texts, assert_visual_repair
-            caption_roles=json.loads(project_record['metadata_json']).get('caption_roles')
+            with self.service.store.connection() as conn:
+                caption_roles=stored_caption_roles(conn,project_record,base)
             protected_styles=({c.caption_id for c in base.captions if caption_roles.get(c.caption_id,'narration')=='narration'}
                 if caption_roles is not None else set())
             if (context.plan.get('narration_policy') or {}).get('duration_mode') == 'voice_driven':
@@ -414,9 +450,10 @@ class RevisionTasks:
             result_type=VisualRevisionProposal if creative_repair or payload.get('preserve_audio') else RevisionProposal
             if result_type is VisualRevisionProposal:
                 instruction+='本轮输出仅允许changes局部变更，禁止edit完整工程；未改镜头、字幕与所有独立音轨由原工程继承。没有修改的列表留空。'
+            instruction+='需要移除已登记overlay独立文字时，使用changes.remove_caption_ids列其ID；不可用空格覆盖。旁白和角色未知的字幕禁止删除。'
             def normalize(candidate):
                 proposal=RevisionProposal.model_validate(candidate.model_dump(mode='json'))
-                compiled=compile_revision_edit(merge_revision_changes(proposal,base),base)
+                compiled=compile_revision_edit(merge_revision_changes(proposal,base,caption_roles=caption_roles),base)
                 return proposal.model_copy(update={'edit':compiled,'changes':None})
 
             source_durations={}
@@ -447,6 +484,13 @@ class RevisionTasks:
                     except (EditError,ValueError) as exc:errors.append(str(exc))
                 collect(lambda: check_sources(candidate.edit))
                 collect(lambda: check_visual_evidence(candidate.edit,observed,pending_materials=bool(candidate.material_searches)))
+                if not creative_repair and not (candidate.expands_scope or candidate.requires_new_generation):
+                    remaining={c.caption_id for c in candidate.edit.captions}
+                    before=[(c.caption_id,c.text,c.start,c.end) for c in base.captions
+                            if c.caption_id in remaining or caption_roles.get(c.caption_id)!='overlay']
+                    after=[(c.caption_id,c.text,c.start,c.end) for c in candidate.edit.captions]
+                    if before!=after:
+                        errors.append('局部修订不能改写或删除旁白字幕；移除已登记overlay请用remove_caption_ids，不能以空格替换文字')
                 if candidate.material_searches and not (candidate.expands_scope or candidate.requires_new_generation):
                     try:revision_plan_searches(context.plan,base,candidate.material_searches)
                     except ModelTaskError as exc:errors.append(exc.user_message)
@@ -498,7 +542,9 @@ class RevisionTasks:
                     observed[key]=list(dict.fromkeys([*observed.get(key,[]),*times]))
                     if budget is not None:budget.observed[key]=observed[key]
                 recovery=(revision_recovery_messages(request['messages'],instruction,result_type),message)
-            proposal=recorded_proposal(self.service,ctx,review,output)
+            # An explicit resume corrects a known rejected result under a new
+            # operation identity; never replay its invalid compiled checkpoint.
+            proposal=None if recovery is not None else recorded_proposal(self.service,ctx,review,output)
             reused=proposal is not None
             if proposal is None:
                 proposal=await self.planning.runner(ctx,namespace=('revision-repair-'+recovery_source[:32]) if recovery_source else None,max_format_repairs=2 if creative_repair else 1).run(candidate_context(records),instruction,result_type,
@@ -526,7 +572,7 @@ class RevisionTasks:
             if proposal.expands_scope or proposal.requires_new_generation or not set(proposal.affected)<={'visual','captions','audio','materials'}:
                 return TaskResult(state='needs_decision',work_state='needs_decision',error=ProductionError('revision_scope_confirmation',proposal.summary+'。'+proposal.reason,requires_decision=True),result={'review_id':review['id']})
             try:
-                proposal=proposal.model_copy(update={'edit':compile_revision_edit(merge_revision_changes(proposal,base),base),'changes':None})
+                proposal=proposal.model_copy(update={'edit':compile_revision_edit(merge_revision_changes(proposal,base,caption_roles=caption_roles),base),'changes':None})
             except ValueError as exc:
                 raise ModelTaskError('invalid_model_output',str(exc)) from None
             edit,notes=project_editor_features(proposal.edit)
@@ -556,7 +602,8 @@ class RevisionTasks:
                 check_caption_layout(revised.captions,font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'},
                     width=base.width,height=base.height)
             else:
-                assert_local_revision(protected,revised,allowed=allowed)
+                assert_local_revision(protected,revised,allowed=allowed,
+                    removable_caption_ids={key for key,role in caption_roles.items() if role=='overlay'})
             from .material_binding import selected_asset_ids
             records,manifest=self.creation.assets(ctx,[r['id'] for r in records if r['id'] in selected_asset_ids(revised)])
             check=self.creation.editor.check(revised,manifest)
@@ -564,6 +611,7 @@ class RevisionTasks:
             folder=self.service.outputs/'_production'/'projects'/ctx.task_id;folder.mkdir(parents=True,exist_ok=True)
             path=folder/'revision.json';path.write_text(revised.model_dump_json(),encoding='utf8')
             artifact=register_file(self.service,ctx,path,kind='edit_project',media_type='application/json',metadata={'base_project_id':project_record['id'],'review_id':review['id'],
+                'caption_roles':revised_caption_roles(base,edit,caption_roles),
                 'execution_timing':json.loads(project_record['metadata_json']).get('execution_timing'),
                 'audio_observation':'model_native' if audio_native else 'technical_only_unverified','audio_preserved':revised.audio==base.audio,'visual_evidence':[e.model_dump() for e in edit.visual_evidence],'unverified_editor_notes':notes},dependencies=list(manifest.assets))
             return TaskResult(result={'review_id':review['id'],'project_id':artifact['id']},next_kind='render',next_payload={'project_id':artifact['id'],'asset_ids':list(manifest.assets),'repair_round':ctx.payload.get('repair_round',0),'reuse_existing_media_only':payload.get('reuse_existing_media_only',False)})

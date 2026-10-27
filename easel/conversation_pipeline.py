@@ -359,7 +359,7 @@ def has_edit_resume(task):
     scoped_plan=(task['kind']=='plan' and error.get('code')=='invalid_model_output'
                  and payload.get('revision_scope')=='narration')
     return (bool(outdated_review or interrupted_reaudit) or scoped_plan or (task['kind']=='render' and error.get('code')=='render_failed') or
-            (task['kind']=='revise' and error.get('code') in {'invalid_revision_search','invalid_model_output'}) or
+            (task['kind']=='revise' and error.get('code') in {'invalid_revision_search','invalid_model_output','invalid_edit_project','visual_material_gap'}) or
             (task['kind']=='edit' and error.get('code') in (AUDIO_EDIT_ERRORS | {
                 'invalid_edit_project','invalid_edit','invalid_model_output','editor_rejected',
                 'edit_duration_mismatch','visual_material_gap'})))

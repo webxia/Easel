@@ -1089,3 +1089,9 @@ def test_pending_and_context_refresh_within_turn_after_plan_finishes(env):
     assert 'context' not in compact and 'operation_guide' not in compact
     assert compact['work']['state']==service.snapshot(work)['state']
     assert service.snapshot(work)['plans'][0]['plan']==complete['current_plan']['plan']
+
+
+@pytest.mark.parametrize('code,expected', [('visual_material_gap', True), ('invalid_model_output', True), ('invalid_edit_project', True), ('result_unknown', False), ('revision_scope_confirmation', False)])
+def test_visual_revision_exposes_existing_resume_route(code, expected):
+    from easel.conversation_pipeline import has_edit_resume
+    assert has_edit_resume({'kind': 'revise', 'error_json': encode({'code': code}), 'payload_json': '{}'}) is expected

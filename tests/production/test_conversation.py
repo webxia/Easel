@@ -858,3 +858,30 @@ def test_interrupted_turn_explains_legal_continuation_without_releasing_unknown(
         assert conn.execute("SELECT state FROM conversation_turns WHERE id='turn'").fetchone()[0]=='unknown'
         assert not conn.execute("SELECT 1 FROM conversation_turns WHERE id IN ('active-retry','unknown-retry')").fetchone()
         assert not conn.execute('SELECT 1 FROM operations').fetchone()
+
+
+def test_bootstrap_uses_existing_plugin_credential_but_keeps_read_only_scope(env,monkeypatch):
+    import web.app as web
+    s,c=env;seg=entry(c,profile_ref='one');b=PersistentWorkToolBridge(s)
+    b.reserve(ui_session='ui',turn_id='bootstrap-http',segment_id=seg,message='只讨论',attachments=[])
+    token='isolated-bootstrap-credential-long-enough'
+    monkeypatch.setattr(web.app.state,'production_service',s,raising=False)
+    monkeypatch.setenv('EASEL_WORK_BRIDGE_TOKEN',token)
+    local=TestClient(web.app,base_url='http://127.0.0.1:7860',client=('127.0.0.1',12345))
+    args={'agent_id':'main','session_key':'agent:main:easel-pipeline:'+seg,'session_id':'native'}
+    headers={'Authorization':'Bearer '+token}
+    with s.store.connection() as conn:
+        before=[tuple(r) for r in conn.execute('SELECT * FROM conversation_turns')]
+    response=local.post('/api/chat/work-tools/bootstrap',headers=headers,json=args)
+    assert response.status_code==200,response.text
+    assert response.json()['bootstrap_policy']=='product-bootstrap-v1'
+    assert '默认用自然、完整的中文交流' in response.json()['system_prompt']
+    assert local.post('/api/chat/work-tools/bootstrap',json=args).status_code==401
+    assert local.post('/api/chat/work-tools/bootstrap',headers=headers,json={**args,'session_key':'agent:main:ordinary'}).status_code==403
+    remote=TestClient(web.app,base_url='http://127.0.0.1:7860',client=('192.0.2.4',12345))
+    assert remote.post('/api/chat/work-tools/bootstrap',headers=headers,json=args).status_code==403
+    assert local.post('/api/production/works',headers=headers,json={'command_id':'forbidden','payload':{'title':'no'}}).status_code==403
+    with s.store.connection() as conn:
+        assert [tuple(r) for r in conn.execute('SELECT * FROM conversation_turns')]==before
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM works').fetchone()[0]==0

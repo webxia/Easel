@@ -213,3 +213,45 @@ SOFTWARE_PASS（本轮组合版本）；真实只讨论边界通过、完整读�
 origin/easel-v2-rebuild已从2bde5351更新至合并提交，GitHub PR #14已标记MERGED。受管Web70757/Gateway70755启动于统一V2目录，gateway=true、reload_required=false、协议2/原6工具及权限保持。部署前一致备份后逐表对比，仅cleanup_jobs例行维护发生变化；外键检查为空，649成功Operation/7UNKNOWN、61份Plan和49个output记录保留，不生成新媒体。私有备份/冲突说明/推送和部署证据在outputs/_debug/v2-unification-20261027/，不提交。
 
 已扫描暂存范围及配置凭证，排除所有个人未跟踪素材、二维码、skills/_scratch、outputs、Profile及数据库。工作树个人文件不删除；不自动发布或代签作品接受。完整作品E2E并未因此通过，原待确认稿及修订断点保持。
+
+## 第三条作品开放创作委托续作（2026-10-27）
+
+用户明确调整本片创作方式：导演自主承担主编/视听创作，Codex仅推进、处理真实故障与验证；已有本期结构、时长及逐段表达细化要求不再作硬约束，真实经历、当前配置、Rights/费用/生成额度及正式确认不放宽。继续原Work，当前Plan2未确认，仅有规划服务授权；不将这次一般委托代签未来Plan制作确认或成片接受。保留已有Dirty/旧作品/7UNKNOWN，正式Web/Gateway加载了前轮语言与Hook修复。
+
+已通过正式内容库继续同一作品（未新建Work），将用户本次背景、问题及导演创作自由交给本期Planning；未外部代写口播，未送入Git/E2E工程清单。复用已有有效planning授权请求原作品重新规划，当前等待实际回执。原始依据/基线/实际请求与后续媒体只保留outputs/_debug/third-story-director-20261027/；运行断点沿2026-10-27-web-e2e-04维护。
+
+续作结果：原Work第3版Planning完成，6场/84秒估计、4语义组（2默认/2calm），沿固定声线与字幕。6次MODEL成功，Easel自身修订事实边界与手填字符统计；Codex未代写或作审美返工。完整稿和正式服务/额度确认提案已在原Web展示，并将本版完整稿交本人确认。旧Plan与Operation回执、Work配置和0生成额度均保留；尚无新配音/下载/渲染，G3待本版真人答复，不重复未来方案代签。运行04为当前唯一制作断点。
+
+### 第3版制作确认授权
+
+用户在展示完整稿/导演方向/实际服务提案后明确“你全部代签”。据此代执行本版方案及列明制作服务的正式确认，不虚构Creator亲自审片结论、不自动发布，不扩展新服务/生成额度。已在原Web发送明确确认，要求answer原提案并继续同Work完整制作；不再等待重复方案确认。当前运行04继续记录实际生产和交付。
+
+### 第3版生产首次失败与恢复修复
+
+真实supply成功后已生成4组固定声线音频，edit首次报timed_audio_requires_fixed_duration。原MaterialIntent将门把/翻页/时间线/车门/合盖5处普通动作错误标为absolute，只有滴答为scene；原声/固定事件保护正确生效。修复在现有FrozenIntentCompiler增加前置时基检查，并沿原edit、原MODEL授权有界重审同一意图；只准改timing_basis，保留查询/用途/必需性/场景/时间估计，真实absolute继续阻断，受保护原声/历史Run/已有工程不可修改。成功模型纠错回执及事件持久化后，仅修正当前Run尚未出片的material_uses，原意图/回执/媒体/Plan保留；不清字段或改固定片长。
+
+首次恢复完成分类纠错，却报narration_timing_missing：edit失败前已成功配音的引用未持久化，reuse_existing_media_only跳过配音准备后丢引用。补齐失败前保存asset_ids；恢复只在本Run完整语义组缺引用时走reuse_only缓存读取，缓存缺失/UNKNOWN不能submit/observe或重新合成，成功已有配音不reserve重写Operation。已完整资产的恢复以及静音/纯音乐恢复仍不调用VoiceTasks，原相关反例保持。
+
+本轮首次175项定向通过，随后恢复引用88项通过；新增夹具最初遗漏schema_version被库约束检出，补正确夹具，未放宽数据库；第一次统一调用声音准备的实现触发两条原“禁止重配”回归，收窄为仅缺引用的有声恢复后通过。最终全量2727通过/12跳过，diff检查通过。两次均无在途时备份并仅重载正式Web，回同Work同edit通过正式resume继续；当前4条原VOICE回执不变，4个引用已保存，真实CreativeEdit发送中，实测自然长度90.433秒。仍未出片，不将软件或模型成功冒充完成。
+
+### 独立叠加文字删除阻断与恢复
+
+第2版原Web建立并确认两项edit/preserve_audio修订，模型选择已有合法情境镜头，但尝试用单空格覆盖上方文字；最终invalid_edit_project保护拒绝，原片与声音未改。根因是changes只能替换字幕，缺少删除独立overlay的表达，且修订工程漏存caption_roles。补显式remove_caption_ids，必须引用已登记overlay且不得与替换重复；旁白/未知角色默认保护。旧修订仅从对应已保存、文本/时间匹配的原提案读取角色，后续角色持久化，已存在旁白不得由模型改标overlay。局部校验只容许删除已知独立文字，不放开其他文案/时码/素材保护；空格替换在模型结果纠错中明确拒绝。
+
+已知invalid_edit_project沿原resume恢复，从成功回执使用新纠错身份，不重新发送旧Operation、不复用被拒绝的编译结果。173项关联回归通过；真实原工程只读回放验证仅删独立文字后38条旁白、90.433秒及音轨相同，无生产写入。全量运行中修改源码导致旧进程freshness保护拒绝的尝试已保留并中止，不记PASS；随后全量2729通过/2组件失败，定位为无字幕/无review_id时不必要查询夹具reviews表，增加无来源时直接保护返回后，定向通过。最终冻结源码全量2731通过/12跳过/14警告（218.58秒），没有豁免失败断言。
+
+无在途Operation/Turn时一致备份，仅安全重载正式Web。原Web读取新resume选项恢复同一个修订Task/Run，已成功生成第3版工程：38条旁白、独立overlay实际删除、指定代码镜头替换为原合法候选、audio_preserved=true；当前等待原render/QC及播放器。原VOICE回执不变、未新增配音/供料/AI画面或发布。私有证据仍在同一third-story-director目录，源码补丁与所有尝试日志保留，不提交个人数据。
+
+## VIDEO_DELIVERED：第4版完整片交付
+
+第3版两项明确缺陷已消除，随后现有有界自动修订处理原抽样复查新列的乒乓球拍歧义、重复键盘与视频流程表达；Codex未追加人工审美轮次或外部代写。第4版90.433秒1920×1080/30fps正式回传同一对话，Work为reviewable，accepted_output_id为空。4版原始成果及全部QC意见保留，最终技术PASS、sampled_visual_only.visual_status=pass且findings=[]；semantic行仍not_tested，audio_reviewed/full_av_reviewed=false，不写成完整视听通过。
+
+独立证据：最新文件摘要吻合、全片解码PASS；确认Plan3/hash及全文不变，4组实际voice身份/文本/完整时长吻合；4条原成功VOICE行不变，第1/2/3/4版独立AudioClip对象及编码AAC摘要相同。最终38条底部旁白字幕，无额外overlay，BGM两段铺底/3处SFX真实使用，实际来源与使用位置在私有sources-and-credits.md。BGM为Wikimedia的No Cadillac（Loyalty Freak Music，CC0记录），SFX实际复用用户既已确认授权的Adobe Audition本地库存，并非虚报全部来自Wikimedia；视觉实际检索/库存记录保持。
+
+从本轮起始快照计，生产账本新增23次成功MODEL与4次成功VOICE（不含产品内对话模型计费）；无新UNKNOWN，全局旧7条保留，当前无在途Operation。真实账单金额未取得，不估作已核实费用。最终组合软件2731通过/12跳过/14警告；SOFTWARE_PASS及本片技术生产/局部画面修订通过，REAL_AUDIO_VALIDATED、完整FULL_VIDEO_VALIDATED、CREATOR_ACCEPTED均未通过，PUBLISHED未执行。完整播放器从头到尾/刷新恢复另记下节；VIDEO_DELIVERED后等待用户实际审片反馈，不继续自动重做。
+
+### 正式播放器与最终停点
+
+通过原Web点击第4版播放，自0.253秒开始连续播放至90.433秒、ended=true、readyState=4、无媒体错误；不是跳到结尾。刷新后仍显示第4版卡片，仍加载同一artifact且readyState=4。截图、DOM播放结束与刷新证据仅私有保存。不能据此宣称实际听音或连续语义已观察。
+
+VIDEO_DELIVERED达成；G5技术/抽样/正式播放器范围通过，G6 Creator实际审片和接受仍待反馈，PUBLISHED未执行。无进一步自动返工或调用，停在本人审片。修复源码保持主工作区HEAD 50454629加具名Dirty，正式Web已加载，未提交推送；保留其他Dirty、个人素材和旧UNKNOWN。详细原稿、许可/署名、使用位置、实际用量、完整检查和可播放文件在同一私有交付目录。
