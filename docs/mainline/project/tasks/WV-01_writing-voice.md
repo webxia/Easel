@@ -212,7 +212,7 @@ SOFTWARE_PASS（本轮组合版本）；真实只讨论边界通过、完整读�
 
 origin/easel-v2-rebuild已从2bde5351更新至合并提交，GitHub PR #14已标记MERGED。受管Web70757/Gateway70755启动于统一V2目录，gateway=true、reload_required=false、协议2/原6工具及权限保持。部署前一致备份后逐表对比，仅cleanup_jobs例行维护发生变化；外键检查为空，649成功Operation/7UNKNOWN、61份Plan和49个output记录保留，不生成新媒体。私有备份/冲突说明/推送和部署证据在outputs/_debug/v2-unification-20261027/，不提交。
 
-已扫描暂存范围及配置凭证，排除所有个人未跟踪素材、二维码、skills/_scratch、outputs、Profile及数据库。工作树个人文件不删除；不自动发布或代签作品接受。完整作品E2E并未因此通过，原待确认稿及修订断点保持。
+已扫描暂存范围及配置凭证，排除所有个人未跟踪素材、二维码、本机 skills 目录的 _scratch 子目录、outputs、Profile及数据库。工作树个人文件不删除；不自动发布或代签作品接受。完整作品E2E并未因此通过，原待确认稿及修订断点保持。
 
 ## 第三条作品开放创作委托续作（2026-10-27）
 
@@ -255,3 +255,20 @@ origin/easel-v2-rebuild已从2bde5351更新至合并提交，GitHub PR #14已标
 通过原Web点击第4版播放，自0.253秒开始连续播放至90.433秒、ended=true、readyState=4、无媒体错误；不是跳到结尾。刷新后仍显示第4版卡片，仍加载同一artifact且readyState=4。截图、DOM播放结束与刷新证据仅私有保存。不能据此宣称实际听音或连续语义已观察。
 
 VIDEO_DELIVERED达成；G5技术/抽样/正式播放器范围通过，G6 Creator实际审片和接受仍待反馈，PUBLISHED未执行。无进一步自动返工或调用，停在本人审片。修复源码保持主工作区HEAD 50454629加具名Dirty，正式Web已加载，未提交推送；保留其他Dirty、个人素材和旧UNKNOWN。详细原稿、许可/署名、使用位置、实际用量、完整检查和可播放文件在同一私有交付目录。
+
+## 规划阶段完成声音设计（2026-10-27，离线实施，禁止部署）
+
+本轮用户授权按已证根因修复：规划完成旁白语义分组、情绪与停顿取舍，允许默认表达，不逐句加停顿；复用既有字段、配音及审阅机制，V6_1与语速1.0保持。当前作品正在剪辑，本轮不部署、不重启、不改其方案或介入制作。
+
+第一手核对结果：本片实际规划请求已含导演的意义停顿/重音、松弛表达要求及MiniMax能力；生成原文只给continuous/voice_driven，没有groups，原场景也未填写停顿。已有审稿回执明确建议进入执行阶段再分组，并保留默认情绪。故障位于规划职责取舍，不是持久化丢字段或供应商吞掉参数；执行源码只消费已设计字段，不负责补做创作设计。默认表达本身并非错误。原始对话、请求与回执留在现有生产账本，不复制私有正文到Git。
+
+实现仅替换既有生成说明中的可选分组措辞：创作设计要求归入版本化write/review规则，Planning保留实际字段协议和局部改稿边界。沿原作者、审稿、必要差量纠错完成，不新增调用阶段、Gate、字段或默认声学参数。单组、跨镜头、null情绪和空停顿允许；不强迫表演。规则格式版本保持，内容摘要随新快照变化；已有任务按原快照运行，不提升review_context_version、不迁移当前Plan。
+
+离线用合成稿件与临时库验证真实Worker→MODEL请求账本→草稿审阅/差量纠错→Plan持久化→现有配音编译，覆盖默认单组及跨镜头表达/停顿，固定音色和speed=1。首次新增夹具遗漏schema_version和分镜时长不匹配分别被既有保护拒绝，修正测试数据，未放宽合同；后续用例按既有固定时长归一化作断言，不改产品逻辑。首批103项通过。最终关联回归与未测范围见下续记。
+
+最终关联回归：pytest显式覆盖planning_runtime、expression_policy、narration_groups、writing_voice_context、continuous_narration、voice_subtitles、voice_budget、voice_settings_api、grouped_voice_render、revision_pipeline、revision_acceptance、failed_planning_recovery、planning_narration_budget，共213 passed / 1 skipped / 1依赖弃用警告（37.25秒）；git diff --check通过。包含冻结规则、旧方案缺groups、UNKNOWN不重发、固定声音、局部复用、实测时码及修订保护的既有正反例。新4用例证明请求与账本一致、默认/显式设计可保存并由原编译消费，不能证明真实模型必然设计到位或实际听感改善。
+
+受测基线409a55f8加本轮expression_policy.py、planning.py与test_planning_runtime.py增量；保护开工已有选择绑定Dirty、清理文档和个人文件。本轮仅离线SOFTWARE_PASS；付费模型、真实MiniMax、Web/生产和人工听评NOT_TESTED。服务未重载，当前方案、素材、音轨及在途剪辑不作任何业务写入；不提交/推送。下一步仅在用户授权部署后对新规划样本核对设计与实际请求，不将当前制作自动重规划。
+
+
+部署授权续记（2026-10-27）：用户在首片声音模式修复/部署/恢复任务中明确允许“旁白分组／情绪设计前置到规划”与本次修复一并部署，解除上节暂不部署限制。该许可不重做当前片已确认口播、分组、情绪或停顿，保留已有成功配音；实施及真实结果沿CRE-01本轮记录继续，未以加载新规则冒充听感通过。

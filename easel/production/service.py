@@ -570,6 +570,57 @@ class WorkService:
         if not invalid:return None
         return {'decision_id':task['id'],'output_id':artifact['id'],'check_id':invalid[-1]['id']}
 
+    def audio_mode_resume_target(self,conn,work,decision_id):
+        """A stopped first edit can retain its media while correcting only mixed→voice."""
+        target=self.preoutput_target(conn,work,{'settings':{'audio_mode':'voice'}})
+        task=row(conn,'tasks',decision_id)
+        if (task['run_id']!=target['run_id'] or task['kind']!='edit' or task['state']!='needs_decision'
+                or json.loads(task['error_json'] or '{}').get('code') not in
+                {'invalid_model_output','invalid_edit','invalid_edit_project','edit_duration_mismatch'}):
+            fail('revision_required','仅可局部修订已安全暂停的首片剪辑声音模式',409)
+        if conn.execute("SELECT 1 FROM tasks WHERE run_id=? AND id!=? AND state!='succeeded'",
+                        (target['run_id'],task['id'])).fetchone():
+            fail('active_run','其他制作步骤尚未完成，不能在此续接剪辑',409)
+        source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
+        if (not source or source['state']!='succeeded'
+                or json.loads(source['request_json']).get('schema',{}).get('title')!='CreativeEdit'):
+            fail('revision_required','缺少可复用的已知剪辑回执，保留当前断点',409)
+        return target
+
+    def _resume_audio_mode(self,conn,work,task):
+        target=self.audio_mode_resume_target(conn,work,task['id'])
+        # The caller explicitly authorizes this exact setting correction and
+        # continuation. Record a new confirmed version; never rewrite the old one.
+        from copy import deepcopy
+        plan=deepcopy(target['protected_plan'])
+        plan['settings']['audio_mode']='voice'
+        self.validate_plan(conn,work,plan)
+        previous=target['plan_revision']
+        revision=conn.execute('SELECT COALESCE(MAX(revision),0)+1 FROM plan_revisions WHERE work_id=?',(work['id'],)).fetchone()[0]
+        stamp=now()
+        conn.execute('INSERT INTO plan_revisions(id,work_id,revision,payload_json,plan_hash,created_at,confirmed_at) VALUES (?,?,?,?,?,?,?)',
+                     (new_id(),work['id'],revision,encode(plan),digest(plan),stamp,stamp))
+        grants=[dict(g) for g in conn.execute("SELECT * FROM authorization_grants WHERE work_id=? AND purpose='production' AND plan_revision=? AND revoked_at IS NULL ORDER BY created_at DESC,id DESC",(work['id'],previous))]
+        if not grants:fail('permission_missing','原制作授权不可用，未恢复剪辑',409)
+        services=[json.loads(g['services_json']) for g in grants]
+        conn.execute("UPDATE authorization_grants SET revoked_at=? WHERE work_id=? AND purpose='production' AND revoked_at IS NULL",(stamp,work['id']))
+        grant=self._insert_grant(conn,work,'production',{'services':list({encode(s):s for batch in services for s in batch}.values()),
+            'allow_ai':False},revision)
+        conn.execute('UPDATE runs SET plan_revision=?,input_fingerprint=?,revision=revision+1,updated_at=? WHERE id=?',
+            (revision,digest({'previous':target['run_id'],'plan_hash':digest(plan)}),stamp,target['run_id']))
+        payload=json.loads(task['payload_json'])
+        payload.update(reuse_existing_media_only=True,grant_id=grant,
+            audio_mode_revision={'previous_plan_revision':previous,'plan_revision':revision})
+        conn.execute('UPDATE tasks SET plan_revision=?,payload_json=?,input_fingerprint=? WHERE id=?',
+            (revision,encode(payload),digest({'previous':task['input_fingerprint'],'plan_hash':digest(plan)}),task['id']))
+        settings=json.loads(work['settings_json']);settings['audio_mode']='voice'
+        self._change(conn,work,current_plan_revision=revision,settings_json=encode(settings),
+            creation_context_json=self._settings_context(work,{'audio_mode':'voice'}))
+        self._event(conn,work['id'],'plan_audio_mode_revised',{'previous_plan_revision':previous,
+            'plan_revision':revision,'previous_plan_hash':target['plan_hash'],'plan_hash':digest(plan),
+            'decision_id':task['id'],'preserve_optional_sfx':True},run_id=target['run_id'])
+        return row(conn,'works',work['id']),row(conn,'tasks',task['id'])
+
     def _resume(self,conn,work,data):
         if not work['active_run_id']:fail('invalid_input','没有可恢复运行')
         run=row(conn,'runs',work['active_run_id'])
@@ -580,6 +631,10 @@ class WorkService:
             fail('invalid_input','当前运行不能直接恢复')
         if task['run_id']!=run['id'] or (not recheck and task['state'] not in {'needs_decision','retryable_failed','waiting_external','failed'}):
             fail('stale_revision','需要解决的决定已变化',409)
+        if 'audio_mode' in data:
+            if data['audio_mode']!='voice' or set(data)-{'decision_id','audio_mode'}:
+                fail('invalid_input','局部声音修订仅允许mixed改为voice并保留原环境音要求')
+            work,task=self._resume_audio_mode(conn,work,task)
         if recheck:
             payload=json.loads(task['payload_json']);payload['visual_recheck_source']=recheck['check_id']
             conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))

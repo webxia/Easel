@@ -764,6 +764,67 @@ def test_human_selects_shown_pair_binds_without_another_confirmation(env,answer)
     assert not s.list_works()['items']
 
 
+def displayed_catalog_turn(service,conversation,segment,*,session='ui',read=True,answer='频道甲；导演甲（第4版，未接受，可试片）'):
+    bridge,identity,_=turn(service,conversation,segment,'先讨论视频',id='display',session=session)
+    if read:pipe(bridge,identity,'pending')
+    bridge.end(Identity(**identity))
+    if answer:bridge.complete_delivery('display',answer)
+
+
+@pytest.mark.parametrize('answer',['就用这两个','选刚才那组，主题另聊','沿用你列出的组合'])
+def test_short_choice_reuses_actual_displayed_catalog_without_new_confirmation(env,answer):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
+    displayed_catalog_turn(s,c,seg)
+    b,i,_=turn(s,c,seg,answer,id='selected')
+    values={'channel_id':channel,'director_revision':'v4','director_trial':True}
+    result=pipe(b,i,'bind',user_quote=answer,values=values)
+    assert result['queued'] and not result.get('selection_pending')
+    assert pipe(b,i,'bind',user_quote=answer,values=values)==result
+    with s.store.connection() as conn:
+        assert conn.execute('SELECT count(*) FROM conversation_proposals').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+    b.end(Identity(**i))
+    assert c.view('ui')['context']['channel_id']==channel
+    assert c.view('ui')['context']['settings']['director_revision']=='v4'
+    assert not s.list_works()['items']
+
+
+def test_short_choice_still_requires_exact_current_turn_quote(env):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one');displayed_catalog_turn(s,c,seg)
+    b,i,_=turn(s,c,seg,'就用这两个',id='selected')
+    values={'channel_id':channel,'director_revision':'v4','director_trial':True}
+    for quote in ('','先讨论视频','同意你推荐的组合'):
+        raises('invalid_source',lambda:pipe(b,i,'bind',user_quote=quote,values=values))
+    raises('selection_required',lambda:pipe(b,i,'draft',user_quote='就用这两个',values={'title':'稿','input_text':'稿'}))
+    assert c.view('ui')['context']['channel_id'] is None
+    assert not s.list_works()['items']
+    assert pipe(b,i,'bind',user_quote='就用这两个',values=values)['queued']
+
+
+@pytest.mark.parametrize('missing_evidence',['no_read','not_displayed','ambiguous','foreign_segment','host_result','different_version'])
+def test_short_choice_cannot_invent_or_reuse_unrelated_displayed_options(env,missing_evidence):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
+    if missing_evidence=='ambiguous':
+        with s.store.transaction() as conn:
+            conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,created_at) SELECT 'v5',director_id,5,style_json,evidence_json,1,? FROM director_revisions WHERE id='v4'",(now(),))
+    source=entry(c,session='else',profile_ref='one') if missing_evidence=='foreign_segment' else seg
+    displayed_catalog_turn(s,c,source,session='else' if missing_evidence=='foreign_segment' else 'ui',
+        read=missing_evidence!='no_read',answer='我们稍后再选' if missing_evidence=='not_displayed' else '频道甲；导演甲（第4版，未接受，可试片）')
+    if missing_evidence=='host_result':
+        with s.store.transaction() as conn:
+            p=json.loads(conn.execute("SELECT payload_json FROM conversation_turns WHERE id='display'").fetchone()[0]);p['origin']='task_result'
+            conn.execute("UPDATE conversation_turns SET payload_json=? WHERE id='display'",(encode(p),))
+    if missing_evidence=='different_version':
+        with s.store.transaction() as conn:
+            conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,created_at) SELECT 'v5',director_id,5,style_json,evidence_json,1,? FROM director_revisions WHERE id='v4'",(now(),))
+    b,i,_=turn(s,c,seg,'就用这两个',id='selected')
+    result=pipe(b,i,'bind',user_quote='就用这两个',values={'channel_id':channel,
+        'director_revision':'v5' if missing_evidence=='different_version' else 'v4','director_trial':True})
+    assert result['selection_pending'] and not result['queued']
+    assert c.view('ui')['context']['channel_id'] is None
+    assert not s.list_works()['items']
+
+
 def test_rejected_selection_stays_unbound(env):
     channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
     b,i,_=turn(s,c,seg,'讨论视频')

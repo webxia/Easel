@@ -31,9 +31,9 @@ def env(tmp_path):
 
 def entry(c,session='ui',**values):return c.enter(session,values,'enter_'+session+'_'+str(len(c.service.list_works()['items']))+hashlib.sha256(encode(values).encode()).hexdigest()[:12])['segment_id']
 
-def turn(service,c,segment,message='请做一条克制的视频',id='turn',attachments=None):
+def turn(service,c,segment,message='请做一条克制的视频',id='turn',attachments=None,session='ui'):
     bridge=PersistentWorkToolBridge(service)
-    result=bridge.reserve(ui_session='ui',turn_id=id,segment_id=segment,message=message,attachments=attachments or [])
+    result=bridge.reserve(ui_session=session,turn_id=id,segment_id=segment,message=message,attachments=attachments or [])
     identity={'agent_id':'main','session_key':result['payload']['session_key'],'session_id':'native-'+segment,'run_id':'run-'+id}
     bridge.claim(Claim(**identity,prompt=result['prompt']))
     return bridge,identity,result

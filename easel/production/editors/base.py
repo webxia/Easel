@@ -18,7 +18,7 @@ def check_audio_delivery(audio_mode, scenes, audio):
     if audio_mode == "music" and (not music or voice):
         raise ValueError("music delivery needs music and no voice/source sound")
     if audio_mode == "mixed" and not (voice and music):
-        raise ValueError("mixed delivery needs voice/source sound and music")
+        raise ValueError('声音模式mixed要求同时有旁白/原声与音乐；环境音或音效不等于音乐。当前剪辑缺少相应音轨；若已确认要求不允许音乐，须先局部修订方案为voice，不能擅自添加BGM。')
 
 
 class EditError(ValueError):

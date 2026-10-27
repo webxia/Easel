@@ -106,12 +106,12 @@ def compensate_edit_overlap(answer: CreativeEdit, *, target_seconds: float, fps:
 
 def check_edit_source_bounds(answer, durations, *, target_seconds, fps=30):
     """Validate the compiled source intervals inside existing model repair rounds."""
+    from .model_tasks import ResultCorrectionError
     try:
         compiled=align_editor_frames(compensate_edit_overlap(answer,target_seconds=target_seconds,fps=fps),fps=fps)
     except ModelTaskError as exc:
         if exc.code not in {'edit_duration_mismatch','edit_frame_alignment_conflict','edit_frame_alignment_invalid'}:
             raise
-        from .model_tasks import ResultCorrectionError
         actual=sum(s.duration-s.transition_seconds for s in answer.scenes)
         raw=sum(s.duration for s in answer.scenes)
         raise ResultCorrectionError(f'{exc.user_message}；确认总片长{target_seconds:.6f}秒，'
@@ -120,11 +120,24 @@ def check_edit_source_bounds(answer, durations, *, target_seconds, fps=30):
     for scene in compiled.scenes:
         available=durations.get(scene.asset_id)
         if available is not None and scene.source_start+scene.duration>available+0.5/fps:
-            raise ValueError(f'镜头 {scene.scene_id} 取源区间 {scene.source_start:.3f}–'
+            raise ResultCorrectionError(f'镜头 {scene.scene_id} 取源区间 {scene.source_start:.3f}–'
                 f'{scene.source_start+scene.duration:.3f} 秒超过素材实际长度 {available:g} 秒；'
                 f'编译后实际取源长度为{scene.duration:.3f}秒（已包含转场补偿），'
                 f'保持此长度时起点最多为{max(0,available-scene.duration):.3f}秒；'
                 '调整取源位置或重新分配镜头，保持确认总时长；不能循环、定格或截短旁白。')
+
+
+def check_edit_delivery(candidate, *, audio_mode, durations, target_seconds):
+    """Report independent audio and timing failures in the same bounded repair."""
+    from .editors.base import check_audio_delivery, check_timeline_identities
+    from .model_tasks import ResultCorrectionError
+    issues=[]
+    for check in (lambda:check_timeline_identities(candidate.scenes,candidate.audio,candidate.captions),
+                  lambda:check_audio_delivery(audio_mode,candidate.scenes,candidate.audio),
+                  lambda:check_edit_source_bounds(candidate,durations,target_seconds=target_seconds)):
+        try:check()
+        except ValueError as exc:issues.append(str(exc))
+    if issues:raise ResultCorrectionError('；'.join(issues))
 
 
 def project_editor_features(answer: CreativeEdit) -> tuple[CreativeEdit,list[str]]:
@@ -277,10 +290,8 @@ class CreationTasks:
             font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'}
             horizontal=context.plan['settings']['aspect_ratio']=='16:9'
             def check_measured_edit(candidate):
-                from .editors.base import check_timeline_identities, check_audio_delivery
-                check_timeline_identities(candidate.scenes,candidate.audio,candidate.captions)
-                check_audio_delivery(context.plan['settings']['audio_mode'],candidate.scenes,candidate.audio)
-                check_edit_source_bounds(candidate,source_durations,target_seconds=context.plan['settings']['duration_seconds'])
+                check_edit_delivery(candidate,audio_mode=context.plan['settings']['audio_mode'],
+                    durations=source_durations,target_seconds=context.plan['settings']['duration_seconds'])
                 check_visual_evidence(align_editor_frames(compensate_edit_overlap(candidate,
                     target_seconds=context.plan['settings']['duration_seconds'])),observed)
                 # Same binding rules as final project validation, inside the
@@ -352,6 +363,13 @@ class CreationTasks:
                     if isinstance(evidence,dict) and evidence.get('asset_id') in source_durations:
                         observed.setdefault(evidence['asset_id'],[]).extend(evidence.get('frame_times',[]))
                 recovery=(request['messages'],message)
+                if ctx.payload.get('audio_mode_revision'):
+                    # Only this admitted local revision may rebase a known edit
+                    # onto the new plan. Preserve the original durable request.
+                    from copy import deepcopy
+                    rebased=deepcopy(request['messages'])
+                    rebased[1]['content'][0]['text']=json.dumps(context.model_data(),ensure_ascii=False)
+                    recovery=(rebased,message)
                 namespace='edit-repair-'+source['id'][:32]
             answer=await self.planning.runner(ctx,namespace=namespace,max_format_repairs=2).run(context,
                 ENDING_INSTRUCTION + VISUAL_EVIDENCE_INSTRUCTION + '已有抽样不能确认关键动作或入出点时，可用inspect_media复查候选指定时间；工具只读，不把未观察的区间当已验证。'

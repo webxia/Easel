@@ -3,6 +3,17 @@ import pytest
 from easel.production.creation import CreativeEdit, check_edit_source_bounds
 
 
+def test_audio_conflict_and_duration_are_reported_together():
+    from easel.production.creation import check_edit_delivery
+    from easel.production.model_tasks import ResultCorrectionError
+    value=CreativeEdit(scenes=[{'scene_id':'s','asset_id':'still','duration':7}],
+        audio=[{'clip_id':'v','asset_id':'voice','role':'voice','at':0,'duration':6}])
+    with pytest.raises(ResultCorrectionError) as caught:
+        check_edit_delivery(value,audio_mode='mixed',durations={},target_seconds=8)
+    assert 'mixed' in str(caught.value) and '8.000000' in str(caught.value) and '7.000000' in str(caught.value)
+    check_edit_delivery(value,audio_mode='voice',durations={},target_seconds=7)
+
+
 def edit(duration=6.4,start=11.3,transition='cut',overlap=0):
     return CreativeEdit(scenes=[{'scene_id':'tail','asset_id':'video','duration':duration,
         'source_start':start,'transition':transition,'transition_seconds':overlap}])

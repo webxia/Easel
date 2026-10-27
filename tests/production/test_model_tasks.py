@@ -45,7 +45,7 @@ def test_explicit_context_without_workspace_or_other_profile():
 @pytest.mark.parametrize('bad',[{}, {'owner_epoch':5,'summary':'x'},{'summary':'x','artifact_id':'foreign'}])
 def test_invalid_and_forged_authority_rejected(bad):
     runner,_,calls=run([{'content':json.dumps(bad)}],max_format_repairs=0)
-    with pytest.raises(ModelTaskError,match='summary.*missing' if bad=={} else '有效创作结果') as failure:
+    with pytest.raises(ModelTaskError,match='summary.*missing' if bad=={} else ('未知素材引用' if 'artifact_id' in bad else '有效创作结果')) as failure:
         asyncio.run(runner.run(context(),'plan',Answer))
     assert failure.value.code=='invalid_model_output'
     assert len(calls)==1
@@ -345,4 +345,5 @@ def test_missing_confirmed_bgm_is_corrected_inside_existing_model_budget():
     result=asyncio.run(runner.run(context(allowed_handles=frozenset({'visual','voice','bgm'})),
         '落实混合声音',CreativeEdit,validate_result=lambda edit:check_audio_delivery('mixed',edit.scenes,edit.audio)))
     assert len(transport.calls)==2 and any(a.role=='music' for a in result.audio)
-    assert 'mixed delivery needs voice/source sound and music' in transport.calls[1][-1]['content']
+    assert 'mixed要求同时有旁白/原声与音乐' in transport.calls[1][-1]['content']
+    assert '不能擅自添加BGM' in transport.calls[1][-1]['content']

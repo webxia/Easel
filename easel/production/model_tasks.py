@@ -190,20 +190,21 @@ def parse_model_json(raw: str):
     return json.loads(text)
 
 
-def _check_result(value: Any, allowed_handles: frozenset[str]) -> None:
+def _check_result(value: Any, allowed_handles: frozenset[str], path: str = '$') -> None:
     if isinstance(value, dict):
         if _FORBIDDEN & value.keys():
             raise ValueError("Model attempted to supply execution authority")
         for key, item in value.items():
             if key in {"asset_id", "artifact_id", "input_id"} and item not in allowed_handles:
-                raise ValueError("Unknown media reference")
+                raise ResultCorrectionError(f'未知素材引用：{path}.{key}；仅可原样引用本次allowed_handles中的身份：'
+                    + ','.join(sorted(allowed_handles)))
             if key == "required_input_ids" and (
                     not isinstance(item, list) or any(ref not in allowed_handles for ref in item)):
                 raise ValueError("Unknown required_input_ids; use only actual input handles, never brief")
-            _check_result(item, allowed_handles)
+            _check_result(item, allowed_handles, path + '.' + key)
     elif isinstance(value, list):
-        for item in value:
-            _check_result(item, allowed_handles)
+        for index, item in enumerate(value):
+            _check_result(item, allowed_handles, f'{path}[{index}]')
 
 
 @dataclass

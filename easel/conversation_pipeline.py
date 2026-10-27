@@ -13,7 +13,7 @@ WORK_ACTIONS = {
     'plan': {'request','services','duration_seconds','settings','restore_cancelled','decision_id','intent'},
     'confirm': {'plan_revision','plan_hash','services','allow_ai','image_limit','video_limit'},
     'grant': {'purpose','services','allow_ai','image_limit','video_limit','target_ref','plan_revision','decision_id'},
-    'resume': {'decision_id'}, 'cancel': set(),
+    'resume': {'decision_id','audio_mode'}, 'cancel': set(),
     'replan_after_unknown': {'decision_id'},
     'basis': {'settings','input_text'},
     'revise': {'output_id','feedback','preserve_audio','scope','duration_seconds'},
@@ -456,6 +456,14 @@ def pending(conversations, conn, segment):
                 choices.append({'kind':'resume','label':('阻断解决后继续原改稿，保留原范围与回执' if task['kind']=='plan' else '阻断解决后继续原剪辑，复用已成功产物'),
                     'action':'resume','values':{'decision_id':task['id']},
                     'requires':'先核对阻断已解决或已具备原结果修正入口。旧审阅视图失败沿原plan任务重新审阅已验证草稿，保留已用纠错次数；差量改稿沿新响应合同。新增模型费用须明确。用户明确要求继续原制作或原改稿时，offer action=resume并用user_quote引用本轮原话，在原授权内直接恢复，无需再次确认；文字越界已有原剪辑修正入口。只询问或尚未授权时说明范围后等待。不重跑已成功素材或配音，不重发旧调用或UNKNOWN。'})
+            if not unknown and task['kind']=='edit':
+                try:conversations.service.audio_mode_resume_target(conn,row(conn,'works',work['id']),task['id'])
+                except ProductionError:pass
+                else:
+                    choices.append({'kind':'resume_audio_mode','action':'resume',
+                        'values':{'decision_id':task['id'],'audio_mode':'voice'},
+                        'label':'仅将方案声音模式修订为旁白及获准环境音，从原剪辑继续',
+                        'requires':'仅在真人明确授权该局部修订及继续制作后执行；新方案版本只改audio_mode，保留原稿、环境音要求和现有素材配音。可能新增剪辑及质检模型费用，不重新供料或配音，不重发UNKNOWN。'})
             if (not unknown and active_run and not active_run['cancel_requested']
                     and task['kind']=='revise' and error.get('code')=='revision_scope_confirmation'):
                 # This is an existing scope decision, not a failed creative call.
@@ -533,6 +541,9 @@ def scoped(conversations,conn,segment,action,values):
         if action in {'plan','confirm','replan_after_unknown'}: require_choices(segment)
         if set(values)-WORK_ACTIONS[action]:fail('invalid_input','动作包含未允许字段')
         if not segment['work_id']:fail('work_not_bound','先建立本期草稿',409)
+        if action=='resume' and 'audio_mode' in values:
+            if values['audio_mode']!='voice':fail('invalid_input','局部声音修订仅允许改为voice')
+            conversations.service.audio_mode_resume_target(conn,row(conn,'works',segment['work_id']),values.get('decision_id',''))
         if action in {'revise','confirm_revision'}:
             from .production.revisions import revision_output,revision_confirmation
             work=row(conn,'works',segment['work_id'])
@@ -775,6 +786,33 @@ def execute_action(conversations,conn,segment,body,key,*,answer_turn_id=None):
     return result
 
 
+def shown_catalog_selection(conn,record,segment,targets):
+    """Provenance for a short answer to the last displayed, unambiguous pair.
+
+    The agent still interprets this turn's intent; no affirmative keywords are
+    inferred here. Assistant prose alone cannot create a catalog choice.
+    """
+    prior=conn.execute("""SELECT payload_json FROM conversation_turns
+        WHERE segment_id=? AND state='ended' AND id!=?
+        AND (created_at<? OR (created_at=? AND id<?))
+        ORDER BY created_at DESC,id DESC LIMIT 1""",
+        (segment['id'],record['id'],record['created_at'],record['created_at'],record['id'])).fetchone()
+    if not prior or not targets:return False
+    previous=json.loads(prior['payload_json'])
+    answer=previous.get('answer','')
+    if previous.get('origin')!='user' or not answer:return False
+    for result in previous.get('results',{}).values():
+        if not isinstance(result,dict):continue
+        choices={}
+        for kind in ('channels','directors'):
+            items=result.get(kind,[])
+            if isinstance(items,list) and len(items)==1 and isinstance(items[0],dict):
+                choices[items[0].get('id')]=items[0].get('name')
+        if all(choices.get(identity)==name and name in answer for identity,name in targets):
+            return True
+    return False
+
+
 def bind_selection(conversations,conn,record,payload,segment,values,*,confirmed=False):
     if set(values)-{'kind','channel_id','director_revision','director_trial','work_id','output_id'}:fail('invalid_input','不能通过管线切换修改画像')
     previous=json.loads(segment['context_json'])
@@ -849,6 +887,8 @@ def bind_selection(conversations,conn,record,payload,segment,values,*,confirmed=
                     return conversations.apply(segment['ui_session'],proposal_id,proposal['body_hash'],
                         'binding_answer_'+record['id'],_connection=conn,_turn_id=record['id'],
                         _bind=lambda values:bind_selection(conversations,conn,record,payload,segment,values,confirmed=True))
+            if not segment['work_id'] and next_kind=='new_work':
+                confirmed=shown_catalog_selection(conn,record,segment,targets)
     if selection_changed and not confirmed:
         names=[]
         if entry.get('channel_id'):
@@ -896,7 +936,7 @@ def dispatch(bridge,conn,record,payload,segment,args,command_id):
         return summary
     quote=args.get('user_quote','').strip()
     if mode in {'answer','bind','draft'} and (not quote or quote not in payload['message']):
-        fail('invalid_source','bind/draft/answer必须在参数顶层传user_quote，内容逐字引用本轮用户原话；不要用source_refs或放进values。draft的values只传title和input_text。',403)
+        fail('invalid_source','bind/draft/answer必须在参数顶层传user_quote，内容逐字引用本轮用户原话；不要用source_refs或放进values，也不要换用上一轮的同意。已有选择提案复用原proposal_id/hash，引用仍取本轮原话。draft的values只传title和input_text；未绑定不能绕过选择写稿。',403)
     if mode=='bind':
         return bind_selection(conversations,conn,record,payload,segment,args.get('values',{}))
     if mode=='draft':
