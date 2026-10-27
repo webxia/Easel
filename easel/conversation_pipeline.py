@@ -373,7 +373,10 @@ def pending(conversations, conn, segment):
         channels.append({k:r[k] for k in ('id','name','revision','default_director_revision')})
     directors = []
     for r in conn.execute('SELECT v.*,d.name,d.revision AS catalog_revision FROM director_revisions v JOIN directors d ON d.id=v.director_id WHERE d.archived=0 ORDER BY d.created_at,d.id,v.revision DESC'):
-        directors.append({k:r[k] for k in ('id','director_id','name','revision','catalog_revision','style_confirmed','accepted_at')})
+        version={k:r[k] for k in ('id','director_id','name','revision','catalog_revision','style_confirmed','accepted_at')}
+        status='已接受' if r['accepted_at'] else '未接受，可试片' if r['style_confirmed'] else '风格未确认'
+        version['display_label']=f"{r['name']}（第{r['revision']}版，{status}）"
+        directors.append(version)
     proposals = []
     for r in conn.execute("SELECT * FROM conversation_proposals WHERE segment_id=? AND state IN ('proposed','applied') ORDER BY created_at,id",(segment['id'],)):
         proposal={'id':r['id'],'hash':r['body_hash'],'kind':r['kind'],'state':r['state'],'body':json.loads(r['body_json']),'receipt':json.loads(r['receipt_json']) if r['receipt_json'] else None}

@@ -764,7 +764,7 @@ class WorkService:
     def _creator_review_ready(conn, artifact) -> bool:
         """Human review can resolve model findings without rewriting QC history.
 
-        Director trial acceptance keeps its separate _manual_review_ready rule.
+        Director acceptance may reuse this readiness for an already accepted output.
         """
         if (artifact['kind']!='output' or not artifact['displayable'] or artifact.get('deleted_at') or
                 artifact['output_revision'] is None or artifact['quality_state']=='unchecked'):

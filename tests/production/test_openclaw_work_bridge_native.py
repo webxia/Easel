@@ -50,6 +50,8 @@ def test_native_pipeline_bootstrap_claim_tool_and_end_without_business_writes(tm
         for request in requests:
             wire=json.dumps(request,ensure_ascii=False)
             assert '默认用自然、完整的中文交流' in wire
+            from easel.video_workspace import CATALOG_SELECTION_POLICY
+            assert CATALOG_SELECTION_POLICY in wire
             assert 'MAIN_ONLY_FORBIDDEN_SENTINEL' not in wire
             assert 'DEV_ONLY_FORBIDDEN_SENTINEL' not in wire
         with f['service'].store.connection() as conn:

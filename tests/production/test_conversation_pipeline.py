@@ -31,6 +31,41 @@ def test_missing_choices_and_no_implicit_only_option(env):
     assert s.list_works()['items']==[]
 
 
+@pytest.mark.parametrize('status,label',[
+    ('accepted','已接受'),('trial','未接受，可试片'),('unconfirmed','风格未确认'),
+])
+def test_director_choices_display_one_actual_version_with_its_current_status(env,status,label):
+    channel=seed(env);s,c=env
+    if status=='accepted':
+        work=s.command('create',{'title':'catalog fixture'},command_id='catalog-fixture')['work_id']
+        with s.store.transaction() as conn:
+            conn.execute("INSERT INTO artifacts(id,work_id,kind,storage_ref,digest,size_bytes,created_at) VALUES ('trial',?,'output','fixture.mp4',?,1,?)",(work,'0'*64,now()))
+            conn.execute("UPDATE director_revisions SET accepted_at=?,trial_artifact_id='trial' WHERE id='v4'",(now(),))
+    elif status=='unconfirmed':
+        with s.store.transaction() as conn:conn.execute("UPDATE director_revisions SET style_confirmed=0 WHERE id='v4'")
+    seg=entry(c,profile_ref='one');b,i,_=turn(s,c,seg,'先讨论选题，不制作')
+    state=pipe(b,i,'pending')
+    assert [(v['id'],v['name'],v['display_label']) for v in state['directors']]==[
+        ('v4','导演甲',f'导演甲（第4版，{label}）')]
+    assert state['missing_choices']==['channel','director']
+    assert state['context']['entry']['settings'].get('director_revision') is None
+    assert not state['pending']
+    with s.store.connection() as conn:
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+
+
+def test_distinct_catalog_versions_are_not_collapsed_into_one_director_choice(env):
+    seed(env);s,c=env
+    with s.store.transaction() as conn:
+        conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,created_at) SELECT 'v5',director_id,5,style_json,evidence_json,1,? FROM director_revisions WHERE id='v4'",(now(),))
+    seg=entry(c,profile_ref='one');b,i,_=turn(s,c,seg,'比较现有版本，不制作')
+    versions=pipe(b,i,'pending')['directors']
+    assert [v['id'] for v in versions]==['v5','v4']
+    assert [v['display_label'] for v in versions]==[
+        '导演甲（第5版，未接受，可试片）','导演甲（第4版，未接受，可试片）']
+    assert all(v['name']=='导演甲' for v in versions)
+
+
 def test_selected_pipeline_handoff_waits_native_end(env):
     channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
     b,i,_=turn(s,c,seg,'用频道甲和导演甲')

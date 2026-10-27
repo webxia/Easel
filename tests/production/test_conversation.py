@@ -331,6 +331,70 @@ def test_manual_director_acceptance_rejects_bad_evidence(env,failure):
     assert not CreativeCatalog(service).list('directors')[0]['versions'][0]['accepted_at']
 
 
+def accepted_trial_fixture(service, work, *, style=True):
+    path=output_fixture(service,work,style=style)
+    with service.store.transaction() as conn:
+        artifact=row(conn,'artifacts','out')
+        conn.execute('INSERT INTO quality_checks VALUES (?,?,?,?,?,?,?,?)',
+            ('visual-finding','out',artifact['digest'],'semantic','test','fail',
+             encode({'findings':['fixture visual finding']}),now()))
+        conn.execute("UPDATE works SET state='preview_needs_fix' WHERE id=?",(work,))
+    service.command('accept',{'output_id':'out','manual_review_confirmed':True},
+        command_id='reviewed-trial',work_id=work,expected_revision=service.snapshot(work)['revision'])
+    return path
+
+
+def test_director_accept_reuses_exact_manual_acceptance_via_api_without_reconfirmation(env):
+    service,c,_,work=draft(env);accepted_trial_fixture(service,work)
+    with service.store.connection() as conn:
+        before={table:[tuple(r) for r in conn.execute('SELECT * FROM '+table)]
+                for table in ('works','runs','tasks','artifacts','quality_checks','acceptances')}
+        acceptance_id=conn.execute('SELECT id FROM acceptances').fetchone()[0]
+    app=FastAPI();app.add_exception_handler(ProductionError,production_error_handler)
+    app.include_router(production_router(lambda:service))
+    request={'command_id':'accept-reviewed-director','expected_revision':1,
+             'payload':{'revision_id':'style','trial_artifact_id':'out'}}
+    with TestClient(app) as client:
+        response=client.post('/api/production/directors/director/accept',json=request)
+        assert response.status_code==202,response.text
+        assert client.post('/api/production/directors/director/accept',json=request).json()==response.json()
+    with service.store.connection() as conn:
+        assert before=={table:[tuple(r) for r in conn.execute('SELECT * FROM '+table)] for table in before}
+        version=row(conn,'director_revisions','style')
+        assert version['accepted_at'] and version['trial_artifact_id']=='out'
+        event=json.loads(conn.execute("SELECT payload_json FROM events WHERE kind='director_accepted'").fetchone()[0])
+        assert event['acceptance_id']==acceptance_id and event['mode']=='explicit_manual_review'
+        assert conn.execute("SELECT count(*) FROM events WHERE kind='director_accepted'").fetchone()[0]==1
+
+
+@pytest.mark.parametrize('failure',[
+    'no_acceptance','wrong_source','unselected_output','wrong_style','unconfirmed_style',
+    'technical_failure','bytes_changed','file_missing','deleted_output','cancelled_work','unfinished_run',
+])
+def test_reused_director_acceptance_keeps_exact_evidence_guards(env,failure):
+    service,c,_,work=draft(env)
+    path=accepted_trial_fixture(service,work,style=failure!='wrong_style')
+    with service.store.transaction() as conn:
+        if failure=='no_acceptance':conn.execute('DELETE FROM acceptances')
+        elif failure=='wrong_source':conn.execute("UPDATE acceptances SET source='explicit_user'")
+        elif failure=='unselected_output':conn.execute('UPDATE works SET accepted_output_id=NULL WHERE id=?',(work,))
+        elif failure=='unconfirmed_style':conn.execute("UPDATE director_revisions SET style_confirmed=0 WHERE id='style'")
+        elif failure=='technical_failure':
+            artifact=row(conn,'artifacts','out')
+            conn.execute('INSERT INTO quality_checks VALUES (?,?,?,?,?,?,?,?)',
+                ('new-technical','out',artifact['digest'],'technical','test','fail','{}',now()))
+        elif failure=='deleted_output':conn.execute("UPDATE artifacts SET deleted_at=? WHERE id='out'",(now(),))
+        elif failure=='cancelled_work':conn.execute("UPDATE works SET state='cancelled' WHERE id=?",(work,))
+        elif failure=='unfinished_run':conn.execute("UPDATE runs SET state='needs_decision' WHERE work_id=?",(work,))
+    if failure=='bytes_changed':path.write_bytes(b'changed after acceptance')
+    elif failure=='file_missing':path.unlink()
+    with pytest.raises(ProductionError):
+        CreativeCatalog(service).command('directors','accept',
+            {'revision_id':'style','trial_artifact_id':'out'},command_id='reject-reviewed-director',
+            id='director',expected_revision=1)
+    assert not CreativeCatalog(service).list('directors')[0]['versions'][0]['accepted_at']
+
+
 def test_channel_defaults_pin_and_frozen_basis_do_not_change_with_new_defaults(env):
     service,c=env;cat=CreativeCatalog(service)
     ch=cat.command('channels','create',{'name':'频道','profile_ref':'one','creative_basis':{'position':'旧定位'},'settings':{'duration_seconds':45}},command_id='channel')
