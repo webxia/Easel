@@ -86,7 +86,7 @@ class MiniMaxSpeechAdapter(VoiceHTTPAdapter):
             'model':identity.model,'text':request['text'],'stream':False,'output_format':'hex',
             'voice_setting':native_voice_settings(identity),
             'audio_setting':{'format':self.config.response_format,'sample_rate':32000,'channel':1}}
-        if identity.parameters.get('subtitle_enable'):
+        if identity.parameters.get('subtitle_enable', True):
             payload['subtitle_enable'] = True
         return self.config.base_url.rstrip('/') + '/t2a_v2', payload
 

@@ -359,3 +359,61 @@ def test_duration_review_contract_agrees_with_actual_execution(mode):
         assert contract['duration_seconds_meaning']=='fixed_duration'
         assert contract['execution_basis']=='confirmed_duration'
         assert executed['settings']['duration_seconds']==timing['duration']==105
+
+
+@pytest.mark.parametrize('parameters,enabled', [({},True),({'subtitle_enable':False},False)])
+def test_native_subtitle_default_preserves_voice_settings(tmp_path,parameters,enabled):
+    identity=VoiceIdentity(provider='minimax',model='speech-2.8-turbo',engine='minimax-speech-v1',
+        voice_id='fixed',parameters={'speed':1,**parameters})
+    config=SpeechConfig(provider=identity.provider,model=identity.model,engine=identity.engine,
+        base_url='https://speech.invalid/v1',config_version='test',voices=(VoiceOption(identity,'fixed',speed_range=(.5,2)),))
+    adapter=MiniMaxSpeechAdapter(config,tmp_path)
+    request=adapter.request(identity=identity,text='原句。',segment_id='s')
+    payload=adapter._wire_request(request,identity)[1]
+    assert bool(payload.get('subtitle_enable')) is enabled
+    assert payload['voice_setting']=={'voice_id':'fixed','speed':1,'vol':1,'pitch':0}
+
+
+@pytest.mark.parametrize('provider',[{}, {'status':'received','segments':[{'text':'原句，不改。','start':0,'end':40}]}])
+def test_local_alignment_missing_or_long_provider_uses_acoustic_windows(tmp_path,monkeypatch,provider):
+    import faster_whisper, faster_whisper.audio
+    import numpy as np
+    import easel.production.speech_alignment as module
+    class Local:
+        def __init__(self,*a,**kw):self.model=SimpleNamespace(is_multilingual=True);self.hf_tokenizer=None
+        def feature_extractor(self,audio):return np.zeros((80,100))
+        def encode(self,features):return features
+        def find_alignment(self,*a):return [[{'word':'原句，不改。','start':.4,'end':1.4}]]
+    monkeypatch.setattr(faster_whisper,'WhisperModel',Local)
+    monkeypatch.setattr(faster_whisper.audio,'decode_audio',lambda *a,**kw:np.zeros(640000))
+    monkeypatch.setattr('faster_whisper.tokenizer.Tokenizer',lambda *a,**kw:SimpleNamespace(encode=lambda text:[1]))
+    used=[]
+    monkeypatch.setattr(module,'_acoustic_windows',lambda model,audio,text:used.append(text) or [
+        {'text':text,'start':0,'end':2}])
+    path=tmp_path/'voice';path.write_bytes(b'original')
+    result=module.align_confirmed_speech(path,'原句，不改。',provider,model_name='base',cache=tmp_path/'cache')
+    assert result['status']=='received' and result['local_recognition_anchors'] is True
+    assert result['provider_paragraph_anchors'] is False and used==['原句，不改。']
+    assert path.read_bytes()==b'original'
+
+
+def test_local_acoustic_windows_reject_unrelated_recognition():
+    import numpy as np
+    from easel.production.speech_alignment import _acoustic_windows
+    model=SimpleNamespace(transcribe=lambda *a,**kw:([SimpleNamespace(words=[SimpleNamespace(
+        word='unrelated recognition',start=0,end=2)])],None))
+    with pytest.raises(ValueError,match='insufficient'):
+        _acoustic_windows(model,np.zeros(32000),'这是一段必须保持的中文原稿。')
+
+
+def test_local_windows_partition_inside_long_exact_match():
+    import numpy as np
+    from easel.production.speech_alignment import _acoustic_windows
+    text='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+    # One long exact matching block must supply more than its first anchor.
+    model=SimpleNamespace(transcribe=lambda *a,**kw:([SimpleNamespace(words=[SimpleNamespace(
+        word=text,start=0,end=60)])],None))
+    windows=_acoustic_windows(model,np.zeros(60*16000),text)
+    assert len(windows)>3
+    assert ''.join(w['text'] for w in windows)==text
+    assert all(0<w['end']-w['start']<=29 for w in windows)

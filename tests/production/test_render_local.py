@@ -226,3 +226,51 @@ def test_captions_survive_color_metadata_changes_across_cuts(tmp_path,sources,wi
         frame=Image.open(BytesIO(decoded)).convert('RGB')
         white=sum(min(pixel)>200 for pixel in frame.crop((0,int(p.height*.65),p.width,p.height)).getdata())
         assert (white>500)==(at<2.8),(at,white)
+
+
+def test_narration_music_balance_is_attenuation_only_and_scoped(tmp_path,sources):
+    from easel.production.editors.ffmpeg import LocalRender
+    # Exercise policy without rendering: actual timeline scope is deterministic.
+    render=object.__new__(LocalRender);render.path=tmp_path
+    render._mean_level=lambda c: {'voice':-24,'music':-12}[c['asset_id']]
+    voice={'clip_id':'v','asset_id':'voice','role':'voice','at':2,'duration':2,'source_start':0,'gain':1}
+    music={'clip_id':'m','asset_id':'music','role':'music','at':0,'duration':4,'source_start':0,'gain':.5}
+    levels=render._music_levels([voice,music])
+    start,end,gain=levels['m'][0]
+    assert (start,end)==(2,4) and gain==pytest.approx(10**(-24/20))
+    assert voice['gain']==1 and music['gain']==.5
+    assert render._music_levels([{**music,'gain':0},voice])=={}
+    assert render._music_levels([music])=={}
+    quiet={**music,'gain':.01}
+    assert render._music_levels([voice,quiet])['m'][0][2]==.01
+    assert render._music_levels([voice,{**music,'at':5}])=={}
+
+
+def test_measured_narration_mix_writes_effective_gain(tmp_path,sources):
+    editor=FFmpegEditor(tmp_path/'jobs')
+    p=project(audio_mode='mixed',audio=(
+        AudioClip(clip_id='v',asset_id='music',role='voice',at=0,duration=1,gain=.1),
+        AudioClip(clip_id='m',asset_id='music',role='music',at=0,duration=1,gain=.5)))
+    editor.build(p,sources,job_id='balanced')
+    assert wait(editor,'balanced').status=='completed'
+    import json
+    evidence=json.loads((editor.root/'balanced/audio-balance.json').read_text())
+    span=evidence['spans'][0]
+    assert span['narration_gain']==pytest.approx(.1*10**(-12/20),rel=.01)
+    assert evidence['listening_verified'] is False
+    graph=(editor.root/'balanced/audio.filter').read_text()
+    assert 'max(0,(t-0.0+.1)/.1)' in graph and 'eval=frame' in graph
+    # Independently measure encoded PCM, rather than trusting the recipe JSON.
+    import array, math
+    def rms(path):
+        pcm=subprocess.run([FFMPEG,'-v','error','-ss','0.25','-i',str(path),'-t','0.5',
+            '-map','0:a:0','-af','aformat=sample_fmts=fltp:channel_layouts=stereo',
+            '-ac','1','-ar','48000','-f','s16le','pipe:1'],
+            capture_output=True,check=True).stdout
+        samples=array.array('h');samples.frombytes(pcm)
+        return math.sqrt(sum(x*x for x in samples)/len(samples))
+    actual=rms(editor.collect('balanced').video_path)/rms(sources.root/'music.wav')
+    assert actual==pytest.approx(.1+.1*10**(-12/20),abs=.01)
+    editor.build(p,sources,job_id='balanced-reuse')
+    assert wait(editor,'balanced-reuse').status=='completed'
+    assert json.loads((editor.root/'balanced-reuse/audio-balance.json').read_text())==evidence

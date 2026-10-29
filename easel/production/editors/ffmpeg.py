@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import shutil
@@ -182,7 +183,7 @@ class FFmpegEditor:
     def build(self, project: EditProject, manifest: AssetManifest, *, job_id: str) -> RenderJob:
         project = EditProject.model_validate(project.model_dump())
         manifest = AssetManifest.model_validate(manifest.model_dump())
-        fingerprint = _hash({"encoding": ENCODING, "project": project.model_dump(mode="json"), "assets": {
+        fingerprint = _hash({"mix_policy": "narration-music-1", "encoding": ENCODING, "project": project.model_dump(mode="json"), "assets": {
             k: manifest.assets[k].model_dump() for k in sorted(self._assets(project)) if k in manifest.assets}})
         path = self._job(job_id)
         path.mkdir(exist_ok=True)
@@ -452,6 +453,63 @@ class LocalRender:
                   *self.encode(), str(target)])
         return target
 
+    def _mean_level(self, clip):
+        """Measure the actual trimmed source, not its container or model label."""
+        args = [self.engine['ffmpeg'], '-hide_banner', '-nostdin', '-loglevel', 'info',
+                *self.input(self.source(clip['asset_id'])), '-map', '0:a:0',
+                '-af', f"atrim=start={clip['source_start']}:duration={clip['duration']},volumedetect",
+                '-f', 'null', '-']
+        try:
+            result = subprocess.run(args, cwd=self.path, env=self.env, capture_output=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            raise EditError('audio balance source measurement timed out') from None
+        match = re.search(rb'mean_volume:\s*(-?(?:[0-9.]+|inf)) dB', result.stderr)
+        if result.returncode or not match:
+            raise EditError('audio balance source measurement failed')
+        return float(match.group(1))
+
+    def _music_levels(self, clips):
+        # Attenuation only: explicit silence, SFX, source sound and voice gains
+        # remain intact. Music outside narration keeps its requested level.
+        voices = [c for c in clips if c.get('role') == 'voice' and c['gain'] > 0]
+        music = [c for c in clips if c.get('role') == 'music' and c['gain'] > 0]
+        levels, evidence = {}, []
+        if not voices or not music:
+            return levels
+        measured = {}
+        def level(c):
+            key = (c['asset_id'], c['source_start'], c['duration'])
+            if key not in measured:
+                measured[key] = self._mean_level(c)
+            return measured[key] + 20*math.log10(c['gain'])
+        for m in music:
+            spans = []
+            for v in voices:
+                start, end = max(m['at'], v['at']), min(m['at']+m['duration'], v['at']+v['duration'])
+                if end <= start:
+                    continue
+                voice_db, music_db = level(v), level(m)
+                if not math.isfinite(voice_db) or not math.isfinite(music_db):
+                    continue
+                gain = m['gain'] * min(1.0, 10**((voice_db-music_db-12)/20))
+                spans.append((start-m['at'], end-m['at'], gain))
+                evidence.append({'music_clip':m['clip_id'], 'voice_clip':v['clip_id'],
+                    'start':start, 'end':end, 'voice_mean_db':voice_db, 'music_mean_db':music_db,
+                    'requested_gain':m['gain'], 'narration_gain':gain})
+            if spans:
+                merged = []
+                for start, end, gain in sorted(spans):
+                    if merged and start <= merged[-1][1] + .5:
+                        a, b, g = merged[-1]
+                        merged[-1] = (a, max(b, end), min(g, gain))
+                    else:
+                        merged.append((start, end, gain))
+                levels[m['clip_id']] = merged
+        atomic_json(self.path/'audio-balance.json', {'version':'narration-music-1',
+                    'method':'trimmed_source_mean_level', 'margin_db':12, 'spans':evidence,
+                    'listening_verified':False})
+        return levels
+
     def audio(self) -> Path | None:
         p = self.project
         if p.audio_mode == "silent":
@@ -463,19 +521,27 @@ class LocalRender:
                               "at": at, "duration": scene.duration, "gain": scene.source_gain,
                               "fade_in": 0, "fade_out": 0, "loop": False})
         key = _hash({"clips": clips, "assets": {c["asset_id"]: self.manifest.assets[c["asset_id"]].sha256 for c in clips},
-                     "duration": p.duration, "engine": self.engine["version"]})
+                     "duration": p.duration, "engine": self.engine["version"], "mix_policy": "narration-music-1"})
         destination = self.cache / ("audio-" + key + ".m4a")
         with _lock(self.cache / (key + ".lock")):
             receipt = destination.with_suffix(".json")
             if destination.is_file() and receipt.is_file() and _read(receipt).get("sha256") == file_sha256(destination):
+                cached_balance = _read(receipt).get('balance')
+                if cached_balance:
+                    atomic_json(self.path/'audio-balance.json', cached_balance)
                 return destination
+            music_levels = self._music_levels(clips)
             args, filters = [], []
             for index, clip in enumerate(clips):
                 if clip["loop"]:
                     args += ["-stream_loop", "-1"]
                 args += self.input(self.source(clip["asset_id"]))
+                gain = str(clip['gain'])
+                for start, end, value in music_levels.get(clip.get('clip_id'), []):
+                    weight = f"min(1,min(max(0,(t-{start}+.1)/.1),max(0,({end}+.25-t)/.25)))"
+                    gain = f"min({gain},{clip['gain']}+({value}-{clip['gain']})*{weight})"
                 af = [f"atrim=start={clip['source_start']}:duration={clip['duration']}", "asetpts=PTS-STARTPTS",
-                      "aresample=48000", "aformat=sample_fmts=fltp:channel_layouts=stereo", f"volume={clip['gain']}"]
+                      "aresample=48000", "aformat=sample_fmts=fltp:channel_layouts=stereo", f"volume='{gain}':eval=frame"]
                 if clip["fade_in"]:
                     af.append(f"afade=t=in:st=0:d={clip['fade_in']}")
                 if clip["fade_out"]:
@@ -490,7 +556,9 @@ class LocalRender:
             self.run([*args, "-filter_complex_script", str(graph), "-map", "[mix]", "-vn", "-c:a", "aac",
                       "-b:a", "192k", "-threads", "2", "-t", str(p.duration), str(temporary)])
             os.replace(temporary, destination)
-            atomic_json(receipt, {"sha256": file_sha256(destination)})
+            balance_path = self.path/'audio-balance.json'
+            atomic_json(receipt, {"sha256": file_sha256(destination),
+                                  **({'balance':_read(balance_path)} if balance_path.is_file() else {})})
         return destination
 
     def captions(self) -> Path | None:
