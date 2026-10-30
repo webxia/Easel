@@ -212,7 +212,7 @@ SOFTWARE_PASS（本轮组合版本）；真实只讨论边界通过、完整读�
 
 origin/easel-v2-rebuild已从2bde5351更新至合并提交，GitHub PR #14已标记MERGED。受管Web70757/Gateway70755启动于统一V2目录，gateway=true、reload_required=false、协议2/原6工具及权限保持。部署前一致备份后逐表对比，仅cleanup_jobs例行维护发生变化；外键检查为空，649成功Operation/7UNKNOWN、61份Plan和49个output记录保留，不生成新媒体。私有备份/冲突说明/推送和部署证据在outputs/_debug/v2-unification-20261027/，不提交。
 
-已扫描暂存范围及配置凭证，排除所有个人未跟踪素材、二维码、skills/_scratch、outputs、Profile及数据库。工作树个人文件不删除；不自动发布或代签作品接受。完整作品E2E并未因此通过，原待确认稿及修订断点保持。
+已扫描暂存范围及配置凭证，排除所有个人未跟踪素材、二维码、skills 下的私人 scratch 子目录、outputs、Profile及数据库。工作树个人文件不删除；不自动发布或代签作品接受。完整作品E2E并未因此通过，原待确认稿及修订断点保持。
 
 ## 第三条作品开放创作委托续作（2026-10-27）
 
