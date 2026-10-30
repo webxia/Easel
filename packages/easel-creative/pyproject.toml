@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "easel-creative"
+version = "0.1.0"
+description = "Independent, file-based creative tools for agent hosts"
+requires-python = ">=3.10"
+dependencies = ["Pillow>=10,<13"]
+
+[project.scripts]
+easel-creative = "easel_creative.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
