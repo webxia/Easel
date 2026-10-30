@@ -138,7 +138,7 @@ def test_real_completed_render_still_collects_and_caption_preview_decodes_after_
     import subprocess
     from tests.production.test_creation_flow import test_confirm_to_real_render_to_reviewable_without_creator_acceptance as first_cut
     from easel.production.editors import FFmpegEditor
-    first_cut(tmp_path,True,False,False,monkeypatch)
+    first_cut(tmp_path,full_video=True,recover_render=False,overlay_repair=False,inspect_image=False,monkeypatch=monkeypatch)
     outputs=tmp_path/'outputs';service=SimpleNamespace(outputs=outputs,store=Store(outputs/'_production/production.sqlite3'))
     editor=FFmpegEditor(outputs/'_production/renders')
     folder=next(p for p in editor.root.iterdir() if (p/'job.json').is_file())

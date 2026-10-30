@@ -105,7 +105,7 @@ def test_render_cache_preview_protects_live_jobs_and_export(tmp_path,monkeypatch
     from easel.production.service import WorkService
     from easel.production.maintenance import render_cache,operating_summary
     from easel.production.editors.ffmpeg import _lock
-    first_cut(tmp_path,True,False,False,monkeypatch)
+    first_cut(tmp_path,full_video=True,recover_render=False,overlay_repair=False,inspect_image=False,monkeypatch=monkeypatch)
     service=WorkService(Store(tmp_path/'outputs/_production/production.sqlite3'),outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     job=next(p for p in (service.outputs/'_production/renders').iterdir() if (p/'job.json').is_file())
     preview=render_cache(service,job.name)
