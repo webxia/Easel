@@ -15,6 +15,19 @@ from .service import row, encode, digest, now, new_id
 DRAFT_REVIEW_CONTEXT_VERSION = 'current-draft-4'
 
 
+def validate_emotion_design(answer):
+    """New authored speech needs a decision; old frozen plans stay readable."""
+    if answer.settings.audio_mode not in {'voice', 'mixed'} or not answer.settings.voice:
+        return
+    if answer.settings.voice.engine != 'minimax-speech-v1':
+        return
+    if not any(scene.narration.strip() for scene in answer.scenes):
+        return
+    groups = answer.narration_policy.groups if answer.narration_policy else []
+    if not groups or any(not group.emotion_reason.strip() for group in groups):
+        raise ValueError('新旁白规划必须在每个语义组填写emotion_reason：根据本组内容说明讲述意图和emotion取舍；不能无理由留空或推给配音阶段。')
+
+
 def preserve_selected_voice_parameters(answer, selected):
     """Apply only the deterministic parameter projection used before storage."""
     if selected and answer.settings.voice:
@@ -508,6 +521,8 @@ class PlanningTasks:
                 # Fixed synthesis parameters belong to the selected voice configuration.
                 # The creative model may not introduce extra knobs or change their values.
                 preserve_selected_voice_parameters(answer,selected)
+                if not protected and not recovered and ctx.payload.get('revision_scope')!='boards':
+                    validate_emotion_design(answer)
                 if any(s.narration_pauses for s in answer.scenes) or (answer.narration_policy and answer.narration_policy.groups):
                     from .narration import validate_narration_execution
                     if not answer.settings.voice or answer.settings.audio_mode not in {'voice','mixed'}:raise ValueError('停顿控制需要固定旁白声音')
@@ -526,12 +541,12 @@ class PlanningTasks:
                 author=self.runner(ctx,namespace='narration-delta-v1' if narration_scope else None,max_format_repairs=2)
                 proposed=await author.run(context,
                 '提出完整创作方案；遵守明确时长、画幅、声音设置；全部必用输入须落实到场景。'
+                '声音设计与settings.audio_mode须一致：只用旁白和允许的环境底噪/音效时用voice；mixed必须有音乐。不能为满足mixed擅自添加用户未允许的BGM；与显式设置冲突时报告冲突。'
                 '旁白片在narration_policy明确时长策略：用户明确要求精确片长才用fixed；约、大约、左右或已允许自然收尾的时长是目标，不是硬性长度，应选择voice_driven并在摘要说明实际长度随完整旁白决定。未限定片长同样用voice_driven。continuous与片长独立。'
                 'Scene.narration 只能是将由 TTS 实际朗读的简短口播原文，不能包含时间码、朗读窗口、'
                 '停顿/换气/语速说明、其他导演注释或舞台指令；这类说明只写入 visual；script与各场景narration按顺序拼接一致，不含分镜编号或章节标签。'
-                '仅固定MiniMax speech-2.8时可按必要语义填写独立narration_pauses，after是去除首尾空白后的字符位置，seconds为0.05到1秒；不在正文写供应商标签，不逐句加停顿，默认空列表。'
-                '需要语义段独立表达或后续局部重做时，可在narration_policy.groups设计稳定id和按顺序完整覆盖有声场景的scene_ids；组内连续合成，建议每组不超过3000字符，不逐句拆分。'
-                'groups可选emotion须由内容目的决定，省略沿用已选声音；不得覆盖明确固定的情绪或替换音色。局部改稿只改既有组表达，分组边界保持；新增分组会增加配音调用，须随方案确认。'
+                '声音字段按实际能力填写：MiniMax speech-2.8的narration_pauses.after为去除首尾空白后的字符位置，seconds为0.05到1秒且最多两位小数，不在正文写供应商标签。'
+                '语义组连续合成，建议每组不超过3000字符；emotion只用当前模型支持的值，不覆盖明确固定的情绪或替换音色。局部改稿保持既有分组边界，新增分组的配音调用随方案确认。'
                 'fixed口播须适合明确片长；voice_driven的秒数只是规划估计，最终随完整实测旁白定长，不为填满估计秒数增加内容或留白。'
                 '在同一次创作中先按选定导演的讲述方式组织完整思路，再落实分镜；频道提供定位与受众，不是固定文体。'
                 '将本期明确的表达要求写入已有constraints，改稿继承未撤销要求并逐项落实；新反馈没有重提不代表原要求失效。'
@@ -585,8 +600,9 @@ class PlanningTasks:
                         replace(candidate_context,
                             brief=candidate_context.brief+'\n原生既有审查记录，请逐项核对本次是否已解决；若原判断被当前字段或实际像素否定，明确依据，不照搬：'+encode(history)),
                         '独立审查尚未确认草稿；只返回有依据的观察和必须修正的问题，不改稿、不声称已看过未选的库存或听过声音。'
+                        '核对声音设计、constraints与settings.audio_mode的一致性：旁白加环境底噪/音效可用voice，mixed必须包含获准音乐；不为技术模式添加违背创作要求的音乐。'
                         '逐项核对本次brief中的明确表达要求和constraints，包括未被后续反馈撤销的原要求；有冲突时在findings引用原要求及具体句段，不能因结构通顺就pass。'
-                        '遵守实际输出字段合同：script和scene.narration只放真实口播；语气、重音、停顿说明放purpose/visual或narration_pauses。即使整理后的request写了“逐字稿标注语气/停顿”，也不得要求把非口播标记塞回script或新增schema外的第二份TTS稿。旁白分组遵守production_capabilities.narration_group_schema；每组语义依据、表达局限可写在对应场景purpose/visual，不得要求添加该schema禁止的字段；emotion为null表示默认。字符、停顿与时长统计以duration_execution_contract中的程序测量为准。'
+                        '遵守实际输出字段合同：script和scene.narration只放真实口播；语气、重音、停顿说明放purpose/visual或narration_pauses。即使整理后的request写了“逐字稿标注语气/停顿”，也不得要求把非口播标记塞回script或新增schema外的第二份TTS稿。旁白分组遵守production_capabilities.narration_group_schema；每组语义依据、表达局限可写在对应场景purpose/visual，不得要求添加该schema禁止的字段；MiniMax组内emotion为null仅能继承确有的全局emotion，固定音色不等于情绪控制。字符、停顿与时长统计以duration_execution_contract中的程序测量为准。'
                         '核对第一人称习惯、已做事项和成果是否确由输入/画像支持；建议做法不能写成已经长期执行的自述。'
                         '核对是否回应一句想法及画像表达目标。分析内容核对依据、逻辑与边界；感悟可以保留问题，不强制案例、教程、结论或升华。'
                         '逐项检查图解所有状态：每张卡与所在列的字面含义一致，结果、行为和结论不能混装成错误分类；'

@@ -36,6 +36,25 @@ def revision_feedback_text(feedback):
     return '\n'.join(dict.fromkeys([s['text'] for s in value['user_sources']]+[value['agent_request']]))
 
 
+def check_revision_caption_identity(base, revised, caption_roles):
+    remaining={c.caption_id for c in revised.captions}
+    before=[(c.caption_id,c.text,c.start,c.end) for c in base.captions
+            if c.caption_id in remaining or caption_roles.get(c.caption_id)!='overlay']
+    after=[(c.caption_id,c.text,c.start,c.end) for c in revised.captions]
+    if before!=after:
+        old={c.caption_id:c for c in base.captions}
+        new={c.caption_id:c for c in revised.captions}
+        added=[key for key in new if key not in old]
+        changed=[key for key in old if key in new and
+                 (old[key].text,old[key].start,old[key].end)!=(new[key].text,new[key].start,new[key].end)]
+        removed=[key for key in old if key not in new and caption_roles.get(key)!='overlay']
+        detail=encode({'added_caption_ids':added[:12],'changed_text_or_timing_ids':changed[:12],
+                       'removed_protected_ids':removed[:12]})
+        raise ValueError('局部修订文字/时间身份变化：'+detail+
+            '。保持原caption_id及text/start/end；只需排版时改size/max_width/x/y/background，渲染器按max_width自动换行，不必拆成新文字条目。'
+            '移除已登记overlay请用remove_caption_ids；旁白或角色未知字幕不可删除。真正改写文字须走正式改稿，不得新增或改名绕过保护；原顺序也须保留。')
+
+
 def revision_output(conn,work,data):
     # Shared by proposal and execution: a plan is not a rendered output.
     output=conn.execute('SELECT * FROM artifacts WHERE id=?',(data.get('output_id',''),)).fetchone()
@@ -429,7 +448,7 @@ class RevisionTasks:
             instruction=(ENDING_INSTRUCTION + VISUAL_EVIDENCE_INSTRUCTION + REVISION_MATERIAL_SCOPE + '修订reason逐项回应已有findings：实际改动、仍阻断的缺陷与不阻断的局限分开说明；不能只声称问题已解决。'
                 '解释本次局部修改范围，优先返回changes：scenes按已登记scene_id替换该镜头（可拆镜），captions只列改动项；未列项及全部AudioClip由原工程继承，visual_evidence列实际选择证据。不要重写整份工程。仅需调整独立音轨时使用edit。未指出部分不得改写；保留scene_id、时长、转场、旁白和字幕文本/时间。'
                 'preserve_audio=true时独立AudioClip继承原版；使用完整edit时逐字段保留，包括声音身份、at、duration、gain。'
-                '含原声镜头的素材、source_start、duration、source_gain、实际时间线位置须保持；可改crop、fit、motion等纯画面字段，不通过替换镜头意外移除或新增原声。'
+                '含原声镜头的素材、source_start、duration、source_gain、实际时间线位置须保持；可改crop、frame、fit、motion等纯画面字段，不通过替换镜头意外移除或新增原声。'
                 'preserve_audio=false且用户反馈涉及声音时，可调整现有音轨gain/fade_in/fade_out，保留素材身份、完整配音、位置和时长；复用配音资产不等于冻结混音参数。'
                 '先实际复查全部候选，禁止把未观察过的文件名当画面事实。可用同方案合格库存替换用户要求修复的画面。关键动作必须发生在实际source_start至source_start+duration内，不能用源片尾部动作冒充选取前段；technical.duration_seconds给出源片真实长度。'
                 '仍缺本轮不可替代的关键主体或动作时，在material_searches列出最多4个本方案场景的简短英文主体/动作搜索词，options最多4、media_types仅image/video；'
@@ -437,9 +456,11 @@ class RevisionTasks:
                 '仅实际新增文案/时长/生成需求才设expands_scope/requires_new_generation；不要把本次已明确要求的现有素材替换与字幕样式修复误作整片重建。'
                 '字幕对比不足时可以使用明确的深色半透明背景与较清楚的描边，保留文字和时间。')
             if creative_repair:
-                instruction = instruction.replace('保留scene_id、时长、转场、旁白和字幕文本/时间。', '保留叙事身份、旁白和字幕文本/时间；镜头调整范围以下述视觉修复要求为准。')
-                instruction += ('本次是原生视觉复核触发的画面修复：保留完整AudioClip、原字幕字句和时码、总长度及原场景顺序。'
-                    '允许原场景拆成多个镜头，scene_id采用原ID或原ID-cut1、原ID-cut2等，允许相邻场景重新分配镜头时长，保持总时长、原叙事顺序和全部原字幕时码，画面应与实际旁白对应；'
+                instruction = instruction.replace('保留scene_id、时长、转场、旁白和字幕文本/时间。', '保留叙事身份、全部原字幕字句及旁白时码；镜头与独立叠加文字调时以下述视觉修复范围为准。')
+                instruction += ('本次是原生视觉复核触发的画面修复：保留完整AudioClip、全部原字幕字句、旁白与角色未知字幕时码、总长度及原场景顺序。'
+                    '已登记caption_roles=overlay的原文字条目可在原所属镜头窗口内调整start/end以匹配旁白步骤，保持原caption_id和text；不是允许改旁白时间。'
+                    '情境素材需要披露来源属性时，仅支持新增固定叠加“情境示意，非来源原图”，不可扩写为机构/数据断言；不因加标签免除画面事实匹配，其他新增文字仍须来自方案明确提示语。'
+                    '允许原场景拆成多个镜头，scene_id采用原ID或原ID-cut1、原ID-cut2等，允许相邻场景重新分配镜头时长，保持总时长、原叙事顺序和全部原旁白时码，画面应与实际旁白对应；'
                     '这属于既有视觉修复，不因拆镜就扩大内容范围。只用实际候选或有界补料，不能用相似关键词的错误物件冒充所需画面。'
                     '解释不足时可以补方案中已有的提示语，文字仅可取自以下列表，不能新增事实或观点：'
                     +encode(approved_overlay_texts(context.plan)))
@@ -485,12 +506,7 @@ class RevisionTasks:
                 collect(lambda: check_sources(candidate.edit))
                 collect(lambda: check_visual_evidence(candidate.edit,observed,pending_materials=bool(candidate.material_searches)))
                 if not creative_repair and not (candidate.expands_scope or candidate.requires_new_generation):
-                    remaining={c.caption_id for c in candidate.edit.captions}
-                    before=[(c.caption_id,c.text,c.start,c.end) for c in base.captions
-                            if c.caption_id in remaining or caption_roles.get(c.caption_id)!='overlay']
-                    after=[(c.caption_id,c.text,c.start,c.end) for c in candidate.edit.captions]
-                    if before!=after:
-                        errors.append('局部修订不能改写或删除旁白字幕；移除已登记overlay请用remove_caption_ids，不能以空格替换文字')
+                    collect(lambda: check_revision_caption_identity(base,candidate.edit,caption_roles))
                 if candidate.material_searches and not (candidate.expands_scope or candidate.requires_new_generation):
                     try:revision_plan_searches(context.plan,base,candidate.material_searches)
                     except ModelTaskError as exc:errors.append(exc.user_message)
@@ -500,7 +516,7 @@ class RevisionTasks:
                     except ValueError as exc:
                         errors.append(str(exc))
                     else:
-                        collect(lambda: assert_visual_repair(base,draft,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles,allow_retiming=True))
+                        collect(lambda: assert_visual_repair(base,draft,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles,allow_retiming=True,caption_roles=caption_roles))
                         from .boards import check_board_usage
                         collect(lambda: check_board_usage(draft.scenes,records))
                         collect(lambda: check_caption_layout(draft.captions,font_paths={r['id']:artifact_file(self.service,r) for r in records if r['kind']=='font'},width=base.width,height=base.height))
@@ -595,7 +611,7 @@ class RevisionTasks:
                     adjusted.append(before)
                 protected=base.model_copy(update={'scenes':tuple(adjusted)})
             if creative_repair:
-                assert_visual_repair(base,revised,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles,allow_retiming=True)
+                assert_visual_repair(base,revised,overlay_texts=approved_overlay_texts(context.plan),protected_caption_style_ids=protected_styles,allow_retiming=True,caption_roles=caption_roles)
                 from .boards import check_board_usage
                 try:check_board_usage(revised.scenes,records)
                 except ValueError as exc:raise EditError(str(exc)) from None

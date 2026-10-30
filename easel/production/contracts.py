@@ -151,7 +151,7 @@ class SubtitleSettings(Contract):
 class VideoSettings(Contract):
     duration_seconds: float = Field(ge=1, le=900, allow_inf_nan=False, description="必填秒数；narration_policy.duration_mode=fixed时为固定片长，voice_driven时仅为规划估计，实际按完整配音实测定长。")
     aspect_ratio: Literal["9:16", "16:9"] = "9:16"
-    audio_mode: Literal["silent", "music", "voice", "mixed"]
+    audio_mode: Literal["silent", "music", "voice", "mixed"] = Field(description='silent无声音；voice为旁白/原声，可含获准的环境音或音效，但无音乐；music为音乐无旁白；mixed必须同时有旁白/原声与音乐。环境底噪不是音乐，不因有音效选择mixed。')
     voice: VoiceIdentity | None = None
     subtitles: SubtitleSettings = Field(default_factory=SubtitleSettings)
 
@@ -194,6 +194,15 @@ class NarrationGroup(Contract):
         description='连续语义段包含的有声场景，按原场景顺序完整列出；组内连续合成，不逐句拆分。')
     emotion: Literal['happy', 'sad', 'angry', 'fearful', 'disgusted', 'surprised', 'calm', 'fluent', 'whisper'] | None = Field(
         default=None, description='可选本组表达，只用当前模型支持的值；省略保留声音配置，不默认设置情绪。')
+    emotion_reason: str = Field(default='', max_length=1000,
+        description='本组内容的讲述意图及emotion选择依据；null须说明为何不采用当前支持的情绪或继承哪个固定设置。只作导演说明，不进入TTS。旧方案可缺省，新规划必须设计。')
+
+    @model_serializer(mode='wrap')
+    def preserve_legacy_shape(self, handler):
+        data = handler(self)
+        if not self.emotion_reason:
+            data.pop('emotion_reason', None)
+        return data
 
 
 def validate_narration_groups(policy, scenes, settings):

@@ -122,3 +122,96 @@ def test_concurrent_handoff_consumption_is_once(env):
     with ThreadPoolExecutor(2) as pool:
         results=list(pool.map(lambda _:b.continue_handoff('ui','turn'),range(2)))
     assert sum(r is not None for r in results)==1
+
+
+@pytest.mark.parametrize('stream_error',[False,True])
+@pytest.mark.parametrize('native_end',[False,True])
+def test_committed_binding_interrupts_obsolete_run_without_prose(env,tmp_path,monkeypatch,stream_error,native_end):
+    """An agent that keeps probing old tools cannot hold handoff forever."""
+    import asyncio
+    import threading
+    import web.conversation_api as api
+    from tests.production.test_context_preparation import NoPressureRPC
+    monkeypatch.setattr('easel.conversation_compaction.SessionRPC',NoPressureRPC)
+    s,c=env;channel=seed(env);seg=entry(c,profile_ref='one')
+    b=PersistentWorkToolBridge(s)
+    initial=b.reserve(ui_session='ui',turn_id='first',segment_id=seg,
+        message='用频道甲和导演甲讨论视频',attachments=[])
+    calls=[];events=[];saved=[];interruptions=[];stopped=threading.Event()
+    identity={}
+    def interrupt(url,token,payload):
+        assert payload['run_id']==identity['run_id']
+        assert payload['native_session_id']==identity['session_id']
+        assert payload['pipeline_entry']['channel_id']==channel
+        # RPC success itself is not an ended receipt.
+        assert b.continue_handoff('ui','first') is None
+        interruptions.append(payload['run_id'])
+        if native_end:b.end(Identity(**identity))  # Simulated authenticated native end hook.
+        stopped.set()
+    class Response:
+        def __init__(self,body):self.body=body
+        async def __aenter__(self):return self
+        async def __aexit__(self,*args):pass
+        def raise_for_status(self):pass
+        async def aiter_lines(self):
+            n=len(calls);view=c.view('ui')
+            ident=dict(agent_id='main',session_key='agent:main:easel-pipeline:'+view['segment_id'],
+                session_id='native-'+view['segment_id'],run_id='native-run-'+str(n))
+            b.claim(Claim(**ident,prompt=self.body['messages'][0]['content']))
+            if n==1:
+                identity.update(ident)
+                pipe(b,ident,'bind',user_quote='用频道甲和导演甲',values={
+                    'channel_id':channel,'director_revision':'v4','director_trial':True})
+                # No assistant prose or voluntary end. Wait for host control.
+                await asyncio.wait_for(asyncio.to_thread(stopped.wait),2)
+                if stream_error:
+                    yield 'data: '+json.dumps({'error':{'type':'aborted'}})
+                else:yield 'data: [DONE]'
+            else:
+                assert pipe(b,ident,'pending')['missing_choices']==[]
+                b.end(Identity(**ident))
+                yield 'data: '+json.dumps({'choices':[{'delta':{'content':'第五条规划可以继续'}}]})
+                yield 'data: [DONE]'
+    class Client:
+        def __init__(self,*a,**k):pass
+        async def __aenter__(self):return self
+        async def __aexit__(self,*a):pass
+        def stream(self,*a,**k):calls.append(k['json']);return Response(k['json'])
+    monkeypatch.setattr(api.httpx,'AsyncClient',Client)
+    chat=api.VideoChat(lambda:s,lambda _:tmp_path/'events',lambda *a:saved.append(a),
+        gateway_url='http://fixture',gateway_token='fixture',handoff_interrupter=interrupt)
+    asyncio.run(chat._deliver('ui','first',initial,tmp_path/'events',event_sink=lambda k,v:events.append((k,v))))
+    if not native_end:
+        assert len(calls)==1 and interruptions==['native-run-1']
+        assert b.continue_handoff('ui','first') is None
+        assert not any(k=='done' for k,_ in events)
+        assert any(k=='error' for k,_ in events)
+        with b.store.connection() as conn:
+            assert conn.execute("SELECT state FROM conversation_turns WHERE id='first'").fetchone()[0]=='unknown'
+        assert not s.list_works()['items']
+        return
+    assert len(calls)==2 and interruptions==['native-run-1']
+    assert ''.join(v for k,v in events if k=='token')=='第五条规划可以继续'
+    assert [k for k,_ in events].count('done')==1
+    assert not any(k=='error' for k,_ in events)
+    assert saved[-1][3]['turn_id']=='first'
+    assert not s.list_works()['items']
+
+
+def test_handoff_abort_pins_native_session_and_run(monkeypatch):
+    import web.conversation_api as api
+    calls=[]
+    class RPC:
+        def __init__(self,*args):self.client=self
+        def describe(self,key):return {'sessionId':'native'}
+        def rpc(self,method,args):calls.append((method,args));return {'ok':True}
+        def close(self):calls.append('closed')
+    monkeypatch.setattr(api,'SessionRPC',RPC)
+    payload={'session_key':'agent:main:easel-pipeline:one','native_session_id':'native','run_id':'run'}
+    api.interrupt_committed_handoff('fixture','secret',payload)
+    assert calls[0]==('chat.abort',{'sessionKey':payload['session_key'],'runId':'run','agentId':'main','preserveSideRuns':True})
+    assert calls[-1]=='closed'
+    calls.clear()
+    with pytest.raises(ValueError,match='session_changed'):
+        api.interrupt_committed_handoff('fixture','secret',{**payload,'native_session_id':'wrong'})
+    assert calls==['closed']

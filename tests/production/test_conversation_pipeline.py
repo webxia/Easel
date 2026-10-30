@@ -764,6 +764,67 @@ def test_human_selects_shown_pair_binds_without_another_confirmation(env,answer)
     assert not s.list_works()['items']
 
 
+def displayed_catalog_turn(service,conversation,segment,*,session='ui',read=True,answer='频道甲；导演甲（第4版，未接受，可试片）'):
+    bridge,identity,_=turn(service,conversation,segment,'先讨论视频',id='display',session=session)
+    if read:pipe(bridge,identity,'pending')
+    bridge.end(Identity(**identity))
+    if answer:bridge.complete_delivery('display',answer)
+
+
+@pytest.mark.parametrize('answer',['就用这两个','选刚才那组，主题另聊','沿用你列出的组合'])
+def test_short_choice_reuses_actual_displayed_catalog_without_new_confirmation(env,answer):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
+    displayed_catalog_turn(s,c,seg)
+    b,i,_=turn(s,c,seg,answer,id='selected')
+    values={'channel_id':channel,'director_revision':'v4','director_trial':True}
+    result=pipe(b,i,'bind',user_quote=answer,values=values)
+    assert result['queued'] and not result.get('selection_pending')
+    assert pipe(b,i,'bind',user_quote=answer,values=values)==result
+    with s.store.connection() as conn:
+        assert conn.execute('SELECT count(*) FROM conversation_proposals').fetchone()[0]==0
+        assert conn.execute('SELECT count(*) FROM operations').fetchone()[0]==0
+    b.end(Identity(**i))
+    assert c.view('ui')['context']['channel_id']==channel
+    assert c.view('ui')['context']['settings']['director_revision']=='v4'
+    assert not s.list_works()['items']
+
+
+def test_short_choice_still_requires_exact_current_turn_quote(env):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one');displayed_catalog_turn(s,c,seg)
+    b,i,_=turn(s,c,seg,'就用这两个',id='selected')
+    values={'channel_id':channel,'director_revision':'v4','director_trial':True}
+    for quote in ('','先讨论视频','同意你推荐的组合'):
+        raises('invalid_source',lambda:pipe(b,i,'bind',user_quote=quote,values=values))
+    raises('selection_required',lambda:pipe(b,i,'draft',user_quote='就用这两个',values={'title':'稿','input_text':'稿'}))
+    assert c.view('ui')['context']['channel_id'] is None
+    assert not s.list_works()['items']
+    assert pipe(b,i,'bind',user_quote='就用这两个',values=values)['queued']
+
+
+@pytest.mark.parametrize('missing_evidence',['no_read','not_displayed','ambiguous','foreign_segment','host_result','different_version'])
+def test_short_choice_cannot_invent_or_reuse_unrelated_displayed_options(env,missing_evidence):
+    channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
+    if missing_evidence=='ambiguous':
+        with s.store.transaction() as conn:
+            conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,created_at) SELECT 'v5',director_id,5,style_json,evidence_json,1,? FROM director_revisions WHERE id='v4'",(now(),))
+    source=entry(c,session='else',profile_ref='one') if missing_evidence=='foreign_segment' else seg
+    displayed_catalog_turn(s,c,source,session='else' if missing_evidence=='foreign_segment' else 'ui',
+        read=missing_evidence!='no_read',answer='我们稍后再选' if missing_evidence=='not_displayed' else '频道甲；导演甲（第4版，未接受，可试片）')
+    if missing_evidence=='host_result':
+        with s.store.transaction() as conn:
+            p=json.loads(conn.execute("SELECT payload_json FROM conversation_turns WHERE id='display'").fetchone()[0]);p['origin']='task_result'
+            conn.execute("UPDATE conversation_turns SET payload_json=? WHERE id='display'",(encode(p),))
+    if missing_evidence=='different_version':
+        with s.store.transaction() as conn:
+            conn.execute("INSERT INTO director_revisions(id,director_id,revision,style_json,evidence_json,style_confirmed,created_at) SELECT 'v5',director_id,5,style_json,evidence_json,1,? FROM director_revisions WHERE id='v4'",(now(),))
+    b,i,_=turn(s,c,seg,'就用这两个',id='selected')
+    result=pipe(b,i,'bind',user_quote='就用这两个',values={'channel_id':channel,
+        'director_revision':'v5' if missing_evidence=='different_version' else 'v4','director_trial':True})
+    assert result['selection_pending'] and not result['queued']
+    assert c.view('ui')['context']['channel_id'] is None
+    assert not s.list_works()['items']
+
+
 def test_rejected_selection_stays_unbound(env):
     channel=seed(env);s,c=env;seg=entry(c,profile_ref='one')
     b,i,_=turn(s,c,seg,'讨论视频')
@@ -1130,3 +1191,127 @@ def test_pending_and_context_refresh_within_turn_after_plan_finishes(env):
 def test_visual_revision_exposes_existing_resume_route(code, expected):
     from easel.conversation_pipeline import has_edit_resume
     assert has_edit_resume({'kind': 'revise', 'error_json': encode({'code': code}), 'payload_json': '{}'}) is expected
+
+
+def test_confirming_pre_registered_input_adds_rights_without_duplicate_identity(env):
+    from tests.production.test_conversation import attachment
+    seed(env);s,c=env;seg=entry(c,profile_ref='one',kind='director_formation')
+    a=attachment(s)
+    b,i,_=turn(s,c,seg,'这是原创研究图，授权本片必用，不取原声',attachments=[a])
+    work=pipe(b,i,'draft',user_quote='这是原创研究图，授权本片必用，不取原声',
+              values={'title':'研究图','input_text':'解释研究'})['work_id']
+    first=tool(b,i,'easel_work_register_inputs',{'attachment_id':a['id'],'usage':'must_use'})
+    before=s.snapshot(work)
+    assert not json.loads(before['inputs'][0]['metadata_json'])['source']['rights']
+    p=pipe(b,i,'offer',action='input',values={'attachment_id':a['id'],'usage':'must_use',
+        'original_audio':False,'rights_confirmed':True},summary='原创研究图用于本片，不取原声，请确认使用权')
+    assert s.snapshot(work)==before
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,'确认素材及本片使用权，不取原声',id='confirm-research-rights')
+    result=pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],
+                user_quote='确认素材及本片使用权，不取原声')
+    snap=s.snapshot(work)
+    assert len(snap['inputs'])==1
+    assert result['input_id']==first['input_id']==snap['inputs'][0]['id']
+    meta=json.loads(snap['inputs'][0]['metadata_json'])
+    assert meta['source']['rights']['status']=='KNOWN' and not meta['original_audio']
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,'再查看同一素材',id='read-research')
+    again=tool(b,i,'easel_work_register_inputs',{'attachment_id':a['id']})
+    assert again['input_id']==first['input_id']
+    final=s.snapshot(work)
+    assert len(final['inputs'])==1 and final['inputs']==snap['inputs']
+
+
+@pytest.mark.parametrize('legacy', [False, True])
+def test_confirmed_input_reaches_real_material_rights_admission(env, legacy):
+    from PIL import Image
+    from tests.production.test_conversation import attachment
+    from easel.production.supply_tasks import SupplyTasks
+    from easel.materials.domain import CandidateSource, MediaType, RightsInfo
+    from easel.materials.library import LibraryVisibility, UseContext
+    from easel.materials.application.rights import RightsService
+    seed(env); s,c=env; seg=entry(c,profile_ref='one',kind='director_formation')
+    a=attachment(s)
+    Image.new('RGB',(64,48),'blue').save(s.outputs/a['path'],format='PNG')
+    b,i,_=turn(s,c,seg,'原创图授权本片使用',attachments=[a])
+    work=pipe(b,i,'draft',user_quote='原创图授权本片使用',values={'title':'图','input_text':'图'})['work_id']
+    p=pipe(b,i,'offer',action='input',values={'attachment_id':a['id'],'usage':'must_use',
+           'original_audio':False,'rights_confirmed':True},summary='确认本图本片使用权')
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,'确认',id='rights-answer')
+    pipe(b,i,'answer',dismiss=False,proposal_id=p['proposal_id'],hash=p['hash'],user_quote='确认')
+    with s.store.connection() as conn:
+        item=dict(conn.execute('SELECT * FROM work_inputs WHERE work_id=?',(work,)).fetchone())
+    meta=json.loads(item['metadata_json'])
+    if legacy:
+        meta['source']['rights']['evidence'][0]['kind']='user_declaration'
+        item={**item,'metadata_json':encode(meta)}
+    task=SupplyTasks(s,None)
+    scope=LibraryVisibility(profile_ref='one'); context=UseContext(work_id=work,purpose='production')
+    def ingest(rights):
+        return task.materials.ingest_input(source_root=s.outputs,relative_path=item['source_ref'],
+            visibility=scope,context=context,media_type=MediaType.IMAGE,
+            source=CandidateSource(kind='user_upload',provider_asset_id=item['id']),
+            rights=rights,expected_sha256=item['digest'])
+    need=task._need('s1','研究图','image',context=context)
+    old=ingest(RightsInfo.model_validate_json(encode(meta['source']['rights'])))
+    if legacy: assert RightsService().evaluate(old.asset,need).reason=='asset_specific_rights_evidence_missing'
+    admitted=ingest(task._input_rights(item))
+    assert RightsService().evaluate(admitted.asset,need).admitted
+    assert admitted.digest==old.digest
+    if legacy:
+        assert admitted.asset_ref!=old.asset_ref
+        assert task.materials.catalog.get(old.asset_ref,scope=scope,context=context).asset.rights==old.asset.rights
+        # An applied, matching confirmation is required; a generic declaration
+        # alone must never gain asset-specific evidence.
+        for field,value in [('state','proposed'),('digest','0'*64),('input','other'),('audio',True),('confirmed',False),('work','other')]:
+            with s.store.transaction() as conn:
+                original=dict(conn.execute('SELECT * FROM conversation_proposals WHERE id=?',(p['proposal_id'],)).fetchone())
+                body=json.loads(original['body_json']); receipt=json.loads(original['receipt_json'])
+                if field=='digest':body['values']['catalog_target']['attachment_digest']=value
+                elif field=='input':receipt['input_id']=value
+                elif field=='audio':body['values']['payload']['original_audio']=value
+                elif field=='confirmed':body['values']['payload']['rights_confirmed']=value
+                elif field=='work':body['work_id']=value
+                conn.execute('UPDATE conversation_proposals SET state=?,body_json=?,receipt_json=? WHERE id=?',
+                    (value if field=='state' else original['state'],encode(body),encode(receipt),p['proposal_id']))
+            rejected=ingest(task._input_rights(item))
+            assert not RightsService().evaluate(rejected.asset,need).admitted,field
+            with s.store.transaction() as conn:
+                conn.execute('UPDATE conversation_proposals SET state=?,body_json=?,receipt_json=? WHERE id=?',
+                    (original['state'],original['body_json'],original['receipt_json'],p['proposal_id']))
+
+
+@pytest.mark.parametrize('blocked', [None, 'cancelled', 'unknown'])
+def test_required_input_failure_exposes_working_scoped_resume(env, blocked):
+    from tests.production.test_operations import owned_request
+    from easel.production.operations import OperationService
+    s,c=env; spec=owned_request(s.store)
+    with s.store.transaction() as conn:
+        conn.execute("UPDATE works SET state='needs_decision' WHERE id=?",(spec['work_id'],))
+        conn.execute("UPDATE runs SET state='needs_decision',cancel_requested=? WHERE id=?",(int(blocked=='cancelled'),spec['run_id']))
+        conn.execute("UPDATE tasks SET state='needs_decision',error_json=? WHERE id=?",(encode({'code':'required_material_unavailable'}),spec['task_id']))
+    if blocked=='unknown':
+        # Retain an actual durable operation identity, rather than changing the
+        # pending view or its answer to pretend that UNKNOWN was absent.
+        with s.store.transaction() as conn:
+            conn.execute("UPDATE runs SET state='running' WHERE id=?",(spec['run_id'],))
+            conn.execute("UPDATE tasks SET state='running' WHERE id=?",(spec['task_id'],))
+        OperationService(s.store,clock=lambda:1000).reserve(**spec)
+        with s.store.transaction() as conn:
+            conn.execute("UPDATE operations SET state='unknown' WHERE id=?",(spec['operation_id'],))
+            conn.execute("UPDATE runs SET state='needs_decision' WHERE id=?",(spec['run_id'],))
+            conn.execute("UPDATE tasks SET state='needs_decision' WHERE id=?",(spec['task_id'],))
+    seg=entry(c,work_id=spec['work_id']); b,i,_=turn(s,c,seg,'问题已解决，继续原制作')
+    pending=pipe(b,i,'pending')
+    choices=[v for block in pending['blockers'] for v in block['choices'] if v.get('action')=='resume']
+    if blocked:
+        assert not choices
+        return
+    assert len(choices)==1
+    assert choices[0]['values']=={'decision_id':spec['task_id']}
+    pipe(b,i,'offer',action='resume',values=choices[0]['values'],user_quote='问题已解决，继续原制作')
+    snap=s.snapshot(spec['work_id'])
+    assert len(snap['runs'])==1 and snap['runs'][0]['id']==spec['run_id']
+    assert snap['tasks'][0]['state']=='pending'

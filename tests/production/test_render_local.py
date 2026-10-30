@@ -228,6 +228,39 @@ def test_captions_survive_color_metadata_changes_across_cuts(tmp_path,sources,wi
         assert (white>500)==(at<2.8),(at,white)
 
 
+@pytest.mark.parametrize("motion", ["none", "push_in", "pull_out"])
+def test_complete_graph_in_frame_leaves_subtitle_region(tmp_path, sources, motion):
+    """Destination layout must not crop the source or zoom into the subtitle strip."""
+    from PIL import Image, ImageDraw
+    import io
+    graph = Image.new('RGB', (640, 360), 'white')
+    draw = ImageDraw.Draw(graph)
+    for box, color in [((0, 0, 63, 35), 'red'), ((576, 0, 639, 35), 'green'),
+                       ((0, 324, 63, 359), 'blue'), ((576, 324, 639, 359), 'yellow')]:
+        draw.rectangle(box, fill=color)
+    path = tmp_path / 'graph.png'; graph.save(path)
+    manifest = AssetManifest(root=tmp_path, assets={
+        'graph': MediaAsset(locator='graph.png', sha256=file_sha256(path), kind='image')})
+    scene = Scene(scene_id='graph', asset_id='graph', duration=1, fit='contain', motion=motion,
+                  frame={'x': 0.1, 'y': 0, 'width': 0.8, 'height': 0.8})
+    p = project(width=1920, height=1080, scenes=(scene,))
+    editor = FFmpegEditor(tmp_path / 'jobs')
+    editor.build(p, manifest, job_id='graph')
+    assert wait(editor, 'graph').status == 'completed'
+    output = editor.collect('graph')
+    data = subprocess.run([FFMPEG, '-v', 'error', '-ss', '0.5', '-i', str(output.video_path),
+                           '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'],
+                          capture_output=True, check=True).stdout
+    frame = Image.open(io.BytesIO(data)).convert('RGB')
+    assert max(frame.crop((0, 870, 1920, 1080)).getextrema()[0]) <= 4
+    assert max(frame.crop((0, 0, 180, 1080)).getextrema()[0]) <= 4
+    if motion == 'none':
+        for point, dominant in [((220, 25), 0), ((1695, 25), 1), ((220, 840), 2)]:
+            pixel = frame.getpixel(point)
+            assert pixel[dominant] > 100 and pixel[dominant] > min(pixel) + 80
+        assert min(frame.getpixel((1695, 840))[:2]) > 200
+
+
 def test_narration_music_balance_is_attenuation_only_and_scoped(tmp_path,sources):
     from easel.production.editors.ffmpeg import LocalRender
     # Exercise policy without rendering: actual timeline scope is deterministic.

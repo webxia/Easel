@@ -3,6 +3,17 @@ import pytest
 from easel.production.creation import CreativeEdit, check_edit_source_bounds
 
 
+def test_audio_conflict_and_duration_are_reported_together():
+    from easel.production.creation import check_edit_delivery
+    from easel.production.model_tasks import ResultCorrectionError
+    value=CreativeEdit(scenes=[{'scene_id':'s','asset_id':'still','duration':7}],
+        audio=[{'clip_id':'v','asset_id':'voice','role':'voice','at':0,'duration':6}])
+    with pytest.raises(ResultCorrectionError) as caught:
+        check_edit_delivery(value,audio_mode='mixed',durations={},target_seconds=8)
+    assert 'mixed' in str(caught.value) and '8.000000' in str(caught.value) and '7.000000' in str(caught.value)
+    check_edit_delivery(value,audio_mode='voice',durations={},target_seconds=7)
+
+
 def edit(duration=6.4,start=11.3,transition='cut',overlap=0):
     return CreativeEdit(scenes=[{'scene_id':'tail','asset_id':'video','duration':duration,
         'source_start':start,'transition':transition,'transition_seconds':overlap}])
@@ -188,3 +199,25 @@ def test_resume_known_readonly_tool_reply_keeps_original_operation(tmp_path,tool
     with store.connection() as conn:payload=json.loads(row(conn,'tasks',spec['task_id'])['payload_json'])
     assert (payload.get('edit_recovery_source')==spec['operation_id']) is expected
     assert ops.get(spec['operation_id'])['state']==('unknown' if unknown else 'succeeded')
+
+
+def test_compiled_feedback_reports_source_visual_and_sfx_without_changing_voice():
+    import json
+    from easel.production.creation import check_compiled_edit
+    from easel.production.model_tasks import ResultCorrectionError
+    candidate=CreativeEdit(scenes=[{'scene_id':'s','asset_id':'video','duration':2}],
+        audio=[{'clip_id':'voice','asset_id':'voice','role':'voice','at':0,'duration':2},
+               {'clip_id':'tone','asset_id':'tone','role':'sfx','at':1.9,'duration':.3}],
+        visual_evidence=[{'scene_id':'s','asset_id':'video','observed_times':[1.5],'observation':'fixture'}])
+    records=[{'id':'tone','metadata_json':json.dumps({'material_uses':[
+        {'role':'sfx','cue_id':'tone','scene_id':'s','at':0,'duration':1,'timing_basis':'scene'}]})}]
+    before=candidate.model_dump()
+    with pytest.raises(ResultCorrectionError) as error:
+        check_compiled_edit(candidate,audio_mode='voice',durations={'video':1.8},target_seconds=2,
+            observed={},records=records)
+    assert '实际长度' in str(error.value) and '未被实际观察' in str(error.value) and '允许窗口' in str(error.value)
+    assert candidate.model_dump()==before
+    fixed=candidate.model_copy(update={'audio':[candidate.audio[0],candidate.audio[1].model_copy(update={'at':1.7})]})
+    result=check_compiled_edit(fixed,audio_mode='voice',durations={'video':2},target_seconds=2,
+        observed={'video':[1.5]},records=records)
+    assert result.audio[0]==candidate.audio[0]

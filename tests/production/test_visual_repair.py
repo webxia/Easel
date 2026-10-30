@@ -197,3 +197,34 @@ def test_visual_response_schema_excludes_full_edit_but_legacy_reader_keeps_it():
     assert RevisionProposal.model_validate(old).edit
     with pytest.raises(ValidationError):VisualRevisionProposal.model_validate(old)
     assert VisualRevisionProposal.model_validate({**fields,'changes':{}}).changes.scenes==[]
+
+
+def test_known_overlay_can_follow_narration_within_original_scene_only():
+    from easel.production.editors import Caption
+    base=fixture()
+    overlay=Caption(caption_id='step2',text='② 账单和支付日',start=1,end=3,font_asset_id='font')
+    base=base.model_copy(update={'captions':(*base.captions,overlay)})
+    after=base.model_copy(update={'captions':(base.captions[0],overlay.model_copy(update={'end':2.5}))})
+    roles={'c1':'narration','step2':'overlay'}
+    assert_visual_repair(base,after,overlay_texts=[],caption_roles=roles)
+    for known in [{},{'step2':'narration'}]:
+        with pytest.raises(EditError):
+            assert_visual_repair(base,after,overlay_texts=[],caption_roles=known)
+    changed=after.model_copy(update={'captions':(base.captions[0],after.captions[1].model_copy(update={'text':'② 新观点'}))})
+    with pytest.raises(EditError):assert_visual_repair(base,changed,overlay_texts=[],caption_roles=roles)
+    narration=after.model_copy(update={'captions':(base.captions[0].model_copy(update={'end':3.5}),after.captions[1])})
+    with pytest.raises(EditError):assert_visual_repair(base,narration,overlay_texts=[],caption_roles=roles)
+    two=base.model_copy(update={'duration':8,'scenes':(base.scenes[0],base.scenes[0].model_copy(update={'scene_id':'s2'}))})
+    moved=two.model_copy(update={'captions':(base.captions[0],overlay.model_copy(update={'start':4,'end':6}))})
+    with pytest.raises(EditError,match='原场景'):
+        assert_visual_repair(two,moved,overlay_texts=[],caption_roles=roles)
+
+
+def test_only_canonical_source_disclosure_is_allowed_without_new_facts():
+    base=fixture();data=base.model_dump();data['captions']=list(data['captions'])
+    data['captions'].append({'caption_id':'source_disclosure','text':'情境示意，非来源原图','start':0,'end':4,'font_asset_id':'font'})
+    allowed=approved_overlay_texts({'scenes':[]})
+    assert_visual_repair(base,EditProject.model_validate(data),overlay_texts=allowed)
+    for text in ['情境示意，已核实某机构原图','情境示意，非住建委访谈原图','本地收入翻倍']:
+        data['captions'][-1]['text']=text
+        with pytest.raises(EditError):assert_visual_repair(base,EditProject.model_validate(data),overlay_texts=allowed)

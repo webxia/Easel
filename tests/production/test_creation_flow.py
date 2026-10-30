@@ -20,6 +20,7 @@ class ScriptedModel:
     quality_chunk_seconds=30
     calls=[]
     overlay_repair=False
+    inspect_image=False
     async def complete(self,messages,tools,schema):
         self.calls.append(messages)
         if getattr(self,'expected_episode_request',None):
@@ -31,6 +32,13 @@ class ScriptedModel:
         if schema['title']=='CreativeEdit':
             data=json.loads(messages[1]['content'][0]['text'])
             assert data['task_view']['version'] == 'editor-context-2'
+            if self.inspect_image:
+                if len(self.calls)==1:
+                    return {'tool_calls':[{'id':'inspect-image','function':{'name':'inspect_media',
+                        'arguments':json.dumps({'asset_id':data['artifacts'][0]['asset_id'],'frame_times':[0]})}}]}
+                assert any(m.get('role')=='tool' and 'frame_times' in m.get('content','') for m in messages)
+                assert any(m.get('role')=='user' and isinstance(m.get('content'),list) and
+                    any(b.get('type')=='image_url' for b in m['content']) for m in messages[2:])
             captions=[]
             if self.overlay_repair:
                 font=next(a['asset_id'] for a in data['artifacts'] if a['kind']=='font')
@@ -41,11 +49,11 @@ class ScriptedModel:
 
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
-@pytest.mark.parametrize('full_video,recover_render,overlay_repair',[(True,False,False),(False,False,False),(True,True,False),(False,False,True),(False,True,True)])
-def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_path,full_video,recover_render,overlay_repair,monkeypatch):
+@pytest.mark.parametrize('full_video,recover_render,overlay_repair,inspect_image',[(True,False,False,False),(False,False,False,False),(True,True,False,False),(False,False,True,False),(False,True,True,False),pytest.param(False,False,False,True,id='inspect-image')])
+def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_path,full_video,recover_render,overlay_repair,inspect_image,monkeypatch):
     store=Store(tmp_path/'outputs/_production/production.sqlite3');store.initialize()
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
-    model=ScriptedModel();model.calls=[];model.overlay_repair=overlay_repair
+    model=ScriptedModel();model.calls=[];model.overlay_repair=overlay_repair;model.inspect_image=inspect_image
     if not full_video:model.capabilities=frozenset({'text','structured','image','tools'})
     identity={'provider':'direct-api','model':'offline-scripted','mode':'structured'}
     planning=PlanningTasks(service,OperationService(store),model,identity,'offline')
@@ -124,7 +132,8 @@ def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_pat
         assert sum(t['kind']=='render' and t['state']=='cancelled' for t in snap['tasks'])==1
         edit=next(t for t in snap['tasks'] if t['kind']=='edit')
         assert json.loads(edit['payload_json'])['reuse_existing_media_only']
-        assert all(json.loads(t['payload_json']).get('reuse_existing_media_only') for t in snap['tasks'] if t['kind'] in {'render','quality'} and t['state']!='cancelled')
+        assert json.loads(edit['payload_json'])['media_reuse_scope']=='edit'
+        assert all(not json.loads(t['payload_json']).get('reuse_existing_media_only') for t in snap['tasks'] if t['kind'] in {'render','quality'} and t['state']!='cancelled')
     if recover_render and not late_caption:
         assert resumed and calls_before==1
         render=next(t for t in snap['tasks'] if t['kind']=='render')
@@ -135,7 +144,7 @@ def test_confirm_to_real_render_to_reviewable_without_creator_acceptance(tmp_pat
     assert len(outputs)==1 and outputs[0]['quality_state']==('passed' if full_video else 'needs_fix')
     path,_=service.artifact_path(outputs[0]['id']);assert path.stat().st_size>1000
     if not full_video:
-        assert len(model.calls)==(2 if overlay_repair else 1)  # Edit only; sampled images never grant complete QC.
+        assert len(model.calls)==(2 if overlay_repair else 1)+int(inspect_image)  # Edit only; sampled images never grant complete QC.
         quality=next(t for t in snap['tasks'] if t['kind']=='quality')
         assert quality['state']=='needs_decision' and 'capability_unavailable' in quality['error_json']
         with store.connection() as conn:

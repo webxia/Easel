@@ -17,7 +17,20 @@ from easel.conversation_bridge import PersistentWorkToolBridge, PersistentCall, 
 from easel.work_bridge import Claim, Identity
 from easel.production.service import fail
 from easel.native_diagnostics import NativeEnd
-from easel.conversation_compaction import ContextPreparation, ContextPreparationError
+from easel.conversation_compaction import ContextPreparation, ContextPreparationError, SessionRPC
+
+
+def interrupt_committed_handoff(url, token, payload):
+    """Stop only the obsolete native run; agent_end still owns binding."""
+    rpc=SessionRPC(url,token)
+    try:
+        current=rpc.describe(payload['session_key'])
+        if current.get('sessionId')!=payload['native_session_id']:
+            raise ValueError('handoff_session_changed')
+        return rpc.client.rpc('chat.abort',{'sessionKey':payload['session_key'],
+            'runId':payload['run_id'],'agentId':'main','preserveSideRuns':True})
+    finally:
+        rpc.close()
 
 
 class Entry(BaseModel):
@@ -183,12 +196,13 @@ def create_internal_router(provider,token_provider):
 
 class VideoChat:
     """Owns only delivery; native lifecycle establishes tool authority independently."""
-    def __init__(self,provider,event_file,save_turn,*,gateway_url=None,gateway_token=None,preflight=None,context_preparer=ContextPreparation):
+    def __init__(self,provider,event_file,save_turn,*,gateway_url=None,gateway_token=None,preflight=None,context_preparer=ContextPreparation,handoff_interrupter=interrupt_committed_handoff):
         self.provider,self.event_file,self.save_turn=provider,event_file,save_turn
         self.gateway_url=gateway_url or os.environ.get('EASEL_VIDEO_GATEWAY_URL','')
         self.gateway_token=gateway_token or os.environ.get('EASEL_VIDEO_GATEWAY_TOKEN','')
         self.preflight=preflight or require_persistent_gateway
         self.context_preparer=context_preparer
+        self.handoff_interrupter=handoff_interrupter
         self.tasks={}
 
     @staticmethod
@@ -265,36 +279,56 @@ class VideoChat:
                 if activity and activity!=previous:
                     emit('activity',activity);previous=activity
         heartbeat=asyncio.create_task(keep_delivery())
+        async def stop_obsolete_run():
+            # A successful bind has already committed the next immutable target.
+            # Do not rely on an LLM to stop asking old-segment tools forever.
+            while True:
+                await asyncio.sleep(.25)
+                with service.store.connection() as conn:
+                    record=conn.execute('SELECT state,payload_json FROM conversation_turns WHERE id=?',(turn_id,)).fetchone()
+                if not record or record['state']=='ended':return
+                payload=json.loads(record['payload_json'])
+                if not payload.get('pipeline_entry'):continue
+                if not all(payload.get(k) for k in ('session_key','native_session_id','run_id')):return
+                emit('activity','正在衔接已确认的创作配置')
+                try:
+                    await asyncio.to_thread(self.handoff_interrupter,self.gateway_url,self.gateway_token,payload)
+                except Exception as exc:
+                    logging.getLogger(__name__).warning('Native handoff interruption deferred (%s)',type(exc).__name__)
+                return  # Never retry an uncertain native interruption.
+        handoff_stop=asyncio.create_task(stop_obsolete_run()) if buffer_reply else None
         try:
             result=await asyncio.to_thread(preparation.prepare,turn_id)
             preparation.submitted(turn_id,result['preparation_owner'])
             submitted=True
-            async with httpx.AsyncClient(timeout=httpx.Timeout(7200,connect=10),trust_env=False,follow_redirects=False) as client:
-                async with client.stream('POST',self.gateway_url.rstrip('/')+'/v1/chat/completions',
-                    headers={'Authorization':'Bearer '+self.gateway_token,'x-openclaw-agent-id':'main','x-openclaw-session-key':result['payload']['session_key']},
-                    json={'model':'openclaw/main','stream':True,'messages':[{'role':'user','content':result['prompt']}]}) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if not line.startswith('data:'):continue
-                        raw=line[5:].strip()
-                        if raw=='[DONE]':done=True;break
-                        value=json.loads(raw)
-                        if value.get('error'):raise ValueError('gateway_error')
-                        choice=(value.get('choices') or [{}])[0]
-                        finish_reason=choice.get('finish_reason') or finish_reason
-                        text=(choice.get('delta') or {}).get('content')
-                        if text:
-                            chunks.append(text)
-                            if not buffer_reply:emit('token',text)
-                            if background and asyncio.get_running_loop().time()>=next_result_write:
-                                bridge.record_result_text(turn_id,''.join(chunks))
-                                next_result_write=asyncio.get_running_loop().time()+0.25
-            if finish_reason=='length':raise ValueError('assistant_output_length')
-            if not done or not ''.join(chunks).strip():raise ValueError('incomplete_delivery')
+            stream_error=None
+            try:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(7200,connect=10),trust_env=False,follow_redirects=False) as client:
+                    async with client.stream('POST',self.gateway_url.rstrip('/')+'/v1/chat/completions',
+                        headers={'Authorization':'Bearer '+self.gateway_token,'x-openclaw-agent-id':'main','x-openclaw-session-key':result['payload']['session_key']},
+                        json={'model':'openclaw/main','stream':True,'messages':[{'role':'user','content':result['prompt']}]}) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if not line.startswith('data:'):continue
+                            raw=line[5:].strip()
+                            if raw=='[DONE]':done=True;break
+                            value=json.loads(raw)
+                            if value.get('error'):raise ValueError('gateway_error')
+                            choice=(value.get('choices') or [{}])[0]
+                            finish_reason=choice.get('finish_reason') or finish_reason
+                            text=(choice.get('delta') or {}).get('content')
+                            if text:
+                                chunks.append(text)
+                                if not buffer_reply:emit('token',text)
+                                if background and asyncio.get_running_loop().time()>=next_result_write:
+                                    bridge.record_result_text(turn_id,''.join(chunks))
+                                    next_result_write=asyncio.get_running_loop().time()+0.25
+            except Exception as exc:
+                stream_error=exc
             # Native end is the authority to switch context. A stream ending
             # alone never releases an UNKNOWN invocation.
             continuation=None
-            for _ in range(20):
+            for _ in range(100):
                 with service.store.connection() as conn:
                     current=conn.execute('SELECT state,payload_json FROM conversation_turns WHERE id=?',(turn_id,)).fetchone()
                 data=json.loads(current['payload_json'])
@@ -309,6 +343,9 @@ class VideoChat:
                 return
             if data.get('pipeline_entry'):
                 raise ValueError('handoff_not_ready')
+            if stream_error:raise stream_error
+            if finish_reason=='length':raise ValueError('assistant_output_length')
+            if not done or not ''.join(chunks).strip():raise ValueError('incomplete_delivery')
             if buffer_reply:emit('token',''.join(chunks))
             bridge.complete_delivery(turn_id,''.join(chunks))
             view=ConversationService(service).view(session)
@@ -351,7 +388,8 @@ class VideoChat:
             emit('error',message)
         finally:
             heartbeat.cancel()
-            await asyncio.gather(heartbeat,return_exceptions=True)
+            if handoff_stop:handoff_stop.cancel()
+            await asyncio.gather(heartbeat,*([handoff_stop] if handoff_stop else []),return_exceptions=True)
             self.tasks.pop(session,None)
 
     async def process_results_once(self):

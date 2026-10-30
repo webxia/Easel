@@ -172,6 +172,9 @@ def test_worker_freezes_groups_in_confirmable_plan(tmp_path):
     store = Store(tmp_path / 'outputs' / 'production.sqlite3'); store.initialize()
     service = WorkService(store, outputs=tmp_path / 'outputs', profiles=tmp_path / 'profiles')
     answer = plan()
+    for group in answer['narration_policy']['groups']:
+        group['emotion'] = group.get('emotion') or 'calm'
+        group['emotion_reason'] = '结合本组问题的展开选择表达，保留同一说话人的连续思路。'
     work = service.command('create', {'title': answer['title'], 'input_text': '只说明同一个问题',
         'settings': answer['settings']}, command_id='create')['work_id']
     model = {'provider': 'direct-api', 'model': 'fixture', 'mode': 'structured'}

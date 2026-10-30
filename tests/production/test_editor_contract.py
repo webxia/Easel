@@ -91,3 +91,39 @@ def test_missing_backend_and_unrequested_features_are_explicit(tmp_path):
     assert not result.valid
     with pytest.raises(EditError):
         editor.build(project(), AssetManifest(root=tmp_path, assets={}), job_id="../../bad")
+
+
+def test_destination_frame_is_visual_only_and_legacy_full_canvas():
+    from easel.production.editors.base import Frame
+    base = project()
+    assert base.scenes[0].frame == Frame()
+    old = base.model_dump()
+    old['scenes'][0].pop('frame')
+    assert EditProject.model_validate(old) == base
+    revised = base.model_copy(update={'revision': 2, 'scenes': (
+        base.scenes[0].model_copy(update={'frame': Frame(x=.1, width=.8, height=.8)}),)})
+    assert_local_revision(base, revised, allowed={'visual'})
+    with pytest.raises(EditError):
+        assert_local_revision(base, revised, allowed={'captions'})
+    for frame in [{'x': .5, 'width': .6}, {'y': .9, 'height': .2},
+                  {'width': 0}, {'height': float('nan')}, {'x': -.1}]:
+        with pytest.raises(ValidationError):
+            Frame(**frame)
+
+
+def test_revision_caption_feedback_identifies_overlay_split_without_relaxing_guard():
+    from easel.production.revisions import check_revision_caption_identity
+    from types import SimpleNamespace
+    old = Caption(caption_id='source', text='来源｜https://example.org/full/path', start=0, end=2, font_asset_id='font')
+    base = project(captions=(old,))
+    split = [old.model_copy(update={'caption_id':'source-label','text':'来源'}),
+             old.model_copy(update={'caption_id':'source-url','text':'https://example.org/full/path'})]
+    with pytest.raises(ValueError) as error:
+        check_revision_caption_identity(base, SimpleNamespace(captions=split), {'source':'overlay'})
+    message = str(error.value)
+    assert 'source-label' in message and 'source-url' in message and 'max_width' in message
+    assert '自动换行' in message and 'text/start/end' in message
+    check_revision_caption_identity(base, SimpleNamespace(captions=[old.model_copy(update={'size':30,'max_width':.6})]), {'source':'overlay'})
+    check_revision_caption_identity(base, SimpleNamespace(captions=[]), {'source':'overlay'})
+    with pytest.raises(ValueError):
+        check_revision_caption_identity(base, SimpleNamespace(captions=[]), {'source':'narration'})

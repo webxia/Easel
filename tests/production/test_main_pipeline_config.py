@@ -70,3 +70,8 @@ def test_directory_display_rule_reaches_live_bootstrap_and_operation_guide_once(
         assert '导演按display_label展示名称、版本和接受状态' in prompt
         assert '不能自行增加“试片版”选项' in prompt
         assert '历史回复也不能补充或覆盖当前目录' in prompt
+        assert '真人选择已展示组合时复用原提案或直接bind，不重复确认' in prompt
+        assert '顶层user_quote逐字引用本轮原话，不能换用上一轮的同意' in prompt
+        assert '绑定失败或selection_pending时只处理选择与调用错误' in prompt
+        assert '不绕过绑定输出口播稿、分镜或补造亲历' in prompt
+    assert '未提供的具体动作与心理变化不能先写成第一人称事实再要求用户核对' in DIALOGUE_POLICY

@@ -488,6 +488,8 @@ def test_native_voice_author_and_critic_get_adapter_contract_and_frozen_plan_par
     transport.answer['settings']={k:v for k,v in settings.items() if k!='schema_version'}
     transport.answer['settings']['voice']={**voice,'parameters':{'speed':1,'volume':1,'pitch':0}}
     transport.answer['scenes'][0]['duration_seconds']=20
+    transport.answer['narration_policy']={'continuous':True,'duration_mode':'fixed','groups':[
+        {'id':'thought','scene_ids':['s1'],'emotion':'calm','emotion_reason':'解释技术与人的关系，以平静交流而非宣讲的方式表达。'}]}
     complete=transport.complete
     async def verify_review(messages,tools,schema):
         data=json.loads(messages[1]['content'][0]['text'])
@@ -499,7 +501,7 @@ def test_native_voice_author_and_critic_get_adapter_contract_and_frozen_plan_par
             assert data['plan']['settings']['voice']==voice
             group_schema=data['production_capabilities']['narration_group_schema']
             assert group_schema['additionalProperties'] is False
-            assert set(group_schema['properties'])=={'id','scene_ids','emotion'}
+            assert set(group_schema['properties'])=={'id','scene_ids','emotion','emotion_reason'}
             assert group_schema['properties']['emotion']['default'] is None
             measurements=data['production_capabilities']['duration_execution_contract']['measurements']
             assert measurements['script_characters']==len('技术服务人。')
@@ -513,6 +515,95 @@ def test_native_voice_author_and_critic_get_adapter_contract_and_frozen_plan_par
     assert snap['plans'][0]['plan']['settings']['voice']==voice
     assert service.store.get_work(work)['settings_json']==encode(settings)
     assert transport.calls==2
+
+
+@pytest.mark.parametrize('expressive', [False, True])
+@pytest.mark.parametrize('correct_draft', [False, True])
+def test_planning_sound_design_survives_review_correction_and_voice_compilation(tmp_path, expressive, correct_draft):
+    """Offline provider boundary and saved design, not audible quality or live MiniMax."""
+    from easel.production import expression_policy
+    from easel.production.contracts import VoiceIdentity
+    from easel.production.narration import narration_segments
+    from easel.production.providers.minimax_speech import native_voice_settings
+    from easel.production.service import encode, row
+    from easel.production.voice import effective_segment_voice
+
+    service, work, transport, worker = setup(tmp_path)
+    voice = {'provider': 'fixture', 'model': 'speech-2.8-turbo', 'engine': 'minimax-speech-v1',
+             'voice_id': 'fixture-V6_1', 'parameters': {'speed': 1}}
+    settings = {'audio_mode': 'mixed', 'voice': voice, 'aspect_ratio': '16:9', 'duration_seconds': 18}
+    with service.store.transaction() as conn:
+        conn.execute('UPDATE works SET settings_json=? WHERE id=?', (encode({'schema_version': 1, **settings}), work))
+        task = conn.execute('SELECT * FROM tasks').fetchone()
+        payload = json.loads(task['payload_json'])
+        payload['creation_basis'] = service._basis(conn, row(conn, 'works', work))
+        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?', (encode(payload), task['id']))
+    texts = ['先听一听。', '原来电池接反了。', '再试一次。']
+    transport.answer.update(script='\n'.join(texts), settings=settings, scenes=[
+        {'id': f's{i}', 'purpose': '观察连到发现，默认连说，不逐句强调。', 'visual': '收音机',
+         'narration': text, 'narration_pauses': [], 'duration_seconds': 6}
+        for i, text in enumerate(texts, 1)])
+    groups = [{'id': 'thought', 'scene_ids': ['s1', 's2', 's3'], 'emotion': 'calm'}]
+    if expressive:
+        groups = [{'id': 'observe', 'scene_ids': ['s1', 's2'], 'emotion': 'surprised'},
+                  {'id': 'try', 'scene_ids': ['s3'], 'emotion': 'calm'}]
+        transport.answer['scenes'][1].update(purpose='发现原因后稍停，再继续尝试。',
+                                              narration_pauses=[{'after': 2, 'seconds': .25}])
+    for group in groups:
+        group['emotion_reason'] = ('接反电池的意外发现，用惊讶表现认知转折。' if group['emotion'] == 'surprised' else
+                                  '专注观察和再次尝试，选calm保持克制平稳，不夸张成恐惧或悲伤。')
+    policy = {'continuous': True, 'duration_mode': 'fixed', 'groups': groups}
+    transport.answer['narration_policy'] = policy
+    if correct_draft:
+        transport.answer['scenes'][0]['purpose'] = '分组和停顿交给执行阶段设计。'
+    # The existing bounded correction can change the same fields; no sound-design pass.
+    review_count = 0
+    complete = transport.complete
+    async def provider(messages, tools, schema):
+        nonlocal review_count
+        system = messages[0]['content']
+        role = 'review' if schema['title'] == 'DraftReview' else 'write'
+        assert expression_policy.RULES[role] in system
+        assert '需要语义段独立表达或后续局部重做时，可在' not in system
+        if role == 'review':
+            review_count += 1
+            candidate = json.loads(messages[1]['content'][0]['text'])['plan']
+            assert candidate['narration_policy']['groups'] == groups
+            if correct_draft and review_count == 1:
+                transport.calls += 1
+                transport.requests.append(json.loads(json.dumps((messages, tools, schema))))
+                return {'content': json.dumps({'verdict': 'fail', 'findings': ['s1说明须与已有分组一致。']})}
+        elif schema['title'] == 'CreativePlanChanges':
+            transport.calls += 1
+            transport.requests.append(json.loads(json.dumps((messages, tools, schema))))
+            scenes = json.loads(json.dumps(transport.answer['scenes']))
+            scenes[0]['purpose'] = '本组先观察再发现，声音连贯跨镜头，默认自然连说。'
+            return {'content': json.dumps({'scenes': scenes, 'narration_policy': policy})}
+        return await complete(messages, tools, schema)
+    transport.complete = provider
+    assert asyncio.run(worker.run_once())
+    snap = service.snapshot(work)
+    assert snap['state'] == 'awaiting_confirmation', snap['tasks'][0]['error_json']
+    saved = snap['plans'][0]['plan']
+    assert saved['narration_policy'] == policy
+    assert saved['settings']['voice'] == voice
+    assert saved['script'] == '\n'.join(texts)
+    assert '执行阶段设计' not in saved['scenes'][0]['purpose']
+    assert transport.calls == (4 if correct_draft else 2)
+    segments = narration_segments(saved)
+    assert len(segments) == (2 if expressive else 1)
+    wires = [native_voice_settings(effective_segment_voice(VoiceIdentity.model_validate(voice), s))
+             for s in segments]
+    assert all(w['voice_id'] == 'fixture-V6_1' and w['speed'] == 1 for w in wires)
+    if expressive:
+        assert wires[0]['emotion'] == 'surprised' and wires[1]['emotion'] == 'calm'
+        assert segments[0]['pauses'] == [{'after': len(texts[0]) + 1 + 2, 'seconds': .25}]
+    else:
+        assert wires[0]['emotion'] == 'calm' and not segments[0].get('pauses')
+    with service.store.connection() as conn:
+        assert set(r[0] for r in conn.execute('SELECT kind FROM operations')) == {'MODEL'}
+        requests = [json.loads(r[0]) for r in conn.execute('SELECT request_json FROM operations ORDER BY created_at')]
+    assert requests == [dict(zip(('messages', 'tools', 'schema'), r)) for r in transport.requests]
 
 
 def test_frozen_episode_source_reaches_downstream_without_task_request(tmp_path):
@@ -558,3 +649,97 @@ def test_current_candidate_review_receives_runtime_duration_semantics(tmp_path, 
     view=current_draft_context(context,draft)
     assert view.capabilities['duration_execution_contract']==duration_execution_contract(before)
     assert draft.model_dump(mode='json')==before and context.capabilities=={}
+
+
+def test_new_emotion_design_rejects_undesigned_but_preserves_legacy_plan(tmp_path):
+    from easel.production.planning import VoiceReadyCreativePlan, validate_emotion_design
+    from easel.production.contracts import NarrationGroup
+    service, work, transport, worker = setup(tmp_path)
+    draft = json.loads(json.dumps(transport.answer))
+    draft['settings'].update(audio_mode='voice', voice={
+        'provider':'minimax','model':'speech-2.8-turbo','engine':'minimax-speech-v1',
+        'voice_id':'fixed','parameters':{'speed':1}})
+    draft['narration_policy']={'continuous':True,'duration_mode':'voice_driven','groups':[
+        {'id':'thought','scene_ids':['s1'],'emotion':None}]}
+    legacy = VoiceReadyCreativePlan.model_validate(draft)
+    assert 'emotion_reason' not in legacy.model_dump(mode='json')['narration_policy']['groups'][0]
+    with pytest.raises(ValueError,match='emotion_reason'):
+        validate_emotion_design(legacy)
+    group = draft['narration_policy']['groups'][0]
+    group.update(emotion='calm', emotion_reason='解释技术服务人的关系，平静、亲近地陈述，不作激昂宣讲。')
+    designed = VoiceReadyCreativePlan.model_validate(draft)
+    validate_emotion_design(designed)
+    from easel.production.narration import narration_segments
+    from easel.production.voice import effective_segment_voice
+    from easel.production.providers.minimax_speech import native_voice_settings
+    segment = narration_segments(designed.model_dump(mode='json'))[0]
+    assert segment['text']==draft['script']
+    wire = native_voice_settings(effective_segment_voice(designed.settings.voice,segment))
+    assert wire['emotion']=='calm' and 'emotion_reason' not in wire
+    assert 'emotion_reason' not in segment
+    group.update(emotion=None,emotion_reason='')
+    with pytest.raises(ValueError,match='emotion_reason'):
+        validate_emotion_design(VoiceReadyCreativePlan.model_validate(draft))
+
+
+def test_default_emotion_is_allowed_without_claiming_voice_identity_sets_it(tmp_path):
+    from easel.production.planning import VoiceReadyCreativePlan,validate_emotion_design
+    from easel.production.narration import narration_segments
+    from easel.production.voice import effective_segment_voice
+    from easel.production.providers.minimax_speech import native_voice_settings
+    _,_,transport,_=setup(tmp_path)
+    draft=json.loads(json.dumps(transport.answer))
+    draft['settings'].update(audio_mode='voice',voice={
+        'provider':'minimax','model':'speech-2.8-turbo','engine':'minimax-speech-v1',
+        'voice_id':'fixed','parameters':{'speed':1}})
+    draft['narration_policy']={'continuous':True,'duration_mode':'voice_driven','groups':[
+        {'id':'thought','scene_ids':['s1'],'emotion':None,
+         'emotion_reason':'继承固定声线，用默认稳定状态解释计算，不机械切换情绪。'}]}
+    legacy=VoiceReadyCreativePlan.model_validate(draft)
+    segment=narration_segments(legacy.model_dump(mode='json'))[0]
+    assert 'emotion' not in native_voice_settings(effective_segment_voice(legacy.settings.voice,segment))
+    validate_emotion_design(legacy)
+    # Actual fixed global emotion is genuine inheritance and reaches the wire.
+    draft['settings']['voice']['parameters']['emotion']='calm'
+    inherited=VoiceReadyCreativePlan.model_validate(draft)
+    validate_emotion_design(inherited)
+    segment=narration_segments(inherited.model_dump(mode='json'))[0]
+    assert native_voice_settings(effective_segment_voice(inherited.settings.voice,segment))['emotion']=='calm'
+
+
+def test_full_replan_may_choose_default_emotion(tmp_path):
+    """A newly authored replan can intentionally retain the provider default."""
+    from easel.production.service import encode, row
+    service, work, transport, worker = setup(tmp_path)
+    settings = {'duration_seconds': 3, 'aspect_ratio': '16:9', 'audio_mode': 'voice',
+                'voice': {'provider': 'minimax', 'model': 'speech-2.8-turbo',
+                          'engine': 'minimax-speech-v1', 'voice_id': 'fixed',
+                          'parameters': {'speed': 1}}}
+    with service.store.transaction() as conn:
+        conn.execute('UPDATE works SET settings_json=? WHERE id=?', (encode({'schema_version': 1, **settings}), work))
+        task = conn.execute('SELECT * FROM tasks').fetchone()
+        payload = json.loads(task['payload_json'])
+        payload['creation_basis'] = service._basis(conn, row(conn, 'works', work))
+        conn.execute('UPDATE tasks SET payload_json=? WHERE id=?', (encode(payload), task['id']))
+    transport.answer['settings'] = settings
+    transport.answer['narration_policy'] = {'continuous': True, 'duration_mode': 'voice_driven',
+        'groups': [{'id': 'thought', 'scene_ids': ['s1'], 'emotion': 'calm',
+                    'emotion_reason': '平静解释技术服务人的关系，避免激昂宣讲。'}]}
+    asyncio.run(worker.run_once())
+    snap = service.snapshot(work)
+    assert len(snap['plans']) == 1, snap['tasks'][0]['error_json']
+    with service.store.connection() as conn:
+        target = service.replanning_target(conn, row(conn, 'works', work))
+    service.command('plan', {'intent': 'replan', 'request': '重新设计表达，保留事实',
+                            'replanning_target': target},
+                    work_id=work, expected_revision=snap['revision'], command_id='replan')
+    transport.answer['narration_policy']['groups'][0].update(
+        emotion=None, emotion_reason='继承固定音色，用默认表达解释技术。')
+    asyncio.run(worker.run_once())
+    result = service.snapshot(work)
+    assert result['state'] == 'awaiting_confirmation'
+    assert len(result['plans']) == 2
+    latest = max(result['plans'], key=lambda item: item['revision'])
+    assert latest['plan']['narration_policy']['groups'][0]['emotion'] is None
+    with service.store.connection() as conn:
+        assert {r[0] for r in conn.execute('SELECT kind FROM operations')} == {'MODEL'}

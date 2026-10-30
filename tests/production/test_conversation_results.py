@@ -493,6 +493,9 @@ def test_recovered_second_output_delivered_locally_once_without_media_work(env):
         s.store.append_event(conn,work,'decision_required',{'code':'dependency_blocked'},run_id=run)
     relay=ConversationResults(PersistentWorkToolBridge(s))
     old=relay.reserve_next();assert old['local_delivery'] and '制作已暂停' in old['answer']
+    assert '保留的第 2 版' in old['answer'] and 'output-2/content' in old['answer']
+    assert '本轮后续制作尚未完成' in old['answer']
+    assert relay.reserve_next() is None
     before=s.snapshot(work)
     assert Worker(s.store,{}).reconcile_completed_run(run)
     result=relay.reserve_next()
@@ -639,3 +642,79 @@ def test_output_projection_separates_suggestions_from_actual_findings():
     failed=output_summary(raw)['checks'][-1]
     assert failed['status']=='fail' and failed['visual_status']=='fail'
     assert failed['findings']==['字幕超出画面']
+
+
+@pytest.mark.parametrize('unknown,render_state,available',[(True,'succeeded',True),(False,'failed',True),(False,'succeeded',False)])
+def test_blocked_delivery_never_invents_or_uses_unknown_output(unknown,render_state,available):
+    from easel.conversation_results import output_text
+    event={'outcome':'blocked','unknown_operations':['op'] if unknown else [],
+        'tasks':[{'kind':'render','state':render_state,'result_json':encode({'output_id':'known'})}],
+        'outputs':[{'id':'other' if not available else 'known','playback_url':'/existing'}]}
+    assert output_text(event) is None
+
+
+@pytest.mark.parametrize('unknown,legacy_unpaused', [(False,False),(True,False),(False,True)])
+def test_cancelled_plan_can_add_input_and_explicitly_restore_with_new_grant(env, tmp_path, unknown, legacy_unpaused):
+    from PIL import Image
+    from tests.production.test_director_runtime import add_media
+    s,c,seg,work,_,worker=planning(env)
+    asyncio.run(worker.run_once())
+    saved=s.snapshot(work)
+    s.command('cancel',{},work_id=work,expected_revision=saved['revision'],command_id='cancel-for-input')
+    source=tmp_path/'research-input.png';Image.new('RGB',(96,64),'white').save(source)
+    input_id,_=add_media(s,work,source,session='ui')
+    assert s.snapshot(work)['state']=='cancelled'
+    s.command('basis',{'input_text':'补入已复算研究图'},work_id=work,
+              expected_revision=s.snapshot(work)['revision'],command_id='basis-after-cancel')
+    assert s.snapshot(work)['state']=='cancelled'
+    if unknown:
+        with s.store.transaction() as conn:
+            conn.execute("UPDATE operations SET state='unknown' WHERE work_id=?",(work,))
+    if legacy_unpaused:
+        # Replay the persisted pre-fix brief writer, not a production DB repair.
+        with s.store.transaction() as conn:
+            conn.execute("UPDATE works SET state='discussing' WHERE id=?",(work,))
+    message='保留同一作品和新素材，明确恢复已取消作品并重新规划'
+    b,i,_=turn(s,c,seg,message,id='restore-new-input')
+    tool(b,i,'easel_work_update_brief',{'entries':[{'kind':'user_requirement',
+         'text':message,'source_refs':['restore-new-input']}]})
+    assert s.snapshot(work)['state']==('discussing' if legacy_unpaused else 'cancelled')
+    before=s.snapshot(work)
+    args={'action':'plan','values':{'intent':'replan','restore_cancelled':True,
+                                  'request':'使用新增研究图重新规划'},'user_quote':message}
+    if unknown:
+        raises('result_unknown',lambda:pipe(b,i,'offer',**args))
+        assert s.snapshot(work)==before
+        return
+    raises('revision_required',lambda:pipe(b,i,'offer',action='plan',
+        values={'intent':'replan','request':'使用新增研究图重新规划'},user_quote=message))
+    raises('invalid_input',lambda:pipe(b,i,'offer',action='plan',
+        values={'intent':'replan','restore_cancelled':'true','request':'使用新增研究图重新规划'},
+        user_quote=message))
+    proposal=pipe(b,i,'offer',**args)
+    assert proposal['requires_user_confirmation'] and proposal['state']=='proposed'
+    assert s.snapshot(work)==before  # Revoked permission cannot auto-start a model.
+    b.end(Identity(**i))
+    b,i,_=turn(s,c,seg,'确认恢复和这次规划服务，不制作',id='restore-plan-yes')
+    result=pipe(b,i,'answer',dismiss=False,proposal_id=proposal['proposal_id'],hash=proposal['hash'],
+                user_quote='确认恢复和这次规划服务，不制作')
+    after=s.snapshot(work)
+    assert after['id']==work and after['plans']==saved['plans']
+    assert len(after['inputs'])==len(saved['inputs'])+1
+    assert len(after['runs'])==len(saved['runs'])+1
+    assert s.store.get_work(work)['input_text']=='补入已复算研究图'
+    assert [t['kind'] for t in after['tasks'] if t['run_id']==result['run_id']]==['plan']
+    b.end(Identity(**i))
+    answer={'title':'恢复后的方案','summary':'保留研究依据','script':'使用补充研究。',
+            'scenes':[{'id':'s1','purpose':'解释','visual':'已登记的白色研究图',
+                       'narration':'使用补充研究。','duration_seconds':3,'required_input_ids':[input_id]}],
+            'settings':{'duration_seconds':3,'aspect_ratio':'16:9','audio_mode':'silent'}}
+    transport=Transport(answer)
+    handler=PlanningTasks(s,OperationService(s.store),transport,
+                         {'provider':'direct-api','model':'fixture-model','mode':'structured'},'fixture')
+    asyncio.run(Worker(s.store,{'plan':handler.plan}).run_once())
+    final=s.snapshot(work)
+    assert final['state']=='awaiting_confirmation'
+    assert len(final['plans'])==len(saved['plans'])+1
+    assert input_id in json.dumps(transport.requests,ensure_ascii=False)
+    assert all(r['kind']=='planning' for r in final['runs'])

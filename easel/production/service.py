@@ -33,6 +33,14 @@ def digest(value: Any) -> str:
     return hashlib.sha256(encode(value).encode()).hexdigest()
 
 
+def restrict_edit_recovery(payload):
+    # New technical restrictions end at the repaired edit. Preserve historical
+    # or explicit whole-run restrictions whose authorization scope is unknown.
+    if not payload.get('reuse_existing_media_only'):
+        payload['media_reuse_scope']='edit'
+    payload['reuse_existing_media_only']=True
+
+
 def fail(code: str, message: str, status: int = 422):
     raise ProductionError(code, message, status_code=status)
 
@@ -275,10 +283,32 @@ class WorkService:
             extension=target.suffix.lower()
             kind='image' if extension in {'.png','.jpg','.jpeg','.webp'} else 'video' if extension in {'.mp4','.mov','.webm','.mkv'} else 'audio' if extension in {'.mp3','.wav','.m4a','.flac'} else 'document'
             metadata['source']={'kind':'user_upload','session_id':session,'rights':data.get('rights',{})}
+        if text is None:
+            # A later confirmed usage/rights proposal refers to this same input,
+            # not a second mandatory copy with the first one's UNKNOWN rights.
+            for existing in conn.execute(
+                    'SELECT * FROM work_inputs WHERE work_id=? AND source_ref=? AND digest=?',
+                    (work['id'],source,checksum)):
+                old=json.loads(existing['metadata_json'])
+                if (old.get('original_audio',False)!=metadata['original_audio'] or
+                        old.get('interval')!=metadata['interval']):
+                    continue  # Distinct original-audio intervals remain distinct.
+                updated={**old}
+                if data.get('rights'):
+                    updated['source']={**old.get('source',{}),'rights':data['rights']}
+                effective_usage='must_use' if 'must_use' in {existing['usage'],usage} else 'reference'
+                if updated!=old or effective_usage!=existing['usage']:
+                    conn.execute('UPDATE work_inputs SET usage=?,metadata_json=? WHERE id=?',
+                                 (effective_usage,encode(updated),existing['id']))
+                    self._change(conn,work,state='cancelled' if work['state']=='cancelled' else 'discussing',
+                                 current_plan_revision=None)
+                    self._event(conn,work['id'],'input_registered',
+                                {'input_id':existing['id'],'kind':kind,'usage':effective_usage,'existing':True})
+                return {'work_id':work['id'],'input_id':existing['id'],'already_registered':True}
         id=new_id()
         conn.execute('''INSERT INTO work_inputs(id,work_id,kind,usage,source_ref,digest,original_name,text_content,metadata_json,created_at)
                         VALUES (?,?,?,?,?,?,?,?,?,?)''',(id,work['id'],kind,usage,source,checksum,original,text or '',encode(metadata),now()))
-        self._change(conn,work,state='discussing',current_plan_revision=None)
+        self._change(conn,work,state='cancelled' if work['state']=='cancelled' else 'discussing',current_plan_revision=None)
         self._event(conn,work['id'],'input_registered',{'input_id':id,'kind':kind,'usage':usage})
         return {'work_id':work['id'],'input_id':id}
 
@@ -338,15 +368,27 @@ class WorkService:
                 'task_id':task['id'],'task_revision':task['revision'],
                 'basis_hash':digest(self._basis(conn,work))}
 
-    def replanning_target(self,conn,work):
+    def replanning_restore_required(self,conn,work):
+        # Legacy input/brief writes could reset the work label after cancellation.
+        # The committed cancellation event still belongs to its unchanged run.
+        return work['state']=='cancelled' or bool(work['active_run_id'] and conn.execute(
+            "SELECT 1 FROM events WHERE work_id=? AND run_id=? AND kind='run_cancelled' LIMIT 1",
+            (work['id'],work['active_run_id'])).fetchone())
+
+    def replanning_target(self,conn,work,*,restore_cancelled=False):
         """Pin a stopped run for an explicitly requested new plan, preserving media."""
-        if work['state']=='cancelled':fail('revision_required','已取消作品须使用明确恢复入口',409)
+        if type(restore_cancelled) is not bool:fail('invalid_input','恢复取消状态须使用明确布尔值')
+        run=row(conn,'runs',work['active_run_id']) if work['active_run_id'] else None
+        cancelled=self.replanning_restore_required(conn,work)
+        restoring=cancelled and restore_cancelled
+        if cancelled and not restoring:fail('revision_required','已取消作品须明确restore_cancelled=true后重新规划',409)
+        if restore_cancelled and not restoring:fail('stale_revision','当前作品已不在取消状态，请重新核对恢复目标',409)
         plan=conn.execute('''SELECT revision,plan_hash FROM plan_revisions WHERE work_id=?
                              AND (? IS NULL OR revision=?) ORDER BY revision DESC LIMIT 1''',
                           (work['id'],work['current_plan_revision'],work['current_plan_revision'])).fetchone()
         if not plan:fail('revision_required','当前没有已生成方案；首次规划失败请使用原规划恢复入口',409)
-        run=row(conn,'runs',work['active_run_id']) if work['active_run_id'] else None
-        if not run or run['owner_id'] or run['cancel_requested'] or run['state'] not in {'needs_decision','paused','failed','succeeded'}:
+        stopped={'needs_decision','paused','failed','succeeded'} | ({'cancelled'} if restoring else set())
+        if not run or run['owner_id'] or (run['cancel_requested'] and not restoring) or run['state'] not in stopped:
             fail('active_run','当前运行尚未安全停止，保留原断点',409)
         if conn.execute("SELECT 1 FROM operations WHERE work_id=? AND state IN ('reserved','sending','submitted','unknown')",(work['id'],)).fetchone():
             fail('result_unknown','存在在途或未知调用，不能替换规划',409)
@@ -380,9 +422,9 @@ class WorkService:
         replan=data.get('intent')=='replan'
         if 'intent' in data and not replan:fail('invalid_input','不支持的规划意图')
         if replan:
-            if set(data)-{'intent','request','services','replanning_target'} or not str(data.get('request','')).strip():
+            if set(data)-{'intent','request','services','replanning_target','restore_cancelled'} or not str(data.get('request','')).strip():
                 fail('invalid_input','重新规划须说明本轮变更范围')
-            target=self.replanning_target(conn,work)
+            target=self.replanning_target(conn,work,restore_cancelled=data.get('restore_cancelled',False))
             if data.get('replanning_target')!=target:fail('stale_revision','重新规划目标已变化，请读取当前状态',409)
             stamp=now()
             conn.execute("UPDATE runs SET state='superseded',owner_epoch=owner_epoch+1,revision=revision+1,updated_at=? WHERE id=?",(stamp,target['run_id']))
@@ -570,6 +612,58 @@ class WorkService:
         if not invalid:return None
         return {'decision_id':task['id'],'output_id':artifact['id'],'check_id':invalid[-1]['id']}
 
+    def audio_mode_resume_target(self,conn,work,decision_id):
+        """A stopped first edit can retain its media while correcting only mixed→voice."""
+        target=self.preoutput_target(conn,work,{'settings':{'audio_mode':'voice'}})
+        task=row(conn,'tasks',decision_id)
+        if (task['run_id']!=target['run_id'] or task['kind']!='edit' or task['state']!='needs_decision'
+                or json.loads(task['error_json'] or '{}').get('code') not in
+                {'invalid_model_output','invalid_edit','invalid_edit_project','edit_duration_mismatch'}):
+            fail('revision_required','仅可局部修订已安全暂停的首片剪辑声音模式',409)
+        if conn.execute("SELECT 1 FROM tasks WHERE run_id=? AND id!=? AND state!='succeeded'",
+                        (target['run_id'],task['id'])).fetchone():
+            fail('active_run','其他制作步骤尚未完成，不能在此续接剪辑',409)
+        source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
+        if (not source or source['state']!='succeeded'
+                or json.loads(source['request_json']).get('schema',{}).get('title')!='CreativeEdit'):
+            fail('revision_required','缺少可复用的已知剪辑回执，保留当前断点',409)
+        return target
+
+    def _resume_audio_mode(self,conn,work,task):
+        target=self.audio_mode_resume_target(conn,work,task['id'])
+        # The caller explicitly authorizes this exact setting correction and
+        # continuation. Record a new confirmed version; never rewrite the old one.
+        from copy import deepcopy
+        plan=deepcopy(target['protected_plan'])
+        plan['settings']['audio_mode']='voice'
+        self.validate_plan(conn,work,plan)
+        previous=target['plan_revision']
+        revision=conn.execute('SELECT COALESCE(MAX(revision),0)+1 FROM plan_revisions WHERE work_id=?',(work['id'],)).fetchone()[0]
+        stamp=now()
+        conn.execute('INSERT INTO plan_revisions(id,work_id,revision,payload_json,plan_hash,created_at,confirmed_at) VALUES (?,?,?,?,?,?,?)',
+                     (new_id(),work['id'],revision,encode(plan),digest(plan),stamp,stamp))
+        grants=[dict(g) for g in conn.execute("SELECT * FROM authorization_grants WHERE work_id=? AND purpose='production' AND plan_revision=? AND revoked_at IS NULL ORDER BY created_at DESC,id DESC",(work['id'],previous))]
+        if not grants:fail('permission_missing','原制作授权不可用，未恢复剪辑',409)
+        services=[json.loads(g['services_json']) for g in grants]
+        conn.execute("UPDATE authorization_grants SET revoked_at=? WHERE work_id=? AND purpose='production' AND revoked_at IS NULL",(stamp,work['id']))
+        grant=self._insert_grant(conn,work,'production',{'services':list({encode(s):s for batch in services for s in batch}.values()),
+            'allow_ai':False},revision)
+        conn.execute('UPDATE runs SET plan_revision=?,input_fingerprint=?,revision=revision+1,updated_at=? WHERE id=?',
+            (revision,digest({'previous':target['run_id'],'plan_hash':digest(plan)}),stamp,target['run_id']))
+        payload=json.loads(task['payload_json'])
+        restrict_edit_recovery(payload)
+        payload.update(grant_id=grant,
+            audio_mode_revision={'previous_plan_revision':previous,'plan_revision':revision})
+        conn.execute('UPDATE tasks SET plan_revision=?,payload_json=?,input_fingerprint=? WHERE id=?',
+            (revision,encode(payload),digest({'previous':task['input_fingerprint'],'plan_hash':digest(plan)}),task['id']))
+        settings=json.loads(work['settings_json']);settings['audio_mode']='voice'
+        self._change(conn,work,current_plan_revision=revision,settings_json=encode(settings),
+            creation_context_json=self._settings_context(work,{'audio_mode':'voice'}))
+        self._event(conn,work['id'],'plan_audio_mode_revised',{'previous_plan_revision':previous,
+            'plan_revision':revision,'previous_plan_hash':target['plan_hash'],'plan_hash':digest(plan),
+            'decision_id':task['id'],'preserve_optional_sfx':True},run_id=target['run_id'])
+        return row(conn,'works',work['id']),row(conn,'tasks',task['id'])
+
     def _resume(self,conn,work,data):
         if not work['active_run_id']:fail('invalid_input','没有可恢复运行')
         run=row(conn,'runs',work['active_run_id'])
@@ -580,6 +674,10 @@ class WorkService:
             fail('invalid_input','当前运行不能直接恢复')
         if task['run_id']!=run['id'] or (not recheck and task['state'] not in {'needs_decision','retryable_failed','waiting_external','failed'}):
             fail('stale_revision','需要解决的决定已变化',409)
+        if 'audio_mode' in data:
+            if data['audio_mode']!='voice' or set(data)-{'decision_id','audio_mode'}:
+                fail('invalid_input','局部声音修订仅允许mixed改为voice并保留原环境音要求')
+            work,task=self._resume_audio_mode(conn,work,task)
         if recheck:
             payload=json.loads(task['payload_json']);payload['visual_recheck_source']=recheck['check_id']
             conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
@@ -616,7 +714,7 @@ class WorkService:
                 fail('invalid_edit_project','原剪辑回执不是完整编辑结果')
             payload=json.loads(edit['payload_json'])
             payload['asset_ids']=sorted(set(payload.get('asset_ids',[]))|set(json.loads(task['payload_json']).get('asset_ids',[])))
-            payload['reuse_existing_media_only']=True
+            restrict_edit_recovery(payload)
             conn.execute("UPDATE tasks SET state='cancelled',revision=revision+1,updated_at=? WHERE id=?",(now(),task['id']))
             conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),edit['id']))
             task={**edit,'payload_json':encode(payload),'error_json':encode({'code':'invalid_edit_project'})}
@@ -634,7 +732,7 @@ class WorkService:
             if conn.execute("SELECT 1 FROM operations WHERE task_id=? AND state IN ('reserved','sending','submitted','unknown')",(task['id'],)).fetchone():
                 fail('result_unknown','剪辑存在未确定调用，不能另发修正')
             if json.loads(task['error_json'] or '{}').get('code') in {'timed_audio_requires_fixed_duration','narration_timing_missing'}:
-                payload=json.loads(task['payload_json']);payload['reuse_existing_media_only']=True
+                payload=json.loads(task['payload_json']);restrict_edit_recovery(payload)
                 conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
             source=conn.execute("SELECT * FROM operations WHERE task_id=? AND kind='MODEL' ORDER BY created_at DESC,id DESC LIMIT 1",(task['id'],)).fetchone()
             if source and source['state']=='succeeded':
@@ -665,7 +763,7 @@ class WorkService:
                         payload['asset_ids']=sorted(set(payload.get('asset_ids',[]))|set(restored))
                         payload['edit_recovery_source']=source['id']
                         if json.loads(task['error_json'] or '{}').get('code') in (AUDIO_EDIT_ERRORS | {'edit_duration_mismatch'}):
-                            payload['reuse_existing_media_only']=True
+                            restrict_edit_recovery(payload)
                         conn.execute('UPDATE tasks SET payload_json=? WHERE id=?',(encode(payload),task['id']))
                 except (ValueError,KeyError,TypeError):pass
         if task['kind']=='revise' and json.loads(task['error_json'] or '{}').get('code') in {'invalid_model_output','invalid_edit_project','invalid_revision_search','visual_material_gap'}:
@@ -845,7 +943,7 @@ class WorkService:
         settings.update(patch)
         text=data.get('input_text',work['input_text'])
         if not isinstance(text,str) or len(text)>100000:fail('invalid_input','本期内容无效')
-        self._change(conn,work,settings_json=settings,input_text=text,creation_context_json=self._settings_context(work,original_patch),current_plan_revision=None,state='discussing')
+        self._change(conn,work,settings_json=settings,input_text=text,creation_context_json=self._settings_context(work,original_patch),current_plan_revision=None,state='cancelled' if work['state']=='cancelled' else 'discussing')
         self._event(conn,work['id'],'basis_updated',{'settings':settings})
         return {'work_id':work['id']}
 

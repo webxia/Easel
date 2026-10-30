@@ -45,7 +45,7 @@ def test_explicit_context_without_workspace_or_other_profile():
 @pytest.mark.parametrize('bad',[{}, {'owner_epoch':5,'summary':'x'},{'summary':'x','artifact_id':'foreign'}])
 def test_invalid_and_forged_authority_rejected(bad):
     runner,_,calls=run([{'content':json.dumps(bad)}],max_format_repairs=0)
-    with pytest.raises(ModelTaskError,match='summary.*missing' if bad=={} else '有效创作结果') as failure:
+    with pytest.raises(ModelTaskError,match='summary.*missing' if bad=={} else ('未知素材引用' if 'artifact_id' in bad else '有效创作结果')) as failure:
         asyncio.run(runner.run(context(),'plan',Answer))
     assert failure.value.code=='invalid_model_output'
     assert len(calls)==1
@@ -345,4 +345,38 @@ def test_missing_confirmed_bgm_is_corrected_inside_existing_model_budget():
     result=asyncio.run(runner.run(context(allowed_handles=frozenset({'visual','voice','bgm'})),
         '落实混合声音',CreativeEdit,validate_result=lambda edit:check_audio_delivery('mixed',edit.scenes,edit.audio)))
     assert len(transport.calls)==2 and any(a.role=='music' for a in result.audio)
-    assert 'mixed delivery needs voice/source sound and music' in transport.calls[1][-1]['content']
+    assert 'mixed要求同时有旁白/原声与音乐' in transport.calls[1][-1]['content']
+    assert '不能擅自添加BGM' in transport.calls[1][-1]['content']
+
+
+def test_observation_reserves_submission_and_correction_without_extra_calls():
+    class ObservingTransport:
+        capabilities=frozenset({'text','structured','tools'})
+        calls=[]
+        async def complete(self,messages,tools,schema):
+            self.calls.append(bool(tools))
+            if tools:
+                return {'tool_calls':[{'id':str(len(self.calls)), 'function':{
+                    'name':'inspect_media','arguments':json.dumps({'asset_id':str(len(self.calls))})}}]}
+            # A reserved final correction must remain possible.
+            return {'content':'{}' if len(self.calls)==5 else '{"summary":"submitted"}'}
+    transport=ObservingTransport();observed=[]
+    async def inspect(args,ctx):observed.append(args.asset_id);return {'observed':True}
+    async def authorize(ctx):pass
+    result=asyncio.run(ModelTaskRunner(transport,authorize).run(
+        context(allowed_handles=frozenset(map(str,range(1,7)))),'edit',Answer,
+        tools=(ScopedTool('inspect_media','inspect',Args,inspect,('asset_id',)),)))
+    assert result.summary=='submitted'
+    assert transport.calls==[True,True,True,True,False,False]
+    assert observed==['1','2','3','4']
+
+
+def test_late_tool_request_is_not_executed_or_retried():
+    invoked=[]
+    async def inspect(args,ctx):invoked.append(args.asset_id);return {}
+    call={'id':'late','function':{'name':'inspect_media','arguments':'{"asset_id":"a"}'}}
+    runner,transport,authorized=run([{'tool_calls':[call]}],max_rounds=1)
+    with pytest.raises(ModelTaskError,match='观察预算已结束'):
+        asyncio.run(runner.run(context(allowed_handles=frozenset({'a'})),'edit',Answer,
+            tools=(ScopedTool('inspect_media','inspect',Args,inspect,('asset_id',)),)))
+    assert not invoked and len(authorized)==1

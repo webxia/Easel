@@ -190,20 +190,21 @@ def parse_model_json(raw: str):
     return json.loads(text)
 
 
-def _check_result(value: Any, allowed_handles: frozenset[str]) -> None:
+def _check_result(value: Any, allowed_handles: frozenset[str], path: str = '$') -> None:
     if isinstance(value, dict):
         if _FORBIDDEN & value.keys():
             raise ValueError("Model attempted to supply execution authority")
         for key, item in value.items():
             if key in {"asset_id", "artifact_id", "input_id"} and item not in allowed_handles:
-                raise ValueError("Unknown media reference")
+                raise ResultCorrectionError(f'未知素材引用：{path}.{key}；仅可原样引用本次allowed_handles中的身份：'
+                    + ','.join(sorted(allowed_handles)))
             if key == "required_input_ids" and (
                     not isinstance(item, list) or any(ref not in allowed_handles for ref in item)):
                 raise ValueError("Unknown required_input_ids; use only actual input handles, never brief")
-            _check_result(item, allowed_handles)
+            _check_result(item, allowed_handles, path + '.' + key)
     elif isinstance(value, list):
-        for item in value:
-            _check_result(item, allowed_handles)
+        for index, item in enumerate(value):
+            _check_result(item, allowed_handles, f'{path}[{index}]')
 
 
 @dataclass
@@ -238,14 +239,25 @@ class ModelTaskRunner:
             # Caller verifies this exact request/response against durable receipts.
             # Check it first, then spend only the existing bounded repair allowance.
             messages, initial_response = recovery
-        for _ in range(self.max_rounds):
+        for round_index in range(self.max_rounds):
             if recovery:
                 response=initial_response
                 recovery=None
             else:
+                # Observation shares the total budget with result submission.
+                # Reserve a submission plus one correction when still available;
+                # do not buy additional calls or execute late tool requests.
+                closing = bool(tools) and self.max_rounds-round_index <= 1 + min(1, self.max_format_repairs-repairs)
+                active_tools = () if closing else tools
+                if closing:
+                    messages.append({'role':'user','content':
+                        '本任务剩余调用用于提交结果及必要纠错，观察工具已关闭。使用已收到的真实证据，'
+                        '现在按结果schema提交；证据不足按已有缺口字段如实说明，不编造观察、不再请求工具。'})
                 await self.authorize(context)
-                response = await self.transport.complete(messages, [t.definition() for t in tools],
+                response = await self.transport.complete(messages, [t.definition() for t in active_tools],
                                                          result_type.model_json_schema())
+                if closing and response.get('tool_calls'):
+                    raise ModelTaskError('invalid_model_output','观察预算已结束，模型仍请求工具而未提交结果；保留已取得证据')
             calls = response.get("tool_calls") or []
             if calls:
                 if len(calls) > 8:

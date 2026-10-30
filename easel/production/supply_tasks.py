@@ -241,6 +241,42 @@ class SupplyTasks:
             # into an artifact edge.
             return dict(conn.execute('SELECT * FROM artifacts WHERE id=?', (artifact_id,)).fetchone())
 
+    def _input_rights(self, item):
+        metadata = json.loads(item['metadata_json'])
+        rights = RightsInfo.model_validate_json(canonical_json(
+            metadata.get('source', {}).get('rights') or {'status':'UNKNOWN'}))
+        if rights.status is not RightsStatus.KNOWN or any(e.kind.startswith('asset_') for e in rights.evidence):
+            return rights
+        # Older dialogue confirmations recorded a generic evidence kind. Derive
+        # asset-bound evidence only from the actual applied confirmation and its
+        # command receipt, never from a license label or an unconfirmed proposal.
+        with self.service.store.connection() as conn:
+            for evidence in rights.evidence:
+                if evidence.kind != 'user_declaration':
+                    continue
+                command = conn.execute('SELECT response_json FROM command_receipts WHERE command_id=? AND work_id=?',
+                    (evidence.reference + '_work', item['work_id'])).fetchone()
+                if not command or json.loads(command[0]).get('input_id') != item['id']:
+                    continue
+                proposals = conn.execute("""SELECT body_json,receipt_json FROM conversation_proposals
+                    WHERE kind='pipeline' AND state='applied' AND json_extract(body_json,'$.work_id')=?
+                    AND json_extract(receipt_json,'$.input_id')=?""", (item['work_id'], item['id']))
+                for proposal in proposals:
+                    body = json.loads(proposal['body_json'])
+                    values = body.get('values', {})
+                    payload = values.get('payload', {})
+                    receipt = json.loads(proposal['receipt_json'])
+                    if (values.get('action') != 'input' or payload.get('rights_confirmed') is not True
+                            or values.get('catalog_target', {}).get('attachment_digest') != item['digest']
+                            or receipt.get('work_id') != item['work_id']
+                            or payload.get('original_audio', False) != metadata.get('original_audio', False)
+                            or payload.get('interval') != metadata.get('interval')):
+                        continue
+                    bound = RightsEvidence(kind='asset_user_declaration', reference=evidence.reference,
+                        summary=f'已应用的本片素材确认；sha256={item["digest"]}')
+                    return rights.model_copy(update={'evidence': (*rights.evidence, bound)})
+        return rights
+
     def _acquire(self, ctx, plan, inputs, records, scope, context, intent=None, *, excluded_asset_refs=()):
         # A frozen explanation belongs to its own scene, not generic stock for
         # another scene that happens to share a keyword.
@@ -254,9 +290,7 @@ class SupplyTasks:
                 continue
             if item['id'] in mapped:
                 continue
-            metadata = json.loads(item['metadata_json'])
-            rights_value = metadata.get('source', {}).get('rights') or {'status':'UNKNOWN'}
-            rights = RightsInfo.model_validate_json(canonical_json(rights_value))
+            rights = self._input_rights(item)
             scene_ids = [s.id for s in plan.scenes if item['id'] in s.required_input_ids]
             if not scene_ids:
                 raise ProductionError('required_input_unmapped','已确认方案未说明必用素材对应的场景',affected_ids=[item['id']],requires_decision=True)

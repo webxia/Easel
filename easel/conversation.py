@@ -149,7 +149,7 @@ class ConversationService:
                 if not any(item['text'] in t for t in texts):fail('invalid_source','用户硬要求必须引用原话；归纳请标为建议')
         body={'entries':entries,'sources':{ref:json.loads(row(conn,'conversation_turns',ref)['payload_json']).get('message','') for entry in entries for ref in entry['source_refs']}};revision=conn.execute('SELECT COALESCE(MAX(revision),0)+1 FROM work_briefs WHERE work_id=?',(work['id'],)).fetchone()[0]
         conn.execute('INSERT INTO work_briefs VALUES (?,?,?,?,?)',(work['id'],revision,encode(body),digest(body),now()))
-        self.service._change(conn,work,current_plan_revision=None,state='discussing')
+        self.service._change(conn,work,current_plan_revision=None,state='cancelled' if work['state']=='cancelled' else 'discussing')
         conn.execute("UPDATE conversation_proposals SET state='stale' WHERE state='proposed' AND kind IN ('plan','director_formation') AND json_extract(body_json,'$.work_id')=?",(work['id'],))
         self.service._event(conn,work['id'],'brief_updated',{'brief_revision':revision,'brief_hash':digest(body)})
         return {'work_id':work['id'],'revision':row(conn,'works',work['id'])['revision'],'brief_revision':revision,'brief_hash':digest(body)}

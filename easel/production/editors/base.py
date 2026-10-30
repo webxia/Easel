@@ -18,7 +18,7 @@ def check_audio_delivery(audio_mode, scenes, audio):
     if audio_mode == "music" and (not music or voice):
         raise ValueError("music delivery needs music and no voice/source sound")
     if audio_mode == "mixed" and not (voice and music):
-        raise ValueError("mixed delivery needs voice/source sound and music")
+        raise ValueError('声音模式mixed要求同时有旁白/原声与音乐；环境音或音效不等于音乐。当前剪辑缺少相应音轨；若已确认要求不允许音乐，须先局部修订方案为voice，不能擅自添加BGM。')
 
 
 class EditError(ValueError):
@@ -56,12 +56,27 @@ class Crop(Contract):
         return self
 
 
+class Frame(Contract):
+    """Normalized destination rectangle, independent of source cropping."""
+    x: float = Field(default=0, ge=0, lt=1)
+    y: float = Field(default=0, ge=0, lt=1)
+    width: float = Field(default=1, gt=0, le=1)
+    height: float = Field(default=1, gt=0, le=1)
+
+    @model_validator(mode="after")
+    def inside(self):
+        if self.x + self.width > 1.000001 or self.y + self.height > 1.000001:
+            raise ValueError("frame must stay within the output canvas")
+        return self
+
+
 class Scene(Contract):
     scene_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$")
     asset_id: str
     duration: float = Field(gt=0, le=900)
     source_start: float = Field(default=0, ge=0)
     crop: Crop = Field(default_factory=Crop)
+    frame: Frame = Field(default_factory=Frame, description="目标画布归一化矩形，默认全屏；fit在此区域内生效，外部黑底。需整图避让字幕时缩小frame并用contain，保持crop完整及motion=none，不把图表裁成分段。")
     fit: Literal["cover", "contain"] = "cover"
     source_audio: bool = False
     source_gain: float = Field(default=1, ge=0, le=4)
@@ -241,7 +256,7 @@ def assert_local_revision(base: EditProject, revised: EditProject, *, allowed: s
     if "visual" in allowed:
         for document in (before, after):
             for scene in document["scenes"]:
-                for key in ("crop", "fit", "motion", "fade_in", "fade_out"):
+                for key in ("crop", "frame", "fit", "motion", "fade_in", "fade_out"):
                     scene.pop(key)
     if "audio" in allowed:
         # A quality adjustment may change levels/fades, not speech identity/timing.

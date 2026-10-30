@@ -23,7 +23,7 @@ from ..media import MEDIA_FORMATS, atomic_json, caption_image, file_sha256, loca
 
 ENCODING = {"version":"1080p-h264-2","codec":"libx264","preset":"medium","crf":18,"pixel_format":"yuv420p"}
 
-FEATURES = ("video", "image", "trim", "crop", "contain", "cover", "pan_zoom", "dissolve",
+FEATURES = ("video", "image", "trim", "crop", "frame", "contain", "cover", "pan_zoom", "dissolve",
             "fade", "source_audio", "multi_audio", "captions", "caption_background")
 SUFFIXES = {"video": {".mp4", ".mov", ".m4v", ".webm", ".mkv"},
             "audio": {".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg"},
@@ -391,16 +391,21 @@ class LocalRender:
         cw, ch = max(2, int(sw * crop.width) // 2 * 2), max(2, int(sh * crop.height) // 2 * 2)
         cx, cy = min(sw - cw, int(sw * crop.x)), min(sh - ch, int(sh * crop.y))
         vf = [f"crop={cw}:{ch}:{cx}:{cy}"]
+        frame = scene.frame
+        fw, fh = max(2, int(p.width * frame.width) // 2 * 2), max(2, int(p.height * frame.height) // 2 * 2)
+        fx, fy = min(p.width - fw, int(p.width * frame.x) // 2 * 2), min(p.height - fh, int(p.height * frame.y) // 2 * 2)
         if scene.fit == "cover":
-            vf += [f"scale={p.width}:{p.height}:force_original_aspect_ratio=increase:out_range=tv", f"crop={p.width}:{p.height}"]
+            vf += [f"scale={fw}:{fh}:force_original_aspect_ratio=increase:out_range=tv", f"crop={fw}:{fh}"]
         else:
-            vf += [f"scale={p.width}:{p.height}:force_original_aspect_ratio=decrease:out_range=tv",
-                   f"pad={p.width}:{p.height}:(ow-iw)/2:(oh-ih)/2:color=black"]
+            vf += [f"scale={fw}:{fh}:force_original_aspect_ratio=decrease:out_range=tv",
+                   f"pad={fw}:{fh}:(ow-iw)/2:(oh-ih)/2:color=black"]
         vf += ["setsar=1", f"fps={p.fps}", "setpts=PTS-STARTPTS"]
         frames = round(scene.duration * p.fps)
         if scene.motion != "none":
             z = f"1+0.08*on/{max(1, frames - 1)}" if scene.motion == "push_in" else f"1.08-0.08*on/{max(1, frames - 1)}"
-            vf += [f"zoompan=z='{z}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={p.width}x{p.height}:fps={p.fps}"]
+            vf += [f"zoompan=z='{z}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={fw}x{fh}:fps={p.fps}"]
+        if (fw, fh, fx, fy) != (p.width, p.height, 0, 0):
+            vf += [f"pad={p.width}:{p.height}:{fx}:{fy}:color=black"]
         if scene.fade_in:
             vf += [f"fade=t=in:st=0:d={scene.fade_in}"]
         if scene.fade_out:

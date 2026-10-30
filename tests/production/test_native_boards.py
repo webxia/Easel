@@ -255,3 +255,36 @@ def test_dense_board_keeps_subtitle_space_and_all_card_text(font,tmp_path,aspect
     region=image.crop((0,int(h*.8),w,int(h*.93)))
     assert len(region.getcolors(region.width*region.height))==1
     assert [c.text for c in b.cards]==[c['text'] for c in d['cards']]
+
+
+@pytest.mark.parametrize('text,amount', [
+    ('无薪月不支1000元', '1000元'),
+    ('过渡费3000元', '3000元'),
+    ('可退押金4000元', '4000元'),
+    ('余额1.8万元', '1.8万元'),
+    ('群体比例5.2%', '5.2%'),
+])
+def test_rendered_amounts_do_not_split_across_lines(font, monkeypatch, text, amount):
+    from PIL import ImageDraw, ImageFont
+    from easel.production.boards import _label
+    drawn = []
+    original = ImageDraw.ImageDraw.multiline_text
+    def capture(self, xy, value, *args, **kwargs):
+        drawn.append(value)
+        return original(self, xy, value, *args, **kwargs)
+    monkeypatch.setattr(ImageDraw.ImageDraw, 'multiline_text', capture)
+    image = Image.new('RGB', (220, 450), 'white')
+    _label(ImageDraw.Draw(image), text, (10, 10, 160, 420),
+           ImageFont.truetype(str(font), 34), 'black')
+    assert len(drawn) == 1
+    assert drawn[0].replace('\n', '') == text
+    assert amount in drawn[0], drawn[0]
+
+
+def test_unfittable_number_is_rejected_instead_of_fragmented(font):
+    from PIL import ImageDraw, ImageFont
+    from easel.production.boards import _label
+    from easel.production.editors import EditError
+    with pytest.raises(EditError, match='超出'):
+        _label(ImageDraw.Draw(Image.new('RGB', (200, 1000))), '1234567890' * 5 + '元',
+               (0, 0, 160, 1000), ImageFont.truetype(str(font), 34), 'black')

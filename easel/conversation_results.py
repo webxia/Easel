@@ -76,7 +76,7 @@ def failure_text(tasks, state, *, unknown=False):
 
 def output_text(event):
     """Deliver the current render receipt, not a historical version or model guess."""
-    if event.get('outcome') != 'completed' or event.get('unknown_operations'):
+    if event.get('outcome') not in {'completed','blocked'} or event.get('unknown_operations'):
         return None
     renders = [t for t in event.get('tasks', []) if t['kind'] == 'render' and t['state'] == 'succeeded']
     if not renders:
@@ -97,6 +97,8 @@ def output_text(event):
     labels.append({'pass':'内容检查返回通过结论','fail':'内容检查发现问题','partial':'内容检查未完整完成'}.get(semantic[-1]['status'] if semantic else None, '完整语义与声音检查未验证'))
     revision = output.get('output_revision')
     title = f'第 {revision} 版已完成，可播放审阅。' if revision else '成片已完成，可播放审阅。'
+    if event.get('outcome')=='blocked':
+        title = f'保留的第 {revision} 版可播放审阅；本轮后续制作尚未完成。'
     details=[str(f) for check in checks for f in check['findings']][:3]
     return '\n\n'.join([title, f'<video controls src="{output["playback_url"]}"></video>',
                         '检查结果：' + '；'.join(labels) + '。',
@@ -398,7 +400,8 @@ class ConversationResults:
         event = payload.get('result_event', {})
         answer = output_text(event)
         if event.get('outcome') == 'blocked':
-            answer = failure_text(event['tasks'], event['run_state'], unknown=bool(event.get('unknown_operations')))
+            failure = failure_text(event['tasks'], event['run_state'], unknown=bool(event.get('unknown_operations')))
+            answer = failure + ('\n\n'+answer if answer else '')
         if answer is not None:
             # Persist known outcomes through the existing local delivery channel.
             payload.update(answer=answer, delivery_state='delivered', delivery_lease_until=0)

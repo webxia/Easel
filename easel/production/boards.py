@@ -4,18 +4,22 @@ No per-work copy, examples, card wording or classifications live in this rendere
 It supplies geometry, literal text, true counts and an always-visible disclosure.
 """
 from pathlib import Path
+import re
 from PIL import Image, ImageDraw, ImageFont
 from .editors import EditError
 
-VERSION='schematic-board-3'
+VERSION='schematic-board-4'
 
 
 def _label(draw,text,box,font,color,*,center=False):
     x,y,w,h=box;lines=[];line=''
-    for c in text:
-        if c=='\n' or (line and draw.textlength(line+c,font=font)>w):
+    # Keep a displayed quantity intact; character wrapping can turn 1000 into
+    # separate 100 / 0 lines and change how a financial fact is read.
+    tokens = re.findall(r'[+-]?\d+(?:[.,]\d+)*(?:万|亿)?(?:元|%|％|个月|月|年)?|[^\d]', text)
+    for token in tokens:
+        if token=='\n' or (line and draw.textlength(line+token,font=font)>w):
             lines.append(line);line=''
-        if c!='\n':line+=c
+        if token!='\n':line+=token
     lines.append(line);value='\n'.join(lines)
     bounds=draw.multiline_textbbox((0,0),value,font=font,spacing=6,align='center' if center else 'left')
     tw,th=bounds[2]-bounds[0],bounds[3]-bounds[1]

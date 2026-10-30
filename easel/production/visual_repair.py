@@ -2,13 +2,17 @@
 import re
 from .editors import EditError
 
+ILLUSTRATIVE_DISCLOSURE = '情境示意，非来源原图'
+
 
 def approved_overlay_texts(plan):
-    return sorted({text for scene in plan.get('scenes', [])
-                   for text in re.findall(r'[“「]([^”」\n]{1,100})[”」]', scene.get('visual', ''))})
+    texts={text for scene in plan.get('scenes', [])
+           for text in re.findall(r'[“「]([^”」\n]{1,100})[”」]', scene.get('visual', ''))}
+    texts.add(ILLUSTRATIVE_DISCLOSURE)
+    return sorted(texts)
 
 
-def assert_visual_repair(base, revised, *, overlay_texts, protected_caption_style_ids=frozenset(), allow_retiming=False):
+def assert_visual_repair(base, revised, *, overlay_texts, protected_caption_style_ids=frozenset(), allow_retiming=False, caption_roles=None):
     if base.audio != revised.audio:
         raise EditError('局部画面修订改变了独立音轨；必须保留原配音、BGM和音效的位置、时长与增益')
     def source_audio_scenes(project):
@@ -43,10 +47,18 @@ def assert_visual_repair(base, revised, *, overlay_texts, protected_caption_styl
     captions={c.caption_id:c for c in revised.captions}
     for before in base.captions:
         after=captions.get(before.caption_id)
-        if not after or (after.text,after.start,after.end)!=(before.text,before.start,before.end):
-            raise EditError('原旁白字幕的字句与时间不得修改')
+        if not after or after.text!=before.text:
+            raise EditError('原字幕的身份与字句不得修改：'+before.caption_id)
+        if (after.start,after.end)!=(before.start,before.end):
+            if (caption_roles or {}).get(before.caption_id)!='overlay':
+                raise EditError('原旁白或角色未知字幕的时间不得修改：'+before.caption_id)
+            windows=[(at,at+s.duration) for s,at in zip(base.scenes,base.scene_starts())
+                     if at<=before.start and before.end<=at+s.duration+1e-6]
+            if not any(at<=after.start<after.end<=end+1e-6 for at,end in windows):
+                raise EditError('独立叠加文字的调时须留在原场景窗口：'+before.caption_id)
         if before.caption_id in protected_caption_style_ids and before!=after:
             raise EditError('自动视觉修复不能改变已固定的旁白字幕样式、透明背景或位置')
     original_ids={c.caption_id for c in base.captions}
-    if any(c.text not in overlay_texts for c in revised.captions if c.caption_id not in original_ids):
-        raise EditError('补充解释字只能来自已确认方案的明确提示语')
+    unsupported=[c.caption_id for c in revised.captions if c.caption_id not in original_ids and c.text not in overlay_texts]
+    if unsupported:
+        raise EditError('补充解释字只能来自已确认方案的明确提示语；来源属性披露仅支持“'+ILLUSTRATIVE_DISCLOSURE+'”，不扩写机构、数值或观点。未获准新增文字：'+','.join(unsupported))

@@ -28,6 +28,7 @@ class RevisionModel(ScriptedModel):
             base=context['artifacts'][0]['base_edit']
             edit={key:base[key] for key in ('scenes','audio','captions','required_features')}
             edit['scenes'][0]['motion']='push_in'
+            edit['scenes'][0]['frame']={'x':.1,'y':0,'width':.8,'height':.8}
             return {'content':json.dumps({'summary':'只增加缓慢推近','affected':['visual'],'expands_scope':False,
                 'requires_new_generation':False,'reason':'现有画面内调整',
                 **({'edit':edit} if 'edit' in schema['properties'] else {'changes':{'scenes':[{'scene_id':edit['scenes'][0]['scene_id'],'scenes':[edit['scenes'][0]]}]}})})}
@@ -36,7 +37,7 @@ class RevisionModel(ScriptedModel):
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
 def test_local_revision_keeps_accepted_version_then_explicitly_switches(tmp_path,monkeypatch):
-    _first_cut(tmp_path,True,False,False,monkeypatch)
+    _first_cut(tmp_path,True,False,False,False,monkeypatch)
     store=Store(tmp_path/'outputs/_production/production.sqlite3')
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     work=service.list_works()['items'][0]['id'];snap=service.snapshot(work)
@@ -161,7 +162,7 @@ def test_render_only_reuses_exact_project_without_model_or_voice_and_rejects_kno
     from easel.production.errors import ProductionError
     from easel.production.service import row,encode,new_id,now
     from easel.production.media import file_sha256
-    _first_cut(tmp_path,True,False,False,monkeypatch)
+    _first_cut(tmp_path,True,False,False,False,monkeypatch)
     store=Store(tmp_path/'outputs/_production/production.sqlite3')
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     work=service.list_works()['items'][0]['id'];first=service.snapshot(work)
@@ -211,7 +212,7 @@ def test_render_only_reuses_exact_project_without_model_or_voice_and_rejects_kno
 @pytest.mark.parametrize('scenario',['current_output','foreign_output','recover_known_tool_call'])
 def test_revision_inspects_only_selected_output_and_recovers_known_read_request(tmp_path,monkeypatch,scenario):
     from easel.production import edit_observation
-    _first_cut(tmp_path,True,False,False,monkeypatch)
+    _first_cut(tmp_path,True,False,False,False,monkeypatch)
     store=Store(tmp_path/'outputs/_production/production.sqlite3')
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     work=service.list_works()['items'][0]['id'];before=service.snapshot(work)
@@ -281,7 +282,7 @@ def test_revision_inspects_only_selected_output_and_recovers_known_read_request(
 
 @pytest.mark.skipif(not shutil.which('ffmpeg'),reason='FFmpeg unavailable')
 def test_duplicate_scene_search_is_corrected_before_any_stock_acquisition(tmp_path,monkeypatch):
-    _first_cut(tmp_path,True,False,False,monkeypatch)
+    _first_cut(tmp_path,True,False,False,False,monkeypatch)
     store=Store(tmp_path/'outputs/_production/production.sqlite3')
     service=WorkService(store,outputs=tmp_path/'outputs',profiles=tmp_path/'profiles')
     work=service.list_works()['items'][0]['id'];before=service.snapshot(work)
@@ -328,7 +329,7 @@ def test_revision_material_scope_preserves_real_gap_and_visual_checks(tmp_path, 
     Mirrors the real failure: after finite stock supply, searches remain nonempty.
     A resolved substitute must still pass the ordinary edit checks and render path.
     """
-    _first_cut(tmp_path, True, False, False, monkeypatch)
+    _first_cut(tmp_path, True, False, False, False, monkeypatch)
     store = Store(tmp_path/'outputs/_production/production.sqlite3')
     service = WorkService(store, outputs=tmp_path/'outputs', profiles=tmp_path/'profiles')
     work = service.list_works()['items'][0]['id']

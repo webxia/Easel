@@ -123,6 +123,7 @@ def validate_audio_bindings(project, records):
                 raise ModelTaskError('music_content_mismatch',f'音乐候选 {clip.asset_id} 的文件内容声明为讲话或尚不能识别为音乐（{issue}），不能当作BGM；从本批其他音乐候选重新选择，不改旁白、音效或方案')
         if roles and clip.role not in roles:
             raise ModelTaskError('audio_role_changed','编辑器不能将已绑定的旁白、音乐或音效互相替换')
+    issues = []
     for cue_id, entry in cues.items():
         use = entry['use']
         clips = [a for a in project.audio if a.clip_id == cue_id]
@@ -143,9 +144,26 @@ def validate_audio_bindings(project, records):
             window=(scene_audio_windows(project.scenes,use['scene_id'])
                 if use.get('timing_basis','absolute')=='scene' else {'at':use['at']})
             actual=[{'asset_id':a.asset_id,'role':a.role,'at':a.at,'duration':a.duration} for a in clips]
-            raise ModelTaskError('sfx_binding_missing',f'音效 {cue_id}（{requirement}）绑定不符：'
+            unbound = [s.scene_id for s in project.scenes if use.get('scene_id')
+                if s.scene_id.startswith((use['scene_id']+'_', use['scene_id']+'-cut'))
+                and not re.fullmatch(re.escape(use['scene_id'])+r'(?:-cut|_)[0-9]+',s.scene_id)]
+            reasons=[]
+            if len(clips)!=1:reasons.append('必须恰有一个同cue_id音效片段')
+            if clips and any(a.asset_id not in entry['assets'] for a in clips):
+                reasons.append('所选素材不属于本事件候选；从本事件候选中选择，不能借用其他事件素材')
+            if not position_ok:reasons.append('位置或结束时间不在本事件允许窗口内')
+            if not window and use.get('timing_basis','absolute')=='scene':
+                reasons.append(f'未找到完整原场景ID或合法拆镜；本场拆镜应使用 {use["scene_id"]}-cut1/-cut2或_1/_2，'
+                    '并同步visual_evidence.scene_id，不能把序号插入原ID中间；不能仅移动音效解决空窗口')
+            if unbound and use.get('timing_basis','absolute')=='scene':
+                reasons.append(f'这些相似前缀镜头未计入本场景窗口：{unbound}；若属于本场景拆镜，'
+                    f'必须使用完整原ID {use["scene_id"]}-cut1/-cut2或_1/_2，并同步visual_evidence.scene_id；不能仅移动音效掩盖场景身份错误')
+            issues.append(f'音效 {cue_id}（{requirement}）绑定不符：'
                 f'对应场景 {use.get("scene_id")}，允许窗口 {window}，时长上限 {use["duration"]} 秒；'
-                f'候选 {sorted(entry["assets"])}，当前 {actual}。保留事件ID和素材用途，按实际场景窗口修正位置或时长。')
+                f'候选 {sorted(entry["assets"])}，当前 {actual}。'+ '；'.join(reasons)+
+                '。保留事件ID和素材用途，按实际场景窗口修正位置或时长。')
+    if issues:
+        raise ModelTaskError('sfx_binding_missing','\n'.join(issues))
 
 
 def selected_asset_ids(project):

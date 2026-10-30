@@ -495,6 +495,48 @@ def test_scene_sound_windows_do_not_match_arbitrary_prefix_and_merge_transitions
     assert scene_audio_windows(scenes,'s')==[(0,5.5)]
 
 
+def test_all_cue_failures_and_unbound_cuts_reach_one_bounded_correction():
+    from easel.production.creation import CreativeEdit
+    from easel.production.model_tasks import ModelTaskRunner, ResultCorrectionError
+    records=[{'id':asset,'metadata_json':json.dumps({'material_uses':[{
+        'role':'sfx','cue_id':cue,'scene_id':scene,'timing_basis':'scene',
+        'at':0,'duration':2,'required':True}]})}
+        for asset,cue,scene in [('click','export','s1'),('room','pause','s2')]]
+    candidate=CreativeEdit(scenes=[
+        {'scene_id':'s1','asset_id':'image','duration':2},
+        {'scene_id':'s1_b','asset_id':'image','duration':2},
+        {'scene_id':'s2','asset_id':'image','duration':2},
+        {'scene_id':'s2_b','asset_id':'image','duration':2}],audio=[
+        {'clip_id':'export','asset_id':'room','role':'sfx','at':3,'duration':1},
+        {'clip_id':'pause','asset_id':'room','role':'sfx','at':5.5,'duration':2}])
+    before=candidate.model_dump()
+    with pytest.raises(ModelTaskError) as caught:validate_audio_bindings(candidate,records)
+    message=caught.value.user_message
+    assert all(value in message for value in ('export','pause','s1_b','s2_b','visual_evidence.scene_id','不属于本事件候选'))
+    assert candidate.model_dump()==before
+    fixed=candidate.model_copy(update={
+        'scenes':[s.model_copy(update={'scene_id':s.scene_id.replace('_b','-cut2')}) for s in candidate.scenes],
+        'audio':[candidate.audio[0].model_copy(update={'asset_id':'click'}),candidate.audio[1]]})
+    class Transport:
+        capabilities=frozenset({'text','structured'})
+        calls=0
+        async def complete(self,messages,tools,schema):
+            self.calls+=1
+            if self.calls==2:
+                assert all(v in messages[-1]['content'] for v in ('export','pause','s1_b','s2_b'))
+            return {'content':(candidate if self.calls==1 else fixed).model_dump_json()}
+    def validate(value):
+        try:validate_audio_bindings(value,records)
+        except ModelTaskError as exc:raise ResultCorrectionError(exc.user_message) from exc
+    async def authorize(ctx):pass
+    transport=Transport()
+    result=asyncio.run(ModelTaskRunner(transport,authorize,max_format_repairs=1).run(
+        CreativeContext('w','r','t',allowed_handles=frozenset({'image','click','room'})),
+        'edit',CreativeEdit,validate_result=validate))
+    assert transport.calls==2 and result==fixed
+    validate_audio_bindings(result,records)
+
+
 def test_music_library_reuse_excludes_old_speech_role_before_top_k_without_deleting(env):
     from easel.materials.domain import MaterialNeed,NeedScope,NeedScopeType,NeedImportance,NeedIntent
     service,_,ctx,_,_=env
@@ -601,3 +643,17 @@ def test_recorded_sfx_timing_repair_keeps_files_voice_and_source_intent(env,case
         saved=json.loads(conn.execute('SELECT payload_json FROM tasks WHERE id=?',(ctx.task_id,)).fetchone()[0])
         assert saved['material_intent']==original.model_dump(mode='json')
         assert conn.execute("SELECT count(*) FROM operations WHERE kind!='MODEL'").fetchone()[0]==0
+
+
+def test_missing_full_scene_identity_explains_empty_sound_window():
+    from easel.production.creation import CreativeEdit
+    records=[{'id':'click','metadata_json':json.dumps({'material_uses':[{
+        'role':'sfx','cue_id':'step','scene_id':'s15_five_steps','timing_basis':'scene',
+        'at':0,'duration':2,'required':False}]})}]
+    edit=CreativeEdit(scenes=[{'scene_id':'s15_1_five_steps','asset_id':'image','duration':3}],
+        audio=[{'clip_id':'step','asset_id':'click','role':'sfx','at':1,'duration':1}])
+    with pytest.raises(ModelTaskError) as caught:validate_audio_bindings(edit,records)
+    assert 's15_five_steps-cut1' in caught.value.user_message
+    assert 'visual_evidence.scene_id' in caught.value.user_message
+    edit=edit.model_copy(update={'scenes':[edit.scenes[0].model_copy(update={'scene_id':'s15_five_steps-cut1'})]})
+    validate_audio_bindings(edit,records)
